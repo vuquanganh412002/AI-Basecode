@@ -1,0 +1,112 @@
+import { message } from 'ant-design-vue';
+import type { AxiosError } from 'axios';
+import router from '@/router';
+import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
+
+/**
+ * Central Axios error handler.
+ *
+ * Strategy:
+ *  - Auth endpoints (login / mfa/*): never redirect to /login — surface toast and let the
+ *    calling form handle field-level errors.
+ *  - `UNAUTHORIZED` outside auth endpoints: try silent refresh; fail → redirect to /login.
+ *  - `FORBIDDEN`: redirect to /403 (screen-level deny).
+ *  - `VALIDATION_ERROR`: do NOT toast — caller's form handler maps `errors[]`.
+ *  - All other common codes: show a user-friendly toast.
+ */
+export async function handleApiError(
+  error: AxiosError<ApiErrorResponse>,
+): Promise<never> {
+  const status = error.response?.status;
+  const data = error.response?.data;
+  const code = data?.error_code;
+  const url = error.config?.url || '';
+  const isAuthEndpoint =
+    url.includes('/auth/login') ||
+    url.includes('/auth/mfa/') ||
+    url.includes('/auth/refresh');
+
+  // Network error or non-JSON body — generic toast.
+  if (!status || !data) {
+    message.error('ネットワークエラーが発生しました。接続をご確認ください。');
+    return Promise.reject(error);
+  }
+
+  switch (code) {
+    // ─── SCR-001 specific — always toast, never redirect ────────────────
+    case ErrorCode.INVALID_CREDENTIALS:
+    case ErrorCode.ACCOUNT_LOCKED:
+    case ErrorCode.INVALID_OTP:
+    case ErrorCode.OTP_RESEND_COOLDOWN:
+      message.error(data.message);
+      break;
+
+    // OTP expired / max attempts / resend limit / invalid mfa_token
+    // → force user back to login (spec §11, §7.6, §8.3).
+    case ErrorCode.OTP_EXPIRED:
+    case ErrorCode.OTP_MAX_ATTEMPTS:
+    case ErrorCode.OTP_RESEND_LIMIT:
+    case ErrorCode.INVALID_MFA_TOKEN:
+      message.error(data.message);
+      await router.push({ name: 'Login' });
+      break;
+
+    case ErrorCode.UNAUTHORIZED:
+      if (isAuthEndpoint) {
+        message.error(data.message);
+        break;
+      }
+      return handleUnauthorized(error);
+
+    case ErrorCode.FORBIDDEN:
+      await router.push({ name: 'Forbidden' });
+      break;
+
+    case ErrorCode.DATA_SCOPE_VIOLATION:
+      message.error(data.message);
+      break;
+
+    case ErrorCode.VALIDATION_ERROR:
+      // Caller's useApiForm composable maps `errors[]` to form fields.
+      break;
+
+    case ErrorCode.DUPLICATE_CODE:
+    case ErrorCode.BAD_REQUEST:
+    case ErrorCode.NOT_FOUND:
+    case ErrorCode.CONFLICT:
+    case ErrorCode.TOO_MANY_REQUESTS:
+      message.error(data.message);
+      break;
+
+    case ErrorCode.INTERNAL_SERVER_ERROR:
+    default:
+      message.error(
+        data.message ||
+          'システムエラーが発生しました。しばらくしてから再度お試しください',
+      );
+      break;
+  }
+
+  return Promise.reject(error);
+}
+
+async function handleUnauthorized(
+  error: AxiosError<ApiErrorResponse>,
+): Promise<never> {
+  try {
+    const { useAuthStore } = await import('@/stores/auth.store');
+    const authStore = useAuthStore();
+    const ok = await authStore.refreshToken();
+    if (!ok) await redirectToLogin();
+  } catch {
+    await redirectToLogin();
+  }
+  return Promise.reject(error);
+}
+
+async function redirectToLogin(): Promise<void> {
+  await router.push({
+    name: 'Login',
+    query: { redirect: router.currentRoute.value.fullPath },
+  });
+}

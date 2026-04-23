@@ -1,0 +1,64 @@
+# Git ignore rules
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Claude local settings
+.claude/settings.local.json
+.claude/CLAUDE.local.md
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+
+# === Scaffold ===
+# SSL & JWT certs (generated locally)
+apps/docker/certs/*.pem
+apps/docker/certs/*.key
+!apps/docker/certs/.gitkeep
+!apps/docker/certs/README.md
+
+# Environment files (keep examples)
+apps/.env.development
+apps/.env.staging
+apps/.env.production
+apps/backend/.env*
+!apps/backend/.env.example
+apps/frontend/.env.development
+!apps/frontend/.env.example
+
+# Generated API client
+apps/frontend/src/api/generated*
+apps/frontend/swagger.json
+
+# Eviroment ports
+apps/docker/certs/agrinews.jp-key.pem
+apps/docker/certs/agrinews.jp.pem

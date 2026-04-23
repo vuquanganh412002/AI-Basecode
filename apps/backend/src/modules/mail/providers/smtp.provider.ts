@@ -1,0 +1,33 @@
+import * as nodemailer from 'nodemailer';
+import { MailProvider } from '../interfaces/mail-provider.interface';
+
+interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+}
+
+export class SmtpMailProvider implements MailProvider {
+  private readonly transporter: nodemailer.Transporter;
+  private readonly from: string;
+
+  constructor(config: SmtpConfig) {
+    this.from = config.from;
+    this.transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      auth: config.user ? { user: config.user, pass: config.pass } : undefined,
+    });
+  }
+
+  async sendMail(options: { to: string; subject: string; html: string }): Promise<void> {
+    await this.transporter.sendMail({
+      from: this.from,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+    });
+  }
+}
