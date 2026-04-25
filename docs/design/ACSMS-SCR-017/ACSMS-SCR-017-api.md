@@ -69,7 +69,7 @@ updated_by: Dao Van Thang
 | メソッド               | GET                                                                                                                                                                                                    |
 | リクエストボディー     | なし                                                                                                                                                                                                   |
 | リクエストパラメーター | hanbaiten_id（パスパラメータ）                                                                                                                                                                         |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
 | HTTPレスポンスコード   | 200:正常に販売店詳細を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された販売店が見つかりません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -87,28 +87,29 @@ updated_by: Dao Van Thang
 | 3   | →ja_id                     | Number | -        |              | -        | JA ID                      |
 | 4   | →hanbaiten_code            | String | -        |              | -        | 販売店コード               |
 | 5   | →hanbaiten_name            | String | -        |              | -        | 販売店名                   |
-| 6   | →hanbaiten_name_kana       | String | -        |              | 〇       | 販売店名（カナ）           |
+| 6   | →hanbaiten_name_kana       | String | -        |              | -         | 販売店名（カナ）           |
 | 7   | →torihikisaki_no           | String | -        |              | 〇       | 適格請求書発行事業者番号   |
-| 8   | →yubin_no                  | String | -        |              | 〇       | 郵便番号                   |
-| 9   | →address                   | String | -        |              | 〇       | 住所                       |
-| 10  | →tel                       | String | -        |              | 〇       | 電話番号                   |
-| 11  | →fax                       | String | -        |              | 〇       | FAX番号                    |
+| 8   | →yubin_no                  | String | -        |              | -         | 郵便番号                   |
+| 9   | →address                   | String | -        |              | -         | 住所                       |
+| 10  | →tel                       | String | -        |              | -         | 電話番号                   |
+| 11  | →fax                       | String | -        |              | -         | FAX番号                    |
 | 12  | →shocho_name               | String | -        |              | 〇       | 所長名                     |
 | 13  | →itaku_kubun               | Number | -        |              | 〇       | 委託区分（1:振込, 2:日農委託, 9:その他） |
 | 14  | →haitatsuryo_tanka_id      | Number | -        |              | 〇       | 配達手数料単価ID           |
 | 15  | →haitatsuryo_shiharai_cycle| Number | -        |              | 〇       | 配達手数料支払サイクル（月数） |
 | 16  | →tesuryo_kubun             | Number | -        |              | 〇       | 手数料区分（1:JA, 2:販売店） |
 | 17  | →tesuryo_amount            | Number | -        | 0.00         | 〇       | 手数料金額                 |
-| 18  | →bank_code                 | String | -        |              | 〇       | 銀行コード                 |
-| 19  | →bank_name                 | String | -        |              | 〇       | 銀行名                     |
+| 18  | →bank_code                 | String | -        |              | -         | 銀行コード                 |
+| 19  | →bank_name                 | String | -        |              | -         | 銀行名                     |
 | 20  | →bank_branch_code          | String | -        |              | 〇       | 支店コード                 |
 | 21  | →bank_branch_name          | String | -        |              | 〇       | 支店名                     |
 | 22  | →yokin_shubetsu            | Number | -        |              | 〇       | 預金種別（1:普通, 2:当座） |
 | 23  | →koza_no                   | String | -        |              | 〇       | 口座番号                   |
 | 24  | →koza_meigi                | String | -        |              | 〇       | 口座名義                   |
-| 25  | →biko                      | String | -        |              | 〇       | 備考                       |
-| 26  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
-| 27  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
+| 25  | →haiten_flg                | Boolean| -        |              | -        | 廃店フラグ（true:廃店, false:営業中） |
+| 26  | →biko                      | String | -        |              | -         | 備考                       |
+| 27  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
+| 28  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
 
 ## リクエスト例
 
@@ -144,6 +145,7 @@ GET /api/v1/hanbaiten/1
     "yokin_shubetsu": 1,
     "koza_no": "1234567",
     "koza_meigi": "販売店A代表",
+    "haiten_flg": false,
     "biko": "特別な対応なし",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-03-10T14:30:00Z"
@@ -209,7 +211,7 @@ GET /api/v1/hanbaiten/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`hanbaiten.view` を保持しているか確認する。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
@@ -226,7 +228,7 @@ SELECT hanbaiten_id, ja_id, hanbaiten_code, hanbaiten_name,
        tel, fax, shocho_name, itaku_kubun, haitatsuryo_tanka_id,
        haitatsuryo_shiharai_cycle, tesuryo_kubun, tesuryo_amount,
        bank_code, bank_name, bank_branch_code, bank_branch_name,
-       yokin_shubetsu, koza_no, koza_meigi, biko,
+       yokin_shubetsu, koza_no, koza_meigi, haiten_flg, biko,
        created_at, updated_at
 FROM m_hanbaiten
 WHERE hanbaiten_id = :hanbaiten_id
@@ -259,7 +261,7 @@ WHERE hanbaiten_id = :hanbaiten_id
 | メソッド               | POST                                                                                                                                                                                                                                       |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                       |
 | リクエストパラメーター |                                                                                                                                                                                                                                            |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
 | HTTPレスポンスコード   | 201:正常に販売店を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:同一の販売店コードが既に登録されています, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -287,7 +289,8 @@ WHERE hanbaiten_id = :hanbaiten_id
 | 19  | yokin_shubetsu           | Number | -        | -    |        |        | 預金種別（1:普通, 2:当座、itaku_kubun=1の場合は必須） |
 | 20  | koza_no                  | String | -        | -    | 1      | 10     | 口座番号（itaku_kubun=1の場合は必須）    |
 | 21  | koza_meigi               | String | -        | -    | 1      | 50     | 口座名義                                 |
-| 22  | biko                     | String | -        | -    |        |        | 備考                                     |
+| 22  | haiten_flg               | Boolean| -        | -    |        |        | 廃店フラグ（true:廃店, false:営業中、省略時はfalse） |
+| 23  | biko                     | String | -        | -    |        |        | 備考                                     |
 
 ## レスポンスデータ
 
@@ -298,28 +301,29 @@ WHERE hanbaiten_id = :hanbaiten_id
 | 3   | →ja_id                     | Number | -        |              | -        | JA ID                      |
 | 4   | →hanbaiten_code            | String | -        |              | -        | 販売店コード               |
 | 5   | →hanbaiten_name            | String | -        |              | -        | 販売店名                   |
-| 6   | →hanbaiten_name_kana       | String | -        |              | 〇       | 販売店名（カナ）           |
+| 6   | →hanbaiten_name_kana       | String | -        |              | -         | 販売店名（カナ）           |
 | 7   | →torihikisaki_no           | String | -        |              | 〇       | 適格請求書発行事業者番号   |
-| 8   | →yubin_no                  | String | -        |              | 〇       | 郵便番号                   |
-| 9   | →address                   | String | -        |              | 〇       | 住所                       |
-| 10  | →tel                       | String | -        |              | 〇       | 電話番号                   |
-| 11  | →fax                       | String | -        |              | 〇       | FAX番号                    |
+| 8   | →yubin_no                  | String | -        |              | -         | 郵便番号                   |
+| 9   | →address                   | String | -        |              | -         | 住所                       |
+| 10  | →tel                       | String | -        |              | -         | 電話番号                   |
+| 11  | →fax                       | String | -        |              | -         | FAX番号                    |
 | 12  | →shocho_name               | String | -        |              | 〇       | 所長名                     |
 | 13  | →itaku_kubun               | Number | -        |              | 〇       | 委託区分（1:振込, 2:日農委託, 9:その他） |
 | 14  | →haitatsuryo_tanka_id      | Number | -        |              | 〇       | 配達手数料単価ID           |
 | 15  | →haitatsuryo_shiharai_cycle| Number | -        |              | 〇       | 配達手数料支払サイクル（月数） |
 | 16  | →tesuryo_kubun             | Number | -        |              | 〇       | 手数料区分（1:JA, 2:販売店） |
 | 17  | →tesuryo_amount            | Number | -        | 0.00         | 〇       | 手数料金額                 |
-| 18  | →bank_code                 | String | -        |              | 〇       | 銀行コード                 |
-| 19  | →bank_name                 | String | -        |              | 〇       | 銀行名                     |
+| 18  | →bank_code                 | String | -        |              | -         | 銀行コード                 |
+| 19  | →bank_name                 | String | -        |              | -         | 銀行名                     |
 | 20  | →bank_branch_code          | String | -        |              | 〇       | 支店コード                 |
 | 21  | →bank_branch_name          | String | -        |              | 〇       | 支店名                     |
 | 22  | →yokin_shubetsu            | Number | -        |              | 〇       | 預金種別（1:普通, 2:当座） |
 | 23  | →koza_no                   | String | -        |              | 〇       | 口座番号                   |
 | 24  | →koza_meigi                | String | -        |              | 〇       | 口座名義                   |
-| 25  | →biko                      | String | -        |              | 〇       | 備考                       |
-| 26  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
-| 27  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
+| 25  | →haiten_flg                | Boolean| -        |              | -        | 廃店フラグ（true:廃店, false:営業中） |
+| 26  | →biko                      | String | -        |              | -         | 備考                       |
+| 27  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
+| 28  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
 
 ## リクエスト例
 
@@ -349,6 +353,7 @@ Content-Type: application/json
   "yokin_shubetsu": 1,
   "koza_no": "1234567",
   "koza_meigi": "販売店A代表",
+  "haiten_flg": false,
   "biko": "特別な対応なし"
 }
 ```
@@ -381,6 +386,7 @@ Content-Type: application/json
     "yokin_shubetsu": 1,
     "koza_no": "1234567",
     "koza_meigi": "販売店A代表",
+    "haiten_flg": false,
     "biko": "特別な対応なし",
     "created_at": "2026-04-16T10:00:00Z",
     "updated_at": null
@@ -442,6 +448,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
@@ -452,11 +462,9 @@ Content-Type: application/json
   - yubin_no：最大7桁（郵便番号形式チェック）
   - address：最大200桁
   - tel：最大15桁
-  - fax：最大15桁
   - shocho_name：最大50桁
   - itaku_kubun：1, 2, 9 のいずれか
   - haitatsuryo_tanka_id：数値型チェック
-  - haitatsuryo_shiharai_cycle：数値型チェック、≧ 0
   - tesuryo_kubun：1, 2 のいずれか
   - tesuryo_amount：数値型チェック、≧ 0
   - itaku_kubun = 1（振込）の場合：
@@ -467,12 +475,13 @@ Content-Type: application/json
     - yokin_shubetsu：必須、1 または 2
     - koza_no：必須、最大10桁
   - koza_meigi：最大50桁
+  - haiten_flg：Boolean型チェック（省略時は false）
   - biko：テキスト型
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`hanbaiten.create` を保持しているか確認する。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
@@ -503,7 +512,7 @@ INSERT INTO m_hanbaiten (ja_id, hanbaiten_code, hanbaiten_name,
                          haitatsuryo_tanka_id, haitatsuryo_shiharai_cycle,
                          tesuryo_kubun, tesuryo_amount,
                          bank_code, bank_name, bank_branch_code, bank_branch_name,
-                         yokin_shubetsu, koza_no, koza_meigi, biko,
+                         yokin_shubetsu, koza_no, koza_meigi, haiten_flg, biko,
                          created_at, created_by, updated_at, updated_by)
 VALUES (:ja_id, :hanbaiten_code, :hanbaiten_name,
         :hanbaiten_name_kana, :torihikisaki_no, :yubin_no, :address,
@@ -511,7 +520,7 @@ VALUES (:ja_id, :hanbaiten_code, :hanbaiten_name,
         :haitatsuryo_tanka_id, :haitatsuryo_shiharai_cycle,
         :tesuryo_kubun, :tesuryo_amount,
         :bank_code, :bank_name, :bank_branch_code, :bank_branch_name,
-        :yokin_shubetsu, :koza_no, :koza_meigi, :biko,
+        :yokin_shubetsu, :koza_no, :koza_meigi, :haiten_flg, :biko,
         NOW(), :user_account_id, NOW(), :user_account_id)
 RETURNING *
 ```
@@ -565,6 +574,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "yokin_shubetsu": 1,
   "koza_no": "1234567",
   "koza_meigi": "販売店A代表",
+  "haiten_flg": false,
   "biko": "特別な対応なし"
 }
 ```
@@ -607,7 +617,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | PUT                                                                                                                                                                                                                                |
 | リクエストボディー     | JSON                                                                                                                                                                                                                               |
 | リクエストパラメーター | hanbaiten_id（パスパラメータ）                                                                                                                                                                                                     |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
 | HTTPレスポンスコード   | 200:正常に販売店を更新しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された販売店が見つかりません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -635,7 +645,8 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 19  | yokin_shubetsu           | Number | -        | -    |        |        | 預金種別（1:普通, 2:当座、itaku_kubun=1の場合は必須） |
 | 20  | koza_no                  | String | -        | -    | 1      | 10     | 口座番号（itaku_kubun=1の場合は必須）    |
 | 21  | koza_meigi               | String | -        | -    | 1      | 50     | 口座名義                                 |
-| 22  | biko                     | String | -        | -    |        |        | 備考                                     |
+| 22  | haiten_flg               | Boolean| -        | -    |        |        | 廃店フラグ（true:廃店, false:営業中）   |
+| 23  | biko                     | String | -        | -    |        |        | 備考                                     |
 
 ※ hanbaiten_code は更新不可（画面側でdisabled）。リクエストに含めない。
 
@@ -648,28 +659,29 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 3   | →ja_id                     | Number | -        |              | -        | JA ID                      |
 | 4   | →hanbaiten_code            | String | -        |              | -        | 販売店コード (編集不可)    |
 | 5   | →hanbaiten_name            | String | -        |              | -        | 販売店名                   |
-| 6   | →hanbaiten_name_kana       | String | -        |              | 〇       | 販売店名（カナ）           |
+| 6   | →hanbaiten_name_kana       | String | -        |              | -         | 販売店名（カナ）           |
 | 7   | →torihikisaki_no           | String | -        |              | 〇       | 適格請求書発行事業者番号   |
-| 8   | →yubin_no                  | String | -        |              | 〇       | 郵便番号                   |
-| 9   | →address                   | String | -        |              | 〇       | 住所                       |
-| 10  | →tel                       | String | -        |              | 〇       | 電話番号                   |
-| 11  | →fax                       | String | -        |              | 〇       | FAX番号                    |
+| 8   | →yubin_no                  | String | -        |              | -         | 郵便番号                   |
+| 9   | →address                   | String | -        |              | -         | 住所                       |
+| 10  | →tel                       | String | -        |              | -         | 電話番号                   |
+| 11  | →fax                       | String | -        |              | -         | FAX番号                    |
 | 12  | →shocho_name               | String | -        |              | 〇       | 所長名                     |
 | 13  | →itaku_kubun               | Number | -        |              | 〇       | 委託区分（1:振込, 2:日農委託, 9:その他） |
 | 14  | →haitatsuryo_tanka_id      | Number | -        |              | 〇       | 配達手数料単価ID           |
 | 15  | →haitatsuryo_shiharai_cycle| Number | -        |              | 〇       | 配達手数料支払サイクル（月数） |
 | 16  | →tesuryo_kubun             | Number | -        |              | 〇       | 手数料区分（1:JA, 2:販売店） |
 | 17  | →tesuryo_amount            | Number | -        | 0.00         | 〇       | 手数料金額                 |
-| 18  | →bank_code                 | String | -        |              | 〇       | 銀行コード                 |
-| 19  | →bank_name                 | String | -        |              | 〇       | 銀行名                     |
+| 18  | →bank_code                 | String | -        |              | -         | 銀行コード                 |
+| 19  | →bank_name                 | String | -        |              | -         | 銀行名                     |
 | 20  | →bank_branch_code          | String | -        |              | 〇       | 支店コード                 |
 | 21  | →bank_branch_name          | String | -        |              | 〇       | 支店名                     |
 | 22  | →yokin_shubetsu            | Number | -        |              | 〇       | 預金種別（1:普通, 2:当座） |
 | 23  | →koza_no                   | String | -        |              | 〇       | 口座番号                   |
 | 24  | →koza_meigi                | String | -        |              | 〇       | 口座名義                   |
-| 25  | →biko                      | String | -        |              | 〇       | 備考                       |
-| 26  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
-| 27  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
+| 25  | →haiten_flg                | Boolean| -        |              | -        | 廃店フラグ（true:廃店, false:営業中） |
+| 26  | →biko                      | String | -        |              | -         | 備考                       |
+| 27  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
+| 28  | →updated_at                | String | -        | ISO8601      | 〇       | 更新日時                   |
 
 ## リクエスト例
 
@@ -698,6 +710,7 @@ Content-Type: application/json
   "yokin_shubetsu": 1,
   "koza_no": "1234567",
   "koza_meigi": "販売店A代表",
+  "haiten_flg": false,
   "biko": "更新しました"
 }
 ```
@@ -730,6 +743,7 @@ Content-Type: application/json
     "yokin_shubetsu": 1,
     "koza_no": "1234567",
     "koza_meigi": "販売店A代表",
+    "haiten_flg": false,
     "biko": "更新しました",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-04-16T14:30:00Z"
@@ -799,6 +813,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：hanbaiten_id 数値型チェック、必須
@@ -809,11 +827,9 @@ Content-Type: application/json
   - yubin_no：最大7桁（郵便番号形式チェック）
   - address：最大200桁
   - tel：最大15桁
-  - fax：最大15桁
   - shocho_name：最大50桁
   - itaku_kubun：1, 2, 9 のいずれか
   - haitatsuryo_tanka_id：数値型チェック
-  - haitatsuryo_shiharai_cycle：数値型チェック、≧ 0
   - tesuryo_kubun：1, 2 のいずれか
   - tesuryo_amount：数値型チェック、≧ 0
   - itaku_kubun = 1（振込）の場合：
@@ -824,6 +840,7 @@ Content-Type: application/json
     - yokin_shubetsu：必須、1 または 2
     - koza_no：必須、最大10桁
   - koza_meigi：最大50桁
+  - haiten_flg：Boolean型チェック
   - biko：テキスト型
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`)
 
@@ -872,6 +889,7 @@ SET hanbaiten_name = :hanbaiten_name,
     yokin_shubetsu = :yokin_shubetsu,
     koza_no = :koza_no,
     koza_meigi = :koza_meigi,
+    haiten_flg = :haiten_flg,
     biko = :biko,
     updated_at = NOW(),
     updated_by = :user_account_id
@@ -930,6 +948,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "yokin_shubetsu": 1,
   "koza_no": "1234567",
   "koza_meigi": "販売店A代表",
+  "haiten_flg": false,
   "biko": "特別な対応なし"
 }
 ```
@@ -963,6 +982,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "yokin_shubetsu": 1,
   "koza_no": "1234567",
   "koza_meigi": "販売店A代表",
+  "haiten_flg": false,
   "biko": "更新しました"
 }
 ```

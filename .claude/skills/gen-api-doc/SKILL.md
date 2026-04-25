@@ -2,8 +2,7 @@
 name: gen-api-doc
 description: Generate API design document (API設計書) from screen design, database schema, and requirements. Use when user asks to create or generate API documentation for a screen (ACSMS-SCR-XXX).
 disable-model-invocation: true
-argument-hint: [ACSMS-SCR-XXX]
-allowed-tools: Read Grep Glob Write
+argument-hint: "ACSMS-SCR-XXX"
 ---
 
 # Generate API Design Document
@@ -64,7 +63,7 @@ From screen design, identify:
 ## システム概要 (same across all docs)
 ## 資料目的
 ## 関連資料
-## エラー一覧 (1 table with エラータイプ column: 共通/画面固有)
+## エラー一覧 (canonical 5-column table: # / エラータイプ (共通|画面固有) / エラーコード / エラーメッセージ / 備考)
 
 # API ACSMS-API-{screen_number}-001
 ## 概要 (table: API名, URI, メソッド, HTTPレスポンスコード)
@@ -100,22 +99,114 @@ Delete:
 - List every field with →prefix: `→tanka_id`, `→tanka_name`, etc.
 - Include タイプ, フォーマット, Nullable, 説明 for each field
 
-**エラー一覧 — Single table with エラータイプ column:**
+**Nullable column policy (MANDATORY — consult `docs/database/database-design.md` per field):**
+
+The `Nullable` column in the レスポンスデータ table and the value shown in the JSON example MUST follow the underlying database column nullability — never the UI's notion of "optional".
+
+| DB column definition | `Nullable` in table | JSON example value when empty |
+|---|---|---|
+| `NULL許容` marked `〇` (truly nullable — dates, nullable FKs, `jastem_*`, etc.) | `〇` | `null` |
+| `NULL許容` blank (NOT NULL, even if the field is UI-optional — typical for string columns like `biko`, `address`, `tel`, `fax`, `email`, `tanto_busho`) | blank (not Nullable) | `""` (empty string) |
+
+**Serialization rule — two separate contracts, never mixed:**
+
+1. If the DB stores `""` (NOT NULL string), the API MUST return `""`. Do not silently coerce to `null`.
+2. If the DB stores `NULL` (nullable), the API MUST return `null`. Do not coerce to `""`.
+
+**Common mistakes to prevent:**
+
+- Treating every UI-optional input as API-nullable. A form field that the user can leave blank often maps to `NOT NULL DEFAULT ''` in Postgres — the API returns `""`, not `null`. Check the schema.
+- Mixing the two conventions within the same response (the original issue this policy fixes). Every Nullable field in the example must match its declared type: either `""` or `null`, consistently.
+- Marking a field `Nullable=〇` in the table but using `""` in the JSON example (or the reverse).
+
+**Worked example — a JA detail response:**
+
+From `m_ja` schema: `biko` is NOT NULL (empty string when absent), `jastem_koza_no` is nullable, `updated_at` is nullable.
+
+```json
+{
+  "data": {
+    "ja_id": 1,
+    "ja_name": "JA東京中央",
+    "biko": "",                   // DB NOT NULL → always string, empty when unfilled
+    "jastem_koza_no": null,       // DB nullable → null when absent
+    "updated_at": null            // DB nullable → null until first update
+  }
+}
+```
+
+レスポンスデータ table for the same fields:
 
 ```markdown
-| # | エラータイプ | エラーコード | エラーメッセージ | 備考 |
-|---|---|---|---|---|
-| 1 | 共通 | BAD_REQUEST | リクエストパラメータが不正です。 | HTTP 400 |
-| 2 | 共通 | UNAUTHORIZED | セッションが切れました。再度ログインしてください。 | HTTP 401 |
-| 3 | 共通 | FORBIDDEN | この画面へのアクセス権限がありません。 | HTTP 403 |
-| 4 | 共通 | DATA_SCOPE_VIOLATION | このデータへのアクセス権限がありません。 | HTTP 403 |
-| 5 | 共通 | VALIDATION_ERROR | 入力値が不正です。詳細はerrorsフィールドを確認してください。 | HTTP 400 |
-| 6 | 共通 | TOO_MANY_REQUESTS | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
-| 7 | 共通 | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 | HTTP 500 |
-| 8 | 画面固有 | NOT_FOUND | 指定された{resource}が見つかりません。 | HTTP 404 |
-| 9 | 画面固有 | DUPLICATE_CODE | 同一の{resource}コードが既に登録されています。 | HTTP 400 (if applicable) |
-| 10 | 画面固有 | CONFLICT | 関連データが存在するため削除できません。 | HTTP 409 (if applicable) |
+| #  | 項目ID          | タイプ | Nullable | 説明                     |
+|----|-----------------|--------|----------|--------------------------|
+| 25 | →biko           | String |          | 備考（空文字許容）       |
+| 22 | →jastem_koza_no | String | 〇       | JASTEM 口座番号          |
+| 30 | →updated_at     | String | 〇       | 更新日時                 |
 ```
+
+**エラー一覧 — Canonical 5-column table (MANDATORY format):**
+
+Columns MUST be exactly: `#` / `エラータイプ` / `エラーコード` / `エラーメッセージ` / `備考`.
+
+`エラータイプ` MUST be one of `共通` or `画面固有`. **NEVER** duplicate the エラーコード value into the エラータイプ column (legacy anti-pattern from early docs — e.g. `| UNAUTHORIZED | UNAUTHORIZED |` is invalid).
+
+### 7 canonical 共通 rows — include all that apply, in this order
+
+For a protected endpoint (default), emit all 7 共通 rows verbatim:
+
+```markdown
+| #   | エラータイプ | エラーコード          | エラーメッセージ                                                       | 備考     |
+| --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
+| 2   | 共通         | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                     | HTTP 401 |
+| 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
+| 4   | 共通         | DATA_SCOPE_VIOLATION  | このデータへのアクセス権限がありません。                               | HTTP 403 |
+| 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
+| 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+```
+
+Messages MUST match the wording above character-for-character — do not paraphrase, re-order sentences, or drop punctuation.
+
+### Common-row omissions allowed only for public / non-auth endpoints
+
+| Omission | Condition |
+|---|---|
+| Skip `UNAUTHORIZED` + `FORBIDDEN` | Endpoint is public (e.g. `/oshirase/public`, `/auth/login`, `/auth/forgot-password`) |
+| Skip `DATA_SCOPE_VIOLATION` | No DataScope filtering applies (pure master data public, menu screen) |
+| Skip `TOO_MANY_REQUESTS` | Endpoint not rate-limited (rare — prefer adding it) |
+
+If you omit any 共通 row, note the reason in the PR description. `VALIDATION_ERROR` and `INTERNAL_SERVER_ERROR` are ALWAYS present.
+
+### Screen-specific (画面固有) rows — use these standard patterns
+
+| Scenario | エラーコード | エラーメッセージ template | 備考 |
+|---|---|---|---|
+| Resource lookup misses | `NOT_FOUND` | `指定された{resource}が見つかりません。` | HTTP 404 |
+| Unique-constraint violation on create/update | `DUPLICATE_CODE` | `同一の{resource}コードが既に登録されています。` | HTTP 400 |
+| FK blocks delete (related data exists) | `CONFLICT` | `関連データが存在するため削除できません。` | HTTP 409 |
+
+**CRITICAL wording rules — enforced to prevent drift:**
+
+- NOT_FOUND: `指定された{resource}が見つかりません。` — exact pattern. NEVER write `指定された{X}のアカウントが見つかりません` or similar expansions unless the screen is genuinely looking up by a non-ID field (e.g. SCR-012 forgot-password looks up by email).
+- DUPLICATE_CODE: `同一の{resource}コードが既に登録されています。` — start with `同一の`, end with `が既に登録されています。`. NEVER write `この{X}は既に登録されています` (wrong).
+- CONFLICT: `関連データが存在するため削除できません。` — exact string. NEVER write `このレコードは現在使用中のため、削除できません` (wrong) or any variant.
+- `CONFLICT` (HTTP 409) is **only** for FK-blocked delete. For unique-constraint violations on create/update, use `DUPLICATE_CODE` (HTTP 400). Never confuse the two.
+
+### Screen-specific custom codes
+
+Screens with unique business errors may define extra codes. Examples already in the project:
+
+| Screen | Code | Purpose |
+|---|---|---|
+| SCR-001 | INVALID_CREDENTIALS, ACCOUNT_LOCKED, INVALID_OTP, OTP_EXPIRED, OTP_MAX_ATTEMPTS, OTP_RESEND_LIMIT, OTP_RESEND_COOLDOWN, INVALID_MFA_TOKEN | Login / MFA flow |
+| SCR-012 | INVALID_RESET_TOKEN, EXPIRED_RESET_TOKEN | Password reset |
+| SCR-019 | IMPORT_VALIDATION_ERROR, FILE_FORMAT_ERROR, ROW_LIMIT_EXCEEDED | Excel import |
+| SCR-030 | DATE_RANGE_INVALID, DATE_RANGE_TOO_LONG, EXPORT_LIMIT_EXCEEDED | Log export |
+| SCR-031 | DEADLINE_NOTICE_DUPLICATE | Specific uniqueness rule |
+
+Name new codes in UPPER_SNAKE_CASE. Do NOT create a screen-qualified NOT_FOUND variant like `TANKA_NOT_FOUND` — stay with generic `NOT_FOUND` and convey specificity through the message text.
 
 **Pagination params:** `page`, `per_page`, `sort_by`, `sort_order` (snake_case)
 
@@ -143,25 +234,60 @@ GET (list):
 
 POST (create) / PUT (update):
 ```
+※ 4.4 データ登録/更新 と 4.5 操作ログ記録 は単一トランザクション内で実行する。
+  いずれかが失敗した場合は全てロールバックすること。
+  例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 4.1 リクエストのバリデーション (each field)
 4.2 認証・認可チェック
 4.3 重複チェック (if unique constraint, SQL)
-4.4 データ登録/更新 (SQL with RETURNING *)
-4.5 操作ログ記録 (SQL INSERT INTO t_log — MANDATORY)
+4.4 データ登録/更新 (SQL with RETURNING *)          ┐ 単一
+4.5 操作ログ記録 (SQL INSERT INTO t_log — MANDATORY) ┘ トランザクション
 4.6 レスポンス生成
-4.7 例外処理 (+ error log SQL)
+4.7 例外処理 (+ error log SQL — トランザクション外で記録)
 ```
 
 DELETE:
 ```
+※ 4.4 論理削除 と 4.5 操作ログ記録 は単一トランザクション内で実行する。
+  いずれかが失敗した場合は全てロールバックすること。
+  例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 4.1 リクエストのバリデーション
 4.2 認証・認可チェック
 4.3 データ取得条件の設定 (existence + scope check)
-4.4 論理削除の実行 (SQL UPDATE SET deleted_at = NOW())
-4.5 操作ログ記録 (SQL INSERT INTO t_log — MANDATORY)
+4.4 論理削除の実行 (SQL UPDATE SET deleted_at = NOW()) ┐ 単一
+4.5 操作ログ記録 (SQL INSERT INTO t_log — MANDATORY)   ┘ トランザクション
 4.6 レスポンス生成
-4.7 例外処理 (+ error log SQL)
+4.7 例外処理 (+ error log SQL — トランザクション外で記録)
 ```
+
+**`4.2 認証・認可チェック` wording (MANDATORY — unified across all api.md):**
+
+Protected API (requires login):
+```markdown
+### 4.2 認証・認可チェック
+- 認証情報を検証する（HTTP-only Cookieセッション）。
+- 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
+- 必要権限: `{model}.{action}` （例: `tanka.view`, `dokusya.create`）
+- 該当権限保持ロール: {role list from seeder.md, e.g. NICHINO_ADMIN / CHUOKAI / JA_HONTEN}
+- 権限不足の場合：HTTP 403 (`FORBIDDEN`)
+- DataScope: {scope rule, e.g. `ja_id = user.ja_id` for JA_HONTEN, 全件 for NICHINO_ADMIN}
+- DataScope違反（他JAのレコードへのアクセス）の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+```
+
+Public API (no auth — login/forgot-password/public oshirase):
+```markdown
+### 4.2 認証・認可チェック
+- 認証チェック不要（公開API）。
+```
+
+**CRITICAL rules:**
+- NEVER write "JWT", "アクセストークン", "リフレッシュトークン", "Bearer" anywhere in generated docs — auth is pure HTTP-only Cookie session (agreed 2026-04).
+- NEVER include `access_token`, `refresh_token`, or similar fields in response tables / JSON examples. Session ID lives in the HTTP-only cookie, never in the body.
+- For `/auth/login` (MFA=false) and `/auth/mfa/verify` success responses, add this note below the JSON example:
+  > ※ 認証情報（セッションID）はレスポンスボディではなくHTTP-only Cookieで返却する（`HttpOnly`+`Secure`+`SameSite=Strict`、24時間有効）。
+- For `/auth/refresh` and `/auth/logout`, state in 概要 that the session cookie is read from the request and destroyed/extended in Redis.
 
 **Audit log SQL format (操作ログ記録):**
 
@@ -189,12 +315,14 @@ VALUES (3, NOW(), :account_id, :ja_id,
         :ip_address, :user_agent)
 ```
 
+- `operation` column MUST use bare verbs only: `'CREATE'` / `'UPDATE'` / `'DELETE'`. NEVER prefix with entity or screen name (e.g. no `'JA_CREATE'`, `'TANKA_UPDATE'`, `'DOKUSYA_DELETE'`). Screen context lives in `gamen_name`; entity context lives in `target_table`.
 - CREATE: before_value = '', after_value = registered data JSON
 - UPDATE: before_value = data before update JSON, after_value = data after update JSON
 - DELETE: before_value = data before delete JSON, after_value = ''
 - Never include password/token/PII in JSON values
 
 **Auth section in 処理手順:**
+- Follow the unified `4.2 認証・認可チェック` template above (session-based)
 - State which permission is required: e.g., `tanka.view`, `tanka.create`
 - State which roles have this permission (from seeder.md)
 - State DataScope: e.g., `ja_id = user.ja_id`
@@ -239,16 +367,33 @@ VALUES (3, NOW(), :account_id, :ja_id,
 
 Before finishing, verify:
 - [ ] All screen actions have corresponding API
-- [ ] エラー一覧 is 1 table with エラータイプ column (共通/画面固有)
-- [ ] Error codes use generic `NOT_FOUND` for 404 errors
+- [ ] エラー一覧 uses the canonical 5-column table (`#` / `エラータイプ` / `エラーコード` / `エラーメッセージ` / `備考`)
+- [ ] エラータイプ column is exactly `共通` or `画面固有` — NEVER duplicates エラーコード
+- [ ] All 7 canonical 共通 rows are present for protected endpoints (in order: BAD_REQUEST → UNAUTHORIZED → FORBIDDEN → DATA_SCOPE_VIOLATION → VALIDATION_ERROR → TOO_MANY_REQUESTS → INTERNAL_SERVER_ERROR)
+- [ ] 共通 messages match canonical wording **character-for-character** (no paraphrasing)
+- [ ] Error codes use generic `NOT_FOUND` for 404 errors (no `TANKA_NOT_FOUND` / `JA_NOT_FOUND` variants)
+- [ ] NOT_FOUND message: `指定された{resource}が見つかりません。` pattern
+- [ ] DUPLICATE_CODE message: `同一の{resource}コードが既に登録されています。` pattern — NEVER `この{X}は既に登録されています`
+- [ ] CONFLICT message: exact `関連データが存在するため削除できません。` — NEVER paraphrased
+- [ ] `CONFLICT` used only for FK-blocked delete; `DUPLICATE_CODE` used for unique-constraint violations — NEVER swapped
+- [ ] All エラーメッセージ end with `。` (full-width period) in the エラー一覧 table
+- [ ] JSON レスポンス失敗例 messages use the same wording as the エラー一覧 table (drop the trailing `。` only if project convention, but be consistent)
 - [ ] レスポンスデータ lists ALL fields individually (no "同一構造" reference)
+- [ ] `Nullable` column matches the DB schema (`NULL許容` in database-design.md) for every field — NOT the UI's notion of "optional"
+- [ ] Every `Nullable=〇` field shows `null` in the JSON success example when the value is absent; every non-nullable string field shows `""` — NEVER mix (`biko: ""` ✓, `jastem_koza_no: null` ✓, but `biko: null` ✗)
+- [ ] レスポンスデータ / JSON examples contain **NO** `access_token` / `refresh_token` fields
 - [ ] レスポンス成功例 shows full JSON with all fields
 - [ ] Response format matches standard (data wrapper, meta for list, message for delete)
 - [ ] Pagination uses `per_page`, `sort_by`, `sort_order`
-- [ ] Auth section lists correct permission code (from seeder.md)
+- [ ] `4.2 認証・認可チェック` uses the unified wording `認証情報を検証する（HTTP-only Cookieセッション）` (protected) or `認証チェック不要` (public) — NEVER mentions JWT / Bearer / access token / refresh token
+- [ ] Auth section lists correct permission code (from seeder.md) + roles + DataScope
+- [ ] For login/mfa/verify success responses: note line about HTTP-only Cookie session ID added below JSON example
 - [ ] DataScope condition included in ALL SQL queries
 - [ ] `deleted_at IS NULL` in all SELECT/UPDATE/DELETE queries
 - [ ] 操作ログ記録 step with SQL for CREATE/UPDATE/DELETE APIs
+- [ ] Audit log `operation` column uses bare `'CREATE'` / `'UPDATE'` / `'DELETE'` only — NO entity/screen prefix
+- [ ] CREATE/UPDATE/DELETE `処理手順` starts with a transaction-boundary note: `※ 4.4 ... と 4.5 操作ログ記録 は単一トランザクション内で実行する。` — main DML step + audit log INSERT are atomically committed or rolled back together
+- [ ] Error log (`log_type = 3`) in 4.7 例外処理 is explicitly marked `トランザクション外で記録` so the audit trail survives even after rollback
 - [ ] Error log SQL in 例外処理 for CREATE/UPDATE/DELETE APIs
 - [ ] All SQL uses `:param` parameterized format
 - [ ] Japanese text for messages and field descriptions

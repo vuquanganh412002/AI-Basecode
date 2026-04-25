@@ -71,7 +71,7 @@ updated_by: Dao Van Thang
 | メソッド               | GET                                                                                                                                                                                                          |
 | リクエストボディー     | なし                                                                                                                                                                                                         |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                                             |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                       |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                       |
 | HTTPレスポンスコード   | 200:正常にお知らせ一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -201,7 +201,7 @@ GET /api/v1/oshirase?page=1&per_page=20&sort_by=created_at&sort_order=desc
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`oshirase.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -257,7 +257,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | メソッド               | GET                                                                                                                                                                                                                                |
 | リクエストボディー     | なし                                                                                                                                                                                                                               |
 | リクエストパラメーター | oshirase_id（パスパラメータ）                                                                                                                                                                                                      |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
 | HTTPレスポンスコード   | 200:正常にお知らせ詳細を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたお知らせが見つかりません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -365,7 +365,7 @@ GET /api/v1/oshirase/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`oshirase.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -410,7 +410,7 @@ WHERE oshirase_id = :oshirase_id
 | メソッド               | POST                                                                                                                                                                                                                                               |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                               |
 | リクエストパラメーター | なし                                                                                                                                                                                                                                               |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                             |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                             |
 | HTTPレスポンスコード   | 201:正常にお知らせを登録しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:同種別レコード重複, 400:入力値が不正です, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -544,6 +544,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
@@ -554,13 +558,11 @@ Content-Type: application/json
   - publish_end_date：任意、有効な日時形式（YYYY/MM/DD HH:mm）、publish_start_date 以降
   - ja_id：任意、数値型チェック
   - oshirase_type：必須、1、2、3 または 4
-  - target_kanri_kubun：任意、最大20文字
   - content：必須、最大2000文字
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
-### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`oshirase.create` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -670,7 +672,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | PATCH                                                                                                                                                                                                                                                   |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                    |
 | リクエストパラメーター | oshirase_id（パスパラメータ）                                                                                                                                                                                                                           |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                  |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                  |
 | HTTPレスポンスコード   | 200:正常にお知らせを更新しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたお知らせが見つかりません, 400:入力値が不正です, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -804,6 +806,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：oshirase_id 数値型チェック、必須
@@ -814,14 +820,12 @@ Content-Type: application/json
   - publish_start_date：必須、有効な日時形式（YYYY/MM/DD HH:mm）。過去日の場合は変更不可（サーバー側でも確認）
   - publish_end_date：任意、有効な日時形式（YYYY/MM/DD HH:mm）、publish_start_date 以降。過去日または未設定の場合のみ変更可能
   - ja_id：任意、数値型チェック
-  - oshirase_type：必須、1、2、3 または 4
   - target_kanri_kubun：任意、最大20文字
   - content：必須、最大2000文字
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
-
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`oshirase.update` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -954,7 +958,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | DELETE                                                                                                                                                                                                                              |
 | リクエストボディー     | なし                                                                                                                                                                                                                                |
 | リクエストパラメーター | oshirase_id（パスパラメータ）                                                                                                                                                                                                       |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                              |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                              |
 | HTTPレスポンスコード   | 200:正常にお知らせを削除しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたお知らせが見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -1032,6 +1036,10 @@ DELETE /api/v1/oshirase/1
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -1040,13 +1048,11 @@ DELETE /api/v1/oshirase/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- 権限チェック：`oshirase.delete` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 
-### 4.3 データ取得条件の設定
 
 - 対象レコードの存在確認。
 
@@ -1157,7 +1163,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | GET                                                                                                                                                              |
 | リクエストボディー     | なし                                                                                                                                                             |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                 |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                           |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                           |
 | HTTPレスポンスコード   | 200:正常にJA一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -1249,7 +1255,7 @@ GET /api/v1/ja/dropdown
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
   - ※ 呼び出し元画面の権限に依存する。SCR-031では `oshirase.create` / `oshirase.update` 保持者が呼び出す。

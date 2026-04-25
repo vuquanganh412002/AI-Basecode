@@ -17,7 +17,7 @@
 | DTO (update) | `update-{entity}.dto.ts` | `update-user.dto.ts` |
 | DTO (response) | `{entity}-response.dto.ts` | `user-response.dto.ts` |
 | Exception | `{name}.exception.ts` | `user-not-found.exception.ts` |
-| Guard | `{name}.guard.ts` | `jwt-auth.guard.ts` |
+| Guard | `{name}.guard.ts` | `session-auth.guard.ts` |
 | Interceptor | `{name}.interceptor.ts` | `transform.interceptor.ts` |
 | Test | `{source}.spec.ts` | `users.service.spec.ts` |
 
@@ -43,7 +43,7 @@ export class UserResponseDto {}
 export class UserNotFoundException extends DomainException {}
 
 // Guard: PascalCase + Guard suffix
-export class JwtAuthGuard {}
+export class SessionAuthGuard {}
 ```
 
 ---
@@ -202,9 +202,9 @@ PORT=3000
 DATABASE_URL=postgresql://...
 DB_HOST=localhost
 
-# Auth
-JWT_PRIVATE_KEY=...
-JWT_PUBLIC_KEY=...
+# Auth (HTTP-only Cookie session backed by Redis)
+REDIS_URL=redis://localhost:6379
+SESSION_SECRET=...
 
 # AWS
 AWS_REGION=ap-southeast-1

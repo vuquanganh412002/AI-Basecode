@@ -6,18 +6,18 @@ screen_id: ACSMS-SCR-030
 screen_name: ログ参照画面
 format_code: 18-BM/PM/VTI
 format_version: "1.0"
-issue_date: 2026-04-17
-created_date: 2026/04/17
-created_by: Tran Duc Tuyen
-updated_date: 2026/04/17
-updated_by: Tran Duc Tuyen
+issue_date: 2026-04-20
+created_date: 2026/04/20
+created_by: Nguyen Duyen Manh
+updated_date: 2026/04/20
+updated_by: Nguyen Duyen Manh
 ---
 
 ## 変更履歴
 
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
-| 1   | 2026/04/17 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 1   | 2026/04/20 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -72,7 +72,7 @@ updated_by: Tran Duc Tuyen
 | メソッド               | GET                                                                                                                                                                                                                                   |
 | リクエストボディー     | なし                                                                                                                                                                                                                                  |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                                                                      |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                |
+| ヘッダ                 | Content-Type: application/json※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                |
 | HTTPレスポンスコード   | 200:正常にログ一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:入力値が不正です, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -238,7 +238,7 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`log.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN, NICHINO_STAFF, CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN（全ロール保持）
@@ -325,7 +325,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | メソッド               | GET                                                                                                                                                                                                                                                     |
 | リクエストボディー     | なし                                                                                                                                                                                                                                                    |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                                                                                        |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                  |
+| ヘッダ                 | Content-Type: application/json※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                  |
 | HTTPレスポンスコード   | 200:正常にCSVをダウンロードしました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:検索結果が5,000件を超えています, 400:入力値が不正です, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -439,7 +439,7 @@ GET /api/v1/log/export?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:5
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`log.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN, NICHINO_STAFF, CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN（全ロール保持）
@@ -575,7 +575,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | GET                                                                                                                                                                       |
 | リクエストボディー     | なし                                                                                                                                                                      |
 | リクエストパラメーター | なし                                                                                                                                                                      |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                    |
+| ヘッダ                 | Content-Type: application/json※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                    |
 | HTTPレスポンスコード   | 200:正常にアカウント一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました   |
 
 ## リクエストパラメータ
@@ -659,7 +659,7 @@ GET /api/v1/account/dropdown
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
   - ※ 呼び出し元画面の権限に依存する。SCR-030（ログ参照画面）では `log.view` 保持者が呼び出す。

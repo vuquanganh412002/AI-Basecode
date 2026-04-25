@@ -42,15 +42,17 @@ updated_by: Dao Van Thang
 
 ## エラー一覧
 
-| #   | エラータイプ          | エラーコード          | エラーメッセージ                                                   |
-| --- | --------------------- | --------------------- | ------------------------------------------------------------------ |
-| 1   | UNAUTHORIZED          | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                 |
-| 2   | FORBIDDEN             | FORBIDDEN             | この画面へのアクセス権限がありません。                             |
-| 3   | BAD_REQUEST           | BAD_REQUEST           | リクエストパラメータが不正です。                                   |
-| 4   | VALIDATION_ERROR      | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。       |
-| 5   | NOT_FOUND             | NOT_FOUND             | 指定された管理支店が見つかりません。                               |
-| 6   | CONFLICT              | CONFLICT              | 関連データが存在するため削除できません。                           |
-| 7   | INTERNAL_SERVER_ERROR | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 |
+| #   | エラータイプ | エラーコード          | エラーメッセージ                                                       | 備考     |
+| --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
+| 2   | 共通         | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                     | HTTP 401 |
+| 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
+| 4   | 共通         | DATA_SCOPE_VIOLATION  | このデータへのアクセス権限がありません。                               | HTTP 403 |
+| 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
+| 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 8   | 画面固有     | NOT_FOUND             | 指定された管理支店が見つかりません。                                   | HTTP 404 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                               | HTTP 409 |
 
 ---
 
@@ -90,12 +92,12 @@ updated_by: Dao Van Thang
 | 2   | →kanri_shiten_id   | Number  | -        |              | -        | 管理支店ID                        |
 | 3   | →kanri_shiten_code | String  | -        |              | -        | 管理支店コード                    |
 | 4   | →kanri_shiten_name | String  | -        |              | -        | 管理支店名                        |
-| 5   | →yubin_no          | String  | -        |              | 〇       | 郵便番号                          |
-| 6   | →todofuken_code    | String  | -        |              | 〇       | 都道府県コード                    |
-| 7   | →todofuken_name    | String  | -        |              | 〇       | 都道府県名（m_todofukenからJOIN） |
-| 8   | →address           | String  | -        |              | 〇       | 住所                              |
-| 9   | →tel               | String  | -        |              | 〇       | 電話番号                          |
-| 10  | →fax               | String  | -        |              | 〇       | FAX番号                           |
+| 5   | →yubin_no          | String  | -        |              | -         | 郵便番号                          |
+| 6   | →todofuken_code    | String  | -        |              | -        | 都道府県コード                    |
+| 7   | →todofuken_name    | String  | -        |              | -        | 都道府県名（m_todofukenからJOIN） |
+| 8   | →address           | String  | -        |              | -         | 住所                              |
+| 9   | →tel               | String  | -        |              | -         | 電話番号                          |
+| 10  | →fax               | String  | -        |              | -         | FAX番号                           |
 | 11  | →paper_flg         | Boolean | -        |              | -        | 紙版取扱フラグ                    |
 | 12  | →denshi_flg        | Boolean | -        |              | -        | 電子版取扱フラグ                  |
 | 13  | meta               | Object  | -        |              | -        | ページング情報                    |
@@ -212,7 +214,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&page
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：kanri-shiten.view を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）
@@ -302,7 +304,7 @@ OFFSET (:page - 1) * :per_page
 
 | #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                       |
 | --- | -------------- | ------ | -------- | ---- | ------ | ------ | -------------------------- |
-| 1   | id             | Number | -        | 〇   |        |        | 削除対象の kanri_shiten_id |
+| 1   | kanri_shiten_id | Number | -        | 〇   |        |        | 削除対象の kanri_shiten_id（パスパラメータ） |
 
 ## レスポンスデータ
 
@@ -382,26 +384,28 @@ DELETE /api/v1/kanri-shiten/5
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
-  - id：数値型チェック
-  - id：必須チェック
+  - kanri_shiten_id：数値型チェック
+  - kanri_shiten_id：必須チェック
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：kanri-shiten.delete を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）
-- 権限がない場合：HTTP 403 Forbidden
 
 ### 4.3 データ取得条件の設定
 
 - 対象レコードの検索：
-  - kanri_shiten_id = {id}
+  - kanri_shiten_id = :kanri_shiten_id
   - 論理削除除外（deleted_at IS NULL）
 - 対象レコードが存在しない場合：
   - HTTP 404 Not Found を返却する。
@@ -413,15 +417,15 @@ DELETE /api/v1/kanri-shiten/5
 ```sql
 -- 支店の存在チェック
 SELECT COUNT(*) FROM m_shiten
-WHERE kanri_shiten_id = :id AND deleted_at IS NULL;
+WHERE kanri_shiten_id = :kanri_shiten_id AND deleted_at IS NULL;
 
 -- 購読者の存在チェック
 SELECT COUNT(*) FROM t_dokusya
-WHERE kanri_shiten_id = :id AND deleted_at IS NULL;
+WHERE kanri_shiten_id = :kanri_shiten_id AND deleted_at IS NULL;
 
 -- アカウントの存在チェック
 SELECT COUNT(*) FROM m_account
-WHERE kanri_shiten_id = :id AND deleted_at IS NULL;
+WHERE kanri_shiten_id = :kanri_shiten_id AND deleted_at IS NULL;
 ```
 
 - いずれかに関連レコードが存在する場合：
@@ -435,7 +439,7 @@ WHERE kanri_shiten_id = :id AND deleted_at IS NULL;
 UPDATE m_kanri_shiten
 SET deleted_at = NOW(),
     updated_by = :user_account_id
-WHERE kanri_shiten_id = :id
+WHERE kanri_shiten_id = :kanri_shiten_id
   AND deleted_at IS NULL
 ```
 

@@ -6,7 +6,7 @@ Cloud Subscriber Management System (クラウド版購読者管理システム) 
 
 - Backend: NestJS + TypeORM + PostgreSQL
 - Frontend: Vue 3 + Ant Design Vue + Tailwind CSS
-- Auth: JWT RS256, RBAC (model.action permissions), DataScope, field-level restrictions
+- Auth: HTTP-only Cookie session (Redis-backed, 24h sliding TTL), RBAC (model.action permissions), DataScope, field-level restrictions
 - Infra: AWS (ECS Fargate, RDS, S3, CloudFront), Terraform
 - CI/CD: GitLab CI/CD
 
@@ -20,7 +20,7 @@ All rules in `.claude/rules/` are **mandatory**:
 | `naming-conventions.md` | NestJS, Vue, DB, Terraform, event naming |
 | `nestjs.md` | **Backend**: architecture, API, TypeORM, error handling, security, Dockerfile |
 | `vue.md` | **Frontend**: components, state, Orval, Ant Design Vue, router guards, a11y |
-| `security.md` | **CRITICAL**: JWT RS256, RBAC (PermissionsGuard), DataScope, field-level restrictions |
+| `security.md` | **CRITICAL**: HTTP-only Cookie session (Redis-backed), RBAC (PermissionsGuard), DataScope, field-level restrictions |
 | `monitoring.md` | CloudWatch, structured logging, health checks |
 | `testing.md` | Vitest framework, backend/frontend test patterns, E2E (Playwright) |
 | `git-workflow.md` | Branch strategy, conventional commits, MR rules |
@@ -32,7 +32,19 @@ All rules in `.claude/rules/` are **mandatory**:
 
 ### Skills (`.claude/skills/`)
 - `/gen-api-doc ACSMS-SCR-XXX` — Generate API design document from screen design
+- `/gen-ut-backend ACSMS-SCR-XXX` — Generate failing NestJS unit + integration tests (TDD red phase) for a screen BEFORE backend implementation. Targets 98% effective coverage.
+- `/gen-ut-frontend ACSMS-SCR-XXX` — Generate failing Vue 3 / Pinia tests (TDD red phase) for a screen BEFORE frontend implementation. Targets 98% effective coverage.
 - `/scaffold [project_name]` — Scaffold production-ready fullstack monorepo (NestJS + Vue 3 + Docker)
+
+### TDD Pipeline
+```
+                              ┌─► /gen-ut-backend ACSMS-SCR-XXX  ─► backend *.spec.ts  (RED)
+/gen-api-doc ACSMS-SCR-XXX ──►┤                                                           ┐
+   (api.md spec)              └─► /gen-ut-frontend ACSMS-SCR-XXX ─► frontend *.spec.ts (RED)
+                                                                                          ▼
+                                                             /gen-code ACSMS-SCR-XXX  (GREEN — planned)
+```
+`/gen-ut-backend` and `/gen-ut-frontend` are independent — run either first, or both in parallel. `/gen-code` planned but not yet implemented.
 
 ### Commands (`.claude/commands/`) — migrating to skills
 - `/review` — Code review

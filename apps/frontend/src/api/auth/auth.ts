@@ -6,11 +6,15 @@ export interface LoginRequest {
   password: string;
 }
 
+// Auth uses HTTP-only Cookie session (Redis-backed, 24h sliding TTL).
+// The session ID lives in the cookie — never in response bodies or
+// localStorage. These response types intentionally only carry the
+// user object.
+
 export type LoginResponse =
   | {
       data: {
         mfa_required: false;
-        access_token: string;
         user: User;
       };
     }
@@ -29,7 +33,6 @@ export interface MfaVerifyRequest {
 
 export interface MfaVerifyResponse {
   data: {
-    access_token: string;
     user: User;
   };
 }
@@ -45,7 +48,6 @@ export interface MfaResendResponse {
 
 export interface RefreshResponse {
   data: {
-    access_token: string;
     user: User;
   };
 }

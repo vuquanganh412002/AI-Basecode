@@ -60,7 +60,7 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND     | 指定されたアカウントが見つかりません。                                 | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | このレコードは現在使用中のため、削除できません。                      | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                      | HTTP 409 |
 
 ---
 
@@ -189,7 +189,7 @@ GET /api/v1/accounts/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`account.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -375,6 +375,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
@@ -385,15 +389,13 @@ Content-Type: application/json
   - ja_id：role_id=3,4,5の場合は必須、数値型
   - kanri_shiten_id：role_id=5の場合は必須、数値型
   - account_name：必須、最大50桁
-  - email：空欄可、指定時はメールアドレス形式（最大100桁）
   - paper_flg：ブーリアン型（デフォルト: false）
   - denshi_flg：ブーリアン型（デフォルト: false）
   - biko：文字列型（空欄可）
-- バリデーションエラーの場合：HTTP 400 (`BAD_REQUEST`) + errors配列
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`account.create` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -652,6 +654,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：account_id 数値型チェック、必須
@@ -662,15 +668,13 @@ Content-Type: application/json
   - ja_id：role_id=3,4,5の場合は必須、数値型
   - kanri_shiten_id：role_id=5の場合は必須、数値型
   - account_name：必須、最大50桁
-  - email：空欄可、指定時はメールアドレス形式（最大100桁）
   - paper_flg：ブーリアン型
   - denshi_flg：ブーリアン型
   - biko：文字列型（空欄可）
-- バリデーションエラーの場合：HTTP 400 (`BAD_REQUEST`) + errors配列
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`account.update` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ

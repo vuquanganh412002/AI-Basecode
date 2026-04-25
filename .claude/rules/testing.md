@@ -10,10 +10,45 @@
 ```
 
 ## Requirements
-- Unit test coverage: **minimum 80%** for business logic
+- **Effective** coverage target: **≥ 98%** (branches / functions / lines / statements). "Effective" excludes bootstrap, decorator-only files, migrations, constants, generated code — see exclude list in each `vitest.config.ts`.
+- Test-first (TDD): specs are generated BEFORE implementation via `/gen-ut-backend` (BE) + `/gen-ut-frontend` (FE), then `/gen-code` fills in the source until specs turn green.
 - All new features must have tests
 - All bug fixes must have a regression test
 - Tests run in CI (GitLab) before any merge
+
+### Coverage excludes (intentionally uncovered)
+
+Backend (`apps/backend/vitest.config.ts`):
+- `src/main.ts` — bootstrap
+- `src/**/*.module.ts` — NestJS module decorators
+- `src/**/entities/**` — TypeORM decorator-only classes
+- `src/**/dto/**/*.dto.ts` — class-validator decorator shells (tested via `*.dto.spec.ts` separately)
+- `src/database/migrations/**` + `src/database/data-source.ts`
+- `src/**/*.constant.ts` — enums / constant maps
+
+Frontend (`apps/frontend/vitest.config.ts`):
+- `src/main.ts`, `src/App.vue`, `src/router/index.ts`
+- `src/api/generated/**` — Orval output
+- `src/env.d.ts`, `src/types/**`, `src/**/*.d.ts`
+
+## TDD workflow with /gen-ut-backend + /gen-ut-frontend
+
+```
+/gen-api-doc      ACSMS-SCR-XXX  →  api.md (spec)
+           ↓
+/gen-ut-backend   ACSMS-SCR-XXX  →  backend *.spec.ts (failing — RED)
+/gen-ut-frontend  ACSMS-SCR-XXX  →  frontend *.spec.ts (failing — RED)
+           ↓
+/gen-code         ACSMS-SCR-XXX  →  source files (passing — GREEN)
+```
+
+The two `gen-ut-*` skills are **independent** — run either first, or both in parallel.
+Use `gen-ut-backend` alone for headless / background-job screens (no UI).
+Use `gen-ut-frontend` alone for FE-only screens (dashboard, static pages).
+
+- Each skill is the source of truth for its side of the stack. Generated specs must never be overwritten by other skills.
+- Every spec file starts with `// @ts-nocheck — TDD red phase` so TypeScript doesn't block the red build. `/gen-code` removes that banner as its last step once implementation compiles.
+- If `api.md` or `screen-design.md` changes: delete the affected spec files and rerun the relevant skill.
 
 ---
 

@@ -14,7 +14,7 @@ async function bootstrap() {
 
   // Try to restore session via refresh_token cookie BEFORE mounting router guards.
   const authStore = useAuthStore();
-  await authStore.refreshToken();
+  await authStore.refreshSession();
 
   app.use(router);
   app.use(Antd);

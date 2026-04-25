@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import { useSidebar, MD_BREAKPOINT } from '@/composables/useSidebar';
 import DarkModeToggle from './DarkModeToggle.vue';
+
+const { open, hide } = useSidebar();
 
 interface MenuItem {
   name: string;         // Route name
@@ -14,7 +17,15 @@ interface MenuItem {
 interface MenuSection {
   heading?: string;     // Undefined = top-level (e.g. home)
   items: MenuItem[];
+  /** Extra wrapper classes (e.g. `pb-10` for the last section). */
+  extraClass?: string;
 }
+
+// TEMP: while building out the layout, show every menu item regardless of
+// permission so the full sidebar matches docs/design/ACSMS-SCR-*/index.html.
+// Restore the real filter (`authStore.hasPermission(it.permission)`) before
+// shipping.
+const FAKE_FULL_MENU = true;
 
 /**
  * Menu definition — mirrors docs/design/ACSMS-SCR-010 (メニュー画面) groups.
@@ -73,11 +84,15 @@ const sections: MenuSection[] = [
   },
   {
     heading: '管理者機能',
+    extraClass: 'pb-10',
+    // Order matches the dashboard menu card (docs/design/ACSMS-SCR-010/index.html).
     items: [
       { name: 'LogList', label: 'ログ参照', icon: 'history', permission: 'log.view' },
-      { name: 'AccountList', label: 'アカウント管理', icon: 'manage_accounts', permission: 'account.view' },
       { name: 'OshiraseList', label: 'お知らせ一覧', icon: 'campaign', permission: 'oshirase.view' },
       { name: 'KanriShitenList', label: '管理支店マスタ', icon: 'admin_panel_settings', permission: 'kanri_shiten.view' },
+      { name: 'AccountList', label: 'アカウント管理', icon: 'manage_accounts', permission: 'account.view' },
+      { name: 'HanbaitenDaikoInput', label: '販売店代行入力', icon: 'upload', permission: 'hanbaiten.daiko_input' },
+      { name: 'RoleList', label: 'ロール管理', icon: 'security', permission: 'role.view' },
     ],
   },
 ];
@@ -91,7 +106,10 @@ const visibleSections = computed(() =>
     .map((section) => ({
       ...section,
       items: section.items.filter(
-        (it) => !it.permission || authStore.hasPermission?.(it.permission),
+        (it) =>
+          FAKE_FULL_MENU ||
+          !it.permission ||
+          authStore.hasPermission?.(it.permission),
       ),
     }))
     .filter((s) => s.items.length > 0),
@@ -102,13 +120,42 @@ function isActive(name: string): boolean {
 }
 
 function navigate(name: string): void {
+  // During layout testing many routes aren't registered yet; skip instead of
+  // crashing / logging a vue-router warning.
+  if (!router.hasRoute(name)) return;
   router.push({ name });
 }
+
+// Auto-close the overlay sidebar after navigating on mobile.
+watch(
+  () => route.fullPath,
+  () => {
+    if (typeof window !== 'undefined' && window.innerWidth < MD_BREAKPOINT) {
+      hide();
+    }
+  },
+);
 </script>
 
 <template>
+  <!-- Mobile-only backdrop: dims page content and closes sidebar on tap. -->
+  <div
+    v-if="open"
+    class="fixed inset-0 bg-black/40 z-30 md:hidden"
+    aria-hidden="true"
+    @click="hide"
+  />
+
   <aside
-    class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0"
+    :class="[
+      'bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen w-72 flex-shrink-0',
+      // Mobile: fixed overlay that slides in from the left.
+      'fixed top-0 left-0 z-40 transition-transform duration-300',
+      open ? 'translate-x-0' : '-translate-x-full',
+      // Desktop: in-flow sticky child; animate width when collapsed instead.
+      'md:sticky md:top-0 md:z-auto md:translate-x-0 md:transition-[width] md:duration-300',
+      open ? '' : 'md:w-0 md:border-r-0 md:overflow-hidden',
+    ]"
   >
     <!-- Brand -->
     <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
@@ -120,7 +167,11 @@ function navigate(name: string): void {
 
     <!-- Nav -->
     <nav class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6">
-      <div v-for="(section, idx) in visibleSections" :key="section.heading ?? `root-${idx}`">
+      <div
+        v-for="(section, idx) in visibleSections"
+        :key="section.heading ?? `root-${idx}`"
+        :class="section.extraClass"
+      >
         <h3
           v-if="section.heading"
           class="px-3 text-[11px] font-bold text-text-secondary uppercase tracking-wider mb-2"

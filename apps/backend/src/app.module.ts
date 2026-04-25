@@ -10,6 +10,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { OshiraseModule } from './modules/oshirase/oshirase.module';
+import { RedisModule } from './modules/redis/redis.module';
 import type { Request, Response, NextFunction } from 'express';
 
 @Module({
@@ -19,6 +20,7 @@ import type { Request, Response, NextFunction } from 'express';
       load: [configuration],
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    RedisModule,
     DatabaseModule,
     AuditLogModule,
     MailModule,

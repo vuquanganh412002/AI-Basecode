@@ -370,7 +370,7 @@
                   </label>
                   <select
                     id="import-mode"
-                    name="import-mode"
+                        name="import-mode"
                     class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 dark:bg-slate-800 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em]"
                     style="
                       background-image: url(&quot;data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e&quot;);
@@ -1147,7 +1147,7 @@
                         >読者情報変更適用日</span
                       >
                     </label>
-                    <!-- 48. 銀行コード -->
+                    <!-- 48. 金融機関コード -->
                     <label
                       class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
@@ -1155,14 +1155,14 @@
                         type="checkbox"
                         checked
                         name="col"
-                        value="銀行コード"
+                        value="金融機関コード"
                         class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
                       />
                       <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >銀行コード</span
+                        >金融機関コード</span
                       >
                     </label>
-                    <!-- 49. 銀行名 -->
+                    <!-- 49. 金融機関名 -->
                     <label
                       class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
@@ -1170,14 +1170,14 @@
                         type="checkbox"
                         checked
                         name="col"
-                        value="銀行名"
+                        value="金融機関名"
                         class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
                       />
                       <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >銀行名</span
+                        >金融機関名</span
                       >
                     </label>
-                    <!-- 50. 支店コード -->
+                    <!-- 50. 口座支店コード -->
                     <label
                       class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
@@ -1185,14 +1185,14 @@
                         type="checkbox"
                         checked
                         name="col"
-                        value="支店コード"
+                        value="口座支店コード"
                         class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
                       />
                       <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >支店コード</span
+                        >口座支店コード</span
                       >
                     </label>
-                    <!-- 51. 支店名 -->
+                    <!-- 51. 口座支店名 -->
                     <label
                       class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
@@ -1200,11 +1200,11 @@
                         type="checkbox"
                         checked
                         name="col"
-                        value="支店名"
+                        value="口座支店名"
                         class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
                       />
                       <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >支店名</span
+                        >口座支店名</span
                       >
                     </label>
                   </div>
@@ -1437,10 +1437,10 @@
         "購読中止日",
         "備考",
         "読者情報変更適用日",
-        "銀行コード",
-        "銀行名",
-        "支店コード",
-        "支店名",
+        "金融機関コード",
+        "金融機関名",
+        "口座支店コード",
+        "口座支店名",
       ];
 
       const colCheckboxes = () =>
@@ -1710,8 +1710,8 @@
           },
           {
             row: 7,
-            field: "銀行コード",
-            message: "銀行コード「9999」に該当する金融機関が見つかりません。",
+            field: "金融機関コード",
+            message: "金融機関コード「9999」に該当する金融機関が見つかりません。",
           },
           { row: 12, field: "組合員コード", message: "必須項目が未入力です。" },
           {

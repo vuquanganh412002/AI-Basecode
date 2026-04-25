@@ -34,7 +34,12 @@ async function bootstrap() {
 
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.use(helmet());
-  app.use(cookieParser());
+
+  // Pass SESSION_SECRET so `res.cookie(..., { signed: true })` works and
+  // `req.signedCookies` is populated. The secret is required for Auth's
+  // session cookie tamper-detection.
+  const sessionSecret = configService.get<string>('session.secret');
+  app.use(cookieParser(sessionSecret));
 
   const allowedOrigins = configService.get<string>('allowedOrigins');
   app.enableCors({
@@ -44,12 +49,14 @@ async function bootstrap() {
     credentials: true,
   });
 
+  const sessionCookieName =
+    configService.get<string>('session.cookieName') ?? 'session_id';
+
   const swaggerConfig = new DocumentBuilder()
     .setTitle('agrinews API')
     .setDescription('クラウド版購読者管理システム API')
     .setVersion('1.0')
-    .addBearerAuth()
-    .addCookieAuth('refresh_token')
+    .addCookieAuth(sessionCookieName)
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

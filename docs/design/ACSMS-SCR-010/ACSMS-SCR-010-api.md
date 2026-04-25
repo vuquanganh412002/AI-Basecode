@@ -211,7 +211,7 @@ GET /api/v1/oshirase/menu?limit=20
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 本APIは認証済みユーザーであれば誰でもアクセス可能（特定の permission は不要）。
 
@@ -370,7 +370,7 @@ GET /api/v1/dokusya/pending-approval/count
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`dokusya.view` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）

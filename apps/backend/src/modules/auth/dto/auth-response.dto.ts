@@ -45,9 +45,6 @@ export class LoginSuccessDto {
   @ApiProperty()
   mfa_required: false;
 
-  @ApiProperty()
-  access_token: string;
-
   @ApiProperty({ type: AuthUserDto })
   user: AuthUserDto;
 }

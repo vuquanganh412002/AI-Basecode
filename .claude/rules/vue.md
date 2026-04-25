@@ -228,18 +228,20 @@ Use local component state for:
 
 ```typescript
 // stores/auth.ts ✅ Justified: Cross-feature authentication
+// Auth uses HTTP-only Cookie session (Redis-backed). The session ID lives
+// in the cookie (not accessible from JS), so the store only holds the
+// decoded user payload.
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
-  const accessToken = ref<string | null>(null);
-  const isAuthenticated = computed(() => !!accessToken.value);
+  const isAuthenticated = computed(() => !!user.value);
 
   async function login(credentials: LoginCredentials) {
     const response = await loginApi(credentials);
+    // Session cookie is set by the server; we only cache the user info.
     user.value = response.data.user;
-    accessToken.value = response.data.accessToken;
   }
 
-  return { user, accessToken, isAuthenticated, login };
+  return { user, isAuthenticated, login };
 });
 ```
 
@@ -282,27 +284,31 @@ export const useUserStore = defineStore('user', () => {
 });
 ```
 
-### 3. Secure Token Storage (CRITICAL)
+### 3. Secure Session Handling (CRITICAL)
 
-Store access tokens in memory ONLY (Pinia state). NEVER in `localStorage`/`sessionStorage`.
+Auth is session-cookie based. The `session_id` cookie is `HttpOnly` — not readable from JavaScript — so there is nothing for the store to hold. Only the decoded user payload lives in Pinia. NEVER put any token or session ID in `localStorage`/`sessionStorage`.
 
 ```typescript
-// ✅ Token in memory only
+// ✅ Cookie-managed session; store only caches the user profile
 export const useAuthStore = defineStore('auth', () => {
-  const accessToken = ref<string | null>(null);  // Cleared on refresh
-  // Refresh token in HTTP-only cookie (backend-managed)
-  
+  const user = ref<User | null>(null);
+  const isAuthenticated = computed(() => !!user.value);
+
   async function login(credentials: LoginCredentials) {
+    // Backend sets an HttpOnly Set-Cookie: session_id=...
     const response = await loginApi(credentials);
-    accessToken.value = response.data.accessToken;
+    user.value = response.data.user;
   }
 
-  return { accessToken, login };
+  return { user, isAuthenticated, login };
 });
 
-// ❌ PROHIBITED: localStorage (XSS vulnerability)
-localStorage.setItem('accessToken', token);
+// ❌ PROHIBITED: storing session identifiers or tokens in localStorage
+localStorage.setItem('session_id', sid);   // XSS-exfiltratable
+localStorage.setItem('accessToken', token); // Same problem
 ```
+
+Axios / Orval client must be created with `withCredentials: true` so the browser attaches the session cookie on every request.
 
 ### 4. Store Mutations via Actions Only
 
@@ -609,9 +615,9 @@ async function login(credentials: LoginCredentials) {
 PROHIBITED:
 ```typescript
 async function login(credentials: LoginCredentials) {
-  console.log('Login attempt:', credentials);  // ❌ Password logged
+  console.log('Login attempt:', credentials);    // ❌ Password logged
   const response = await loginApi(credentials);
-  console.log('Token received:', response.data.accessToken);  // ❌ Token logged
+  console.log('Session established for:', response.headers['set-cookie']); // ❌ Session ID logged
   return response.data;
 }
 ```
@@ -632,14 +638,16 @@ vi.mock('@/api/generated');
 
 describe('useAuth', () => {
   it('should login successfully', async () => {
-    const mockResponse = { data: { user: { id: 1 }, accessToken: 'token' } };
+    // Session cookie is set by the server; the response body only
+    // contains the user payload.
+    const mockResponse = { data: { user: { id: 1 } } };
     vi.mocked(loginApi).mockResolvedValue(mockResponse);
 
-    const { login, user, accessToken } = useAuth();
+    const { login, user, isAuthenticated } = useAuth();
     await login({ email: 'test@example.com', password: 'password' });
 
     expect(user.value).toEqual({ id: 1 });
-    expect(accessToken.value).toBe('token');
+    expect(isAuthenticated.value).toBe(true);
   });
 
   it('should handle login failure', async () => {

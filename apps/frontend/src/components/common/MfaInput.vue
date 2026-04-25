@@ -24,8 +24,10 @@ const inputs = ref<(HTMLInputElement | null)[]>([]);
 watch(
   () => props.modelValue,
   (v) => {
-    const padded = v.padEnd(props.length, '').slice(0, props.length);
-    digits.value = padded.split('').map((c) => (/\d/.test(c) ? c : ''));
+    digits.value = Array.from({ length: props.length }, (_, i) => {
+      const c = v[i] ?? '';
+      return /\d/.test(c) ? c : '';
+    });
   },
   { immediate: true },
 );
@@ -74,6 +76,18 @@ function onKeydown(idx: number, e: KeyboardEvent): void {
     void nextTick(() => inputs.value[idx + 1]?.focus());
   }
 }
+
+// Explicit paste handler — `maxlength="1"` would otherwise truncate to 1 char.
+function onPaste(e: ClipboardEvent): void {
+  e.preventDefault();
+  const text = e.clipboardData?.getData('text') ?? '';
+  const code = text.replace(/\D/g, '').slice(0, props.length);
+  if (!code) return;
+  digits.value = Array.from({ length: props.length }, (_, i) => code[i] ?? '');
+  const lastIdx = Math.min(code.length, props.length) - 1;
+  void nextTick(() => inputs.value[lastIdx]?.focus());
+  emitJoined();
+}
 </script>
 
 <template>
@@ -88,9 +102,10 @@ function onKeydown(idx: number, e: KeyboardEvent): void {
       inputmode="numeric"
       autocomplete="one-time-code"
       maxlength="1"
-      class="w-12 h-14 text-center text-xl font-bold border border-slate-300 dark:border-slate-700 rounded-lg bg-transparent dark:text-white focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all"
+      class="w-12 h-14 text-center text-xl font-bold !border !border-slate-300 dark:!border-slate-700 !rounded-lg !bg-white dark:!bg-slate-800 !text-slate-900 dark:!text-white focus:!border-primary focus:!ring-2 focus:!ring-primary/10 !outline-none !transition-colors disabled:!bg-slate-100 disabled:!cursor-not-allowed"
       @input="(e: Event) => onInput(idx, e)"
       @keydown="(e: KeyboardEvent) => onKeydown(idx, e)"
+      @paste="onPaste"
     />
   </div>
 </template>

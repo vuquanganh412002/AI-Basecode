@@ -166,7 +166,7 @@ GET /api/v1/roles
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -297,7 +297,7 @@ GET /api/v1/roles/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -456,6 +456,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：role_id 数値型チェック、必須
@@ -466,11 +470,9 @@ Content-Type: application/json
   - permission_ids 内のすべての permission_id が m_permissions テーブルに存在するか確認する。
     - 存在しない permission_id が1つでもある場合：バリデーションエラー（HTTP 400）
 
-```sql
 SELECT 1 FROM (
   SELECT unnest(:permission_ids::bigint[]) AS permission_id
 ) AS input
-WHERE NOT EXISTS (
   SELECT 1
   FROM m_permissions p
   WHERE p.permission_id = input.permission_id
@@ -485,7 +487,7 @@ LIMIT 1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -710,7 +712,7 @@ GET /api/v1/permissions
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ

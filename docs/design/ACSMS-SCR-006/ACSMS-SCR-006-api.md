@@ -69,7 +69,7 @@ updated_by: Dao Van Thang
 | メソッド               | GET                                                                                                                                                                                                    |
 | リクエストボディー     | なし                                                                                                                                                                                                   |
 | リクエストパラメーター | ?shiten_name={shiten_name}&page={page}&per_page={per_page}&sort_by={sort_by}&sort_order={sort_order}                                                                                                   |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
 | HTTPレスポンスコード   | 200:正常に支店一覧を取得しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -203,7 +203,7 @@ GET /api/v1/shiten?shiten_name=本店&page=1&per_page=20&sort_by=shiten_code&sor
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`shiten.view` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
@@ -275,7 +275,7 @@ OFFSET (:page - 1) * :per_page
 | メソッド               | DELETE                                                                                                                                                                                                                                                                 |
 | リクエストボディー     | なし                                                                                                                                                                                                                                                                   |
 | リクエストパラメーター | shiten_id（パスパラメータ）                                                                                                                                                                                                                                            |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                 |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                 |
 | HTTPレスポンスコード   | 200:正常に削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された支店が見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -371,6 +371,10 @@ DELETE /api/v1/shiten/5
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -380,12 +384,10 @@ DELETE /api/v1/shiten/5
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
-- 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 権限チェック：`shiten.delete` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
-
 ### 4.3 データ取得条件の設定
 
 - 対象レコードの検索：

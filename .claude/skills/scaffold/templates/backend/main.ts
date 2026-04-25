@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { writeFileSync } from 'fs';
 import helmet from 'helmet';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
@@ -34,18 +35,24 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.use(helmet());
 
+  // cookie-parser MUST receive SESSION_SECRET so `res.cookie(..., { signed: true })`
+  // works and `req.signedCookies` populates — required by SessionAuthGuard.
+  app.use(cookieParser(configService.get<string>('session.secret')));
+
   const allowedOrigins = configService.get<string[]>('allowedOrigins');
   app.enableCors({
     origin: allowedOrigins || [],
     credentials: true,
   });
 
+  const sessionCookieName =
+    configService.get<string>('session.cookieName') ?? 'session_id';
+
   const swaggerConfig = new DocumentBuilder()
     .setTitle('__PROJECT__ API')
     .setDescription('__PROJECT__ API Documentation')
     .setVersion('1.0')
-    .addBearerAuth()
-    .addCookieAuth('refresh_token')
+    .addCookieAuth(sessionCookieName)
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

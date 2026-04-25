@@ -356,12 +356,13 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 21 | yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi (1: Thông thường, 2: Vãng lai) |
 | 22 | koza_no |  | VARCHAR | 10 |  |  | Số tài khoản ※Cho phép chuỗi rỗng |
 | 23 | koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản ※Cho phép chuỗi rỗng |
-| 24 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 25 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 26 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 27 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 28 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 29 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 24 | haiten_flg |  | BOOLEAN |  |  |  | Cờ ngừng hoạt động (DEFAULT false) |
+| 25 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 27 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 28 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 29 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 30 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 

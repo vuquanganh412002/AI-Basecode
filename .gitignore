@@ -40,7 +40,7 @@ tmp/
 temp/
 
 # === Scaffold ===
-# SSL & JWT certs (generated locally)
+# Local HTTPS certs (generated via mkcert)
 apps/docker/certs/*.pem
 apps/docker/certs/*.key
 !apps/docker/certs/.gitkeep
@@ -59,6 +59,7 @@ apps/frontend/.env.development
 apps/frontend/src/api/generated*
 apps/frontend/swagger.json
 
-# Eviroment ports
-apps/docker/certs/agrinews.jp-key.pem
-apps/docker/certs/agrinews.jp.pem
+# curl / HTTP debugging artifacts — session cookie dumps must never be committed
+cookies.txt
+*.cookies
+*.cookie-jar

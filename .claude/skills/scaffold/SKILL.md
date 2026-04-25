@@ -27,8 +27,8 @@ All generated files use `$ARGUMENTS` as:
 - Backend: NestJS + TypeORM + PostgreSQL
 - Frontend: Vue 3 + Vite + Ant Design Vue + Tailwind CSS + Pinia
 - API Client: Orval (auto-generated from Swagger/OpenAPI)
-- Auth: JWT RS256
-- Infra: Docker Compose (local), AWS-ready (production)
+- Auth: HTTP-only Cookie session (Redis-backed, 24h sliding TTL)
+- Infra: Docker Compose (local, with Redis), AWS-ready (ElastiCache Redis for production)
 
 ## Templates
 
@@ -51,7 +51,10 @@ Copy each template to its target path. Replace all `__PROJECT__` with `$ARGUMENT
 | 5b | `backend/data-source.ts` | `apps/backend/src/database/data-source.ts` | CLI DataSource for `migration:generate / run / revert` |
 | 5c | — (generated) | `apps/backend/src/database/migrations/{TS+00N}-Create{Table}.ts` | One file per table — CREATE TABLE + indexes + FKs. Timestamps FK-safe. |
 | 5d | — (generated) | `apps/backend/src/database/migrations/{TS2+00N}-Seed{Table}.ts` | One file per seed category from `docs/database/seeder.md` (optional) |
-| 6 | `backend/jwt-auth.guard.ts` | `apps/backend/src/common/guards/jwt-auth.guard.ts` | Cookie extraction pattern |
+| 6 | `backend/session-auth.guard.ts` | `apps/backend/src/common/guards/session-auth.guard.ts` | Reads signed `session_id` cookie, validates against Redis, extends TTL |
+| 6a | `backend/session.service.ts` | `apps/backend/src/modules/auth/session.service.ts` | Redis-backed session CRUD (create/get/touch/destroy/destroyAllForAccount) |
+| 6b | `backend/redis.module.ts` | `apps/backend/src/modules/redis/redis.module.ts` | Global ioredis client (supports REDIS_URL + TLS for AWS ElastiCache) |
+| 6c | `backend/redis.service.ts` | `apps/backend/src/modules/redis/redis.service.ts` | Thin wrapper over ioredis |
 | 7 | `frontend/vite.config.ts` | `apps/frontend/vite.config.ts` | allowedHosts for nginx proxy |
 | 9 | `frontend/axios-instance.ts` | `apps/frontend/src/api/axios-instance.ts` | Thin interceptor — delegates to `handleApiError` |
 | 9a | `frontend/error-codes.ts` | `apps/frontend/src/constants/error-codes.ts` | Mirror of backend `ErrorCode` — keep in sync |
@@ -81,7 +84,7 @@ Copy each template to its target path. Replace all `__PROJECT__` with `$ARGUMENT
 | 11 | `docker/docker-compose.yml` | `apps/docker-compose.yml` | 7 services, volume mounts, healthchecks |
 | 12 | `docker/nginx.conf` | `apps/docker/nginx/nginx.conf` | `/health` proxy block |
 | 13 | `docker/nginx-ssl.conf` | `apps/docker/nginx/nginx-ssl.conf` | HTTPS + `/health` proxy block |
-| 14 | `backend/env.development` | `apps/backend/.env.development` | Backend runtime vars (DB, JWT, STORAGE, MAIL). Compose symlinks `apps/.env` → this file. |
+| 14 | `backend/env.development` | `apps/backend/.env.development` | Backend runtime vars (DB, REDIS, SESSION, STORAGE, MAIL). Compose symlinks `apps/.env` → this file. |
 | 15 | `docker/Dockerfile.backend` | `apps/docker/backend/Dockerfile` | `npm install` (not npm ci) |
 | 16 | `docker/Dockerfile.backend.prod` | `apps/docker/backend/Dockerfile.prod` | Multi-stage + non-root + healthcheck |
 | 17 | `docker/Dockerfile.frontend` | `apps/docker/frontend/Dockerfile` | `npm install` (not npm ci) |
@@ -136,7 +139,7 @@ apps/
 │   │   │   ├── filters/
 │   │   │   │   └── global-exception.filter.ts
 │   │   │   ├── guards/
-│   │   │   │   ├── jwt-auth.guard.ts
+│   │   │   │   ├── session-auth.guard.ts
 │   │   │   │   └── permissions.guard.ts
 │   │   │   └── interceptors/
 │   │   │       └── transform.interceptor.ts
@@ -156,9 +159,12 @@ apps/
 │   │       │   ├── auth.module.ts
 │   │       │   ├── auth.controller.ts
 │   │       │   ├── auth.service.ts
-│   │       │   ├── strategies/jwt.strategy.ts
+│   │       │   ├── session.service.ts              # Redis-backed session CRUD
 │   │       │   ├── dto/login.dto.ts
 │   │       │   └── exceptions/invalid-credentials.exception.ts
+│   │       ├── redis/
+│   │       │   ├── redis.module.ts                 # @Global() ioredis client
+│   │       │   └── redis.service.ts
 │   │       ├── health/
 │   │       │   ├── health.module.ts
 │   │       │   └── health.controller.ts
@@ -182,7 +188,7 @@ apps/
 │   ├── nest-cli.json
 │   ├── vitest.config.ts
 │   ├── .env.example
-│   ├── .env.development           # Backend runtime vars (DB, JWT, STORAGE, MAIL)
+│   ├── .env.development           # Backend runtime vars (DB, REDIS, SESSION, STORAGE, MAIL)
 │   ├── .env.staging
 │   └── .env.production
 │
@@ -258,7 +264,7 @@ apps/
 └── .env                         ← symlink to ./backend/.env.development (compose reads backend env)
 
 scripts/
-├── generate-certs.sh            ← SSL (mkcert) + JWT keys (openssl)
+├── generate-certs.sh            ← SSL certs via mkcert (local HTTPS)
 ├── setup-hosts.sh               ← Add local domain to /etc/hosts
 └── seed.ts
 
@@ -273,9 +279,10 @@ scripts/
 
 1. **tsconfig.json** — MUST include `"strictPropertyInitialization": false` (TypeORM entities and class-validator DTOs use decorators, not constructor assignment)
 2. **Dockerfile** — Use `RUN npm install` (not `npm ci`) because first scaffold has no lock file
-3. **configuration.ts** — Read JWT keys from file with `fs.readFileSync`, provide empty string fallback if path not set
+3. **configuration.ts** — `session.secret` + `redis.url` come from env; in production both MUST be loaded from AWS Secrets Manager
 4. **ConfigService** — Always use generic type: `config.get<string>('key')` to avoid TypeORM type mismatch
 5. **Request typing** — Cast Express Request via `as unknown as Record<string, unknown>` (not direct `as Record`)
+6. **cookie-parser** — Mount with `cookieParser(SESSION_SECRET)` so `req.signedCookies` populates; `SessionAuthGuard` requires this.
 
 ### 2.1 package.json
 
@@ -283,9 +290,9 @@ scripts/
 name: "$ARGUMENTS-backend"
 ```
 
-Dependencies: @nestjs/{core,common,platform-express,typeorm,swagger,config,jwt,passport,throttler}, typeorm, pg, passport, passport-jwt, class-validator, class-transformer, bcrypt, helmet, @aws-sdk/{client-s3,s3-request-presigner,client-ses}, minio, nodemailer, dayjs, uuid, reflect-metadata, rxjs
+Dependencies: @nestjs/{core,common,platform-express,typeorm,swagger,config,throttler}, typeorm, pg, ioredis, cookie-parser, class-validator, class-transformer, bcryptjs, helmet, @aws-sdk/{client-s3,s3-request-presigner,client-ses}, minio, nodemailer, dayjs, uuid, reflect-metadata, rxjs
 
-DevDependencies: @nestjs/{cli,testing}, vitest, @vitest/coverage-v8, typescript, ts-node, @types/{node,bcrypt,express,passport-jwt,nodemailer,uuid}
+DevDependencies: @nestjs/{cli,testing}, vitest, @vitest/coverage-v8, typescript, ts-node, @types/{node,bcryptjs,express,cookie-parser,nodemailer,uuid}
 
 Scripts: start:dev (`nest start --watch`), build, test, test:coverage, migration:{generate,run,revert}, swagger:export, seed
 
@@ -309,8 +316,11 @@ app.useGlobalPipes(new ValidationPipe({
 }));
 app.useGlobalFilters(new GlobalExceptionFilter());
 app.use(helmet());
+// cookie-parser NEEDS the session secret so signed cookies work
+// (req.signedCookies[session_id] in SessionAuthGuard).
+app.use(cookieParser(configService.get<string>('session.secret')));
 app.enableCors({ origin: allowedOrigins, credentials: true });
-// Swagger at /api/docs
+// Swagger at /api/docs, addCookieAuth('session_id')
 // Export swagger.json to ../frontend/swagger.json (try/catch)
 ```
 
@@ -331,13 +341,22 @@ export default () => ({
     database: process.env.DB_NAME || `${/* $ARGUMENTS */ 'app'}_dev`,
     synchronize: false,
   },
-  jwt: {
-    privateKey: process.env.JWT_PRIVATE_KEY_PATH
-      ? readFileSync(process.env.JWT_PRIVATE_KEY_PATH, 'utf8') : '',
-    publicKey: process.env.JWT_PUBLIC_KEY_PATH
-      ? readFileSync(process.env.JWT_PUBLIC_KEY_PATH, 'utf8') : '',
-    accessTokenExpiry: process.env.JWT_ACCESS_EXPIRY || '24h',
-    refreshTokenExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
+  // Auth: HTTP-only Cookie session backed by Redis.
+  // Local: connects to docker-compose `redis` service.
+  // Prod:  set REDIS_URL to AWS ElastiCache primary endpoint + REDIS_TLS=true.
+  redis: {
+    url: process.env.REDIS_URL || '',
+    host: process.env.REDIS_HOST || 'redis',
+    port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
+    password: process.env.REDIS_PASSWORD || '',
+    tls: process.env.REDIS_TLS === 'true',
+    keyPrefix: process.env.REDIS_KEY_PREFIX || '',
+  },
+  session: {
+    cookieName: process.env.SESSION_COOKIE_NAME || 'session_id',
+    // Signs the session cookie; in prod load from AWS Secrets Manager.
+    secret: process.env.SESSION_SECRET || '',
+    ttlSeconds: parseInt(process.env.SESSION_TTL_SECONDS ?? String(24 * 60 * 60), 10),
   },
   storage: {
     provider: process.env.STORAGE_PROVIDER || 'minio',   // 'minio' | 's3'
@@ -367,7 +386,7 @@ export default () => ({
 | exceptions/domain.exception.ts | `DomainException extends HttpException` with `code` field |
 | exceptions/common.exceptions.ts | 8 common exception classes (see 2.4.1 below) |
 | filters/global-exception.filter.ts | Catch all, format `{ error_code, message, errors? }`, hide 500 internals, log structured JSON. Uses `STATUS_TO_CODE` map for non-DomainException HttpExceptions |
-| guards/jwt-auth.guard.ts | Extends AuthGuard('jwt'), extracts token from `access_token` cookie OR Authorization header |
+| guards/session-auth.guard.ts | Reads signed `session_id` cookie, validates against Redis (`session:{id}`), extends TTL, attaches payload to `req.user` |
 | guards/permissions.guard.ts | Reads `@Permissions()` metadata, checks `user.permissions[]` array |
 | decorators/permissions.decorator.ts | `SetMetadata('permissions', perms)` |
 | dto/pagination.dto.ts | page (default 1), per_page (1-100, default 20), sort_by (default 'created_at'), sort_order (asc/desc, default 'desc') with `@ApiPropertyOptional` |
@@ -426,28 +445,40 @@ async create(dto: CreateTankaDto): Promise<Tanka> {
 }
 ```
 
-### 2.5 modules/auth/
+### 2.5 modules/auth/ + modules/redis/
 
-**Controller endpoints:**
-- POST /api/v1/auth/login
-- POST /api/v1/auth/refresh (reads refresh_token from HTTP-only cookie)
-- POST /api/v1/auth/logout (clears cookie)
-- POST /api/v1/auth/forgot-password (always 200)
-- POST /api/v1/auth/reset-password
+**Controller endpoints (`auth.controller.ts`):**
+- POST /api/v1/auth/login — body `{ login_id, password }` → on success issues session, Set-Cookie
+- POST /api/v1/auth/mfa/verify — body `{ mfa_token, otp_code }` → issues session, Set-Cookie
+- POST /api/v1/auth/mfa/resend — re-issues OTP + new mfa_token
+- POST /api/v1/auth/refresh — reads `session_id` cookie, extends Redis TTL, returns refreshed user
+- POST /api/v1/auth/logout — `DEL session:{id}` in Redis + clears cookie
+- POST /api/v1/auth/forgot-password (always 200, prevents enumeration)
+- POST /api/v1/auth/reset-password — on success calls `sessionService.destroyAllForAccount(accountId)`
 
-**Refresh token cookie flags:**
+**Session cookie flags (set via `res.cookie(cookieName, sessionId, options)`):**
 ```typescript
-res.cookie('refresh_token', token, {
+{
   httpOnly: true,
-  secure: true,
+  secure: isProduction,
   sameSite: 'strict',
-  path: '/api/v1/auth/refresh',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-});
+  signed: true,                           // signed by SESSION_SECRET (cookie-parser)
+  path: '/',
+  maxAge: 24 * 60 * 60 * 1000,            // 24h sliding (re-set by /refresh)
+}
 ```
 
-**JWT strategy:** RS256 public key from file. Extract from cookie OR header.
-**Auth service:** bcrypt 10 rounds, `maskEmail()` utility for logging.
+**Redis layout:**
+```
+session:{uuid}                → JSON payload (account_id, login_id, role_code, permissions[], …)  EX 24h
+account_sessions:{account_id} → Set of session_ids owned by that account  EX 24h
+```
+
+**SessionService API:** `create(payload) → sessionId` · `get(id) → payload | null` · `touch(id)` (sliding refresh) · `destroy(id)` · `destroyAllForAccount(accountId)` (used by password reset + admin revoke).
+
+**RedisModule:** `@Global()` ioredis client. Local = `redis://redis:6379`. Prod = `REDIS_URL=rediss://<elasticache>:6379` + `REDIS_TLS=true`.
+
+**Auth service:** bcrypt 10 rounds (`bcryptjs`), `maskEmail()` utility for logging, never logs full session IDs.
 
 ### 2.6 modules/health/
 
@@ -1015,10 +1046,17 @@ DB_USERNAME=postgres
 DB_PASSWORD=postgres
 DB_NAME=${ARGUMENTS}_dev
 
-JWT_PRIVATE_KEY_PATH=/app/certs/dev-private.pem
-JWT_PUBLIC_KEY_PATH=/app/certs/dev-public.pem
-JWT_ACCESS_EXPIRY=24h
-JWT_REFRESH_EXPIRY=7d
+# Auth: Session (HTTP-only Cookie, Redis-backed).
+# Prod: set REDIS_URL to AWS ElastiCache primary endpoint + REDIS_TLS=true
+# and load SESSION_SECRET from AWS Secrets Manager.
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_TLS=false
+# REDIS_URL=
+SESSION_COOKIE_NAME=session_id
+SESSION_SECRET=dev-session-secret-please-rotate-in-production
+SESSION_TTL_SECONDS=86400
 
 STORAGE_PROVIDER=minio
 STORAGE_ENDPOINT=http://minio:9000
@@ -1050,11 +1088,11 @@ VITE_APP_TITLE=$ARGUMENTS
 
 ### 5.4 scripts/generate-certs.sh
 
-Uses `mkcert` for SSL + `openssl` for JWT RS256:
+Uses `mkcert` for local HTTPS:
 - SSL cert for: `$ARGUMENTS.local`, `*.$ARGUMENTS.local`, localhost, 127.0.0.1, ::1
-- JWT: RSA 2048-bit key pair
 - Output to: `apps/docker/certs/`
 - Follow shell-script rules: shebang, `set -euo pipefail`, script header, exit codes, dependency check
+- Auth uses session cookies (no JWT keys needed).
 
 ### 5.5 scripts/setup-hosts.sh
 
@@ -1194,8 +1232,10 @@ Before reporting done:
 - MUST use ConfigService for all backend configuration
 - MUST use `synchronize: false` + `migrationsRun: true` (NEVER synchronize models directly)
 - MUST create `data-source.ts` for CLI migration commands
-- MUST use JWT RS256 (never HS256)
-- MUST store access token in memory only (Pinia ref, never localStorage)
+- MUST use HTTP-only Cookie session backed by Redis (`HttpOnly`+`Secure`+`SameSite=Strict`, signed with `SESSION_SECRET`)
+- MUST NOT put session IDs, tokens, or credentials in `localStorage` / `sessionStorage` — auth flows entirely through the cookie
+- MUST set `withCredentials: true` on frontend axios/Orval + `credentials: true` on backend CORS
+- MUST configure `cookie-parser(SESSION_SECRET)` at bootstrap so `req.signedCookies` works
 - All Vue components: `<script setup lang="ts">` only
 - All API calls: via Orval-generated client (no manual axios to backend)
 - Storage and Mail: provider abstraction (interface + swappable implementations)

@@ -18,6 +18,7 @@ updated_by: Nguyen Truong An
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 |---|---|---|---|---|---|---|
 | 1 | 2026/04/13 | 1.0 | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/04/21 | 1.1 | Nguyen Truong An | 更新エラーメッセージ | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -52,7 +53,7 @@ updated_by: Nguyen Truong An
 | 5 | 共通 | TOO_MANY_REQUESTS | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 6 | 共通 | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 | HTTP 500 |
 | 7 | 画面固有 | INVALID_CREDENTIALS | ユーザーIDまたはパスワードが正しくありません。 | HTTP 401 |
-| 8 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。 | HTTP 403 |
+| 8 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。 | HTTP 401 |
 | 9 | 画面固有 | INVALID_OTP | 認証コードが正しくありません。 | HTTP 401 |
 | 10 | 画面固有 | OTP_EXPIRED | 認証コードの有効期限が切れました。再度ログインしてください。 | HTTP 401 |
 | 11 | 画面固有 | OTP_MAX_ATTEMPTS | 認証コードの入力回数が上限に達しました。再度ログインしてください。 | HTTP 401 |
@@ -75,7 +76,7 @@ updated_by: Nguyen Truong An
 | リクエストボディー | JSON |
 | リクエストパラメーター | |
 | ヘッダ | Content-Type: application/json |
-| HTTPレスポンスコード | 200:認証成功（MFA不要時はトークン返却、MFA必要時はmfa_required返却）, 400:リクエストパラメータが不正です, 401:認証失敗, 403:アカウントロック, 429:レート制限, 500:システムエラーが発生しました|
+| HTTPレスポンスコード | 200:認証成功（MFA不要時はトークン返却、MFA必要時はmfa_required返却）, 400:リクエストパラメータが不正です, 401:認証失敗, 429:レート制限, 500:システムエラーが発生しました|
 
 ## リクエストパラメータ
 
@@ -92,21 +93,22 @@ updated_by: Nguyen Truong An
 |---|---|---|---|---|---|---|
 | 1 | data | Object | - | | - | |
 | 2 | →mfa_required | Boolean | - | | - | MFA必要フラグ（false） |
-| 3 | →access_token | String | - | | - | アクセストークン（JWT RS256、24時間有効） |
-| 4 | →user | Object | - | | - | ユーザー情報 |
-| 5 | →→account_id | Number | - | | - | アカウントID |
-| 6 | →→login_id | String | - | | - | ログインID |
-| 7 | →→account_name | String | - | | - | アカウント名 |
-| 8 | →→role_id | Number | - | | - | ロールID |
-| 9 | →→role_code | String | - | | - | ロールコード |
-| 10 | →→role_name | String | - | | - | ロール名 |
-| 11 | →→ja_id | Number | - | | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
-| 12 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
-| 13 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。|
-| 14 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 15 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 16 | →→email | String | - | | - | メールアドレス |
-| 17 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+| 3 | →user | Object | - | | - | ユーザー情報 |
+| 4 | →→account_id | Number | - | | - | アカウントID |
+| 5 | →→login_id | String | - | | - | ログインID |
+| 6 | →→account_name | String | - | | - | アカウント名 |
+| 7 | →→role_id | Number | - | | - | ロールID |
+| 8 | →→role_code | String | - | | - | ロールコード |
+| 9 | →→role_name | String | - | | - | ロール名 |
+| 10 | →→ja_id | Number | - | | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
+| 11 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
+| 12 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。|
+| 13 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 14 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 15 | →→email | String | - | | - | メールアドレス |
+| 16 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+
+※ 認証情報（セッションID）はレスポンスボディではなくHTTP-only Cookieで返却する。
 
 ### MFA必要の場合
 
@@ -136,7 +138,6 @@ POST /api/v1/auth/login
 {
   "data": {
     "mfa_required": false,
-    "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
     "user": {
       "account_id": 1,
       "login_id": "admin01",
@@ -165,7 +166,7 @@ POST /api/v1/auth/login
 }
 ```
 
-※ レスポンスヘッダにリフレッシュトークンをHTTP-only Cookie（Secure + SameSite=Strict、7日間有効）として設定する。
+※ レスポンスヘッダにセッションID（UUID v4）をHTTP-only Cookie（Secure + SameSite=Strict、24時間有効）として設定する。
 
 ### MFA必要の場合
 
@@ -190,30 +191,21 @@ POST /api/v1/auth/login
 }
 ```
 
+### 401 Unauthorized — Account Locked
+
+```json
+{
+  "error_code": "ACCOUNT_LOCKED",
+  "message": "アカウントがロックされています"
+}
+```
+
 ### 400 Bad Request
 
 ```json
 {
   "error_code": "BAD_REQUEST",
   "message": "リクエストパラメータが不正です"
-}
-```
-
-### 401 Unauthorized — Invalid Credentials
-
-```json
-{
-  "error_code": "INVALID_CREDENTIALS",
-  "message": "ユーザーIDまたはパスワードが正しくありません"
-}
-```
-
-### 403 Forbidden — Account Locked
-
-```json
-{
-  "error_code": "ACCOUNT_LOCKED",
-  "message": "アカウントがロックされています"
 }
 ```
 
@@ -237,6 +229,10 @@ POST /api/v1/auth/login
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 - リクエストボディの検証：
   - login_id：必須、最大20文字、半角文字のみ
@@ -247,11 +243,9 @@ POST /api/v1/auth/login
 - 以下の条件でアカウントを取得する。
 ```sql
 SELECT a.account_id, a.login_id, a.password_hash, a.account_name,
-       a.role_id, a.ja_id, a.kanri_shiten_id, a.todofuken_code,
        a.paper_flg, a.denshi_flg, a.email, a.mfa_enable_flg,
        a.login_failure_count, a.account_lock_flg,
        r.role_code, r.role_name
-FROM m_account a
 INNER JOIN m_roles r ON a.role_id = r.role_id AND r.deleted_at IS NULL
 WHERE a.login_id = :login_id
   AND a.deleted_at IS NULL
@@ -267,8 +261,8 @@ ORDER BY p.permission_id ASC
 ```
 - レコードが存在しない場合：HTTP 401 (`INVALID_CREDENTIALS`)
   - ※セキュリティ上、アカウント不存在と認証失敗を区別しない
-- アカウントロックフラグが true の場合：HTTP 401 (`INVALID_CREDENTIALS`)
-  - ※セキュリティ上、ロック中でも統一メッセージを返却する
+- アカウントロックフラグが true の場合：HTTP 401 (`ACCOUNT_LOCKED`)
+  - ロック中であることを明示的に通知する
 - パスワード照合：`bcrypt.compare(入力パスワード, password_hash)`
 - パスワード不一致の場合：
   - ログイン失敗回数をインクリメントする。
@@ -294,9 +288,9 @@ WHERE account_id = :account_id
 
 ### 4.4 MFA判定・OTP送信
 - `mfa_enable_flg = false` の場合：
-  - アクセストークン（JWT RS256、24時間有効）を生成する。
-  - リフレッシュトークン（7日間有効）をHTTP-only Cookie（Secure + SameSite=Strict）で設定する。
-  - ユーザー情報とアクセストークンを返却する。
+  - セッションを生成し、Redisに保存する（TTL 24時間、キー: session:{session_id}）。
+  - セッションID（UUID v4）をHTTP-only Cookie（Secure + SameSite=Strict、24時間有効）として設定する。
+  - ユーザー情報を返却する。
 - `mfa_enable_flg = true` の場合：
   - 既存の未使用OTPを無効化する。
 ```sql
@@ -334,7 +328,7 @@ VALUES (NOW(), :account_id, :login_id,
 - account_id: アカウントが特定できない場合はNULL。
 
 ### 4.6 レスポンス生成
-- MFA不要の場合：アクセストークン + ユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
+- MFA不要の場合：ユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
 - MFA必要の場合：`mfa_required: true` + `mfa_token` + `expires_in` を返却する。HTTP 200。
 
 ### 4.7 例外処理
@@ -378,21 +372,22 @@ VALUES (NOW(), :account_id, :login_id,
 | # | 項目ID | タイプ | 繰り返し | フォーマット | Nullable | 説明 |
 |---|---|---|---|---|---|---|
 | 1 | data | Object | - | | - | |
-| 2 | →access_token | String | - | | - | アクセストークン（JWT RS256、24時間有効） |
-| 3 | →user | Object | - | | - | ユーザー情報 |
-| 4 | →→account_id | Number | - | | - | アカウントID |
-| 5 | →→login_id | String | - | | - | ログインID |
-| 6 | →→account_name | String | - | | - | アカウント名 |
-| 7 | →→role_id | Number | - | | - | ロールID |
-| 8 | →→role_code | String | - | | - | ロールコード |
-| 9 | →→role_name | String | - | | - | ロール名 |
-| 10 | →→ja_id | Number | - | | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
-| 11 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
-| 12 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする |
-| 13 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 14 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 15 | →→email | String | - | | - | メールアドレス |
-| 16 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+| 2 | →user | Object | - | | - | ユーザー情報 |
+| 3 | →→account_id | Number | - | | - | アカウントID |
+| 4 | →→login_id | String | - | | - | ログインID |
+| 5 | →→account_name | String | - | | - | アカウント名 |
+| 6 | →→role_id | Number | - | | - | ロールID |
+| 7 | →→role_code | String | - | | - | ロールコード |
+| 8 | →→role_name | String | - | | - | ロール名 |
+| 9 | →→ja_id | Number | - | | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
+| 10 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
+| 11 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする |
+| 12 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 13 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 14 | →→email | String | - | | - | メールアドレス |
+| 15 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+
+※ 認証情報（セッションID）はレスポンスボディではなくHTTP-only Cookieで返却する。
 
 ## リクエスト例
 
@@ -410,7 +405,6 @@ POST /api/v1/auth/mfa/verify
 ```json
 {
   "data": {
-    "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
     "user": {
       "account_id": 3,
       "login_id": "chuokai01",
@@ -434,7 +428,7 @@ POST /api/v1/auth/mfa/verify
 }
 ```
 
-※ レスポンスヘッダにリフレッシュトークンをHTTP-only Cookie（Secure + SameSite=Strict、7日間有効）として設定する。
+※ レスポンスヘッダにセッションID（UUID v4）をHTTP-only Cookie（Secure + SameSite=Strict、24時間有効）として設定する。
 
 ## レスポンス失敗例
 
@@ -493,6 +487,10 @@ POST /api/v1/auth/mfa/verify
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 - リクエストボディの検証：
   - mfa_token：必須
@@ -503,11 +501,9 @@ POST /api/v1/auth/mfa/verify
 - mfa_tokenからOTPレコードを特定する（サーバー側で管理されたmfa_token → otp_idのマッピング）。
 - MFAトークンが無効または存在しない場合：HTTP 401 (`INVALID_MFA_TOKEN`)
 - 対応するOTPレコードを取得する。
-```sql
 SELECT o.otp_id, o.account_id, o.otp_code_hash, o.expired_at,
        o.verify_attempt_count, o.resend_count, o.used_flg
 FROM t_mfa_otp o
-WHERE o.otp_id = :otp_id
   AND o.used_flg = false
   AND o.otp_type = 1
 ```
@@ -563,8 +559,8 @@ WHERE rp.role_id = :role_id
   AND rp.deleted_at IS NULL
 ORDER BY p.permission_id ASC
 ```
-- アクセストークン（JWT RS256、24時間有効）を生成する。
-- リフレッシュトークン（7日間有効）をHTTP-only Cookie（Secure + SameSite=Strict）で設定する。
+- セッションを生成し、Redisに保存する（TTL 24時間、キー: session:{session_id}）。
+- セッションID（UUID v4）をHTTP-only Cookie（Secure + SameSite=Strict、24時間有効）として設定する。
 
 ### 4.5 ログインログ記録
 - MFA認証成功をログインログに記録する。
@@ -578,7 +574,7 @@ VALUES (NOW(), :account_id, :login_id,
 ```
 
 ### 4.6 レスポンス生成
-- アクセストークン + ユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
+- ユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
 
 ### 4.7 例外処理
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
@@ -688,6 +684,10 @@ POST /api/v1/auth/mfa/resend
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 - リクエストボディの検証：
 - mfa_token：必須
@@ -698,11 +698,9 @@ POST /api/v1/auth/mfa/resend
 - MFAトークンが無効または存在しない場合：HTTP 401 (`INVALID_MFA_TOKEN`)
 - 対応するOTPレコードを取得する。
 ```sql
-SELECT o.otp_id, o.account_id, o.resend_count, o.used_flg, o.created_at
 FROM t_mfa_otp o
 WHERE o.otp_id = :otp_id
   AND o.used_flg = false
-  AND o.otp_type = 1
 ```
 - レコードが存在しない場合：HTTP 401 (`INVALID_MFA_TOKEN`)
 
@@ -756,46 +754,47 @@ WHERE account_id = :account_id
 | 項目 | 内容 |
 |---|---|
 | API名 | Refresh Token |
-| 概要 | リフレッシュトークン（HTTP-only Cookie）を使用してアクセストークンを再発行する |
+| 概要 | HTTP-only Cookieのセッションを検証し、ユーザー情報を返却しセッション有効期限を延長する |
 | URI | /api/v1/auth/refresh |
 | メソッド | POST |
 | リクエストボディー | なし |
 | リクエストパラメーター | |
-| ヘッダ | Content-Type: application/json<br>※ リフレッシュトークンはHTTP-only Cookieにより自動的に送信される |
-| HTTPレスポンスコード | 200:トークン再発行成功, 401:リフレッシュトークン無効・期限切れ, 500:システムエラーが発生しました |
+| ヘッダ | Content-Type: application/json  ※ セッションIDはHTTP-only Cookieにより自動的に送信される |
+| HTTPレスポンスコード | 200:セッション延長成功, 401:セッション無効・期限切れ, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
 | # | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明 |
 |---|---|---|---|---|---|---|---|
-| - | （なし） | - | - | - | - | - | リフレッシュトークンはHTTP-only Cookieで送信される |
+| - | （なし） | - | - | - | - | - | セッションIDはHTTP-only Cookieで送信される |
 
 ## レスポンスデータ
 
 | # | 項目ID | タイプ | 繰り返し | フォーマット | Nullable | 説明 |
 |---|---|---|---|---|---|---|
 | 1 | data | Object | - | | - | |
-| 2 | →access_token | String | - | | - | 新しいアクセストークン（JWT RS256、24時間有効） |
-| 3 | →user | Object | - | | - | ユーザー情報 |
-| 4 | →→account_id | Number | - | | - | アカウントID |
-| 5 | →→login_id | String | - | | - | ログインID |
-| 6 | →→account_name | String | - | | - | アカウント名 |
-| 7 | →→role_id | Number | - | | - | ロールID |
-| 8 | →→role_code | String | - | | - | ロールコード |
-| 9 | →→role_name | String | - | | - | ロール名 |
-| 10 | →→ja_id | Number | - | | 〇 | JA ID（日農はNULL） |
-| 11 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
-| 12 | →→todofuken_code | String | - | | 〇 | 都道府県コード |
-| 13 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 14 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 15 | →→email | String | - | | - | メールアドレス |
-| 16 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+| 2 | →user | Object | - | | - | ユーザー情報 |
+| 3 | →→account_id | Number | - | | - | アカウントID |
+| 4 | →→login_id | String | - | | - | ログインID |
+| 5 | →→account_name | String | - | | - | アカウント名 |
+| 6 | →→role_id | Number | - | | - | ロールID |
+| 7 | →→role_code | String | - | | - | ロールコード |
+| 8 | →→role_name | String | - | | - | ロール名 |
+| 9 | →→ja_id | Number | - | | 〇 | JA ID（日農はNULL） |
+| 10 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
+| 11 | →→todofuken_code | String | - | | 〇 | 都道府県コード |
+| 12 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 13 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 14 | →→email | String | - | | - | メールアドレス |
+| 15 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+
+※ セッション延長成功時、セッションCookieの有効期限（Max-Age）をRedis TTLと合わせて24時間延長する。
 
 ## リクエスト例
 
 ```
 POST /api/v1/auth/refresh
-Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
+Cookie: session_id=550e8400-e29b-41d4-a716-446655440000
 ```
 
 ## レスポンス成功例
@@ -803,7 +802,6 @@ Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
 ```json
 {
   "data": {
-    "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
     "user": {
       "account_id": 1,
       "login_id": "admin01",
@@ -854,21 +852,23 @@ Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
-- HTTP-only CookieからリフレッシュトークンをJWT RS256で検証する。
-- トークンが存在しない、または署名検証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- トークンが期限切れの場合：HTTP 401 (`UNAUTHORIZED`)
+- HTTP-only Cookieからセッション ID を取得し、Redisから対応するセッションを検証する。
+- セッション ID が存在しない、またはRedisにセッションが見つからない場合：HTTP 401 (`UNAUTHORIZED`)
+- セッションの有効期限が切れている場合：HTTP 401 (`UNAUTHORIZED`)
 
 ### 4.2 アカウント確認
-- リフレッシュトークンからaccount_idを取得する。
+- セッションからaccount_idを取得する。
 - アカウントの存在と有効性を確認する。
 ```sql
 SELECT a.account_id, a.login_id, a.account_name,
-       a.role_id, a.ja_id, a.kanri_shiten_id, a.todofuken_code,
        a.paper_flg, a.denshi_flg, a.email,
        r.role_code, r.role_name
 FROM m_account a
-INNER JOIN m_roles r ON a.role_id = r.role_id AND r.deleted_at IS NULL
 WHERE a.account_id = :account_id
   AND a.deleted_at IS NULL
   AND a.account_lock_flg = false
@@ -885,11 +885,11 @@ ORDER BY p.permission_id ASC
 ```
 
 ### 4.3 トークン再発行
-- 新しいアクセストークン（JWT RS256、24時間有効）を生成する。
-- 新しいリフレッシュトークン（7日間有効）をHTTP-only Cookie（Secure + SameSite=Strict）で設定する（トークンローテーション）。
+- 新しいセッションを生成し、Redisに保存する（TTL 24時間、キー: session:{session_id}）。
+- セッションIDをローテーションし、HTTP-only Cookie（Secure + SameSite=Strict、24時間有効）として再設定する。
 
 ### 4.4 レスポンス生成
-- 新しいアクセストークン + ユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
+- 新しいユーザー情報を `data` オブジェクトとして返却する。HTTP 200。
 
 ### 4.5 例外処理
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
@@ -903,19 +903,19 @@ ORDER BY p.permission_id ASC
 | 項目 | 内容 |
 |---|---|
 | API名 | Logout |
-| 概要 | ログアウト処理を行い、リフレッシュトークンCookieを削除する |
+| 概要 | ログアウト処理を行い、Redisからセッションを削除し、セッションCookieを削除する |
 | URI | /api/v1/auth/logout |
 | メソッド | POST |
 | リクエストボディー | なし |
 | リクエストパラメーター | |
-| ヘッダ | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される |
+| ヘッダ | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される |
 | HTTPレスポンスコード | 200:ログアウト成功, 500:システムエラーが発生しました|
 
 ## リクエストパラメータ
 
 | # | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明 |
 |---|---|---|---|---|---|---|---|
-| - | （なし） | - | - | - | - | - | リフレッシュトークンはHTTP-only Cookieで送信される |
+| - | （なし） | - | - | - | - | - | セッションIDはHTTP-only Cookieで送信される |
 
 ## レスポンスデータ
 
@@ -927,7 +927,7 @@ ORDER BY p.permission_id ASC
 
 ```
 POST /api/v1/auth/logout
-Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
+Cookie: session_id=550e8400-e29b-41d4-a716-446655440000
 ```
 
 ## レスポンス成功例
@@ -951,16 +951,20 @@ Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
 
 ## 処理手順
 
-### 4.1 リフレッシュトークンCookie削除
-- レスポンスヘッダでリフレッシュトークンCookieを削除する（Max-Age=0）。
-- ※ 認証情報が無い場合やトークンが無効な場合でも、正常にログアウトを完了する（エラーにしない）。
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
+### 4.1 セッション削除
+- Redisからセッションを削除する（DEL session:{session_id}）。
+- レスポンスヘッダでセッションCookieを削除する（Max-Age=0）。
+- ※ 認証情報が無い場合やセッションが既に無効な場合でも、正常にログアウトを完了する（エラーにしない）。
 
 ### 4.2 レスポンス生成
 - `message: "正常にログアウトしました"` を返却する。HTTP 200。
 
 ### 4.3 例外処理
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
-
 ---
 
 # API ACSMS-API-001-006
@@ -976,7 +980,7 @@ Cookie: refresh_token=eyJhbGciOiJSUzI1NiIs...
 | リクエストボディー | なし |
 | リクエストパラメーター | クエリパラメータ |
 | ヘッダ | Content-Type: application/json |
-| HTTPレスポンスコード | 200:正常にお知らせ一覧を取得しました, 500:システムエラーが発生しました|
+| HTTPレスポンスコード | 200:正常にお知らせ一覧を取得しました, 400:リクエストパラメータが不正です, 500:システムエラーが発生しました|
 
 ## リクエストパラメータ
 
@@ -1034,6 +1038,15 @@ GET /api/v1/oshirase/public?publish_location=1&limit=10
 ```
 
 ## レスポンス失敗例
+
+### 400 Bad Request
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "リクエストパラメータが不正です"
+}
+```
 
 ### 500 Internal Server Error
 

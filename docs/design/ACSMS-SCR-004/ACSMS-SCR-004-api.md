@@ -42,15 +42,17 @@ updated_by: Nguyen Duyen Manh
 
 ## エラー一覧
 
-| #   | エラータイプ          | エラーコード          | エラーメッセージ                                                   |
-| --- | --------------------- | --------------------- | ------------------------------------------------------------------ |
-| 1   | UNAUTHORIZED          | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                 |
-| 2   | FORBIDDEN             | FORBIDDEN             | この画面へのアクセス権限がありません。                             |
-| 3   | BAD_REQUEST           | BAD_REQUEST           | リクエストパラメータが不正です。                                   |
-| 4   | VALIDATION_ERROR      | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。       |
-| 5   | NOT_FOUND             | NOT_FOUND             | 指定されたJAが見つかりません。                                     |
-| 6   | CONFLICT              | CONFLICT              | 関連データが存在するため削除できません。                           |
-| 7   | INTERNAL_SERVER_ERROR | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 |
+| #   | エラータイプ | エラーコード          | エラーメッセージ                                                       | 備考     |
+| --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
+| 2   | 共通         | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                     | HTTP 401 |
+| 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
+| 4   | 共通         | DATA_SCOPE_VIOLATION  | このデータへのアクセス権限がありません。                               | HTTP 403 |
+| 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
+| 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 8   | 画面固有     | NOT_FOUND             | 指定されたJAが見つかりません。                                         | HTTP 404 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                               | HTTP 409 |
 
 ---
 
@@ -88,12 +90,12 @@ updated_by: Nguyen Duyen Manh
 | 2   | →ja_id          | Number | -        |              | -        | JA ID                             |
 | 3   | →ja_code        | String | -        |              | -        | JAコード                          |
 | 4   | →ja_name        | String | -        |              | -        | JA名                              |
-| 5   | →yubin_no       | String | -        |              | 〇       | 郵便番号                          |
-| 6   | →todofuken_code | String | -        |              | 〇       | 都道府県コード                    |
-| 7   | →todofuken_name | String | -        |              | 〇       | 都道府県名（m_todofukenからJOIN） |
-| 8   | →tel            | String | -        |              | 〇       | 電話番号                          |
-| 9   | →address        | String | -        |              | 〇       | 住所                              |
-| 10  | →fax            | String | -        |              | 〇       | FAX番号                           |
+| 5   | →yubin_no       | String | -        |              | -         | 郵便番号                          |
+| 6   | →todofuken_code | String | -        |              | -        | 都道府県コード                    |
+| 7   | →todofuken_name | String | -        |              | -        | 都道府県名（m_todofukenからJOIN） |
+| 8   | →tel            | String | -        |              | -         | 電話番号                          |
+| 9   | →address        | String | -        |              | -         | 住所                              |
+| 10  | →fax            | String | -        |              | -         | FAX番号                           |
 | 11  | meta            | Object | -        |              | -        | ページング情報                    |
 | 12  | →total          | Number | -        |              | -        | 総件数                            |
 | 13  | →page           | Number | -        |              | -        | 現在のページ番号                  |
@@ -202,7 +204,7 @@ GET /api/v1/ja?ja_name=東京&page=1&per_page=20&sort_by=ja_code&sort_order=asc
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：ja.view を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）
@@ -368,6 +370,10 @@ DELETE /api/v1/ja/5
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -378,11 +384,9 @@ DELETE /api/v1/ja/5
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：ja.delete を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）
-- 権限がない場合：HTTP 403 Forbidden
 
 ### 4.3 データ取得条件の設定
 

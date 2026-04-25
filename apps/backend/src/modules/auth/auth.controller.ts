@@ -7,25 +7,13 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
-
-const REFRESH_COOKIE = 'refresh_token';
-const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-function refreshCookieOptions(isProd: boolean) {
-  return {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'strict' as const,
-    path: '/api/v1/auth',
-    maxAge: REFRESH_COOKIE_MAX_AGE_MS,
-  };
-}
 
 function clientContext(req: Request) {
   return {
@@ -37,7 +25,18 @@ function clientContext(req: Request) {
 @ApiTags('auth')
 @Controller('api/v1/auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  private readonly cookieName: string;
+  private readonly ttlSeconds: number;
+  private readonly isProd: boolean;
+
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {
+    this.cookieName = this.configService.get<string>('session.cookieName') ?? 'session_id';
+    this.ttlSeconds = this.configService.get<number>('session.ttlSeconds') ?? 24 * 60 * 60;
+    this.isProd = this.configService.get<string>('nodeEnv') === 'production';
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -45,7 +44,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with login_id and password' })
   @ApiResponse({
     status: 200,
-    description: 'MFA required (mfa_required=true) or login success (tokens returned)',
+    description:
+      'MFA required (mfa_required=true) OR login success (session cookie set, user returned)',
   })
   async login(
     @Body() dto: LoginDto,
@@ -62,18 +62,8 @@ export class AuthController {
         },
       };
     }
-    res.cookie(
-      REFRESH_COOKIE,
-      result.refresh_token,
-      refreshCookieOptions(process.env.NODE_ENV === 'production'),
-    );
-    return {
-      data: {
-        mfa_required: false,
-        access_token: result.access_token,
-        user: result.user,
-      },
-    };
+    this.setSessionCookie(res, result.session_id);
+    return { data: { mfa_required: false, user: result.user } };
   }
 
   @Post('mfa/verify')
@@ -90,17 +80,8 @@ export class AuthController {
       dto.otp_code,
       clientContext(req),
     );
-    res.cookie(
-      REFRESH_COOKIE,
-      result.refresh_token,
-      refreshCookieOptions(process.env.NODE_ENV === 'production'),
-    );
-    return {
-      data: {
-        access_token: result.access_token,
-        user: result.user,
-      },
-    };
+    this.setSessionCookie(res, result.session_id);
+    return { data: { user: result.user } };
   }
 
   @Post('mfa/resend')
@@ -114,26 +95,55 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Refresh access token via cookie' })
-  async refresh(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const cookie = req.cookies?.[REFRESH_COOKIE];
-    const result = await this.authService.refreshToken(cookie);
-    res.cookie(
-      REFRESH_COOKIE,
-      result.refresh_token,
-      refreshCookieOptions(process.env.NODE_ENV === 'production'),
-    );
-    return { data: { access_token: result.access_token, user: result.user } };
+  @ApiOperation({
+    summary: 'Extend the session TTL by another 24h and return the user profile',
+  })
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const sessionId = this.readSessionId(req);
+    const user = await this.authService.refreshSession(sessionId);
+    // Re-issue the cookie so the browser extends its Max-Age too.
+    if (sessionId) this.setSessionCookie(res, sessionId);
+    return { data: { user } };
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Logout and clear refresh token cookie' })
-  async logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/api/v1/auth' });
+  @ApiOperation({ summary: 'Destroy the Redis session and clear the cookie' })
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const sessionId = this.readSessionId(req);
+    await this.authService.logout(sessionId);
+    this.clearSessionCookie(res);
     return { message: '正常にログアウトしました' };
+  }
+
+  // ─── Cookie helpers ───────────────────────────────────────────────────────
+
+  private setSessionCookie(res: Response, sessionId: string): void {
+    res.cookie(this.cookieName, sessionId, this.cookieOptions());
+  }
+
+  private clearSessionCookie(res: Response): void {
+    res.clearCookie(this.cookieName, {
+      ...this.cookieOptions(),
+      maxAge: 0,
+    });
+  }
+
+  private readSessionId(req: Request): string | undefined {
+    const signed = req.signedCookies?.[this.cookieName];
+    if (typeof signed === 'string') return signed;
+    const plain = req.cookies?.[this.cookieName];
+    return typeof plain === 'string' ? plain : undefined;
+  }
+
+  private cookieOptions(): CookieOptions {
+    return {
+      httpOnly: true,
+      secure: this.isProd,
+      sameSite: 'strict',
+      signed: true,
+      path: '/',
+      maxAge: this.ttlSeconds * 1000,
+    };
   }
 }

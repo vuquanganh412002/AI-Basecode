@@ -3,7 +3,6 @@ import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
-import BasePageHeader from '@/components/common/BasePageHeader.vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
@@ -135,8 +134,6 @@ function mockRows(): TankaRow[] {
 
 <template>
   <div class="space-y-6">
-    <BasePageHeader title="単価マスタ明細検索画面" />
-
     <BaseSearchForm
       :loading="loading"
       :columns="2"

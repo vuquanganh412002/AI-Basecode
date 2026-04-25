@@ -3,15 +3,22 @@ import { defineStore } from 'pinia';
 import * as authApi from '@/api/auth/auth';
 import type { User } from '@/types';
 
+/**
+ * Auth store.
+ *
+ * Authentication is handled entirely by the HTTP-only session cookie issued
+ * by the backend (Redis-backed, 24h sliding TTL). The session ID is not
+ * accessible from JavaScript, so this store only keeps the decoded `user`
+ * object — `isAuthenticated` is derived from its presence.
+ */
 export type LoginOutcome =
   | { mfa_required: true; mfa_token: string; expires_in: number }
   | { mfa_required: false; user: User };
 
 export const useAuthStore = defineStore('auth', () => {
-  const accessToken = ref<string | null>(null);
   const user = ref<User | null>(null);
 
-  const isAuthenticated = computed(() => !!accessToken.value && !!user.value);
+  const isAuthenticated = computed(() => !!user.value);
 
   async function login(credentials: {
     login_id: string;
@@ -25,14 +32,13 @@ export const useAuthStore = defineStore('auth', () => {
         expires_in: data.expires_in,
       };
     }
-    accessToken.value = data.access_token;
+    // Session cookie set by the server; we only cache the user info.
     user.value = data.user;
     return { mfa_required: false, user: data.user };
   }
 
   async function verifyMfa(mfaToken: string, otpCode: string): Promise<User> {
     const data = await authApi.verifyMfa({ mfa_token: mfaToken, otp_code: otpCode });
-    accessToken.value = data.access_token;
     user.value = data.user;
     return data.user;
   }
@@ -41,14 +47,25 @@ export const useAuthStore = defineStore('auth', () => {
     return authApi.resendMfa(mfaToken);
   }
 
-  async function refreshToken(): Promise<boolean> {
+  /**
+   * Extend the session TTL and rehydrate the cached user payload.
+   *
+   * Called on:
+   *  - App boot (main.ts) — cookie exists but Pinia is empty, need to
+   *    ask the backend "who am I?" before the SPA can decide where to route.
+   *  - Explicit re-sync when permissions/role may have changed server-side.
+   *
+   * NOT called on 401: with an HTTP-only session cookie there is no
+   * recoverable state to refresh — the error handler redirects to /login
+   * directly. Returns false if the session has already expired so the
+   * boot path can send the user to /login.
+   */
+  async function refreshSession(): Promise<boolean> {
     try {
       const data = await authApi.refresh();
-      accessToken.value = data.access_token;
       user.value = data.user;
       return true;
     } catch {
-      accessToken.value = null;
       user.value = null;
       return false;
     }
@@ -58,7 +75,6 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await authApi.logout();
     } finally {
-      accessToken.value = null;
       user.value = null;
     }
   }
@@ -68,13 +84,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    accessToken,
     user,
     isAuthenticated,
     login,
     verifyMfa,
     resendMfa,
-    refreshToken,
+    refreshSession,
     logout,
     hasPermission,
   };

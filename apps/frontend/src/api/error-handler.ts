@@ -9,7 +9,8 @@ import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
  * Strategy:
  *  - Auth endpoints (login / mfa/*): never redirect to /login — surface toast and let the
  *    calling form handle field-level errors.
- *  - `UNAUTHORIZED` outside auth endpoints: try silent refresh; fail → redirect to /login.
+ *  - `UNAUTHORIZED` outside auth endpoints: session is dead (HTTP-only cookie session,
+ *    no token to refresh) → clear user state, redirect to /login with `redirect` query.
  *  - `FORBIDDEN`: redirect to /403 (screen-level deny).
  *  - `VALIDATION_ERROR`: do NOT toast — caller's form handler maps `errors[]`.
  *  - All other common codes: show a user-friendly toast.
@@ -51,12 +52,23 @@ export async function handleApiError(
       await router.push({ name: 'Login' });
       break;
 
-    case ErrorCode.UNAUTHORIZED:
+    case ErrorCode.UNAUTHORIZED: {
       if (isAuthEndpoint) {
         message.error(data.message);
         break;
       }
-      return handleUnauthorized(error);
+      // With HTTP-only session cookies the server's 401 means the Redis session
+      // is already gone (expired or revoked). There is no refresh token to
+      // swap in — retrying /auth/refresh would send the same dead cookie and
+      // also 401. Clear cached user + redirect straight to /login.
+      const { useAuthStore } = await import('@/stores/auth.store');
+      useAuthStore().user = null;
+      await router.push({
+        name: 'Login',
+        query: { redirect: router.currentRoute.value.fullPath },
+      });
+      break;
+    }
 
     case ErrorCode.FORBIDDEN:
       await router.push({ name: 'Forbidden' });
@@ -88,25 +100,4 @@ export async function handleApiError(
   }
 
   return Promise.reject(error);
-}
-
-async function handleUnauthorized(
-  error: AxiosError<ApiErrorResponse>,
-): Promise<never> {
-  try {
-    const { useAuthStore } = await import('@/stores/auth.store');
-    const authStore = useAuthStore();
-    const ok = await authStore.refreshToken();
-    if (!ok) await redirectToLogin();
-  } catch {
-    await redirectToLogin();
-  }
-  return Promise.reject(error);
-}
-
-async function redirectToLogin(): Promise<void> {
-  await router.push({
-    name: 'Login',
-    query: { redirect: router.currentRoute.value.fullPath },
-  });
 }

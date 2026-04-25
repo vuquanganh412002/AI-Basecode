@@ -59,8 +59,8 @@ apps/backend/
 │   │   ├── filters/                    # Global exception filter
 │   │   │   └── global-exception.filter.ts
 │   │   ├── guards/                     # Auth guards
-│   │   │   ├── jwt-auth.guard.ts
-│   │   │   └── roles.guard.ts
+│   │   │   ├── session-auth.guard.ts
+│   │   │   └── permissions.guard.ts
 │   │   ├── interceptors/              # Response transform, logging
 │   │   ├── pipes/                     # Custom validation pipes
 │   │   └── dto/                       # Shared DTOs (pagination, etc.)
@@ -74,13 +74,16 @@ apps/backend/
 │   │   │   ├── auth.module.ts
 │   │   │   ├── auth.controller.ts
 │   │   │   ├── auth.service.ts
-│   │   │   ├── strategies/
-│   │   │   │   └── jwt.strategy.ts
+│   │   │   ├── session.service.ts     # Redis-backed session CRUD
 │   │   │   ├── dto/
 │   │   │   │   ├── login.dto.ts
 │   │   │   │   └── register.dto.ts
 │   │   │   └── exceptions/
 │   │   │       └── invalid-credentials.exception.ts
+│   │   │
+│   │   ├── redis/                     # Global ioredis client
+│   │   │   ├── redis.module.ts
+│   │   │   └── redis.service.ts
 │   │   │
 │   │   ├── users/
 │   │   │   ├── users.module.ts

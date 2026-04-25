@@ -62,7 +62,7 @@ release/v1.2.0
 ```
 feat(dokusya): add subscriber search with pagination
 
-fix(auth): correct JWT RS256 token refresh flow
+fix(auth): extend session TTL correctly on refresh endpoint
 
 docs(database): update seeder definitions
 

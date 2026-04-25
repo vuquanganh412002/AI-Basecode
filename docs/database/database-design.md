@@ -356,12 +356,13 @@ updated_by: Tran Duc Tuyen
 | 21 | yokin_shubetsu |  | INTEGER |  |  | 〇 | 預金種別（1:普通, 2:当座） |
 | 22 | koza_no |  | VARCHAR | 10 |  |  | 口座番号※空文字許容 |
 | 23 | koza_meigi |  | VARCHAR | 50 |  |  | 口座名義※空文字許容 |
-| 24 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 25 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 26 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 27 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 28 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 29 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 24 | haiten_flg |  | BOOLEAN |  |  |  | 廃店フラグ（DEFAULT false） |
+| 25 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 27 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 28 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 29 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 30 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 

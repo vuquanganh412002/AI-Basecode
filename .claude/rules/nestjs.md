@@ -225,8 +225,8 @@ async updateUser(id: string, dto: UpdateUserDto): Promise<User> {}
 ```typescript
 @ApiTags('users')
 @Controller('api/v1/users')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@ApiBearerAuth()
+@UseGuards(SessionAuthGuard, PermissionsGuard)
+@ApiCookieAuth('session_id')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -287,6 +287,41 @@ Rules: `@ApiProperty()` on ALL fields. `forbidNonWhitelisted: true`. Validate at
 ```json
 { "message": "正常に削除しました" }
 ```
+
+### Nullable field serialization (MANDATORY)
+
+API response values MUST reflect the database column's actual storage — never coerce between `null` and `""`.
+
+- Column declared **NOT NULL** (even when UI-optional) — stores `""` when empty → API returns `""`
+- Column declared **nullable** (`NULL許容=〇` in `docs/database/database-design.md`) — stores `NULL` when absent → API returns `null`
+
+TypeORM entity + response DTO must preserve the distinction:
+
+```typescript
+// ✅ Correct — entity types match DB schema
+@Entity('m_ja')
+export class Ja {
+  @Column({ type: 'text' }) biko: string;             // NOT NULL → always a string (maybe '')
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  jastemKozaNo: string | null;                        // nullable → null when absent
+  @Column({ type: 'timestamptz', nullable: true })
+  updatedAt: Date | null;
+}
+
+// ✅ Response DTO preserves the same types
+export class JaResponseDto {
+  @ApiProperty() biko: string;                        // not nullable → ''
+  @ApiProperty({ nullable: true }) jastem_koza_no: string | null;
+  @ApiProperty({ nullable: true }) updated_at: string | null;
+}
+```
+
+**Do NOT**:
+- Use `?:` (optional) on response DTO fields to hide absent values — always emit the key with the correct value (`""` or `null`). Clients rely on stable shape.
+- Transform `""` → `null` (or the reverse) in a class-transformer `@Transform` decorator. The storage contract is the source of truth.
+- Use `ClassSerializerInterceptor` with `exposeDefaultValues: true` — it can silently convert undefined to empty string and mask real nulls. Return plain entity-mapped DTOs.
+
+JSON examples in api.md MUST follow the same rule (see `.claude/skills/gen-api-doc/SKILL.md` Nullable column policy).
 
 **Error (flat format):**
 
@@ -442,6 +477,60 @@ await this.dataSource.transaction(async (manager) => {
   await manager.save(order);
   await manager.decrement(Product, { id: productId }, 'stock', 1);
 });
+```
+
+**MANDATORY — Main DML + Audit log must share one transaction:**
+
+Every CREATE / UPDATE / DELETE service method that writes to `t_log` MUST wrap the main DML AND the `AuditLogService.logOperation(...)` call inside a single `dataSource.transaction(...)` block. If either the business write or the audit INSERT fails, both must roll back so the audit trail never disagrees with actual state.
+
+```typescript
+// ✅ Correct — atomic business + audit
+async create(dto: CreateTankaDto, user: SessionPayload, req: Request): Promise<Tanka> {
+  return this.dataSource.transaction(async (manager) => {
+    const tanka = manager.create(Tanka, { ...dto, jaId: user.ja_id });
+    const saved = await manager.save(tanka);
+
+    await this.auditLog.logOperation({
+      logType: 1,
+      accountId: user.account_id,
+      jaId: user.ja_id,
+      gamenName: '単価マスタ登録画面',
+      operation: 'CREATE',
+      resultStatus: 1,
+      targetId: saved.tankaId,
+      targetTable: 'm_tanka',
+      afterValue: saved,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    }, manager);   // ← AuditLogService MUST accept an optional EntityManager
+    return saved;
+  });
+}
+
+// ❌ WRONG — audit log outside transaction: stale audit if business write rolls back
+await this.repo.save(tanka);                 // commits
+await this.auditLog.logOperation(...);       // may fail separately
+```
+
+**AuditLogService signature**: accept an optional `EntityManager` so callers can opt into the surrounding transaction. When omitted, it uses its own repository (for error-log paths below).
+
+**Error log (`log_type = 3`) runs OUTSIDE the transaction**. When the transaction is rolling back, you still need to record that an attempt happened. Catch, rollback, then log:
+
+```typescript
+try {
+  await this.dataSource.transaction(async (m) => { /* business + audit */ });
+} catch (err) {
+  // Fire-and-forget outside the rolled-back tx so the error log survives
+  await this.auditLog.logOperation({
+    logType: 3,
+    accountId: user.account_id,
+    operation: 'CREATE',
+    resultStatus: 2,
+    errorMessage: (err as Error).message,
+    ...ctx,
+  });
+  throw err;  // propagate to global exception filter
+}
 ```
 
 ### Connection Management
@@ -750,6 +839,7 @@ await this.auditLogService.logOperation({
 ### Log Rules
 - Log ALL create, update, delete operations to `t_log`
 - Log ALL login attempts (success + failure) to `t_login_log`
+- `operation` MUST be bare verb: `'CREATE'` / `'UPDATE'` / `'DELETE'`. NEVER prefix with entity or screen name (no `'JA_CREATE'`, `'TANKA_UPDATE'`). Screen context lives in `gamenName`; entity context lives in `targetTable`.
 - `beforeValue`: previous state as JSON (for UPDATE/DELETE)
 - `afterValue`: new state as JSON (for CREATE/UPDATE)
 - Never log sensitive fields (password, token) in beforeValue/afterValue
@@ -1044,7 +1134,7 @@ Rules:
 - Validate at DTO layer — NOT in Service
 - Never expose password/secrets in response DTO
 - Secrets from ConfigService (AWS Secrets Manager) — never hardcode
-- See `security.md` for: JWT RS256 (24h access + 7d refresh), MFA (email OTP), forgot/reset password, RBAC, DataScope, field-level restrictions, rate limiting
+- See `security.md` for: HTTP-only Cookie session with Redis store (24h sliding TTL), MFA (email OTP), forgot/reset password, RBAC, DataScope, field-level restrictions, rate limiting
 
 ---
 

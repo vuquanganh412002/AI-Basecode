@@ -53,7 +53,7 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND     | 指定されたアカウントが見つかりません。                                 | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | このレコードは現在使用中のため、削除できません。                       | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                       | HTTP 409 |
 
 ---
 
@@ -69,7 +69,7 @@ updated_by: Nguyen Duyen Manh
 | メソッド               | GET                                                                                                                                                                                                      |
 | リクエストボディー     | なし                                                                                                                                                                                                     |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                                         |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                   |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                   |
 | HTTPレスポンスコード   | 200:正常にアカウント一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                                   |
 
 ## リクエストパラメータ
@@ -213,7 +213,7 @@ GET /api/v1/accounts?login_id=admin&role_id=1&page=1&per_page=20&sort_by=created
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`account.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -294,8 +294,8 @@ OFFSET (:page - 1) * :per_page
 | メソッド               | DELETE                                                                                                                                                                                                                                                     |
 | リクエストボディー     | なし                                                                                                                                                                                                                                                       |
 | リクエストパラメーター | account_id（パスパラメータ）                                                                                                                                                                                                                               |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                     |
-| HTTPレスポンスコード   | 200:正常にアカウントを削除しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたアカウントが見つかりません, 409:このレコードは現在使用中のため、削除できません。, 500:システムエラーが発生しました |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                     |
+| HTTPレスポンスコード   | 200:正常にアカウントを削除しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたアカウントが見つかりません, 409:関連データが存在するため削除できません。, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -357,7 +357,7 @@ DELETE /api/v1/accounts/5
 ```json
 {
   "error_code": "CONFLICT",
-  "message": "このレコードは現在使用中のため、削除できません。"
+  "message": "関連データが存在するため削除できません。"
 }
 ```
 
@@ -372,6 +372,10 @@ DELETE /api/v1/accounts/5
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -381,12 +385,10 @@ DELETE /api/v1/accounts/5
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
-- 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 権限チェック：`account.delete` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
-- 自分自身のアカウントは削除不可とする。
 
 ### 4.3 データ取得条件の設定（存在確認・関連データチェック）
 
@@ -511,7 +513,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | GET                                                                                                                                                                              |
 | リクエストボディー     | なし                                                                                                                                                                             |
 | リクエストパラメーター | なし                                                                                                                                                                             |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                           |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                           |
 | HTTPレスポンスコード   | 200:正常にロール一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました               |
 
 ## リクエストパラメータ
@@ -584,7 +586,7 @@ GET /api/v1/roles/dropdown
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
   - ※ 呼び出し元画面の権限に依存する。
@@ -621,7 +623,7 @@ ORDER BY role_id ASC
 | メソッド               | GET                                                                                                                                                                              |
 | リクエストボディー     | なし                                                                                                                                                                             |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                 |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                           |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                           |
 | HTTPレスポンスコード   | 200:正常にJA一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                   |
 
 ## リクエストパラメータ
@@ -705,7 +707,7 @@ GET /api/v1/ja/dropdown?todofuken_code=13&role_id=3
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
   - ※ 呼び出し元画面の権限に依存する。
@@ -755,7 +757,7 @@ ORDER BY ja_code ASC
 | メソッド               | GET                                                                                                                                                                                  |
 | リクエストボディー     | なし                                                                                                                                                                                 |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                     |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                               |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                               |
 | HTTPレスポンスコード   | 200:正常に管理支店一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                 |
 
 ## リクエストパラメータ
@@ -838,7 +840,7 @@ GET /api/v1/kanri-shiten/dropdown?ja_id=10
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
   - ※ 呼び出し元画面の権限に依存する。

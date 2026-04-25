@@ -70,7 +70,7 @@ updated_by: Tran Duc Tuyen
 | メソッド               | GET                                                                                                                                                                                                    |
 | リクエストボディー     | なし                                                                                                                                                                                                   |
 | リクエストパラメーター | tanka_id（パスパラメータ）                                                                                                                                                                             |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                 |
 | HTTPレスポンスコード   | 200:正常に単価詳細を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された単価が見つかりません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -175,7 +175,7 @@ GET /api/v1/tanka/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`tanka.view` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
@@ -222,7 +222,7 @@ WHERE tanka_id = :tanka_id
 | メソッド               | POST                                                                                                                                                                                                                                       |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                       |
 | リクエストパラメーター |                                                                                                                                                                                                                                            |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
 | HTTPレスポンスコード   | 201:正常に単価を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:同一の単価コードが既に登録されています, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -350,6 +350,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
@@ -360,12 +364,10 @@ Content-Type: application/json
   - kingaku_zeikomi：≧ 0、数値
   - kingaku_zeinuki：≧ 0、数値
   - tekiyo_start_date：有効な日付形式（YYYY-MM-DD）、新規登録時は過去日不可
-  - tekiyo_end_date：有効な日付形式、tekiyo_start_date 以降
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
 ### 4.2 認証・認可チェック
-
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`tanka.create` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
@@ -478,7 +480,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | メソッド               | PUT                                                                                                                                                                                                                                |
 | リクエストボディー     | JSON                                                                                                                                                                                                                               |
 | リクエストパラメーター | tanka_id（パスパラメータ）                                                                                                                                                                                                         |
-| ヘッダ                 | Content-Type: application/json<br>※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                             |
 | HTTPレスポンスコード   | 200:正常に単価を更新しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された単価が見つかりません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
@@ -604,6 +606,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：tanka_id 数値型チェック、必須
@@ -614,11 +620,9 @@ Content-Type: application/json
   - kingaku_zeikomi：≧ 0、数値
   - kingaku_zeinuki：≧ 0、数値
   - tekiyo_start_date：有効な日付形式。過去日の場合は変更不可
-  - tekiyo_end_date：有効な日付形式、tekiyo_start_date 以降。過去日の場合は変更不可
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`)
 
 ### 4.2 認証・認可チェック
-
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`tanka.update` を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）

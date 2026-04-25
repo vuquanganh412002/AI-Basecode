@@ -429,44 +429,102 @@
             class="bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800 p-4"
           >
             <div class="space-y-4">
-              <div class="grid grid-cols-4 gap-x-4 gap-y-0 items-center">
+              <!-- Single row with all fields -->
+              <div class="flex gap-12 items-start">
                 <!-- 適用日 -->
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
                   <label
-                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300 min-w-[6em] text-right"
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >適用日</label
                   >
-                  <input class="ant-input flex-1" type="date" />
+                  <input class="ant-input" type="date" style="width: 150px" />
                 </div>
+
                 <!-- 販売店 -->
-                <div class="flex items-center gap-2">
-                  <label
-                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300 min-w-[6em] text-right"
-                    >販売店</label
+                <div class="flex-shrink-0">
+                  <div
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
                   >
-                  <select class="ant-select flex-1">
-                    <option value="">選択してください</option>
-                    <option value="store-a">A新聞店</option>
-                    <option value="store-b">B新聞店</option>
-                    <option value="store-c">C新聞店</option>
-                    <option value="store-d">D新聞店</option>
-                  </select>
+                    販売店
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex gap-6">
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="store-a" />
+                        <span>A新聞店</span>
+                      </label>
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="store-c" />
+                        <span>C新聞店</span>
+                      </label>
+                    </div>
+                    <div class="flex gap-6">
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="store-b" />
+                        <span>B新聞店</span>
+                      </label>
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="store-d" />
+                        <span>D新聞店</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="text-xs text-slate-500 mt-2">
+                    ※販売店の一覧を表示
+                  </div>
                 </div>
+
                 <!-- 管理支店 -->
-                <div class="flex items-center gap-2">
-                  <label
-                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300 min-w-[6em] text-right"
-                    >管理支店</label
+                <div class="flex-shrink-0">
+                  <div
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
                   >
-                  <select class="ant-select flex-1">
-                    <option value="">選択してください</option>
-                    <option value="branch-a">A支所</option>
-                    <option value="branch-b">B支所</option>
-                    <option value="branch-c">C支所</option>
-                    <option value="branch-d">D支所</option>
-                  </select>
+                    管理支店
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex gap-6">
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="branch-a" />
+                        <span>A支所</span>
+                      </label>
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="branch-c" />
+                        <span>C支所</span>
+                      </label>
+                    </div>
+                    <div class="flex gap-6">
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="branch-b" />
+                        <span>B支所</span>
+                      </label>
+                      <label
+                        class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                      >
+                        <input type="checkbox" value="branch-d" />
+                        <span>D支所</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="text-xs text-slate-500 mt-2">
+                    ※管理支店の一覧を表示
+                  </div>
                 </div>
               </div>
+
               <!-- Buttons -->
               <div class="flex gap-3">
                 <button
@@ -608,7 +666,9 @@
                         <td class="border border-slate-300 px-2 py-1.5">
                           09999999999
                         </td>
-                        <td class="border border-slate-300 px-2 py-1.5"></td>
+                        <td class="border border-slate-300 px-2 py-1.5">
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td
@@ -626,7 +686,9 @@
                         <td class="border border-slate-300 px-2 py-1.5">
                           09999999999
                         </td>
-                        <td class="border border-slate-300 px-2 py-1.5"></td>
+                        <td class="border border-slate-300 px-2 py-1.5">
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td class="border border-slate-300 px-2 py-4"></td>
@@ -706,7 +768,9 @@
                         <td class="border border-slate-300 px-2 py-1.5">
                           09999999999
                         </td>
-                        <td class="border border-slate-300 px-2 py-1.5"></td>
+                        <td class="border border-slate-300 px-2 py-1.5">
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td
@@ -724,7 +788,9 @@
                         <td class="border border-slate-300 px-2 py-1.5">
                           09999999999
                         </td>
-                        <td class="border border-slate-300 px-2 py-1.5"></td>
+                        <td class="border border-slate-300 px-2 py-1.5">
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td class="border border-slate-300 px-2 py-4"></td>
@@ -815,7 +881,9 @@
                         <td
                           class="border border-slate-300 px-2 py-1.5"
                           rowspan="2"
-                        ></td>
+                        >
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td
@@ -856,7 +924,9 @@
                         <td
                           class="border border-slate-300 px-2 py-1.5"
                           rowspan="2"
-                        ></td>
+                        >
+                          <textarea class="w-full border border-slate-300 rounded px-1 py-0.5 text-xs resize-none" rows="1" style="min-height: 20px"></textarea>
+                        </td>
                       </tr>
                       <tr>
                         <td

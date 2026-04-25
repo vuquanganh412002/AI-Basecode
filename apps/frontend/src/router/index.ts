@@ -39,7 +39,7 @@ const routes: RouteRecordRaw[] = [
             path: '',
             name: 'TankaList',
             component: () => import('@/views/tanka/TankaListView.vue'),
-            meta: { breadcrumb: '単価マスタ明細検索', permission: 'tanka.view' },
+            meta: { breadcrumb: '単価マスタ明細検索画面', permission: 'tanka.view' },
           },
           // Reserved — build when SCR-003 work starts
           // { path: 'create', name: 'TankaCreate', ... }

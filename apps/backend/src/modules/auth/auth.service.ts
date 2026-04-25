@@ -1,6 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { randomInt, randomUUID } from 'crypto';
@@ -10,7 +8,6 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { LoginDto } from './dto/login.dto';
 import { AuthUserDto } from './dto/auth-response.dto';
 import {
-  AccountLockedException,
   InvalidCredentialsException,
   InvalidMfaTokenException,
   InvalidOtpException,
@@ -25,6 +22,7 @@ import { MfaOtp } from './entities/mfa-otp.entity';
 import { Role } from './entities/role.entity';
 import { RolePermission } from './entities/role-permission.entity';
 import { Permission } from './entities/permission.entity';
+import { SessionService, SessionPayload } from './session.service';
 
 const SALT_ROUNDS = 10;
 const OTP_EXPIRY_MINUTES = 5;
@@ -37,11 +35,15 @@ export interface LoginContext {
   userAgent?: string;
 }
 
+/**
+ * Result of a login attempt. On success we return the session ID
+ * (for the controller to set as an HTTP-only cookie) plus the user
+ * object — we do NOT issue any JWT / bearer token.
+ */
 export type LoginResult =
   | {
       mfa_required: false;
-      access_token: string;
-      refresh_token: string;
+      session_id: string;
       user: AuthUserDto;
     }
   | {
@@ -54,14 +56,18 @@ export type LoginResult =
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  /** In-memory map: mfa_token (UUID) → otp_id. Replace with Redis for multi-instance. */
+  /**
+   * In-memory map: mfa_token (UUID) → otp_id.
+   * Short-lived (OTP expires in 5 min) so single-instance memory is fine
+   * for dev. For multi-instance production move to Redis
+   * (`mfa_token:{token}` → otp_id with TTL 5min).
+   */
   private readonly mfaTokenToOtpId = new Map<string, number>();
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
     private readonly mailService: MailService,
     private readonly auditLogService: AuditLogService,
+    private readonly sessionService: SessionService,
     @InjectRepository(Account) private readonly accountRepo: Repository<Account>,
     @InjectRepository(MfaOtp) private readonly otpRepo: Repository<MfaOtp>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
@@ -154,7 +160,7 @@ export class AuthService {
       userAgent: ctx.userAgent,
     });
 
-    return this.buildTokenResponse(account);
+    return this.buildSessionResponse(account);
   }
 
   async verifyMfa(
@@ -213,7 +219,7 @@ export class AuthService {
       userAgent: ctx.userAgent,
     });
 
-    return this.buildTokenResponse(account);
+    return this.buildSessionResponse(account);
   }
 
   async resendMfa(
@@ -265,68 +271,71 @@ export class AuthService {
     };
   }
 
-  async refreshToken(
-    refreshToken: string | undefined,
-  ): Promise<Extract<LoginResult, { mfa_required: false }>> {
-    if (!refreshToken) throw new UnauthorizedException();
+  /**
+   * Extend the sliding session window and return the refreshed user
+   * payload. Controller calls this from `POST /auth/refresh`.
+   */
+  async refreshSession(sessionId: string | undefined): Promise<AuthUserDto> {
+    if (!sessionId) throw new UnauthorizedException();
 
-    let payload: { accountId: number };
-    try {
-      payload = await this.jwtService.verifyAsync(refreshToken, {
-        publicKey: this.configService.get<string>('jwt.publicKey'),
-        algorithms: ['RS256'],
-      });
-    } catch {
+    const payload = await this.sessionService.touch(sessionId);
+    if (!payload) throw new UnauthorizedException();
+
+    const account = await this.accountRepo.findOne({
+      where: { accountId: payload.account_id, deletedAt: IsNull() },
+    });
+    if (!account || account.accountLockFlg) {
+      // Destroy the now-invalid session so the cookie stops working.
+      await this.sessionService.destroy(sessionId);
       throw new UnauthorizedException();
     }
 
-    const account = await this.accountRepo.findOne({
-      where: { accountId: payload.accountId, deletedAt: IsNull() },
-    });
-    if (!account || account.accountLockFlg) throw new UnauthorizedException();
+    return (
+      await this.buildSessionResponse(account, { reuseSessionId: sessionId })
+    ).user;
+  }
 
-    return this.buildTokenResponse(account);
+  async logout(sessionId: string | undefined): Promise<void> {
+    if (!sessionId) return;
+    await this.sessionService.destroy(sessionId);
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
-  private async buildTokenResponse(
+  /**
+   * Build the MFA-free login response: fetch role + permissions, create a
+   * Redis session, return `{ session_id, user }`.
+   *
+   * When `reuseSessionId` is provided (refresh path) we skip session
+   * creation — the caller's existing session is already valid and its TTL
+   * was just extended by `SessionService.touch()`.
+   */
+  private async buildSessionResponse(
     account: Account,
+    opts: { reuseSessionId?: string } = {},
   ): Promise<Extract<LoginResult, { mfa_required: false }>> {
     const role = await this.roleRepo.findOne({
       where: { roleId: account.roleId, deletedAt: IsNull() },
     });
     const permissions = await this.fetchPermissions(account.roleId);
 
-    const payload = {
-      accountId: Number(account.accountId),
-      loginId: account.loginId,
-      roleId: account.roleId,
-      roleCode: role?.roleCode ?? '',
-      jaId: account.jaId !== null ? Number(account.jaId) : null,
-      kanriShitenId:
+    const sessionPayload: Omit<SessionPayload, 'created_at' | 'last_activity_at'> = {
+      account_id: Number(account.accountId),
+      login_id: account.loginId,
+      role_id: account.roleId,
+      role_code: role?.roleCode ?? '',
+      ja_id: account.jaId !== null ? Number(account.jaId) : null,
+      kanri_shiten_id:
         account.kanriShitenId !== null ? Number(account.kanriShitenId) : null,
+      permissions,
     };
 
-    const accessExpiry =
-      this.configService.get<string>('jwt.accessTokenExpiry') ?? '24h';
-    const refreshExpiry =
-      this.configService.get<string>('jwt.refreshTokenExpiry') ?? '7d';
-    const privateKey = this.configService.get<string>('jwt.privateKey');
-
-    const accessToken = await this.jwtService.signAsync(
-      { ...payload, permissions, type: 'access' },
-      { privateKey, algorithm: 'RS256', expiresIn: accessExpiry },
-    );
-    const refreshToken = await this.jwtService.signAsync(
-      { accountId: payload.accountId, type: 'refresh' },
-      { privateKey, algorithm: 'RS256', expiresIn: refreshExpiry },
-    );
+    const sessionId =
+      opts.reuseSessionId ?? (await this.sessionService.create(sessionPayload));
 
     return {
       mfa_required: false,
-      access_token: accessToken,
-      refresh_token: refreshToken,
+      session_id: sessionId,
       user: {
         account_id: Number(account.accountId),
         login_id: account.loginId,

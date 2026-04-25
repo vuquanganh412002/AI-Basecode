@@ -42,15 +42,17 @@ updated_by: Dao Van Thang
 
 ## エラー一覧
 
-| # | エラータイプ | エラーコード | エラーメッセージ |
-|---|---|---|---|
-| 1 | UNAUTHORIZED | UNAUTHORIZED | セッションが切れました。再度ログインしてください。 |
-| 2 | FORBIDDEN | FORBIDDEN | この画面へのアクセス権限がありません。 |
-| 3 | NOT_FOUND | NOT_FOUND | 指定された管理支店が見つかりません。 |
-| 4 | BAD_REQUEST | BAD_REQUEST | リクエストパラメータが不正です。 |
-| 5 | VALIDATION_ERROR | VALIDATION_ERROR | 入力値が不正です。詳細はerrorsフィールドを確認してください。 |
-| 6 | CONFLICT | CONFLICT | この管理支店コードは既に登録されています。 |
-| 7 | INTERNAL_SERVER_ERROR | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 |
+| #   | エラータイプ | エラーコード          | エラーメッセージ                                                       | 備考     |
+| --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
+| 2   | 共通         | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                     | HTTP 401 |
+| 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
+| 4   | 共通         | DATA_SCOPE_VIOLATION  | このデータへのアクセス権限がありません。                               | HTTP 403 |
+| 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
+| 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 8   | 画面固有     | NOT_FOUND             | 指定された管理支店が見つかりません。                                   | HTTP 404 |
+| 9   | 画面固有     | DUPLICATE_CODE        | 同一の管理支店コードが既に登録されています。                             | HTTP 400 |
 
 ---
 
@@ -84,16 +86,16 @@ updated_by: Dao Van Thang
 | 3 | →ja_id | Number | - | | - | JA ID |
 | 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
 | 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | 〇 | 管理支店名（カナ） |
+| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
 | 7 | →todofuken_code | String | - | | - | 都道府県コード |
 | 8 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
-| 9 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 10 | →address | String | - | | 〇 | 住所 |
-| 11 | →tel | String | - | | 〇 | 電話番号 |
-| 12 | →fax | String | - | | 〇 | FAX番号 |
+| 9 | →yubin_no | String | - | | -   | 郵便番号 |
+| 10 | →address | String | - | | -   | 住所 |
+| 11 | →tel | String | - | | -   | 電話番号 |
+| 12 | →fax | String | - | | -   | FAX番号 |
 | 13 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
 | 14 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 15 | →biko | String | - | | 〇 | 備考 |
+| 15 | →biko | String | - | | -   | 備考 |
 | 16 | →created_at | String | - | ISO 8601 | - | 作成日時 |
 | 17 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
 
@@ -178,7 +180,7 @@ GET /api/v1/kanri-shiten/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`kanri-shiten.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）
@@ -244,7 +246,7 @@ WHERE mks.kanri_shiten_id = :kanri_shiten_id
 | リクエストボディー | JSON |
 | リクエストパラメーター | |
 | ヘッダ | Content-Type: application/json\n※ 認証情報はHTTP-only Cookieにより自動的に送信される |
-| HTTPレスポンスコード | 201:正常に管理支店を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:この管理支店コードは既に登録されています, 500:システムエラーが発生しました |
+| HTTPレスポンスコード | 201:正常に管理支店を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:同一の管理支店コードが既に登録されています, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -272,15 +274,15 @@ WHERE mks.kanri_shiten_id = :kanri_shiten_id
 | 3 | →ja_id | Number | - | | - | JA ID |
 | 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
 | 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | 〇 | 管理支店名（カナ） |
+| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
 | 7 | →todofuken_code | String | - | | - | 都道府県コード |
-| 8 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 9 | →address | String | - | | 〇 | 住所 |
-| 10 | →tel | String | - | | 〇 | 電話番号 |
-| 11 | →fax | String | - | | 〇 | FAX番号 |
+| 8 | →yubin_no | String | - | | -   | 郵便番号 |
+| 9 | →address | String | - | | -   | 住所 |
+| 10 | →tel | String | - | | -   | 電話番号 |
+| 11 | →fax | String | - | | -   | FAX番号 |
 | 12 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
 | 13 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 14 | →biko | String | - | | 〇 | 備考 |
+| 14 | →biko | String | - | | -   | 備考 |
 | 15 | →created_at | String | - | ISO 8601 | - | 作成日時 |
 | 16 | message | String | - | | - | 処理結果メッセージ |
 
@@ -368,7 +370,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "CONFLICT",
-  "message": "この管理支店コードは既に登録されています"
+  "message": "同一の管理支店コードが既に登録されています"
 }
 ```
 
@@ -383,6 +385,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの全フィールドを検証する：
@@ -393,17 +399,15 @@ Content-Type: application/json
   - `todofuken_code`：必須、2文字
   - `yubin_no`：任意、半角数字7桁
   - `address`：任意、最大200文字
-  - `tel`：任意、半角数字のみ、最大15文字
   - `fax`：任意、半角数字のみ、最大15文字
   - `paper_flg`：任意、ブール値（デフォルト: false）
   - `denshi_flg`：任意、ブール値（デフォルト: false）
-  - `biko`：任意、最大500文字
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`kanri-shiten.create`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -586,15 +590,15 @@ VALUES (
 | 3 | →ja_id | Number | - | | - | JA ID |
 | 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
 | 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | 〇 | 管理支店名（カナ） |
+| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
 | 7 | →todofuken_code | String | - | | - | 都道府県コード |
-| 8 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 9 | →address | String | - | | 〇 | 住所 |
-| 10 | →tel | String | - | | 〇 | 電話番号 |
-| 11 | →fax | String | - | | 〇 | FAX番号 |
+| 8 | →yubin_no | String | - | | -   | 郵便番号 |
+| 9 | →address | String | - | | -   | 住所 |
+| 10 | →tel | String | - | | -   | 電話番号 |
+| 11 | →fax | String | - | | -   | FAX番号 |
 | 12 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
 | 13 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 14 | →biko | String | - | | 〇 | 備考 |
+| 14 | →biko | String | - | | -   | 備考 |
 | 15 | →created_at | String | - | ISO 8601 | - | 作成日時 |
 | 16 | →updated_at | String | - | ISO 8601 | - | 更新日時 |
 | 17 | message | String | - | | - | 処理結果メッセージ |
@@ -696,6 +700,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -706,17 +714,15 @@ Content-Type: application/json
   - `todofuken_code`：必須、2文字
   - `yubin_no`：任意、半角数字7桁
   - `address`：任意、最大200文字
-  - `tel`：任意、半角数字のみ、最大15文字
   - `fax`：任意、半角数字のみ、最大15文字
   - `paper_flg`：任意、ブール値（デフォルト: false）
   - `denshi_flg`：任意、ブール値（デフォルト: false）
-  - `biko`：任意、最大500文字
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`kanri-shiten.update` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -937,7 +943,7 @@ GET /api/v1/todofuken
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：認証済みユーザーであれば全ロールアクセス可能。
 

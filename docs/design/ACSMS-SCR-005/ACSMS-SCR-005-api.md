@@ -42,15 +42,17 @@ updated_by: Nguyen Duyen Manh
 
 ## エラー一覧
 
-| # | エラータイプ | エラーコード | エラーメッセージ |
-|---|---|---|---|
-| 1 | UNAUTHORIZED | UNAUTHORIZED | セッションが切れました。再度ログインしてください。 |
-| 2 | FORBIDDEN | FORBIDDEN | この画面へのアクセス権限がありません。 |
-| 3 | NOT_FOUND | NOT_FOUND | 指定されたJAが見つかりません。 |
-| 4 | BAD_REQUEST | BAD_REQUEST | リクエストパラメータが不正です。 |
-| 5 | VALIDATION_ERROR | VALIDATION_ERROR | 入力値が不正です。詳細はerrorsフィールドを確認してください。 |
-| 6 | CONFLICT | CONFLICT | 同一のJAコードが既に登録されています。 |
-| 7 | INTERNAL_SERVER_ERROR | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 |
+| #   | エラータイプ | エラーコード          | エラーメッセージ                                                       | 備考     |
+| --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
+| 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
+| 2   | 共通         | UNAUTHORIZED          | セッションが切れました。再度ログインしてください。                     | HTTP 401 |
+| 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
+| 4   | 共通         | DATA_SCOPE_VIOLATION  | このデータへのアクセス権限がありません。                               | HTTP 403 |
+| 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
+| 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 8   | 画面固有     | NOT_FOUND             | 指定されたJAが見つかりません。                                         | HTTP 404 |
+| 9   | 画面固有     | DUPLICATE_CODE        | 同一のJAコードが既に登録されています。                                 | HTTP 400 |
 
 ---
 
@@ -83,21 +85,21 @@ updated_by: Nguyen Duyen Manh
 | 2 | →ja_id | Number | - | | - | JA ID |
 | 3 | →ja_code | String | - | | - | JAコード |
 | 4 | →ja_name | String | - | | - | JA名 |
-| 5 | →ja_name_kana | String | - | | 〇 | JA名（カナ） |
+| 5 | →ja_name_kana | String | - | | -   | JA名（カナ） |
 | 6 | →todofuken_code | String | - | | - | 都道府県コード |
 | 7 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
 | 8 | →chuokai_flg | Boolean | - | | - | 中央会フラグ（true: 中央会, false: 単協） |
 | 9 | →bank_code | String | - | | - | 金融機関コード |
 | 10 | →bank_name | String | - | | - | 金融機関名 |
-| 11 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 12 | →address | String | - | | 〇 | 住所 |
-| 13 | →tel | String | - | | 〇 | 電話番号 |
-| 14 | →fax | String | - | | 〇 | FAX番号 |
-| 15 | →email | String | - | | 〇 | メールアドレス |
-| 16 | →tanto_busho | String | - | | 〇 | 担当部署名 |
-| 17 | →tanto_name | String | - | | 〇 | 担当者名 |
+| 11 | →yubin_no | String | - | | -   | 郵便番号 |
+| 12 | →address | String | - | | -   | 住所 |
+| 13 | →tel | String | - | | -   | 電話番号 |
+| 14 | →fax | String | - | | -   | FAX番号 |
+| 15 | →email | String | - | | -   | メールアドレス |
+| 16 | →tanto_busho | String | - | | -   | 担当部署名 |
+| 17 | →tanto_name | String | - | | -   | 担当者名 |
 | 18 | →zei_kubun | String | - | | - | 税区分（1: 内税, 2: 外税） |
-| 19 | →biko | String | - | | 〇 | 備考 |
+| 19 | →biko | String | - | | -   | 備考 |
 | 20 | →created_at | String | - | ISO 8601 | - | 作成日時 |
 | 21 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
 
@@ -201,7 +203,7 @@ GET /api/v1/ja/1
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`ja.view`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）
@@ -307,20 +309,20 @@ WHERE mj.ja_id = :ja_id
 | 2 | →ja_id | Number | - | | - | 自動採番されたJA ID |
 | 3 | →ja_code | String | - | | - | JAコード |
 | 4 | →ja_name | String | - | | - | JA名 |
-| 5 | →ja_name_kana | String | - | | 〇 | JA名（カナ） |
+| 5 | →ja_name_kana | String | - | | -   | JA名（カナ） |
 | 6 | →todofuken_code | String | - | | - | 都道府県コード |
 | 7 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
 | 8 | →bank_code | String | - | | - | 金融機関コード |
 | 9 | →bank_name | String | - | | - | 金融機関名 |
-| 10 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 11 | →address | String | - | | 〇 | 住所 |
-| 12 | →tel | String | - | | 〇 | 電話番号 |
-| 13 | →fax | String | - | | 〇 | FAX番号 |
-| 14 | →email | String | - | | 〇 | メールアドレス |
-| 15 | →tanto_busho | String | - | | 〇 | 担当部署名 |
-| 16 | →tanto_name | String | - | | 〇 | 担当者名 |
+| 10 | →yubin_no | String | - | | -   | 郵便番号 |
+| 11 | →address | String | - | | -   | 住所 |
+| 12 | →tel | String | - | | -   | 電話番号 |
+| 13 | →fax | String | - | | -   | FAX番号 |
+| 14 | →email | String | - | | -   | メールアドレス |
+| 15 | →tanto_busho | String | - | | -   | 担当部署名 |
+| 16 | →tanto_name | String | - | | -   | 担当者名 |
 | 17 | →zei_kubun | String | - | | - | 税区分 |
-| 18 | →biko | String | - | | 〇 | 備考 |
+| 18 | →biko | String | - | | -   | 備考 |
 | 19 | →created_at | String | - | ISO 8601 | - | 作成日時 |
 | 20 | message | String | - | | - | 処理結果メッセージ |
 
@@ -431,6 +433,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの全フィールドを検証する：
@@ -441,18 +447,16 @@ Content-Type: application/json
   - `chuokai_flg`：必須、ブール値（`true` または `false`）
   - `bank_code`：必須、半角数字4桁
   - `bank_name`：必須、最大100文字
-  - `yubin_no`：任意、半角数字7桁
   - `tel`：任意、半角数字のみ、最大15文字
   - `fax`：任意、半角数字のみ、最大15文字
   - `email`：任意、メールアドレス形式、最大100文字
-  - `zei_kubun`：必須、`1` または `2`
   - `biko`：任意、最大500文字
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
 
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`ja.create`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
@@ -518,7 +522,7 @@ INSERT INTO t_log (
 )
 VALUES (
   1, NOW(), :user_account_id, NULL,
-  'JAマスタ登録画面 (ACSMS-SCR-005)', 'JA_CREATE', 1,
+  'JAマスタ登録画面 (ACSMS-SCR-005)', 'CREATE', 1,
   :ja_id, 'm_ja',
   '', :after_value_json,
   '', '',
@@ -546,7 +550,7 @@ INSERT INTO t_log (
 )
 VALUES (
   3, NOW(), :user_account_id, NULL,
-  'JAマスタ登録画面 (ACSMS-SCR-005)', 'JA_CREATE', 2,
+  'JAマスタ登録画面 (ACSMS-SCR-005)', 'CREATE', 2,
   NULL, 'm_ja',
   '', '',
   :error_message, :stack_trace,
@@ -604,20 +608,20 @@ VALUES (
 | 2 | →ja_id | Number | - | | - | JA ID |
 | 3 | →ja_code | String | - | | - | JAコード |
 | 4 | →ja_name | String | - | | - | JA名 |
-| 5 | →ja_name_kana | String | - | | 〇 | JA名（カナ） |
+| 5 | →ja_name_kana | String | - | | -   | JA名（カナ） |
 | 6 | →todofuken_code | String | - | | - | 都道府県コード |
 | 7 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
 | 8 | →bank_code | String | - | | - | 金融機関コード |
 | 9 | →bank_name | String | - | | - | 金融機関名 |
-| 10 | →yubin_no | String | - | | 〇 | 郵便番号 |
-| 11 | →address | String | - | | 〇 | 住所 |
-| 12 | →tel | String | - | | 〇 | 電話番号 |
-| 13 | →fax | String | - | | 〇 | FAX番号 |
-| 14 | →email | String | - | | 〇 | メールアドレス |
-| 15 | →tanto_busho | String | - | | 〇 | 担当部署名 |
-| 16 | →tanto_name | String | - | | 〇 | 担当者名 |
+| 10 | →yubin_no | String | - | | -   | 郵便番号 |
+| 11 | →address | String | - | | -   | 住所 |
+| 12 | →tel | String | - | | -   | 電話番号 |
+| 13 | →fax | String | - | | -   | FAX番号 |
+| 14 | →email | String | - | | -   | メールアドレス |
+| 15 | →tanto_busho | String | - | | -   | 担当部署名 |
+| 16 | →tanto_name | String | - | | -   | 担当者名 |
 | 17 | →zei_kubun | String | - | | - | 税区分 |
-| 18 | →biko | String | - | | 〇 | 備考 |
+| 18 | →biko | String | - | | -   | 備考 |
 | 19 | →updated_at | String | - | ISO 8601 | - | 更新日時 |
 | 20 | message | String | - | | - | 処理結果メッセージ |
 
@@ -747,6 +751,10 @@ Content-Type: application/json
 
 ## 処理手順
 
+> ※ 以下の処理は単一トランザクション内で実行する（本処理 + 操作ログ記録）。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータの検証：
@@ -757,11 +765,9 @@ Content-Type: application/json
   - 各フィールドの型・長さ・形式チェック（API ACSMS-API-005-002 §4.1 と同様）
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
-
 ### 4.2 認証・認可チェック
 
-- 認証情報を検証する（JWT / Cookie）。
-- 認証失敗の場合：HTTP 401 Unauthorized
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 権限チェック：`ja.update`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）
 - 権限がない場合：HTTP 403 Forbidden
@@ -865,7 +871,7 @@ INSERT INTO t_log (
 )
 VALUES (
   1, NOW(), :user_account_id, :user_ja_id,
-  'JAマスタ登録画面 (ACSMS-SCR-005)', 'JA_UPDATE', 1,
+  'JAマスタ登録画面 (ACSMS-SCR-005)', 'UPDATE', 1,
   :ja_id, 'm_ja',
   :before_value_json, :after_value_json,
   '', '',
@@ -893,7 +899,7 @@ INSERT INTO t_log (
 )
 VALUES (
   3, NOW(), :user_account_id, :user_ja_id,
-  'JAマスタ登録画面 (ACSMS-SCR-005)', 'JA_UPDATE', 2,
+  'JAマスタ登録画面 (ACSMS-SCR-005)', 'UPDATE', 2,
   :ja_id, 'm_ja',
   '', '',
   :error_message, :stack_trace,
@@ -979,7 +985,7 @@ GET /api/v1/todofuken
 
 ### 4.1 認証チェック
 
-- 認証情報を検証する（JWT / Cookie）。
+- 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：認証済みユーザーであれば全ロールアクセス可能。
 

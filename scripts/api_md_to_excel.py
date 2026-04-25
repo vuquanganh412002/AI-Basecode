@@ -762,7 +762,21 @@ def write_api_detail(wb, doc, api):
     row += 1
     _section_title(ws, row, "4. 処理手順")
 
-    for step in api.get("steps", []):
+    steps_data = api.get("steps", {})
+    if isinstance(steps_data, list):
+        steps_list = steps_data
+        preamble = ""
+    else:
+        steps_list = steps_data.get("steps", [])
+        preamble = steps_data.get("preamble", "")
+
+    if preamble:
+        row += 1
+        ws.row_dimensions[row].height = _text_height(preamble, chars_per_line=80)
+        _mwrite(ws, _col("B"), _col("AK"), row, preamble,
+                font=_font(size=9), align=_align(), borders=True)
+
+    for step in steps_list:
         row += 1
         title = step.get("title", "")
         ws.row_dimensions[row].height = _text_height(title, chars_per_line=100)
@@ -970,11 +984,16 @@ def parse_steps(section_text):
     """Parse processing steps section.
     Supports code fences (``` ... ```) inside steps — stored as {"type": "code", "text": ...}.
     Regular bullets stored as {"type": "text", "indent": 1|2, "text": ...}.
+    Blockquote lines (> ...) before the first ### heading are captured as preamble
+    (used for the transaction boundary note).
+    Returns {"preamble": str, "steps": [...]}.
     """
+    preamble_lines = []
     steps = []
     current = None
     in_fence = False
     fence_lines = []
+    seen_first_h3 = False
 
     def _flush_fence():
         if fence_lines and current is not None:
@@ -984,12 +1003,18 @@ def parse_steps(section_text):
     for line in section_text.splitlines():
         h3 = re.match(r"^###\s+(.+)$", line)
         if h3:
+            seen_first_h3 = True
             if in_fence:
                 _flush_fence()
                 in_fence = False
             if current:
                 steps.append(current)
             current = {"title": h3.group(1).strip(), "items": []}
+            continue
+        if not seen_first_h3:
+            m_bq = re.match(r"^>\s?(.*)$", line)
+            if m_bq:
+                preamble_lines.append(m_bq.group(1).rstrip())
             continue
         if current is None:
             continue
@@ -1014,7 +1039,14 @@ def parse_steps(section_text):
         _flush_fence()
     if current:
         steps.append(current)
-    return steps
+
+    # Trim leading/trailing blank lines from preamble
+    while preamble_lines and not preamble_lines[0].strip():
+        preamble_lines.pop(0)
+    while preamble_lines and not preamble_lines[-1].strip():
+        preamble_lines.pop()
+
+    return {"preamble": "\n".join(preamble_lines), "steps": steps}
 
 
 def parse_http_codes(value_str):
