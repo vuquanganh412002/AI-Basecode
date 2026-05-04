@@ -1,3 +1,4 @@
+// @ts-nocheck — TDD red phase (/gen-autotest)
 // Screen: {{SCREEN_ID}} — {{SCREEN_NAME}}
 import { test, expect } from '@playwright/test';
 import { {{PageClass}} } from '../../src/page-objects/{{screen-slug}}.page';
@@ -7,7 +8,7 @@ test.describe('{{SCREEN_NAME}} ({{SCREEN_ID}})', () => {
   let pageObject: {{PageClass}};
 
   test.beforeEach(async ({ page }) => {
-    await loginAs(page, { login_id: 'admin01', password: 'TestPassword123' });
+    await loginAs(page, { login_id: 'nichino_admin', password: 'Test1234!' });
     pageObject = new {{PageClass}}(page);
     await pageObject.goto();
   });
@@ -35,7 +36,7 @@ test.describe('{{SCREEN_NAME}} ({{SCREEN_ID}})', () => {
 
   test('should redirect to /403 when role lacks {{permission}} permission', async ({ page }) => {
     await page.context().clearCookies();
-    await loginAs(page, { login_id: 'chuokai01', password: 'TestPassword123' });
+    await loginAs(page, { login_id: 'chuokai', password: 'Test1234!' });
     await page.goto('{{path}}');
 
     await expect(page).toHaveURL(/\/(403|login)/);

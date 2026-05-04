@@ -2,18 +2,17 @@
   "name": "agrinews-autotest",
   "version": "1.0.0",
   "private": true,
-  "description": "Automation test suite — E2E specs run inside the playwright Docker container; unit/component tests run in backend/frontend containers.",
+  "description": "Standalone automation test suite — runs inside the playwright container and tests the live app as a black box (UI via browser + API via HTTP). No access to frontend/backend source code.",
   "scripts": {
-    "test:unit":             "docker exec agrinews-backend-1 npm test",
-    "test:component":        "docker exec agrinews-frontend-1 npm test",
-    "test:integration":      "docker exec agrinews-backend-1 npm run test:integration",
-    "test:e2e":              "docker exec agrinews-playwright-1 npx playwright test",
-    "test:e2e:headed":       "docker exec agrinews-playwright-1 npx playwright test --headed",
-    "test:coverage:backend": "docker exec agrinews-backend-1 npm run test:coverage",
-    "test:coverage:frontend":"docker exec agrinews-frontend-1 npm run test:coverage",
-    "setup:db":              "bash scripts/setup-test-db.sh",
-    "seed:db":               "bash scripts/seed-test-data.sh",
-    "bootstrap":             "bash scripts/bootstrap.sh"
+    "test":              "docker exec agrinews-playwright-1 npx playwright test",
+    "test:ui":           "docker exec agrinews-playwright-1 npx playwright test --project=ui",
+    "test:api":          "docker exec agrinews-playwright-1 npx playwright test --project=api",
+    "test:headed":       "docker exec agrinews-playwright-1 npx playwright test --project=ui --headed",
+    "test:debug":        "docker exec -it agrinews-playwright-1 npx playwright test --debug",
+    "report:serve":      "docker exec agrinews-playwright-1 npx playwright show-report reports/results/playwright-report --host 0.0.0.0 --port 9323",
+    "setup:db":          "bash scripts/setup-test-db.sh",
+    "seed:db":           "bash scripts/seed-test-data.sh",
+    "bootstrap":         "bash scripts/bootstrap.sh"
   },
   "devDependencies": {
     "@faker-js/faker": "^8.4.1",

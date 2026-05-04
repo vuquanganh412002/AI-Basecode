@@ -4,8 +4,13 @@ import { config } from 'dotenv';
 
 config({ path: resolve(__dirname, '.env.test') });
 
+const BASE_URL = process.env.BASE_URL ?? 'https://nginx';
+const API_BASE_URL = process.env.API_BASE_URL ?? 'https://nginx/api/v1';
+
 export default defineConfig({
-  testDir: './e2e',
+  // All tests live inside apps/autotest-agri/ — never in frontend/backend source
+  testDir: '.',
+  testMatch: ['e2e/**/*.spec.ts', 'api/**/*.spec.ts'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : parseInt(process.env.PLAYWRIGHT_RETRIES ?? '1'),
@@ -14,13 +19,13 @@ export default defineConfig({
 
   reporter: [
     ['list'],
+    // HTML report served at http://localhost:9323 via: npx playwright show-report --host 0.0.0.0 --port 9323
     ['html', { outputFolder: './reports/results/playwright-report', open: 'never' }],
-    ['json', { outputFile: './reports/results/e2e-results.json' }],
+    ['json', { outputFile: './reports/results/results.json' }],
   ],
 
   use: {
-    // Docker nginx serves the app at https://localhost
-    baseURL: process.env.BASE_URL ?? 'https://localhost',
+    baseURL: BASE_URL,
     ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -28,9 +33,20 @@ export default defineConfig({
   },
 
   projects: [
+    // UI tests — control Chromium browser against the running frontend
     {
-      name: 'chromium',
+      name: 'ui',
+      testMatch: 'e2e/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
+    },
+    // API tests — HTTP requests against the running backend (no browser)
+    {
+      name: 'api',
+      testMatch: 'api/**/*.spec.ts',
+      use: {
+        baseURL: API_BASE_URL,
+        extraHTTPHeaders: { 'Content-Type': 'application/json' },
+      },
     },
   ],
 

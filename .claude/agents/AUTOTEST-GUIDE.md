@@ -1,19 +1,19 @@
 # AutoTest Agri — Usage Guide
 
-> How to use the `AutoTest Agri` agent and `/gen-autotest` skill to generate the TDD red-phase test suite for the agrinews project.
+> How to use the `AutoTest Agri` agent and `/gen-autotest` skill to generate black-box automation tests for the agrinews project.
 
 ---
 
 ## What is AutoTest Agri?
 
-AutoTest Agri is a Claude subagent that owns all automation testing for the agrinews Cloud Subscriber Management System. It reads design docs and database schema to generate **failing specs (TDD red)** across three layers:
+AutoTest Agri is a Claude subagent that owns all automation testing for the agrinews Cloud Subscriber Management System. It generates **black-box tests** that run against the **live running application** from inside the playwright container — completely independent from backend and frontend source code.
 
-| Layer | Framework | Output |
+| Test type | How it works | Output directory |
 |---|---|---|
-| Backend unit | Vitest + `@nestjs/testing` | service / controller / DTO specs |
-| Backend integration | Vitest + supertest + test DB | controller → DB tests |
-| Frontend component | Vitest + Vue Test Utils | component / composable / store / view specs |
-| E2E | Playwright | user-flow scenarios + page objects |
+| UI (browser) | Playwright controls a real Chromium browser against the live frontend | `apps/autotest-agri/e2e/` |
+| API (HTTP) | Playwright request context sends HTTP requests to the live backend | `apps/autotest-agri/api/` |
+
+**Key principle**: Tests NEVER import from `apps/frontend/src/` or `apps/backend/src/`. They interact with the live app exactly as a real user or API consumer would.
 
 ---
 
@@ -56,15 +56,14 @@ The agent **never** batches multiple execution steps without a separate approval
 ## Command Reference
 
 ```bash
-/gen-autotest ACSMS-SCR-XXX [--type=all|unit|component|e2e]
+/gen-autotest ACSMS-SCR-XXX [--type=all|ui|api]
 ```
 
 | Flag | What it generates |
 |---|---|
-| `--type=all` *(default)* | Backend unit + integration + Frontend + E2E |
-| `--type=unit` | Backend service / controller / DTO / integration specs only |
-| `--type=component` | Frontend component / composable / store / view specs only |
-| `--type=e2e` | Playwright specs + page objects only |
+| `--type=all` *(default)* | UI browser tests + API HTTP tests |
+| `--type=ui` | Playwright browser tests + Page Object Model only |
+| `--type=api` | Playwright API tests (request context, no browser) only |
 
 ### Examples
 
@@ -72,14 +71,11 @@ The agent **never** batches multiple execution steps without a separate approval
 # Full test suite for screen 003
 /gen-autotest ACSMS-SCR-003
 
-# Backend tests only
-/gen-autotest ACSMS-SCR-003 --type=unit
+# UI tests only
+/gen-autotest ACSMS-SCR-003 --type=ui
 
-# E2E tests only
-/gen-autotest ACSMS-SCR-010 --type=e2e
-
-# Frontend tests only
-/gen-autotest ACSMS-SCR-010 --type=component
+# API tests only
+/gen-autotest ACSMS-SCR-010 --type=api
 ```
 
 ---
@@ -89,8 +85,9 @@ The agent **never** batches multiple execution steps without a separate approval
 Before running `/gen-autotest`, ensure:
 
 1. `docs/design/ACSMS-SCR-XXX/ACSMS-SCR-XXX-api.md` exists → run `/gen-api-doc` first.
-2. `docs/design/ACSMS-SCR-XXX/screen-design.md` exists if using `--type=e2e` or `--type=component`.
+2. `docs/design/ACSMS-SCR-XXX/screen-design.md` exists if using `--type=ui` or `--type=all`.
 3. Screen ID appears in `docs/design/screen-list.md`.
+4. Docker stack is running (for `npm test` to work): `docker compose up -d && docker compose --profile test up -d`.
 
 ---
 
@@ -99,78 +96,83 @@ Before running `/gen-autotest`, ensure:
 For `ACSMS-SCR-003` (単価マスタ) with `--type=all`:
 
 ```
-apps/backend/
-├── src/modules/tanka/
-│   ├── tanka.service.spec.ts
-│   ├── tanka.controller.spec.ts
-│   └── dto/
-│       ├── create-tanka.dto.spec.ts
-│       ├── update-tanka.dto.spec.ts
-│       └── search-tanka.dto.spec.ts
-└── test/
-    ├── fixtures/tanka.factory.ts
-    └── integration/tanka.integration.spec.ts
-
-apps/frontend/src/
-├── components/__tests__/
-│   ├── TankaList.spec.ts
-│   └── TankaForm.spec.ts
-├── composables/__tests__/
-│   └── useTankaSearch.spec.ts
-├── stores/__tests__/
-│   └── tanka.store.spec.ts
-└── views/__tests__/
-    └── TankaSearchView.spec.ts
-
 apps/autotest-agri/
 ├── src/page-objects/
-│   ├── base.page.ts             ← created once, shared across all screens
-│   ├── tanka-search.page.ts
-│   └── tanka-create.page.ts
+│   ├── base.page.ts                          ← created once, shared across all screens
+│   ├── tanka-search.page.ts                  ← page-object.tpl
+│   └── tanka-create.page.ts                  ← page-object.tpl
 ├── e2e/masters/
-│   ├── ACSMS-SCR-003-tanka-create.spec.ts
-│   └── ACSMS-SCR-003-tanka-update.spec.ts
+│   ├── ACSMS-SCR-003-tanka-search.spec.ts    ← e2e.spec.tpl
+│   └── ACSMS-SCR-003-tanka-create.spec.ts    ← e2e.spec.tpl
+├── api/masters/
+│   └── ACSMS-SCR-003-tanka.api.spec.ts       ← api.spec.tpl
 └── fixtures/
-    └── ACSMS-SCR-003.fixtures.json
+    └── ACSMS-SCR-003.fixtures.json           ← fixtures.tpl
 ```
 
 ---
 
 ## Running the Tests
 
+### Bootstrap (first time)
+
+```bash
+cd apps/autotest-agri
+npm run bootstrap
+# Starts postgres-test + redis-test + playwright containers
+# Runs DB migrations and seeds test data
+```
+
+### Run tests
+
 ```bash
 cd apps/autotest-agri
 
-# Install dependencies (first time only)
-npm install
+# All tests (UI + API)
+npm test
 
-# Backend unit + frontend tests
-npm run test:unit
+# UI browser tests only
+npm run test:ui
 
-# Integration tests (requires test DB)
-npm run test:integration
+# API HTTP tests only
+npm run test:api
 
-# E2E tests (requires running app)
-npm run test:e2e
-
-# Coverage report → reports/coverage/
-npm run test:coverage
+# UI tests with visible browser
+npm run test:headed
 ```
+
+### View results
+
+```bash
+npm run report:serve
+# Then open: http://localhost:9323
+```
+
+All commands run inside the `agrinews-playwright-1` container via `docker exec` — no host-side Node.js required.
 
 ---
 
-## Coverage Targets
+## Docker Environment
 
-| Layer | Target |
+| Item | Value |
 |---|---|
-| Backend service / controller | ≥ 80% statements |
-| Frontend component | ≥ 70% statements |
-| Overall effective coverage | **≥ 98%** |
+| Playwright container | `agrinews-playwright-1` — runs ALL tests |
+| Report UI | `http://localhost:9323` |
+| App UI | `https://nginx` (from within container network) |
+| App API | `https://nginx/api/v1` (from within container network) |
+| Test DB | `agrinews-postgres-test-1` — port 5433 on host |
+| Test Redis | `agrinews-redis-test-1` — port 6380 on host |
 
-**Excluded from coverage** (per `.claude/rules/testing.md`):
+---
 
-- Backend: `src/main.ts`, `*.module.ts`, `entities/**`, `migrations/**`, `*.constant.ts`
-- Frontend: `src/main.ts`, `App.vue`, `router/index.ts`, `api/generated/**`, `types/**`
+## Test Accounts
+
+| Role | login_id | Password |
+|---|---|---|
+| NICHINO_ADMIN | `nichino_admin` | `Test1234!` |
+| CHUOKAI | `chuokai` | `Test1234!` |
+| JA_HONTEN | `ja_honten` | `Test1234!` |
+| JA_KANRI_SHITEN | `ja_kanri` | `Test1234!` |
 
 ---
 
@@ -180,39 +182,44 @@ npm run test:coverage
 - [ ] Screen ID + name comment at top
 - [ ] `.spec.ts` extension (never `.test.ts`)
 - [ ] `it()` names follow `should <behavior> when <condition>`
-- [ ] All external deps mocked (Repository, AuditLogService, DataSource, API client)
-- [ ] Success path + every `エラー一覧` row covered
+- [ ] Page Objects encapsulate all selectors (no inline selectors in spec files)
+- [ ] Success path + every `エラー一覧` row covered (API tests)
 - [ ] DataScope filter tested per role: NICHINO_ADMIN, CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN
-- [ ] Mutations: `dataSource.transaction(...)` + audit log + rollback + outside-tx error log (log_type=3)
-- [ ] Guards: `SessionAuthGuard` + `PermissionsGuard` verified per endpoint
-- [ ] No real HTTP / DB calls in unit specs
-- [ ] No passwords / session IDs / OTPs in fixtures or assertions
+- [ ] Auth: 401 UNAUTHORIZED + 403 FORBIDDEN tested per protected endpoint
+- [ ] No passwords / session IDs / OTPs hardcoded in assertions
 
 ---
 
 ## Key Test Cases Auto-Generated
 
-The agent derives test cases directly from `api.md`. Here is what gets generated per source:
+### UI tests (from `screen-design.md`)
+
+| Source | Generated tests |
+|---|---|
+| Form fields | Field rendering, validation messages, required/optional |
+| Buttons / actions | Click flows, disabled states, loading states |
+| Navigation | Redirect after login, back-navigation, route guards |
+| Permission-gated UI | Hidden buttons, inaccessible routes per role |
+| Error states | Toast messages, inline field errors, empty state |
+
+### API tests (from `api.md`)
 
 | Source in `api.md` | Generated tests |
 |---|---|
-| Each `# API ACSMS-API-XXX-NNN` | 1 service `describe` + 1 controller `describe` |
-| `リクエストパラメータ` table | DTO field tests: required / min / max / format per field |
+| Each `# API ACSMS-API-XXX-NNN` | 1 `describe` per endpoint |
+| `リクエストパラメータ` table | 1 test per field: required / min / max / format |
 | `レスポンスデータ` table | Response shape assertion on success path |
 | Each row in `エラー一覧` | 1 `it()` per error code |
-| `4.x 処理手順` SQL | Mock-call assertions on repository method + params |
-| `操作ログ記録` | `AuditLogService.logOperation` called inside transaction, correct `log_type` + bare verb (`CREATE` / `UPDATE` / `DELETE`) |
-| Transaction rollback | `it('should rollback when audit log fails')` |
-| Error log outside tx | `it('should still emit error log (log_type=3) when transaction rolls back')` |
-| Any protected endpoint | Extra UNAUTHORIZED + FORBIDDEN + DATA_SCOPE_VIOLATION cases |
+| Any protected endpoint | 401 UNAUTHORIZED + 403 FORBIDDEN + DATA_SCOPE_VIOLATION |
+| DataScope table | Role-filtered list results per NICHINO_ADMIN / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN |
 
 ---
 
 ## Boundaries — What the Agent Does NOT Do
 
+- Does **not** write files into `apps/frontend/src/` or `apps/backend/src/`.
 - Does **not** write implementation code — only failing tests.
 - Does **not** modify `docs/` or `.claude/rules/` files.
-- Does **not** touch source files outside `__tests__/` and `test/` subtrees.
 - Does **not** execute a step without user approval (see Execution Workflow above).
 
 ---
@@ -224,7 +231,7 @@ The skill stops immediately and prints a message if:
 | Condition | Message |
 |---|---|
 | `api.md` missing | `Run /gen-api-doc ACSMS-SCR-XXX first` |
-| `screen-design.md` missing with `--type=e2e` or `--type=component` | `screen-design.md required for this --type` |
+| `screen-design.md` missing with `--type=ui` or `--type=all` | `screen-design.md required for this --type` |
 | Screen ID not in `screen-list.md` | `Unknown screen ID` |
 
 ---
@@ -234,9 +241,12 @@ The skill stops immediately and prints a message if:
 | Path | Purpose |
 |---|---|
 | `.claude/agents/autotest.agent.md` | Agent definition |
-| `.claude/skills/gen-autotest/SKILL.md` | Skill internals: phases, mappings, quality gates |
-| `.claude/skills/gen-autotest/templates/` | 13 `.tpl` template files |
-| `apps/autotest-agri/` | Generated test base |
+| `.claude/skills/gen-autotest/SKILL.md` | Skill internals: phases, template mappings, quality gates |
+| `.claude/skills/gen-autotest/templates/` | Template files |
+| `apps/autotest-agri/` | All generated test code |
+| `apps/autotest-agri/src/page-objects/` | Playwright Page Object Models |
+| `apps/autotest-agri/src/utils/` | Shared helpers (auth, API, assertions) |
+| `apps/autotest-agri/fixtures/` | Static JSON test data per screen |
 | `docs/design/screen-list.md` | Screen catalogue (31 screens) |
 | `docs/database/database-design.md` | Entity schema + nullable columns |
 | `docs/database/seeder.md` | Role + permission codes |
