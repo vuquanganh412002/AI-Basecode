@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+.env.test
+reports/coverage/
+reports/results/
+reports/performance/
+playwright-report/
+test-results/

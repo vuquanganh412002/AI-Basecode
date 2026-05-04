@@ -38,6 +38,77 @@ Every invocation — no matter how small — must follow this process:
 
 Never batch multiple execution steps without separate approvals for each.
 
+## Docker Environment (read-only facts — do not rediscover)
+
+The project runs entirely in Docker. **There are no host-side node_modules** — all test execution goes through `docker exec`. Do **not** attempt to run `ts-node`, `typeorm`, `psql`, `vitest`, or `playwright` directly on the host machine.
+
+| Item | Value |
+|---|---|
+| Backend container | `agrinews-backend-1` (Node 20, has `ts-node` + `node_modules`) |
+| Frontend container | `agrinews-frontend-1` (Node 20, has `vitest` + `node_modules`) |
+| **Playwright container** | `agrinews-playwright-1` (playwright:v1.42.0-jammy, has `npx playwright`) |
+| Dev postgres container | `agrinews-postgres-1` — port `5432` on host |
+| **Test postgres container** | `agrinews-postgres-test-1` — port `5433` on host, `5432` inside Docker network |
+| **Test redis container** | `agrinews-redis-test-1` — port `6380` on host, `6379` inside Docker network |
+| Docker Compose file | `apps/docker-compose.yml` |
+| Test profile | `--profile test` (starts `postgres-test`, `redis-test`, `playwright`) |
+| Node on host | v16.15.1 — **incompatible** with vitest/playwright; always use Docker |
+
+### Key commands (copy-paste ready)
+
+**Run tests (all via `docker exec`):**
+```bash
+# From apps/autotest-agri/ — scripts delegate to docker exec
+npm run test:unit              # docker exec agrinews-backend-1 npm test
+npm run test:component         # docker exec agrinews-frontend-1 npm test
+npm run test:integration       # docker exec agrinews-backend-1 npm run test:integration
+npm run test:e2e               # docker exec agrinews-playwright-1 npx playwright test
+npm run test:coverage:backend  # docker exec agrinews-backend-1 npm run test:coverage
+npm run test:coverage:frontend # docker exec agrinews-frontend-1 npm run test:coverage
+```
+
+**Run migrations on test DB** (via backend container):
+```bash
+docker exec agrinews-backend-1 sh -c "
+  DB_HOST=agrinews-postgres-test-1 DB_PORT=5432 \
+  DB_NAME=agrinews_test DB_USERNAME=agrinews_test DB_PASSWORD=agrinews_test \
+  npx ts-node --project tsconfig.json --transpile-only -r reflect-metadata \
+  -e \"const ds=require('./src/database/data-source').default; ds.initialize().then(d=>d.runMigrations()).then(m=>{console.log('ran:',m.length);process.exit(0);}).catch(e=>{console.error(e.message);process.exit(1);})\""
+```
+
+**Generate bcrypt hash** (via backend container):
+```bash
+docker exec agrinews-backend-1 node -e "const b=require('bcryptjs'); b.hash('Test1234!',10).then(h=>process.stdout.write(h));"
+```
+
+**Seed test data** (pure SQL via postgres container):
+```bash
+docker exec agrinews-postgres-test-1 psql -U agrinews_test -d agrinews_test -c "..."
+```
+
+### One-shot bootstrap
+
+If test containers are down or freshly cloned, run from `apps/autotest-agri/`:
+```bash
+npm run bootstrap
+# Equivalent to:
+#   docker compose --profile test up -d --build postgres-test redis-test playwright
+#   (wait for postgres-test healthy)
+#   npm run setup:db --skip-start   # migrations
+#   npm run seed:db                 # roles, JA, test accounts
+```
+
+No `npm install` needed on host — node_modules live inside the Docker images.
+
+### Test accounts (seeded by `seed-test-data.sh`)
+
+| Role | login_id | Email | Password |
+|---|---|---|---|
+| NICHINO_ADMIN | `nichino_admin` | `nichino_admin@test.agrinews.jp` | `Test1234!` |
+| CHUOKAI | `chuokai` | `chuokai@test.agrinews.jp` | `Test1234!` |
+| JA_HONTEN | `ja_honten` | `ja_honten@test.agrinews.jp` | `Test1234!` |
+| JA_KANRI_SHITEN | `ja_kanri` | `ja_kanri@test.agrinews.jp` | `Test1234!` |
+
 ## Capabilities
 
 - Scaffold and own the test base at `apps/autotest-agri/` (Vitest config, Playwright config, page objects, fixtures, helpers).
@@ -86,16 +157,14 @@ When generating, the skill reads a template, substitutes `{{PLACEHOLDERS}}` (`{{
 
 ## Test base location
 
-`apps/autotest-agri/` (already scaffolded):
+`apps/autotest-agri/` (already scaffolded — Docker-native, no host node_modules):
 
 ```
 apps/autotest-agri/
 ├── README.md
-├── package.json
-├── vitest.config.ts
-├── playwright.config.ts
+├── package.json                # scripts only — delegates all test runs to docker exec
+├── playwright.config.ts        # used inside playwright container
 ├── tsconfig.json
-├── vitest.setup.ts
 ├── .env.example
 ├── src/
 │   ├── fixtures/               # Faker factories (shared across e2e + integration)
@@ -106,11 +175,14 @@ apps/autotest-agri/
 │       ├── assertions.ts       # assertApiError, assertCannotAccess, …
 │       └── index.ts
 ├── e2e/{auth,masters,subscribers,reports,permissions}/
-├── unit/{backend,frontend}/    # symlink targets for IDE convenience
-├── integration/
-├── scripts/                    # setup-test-db.sh, seed-test-data.ts, run-tests.sh
+├── scripts/
+│   ├── bootstrap.sh            # one-shot: start containers + migrations + seed
+│   ├── setup-test-db.sh        # start postgres-test/redis-test + run migrations
+│   └── seed-test-data.sh       # seed roles, JA, test accounts
 └── reports/{coverage,results,performance}/
 ```
+
+**Node_modules location**: inside Docker images only. Backend tests (`vitest`) run in `agrinews-backend-1`. Frontend tests run in `agrinews-frontend-1`. E2E (Playwright) tests run in `agrinews-playwright-1`. The host needs only Docker.
 
 ## Pipeline
 
@@ -135,11 +207,17 @@ apps/autotest-agri/
 
 ```bash
 cd apps/autotest-agri
-npm install
-npm run test:unit              # vitest backend + frontend
-npm run test:integration       # vitest with test DB
-npm run test:e2e               # playwright
-npm run test:coverage          # c8 report → reports/coverage/
+
+# First time (or after containers restart):
+npm run bootstrap              # starts containers + migrations + seed
+
+# Daily use — all delegate to docker exec:
+npm run test:unit              # backend vitest (agrinews-backend-1)
+npm run test:component         # frontend vitest (agrinews-frontend-1)
+npm run test:integration       # backend integration (agrinews-backend-1)
+npm run test:e2e               # playwright (agrinews-playwright-1)
+npm run test:coverage:backend  # backend coverage report
+npm run test:coverage:frontend # frontend coverage report
 ```
 
 ## Boundaries

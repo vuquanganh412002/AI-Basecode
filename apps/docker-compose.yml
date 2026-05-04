@@ -112,6 +112,59 @@ services:
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY}
       STORAGE_BUCKET: ${STORAGE_BUCKET}
 
+  # Isolated test database — port 5433, never shares data with dev DB
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agrinews_test
+      POSTGRES_USER: agrinews_test
+      POSTGRES_PASSWORD: agrinews_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrinews_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - test
+
+  # Isolated test Redis — port 6380, no persistence
+  redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - test
+
+  # Playwright E2E runner — keep alive, use `docker exec` to run tests
+  playwright:
+    build:
+      context: ./autotest-agri
+      dockerfile: ../docker/playwright/Dockerfile
+    working_dir: /autotest
+    volumes:
+      - ./autotest-agri:/autotest
+      # Anonymous volume: preserve node_modules built into the image (not on host)
+      - /autotest/node_modules
+    environment:
+      - BASE_URL=https://nginx
+      - API_BASE_URL=https://nginx/api/v1
+      - CI=true
+      - PLAYWRIGHT_TIMEOUT=30000
+    depends_on:
+      - nginx
+    profiles:
+      - test
+
 volumes:
   postgres_data:
   minio_data:
