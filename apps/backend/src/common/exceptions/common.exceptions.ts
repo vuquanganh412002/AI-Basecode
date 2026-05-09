@@ -46,12 +46,19 @@ export class NotFoundException extends DomainException {
 }
 
 export class DuplicateCodeException extends DomainException {
-  constructor(resource: string = 'コード') {
-    super(
-      `同一の${resource}が既に登録されています。`,
-      ErrorCode.DUPLICATE_CODE,
-      HttpStatus.BAD_REQUEST,
-    );
+  /**
+   * Pass `value` to surface the actual code in the error toast — much
+   * easier for the user to spot the dup row in a long screen than the
+   * generic "同一のXが既に登録" message:
+   *   `JAコード「002001」はすでに登録されています。`
+   * Omit `value` for callers that don't have it handy (legacy or when
+   * the duplicate is on a non-public field).
+   */
+  constructor(resource: string = 'コード', value?: string) {
+    const message = value
+      ? `${resource}「${value}」はすでに登録されています。`
+      : `同一の${resource}が既に登録されています。`;
+    super(message, ErrorCode.DUPLICATE_CODE, HttpStatus.BAD_REQUEST);
   }
 }
 

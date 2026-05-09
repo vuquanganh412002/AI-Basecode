@@ -60,6 +60,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const obj = res as Record<string, unknown>;
         code =
           (obj.code as string) ??
+          (obj.error_code as string) ??
           GlobalExceptionFilter.STATUS_TO_CODE[status] ??
           `HTTP_${status}`;
         message =

@@ -10,6 +10,7 @@ export function useAuth() {
     isAuthenticated,
     login: authStore.login,
     logout: authStore.logout,
+    toggleMfa: authStore.toggleMfa,
     hasPermission: authStore.hasPermission,
   };
 }

@@ -11,6 +11,8 @@ export interface User {
   paper_flg: boolean;
   denshi_flg: boolean;
   email: string;
+  /** MFA on/off — controls whether the user must enter a 6-digit OTP at login. */
+  mfa_enable_flg: boolean;
   permissions: string[];
 }
 

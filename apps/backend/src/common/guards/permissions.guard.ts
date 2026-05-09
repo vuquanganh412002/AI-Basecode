@@ -24,7 +24,7 @@ export class PermissionsGuard implements CanActivate {
     if (!user || !user.permissions) {
       throw new ForbiddenException({
         code: 'FORBIDDEN',
-        message: 'この画面へのアクセス権限がありません',
+        message: 'この画面へのアクセス権限がありません。',
       });
     }
 
@@ -34,7 +34,7 @@ export class PermissionsGuard implements CanActivate {
     if (!hasAll) {
       throw new ForbiddenException({
         code: 'FORBIDDEN',
-        message: 'この画面へのアクセス権限がありません',
+        message: 'この画面へのアクセス権限がありません。',
       });
     }
 

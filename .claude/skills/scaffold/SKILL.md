@@ -55,6 +55,11 @@ Copy each template to its target path. Replace all `__PROJECT__` with `$ARGUMENT
 | 6a | `backend/session.service.ts` | `apps/backend/src/modules/auth/session.service.ts` | Redis-backed session CRUD (create/get/touch/destroy/destroyAllForAccount) |
 | 6b | `backend/redis.module.ts` | `apps/backend/src/modules/redis/redis.module.ts` | Global ioredis client (supports REDIS_URL + TLS for AWS ElastiCache) |
 | 6c | `backend/redis.service.ts` | `apps/backend/src/modules/redis/redis.service.ts` | Thin wrapper over ioredis |
+| 6d | `backend/m-code.entity.ts` | `apps/backend/src/database/entities/m-code.entity.ts` | m_code table mapping (unique `(code_category, code_value)`) — lives in shared `database/entities/`, not in code module |
+| 6e | `backend/code.service.ts` | `apps/backend/src/modules/code/code.service.ts` | `@Global` service — caches all m_code rows at `onModuleInit`; exposes `has()`, `getLabel()`, `reload()` |
+| 6f | `backend/code.controller.ts` | `apps/backend/src/modules/code/code.controller.ts` | `GET /api/v1/codes` + `GET /api/v1/codes/:category` (session-auth) |
+| 6g | `backend/code.module.ts` | `apps/backend/src/modules/code/code.module.ts` | `@Global()` — inject `CodeService` from any feature module without re-importing |
+| 6h | `backend/create-integration-app.ts` | `apps/backend/test/utils/create-integration-app.ts` | Shared helper for `*.integration.spec.ts` — boots full Nest app on pg-mem + ioredis-mock + cookie-parser + ConfigModule + MailService stub. Solves the 5 wiring obstacles documented in the file header. Spec calls `createIntegrationTestApp({ modules: [MyModule] })` and gets `{app, dataSource, redis, sessionService, seedSession, close}`. Append new entity classes to `ALL_ENTITIES` as feature modules are added. |
 | 7 | `frontend/vite.config.ts` | `apps/frontend/vite.config.ts` | allowedHosts for nginx proxy |
 | 9 | `frontend/axios-instance.ts` | `apps/frontend/src/api/axios-instance.ts` | Thin interceptor — delegates to `handleApiError` |
 | 9a | `frontend/error-codes.ts` | `apps/frontend/src/constants/error-codes.ts` | Mirror of backend `ErrorCode` — keep in sync |
@@ -79,6 +84,8 @@ Copy each template to its target path. Replace all `__PROJECT__` with `$ARGUMENT
 | 10i | `frontend/components/common/BaseConfirmModal.vue` | `apps/frontend/src/components/common/BaseConfirmModal.vue` | v-model:open + `danger` prop for destructive actions |
 | 10j | `frontend/components/common/MfaInput.vue` | `apps/frontend/src/components/common/MfaInput.vue` | v-model + `@complete` event + paste auto-fill |
 | 10k | `frontend/components/common/NoticeList.vue` | `apps/frontend/src/components/common/NoticeList.vue` | お知らせ card with date + title |
+| 10k1 | `frontend/codes-api.ts` | `apps/frontend/src/api/codes/codes.ts` | Thin axios wrapper for `GET /api/v1/codes` + per-category |
+| 10k2 | `frontend/codes.store.ts` | `apps/frontend/src/stores/codes.store.ts` | `useCodesStore` — m_code cache. `loadAll()` / `reset()` called from `auth.store` lifecycle |
 | 10l | `frontend/LoginView.vue` | `apps/frontend/src/views/auth/LoginView.vue` | SCR-001. Replace `__BRAND_NAME__`, `__SYSTEM_NAME__`, `__CONTACT_*__` placeholders |
 | 10m | `frontend/MfaVerifyView.vue` | `apps/frontend/src/views/auth/MfaVerifyView.vue` | SCR-001 MFA step — uses `MfaInput` + redirects on complete |
 | 11 | `docker/docker-compose.yml` | `apps/docker-compose.yml` | 7 services, volume mounts, healthchecks |
@@ -148,6 +155,11 @@ apps/
 │   │   ├── database/
 │   │   │   ├── database.module.ts
 │   │   │   ├── data-source.ts
+│   │   │   ├── entities/                            # ALL TypeORM entities live here
+│   │   │   │   ├── account.entity.ts                # 1 entity = 1 file = 1 source of truth
+│   │   │   │   ├── m-code.entity.ts                 # No per-module entity folders.
+│   │   │   │   ├── log.entity.ts                    # Owner module = whoever calls
+│   │   │   │   └── ...                              # TypeOrmModule.forFeature([Entity])
 │   │   │   └── migrations/
 │   │   │       ├── {TS+001}-Create{Table1}.ts       # One Create migration per table
 │   │   │       ├── {TS+002}-Create{Table2}.ts       # …in FK-safe timestamp order
@@ -156,15 +168,19 @@ apps/
 │   │   │       └── {TS2+00N}-Seed{TableN}.ts        # …only if seeder.md exists
 │   │   └── modules/
 │   │       ├── auth/
-│   │       │   ├── auth.module.ts
-│   │       │   ├── auth.controller.ts
-│   │       │   ├── auth.service.ts
+│   │       │   ├── auth.module.ts                   # imports([Account, MfaOtp, Role,
+│   │       │   ├── auth.controller.ts               #          Permission, RolePermission])
+│   │       │   ├── auth.service.ts                  # entities live in src/database/entities/
 │   │       │   ├── session.service.ts              # Redis-backed session CRUD
 │   │       │   ├── dto/login.dto.ts
 │   │       │   └── exceptions/invalid-credentials.exception.ts
 │   │       ├── redis/
 │   │       │   ├── redis.module.ts                 # @Global() ioredis client
 │   │       │   └── redis.service.ts
+│   │       ├── code/                               # @Global() m_code cache
+│   │       │   ├── code.module.ts                  # imports([MCode]) — entity at
+│   │       │   ├── code.service.ts                 # onModuleInit load + has/getLabel
+│   │       │   └── code.controller.ts              # src/database/entities/m-code.entity.ts
 │   │       ├── health/
 │   │       │   ├── health.module.ts
 │   │       │   └── health.controller.ts
@@ -182,11 +198,17 @@ apps/
 │   │           └── providers/
 │   │               ├── smtp.provider.ts
 │   │               └── ses.provider.ts
+│   ├── test/
+│   │   ├── setup.ts                  # silences Logger + seeds env vars
+│   │   ├── fixtures/                 # shared mock builders (per-module factories)
+│   │   ├── integration/              # *.integration.spec.ts
+│   │   └── utils/
+│   │       └── create-integration-app.ts  # pg-mem + ioredis-mock + Nest helper
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── tsconfig.build.json
 │   ├── nest-cli.json
-│   ├── vitest.config.ts
+│   ├── jest.config.ts             # NestJS BE → Jest (ts-jest); FE keeps Vitest
 │   ├── .env.example
 │   ├── .env.development           # Backend runtime vars (DB, REDIS, SESSION, STORAGE, MAIL)
 │   ├── .env.staging
@@ -199,7 +221,9 @@ apps/
 │   │   ├── env.d.ts
 │   │   ├── styles/tailwind.css            # Font + Material Icons imports + @layer base
 │   │   ├── router/index.ts
-│   │   ├── stores/auth.store.ts
+│   │   ├── stores/
+│   │   │   ├── auth.store.ts
+│   │   │   └── codes.store.ts             # useCodesStore — m_code cache (dropdowns + labels)
 │   │   ├── constants/
 │   │   │   └── error-codes.ts             # Mirror of BE ErrorCode + ApiErrorResponse type
 │   │   ├── composables/
@@ -292,9 +316,47 @@ name: "$ARGUMENTS-backend"
 
 Dependencies: @nestjs/{core,common,platform-express,typeorm,swagger,config,throttler}, typeorm, pg, ioredis, cookie-parser, class-validator, class-transformer, bcryptjs, helmet, @aws-sdk/{client-s3,s3-request-presigner,client-ses}, minio, nodemailer, dayjs, uuid, reflect-metadata, rxjs
 
-DevDependencies: @nestjs/{cli,testing}, vitest, @vitest/coverage-v8, typescript, ts-node, @types/{node,bcryptjs,express,cookie-parser,nodemailer,uuid}
+DevDependencies: @nestjs/{cli,testing}, jest, ts-jest, @types/jest, typescript, ts-node, pg-mem, ioredis-mock, supertest, @types/{node,bcryptjs,express,cookie-parser,nodemailer,uuid,supertest}
 
 Scripts: start:dev (`nest start --watch`), build, test, test:coverage, migration:{generate,run,revert}, swagger:export, seed
+
+**Why Jest (BE) and Vitest (FE)** — split by ecosystem:
+- NestJS docs/CLI/examples default to Jest. ts-jest natively emits `design:paramtypes` decorator metadata, so `Test.createTestingModule(...)` works out-of-box without an extra SWC plugin.
+- Vue 3/Vite ecosystem defaults to Vitest. Same Vite transform pipeline, native SFC handling, no setup tax.
+- Each side uses its native tool — minimum friction long term.
+
+**jest.config.ts** — MUST include:
+1. `preset: 'ts-jest'` — drives TypeScript compilation + decorator metadata.
+2. `moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' }` — matches `tsconfig.paths`. Spec imports like `import { JaService } from '@/modules/ja/ja.service'` resolve.
+3. `testMatch: ['**/*.spec.ts']` (NEVER `*.test.ts`).
+4. `setupFiles: ['<rootDir>/test/setup.ts']` — silences Nest Logger and seeds default env vars (`SESSION_SECRET`, `NODE_ENV=test`).
+5. Coverage `collectCoverageFrom` excludes: `src/main.ts`, `src/**/*.module.ts`, `src/database/entities/**`, `src/**/dto/**/*.dto.ts`, `src/database/migrations/**`, `src/**/*.constant.ts`, `src/**/index.ts`, `src/database/data-source.ts`.
+6. **Per-module coverage thresholds** — global at 0 so untested modules don't fail the build; add a per-module gate as each spec suite is completed. Jest istanbul counts ~1-2% stricter than Vitest V8, so calibrate using actual measured values:
+
+```ts
+coverageThreshold: {
+  global: { statements: 0, branches: 0, functions: 0, lines: 0 },
+
+  // Per-module gates (add one block per completed module)
+  'src/modules/<module>/**/*.ts': {
+    statements: 97, functions: 98, lines: 97,
+    // Branches capped lower because defense-in-depth paths (SQL DataScope
+    // filter + in-memory fallback) are hard to reach in unit tests.
+    branches: 73,
+  },
+  // Add 'src/modules/next-module/**/*.ts': {...} when ready.
+},
+```
+
+7. `forceExit: true` — Redis/TypeORM connections sometimes leave handles open after test teardown; forceExit avoids hung CI runs.
+
+8. **`tsconfig.json` requirements**: `esModuleInterop: true` + `experimentalDecorators: true` + `emitDecoratorMetadata: true`. Without `esModuleInterop`, default imports like `import cookieParser from 'cookie-parser'` fail under ts-jest with `... is not a function`.
+
+9. **Volume mounts** (in `apps/docker-compose.yml` backend service) — bind-mount `./backend/test:/app/test` and `./backend/jest.config.ts:/app/jest.config.ts` so dev-time iteration on specs + config doesn't require a container rebuild.
+
+With ts-jest, `gen-ut-backend` controller specs use full `Test.createTestingModule` + `supertest`. Service specs default to plain `new __SERVICE__(...)` (faster, doesn't need Nest lifecycle).
+
+**Integration test helper** — scaffold emits `apps/backend/test/utils/create-integration-app.ts` (template `6h` in the table above). Resolves the 5 wiring obstacles (pg-mem ↔ TypeOrmModule via `dataSourceFactory`, ConfigModule provision, ioredis-mock hookup, cookie-parser middleware, MailService stub, m_code seed timing). Each module's `*.integration.spec.ts` then just calls `createIntegrationTestApp({ modules: [XxxModule], seedSql: [...] })`. **When adding a new feature module with new entities, append the entity classes to `ALL_ENTITIES`** in this helper — pg-mem's DataSource needs an explicit list since `dataSourceFactory` bypasses TypeORM's `autoLoadEntities`.
 
 ### 2.2 main.ts (Bootstrap)
 
@@ -512,7 +574,26 @@ interface MailProvider {
 - High-level methods: `sendOtp()`, `sendPasswordReset()`, `sendNotification()`
 - Never log full email or OTP — use `maskEmail()`
 
-### 2.9 database/ (Migration-first strategy)
+### 2.9 modules/code/ (m_code master — @Global)
+
+The project enumerates business values (性別, 支払方法, お知らせ種別, ログ種別, …) in the `m_code` table rather than PostgreSQL ENUM or TypeScript enum. Every feature module needs read access, so `CodeModule` is `@Global()` and `CodeService` is injectable anywhere without re-importing.
+
+**Module layout:**
+- `code.service.ts` — caches the full table in memory via `onModuleInit()`; exposes `getAll()`, `getByCategory(cat)`, `has(cat, val)`, `getLabel(cat, val)`, `reload()`. Call `reload()` if a future admin screen mutates codes.
+- `code.controller.ts` — `GET /api/v1/codes` (returns whole map) + `GET /api/v1/codes/:category` (single category). Both behind `SessionAuthGuard` — any logged-in user can read.
+- `code.module.ts` — `@Global()` + `TypeOrmModule.forFeature([MCode])` + exports `CodeService`. Imports `MCode` from `src/database/entities/m-code.entity.ts` (entities live in `database/`, not in module folders — see §2.10).
+
+**Rules (enforce across feature modules):**
+- Entity columns that reference m_code (e.g. `tanka_type`, `gender`, `shiharai_hoho`) are typed `int` / `varchar` — NEVER `@Column({ type: 'enum' })`.
+- Do NOT generate TypeScript `enum` for m_code categories. Use plain number / string primitives.
+- DTO validation uses `@IsInt()` / `@IsString()` for shape only; the allowed-value check lives in each service as `this.codeService.has('CATEGORY', dto.field)` and raises `VALIDATION_ERROR` on miss.
+- FE mirror: `useCodesStore().loadAll()` runs once per session (from `auth.store` login / MFA / refreshSession hooks); components read via `codes.options(cat)` and `codes.label(cat, val)`. See §3.
+
+**Seeder migration:** if `docs/database/seeder.md §5` exists, emit a `{TS2+00M}-Seed_m_code.ts` migration that inserts every category row. Covers 21 categories in the agrinews schema. See §2.10.1 for timestamp ordering.
+
+---
+
+### 2.10 database/ (Migration-first strategy)
 
 **CRITICAL: `synchronize: false` always. ALL schema changes via migrations. NEVER sync models directly.**
 
@@ -546,7 +627,7 @@ export default new DataSource({
 
 **Migration workflow:**
 ```bash
-# 1. Create/edit entity file (e.g., src/modules/tanka/entities/tanka.entity.ts)
+# 1. Create/edit entity file (in src/database/entities/, e.g., tanka.entity.ts)
 
 # 2. Generate migration from entity diff
 npm run migration:generate -- src/database/migrations/CreateTankaTable
@@ -572,7 +653,7 @@ App starts → TypeORM connects to DB → migrationsRun: true
 - Migration files are version-controlled and immutable
 - `migrationsRun: true` ensures DB is always up-to-date on app start
 
-### 2.9.1 Initial Migration Generation (MANDATORY during scaffold)
+### 2.10.1 Initial Migration Generation (MANDATORY during scaffold)
 
 **After all entity files are created, the skill MUST generate ONE migration file PER TABLE plus ONE seeder file PER seed category.** This ensures the app starts with a usable DB on first run (via `migrationsRun: true`), and each table's history is independently reviewable/revertable.
 
@@ -745,7 +826,8 @@ DevDependencies: vite, @vitejs/plugin-vue, typescript, vue-tsc, tailwindcss, pos
 | styles/tailwind.css | `@import` Noto Sans JP + Material Icons/Symbols, `@layer base` body bg, `@layer utilities` for material icon sizing |
 | main.ts | createApp → use pinia, router, Antd. Import `ant-design-vue/dist/reset.css` + tailwind.css |
 | router/index.ts | ALL routes lazy-loaded. beforeEach auth guard → redirect /login if not authenticated. `meta.breadcrumb` for `useBreadcrumb`. `meta.permission` for screen-level permission check |
-| stores/auth.store.ts | Pinia setup store. `accessToken` as `ref<string\|null>`. `hasPermission(perm)` method |
+| stores/auth.store.ts | Pinia setup store — session-cookie auth (no token in JS). Holds `user` ref, `isAuthenticated = computed(!!user)`, `login/verifyMfa/refreshSession/logout`. After each successful auth step calls `useCodesStore().loadAll()`; on logout / failed refresh calls `useCodesStore().reset()`. `hasPermission(perm)` reads `user.value.permissions`. |
+| stores/codes.store.ts | Pinia setup store — mirror of backend `m_code`. `loadAll()` called from `auth.store` lifecycle (idempotent cache). `options(cat)` → `<a-select>` options; `label(cat, val)` / `labelShort(cat, val)` → table cell rendering. |
 | api/axios-instance.ts | Thin wrapper. Request interceptor: Bearer token. Response interceptor → `handleApiError` |
 | api/error-handler.ts | Central switch on `error_code`. UNAUTHORIZED → silent refresh / redirect, FORBIDDEN → /403, VALIDATION_ERROR → pass through, others → toast |
 | constants/error-codes.ts | `ErrorCode` const + `ApiErrorResponse` type — mirror of backend constant |

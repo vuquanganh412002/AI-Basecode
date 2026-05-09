@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { MailProvider } from './interfaces/mail-provider.interface';
 import { SmtpMailProvider } from './providers/smtp.provider';
 import { SesMailProvider } from './providers/ses.provider';
+import { renderOtpMail } from './templates/otp.template';
+import { renderPasswordResetMail } from './templates/password-reset.template';
 
 @Injectable()
 export class MailService implements OnModuleInit {
@@ -34,28 +36,42 @@ export class MailService implements OnModuleInit {
     }
   }
 
-  async sendOtp(email: string, otpCode: string): Promise<void> {
-    await this.provider.sendMail({
-      to: email,
-      subject: '【agrinews】ログイン認証コード',
-      html: `<p>認証コード: <strong>${otpCode}</strong></p><p>有効期限: 5分</p>`,
-    });
+  /** Send the 6-digit MFA OTP. Template lives in `templates/otp.template.ts`. */
+  async sendOtp(
+    email: string,
+    accountName: string,
+    otpCode: string,
+  ): Promise<void> {
+    const { subject, text } = renderOtpMail({ accountName, otpCode });
+    await this.provider.sendMail({ to: email, subject, text });
     this.logger.log({ event: 'mail.otp.sent', email: this.maskEmail(email) });
   }
 
-  async sendPasswordReset(email: string, resetUrl: string): Promise<void> {
-    await this.provider.sendMail({
-      to: email,
-      subject: '【agrinews】パスワードリセット',
-      html: `<p>以下のリンクからパスワードをリセットしてください。</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>有効期限: 30分</p>`,
+  /**
+   * Send the password reset link. Template lives in
+   * `templates/password-reset.template.ts`. `expiryMinutes` flows from
+   * `auth.service.ts` (`RESET_TOKEN_EXPIRY_MINUTES`) so the body label
+   * stays in sync with the real token TTL.
+   */
+  async sendPasswordReset(
+    email: string,
+    accountName: string,
+    resetUrl: string,
+    expiryMinutes: number,
+  ): Promise<void> {
+    const { subject, text } = renderPasswordResetMail({
+      accountName,
+      resetUrl,
+      expiryMinutes,
     });
+    await this.provider.sendMail({ to: email, subject, text });
     this.logger.log({ event: 'mail.password_reset.sent', email: this.maskEmail(email) });
   }
 
   async sendNotification(email: string, subject: string, content: string): Promise<void> {
     await this.provider.sendMail({
       to: email,
-      subject: `【agrinews】${subject}`,
+      subject: `【クラウド版購読者管理システム】${subject}`,
       html: content,
     });
   }

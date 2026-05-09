@@ -16,7 +16,7 @@ const label = computed(() =>
     type="button"
     :aria-label="label"
     :title="label"
-    class="relative w-10 h-10 inline-flex items-center justify-center rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-amber-500 dark:text-sky-300 hover:scale-105 hover:shadow-md transition-all duration-200"
+    class="relative w-10 h-10 inline-flex items-center justify-center rounded-full border border-border bg-surface-card text-amber-500 dark:text-sky-300 hover:scale-105 hover:shadow-md transition-all duration-200"
     @click="toggle"
   >
     <span class="material-icons" style="font-size: 22px">{{ icon }}</span>

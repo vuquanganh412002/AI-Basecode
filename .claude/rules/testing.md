@@ -1,27 +1,29 @@
-# Testing Standards — Vitest + NestJS + Vue 3
+# Testing Standards — Jest (BE) + Vitest (FE) + NestJS + Vue 3
 
-> Standards for testing in the `agrinews` project. Vitest for all tests, Vue Test Utils for frontend.
+> Standards for testing in the `agrinews` project.
+> - **Backend (NestJS)**: Jest + ts-jest + supertest — NestJS docs default; ts-jest emits decorator metadata natively.
+> - **Frontend (Vue 3)**: Vitest + Vue Test Utils — Vue/Vite ecosystem default; shares Vite transform pipeline.
 
 ## Testing Pyramid
 ```
          [E2E Tests]         ← Few, slow (Playwright)
-       [Integration Tests]   ← Some, test module interaction
-     [Unit Tests]            ← Many, fast (Vitest)
+       [Integration Tests]   ← Some, test module interaction (BE: pg-mem + ioredis-mock)
+     [Unit Tests]            ← Many, fast (BE: Jest, FE: Vitest)
 ```
 
 ## Requirements
-- **Effective** coverage target: **≥ 98%** (branches / functions / lines / statements). "Effective" excludes bootstrap, decorator-only files, migrations, constants, generated code — see exclude list in each `vitest.config.ts`.
-- Test-first (TDD): specs are generated BEFORE implementation via `/gen-ut-backend` (BE) + `/gen-ut-frontend` (FE), then `/gen-code` fills in the source until specs turn green.
+- **Effective** coverage target: **≥ 97-98%** (branches / functions / lines / statements). "Effective" excludes bootstrap, decorator-only files, migrations, constants, generated code — see exclude list in each runner's config (`jest.config.ts` for BE, `vitest.config.ts` for FE).
+- Test-first (TDD): specs are generated BEFORE implementation via `/gen-ut-backend` (BE) + `/gen-ut-frontend` (FE), then `/gen-code-backend` + `/gen-code-frontend` emit source that satisfies each side's contract.
 - All new features must have tests
 - All bug fixes must have a regression test
 - Tests run in CI (GitLab) before any merge
 
 ### Coverage excludes (intentionally uncovered)
 
-Backend (`apps/backend/vitest.config.ts`):
+Backend (`apps/backend/jest.config.ts` → `collectCoverageFrom`):
 - `src/main.ts` — bootstrap
 - `src/**/*.module.ts` — NestJS module decorators
-- `src/**/entities/**` — TypeORM decorator-only classes
+- `src/database/entities/**` — TypeORM decorator-only classes (entities live here, not in modules)
 - `src/**/dto/**/*.dto.ts` — class-validator decorator shells (tested via `*.dto.spec.ts` separately)
 - `src/database/migrations/**` + `src/database/data-source.ts`
 - `src/**/*.constant.ts` — enums / constant maps
@@ -31,35 +33,37 @@ Frontend (`apps/frontend/vitest.config.ts`):
 - `src/api/generated/**` — Orval output
 - `src/env.d.ts`, `src/types/**`, `src/**/*.d.ts`
 
-## TDD workflow with /gen-ut-backend + /gen-ut-frontend
+## TDD workflow
 
-```
-/gen-api-doc      ACSMS-SCR-XXX  →  api.md (spec)
-           ↓
-/gen-ut-backend   ACSMS-SCR-XXX  →  backend *.spec.ts (failing — RED)
-/gen-ut-frontend  ACSMS-SCR-XXX  →  frontend *.spec.ts (failing — RED)
-           ↓
-/gen-code         ACSMS-SCR-XXX  →  source files (passing — GREEN)
-```
+Per-screen pipeline (order, review steps, migration + Orval timing) lives in the **[README.md § Development Workflow](../../README.md)** — canonical reference, do not duplicate.
 
-The two `gen-ut-*` skills are **independent** — run either first, or both in parallel.
-Use `gen-ut-backend` alone for headless / background-job screens (no UI).
-Use `gen-ut-frontend` alone for FE-only screens (dashboard, static pages).
+Rules that govern test files specifically:
 
-- Each skill is the source of truth for its side of the stack. Generated specs must never be overwritten by other skills.
-- Every spec file starts with `// @ts-nocheck — TDD red phase` so TypeScript doesn't block the red build. `/gen-code` removes that banner as its last step once implementation compiles.
-- If `api.md` or `screen-design.md` changes: delete the affected spec files and rerun the relevant skill.
+- **Immutable specs**: `*.spec.ts`, `*.fixture.ts`, `*.factory.ts` are written by `/gen-ut-*` and are the contract. `/gen-code-*` MUST NOT edit them. If the contract is wrong, rerun `/gen-ut-*` — don't patch the spec by hand from `/gen-code-*`.
+- **Red-phase banner**: every generated spec starts with `// @ts-nocheck — TDD red phase`. `/gen-code-*` removes the banner as its last step when the type-checker (`tsc --noEmit` for BE, `vue-tsc --noEmit` for FE) passes.
+- **Stale-contract guard**: if `api.md` or `screen-design.md` mtime is newer than any `*.spec.ts`, `/gen-code-*` aborts and asks to rerun the matching `/gen-ut-*` first.
+- **Spec-canonical**: when spec and api.md / screen-design.md disagree, the spec wins. Regen specs to refresh the contract.
+- **Review matters**: between `/gen-ut-*` and `/gen-code-*`, read the specs and fix anything wrong (happy-path shape, error-message literals, DataScope cases). Running them back-to-back without review makes "test-first" trivial.
+- **One-shot**: `/gen-code-*` does not loop on test failures. User runs `npm test` manually and iterates.
 
 ---
 
-## Test Framework — Vitest (not Jest)
+## Test Framework — Split by Ecosystem
 
-### Why Vitest
-- Native ESM support
-- Compatible with Vite (frontend)
-- Faster than Jest
-- Same API as Jest (easy migration)
-- TypeScript first-class support
+### Backend: Jest + ts-jest
+
+- NestJS docs / CLI / examples default — patterns copy-paste
+- ts-jest emits `design:paramtypes` decorator metadata natively → `Test.createTestingModule()` works without an extra plugin
+- Larger ecosystem of NestJS testing utilities
+
+### Frontend: Vitest
+
+- Vue 3 / Vite ecosystem default — `create-vue` scaffolds with it
+- Native SFC (`.vue`) support via `@vitejs/plugin-vue`
+- Shares Vite config + transforms with the dev server (no drift)
+- Faster than Jest for FE specs (esbuild)
+
+Each side uses the runner aligned with its framework — minimum friction long term.
 
 ---
 
@@ -75,60 +79,70 @@ src/modules/users/
       └── users.integration.spec.ts  # Integration test
 ```
 
-### Unit Test (Service)
+### Unit Test (Service) — plain `new`
 ```ts
 // users.service.spec.ts
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { UsersService } from './users.service';
-import { User } from './entities/user.entity';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let mockRepo: Record<string, vi.Mock>;
+  let repo: any;
 
-  beforeEach(async () => {
-    mockRepo = {
-      findOne: vi.fn(),
-      find: vi.fn(),
-      save: vi.fn(),
-      create: vi.fn(),
+  beforeEach(() => {
+    repo = {
+      findOne: jest.fn(),
+      find: jest.fn(),
+      save: jest.fn(),
+      create: jest.fn((v) => v),
     };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UsersService,
-        { provide: getRepositoryToken(User), useValue: mockRepo },
-      ],
-    }).compile();
-
-    service = module.get<UsersService>(UsersService);
+    // Service unit specs use plain `new` — no Nest lifecycle needed.
+    service = new UsersService(repo);
   });
 
   describe('findById', () => {
     it('should return user when found', async () => {
       const mockUser = { id: '1', email: 'test@test.com' };
-      mockRepo.findOne.mockResolvedValue(mockUser);
+      repo.findOne.mockResolvedValue(mockUser);
 
       const result = await service.findById('1');
 
       expect(result).toEqual(mockUser);
-      expect(mockRepo.findOne).toHaveBeenCalledWith({ where: { id: '1' } });
+      expect(repo.findOne).toHaveBeenCalledWith({ where: { id: '1' } });
     });
 
-    it('should throw UserNotFoundException when not found', async () => {
-      mockRepo.findOne.mockResolvedValue(null);
+    it('should throw NotFoundException when not found', async () => {
+      const { NotFoundException } = await import('@nestjs/common');
+      repo.findOne.mockResolvedValue(null);
 
       await expect(service.findById('999'))
-        .rejects.toThrow(UserNotFoundException);
+        .rejects.toThrow(NotFoundException);
     });
   });
 });
 ```
 
+### Controller Test — Test.createTestingModule + supertest
+```ts
+// ts-jest emits decorator metadata natively, so Nest DI works in
+// Test.createTestingModule({...}).compile() — no extra plugin.
+const moduleRef = await Test.createTestingModule({
+  controllers: [UsersController],
+  providers: [{ provide: UsersService, useValue: serviceMock }],
+})
+  .overrideGuard(SessionAuthGuard).useValue(sessionGuardStub)
+  .overrideGuard(PermissionsGuard).useValue(permissionsGuardStub)
+  .compile();
+
+const app = moduleRef.createNestApplication();
+await app.init();
+await request(app.getHttpServer()).get('/api/v1/users/1').expect(200);
+```
+
 ### Testing Rules (Backend)
-- Mock ALL dependencies via NestJS `Test.createTestingModule`
-- Use `vi.fn()` for mocks (Vitest API)
+- Use `jest.fn()` for mocks (Jest API)
+- Service spec: plain `new ServiceClass(...)` — bypass Nest DI (faster, simpler)
+- Controller spec: `Test.createTestingModule` + `supertest` (full HTTP stack)
+- Mock typing: `let service: any` — strict types (`Record<string, ReturnType<typeof jest.fn>>`) widen `mockRejectedValue` arg to `never`, blocking error-path tests
 - Test service methods independently — no real DB
 - Test edge cases: empty list, null, invalid input
 - Verify mock calls: `expect(mock).toHaveBeenCalledWith(...)`

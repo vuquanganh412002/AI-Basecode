@@ -1,20 +1,166 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
-@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+/* Cascade layers used in this project:
+     antd       — Ant Design Vue's reset.css (element resets)
+     fonts      — Google Fonts CDN, loaded via inline <style> in
+                  index.html. Layer name MUST match the one declared in
+                  the @import url() layer(fonts) statements there.
+     theme/base — Tailwind v4's own internal layers (set by the imports
+                  below; Tailwind wraps theme tokens in `theme` and any
+                  preflight in `base`).
+     utilities  — Tailwind's utility-class output (also internal).
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+   Layer order priority — later-declared layers WIN. So the resulting
+   precedence is:
+     antd < fonts < theme < base < utilities
+   Tailwind utilities (`mb-2`, `text-[18px]`, `space-y-6`) override
+   antd's element resets (`p { margin: ... }`) and the Material Icons
+   CDN's `.material-icons { font-size: 24px }`.
+
+   We do NOT import the Google Fonts CDN here — Tailwind v4's lightningcss
+   pipeline strips remote @import url() from the build, which silently
+   broke icon fonts. They live in index.html's inline <style>. */
+@layer antd, fonts, theme, base, utilities;
+
+@import 'ant-design-vue/dist/reset.css' layer(antd);
+
+@import 'tailwindcss/theme.css';
+@import 'tailwindcss/utilities.css';
+
+/* v4 replacement for v3's `darkMode: 'class'`.
+   Matches the element when it is `.dark` itself or any descendant of
+   `.dark`, so `dark:bg-slate-700` keeps working the same way. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Static design tokens — generate utilities by namespace:
+     --color-* -> bg-*, text-*, border-*, ring-*, ...
+     --font-*  -> font-*
+     --radius-*-> rounded-*
+     --shadow-*-> shadow-*
+
+   The values below MUST stay in sync with src/design-tokens.ts, which
+   is the canonical source consumed by Ant Design Vue's ConfigProvider
+   in App.vue. Tailwind cannot import TS into CSS, so the same numbers
+   live in two places. When you change one, change the other. */
+@theme {
+  --color-primary: #1677ff;
+  --color-primary-hover: #4096ff;
+  --color-border-base: #d9d9d9;
+
+  /* Status palette — matches AntD v5 defaults so utility-class colors
+     line up with `<a-alert type="success" | "warning" | ...>` etc. */
+  --color-success: #52c41a;
+  --color-success-hover: #389e0d;
+  --color-warning: #faad14;
+  --color-warning-hover: #d48806;
+  --color-error: #ff4d4f;
+  --color-error-hover: #d9363e;
+  --color-info: #1677ff;
+  --color-info-hover: #4096ff;
+
+  --font-display: 'Noto Sans JP', Inter, sans-serif;
+
+  --radius-ant: 6px;
+
+  --shadow-ant-card:
+    0 1px 2px 0 rgba(0, 0, 0, 0.03),
+    0 1px 6px -1px rgba(0, 0, 0, 0.02),
+    0 2px 4px 0 rgba(0, 0, 0, 0.02);
+}
+
+/* Runtime tokens that flip in dark mode.
+   `@theme inline` does NOT freeze the var() at build time, so each
+   utility (e.g. `bg-bg-layout`) emits `background-color: var(--bg-layout)`
+   and re-resolves at paint time when `.dark` toggles the underlying var. */
+@theme inline {
+  /* Text color hierarchy — kept in sync with src/design-tokens.ts
+     and Ant Design v5's text-token ladder.
+       text-text-main         body / headings    (AntD colorText)
+       text-text-description  form labels, help  (AntD colorTextSecondary)
+       text-text-secondary    captions, subdued  (AntD colorTextTertiary)
+       text-text-disabled     disabled state     (AntD colorTextQuaternary) */
+  --color-text-main: var(--text-main);
+  --color-text-description: var(--text-description);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-disabled: var(--text-disabled);
+
+  /* Surfaces — page / card backgrounds. Use these instead of raw
+     `bg-white dark:bg-slate-900` so the look stays in sync. */
+  --color-bg-layout: var(--bg-layout); /* page background */
+  --color-surface-card: var(--surface-card); /* primary card / sidebar */
+  --color-surface-card-subtle: var(--surface-card-subtle); /* card header bar */
+  --color-surface-hover: var(--surface-hover); /* row hover state */
+  --color-surface-active: var(--surface-active); /* selected row tint */
+
+  /* Borders / dividers. */
+  --color-border: var(--border-default); /* card, page-section borders */
+  --color-border-strong: var(--border-strong); /* input, table cell borders */
+
+  /* Status tints (alert/badge backgrounds). Pair with text-success/etc. */
+  --color-success-subtle: var(--success-subtle);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-error-subtle: var(--error-subtle);
+  --color-info-subtle: var(--info-subtle);
+
+  /* Single icon color shared by every menu/list icon (sidebar nav,
+     dashboard menu cards, breadcrumbs, etc.) so the design language is
+     consistent. Active/selected states still override with text-primary. */
+  --color-icon: var(--icon);
+}
 
 @layer base {
+  :root {
+    --bg-layout: #f5f5f5;
+
+    --text-main: rgba(0, 0, 0, 0.88);
+    --text-description: rgba(0, 0, 0, 0.65);
+    --text-secondary: rgba(0, 0, 0, 0.45);
+    --text-disabled: rgba(0, 0, 0, 0.25);
+
+    --surface-card: #ffffff;
+    --surface-card-subtle: #f8fafc;
+    --surface-hover: #f1f5f9;
+    --surface-active: rgba(22, 119, 255, 0.1);
+
+    --border-default: #e2e8f0;
+    --border-strong: #cbd5e1;
+
+    --success-subtle: rgba(82, 196, 26, 0.1);
+    --warning-subtle: rgba(250, 173, 20, 0.1);
+    --error-subtle: rgba(255, 77, 79, 0.1);
+    --info-subtle: rgba(22, 119, 255, 0.1);
+
+    --icon: #64748b; /* slate-500 */
+  }
+  .dark {
+    /* Darker than card's dark:bg-slate-900 (#0f172a) so containers
+       don't blend into the page background. */
+    --bg-layout: #020617;
+
+    --text-main: rgba(255, 255, 255, 0.88);
+    --text-description: rgba(255, 255, 255, 0.7);
+    --text-secondary: rgba(255, 255, 255, 0.55);
+    --text-disabled: rgba(255, 255, 255, 0.3);
+
+    --surface-card: #0f172a;
+    --surface-card-subtle: rgba(30, 41, 59, 0.3);
+    --surface-hover: #1e293b;
+    --surface-active: rgba(22, 119, 255, 0.15);
+
+    --border-default: #1e293b;
+    --border-strong: #334155;
+
+    --success-subtle: rgba(82, 196, 26, 0.2);
+    --warning-subtle: rgba(250, 173, 20, 0.2);
+    --error-subtle: rgba(255, 77, 79, 0.2);
+    --info-subtle: rgba(22, 119, 255, 0.2);
+
+    --icon: #94a3b8; /* slate-400 */
+  }
+
   /* ─── Border defaults ──────────────────────────────────────────────
-     Tailwind preflight is disabled (see tailwind.config.ts → preflight:
-     false) to avoid clashing with Ant Design Vue's global styles. But
-     that also skips the preflight rule that sets `border-style: solid`
-     and a default border color on every element — so classes like
-     `border-b` silently render nothing (width=1px but style=none).
-     Restore just those defaults here so all border-* utilities work
-     project-wide. */
+     v4 ships preflight as part of its base layer; we skipped that to
+     avoid clashing with Ant Design Vue. Re-introduce the parts we need:
+     `border-style: solid` + a default border color so utilities like
+     `border-b` actually paint. */
   *,
   ::before,
   ::after {
@@ -28,38 +174,21 @@
     border-color: #1e293b; /* slate-800 */
   }
 
-  /* Semantic color tokens — flip automatically in dark mode. */
-  :root {
-    --color-text-main: rgba(0, 0, 0, 0.88);
-    --color-text-secondary: rgba(0, 0, 0, 0.45);
-    --color-bg-layout: #f5f5f5;
-  }
-  .dark {
-    --color-text-main: rgba(255, 255, 255, 0.88);
-    --color-text-secondary: rgba(255, 255, 255, 0.55);
-    /* Darker than card's dark:bg-slate-900 (#0f172a) so containers don't blend in. */
-    --color-bg-layout: #020617; /* slate-950 */
-  }
-
   html,
   body {
     font-family: 'Noto Sans JP', sans-serif;
   }
   body {
-    background-color: var(--color-bg-layout);
-    color: var(--color-text-main);
+    background-color: var(--bg-layout);
+    color: var(--text-main);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   /* ─── Native <button> reset ─────────────────────────────────────────
-     Tailwind preflight is disabled (to avoid conflicts with Ant Design
-     Vue's base styles), so browsers still paint their default button
-     chrome — grey background, bevel border, inherited system font.
-     Reset those defaults here so every plain `<button>` used for menus,
-     icon buttons, links-styled-as-buttons etc. starts from a clean
-     slate. Ant Design components override via `.ant-btn` which has
-     higher specificity, so they are unaffected. */
+     Same reason as borders: preflight is opt-out, so default button
+     chrome leaks through unless reset explicitly. Ant Design's `.ant-btn`
+     selector is more specific so its components are unaffected. */
   button {
     background-color: transparent;
     background-image: none;
@@ -75,11 +204,8 @@
   }
 
   /* ─── Native <a> reset ──────────────────────────────────────────────
-     Same reasoning as the <button> reset above: with preflight disabled
-     the browser's default underline + blue colour on anchors leaks into
-     sidebar items, breadcrumbs, menu cards, お知らせ 詳細 links etc.
      Reference designs never underline anchors; the few places that do
-     want an underline can opt-in explicitly via the `underline` class. */
+     opt-in via the `underline` utility class. */
   a {
     color: inherit;
     text-decoration: none;

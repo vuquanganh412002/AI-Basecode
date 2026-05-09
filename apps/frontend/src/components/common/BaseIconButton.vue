@@ -34,7 +34,7 @@ const sizeClass: Record<NonNullable<Props['size']>, string> = {
     :class="[
       'relative inline-flex items-center justify-center rounded-full',
       'text-text-secondary hover:text-primary',
-      'hover:bg-slate-100 dark:hover:bg-slate-800',
+      'hover:bg-surface-hover',
       'transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
       sizeClass[props.size],
     ]"
@@ -43,7 +43,7 @@ const sizeClass: Record<NonNullable<Props['size']>, string> = {
     <span class="material-icons" :style="{ fontSize: 'inherit' }">{{ props.icon }}</span>
     <span
       v-if="props.badge"
-      class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"
+      class="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full border-2 border-surface-card"
     />
   </button>
 </template>

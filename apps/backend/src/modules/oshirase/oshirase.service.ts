@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { Oshirase } from './entities/oshirase.entity';
+import { Oshirase } from '@/database/entities/oshirase.entity';
 import {
   PublicOshiraseItemDto,
   PublicOshiraseQueryDto,

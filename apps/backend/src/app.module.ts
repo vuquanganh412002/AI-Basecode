@@ -4,13 +4,17 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { v4 as uuidv4 } from 'uuid';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
+import { AccountModule } from './modules/account/account.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { CodeModule } from './modules/code/code.module';
+import { JaModule } from './modules/ja/ja.module';
 import { OshiraseModule } from './modules/oshirase/oshirase.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { TodofukenModule } from './modules/todofuken/todofuken.module';
 import type { Request, Response, NextFunction } from 'express';
 
 @Module({
@@ -23,11 +27,15 @@ import type { Request, Response, NextFunction } from 'express';
     RedisModule,
     DatabaseModule,
     AuditLogModule,
+    CodeModule,
     MailModule,
     AuthModule,
+    AccountModule,
     HealthModule,
     StorageModule,
     OshiraseModule,
+    JaModule,
+    TodofukenModule,
   ],
 })
 export class AppModule implements NestModule {

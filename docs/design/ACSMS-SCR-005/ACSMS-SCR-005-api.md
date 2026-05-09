@@ -52,7 +52,7 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定されたJAが見つかりません。                                         | HTTP 404 |
-| 9   | 画面固有     | DUPLICATE_CODE        | 同一のJAコードが既に登録されています。                                 | HTTP 400 |
+| 9   | 画面固有     | DUPLICATE_CODE        | JAコード「{ja_code}」はすでに登録されています。                          | HTTP 400 |
 
 ---
 
@@ -278,7 +278,7 @@ WHERE mj.ja_id = :ja_id
 | リクエストボディー | JSON |
 | リクエストパラメーター | |
 | ヘッダ | Content-Type: application/json\n※ 認証情報はHTTP-only Cookieにより自動的に送信される |
-| HTTPレスポンスコード | 201:正常にJAを登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:同一のJAコードが既に登録されています, 500:システムエラーが発生しました |
+| HTTPレスポンスコード | 201:正常にJAを登録しました, 400:入力内容にエラーがあります／JAコードが既に登録されています, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -417,8 +417,8 @@ Content-Type: application/json
 
 ```json
 {
-  "error_code": "CONFLICT",
-  "message": "同一のJAコードが既に登録されています"
+  "error_code": "DUPLICATE_CODE",
+  "message": "JAコード「002001」はすでに登録されています。"
 }
 ```
 

@@ -35,9 +35,29 @@ const secret = process.env.SESSION_SECRET;
 ```
 
 ### Required Secrets (AWS Secrets Manager)
-- `DATABASE_URL` — PostgreSQL connection string
-- `REDIS_URL` — Redis connection string (session store, OTP store, rate-limit counters)
 - `SESSION_SECRET` — 32+ byte random string used to sign the session cookie
+- `DB_PASSWORD` — Postgres password
+- `STORAGE_ACCESS_KEY` — S3 / MinIO access key
+- `STORAGE_SECRET_KEY` — S3 / MinIO secret key
+- (`DATABASE_URL` / `REDIS_URL` accepted as full connection strings if used)
+
+### Production fail-fast — `apps/backend/src/config/configuration.ts`
+
+The config factory **refuses to start when `NODE_ENV=production`** if any
+of the secrets above is unset OR still at its dev fallback value. The
+list of dev fallbacks is the `DEV_FALLBACKS` constant at the top of
+`configuration.ts` — extend that constant when you add a new secret.
+
+A concrete error at boot is far better than silent insecure operation:
+
+```
+Error: [config] Refusing to start: NODE_ENV=production but the following
+secrets are missing or still at insecure defaults — SESSION_SECRET (unset),
+DB_PASSWORD (still at dev default), STORAGE_ACCESS_KEY (still at dev default).
+Wire each from AWS Secrets Manager via the ECS task definition.
+```
+
+`SESSION_SECRET` also gets a length check (`>= 32 bytes`).
 
 ---
 
@@ -168,10 +188,12 @@ account_sessions:{account_id} (Redis Set)  →  { session_id_1, session_id_2, ..
 
 ### Reset Token Rules
 - Random UUID token, stored as bcrypt hash in DB
-- Expires in 30 minutes
+- Expires in 1 hour
 - Single use — invalidate after successful reset
 - After successful reset: **delete all Redis sessions for this account** (see *Session Index* above) to force re-login everywhere
-- Rate limit: 3 requests per email per hour
+- Cooldown: **5-minute interval per email**, enforced in `AuthService.forgotPassword`. A second request within 5 min of the previous one → HTTP 429 `PASSWORD_RESET_RATE_LIMIT` with message `再送信は5分後に可能です。時間をおいてから再度お試しください。`. Window measured by `t_mfa_otp.created_at` (rows persist after invalidation), so the prior-token-invalidation step below does NOT reset the cooldown.
+- **Prior-token invalidation**: every successful forgot-password call must `UPDATE t_mfa_otp SET used_flg=true WHERE account_id=:id AND otp_type=2 AND used_flg=false` before INSERTing the new row, in the same transaction. Guarantees only ONE active reset link per account at any time — re-submitting the email kills the previous email's link.
+- **Anti-enumeration trade-off**: cooldown response (429) only fires for existing accounts; non-existent emails always return 200. This intentionally leaks "account exists" to a determined attacker who probes the timing, but preserves a clear UX message for legitimate users who hit the cooldown. Accepted trade-off in this project.
 
 ### API Endpoints
 
@@ -220,40 +242,51 @@ create(@Body() dto: CreateTankaDto) { ... }
 
 ### Layer 2: DataScope Filter (Service)
 
-Restrict data by role's organizational hierarchy.
+Restrict data by role's organizational hierarchy. **Use the shared
+helpers in `src/common/utils/data-scope.ts` — never re-implement the
+role/jaId/kanriShitenId switch inline.**
 
 ```ts
-interface DataScope {
-  roleCode: string;             // NICHINO_ADMIN, CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN
-  jaId: number | null;          // User's JA ID
-  kanriShitenId: number | null; // User's branch ID
-}
+import {
+  assertJaScope,
+  assertBranchScope,
+  applyJaScope,
+  applyBranchScope,
+} from '@/common/utils/data-scope';
 
-// Service applies DataScope
-async findAll(query: PaginationDto, scope: DataScope) {
+// ─── List queries — apply scope WHERE clause to a query builder ─────
+async findAll(query: PaginationDto, session: SessionPayload) {
   const qb = this.repo.createQueryBuilder('d');
-  switch (scope.roleCode) {
-    case 'CHUOKAI':
-    case 'JA_HONTEN':
-      qb.andWhere('d.jaId = :jaId', { jaId: scope.jaId });
-      break;
-    case 'JA_KANRI_SHITEN':
-      qb.andWhere('d.kanriShitenId = :ksId', { ksId: scope.kanriShitenId });
-      break;
-  }
-  return qb.take(query.per_page).skip((query.page - 1) * query.per_page).getManyAndCount();
+  applyJaScope(qb, 'd', 'jaId', session);
+  // For branch-scoped resources (e.g. t_dokusya, t_log):
+  // applyBranchScope(qb, 'd', { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' }, session);
+  return qb
+    .take(query.per_page)
+    .skip((query.page - 1) * query.per_page)
+    .getManyAndCount();
 }
 
-// For single record access — verify ownership before returning
-async findById(id: string, scope: DataScope): Promise<Dokusya> {
+// ─── Single-record access — verify scope after fetch ────────────────
+async findById(id: number, session: SessionPayload): Promise<Dokusya> {
   const record = await this.repo.findOne({ where: { id } });
   if (!record) throw new DokusyaNotFoundException(id);
-  if (scope.jaId && record.jaId !== scope.jaId) {
-    throw new DataScopeViolationException();
-  }
+  assertJaScope(record.jaId, session, '購読者');  // throws NotFound if out of scope
   return record;
 }
 ```
+
+Scope helpers (all from `src/common/utils/data-scope.ts`):
+
+| Helper | Use for |
+|---|---|
+| `assertJaScope(recordJaId, session, label?)` | After fetching a JA-scoped row (m_ja, m_dokusya master, m_hanbaiten, m_oshirase, m_account, etc.) |
+| `assertBranchScope(recordJaId, recordKanriShitenId, session, label?)` | After fetching a branch-scoped row where JA_KANRI_SHITEN sees only their own kanri_shiten_id (t_dokusya, t_log, t_login_log) |
+| `applyJaScope(qb, alias, jaIdField, session)` | List queries on JA-scoped resources |
+| `applyBranchScope(qb, alias, { jaIdField, kanriShitenIdField }, session)` | List queries on branch-scoped resources |
+
+All helpers throw NotFoundException (not ForbiddenException) on
+out-of-scope hits to mask row existence. NICHINO_ADMIN /
+NICHINO_STAFF (session.ja_id == null) bypass every scope check.
 
 | Role | dokusya | hanbaiten | ja master | report | file | log |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -294,6 +327,63 @@ function filterAllowedFields(dto: Record<string, any>, model: string, roleCode: 
   return Object.fromEntries(Object.entries(dto).filter(([key]) => allowed.includes(key)));
 }
 ```
+
+### Layer 3 — FE mirror (UX only, NOT a security boundary)
+
+The FE form must visually disable inputs the BE will silently drop, so
+restricted users don't burn time editing fields the server will discard.
+Defense-in-depth: the FE `:disabled` is **only** a UX hint — Layer 3 BE
+allow-list is the actual security. A hostile user with `curl` cannot
+bypass the BE filter (verified: PUT with `bank_code: "9999"` as CHUOKAI
+returns HTTP 200 but `bank_code` in the DB stays unchanged).
+
+Pattern for any edit form with field-level restriction:
+
+```vue
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useAuthStore } from '@/stores/auth.store';
+
+const authStore = useAuthStore();
+
+// Roles that get the restricted edit experience for this resource.
+// Mirror the BE FIELD_RESTRICTIONS table — keep both lists in sync.
+const RESTRICTED_EDITOR_ROLES = ['CHUOKAI', 'JA_HONTEN'];
+const isRestrictedEditor = computed(
+  () =>
+    isEdit.value &&  // create-mode runs through `model.create` permission gate
+    RESTRICTED_EDITOR_ROLES.includes(authStore.user?.role_code ?? ''),
+);
+</script>
+
+<template>
+  <!-- Editable for everyone — no :disabled binding -->
+  <a-input v-model:value="formState.tel" />
+
+  <!-- Read-only for restricted editors -->
+  <a-input v-model:value="formState.bank_code" :disabled="isRestrictedEditor" />
+  <a-radio-group v-model:value="formState.chuokai_flg" :disabled="isRestrictedEditor">
+    <a-radio :value="true">中央会</a-radio>
+    <a-radio :value="false">単協</a-radio>
+  </a-radio-group>
+</template>
+```
+
+Rules:
+
+- **Identical allow-list on FE and BE**. When extending `FIELD_RESTRICTIONS`
+  on the server, update `RESTRICTED_EDITOR_ROLES` + the `:disabled`
+  bindings on the corresponding form. Drift is invisible — server keeps
+  rejecting silently while the form lets users type.
+- **Read-only via `:disabled`, never `v-if`**. Hiding a restricted field
+  removes context (the user can't see what value they have); greying it
+  out preserves it.
+- **Tests assert both layers**:
+  1. FE spec — for each restricted field, mount the edit view as a
+     restricted role and assert `disabled` attribute / `ant-select-disabled`
+     class is present.
+  2. BE spec — service unit test sends a DTO containing the disallowed
+     field, verifies it does NOT propagate into the saved entity.
 
 ### Additional Business Rules
 - Credit card / combo subscribers: read-only for all JA roles

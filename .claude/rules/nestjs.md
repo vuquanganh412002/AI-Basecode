@@ -52,11 +52,16 @@ Services never import controllers. Repositories never import services. Controlle
 ### Domain-Driven Modules
 
 ```
-src/modules/[domain]/
-  ├── [domain].module.ts
+src/database/entities/                    ← ALL entities live here (shared)
+  ├── user.entity.ts                      ← 1 entity = 1 file = 1 source of truth
+  ├── ja.entity.ts
+  ├── m-code.entity.ts
+  └── ...
+
+src/modules/[domain]/                     ← business logic per domain
+  ├── [domain].module.ts                  ← imports([Entity]) from @/database/entities
   ├── [domain].controller.ts
   ├── [domain].service.ts
-  ├── entities/[entity].entity.ts
   ├── dto/
   │   ├── create-[entity].dto.ts
   │   ├── update-[entity].dto.ts
@@ -65,14 +70,28 @@ src/modules/[domain]/
 ```
 
 ```typescript
+import { User } from '@/database/entities/user.entity';
+
 @Module({
-  imports: [TypeOrmModule.forFeature([User])],
+  imports: [TypeOrmModule.forFeature([User])],   // module that CRUDs User registers it
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService],
 })
 export class UsersModule {}
 ```
+
+**Entity placement (mandatory)**:
+
+1. Every `*.entity.ts` lives in `src/database/entities/`. NEVER under `src/modules/<x>/entities/`.
+2. **Owner module** = the module that calls `TypeOrmModule.forFeature([Entity])`. Other modules that need the entity (FK target, relation, repository) IMPORT it from `@/database/entities/<name>.entity` — never redefine.
+3. **Cross-module references** (e.g. `m_tanka.ja_id` FK to `m_ja`):
+   ```typescript
+   // src/database/entities/tanka.entity.ts
+   import { Ja } from '@/database/entities/ja.entity';
+   @ManyToOne(() => Ja, { onDelete: 'RESTRICT' }) ja: Ja;
+   ```
+4. **One entity per file**. Filename matches table singular (`user.entity.ts` for `users`, `m-code.entity.ts` for `m_code`). The `@Entity('table')` decorator on a given table must appear EXACTLY once across the whole repo.
 
 Avoid global modules except cross-cutting concerns (ConfigModule, LoggingModule). Extract shared logic to separate module if circular dependency detected.
 
@@ -381,6 +400,70 @@ export class PaginationDto {
 
 ---
 
+## Master code values (m_code)
+
+The project stores enumerated values (性別, 単価種類, 支払方法, ログ種別, お知らせ種別 … 21 categories) in the `m_code` table — NOT as PostgreSQL ENUM types or TypeScript `enum` classes. Seeder data lives in `docs/database/seeder.md §5`.
+
+### Rules (mandatory)
+
+- Column that stores a code value is typed `INTEGER` (or `VARCHAR` when DB schema says so), NOT `@Column({ type: 'enum' })`.
+- Do NOT create a TypeScript `enum` for m_code categories. Do NOT create a constants file mirroring `m_code` — the DB is the source of truth.
+- DTO validation uses `@IsInt()` (or `@IsString()`) for shape only — the allowed-value check happens in the service layer via `CodeService.has(category, value)`.
+- `CodeService` caches the full `m_code` table in memory at `onModuleInit()` and exposes `getAll()`, `getByCategory()`, `has()`, `getLabel()`. It is `@Global()`, so any module can inject it without re-importing.
+- `CodeController` (`GET /api/v1/codes`) returns the cached map; FE calls this once per session and caches in Pinia. The controller does NOT accept mutations — m_code is seeded, not CRUD'd (yet).
+- Never query `m_code` directly from a feature module's repo/service. Always go through `CodeService`.
+
+### Entity column example
+
+```ts
+// m_tanka.tanka_type stores 1 (購読料) or 2 (配達手数料) — see m_code.code_category='TANKA_TYPE'
+@Column({ name: 'tanka_type', type: 'int' })
+tankaType: number;
+```
+
+### DTO + service validation pattern
+
+```ts
+// dto/create-tanka.dto.ts
+export class CreateTankaDto {
+  @ApiProperty({ description: '単価種類（m_code.code_category=TANKA_TYPE）', example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  tanka_type: number;
+}
+
+// tanka.service.ts
+async create(dto: CreateTankaDto, session: SessionPayload, req: Request) {
+  if (!this.codeService.has('TANKA_TYPE', dto.tanka_type)) {
+    throw new BadRequestException({
+      error_code: 'VALIDATION_ERROR',
+      message: '入力値が不正です',
+      errors: [{ field: 'tanka_type', message: '単価種類の値が不正です' }],
+    });
+  }
+  // ... continue with the normal create flow
+}
+```
+
+### Test pattern
+
+Unit tests for service methods that call `CodeService.has()` mock the dependency:
+
+```ts
+const codeService = { has: vi.fn().mockReturnValue(true) };
+Test.createTestingModule({
+  providers: [
+    TankaService,
+    { provide: CodeService, useValue: codeService },
+    // ...
+  ],
+});
+```
+
+Use real code values from `seeder.md §5` in assertions — e.g. `tanka_type: 1` (購読料), NOT `TankaType.KODOKU`.
+
+---
+
 ## Database & TypeORM
 
 ### Entity Conventions
@@ -402,14 +485,14 @@ export class User {
   @Column({ type: 'enum', enum: Role, default: Role.USER })
   role: Role;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
-  @DeleteDateColumn()
-  deletedAt?: Date;
+  @DeleteDateColumn({ type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 
   @OneToMany(() => Order, (order) => order.user)
   orders: Order[];
@@ -417,6 +500,58 @@ export class User {
 ```
 
 Rules: UUID primary keys. Always `createdAt`, `updatedAt`. Soft delete via `@DeleteDateColumn()`. No business logic in entities. Table names: `snake_case` plural.
+
+### Timestamp policy (MANDATORY)
+
+**監査列・ログ列等のイベント時刻は TIMESTAMPTZ（JST 運用：Asia/Tokyo）を標準とする.**
+
+Every column representing a moment in time — `created_at`, `updated_at`,
+`deleted_at`, `log_datetime`, `login_datetime`, `password_updated_at`,
+`last_login_at`, `account_lock_at`, `expired_at`, `publish_start_date`,
+`publish_end_date`, … — MUST use `TIMESTAMPTZ`. Never `TIMESTAMP`
+(without timezone), never `DATE`+`TIME` split, never `BIGINT` epoch.
+
+Why TIMESTAMPTZ:
+- Postgres stores TIMESTAMPTZ internally as UTC and converts on read
+  using the session's `timezone` setting. Storage is timezone-safe even
+  when ops moves between regions.
+- TypeORM round-trips TIMESTAMPTZ → JS `Date` (UTC ms) cleanly. Plain
+  `TIMESTAMP` loses the offset and the value silently shifts when ECS
+  is deployed in any non-JST region.
+
+Operation timezone is **Asia/Tokyo (JST)** end-to-end:
+- Backend container `TZ=Asia/Tokyo` so `new Date()`, `Date#getHours()`,
+  `dayjs()` default to JST in business logic + log output.
+- Postgres session `SET timezone='Asia/Tokyo'` (set per-connection via
+  TypeORM `extra.options: '-c timezone=Asia/Tokyo'`) so psql-side and
+  `NOW()`/`CURRENT_TIMESTAMP` defaults render JST.
+- API responses serialize Dates as ISO 8601 with `+09:00` offset (the
+  default once `TZ=Asia/Tokyo` is set).
+- Frontend `formatDate` / `formatDateTime` use `dayjs(value).format(...)`
+  which honours the browser TZ; for JP-only deployments this is fine,
+  for cross-region clients add `dayjs.tz('Asia/Tokyo')` via the timezone
+  plugin.
+
+TypeORM entity declaration — explicit `type: 'timestamptz'` on
+`@CreateDateColumn` / `@UpdateDateColumn` / `@DeleteDateColumn` is
+MANDATORY (the decorator's default is `TIMESTAMP` on Postgres):
+
+```typescript
+@CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+@UpdateDateColumn({ type: 'timestamptz' }) updatedAt: Date;
+@DeleteDateColumn({ type: 'timestamptz', nullable: true }) deletedAt: Date | null;
+
+// Custom audit / event columns
+@Column({ name: 'log_datetime', type: 'timestamptz' }) logDatetime: Date;
+@Column({ name: 'expired_at', type: 'timestamptz' }) expiredAt: Date;
+```
+
+Migration DDL mirrors this:
+```sql
+created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+deleted_at TIMESTAMPTZ DEFAULT NULL,
+```
 
 ### DB Naming
 
@@ -662,22 +797,131 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 ### Validation Error Factory
 
 ```typescript
+// Priority picker — see "DTO validation gotchas #2" below for why this
+// is a single-message-per-field design, not a join.
+const CONSTRAINT_PRIORITY = [
+  'isDefined', 'isNotEmpty', 'isNotEmptyObject',
+  'isString', 'isNumber', 'isInt', 'isBoolean', 'isArray',
+  'isEnum', 'isEmail', 'isUuid',
+];
+const pickMessage = (constraints: Record<string, string>): string => {
+  for (const key of CONSTRAINT_PRIORITY) {
+    if (constraints[key]) return constraints[key];
+  }
+  return Object.values(constraints)[0] ?? '入力値が不正です';
+};
+
 app.useGlobalPipes(
   new ValidationPipe({
     transform: true, whitelist: true, forbidNonWhitelisted: true,
     exceptionFactory: (errors) => {
       const details = errors.map((e) => ({
         field: e.property,
-        constraints: Object.values(e.constraints || {}),
+        message: pickMessage(e.constraints || {}),
       }));
+      // CRITICAL — return an HttpException instance, NOT a plain
+      // object. NestJS does `throw factory(errors)` internally; a
+      // plain object isn't an Error → GlobalExceptionFilter falls
+      // through to its 500 branch and the user sees
+      // "システムエラーが発生しました" instead of the actual
+      // validation messages. (Burned us once on SCR-005, now
+      // documented.)
       return new HttpException(
-        { error_code: 'VALIDATION_ERROR', message: '入力値が不正です', errors: details },
+        { code: 'VALIDATION_ERROR', message: '入力値が不正です', errors: details },
         HttpStatus.BAD_REQUEST,
       );
     },
   }),
 );
 ```
+
+The picker returns ONE message per field (required-class first, then
+type checks, then any remaining). Why not `Object.values(...).join(', ')`:
+
+- `useApiForm` on the FE binds a single string to `<a-form-item :help>`,
+  and `Object.fromEntries(errors.map(e => [e.field, e.message]))`
+  collapses multiple entries to the last anyway — so a comma-joined
+  message just produces ugly UX without adding information.
+- For an empty `login_id` the join produced
+  `"login_id should not be empty, login_id must contain only half-width characters"`
+  — TWO messages where the user expects ONE. The picker yields
+  `ユーザーIDを入力してください。` because `isNotEmpty` ranks first.
+- The ordering also masks inconsequential format errors when the value
+  is missing entirely (the format check is irrelevant if there's
+  nothing to validate).
+
+### DTO validation gotchas
+
+1. **`@IsOptional()` does NOT skip empty strings.** It only skips
+   `null` / `undefined`. Frontend forms commonly send `tel: ""` for
+   blank fields → `@Matches(/^\d+$/)` rejects → fails 400 even
+   though the field is "optional". Wire a `@Transform` BEFORE
+   `@IsOptional()` to coerce blank strings to undefined:
+
+   ```typescript
+   import { Transform } from 'class-transformer';
+
+   const blankToUndef = ({ value }: { value: unknown }) =>
+     typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+   class CreateDto {
+     @Transform(blankToUndef)   // first — strip blanks
+     @IsOptional()              // then — skip undefined
+     @IsString()
+     @Matches(/^\d+$/, { message: '電話番号は半角数字のみで入力してください' })
+     tel?: string;
+   }
+   ```
+
+2. **Every `class-validator` decorator MUST carry a Japanese
+   `message`.** Default messages are English (`"login_id should not
+   be empty"`, `"must contain only half-width characters"`) and they
+   get shipped to end users via `<a-form-item :help>` — it has
+   happened. Mandatory rules:
+   - Required (`@IsNotEmpty`, `@IsString`, etc.) → use the canonical
+     literal from the screen's `## メッセージ情報` table when one
+     exists (e.g. `ACSMS-MSG-001-001` →
+     `'ユーザーIDを入力してください。'`).
+   - Format (`@Matches`, `@IsEmail`, etc.) → write a Japanese sentence
+     that names the field (`'パスワードは半角文字のみで入力してください。'`).
+   - Length (`@MinLength`, `@MaxLength`, `@Length`) → same: name the
+     field and the limit (`'パスワードは8文字以上で入力してください。'`).
+
+   Even if the priority picker (above) hides extra messages, leaving
+   English in the DTO leaks the moment a non-prioritised constraint
+   fails alone.
+
+3. **`@Length(N, N)` + `@Matches(/^\d{N}$/)` on the same field is
+   redundant**, not catastrophic — the picker collapses to one
+   message. Still prefer ONE constraint that carries the Japanese
+   copy (`@Matches(/^\d{N}$/)` enforces both length and digits).
+
+4. **`@ValidateIf((o, value) => …)` is property-level, not
+   per-decorator.** It gates ALL validators on the property,
+   including `@IsNotEmpty`. So
+   ```typescript
+   @IsNotEmpty()
+   @ValidateIf((_, v) => typeof v === 'string' && v.length > 0)
+   @Matches(/^[\x21-\x7E]+$/)
+   ```
+   does NOT mean "skip Matches when empty, keep IsNotEmpty" — when
+   the value is empty the condition returns false and the property
+   silently passes ALL validators, so a blank value is accepted as
+   valid. Don't reach for `@ValidateIf` to dedupe error messages —
+   use the priority picker (above) and write Japanese messages on
+   each constraint.
+
+5. **`@IsInt() / @IsNumber()` need `@Type(() => Number)`** if the
+   form posts the value as a string (which JSON-encoding integers
+   from `<input type="text">` does). Combine with the global
+   `transform: true` ValidationPipe option.
+
+6. **Optional `bank_code: "ff"` (wrong format) returns 400 with
+   `errors[].field === "bank_code"`** — the frontend's `useApiForm`
+   composable maps that to `<a-form-item :help>` automatically.
+   Required-then-format ordering: required check fires when blank,
+   format check fires when non-blank — guard with `if (!errs.X &&
+   form.X)` on the FE so users see one message at a time.
 
 ### Error Handling Summary
 
@@ -784,57 +1028,129 @@ export class AuditLogService {
 }
 ```
 
-### Usage in Service
+### Usage in Service — convenience helpers (preferred)
+
+`AuditLogService` exposes four convenience methods (`logCreate`,
+`logUpdate`, `logDelete`, `logError`) that wrap `logOperation` with the
+standard logType / resultStatus / JSON.stringify defaults. Combined
+with `extractAuditContext(req)` from `@/common/utils/audit-context`,
+the call site reads as one line per operation.
+
+Build the per-request context once at the top of the method, then pass
+it to the helper inside the transaction (and again in the catch block
+for the error log).
 
 ```typescript
-// After successful CREATE
-await this.auditLogService.logOperation({
-  logType: 1,
-  accountId: user.accountId,
-  jaId: user.jaId,
-  gamenName: '単価マスタ登録画面',
-  operation: 'CREATE',
-  resultStatus: 1,
-  targetId: created.tankaId,
-  targetTable: 'm_tanka',
-  afterValue: created,
-  ipAddress: req.ip,
-  userAgent: req.headers['user-agent'],
-});
+import {
+  AuditLogService,
+  type AuditOperationContext,
+} from '@/modules/audit-log/audit-log.service';
+import { extractAuditContext } from '@/common/utils/audit-context';
 
-// After successful UPDATE — log before/after
-const before = await this.findById(id, scope);
-const updated = await this.repo.save({ ...before, ...dto });
-await this.auditLogService.logOperation({
-  logType: 1,
-  accountId: user.accountId,
-  jaId: user.jaId,
-  gamenName: '単価マスタ登録画面',
-  operation: 'UPDATE',
-  resultStatus: 1,
-  targetId: updated.tankaId,
-  targetTable: 'm_tanka',
-  beforeValue: before,
-  afterValue: updated,
-  ipAddress: req.ip,
-  userAgent: req.headers['user-agent'],
-});
+const SCREEN_NAME = '単価マスタ登録画面 (ACSMS-SCR-006)';
+const TABLE_NAME = 'm_tanka';
 
-// After successful DELETE (soft)
-await this.auditLogService.logOperation({
-  logType: 1,
-  accountId: user.accountId,
-  jaId: user.jaId,
-  gamenName: '単価マスタ明細検索画面',
-  operation: 'DELETE',
-  resultStatus: 1,
-  targetId: id,
-  targetTable: 'm_tanka',
-  beforeValue: existing,
-  ipAddress: req.ip,
-  userAgent: req.headers['user-agent'],
+function buildAuditCtx(
+  session: SessionPayload,
+  req: Request,
+  targetId: number | null,
+): AuditOperationContext {
+  return {
+    accountId: session.account_id,
+    jaId: session.ja_id,
+    screen: SCREEN_NAME,
+    table: TABLE_NAME,
+    targetId,
+    ...extractAuditContext(req),
+  };
+}
+
+// CREATE — main DML + audit in one transaction; error log outside.
+async create(dto: CreateTankaDto, session: SessionPayload, req: Request) {
+  try {
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const created = await manager.save(manager.create(Tanka, dto));
+      await this.auditLog.logCreate(
+        buildAuditCtx(session, req, created.tankaId),
+        created,
+      );
+      return created;
+    });
+    return saved;
+  } catch (err) {
+    await this.auditLog.logError(
+      buildAuditCtx(session, req, null),
+      'CREATE',
+      err as Error,
+    );
+    throw err;
+  }
+}
+
+// UPDATE — captures before + after.
+async update(id: number, dto: UpdateTankaDto, session: SessionPayload, req: Request) {
+  const before = await this.findById(id, session);
+  try {
+    return await this.dataSource.transaction(async (manager) => {
+      const updated = await manager.save(manager.create(Tanka, { ...before, ...dto }));
+      await this.auditLog.logUpdate(
+        buildAuditCtx(session, req, updated.tankaId),
+        before,
+        updated,
+      );
+      return updated;
+    });
+  } catch (err) {
+    await this.auditLog.logError(
+      buildAuditCtx(session, req, id),
+      'UPDATE',
+      err as Error,
+    );
+    throw err;
+  }
+}
+
+// DELETE (soft) — captures before-state.
+async remove(id: number, session: SessionPayload, req: Request) {
+  const existing = await this.findById(id, session);
+  try {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.softDelete(Tanka, id);
+      await this.auditLog.logDelete(
+        buildAuditCtx(session, req, id),
+        existing,
+      );
+    });
+  } catch (err) {
+    await this.auditLog.logError(
+      buildAuditCtx(session, req, id),
+      'DELETE',
+      err as Error,
+    );
+    throw err;
+  }
+}
+```
+
+### When to use `logOperation` directly
+
+Drop down to `logOperation` only when the convenience helpers don't fit:
+custom `logType` (e.g. SYSTEM=2 or FILE_UPLOAD=4 events), partial-success
+`resultStatus=3` (warning), or non-CRUD operations like LOGIN_FAILURE
+audit rows. For those, import the `LogType` / `ResultStatus` enums:
+
+```typescript
+import { LogType, ResultStatus } from '@/modules/audit-log/audit-log.service';
+
+await this.auditLog.logOperation({
+  logType: LogType.SYSTEM,
+  resultStatus: ResultStatus.WARNING,
+  // ...
 });
 ```
+
+For CRUD success/failure paths, **always** prefer the helpers — they
+keep the row shape consistent across modules and make refactors cheap.
 
 ### Log Rules
 - Log ALL create, update, delete operations to `t_log`

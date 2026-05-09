@@ -31,7 +31,6 @@ const gridClass: Record<number, string> = {
       class="space-y-4"
       @submit.prevent="emit('search')"
     >
-      <!-- Field grid — consumer passes <FormField label="XX">…</FormField> -->
       <div :class="['grid gap-x-4 gap-y-3 items-center', gridClass[props.columns]]">
         <slot />
       </div>

@@ -14,6 +14,9 @@ import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyResetTokenDto } from './dto/verify-reset-token.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 function clientContext(req: Request) {
   return {
@@ -113,7 +116,40 @@ export class AuthController {
     const sessionId = this.readSessionId(req);
     await this.authService.logout(sessionId);
     this.clearSessionCookie(res);
-    return { message: '正常にログアウトしました' };
+    return { message: '正常にログアウトしました。' };
+  }
+
+  // ─── SCR-012 password reset / change password ─────────────────────────────
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60 * 60 * 1000, limit: 3 } })
+  @ApiOperation({ summary: 'Request a password reset email' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Always 200 — account enumeration prevention; same response for known and unknown emails.',
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    return this.authService.forgotPassword(dto.email, clientContext(req));
+  }
+
+  @Post('reset-password/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify a password reset token (page-load check)' })
+  @ApiResponse({ status: 200, description: '{ data: { valid: true } } when token is usable' })
+  async verifyResetToken(@Body() dto: VerifyResetTokenDto) {
+    const result = await this.authService.verifyResetToken(dto.token);
+    return { data: result };
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @ApiOperation({ summary: 'Consume reset token and set a new password' })
+  @ApiResponse({ status: 200, description: 'Password updated; existing sessions destroyed' })
+  async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    return this.authService.resetPassword(dto, clientContext(req));
   }
 
   // ─── Cookie helpers ───────────────────────────────────────────────────────

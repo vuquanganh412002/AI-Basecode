@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
 import * as authApi from '@/api/auth/auth';
+import { useCodesStore } from '@/stores/codes.store';
 import type { User } from '@/types';
 
 /**
@@ -34,12 +35,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
     // Session cookie set by the server; we only cache the user info.
     user.value = data.user;
+    await useCodesStore().loadAll();
     return { mfa_required: false, user: data.user };
   }
 
   async function verifyMfa(mfaToken: string, otpCode: string): Promise<User> {
     const data = await authApi.verifyMfa({ mfa_token: mfaToken, otp_code: otpCode });
     user.value = data.user;
+    await useCodesStore().loadAll();
     return data.user;
   }
 
@@ -64,9 +67,11 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const data = await authApi.refresh();
       user.value = data.user;
+      await useCodesStore().loadAll();
       return true;
     } catch {
       user.value = null;
+      useCodesStore().reset();
       return false;
     }
   }
@@ -76,7 +81,22 @@ export const useAuthStore = defineStore('auth', () => {
       await authApi.logout();
     } finally {
       user.value = null;
+      useCodesStore().reset();
     }
+  }
+
+  /**
+   * Toggle the caller's own MFA flag. Updates `user.mfa_enable_flg`
+   * on success so the header switch UI reflects the new state without
+   * a full session refresh. Errors propagate to the caller; the global
+   * axios interceptor toasts.
+   */
+  async function toggleMfa(enabled: boolean): Promise<boolean> {
+    const result = await authApi.toggleMfa(enabled);
+    if (user.value) {
+      user.value.mfa_enable_flg = result.mfa_enable_flg;
+    }
+    return result.mfa_enable_flg;
   }
 
   function hasPermission(permission: string): boolean {
@@ -91,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
     resendMfa,
     refreshSession,
     logout,
+    toggleMfa,
     hasPermission,
   };
 });

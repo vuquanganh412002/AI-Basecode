@@ -16,10 +16,11 @@
 | **State** | Pinia (Setup Store) |
 | **API Client** | Orval (auto-generated from OpenAPI) |
 | **ORM** | TypeORM + PostgreSQL (RDS) |
-| **Auth** | JWT RS256 + bcrypt + RBAC (model.action) |
-| **Infra** | Terraform + AWS (ECS Fargate, RDS, S3, CloudFront) |
+| **Auth** | HTTP-only Cookie session (Redis-backed, 24h sliding TTL) + bcrypt + RBAC (model.action) |
+| **Cache / Session store** | Redis (ioredis + ElastiCache) |
+| **Infra** | Terraform + AWS (ECS Fargate, RDS, ElastiCache, S3, CloudFront) |
 | **CI/CD** | GitLab CI/CD |
-| **Testing** | Vitest + Vue Test Utils + Playwright |
+| **Testing** | Vitest (98% effective coverage target) + Vue Test Utils + Playwright |
 | **Monitoring** | CloudWatch (Logs, Metrics, Alarms) |
 
 ---
@@ -30,9 +31,9 @@
 agrinews/
 ├── .claude/                    # Claude Code AI configuration
 │   ├── agents/                 # Reserved
-│   ├── commands/               # Claude Code commands (see below)
+│   ├── commands/               # Legacy slash commands (migrating to skills)
 │   ├── rules/                  # 11 mandatory coding rules
-│   ├── skills/                 # Reserved
+│   ├── skills/                 # gen-api-doc, gen-ut-*, gen-code-*, scaffold
 │   ├── settings.json
 │   └── CLAUDE.md
 │
@@ -80,67 +81,60 @@ Authorization: 3-layer model (Permission Guard → DataScope Filter → Field-Le
 
 ---
 
-## Claude Code Commands
+## Claude Code Skills & Commands
 
-### `/gen-api-doc ACSMS-SCR-XXX` — Generate API design document
+### Skills (`.claude/skills/`)
 
-Generate API設計書 from screen design + database schema. Follow the standard response/error format.
+| Skill | Purpose |
+| --- | --- |
+| `/scaffold [project_name]` | One-time — scaffold fullstack monorepo (NestJS + Vue 3 + Docker) |
+| `/gen-api-doc ACSMS-SCR-XXX` | Generate API設計書 from screen design + DB schema |
+| `/gen-ut-backend ACSMS-SCR-XXX` | Generate failing NestJS unit + integration tests (TDD red) — 98% coverage target |
+| `/gen-ut-frontend ACSMS-SCR-XXX` | Generate failing Vue 3 / Pinia tests (TDD red) — 98% coverage target |
+| `/gen-code-backend ACSMS-SCR-XXX` | Generate NestJS source (entity / DTO / service / controller / module) that satisfies the BE spec. Auto-removes `@ts-nocheck` after `tsc --noEmit` passes |
+| `/gen-code-frontend ACSMS-SCR-XXX` | Generate Vue 3 source (types / store / view + router entry) that satisfies the FE spec. Auto-removes `@ts-nocheck` after `vue-tsc --noEmit` passes |
 
-```bash
-# In Claude Code CLI
-/gen-api-doc ACSMS-SCR-010
-```
+### Legacy commands (`.claude/commands/` — migrating to skills)
 
-**What it does:**
-1. Read screen design (`screen-design.md` or `index.html`) in `docs/design/ACSMS-SCR-XXX/`
-2. Read database schema (`docs/database/database-design.md`) and seeder (`docs/database/seeder.md`)
-3. Read requirements (`docs/requirement/account_concept.md`) for permissions and DataScope
-4. Use `docs/design/ACSMS-SCR-003/ACSMS-SCR-003-api.md` as template
-5. Generate `ACSMS-SCR-XXX-api.md` with correct format
-
-**Output:** `docs/design/ACSMS-SCR-XXX/ACSMS-SCR-XXX-api.md`
-
-### `/review` — Code review
-
-```bash
-/review                    # Review current changes
-/review apps/backend/      # Review specific path
-```
-
-### `/fix-issue` — Fix bug
-
-```bash
-/fix-issue Login redirect fails after MFA verification
-```
-
-### `/deploy` — Deploy
-
-```bash
-/deploy dev    # Deploy to development
-/deploy prod   # Deploy to production
-```
+| Command | Purpose |
+| --- | --- |
+| `/review` | Code review (current changes or specific path) |
+| `/fix-issue <description>` | Analyze and fix a reported issue |
+| `/deploy <env>` | Deploy to dev / stg / prod |
 
 ---
 
-## Development Workflow
+## Development Workflow (per screen — TDD pipeline)
 
 ```
-Phase 1: Documentation (current)
-  /gen-api-doc ACSMS-SCR-XXX   → Generate API doc → Review → Commit
-
-Phase 2: Scaffold (one-time)
-  Claude Code generates NestJS + Vue 3 project structure
-
-Phase 3: Code Generation (per screen)
-  Generate backend  → NestJS module (entity, DTO, service, controller)
-  Generate frontend → Vue page + components + store
-  Generate tests    → Unit tests + integration tests
-
-Phase 4: Quality (per MR)
-  /review    → Check code quality
-  /fix-issue → Fix bugs
-  /deploy    → Deploy to environment
+/gen-api-doc        ACSMS-SCR-XXX                                 [spec]
+       ↓
+/gen-ut-backend     ACSMS-SCR-XXX   → (review BE specs)            [RED]
+/gen-code-backend   ACSMS-SCR-XXX                                 [BE src/ GREEN]
+npm run migration:generate -- -n <Name> && npm run migration:run
+npm run api:generate                 (Orval refresh from BE Swagger)
+       ↓
+/gen-ut-frontend    ACSMS-SCR-XXX   → (review FE specs)            [RED]
+/gen-code-frontend  ACSMS-SCR-XXX                                 [FE src/ GREEN]
+       ↓
+cd apps/backend && npm test     # verify BE green
+cd apps/frontend && npm test    # verify FE green
+       ↓
+/review  → /fix-issue  → /deploy
 ```
+
+**Step summary**:
+1. **Spec** — `/gen-api-doc` reads screen design + DB schema, emits `docs/design/ACSMS-SCR-XXX/ACSMS-SCR-XXX-api.md`.
+2. **RED tests** — `/gen-ut-*` emit `*.spec.ts` with a `// @ts-nocheck — TDD red phase` banner so vitest fails red but tsc still passes. **Read the generated specs before moving on** — that's where TDD earns its keep.
+3. **GREEN source** — `/gen-code-*` read the matching specs (immutable contract), emit source, then run the type-checker. On pass they strip the banner; on fail they keep it and print the first 30 error lines.
+4. **Verify** — user runs `npm test` manually; iterate if still red.
+
+**Order rules**:
+- **FE depends on BE when the screen has API calls**: `/gen-code-frontend` imports from `@/api/generated`, which Orval regenerates from BE Swagger. Always run `npm run api:generate` AFTER `/gen-code-backend` and BEFORE `/gen-code-frontend`. FE-only screens (dashboard / 404 / static) can skip the BE leg entirely.
+- **Migration is not automatic**: `/gen-code-backend` emits the `@Entity` but migration files need a human-chosen name via `npm run migration:generate -- -n <Name>`.
+- **Specs are immutable** to `/gen-code-*`. The skill treats them as the contract and won't edit them.
+- **Stale-contract guard**: if `api.md` or `screen-design.md` mtime is newer than spec mtime, `/gen-code-*` aborts and asks to rerun `/gen-ut-*` first.
+- **One-shot**: no vitest-until-green loop. Fix-and-rerun is manual.
 
 ---
 
@@ -149,3 +143,62 @@ Phase 4: Quality (per MR)
 > **NEVER commit:** `.env` files, API keys, secrets, `.claude/settings.local.json`
 
 All secrets via AWS Secrets Manager. See `.claude/rules/security.md`.
+
+### First-deploy admin bootstrap
+
+The initial `NICHINO_ADMIN` account is **not** auto-seeded by migrations. After `npm run migration:run` on a fresh environment, run `npm run seed` explicitly. The seed is idempotent (skips if `login_id='admin'` exists), sets `mfa_enable_flg=true`, and never writes cleartext password anywhere.
+
+#### Local dev
+
+```bash
+# 1. Bring stack up + run schema migrations
+docker compose -f apps/docker-compose.yml up -d
+docker compose -f apps/docker-compose.yml exec backend npm run migration:run
+
+# 2. Create admin — password generated + printed to stdout ONCE
+docker compose -f apps/docker-compose.yml exec backend \
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'
+# → copy the printed password into your password manager
+
+# 3. Login at https://agrinews.jp/login (login_id=admin) — OTP arrives in MailHog
+open http://localhost:8025
+```
+
+To set a password yourself instead of letting the script generate one:
+
+```bash
+docker compose -f apps/docker-compose.yml exec backend \
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local INITIAL_ADMIN_PASSWORD="MyDev@Pass123" npm run seed'
+```
+
+To reset (forgot password, or after `docker compose down -v`):
+
+```bash
+docker compose -f apps/docker-compose.yml exec postgres \
+  psql -U postgres -d agrinews_dev -c "DELETE FROM m_account WHERE login_id='admin';"
+docker compose -f apps/docker-compose.yml exec backend \
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'
+```
+
+#### Production / staging
+
+`INITIAL_ADMIN_PASSWORD` is **required** in production — the script throws if missing. Generate it out-of-band, store in Secrets Manager, then bootstrap once via ECS exec / bastion:
+
+```bash
+INITIAL_ADMIN_EMAIL=ops@agrinews.jp \
+INITIAL_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
+  --secret-id prod/agrinews/initial-admin-password \
+  --query SecretString --output text)" \
+  npm run seed
+```
+
+#### Env vars
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `INITIAL_ADMIN_EMAIL` | ✅ always | — | Used for MFA OTP delivery |
+| `INITIAL_ADMIN_PASSWORD` | ✅ in prod / optional in dev | random base64(18) | Min 12 chars |
+| `INITIAL_ADMIN_LOGIN_ID` | optional | `admin` | |
+| `INITIAL_ADMIN_NAME` | optional | `日農 管理者` | |
+
+> Subsequent admin accounts are created via the in-app account-management screen by the first admin — **not** via `npm run seed`. The seed script exists only to break the chicken-and-egg problem of the very first account.

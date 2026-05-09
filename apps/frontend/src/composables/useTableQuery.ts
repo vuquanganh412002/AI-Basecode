@@ -1,8 +1,8 @@
-import { reactive, ref, watch } from 'vue';
+import { reactive, ref, watch, type UnwrapRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { TablePaginationConfig } from 'ant-design-vue';
 
-export interface TableQueryState<F extends Record<string, unknown>> {
+export interface TableQueryState<F extends object> {
   page: number;
   per_page: number;
   sort_by: string;
@@ -10,7 +10,7 @@ export interface TableQueryState<F extends Record<string, unknown>> {
   filters: F;
 }
 
-export interface UseTableQueryOptions<F extends Record<string, unknown>> {
+export interface UseTableQueryOptions<F extends object> {
   defaultFilters: F;
   defaultSortBy?: string;
   defaultSortOrder?: 'asc' | 'desc';
@@ -34,7 +34,7 @@ export interface UseTableQueryOptions<F extends Record<string, unknown>> {
  *   });
  * ```
  */
-export function useTableQuery<F extends Record<string, unknown>>(
+export function useTableQuery<F extends object>(
   opts: UseTableQueryOptions<F>,
 ) {
   const router = useRouter();
@@ -66,13 +66,13 @@ export function useTableQuery<F extends Record<string, unknown>>(
   }
 
   function applyFilters(next: Partial<F>): void {
-    Object.assign(state.filters, next);
+    Object.assign(state.filters as object, next);
     state.page = 1;
     syncUrl();
   }
 
   function resetFilters(): void {
-    state.filters = { ...opts.defaultFilters };
+    state.filters = { ...opts.defaultFilters } as UnwrapRef<F>;
     state.page = 1;
     state.sort_by = opts.defaultSortBy ?? 'created_at';
     state.sort_order = opts.defaultSortOrder ?? 'desc';

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Oshirase } from './entities/oshirase.entity';
+import { Oshirase } from '@/database/entities/oshirase.entity';
 import { OshiraseController } from './oshirase.controller';
 import { OshiraseService } from './oshirase.service';
 

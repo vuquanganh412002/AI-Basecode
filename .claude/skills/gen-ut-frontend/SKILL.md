@@ -36,14 +36,28 @@ The backend equivalent is `/gen-ut-backend`; run it separately (order doesn't ma
 
 ### Phase 1 — Read
 
-Parallel reads:
+Read EVERY screen-design source file that exists in
+`docs/design/$ARGUMENTS/`. The two files complement each other and
+neither is sufficient on its own:
 
-**Screen spec:**
-- `docs/design/$ARGUMENTS/screen-design.md` (preferred)
-- `docs/design/$ARGUMENTS/index.html` (fallback / UI reference)
-- `docs/design/$ARGUMENTS/$ARGUMENTS-api.md` (optional — for API mock shapes)
+| File | What it contributes | Read when |
+|---|---|---|
+| `docs/design/$ARGUMENTS/screen-design.md` | Functional spec converted from the customer's Excel doc — validation rules, required-field flags, error-message text, business-logic clauses, button-action semantics | ALWAYS read if file exists |
+| `docs/design/$ARGUMENTS/index.html` | UI mockup wireframe — DOM hierarchy, Japanese label text, button labels, table column headers, CSS classes that selectors target | ALWAYS read if file exists |
+| `docs/design/$ARGUMENTS/$ARGUMENTS-api.md` | API contract for mock shapes — request DTO, response shape, `エラー一覧` codes | ALWAYS read if file exists |
 
-**Rules:**
+If both `screen-design.md` and `index.html` exist, **read both** and
+cross-reference. Test assertions about copy/labels should match the
+Japanese text in `index.html` (which is what users actually see); tests
+about validation rules / business behaviour should be driven by
+`screen-design.md` (which is the customer-signed spec).
+
+If only one of the two screen-spec files exists, read that one and
+flag in the validation summary that the spec is one-sided.
+
+Other parallel reads:
+
+**Rules** (always read):
 - `.claude/rules/testing.md`
 - `.claude/rules/vue.md`
 
@@ -58,7 +72,7 @@ Parallel reads:
 
 ### Phase 2 — Analyze
 
-From **screen-design.md / index.html** extract testable units:
+From **screen-design.md** + **index.html** (use both — see Phase 1) extract testable units:
 
 | UI element | → generates |
 |---|---|
@@ -105,6 +119,7 @@ apps/frontend/
 
 - [ ] Every view .vue file in screen-design has a mount spec
 - [ ] Every form field has at least 1 v-model + validation test
+- [ ] Every required-string field that is bound to a CLEARABLE control (`<a-select allow-clear>`, `<a-date-picker>`, `<a-cascader>`...) has an additional spec asserting the cleared (`undefined`) state shows `必須項目です。` AND does NOT show `エラーが発生しました` — guards the `?.trim()` vs `.trim()` regression (see vue.md §Validation)
 - [ ] Every button / link has at least 1 click test (emit OR router navigation)
 - [ ] Every error case from api.md (if present) has an FE-side toast-render test
 - [ ] All `it()` names match regex `/^should .+ when .+$/`
@@ -122,6 +137,15 @@ apps/frontend/
 ✓ Interactions covered (buttons/forms): I/I
 ✓ API error toasts covered: E/E  (if api.md present)
 ⚠ Estimated branches: ≥98% (verify with `cd apps/frontend && npm run test:coverage`)
+
+→ REVIEW the generated specs before running /gen-code-frontend. Edit any assertion
+  that looks wrong (selector, emit payload, toast message). Running /gen-code-frontend
+  back-to-back without review makes "test-first" trivial — both sides get derived
+  from the same screen-design.md so tests "pass" meaninglessly.
+→ If the screen has API calls: ensure BE is done first —
+    /gen-code-backend __SCREEN_ID__   (if not yet)
+    cd apps/frontend && npm run api:generate
+→ Then: /gen-code-frontend __SCREEN_ID__
 ```
 
 ## Placeholder reference
@@ -158,8 +182,83 @@ Fixtures written to `apps/frontend/test/fixtures/{module}.fixture.ts` when a vie
 - **Ant Design stubs vs real render**: prefer `global.plugins: [Antd]` over stubbing; stubbed components break `:data-source` / slot tests. Only stub heavy components (`<a-upload-dragger>` etc.) when they pull in non-jsdom APIs.
 - **Router navigation**: use `createMemoryHistory()` + inline route stubs. Never hit the real router.
 - **Pinia auth state**: for protected views, seed a minimal user via `createTestingPinia({ initialState: { auth: { user: buildUser() } } })`.
-- **Japanese text assertions**: use literal strings from screen-design.md (e.g. `'検索'`, `'登録'`, `'正常に削除しました'`).
+- **Japanese text assertions**: use literal strings from screen-design.md (e.g. `'検索'`, `'正常に削除しました'`).
+- **Antd `<a-button>` with 2 CJK characters auto-inserts a space** ("登 録" not "登録"). Tests asserting `text().toContain('登録')` fail because antd adds a half-width gap between two adjacent CJK chars for visual breathing room. Use a selector + substring match instead:
+  ```ts
+  // ❌ Brittle on antd button labels like 登録 / 削除 / 検索
+  expect(wrapper.text()).toContain('登録');
+  // ✅ Robust
+  const btn = wrapper.find('button[type="submit"]');
+  expect(btn.exists()).toBe(true);
+  expect(btn.text()).toContain('登');
+  ```
+  Labels with 3+ chars (`前の画面に戻る`) or non-CJK don't get the space — literal match is fine there.
+- **Page title + breadcrumb belong to MainLayout's AppHeader, NOT the view.** Mounting a view standalone in unit tests does NOT render them. Don't generate assertions like `expect(wrapper.text()).toContain('JAマスタ登録画面')` for the page title — they fail because the title comes from `route.meta.breadcrumb` consumed by AppHeader. Generate that assertion against the form's own H3 inside the card (e.g. `'JA基本情報入力'`) which IS in the view, or skip it entirely.
+- **`wrapper.vm.someMethod()` assumes `defineExpose`** but Vue Test Utils' default `VueWrapper<ComponentPublicInstance<{}, Omit<{}, never>>>` typing doesn't surface exposed methods. After `/gen-code` removes `@ts-nocheck`, vue-tsc trips with TS2339. Prefer driving submit via DOM events (`wrapper.find('form').trigger('submit')`, `await wrapper.find('[data-test="X"]').trigger('click')`) so the spec doesn't depend on internal method shapes.
 - **FE-only screens (dashboard, static pages)**: if no api.md, skill still works — API mocks use placeholder TODO shapes which `/gen-code` fills in.
+- **`<span class="material-icons">{{ name }}</span>` text leaks into `wrapper.text()` in jsdom.** The Material Icons font isn't loaded in the test environment, so the icon name (e.g. `home`, `person_add`) renders as plain text and prepends every label — `'homeメニュー画面'` instead of `'メニュー画面'`. When asserting menu / button labels, filter the icon spans first:
+  ```ts
+  function visibleLabels(wrapper) {
+    return wrapper.findAll('aside nav button').map((b) => {
+      const labelSpans = b.findAll('span').filter((s) => !s.classes('material-icons'));
+      return labelSpans.map((s) => s.text()).join('').trim();
+    }).filter(Boolean);
+  }
+  ```
+  Don't try to stub the icon font — the `.material-icons` class lookup is the cleanest split. See `AppSidebar.spec.ts` for the canonical helper.
+- **Permission-driven visibility tests need real `hasPermission()`.** With `createTestingPinia()` defaults, all returned functions get auto-stubbed → `hasPermission()` returns `undefined` and every menu collapses. Pass `{ stubActions: false }` and seed the user directly: `useAuthStore().user = buildUser({ permissions: [...] })`. Pattern in `AppSidebar.spec.ts`.
+
+### List-view spec patterns (SCR-004 lessons — apply to every CRUD list view)
+
+- **JSDom doesn't auto-submit a form when the submit button is clicked.** A `<a-button html-type="submit">` triggers form submission in real browsers but NOT in JSDom. Drive the search via the form's `submit` event:
+  ```ts
+  // ❌ Click on the submit button — listJa is never called.
+  await wrapper.find('button[type="submit"]').trigger('click');
+  // ✅ Trigger 'submit' on the form itself.
+  await wrapper.find('form').trigger('submit');
+  ```
+- **`wrapper.find('label')` returns only the FIRST label hit.** When asserting that BOTH "JAコード" and "JA名" labels render, naively `wrapper.find('label').text().includes('JA名')` always reads the first label and fails. Use `findAll`:
+  ```ts
+  const labelTexts = wrapper.findAll('label').map((l) => l.text());
+  expect(labelTexts.some((t) => t.includes('JAコード'))).toBe(true);
+  expect(labelTexts.some((t) => t.includes('JA名'))).toBe(true);
+  ```
+- **Searching for the 検索 button by text is fragile** under antd's CJK auto-spacing (`'検索'` becomes `'検 索'`). Use the form's submit selector:
+  ```ts
+  // ✅ One submit button per BaseSearchForm — robust to antd internals
+  const searchBtn = wrapper.find('button[type="submit"]');
+  expect(searchBtn.exists()).toBe(true);
+  ```
+- **`router.push` assertions** need `JSON.stringify`, not `.map(String)`. Vue-router push targets are objects (`{ name: 'JaCreate' }`) and `String({...})` collapses to `'[object Object]'`:
+  ```ts
+  // ❌ Always sees '[object Object]'
+  const pushed = pushSpy.mock.calls.flatMap((c) => c).map(String).join(' ');
+  // ✅ Preserves nested fields
+  const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
+  expect(pushed).toContain('JaCreate');
+  ```
+- **Antd's `MessageType` rejects `() => undefined` mocks** once `@ts-nocheck` is removed. Cast the noop to the message type:
+  ```ts
+  const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
+  vi.spyOn(message, 'success').mockImplementation(() => noopMessage);
+  ```
+- **Toast assertions use the verb-only `useNotify()` literal — NEVER prefix the subject.** Project-wide convention is `'登録しました。'` / `'更新しました。'` / `'削除しました。'`, not `'JAを登録しました。'`. Generated specs MUST assert literals, not substrings:
+  ```ts
+  // ❌ Loose — masks the regression where notify gains a subject prefix.
+  expect(message.success).toHaveBeenCalledWith(expect.stringContaining('登録'));
+  // ✅ Pin the full string. Use the verb-only form.
+  expect(message.success).toHaveBeenCalledWith('登録しました。');
+  ```
+  BE-owned messages with subject (e.g. `'パスワードを更新しました。ログイン画面に移動します。'` from ResetPasswordView) are different — those flow from BE response, not `useNotify`. Assert those literally too. See `.claude/rules/vue.md §useNotify` for the convention rationale.
+- **Mock `Modal.confirm` with synchronous `onOk` invocation** so the test can assert what happens after the user clicks 「はい」 without dealing with async modal lifecycle:
+  ```ts
+  vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+    opts?.onOk?.();
+    return { destroy: () => undefined, update: () => undefined };
+  });
+  ```
+- **API errors during `onMounted` fetchList should be expected to NOT propagate as unhandled rejections.** The view's `fetchList` catches them per `.claude/rules/vue.md §List view rules #5`. The spec just asserts the API was called (`expect(listJa).toHaveBeenCalled()`); the global axios interceptor toasts.
+- **Don't assert on a-table's `#emptyText` slot.** The empty message is rendered as a sibling `<p>` outside the table (BaseDataTable's dynamic slot loop crashes on null `slotProps`). Assert via `wrapper.text()` matching the literal string (`expect(wrapper.text()).toContain('検索結果が見つかりませんでした。')`).
 
 ## Out of scope
 

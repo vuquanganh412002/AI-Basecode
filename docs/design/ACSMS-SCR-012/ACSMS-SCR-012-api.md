@@ -51,6 +51,7 @@ updated_by: Nguyen Truong An
 | 4   | 画面固有     | NOT_FOUND     | 指定されたメールアドレスのアカウントが見つかりません。                 | HTTP 404 |
 | 5   | 画面固有     | INVALID_RESET_TOKEN   | 無効なリンクです。                                                     | HTTP 400 |
 | 6   | 画面固有     | EXPIRED_RESET_TOKEN   | リンクの有効期限が切れています。再度パスワード再設定をお試しください。 | HTTP 400 |
+| 7   | 画面固有     | PASSWORD_RESET_RATE_LIMIT | 再送信は5分後に可能です。時間をおいてから再度お試しください。 | HTTP 429 |
 
 ---
 
@@ -167,6 +168,23 @@ LIMIT 1
 
 - レコードが存在しない場合：
   - セキュリティ上の理由で、存在しないメールアドレスでも成功（HTTP 200）レスポンスを返す（アカウント列挙防止）
+  - クールダウンチェック（4.3a）も行わない
+
+### 4.3a クールダウンチェック（既存アカウントのみ）
+
+- 直近5分以内に同一アカウントで発行された `t_mfa_otp` 行（`otp_type = 2`）の件数をカウント：
+
+```sql
+SELECT COUNT(*) FROM t_mfa_otp
+WHERE account_id = :account_id
+  AND otp_type = 2
+  AND created_at > NOW() - INTERVAL '5 minutes'
+```
+
+- カウントが 1 以上の場合：HTTP 429 (`PASSWORD_RESET_RATE_LIMIT`)
+  - メッセージ：「再送信は5分後に可能です。時間をおいてから再度お試しください。」
+- カウントは無効化済み（`used_flg = true`）の行も含める。`created_at` 単位で「5分以内の申請有無」を測ることで、無効化操作（4.5a）でクールダウンがリセットされない設計とする。
+- アカウント列挙防止との trade-off: 存在するメールアドレスのみ 429 を返す（存在しないメールは常に 200）。本仕様は意図的にこの差を許容している（user 操作性 > 列挙防止の追加防御層）。
 
 ### 4.4 パスワード再設定トークンの生成
 
@@ -174,12 +192,27 @@ LIMIT 1
   - `reset_token = UUID()`
 - トークンをbcryptでハッシュ化する：
   - `reset_token_hash = bcrypt.hash(reset_token, 10)`
-- 有効期限を30分後に設定する：
-  - `expired_at = NOW() + INTERVAL '30 minutes'`
+- 有効期限を1時間後に設定する：
+  - `expired_at = NOW() + INTERVAL '1 hour'`
 
 ### 4.5 トークンをデータベースに保存
 
-- 以下の条件でトークンを保存する：
+> 4.5a + 4.5b は単一トランザクション内で実行する。
+
+#### 4.5a 既存の未使用トークンを無効化
+
+- 同一アカウントの未使用パスワード再設定トークンを全て無効化する（再申請時に古いリンクを失効させる）：
+
+```sql
+UPDATE t_mfa_otp
+SET used_flg = true,
+    updated_at = NOW()
+WHERE account_id = :account_id
+  AND otp_type = 2
+  AND used_flg = false
+```
+
+#### 4.5b 新規トークンを保存
 
 ```sql
 INSERT INTO t_mfa_otp (account_id, otp_code_hash, otp_type, expired_at, verify_attempt_count, resend_count, used_flg, created_at)
@@ -192,7 +225,7 @@ VALUES (:account_id, :reset_token_hash, 2, :expired_at, 0, 0, false, NOW())
 - メール件名：`【agrinews】パスワードリセット`
 - 送信内容：
   - パスワード再設定リンク（トークン付き）： `https://{FRONTEND_URL}/reset-password?token={reset_token}`
-  - 有効期限：30分
+  - 有効期限：1時間
 - メール送信に失敗した場合：
   - HTTP 500 を返す（トークンは削除）
 
@@ -560,7 +593,7 @@ VALUES (1, NOW(), :account_id,
 
 - **認証要件**: 不要（ログイン前ユーザーが利用）
 - **権限要件**: なし
-- **レート制限**: 3リクエスト/時間 per メールアドレス（ブルートフォース対策）
+- **クールダウン**: メールアドレスあたり 5 分に 1 回まで（連投ガード）
 
 ### ACSMS-API-012-002（Verify Token）
 
@@ -595,7 +628,7 @@ VALUES (1, NOW(), :account_id,
 
 1. **アカウント列挙防止**: Forgot Password API は、メールアドレスが存在しない場合でも成功レスポンス（HTTP 200）を返す
 2. **トークン保管**: リセットトークンは bcrypt でハッシュ化して保存し、平文では保存しない
-3. **トークン有効期限**: 30分（セキュリティと利便性のバランス）
+3. **トークン有効期限**: 1時間（セキュリティと利便性のバランス）
 4. **単一使用**: リセットトークンは一度使用されたら無効化される
 5. **セッション無効化**: パスワード更新後、Redis上の既存セッションはすべて削除される
 6. **レート制限**: ブルートフォース対策として実装

@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { message } from 'ant-design-vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
 import BaseConfirmModal from '@/components/common/BaseConfirmModal.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
+import { useNotify } from '@/composables/useNotify';
+import { formatYen, formatTaxRate } from '@/utils/formatters';
 import { ref } from 'vue';
 
 interface TankaFilters {
@@ -27,6 +28,7 @@ interface TankaRow {
 }
 
 const router = useRouter();
+const notify = useNotify();
 
 const { state, loading, total, onChange, applyFilters, resetFilters } =
   useTableQuery<TankaFilters>({
@@ -111,16 +113,12 @@ async function confirmDelete(): Promise<void> {
   deleting.value = true;
   try {
     // TODO: await getTanka().tankaControllerDelete(deleteTarget.value.tanka_id);
-    message.success('単価を削除しました');
+    notify.deleted();
     deleteTarget.value = null;
     await fetchList();
   } finally {
     deleting.value = false;
   }
-}
-
-function formatYen(value: number): string {
-  return `¥${value.toLocaleString('ja-JP')}`;
 }
 
 function mockRows(): TankaRow[] {
@@ -196,7 +194,7 @@ function mockRows(): TankaRow[] {
           {{ formatYen((record as TankaRow).kingaku_zeinuki) }}
         </template>
         <template v-else-if="column.key === 'tax_rate'">
-          {{ (record as TankaRow).tax_rate }}%
+          {{ formatTaxRate((record as TankaRow).tax_rate) }}
         </template>
         <template v-else-if="column.key === 'actions'">
           <BaseActionColumn
@@ -211,8 +209,6 @@ function mockRows(): TankaRow[] {
       :open="deleteTarget !== null"
       title="削除確認"
       :content="deleteTarget ? `単価「${deleteTarget.tanka_name}」を削除してもよろしいですか？\nこの操作は取り消せません。` : ''"
-      ok-text="削除"
-      cancel-text="キャンセル"
       danger
       :loading="deleting"
       @ok="confirmDelete"

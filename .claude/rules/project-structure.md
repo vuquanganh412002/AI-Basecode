@@ -86,13 +86,11 @@ apps/backend/
 │   │   │   └── redis.service.ts
 │   │   │
 │   │   ├── users/
-│   │   │   ├── users.module.ts
+│   │   │   ├── users.module.ts        # imports([User]) from @/database/entities
 │   │   │   ├── users.controller.ts
 │   │   │   ├── users.controller.spec.ts  # Unit test next to source
 │   │   │   ├── users.service.ts
 │   │   │   ├── users.service.spec.ts     # Unit test next to source
-│   │   │   ├── entities/
-│   │   │   │   └── user.entity.ts
 │   │   │   ├── dto/
 │   │   │   │   ├── create-user.dto.ts
 │   │   │   │   ├── update-user.dto.ts
@@ -100,8 +98,14 @@ apps/backend/
 │   │   │   └── exceptions/
 │   │   │       └── user-not-found.exception.ts
 │   │
-│   └── database/                      # Database configuration
+│   └── database/                      # Database configuration + ALL entities
 │       ├── database.module.ts
+│       ├── data-source.ts             # CLI DataSource — `entities: ['entities/*']`
+│       ├── entities/                  # ★ Single source of truth for entities
+│       │   ├── user.entity.ts         # 1 entity = 1 file
+│       │   ├── ja.entity.ts           # No per-module entity folders
+│       │   ├── m-code.entity.ts       # Owner module = TypeOrmModule.forFeature([X])
+│       │   └── ...                    # Cross-module FK: import @/database/entities
 │       └── migrations/
 │
 ├── test/                              # Integration & E2E tests
@@ -116,7 +120,8 @@ apps/backend/
 
 ### Backend Rules
 - **Domain modules** — not organized by technical layers
-- Each module contains: module, controller, service, entities, DTOs, exceptions
+- Each module contains: module, controller, service, DTOs, exceptions (entities are NOT here — they live in `src/database/entities/`)
+- **Entities are shared** — one canonical file per table in `src/database/entities/<name>.entity.ts`. The `@Entity('table_name')` decorator must appear exactly once across the whole repo. Module that CRUDs the entity calls `TypeOrmModule.forFeature([Entity])`; other modules that need it (FK relation, secondary read) IMPORT from `@/database/entities/<name>.entity` — never redefine.
 - `common/` contains shared code: guards, filters, interceptors, base DTOs
 - Dependency flow: Controller → Service → Repository (one direction only)
 

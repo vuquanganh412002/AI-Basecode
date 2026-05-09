@@ -16,16 +16,16 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const variantClass: Record<NonNullable<Props['variant']>, string> = {
-  content: 'rounded-ant shadow-ant-card border border-slate-200 dark:border-slate-800',
-  auth: 'rounded-xl shadow-xl border border-slate-200 dark:border-slate-800',
-  flat: 'rounded-lg border border-slate-200 dark:border-slate-800',
+  content: 'rounded-ant shadow-ant-card border border-border',
+  auth: 'rounded-xl shadow-xl border border-border',
+  flat: 'rounded-lg border border-border',
 };
 </script>
 
 <template>
   <section
     :class="[
-      'bg-white dark:bg-slate-900 overflow-hidden',
+      'bg-surface-card overflow-hidden',
       variantClass[props.variant],
       props.noPadding ? '' : 'p-4',
     ]"

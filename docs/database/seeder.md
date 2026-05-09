@@ -58,6 +58,7 @@
 | 9 | hanbaiten.update | 販売店編集 | 販売店情報の編集 |
 | 10 | hanbaiten.delete | 販売店削除 | 販売店情報の削除 |
 | 11 | hanbaiten.import | 販売店Excelデータ取込 | 販売店情報のExcel一括取込 |
+| 44 | hanbaiten.daiko_input | 販売店代行入力 | 日農担当者によるJAの販売店代行入力（account_concept.md ※2 / ACSMS-SCR-010 §3.2） |
 
 ### 2.3 単価マスタ（tanka）
 
@@ -146,9 +147,15 @@
 | 42 | report.export_zougen_hanbaiten | 増減連絡票（販売店）出力 | 販売店向け増減連絡票の出力 |
 | 43 | report.export_zougen_nichino | 増減通知（日本農業新聞）出力 | 日本農業新聞向け増減通知の出力 |
 
+### 2.14 ロール（role）
+
+| permission_id | permission_code | permission_name | description |
+| --- | --- | --- | --- |
+| 45 | role.view | ロール参照 | ロール・権限マスタの参照 |
+
 ### 共通カラム（全レコード共通）
 
-全43件のレコードに以下の値を設定する。
+全45件のレコードに以下の値を設定する。
 
 | カラム | 値 |
 | --- | --- |
@@ -221,14 +228,16 @@
 | 41 | report.export_meibo | × | × | ○ | ○ | ○ |
 | 42 | report.export_zougen_hanbaiten | × | × | ○ | ○ | ○ |
 | 43 | report.export_zougen_nichino | × | × | ○ | ○ | ○ |
+| 44 | hanbaiten.daiko_input | × | ○ | × | × | × |
+| 45 | role.view | ○ | × | × | × | × |
 
 ### ロール別権限サマリ
 
 | ロール | role_id | 権限数 | 付与される権限 |
 | --- | --- | --- | --- |
-| 日農（管理者） | 1 | 19 | ja.*, kanri_shiten.*, account.*, oshirase.*, file.upload, file.download, log.view |
-| 日農（担当者） | 2 | 7 | hanbaiten.{create,view,update,import}, file.upload, file.download, log.view |
-| 中央会 | 3 | 29 | dokusya.*, hanbaiten.*, tanka.*, ja.{view,update}, shiten.*, file.*, log.view, koza_furikae.export, haitatsuryo.export, report.* |
+| 日農（管理者） | 1 | 20 | ja.*, kanri_shiten.*, account.*, oshirase.*, file.upload, file.download, log.view, role.view |
+| 日農（担当者） | 2 | 8 | hanbaiten.{create,view,update,import,daiko_input}, file.upload, file.download, log.view |
+| 中央会 | 3 | 29 | dokusya.*, hanbaiten.{create,view,update,delete,import}, tanka.*, ja.{view,update}, shiten.*, file.*, log.view, koza_furikae.export, haitatsuryo.export, report.* |
 | JA本店 | 4 | 29 | （中央会と同一） |
 | JA管理支店 | 5 | 27 | （JA本店から ja.view, ja.update を除いた権限） |
 
@@ -244,7 +253,7 @@
 
 ### シードデータ
 
-#### role_id=1 日農（管理者）— 19件
+#### role_id=1 日農（管理者）— 20件
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
@@ -267,8 +276,11 @@
 | 17 | 1 | 36 | file.upload |
 | 18 | 1 | 37 | file.download |
 | 19 | 1 | 38 | log.view |
+| 112 | 1 | 45 | role.view |
 
-#### role_id=2 日農（担当者）— 7件
+※ role_permission_id=112 は移行マイグレーション 1711900900008-SeedRoleAndDaikoPermissions で追加。
+
+#### role_id=2 日農（担当者）— 8件
 
 ※ 販売店代行入力権限。新規登録・修正・検索・Excel取込が可能。削除は不可（※2）。
 
@@ -281,6 +293,9 @@
 | 24 | 2 | 36 | file.upload |
 | 25 | 2 | 37 | file.download |
 | 26 | 2 | 38 | log.view |
+| 113 | 2 | 44 | hanbaiten.daiko_input |
+
+※ role_permission_id=113 は移行マイグレーション 1711900900008-SeedRoleAndDaikoPermissions で追加。
 
 #### role_id=3 中央会 — 29件
 

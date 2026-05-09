@@ -5,10 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { HealthModule } from './modules/health/health.module';
-import { StorageModule } from './modules/storage/storage.module';
-import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { CodeModule } from './modules/code/code.module';
+import { HealthModule } from './modules/health/health.module';
+import { MailModule } from './modules/mail/mail.module';
+import { RedisModule } from './modules/redis/redis.module';
+import { StorageModule } from './modules/storage/storage.module';
 import type { Request, Response, NextFunction } from 'express';
 
 @Module({
@@ -18,12 +20,14 @@ import type { Request, Response, NextFunction } from 'express';
       load: [configuration],
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    RedisModule,
     DatabaseModule,
+    AuditLogModule,
+    CodeModule,
     AuthModule,
     HealthModule,
     StorageModule,
     MailModule,
-    AuditLogModule,
   ],
 })
 export class AppModule implements NestModule {

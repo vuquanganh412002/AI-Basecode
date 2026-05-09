@@ -60,6 +60,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const obj = res as Record<string, unknown>;
         code =
           (obj.code as string) ??
+          (obj.error_code as string) ??
           GlobalExceptionFilter.STATUS_TO_CODE[status] ??
           `HTTP_${status}`;
         message =
@@ -85,6 +86,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       userId: req.user
         ? (req.user as Record<string, unknown>)?.accountId
         : undefined,
+      // Surface the original exception stack so 500s aren't opaque.
+      stack:
+        status === HttpStatus.INTERNAL_SERVER_ERROR && exception instanceof Error
+          ? exception.stack
+          : undefined,
     });
 
     // Never leak internal details to the client on 500.

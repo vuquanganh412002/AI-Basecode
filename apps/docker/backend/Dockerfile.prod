@@ -6,6 +6,9 @@ COPY . .
 RUN npm run build
 
 FROM node:20-alpine
+# JST 運用 — install tzdata so TZ=Asia/Tokyo actually shifts dates/logs.
+# See .claude/rules/nestjs.md §Timestamp policy.
+RUN apk add --no-cache tzdata
 WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist

@@ -22,12 +22,19 @@ export class SmtpMailProvider implements MailProvider {
     });
   }
 
-  async sendMail(options: { to: string; subject: string; html: string }): Promise<void> {
-    await this.transporter.sendMail({
+  async sendMail(options: {
+    to: string;
+    subject: string;
+    html?: string;
+    text?: string;
+  }): Promise<void> {
+    const payload: nodemailer.SendMailOptions = {
       from: this.from,
       to: options.to,
       subject: options.subject,
-      html: options.html,
-    });
+    };
+    if (options.text) payload.text = options.text;
+    if (options.html) payload.html = options.html;
+    await this.transporter.sendMail(payload);
   }
 }

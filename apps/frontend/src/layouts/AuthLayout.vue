@@ -9,12 +9,6 @@ import DarkModeToggle from '@/components/layout/DarkModeToggle.vue';
       <slot />
     </main>
 
-    <footer class="py-6 text-center">
-      <p class="text-[11px] text-text-secondary">
-        © 2026 Japan.
-      </p>
-    </footer>
-
     <!-- Floating dark-mode toggle -->
     <div class="fixed bottom-6 right-6 z-50">
       <DarkModeToggle />

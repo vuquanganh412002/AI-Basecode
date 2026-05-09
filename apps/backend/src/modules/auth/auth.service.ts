@@ -1,27 +1,38 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { randomInt, randomUUID } from 'crypto';
-import { IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { MailService } from '../mail/mail.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { LoginDto } from './dto/login.dto';
 import { AuthUserDto } from './dto/auth-response.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import {
+  AccountLockedException,
+  ExpiredResetTokenException,
   InvalidCredentialsException,
   InvalidMfaTokenException,
   InvalidOtpException,
+  InvalidResetTokenException,
   OtpExpiredException,
   OtpMaxAttemptsException,
   OtpResendCooldownException,
   OtpResendLimitException,
+  PasswordResetRateLimitException,
 } from './exceptions/auth.exceptions';
 import { UnauthorizedException } from '../../common/exceptions/common.exceptions';
-import { Account } from './entities/account.entity';
-import { MfaOtp } from './entities/mfa-otp.entity';
-import { Role } from './entities/role.entity';
-import { RolePermission } from './entities/role-permission.entity';
-import { Permission } from './entities/permission.entity';
+import { Account } from '@/database/entities/account.entity';
+import { MfaOtp } from '@/database/entities/mfa-otp.entity';
+import { Role } from '@/database/entities/role.entity';
+import { RolePermission } from '@/database/entities/role-permission.entity';
+import { Permission } from '@/database/entities/permission.entity';
 import { SessionService, SessionPayload } from './session.service';
 
 const SALT_ROUNDS = 10;
@@ -29,6 +40,29 @@ const OTP_EXPIRY_MINUTES = 5;
 const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const OTP_MAX_RESEND = 3;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
+/**
+ * Threshold for auto-locking an account after consecutive failed password
+ * attempts. Counter resets to 0 on any successful login (see §4.3 of
+ * api.md), so this is "consecutive failures" by construction. Once locked,
+ * only an admin can unlock — password reset does NOT clear the flag.
+ */
+const LOGIN_FAILURE_LOCK_THRESHOLD = 5;
+
+// SCR-012 — password reset
+const RESET_TOKEN_EXPIRY_MINUTES = 60;
+/** `t_mfa_otp.otp_type=2` is PASSWORD_RESET per `docs/database/seeder.md §5 OTP_TYPE`. */
+const PASSWORD_RESET_OTP_TYPE = 2;
+/**
+ * Cooldown per `security.md §"Reset Token Rules"`: only one reset email
+ * per email address may be issued every `PASSWORD_RESET_COOLDOWN_MINUTES`.
+ * Measured by `t_mfa_otp.created_at` (rows persist after invalidation),
+ * so the prior-token-invalidation step (4.5a) does NOT reset the cooldown.
+ */
+const PASSWORD_RESET_COOLDOWN_MINUTES = 5;
+const SCREEN_NAME_SCR012 = 'パスワード再設定画面 (ACSMS-SCR-012)';
+const TABLE_M_ACCOUNT = 'm_account';
+const TABLE_T_MFA_OTP = 't_mfa_otp';
 
 export interface LoginContext {
   ipAddress?: string;
@@ -75,6 +109,11 @@ export class AuthService {
     private readonly rolePermRepo: Repository<RolePermission>,
     @InjectRepository(Permission)
     private readonly permRepo: Repository<Permission>,
+    // SCR-012 password reset wraps DML + audit log inside a transaction.
+    // `@Optional()` keeps SCR-001's plain `new AuthService(...8 args)` specs
+    // type-checking after their banner is later removed — DI still injects
+    // the real DataSource at runtime.
+    @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
   ) {}
 
   // ─── Public flow ──────────────────────────────────────────────────────────
@@ -97,7 +136,10 @@ export class AuthService {
       throw new InvalidCredentialsException();
     }
 
-    // Spec 4.2: account locked returns same unified message as invalid credentials.
+    // Already-locked account: reject before bcrypt with a dedicated message.
+    // Per project spec (screen-design.md §4.6 v1.2): once `account_lock_flg`
+    // is true the only path back is an admin unlock — password reset does
+    // not clear it.
     if (account.accountLockFlg) {
       await this.auditLogService.logLogin({
         accountId: Number(account.accountId),
@@ -107,16 +149,34 @@ export class AuthService {
         ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent,
       });
-      throw new InvalidCredentialsException();
+      throw new AccountLockedException();
     }
 
     const passwordMatch = await bcrypt.compare(dto.password, account.passwordHash);
     if (!passwordMatch) {
-      await this.accountRepo.increment(
-        { accountId: account.accountId },
-        'loginFailureCount',
-        1,
-      );
+      // Atomic: increment login_failure_count AND set account_lock_flg=true
+      // when the post-increment value reaches LOGIN_FAILURE_LOCK_THRESHOLD.
+      // A single SQL statement (CASE expression on the same row) avoids the
+      // read-modify-write race that two concurrent failed attempts would
+      // hit if we did SELECT-then-UPDATE in app code.
+      await this.accountRepo
+        .createQueryBuilder()
+        .update(Account)
+        .set({
+          loginFailureCount: () => '"login_failure_count" + 1',
+          accountLockFlg: () =>
+            `CASE WHEN "login_failure_count" + 1 >= ${LOGIN_FAILURE_LOCK_THRESHOLD} THEN true ELSE "account_lock_flg" END`,
+          accountLockAt: () =>
+            `CASE WHEN "login_failure_count" + 1 >= ${LOGIN_FAILURE_LOCK_THRESHOLD} THEN NOW() ELSE "account_lock_at" END`,
+          updatedAt: () => 'NOW()',
+        })
+        .where('account_id = :id', { id: account.accountId })
+        .andWhere('deleted_at IS NULL')
+        .execute();
+      // The 5th wrong attempt itself still surfaces as INVALID_CREDENTIALS —
+      // the lock flag is now set, so attempt #6 will hit the branch above
+      // and receive ACCOUNT_LOCKED. This matches the requirement "lần thứ
+      // 6 trở đi mới hiển thị message khóa".
       await this.auditLogService.logLogin({
         accountId: Number(account.accountId),
         loginId: dto.login_id,
@@ -136,7 +196,12 @@ export class AuthService {
 
     // Spec 4.4: branch on mfa_enable_flg.
     if (account.mfaEnableFlg) {
-      const { mfaToken } = await this.issueOtp(Number(account.accountId), account.email, 0);
+      const { mfaToken } = await this.issueOtp(
+        Number(account.accountId),
+        account.email,
+        account.accountName,
+        0,
+      );
       await this.auditLogService.logLogin({
         accountId: Number(account.accountId),
         loginId: dto.login_id,
@@ -260,6 +325,7 @@ export class AuthService {
     const { mfaToken: newMfaToken } = await this.issueOtp(
       Number(account.accountId),
       account.email,
+      account.accountName,
       nextResendCount,
     );
 
@@ -298,6 +364,332 @@ export class AuthService {
   async logout(sessionId: string | undefined): Promise<void> {
     if (!sessionId) return;
     await this.sessionService.destroy(sessionId);
+  }
+
+  // ─── SCR-012 password reset / change password ────────────────────────────
+
+  /**
+   * ACSMS-API-012-001 — request a password reset email.
+   *
+   * Account enumeration prevention: returns the same success message
+   * whether the email exists or not. Token is bcrypt-hashed and stored
+   * with `otp_type=2` (PASSWORD_RESET) and a 1-hour expiry.
+   *
+   * Atomicity: OTP save + audit log share one transaction. Email is
+   * sent AFTER successful commit so a rolled-back transaction never
+   * leaks a working reset link to the user.
+   */
+  async forgotPassword(
+    email: string,
+    ctx: LoginContext,
+  ): Promise<{ message: string }> {
+    const successMessage =
+      'パスワード再設定用のメールを送信しました。メールを確認してください。';
+
+    const account = await this.accountRepo.findOne({
+      where: { email, deletedAt: IsNull() },
+    });
+    if (!account) {
+      // §セキュリティ #1 — same response for unknown emails.
+      this.logger.log({ event: 'auth.forgot_password.unknown_email' });
+      return { message: successMessage };
+    }
+
+    const accountId = Number(account.accountId);
+
+    // Cooldown (security.md): one reset email per email address every 5 min.
+    // Counted by created_at over ALL otp_type=2 rows (including invalidated
+    // ones from the prior-token-invalidation step below) — so resubmitting
+    // within the window is rejected even though the earlier token has been
+    // invalidated, preventing an "infinite resend" loop.
+    const cooldownStart = new Date(
+      Date.now() - PASSWORD_RESET_COOLDOWN_MINUTES * 60_000,
+    );
+    const recentRequestCount = await this.otpRepo.count({
+      where: {
+        accountId,
+        otpType: PASSWORD_RESET_OTP_TYPE,
+        createdAt: MoreThan(cooldownStart),
+      },
+    });
+    if (recentRequestCount >= 1) {
+      this.logger.warn({
+        event: 'auth.forgot_password.cooldown_active',
+        accountId,
+        recentRequestCount,
+      });
+      throw new PasswordResetRateLimitException();
+    }
+
+    const resetToken = randomUUID();
+    const resetTokenHash = await bcrypt.hash(resetToken, SALT_ROUNDS);
+    const expiredAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MINUTES * 60_000);
+
+    try {
+      await this.requireDataSource().transaction(async (manager) => {
+        // Invalidate every previously-issued, still-active reset token for
+        // this account. Same pattern as MFA OTP issuance — guarantees that
+        // re-submitting the email kills the prior link the moment the new
+        // one is generated, instead of leaving N parallel valid links.
+        await manager.update(
+          MfaOtp,
+          { accountId, otpType: PASSWORD_RESET_OTP_TYPE, usedFlg: false },
+          { usedFlg: true },
+        );
+
+        await manager.save(MfaOtp, {
+          accountId,
+          otpCodeHash: resetTokenHash,
+          otpType: PASSWORD_RESET_OTP_TYPE,
+          expiredAt,
+          verifyAttemptCount: 0,
+          resendCount: 0,
+          usedFlg: false,
+        });
+
+        await this.auditLogService.logOperation({
+          logType: 1,
+          accountId,
+          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          gamenName: SCREEN_NAME_SCR012,
+          operation: 'PASSWORD_RESET_REQUEST',
+          resultStatus: 1,
+          targetTable: TABLE_T_MFA_OTP,
+          afterValue: JSON.stringify({ event: 'reset_token_issued' }),
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+        });
+      });
+    } catch (err) {
+      // §4.8 — error log lives OUTSIDE the rolled-back tx so the trace survives.
+      await this.auditLogService.logError(
+        {
+          accountId,
+          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          screen: SCREEN_NAME_SCR012,
+          table: TABLE_T_MFA_OTP,
+          targetId: null,
+          ipAddress: ctx.ipAddress ?? '',
+          userAgent: ctx.userAgent ?? '',
+        },
+        'PASSWORD_RESET_REQUEST',
+        err as Error,
+      );
+      throw err;
+    }
+
+    // §4.6 — email goes out only after the OTP row is durably persisted.
+    const frontendUrl = process.env.FRONTEND_URL ?? 'https://agrinews.jp';
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+    await this.mailService.sendPasswordReset(
+      email,
+      account.accountName,
+      resetUrl,
+      RESET_TOKEN_EXPIRY_MINUTES,
+    );
+
+    return { message: successMessage };
+  }
+
+  /**
+   * ACSMS-API-012-002 — verify a reset token without consuming it.
+   * Used by the FE on page-load to decide whether to render the form.
+   */
+  async verifyResetToken(token: string): Promise<{ valid: true }> {
+    const matched = await this.findResetTokenOtp(token);
+    if (!matched) throw new InvalidResetTokenException();
+
+    if (matched.expiredAt.getTime() < Date.now()) {
+      throw new ExpiredResetTokenException();
+    }
+    if (matched.usedFlg) throw new InvalidResetTokenException();
+
+    return { valid: true };
+  }
+
+  /**
+   * ACSMS-API-012-003 — consume the reset token and update the password.
+   *
+   * Order:
+   *   1. Find OTP via bcrypt.compare iteration; reject INVALID/EXPIRED.
+   *   2. Load the target account (must not be soft-deleted).
+   *   3. Validate confirm_password match.
+   *   4. Validate new_password ≠ login_id.
+   *   5. Inside dataSource.transaction:
+   *        - UPDATE m_account.password_hash, password_updated_at, updated_at
+   *        - UPDATE t_mfa_otp.used_flg=true
+   *        - audit log (operation='PASSWORD_RESET')
+   *   6. After commit: destroy all Redis sessions for the account so the
+   *      attacker (if the cookie was stolen) is force-logged-out everywhere.
+   *
+   * On failure inside the transaction, the audit log still emits a
+   * `log_type=3` row OUTSIDE the rolled-back tx via `logError`.
+   */
+  async resetPassword(
+    dto: ResetPasswordDto,
+    ctx: LoginContext,
+  ): Promise<{ message: string }> {
+    const matched = await this.findResetTokenOtp(dto.token);
+    if (!matched) throw new InvalidResetTokenException();
+
+    if (matched.expiredAt.getTime() < Date.now()) {
+      throw new ExpiredResetTokenException();
+    }
+    if (matched.usedFlg) throw new InvalidResetTokenException();
+
+    const account = await this.accountRepo.findOne({
+      where: { accountId: matched.accountId, deletedAt: IsNull() },
+    });
+    if (!account) throw new InvalidResetTokenException();
+
+    // §パスワード形式要件: ≥2 of 3 character categories. DTO already
+    // ensured length 8-32 + half-width-only, so the only remaining
+    // category check lives here. Same regex set as the FE (mirror of
+    // PASSWORD_FORMAT_RE in ResetPasswordView.vue).
+    if (!this.hasAtLeastTwoCategories(dto.new_password)) {
+      throw this.passwordValidationError(
+        'new_password',
+        'パスワードは8~32文字で、半角英字・数字・記号の3種のうち2種以上を含めて入力してください。',
+      );
+    }
+    if (dto.confirm_password !== dto.new_password) {
+      throw this.passwordValidationError('confirm_password', '新しいパスワードと一致していません。');
+    }
+    if (dto.new_password === account.loginId) {
+      throw this.passwordValidationError(
+        'new_password',
+        '新しいパスワードはログインIDと同じものに設定できません。',
+      );
+    }
+
+    const accountId = Number(account.accountId);
+    const newHash = await bcrypt.hash(dto.new_password, SALT_ROUNDS);
+
+    try {
+      await this.requireDataSource().transaction(async (manager) => {
+        const now = new Date();
+        await manager.update(
+          Account,
+          { accountId },
+          {
+            passwordHash: newHash,
+            passwordUpdatedAt: now,
+            updatedAt: now,
+            updatedBy: 'SYSTEM',
+          },
+        );
+        await manager.update(
+          MfaOtp,
+          { otpId: matched.otpId },
+          { usedFlg: true },
+        );
+
+        await this.auditLogService.logOperation({
+          logType: 1,
+          accountId,
+          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          gamenName: SCREEN_NAME_SCR012,
+          operation: 'PASSWORD_RESET',
+          resultStatus: 1,
+          targetTable: TABLE_M_ACCOUNT,
+          targetId: accountId,
+          afterValue: JSON.stringify({ event: 'password_reset' }),
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+        });
+      });
+    } catch (err) {
+      await this.auditLogService.logError(
+        {
+          accountId,
+          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          screen: SCREEN_NAME_SCR012,
+          table: TABLE_M_ACCOUNT,
+          targetId: accountId,
+          ipAddress: ctx.ipAddress ?? '',
+          userAgent: ctx.userAgent ?? '',
+        },
+        'PASSWORD_RESET',
+        err as Error,
+      );
+      throw err;
+    }
+
+    // §4.8 — destroy ALL Redis sessions for this account so cookies stolen
+    // before the reset stop working immediately. Outside the tx so a
+    // partial Redis failure can't roll the password write back.
+    await this.sessionService.destroyAllForAccount(accountId);
+
+    return { message: 'パスワードを更新しました。ログイン画面に移動します。' };
+  }
+
+  /**
+   * Iterate active otp_type=2 rows and bcrypt-compare the raw token to
+   * each `otp_code_hash`. Returns the first match or `null`.
+   *
+   * The api.md `WHERE otp_type = 2` query is intentionally broad — token
+   * values are bcrypt-hashed at rest so a direct lookup by hash is
+   * impossible. Iteration is bounded by simultaneous-active-token volume
+   * (≤ a few dozen even for a busy install).
+   */
+  private async findResetTokenOtp(token: string): Promise<MfaOtp | null> {
+    const candidates = await this.otpRepo.find({
+      where: { otpType: PASSWORD_RESET_OTP_TYPE },
+    });
+    for (const otp of candidates) {
+      if (await bcrypt.compare(token, otp.otpCodeHash)) {
+        return otp;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Mirror the FE `PASSWORD_FORMAT_RE` category check. Returns true when
+   * the password contains at least 2 of {alpha, digit, symbol}. Length
+   * and half-width validity are already enforced at the DTO level
+   * (`@MinLength`, `@MaxLength`, `@Matches(HALFWIDTH_RE)`) — this method
+   * intentionally does NOT re-check those.
+   *
+   * Symbol set: !@#$%^&*()_+-=[]{}|;:,.<>? per api.md example list.
+   */
+  private hasAtLeastTwoCategories(password: string): boolean {
+    const hasAlpha = /[A-Za-z]/.test(password);
+    const hasDigit = /\d/.test(password);
+    const hasSymbol = /[!@#$%^&*()_+\-=[\]{}|;:,.<>?]/.test(password);
+    const matched = [hasAlpha, hasDigit, hasSymbol].filter(Boolean).length;
+    return matched >= 2;
+  }
+
+  /**
+   * Build a `VALIDATION_ERROR` HttpException matching the FE contract
+   * (`useApiForm` expects `response.errors[].field` per `vue.md`).
+   */
+  private passwordValidationError(field: string, message: string): HttpException {
+    return new HttpException(
+      {
+        code: 'VALIDATION_ERROR',
+        error_code: 'VALIDATION_ERROR',
+        message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
+        errors: [{ field, message }],
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+
+  /**
+   * `dataSource` is `@Optional()` to keep SCR-001 specs (`new AuthService(...8 args)`)
+   * type-checking. SCR-012 endpoints require it — at runtime DI always
+   * provides it. Throw a clear error if a test forgot to wire one.
+   */
+  private requireDataSource(): DataSource {
+    if (!this.dataSource) {
+      throw new Error(
+        'AuthService.dataSource is undefined — SCR-012 endpoints require it. ' +
+          'Pass a DataSource as the 9th constructor arg in tests.',
+      );
+    }
+    return this.dataSource;
   }
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
@@ -350,6 +742,7 @@ export class AuthService {
         paper_flg: account.paperFlg,
         denshi_flg: account.denshiFlg,
         email: account.email,
+        mfa_enable_flg: account.mfaEnableFlg,
         permissions,
       },
     };
@@ -374,6 +767,7 @@ export class AuthService {
   private async issueOtp(
     accountId: number,
     email: string,
+    accountName: string,
     resendCount: number,
   ): Promise<{ mfaToken: string; otpId: number }> {
     await this.otpRepo
@@ -405,7 +799,7 @@ export class AuthService {
     this.mfaTokenToOtpId.set(mfaToken, Number(saved.otpId));
 
     try {
-      await this.mailService.sendOtp(email, otpCode);
+      await this.mailService.sendOtp(email, accountName, otpCode);
     } catch (error) {
       this.logger.error({ event: 'auth.mfa.send_failed', error: String(error) });
       // Keep OTP; user can retry via resend. Spec §4.4 doesn't require rollback.

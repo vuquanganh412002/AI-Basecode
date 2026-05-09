@@ -62,19 +62,22 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 8 | todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố (bắt buộc với Trung ương hội) ※Cho phép NULL |
 | 9 | paper_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản giấy (DEFAULT false) |
 | 10 | denshi_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản điện tử (DEFAULT false) ※Liên quan đến kích hoạt chức năng phê duyệt |
-| 11 | email |  | VARCHAR | 100 |  |  | Địa chỉ email ※Cho phép chuỗi rỗng |
-| 12 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ cập nhật mật khẩu |
-| 13 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ đăng nhập cuối cùng |
-| 14 | login_failure_count |  | INTEGER |  |  |  | Số lần đăng nhập thất bại (DEFAULT 0) |
-| 15 | account_lock_flg |  | BOOLEAN |  |  |  | Cờ khóa tài khoản (DEFAULT false) |
-| 16 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ khóa tài khoản |
-| 17 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 18 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 19 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 20 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 21 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 22 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
-| 23 | mfa_enable_flg |  | BOOLEAN |  |  |  | Cờ kích hoạt xác thực đa yếu tố (DEFAULT false) |
+| 11 | email |  | VARCHAR | 100 |  |  | Email người nhận thông báo ※Cho phép chuỗi rỗng |
+| 12 | sub_email_1 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 1 ※Cho phép chuỗi rỗng |
+| 13 | sub_email_2 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 2 ※Cho phép chuỗi rỗng |
+| 14 | sub_email_3 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 3 ※Cho phép chuỗi rỗng |
+| 15 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ cập nhật mật khẩu |
+| 16 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ đăng nhập cuối cùng |
+| 17 | login_failure_count |  | INTEGER |  |  |  | Số lần đăng nhập thất bại (DEFAULT 0) |
+| 18 | mfa_enable_flg |  | BOOLEAN |  |  |  | Cờ kích hoạt xác thực đa yếu tố (DEFAULT false) |
+| 19 | account_lock_flg |  | BOOLEAN |  |  |  | Cờ khóa tài khoản (DEFAULT false) |
+| 20 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ khóa tài khoản |
+| 21 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 22 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 23 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 24 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 25 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 26 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -213,7 +216,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 20 | jastem_tenpo_name |  | VARCHAR | 15 |  | 〇 | JASTEM_Tên chi nhánh |
 | 21 | jastem_tyokin_shubetsu |  | VARCHAR | 1 |  | 〇 | JASTEM_Loại tiền gửi |
 | 22 | jastem_koza_no |  | VARCHAR | 7 |  | 〇 | JASTEM_Số tài khoản |
-| 23 | chuokai_flg |  | BOOLEAN |  |  |  | 1=Trung ương hội, 0=Đơn hiệp (DEFAULT 1) |
+| 23 | chuokai_flg |  | BOOLEAN |  |  |  | 1=Trung ương hội, 0=Đơn hiệp (DEFAULT 0) |
 | 24 | zei_kubun |  | INTEGER |  |  |  | Phân loại thuế (1: Thuế bao gồm, 2: Thuế ngoài) |
 | 25 | biko |  | TEXT |  |  |  | Ghi chú |
 | 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
@@ -278,12 +281,12 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 4 | shiten_name |  | VARCHAR | 100 |  |  | Tên chi nhánh |
 | 5 | shiten_name_kana |  | VARCHAR | 100 |  |  | Tên chi nhánh (Kana) |
 | 6 | kinyu_shiten_flg |  | BOOLEAN |  |  |  | Cờ chi nhánh tổ chức tài chính (DEFAULT false) |
-| 7 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 8 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 9 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 10 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 11 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
-| 12 | kanri_shiten_id |  | BIGINT |  |  |  | ID chi nhánh quản lý (Khóa ngoại -> m_kanri_shiten.kanri_shiten_id) |
+| 7 | kanri_shiten_id |  | BIGINT |  |  |  | ID chi nhánh quản lý (Khóa ngoại -> m_kanri_shiten.kanri_shiten_id) |
+| 8 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 9 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 10 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 11 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 12 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -311,11 +314,12 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 8 | tax_rate |  | NUMERIC | 5.2 |  |  | Thuế suất (%) ví dụ: 10.00 |
 | 9 | tekiyo_start_date |  | DATE |  |  |  | Ngày bắt đầu áp dụng |
 | 10 | tekiyo_end_date |  | DATE |  |  | 〇 | Ngày kết thúc áp dụng |
-| 11 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 12 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 13 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 14 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 15 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 11 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 13 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 14 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 15 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 16 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -339,30 +343,31 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 4 | hanbaiten_name |  | VARCHAR | 100 |  |  | Tên đại lý bán hàng |
 | 5 | hanbaiten_name_kana |  | VARCHAR | 100 |  |  | Tên đại lý bán hàng (Kana) ※Cho phép chuỗi rỗng |
 | 6 | torihikisaki_no |  | VARCHAR | 20 |  |  | Số nhà phát hành hóa đơn đủ điều kiện ※Cho phép chuỗi rỗng |
-| 7 | yubin_no |  | VARCHAR | 7 |  |  | Mã bưu điện ※Cho phép chuỗi rỗng |
-| 8 | address |  | VARCHAR | 200 |  |  | Địa chỉ ※Cho phép chuỗi rỗng |
-| 9 | tel |  | VARCHAR | 15 |  |  | Số điện thoại ※Cho phép chuỗi rỗng |
-| 10 | fax |  | VARCHAR | 15 |  |  | Số FAX ※Cho phép chuỗi rỗng |
-| 11 | shocho_name |  | VARCHAR | 50 |  |  | Tên trưởng chi nhánh ※Cho phép chuỗi rỗng |
-| 12 | itaku_kubun |  | INTEGER |  |  | 〇 | Phân loại ủy thác (1: Chuyển khoản, 2: Ủy thác Nichino, 9: Khác) |
-| 13 | haitatsuryo_tanka_id |  | BIGINT |  |  | 〇 | ID đơn giá phí giao hàng (FK: m_tanka) |
-| 14 | haitatsuryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí giao hàng (số tháng) |
-| 15 | tesuryo_kubun |  | INTEGER |  |  | 〇 | Phân loại phí hoa hồng (1: JA, 2: Đại lý bán hàng) |
-| 16 | tesuryo_amount |  | NUMERIC | 10 |  | 〇 | Số tiền phí hoa hồng |
-| 17 | bank_code |  | VARCHAR | 4 |  |  | Mã ngân hàng |
-| 18 | bank_name |  | VARCHAR | 100 |  |  | Tên ngân hàng |
-| 19 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh ngân hàng |
-| 20 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh ngân hàng |
-| 21 | yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi (1: Thông thường, 2: Vãng lai) |
-| 22 | koza_no |  | VARCHAR | 10 |  |  | Số tài khoản ※Cho phép chuỗi rỗng |
-| 23 | koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản ※Cho phép chuỗi rỗng |
-| 24 | haiten_flg |  | BOOLEAN |  |  |  | Cờ ngừng hoạt động (DEFAULT false) |
-| 25 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 27 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 28 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 29 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 30 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 7 | todofuken_code |  | VARCHAR | 2 |  |  | Mã tỉnh/thành phố |
+| 8 | yubin_no |  | VARCHAR | 7 |  |  | Mã bưu điện ※Cho phép chuỗi rỗng |
+| 9 | address |  | VARCHAR | 200 |  |  | Địa chỉ ※Cho phép chuỗi rỗng |
+| 10 | tel |  | VARCHAR | 15 |  |  | Số điện thoại ※Cho phép chuỗi rỗng |
+| 11 | fax |  | VARCHAR | 15 |  |  | Số FAX ※Cho phép chuỗi rỗng |
+| 12 | shocho_name |  | VARCHAR | 50 |  |  | Tên trưởng chi nhánh ※Cho phép chuỗi rỗng |
+| 13 | itaku_kubun |  | INTEGER |  |  | 〇 | Phân loại ủy thác (1: Chuyển khoản, 2: Ủy thác Nichino, 9: Khác) |
+| 14 | haitatsuryo_tanka_id |  | BIGINT |  |  | 〇 | ID đơn giá phí giao hàng (FK: m_tanka) |
+| 15 | haitatsuryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí giao hàng (số tháng) |
+| 16 | tesuryo_kubun |  | INTEGER |  |  | 〇 | Phân loại phí hoa hồng (1: JA, 2: Đại lý bán hàng) |
+| 17 | tesuryo_amount |  | NUMERIC | 10 |  | 〇 | Số tiền phí hoa hồng |
+| 18 | bank_code |  | VARCHAR | 4 |  |  | Mã tổ chức tài chính |
+| 19 | bank_name |  | VARCHAR | 100 |  |  | Tên tổ chức tài chính |
+| 20 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh tài khoản trích nợ |
+| 21 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh tài khoản trích nợ |
+| 22 | yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi (1: Thông thường, 2: Vãng lai) |
+| 23 | koza_no |  | VARCHAR | 10 |  |  | Số tài khoản ※Cho phép chuỗi rỗng |
+| 24 | koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản ※Cho phép chuỗi rỗng |
+| 25 | haiten_flg |  | BOOLEAN |  |  |  | Cờ ngừng hoạt động (DEFAULT false) |
+| 26 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 27 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 28 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 29 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 30 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 31 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -372,7 +377,8 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 2 | UQ_m_hanbaiten_ja_code | ja_id, hanbaiten_code |  | 〇 | Duy nhất trong cùng JA |
 | 3 | IX_m_hanbaiten_ja_id | ja_id |  |  | Tham chiếu bảng master JA (FK) |
 | 4 | IX_m_hanbaiten_haitatsuryo_tanka_id | haitatsuryo_tanka_id |  |  | Tham chiếu bảng master đơn giá (FK) |
-| 5 | IX_m_hanbaiten_deleted_at | deleted_at |  |  | Loại trừ dữ liệu đã xóa logic |
+| 5 | IX_m_hanbaiten_todofuken_code | todofuken_code |  |  | Tham chiếu bảng master tỉnh/thành phố (FK) |
+| 6 | IX_m_hanbaiten_deleted_at | deleted_at |  |  | Loại trừ dữ liệu đã xóa logic |
 
 ---
 
@@ -427,17 +433,18 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 1 | file_upload_id | 〇 | BIGINT |  | 〇 |  | ID tải lên tệp (IDENTITY) |
 | 2 | ja_id |  | BIGINT |  |  | 〇 | JA ID (FK: m_ja) ※NULL = dành cho tất cả JA |
 | 3 | upload_datetime |  | TIMESTAMPTZ |  |  |  | Ngày giờ tải lên |
-| 4 | file_name |  | VARCHAR | 255 |  |  | Tên tệp |
-| 5 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
-| 6 | file_size |  | INTEGER |  |  | 〇 | Kích thước tệp (byte) |
-| 7 | record_count |  | INTEGER |  |  | 〇 | Số lượng bản ghi |
-| 8 | success_count |  | INTEGER |  |  | 〇 | Số lượng thành công |
-| 9 | error_count |  | INTEGER |  |  | 〇 | Số lượng lỗi |
-| 10 | status |  | INTEGER |  |  |  | Trạng thái xử lý (1: Đang xử lý, 2: Hoàn thành, 3: Lỗi) |
-| 11 | error_file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp lỗi ※Cho phép chuỗi rỗng |
-| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 13 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 14 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 4 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | Ngày dự kiến xóa |
+| 5 | file_name |  | VARCHAR | 255 |  |  | Tên tệp |
+| 6 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
+| 7 | file_size |  | INTEGER |  |  | 〇 | Kích thước tệp (byte) |
+| 8 | record_count |  | INTEGER |  |  | 〇 | Số lượng bản ghi |
+| 9 | success_count |  | INTEGER |  |  | 〇 | Số lượng thành công |
+| 10 | error_count |  | INTEGER |  |  | 〇 | Số lượng lỗi |
+| 11 | status |  | INTEGER |  |  |  | Trạng thái xử lý (1: Đang xử lý, 2: Hoàn thành, 3: Lỗi) |
+| 12 | error_file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp lỗi ※Cho phép chuỗi rỗng |
+| 13 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 14 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 15 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
 
 ## Chỉ mục
 
@@ -605,28 +612,26 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 39 | yubin_kubun |  | VARCHAR | 1 |  |  | Phân loại bưu điện (0: Trống, 1: Gửi bưu điện) DEFAULT 0 |
 | 40 | shiharai_hoho |  | INTEGER |  |  |  | Phương thức thanh toán (1: Trích tài khoản, 2: Thu tiền mặt, 3: Thu chuyển khoản, 4: Cơ sở JA v.v., 5: Trừ lương, 6: Thẻ tín dụng, 9: Khác) |
 | 41 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí đăng ký (số tháng) |
-| 42 | bank_code |  | VARCHAR | 4 |  |  | Mã ngân hàng ※Cho phép chuỗi rỗng |
-| 43 | bank_name |  | VARCHAR | 100 |  |  | Tên ngân hàng ※Cho phép chuỗi rỗng |
-| 44 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh ngân hàng ※Cho phép chuỗi rỗng |
-| 45 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh ngân hàng ※Cho phép chuỗi rỗng |
-| 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
-| 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
-| 52 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
-| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
-| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
-| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
-| 56 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 57 | rireki_no |  | INTEGER |  |  |  | Số lịch sử (số lịch sử mới nhất) |
-| 58 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 59 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 60 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 61 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 62 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
-| 63 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 42 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 43 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
+| 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
+| 50 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
+| 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
+| 52 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
+| 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
+| 54 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 55 | rireki_no |  | INTEGER |  |  |  | Số lịch sử (số lịch sử mới nhất) |
+| 56 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 57 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 58 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 59 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 60 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
 
 ## Chỉ mục
 
@@ -690,37 +695,35 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 41 | yubin_kubun |  | VARCHAR | 1 |  |  | Phân loại bưu điện (0: Trống, 1: Gửi bưu điện) DEFAULT 0 |
 | 42 | shiharai_hoho |  | INTEGER |  |  |  | Phương thức thanh toán (1: Trích tài khoản, 2: Thu tiền mặt, 3: Thu chuyển khoản, 4: Cơ sở JA v.v., 5: Trừ lương, 6: Thẻ tín dụng, 9: Khác) |
 | 43 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí đăng ký (số tháng) |
-| 44 | bank_code |  | VARCHAR | 4 |  |  | Mã ngân hàng ※Cho phép chuỗi rỗng |
-| 45 | bank_name |  | VARCHAR | 100 |  |  | Tên ngân hàng ※Cho phép chuỗi rỗng |
-| 46 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh ngân hàng ※Cho phép chuỗi rỗng |
-| 47 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh ngân hàng ※Cho phép chuỗi rỗng |
-| 48 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
-| 49 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 50 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 51 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 52 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 53 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
-| 54 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
-| 55 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
-| 56 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
-| 57 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
-| 58 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 59 | henko_riyu |  | TEXT |  |  |  | Lý do thay đổi ※Cho phép chuỗi rỗng |
-| 60 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
-| 61 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
-| 62 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
-| 63 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
-| 64 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
-| 65 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
-| 66 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
-| 67 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
-| 68 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
-| 69 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
-| 70 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
-| 71 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 72 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng đại lý bán hàng  |
-| 73 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
-| 74 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
+| 44 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 45 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
+| 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
+| 52 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
+| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
+| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
+| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
+| 56 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 57 | henko_riyu |  | TEXT |  |  |  | Lý do thay đổi ※Cho phép chuỗi rỗng |
+| 58 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
+| 59 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
+| 60 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
+| 61 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
+| 62 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
+| 63 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
+| 64 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
+| 65 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
+| 66 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
+| 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
+| 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
+| 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng đại lý bán hàng  |
+| 71 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
+| 72 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
 
 ## Chỉ mục
 

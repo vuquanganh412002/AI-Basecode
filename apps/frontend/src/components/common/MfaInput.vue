@@ -35,7 +35,10 @@ watch(
 function emitJoined(): void {
   const value = digits.value.join('');
   emit('update:modelValue', value);
-  if (value.length === props.length && !value.includes('')) {
+  // Every slot must be filled. NOTE: cannot use `value.includes('')` —
+  // empty string is a substring of any string, so it returns true even
+  // for fully populated codes. Check the array directly.
+  if (value.length === props.length && !digits.value.includes('')) {
     emit('complete', value);
   }
 }
@@ -102,7 +105,7 @@ function onPaste(e: ClipboardEvent): void {
       inputmode="numeric"
       autocomplete="one-time-code"
       maxlength="1"
-      class="w-12 h-14 text-center text-xl font-bold !border !border-slate-300 dark:!border-slate-700 !rounded-lg !bg-white dark:!bg-slate-800 !text-slate-900 dark:!text-white focus:!border-primary focus:!ring-2 focus:!ring-primary/10 !outline-none !transition-colors disabled:!bg-slate-100 disabled:!cursor-not-allowed"
+      class="w-12 h-14 text-center text-xl font-bold !border !border-border-strong !rounded-lg !bg-surface-card !text-text-main focus:!border-primary focus:!ring-2 focus:!ring-primary/10 !outline-none !transition-colors disabled:!bg-surface-hover disabled:!cursor-not-allowed"
       @input="(e: Event) => onInput(idx, e)"
       @keydown="(e: KeyboardEvent) => onKeydown(idx, e)"
       @paste="onPaste"

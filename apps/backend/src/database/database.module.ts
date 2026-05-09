@@ -21,6 +21,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         extra: {
           max: 10,
           idleTimeoutMillis: 30000,
+          // JST 運用 — Postgres session timezone is set per-connection so
+          // NOW() / CURRENT_TIMESTAMP / TIMESTAMPTZ display follow JST.
+          // Storage stays UTC internally (TIMESTAMPTZ guarantees that).
+          // See .claude/rules/nestjs.md §Timestamp policy.
+          options: '-c timezone=Asia/Tokyo',
         },
       }),
     }),

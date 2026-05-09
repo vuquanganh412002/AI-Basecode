@@ -11,7 +11,8 @@ import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
  *    calling form handle field-level errors.
  *  - `UNAUTHORIZED` outside auth endpoints: session is dead (HTTP-only cookie session,
  *    no token to refresh) → clear user state, redirect to /login with `redirect` query.
- *  - `FORBIDDEN`: redirect to /403 (screen-level deny).
+ *  - `FORBIDDEN`: toast + redirect to /dashboard (no standalone 403 page —
+ *    keep the user on a working screen instead of a dead end).
  *  - `VALIDATION_ERROR`: do NOT toast — caller's form handler maps `errors[]`.
  *  - All other common codes: show a user-friendly toast.
  */
@@ -22,10 +23,16 @@ export async function handleApiError(
   const data = error.response?.data;
   const code = data?.error_code;
   const url = error.config?.url || '';
-  const isAuthEndpoint =
+  // User-initiated form posts where UNAUTHORIZED carries an actionable
+  // meaning ("wrong password" / "wrong OTP") — toast it.
+  const isAuthFormEndpoint =
     url.includes('/auth/login') ||
-    url.includes('/auth/mfa/') ||
-    url.includes('/auth/refresh');
+    url.includes('/auth/mfa/');
+  // Background probe fired from main.ts on every page load to restore
+  // the session from the cookie. A 401 here just means "user not logged
+  // in" — expected on every fresh visit. Silent so we don't show
+  // "セッションが切れました" the first time someone opens /login.
+  const isRefreshProbe = url.includes('/auth/refresh');
 
   // Network error or non-JSON body — generic toast.
   if (!status || !data) {
@@ -53,7 +60,13 @@ export async function handleApiError(
       break;
 
     case ErrorCode.UNAUTHORIZED: {
-      if (isAuthEndpoint) {
+      if (isRefreshProbe) {
+        // Bootstrap probe — caller (auth.store.refreshSession) catches and
+        // clears state. No toast (would scare a user opening /login fresh).
+        // No redirect (router isn't even mounted yet on first call).
+        break;
+      }
+      if (isAuthFormEndpoint) {
         message.error(data.message);
         break;
       }
@@ -71,7 +84,8 @@ export async function handleApiError(
     }
 
     case ErrorCode.FORBIDDEN:
-      await router.push({ name: 'Forbidden' });
+      message.error(data.message);
+      await router.push({ name: 'Dashboard' });
       break;
 
     case ErrorCode.DATA_SCOPE_VIOLATION:
@@ -94,7 +108,7 @@ export async function handleApiError(
     default:
       message.error(
         data.message ||
-          'システムエラーが発生しました。しばらくしてから再度お試しください',
+          'システムエラーが発生しました。しばらくしてから再度お試しください。',
       );
       break;
   }

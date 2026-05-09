@@ -16,9 +16,13 @@ Generate API design document (API設計書) for a screen based on its screen des
 
 Read ALL of the following before generating:
 
-**Screen files** (in `docs/design/$ARGUMENTS/`):
-- `screen-design.md` — screen items, functions, messages
-- `index.html` — screen mockup (if screen-design.md not available)
+**Screen files** (in `docs/design/$ARGUMENTS/`) — read EVERY file that
+exists; the two complement each other:
+- `screen-design.md` — screen items, functions, messages, validation,
+  error spec (canonical functional contract). Read whenever present.
+- `index.html` — UI mockup with Japanese button/column/label text used
+  by the actual screen. Read whenever present so generated `エラー一覧`
+  / `処理` rows reference real labels rather than placeholders.
 
 **Database schema:**
 - `docs/database/database-design.md` — table definitions, columns, types, relations
@@ -144,6 +148,27 @@ From `m_ja` schema: `biko` is NOT NULL (empty string when absent), `jastem_koza_
 | 22 | →jastem_koza_no | String | 〇       | JASTEM 口座番号          |
 | 30 | →updated_at     | String | 〇       | 更新日時                 |
 ```
+
+**m_code reference policy (MANDATORY when a column stores enumerated code values):**
+
+Columns that store code values (e.g. `tanka_type`, `gender`, `shiharai_hoho`, `zei_kubun`, `log_type`, `oshirase_type`) reference `m_code.code_category='XXX'` — NOT PostgreSQL ENUM, NOT hardcoded in application code. Seeder values live in `docs/database/seeder.md §5`.
+
+In api.md:
+
+- **リクエストパラメータ** / **レスポンスデータ** 説明 column MUST include `※m_code.code_category='XXX'を参照` followed by the inline value list from `seeder.md §5`.
+- Type is `Integer` (or `String` when DB stores varchar — e.g. `yubin_kubun`), NOT `Enum`.
+- Do NOT invent a TypeScript enum name in the api.md (like `TankaTypeEnum`). Reference by category code.
+
+Worked example:
+
+```markdown
+| #  | パラメーターID | タイプ  | 必須 | 説明                                                              |
+|----|----------------|---------|------|-------------------------------------------------------------------|
+| 4  | tanka_type     | Integer | ○    | 単価種類 ※m_code.code_category='TANKA_TYPE'を参照（1:購読料, 2:配達手数料） |
+| 5  | zei_kubun      | Integer | ○    | 税区分 ※m_code.code_category='ZEI_KUBUN'を参照（1:内税, 2:外税）     |
+```
+
+Same pattern applies in レスポンスデータ — the API returns the raw integer value; FE translates it via `useCodesStore.label(...)`.
 
 **エラー一覧 — Canonical 5-column table (MANDATORY format):**
 

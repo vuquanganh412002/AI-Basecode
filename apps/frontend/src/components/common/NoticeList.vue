@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 <template>
   <BaseCard no-padding>
-    <div class="px-4 py-3 border-b border-gray-50 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+    <div class="px-4 py-3 border-b border-border bg-surface-card-subtle">
       <h2
         class="text-xs font-bold text-text-secondary uppercase tracking-wider flex items-center"
       >
@@ -32,7 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
         v-for="(item, idx) in props.items"
         :key="idx"
         class="text-xs flex gap-3"
-        :class="idx > 0 ? 'pt-2 border-t border-gray-50 dark:border-slate-800' : ''"
+        :class="idx > 0 ? 'pt-2 border-t border-border' : ''"
       >
         <span class="text-text-secondary font-mono shrink-0">{{ item.date }}</span>
         <span class="text-text-main">{{ item.title }}</span>

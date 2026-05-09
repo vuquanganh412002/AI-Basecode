@@ -69,7 +69,7 @@ async function verify(value?: string): Promise<void> {
   if (code.length !== 6 || !mfaToken.value || expired.value) return;
   await submit(async () => {
     await authStore.verifyMfa(mfaToken.value, code);
-    message.success('認証に成功しました');
+    message.success('ログインしました。');
     router.push({ name: 'Dashboard' });
   });
 }
@@ -83,7 +83,7 @@ async function resend(): Promise<void> {
     otp.value = '';
     startCountdown(result.expires_in);
     startCooldown(60);
-    message.success('認証コードを再送しました');
+    message.success('認証コードを再送しました。');
   } catch {
     // error-handler shows toast; OTP_RESEND_LIMIT will be surfaced as toast.
   } finally {
@@ -123,11 +123,17 @@ function backToLogin(): void {
         </header>
 
         <div class="px-8 pb-10">
+          <!--
+            No @complete handler: per UX feedback, even when the user
+            fills 6 digits the form must NOT auto-submit. They click
+            the 認証 button below explicitly. The button enables
+            automatically once otp.length === 6 (and not expired), so
+            the affordance to submit is still obvious.
+          -->
           <MfaInput
             v-model="otp"
             class="mb-8"
             :disabled="submitting || expired"
-            @complete="verify"
           />
 
           <a-button

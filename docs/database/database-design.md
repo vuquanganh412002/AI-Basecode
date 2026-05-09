@@ -62,19 +62,22 @@ updated_by: Tran Duc Tuyen
 | 8 | todofuken_code |  | VARCHAR | 2 |  | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。※NULL許容 |
 | 9 | paper_flg |  | BOOLEAN |  |  |  | 紙版取扱フラグ（DEFAULT false） |
 | 10 | denshi_flg |  | BOOLEAN |  |  |  | 電子版取扱フラグ（DEFAULT false）※承認機能有効化に関係 |
-| 11 | email |  | VARCHAR | 100 |  |  | メールアドレス※空文字許容 |
-| 12 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | パスワード更新日時 |
-| 13 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | 最終ログイン日時 |
-| 14 | login_failure_count |  | INTEGER |  |  |  | ログイン失敗回数（DEFAULT 0） |
-| 15 | account_lock_flg |  | BOOLEAN |  |  |  | アカウントロックフラグ（DEFAULT false） |
-| 16 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | アカウントロック日時 |
-| 17 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 18 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 19 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 20 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 21 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 22 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
-| 23 | mfa_enable_flg |  | BOOLEAN |  |  |  | 多要素認証有効フラグ（DEFAULT false） |
+| 11 | email |  | VARCHAR | 100 |  |  | 通知先メールアドレス※空文字許容 |
+| 12 | sub_email_1 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス1※空文字許容 |
+| 13 | sub_email_2 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス2※空文字許容 |
+| 14 | sub_email_3 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス3※空文字許容 |
+| 15 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | パスワード更新日時 |
+| 16 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | 最終ログイン日時 |
+| 17 | login_failure_count |  | INTEGER |  |  |  | ログイン失敗回数（DEFAULT 0） |
+| 18 | mfa_enable_flg |  | BOOLEAN |  |  |  | 多要素認証有効フラグ（DEFAULT false） |
+| 19 | account_lock_flg |  | BOOLEAN |  |  |  | アカウントロックフラグ（DEFAULT false） |
+| 20 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | アカウントロック日時 |
+| 21 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 22 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 23 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 24 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 25 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 26 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -213,7 +216,7 @@ updated_by: Tran Duc Tuyen
 | 20 | jastem_tenpo_name |  | VARCHAR | 15 |  | 〇 | JASTEM_店舗名 |
 | 21 | jastem_tyokin_shubetsu |  | VARCHAR | 1 |  | 〇 | JASTEM_貯金種別 |
 | 22 | jastem_koza_no |  | VARCHAR | 7 |  | 〇 | JASTEM_口座番号 |
-| 23 | chuokai_flg |  | BOOLEAN |  |  |  | 1=中央会, 0=単協（DEFAULT 1） |
+| 23 | chuokai_flg |  | BOOLEAN |  |  |  | 1=中央会, 0=単協（DEFAULT 0） |
 | 24 | zei_kubun |  | INTEGER |  |  |  | 税区分（1:内税, 2:外税） |
 | 25 | biko |  | TEXT |  |  |  | 備考 |
 | 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
@@ -278,12 +281,12 @@ updated_by: Tran Duc Tuyen
 | 4 | shiten_name |  | VARCHAR | 100 |  |  | 支店名称 |
 | 5 | shiten_name_kana |  | VARCHAR | 100 |  |  | 支店名称（カナ） |
 | 6 | kinyu_shiten_flg |  | BOOLEAN |  |  |  | 金融機関支店フラグ（DEFAULT false） |
-| 7 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 8 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 9 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 10 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 11 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
-| 12 | kanri_shiten_id |  | BIGINT |  |  |  | 管理支店ID（外部キー → m_kanri_shiten.kanri_shiten_id） |
+| 7 | kanri_shiten_id |  | BIGINT |  |  |  | 管理支店ID（外部キー → m_kanri_shiten.kanri_shiten_id） |
+| 8 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 9 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 10 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 11 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 12 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -311,11 +314,12 @@ updated_by: Tran Duc Tuyen
 | 8 | tax_rate |  | NUMERIC | 5.2 |  |  | 税率（%）例:10.00 |
 | 9 | tekiyo_start_date |  | DATE |  |  |  | 適用開始日 |
 | 10 | tekiyo_end_date |  | DATE |  |  | 〇 | 適用終了日 |
-| 11 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 12 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 13 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 14 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 15 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 11 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 13 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 14 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 15 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 16 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -339,30 +343,31 @@ updated_by: Tran Duc Tuyen
 | 4 | hanbaiten_name |  | VARCHAR | 100 |  |  | 販売店名 |
 | 5 | hanbaiten_name_kana |  | VARCHAR | 100 |  |  | 販売店名（カナ）※空文字許容 |
 | 6 | torihikisaki_no |  | VARCHAR | 20 |  |  | 適格請求書発行事業者番号※空文字許容 |
-| 7 | yubin_no |  | VARCHAR | 7 |  |  | 郵便番号※空文字許容 |
-| 8 | address |  | VARCHAR | 200 |  |  | 住所※空文字許容 |
-| 9 | tel |  | VARCHAR | 15 |  |  | 電話番号※空文字許容 |
-| 10 | fax |  | VARCHAR | 15 |  |  | FAX番号※空文字許容 |
-| 11 | shocho_name |  | VARCHAR | 50 |  |  | 所長名※空文字許容 |
-| 12 | itaku_kubun |  | INTEGER |  |  | 〇 | 委託区分（1:振込, 2:日農委託, 9:その他） |
-| 13 | haitatsuryo_tanka_id |  | BIGINT |  |  | 〇 | 配達手数料単価ID（FK:m_tanka） |
-| 14 | haitatsuryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 配達手数料支払サイクル（月数） |
-| 15 | tesuryo_kubun |  | INTEGER |  |  | 〇 | 手数料区分（1:JA, 2:販売店） |
-| 16 | tesuryo_amount |  | NUMERIC | 10 |  | 〇 | 手数料金額 |
-| 17 | bank_code |  | VARCHAR | 4 |  |  | 銀行コード |
-| 18 | bank_name |  | VARCHAR | 100 |  |  | 銀行名 |
-| 19 | bank_branch_code |  | VARCHAR | 3 |  |  | 支店コード |
-| 20 | bank_branch_name |  | VARCHAR | 100 |  |  | 支店名 |
-| 21 | yokin_shubetsu |  | INTEGER |  |  | 〇 | 預金種別（1:普通, 2:当座） |
-| 22 | koza_no |  | VARCHAR | 10 |  |  | 口座番号※空文字許容 |
-| 23 | koza_meigi |  | VARCHAR | 50 |  |  | 口座名義※空文字許容 |
-| 24 | haiten_flg |  | BOOLEAN |  |  |  | 廃店フラグ（DEFAULT false） |
-| 25 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 26 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 27 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 28 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 29 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 30 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 7 | todofuken_code |  | VARCHAR | 2 |  |  | 都道府県コード |
+| 8 | yubin_no |  | VARCHAR | 7 |  |  | 郵便番号※空文字許容 |
+| 9 | address |  | VARCHAR | 200 |  |  | 住所※空文字許容 |
+| 10 | tel |  | VARCHAR | 15 |  |  | 電話番号※空文字許容 |
+| 11 | fax |  | VARCHAR | 15 |  |  | FAX番号※空文字許容 |
+| 12 | shocho_name |  | VARCHAR | 50 |  |  | 所長名※空文字許容 |
+| 13 | itaku_kubun |  | INTEGER |  |  | 〇 | 委託区分（1:振込, 2:日農委託, 9:その他） |
+| 14 | haitatsuryo_tanka_id |  | BIGINT |  |  | 〇 | 配達手数料単価ID（FK:m_tanka） |
+| 15 | haitatsuryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 配達手数料支払サイクル（月数） |
+| 16 | tesuryo_kubun |  | INTEGER |  |  | 〇 | 手数料区分（1:JA, 2:販売店） |
+| 17 | tesuryo_amount |  | NUMERIC | 10 |  | 〇 | 手数料金額 |
+| 18 | bank_code |  | VARCHAR | 4 |  |  | 金融機関コード |
+| 19 | bank_name |  | VARCHAR | 100 |  |  | 金融機関名 |
+| 20 | bank_branch_code |  | VARCHAR | 3 |  |  | 引落口座支店コード |
+| 21 | bank_branch_name |  | VARCHAR | 100 |  |  | 引落口座支店名 |
+| 22 | yokin_shubetsu |  | INTEGER |  |  | 〇 | 預金種別（1:普通, 2:当座） |
+| 23 | koza_no |  | VARCHAR | 10 |  |  | 口座番号※空文字許容 |
+| 24 | koza_meigi |  | VARCHAR | 50 |  |  | 口座名義※空文字許容 |
+| 25 | haiten_flg |  | BOOLEAN |  |  |  | 廃店フラグ（DEFAULT false） |
+| 26 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 27 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 28 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 29 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 30 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 31 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -372,7 +377,8 @@ updated_by: Tran Duc Tuyen
 | 2 | UQ_m_hanbaiten_ja_code | ja_id, hanbaiten_code |  | 〇 | 同一JA内で一意 |
 | 3 | IX_m_hanbaiten_ja_id | ja_id |  |  | JAマスタ参照用（FK） |
 | 4 | IX_m_hanbaiten_haitatsuryo_tanka_id | haitatsuryo_tanka_id |  |  | 単価マスタ参照用（FK） |
-| 5 | IX_m_hanbaiten_deleted_at | deleted_at |  |  | 論理削除データ除外用 |
+| 5 | IX_m_hanbaiten_todofuken_code | todofuken_code |  |  | 都道府県マスタ参照用（FK） |
+| 6 | IX_m_hanbaiten_deleted_at | deleted_at |  |  | 論理削除データ除外用 |
 
 ---
 
@@ -427,17 +433,18 @@ updated_by: Tran Duc Tuyen
 | 1 | file_upload_id | 〇 | BIGINT |  | 〇 |  | ファイルアップロードID（IDENTITY） |
 | 2 | ja_id |  | BIGINT |  |  | 〇 | JA ID（FK:m_ja）※全JA向けの場合はNULL |
 | 3 | upload_datetime |  | TIMESTAMPTZ |  |  |  | アップロード日時 |
-| 4 | file_name |  | VARCHAR | 255 |  |  | ファイル名 |
-| 5 | file_path |  | VARCHAR | 500 |  |  | ファイルパス |
-| 6 | file_size |  | INTEGER |  |  | 〇 | ファイルサイズ（バイト） |
-| 7 | record_count |  | INTEGER |  |  | 〇 | レコード件数 |
-| 8 | success_count |  | INTEGER |  |  | 〇 | 成功件数 |
-| 9 | error_count |  | INTEGER |  |  | 〇 | エラー件数 |
-| 10 | status |  | INTEGER |  |  |  | 処理ステータス（1:処理中, 2:完了, 3:エラー） |
-| 11 | error_file_path |  | VARCHAR | 500 |  |  | エラーファイルパス※空文字許容 |
-| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 13 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 14 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 4 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | 削除予定日 |
+| 5 | file_name |  | VARCHAR | 255 |  |  | ファイル名 |
+| 6 | file_path |  | VARCHAR | 500 |  |  | ファイルパス |
+| 7 | file_size |  | INTEGER |  |  | 〇 | ファイルサイズ（バイト） |
+| 8 | record_count |  | INTEGER |  |  | 〇 | レコード件数 |
+| 9 | success_count |  | INTEGER |  |  | 〇 | 成功件数 |
+| 10 | error_count |  | INTEGER |  |  | 〇 | エラー件数 |
+| 11 | status |  | INTEGER |  |  |  | 処理ステータス（1:処理中, 2:完了, 3:エラー） |
+| 12 | error_file_path |  | VARCHAR | 500 |  |  | エラーファイルパス※空文字許容 |
+| 13 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 14 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 15 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
 
 ## インデックス
 
@@ -605,28 +612,26 @@ updated_by: Tran Duc Tuyen
 | 39 | yubin_kubun |  | VARCHAR | 1 |  |  | 郵送区分（0:空, 1:郵送）DEFAULT 0 |
 | 40 | shiharai_hoho |  | INTEGER |  |  |  | 支払方法（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
 | 41 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 購読料支払サイクル（月数） |
-| 42 | bank_code |  | VARCHAR | 4 |  |  | 銀行コード※空文字許容 |
-| 43 | bank_name |  | VARCHAR | 100 |  |  | 銀行名※空文字許容 |
-| 44 | bank_branch_code |  | VARCHAR | 3 |  |  | 支店コード※空文字許容 |
-| 45 | bank_branch_name |  | VARCHAR | 100 |  |  | 支店名※空文字許容 |
-| 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
-| 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
-| 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
-| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
-| 52 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
-| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
-| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
-| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
-| 56 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 57 | rireki_no |  | INTEGER |  |  |  | 履歴No（最新の履歴番号） |
-| 58 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 59 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 60 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 61 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 62 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
-| 63 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 42 | bank_branch_code |  | VARCHAR | 3 |  |  | 引落口座支店コード |
+| 43 | bank_branch_name |  | VARCHAR | 100 |  |  | 引落口座支店名 |
+| 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
+| 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
+| 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
+| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
+| 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
+| 50 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
+| 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
+| 52 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
+| 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
+| 54 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 55 | rireki_no |  | INTEGER |  |  |  | 履歴No（最新の履歴番号） |
+| 56 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 57 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 58 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 59 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 60 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
 
 ## インデックス
 
@@ -690,37 +695,35 @@ updated_by: Tran Duc Tuyen
 | 41 | yubin_kubun |  | VARCHAR | 1 |  |  | 郵送区分（0:空, 1:郵送）DEFAULT 0 |
 | 42 | shiharai_hoho |  | INTEGER |  |  |  | 支払方法（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
 | 43 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 購読料支払サイクル（月数） |
-| 44 | bank_code |  | VARCHAR | 4 |  |  | 銀行コード※空文字許容 |
-| 45 | bank_name |  | VARCHAR | 100 |  |  | 銀行名※空文字許容 |
-| 46 | bank_branch_code |  | VARCHAR | 3 |  |  | 支店コード※空文字許容 |
-| 47 | bank_branch_name |  | VARCHAR | 100 |  |  | 支店名※空文字許容 |
-| 48 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
-| 49 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
-| 50 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 51 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
-| 52 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
-| 53 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
-| 54 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
-| 55 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
-| 56 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
-| 57 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
-| 58 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 59 | henko_riyu |  | TEXT |  |  |  | 変更理由※空文字許容 |
-| 60 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
-| 61 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
-| 62 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
-| 63 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
-| 64 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
-| 65 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
-| 66 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
-| 67 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
-| 68 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
-| 69 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
-| 70 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
-| 71 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 72 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | 販売店適用日 |
-| 73 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
-| 74 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
+| 44 | bank_branch_code |  | VARCHAR | 3 |  |  | 引落口座支店コード |
+| 45 | bank_branch_name |  | VARCHAR | 100 |  |  | 引落口座支店名 |
+| 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
+| 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
+| 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
+| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
+| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
+| 52 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
+| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
+| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
+| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
+| 56 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 57 | henko_riyu |  | TEXT |  |  |  | 変更理由※空文字許容 |
+| 58 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
+| 59 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
+| 60 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
+| 61 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
+| 62 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
+| 63 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
+| 64 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
+| 65 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
+| 66 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
+| 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
+| 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
+| 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | 販売店適用日 |
+| 71 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
+| 72 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
 
 ## インデックス
 

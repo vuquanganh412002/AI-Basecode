@@ -4,7 +4,7 @@ Các API dùng chung giữa nhiều màn hình. Chi tiết xem tại file API g�
 
 | API ID                | API名                     | メソッド | URI                           | 概要                                               | 定義元    | 使用画面                          |
 | --------------------- | ------------------------- | -------- | ----------------------------- | -------------------------------------------------- | --------- | --------------------------------- |
-| ACSMS-API-COMMON-001  | Get Prefecture List       | GET      | /api/v1/todofuken             | 都道府県プルダウンリストを取得する                   | SCR-009   | SCR-005, SCR-009, SCR-024, SCR-025 |
+| ACSMS-API-COMMON-001  | Get Prefecture List       | GET      | /api/v1/todofuken             | 都道府県プルダウンリストを取得する                   | SCR-009   | SCR-005, SCR-009, SCR-011, SCR-022, SCR-024, SCR-025 |
 | ACSMS-API-COMMON-002  | Get Roles Dropdown        | GET      | /api/v1/roles/dropdown        | 管理者区分（ロール）プルダウンリストを取得する        | SCR-024   | SCR-024, SCR-025                  |
 | ACSMS-API-COMMON-003  | Get JA Dropdown           | GET      | /api/v1/ja/dropdown           | JAプルダウンリストを取得する（カスケード絞込み）      | SCR-024   | SCR-024, SCR-025, SCR-031         |
 | ACSMS-API-COMMON-004  | Get Kanri Shiten Dropdown | GET      | /api/v1/kanri-shiten/dropdown | 管理支店プルダウンリストを取得する（カスケード絞込み） | SCR-024   | SCR-007, SCR-024, SCR-025         |

@@ -17,6 +17,7 @@ node_modules/
 dist/
 build/
 out/
+*.tsbuildinfo
 
 # Logs
 logs/
@@ -39,6 +40,13 @@ coverage/
 tmp/
 temp/
 
+# Office lock files (Excel / Word / PowerPoint create these while open)
+~$*
+
+# Python bytecode (created by scripts/ converters)
+__pycache__/
+*.pyc
+
 # === Scaffold ===
 # Local HTTPS certs (generated via mkcert)
 apps/docker/certs/*.pem
@@ -47,19 +55,26 @@ apps/docker/certs/*.key
 !apps/docker/certs/README.md
 
 # Environment files (keep examples)
-apps/.env.development
+apps/.env
 apps/.env.staging
 apps/.env.production
 apps/backend/.env*
 !apps/backend/.env.example
-apps/frontend/.env.development
+apps/frontend/.env*
 !apps/frontend/.env.example
 
 # Generated API client
 apps/frontend/src/api/generated*
 apps/frontend/swagger.json
 
+# E2E tests workspace
+apps/e2e/
+
 # curl / HTTP debugging artifacts — session cookie dumps must never be committed
 cookies.txt
 *.cookies
 *.cookie-jar
+
+# SonarQube — local scanner working dir + project config
+.scannerwork/
+sonar-project.properties

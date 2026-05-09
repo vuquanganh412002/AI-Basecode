@@ -96,3 +96,73 @@ export async function fetchPublicOshirase(
   );
   return res.data.data;
 }
+
+export interface ToggleMfaResponse {
+  data: {
+    mfa_enable_flg: boolean;
+    message: string;
+  };
+}
+
+/**
+ * Self-service: toggle the caller's own MFA flag. account_id is read
+ * from the authenticated session on the server — never from the URL.
+ */
+export async function toggleMfa(enabled: boolean): Promise<ToggleMfaResponse['data']> {
+  const res = await axiosInstance.patch<ToggleMfaResponse>(
+    '/api/v1/account/me/mfa',
+    { enabled },
+  );
+  return res.data.data;
+}
+
+// ─── SCR-012 password reset / change password ────────────────────────────
+
+/**
+ * ACSMS-API-012-001 — request a password reset email.
+ *
+ * Always resolves with the same success message whether `email` exists
+ * or not (server-side account enumeration prevention). Unwraps the BE
+ * envelope so the view sees `{ message }` directly.
+ */
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const res = await axiosInstance.post<{ message: string }>(
+    '/api/v1/auth/forgot-password',
+    { email },
+  );
+  return { message: res.data.message };
+}
+
+/**
+ * ACSMS-API-012-002 — verify a reset token without consuming it.
+ * Resolves with `{ valid: true }` for usable tokens; rejects with
+ * INVALID_RESET_TOKEN / EXPIRED_RESET_TOKEN otherwise (axios shape).
+ */
+export async function verifyResetToken(token: string): Promise<{ valid: true }> {
+  const res = await axiosInstance.post<{ data: { valid: true } }>(
+    '/api/v1/auth/reset-password/verify',
+    { token },
+  );
+  return res.data.data;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  new_password: string;
+  confirm_password: string;
+}
+
+/**
+ * ACSMS-API-012-003 — consume the reset token and set a new password.
+ * Server destroys all existing Redis sessions for this account on
+ * success so a stolen cookie stops working immediately.
+ */
+export async function resetPassword(
+  body: ResetPasswordRequest,
+): Promise<{ message: string }> {
+  const res = await axiosInstance.post<{ message: string }>(
+    '/api/v1/auth/reset-password',
+    body,
+  );
+  return { message: res.data.message };
+}

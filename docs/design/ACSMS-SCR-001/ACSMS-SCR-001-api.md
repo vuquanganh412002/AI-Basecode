@@ -41,6 +41,7 @@ updated_by: Nguyen Truong An
 | No | 資料コード | 資料名 |
 |---|---|---|
 | 1 | ACSMS-SCR-002 | メニュー画面 API設計書 |
+| 2 | ACSMS-API-001-007 | ヘッダーセルフサービスMFAトグル（v1：確認モーダルのみ） |
 
 ## エラー一覧
 
@@ -53,7 +54,7 @@ updated_by: Nguyen Truong An
 | 5 | 共通 | TOO_MANY_REQUESTS | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 6 | 共通 | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 | HTTP 500 |
 | 7 | 画面固有 | INVALID_CREDENTIALS | ユーザーIDまたはパスワードが正しくありません。 | HTTP 401 |
-| 8 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。 | HTTP 401 |
+| 8 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。管理者へお問い合わせください。 | HTTP 401 |
 | 9 | 画面固有 | INVALID_OTP | 認証コードが正しくありません。 | HTTP 401 |
 | 10 | 画面固有 | OTP_EXPIRED | 認証コードの有効期限が切れました。再度ログインしてください。 | HTTP 401 |
 | 11 | 画面固有 | OTP_MAX_ATTEMPTS | 認証コードの入力回数が上限に達しました。再度ログインしてください。 | HTTP 401 |
@@ -106,7 +107,8 @@ updated_by: Nguyen Truong An
 | 13 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
 | 14 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
 | 15 | →→email | String | - | | - | メールアドレス |
-| 16 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+| 16 | →→mfa_enable_flg | Boolean | - | | - | MFA有効フラグ。次回ログインから6桁OTPの入力が必要かどうか。ヘッダー自己管理トグル（API-001-007）から変更可能 |
+| 17 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
 
 ※ 認証情報（セッションID）はレスポンスボディではなくHTTP-only Cookieで返却する。
 
@@ -151,6 +153,7 @@ POST /api/v1/auth/login
       "paper_flg": false,
       "denshi_flg": false,
       "email": "admin@nichino.co.jp",
+      "mfa_enable_flg": false,
       "permissions": [
         "dokusya.create", "dokusya.view", "dokusya.update", "dokusya.delete",
         "dokusya.import", "dokusya.replace_hanbaiten",
@@ -196,7 +199,7 @@ POST /api/v1/auth/login
 ```json
 {
   "error_code": "ACCOUNT_LOCKED",
-  "message": "アカウントがロックされています"
+  "message": "アカウントがロックされています。管理者へお問い合わせください。"
 }
 ```
 
@@ -262,18 +265,27 @@ ORDER BY p.permission_id ASC
 - レコードが存在しない場合：HTTP 401 (`INVALID_CREDENTIALS`)
   - ※セキュリティ上、アカウント不存在と認証失敗を区別しない
 - アカウントロックフラグが true の場合：HTTP 401 (`ACCOUNT_LOCKED`)
-  - ロック中であることを明示的に通知する
+  - メッセージ：「アカウントがロックされています。管理者へお問い合わせください。」
+  - 解除は管理者の手動操作のみ。パスワード再設定（SCR-012）はロックを解除しない
 - パスワード照合：`bcrypt.compare(入力パスワード, password_hash)`
 - パスワード不一致の場合：
-  - ログイン失敗回数をインクリメントする。
+  - 「失敗回数を加算」と「閾値到達時のロック設定」を**単一クエリ**で実行する（並行リクエスト時の競合を避けるため）。
 ```sql
 UPDATE m_account
 SET login_failure_count = login_failure_count + 1,
+    account_lock_flg = CASE
+      WHEN login_failure_count + 1 >= 5 THEN true
+      ELSE account_lock_flg
+    END,
+    account_lock_at = CASE
+      WHEN login_failure_count + 1 >= 5 THEN NOW()
+      ELSE account_lock_at
+    END,
     updated_at = NOW()
 WHERE account_id = :account_id
   AND deleted_at IS NULL
 ```
-  - HTTP 401 (`INVALID_CREDENTIALS`)
+  - 5回目（ロック発動と同時）の応答は引き続き HTTP 401 (`INVALID_CREDENTIALS`)。次回以降のリクエストでロックフラグ判定に到達し HTTP 401 (`ACCOUNT_LOCKED`) を返す。
 
 ### 4.3 ログイン成功処理
 - ログイン失敗回数をリセットし、最終ログイン日時を更新する。
@@ -418,6 +430,7 @@ POST /api/v1/auth/mfa/verify
       "paper_flg": true,
       "denshi_flg": true,
       "email": "c***i@ja-example.or.jp",
+      "mfa_enable_flg": true,
       "permissions": [
         "dokusya.view", "dokusya.update",
         "hanbaiten.view",
@@ -815,6 +828,7 @@ Cookie: session_id=550e8400-e29b-41d4-a716-446655440000
       "paper_flg": false,
       "denshi_flg": false,
       "email": "admin@nichino.co.jp",
+      "mfa_enable_flg": false,
       "permissions": [
         "dokusya.create", "dokusya.view", "dokusya.update", "dokusya.delete",
         "dokusya.import", "dokusya.replace_hanbaiten",
@@ -1097,3 +1111,148 @@ LIMIT :limit
 
 ### 4.6 例外処理
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
+
+---
+
+# API ACSMS-API-001-007
+
+## 概要
+
+| 項目 | 内容 |
+|---|---|
+| API名 | Toggle Self MFA |
+| 概要 | ログイン中ユーザー自身のMFA有効/無効を切り替える（ヘッダードロップダウンから操作） |
+| URI | /api/v1/account/me/mfa |
+| メソッド | PATCH |
+| リクエストボディー | JSON |
+| リクエストパラメーター | |
+| ヘッダ | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される |
+| HTTPレスポンスコード | 200:更新成功, 400:リクエストパラメータが不正です, 401:認証なし, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| # | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明 |
+|---|---|---|---|---|---|---|---|
+| 1 | enabled | Boolean | - | 〇 | - | - | true: MFAを有効化 / false: 無効化 |
+
+## レスポンスデータ
+
+| # | 項目ID | タイプ | 繰り返し | フォーマット | Nullable | 説明 |
+|---|---|---|---|---|---|---|
+| 1 | data | Object | - | | - | |
+| 2 | →mfa_enable_flg | Boolean | - | | - | 更新後のMFA有効フラグ |
+| 3 | →message | String | - | | - | 「MFAを有効にしました」または「MFAを無効にしました」 |
+
+## リクエスト例
+
+```json
+PATCH /api/v1/account/me/mfa
+Cookie: session_id=550e8400-e29b-41d4-a716-446655440000
+
+{
+  "enabled": true
+}
+```
+
+## レスポンス成功例
+
+```json
+{
+  "data": {
+    "mfa_enable_flg": true,
+    "message": "MFAを有効にしました"
+  }
+}
+```
+
+## レスポンス失敗例
+
+### 400 Bad Request
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
+  "errors": [{ "field": "enabled", "message": "enabledはboolean型である必要があります" }]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error_code": "UNAUTHORIZED",
+  "message": "セッションが切れました。再度ログインしてください。"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error_code": "INTERNAL_SERVER_ERROR",
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
+}
+```
+
+## 処理手順
+
+> ※ 本処理 + 操作ログ記録は単一トランザクション内で実行する。
+> いずれかが失敗した場合は全てロールバックすること。
+> エラーログ（log_type=3）はトランザクション外で別途記録する。
+
+### 4.1 リクエストのバリデーション
+- リクエストボディの検証：
+  - enabled：必須、boolean型
+- バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`)
+
+### 4.2 セッション検証
+- HTTP-only Cookieからセッション ID を取得し、Redisから対応するセッションを検証する（`SessionAuthGuard`）。
+- 認証されていない場合：HTTP 401 (`UNAUTHORIZED`)
+- 取得したセッションペイロードから `account_id` を読み取る。**URLやリクエストボディから account_id を受け取らない**（自分以外のユーザーのMFAを変更できないことを保証する）。
+
+### 4.3 アカウント取得
+```sql
+SELECT account_id, ja_id, mfa_enable_flg
+FROM m_account
+WHERE account_id = :account_id
+  AND deleted_at IS NULL
+```
+- レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
+
+### 4.4 MFAフラグ更新（トランザクション内）
+```sql
+UPDATE m_account
+SET mfa_enable_flg = :enabled,
+    updated_at = NOW(),
+    updated_by = :account_id
+WHERE account_id = :account_id
+```
+
+### 4.5 操作ログ記録（同一トランザクション内）
+- `t_log` に UPDATE 操作を記録する：
+  - `log_type = 1` (USER_OPERATION)
+  - `operation = 'UPDATE'`（裸動詞）
+  - `target_table = 'm_account'`
+  - `target_id = :account_id`
+  - `before_value = '{"mfa_enable_flg": <旧値>}'`
+  - `after_value = '{"mfa_enable_flg": <新値>}'`
+  - `gamen_name = 'アカウント設定 (header)'`
+  - `result_status = 1` (SUCCESS)
+
+### 4.6 レスポンス生成
+- `mfa_enable_flg`（更新後の値）と `message`（"MFAを有効にしました" または "MFAを無効にしました"）を返却する。HTTP 200。
+
+### 4.7 例外処理
+- DB接続エラー、操作ログ書き込みエラー等の場合：トランザクションをロールバック。
+- ロールバック後、トランザクション外で `t_log` にエラーログ（`log_type=3, result_status=2`）を記録。
+- HTTP 500 (`INTERNAL_SERVER_ERROR`) を返却。
+
+### セキュリティ注意事項（v1限定）
+
+本APIはv1としてシンプルなトグル動作を提供する：
+- パスワード再入力なし
+- メールOTP検証なし
+- 確認モーダルのみ（ヘッダードロップダウン）
+
+セッションCookieが盗まれた場合、攻撃者が被害者のMFAを無効化することが可能。v2では業界標準（Google、GitHub、AWS）に準拠し、有効化時にメールOTP検証 + 無効化時にパスワード再入力を必須とすること。

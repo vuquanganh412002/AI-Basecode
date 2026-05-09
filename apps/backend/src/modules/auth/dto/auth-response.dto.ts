@@ -37,6 +37,13 @@ export class AuthUserDto {
   @ApiProperty()
   email: string;
 
+  @ApiProperty({
+    description:
+      'MFA有効フラグ。次回ログインから6桁OTPの入力が必要かどうか。' +
+      'ヘッダーの自己管理トグルから変更可能。',
+  })
+  mfa_enable_flg: boolean;
+
   @ApiProperty({ type: [String] })
   permissions: string[];
 }

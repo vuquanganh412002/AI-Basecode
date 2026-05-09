@@ -1,12 +1,15 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # JST 運用 — see .claude/rules/nestjs.md §Timestamp policy.
+      TZ: Asia/Tokyo
+      PGTZ: Asia/Tokyo
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     ports:
       - "5432:5432"
     healthcheck:
@@ -34,14 +37,22 @@ services:
       dockerfile: ../docker/backend/Dockerfile
     volumes:
       - ./backend/src:/app/src
+      - ./backend/test:/app/test
+      - ./backend/scripts:/app/scripts
+      - ./backend/jest.config.ts:/app/jest.config.ts
+      - ./backend/tsconfig.json:/app/tsconfig.json
       - ./docker/certs:/app/certs:ro
     environment:
       - DB_HOST=postgres
       - REDIS_HOST=redis
       - STORAGE_ENDPOINT=http://minio:9000
       - MAIL_HOST=mailhog
+      # JST 運用 — `new Date()` / dayjs / log timestamps render JST. Postgres
+      # session timezone is set per-connection via TypeORM `extra.options`
+      # in src/database/database.module.ts.
+      - TZ=Asia/Tokyo
     env_file:
-      - ./backend/.env.development
+      - ./backend/.env
     ports:
       - "3000:3000"
     depends_on:
@@ -60,7 +71,7 @@ services:
       # Anonymous volume preserves image's node_modules (prevents host override).
       - /app/node_modules
     env_file:
-      - ./frontend/.env.development
+      - ./frontend/.env
     ports:
       - "5173:5173"
 
@@ -111,63 +122,6 @@ services:
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY}
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY}
       STORAGE_BUCKET: ${STORAGE_BUCKET}
-
-  # Isolated test database — port 5433, never shares data with dev DB
-  postgres-test:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: agrinews_test
-      POSTGRES_USER: agrinews_test
-      POSTGRES_PASSWORD: agrinews_test
-    ports:
-      - "5433:5432"
-    tmpfs:
-      - /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agrinews_test"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - test
-
-  # Isolated test Redis — port 6380, no persistence
-  redis-test:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "no"]
-    ports:
-      - "6380:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    profiles:
-      - test
-
-  # Playwright automation test runner — independent black-box testing
-  # Tests connect to the running app via https://nginx (UI) and https://nginx/api/v1 (API)
-  # Report UI available at http://localhost:9323 after running: npm run report:serve
-  playwright:
-    build:
-      context: ./autotest-agri
-      dockerfile: ../docker/playwright/Dockerfile
-    working_dir: /autotest
-    volumes:
-      - ./autotest-agri:/autotest
-      # Anonymous volume: preserve node_modules built into the image (not on host)
-      - /autotest/node_modules
-    ports:
-      - "9323:9323"   # Playwright HTML report server
-    environment:
-      - BASE_URL=https://nginx
-      - API_BASE_URL=https://nginx/api/v1
-      - CI=true
-      - PLAYWRIGHT_TIMEOUT=30000
-    depends_on:
-      - nginx
-    profiles:
-      - test
 
 volumes:
   postgres_data:

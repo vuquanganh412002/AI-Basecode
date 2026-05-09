@@ -30,7 +30,7 @@ async function verify(value?: string): Promise<void> {
   if (code.length !== 6 || !mfaToken.value) return;
   await submit(async () => {
     // await getAuth().authControllerMfaVerify({ mfa_token: mfaToken.value, otp_code: code });
-    message.success('認証に成功しました');
+    message.success('ログインしました。');
     router.push({ name: 'Dashboard' });
   });
 }
