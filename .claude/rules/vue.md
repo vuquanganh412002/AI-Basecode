@@ -39,7 +39,32 @@ MANDATORY settings:
 
 PROHIBITED: `console.log()`, `debugger`, `any` types, `@ts-ignore` without justification.
 
-### 4. JSDoc for Public APIs
+### 4. Path aliases — `@/` (src) and `@test/` (test)
+
+The frontend uses two path aliases configured in `tsconfig.json`, `vite.config.ts`, and `vitest.config.ts`:
+
+| Alias | Resolves to | Use for |
+|---|---|---|
+| `@/...` | `apps/frontend/src/...` | All imports from production source |
+| `@test/...` | `apps/frontend/test/...` | Imports from `test/fixtures`, `test/utils` |
+
+**Mandatory**: NEVER use `'../...'` relative imports that traverse the source tree. The only acceptable relative imports are `'./sibling-file'` (same directory).
+
+```ts
+// ✅ Correct
+import LoginView from '@/views/auth/LoginView.vue';
+import { useAuthStore } from '@/stores/auth.store';
+import { buildUser } from '@test/fixtures/auth.fixture';
+import { setup } from './helpers';   // same-folder sibling — fine
+
+// ❌ Wrong — relative paths going up
+import LoginView from '../LoginView.vue';
+import { buildUser } from '../../../../test/fixtures/auth.fixture';
+```
+
+Why: refactoring (moving a file, renaming a folder) doesn't break imports; reading an import line tells you exactly where the symbol lives without counting `../`s.
+
+### 5. JSDoc for Public APIs
 
 ```typescript
 /**
@@ -401,12 +426,181 @@ async function fetchUsers() {
 
 The project enumerates 21 business categories (性別, 単価種類, 支払方法, お知らせ種別, …) via the backend `m_code` table. FE does NOT hardcode these values — they come from `GET /api/v1/codes`, cached in `useCodesStore` for the session.
 
+### Group A vs Group B — when to add a TS enum
+
+The 21 categories split into two groups by whether the values participate
+in **branching logic**:
+
+| Group | Pattern | Example categories |
+|---|---|---|
+| **A** — fixed-set, has BE branching | TS enum at [`apps/frontend/src/constants/enums/`](../../apps/frontend/src/constants/enums/) (mirroring [`apps/backend/src/common/enums/`](../../apps/backend/src/common/enums/)) **+** label via `useCodesStore().label(...)` | `LOG_TYPE`, `RESULT_STATUS`, `LOGIN_RESULT`, `OTP_TYPE`, `OSHIRASE_STATUS`, `PUBLISH_LOCATION` |
+| **B** — extensible, pure display | `m_code`-only — no enum. Both options and labels via `useCodesStore`. | `DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `GENDER`, `TANKA_TYPE`, `OSHIRASE_TYPE`, `DOWNLOAD_TYPE`, … |
+
+**Group A criteria** (all must hold):
+1. The set of values is fixed by business design (not extensible at runtime).
+2. Code branches on the value (`if (status === Status.Public) …`, `switch`, etc.).
+3. Adding a new value would require code review (new business case, new branch).
+
+If a customer renames `m_code.code_name` for a Group A category, the
+label flips immediately (`useCodesStore().reload()` after BE
+`POST /codes/reload`); **no redeploy** because the enum holds VALUES
+only, never the customer-visible string. Adding a new VALUE *does*
+require a deploy because the enum + branching logic must be updated.
+
+**Group B**: no enum. Customer can extend at runtime; FE just renders
+whatever `useCodesStore().options(category)` returns.
+
+### Group A file layout
+
+```
+apps/frontend/src/constants/enums/
+├── index.ts              # barrel re-export
+├── log-type.ts           # mirror of apps/backend/src/common/enums/log-type.enum.ts
+├── result-status.ts
+├── login-result.ts
+├── otp-type.ts
+├── oshirase-status.ts
+└── publish-location.ts
+```
+
+```ts
+// apps/frontend/src/constants/enums/log-type.ts
+export const LogType = {
+  USER_OPERATION: 1,
+  SYSTEM: 2,
+  ERROR: 3,
+  FILE_OPERATION: 4,
+} as const;
+export type LogType = (typeof LogType)[keyof typeof LogType];
+```
+
+**Naming convention** (also in `naming-conventions.md`):
+- Identifier (`LogType`): PascalCase. Same name for both the value
+  (`const`) and the derived type alias — TS merges them across the
+  value/type namespaces.
+- Members (`USER_OPERATION`): UPPER_SNAKE_CASE — these are fixed
+  numeric constants, project rule for constants applies.
+
+**Why `const … as const` instead of `enum`**:
+- `enum` emits IIFE runtime code that can't run on Node native TS
+  (`--experimental-strip-types`) and isn't compatible with TS's
+  `--erasableSyntaxOnly` mode.
+- Numeric `enum` adds reverse-mapping keys (`Object.values(LogType)`
+  returns `[1, 2, 3, 4, 'USER_OPERATION', 'SYSTEM', 'ERROR', 'FILE_OPERATION']`
+  — 8 entries, half are noise) that footgun any iteration / `@IsIn`
+  validation.
+- `as const` produces a plain object — fully tree-shakable, type-erasable,
+  no surprises with `Object.values`.
+
+Each FE enum file has a **matching BE file at the parallel path**.
+The integration test `apps/backend/test/integration/enum-sync.spec.ts`
+parses both sides and **fails CI on any drift** (renamed key, different
+number, missing member, missing file). This is intentionally NOT a
+shared workspace package — keeping them separate keeps the dependency
+boundary clean; the sync test is the contract.
+
+### Group A usage — constant for branching, m_code for display
+
+```vue
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useCodesStore } from '@/stores/codes.store';
+import { OshiraseStatus } from '@/constants/enums';
+
+const codes = useCodesStore();
+const props = defineProps<{ status: number }>();
+
+// Branching logic uses the constant (type-safe, refactor-safe).
+const isPublishing = computed(() => props.status === OshiraseStatus.PUBLIC);
+
+// Display always uses m_code (customer-editable).
+const statusLabel = computed(() => codes.label('OSHIRASE_STATUS', props.status));
+</script>
+
+<template>
+  <a-tag :color="isPublishing ? 'green' : 'default'">
+    {{ statusLabel }}
+  </a-tag>
+</template>
+```
+
+**Never** write the branching as `props.status === 2` — magic number.
+**Never** write the label as `{ 1: '下書き', 2: '公開' }[props.status]` —
+hardcoded.
+
 ### Rules
 
-- Never hardcode options or label maps in views / constants files.
+- Never hardcode options or label maps in views / constants files. **Includes radio groups, checkboxes, segmented controls — not just `<a-select>`.** Customer can change `m_code.code_name` from the DB (e.g. `'購読料'` → `'新聞購読料'`) and expects every dropdown / radio / table cell to reflect the new label without an FE redeploy.
 - Never call `getCodes()` directly from a view. Always go through `useCodesStore`.
 - `useCodesStore().loadAll()` is called once per session from `auth.store.ts` after login / MFA / `refreshSession` succeeds. Views assume the cache is populated.
 - `useCodesStore().reset()` is called from `auth.store.ts` on logout / 401 so the next user starts fresh.
+
+### ❌ Banned patterns (caught in past reviews)
+
+```vue
+<!-- ❌ Hardcoded radio option labels -->
+<a-radio-group v-model:value="formState.zei_kubun">
+  <a-radio value="1">内税</a-radio>
+  <a-radio value="2">外税</a-radio>
+</a-radio-group>
+
+<!-- ❌ Hardcoded radio with drift from DB seeder
+     (DB has '購読料', UI shows '新聞購読料') -->
+<a-radio-group v-model:value="state.filters.tanka_type">
+  <a-radio :value="1">新聞購読料</a-radio>
+  <a-radio :value="2">配達手数料</a-radio>
+</a-radio-group>
+
+<!-- ❌ Inline label map for table cell display -->
+<template v-if="column.key === 'zei_kubun'">
+  {{ { 1: '内税', 2: '外税' }[record.zei_kubun] }}
+</template>
+
+<!-- ❌ Local constants file mirroring m_code -->
+// constants/zei-kubun.ts
+export const ZEI_KUBUN_OPTIONS = [
+  { value: 1, label: '内税' },
+  { value: 2, label: '外税' },
+];
+```
+
+### ✅ Canonical replacements
+
+```vue
+<!-- ✅ Radio group looped from m_code (preferred when you need radio UX) -->
+<script setup lang="ts">
+import { useCodesStore } from '@/stores/codes.store';
+const codes = useCodesStore();
+</script>
+
+<template>
+  <a-radio-group v-model:value="formState.zei_kubun">
+    <a-radio
+      v-for="opt in codes.options('ZEI_KUBUN')"
+      :key="opt.value"
+      :value="String(opt.value)"
+    >
+      {{ opt.label }}
+    </a-radio>
+  </a-radio-group>
+</template>
+```
+
+```vue
+<!-- ✅ Dropdown — prefer <BaseCodeSelect> wrapper for less boilerplate -->
+<BaseCodeSelect category="ZEI_KUBUN" v-model:value="formState.zei_kubun" />
+```
+
+**Type-coercion gotcha** (caught when migrating `JaFormView` / `TankaListView`):
+`CodeService.normalizeValue()` (BE) emits `value: number` when `code_value` parses
+as integer (e.g. `'1'` → `1`). But form state is bound differently per view:
+
+| Form state type | Coerce in template |
+|---|---|
+| `string` (e.g. `<a-radio value="1">`, `formState.zei_kubun: '1' \| '2'`) | `:value="String(opt.value)"` |
+| `number` (e.g. `<a-radio :value="1">`, `state.filters.tanka_type: 1 \| 2`) | `:value="Number(opt.value)"` |
+
+Antd's radio match is strict-equal — without coercion the option won't highlight as selected when loading existing data.
 
 ### Usage — dropdown (`<a-select>`)
 
@@ -812,6 +1006,55 @@ test.describe('Login Flow', () => {
 ---
 
 ## Router & Navigation Guards
+
+### Named routes only — NEVER navigate by literal path
+
+[`router/index.ts`](../../apps/frontend/src/router/index.ts) is the single source of truth for paths AND names — that is the centralization mechanism. Call sites MUST use `{ name: '...' }` (and `{ name, params }` when needed), never `{ path: '/...' }` literal.
+
+```ts
+// ✅ Correct — named route
+router.push({ name: 'Dashboard' })
+router.push({ name: 'JaEdit', params: { id: row.ja_id } })
+<router-link :to="{ name: 'JaList' }">JA一覧</router-link>
+
+// Breadcrumb meta — same rule
+meta: {
+  breadcrumb: [
+    { label: 'JAマスタ明細検索', to: { name: 'JaList' } },   // ✅
+    { label: 'JAマスタ登録画面' },
+  ],
+}
+
+// ❌ Wrong — path literal
+router.push({ path: '/dashboard' })
+router.push('/ja/' + id + '/edit')
+<router-link to="/ja">JA一覧</router-link>
+meta: { breadcrumb: [{ label: 'JAマスタ明細検索', to: '/ja' }, ...] }
+```
+
+Why: renaming a path (`/login` → `/sign-in`) only requires editing `router/index.ts`; every named call site keeps working. Path literals scatter the URL — rename ripples through every caller, easy to miss in templates.
+
+DO NOT introduce a `ROUTE_NAMES.LOGIN = 'Login'` constant table. With ~10 named routes, the indirection costs more than typo-safety it adds — Vue Router types check `RouteLocationRaw`, IDE rename on the literal `'Login'` already finds all references, and adopting `unplugin-vue-router` later gives full compile-time safety in one shot. Keep the convention literal-named for now.
+
+### Route param naming — `:id` for the resource PK
+
+Use `:id` for the primary key of the resource the route addresses. Reserve `:<resource>_id` ONLY when the same path needs to disambiguate two IDs (`/ja/:id/branches/:branch_id`). Reasons:
+
+- Mirrors REST/BE convention (BE controllers expose `/api/v1/ja/:id`, not `/:ja_id`)
+- Shorter, fewer characters in URL + callsite
+- Inside the view, alias to a meaningful local: `const jaIdParam = computed(() => Number(route.params.id))` — local naming carries the semantic without bloating the URL
+
+```ts
+// ✅ Correct
+{ path: ':id/edit', name: 'JaEdit' }
+router.push({ name: 'JaEdit', params: { id: row.ja_id } })
+
+// ❌ Wrong — redundant prefix on a single-ID route
+{ path: ':ja_id/edit', name: 'JaEdit' }
+router.push({ name: 'JaEdit', params: { ja_id: row.ja_id } })
+```
+
+(The DOMAIN field on entities + API responses stays `ja_id` — the rule only governs URL path params.)
 
 ### Route Configuration (Lazy Loading)
 
@@ -2050,7 +2293,7 @@ This applies to:
 | Success toast | `useNotify()` helper or direct `message.success(…)` | `'登録しました。'`, `'MFAを有効にしました。'` |
 | Error toast | `message.error(…)`, axios interceptor copy | `'予期しないエラーが発生しました。'` |
 | Validation help | `<a-form-item :help="…">`, BE DTO `@Matches({ message: '…' })` | `'銀行コードは半角数字4桁で入力してください。'` |
-| API result `message` field | BE service return value | `'正常にログアウトしました。'`, `'JAを更新しました。'` |
+| API result `message` field | BE service return value | `'登録しました。'`, `'更新しました。'`, `'削除しました。'` (verb-only — see `.claude/rules/nestjs.md §BE message convention`) |
 | Guard error message | `PermissionsGuard`, exception classes | `'この画面へのアクセス権限がありません。'` |
 
 **Centralised**: `useNotify().{created, updated, deleted, uploaded,

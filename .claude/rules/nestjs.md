@@ -4,6 +4,59 @@
 
 ---
 
+## Configuration — every env value MUST flow through `ConfigService`
+
+Single source of truth: [`apps/backend/src/config/configuration.ts`](../../apps/backend/src/config/configuration.ts) factory. EVERY runtime value sourced from a `.env` key MUST be:
+
+1. Declared in the `configuration.ts` factory under the appropriate nested group (`database.*`, `redis.*`, `session.*`, `storage.*`, `mail.*`, `app.*`, …).
+2. Mirrored in [`apps/backend/.env.example`](../../apps/backend/.env.example) with a comment describing format + dev vs prod expectations.
+3. Read via `ConfigService` in services / modules: `this.configService.get<string>('app.frontendUrl')`.
+
+```ts
+// ✅ Correct — runtime service reads from ConfigService
+@Injectable()
+export class AuthService {
+  constructor(
+    @Optional() private readonly configService?: ConfigService,
+  ) {}
+
+  someMethod() {
+    const frontendUrl =
+      this.configService?.get<string>('app.frontendUrl') ??
+      'http://localhost:5173';
+  }
+}
+
+// ❌ Wrong — bypasses central config layer
+const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+```
+
+**Why**: missing-env failures crash loudly at boot (`assertProductionSecrets()` rejects `NODE_ENV=production` with default/missing secrets); `.env.example` discovers required keys for new devs; renaming an env var is a one-file change; AWS Secrets Manager wiring lives next to the rest of the config.
+
+### Two acceptable exceptions for direct `process.env`
+
+| Case | File | Why exempted |
+|---|---|---|
+| TypeORM CLI DataSource | [`src/database/data-source.ts`](../../apps/backend/src/database/data-source.ts) | `migration:generate / run / revert` runs outside Nest DI — no ConfigService available. Defaults MUST stay in sync with `configuration.ts` (e.g. `DB_NAME` default `'agrinews_dev'` matches both files). |
+| Standalone CLI scripts | [`scripts/seed.ts`](../../apps/backend/scripts/seed.ts) | One-shot scripts invoked via `npm run seed` — no Nest app boots. Document each `INITIAL_ADMIN_*` env in `.env.example` under a clearly-marked "only used by CLI scripts" block. |
+
+Anywhere else, `grep "process.env" apps/backend/src --include='*.ts'` should return ZERO hits (verified post each change).
+
+### Production secret enforcement
+
+[`configuration.ts`](../../apps/backend/src/config/configuration.ts) calls `assertProductionSecrets()` at factory invocation. When `NODE_ENV=production` it refuses to boot if any of `SESSION_SECRET / DB_PASSWORD / STORAGE_ACCESS_KEY / STORAGE_SECRET_KEY` is unset OR still at its dev fallback. `SESSION_SECRET` also length-checked ≥ 32 bytes. The `DEV_FALLBACKS` constant at the top of the file is the exhaustive list — extend it whenever you add a new secret.
+
+```
+[config] Refusing to start: NODE_ENV=production but the following
+secrets are missing or still at insecure defaults — SESSION_SECRET
+(unset), DB_PASSWORD (still at dev default). Wire each from AWS
+Secrets Manager via the ECS task definition.
+```
+
+A loud crash beats silent insecure operation.
+
+---
+
 ## Application Bootstrap
 
 ```typescript
@@ -159,6 +212,39 @@ export class DokusyaService {
 
 Service rules: contains ALL business logic. Never import Controller. Never access HTTP Request/Response. Throw domain exceptions.
 
+#### Service-layer common helpers (USE THESE — do not re-implement)
+
+Recurring patterns across services have centralized helpers — service files should import from `@/common/...` rather than carry local copies.
+
+| Concern | Helper | Replaces |
+|---|---|---|
+| Pagination response shape | `paginate(data, total, page, per_page)` from `@/common/utils/paginate` | Inline `{ data, meta: { total, page, per_page, total_pages } }` |
+| Audit context build | `buildAuditCtx(session, req, screen, table, targetId)` from `@/common/utils/audit-context` | Local `function buildAuditCtx(...)` per service |
+| FK-conflict-blocking-delete | `assertNoRelatedRows(dataSource, tables, fkField, fkValue)` from `@/common/utils/fk-conflict` | Local `private async assertNoRelatedRows()` per service |
+| Not-found exception | `new NotFoundException('JA')` from `@/common/exceptions/common.exceptions` | Local `function jaNotFound()` factory + `@nestjs/common`'s NotFoundException |
+| Duplicate-code exception | `new DuplicateCodeException('JAコード', value)` from `@/common/exceptions/common.exceptions` | Inline `BadRequestException({ code: 'DUPLICATE_CODE', message: ... })` |
+| Conflict (FK) exception | `new ConflictException()` from `@/common/exceptions/common.exceptions` | Same |
+| DataScope filter | `applyJaScope(qb, alias, jaIdField, session)` / `applyBranchScope(...)` from `@/common/utils/data-scope` | Inline role switch |
+| Single-record scope check | `assertJaScope(recordJaId, session, label?)` / `assertBranchScope(...)` | Inline role switch |
+| Field-level restriction | `filterAllowedFields(dto, model, roleCode)` from `@/common/utils/field-restrictions` (uses module-local `FIELD_RESTRICTIONS` config) | Inline allow-list |
+| Type-safe value extract after filter | `pickString` / `pickBool` / `pickNumber` from `@/common/utils/pick` — `pickString(filtered, 'ja_name', before.jaName)` returns the new value when role-allowed, falls back to the original entity value otherwise | Per-service `private pickString/Bool/Number` |
+| IP/UA extract | `extractAuditContext(req)` from `@/common/utils/audit-context` | `String(req?.ip ?? '')` etc. |
+| m_code value validation | `assertMCodeValues(this.codeService, [{ field, value, category, label }, ...])` from `@/common/utils/m-code-validation` — throws ONE `VALIDATION_ERROR` aggregating every bad field, shape matches `ValidationPipe` output so `useApiForm` maps to `<a-form-item :help>` uniformly | Per-service `private assertCodeValues()` + inline `HttpException` |
+| Single m_code lookup (non-validation) | `this.codeService.has('CATEGORY', value)` or `.label('CATEGORY', value)` (CodeService is `@Global()`) | Direct `m_code` query |
+
+**Important — do NOT use `@nestjs/common`'s exception classes** (`NotFoundException`, `ConflictException`, `BadRequestException` from there) for business errors. They produce a different exception class than the project's `DomainException`-based ones, causing naming collisions and inconsistent body shape. Always import from `@/common/exceptions/common.exceptions` so `GlobalExceptionFilter` extracts `code` cleanly.
+
+What stays IN the service (module-specific, not extractable):
+
+- `SCREEN_NAME` / `TABLE_NAME` / `SCREEN_NAME_SCRXXX` constants — module identity
+- `SORT_COLUMN_MAP` — column whitelist for the sortable list
+- `RELATED_TABLES` — array of FK child tables for delete-blocking (passed to `assertNoRelatedRows`)
+- `FIELD_RESTRICTIONS` — role × allowed-field config (passed to `filterAllowedFields`)
+
+What lives in a SIBLING file inside the module folder:
+
+- `<module>.mapper.ts` — pure functions like `toJaResponse(ja, todofukenName)` that map TypeORM entity (camelCase) → response DTO (snake_case). NO Nest DI, NO repo calls — service stays the orchestrator, mapper stays a pure transform. Tests can import the mapper directly without booting Nest. See [`apps/backend/src/modules/ja/ja.mapper.ts`](../../apps/backend/src/modules/ja/ja.mapper.ts) as the canonical example.
+
 ### Dependency Injection
 
 ```typescript
@@ -181,6 +267,34 @@ private repository = new UsersRepository();
 - Explicit return types on public methods
 - Import order: Node built-ins → NestJS → third-party → internal
 - Always async/await — avoid promise chains
+
+### Path aliases — `@/` (src) and `@test/` (test)
+
+The backend uses two path aliases configured in `tsconfig.json` + `jest.config.ts`:
+
+| Alias | Resolves to | Use for |
+|---|---|---|
+| `@/...` | `apps/backend/src/...` | All imports from production source |
+| `@test/...` | `apps/backend/test/...` | Imports from `test/fixtures`, `test/utils`, `test/integration` |
+
+**Mandatory**: NEVER use `'../...'` relative imports that traverse the source tree. The only acceptable relative imports are:
+- `'./sibling-file'` — same directory
+- (Nothing else.)
+
+```ts
+// ✅ Correct
+import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
+import { SessionPayload } from '@/modules/auth/session.service';
+import { buildJa } from '@test/fixtures/ja.factory';
+import { createIntegrationApp } from '@test/utils/create-integration-app';
+import { Helper } from './helper';   // same-folder sibling — fine
+
+// ❌ Wrong — relative paths going up
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { buildJa } from '../../../test/fixtures/ja.factory';
+```
+
+Why: refactoring (moving a file, renaming a folder) doesn't break imports; grep results are predictable; reading an import line tells you exactly where the symbol lives without counting `../`s.
 
 ### Naming
 
@@ -218,7 +332,31 @@ async updateUser(id: string, dto: UpdateUserDto): Promise<User> {}
 - kebab-case paths: `/api/v1/user-profiles`
 - Plural nouns: `/api/v1/users`
 - Nested resources: `/api/v1/users/:id/orders`
-- Version prefix: `/api/v1/...`
+- Version prefix: applied centrally via `app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] })` in [`main.ts`](../../apps/backend/src/main.ts) — controllers declare unprefixed paths
+
+### Version prefix — `setGlobalPrefix`, NOT per-controller
+
+The `api/v1` prefix lives in ONE place: [`apps/backend/src/common/constants/api.constants.ts`](../../apps/backend/src/common/constants/api.constants.ts) as `API_PREFIX`. `main.ts` calls `app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] })`; the integration test boot ([`createIntegrationTestApp`](../../apps/backend/test/utils/create-integration-app.ts)) and per-controller specs mirror it.
+
+```ts
+// ✅ Correct — controller declares unprefixed path
+@Controller('auth')
+export class AuthController { ... }
+
+// ❌ Wrong — duplicates the version prefix
+@Controller('api/v1/auth')
+```
+
+`@Controller('health')` is the ONE exception — health probe stays unversioned (`GET /health`) so AWS ECS / ALB target group can hit it directly without coupling to API versioning.
+
+**Tests** assert against the literal HTTP path (`/api/v1/auth/login`) — the URL is the contract, and integration tests must catch breaking changes. For new tests, prefer the `apiUrl()` helper from [`@test/utils/api-url`](../../apps/backend/test/utils/api-url.ts):
+
+```ts
+import { apiUrl } from '@test/utils/api-url';
+await request(app).post(apiUrl('auth/login')).send(body);   // → /api/v1/auth/login
+```
+
+NEVER constantize individual route paths into a `route-table.ts` map (`API_ROUTES.AUTH.LOGIN = 'login'`). It harms readability at the call site, requires duplicate path-pattern + concrete-URL helpers for `:id` parameters, weakens integration tests (asserting a constant matches itself instead of the HTTP contract), and Swagger / Orval already provide central URL discovery via `/api/docs` + `swagger.json`.
 
 ### HTTP Methods & Status Codes
 
@@ -302,10 +440,77 @@ Rules: `@ApiProperty()` on ALL fields. `forbidNonWhitelisted: true`. Validate at
 }
 ```
 
+ALWAYS build this shape via the [`paginate()`](../../apps/backend/src/common/utils/paginate.ts) helper — never construct `{ data, meta: { ... } }` inline. Adding a new meta field (e.g. `has_next`) then ripples to all list endpoints automatically.
+
+```ts
+import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+
+async findAll(query: SearchDto): Promise<PaginatedResponse<JaListItem>> {
+  const [rows, total] = await qb.getManyAndCount();
+  return paginate(rows.map(toResponse), total, page, per_page);
+}
+```
+
 **Delete success:**
 ```json
 { "message": "正常に削除しました" }
 ```
+
+### Response shape — explicit at the controller, never via interceptor
+
+Controllers MUST return the final shape (`return { data }`, `return { data, message }`, `return paginate(...)`). Do NOT introduce a `TransformInterceptor` that auto-wraps service output in `{ data }`:
+
+- Hides the response shape from the controller — reader has to know about a global interceptor to predict the body
+- Breaks `@ApiResponse({ type: JaResponseDto })` accuracy — Swagger declares the type of `data` content; magic wrapping makes the doc lie about runtime body
+- Makes integration tests harder to reason about (`expect(res.body).toEqual({ data: ... })` becomes "is the interceptor wired in this spec?")
+
+The error path is the opposite — `GlobalExceptionFilter` IS the canonical handler for `{ error_code, message, errors? }`. Controllers/services NEVER hand-roll error JSON; throw a `DomainException` (or any `HttpException` with a `code` field) and the filter normalizes.
+
+### BE message convention — verb-only for success, subject + value for error (MANDATORY)
+
+Two distinct rules depending on whether the message is a SUCCESS toast trigger or a diagnostic ERROR.
+
+#### Success message (response body `{ message: ... }`)
+
+Verb-only. NEVER prefix with the entity name (`JA`, `単価`, `支店`, `管理支店`, `アカウント`, `お知らせ`, `販売店`, `ロール`, etc.) or the adverb `正常に`.
+
+| ✅ Correct | ❌ Wrong |
+|---|---|
+| `return { message: '登録しました。' };` | `return { message: 'JAを登録しました。' };` |
+| `return { message: '更新しました。' };` | `return { message: '管理支店を更新しました。' };` |
+| `return { message: '削除しました。' };` | `return { message: '正常に削除しました。' };` |
+
+Reason: the user clicked a button on a specific screen. Screen + button context imply the subject. Adding `JAを` makes every toast read like Captain Obvious and breaks the FE/BE contract — FE's `useNotify().created()` / `.updated()` / `.deleted()` produce verb-only strings; BE message must match so no string-juggling at the boundary.
+
+The 3 canonical literals project-wide: `'登録しました。'`, `'更新しました。'`, `'削除しました。'`. Anything else is custom copy and must justify why the verb alone isn't enough (e.g. `'パスワードを更新しました。ログイン画面に移動します。'` adds redirect info; `'MFAを有効にしました。'` needs subject because `有効/無効` is ambiguous without it).
+
+The customer's `screen-design.md` MSG catalog (e.g. `ACSMS-MSG-005-002`) MUST also use the verb-only form — it's the canonical source the testcase + api docs reference.
+
+#### Error message (DomainException / HttpException)
+
+Subject + concrete value when the user needs to fix a specific record:
+
+```ts
+// ✅ Diagnostic — names the field + value so user can fix
+throw new DuplicateCodeException('JAコード', dto.ja_code);
+//   → 'JAコード「1301002001」はすでに登録されています。'
+
+// ✅ Subject-only — generic "not found" doesn't have a value to echo back
+throw new JaNotFoundException(id);
+//   → '指定されたJAが見つかりません。'
+
+// ❌ Mystery error — user can't tell what conflicted
+throw new BadRequestException({ message: 'すでに登録されています。' });
+```
+
+Use the template factory at [`common.exceptions.ts`](../../apps/backend/src/common/exceptions/common.exceptions.ts):
+```ts
+`${resource}「${value}」はすでに登録されています。`   // duplicate
+`指定された${resource}が見つかりません。`              // not found
+`関連データが存在するため${resource}を削除できません。` // FK conflict
+```
+
+The asymmetry between success (verb-only) and error (subject + value) is intentional: success toasts are background confirmation where context is obvious; error messages are the user's ONLY signal about what's wrong, so they need to be self-contained.
 
 ### Nullable field serialization (MANDATORY)
 
@@ -407,11 +612,150 @@ The project stores enumerated values (性別, 単価種類, 支払方法, ログ
 ### Rules (mandatory)
 
 - Column that stores a code value is typed `INTEGER` (or `VARCHAR` when DB schema says so), NOT `@Column({ type: 'enum' })`.
-- Do NOT create a TypeScript `enum` for m_code categories. Do NOT create a constants file mirroring `m_code` — the DB is the source of truth.
-- DTO validation uses `@IsInt()` (or `@IsString()`) for shape only — the allowed-value check happens in the service layer via `CodeService.has(category, value)`.
+- The 21 categories split into two groups by whether the values participate in branching logic. Both share the `m_code` table for the customer-editable label, but differ in whether a TS enum exists alongside.
 - `CodeService` caches the full `m_code` table in memory at `onModuleInit()` and exposes `getAll()`, `getByCategory()`, `has()`, `getLabel()`. It is `@Global()`, so any module can inject it without re-importing.
 - `CodeController` (`GET /api/v1/codes`) returns the cached map; FE calls this once per session and caches in Pinia. The controller does NOT accept mutations — m_code is seeded, not CRUD'd (yet).
 - Never query `m_code` directly from a feature module's repo/service. Always go through `CodeService`.
+
+### Group A — fixed-set categories with branching logic
+
+Categories whose values are baked into branching logic (`if (status === 1) …`,
+SQL `WHERE status = 2`, switch over result codes) get a TS constant at
+[`apps/backend/src/common/enums/<name>.enum.ts`](../../apps/backend/src/common/enums/), mirrored at
+[`apps/frontend/src/constants/enums/<name>.ts`](../../apps/frontend/src/constants/enums/).
+The integration test [`apps/backend/test/integration/enum-sync.spec.ts`](../../apps/backend/test/integration/enum-sync.spec.ts)
+parses both sides and fails CI on drift.
+
+Current Group A categories (commit-time list — extend when adding):
+
+| Category | Constant | DB column |
+|---|---|---|
+| `LOG_TYPE` | `LogType` | `t_log.log_type` |
+| `RESULT_STATUS` | `ResultStatus` | `t_log.result_status` |
+| `LOGIN_RESULT` | `LoginResult` | `t_login_log.login_result` |
+| `OTP_TYPE` | `OtpType` | `t_mfa_otp.otp_type` |
+| `OSHIRASE_STATUS` | `OshiraseStatus` | `t_oshirase.status` |
+| `PUBLISH_LOCATION` | `PublishLocation` | `t_oshirase.publish_location` |
+
+File pattern (`const … as const` + derived type):
+
+```ts
+// apps/backend/src/common/enums/oshirase-status.enum.ts
+export const OshiraseStatus = {
+  DRAFT: 1,
+  PUBLIC: 2,
+  HIDDEN: 3,
+} as const;
+export type OshiraseStatus = (typeof OshiraseStatus)[keyof typeof OshiraseStatus];
+```
+
+Naming: PascalCase identifier (TS type-like), UPPER_SNAKE_CASE members
+(fixed-constant convention per `naming-conventions.md`). The same name
+serves as both the value (`const`) and the type alias — TS merges them
+across the value/type namespaces.
+
+We deliberately use `const … as const` instead of `enum` because:
+- `enum` emits IIFE runtime code, blocking Node native TS
+  (`--experimental-strip-types`) and TS `--erasableSyntaxOnly`.
+- Numeric `enum` adds reverse-mapping keys; `Object.values(LogType)`
+  returns `[1, 2, 3, 4, 'USER_OPERATION', 'SYSTEM', 'ERROR', 'FILE_OPERATION']`
+  (8 entries, 4 noise) — silently breaks any `@IsIn(Object.values(...))`,
+  iteration, or test assertion against length.
+- TS community direction is `as const` (Vue, Vite, Vitest, Stripe SDK,
+  Vercel apps). NestJS docs still show `enum` but the trade-offs above
+  apply to any project.
+
+Usage pattern:
+
+```ts
+import { OshiraseStatus } from '@/common/enums';
+
+// DTO — validate value is one of the constant members
+@IsIn(Object.values(OshiraseStatus), { message: 'お知らせステータスの値が不正です。' })
+status: OshiraseStatus;
+// (NOTE: @IsEnum requires a TS `enum`. With const-as-const use @IsIn.)
+
+// Service — branching logic uses the constant
+if (oshirase.status === OshiraseStatus.PUBLIC) { ... }
+
+// QueryBuilder — bind value as parameter (don't inline)
+.where('o.status = :status', { status: OshiraseStatus.PUBLIC })
+```
+
+Adding / removing a value to a Group A category requires:
+1. Edit `apps/backend/src/common/enums/<name>.enum.ts`
+2. Edit `apps/frontend/src/constants/enums/<name>.ts` (mirror)
+3. Add the matching `m_code` row via migration (so `CodeService.has()` accepts it and the customer label is editable)
+4. Update branching logic / `switch` exhaustiveness checks
+5. Redeploy
+
+Renaming the customer-facing label (`m_code.code_name`) does NOT require any of the above — only DB update + `codeService.reload()`.
+
+### Group B — extensible categories without enum
+
+Categories where the customer can extend values at runtime (new payment
+method, new subscriber type, etc.). NO TS enum — purely DB-validated.
+
+Current Group B categories include: `DOKUSYA_SHUBETSU`, `TETSUZUKI_SHURUI`,
+`DENSHI_DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `GENDER`, `YOKIN_SHUBETSU`,
+`ZEI_KUBUN`, `TANKA_TYPE`, `ITAKU_KUBUN`, `TESURYO_KUBUN`, `YUBIN_KUBUN`,
+`MAIL_MAGAZINE_FLG`, `OSHIRASE_TYPE`, `FILE_UPLOAD_STATUS`, `DOWNLOAD_TYPE`.
+
+Pattern:
+
+```ts
+// Entity — store as int / varchar
+@Column({ name: 'tanka_type', type: 'int' })
+tankaType: number;
+
+// DTO — shape check only
+@Type(() => Number)
+@IsInt()
+tanka_type: number;
+
+// Service — runtime allow-list via CodeService
+if (!this.codeService.has('TANKA_TYPE', dto.tanka_type)) {
+  throw new BadRequestException({
+    error_code: 'VALIDATION_ERROR',
+    message: '入力値が不正です',
+    errors: [{ field: 'tanka_type', message: '単価種類の値が不正です' }],
+  });
+}
+```
+
+### Response serialization — DO NOT include `*_label` fields on authenticated endpoints
+
+Authenticated endpoints (Tanka CRUD, Hanbaiten CRUD, JA CRUD, Account, …) MUST serialize ONLY the code value:
+
+```json
+// ✅ Correct — authenticated endpoint
+{ "tanka_type": 1, "tanka_code": "T001", ... }
+
+// ❌ Wrong — redundant label
+{ "tanka_type": 1, "tanka_type_label": "新聞購読料", ... }
+```
+
+The FE looks up the label via `useCodesStore().label('TANKA_TYPE', value)` (the store is hydrated once after login and refreshed on `POST /codes/reload`). Reasons:
+
+- m_code is runtime-editable. Customer renames `m_code.code_name` in the DB → calls reload → FE store reflects new label immediately. If BE serialized `_label`, the response cache (or simply the moment-of-fetch snapshot) would diverge from the FE's m_code cache for in-flight rows.
+- Extra payload size (`n rows × m label fields`) for no FE benefit (FE ignores the field).
+- BE has to JOIN / lookup `m_code` per list response — extra DB cost.
+
+**Exception — public (unauthenticated) endpoints**: when the client hasn't logged in yet (login screen oshirase, public landing info, etc.), it has no m_code cache → BE MUST serialize the label. Inject `CodeService` (it's `@Global`) and call `codeService.getLabel('CATEGORY', value)`. Example: `OshiraseService.findPublic()` — public consumers of the login-screen banner.
+
+`gen-api-doc` skill checklist (`.claude/skills/gen-api-doc/SKILL.md`) enforces this: response DTO MUST NOT have `<field>_label` columns unless the endpoint is explicitly marked public.
+
+### Choosing Group A vs Group B (design decision when adding a category)
+
+All three must hold for Group A — otherwise default to Group B:
+
+1. The full set of values is fixed by business design at code-write time.
+2. Code branches on the value (BE service / FE template).
+3. A new value would require code review (new logic branch).
+
+Errs on the side of Group B — moving B → A later is a small refactor
+(add the enum); moving A → B later is harder (must remove all branching
+logic that assumed the closed set).
 
 ### Entity column example
 

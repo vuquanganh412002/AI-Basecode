@@ -103,6 +103,20 @@ Delete:
 - List every field with →prefix: `→tanka_id`, `→tanka_name`, etc.
 - Include タイプ, フォーマット, Nullable, 説明 for each field
 
+**No `*_label` fields on authenticated endpoints (MANDATORY):**
+
+For m_code-referenced columns (`tanka_type`, `zei_kubun`, `itaku_kubun`, `oshirase_type`, …), serialize ONLY the code value — NEVER add a sibling `<field>_label` field. The FE looks up the label at render time via `useCodesStore().label('CATEGORY', value)`.
+
+```
+✅ | 4 | →tanka_type | Number | - | - | 1: 購読料, 2: 配達手数料（ラベルはFE側で `useCodesStore().label('TANKA_TYPE', value)` から取得） |
+❌ | 4 | →tanka_type       | Number | - | - | 1: 購読料, 2: 配達手数料 |
+❌ | 5 | →tanka_type_label | String | - | - | tanka_typeのラベル          |
+```
+
+Reasons: m_code is runtime-editable (customer renames a label → FE store reloads → no BE redeploy needed); avoid stale-label drift between BE response and FE cache; smaller payload. See `.claude/rules/nestjs.md §Response serialization`.
+
+**Exception — public (unauthenticated) endpoints**: when the consumer has no m_code cache yet (login-screen oshirase, public landing data, mobile pre-login), the BE MUST serialize the label. Pass `CodeService` (`@Global`) into the service and call `getLabel('CATEGORY', value)`. Document the field with comment `（公開エンドポイントのためサーバ側で解決）`.
+
 **Nullable column policy (MANDATORY — consult `docs/database/database-design.md` per field):**
 
 The `Nullable` column in the レスポンスデータ table and the value shown in the JSON example MUST follow the underlying database column nullability — never the UI's notion of "optional".

@@ -25,7 +25,12 @@ shorthand like `submit ブロック`, `BE 側 reject`, `Optimistic lock`,
 rules below.
 
 The companion converter `scripts/testcase_md_to_excel.py` produces the
-final `.xlsx` for delivery.
+final `.xlsx` for delivery. The converter accepts BOTH the legacy
+`- **field**:` (bold-marker) form and the current `- field:` (no bold)
+form for inline field labels — emit the no-bold form per the
+template below. Top-level fields are anchored to start-of-line so
+indented sub-bullets like `  - ・role: NICHINO_ADMIN` are NOT
+mis-detected as new fields.
 
 Pipeline position:
 
@@ -194,10 +199,29 @@ as TBD pending spec confirmation. Don't invent customer-facing copy.
 
 The JP version is the authoritative source — design and review against it. The VI version is **derived** from the JP version by translating body content while preserving structural markers — see §Phase 4 below.
 
-**Frontmatter** (copy `customer_name`, `system_name`, `format_code`,
-`format_version`, `test_level`, `test_environment`, `author`,
-`reviewer` from the SCR-003 reference; replace `screen_id` /
-`screen_name` / `issue_date` per the current screen).
+**Frontmatter** — canonical values (copy verbatim, replace only
+`screen_id` / `screen_name` / `issue_date` per the current screen):
+
+```yaml
+---
+customer_name: 日本農業新聞様
+system_name: クラウド版購読者管理システム
+document_name: テスト仕様書
+screen_id: ACSMS-SCR-XXX        # replace per screen
+screen_name: ...                # replace per screen
+format_code: 16-BM/PM/VTI
+format_version: "1.0"
+issue_date: YYYY-MM-DD          # replace per generation date
+test_level: 結合テスト
+test_environment: Windows 10/11, Chrome, Edge
+author: Kieu Thi Diem
+reviewer: Nguyen Huy Dat
+---
+```
+
+`test_environment` lists the supported browsers (Edge added per
+customer's expanded test scope). `author` is the QA member assigned to
+maintain this testcase doc.
 
 The frontmatter values stay **Japanese** even in the VI file — these
 fields populate the Excel customer-facing header (表紙 / 概要 sheet)
@@ -205,10 +229,8 @@ which the customer reviews in Japanese.
 
 **Output file (JP source)**: `docs/design/$ARGUMENTS/$ARGUMENTS-testcase.md`
 
-**Frontmatter** (copy `customer_name`, `system_name`, `format_code`,
-`format_version`, `test_level`, `test_environment`, `author`,
-`reviewer` from the SCR-003 reference; replace `screen_id` /
-`screen_name` / `issue_date` per the current screen).
+**Frontmatter** — same canonical block shown above (single source of
+truth; do not duplicate inline).
 
 **Section order** (must match the SCR-003 reference):
 
@@ -229,7 +251,7 @@ survive renumbering categories.
 
 This code is what the customer reads in the **要件ID** column of the
 機能 sheet — the converter pulls it directly from each TC's H2 heading.
-Do NOT emit a separate `- **要件ID**:` line; the heading is the single
+Do NOT emit a separate `- 要件ID:` line; the heading is the single
 source of truth.
 
 **Column → markdown mapping** (機能 sheet, per TC row):
@@ -238,20 +260,20 @@ source of truth.
 |---|---|---|
 | **要件ID** | H2 heading code (`ACSMS-TC-{XXX}-{NNN}`) | one identifier |
 | **説明** | H2 heading text after the `—` (em-dash) | one short sentence summarising the test scenario, e.g. `画面アクセス禁止`, `必須エラー（単価名が空）`, `登録正常系` |
-| **前提条件** | `- **前提条件**:` bullet (multi-line allowed) | list of conditions only, each prefixed with the full-width middle dot `・`. Example: `・NICHINO_ADMIN でログイン済み（MFA認証済み）`. NEVER write `テストアカウント: foo@test.jp` — account emails rot fast and the role is the load-bearing detail. NEVER mix in actions or expected outcomes |
-| **ステップ／手順** | `### 手順` section | each step rendered on **two lines**: heading line `ステップN：` (full-width colon `：`, NOT half-width `:`) followed by the action body on the next line. Insert one blank line between steps. Multi-line action bodies (SQL, JSON snippets, list of sub-steps) are allowed — keep them under the matching `ステップN：` heading. Describes **only the action**; do NOT inline `期待結果：` |
-| **期待結果／アウトプット** | `### 期待結果` section | per-step expectations rendered as `ステップN：` heading + body (matches 手順 numbering). When a step has multiple expected outcomes, prefix each with `・`. Whole-test outcomes (DB final state, audit log, redirect target spanning the whole flow) live in a trailing `補足：` block at the bottom — also `・`-prefixed |
-| **種類** | `- **種類**:` bullet | `Normal (正常)` / `Abnormal (異常)` / `Boundary (境界)` |
+| **前提条件** | `- 前提条件:` bullet (multi-line allowed) | list of conditions only, each prefixed with the full-width middle dot `・`. Example: `・NICHINO_ADMIN でログイン済み（2段階認証済み）`. NEVER write `テストアカウント: foo@test.jp` — account emails rot fast and the role is the load-bearing detail. NEVER mix in actions or expected outcomes |
+| **ステップ／手順** | `### 手順` section | each step rendered on two lines: heading line `ステップN：` (full-width colon `：`, NOT half-width `:`) followed by the action body on the next line. Insert one blank line between steps. Multi-line action bodies (SQL, JSON snippets, list of sub-steps) are allowed — keep them under the matching `ステップN：` heading. Describes only the action; do NOT inline `期待結果：` |
+| **期待結果／アウトプット** | `### 期待結果` section | per-step expectations rendered as `ステップN：` heading + body (matches 手順 numbering). Each assertion uses the canonical こと-form (`〜表示されること` / `〜遷移すること` / `HTTPステータスコード{code}が返却されること（...）` etc. — see §JP QA assertion patterns below). When a step has multiple expected outcomes, prefix each with `・`. Whole-test outcomes (DB final state, audit log, redirect target spanning the whole flow) live in a trailing `補足：` block at the bottom — also `・`-prefixed |
+| **種類** | `- 種類:` bullet | `Normal (正常)` / `Abnormal (異常)` / `Boundary (境界)` |
 
 **Per-testcase block** (every TC, in this order):
 
 ```markdown
 ## ACSMS-TC-005-001 — 画面アクセス禁止（NICHINO_ADMIN）
 
-- **観点ID**: VP-A-01   ← MANDATORY — must match an ID in docs/design/common/testcase-viewpoints.md
-- **種類**: Abnormal (異常)
-- **前提条件**:
-  - ・NICHINO_ADMIN でログイン済み（MFA認証済み）
+- 観点ID: VP-A-01   ← MANDATORY — must match an ID in docs/design/common/testcase-viewpoints.md
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・NICHINO_ADMIN でログイン済み（2段階認証済み）
   - ・権限「tanka.view」を持たない
 
 ### 手順
@@ -263,7 +285,7 @@ source of truth.
 ブラウザのアドレスバーに「/tanka/create」を入力し、直接アクセス
 
 ステップ3：
-DevToolsのNetworkタブでPOST「/api/v1/tanka」を有効なrequest bodyで送信
+DevToolsのNetworkタブでPOST「/api/v1/tanka」を有効なリクエストボディで送信
 
 ステップ4：
 DBで以下クエリを実行し、ログおよびデータを確認
@@ -278,24 +300,21 @@ LIMIT 1;
 ### 期待結果
 
 ステップ1：
-サイドバーに「単価マスタ」項目が表示されない
+サイドバーに「単価マスタ」項目が表示されないこと
 
 ステップ2：
-トースト「アクセス権がありません。」が表示される
-かつ、「/dashboard」へリダイレクトされる
+トースト「アクセス権がありません。」が表示されること、かつ「/dashboard」へ遷移すること
 
 ステップ3：
-HTTPステータスコード：403
-error_code：FORBIDDEN
-message：「この画面へのアクセス権限がありません」
+HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `この画面へのアクセス権限がありません。`）
 
 ステップ4：
-・t_log にエラーログが1件以上存在する
-・account_id がテストアカウントと一致する
-・m_tanka に新規データが追加されていない
+・t_log にエラーログが1件以上記録されること
+・account_id がテストアカウントと一致すること
+・m_tanka に新規データが登録されないこと
 
 補足：
-・FEメニュー、FEルーターガード、BE APIガードの3層すべてでアクセスが制御される
+・FEメニュー、FEルーターガード、BE APIガードの3層すべてでアクセスが制御されること
 
 ### テスト結果（1回目）
 
@@ -340,7 +359,7 @@ translates to Vietnamese.
 | TC heading description after `—` | natural Vietnamese sentence |
 | `前提条件` body bullets (under each `・`) | Vietnamese, keep `・` prefix |
 | `手順` action body (under each `ステップN：`) | Vietnamese imperative |
-| `期待結果` body (under each `ステップN：`) | Vietnamese 体言止め-equivalent |
+| `期待結果` body (under each `ステップN：`) | Vietnamese noun-passive form — see §VI translation mapping for こと-form below |
 | `補足` body bullets | Vietnamese |
 | `備考` content | Vietnamese (or `(なし)` JP literal for empty) |
 | `テストカテゴリ一覧` row labels | Vietnamese (e.g. `Kiểm soát quyền truy cập (Access Control)`) |
@@ -351,7 +370,7 @@ translates to Vietnamese.
 - All frontmatter values (`customer_name: 日本農業新聞様`, `screen_name: 単価マスタ登録画面`, etc.) — these populate the customer-facing Excel header
 - TC IDs (`ACSMS-TC-XXX-NNN`)
 - Structural section headers (`## 変更履歴`, `## システム概要`, `## 資料目的`, `## 関連資料`, `## テストカテゴリ一覧`, `### 手順`, `### 期待結果`, `### 備考`, `### テスト結果（1回目）`, `### テスト結果（2回目）`)
-- Inline field labels (`- **観点ID**:`, `- **種類**:`, `- **前提条件**:`)
+- Inline field labels (`- 観点ID:`, `- 種類:`, `- 前提条件:`) — emitted WITHOUT markdown `**bold**` markers. Customer reads the testcase as plain prose; the `**` looked like noise in the rendered Excel cells and confused parsers. Both `testcase_md_to_excel.py` regex paths accept the bare form.
 - Step prefix `ステップN：` and whole-test prefix `補足：` (full-width colon — converter uses these to apply bold)
 - 種類 literals (`Normal (正常)` / `Abnormal (異常)` / `Boundary (境界)`)
 - 観点ID values (`VP-A-01` etc.)
@@ -365,11 +384,126 @@ translates to Vietnamese.
 **Vietnamese register**:
 
 - **Imperative form** for `手順` step bodies (`Mở dashboard`, `Click nút...`, `Truy cập trực tiếp URL...`, `Nhập "..." vào...`)
-- **Noun-form / phrase-end** for `期待結果` step bodies (`Toast hiển thị`, `Redirect về /dashboard`, `Không có row mới trong m_tanka`)
+- **Noun-passive form** for `期待結果` step bodies — Vietnamese has no
+  direct こと-form equivalent, so the VI mirror flattens to passive /
+  noun-phrase. The full mapping table is below.
+- **Strip `**` markdown bold** from VI file as well — same convention
+  as JP. The Vietnamese mirror must have ZERO `**xxx**` markers in
+  field labels (`- 観点ID:`, `- 種類:`, `- 前提条件:`) or inline
+  emphasis. The deliverable Excel reads cleaner without them.
 - Use English/Japanese loanwords where the existing convention does:
-  - `dashboard`, `sidebar`, `submit`, `record`, `row`, `redirect`, `toast`, `request body`, `validation`, `placeholder`, `breakpoint`, `read-only` → keep English
+  - `dashboard`, `sidebar`, `submit`, `record`, `row`, `toast`,
+    `request body`, `validation`, `placeholder`, `breakpoint`,
+    `read-only` → keep English
+  - `redirect` → translate to `chuyển` (per the canonical mapping below;
+    matches JP `遷移する`). Old convention used "redirect về" — new
+    convention is "chuyển về" so VI ⇄ JP map cleanly.
   - `boundary` → `giá trị biên`
   - `silent drop` → `silent drop` (or `lặng lẽ bỏ qua`)
+
+**VI translation mapping — canonical こと-form → noun-passive VI**:
+
+Apply this table when translating expected-result phrases. Same
+groupings as §JP QA assertion patterns above; only the most common
+entries are reproduced here. For phrases not listed, follow the
+pattern: drop `〜こと`, render as Vietnamese passive / nominalised
+descriptor.
+
+| JP (こと-form) | VI (noun-passive) |
+|---|---|
+| `画面が表示されること` | Màn hình được hiển thị |
+| `一覧が表示されること` | Danh sách được hiển thị |
+| `データが存在しないこと` | Không tồn tại dữ liệu |
+| `ダイアログが表示されること` | Dialog được hiển thị |
+| `確認メッセージが表示されること` | Hiển thị message xác nhận |
+| `ローディングが表示されること` | Loading được hiển thị |
+| `メニューが表示されないこと` | Menu không hiển thị |
+| `ボタンが非表示であること` | Button bị ẩn |
+| `ボタンが活性状態で表示されること` | Button hiển thị ở trạng thái active |
+| `ボタンが非活性状態で表示されること` | Button hiển thị ở trạng thái disable |
+| `先頭ページが表示されること` | Hiển thị trang đầu tiên |
+| `検索結果が0件で表示されること` | Hiển thị 0 kết quả search |
+| `検索条件がクリアされること` | Điều kiện search được clear |
+| `検索条件が保持されること` | Điều kiện search được giữ lại |
+| `部分一致検索ができること` | Có thể search partial match |
+| `完全一致検索ができること` | Có thể search exact match |
+| `必須入力エラーが表示されること` | Hiển thị lỗi required |
+| `形式エラーが表示されること` | Hiển thị lỗi format |
+| `桁数超過エラーが表示されること` | Hiển thị lỗi vượt quá số ký tự |
+| `半角英数字のみ入力可能であること` | Chỉ cho nhập ký tự half-width |
+| `スペースのみ入力時、エラーとなること` | Chỉ nhập space thì báo lỗi |
+| `入力値がトリムされること` | Giá trị nhập được trim |
+| `データが登録されること` | Dữ liệu được đăng ký |
+| `データが更新されること` | Dữ liệu được update |
+| `データが削除されること` | Dữ liệu bị xóa |
+| `登録完了メッセージが表示されること` | Hiển thị message đăng ký thành công |
+| `更新完了メッセージが表示されること` | Hiển thị message update thành công |
+| `削除確認ダイアログが表示されること` | Hiển thị dialog confirm xóa |
+| `論理削除されること` | Bị xóa logical |
+| `重複データが登録されないこと` | Không đăng ký dữ liệu trùng |
+| `二重送信されないこと` | Không bị submit 2 lần |
+| `処理が実行されること` | Xử lý được thực hiện |
+| `処理完了後、一覧画面へ遷移すること` | Sau khi xử lý xong chuyển về màn list |
+| `権限のないユーザーはアクセスできないこと` | User không có quyền không thể access |
+| `403エラーが表示されること` | Hiển thị lỗi 403 |
+| `URL直接アクセス時、エラーとなること` | Access trực tiếp URL thì lỗi |
+| `管理者のみ操作可能であること` | Chỉ admin thao tác được |
+| `セッション切れ時、ログイン画面へ遷移すること` | Session hết hạn thì chuyển login |
+| `タイムアウトしないこと` | Không bị timeout |
+| `異常終了しないこと` | Không bị terminate bất thường |
+| `想定外エラーが発生しないこと` | Không phát sinh lỗi ngoài dự kiến |
+| `業務影響がないこと` | Không ảnh hưởng nghiệp vụ |
+| `既存機能へ影響がないこと` | Không ảnh hưởng chức năng cũ |
+| `他画面へ影響がないこと` | Không ảnh hưởng màn hình khác |
+| `データ整合性が保たれること` | Đảm bảo tính toàn vẹn dữ liệu |
+| `データ不整合が発生しないこと` | Không phát sinh bất đồng bộ dữ liệu |
+| `画面崩れが発生しないこと` | Không vỡ layout |
+
+**API / network layer** (the most-used pattern — note canonical
+parenthesis form for both JP and VI):
+
+| JP | VI |
+|---|---|
+| `HTTPステータスコード200が返却されること` | `Trả về HTTP 200` |
+| `HTTPステータスコード400が返却されること` | `Trả về HTTP 400` |
+| `HTTPステータスコード401が返却されること` | `Trả về HTTP 401` |
+| `HTTPステータスコード403が返却されること` | `Trả về HTTP 403` |
+| `HTTPステータスコード500が返却されること` | `Trả về HTTP 500` |
+| `APIが403を返却すること` | API trả về 403 |
+| `レスポンス形式がJSONであること` | Response dạng JSON |
+| `レスポンス時間が3秒以内であること` | Response dưới 3 giây |
+| `認証トークンが必須であること` | Bắt buộc token auth |
+
+**DB / persistence / log**:
+
+| JP | VI |
+|---|---|
+| `DBにデータが登録されること` | Data được insert DB |
+| `DBにデータが更新されること` | Data được update DB |
+| `DBにデータが存在しないこと` | Không tồn tại data trong DB |
+| `ロールバックされること` | Được rollback |
+| `トランザクションがコミットされること` | Transaction được commit |
+| `エラーログが出力されること` | Output error log |
+| `正常ログが出力されること` | Output normal log |
+| `監査ログが記録されること` | Audit log được record |
+
+**Combining with technical details (VI form)** — same shape as JP:
+
+```
+Trả về HTTP 403 (`error_code: FORBIDDEN`, message `この画面へのアクセス権限がありません。`)
+```
+
+```
+Dữ liệu bị xóa (`SELECT deleted_at FROM m_ja WHERE ja_id = 1` ra deleted_at IS NOT NULL)
+```
+
+```
+Button hiển thị ở trạng thái disable (do không có quyền `ja.create`)
+```
+
+Same convention as JP: canonical phrase outside, specifics in trailing
+全角 OR half-width parens. JP system-message strings stay verbatim
+inside the parens (don't translate them — they're test assertions).
 
 **Generation method** — when running this skill, after producing the JP file, dispatch a sub-task (or do it inline) to translate. Brief the translator:
 
@@ -378,9 +512,13 @@ SOURCE: docs/design/$ARGUMENTS/$ARGUMENTS-testcase.md (JP, just generated)
 TARGET: docs/design-vi/$ARGUMENTS/$ARGUMENTS-testcase-vi.md (overwrite)
 RULES: see SKILL.md §Phase 4 — preserve all structural markers,
        translate only body content, keep all JP system-message
-       strings verbatim.
+       strings verbatim. Map JP こと-form expected-results to VI
+       noun-passive form via the §VI translation mapping table.
+       Strip any leftover `**` bold markers — VI file must have ZERO.
 VERIFY: same TC count, same category count, same `ステップN：` count,
-        same JP-message verbatim count as source.
+        same JP-message verbatim count as source. ZERO `**` markers
+        in either JP source or VI mirror (`grep -c '\*\*[^*]\+\*\*'`
+        should output 0 for both).
 ```
 
 After both files exist, run the converter on **both**:
@@ -411,7 +549,7 @@ flip language per source markdown.
       No paraphrasing (`既に登録されています` ≠ `すでに登録されています`).
 - [ ] TC IDs follow `ACSMS-TC-{XXX}-{NNN}` exactly — the H2 heading is
       the single source of truth for the 要件ID column. Do NOT emit a
-      separate `- **要件ID**:` line (legacy format).
+      separate `- 要件ID:` line (legacy format).
 - [ ] TC IDs are sequential across the whole document — no gaps, no
       duplicates, no per-category restart.
 - [ ] `### 手順` section contains ONLY actions, never expected outcomes.
@@ -429,9 +567,9 @@ flip language per source markdown.
       outcomes (DB final state, audit log spanning the whole flow)
       live in a trailing `補足：` block at the bottom — also `・`-
       prefixed. NEVER use the legacy `- 全体:` flat bullet form.
-- [ ] `- **前提条件**:` lists conditions only, each bullet prefixed
+- [ ] `- 前提条件:` lists conditions only, each bullet prefixed
       with the full-width middle dot `・` (e.g.
-      `・NICHINO_ADMIN でログイン済み（MFA認証済み）`,
+      `・NICHINO_ADMIN でログイン済み（2段階認証済み）`,
       `・権限「tanka.view」を持たない`). DON'T write
       `テストアカウント: foo@test.jp` — the email rots across
       environments and the role is the load-bearing detail. Never
@@ -461,9 +599,15 @@ flip language per source markdown.
       `tekiyo_start_date`, NOT `applied_start_date`. `kingaku_zeikomi`,
       NOT `tax_included_amount`. Drift between testcase + schema is
       a dealbreaker for the customer review.
-- [ ] **Politeness register: 体言止め for 期待結果 bodies**. Noun-form
-      sentences (no です／ます endings). `表示される` → `表示`,
-      `登録されます` → `登録`. Consistent with QA-doc convention.
+- [ ] **Assertion register: こと-form for 期待結果 bodies** (NOT 体言止め
+      / NOT plain dictionary form / NOT です・ます). Every expected
+      result ends with `〜こと` — that's the canonical JP QA convention
+      and the form the customer-side reviewers expect. Examples:
+      `画面が表示されること`, `〜が実行されること`,
+      `HTTPステータスコード403が返却されること`. Don't write
+      `表示される` (bare dict form), don't write `表示` (体言止め
+      noun-stop), don't write `表示されます` (です・ます). See
+      §JP QA assertion patterns below for the canonical phrase table.
 - [ ] **Verbatim message strings** — every Japanese error message
       quoted in 期待結果 must match `api.md` エラー一覧 character-
       for-character (including 「。」 trailing period). Run
@@ -493,6 +637,167 @@ flip language per source markdown.
       each viewpoint that the strategy doc lists for this screen's
       category (e.g. a master CRUD screen MUST have TCs covering
       VP-A-01, VP-A-02, VP-B-01, VP-C-01, VP-C-03 at minimum).
+
+## JP QA assertion patterns — canonical こと-form (期待結果 vocabulary)
+
+The `### 期待結果` body uses a fixed vocabulary of canonical
+こと-ending phrases. This is the QA dialect the customer's reviewers
+read; deviating to plain dictionary form (`表示される`) or 体言止め
+(`表示`) is a review-blocker because the assertion stops sounding like
+an assertion.
+
+When writing an expected result, pick the phrase from the table below
+that most closely matches the assertion you want to make. Combine it
+with the specific context in parentheses for HTTP / error code /
+message details — the parenthetical retains the raw technical content
+the test must verify.
+
+### Display / layout
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `画面が表示されること` | screen displays |
+| `一覧が表示されること` | list displays |
+| `データが存在しないこと` | no data exists |
+| `初期値が設定されること` | default value is set |
+| `現在日付が表示されること` | current date displays |
+| `ログインユーザー名が表示されること` | logged-in username displays |
+| `ダイアログが表示されること` | dialog displays |
+| `確認メッセージが表示されること` | confirmation message displays |
+| `ローディングが表示されること` | loading indicator displays |
+| `メニューが表示されないこと` | menu hidden |
+| `ボタンが非表示であること` | button hidden |
+| `ボタンが活性状態で表示されること` | button shown enabled |
+| `ボタンが非活性状態で表示されること` | button shown disabled |
+| `画面崩れが発生しないこと` | layout not broken |
+
+### Search / sort / pagination
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `先頭ページが表示されること` | first page displays |
+| `検索条件に一致するデータのみ表示されること` | only matching data displays |
+| `検索結果が0件で表示されること` | 0-result state displays |
+| `検索結果件数が表示されること` | result count displays |
+| `検索条件が保持されること` | search criteria preserved |
+| `検索条件が初期化されること` | search criteria initialized |
+| `検索条件がクリアされること` | search criteria cleared |
+| `部分一致検索ができること` | partial-match search works |
+| `完全一致検索ができること` | exact-match search works |
+| `大文字・小文字を区別しないこと` | case-insensitive |
+| `ソート順が正しいこと` | sort order correct |
+| `更新日時の降順で表示されること` | sorted by updated_at DESC |
+
+### Form / validation
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `必須入力エラーが表示されること` | required-field error displays |
+| `形式エラーが表示されること` | format error displays |
+| `桁数超過エラーが表示されること` | length-overflow error displays |
+| `半角英数字のみ入力可能であること` | only half-width alphanumeric accepted |
+| `全角文字が入力可能であること` | full-width characters accepted |
+| `スペースのみ入力時、エラーとなること` | space-only input → error |
+| `入力値がトリムされること` | input value trimmed |
+| `不正な値が登録されないこと` | invalid value not saved |
+| `入力可能文字数以内で登録できること` | save succeeds within length limit |
+| `改行を含めて登録できること` | newline characters accepted |
+
+### CRUD — create / update / delete
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `データが登録されること` | data created |
+| `データが更新されること` | data updated |
+| `データが削除されること` | data deleted |
+| `登録完了メッセージが表示されること` | create-success message shown |
+| `更新完了メッセージが表示されること` | update-success message shown |
+| `削除確認ダイアログが表示されること` | delete-confirmation dialog shown |
+| `論理削除されること` | soft-deleted |
+| `物理削除されること` | hard-deleted |
+| `一意制約エラーが表示されること` | unique-constraint error shown |
+| `重複データが登録されないこと` | duplicate not saved |
+| `二重送信されないこと` / `二重登録されないこと` | not submitted/saved twice |
+| `登録日時が保存されること` / `登録者が保存されること` | created_at / created_by stored |
+| `更新日時が変更されること` / `更新者が変更されること` | updated_at / updated_by changed |
+| `変更内容のみ更新されること` | only changed columns update |
+| `他項目に影響がないこと` | other columns untouched |
+| `排他エラーが表示されること` | optimistic-lock error shown |
+| `最新データが表示されること` | latest data shown |
+| `削除済データが表示されないこと` | soft-deleted rows hidden |
+| `関連データが削除されないこと` | related-data preserved |
+| `対象データが存在しないこと` | target row doesn't exist |
+| `削除処理がロールバックされること` | delete rolled back |
+| `処理が実行されること` | operation executed |
+| `処理完了後、一覧画面へ遷移すること` | navigates to list after success |
+| `登録後、詳細画面へ遷移すること` | navigates to detail after create |
+| `更新後、一覧へ戻ること` | returns to list after update |
+| `削除後、一覧へ戻ること` | returns to list after delete |
+| `入力内容が保存されること` | input content saved |
+
+### Permissions / errors
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `権限のないユーザーはアクセスできないこと` | unauthorized user blocked |
+| `403エラーが表示されること` | 403 page/toast shown |
+| `URL直接アクセス時、エラーとなること` | direct URL access errors out |
+| `管理者のみ操作可能であること` | admin-only operation |
+| `閲覧権限のみ保持していること` | only view perm held |
+| `更新権限がないこと` / `削除権限がないこと` | no update/delete perm |
+| `セッション切れ時、ログイン画面へ遷移すること` | session expired → login |
+| `想定外エラーが発生しないこと` | no unexpected error |
+| `異常終了しないこと` | no abnormal termination |
+| `タイムアウトしないこと` | no timeout |
+| `業務影響がないこと` / `既存機能へ影響がないこと` / `他画面へ影響がないこと` | no impact on existing flow |
+| `データ整合性が保たれること` | data consistency preserved |
+| `データ不整合が発生しないこと` | no data inconsistency |
+
+### API / network layer
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `HTTPステータスコード200が返却されること` | HTTP 200 returned |
+| `HTTPステータスコード400が返却されること` | HTTP 400 returned |
+| `HTTPステータスコード401が返却されること` | HTTP 401 returned |
+| `HTTPステータスコード403が返却されること` | HTTP 403 returned |
+| `HTTPステータスコード500が返却されること` | HTTP 500 returned |
+| `APIが403を返却すること` | API returns 403 (short form when status is the assertion subject) |
+| `レスポンス項目が正しいこと` | response fields correct |
+| `レスポンス形式がJSONであること` | response is JSON |
+| `レスポンス時間が3秒以内であること` | response under 3s |
+| `不正パラメータでエラーとなること` | invalid params → error |
+| `認証トークンが必須であること` | auth token required |
+
+### DB / persistence / log
+
+| 期待結果 phrase | English meaning |
+|---|---|
+| `DBにデータが登録されること` / `DBにデータが更新されること` | DB insert/update happened |
+| `DBにデータが存在しないこと` | row does not exist in DB |
+| `ロールバックされること` | transaction rolled back |
+| `トランザクションがコミットされること` | transaction committed |
+| `不要なSQLが実行されないこと` | no redundant SQL |
+| `正常ログが出力されること` / `エラーログが出力されること` | success / error log emitted |
+| `監査ログが記録されること` | audit log recorded |
+
+### Combining with technical details
+
+When the assertion needs to carry specific values (HTTP code body, error_code, message string, DB columns), put the canonical phrase OUTSIDE and the specifics in a trailing 全角 parenthesis:
+
+```
+HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `この画面へのアクセス権限がありません。`）
+```
+
+```
+データが削除されること（`SELECT deleted_at FROM m_ja WHERE ja_id = 1` で deleted_at IS NOT NULL）
+```
+
+```
+ボタンが非活性状態で表示されること（権限 `ja.create` を持たないため）
+```
+
+This preserves the こと-form assertion while keeping all the test-verifiable specifics intact. Reviewers see "what is asserted" at a glance, "how it is verified" in the parens.
 
 ## Japanese wording rules — banned terms + replacements
 

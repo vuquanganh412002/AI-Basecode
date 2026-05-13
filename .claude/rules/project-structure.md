@@ -91,6 +91,7 @@ apps/backend/
 │   │   │   ├── users.controller.spec.ts  # Unit test next to source
 │   │   │   ├── users.service.ts
 │   │   │   ├── users.service.spec.ts     # Unit test next to source
+│   │   │   ├── users.mapper.ts           # Entity → response DTO (pure fn `toUserResponse`)
 │   │   │   ├── dto/
 │   │   │   │   ├── create-user.dto.ts
 │   │   │   │   ├── update-user.dto.ts

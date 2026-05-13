@@ -366,17 +366,37 @@ app.useGlobalPipes(new ValidationPipe({
   transform: true,
   whitelist: true,
   forbidNonWhitelisted: true,
-  exceptionFactory: (errors) => ({
-    statusCode: 400,
-    code: 'VALIDATION_ERROR',
-    message: 'Validation failed',
-    errors: errors.map(e => ({
-      field: e.property,
-      message: Object.values(e.constraints || {}).join(', '),
-    })),
-  }),
+  // Priority picker — surface ONE message per field so FE
+  // <a-form-item :help> displays the most relevant error first
+  // instead of a comma-joined sentence. Wrap result in HttpException
+  // (NOT plain object) so GlobalExceptionFilter can decode → 400 with
+  // standard `{ error_code, message, errors[] }` body.
+  exceptionFactory: (errors) => {
+    const PRIORITY = [
+      'isDefined', 'isNotEmpty', 'isNotEmptyObject',
+      'isString', 'isNumber', 'isInt', 'isBoolean', 'isArray',
+      'isEnum', 'isEmail', 'isUuid',
+    ];
+    const pickMessage = (constraints) => {
+      for (const k of PRIORITY) if (constraints[k]) return constraints[k];
+      return Object.values(constraints)[0] ?? '入力値が不正です';
+    };
+    return new HttpException({
+      code: 'VALIDATION_ERROR',
+      message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
+      errors: errors.map(e => ({
+        field: e.property,
+        message: pickMessage(e.constraints || {}),
+      })),
+    }, HttpStatus.BAD_REQUEST);
+  },
 }));
 app.useGlobalFilters(new GlobalExceptionFilter());
+// Version prefix applied centrally — controllers declare unprefixed
+// paths (`@Controller('auth')`, `@Controller('codes')`, …). Health
+// probe stays unversioned so ECS / ALB target group hits `GET /health`
+// directly. Bumping `v1` → `v2` only requires editing API_PREFIX.
+app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] });
 app.use(helmet());
 // cookie-parser NEEDS the session secret so signed cookies work
 // (req.signedCookies[session_id] in SessionAuthGuard).
@@ -385,6 +405,17 @@ app.enableCors({ origin: allowedOrigins, credentials: true });
 // Swagger at /api/docs, addCookieAuth('session_id')
 // Export swagger.json to ../frontend/swagger.json (try/catch)
 ```
+
+**Common helpers scaffold emits**:
+
+| File | Purpose |
+|---|---|
+| `src/common/constants/api.constants.ts` | `export const API_PREFIX = 'api/v1'` — single source for version prefix |
+| `src/common/constants/error-codes.constant.ts` | `ErrorCode` enum + `ErrorMessage` map — used by `DomainException` + `GlobalExceptionFilter` |
+| `src/common/utils/paginate.ts` | `paginate(data, total, page, per_page)` returning `PaginatedResponse<T>` — every list endpoint MUST use this, never inline `{ data, meta: {...} }` |
+| `src/common/filters/global-exception.filter.ts` | Catches everything → `{ error_code, message, errors? }`. Controllers/services NEVER hand-roll error JSON. |
+| `test/utils/api-url.ts` | `apiUrl('auth/login') → '/api/v1/auth/login'` for integration specs — prepends prefix without hardcoding the literal |
+| `test/utils/create-integration-app.ts` | Mirrors `setGlobalPrefix(API_PREFIX, { exclude: ['health'] })` so test URLs match production |
 
 ### 2.3 configuration.ts
 

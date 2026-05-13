@@ -118,6 +118,11 @@ apps/backend/
 - [ ] Each mutating endpoint has a rollback test: main DML + audit log wrapped in `dataSource.transaction(...)`; if audit log rejects, main write must be rolled back
 - [ ] Each mutating endpoint has an error-log test: on transaction failure, `log_type=3` audit log is still emitted OUTSIDE the rolled-back transaction
 - [ ] Every spec file starts with the `@ts-nocheck` TDD banner
+- [ ] Imports use `@/...` for src and `@test/...` for fixtures/utils — NEVER `'../../...'` traversal. Same-folder siblings keep `./...`. See `.claude/rules/nestjs.md §Path aliases`.
+- [ ] Controller specs that call `.createNestApplication()` MUST mirror production's `app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] })` after `useGlobalFilters(...)` and before `app.init()`. Otherwise `/api/v1/...` routes return 404 because the prefix only lives in `main.ts`. Import: `import { API_PREFIX } from '@/common/constants/api.constants'`.
+- [ ] New supertest URLs prefer the `apiUrl()` helper from `@test/utils/api-url` over hardcoded `/api/v1/...` literals — so a future version bump (`v1` → `v2`) doesn't ripple through every spec. Pattern: `await request(app).post(apiUrl('auth/login')).send(body)`. Existing literal URLs continue to work.
+- [ ] List endpoint specs assert the standard pagination shape `{ data: [...], meta: { total, page, per_page, total_pages } }` — service implementation will use the `paginate()` helper. Spec doesn't import the helper but DOES assert the exact key set so the helper's contract is enforced.
+- [ ] Error response specs assert `{ error_code, message, errors? }` shape — never `{ statusCode, error }`. The `GlobalExceptionFilter` normalizes everything; specs verify that contract.
 
 ## Validation summary (print at end)
 

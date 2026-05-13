@@ -37,6 +37,7 @@ All rules in `.claude/rules/` are **mandatory**:
 - `/gen-code-backend ACSMS-SCR-XXX` — Generate NestJS source (entity/DTO/service/controller/module) that satisfies `gen-ut-backend` specs. One-shot; removes `@ts-nocheck` banner after `tsc --noEmit` passes.
 - `/gen-code-frontend ACSMS-SCR-XXX` — Generate Vue 3 source (types/store/view + router entry) that satisfies `gen-ut-frontend` specs. One-shot; removes `@ts-nocheck` banner after `vue-tsc --noEmit` passes.
 - `/scaffold [project_name]` — Scaffold production-ready fullstack monorepo (NestJS + Vue 3 + Docker)
+- `/review-screen ACSMS-SCR-XXX` — Review BE + FE implementation of a screen against requirements, API contract, security rules, coding conventions, and test coverage. Outputs `docs/review/$ARGUMENTS-review.md`.
 
 ### TDD Pipeline
 
@@ -69,3 +70,4 @@ Before any code generation:
 | Database Schema | `docs/database/database-design.md` |
 | Seeder Data | `docs/database/seeder.md` |
 | Screen Designs | `docs/design/ACSMS-SCR-*` |
+| Review Reports | `docs/review/` |
