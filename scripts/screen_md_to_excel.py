@@ -128,8 +128,12 @@ def _resolve_template(md_path: Path, override: Path | None) -> Path:
             sys.exit(1)
         return override
 
-    # Search same directory for any .xlsx that isn't the script-produced output
-    candidates = sorted(md_path.parent.glob("*.xlsx"))
+    # Search same directory for any .xlsx that isn't the script-produced output.
+    # Skip Excel lock files (`~$...xlsx`) created while the workbook is open.
+    candidates = sorted(
+        p for p in md_path.parent.glob("*.xlsx")
+        if not p.name.startswith("~$") and not p.name.endswith(".out.xlsx")
+    )
     # Filter out potential outputs (heuristic: prefer files mentioning 画面設計書)
     preferred = [p for p in candidates if "画面設計書" in p.name]
     if preferred:
