@@ -1,0 +1,815 @@
+// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
+// Screen: ACSMS-SCR-027 — ロール管理画面
+//
+// Drives src/views/roles/RoleManagementView.vue. Every it() maps to a
+// clause in docs/design/ACSMS-SCR-027/screen-design.md (機能定義 + メッセージ情報) +
+// docs/design/ACSMS-SCR-027/index.html (UI structure) +
+// docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md (API-027-001..004).
+//
+// Layout per screen-design: ONE view that hosts both the role list (閲覧モード)
+// AND an inline edit form + permission checkbox grid (編集モード). Clicking
+// 編集 on a row flips the view into 編集モード, 保存 commits the role + permission
+// allocation via PUT /api/v1/roles/:role_id, クリア resets back to 閲覧モード.
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { createRouter, createMemoryHistory, type Router } from 'vue-router';
+import { createTestingPinia } from '@pinia/testing';
+import Antd, { message, Modal } from 'ant-design-vue';
+
+import RoleManagementView from '@/views/roles/RoleManagementView.vue';
+import {
+  buildRoleList,
+  buildRoleListResponse,
+  buildRoleDetail,
+  buildRoleDetailResponse,
+  buildPermissionList,
+  buildPermissionListResponse,
+  buildUpdateRoleForm,
+  buildAuthUser,
+} from '@test/fixtures/roles.fixture';
+
+// Mock the roles API wrapper. /gen-code-frontend will create
+// `src/api/roles/roles.ts` (Orval output) exporting these named functions
+// — runs `npm run api:generate` after the BE module is registered.
+vi.mock('@/api/roles/roles', () => ({
+  listRoles: vi.fn(),
+  getRole: vi.fn(),
+  updateRole: vi.fn(),
+}));
+
+// Permissions list comes from a sibling generated module
+// `src/api/permissions/permissions.ts` (API-027-004). Kept separate from
+// roles per Orval's tag-per-controller output.
+vi.mock('@/api/permissions/permissions', () => ({
+  listPermissions: vi.fn(),
+}));
+
+// Spy on antd's global toasts so we can assert success / error copy.
+// Antd's `MessageType` is a callable with PromiseLike — return undefined via
+// cast so the spy compiles even once @ts-nocheck is removed by /gen-code.
+const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
+vi.spyOn(message, 'success').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'error').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'warning').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
+
+interface RenderOptions {
+  /** Override default NICHINO_ADMIN session (use for access-denied path). */
+  user?: ReturnType<typeof buildAuthUser>;
+}
+
+async function renderView(opts: RenderOptions = {}): Promise<{
+  wrapper: ReturnType<typeof mount>;
+  router: Router;
+}> {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'Home', component: { template: '<div />' } },
+      { path: '/dashboard', name: 'Dashboard', component: { template: '<div />' } },
+      { path: '/roles', name: 'RoleManagement', component: { template: '<div />' } },
+    ],
+  });
+  await router.push({ name: 'RoleManagement' });
+  await router.isReady();
+
+  const wrapper = mount(RoleManagementView, {
+    global: {
+      plugins: [
+        router,
+        createTestingPinia({
+          createSpy: vi.fn,
+          stubActions: false,
+          initialState: {
+            auth: { user: opts.user ?? buildAuthUser() },
+          },
+        }),
+        Antd,
+      ],
+    },
+  });
+  await flushPromises();
+  return { wrapper, router };
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  const { listRoles, getRole, updateRole } = await import('@/api/roles/roles');
+  vi.mocked(listRoles).mockResolvedValue(buildRoleListResponse());
+  vi.mocked(getRole).mockResolvedValue(buildRoleDetailResponse());
+  vi.mocked(updateRole).mockResolvedValue({
+    data: buildRoleDetail(),
+    message: '更新しました。',
+  });
+
+  const { listPermissions } = await import('@/api/permissions/permissions');
+  vi.mocked(listPermissions).mockResolvedValue(buildPermissionListResponse());
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 1. 画面初期表示 (機能定義 1.0 + 1.1) — 閲覧モード
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — initial render (機能定義 1.x)', () => {
+  // Page title 「ロール管理画面」 + breadcrumb come from MainLayout's
+  // AppHeader (driven by route meta), NOT from this view. Don't assert on
+  // them in unit-mount tests — they only render via the full layout chain.
+
+  it('should render the ロール一覧 section heading when mounted', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('ロール一覧');
+  });
+
+  it('should fetch the roles list once when mounted', async () => {
+    await renderView();
+    const { listRoles } = await import('@/api/roles/roles');
+    expect(listRoles).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fetch the permissions list once when mounted', async () => {
+    await renderView();
+    const { listPermissions } = await import('@/api/permissions/permissions');
+    expect(listPermissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render all 5 seeded roles in the table when list resolves', async () => {
+    const { wrapper } = await renderView();
+    const text = wrapper.text();
+    for (const role of buildRoleList()) {
+      expect(text).toContain(role.role_code);
+      expect(text).toContain(role.role_name);
+    }
+  });
+
+  it('should render an 編集 link in the operation column for each row when mounted', async () => {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    // 5 rows × 1 編集 link each → at least 5 affordances
+    expect(editLinks.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('should NOT render the role-edit form when mounted in 閲覧モード', async () => {
+    // COVERS: index.html — section#registrationForm initially `hidden`.
+    const { wrapper } = await renderView();
+    // The 保存 button only renders when the form is in 編集モード.
+    const saveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === '保存' || b.text().includes('保'));
+    expect(saveBtn).toBeUndefined();
+  });
+
+  it('should NOT render the 権限設定 panel when mounted in 閲覧モード', async () => {
+    // COVERS: index.html — div#permissionPanel initially `hidden`.
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).not.toContain('権限設定');
+  });
+
+  it('should render the table column headers when mounted', async () => {
+    const { wrapper } = await renderView();
+    const text = wrapper.text();
+    // Table headers per index.html: 編集 / ロールコード / ロール名 / 説明
+    expect(text).toContain('ロールコード');
+    expect(text).toContain('ロール名');
+    expect(text).toContain('説明');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 2. ロール情報更新（編集モード）(機能定義 2.0 / 2.1)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — enter edit mode (機能定義 2.1)', () => {
+  it('should call getRole with the row role_id when 編集 is clicked', async () => {
+    const { wrapper } = await renderView();
+    const { getRole } = await import('@/api/roles/roles');
+    vi.mocked(getRole).mockClear();
+
+    // Click 編集 on the 3rd row (CHUOKAI — role_id=3, has permission_ids).
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    expect(editLinks.length).toBeGreaterThanOrEqual(3);
+    await editLinks[2].trigger('click');
+    await flushPromises();
+
+    expect(getRole).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(getRole).mock.calls[0]?.[0]).toBe(3);
+  });
+
+  it('should show the role-edit form when 編集 is clicked', async () => {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[0].trigger('click');
+    await flushPromises();
+
+    // 保存 button only renders in 編集モード.
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('保'));
+    expect(saveBtn).toBeDefined();
+  });
+
+  it('should show the 権限設定 panel when 編集 is clicked', async () => {
+    // COVERS: 機能定義 2.1 — 権限設定パネルを表示
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[0].trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('権限設定');
+  });
+
+  it('should pre-fill the role-name input with the selected role data when 編集 is clicked', async () => {
+    const { getRole } = await import('@/api/roles/roles');
+    vi.mocked(getRole).mockResolvedValue(
+      buildRoleDetailResponse({
+        role_id: 3,
+        role_code: 'CHUOKAI',
+        role_name: '中央会',
+        description: '中央会アカウント',
+      }),
+    );
+
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+
+    // Assert by reading the input values rather than wrapper.text() — antd's
+    // <a-input> binds the value attribute via v-model, not as a DOM text node.
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const values = inputs.map((i) => (i.element as HTMLInputElement).value);
+    expect(values.some((v) => v === '中央会')).toBe(true);
+    expect(values.some((v) => v === 'CHUOKAI')).toBe(true);
+  });
+
+  it('should disable the role_code input when entering 編集モード', async () => {
+    // COVERS: 機能定義 2.1 — ロールコードは編集不可とする
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[0].trigger('click');
+    await flushPromises();
+
+    // Find the input whose value equals the selected role's code, then
+    // verify its disabled attribute / class.
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const codeInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === 'NICHINO_ADMIN',
+    );
+    expect(codeInput).toBeDefined();
+    expect(codeInput!.attributes('disabled') !== undefined).toBe(true);
+  });
+
+  it('should NOT disable the role_name input when entering 編集モード', async () => {
+    // COVERS: 機能定義 2.1 — ロール名・説明を有効化
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[0].trigger('click');
+    await flushPromises();
+
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '日農（管理者）',
+    );
+    expect(nameInput).toBeDefined();
+    expect(nameInput!.attributes('disabled')).toBeUndefined();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 3. 権限のチェックボックス操作 (機能定義 4.0)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — permission checkboxes (機能定義 4.x)', () => {
+  async function enterEditMode(roleIndex = 2) {
+    const { wrapper, router } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[roleIndex].trigger('click');
+    await flushPromises();
+    return { wrapper, router };
+  }
+
+  it('should render one checkbox per permission when in 編集モード', async () => {
+    // COVERS: index.html renderPermissionCheckboxes() — checkbox per permission row
+    const { wrapper } = await enterEditMode();
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+    // Fixture has 22 permissions + 1 全選択 checkbox = 23 minimum.
+    expect(checkboxes.length).toBeGreaterThanOrEqual(22);
+  });
+
+  it('should render the 全選択 checkbox when in 編集モード', async () => {
+    // COVERS: 機能定義 4.2 — 「全選択」のチェックボックス
+    // The label is conveyed via aria-label/title on the master checkbox
+    // (not a visible text node) so screen readers + hover tooltips work
+    // while the header row stays visually compact.
+    const { wrapper } = await enterEditMode();
+    const master = wrapper.find('input[type="checkbox"][aria-label="全選択"]');
+    expect(master.exists()).toBe(true);
+  });
+
+  it('should pre-check the permission checkboxes that match permission_ids when entering 編集モード', async () => {
+    // COVERS: 機能定義 2.1 — 権限設定パネルを表示（現在の権限を反映）
+    // CHUOKAI fixture includes permission_id=1 (購読者登録) and EXCLUDES
+    // permission_id=16 (ja.create). Verify the right subset is checked.
+    const { wrapper } = await enterEditMode();
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+    const checkedCount = checkboxes.filter(
+      (c) => (c.element as HTMLInputElement).checked,
+    ).length;
+    // CHUOKAI has 29 permissions per seeder.md §3; with the fixture's
+    // 22-permission subset we expect a non-zero pre-checked count.
+    expect(checkedCount).toBeGreaterThan(0);
+  });
+
+  it('should toggle an individual permission off when its checked checkbox is clicked', async () => {
+    // COVERS: 機能定義 4.1 — OFFにする場合、該当の権限付与が解除される
+    const { wrapper } = await enterEditMode();
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+    const checkedBox = checkboxes.find(
+      (c) => (c.element as HTMLInputElement).checked,
+    );
+    expect(checkedBox).toBeDefined();
+    await checkedBox!.setChecked(false);
+    await flushPromises();
+    expect((checkedBox!.element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('should toggle an individual permission on when its unchecked checkbox is clicked', async () => {
+    // COVERS: 機能定義 4.1 — ONにする場合、該当の権限が付与される状態になる
+    const { wrapper } = await enterEditMode();
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+    const uncheckedBox = checkboxes.find(
+      (c) => !(c.element as HTMLInputElement).checked,
+    );
+    expect(uncheckedBox).toBeDefined();
+    await uncheckedBox!.setChecked(true);
+    await flushPromises();
+    expect((uncheckedBox!.element as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 4. 保存ボタン — バリデーション (機能定義 2.2)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — save validation (機能定義 2.2)', () => {
+  async function enterEditMode() {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('should render the 保存 submit button when in 編集モード', async () => {
+    const wrapper = await enterEditMode();
+    // Antd inserts a half-width space between two adjacent CJK chars
+    // (`保 存`) — match by selector + substring.
+    const submitBtn = wrapper.find('button[type="submit"]');
+    expect(submitBtn.exists()).toBe(true);
+    expect(submitBtn.text()).toContain('保');
+  });
+
+  it('should render the クリア cancel button when in 編集モード', async () => {
+    const wrapper = await enterEditMode();
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    expect(cancelBtn).toBeDefined();
+  });
+
+  it('should show ACSMS-MSG-027-004 「必須項目です。」 when role_name is empty and 保存 is clicked', async () => {
+    // COVERS: 機能定義 2.2 — ロール名: 必須、入力しない場合 ACSMS-MSG-027-004
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+
+    // Clear role_name input.
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会',
+    );
+    expect(nameInput).toBeDefined();
+    await nameInput!.setValue('');
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Help/error text rendered next to the field per <a-form-item :help>.
+    expect(wrapper.text()).toContain('必須項目です。');
+    // Server MUST NOT be called when client-side validation fails.
+    expect(updateRole).not.toHaveBeenCalled();
+  });
+
+  it('should show ACSMS-MSG-027-004 「必須項目です。」 when role_name exceeds 20 chars and 保存 is clicked', async () => {
+    // COVERS: 機能定義 2.2 — ロール名: 最大20文字
+    // Per screen-design ACSMS-MSG-027-004 is the canonical message for the
+    // role_name validation failure regardless of empty vs over-length.
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会',
+    );
+    expect(nameInput).toBeDefined();
+    await nameInput!.setValue('あ'.repeat(21));
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Client-side validation triggers — server not called.
+    expect(updateRole).not.toHaveBeenCalled();
+    // Some validation message must be visible adjacent to the input.
+    const help = wrapper.findAll('.ant-form-item-explain, [role="alert"]');
+    expect(help.length).toBeGreaterThan(0);
+  });
+
+  it('should show ACSMS-MSG-027-007 「説明は200文字以内で入力してください。」 when description exceeds 200 chars', async () => {
+    // COVERS: 機能定義 2.2 — 説明: 任意、最大200文字。ACSMS-MSG-027-007
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const descInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会アカウント',
+    );
+    expect(descInput).toBeDefined();
+    await descInput!.setValue('あ'.repeat(201));
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('説明は200文字以内で入力してください。');
+    expect(updateRole).not.toHaveBeenCalled();
+  });
+
+  it('should accept description up to exactly 200 chars when 保存 is clicked', async () => {
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const descInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会アカウント',
+    );
+    await descInput!.setValue('あ'.repeat(200));
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateRole).toHaveBeenCalledTimes(1);
+  });
+
+  it('should accept empty description (空欄可) when 保存 is clicked', async () => {
+    // COVERS: 機能定義 2.2 — 説明: 任意
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const descInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会アカウント',
+    );
+    await descInput!.setValue('');
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateRole).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 5. 保存ボタン — 成功フロー (機能定義 2.3)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — save success (機能定義 2.3)', () => {
+  async function enterEditMode() {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('should call updateRole with the editing role_id and the form payload when 保存 is clicked', async () => {
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateRole).toHaveBeenCalledTimes(1);
+    // First positional arg = role_id of the row we entered edit mode on (CHUOKAI = 3).
+    expect(vi.mocked(updateRole).mock.calls[0]?.[0]).toBe(3);
+    // Second arg = body with role_name / description / permission_ids.
+    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      role_name: '中央会',
+      description: '中央会アカウント',
+    });
+    expect(Array.isArray(body.permission_ids)).toBe(true);
+  });
+
+  it('should show ACSMS-MSG-027-001 「更新しました。」 toast when updateRole succeeds', async () => {
+    // COVERS: 機能定義 2.3 — 更新成功 → ACSMS-MSG-027-001
+    const wrapper = await enterEditMode();
+    const successSpy = vi.spyOn(message, 'success');
+    successSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Verb-only convention — useNotify().updated() emits '更新しました。'.
+    // Per .claude/rules/vue.md, the subject (ロール) is implied by screen context.
+    expect(successSpy).toHaveBeenCalledWith('更新しました。');
+  });
+
+  it('should reload the role list when updateRole succeeds', async () => {
+    // COVERS: 機能定義 2.3 — ロール一覧を再読込
+    const wrapper = await enterEditMode();
+    const { listRoles } = await import('@/api/roles/roles');
+    const initialCalls = vi.mocked(listRoles).mock.calls.length;
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(vi.mocked(listRoles).mock.calls.length).toBeGreaterThan(initialCalls);
+  });
+
+  it('should return to 閲覧モード and hide the form when updateRole succeeds', async () => {
+    // COVERS: 機能定義 2.3 — 閲覧モードへ変換
+    const wrapper = await enterEditMode();
+
+    // Sanity: form is visible BEFORE submit.
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // After successful save the 保存 button (and the form holding it)
+    // should be gone — back to 閲覧モード.
+    const submitAfter = wrapper.find('button[type="submit"]');
+    expect(submitAfter.exists()).toBe(false);
+  });
+
+  it('should NOT include role_code in the updateRole body when 保存 is clicked (api.md §3 注記)', async () => {
+    // COVERS: api.md §3 注記 — role_code は更新不可。リクエストに含めない。
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).toBeDefined();
+    expect('role_code' in body).toBe(false);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 6. 保存ボタン — 失敗フロー (機能定義 2.3 + メッセージ情報)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — save error paths', () => {
+  async function enterEditMode() {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('should NOT show success toast when updateRole rejects with 404 NOT_FOUND', async () => {
+    // COVERS: 機能定義 2.3 — データ取得失敗 → ACSMS-MSG-027-002
+    // The global axios interceptor surfaces the BE message; the view
+    // therefore MUST NOT also call message.success.
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockRejectedValueOnce({
+      response: {
+        status: 404,
+        data: {
+          error_code: 'NOT_FOUND',
+          message: '指定されたロールが見つかりません',
+        },
+      },
+    });
+    const successSpy = vi.spyOn(message, 'success');
+    successSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(successSpy).not.toHaveBeenCalled();
+  });
+
+  it('should NOT show success toast when updateRole rejects with 500 INTERNAL_SERVER_ERROR', async () => {
+    // COVERS: 機能定義 2.3 — システムエラー → ACSMS-MSG-027-003
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockRejectedValueOnce({
+      response: {
+        status: 500,
+        data: { error_code: 'INTERNAL_SERVER_ERROR' },
+      },
+    });
+    const successSpy = vi.spyOn(message, 'success');
+    successSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(successSpy).not.toHaveBeenCalled();
+  });
+
+  it('should stay in 編集モード when updateRole rejects', async () => {
+    // The form should NOT be hidden on error — user should be able to
+    // fix the input and retry without losing their work.
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Submit button still rendered — form still visible.
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 7. クリアボタン (機能定義 3.0)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — clear button (機能定義 3.x)', () => {
+  async function enterEditMode() {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('should NOT show the confirm modal when クリア is clicked with no dirty changes (機能定義 3.2)', async () => {
+    // COVERS: 機能定義 3.2 — 変更なしの場合 → 確認モーダルなしでフォームを初期状態にリセット
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
+      destroy: () => undefined,
+      update: () => undefined,
+    }));
+    const wrapper = await enterEditMode();
+
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    expect(cancelBtn).toBeDefined();
+    await cancelBtn!.trigger('click');
+    await flushPromises();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('should hide the form when クリア is clicked with no dirty changes', async () => {
+    // COVERS: 機能定義 3.2 — フォームを初期状態にリセット → 閲覧モードへ
+    const wrapper = await enterEditMode();
+
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    await cancelBtn!.trigger('click');
+    await flushPromises();
+
+    // Form gone → no submit button.
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+  });
+
+  it('should show the confirm modal with ACSMS-MSG-027-005 when クリア is clicked after a dirty change (機能定義 3.3)', async () => {
+    // COVERS: 機能定義 3.3 — 変更ありの場合 → 確認モーダル（ACSMS-MSG-027-005）
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
+      destroy: () => undefined,
+      update: () => undefined,
+    }));
+    const wrapper = await enterEditMode();
+
+    // Dirty the role_name so the form is now "modified".
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会',
+    );
+    await nameInput!.setValue('中央会（変更後）');
+    await flushPromises();
+
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    await cancelBtn!.trigger('click');
+    await flushPromises();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    // Modal content must surface the ACSMS-MSG-027-005 literal.
+    const args = confirmSpy.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(JSON.stringify(args)).toContain('未保存データがあります');
+  });
+
+  it('should hide the form when クリア confirm modal 「はい」 is clicked', async () => {
+    // COVERS: 機能定義 3.3 — 「はい」をクリック → すべての入力／選択をクリア + 閲覧モード
+    vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+      // Synchronously invoke onOk — simulates user clicking 「はい」.
+      opts?.onOk?.();
+      return { destroy: () => undefined, update: () => undefined };
+    });
+    const wrapper = await enterEditMode();
+
+    // Dirty the form first.
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会',
+    );
+    await nameInput!.setValue('中央会（変更後）');
+    await flushPromises();
+
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    await cancelBtn!.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+  });
+
+  it('should keep the form open when クリア confirm modal 「いいえ」 is clicked', async () => {
+    // COVERS: 機能定義 3.3 — 「いいえ」をクリック → 何も行わず、現在の画面を維持
+    vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+      // Simulate user clicking 「いいえ」 — invoke onCancel only.
+      opts?.onCancel?.();
+      return { destroy: () => undefined, update: () => undefined };
+    });
+    const wrapper = await enterEditMode();
+
+    // Dirty the form first.
+    const inputs = wrapper.findAll('input').filter((i) => i.element.type === 'text');
+    const nameInput = inputs.find(
+      (i) => (i.element as HTMLInputElement).value === '中央会',
+    );
+    await nameInput!.setValue('中央会（変更後）');
+    await flushPromises();
+
+    const cancelBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().trim() === 'クリア' || b.text().includes('クリ'));
+    await cancelBtn!.trigger('click');
+    await flushPromises();
+
+    // Form still visible.
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 8. 権限チェック (機能定義 1.2 + メッセージ情報 ACSMS-MSG-027-006)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — access control (機能定義 1.2)', () => {
+  it('should NOT call listRoles when the current user is NOT NICHINO_ADMIN', async () => {
+    // COVERS: 機能定義 1.2 — この画面で操作できるのは「日農（管理者）」のみ
+    // ACSMS-MSG-027-006 — アクセス権がありません。
+    // In practice the router guard bounces non-admins via the global
+    // PermissionsGuard equivalent on the FE side, but the view itself
+    // MUST refuse to fetch when the role check fails (defence in depth).
+    await renderView({
+      user: buildAuthUser({ role_code: 'CHUOKAI', role_id: 3 }),
+    });
+    const { listRoles } = await import('@/api/roles/roles');
+    expect(listRoles).not.toHaveBeenCalled();
+  });
+
+  it('should show ACSMS-MSG-027-006 「アクセス権がありません。」 message when the current user is NOT NICHINO_ADMIN', async () => {
+    // COVERS: メッセージ情報 ACSMS-MSG-027-006
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ role_code: 'JA_HONTEN', role_id: 4 }),
+    });
+    expect(wrapper.text()).toContain('アクセス権がありません。');
+  });
+});

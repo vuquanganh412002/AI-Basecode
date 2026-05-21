@@ -1,0 +1,345 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { Modal, type TableColumnsType } from 'ant-design-vue';
+
+import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
+import BaseDataTable from '@/components/common/BaseDataTable.vue';
+import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
+import { useTableQuery } from '@/composables/useTableQuery';
+import { useNotify } from '@/composables/useNotify';
+import { useAuthStore } from '@/stores/auth.store';
+import { useCodesStore } from '@/stores/codes.store';
+import {
+  listHanbaiten,
+  removeHanbaiten,
+  type HanbaitenListItem,
+  type ListHanbaitenQuery,
+} from '@/api/hanbaiten/hanbaiten';
+
+// 機能定義 1.1 / 2.1 — 廃店フラグが立っているものは販売店の一覧に表示しない。
+// haiten_flg=true をチェックした場合のみ廃店レコードも含めて検索する。
+interface HanbaitenFilters {
+  hanbaiten_code: string;
+  hanbaiten_name: string;
+  tel: string;
+  fax: string;
+  address: string;
+  shocho_name: string;
+  /** Default false — 廃店フラグの立つレコードを除外する。 */
+  haiten_flg: boolean;
+}
+
+const router = useRouter();
+const notify = useNotify();
+const authStore = useAuthStore();
+const codes = useCodesStore();
+
+// Permission gates per seeder.md §3 hanbaiten matrix.
+// NICHINO_STAFF holds hanbaiten.view but NOT hanbaiten.create / .delete
+// (代行入力フロー経由のみ). CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold all four.
+const canCreate = computed(() => authStore.hasPermission('hanbaiten.create'));
+const canUpdate = computed(() => authStore.hasPermission('hanbaiten.update'));
+const canDelete = computed(() => authStore.hasPermission('hanbaiten.delete'));
+
+const { state, loading, total, onChange, applyFilters, resetFilters } =
+  useTableQuery<HanbaitenFilters>({
+    defaultFilters: {
+      hanbaiten_code: '',
+      hanbaiten_name: '',
+      tel: '',
+      fax: '',
+      address: '',
+      shocho_name: '',
+      haiten_flg: false,
+    },
+    // api.md §sort_by default: hanbaiten_code asc (画面設計書 v1.2 §8.1).
+    defaultSortBy: 'hanbaiten_code',
+    defaultSortOrder: 'asc',
+  });
+
+const rows = ref<HanbaitenListItem[]>([]);
+
+// Column order per index.html + screen-design.md v1.2 §検索結果テーブル:
+// 販売店コード / 販売店名 / 都道府県 / 郵便番号 / 住所 / 電話番号 / FAX /
+// 所長名 / 委託区分 / 配達手数料支払サイクル / 振込手数料負担区分 / 手数料 / 操作.
+// Sortable per 機能定義 8.1: hanbaiten_code, hanbaiten_name ONLY.
+// Explicit widths keep the layout stable when the sort icon appears.
+const columns: TableColumnsType = [
+  { title: '販売店コード', dataIndex: 'hanbaiten_code', key: 'hanbaiten_code', sorter: true, width: 140 },
+  { title: '販売店名', dataIndex: 'hanbaiten_name', key: 'hanbaiten_name', sorter: true, width: 200 },
+  { title: '都道府県', dataIndex: 'todofuken_name', key: 'todofuken_name', width: 120 },
+  { title: '郵便番号', dataIndex: 'yubin_no', key: 'yubin_no', width: 110 },
+  { title: '住所', dataIndex: 'address', key: 'address', width: 260 },
+  { title: '電話番号', dataIndex: 'tel', key: 'tel', width: 140 },
+  { title: 'FAX', dataIndex: 'fax', key: 'fax', width: 140 },
+  { title: '所長名', dataIndex: 'shocho_name', key: 'shocho_name', width: 140 },
+  { title: '委託区分', dataIndex: 'itaku_kubun', key: 'itaku_kubun', align: 'center', width: 110 },
+  { title: '配達手数料支払サイクル', dataIndex: 'haitatsuryo_shiharai_cycle', key: 'haitatsuryo_shiharai_cycle', align: 'center', width: 180 },
+  { title: '振込手数料負担区分', dataIndex: 'tesuryo_kubun', key: 'tesuryo_kubun', align: 'center', width: 160 },
+  { title: '手数料', dataIndex: 'tesuryo_amount', key: 'tesuryo_amount', align: 'right', width: 110 },
+  { title: '操作', key: 'actions', align: 'center', width: 100 },
+];
+
+async function fetchList(): Promise<void> {
+  loading.value = true;
+  try {
+    const params: ListHanbaitenQuery = {
+      hanbaiten_code: state.filters.hanbaiten_code || undefined,
+      hanbaiten_name: state.filters.hanbaiten_name || undefined,
+      tel: state.filters.tel || undefined,
+      fax: state.filters.fax || undefined,
+      address: state.filters.address || undefined,
+      shocho_name: state.filters.shocho_name || undefined,
+      // When true, include 廃店 rows. When false, BE applies default
+      // (exclude 廃店). Pass-through both states explicitly so the
+      // spec can assert `haiten_flg: true` was sent.
+      haiten_flg: state.filters.haiten_flg ? true : false,
+      page: state.page,
+      per_page: state.per_page,
+      sort_by: state.sort_by as ListHanbaitenQuery['sort_by'],
+      sort_order: state.sort_order,
+    };
+    const res = await listHanbaiten(params);
+    rows.value = res.data;
+    total.value = res.meta.total;
+  } catch {
+    // Expected & ignored: the global axios interceptor in
+    // src/api/error-handler.ts already toasted FORBIDDEN / 500
+    // (ACSMS-MSG-018-002 / ACSMS-MSG-018-003). Re-throwing would surface
+    // an unhandled rejection in onMounted's fire-and-forget invocation.
+    // Per .claude/rules/vue.md §List view rule 5.
+    rows.value = [];
+    total.value = 0;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
+  void fetchList();
+});
+
+function onSearch(): void {
+  // Trim leading/trailing whitespace so paste artifacts / IME-confirmed
+  // spaces don't widen the ILIKE pattern. haiten_flg is a checkbox —
+  // no whitespace to trim.
+  state.filters.hanbaiten_code = state.filters.hanbaiten_code.trim();
+  state.filters.hanbaiten_name = state.filters.hanbaiten_name.trim();
+  state.filters.tel = state.filters.tel.trim();
+  state.filters.fax = state.filters.fax.trim();
+  state.filters.address = state.filters.address.trim();
+  state.filters.shocho_name = state.filters.shocho_name.trim();
+  applyFilters({ ...state.filters });
+  void fetchList();
+}
+
+function onClear(): void {
+  resetFilters();
+  void fetchList();
+}
+
+function onPageChange(...args: Parameters<typeof onChange>): void {
+  onChange(...args);
+  void fetchList();
+}
+
+function goCreate(): void {
+  void router.push({ name: 'HanbaitenCreate' });
+}
+
+function goEdit(row: HanbaitenListItem): void {
+  void router.push({ name: 'HanbaitenEdit', params: { id: row.hanbaiten_id } });
+}
+
+function askDelete(row: HanbaitenListItem): void {
+  Modal.confirm({
+    title: '削除確認',
+    // ACSMS-MSG-018-005.
+    content: 'この販売店を削除してもよろしいですか？',
+    okText: 'はい',
+    okType: 'danger',
+    cancelText: 'いいえ',
+    async onOk() {
+      try {
+        await removeHanbaiten(row.hanbaiten_id);
+        // notify.deleted() emits '削除しました。' (ACSMS-MSG-018-006).
+        notify.deleted();
+        await fetchList();
+      } catch {
+        // The global axios interceptor handles 409 CONFLICT
+        // (ACSMS-MSG-018-004) and 500 (ACSMS-MSG-018-003); view must
+        // NOT re-toast — see .claude/rules/vue.md §Error Handling Architecture.
+      }
+    },
+  });
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <!-- 検索エリア — 4-col grid; the 7 fields wrap onto 2 rows. -->
+    <BaseSearchForm
+      :loading="loading"
+      :columns="4"
+      @search="onSearch"
+      @clear="onClear"
+    >
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          販売店コード
+        </label>
+        <a-input
+          v-model:value="state.filters.hanbaiten_code"
+          placeholder="販売店コード"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          販売店名
+        </label>
+        <a-input
+          v-model:value="state.filters.hanbaiten_name"
+          placeholder="販売店名"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          電話番号
+        </label>
+        <a-input
+          v-model:value="state.filters.tel"
+          placeholder="電話番号"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          FAX
+        </label>
+        <a-input
+          v-model:value="state.filters.fax"
+          placeholder="FAX番号"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          住所
+        </label>
+        <a-input
+          v-model:value="state.filters.address"
+          placeholder="住所"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          所長名
+        </label>
+        <a-input
+          v-model:value="state.filters.shocho_name"
+          placeholder="所長名"
+          allow-clear
+          class="flex-1"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          廃店フラグ
+        </label>
+        <a-checkbox v-model:checked="state.filters.haiten_flg">
+          廃店を含む
+        </a-checkbox>
+      </div>
+    </BaseSearchForm>
+
+    <!-- ACSMS-MSG-018-001 — 検索結果が見つかりませんでした。
+         Rendered outside the table because a-table's #emptyText slot is
+         not safely forwardable through BaseDataTable's dynamic slot loop. -->
+    <p
+      v-if="!loading && total === 0"
+      class="text-text-description text-sm"
+      data-test="hanbaiten-empty-message"
+    >
+      検索結果が見つかりませんでした。
+    </p>
+
+    <BaseDataTable
+      title="販売店一覧"
+      :columns="columns"
+      :rows="rows as unknown as Record<string, unknown>[]"
+      :loading="loading"
+      :page="state.page"
+      :per-page="state.per_page"
+      :total="total"
+      row-key="hanbaiten_id"
+      @change="onPageChange"
+    >
+      <template #headerActions>
+        <!-- 販売店情報登録 stays visible for every role; greyed-out
+             when the user lacks hanbaiten.create (NICHINO_STAFF). -->
+        <a-button
+          type="primary"
+          :disabled="!canCreate"
+          @click="goCreate"
+        >
+          <template #icon>
+            <span class="material-icons text-sm mr-1">add</span>
+          </template>
+          販売店情報登録
+        </a-button>
+      </template>
+
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'hanbaiten_code'">
+          <!-- hanbaiten_code is the click target for "open edit form". Only
+               render as anchor when the user has hanbaiten.update — otherwise
+               plain text so they don't get a dead link that would land on a
+               403-rebound dashboard. -->
+          <a
+            v-if="canUpdate"
+            class="text-primary hover:underline"
+            @click.prevent="goEdit(record as HanbaitenListItem)"
+          >
+            {{ (record as HanbaitenListItem).hanbaiten_code }}
+          </a>
+          <span v-else>{{ (record as HanbaitenListItem).hanbaiten_code }}</span>
+        </template>
+        <template v-else-if="column.key === 'itaku_kubun'">
+          {{ codes.label('ITAKU_KUBUN', (record as HanbaitenListItem).itaku_kubun) }}
+        </template>
+        <template v-else-if="column.key === 'haitatsuryo_shiharai_cycle'">
+          <template v-if="(record as HanbaitenListItem).haitatsuryo_shiharai_cycle != null">
+            {{ (record as HanbaitenListItem).haitatsuryo_shiharai_cycle }}ヵ月
+          </template>
+        </template>
+        <template v-else-if="column.key === 'tesuryo_kubun'">
+          {{ codes.label('TESURYO_KUBUN', (record as HanbaitenListItem).tesuryo_kubun) }}
+        </template>
+        <template v-else-if="column.key === 'tesuryo_amount'">
+          <template v-if="(record as HanbaitenListItem).tesuryo_amount != null">
+            ¥{{ ((record as HanbaitenListItem).tesuryo_amount as number).toLocaleString() }}
+          </template>
+        </template>
+        <template v-else-if="column.key === 'actions'">
+          <!-- 編集 link intentionally hidden — edit entry is the
+               clickable hanbaiten_code cell above. 削除 stays visible but
+               disabled when hanbaiten.delete is missing (NICHINO_STAFF). -->
+          <BaseActionColumn
+            :can-edit="false"
+            :disable-delete="!canDelete"
+            @delete="askDelete(record as HanbaitenListItem)"
+          />
+        </template>
+      </template>
+    </BaseDataTable>
+  </div>
+</template>

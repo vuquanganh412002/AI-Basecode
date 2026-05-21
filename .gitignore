@@ -1,0 +1,80 @@
+# Git ignore rules
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Claude local settings
+.claude/settings.local.json
+.claude/CLAUDE.local.md
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+
+# Office lock files (Excel / Word / PowerPoint create these while open)
+~$*
+
+# Python bytecode (created by scripts/ converters)
+__pycache__/
+*.pyc
+
+# === Scaffold ===
+# Local HTTPS certs (generated via mkcert)
+apps/docker/certs/*.pem
+apps/docker/certs/*.key
+!apps/docker/certs/.gitkeep
+!apps/docker/certs/README.md
+
+# Environment files (keep examples)
+apps/.env
+apps/.env.staging
+apps/.env.production
+apps/backend/.env*
+!apps/backend/.env.example
+apps/frontend/.env*
+!apps/frontend/.env.example
+
+# Generated API client
+apps/frontend/src/api/generated*
+apps/frontend/swagger.json
+
+# E2E tests workspace
+apps/e2e/
+
+# curl / HTTP debugging artifacts — session cookie dumps must never be committed
+cookies.txt
+*.cookies
+*.cookie-jar
+
+# SonarQube — local scanner working dir + project config
+.scannerwork/
+sonar-project.properties
