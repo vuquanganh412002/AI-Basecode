@@ -403,8 +403,7 @@ describe('OshiraseController — SCR-031 HTTP (admin CRUD)', () => {
           {
             code: 'DEADLINE_NOTICE_DUPLICATE',
             error_code: 'DEADLINE_NOTICE_DUPLICATE',
-            message:
-              '公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。',
+            message: '公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。',
           },
           HttpStatus.BAD_REQUEST,
         ),

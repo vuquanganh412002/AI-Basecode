@@ -340,4 +340,20 @@ describe('handleApiError — INTERNAL_SERVER_ERROR + unknown codes', () => {
     );
     expect(message.error).toHaveBeenCalledWith('I am a teapot');
   });
+
+  it.each(['DEADLINE_NOTICE_DUPLICATE', 'EXPORT_LIMIT_EXCEEDED'])(
+    'should NOT toast view-handled custom error_code %s (view toasts instead)',
+    async (code) => {
+      const { message } = await import('ant-design-vue');
+      await expectReject(
+        handleApiError(
+          makeError({
+            status: 400,
+            data: { error_code: code as never, message: 'screen-specific copy' },
+          }),
+        ),
+      );
+      expect(message.error).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -18,6 +18,8 @@ updated_by: Dao Van Thang
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/17 | 1.0  | Dao Van Thang | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/05/28 | 1.1  | Tran Duc Tuyen | エラーメッセージ更新：`DEADLINE_NOTICE_DUPLICATE` を「公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。」（公開場所＋種別を明示し、衝突原因をユーザーに伝える）に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/05/28 | 1.2  | Tran Duc Tuyen | PUBLISH_LOCATION に code=3「メニュー画面（締め切り時間）」を追加。oshirase_type=4 ⇔ publish_location=3 の 1:1 ペアリングを必須化。`publish_location` の `@IsIn` を `[1, 2, 3]` に拡張、pairing 違反は `VALIDATION_ERROR + errors[publish_location|oshirase_type]` で返却。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -55,7 +57,7 @@ updated_by: Dao Van Thang
 | 6   | 共通         | INTERNAL_SERVER_ERROR   | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 7   | 画面固有     | NOT_FOUND      | 指定されたお知らせが見つかりません。                                   | HTTP 404 |
 | 8   | 画面固有     | CONFLICT        | 関連データが存在するため削除できません。                               | HTTP 409 |
-| 9   | 画面固有     | DEADLINE_NOTICE_DUPLICATE | 公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。 | HTTP 400 |
+| 9   | 画面固有     | DEADLINE_NOTICE_DUPLICATE | 公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。                                                     | HTTP 400 |
 
 ---
 
@@ -90,12 +92,9 @@ updated_by: Dao Van Thang
 | 1   | data                        | Array   | 〇       |                     | -        | お知らせ一覧                                             |
 | 2   | →oshirase_id                | Number  | -        |                     | -        | お知らせID                                               |
 | 3   | →ja_id                      | Number  | -        |                     | 〇       | JA ID（NULL = 全JA向け）                                 |
-| 4   | →oshirase_type              | Number  | -        |                     | -        | お知らせ種別（1:システム, 2:重要, 3:一般, 4:締め切り時間） |
-| 5   | →oshirase_type_label        | String  | -        |                     | -        | お知らせ種別ラベル                                       |
-| 6   | →publish_location           | Number  | -        |                     | -        | 公開場所（1:ログイン画面, 2:メニュー画面）               |
-| 7   | →publish_location_label     | String  | -        |                     | -        | 公開場所ラベル                                           |
-| 8   | →status                     | Number  | -        |                     | -        | 状態（1:下書き, 2:公開, 3:非公開）                       |
-| 9   | →status_label               | String  | -        |                     | -        | 状態ラベル                                               |
+| 4   | →oshirase_type              | Number  | -        |                     | -        | お知らせ種別 ※m_code.code_category='OSHIRASE_TYPE'を参照（1:システム, 2:重要, 3:一般, 4:締め切り時間）。FE は useCodesStore().label(...) でラベル解決 |
+| 5   | →publish_location           | Number  | -        |                     | -        | 公開場所 ※m_code.code_category='PUBLISH_LOCATION'を参照（1:ログイン画面, 2:メニュー画面, 3:メニュー画面（締め切り時間）。3 は oshirase_type=4 専用）               |
+| 6   | →status                     | Number  | -        |                     | -        | 状態 ※m_code.code_category='OSHIRASE_STATUS'を参照（1:下書き, 2:公開, 3:非公開）                       |
 | 10  | →title                      | String  | -        |                     | -        | お知らせタイトル                                         |
 | 11  | →publish_start_date         | String  | -        | YYYY/MM/DD HH:mm    | -        | 表示開始日時                                             |
 | 12  | →publish_end_date           | String  | -        | YYYY/MM/DD HH:mm    | 〇       | 表示終了日時（NULL = 無期限）                            |
@@ -122,11 +121,8 @@ GET /api/v1/oshirase?page=1&per_page=20&sort_by=created_at&sort_order=desc
       "oshirase_id": 1,
       "ja_id": null,
       "oshirase_type": 1,
-      "oshirase_type_label": "システム",
       "publish_location": 2,
-      "publish_location_label": "メニュー画面",
       "status": 2,
-      "status_label": "公開",
       "title": "システムメンテナンスのお知らせ",
       "publish_start_date": "2026/04/01 09:00",
       "publish_end_date": "2026/04/30 23:59",
@@ -137,11 +133,8 @@ GET /api/v1/oshirase?page=1&per_page=20&sort_by=created_at&sort_order=desc
       "oshirase_id": 2,
       "ja_id": 1,
       "oshirase_type": 3,
-      "oshirase_type_label": "一般",
       "publish_location": 1,
-      "publish_location_label": "ログイン画面",
       "status": 1,
-      "status_label": "下書き",
       "title": "新機能リリースのお知らせ",
       "publish_start_date": "2026/04/15 00:00",
       "publish_end_date": null,
@@ -234,7 +227,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 ### 4.6 レスポンス生成
 
 - oshirase_type 値をラベルにマッピング（1→システム, 2→重要, 3→一般, 4→締め切り時間）
-- publish_location 値をラベルにマッピング（1→ログイン画面, 2→メニュー画面）
+- publish_location 値をラベルにマッピング（1→ログイン画面, 2→メニュー画面, 3→メニュー画面（締め切り時間））
 - status 値をラベルにマッピング（1→下書き, 2→公開, 3→非公開）
 - publish_start_date / publish_end_date を `YYYY/MM/DD HH:mm` 形式でフォーマットする。
 - data 配列と meta オブジェクトを含むJSONを返却する。HTTP 200。
@@ -273,14 +266,11 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | 1   | data                    | Object | -        |                     | -        |                                                            |
 | 2   | →oshirase_id            | Number | -        |                     | -        | お知らせID                                                 |
 | 3   | →ja_id                  | Number | -        |                     | 〇       | JA ID（NULL = 全JA向け）                                   |
-| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別（1:システム, 2:重要, 3:一般, 4:締め切り時間） |
-| 5   | →oshirase_type_label    | String | -        |                     | -        | お知らせ種別ラベル                                         |
-| 6   | →publish_location       | Number | -        |                     | -        | 公開場所（1:ログイン画面, 2:メニュー画面）                 |
-| 7   | →publish_location_label | String | -        |                     | -        | 公開場所ラベル                                             |
-| 8   | →status                 | Number | -        |                     | -        | 状態（1:下書き, 2:公開, 3:非公開）                         |
-| 9   | →status_label           | String | -        |                     | -        | 状態ラベル                                                 |
-| 10  | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
-| 11  | →content                | String | -        |                     | -        | 内容                                                       |
+| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別 ※m_code.code_category='OSHIRASE_TYPE'を参照 |
+| 5   | →publish_location       | Number | -        |                     | -        | 公開場所 ※m_code.code_category='PUBLISH_LOCATION'を参照（3 は oshirase_type=4 専用） |
+| 6   | →status                 | Number | -        |                     | -        | 状態 ※m_code.code_category='OSHIRASE_STATUS'を参照       |
+| 7   | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
+| 8   | →content                | String | -        |                     | -        | 内容                                                       |
 | 12  | →publish_start_date     | String | -        | YYYY/MM/DD HH:mm    | -        | 表示開始日時                                               |
 | 13  | →publish_end_date       | String | -        | YYYY/MM/DD HH:mm    | 〇       | 表示終了日時（NULL = 無期限）                              |
 | 14  | →target_kanri_kubun     | String | -        |                     | -        | 対象管理者区分（カンマ区切り、空文字=全区分）              |
@@ -301,11 +291,8 @@ GET /api/v1/oshirase/1
     "oshirase_id": 1,
     "ja_id": null,
     "oshirase_type": 1,
-    "oshirase_type_label": "システム",
     "publish_location": 2,
-    "publish_location_label": "メニュー画面",
     "status": 2,
-    "status_label": "公開",
     "title": "システムメンテナンスのお知らせ",
     "content": "4月1日（月）02:00〜06:00にシステムメンテナンスを実施いたします。",
     "publish_start_date": "2026/04/01 09:00",
@@ -387,7 +374,7 @@ WHERE oshirase_id = :oshirase_id
 ### 4.4 レスポンス生成
 
 - oshirase_type 値をラベルにマッピング（1→システム, 2→重要, 3→一般, 4→締め切り時間）
-- publish_location 値をラベルにマッピング（1→ログイン画面, 2→メニュー画面）
+- publish_location 値をラベルにマッピング（1→ログイン画面, 2→メニュー画面, 3→メニュー画面（締め切り時間））
 - status 値をラベルにマッピング（1→下書き, 2→公開, 3→非公開）
 - publish_start_date / publish_end_date を `YYYY/MM/DD HH:mm` 形式でフォーマットする。
 - data オブジェクトを含むJSONを返却する。HTTP 200。
@@ -418,7 +405,7 @@ WHERE oshirase_id = :oshirase_id
 | #   | パラメーターID      | タイプ  | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                       |
 | --- | ------------------- | ------- | -------- | ---- | ------ | ------ | ---------------------------------------------------------- |
 | 1   | title               | String  | -        | 〇   | 1      | 200    | お知らせタイトル                                           |
-| 2   | publish_location    | Number  | -        | 〇   |        |        | 公開場所（1:ログイン画面, 2:メニュー画面）                 |
+| 2   | publish_location    | Number  | -        | 〇   |        |        | 公開場所（1:ログイン画面, 2:メニュー画面, 3:メニュー画面（締め切り時間）。3 は oshirase_type=4 専用）                 |
 | 3   | status              | Number  | -        | 〇   |        |        | 状態（1:下書き, 2:公開, 3:非公開）                         |
 | 4   | publish_start_date  | String  | -        | 〇   |        |        | 表示開始日時（YYYY/MM/DD HH:mm、過去日不可）               |
 | 5   | publish_end_date    | String  | -        | -    |        |        | 表示終了日時（YYYY/MM/DD HH:mm、NULL=無期限）              |
@@ -434,14 +421,11 @@ WHERE oshirase_id = :oshirase_id
 | 1   | data                    | Object | -        |                     | -        | 登録されたお知らせデータ                                   |
 | 2   | →oshirase_id            | Number | -        |                     | -        | お知らせID                                                 |
 | 3   | →ja_id                  | Number | -        |                     | 〇       | JA ID（NULL = 全JA向け）                                   |
-| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別（1:システム, 2:重要, 3:一般, 4:締め切り時間） |
-| 5   | →oshirase_type_label    | String | -        |                     | -        | お知らせ種別ラベル                                         |
-| 6   | →publish_location       | Number | -        |                     | -        | 公開場所（1:ログイン画面, 2:メニュー画面）                 |
-| 7   | →publish_location_label | String | -        |                     | -        | 公開場所ラベル                                             |
-| 8   | →status                 | Number | -        |                     | -        | 状態（1:下書き, 2:公開, 3:非公開）                         |
-| 9   | →status_label           | String | -        |                     | -        | 状態ラベル                                                 |
-| 10  | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
-| 11  | →content                | String | -        |                     | -        | 内容                                                       |
+| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別 ※m_code.code_category='OSHIRASE_TYPE'を参照 |
+| 5   | →publish_location       | Number | -        |                     | -        | 公開場所 ※m_code.code_category='PUBLISH_LOCATION'を参照（3 は oshirase_type=4 専用） |
+| 6   | →status                 | Number | -        |                     | -        | 状態 ※m_code.code_category='OSHIRASE_STATUS'を参照       |
+| 7   | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
+| 8   | →content                | String | -        |                     | -        | 内容                                                       |
 | 12  | →publish_start_date     | String | -        | YYYY/MM/DD HH:mm    | -        | 表示開始日時                                               |
 | 13  | →publish_end_date       | String | -        | YYYY/MM/DD HH:mm    | 〇       | 表示終了日時（NULL = 無期限）                              |
 | 14  | →target_kanri_kubun     | String | -        |                     | -        | 対象管理者区分（カンマ区切り）                             |
@@ -475,11 +459,8 @@ Content-Type: application/json
     "oshirase_id": 10,
     "ja_id": null,
     "oshirase_type": 1,
-    "oshirase_type_label": "システム",
     "publish_location": 2,
-    "publish_location_label": "メニュー画面",
     "status": 2,
-    "status_label": "公開",
     "title": "システムメンテナンスのお知らせ",
     "content": "4月20日よりシステムメンテナンスを実施します。",
     "publish_start_date": "2026/04/20 09:00",
@@ -516,7 +497,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "DEADLINE_NOTICE_DUPLICATE",
-  "message": "公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません"
+  "message": "公開場所「メニュー画面」かつ種別「締め切り時間」のお知らせが既に存在するため登録できません。"
 }
 ```
 
@@ -570,13 +551,12 @@ Content-Type: application/json
 
 ### 4.3 重複チェック（締め切り時間）
 
-- publish_location = 2（メニュー画面）かつ oshirase_type = 4（締め切り時間）の場合、既存レコードの存在を確認する。
+- oshirase_type = 4（締め切り時間）の場合、`publish_location` に関わらず既存レコードの存在を確認する（システム全体で1件のみ許容）。
 
 ```sql
 SELECT COUNT(*)
 FROM t_oshirase
-WHERE publish_location = 2
-  AND oshirase_type = 4
+WHERE oshirase_type = 4
   AND deleted_at IS NULL
 ```
 
@@ -681,7 +661,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | --- | ------------------- | ------- | -------- | ---- | ------ | ------ | -------------------------------------------------------------------------------------- |
 | 1   | oshirase_id         | Number  | -        | 〇   |        |        | 更新対象のoshirase_id（パスパラメータ）                                                |
 | 2   | title               | String  | -        | 〇   | 1      | 200    | お知らせタイトル                                                                       |
-| 3   | publish_location    | Number  | -        | 〇   |        |        | 公開場所（1:ログイン画面, 2:メニュー画面）                                             |
+| 3   | publish_location    | Number  | -        | 〇   |        |        | 公開場所（1:ログイン画面, 2:メニュー画面, 3:メニュー画面（締め切り時間）。3 は oshirase_type=4 専用）                                             |
 | 4   | status              | Number  | -        | 〇   |        |        | 状態（1:下書き, 2:公開, 3:非公開）                                                     |
 | 5   | publish_start_date  | String  | -        | 〇   |        |        | 表示開始日時（YYYY/MM/DD HH:mm）。開始日が未来日の場合のみ変更可能。過去日は変更不可。 |
 | 6   | publish_end_date    | String  | -        | -    |        |        | 表示終了日時（YYYY/MM/DD HH:mm、NULL=無期限）。未来日または未設定の場合のみ変更可能。  |
@@ -697,14 +677,11 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 1   | data                    | Object | -        |                     | -        | 更新されたお知らせデータ                                   |
 | 2   | →oshirase_id            | Number | -        |                     | -        | お知らせID                                                 |
 | 3   | →ja_id                  | Number | -        |                     | 〇       | JA ID（NULL = 全JA向け）                                   |
-| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別（1:システム, 2:重要, 3:一般, 4:締め切り時間） |
-| 5   | →oshirase_type_label    | String | -        |                     | -        | お知らせ種別ラベル                                         |
-| 6   | →publish_location       | Number | -        |                     | -        | 公開場所（1:ログイン画面, 2:メニュー画面）                 |
-| 7   | →publish_location_label | String | -        |                     | -        | 公開場所ラベル                                             |
-| 8   | →status                 | Number | -        |                     | -        | 状態（1:下書き, 2:公開, 3:非公開）                         |
-| 9   | →status_label           | String | -        |                     | -        | 状態ラベル                                                 |
-| 10  | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
-| 11  | →content                | String | -        |                     | -        | 内容                                                       |
+| 4   | →oshirase_type          | Number | -        |                     | -        | お知らせ種別 ※m_code.code_category='OSHIRASE_TYPE'を参照 |
+| 5   | →publish_location       | Number | -        |                     | -        | 公開場所 ※m_code.code_category='PUBLISH_LOCATION'を参照（3 は oshirase_type=4 専用） |
+| 6   | →status                 | Number | -        |                     | -        | 状態 ※m_code.code_category='OSHIRASE_STATUS'を参照       |
+| 7   | →title                  | String | -        |                     | -        | お知らせタイトル                                           |
+| 8   | →content                | String | -        |                     | -        | 内容                                                       |
 | 12  | →publish_start_date     | String | -        | YYYY/MM/DD HH:mm    | -        | 表示開始日時                                               |
 | 13  | →publish_end_date       | String | -        | YYYY/MM/DD HH:mm    | 〇       | 表示終了日時（NULL = 無期限）                              |
 | 14  | →target_kanri_kubun     | String | -        |                     | -        | 対象管理者区分（カンマ区切り）                             |
@@ -738,11 +715,8 @@ Content-Type: application/json
     "oshirase_id": 1,
     "ja_id": null,
     "oshirase_type": 1,
-    "oshirase_type_label": "システム",
     "publish_location": 2,
-    "publish_location_label": "メニュー画面",
     "status": 2,
-    "status_label": "公開",
     "title": "システムメンテナンスのお知らせ（更新）",
     "content": "4月20日〜5月31日にシステムメンテナンスを実施します。",
     "publish_start_date": "2026/04/20 09:00",
@@ -1066,6 +1040,9 @@ WHERE oshirase_id = :oshirase_id
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
+
+- 締め切り時間（`oshirase_type = 4`）レコードは削除不可（顧客確認 2026-05、1件のみ運用される締め切り時間データの取り違え／消失防止）。
+  - 対象が `oshirase_type = 4` の場合：HTTP 400 (`BAD_REQUEST`)、メッセージ `締め切り時間のお知らせは削除できません。`
 
 - 関連データの存在確認（将来の拡張に備えた整合性チェック）：関連テーブルにお知らせIDが紐づくレコードが存在する場合、削除を拒否する。現行DBスキーマでは参照テーブルなし。
   - 関連データが存在する場合：HTTP 409 (`CONFLICT`)

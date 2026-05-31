@@ -2,7 +2,6 @@ import { NestFactory } from '@nestjs/core';
 import { HttpException, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { writeFileSync } from 'fs';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
@@ -153,11 +152,9 @@ async function bootstrap() {
     },
   });
 
-  try {
-    writeFileSync('../frontend/swagger.json', JSON.stringify(document, null, 2));
-  } catch {
-    // Swagger export is optional in Docker
-  }
+  // Swagger UI at /api/docs is served from the in-memory `document` —
+  // no file write needed. Use the standalone `npm run swagger:export`
+  // script if you want an on-disk snapshot.
 
   const port = configService.get<number>('port') || 3000;
   await app.listen(port);

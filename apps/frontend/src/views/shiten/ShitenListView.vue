@@ -231,35 +231,32 @@ function askDelete(row: ShitenListItem): void {
       @search="onSearch"
       @clear="onClear"
     >
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          支店コード
-        </label>
+      <label for="shiten-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">支店コード</span>
         <a-input
+          id="shiten-filter-1"
           v-model:value="state.filters.shiten_code"
           placeholder="支店コード"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
 
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          支店名
-        </label>
+      <label for="shiten-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">支店名</span>
         <a-input
+          id="shiten-filter-2"
           v-model:value="state.filters.shiten_name"
           placeholder="支店名"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
 
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          管理支店
-        </label>
+      <label for="shiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">管理支店</span>
         <a-select
+          id="shiten-filter-3"
           v-model:value="state.filters.kanri_shiten_id"
           placeholder="管理支店"
           allow-clear
@@ -271,25 +268,27 @@ function askDelete(row: ShitenListItem): void {
             }))
           "
         />
-      </div>
+      </label>
 
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          データ送信取扱店舗コード
-        </label>
+      <label for="shiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">データ送信取扱店舗コード</span>
         <a-input
+          id="shiten-filter-4"
           v-model:value="state.filters.jastem_toriatsukai_tenpo_code"
           placeholder="取扱店舗コード"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
 
       <div class="flex items-center gap-2 md:col-span-2 lg:col-span-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+        <span id="shiten-filter-kinyu-shiten-flg-label" class="text-sm font-medium whitespace-nowrap text-text-main">
           金融機関支店フラグ
-        </label>
-        <a-radio-group v-model:value="state.filters.kinyu_shiten_flg">
+        </span>
+        <a-radio-group
+          v-model:value="state.filters.kinyu_shiten_flg"
+          aria-labelledby="shiten-filter-kinyu-shiten-flg-label"
+        >
           <a-radio value="all">全選択</a-radio>
           <a-radio value="true">金融機関支店</a-radio>
           <a-radio value="false">金融機関支店以外</a-radio>

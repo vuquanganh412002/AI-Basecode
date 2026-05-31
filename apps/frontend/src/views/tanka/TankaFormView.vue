@@ -19,6 +19,12 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import dayjs, { type Dayjs } from 'dayjs';
 
+import { todayStartTokyo, todayIsoTokyo } from '@/utils/datetime';
+// `dayjs` is kept ONLY to parse picker-frame strings (e.g. user-selected
+// YYYY-MM-DD) into a Dayjs that lives in the same TZ frame as the picker
+// output. NEVER call `dayjs()` (no args) here — use `nowTokyo()` /
+// `todayStartTokyo()` instead per `.claude/rules/vue.md §Date/Time`.
+
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseCurrencyInput from '@/components/common/BaseCurrencyInput.vue';
@@ -90,12 +96,10 @@ interface TankaFormState {
   active_flg: boolean;
 }
 
+// [tokyo-tz] 「本日」は常に Asia/Tokyo で計算する
+// （`.claude/rules/vue.md §Date/Time`）— ブラウザ TZ に依存させない。
 function todayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return todayIsoTokyo();
 }
 
 /**
@@ -110,7 +114,7 @@ function todayIso(): string {
  * `validateClient` re-enforces this as defence-in-depth.
  */
 function disableStartDate(current: Dayjs): boolean {
-  return current && current.isBefore(dayjs().startOf('day'));
+  return current && current.isBefore(todayStartTokyo());
 }
 
 /**
@@ -121,11 +125,15 @@ function disableStartDate(current: Dayjs): boolean {
  */
 function disableEndDate(current: Dayjs): boolean {
   if (!current) return false;
+  // 開始日も picker フレーム（ブラウザ local）に揃えてカレンダー日比較する。
+  // 「今日」基準だけは Asia/Tokyo に固定 — BE もその解釈で受け取るため
+  // （`.claude/rules/vue.md §Date/Time`）。`dayjs(s)` 直呼びは picker-
+  // frame の文字列パース用途に限り許容する（now/today 取得には不可）。
   const start = formState.tekiyo_start_date
     ? dayjs(formState.tekiyo_start_date)
     : null;
   if (start && current.isBefore(start, 'day')) return true;
-  if (!isEdit.value && current.isBefore(dayjs().startOf('day'))) return true;
+  if (!isEdit.value && current.isBefore(todayStartTokyo())) return true;
   return false;
 }
 
@@ -404,7 +412,22 @@ async function submitWith(form: TankaFormState): Promise<void> {
   }
 
   await submit(async () => {
-    if (tankaIdParam.value !== undefined) {
+    if (tankaIdParam.value === undefined) {
+      const createBody: CreateTankaRequest = {
+        tanka_type: Number(form.tanka_type),
+        tanka_code: form.tanka_code,
+        tanka_name: form.tanka_name,
+        tax_rate: form.tax_rate,
+        kingaku_zeikomi: form.kingaku_zeikomi ?? undefined,
+        kingaku_zeinuki: form.kingaku_zeinuki ?? undefined,
+        tekiyo_start_date: form.tekiyo_start_date,
+        tekiyo_end_date: form.tekiyo_end_date,
+        biko: form.biko,
+        active_flg: form.active_flg,
+      };
+      await createTanka(createBody);
+      notify.created();
+    } else {
       // UPDATE — tanka_code is immutable per api.md §API-003-003 footnote.
       // Strip it from the payload so the BE's forbidNonWhitelisted pipe
       // doesn't reject the request.
@@ -421,21 +444,6 @@ async function submitWith(form: TankaFormState): Promise<void> {
       };
       await updateTanka(tankaIdParam.value, updateBody);
       notify.updated();
-    } else {
-      const createBody: CreateTankaRequest = {
-        tanka_type: Number(form.tanka_type),
-        tanka_code: form.tanka_code,
-        tanka_name: form.tanka_name,
-        tax_rate: form.tax_rate,
-        kingaku_zeikomi: form.kingaku_zeikomi ?? undefined,
-        kingaku_zeinuki: form.kingaku_zeinuki ?? undefined,
-        tekiyo_start_date: form.tekiyo_start_date,
-        tekiyo_end_date: form.tekiyo_end_date,
-        biko: form.biko,
-        active_flg: form.active_flg,
-      };
-      await createTanka(createBody);
-      notify.created();
     }
     // Only navigate when the API call resolved without throwing —
     // `submit()` swallows the error and the axios interceptor toasts.

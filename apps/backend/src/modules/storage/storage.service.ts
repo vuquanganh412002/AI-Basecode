@@ -13,9 +13,16 @@ export class StorageService implements OnModuleInit, StorageProvider {
 
   onModuleInit() {
     const providerType = this.configService.get<string>('storage.provider');
+    const endpoint = this.configService.get<string>('storage.endpoint') ?? '';
+    const region = this.configService.get<string>('storage.region') ?? 'ap-northeast-1';
     const config = {
-      endpoint: this.configService.get<string>('storage.endpoint') ?? '',
-      region: this.configService.get<string>('storage.region') ?? 'ap-northeast-1',
+      endpoint,
+      // [public-endpoint] Defaults to the internal endpoint when unset.
+      // Browsers receive this hostname in presigned URLs instead of the
+      // Docker-internal `minio:9000`.
+      publicEndpoint:
+        this.configService.get<string>('storage.publicEndpoint') ?? endpoint,
+      region,
       accessKey: this.configService.get<string>('storage.accessKey') ?? '',
       secretKey: this.configService.get<string>('storage.secretKey') ?? '',
       bucket: this.configService.get<string>('storage.bucket') ?? 'agrinews',
@@ -26,7 +33,12 @@ export class StorageService implements OnModuleInit, StorageProvider {
       this.logger.log({ event: 'storage.init', provider: 's3', region: config.region });
     } else {
       this.provider = new MinioStorageProvider(config);
-      this.logger.log({ event: 'storage.init', provider: 'minio', endpoint: config.endpoint });
+      this.logger.log({
+        event: 'storage.init',
+        provider: 'minio',
+        endpoint: config.endpoint,
+        publicEndpoint: config.publicEndpoint,
+      });
     }
   }
 

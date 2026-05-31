@@ -168,9 +168,11 @@ GET /api/v1/roles
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
-- 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
-  - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
-  - ※ seeder.md にロール管理専用の permission_code は定義されていないため、ロール直接チェックとする。
+- 権限チェック：`@Permissions('role.view')`（`seeder.md §2.14` permission_id=45）。
+  - `m_roles_permissions` 上 `role.view` は NICHINO_ADMIN にのみ付与されているため、
+    結果として NICHINO_ADMIN のみアクセス可となる（`seeder.md §3` 権限マトリクス）。
+  - 実装は他コントローラと同じく `PermissionsGuard` + `@Permissions(...)` を使用し、
+    `role_code` 直接比較は行わない（`.claude/rules/security.md §Layer 1` 準拠）。
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得

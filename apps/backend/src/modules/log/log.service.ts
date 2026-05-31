@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
+import { LogType, ResultStatus } from '@/common/enums';
 import { Log } from '@/database/entities/log.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx, extractAuditContext } from '@/common/utils/audit-context';
+import { applyBranchScopeWithJoinAlias } from '@/common/utils/data-scope';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 
 import type { SearchLogDto } from './dto/search-log.dto';
@@ -19,19 +22,6 @@ const SCREEN_NAME = 'ログ参照画面 (ACSMS-SCR-030)';
 const TABLE_NAME = 't_log';
 const EXPORT_HARD_LIMIT = 5000;
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-
-const LOG_TYPE_LABELS: Record<number, string> = {
-  1: 'ユーザー操作',
-  2: 'システム',
-  3: 'エラー',
-  4: 'ファイルアップロード',
-};
-
-const RESULT_STATUS_LABELS: Record<number, string> = {
-  1: '成功',
-  2: '失敗',
-  3: '警告',
-};
 
 const CSV_HEADER = [
   'ログID',
@@ -47,13 +37,16 @@ const CSV_HEADER = [
   'IPアドレス',
 ];
 
-/** Scope shape kept module-local since it's a SCR-030 implementation detail. */
-const NICHINO_ROLE_CODES = new Set(['NICHINO_ADMIN', 'NICHINO_STAFF']);
+/** Numeric column coming from pg as number-or-string, nullable. */
+type NumOrStringNull = number | string | null;
 
+// [no-labels-policy] Authenticated endpoint — `log_type_label` /
+// `result_status_label` removed per `.claude/rules/nestjs.md
+// §Response serialization`. FE resolves via
+// `useCodesStore().label('LOG_TYPE', value)`.
 export interface LogListItem {
   log_id: number;
   log_type: number;
-  log_type_label: string;
   log_datetime: string;
   account_id: number | null;
   login_id: string | null;
@@ -62,7 +55,6 @@ export interface LogListItem {
   gamen_name: string;
   operation: string;
   result_status: number;
-  result_status_label: string;
   target_id: number | null;
   target_table: string;
   after_value: string;
@@ -73,14 +65,14 @@ interface LogRawRow {
   log_id: number | string;
   log_type: number;
   log_datetime: Date | string;
-  account_id: number | string | null;
+  account_id: NumOrStringNull;
   login_id: string | null;
   account_name: string | null;
-  ja_id: number | string | null;
+  ja_id: NumOrStringNull;
   gamen_name: string | null;
   operation: string | null;
   result_status: number;
-  target_id: number | string | null;
+  target_id: NumOrStringNull;
   target_table: string | null;
   after_value: string | null;
   ip_address: string | null;
@@ -91,11 +83,11 @@ interface CsvRawRow {
   log_type: number;
   log_datetime: Date | string;
   login_id: string | null;
-  ja_id: number | string | null;
+  ja_id: NumOrStringNull;
   gamen_name: string | null;
   operation: string | null;
   result_status: number;
-  target_id: number | string | null;
+  target_id: NumOrStringNull;
   target_table: string | null;
   ip_address: string | null;
 }
@@ -113,6 +105,10 @@ export class LogService {
     @InjectRepository(Log) private readonly logRepo: Repository<Log>,
     private readonly auditLog: AuditLogService,
     @InjectDataSource() private readonly dataSource: DataSource,
+    // CodeService is @Global, used here for CSV export label resolution
+    // (LOG_TYPE / RESULT_STATUS). The list response itself drops *_label
+    // fields per the project rule; FE resolves via useCodesStore().
+    private readonly codeService: CodeService,
   ) {}
 
   // ─── ACSMS-API-030-001 — GET /api/v1/log ─────────────────────────
@@ -217,12 +213,12 @@ export class LogService {
       const filename = `log_export_${this.timestampForFilename(new Date())}.csv`;
 
       await this.auditLog.logOperation({
-        logType: 1,
+        logType: LogType.USER_OPERATION,
         accountId: session.account_id,
         jaId: session.ja_id,
         gamenName: SCREEN_NAME,
         operation: 'EXPORT_CSV',
-        resultStatus: 1,
+        resultStatus: ResultStatus.SUCCESS,
         targetId: null,
         targetTable: TABLE_NAME,
         afterValue: JSON.stringify({
@@ -278,23 +274,33 @@ export class LogService {
     );
   }
 
-  private applyScope(qb: any, session: SessionPayload): void {
-    if (NICHINO_ROLE_CODES.has(session.role_code)) {
-      return; // 全件
-    }
-    if (session.role_code === 'JA_KANRI_SHITEN' && session.kanri_shiten_id != null) {
-      qb.andWhere('a.kanri_shiten_id = :scopeKanriShitenId', {
-        scopeKanriShitenId: session.kanri_shiten_id,
-      });
-      return;
-    }
-    // CHUOKAI / JA_HONTEN — own JA only
-    if (session.ja_id != null) {
-      qb.andWhere('l.ja_id = :scopeJaId', { scopeJaId: session.ja_id });
-    }
+  /**
+   * DataScope for the SCR-030 ログ参照画面 list/export.
+   *
+   * `t_log.ja_id` (alias `l`) and `m_account.kanri_shiten_id` (alias
+   * `a`, joined from `t_log.account_id`) sit on different tables — the
+   * cross-alias case the generic `applyBranchScope()` doesn't cover.
+   * Delegate to `applyBranchScopeWithJoinAlias()` so the role/field
+   * matrix stays consistent with every other DataScope call site.
+   */
+  private applyScope(
+    qb: SelectQueryBuilder<Log>,
+    session: SessionPayload,
+  ): void {
+    applyBranchScopeWithJoinAlias(
+      qb,
+      {
+        ja: { alias: 'l', field: 'ja_id' },
+        kanriShiten: { alias: 'a', field: 'kanri_shiten_id' },
+      },
+      session,
+    );
   }
 
-  private applyFilters(qb: any, query: SearchLogDto | ExportLogDto): void {
+  private applyFilters(
+    qb: SelectQueryBuilder<Log>,
+    query: SearchLogDto | ExportLogDto,
+  ): void {
     if (query.date_from) {
       qb.andWhere('l.log_datetime >= :date_from', {
         date_from: this.parseDatetime(query.date_from),
@@ -317,7 +323,6 @@ export class LogService {
     return {
       log_id: Number(row.log_id),
       log_type: row.log_type,
-      log_type_label: LOG_TYPE_LABELS[row.log_type] ?? '',
       log_datetime: this.formatDatetime(row.log_datetime),
       account_id: row.account_id == null ? null : Number(row.account_id),
       login_id: row.login_id ?? null,
@@ -326,7 +331,6 @@ export class LogService {
       gamen_name: row.gamen_name ?? '',
       operation: row.operation ?? '',
       result_status: row.result_status,
-      result_status_label: RESULT_STATUS_LABELS[row.result_status] ?? '',
       target_id: row.target_id == null ? null : Number(row.target_id),
       target_table: row.target_table ?? '',
       after_value: row.after_value ?? '',
@@ -380,13 +384,13 @@ export class LogService {
       lines.push(
         [
           String(Number(row.log_id)),
-          LOG_TYPE_LABELS[row.log_type] ?? '',
+          this.codeService.getLabel('LOG_TYPE', row.log_type),
           this.formatDatetime(row.log_datetime),
           row.login_id ?? '',
           row.ja_id == null ? '' : String(Number(row.ja_id)),
           row.gamen_name ?? '',
           row.operation ?? '',
-          RESULT_STATUS_LABELS[row.result_status] ?? '',
+          this.codeService.getLabel('RESULT_STATUS', row.result_status),
           row.target_id == null ? '' : String(Number(row.target_id)),
           row.target_table ?? '',
           row.ip_address ?? '',
@@ -402,7 +406,7 @@ export class LogService {
 
   private csvEscape(value: string): string {
     if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
-      return `"${value.replace(/"/g, '""')}"`;
+      return `"${value.replaceAll('"', '""')}"`;
     }
     return `"${value}"`;
   }

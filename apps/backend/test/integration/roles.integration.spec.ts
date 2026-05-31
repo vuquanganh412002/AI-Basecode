@@ -55,16 +55,23 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
 
   const http = () => request(ctx.app.getHttpServer() as Server);
 
+  // SCR-027 endpoints are gated by `@Permissions('role.view')` + the
+  // real PermissionsGuard (the deprecated `RoleAdminGuard` that did
+  // bespoke `role_code === 'NICHINO_ADMIN'` was removed). The session
+  // payload must therefore carry the perm — matches seeder.md §3
+  // (matrix grants role.view to NICHINO_ADMIN only).
   async function asAdmin() {
     const sid = await ctx.seedSession({
       account_id: 1,
       role_code: 'NICHINO_ADMIN',
       ja_id: null,
-      permissions: [],
+      permissions: ['role.view'],
     });
     return buildSessionCookie(ctx.app, sid);
   }
 
+  // CHUOKAI deliberately lacks `role.view` so the 403 paths exercise
+  // the same guard that rejects any non-admin session.
   async function asChuokai() {
     const sid = await ctx.seedSession({
       account_id: 10,

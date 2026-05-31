@@ -73,12 +73,16 @@ export class UpdateAccountDto {
   @MaxLength(50, { message: 'アカウント名は最大50文字で指定してください。' })
   account_name!: string;
 
-  @ApiPropertyOptional({ description: 'メールアドレス（空欄可、最大100桁）', maxLength: 100 })
-  @Transform(blankToUndef)
-  @IsOptional()
+  // [email-required] QA review 2026-05 — primary 通知先メールアドレス is now
+  // mandatory on UPDATE as well. Keep it `string` (not `?: string`) so the
+  // service's `email: dto.email ?? ''` fallback never accidentally clears
+  // the column. Sub-mails stay optional.
+  @ApiProperty({ description: 'メールアドレス（最大100桁）', maxLength: 100 })
+  @IsString({ message: 'メールアドレスは文字列で指定してください。' })
+  @IsNotEmpty({ message: 'メールアドレスは必須です。' })
   @MaxLength(100, { message: 'メールアドレスは最大100文字で指定してください。' })
   @IsEmail({}, { message: 'メールアドレスの形式が不正です。' })
-  email?: string;
+  email!: string;
 
   @ApiPropertyOptional({ description: 'サブメールアドレス1（空欄可、最大100桁）', maxLength: 100 })
   @Transform(blankToUndef)

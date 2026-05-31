@@ -26,7 +26,7 @@ All generated files use `$ARGUMENTS` as:
 **Stack (fixed):**
 - Backend: NestJS + TypeORM + PostgreSQL
 - Frontend: Vue 3 + Vite + Ant Design Vue + Tailwind CSS + Pinia
-- API Client: Orval (auto-generated from Swagger/OpenAPI)
+- API Client: Hand-written axios wrappers per BE tag at `apps/frontend/src/api/<tag>/<tag>.ts` (Swagger UI on BE for documentation / testing)
 - Auth: HTTP-only Cookie session (Redis-backed, 24h sliding TTL)
 - Infra: Docker Compose (local, with Redis), AWS-ready (ElastiCache Redis for production)
 
@@ -261,7 +261,6 @@ apps/
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── vitest.config.ts
-│   ├── orval.config.ts
 │   ├── tsconfig.json
 │   ├── tailwind.config.ts
 │   ├── postcss.config.js
@@ -845,14 +844,13 @@ name: "$ARGUMENTS-frontend"
 ```
 
 Dependencies: vue, vue-router, pinia, ant-design-vue, @ant-design/icons-vue, axios, dayjs
-DevDependencies: vite, @vitejs/plugin-vue, typescript, vue-tsc, tailwindcss, postcss, autoprefixer, orval, vitest, @vue/test-utils, jsdom, @vitest/coverage-v8
+DevDependencies: vite, @vitejs/plugin-vue, typescript, vue-tsc, tailwindcss, postcss, autoprefixer, vitest, @vue/test-utils, jsdom, @vitest/coverage-v8
 
 ### 3.2 Key files
 
 | File | Key points |
 |------|------------|
 | vite.config.ts | `allowedHosts: ['$ARGUMENTS.local', 'localhost']`, alias `@` → `src/` |
-| orval.config.ts | Input `./swagger.json`, output `./src/api/generated.ts`, mutator `./src/api/axios-instance.ts` |
 | tailwind.config.ts | Design tokens (primary `#1677ff`, Noto Sans JP, rounded-ant `6px`), `darkMode: 'class'`, `preflight: false` |
 | styles/tailwind.css | `@import` Noto Sans JP + Material Icons/Symbols, `@layer base` body bg, `@layer utilities` for material icon sizing |
 | main.ts | createApp → use pinia, router, Antd. Import `ant-design-vue/dist/reset.css` + tailwind.css |
@@ -1049,25 +1047,26 @@ async function onSubmit() {
 
 ### 3.3 API client usage rules
 
-`src/api/` has 2 types of files:
-- `axios-instance.ts` — **hand-written** (from template). Custom interceptors, error handling. DO NOT EDIT by Orval.
-- Everything else — **Orval auto-generated**. DO NOT EDIT manually. Re-generate by running `npx orval`.
+`src/api/` is hand-written:
+- `axios-instance.ts` — the shared axios instance + interceptors (auth + error handler).
+- `<tag>/<tag>.ts` — one wrapper file per BE controller tag, exposing typed functions that mirror the BE response shape. Add a new wrapper when a new BE tag appears.
 
-**All API calls in Vue components MUST use the generated client:**
+**All API calls in Vue components / stores / composables MUST go through a wrapper:**
 
 ```typescript
-// ✅ CORRECT — use generated client (typed, auto-completed)
-import { getAuth } from '@/api/auth/auth';
-const { authControllerLogin } = getAuth();
-await authControllerLogin({ email: '...', password: '...' });
+// ✅ CORRECT — through the hand-written wrapper
+import { login } from '@/api/auth/auth';
+await login({ email: '...', password: '...' });
 
-// ❌ WRONG — manual axios bypasses generated client
+// ❌ WRONG — manual axios bypasses the wrapper (skips interceptor + types)
 import axios from 'axios';
 await axios.post('/api/v1/auth/login', { ... });
 
-// ❌ WRONG — manual fetch bypasses generated client
+// ❌ WRONG — manual fetch bypasses everything
 await fetch('/api/v1/auth/login', { method: 'POST', body: ... });
 ```
+
+The BE Swagger UI at `/api/docs` is the canonical reference for response shapes when writing or updating a wrapper.
 
 ### 3.4 Vue component rules
 
@@ -1227,8 +1226,6 @@ apps/backend/.env*
 !apps/backend/.env.example
 apps/frontend/.env.development
 !apps/frontend/.env.example
-apps/frontend/src/api/generated*
-apps/frontend/swagger.json
 ```
 
 ---
@@ -1257,47 +1254,62 @@ cd apps && ln -sf .env.development .env && cd ..
 cd apps && docker compose up -d --build
 ```
 
-### 6.3 Generate typed API client from Swagger
+### 6.3 Frontend API wrappers (hand-written)
 
-After backend is running, export Swagger JSON and generate the frontend API client:
+The FE API layer lives at `apps/frontend/src/api/<tag>/<tag>.ts` —
+one file per BE controller tag, hand-written. The scaffold creates
+the bare seed (`axios-instance.ts` + one starter wrapper for
+`auth/auth.ts`); add a new wrapper for each new BE module as it
+appears.
 
-```bash
-# Wait for backend to be ready
-sleep 10
-
-# Export OpenAPI spec from running backend
-curl -sk https://$ARGUMENTS.local/api/docs-json -o apps/frontend/swagger.json
-
-# Copy swagger.json into frontend container (docker only mounts src/)
-docker cp apps/frontend/swagger.json $ARGUMENTS-frontend-1:/app/swagger.json
-
-# Run Orval to generate typed API client
-docker exec $ARGUMENTS-frontend-1 npx orval
-```
-
-This generates inside `apps/frontend/src/api/`:
 ```
 src/api/
-├── axios-instance.ts           ← Custom axios (from template, NOT generated)
-├── generated.schemas.ts        ← DTO interfaces (auto-generated)
-├── auth/
-│   └── auth.ts                 ← Auth API functions (auto-generated)
-├── health/
-│   └── health.ts               ← Health API functions (auto-generated)
-└── {module}/
-    └── {module}.ts             ← Added automatically when backend adds new modules
+├── axios-instance.ts           ← Shared axios instance + interceptors (auth, errors)
+├── auth/auth.ts                ← Hand-written wrapper for /api/v1/auth
+├── health/health.ts            ← Hand-written wrapper for /api/v1/health (if consumed)
+└── <module>/<module>.ts        ← Add one per new BE controller
 ```
 
-**Usage in Vue components:**
+**Usage in Vue components / stores / composables:**
 ```typescript
-import { getAuth } from '@/api/auth/auth';
-const { authControllerLogin } = getAuth();
+import { login } from '@/api/auth/auth';
 
-// Fully typed — LoginDto auto-completed from Swagger
-await authControllerLogin({ email: 'user@example.com', password: '...' });
+// Wrapper exposes `login(LoginRequest): Promise<LoginResponse>`
+// — types live next to the function in the wrapper file.
+await login({ email: 'user@example.com', password: '...' });
 ```
 
-**When backend adds new APIs:** re-run the 3 commands above. Orval auto-generates new files per module.
+**Wrapper template:**
+```typescript
+// src/api/<tag>/<tag>.ts
+import axiosInstance from '@/api/axios-instance';
+
+export interface XxxItem { /* mirror BE XxxResponseDto */ }
+export interface XxxListResponse {
+  data: XxxItem[];
+  meta: { total: number; page: number; per_page: number; total_pages: number };
+}
+
+export async function listXxx(params: { page?: number } = {}): Promise<XxxListResponse> {
+  const res = await axiosInstance.get<XxxListResponse>('/api/v1/xxx', { params });
+  return res.data;
+}
+```
+
+**When backend adds new APIs:** look at the BE Swagger UI at
+`/api/docs` for the new endpoint's request/response shape, then add a
+new function (and supporting types) to the matching wrapper file.
+
+### 6.3-alt — BE Swagger snapshot (optional)
+
+The live Swagger UI at `/api/docs` is always fresh; no setup needed.
+For offline docs / Postman / contract diff tooling, generate a
+snapshot:
+
+```bash
+docker compose exec backend npm run swagger:export
+# → writes apps/backend/swagger.json
+```
 
 ### 6.4 Verify all endpoints
 
@@ -1322,16 +1334,15 @@ Before reporting done:
 - [ ] Health check responds at `https://$ARGUMENTS.local/health`
 - [ ] HTTP → HTTPS redirect works (301)
 - [ ] `swagger.json` exported to `apps/frontend/swagger.json`
-- [ ] Orval generated typed API client in `apps/frontend/src/api/`
-- [ ] Generated `src/api/generated.schemas.ts` contains DTO interfaces
-- [ ] Generated `src/api/auth/auth.ts` contains typed auth functions
+- [ ] `apps/frontend/src/api/` seeded with `axios-instance.ts` + at least one wrapper (`auth/auth.ts`)
+- [ ] Hand-written `src/api/axios-instance.ts` seeded from template (interceptors + withCredentials)
+- [ ] Hand-written `src/api/auth/auth.ts` seeded from template (typed login/logout/refresh functions)
 - [ ] Backend hot-reload works (edit src/ → auto-restart)
 - [ ] Frontend hot-reload works (edit src/ → HMR)
 - [ ] No hardcoded project name in source code (all from env)
 - [ ] No hardcoded secrets
 - [ ] `.env.example` documents all required variables
 - [ ] PEM files excluded in `.gitignore`
-- [ ] Generated API files excluded in `.gitignore` (src/api/generated*, swagger.json)
 
 ## Constraints
 
@@ -1347,8 +1358,8 @@ Before reporting done:
 - MUST create `data-source.ts` for CLI migration commands
 - MUST use HTTP-only Cookie session backed by Redis (`HttpOnly`+`Secure`+`SameSite=Strict`, signed with `SESSION_SECRET`)
 - MUST NOT put session IDs, tokens, or credentials in `localStorage` / `sessionStorage` — auth flows entirely through the cookie
-- MUST set `withCredentials: true` on frontend axios/Orval + `credentials: true` on backend CORS
+- MUST set `withCredentials: true` on frontend axios instance + `credentials: true` on backend CORS
 - MUST configure `cookie-parser(SESSION_SECRET)` at bootstrap so `req.signedCookies` works
 - All Vue components: `<script setup lang="ts">` only
-- All API calls: via Orval-generated client (no manual axios to backend)
+- All API calls: through a hand-written wrapper at `src/api/<tag>/<tag>.ts` (views/composables/stores never call axios directly)
 - Storage and Mail: provider abstraction (interface + swappable implementations)

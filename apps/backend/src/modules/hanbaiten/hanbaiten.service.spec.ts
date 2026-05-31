@@ -262,6 +262,47 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       expect(scopedCall).toBeUndefined();
     });
 
+    it('should apply query.ja_id filter when NICHINO_STAFF supplies it via 代行入力 dropdown', async () => {
+      // COVERS: [staff-ja-filter] — staff (session.ja_id == null)
+      // selects a JA via BaseJaDropdown above the list; the service
+      // must narrow to that JA even though Layer-2 DataScope didn't
+      // bind a session.ja_id parameter.
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll(
+        { ja_id: 7 } as any,
+        buildSession({ ja_id: null, role_code: 'NICHINO_STAFF' }),
+      );
+
+      const staffScoped = qbMock.andWhere.mock.calls.find(
+        ([_sql, params]: any[]) =>
+          params &&
+          Object.prototype.hasOwnProperty.call(params, 'qja') &&
+          params.qja === 7,
+      );
+      expect(staffScoped).toBeDefined();
+    });
+
+    it('should ignore query.ja_id from JA-scoped roles (session.ja_id wins)', async () => {
+      // COVERS: [staff-ja-filter] — only triggers when session.ja_id
+      // is null. CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN sending a
+      // ja_id in the query must NOT take effect (would let a user
+      // probe other tenants by spoofing the param).
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll(
+        { ja_id: 99 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      const staffScoped = qbMock.andWhere.mock.calls.find(
+        ([_sql, params]: any[]) =>
+          params &&
+          Object.prototype.hasOwnProperty.call(params, 'qja'),
+      );
+      expect(staffScoped).toBeUndefined();
+    });
+
     it('should apply ja_id scope when caller is CHUOKAI', async () => {
       // COVERS: §4.3 DataScope — CHUOKAI sees only own ja_id rows
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
@@ -315,22 +356,27 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       expect(softDelete).toBeDefined();
     });
 
-    it('should exclude haiten_flg=true rows by default (画面設計書 v1.2 §1.1 / §2.1)', async () => {
-      // COVERS: §4.3 — `haiten_flg = false` default when haiten_flg param omitted
+    it('should bind haiten_flg=false (営業中のみ) by default when haiten_flg param omitted', async () => {
+      // COVERS: §4.3 — exact-match semantic (customer 2026-05-26). Omitted
+      // query.haiten_flg → only stores where haiten_flg = false.
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll({} as any, buildChuokaiSession({ ja_id: 1 }));
 
-      const allWhereSql = [
-        ...qbMock.where.mock.calls.map((c: any[]) => c[0]),
-        ...qbMock.andWhere.mock.calls.map((c: any[]) => c[0]),
-      ].filter((s) => typeof s === 'string');
-      const haitenFilter = allWhereSql.find((s) => /haiten_flg/i.test(s));
-      expect(haitenFilter).toBeDefined();
+      const haitenCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /haiten_flg\s*=\s*:haitenFlg/i.test(sql) &&
+          params &&
+          Object.prototype.hasOwnProperty.call(params, 'haitenFlg'),
+      );
+      expect(haitenCall).toBeDefined();
+      expect((haitenCall as any[])[1].haitenFlg).toBe(false);
     });
 
-    it('should include haiten_flg=true rows when query.haiten_flg=true is explicitly passed', async () => {
-      // COVERS: §4.3 — :include_haiten=true bypasses the default filter
+    it('should bind haiten_flg=true (廃店のみ) when query.haiten_flg=true is explicitly passed', async () => {
+      // COVERS: §4.3 — exact-match semantic. checked = show 廃店 only,
+      // NOT "include 廃店". Customer 2026-05-26.
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll(
@@ -338,17 +384,15 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
         buildChuokaiSession({ ja_id: 1 }),
       );
 
-      // Either the filter is dropped, OR an OR/include guard is bound — but
-      // the haiten_flg = false predicate that fires in the default branch
-      // must NOT be a hard constraint.
-      const allWhereSql = [
-        ...qbMock.where.mock.calls.map((c: any[]) => c[0]),
-        ...qbMock.andWhere.mock.calls.map((c: any[]) => c[0]),
-      ].filter((s) => typeof s === 'string');
-      const strictHaitenFilter = allWhereSql.find(
-        (s) => /haiten_flg/i.test(s) && /=\s*false/i.test(s) && !/include/i.test(s),
+      const haitenCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /haiten_flg\s*=\s*:haitenFlg/i.test(sql) &&
+          params &&
+          Object.prototype.hasOwnProperty.call(params, 'haitenFlg'),
       );
-      expect(strictHaitenFilter).toBeUndefined();
+      expect(haitenCall).toBeDefined();
+      expect((haitenCall as any[])[1].haitenFlg).toBe(true);
     });
 
     it('should apply ILIKE filter when query.hanbaiten_code is provided', async () => {
@@ -1000,6 +1044,39 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
       const insertCall = txManager.save.mock.calls[0];
       const savedRow = insertCall[insertCall.length - 1];
       expect(Number(savedRow.jaId)).toBe(7);
+    });
+
+    it('should ignore body.ja_id when caller is JA-scoped (anti-spoof guard)', async () => {
+      // COVERS: [staff-ja-id] — dto.ja_id is only honoured when
+      // session.ja_id is null. CHUOKAI sending ja_id=99 in the body
+      // must still write the row under session.ja_id=7 (otherwise
+      // a malicious client could cross-tenant inject).
+      const session = buildChuokaiSession({ ja_id: 7 });
+      tankaRepo.findOne.mockResolvedValueOnce({ tankaId: 10, jaId: 7 });
+      const body = buildCreateHanbaitenBody({ ja_id: 99 });
+
+      await service.createHanbaiten(body as any, session, baseReq);
+
+      const insertCall = txManager.save.mock.calls[0];
+      const savedRow = insertCall[insertCall.length - 1];
+      expect(Number(savedRow.jaId)).toBe(7);
+    });
+
+    it('should use body.ja_id as effective JA when caller is NICHINO_STAFF (代行入力)', async () => {
+      // COVERS: [staff-ja-id] — NICHINO_STAFF (session.ja_id == null)
+      // supplies the target JA via the form's BaseJaDropdown. The
+      // service binds dto.ja_id as the effective jaId for INSERT +
+      // Layer-4 FK guard.
+      const session = nichinoStaffSession();
+      // Layer-4 FK guard expects the tanka to belong to the chosen JA.
+      tankaRepo.findOne.mockResolvedValueOnce({ tankaId: 10, jaId: 42 });
+      const body = buildCreateHanbaitenBody({ ja_id: 42 });
+
+      await service.createHanbaiten(body as any, session, baseReq);
+
+      const insertCall = txManager.save.mock.calls[0];
+      const savedRow = insertCall[insertCall.length - 1];
+      expect(Number(savedRow.jaId)).toBe(42);
     });
 
     it('should default haiten_flg to false when omitted from the request body', async () => {

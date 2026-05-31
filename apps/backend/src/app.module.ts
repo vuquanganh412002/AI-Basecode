@@ -12,12 +12,15 @@ import { StorageModule } from './modules/storage/storage.module';
 import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CodeModule } from './modules/code/code.module';
+import { DokusyaModule } from './modules/dokusya/dokusya.module';
+import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { HanbaitenModule } from './modules/hanbaiten/hanbaiten.module';
 import { JaModule } from './modules/ja/ja.module';
 import { KanriShitenModule } from './modules/kanri-shiten/kanri-shiten.module';
 import { LogModule } from './modules/log/log.module';
 import { ShitenModule } from './modules/shiten/shiten.module';
 import { OshiraseModule } from './modules/oshirase/oshirase.module';
+import { QueueModule } from './modules/queue/queue.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { TankaModule } from './modules/tanka/tanka.module';
@@ -32,6 +35,7 @@ import type { Request, Response, NextFunction } from 'express';
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     RedisModule,
+    QueueModule,
     DatabaseModule,
     AuditLogModule,
     CodeModule,
@@ -41,6 +45,8 @@ import type { Request, Response, NextFunction } from 'express';
     HealthModule,
     StorageModule,
     OshiraseModule,
+    DokusyaModule,
+    FileUploadModule,
     HanbaitenModule,
     JaModule,
     KanriShitenModule,

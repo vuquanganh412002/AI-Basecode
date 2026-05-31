@@ -56,7 +56,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定されたファイルが見つかりません。                                   | HTTP 404 |
-| 9   | 画面固有     | FILE_SIZE_EXCEEDED    | ファイルサイズが上限（10MB）を超えています。                           | HTTP 400 |
+| 9   | 画面固有     | FILE_SIZE_EXCEEDED    | ファイルサイズが30MBを超えています。                                   | HTTP 400 |
 | 10  | 画面固有     | FILE_FORMAT_ERROR     | 許可されていないファイル形式です。                                     | HTTP 400 |
 | 11  | 画面固有     | TARGET_JA_REQUIRED    | 対象JAを1つ以上選択してください。                                      | HTTP 400 |
 
@@ -100,18 +100,19 @@ updated_by: Tran Duc Tuyen
 | 6   | →file_name              | String  | -        |              | -        | ファイル名                                                                                 |
 | 7   | →file_size              | Number  | -        |              | 〇       | ファイルサイズ（バイト）                                                                   |
 | 8   | →status                 | Number  | -        |              | -        | 処理ステータス ※m_code.code_category='FILE_UPLOAD_STATUS'を参照（1:処理中, 2:完了, 3:エラー） |
-| 9   | →notification_status            | Number  | -        |              | -        | 通知ステータス（画面表示: 「通知ステータス」列） ※m_code.code_category='FILE_UPLOAD_NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗） |
-| 10  | →record_count           | Number  | -        |              | 〇       | レコード件数                                                                               |
-| 11  | →success_count          | Number  | -        |              | 〇       | 成功件数                                                                                   |
-| 12  | →error_count            | Number  | -        |              | 〇       | エラー件数                                                                                 |
-| 13  | →upload_datetime        | String  | -        | ISO8601      | -        | アップロード日時                                                                           |
-| 14  | →scheduled_delete_date  | String  | -        | ISO8601      | 〇       | 削除予定日（画面表示: 「判権日」列。null の場合は画面で `-` 表示）                          |
-| 15  | →error_file_path        | String  | -        |              | -        | エラーファイルパス（NOT NULL、空欄は `""`）                                                |
-| 16  | meta                    | Object  | -        |              | -        | ページング情報                                                                             |
-| 17  | →total                  | Number  | -        |              | -        | 総件数                                                                                     |
-| 18  | →page                   | Number  | -        |              | -        | 現在のページ番号                                                                           |
-| 19  | →per_page               | Number  | -        |              | -        | 1ページの件数                                                                              |
-| 20  | →total_pages            | Number  | -        |              | -        | 総ページ数                                                                                 |
+| 9   | →notification_status    | Number  | -        |              | -        | 通知ステータス（画面表示: 「通知ステータス」列） ※m_code.code_category='NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗） |
+| 10  | →notified_at            | String  | -        | ISO8601      | 〇       | 通知メール送信完了日時。worker が notification_status を 3:完了 または 4:一部失敗 へ更新する際に記録する。未送信/送信中の行では null |
+| 11  | →record_count           | Number  | -        |              | 〇       | レコード件数                                                                               |
+| 12  | →success_count          | Number  | -        |              | 〇       | 成功件数                                                                                   |
+| 13  | →error_count            | Number  | -        |              | 〇       | エラー件数                                                                                 |
+| 14  | →upload_datetime        | String  | -        | ISO8601      | -        | アップロード日時                                                                           |
+| 15  | →scheduled_delete_date  | String  | -        | ISO8601      | 〇       | 削除予定日（画面表示: 「判権日」列。null の場合は画面で `-` 表示）                          |
+| 16  | →error_file_path        | String  | -        |              | -        | エラーファイルパス（NOT NULL、空欄は `""`）                                                |
+| 17  | meta                    | Object  | -        |              | -        | ページング情報                                                                             |
+| 18  | →total                  | Number  | -        |              | -        | 総件数                                                                                     |
+| 19  | →page                   | Number  | -        |              | -        | 現在のページ番号                                                                           |
+| 20  | →per_page               | Number  | -        |              | -        | 1ページの件数                                                                              |
+| 21  | →total_pages            | Number  | -        |              | -        | 総ページ数                                                                                 |
 
 ## リクエスト例
 
@@ -133,6 +134,7 @@ GET /api/v1/file-upload?page=1&per_page=20&sort_by=upload_datetime&sort_order=de
       "file_size": 2831155,
       "status": 2,
       "notification_status": 3,
+      "notified_at": "2026-04-04T10:35:12+09:00",
       "record_count": 1024,
       "success_count": 1020,
       "error_count": 4,
@@ -149,6 +151,7 @@ GET /api/v1/file-upload?page=1&per_page=20&sort_by=upload_datetime&sort_order=de
       "file_size": 2831155,
       "status": 1,
       "notification_status": 2,
+      "notified_at": null,
       "record_count": null,
       "success_count": null,
       "error_count": null,
@@ -304,7 +307,7 @@ LIMIT :per_page OFFSET :offset
 | #   | パラメーターID | タイプ        | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                       |
 | --- | -------------- | ------------- | -------- | ---- | ------ | ------ | ------------------------------------------------------------------------------------------ |
 | 1   | ja_ids         | Number[]      | 〇       | 〇   | 1      |        | 対象JAのID配列（multipart の繰り返しフィールド `ja_ids[]=12345&ja_ids[]=67890` 形式）。1つ以上必須。DataScopeで権限のあるJAのみ指定可 |
-| 2   | files          | File[]        | 〇       | 〇   | 1      |        | アップロード対象ファイル（multipart の繰り返しフィールド `files`）。1ファイルあたり最大10MB。許可拡張子: `.csv`, `.xlsx`, `.xls`, `.pdf` |
+| 2   | files          | File[]        | 〇       | 〇   | 1      |        | アップロード対象ファイル（multipart の繰り返しフィールド `files`）。1ファイルあたり最大30MB（screen-design 機能定義 4.2）。拡張子制限なし（screen-design 画面項目定義 No.6 / 機能定義 4.1） |
 
 ## レスポンスデータ
 
@@ -317,7 +320,7 @@ LIMIT :per_page OFFSET :offset
 | 5   | →file_path              | String  | -        |              | -        | サーバ側保存パス（`ja-{ja_id}/files/{uuid}-{filename}`）                                   |
 | 6   | →file_size              | Number  | -        |              | 〇       | ファイルサイズ（バイト）                                                                   |
 | 7   | →status                 | Number  | -        |              | -        | 処理ステータス（初期値=1:処理中）                                                          |
-| 8   | →notification_status            | Number  | -        |              | -        | 通知ステータス（初期値=1:未送信） ※m_code.code_category='FILE_UPLOAD_NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗） |
+| 8   | →notification_status    | Number  | -        |              | -        | 通知ステータス（初期値=1:未送信） ※m_code.code_category='NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗） |
 | 9   | →upload_datetime        | String  | -        | ISO8601      | -        | アップロード日時                                                                           |
 | 10  | →scheduled_delete_date  | String  | -        | ISO8601      | 〇       | 削除予定日（アップロード日から180日後を設定）                                              |
 | 11  | →error_file_path        | String  | -        |              | -        | エラーファイルパス（初期値: `""`）                                                         |
@@ -472,9 +475,17 @@ Content-Type: text/csv
   - ja_ids：必須、1要素以上の整数配列
   - files：必須、1ファイル以上
 - 各ファイル：
-  - サイズ ≤ 10MB（10 * 1024 * 1024 バイト）。超過時：HTTP 400 (`FILE_SIZE_EXCEEDED`)
-  - 拡張子：`.csv` / `.xlsx` / `.xls` / `.pdf` のいずれか。それ以外：HTTP 400 (`FILE_FORMAT_ERROR`)
-  - MIME型：上記拡張子に対応する Content-Type（例: `text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/vnd.ms-excel`, `application/pdf`）
+  - サイズ ≤ 30MB（30 * 1024 * 1024 バイト、screen-design 機能定義 4.2）。超過時：HTTP 400 (`FILE_SIZE_EXCEEDED`)
+  - **拡張子チェック**（顧客レビュー 2026-05 で確定 — screen-design 画面項目定義 No.6 / 機能定義 4.1）：以下 12 拡張子のみ許可。他は HTTP 400 (`FILE_FORMAT_ERROR`)。比較は小文字化したサフィックスで一致判定（`IMG.JPG` も許可）。
+    - Excel: `.xlsx`, `.xls`
+    - PDF: `.pdf`
+    - 画像: `.jpg`, `.jpeg`, `.png`
+    - Word: `.doc`, `.docx`
+    - PowerPoint: `.pptx`, `.ppt`
+    - CSV: `.csv`
+    - テキスト: `.txt`
+    - 圧縮: `.zip`
+  - プレビュー対応（GET /:id/preview）は別仕様で PDF と画像（.jpg/.jpeg/.png）のみインライン表示。その他形式はダウンロード後の確認となる。
 - ja_ids が空配列の場合：HTTP 400 (`TARGET_JA_REQUIRED`)
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
@@ -585,10 +596,11 @@ VALUES (4, NOW(), :account_id, :ja_id,
 
 - キュー投入は **同一トランザクション外** で実行する（DB commit 成功後に enqueue する）。enqueue 自体が失敗した場合：HTTP 500 を返さず、`notification_status = 1:未送信` のまま放置し、エラーログ（`log_type=3`）に記録する。運用担当者がログを見て手動で再投入する。
 - ワーカー側の動作は本APIの責務外。`screen-design.md §B.6.5` を参照。要点：
+  - キュー投入は **1 ファイル × 1 JA = 1 ジョブ** で分割する（リトライ局所化 — SES throttle が他 JA に波及しないため）
   - キューからジョブ取得 → `notification_status` を `2:送信中` に更新
-  - 対象JAごとに `m_account.email` / `sub_mail_1/2/3` へメール送信（同一アドレスは重複排除）
+  - 対象JAごとに `m_account.email` / `sub_email_1/2/3` へメール送信（同一アドレスは重複排除）
   - 全件成功なら `notification_status = 3:完了` + `notified_at` 記録
-  - 一部失敗なら `notification_status = 4:一部失敗` + `failed_ja_ids`（JSONB）に失敗JA一覧を記録
+  - 一部失敗なら `notification_status = 4:一部失敗` + `notified_at` 記録。失敗アドレス詳細はエラーログ（`t_log.log_type=3`）に出力する（`failed_ja_ids` 専用列は持たない — 1 行 = 1 JA という N×M 設計に整合）
 
 ### 4.8 レスポンス生成
 

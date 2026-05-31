@@ -18,13 +18,19 @@ import {
   listPermissions,
   type PermissionListItem,
 } from '@/api/permissions/permissions';
+import { RoleCode } from '@/constants/enums';
 
 // ─── Access control ─────────────────────────────────────────────────
-// api.md §4.2 — ロール管理画面は NICHINO_ADMIN のみアクセス可。
-// seeder にはロール管理専用 permission_code が無いため、ロール直接チェック。
+// api.md §4.2 — ロール管理画面は role.view 権限保有者のみアクセス可。
+// seeder.md §2.14 / §3 — role.view は NICHINO_ADMIN のみに付与されている
+// ため、結果として NICHINO_ADMIN-only になる。FE は `hasPermission` で
+// 判定しても良いが、画面アクセス可否の最後の確認として `RoleCode` 直接
+// チェックも残す（ルーターガードは既に permission ベース）。
 // 機能定義 1.2 — 権限なしのアカウントの場合 ACSMS-MSG-027-006 を表示。
 const authStore = useAuthStore();
-const isAdmin = computed(() => authStore.user?.role_code === 'NICHINO_ADMIN');
+const isAdmin = computed(
+  () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
+);
 const ACCESS_DENIED_MSG = 'アクセス権がありません。';
 
 // ─── List state (閲覧モード) ─────────────────────────────────────────
@@ -42,6 +48,10 @@ const formState = ref({
   description: '',
   permission_ids: [] as number[],
 });
+// [locked-permissions] IDs whose checkbox renders disabled — seeded
+// baseline permissions that BE rejects removing. Populated from
+// `getRole(...).data.locked_permission_ids` on enter-edit-mode.
+const lockedPermissionIds = ref<number[]>([]);
 const fieldErrors = ref<{
   role_name?: string;
   description?: string;
@@ -117,12 +127,14 @@ async function onEdit(row: RoleListItem): Promise<void> {
   };
   editingRoleId.value = row.role_id;
   fieldErrors.value = {};
+  lockedPermissionIds.value = [];
 
   try {
     const res = await getRole(row.role_id);
     formState.value.permission_ids = [...res.data.permission_ids].sort(
       (a, b) => a - b,
     );
+    lockedPermissionIds.value = [...res.data.locked_permission_ids];
   } catch {
     // 404 / 500 — interceptor toasts; keep the form open with empty perms.
   } finally {
@@ -135,7 +147,16 @@ function isPermissionChecked(id: number): boolean {
   return formState.value.permission_ids.includes(id);
 }
 
+function isPermissionLocked(id: number): boolean {
+  return lockedPermissionIds.value.includes(id);
+}
+
 function togglePermission(id: number, checked: boolean): void {
+  // [locked-guard] BE rejects unchecking locked permissions; the
+  // checkbox is rendered :disabled so this branch shouldn't fire,
+  // but defend in case of programmatic input. Match the BE
+  // VALIDATION_ERROR semantics by silently ignoring the toggle.
+  if (isPermissionLocked(id)) return;
   if (checked) {
     if (!formState.value.permission_ids.includes(id)) {
       formState.value.permission_ids = [...formState.value.permission_ids, id].sort(
@@ -161,7 +182,12 @@ function toggleSelectAll(checked: boolean): void {
       .map((p) => p.permission_id)
       .sort((a, b) => a - b);
   } else {
-    formState.value.permission_ids = [];
+    // [locked-guard] Even on "clear all", locked permissions stay
+    // checked — they can't be removed regardless of how the user
+    // got there.
+    formState.value.permission_ids = [...lockedPermissionIds.value].sort(
+      (a, b) => a - b,
+    );
   }
 }
 
@@ -223,11 +249,17 @@ async function onSubmit(): Promise<void> {
 }
 
 // ─── クリア button (機能定義 3.x) ────────────────────────────────────
+// 機能定義 3.2/3.3 (v1.3) — 「クリア」は未保存の変更のみを破棄し、編集中
+// ロールの保存済みの値に戻す。編集モードは維持し、閲覧モードへは戻らない。
 function onClear(): void {
+  if (!isEditMode.value) return;
+  // 変更なし（3.2）: 破棄すべき変更がないため確認モーダルなし。スナップショット
+  // へ戻しても表示は変わらないが、念のため復元して編集モードを維持する。
   if (!isDirty.value) {
-    resetForm();
+    restoreSnapshot();
     return;
   }
+  // 変更あり（3.3）: 確認のうえ、保存済みの値へ戻す（編集モードは維持）。
   Modal.confirm({
     title: '確認',
     content: '未保存データがあります。クリアしますか。',
@@ -235,9 +267,19 @@ function onClear(): void {
     cancelText: 'いいえ',
     okType: 'primary',
     onOk: () => {
-      resetForm();
+      restoreSnapshot();
     },
   });
+}
+
+// 編集開始時に保存したスナップショット（initialFormSnapshot）へ formState を
+// 戻す。editingRoleId / initialFormSnapshot / lockedPermissionIds は保持する
+// ため、同じロールを編集したまま画面に留まる。
+function restoreSnapshot(): void {
+  if (initialFormSnapshot.value) {
+    formState.value = JSON.parse(initialFormSnapshot.value) as typeof formState.value;
+  }
+  fieldErrors.value = {};
 }
 
 function resetForm(): void {
@@ -355,13 +397,25 @@ watch(
             <label
               v-for="perm in permissions"
               :key="perm.permission_id"
-              class="grid grid-cols-[44px_1fr_1fr_2fr] cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-hover"
+              :class="[
+                'grid grid-cols-[44px_1fr_1fr_2fr] border-b border-border last:border-b-0',
+                isPermissionLocked(perm.permission_id)
+                  ? 'cursor-not-allowed bg-surface-card-subtle'
+                  : 'cursor-pointer hover:bg-surface-hover',
+              ]"
+              :title="
+                isPermissionLocked(perm.permission_id)
+                  ? 'システム必須権限のため変更できません'
+                  : ''
+              "
             >
               <div class="px-2 py-2 flex items-center justify-center">
                 <input
                   type="checkbox"
                   :checked="isPermissionChecked(perm.permission_id)"
-                  class="w-4 h-4"
+                  :disabled="isPermissionLocked(perm.permission_id)"
+                  class="w-4 h-4 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-test="permission-checkbox"
                   @change="
                     togglePermission(
                       perm.permission_id,

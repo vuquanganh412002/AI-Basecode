@@ -1,31 +1,15 @@
 // Test fixtures for ACSMS-SCR-031 (お知らせ一覧画面).
 // Shapes mirror docs/design/ACSMS-SCR-031/ACSMS-SCR-031-api.md.
-
-export interface OshiraseListItem {
-  oshirase_id: number;
-  ja_id: number | null;
-  oshirase_type: number;
-  oshirase_type_label: string;
-  publish_location: number;
-  publish_location_label: string;
-  status: number;
-  status_label: string;
-  title: string;
-  publish_start_date: string;
-  publish_end_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OshiraseDetail extends OshiraseListItem {
-  content: string;
-  target_kanri_kubun: string;
-}
-
-export interface OshiraseListResponse {
-  data: OshiraseListItem[];
-  meta: { total: number; page: number; per_page: number; total_pages: number };
-}
+// Types re-exported from production so consumers can keep importing
+// from this fixture file, but the shape definition stays in one place
+// (any future field added to OshiraseListItem trips the type-checker
+// here on next run, instead of silently going stale).
+import type {
+  OshiraseDetail,
+  OshiraseListItem,
+  OshiraseListResponse,
+} from '@/api/oshirase/oshirase';
+export type { OshiraseDetail, OshiraseListItem, OshiraseListResponse };
 
 export function buildOshiraseListItem(
   overrides: Partial<OshiraseListItem> = {},
@@ -33,15 +17,16 @@ export function buildOshiraseListItem(
   return {
     oshirase_id: 1,
     ja_id: null,
+    ja_name: null,
     oshirase_type: 1,
-    oshirase_type_label: 'システム',
     publish_location: 2,
-    publish_location_label: 'メニュー画面',
     status: 2,
-    status_label: '公開',
     title: 'システムメンテナンスのお知らせ',
     publish_start_date: '2026/04/01 09:00',
     publish_end_date: '2026/04/30 23:59',
+    // target_kanri_kubun is optional in production (empty = 全管理者);
+    // default to '' here so the field shape matches what BE returns.
+    target_kanri_kubun: '',
     created_at: '2026-03-25T10:00:00Z',
     updated_at: '2026-03-25T10:00:00Z',
     ...overrides,
@@ -56,12 +41,10 @@ export function buildOshiraseListResponse(
     buildOshiraseListItem({
       oshirase_id: 2,
       ja_id: 1,
+      ja_name: 'JA東京中央',
       oshirase_type: 3,
-      oshirase_type_label: '一般',
       publish_location: 1,
-      publish_location_label: 'ログイン画面',
       status: 1,
-      status_label: '下書き',
       title: '新機能リリースのお知らせ',
       publish_start_date: '2026/04/15 00:00',
       publish_end_date: null,
@@ -81,10 +64,12 @@ export function buildOshiraseListResponse(
 export function buildOshiraseDetail(
   overrides: Partial<OshiraseDetail> = {},
 ): OshiraseDetail {
+  // Default detail row carries a non-empty target_kanri_kubun so specs
+  // that exercise the "selected admin tiers" rendering don't have to
+  // override it. List-builder default is '' (= 全管理者) per BE shape.
   return {
-    ...buildOshiraseListItem(),
+    ...buildOshiraseListItem({ target_kanri_kubun: '1,2,3' }),
     content: '4月1日（月）02:00〜06:00にシステムメンテナンスを実施いたします。',
-    target_kanri_kubun: '1,2,3',
     ...overrides,
   };
 }

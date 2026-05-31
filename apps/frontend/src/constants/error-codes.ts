@@ -29,8 +29,14 @@ export const ErrorCode = {
 
   // ─── SCR-019 — 販売店Excelデータ取込 ─────────────────────────────────
   IMPORT_VALIDATION_ERROR: 'IMPORT_VALIDATION_ERROR',
+  // FILE_FORMAT_ERROR shared with SCR-023 (different message per screen,
+  // BE-owned — FE just routes on the code).
   FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',
   ROW_LIMIT_EXCEEDED: 'ROW_LIMIT_EXCEEDED',
+
+  // ─── SCR-023 — ファイルアップロード画面 ───────────────────────────────
+  FILE_SIZE_EXCEEDED: 'FILE_SIZE_EXCEEDED',
+  TARGET_JA_REQUIRED: 'TARGET_JA_REQUIRED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

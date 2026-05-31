@@ -150,7 +150,10 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/hanbaiten/HanbaitenListView.vue'),
             meta: {
               breadcrumb: '販売店明細検索',
-              permission: 'hanbaiten.view',
+              // [perm-any-of] NICHINO_STAFF holds `hanbaiten.daiko_input`
+              // (代行入力) but not `hanbaiten.view`; the search screen
+              // unifies both flows behind a role-aware JA filter.
+              permission: ['hanbaiten.view', 'hanbaiten.daiko_input'],
             },
           },
           {
@@ -162,7 +165,10 @@ const routes: RouteRecordRaw[] = [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
                 { label: '販売店情報登録画面' },
               ],
-              permission: 'hanbaiten.create',
+              // [perm-any-of] see HanbaitenList — NICHINO_STAFF creates
+              // via `hanbaiten.daiko_input`, other JA roles via
+              // `hanbaiten.create`.
+              permission: ['hanbaiten.create', 'hanbaiten.daiko_input'],
             },
           },
           {
@@ -174,7 +180,9 @@ const routes: RouteRecordRaw[] = [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
                 { label: '販売店情報編集画面' },
               ],
-              permission: 'hanbaiten.update',
+              // [perm-any-of] NICHINO_STAFF edits via `hanbaiten.daiko_input`,
+              // other JA roles via `hanbaiten.update`.
+              permission: ['hanbaiten.update', 'hanbaiten.daiko_input'],
             },
           },
           // ACSMS-SCR-019 — 販売店Excelデータ取込画面.
@@ -297,6 +305,26 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ログ参照', permission: 'log.view' },
       },
 
+      // ファイルダウンロード画面 (ACSMS-SCR-022). Read-only list +
+      // preview (S3 presigned URL) + binary download. All 5 roles hold
+      // `file.download`; DataScope is enforced server-side.
+      {
+        path: 'file-download',
+        name: 'FileDownload',
+        component: () => import('@/views/file-download/FileDownloadView.vue'),
+        meta: { breadcrumb: 'ファイルダウンロード', permission: 'file.download' },
+      },
+
+      // ファイルアップロード画面 (ACSMS-SCR-023). Multi-JA × multi-file
+      // upload with notification queue + soft delete. All 5 roles hold
+      // `file.upload`; DataScope is enforced server-side.
+      {
+        path: 'file-upload',
+        name: 'FileUpload',
+        component: () => import('@/views/file-upload/FileUploadView.vue'),
+        meta: { breadcrumb: 'ファイルアップロード', permission: 'file.upload' },
+      },
+
       // お知らせ一覧画面 (ACSMS-SCR-031). Single view hosts list + create/edit
       // form per screen-design.md (no separate create/edit route). NICHINO_ADMIN-
       // only via `oshirase.view` permission per seeder.md §3. The view itself
@@ -307,6 +335,69 @@ const routes: RouteRecordRaw[] = [
         name: 'OshiraseList',
         component: () => import('@/views/oshirase/OshiraseManagementView.vue'),
         meta: { breadcrumb: 'お知らせ一覧', permission: 'oshirase.view' },
+      },
+
+      // 購読者マスタ (ACSMS-SCR-011 form). DokusyaList / DokusyaImport /
+      // DokusyaReplaceHanbaiten target TODO placeholder views until
+      // their dedicated SCRs ship — registered now so MENU_SECTIONS
+      // entries (購読者明細検索 / 購読者Excelデータ取込 / 購読者販売店
+      // 一括置換) resolve at runtime via `router.hasRoute(name)` instead
+      // of silently no-op'ing on click.
+      {
+        path: 'dokusya',
+        children: [
+          {
+            path: '',
+            name: 'DokusyaList',
+            component: () => import('@/views/dokusya/DokusyaListView.vue'),
+            meta: {
+              breadcrumb: '購読者明細検索',
+              permission: 'dokusya.view',
+            },
+          },
+          {
+            path: 'create',
+            name: 'DokusyaCreate',
+            component: () => import('@/views/dokusya/DokusyaFormView.vue'),
+            meta: {
+              breadcrumb: [
+                { label: '購読者明細検索', to: { name: 'DokusyaList' } },
+                { label: '購読者情報登録画面' },
+              ],
+              permission: 'dokusya.create',
+            },
+          },
+          {
+            path: ':id/edit',
+            name: 'DokusyaEdit',
+            component: () => import('@/views/dokusya/DokusyaFormView.vue'),
+            meta: {
+              breadcrumb: [
+                { label: '購読者明細検索', to: { name: 'DokusyaList' } },
+                { label: '購読者情報編集画面' },
+              ],
+              permission: 'dokusya.update',
+            },
+          },
+          {
+            path: 'import',
+            name: 'DokusyaImport',
+            component: () => import('@/views/dokusya/DokusyaImportView.vue'),
+            meta: {
+              breadcrumb: '購読者Excelデータ取込',
+              permission: 'dokusya.import',
+            },
+          },
+          {
+            path: 'replace-hanbaiten',
+            name: 'DokusyaReplaceHanbaiten',
+            component: () => import('@/views/dokusya/DokusyaReplaceHanbaitenView.vue'),
+            meta: {
+              breadcrumb: '購読者販売店一括置換',
+              permission: 'dokusya.replace_hanbaiten',
+            },
+          },
+        ],
       },
 
       // 単価マスタ (ACSMS-SCR-002 list, ACSMS-SCR-003 form). TankaCreate
@@ -389,11 +480,21 @@ router.beforeEach((to) => {
     return { name: 'Login', query: { redirect: to.fullPath } };
   }
 
-  if (to.meta.permission && !authStore.hasPermission(to.meta.permission as string)) {
-    // No /403 page — toast + bounce to dashboard. Avoids leaving the
-    // user on a dead-end error screen; they always have a place to go.
-    message.error('この画面へのアクセス権限がありません。');
-    return { name: 'Dashboard' };
+  // [permission-any-of] meta.permission accepts either a single perm
+  // string OR a string[] for "any-of" semantics. Used by routes that
+  // unify two roles' entry points — e.g. HanbaitenList accepts both
+  // `hanbaiten.view` (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) and
+  // `hanbaiten.daiko_input` (NICHINO_STAFF 代行入力).
+  if (to.meta.permission) {
+    const required = to.meta.permission as string | string[];
+    const perms = Array.isArray(required) ? required : [required];
+    const allowed = perms.some((p) => authStore.hasPermission(p));
+    if (!allowed) {
+      // No /403 page — toast + bounce to dashboard. Avoids leaving the
+      // user on a dead-end error screen; they always have a place to go.
+      message.error('この画面へのアクセス権限がありません。');
+      return { name: 'Dashboard' };
+    }
   }
 
   return true;

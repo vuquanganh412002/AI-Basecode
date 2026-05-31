@@ -390,11 +390,13 @@
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
             >
-              <ol class="inline-flex items-center space-x-1">
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
                 <li>ホーム</li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>管理者機能</span>
+                  <a class="text-primary hover:underline cursor-pointer"
+                    >管理支店マスタ明細検索</a
+                  >
                 </li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
@@ -437,8 +439,13 @@
           <div
             class="px-4 py-4 border-b border-slate-100 dark:border-slate-800"
           >
+            <!-- Card heading — matches KanriShitenFormView.vue's h3 literal.
+                 NOTE: '管理店支' is a typo for '管理支店' (店 and 支 swapped)
+                 also present in the code + spec; fixing requires touching
+                 KanriShitenFormView.vue + KanriShitenFormView.spec.ts in
+                 the same change. Tracked as a separate cleanup. -->
             <h3 class="text-lg font-medium text-slate-800 dark:text-slate-200">
-              支店情報入力
+              管理店支情報入力
             </h3>
           </div>
           <div class="p-4">

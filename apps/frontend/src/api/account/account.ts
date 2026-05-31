@@ -189,12 +189,31 @@ export interface AccountDropdownItem {
 
 export interface AccountDropdownResponse {
   data: AccountDropdownItem[];
+  meta: { total: number; page: number; per_page: number; has_more: boolean };
+}
+
+/** Query-string DTO for `GET /api/v1/account/dropdown`. */
+export interface AccountDropdownQuery {
+  /** Partial match on login_id OR account_name (ILIKE) — see `match_field`. */
+  q?: string;
+  /**
+   * 'both' (default) = login_id OR account_name; 'name' = account_name only.
+   * SCR-030 log view uses 'name' since its field label is just ユーザ名.
+   */
+  match_field?: 'both' | 'name';
+  page?: number;
+  per_page?: number;
+  /** Edit-form escape hatch — BE prepends this account_id if not in page 1. */
+  include_id?: number;
 }
 
 /** GET /api/v1/account/dropdown — ACSMS-API-COMMON-005. */
-export async function listAccountDropdown(): Promise<AccountDropdownResponse> {
+export async function listAccountDropdown(
+  query: AccountDropdownQuery = {},
+): Promise<AccountDropdownResponse> {
   const res = await axiosInstance.get<AccountDropdownResponse>(
     '/api/v1/account/dropdown',
+    { params: query },
   );
   return res.data;
 }

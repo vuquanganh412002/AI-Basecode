@@ -107,14 +107,22 @@ const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
 const REQUIRED_COLUMN: PhysicalColumn = 'hanbaiten_code';
 const MAX_ROWS = 500;
 
-// FE display value → BE wire value. The native `<select>` uses the
-// shorter display IDs (matches screen-design.md mockup) and we
-// translate at the submit boundary.
+// FE display value → BE wire value. Shorter IDs match screen-design.md
+// mockup and the radio v-model; translated to wire codes at submit.
 const MODE_TO_BE: Record<string, ImportMode> = {
   new: 'NEW',
   update: 'UPDATE_ALL',
   cancel: 'UPDATE_PARTIAL',
 };
+
+const IMPORT_MODE_OPTIONS: ReadonlyArray<{
+  value: keyof typeof MODE_TO_BE;
+  label: string;
+}> = [
+  { value: 'new', label: '新規登録' },
+  { value: 'update', label: '全項目更新' },
+  { value: 'cancel', label: '入力箇所のみ更新' },
+];
 
 const authStore = useAuthStore();
 const canImport = computed(() => authStore.hasPermission('hanbaiten.import'));
@@ -212,6 +220,7 @@ async function onFileChange(event: Event): Promise<void> {
     );
     parsedRows.value = [];
     fileName.value = '';
+    resetFileInput();
   }
 }
 
@@ -300,6 +309,7 @@ async function runImport(): Promise<void> {
     // 機能 7.4 — reset state for next upload.
     parsedRows.value = [];
     fileName.value = '';
+    resetFileInput();
   } catch {
     // Global axios interceptor toasts the canonical error message
     // (IMPORT_VALIDATION_ERROR / FILE_FORMAT_ERROR / ROW_LIMIT_EXCEEDED /
@@ -307,6 +317,17 @@ async function runImport(): Promise<void> {
   } finally {
     submitting.value = false;
   }
+}
+
+/** Template ref on the native file input — used to reset its value
+ * after a successful import or a parse error, so the displayed filename
+ * matches the parsed state. Without this, the input retains the old
+ * name visually while `parsedRows` is empty → user clicks 取込開始 and
+ * gets the misleading "Excelファイルを選択してください。" toast. */
+const fileInputEl = ref<HTMLInputElement | null>(null);
+
+function resetFileInput(): void {
+  if (fileInputEl.value) fileInputEl.value.value = '';
 }
 
 /** Template ref on the required-column checkbox — see onMounted below. */
@@ -383,6 +404,7 @@ function renderCell(value: unknown): string {
             </label>
             <input
               id="file-input"
+              ref="fileInputEl"
               type="file"
               accept=".xlsx,.xls"
               class="w-full border border-border-strong rounded px-3 py-1 text-sm text-text-main bg-surface-card file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
@@ -391,22 +413,39 @@ function renderCell(value: unknown): string {
           </div>
 
           <div class="col-span-2">
-            <label
-              for="import-mode"
+            <span
               class="block text-sm font-semibold text-text-main mb-1.5"
+              id="import-mode-label"
             >
               取込モード
-            </label>
-            <select
-              id="import-mode"
-              v-model="importModeFe"
+            </span>
+            <!-- [import-mode-radio] Customer 2026-05-27 — switched
+                 from a native dropdown to inline radios for one-click
+                 mode changes. Each radio carries a per-value test
+                 hook (see IMPORT_MODE_OPTIONS) so vitest can target a
+                 specific option without setValue on a parent select. -->
+            <div
+              role="radiogroup"
+              aria-labelledby="import-mode-label"
               data-test="import-mode"
-              class="w-full border border-border-strong rounded px-3 py-1.5 text-sm text-text-main bg-surface-card focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
             >
-              <option value="new">新規登録</option>
-              <option value="update">全項目更新</option>
-              <option value="cancel">入力箇所のみ更新</option>
-            </select>
+              <label
+                v-for="opt in IMPORT_MODE_OPTIONS"
+                :key="opt.value"
+                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+              >
+                <input
+                  v-model="importModeFe"
+                  type="radio"
+                  name="import-mode"
+                  :value="opt.value"
+                  :data-test="`import-mode-${opt.value}`"
+                  class="w-3.5 h-3.5 border-border-strong text-primary focus:ring-primary/20"
+                />
+                {{ opt.label }}
+              </label>
+            </div>
           </div>
 
           <div
@@ -431,7 +470,7 @@ function renderCell(value: unknown): string {
           >
             <span class="text-sm font-semibold text-text-main">
               <span class="text-primary">◆</span>
-              取込列の見出し名または列名を選択
+              取込列
             </span>
             <label
               class="flex items-center gap-1.5 text-xs text-text-description cursor-pointer"
@@ -442,7 +481,7 @@ function renderCell(value: unknown): string {
                 type="checkbox"
                 class="w-3.5 h-3.5 rounded border-border-strong text-primary focus:ring-primary/20"
               />
-              すべて選択
+              すべて選択／解除
             </label>
           </div>
 

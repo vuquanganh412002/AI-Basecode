@@ -208,13 +208,16 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — initial render', () => {
     expect(colCheckboxes.length).toBe(23);
   });
 
-  it('should render the 取込モード dropdown with 新規登録 selected by default when the view first mounts', async () => {
+  it('should render the 取込モード radio group with 新規登録 checked by default when the view first mounts', async () => {
+    // 機能 2.2 — default value 新規登録. Customer 2026-05-27 — radio
+    // group replaces the original native <select>.
     const { wrapper } = await renderView();
-    // 機能 2.2 — default value 新規登録.
     expect(wrapper.text()).toContain(IMPORT_MODE_LABEL_JP.new);
-    // Verify the select element exists.
-    const select = wrapper.find('select#import-mode, [data-test="import-mode"]');
-    expect(select.exists()).toBe(true);
+    const group = wrapper.find('[data-test="import-mode"]');
+    expect(group.exists()).toBe(true);
+    const defaultRadio = wrapper.find('[data-test="import-mode-new"]');
+    expect(defaultRadio.exists()).toBe(true);
+    expect((defaultRadio.element as HTMLInputElement).checked).toBe(true);
   });
 
   it('should render the テンプレート button when the view first mounts', async () => {
@@ -373,7 +376,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
     expect((codeCheckbox.element as HTMLInputElement).checked).toBe(true);
   });
 
-  it('should uncheck every NON-required column when the すべて選択 toggle is unchecked', async () => {
+  it('should uncheck every NON-required column when the すべて選択／解除 toggle is unchecked', async () => {
     const { wrapper } = await renderView();
     const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
     expect(selectAll.exists()).toBe(true);
@@ -392,7 +395,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
     }
   });
 
-  it('should re-check every column when the すべて選択 toggle is checked back on', async () => {
+  it('should re-check every column when the すべて選択／解除 toggle is checked back on', async () => {
     const { wrapper } = await renderView();
     const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
     await selectAll.setValue(false);
@@ -406,11 +409,11 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
   });
 });
 
-describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード select', () => {
-  it('should update the form state when the user selects 全項目更新 from the 取込モード dropdown', async () => {
+describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () => {
+  it('should update the form state when the user picks 全項目更新 radio', async () => {
     const { wrapper } = await renderView();
-    const select = wrapper.find('select#import-mode, [data-test="import-mode"]');
-    await select.setValue('update');
+    const radio = wrapper.find('[data-test="import-mode-update"]');
+    await radio.setValue(true);
     await flushPromises();
     // Submit and verify the BE wire value flips to UPDATE_ALL.
     vi.mocked(importHanbaitenExcel).mockResolvedValue(
@@ -424,10 +427,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード select', () =>
     expect(body.import_mode).toBe('UPDATE_ALL');
   });
 
-  it('should update the form state when the user selects 入力箇所のみ更新 from the 取込モード dropdown', async () => {
+  it('should update the form state when the user picks 入力箇所のみ更新 radio', async () => {
     const { wrapper } = await renderView();
-    const select = wrapper.find('select#import-mode, [data-test="import-mode"]');
-    await select.setValue('cancel');
+    const radio = wrapper.find('[data-test="import-mode-cancel"]');
+    await radio.setValue(true);
     await flushPromises();
     vi.mocked(importHanbaitenExcel).mockResolvedValue(
       buildImportSuccessResponse({ data: { import_mode: 'UPDATE_PARTIAL' } }) as any,

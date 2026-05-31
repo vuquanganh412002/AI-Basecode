@@ -5,7 +5,7 @@
 //
 // Field rules copied from api.md §2 リクエストパラメータ. Validation decorators
 // MUST match every constraint listed (required, min, max, pattern, etc.).
-// @ApiProperty MUST accompany every field for Swagger/Orval.
+// @ApiProperty MUST accompany every field so Swagger UI + the swagger:export snapshot stay accurate.
 //
 // m_code-referenced columns (api.md description ends with ※m_code.code_category='XXX'を参照):
 //   - DO NOT use @IsEnum — there is no TypeScript enum.

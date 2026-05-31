@@ -125,7 +125,7 @@ apps/frontend/
 - [ ] All `it()` names match regex `/^should .+ when .+$/`
 - [ ] All file paths end with `.spec.ts`
 - [ ] API layer imports are wrapped in `vi.mock('@/api/...')` — no real HTTP
-- [ ] No generated test imports from `src/api/generated/**` without mocking
+- [ ] No spec hits the network — every `@/api/<tag>/<tag>` import is wrapped in `vi.mock(...)`
 - [ ] Every spec file starts with the `@ts-nocheck` TDD banner
 
 ## Validation summary (print at end)
@@ -144,7 +144,8 @@ apps/frontend/
   from the same screen-design.md so tests "pass" meaninglessly.
 → If the screen has API calls: ensure BE is done first —
     /gen-code-backend __SCREEN_ID__   (if not yet)
-    cd apps/frontend && npm run api:generate
+    (FE wrapper at apps/frontend/src/api/<tag>/<tag>.ts is hand-written;
+     /gen-code-frontend emits it for new tags.)
 → Then: /gen-code-frontend __SCREEN_ID__
 ```
 

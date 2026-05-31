@@ -28,6 +28,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import { RoleCode } from '@/constants/enums';
 import {
   createJa,
   getJa,
@@ -55,11 +56,14 @@ const { fieldErrors, submitting, submit } = useApiForm();
  * NICHINO_ADMIN edits everything; create mode is admin-only via
  * `ja.create` so this gate never trips there.
  */
-const RESTRICTED_EDITOR_ROLES = ['CHUOKAI', 'JA_HONTEN'];
+const RESTRICTED_EDITOR_ROLES: ReadonlySet<string> = new Set([
+  RoleCode.CHUOKAI,
+  RoleCode.JA_HONTEN,
+]);
 const isRestrictedEditor = computed(
   () =>
     isEdit.value &&
-    RESTRICTED_EDITOR_ROLES.includes(authStore.user?.role_code ?? ''),
+    RESTRICTED_EDITOR_ROLES.has(authStore.user?.role_code ?? ''),
 );
 
 /** Numeric id from the path, or undefined for create mode. */
@@ -518,7 +522,9 @@ defineExpose({ submitWith });
           </a-form-item>
         </div>
 
-        <!-- Row 4: Department / Contact / Tax type -->
+        <!-- Row 4: Department (1/3) / Contact (1/3) / Tax + Central-union
+             flag share the last 1/3 (each radio group is compact enough
+             to fit ~half of one column). -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item label="担当部署名" name="tanto_busho">
             <a-input v-model:value="formState.tanto_busho" :maxlength="100" />
@@ -526,45 +532,44 @@ defineExpose({ submitWith });
           <a-form-item label="担当者名" name="tanto_name">
             <a-input v-model:value="formState.tanto_name" :maxlength="50" />
           </a-form-item>
-          <a-form-item
-            name="zei_kubun"
-            :validate-status="allFieldErrors.zei_kubun ? 'error' : ''"
-            :help="allFieldErrors.zei_kubun"
-          >
-            <template #label>
-              <span>税区分</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.zei_kubun">
-              <a-radio
-                v-for="opt in codes.options('ZEI_KUBUN')"
-                :key="opt.value"
-                :value="String(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
-          </a-form-item>
-        </div>
-
-        <!-- Row 5: Central union flag -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <a-form-item name="chuokai_flg">
-            <template #label>
-              <span>中央会フラグ</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group
-              v-model:value="formState.chuokai_flg"
-              :disabled="isRestrictedEditor"
+          <div class="flex gap-4">
+            <a-form-item
+              class="flex-1 mb-0"
+              name="zei_kubun"
+              :validate-status="allFieldErrors.zei_kubun ? 'error' : ''"
+              :help="allFieldErrors.zei_kubun"
             >
-              <a-radio :value="true">中央会</a-radio>
-              <a-radio :value="false">JA</a-radio>
-            </a-radio-group>
-          </a-form-item>
+              <template #label>
+                <span>税区分</span>
+                <span class="text-error ml-1">*</span>
+              </template>
+              <a-radio-group v-model:value="formState.zei_kubun">
+                <a-radio
+                  v-for="opt in codes.options('ZEI_KUBUN')"
+                  :key="opt.value"
+                  :value="String(opt.value)"
+                >
+                  {{ opt.label }}
+                </a-radio>
+              </a-radio-group>
+            </a-form-item>
+            <a-form-item class="flex-1 mb-0" name="chuokai_flg">
+              <template #label>
+                <span>中央会フラグ</span>
+                <span class="text-error ml-1">*</span>
+              </template>
+              <a-radio-group
+                v-model:value="formState.chuokai_flg"
+                :disabled="isRestrictedEditor"
+              >
+                <a-radio :value="true">中央会</a-radio>
+                <a-radio :value="false">JA</a-radio>
+              </a-radio-group>
+            </a-form-item>
+          </div>
         </div>
 
-        <!-- Row 6: JASTEM settlement metadata (optional, ※空文字許容). -->
+        <!-- Row 5: JASTEM settlement metadata (optional, ※空文字許容). -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <a-form-item
             label="委託者コード"

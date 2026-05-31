@@ -1,6 +1,6 @@
 # Git Workflow — GitLab CI/CD
 
-> Git branching strategy and CI/CD pipeline rules for the `agrinews` project.
+> Git branching strategy and CI/CD pipeline rules for the `AgriNews_ACSMS` project.
 
 ## Branch Strategy
 

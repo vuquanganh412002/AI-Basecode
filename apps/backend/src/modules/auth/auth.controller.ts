@@ -12,6 +12,13 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import {
+  AuthUserEnvelopeDto,
+  LoginResponseDto,
+  MfaResendResponseDto,
+  SuccessMessageDto,
+  VerifyResetTokenResponseDto,
+} from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -47,8 +54,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Login with login_id and password' })
   @ApiResponse({
     status: 200,
+    type: LoginResponseDto,
     description:
-      'MFA required (mfa_required=true) OR login success (session cookie set, user returned)',
+      'MFA required (mfa_required=true) OR login success (mfa_required=false, session cookie set, user returned).',
   })
   async login(
     @Body() dto: LoginDto,
@@ -73,6 +81,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   @ApiOperation({ summary: 'Verify MFA OTP code' })
+  @ApiResponse({ status: 200, type: AuthUserEnvelopeDto })
   async verifyMfa(
     @Body() dto: MfaVerifyDto,
     @Req() req: Request,
@@ -91,6 +100,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   @ApiOperation({ summary: 'Resend MFA OTP code' })
+  @ApiResponse({ status: 200, type: MfaResendResponseDto })
   async resendMfa(@Body() dto: MfaResendDto) {
     const result = await this.authService.resendMfa(dto.mfa_token);
     return { data: result };
@@ -101,6 +111,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Extend the session TTL by another 24h and return the user profile',
   })
+  @ApiResponse({ status: 200, type: AuthUserEnvelopeDto })
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const sessionId = this.readSessionId(req);
     const user = await this.authService.refreshSession(sessionId);
@@ -112,6 +123,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Destroy the Redis session and clear the cookie' })
+  @ApiResponse({ status: 200, type: SuccessMessageDto })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const sessionId = this.readSessionId(req);
     await this.authService.logout(sessionId);
@@ -127,6 +139,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Request a password reset email' })
   @ApiResponse({
     status: 200,
+    type: SuccessMessageDto,
     description:
       'Always 200 — account enumeration prevention; same response for known and unknown emails.',
   })
@@ -137,7 +150,7 @@ export class AuthController {
   @Post('reset-password/verify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify a password reset token (page-load check)' })
-  @ApiResponse({ status: 200, description: '{ data: { valid: true } } when token is usable' })
+  @ApiResponse({ status: 200, type: VerifyResetTokenResponseDto })
   async verifyResetToken(@Body() dto: VerifyResetTokenDto) {
     const result = await this.authService.verifyResetToken(dto.token);
     return { data: result };
@@ -147,7 +160,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @ApiOperation({ summary: 'Consume reset token and set a new password' })
-  @ApiResponse({ status: 200, description: 'Password updated; existing sessions destroyed' })
+  @ApiResponse({
+    status: 200,
+    type: SuccessMessageDto,
+    description: 'Password updated; existing sessions destroyed.',
+  })
   async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
     return this.authService.resetPassword(dto, clientContext(req));
   }

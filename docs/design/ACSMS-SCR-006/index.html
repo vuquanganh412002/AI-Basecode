@@ -354,21 +354,17 @@
         <!-- Header -->
         <header class="flex justify-between items-center">
           <div>
-            <h2 class="text-2xl font-bold">支店マスタ明細検索画面</h2>
+            <h2 class="text-2xl font-bold">支店マスタ明細検索</h2>
             <nav
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
             >
-              <ol class="inline-flex items-center space-x-1">
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
                 <li>ホーム</li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>マスタ管理</span>
-                </li>
-                <li class="flex items-center">
-                  <span class="material-icons text-xs mx-1">chevron_right</span>
                   <span class="text-slate-600 dark:text-slate-300"
-                    >支店マスタ明細検索画面</span
+                    >支店マスタ明細検索</span
                   >
                 </li>
               </ol>
@@ -401,19 +397,85 @@
         </header>
 
         <div class="pt-4 space-y-6">
-          <!-- Search Section -->
+          <!-- Search Section — 5 filters per ShitenListView.vue:
+               支店コード / 支店名 / 管理支店 (dropdown) /
+               データ送信取扱店舗コード / 金融機関支店フラグ (radio group).
+               4-col grid; the radio group spans 2 cols so all 3 options
+               stay on one line. -->
           <section
             class="bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800 p-4"
           >
             <div class="space-y-4">
-              <div class="grid grid-cols-4 gap-x-4 gap-y-0 items-center">
-                <!-- Branch Name -->
+              <div class="grid grid-cols-4 gap-x-4 gap-y-4 items-center">
+                <!-- 支店コード -->
+                <div class="flex items-center gap-2">
+                  <label
+                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
+                    >支店コード</label
+                  >
+                  <input
+                    type="text"
+                    class="ant-input flex-1"
+                    placeholder="支店コード"
+                  />
+                </div>
+                <!-- 支店名 -->
                 <div class="flex items-center gap-2">
                   <label
                     class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
                     >支店名</label
                   >
-                  <input type="text" class="ant-input flex-1" />
+                  <input
+                    type="text"
+                    class="ant-input flex-1"
+                    placeholder="支店名"
+                  />
+                </div>
+                <!-- 管理支店 dropdown -->
+                <div class="flex items-center gap-2">
+                  <label
+                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
+                    >管理支店</label
+                  >
+                  <select class="ant-select flex-1 pr-8">
+                    <option value="">管理支店</option>
+                    <option value="1">KS-13-001 - 管理支店A</option>
+                    <option value="2">KS-13-002 - 管理支店B</option>
+                    <option value="3">KS-13-003 - 管理支店C</option>
+                  </select>
+                </div>
+                <!-- データ送信取扱店舗コード -->
+                <div class="flex items-center gap-2">
+                  <label
+                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
+                    >データ送信取扱店舗コード</label
+                  >
+                  <input
+                    type="text"
+                    class="ant-input flex-1"
+                    placeholder="取扱店舗コード"
+                  />
+                </div>
+                <!-- 金融機関支店フラグ (radio group, spans 2 cols) -->
+                <div class="flex items-center gap-2 col-span-2">
+                  <label
+                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
+                    >金融機関支店フラグ</label
+                  >
+                  <div class="flex items-center gap-4">
+                    <label class="inline-flex items-center gap-1 text-sm">
+                      <input type="radio" name="kinyu_flg" value="all" checked />
+                      全選択
+                    </label>
+                    <label class="inline-flex items-center gap-1 text-sm">
+                      <input type="radio" name="kinyu_flg" value="true" />
+                      金融機関支店
+                    </label>
+                    <label class="inline-flex items-center gap-1 text-sm">
+                      <input type="radio" name="kinyu_flg" value="false" />
+                      金融機関支店以外
+                    </label>
+                  </div>
                 </div>
               </div>
               <!-- Buttons -->
@@ -456,13 +518,13 @@
               </div>
             </div>
             <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
+              <table class="w-full text-left border-collapse text-sm whitespace-nowrap">
                 <thead>
                   <tr
                     class="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 text-xs font-bold uppercase"
                   >
                     <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
                     >
                       <div class="flex items-center gap-1">
                         支店コード
@@ -477,7 +539,22 @@
                       </div>
                     </th>
                     <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
+                    >
+                      <div class="flex items-center gap-1">
+                        管理支店名
+                        <svg
+                          class="w-3.5 h-3.5 text-slate-400"
+                          viewBox="0 0 12 16"
+                          fill="currentColor"
+                        >
+                          <path d="M6 0L10 5H2L6 0Z" opacity="0.5" />
+                          <path d="M6 16L2 11H10L6 16Z" opacity="0.5" />
+                        </svg>
+                      </div>
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
                     >
                       <div class="flex items-center gap-1">
                         支店名
@@ -492,80 +569,97 @@
                       </div>
                     </th>
                     <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800"
                     >
                       支店カナ
                     </th>
-                    <th >金融機関支店フラグ</th>
                     <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-center"
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 text-center"
+                    >
+                      金融機関支店フラグ
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800"
+                    >
+                      データ送信取扱店舗コード
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800"
+                    >
+                      店舗名
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 text-center"
+                    >
+                      貯金種別
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800"
+                    >
+                      口座番号
+                    </th>
+                    <th
+                      class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 text-center"
                     >
                       操作
                     </th>
                   </tr>
                 </thead>
                 <tbody
-                  class="text-sm divide-y divide-slate-100 dark:divide-slate-800"
+                  class="divide-y divide-slate-100 dark:divide-slate-800"
                 >
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4">
-                      <a class="text-primary" href="#">T-001</a>
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3">
+                      <a class="text-primary hover:underline" href="#">001</a>
                     </td>
-                    <td class="px-6 py-4 font-medium">東京支店</td>
-                    <td class="px-6 py-4">トウキョウシテン</td>
-                     <td class="px-6 py-4 ">
+                    <td class="px-4 py-3">中央管理支店</td>
+                    <td class="px-4 py-3 font-medium">本店</td>
+                    <td class="px-4 py-3">ﾎﾝﾃﾝ</td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="material-icons text-emerald-500 text-[18px]">check_circle</span>
+                    </td>
+                    <td class="px-4 py-3">001</td>
+                    <td class="px-4 py-3">本店</td>
+                    <td class="px-4 py-3 text-center">普通</td>
+                    <td class="px-4 py-3">1234567</td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3">
+                      <a class="text-primary hover:underline" href="#">002</a>
+                    </td>
+                    <td class="px-4 py-3">北部管理支店</td>
+                    <td class="px-4 py-3 font-medium">北支店</td>
+                    <td class="px-4 py-3">ｷﾀｼﾃﾝ</td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="material-icons text-emerald-500 text-[18px]">check_circle</span>
+                    </td>
+                    <td class="px-4 py-3">002</td>
+                    <td class="px-4 py-3">北支店</td>
+                    <td class="px-4 py-3 text-center">当座</td>
+                    <td class="px-4 py-3">7654321</td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3">
+                      <a class="text-primary hover:underline" href="#">003</a>
+                    </td>
+                    <td class="px-4 py-3">南部管理支店</td>
+                    <td class="px-4 py-3 font-medium">南支店</td>
+                    <td class="px-4 py-3">ﾐﾅﾐｼﾃﾝ</td>
+                    <td class="px-4 py-3 text-center">
                       <span class="material-icons text-slate-300 dark:text-slate-600 text-[18px]">radio_button_unchecked</span>
                     </td>
-                    <td class="px-6 py-4 text-center">
-                      <button
-                        class="text-red-500 hover:text-red-700 font-bold text-sm"
-                      >
-                        削除
-                      </button>
-                    </td>
-                  </tr>
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4">
-                      <a class="text-primary" href="#">T-002</a>
-                    </td>
-                    <td class="px-6 py-4 font-medium">横浜支店</td>
-                    <td class="px-6 py-4">ヨコハマシテン</td>
-                   <td class="px-6 py-4 text-left">
-                      <span class="material-icons text-emerald-500 text-[18px]"
-                        >check_circle</span
-                      >
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                      <button
-                        class="text-red-500 hover:text-red-700 font-bold text-sm"
-                      >
-                        削除
-                      </button>
-                    </td>
-                  </tr>
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4">
-                      <a class="text-primary" href="#">T-003</a>
-                    </td>
-                    <td class="px-6 py-4 font-medium">大宮支店</td>
-                    <td class="px-6 py-4">オオミヤシテン</td>
-                     <td class="px-6 py-4 text-left">
-                      <span class="material-icons text-emerald-500 text-[18px]"
-                        >check_circle</span
-                      >
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                      <button
-                        class="text-red-500 hover:text-red-700 font-bold text-sm"
-                      >
-                        削除
-                      </button>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3 text-center"></td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
                     </td>
                   </tr>
                 </tbody>

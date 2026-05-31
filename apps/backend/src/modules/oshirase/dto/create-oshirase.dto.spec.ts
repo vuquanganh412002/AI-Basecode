@@ -39,7 +39,7 @@ describe('CreateOshiraseDto', () => {
     });
   });
 
-  describe('publish_location (required, 1 or 2)', () => {
+  describe('publish_location (required, 1 / 2 / 3)', () => {
     it('should accept publish_location when value is 1 (ログイン画面)', async () => {
       expect((await check(buildCreateOshiraseBody({ publish_location: 1 }))).some((e) => e.property === 'publish_location')).toBe(false);
     });
@@ -48,8 +48,12 @@ describe('CreateOshiraseDto', () => {
       expect((await check(buildCreateOshiraseBody({ publish_location: 2 }))).some((e) => e.property === 'publish_location')).toBe(false);
     });
 
-    it('should reject publish_location when value is 3', async () => {
-      expect((await check(buildCreateOshiraseBody({ publish_location: 3 }))).some((e) => e.property === 'publish_location')).toBe(true);
+    it('should accept publish_location when value is 3 (メニュー画面（締め切り時間）)', async () => {
+      expect((await check(buildCreateOshiraseBody({ publish_location: 3 }))).some((e) => e.property === 'publish_location')).toBe(false);
+    });
+
+    it('should reject publish_location when value is 4 (out of range)', async () => {
+      expect((await check(buildCreateOshiraseBody({ publish_location: 4 }))).some((e) => e.property === 'publish_location')).toBe(true);
     });
 
     it('should reject publish_location when missing', async () => {

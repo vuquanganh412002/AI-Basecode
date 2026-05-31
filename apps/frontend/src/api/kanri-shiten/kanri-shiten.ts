@@ -94,6 +94,13 @@ export interface KanriShitenDropdownItem {
 
 export interface KanriShitenDropdownEnvelope {
   data: KanriShitenDropdownItem[];
+  /**
+   * Optional cursor-pagination meta — older callers expect just
+   * `{ data }`; newer dropdown consumers (SCR-011) read `has_more` to
+   * drive infinite scroll. The field stays optional so both shapes
+   * type-check.
+   */
+  meta?: { total: number; page: number; per_page: number; has_more: boolean };
 }
 
 /**

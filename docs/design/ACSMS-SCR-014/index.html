@@ -52,79 +52,15 @@
 
         if (advancedSearch.classList.contains("hidden")) {
           advancedSearch.classList.remove("hidden");
-          toggleIcon.textContent = "unfold_less";
+          toggleIcon.textContent = "expand_less";
           toggleText.textContent = "詳細検索を非表示";
         } else {
           advancedSearch.classList.add("hidden");
-          toggleIcon.textContent = "unfold_more";
+          toggleIcon.textContent = "expand_more";
           toggleText.textContent = "詳細検索を表示";
         }
       }
 
-      // Sorting functionality
-      let currentSortColumn = null;
-      let currentSortDirection = "asc";
-
-      function sortTable(columnIndex, columnName, isDateColumn = false) {
-        const table = document.querySelector("table tbody");
-        const rows = Array.from(table.rows);
-
-        // Toggle sort direction if clicking the same column
-        if (currentSortColumn === columnIndex) {
-          currentSortDirection =
-            currentSortDirection === "asc" ? "desc" : "asc";
-        } else {
-          currentSortDirection = "asc";
-          currentSortColumn = columnIndex;
-        }
-
-        rows.sort((a, b) => {
-          let aValue = a.cells[columnIndex].textContent.trim();
-          let bValue = b.cells[columnIndex].textContent.trim();
-
-          if (isDateColumn) {
-            aValue = new Date(aValue);
-            bValue = new Date(bValue);
-          } else {
-            aValue = isNaN(aValue) ? aValue.toUpperCase() : parseFloat(aValue);
-            bValue = isNaN(bValue) ? bValue.toUpperCase() : parseFloat(bValue);
-          }
-
-          if (aValue < bValue) {
-            return currentSortDirection === "asc" ? -1 : 1;
-          } else if (aValue > bValue) {
-            return currentSortDirection === "asc" ? 1 : -1;
-          }
-          return 0;
-        });
-
-        // Clear previous sort indicators
-        document.querySelectorAll("th[data-sortable]").forEach((th) => {
-          th.classList.remove("sort-asc", "sort-desc");
-          // Remove any existing sort icon
-          const existingIcon = th.querySelector(".sort-indicator");
-          if (existingIcon) {
-            existingIcon.remove();
-          }
-        });
-
-        // Add sort indicator to current column
-        const currentTh =
-          document.querySelectorAll("th[data-sortable]")[currentSortColumn];
-        if (currentTh) {
-          currentTh.classList.add(
-            currentSortDirection === "asc" ? "sort-asc" : "sort-desc",
-          );
-          const sortIcon = currentSortDirection === "asc" ? "▲" : "▼";
-          const span = document.createElement("span");
-          span.className = "sort-indicator ml-1";
-          span.textContent = sortIcon;
-          currentTh.appendChild(span);
-        }
-
-        // Reorder rows
-        rows.forEach((row) => table.appendChild(row));
-      }
     </script>
     <style type="text/tailwindcss">
       body {
@@ -156,16 +92,6 @@
       .ant-select {
         @apply border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em];
         background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-      }
-      th[data-sortable] {
-        @apply cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors;
-      }
-      th[data-sortable].sort-asc,
-      th[data-sortable].sort-desc {
-        @apply bg-primary/10 dark:bg-primary/20 text-primary dark:text-blue-400 font-semibold;
-      }
-      .sort-indicator {
-        @apply inline-block ml-1 text-xs;
       }
     </style>
   </head>
@@ -644,26 +570,27 @@
                   onclick="toggleAdvancedSearch()"
                   class="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors flex items-center gap-2"
                 >
-                  <span class="material-icons text-sm" id="toggleIcon">unfold_more</span>
+                  <span class="material-icons text-sm">manage_search</span>
                   <span id="toggleText">詳細検索を表示</span>
+                  <span class="material-icons text-sm" id="toggleIcon">expand_more</span>
                 </button>
               </div>
               <!-- Advanced Search Fields (Hidden by default) -->
               <div id="advancedSearch" class="space-y-4 hidden">
                 <div class="grid grid-cols-4 gap-x-4 gap-y-0 items-end">
-                  <!-- 口座支店コード -->
+                  <!-- 引落元口座支店コード -->
                   <div class="flex items-center gap-2">
                     <label
                       class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300 min-w-[6em] text-right"
-                      >口座支店コード</label
+                      >引落元口座支店コード</label
                     >
                     <input class="flex-1 border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm" type="text" />
                   </div>
-                  <!-- 口座支店名 -->
+                  <!-- 引落元口座支店名 -->
                   <div class="flex items-center gap-2">
                     <label
                       class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300 min-w-[6em] text-right"
-                      >口座支店名</label
+                      >引落元口座支店名</label
                     >
                     <input class="flex-1 border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm" type="text" />
                   </div>
@@ -746,11 +673,6 @@
               <button
                 class="px-6 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded font-bold transition-colors shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap"
               >
-                購読者情報登録
-              </button>
-              <button
-                class="px-6 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded font-bold transition-colors shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap"
-              >
                 Excel出力
               </button>
             </div>
@@ -768,6 +690,11 @@
                     購読者一覧
                   </h3>
                 </div>
+                <button
+                  class="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded font-bold transition-colors shadow-sm text-sm flex items-center justify-center gap-2 whitespace-nowrap"
+                >
+                  購読者情報登録
+                </button>
               </div>
 
               <!-- Responsive Table -->
@@ -777,18 +704,30 @@
                     <tr
                       class="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 text-xs font-bold uppercase whitespace-nowrap"
                     >
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(0, '管理支店')">管理支店</th>
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(1, '支店')">支店</th>
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(2, '組合員コード')">組合員コード</th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">管理支店<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">支店<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">組合員コード<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">購読者名</th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">連絡先1</th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">連絡先2</th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">配達先郵便</th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">配達先住所</th>
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(8, '販売店コード')">販売店コード</th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">販売店コード<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">販売店名</th>
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(10, '購読開始日', true)">購読開始日</th>
-                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800" data-sortable onclick="sortTable(11, '購読中止日', true)">購読中止日</th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">購読開始日<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
+                      <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
+                        <div class="flex items-center gap-1">購読中止日<svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor"><path d="M6 0L10 5H2L6 0Z" opacity="0.5" /><path d="M6 16L2 11H10L6 16Z" opacity="0.5" /></svg></div>
+                      </th>
                       <th class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-center">操作</th>
                     </tr>
                   </thead>

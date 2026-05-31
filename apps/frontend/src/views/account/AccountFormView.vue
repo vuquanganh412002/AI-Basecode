@@ -26,6 +26,7 @@ import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
 } from '@/api/kanri-shiten/kanri-shiten';
+import { RoleCode } from '@/constants/enums';
 
 interface AccountFormState {
   login_id: string;
@@ -49,7 +50,9 @@ interface AccountFormState {
 // ─── Access control (機能定義 1.1) ─────────────────────────────────
 // SCR-025 は日農管理者のみアクセス可。view-side guard で API も叩かない。
 const authStore = useAuthStore();
-const isAdmin = computed(() => authStore.user?.role_code === 'NICHINO_ADMIN');
+const isAdmin = computed(
+  () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
+);
 const ACCESS_DENIED_MSG = 'アクセス権がありません。';
 
 const route = useRoute();
@@ -246,14 +249,30 @@ watch(
   },
 );
 
-// 機能定義 4.x — role_id 切替時に、新しい役割で隠れる項目をリセット.
+// 機能定義 4.x — role_id 切替時に全ての従属項目をリセットする
+// (顧客レビュー 2026-05 — 都道府県/JA/管理支店 を全て選び直し).
+//
+// [role-change-full-reset] 旧仕様は "新しい役割で隠れる項目だけ" を
+// クリアしていたが、顧客から「役割を切り替えたら 3 項目とも選び直し
+// たい」とフィードバック。理由: 役割 3→4 や 4→5 で同じカラムが
+// 見え続けると、前の役割の選択値が残ったまま見えるので「これは
+// このまま使うのか?」と判断ミスが起きる。
+//
+// [skip-initial-pick] `prev` が null/undefined のときはリセットしない。
+// = 初回ピック(null → 値) と、新規フォームへの全フィールド一括代入
+// (`Object.assign(formState, form)` 系) で隣接フィールドが先に
+// 巻き戻されるのを防ぐ。実 UX で問題になるのは「すでに役割を選んだ
+// 後で別の役割に切り替える」場面のみ。初回ピック時はもともと従属値が
+// null なのでリセットしても観測差はない。
 watch(
   () => formState.role_id,
-  () => {
+  (next, prev) => {
     if (isHydrating.value) return;
-    if (!showTodofuken.value) formState.todofuken_code = null;
-    if (!showJa.value) formState.ja_id = null;
-    if (!showKanriShiten.value) formState.kanri_shiten_id = null;
+    if (next === prev) return;
+    if (prev === null || prev === undefined) return;
+    formState.todofuken_code = null;
+    formState.ja_id = null;
+    formState.kanri_shiten_id = null;
   },
 );
 
@@ -278,28 +297,28 @@ function isStrongPassword(value: string): boolean {
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
 
-  // Required-field checks. Use `?.trim()` (not `.trim()`) so a future
+  // [required-table] Drives the required-field pass via data. Cuts
+  // cognitive complexity vs. a chain of if-statements and keeps the
+  // ordering explicit (FIELD_ORDER below relies on this list for
+  // focus-first-error). Use `?.trim()` (not `.trim()`) so a future
   // migration to a clearable control doesn't crash with TypeError.
-  if (!isEdit.value && !formState.login_id?.trim()) {
-    errs.login_id = REQUIRED_MSG;
-  }
-  if (!isEdit.value && !formState.password) {
-    errs.password = REQUIRED_MSG;
-  }
-  if (formState.role_id === null || formState.role_id === undefined) {
-    errs.role_id = REQUIRED_MSG;
-  }
-  if (!formState.account_name?.trim()) {
-    errs.account_name = REQUIRED_MSG;
-  }
-  if (showTodofuken.value && !formState.todofuken_code) {
-    errs.todofuken_code = REQUIRED_MSG;
-  }
-  if (showJa.value && !formState.ja_id) {
-    errs.ja_id = REQUIRED_MSG;
-  }
-  if (showKanriShiten.value && !formState.kanri_shiten_id) {
-    errs.kanri_shiten_id = REQUIRED_MSG;
+  // [email-required] QA bug 2026-05 — 通知先メールアドレス must be
+  // required. Primary email is the only address paper-based delivery
+  // notifications fall back to; SCR-023's worker drops the recipient
+  // entirely when it's blank, so an account without one silently
+  // receives nothing.
+  const requiredChecks: ReadonlyArray<readonly [string, boolean]> = [
+    ['login_id', !isEdit.value && !formState.login_id?.trim()],
+    ['password', !isEdit.value && !formState.password],
+    ['role_id', formState.role_id === null || formState.role_id === undefined],
+    ['account_name', !formState.account_name?.trim()],
+    ['todofuken_code', showTodofuken.value && !formState.todofuken_code],
+    ['ja_id', showJa.value && !formState.ja_id],
+    ['kanri_shiten_id', showKanriShiten.value && !formState.kanri_shiten_id],
+    ['email', !formState.email?.trim()],
+  ];
+  for (const [field, missing] of requiredChecks) {
+    if (missing) errs[field] = REQUIRED_MSG;
   }
 
   // Format checks (only when value is present — required-message takes
@@ -310,7 +329,7 @@ function validateClient(): boolean {
   if (!errs.password && formState.password && !isStrongPassword(formState.password)) {
     errs.password = PASSWORD_FORMAT_MSG;
   }
-  if (formState.email && !EMAIL_RE.test(formState.email)) {
+  if (!errs.email && formState.email && !EMAIL_RE.test(formState.email)) {
     errs.email = EMAIL_FORMAT_MSG;
   }
 
@@ -521,7 +540,7 @@ defineExpose({ formState, fieldErrors });
               :help="fieldErrors.ja_id"
             >
               <template #label>
-                <span>JA</span>
+                <span>JA名</span>
                 <span v-if="showJa" class="text-error ml-1">*</span>
               </template>
               <a-select
@@ -583,8 +602,11 @@ defineExpose({ formState, fieldErrors });
               name="email"
               :validate-status="fieldErrors.email ? 'error' : ''"
               :help="fieldErrors.email"
-              label="通知先メールアドレス"
             >
+              <template #label>
+                <span>通知先メールアドレス</span>
+                <span class="text-error ml-1">*</span>
+              </template>
               <a-input v-model:value="formState.email" :maxlength="100" />
             </a-form-item>
           </div>
@@ -618,28 +640,32 @@ defineExpose({ formState, fieldErrors });
             </a-form-item>
           </div>
 
-        <a-form-item label="取扱い区分">
-          <div class="flex items-center gap-6">
-            <a-checkbox v-model:checked="formState.paper_flg">紙版の取扱い</a-checkbox>
-            <a-checkbox v-model:checked="formState.denshi_flg">電子版の取扱い</a-checkbox>
-          </div>
-        </a-form-item>
+        <!-- 3-column row, each cell = 1/3 of the form card. Mirrors
+             the sub-mail row above (`md:grid-cols-3 gap-6`) so vertical
+             rhythm stays consistent. Cell #3 is intentionally empty —
+             keeps 取扱い区分 + ロック状態 anchored to the LEFT
+             (cells 1 + 2) instead of stretching the lone ロック
+             column. On narrow viewports collapses to 1-column stack. -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <a-form-item label="取扱い区分">
+            <div class="flex items-center gap-6">
+              <a-checkbox v-model:checked="formState.paper_flg">紙版の取扱い</a-checkbox>
+              <a-checkbox v-model:checked="formState.denshi_flg">電子版の取扱い</a-checkbox>
+            </div>
+          </a-form-item>
 
-        <!-- Edit-only: admin can unlock the account here. Sending
-             account_lock_flg=false resets login_failure_count → 0 on the
-             BE so the user can log in again immediately. Hidden in create
-             mode (new accounts can't be locked yet). -->
-        <a-form-item v-if="isEdit" label="ロック状態">
-          <div class="flex items-center gap-6">
+          <!-- Edit-only: admin can unlock the account here. Sending
+               account_lock_flg=false resets login_failure_count → 0 on
+               the BE so the user can log in again immediately. Hidden
+               in create mode (new accounts can't be locked yet). -->
+          <a-form-item v-if="isEdit" label="ロック状態">
+            <!-- QA bug 2026-05 — checkbox label already says "ロック";
+                 the red ロック pill previously shown to the right was
+                 a duplicate. Lock state is now communicated solely by
+                 the checkbox's checked state. -->
             <a-checkbox v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
-            <span
-              v-if="formState.account_lock_flg"
-              class="bg-error-subtle text-error px-2 py-0.5 rounded text-xs font-bold"
-            >
-              ロック
-            </span>
-          </div>
-        </a-form-item>
+          </a-form-item>
+        </div>
 
         <a-form-item name="biko" label="備考">
           <a-textarea v-model:value="formState.biko" :rows="3" />

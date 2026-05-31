@@ -94,17 +94,15 @@ updated_by: Nguyen Duyen Manh
 | --- | --------------------- | ------ | -------- | ------------------- | -------- | ----------------------------------------------------------- |
 | 1   | data                  | Array  | 〇       |                     | -        | ログ一覧                                                    |
 | 2   | →log_id               | Number | -        |                     | -        | ログID                                                      |
-| 3   | →log_type             | Number | -        |                     | -        | ログ種別（1:ユーザー操作, 2:システム, 3:エラー, 4:ファイルアップロード） |
-| 4   | →log_type_label       | String | -        |                     | -        | ログ種別ラベル                                              |
-| 5   | →log_datetime         | String | -        | YYYY/MM/DD HH:mm:ss | -        | 操作日時                                                    |
-| 6   | →account_id           | Number | -        |                     | 〇       | アカウントID                                                |
-| 7   | →login_id             | String | -        |                     | 〇       | ログインID                                                  |
-| 8   | →account_name         | String | -        |                     | 〇       | アカウント名                                                |
-| 9   | →ja_id                | Number | -        |                     | 〇       | JA ID                                                       |
-| 10  | →gamen_name           | String | -        |                     | -        | 画面名                                                      |
-| 11  | →operation            | String | -        |                     | -        | 操作内容                                                    |
-| 12  | →result_status        | Number | -        |                     | -        | 結果ステータス（1:成功, 2:失敗, 3:警告）                    |
-| 13  | →result_status_label  | String | -        |                     | -        | 結果ステータスラベル                                        |
+| 3   | →log_type             | Number | -        |                     | -        | ログ種別 ※m_code.code_category='LOG_TYPE'を参照（1:ユーザー操作, 2:システム, 3:エラー, 4:ファイルアップロード） |
+| 4   | →log_datetime         | String | -        | YYYY/MM/DD HH:mm:ss | -        | 操作日時                                                    |
+| 5   | →account_id           | Number | -        |                     | 〇       | アカウントID                                                |
+| 6   | →login_id             | String | -        |                     | 〇       | ログインID                                                  |
+| 7   | →account_name         | String | -        |                     | 〇       | アカウント名                                                |
+| 8   | →ja_id                | Number | -        |                     | 〇       | JA ID                                                       |
+| 9   | →gamen_name           | String | -        |                     | -        | 画面名                                                      |
+| 10  | →operation            | String | -        |                     | -        | 操作内容                                                    |
+| 11  | →result_status        | Number | -        |                     | -        | 結果ステータス ※m_code.code_category='RESULT_STATUS'を参照（1:成功, 2:失敗, 3:警告） |
 | 14  | →target_id            | Number | -        |                     | 〇       | 操作対象ID                                                  |
 | 15  | →target_table         | String | -        |                     | -        | 操作対象テーブル                                            |
 | 16  | →after_value          | String | -        |                     | -        | 変更後値（JSON、詳細欄に表示）                              |
@@ -129,7 +127,6 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
     {
       "log_id": 10500,
       "log_type": 1,
-      "log_type_label": "ユーザー操作",
       "log_datetime": "2026/04/17 14:30:45",
       "account_id": 10,
       "login_id": "ja_honten_001",
@@ -138,7 +135,6 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
       "gamen_name": "単価マスタ登録画面 (ACSMS-SCR-003)",
       "operation": "CREATE",
       "result_status": 1,
-      "result_status_label": "成功",
       "target_id": 50,
       "target_table": "m_tanka",
       "after_value": "{\"tanka_id\":50,\"tanka_code\":\"T050\",\"tanka_name\":\"新単価\"}",
@@ -147,7 +143,6 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
     {
       "log_id": 10499,
       "log_type": 3,
-      "log_type_label": "エラー",
       "log_datetime": "2026/04/17 14:25:10",
       "account_id": 10,
       "login_id": "ja_honten_001",
@@ -156,7 +151,6 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
       "gamen_name": "購読者情報登録画面 (ACSMS-SCR-005)",
       "operation": "CREATE",
       "result_status": 2,
-      "result_status_label": "失敗",
       "target_id": null,
       "target_table": "t_dokusya",
       "after_value": "",
@@ -353,13 +347,13 @@ Content-Disposition: attachment; filename="log_export_YYYYMMDD_HHmmss.csv"
 | 列順 | カラム名           | 説明                         |
 | ---- | ------------------ | ---------------------------- |
 | 1    | ログID             | log_id                       |
-| 2    | ログ種別           | log_type_label               |
+| 2    | ログ種別           | log_type → m_code.label('LOG_TYPE') |
 | 3    | 日時               | log_datetime                 |
 | 4    | ユーザーID         | login_id                     |
 | 5    | JA ID              | ja_id                        |
 | 6    | 画面名             | gamen_name                   |
 | 7    | 操作内容           | operation                    |
-| 8    | 結果               | result_status_label          |
+| 8    | 結果               | result_status → m_code.label('RESULT_STATUS') |
 | 9    | 対象ID             | target_id                    |
 | 10   | 対象テーブル       | target_table                 |
 | 11   | IPアドレス         | ip_address                   |

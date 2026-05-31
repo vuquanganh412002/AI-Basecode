@@ -3,6 +3,8 @@
 // into the snake_case detail-response shape. No Nest DI, no repo —
 // importable from anywhere (service, tests).
 
+import { toIso, toNumber } from '@/common/utils/mapper-helpers';
+
 export interface AccountDetailRow {
   account_id: number | string;
   login_id: string;
@@ -52,17 +54,8 @@ export interface AccountDetail {
   updated_at: string | null;
 }
 
-function toIso(v: Date | string | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v.toISOString();
-  return String(v);
-}
-
-function toNumber(v: number | string | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'number') return v;
-  return Number(v);
-}
+// `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers` — see
+// import at top of file.
 
 /** Map a raw joined row → SCR-025 detail-response shape. */
 export function toAccountDetail(row: AccountDetailRow): AccountDetail {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>購読者管理システム - 支払情報出力</title>
+    <title>購読者管理システム - 口座振替データ出力画面</title>
     <link href="https://fonts.googleapis.com" rel="preconnect" />
     <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
     <link
@@ -168,14 +168,14 @@
           </h3>
           <div class="space-y-1">
             <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
               href="#"
             >
               <span class="material-icons text-[18px]">account_balance</span>
               <span>口座振替データ出力</span>
             </a>
             <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
               href="#"
             >
               <span class="material-icons text-[18px]">payments</span>
@@ -332,7 +332,7 @@
         <!-- Header -->
         <header class="flex justify-between items-center">
           <div>
-            <h2 class="text-2xl font-bold">支払情報出力</h2>
+            <h2 class="text-2xl font-bold">口座振替データ出力画面</h2>
             <nav
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
@@ -346,7 +346,7 @@
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
                   <span class="text-slate-600 dark:text-slate-300"
-                    >支払情報出力</span
+                    >口座振替データ出力画面</span
                   >
                 </li>
               </ol>
@@ -395,59 +395,68 @@
               <div
                 class="border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5"
               >
-                <div class="space-y-5">
-                  <div class="grid grid-cols-3 gap-4 items-center">
-                    <div class="flex items-center gap-4">
-                      <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                        >年月日<span class="text-red-500">*</span></label
-                      >
-                      <input type="date" class="ant-input flex-1" />
-                    </div>
-
-                    <div class="col-span-2 flex items-center gap-4">
-                      <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                        >口座支店</label
-                      >
-                      <select class="ant-input flex-1" name="branch">
-                        <option value="">選択してください</option>
-                        <option value="001">001 - 本店</option>
-                        <option value="002">002 - 北支店</option>
-                        <option value="003">003 - 南支店</option>
-                      </select>
-                    </div>
+                <!-- 年月日 & 引落日 -->
+                <div class="grid grid-cols-2 gap-4 items-center">
+                  <div class="flex items-center gap-4">
+                    <label
+                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
+                      >年月日<span class="text-red-500">*</span></label
+                    >
+                    <input type="date" class="ant-input flex-1" />
+                  </div>
+                  <div class="flex items-center gap-4">
+                    <label
+                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
+                      >引落日<span class="text-red-500">*</span></label
+                    >
+                    <input type="date" class="ant-input flex-1" />
                   </div>
                 </div>
 
-                <!-- FDデータ保存先 -->
+                <!-- 管理支店 & 支店 -->
+                <div class="grid grid-cols-2 gap-4 items-center">
+                  <div class="flex items-center gap-4">
+                    <label
+                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
+                      >管理支店</label
+                    >
+                    <select class="ant-input flex-1" name="kanriShitenIds">
+                      <option value="">選択してください</option>
+                      <option value="all">（全選択）</option>
+                      <option value="1">管理支店A</option>
+                      <option value="2">管理支店B</option>
+                      <option value="3">管理支店C</option>
+                    </select>
+                  </div>
+                  <div class="flex items-center gap-4">
+                    <label
+                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
+                      >支店</label
+                    >
+                    <select class="ant-input flex-1" name="shitenIds">
+                      <option value="">選択してください</option>
+                      <option value="all">（全選択）</option>
+                      <option value="1">001 - 本店</option>
+                      <option value="2">002 - 北支店</option>
+                      <option value="3">003 - 南支店</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- 口座支店 (金融支店フラグ=true の支店一覧) -->
                 <div class="flex items-center gap-4">
                   <label
                     class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                    >FDデータ保存先<span class="text-red-500">*</span></label
+                    >口座支店</label
                   >
-                  <input type="text" class="ant-input flex-1" />
-                  <button
-                    type="button"
-                    class="px-4 py-1.5 text-sm border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap flex items-center gap-2"
-                  >
-                    <span class="material-icons text-[18px]">folder_open</span>
-                    <span>参照</span>
-                  </button>
+                  <select class="ant-input flex-1" name="shitenName">
+                    <option value="">選択してください</option>
+                    <option value="all">（全選択）</option>
+                    <option value="001">001 - 本店</option>
+                    <option value="002">002 - 北支店</option>
+                    <option value="003">003 - 南支店</option>
+                  </select>
                 </div>
-
-                <!-- 引落日 -->
-                 <div class="space-y-5">
-                  <div class="grid grid-cols-3 gap-4 items-center">
-                <div class="flex items-center gap-4">
-                  <label
-                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                    >引落日<span class="text-red-500">*</span></label
-                  >
-                  <input type="date" class="ant-input " />
-                </div>
-                  </div>
-                  </div>
 
                 <!-- JASTEM委託者コード情報 -->
                 <div
@@ -565,7 +574,7 @@
                     </div>
                     <div class="flex-1 min-w-[200px] flex items-center gap-3">
                       <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[165px] flex-shrink-0 text-right"
+                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
                         >店舗名<span class="text-red-500">*</span></label
                       >
                       <input

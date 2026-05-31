@@ -14,11 +14,17 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMenu } from '@/composables/useMenu';
+import { useCodesStore } from '@/stores/codes.store';
+import { OshiraseType } from '@/constants/enums';
 import BaseCard from '@/components/common/BaseCard.vue';
 import {
   getMenuOshirase,
   type MenuOshiraseItem,
 } from '@/api/oshirase/oshirase';
+
+// [m_code-driven] お知らせ種別 label resolved client-side
+// (BE menu list is authenticated and no longer emits `oshirase_type_label`).
+const codes = useCodesStore();
 
 const router = useRouter();
 
@@ -190,7 +196,7 @@ onMounted(async () => {
       <template #title>
         <span
           :class="
-            selectedAnnouncement?.oshirase_type === 4
+            selectedAnnouncement?.oshirase_type === OshiraseType.DEADLINE
               ? 'text-error font-bold'
               : 'text-text-main font-bold'
           "
@@ -206,7 +212,7 @@ onMounted(async () => {
           <dt class="text-text-description">お知らせ種別</dt>
           <dd class="text-text-main">
             <span class="bg-info-subtle text-info px-2 py-0.5 rounded font-medium">
-              {{ selectedAnnouncement.oshirase_type_label }}
+              {{ codes.label('OSHIRASE_TYPE', selectedAnnouncement.oshirase_type) }}
             </span>
             <span class="text-text-description ml-2">
               (種別コード: {{ selectedAnnouncement.oshirase_type }})

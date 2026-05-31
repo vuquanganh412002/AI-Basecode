@@ -460,7 +460,7 @@ export class AuthService {
         await this.auditLogService.logOperation({
           logType: LogType.USER_OPERATION,
           accountId,
-          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          jaId: account.jaId === null ? null : Number(account.jaId),
           gamenName: SCREEN_NAME_SCR012,
           operation: 'PASSWORD_RESET_REQUEST',
           resultStatus: ResultStatus.SUCCESS,
@@ -475,7 +475,7 @@ export class AuthService {
       await this.auditLogService.logError(
         {
           accountId,
-          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          jaId: account.jaId === null ? null : Number(account.jaId),
           screen: SCREEN_NAME_SCR012,
           table: TABLE_T_MFA_OTP,
           targetId: null,
@@ -600,7 +600,7 @@ export class AuthService {
         await this.auditLogService.logOperation({
           logType: LogType.USER_OPERATION,
           accountId,
-          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          jaId: account.jaId === null ? null : Number(account.jaId),
           gamenName: SCREEN_NAME_SCR012,
           operation: 'PASSWORD_RESET',
           resultStatus: ResultStatus.SUCCESS,
@@ -615,7 +615,7 @@ export class AuthService {
       await this.auditLogService.logError(
         {
           accountId,
-          jaId: account.jaId !== null ? Number(account.jaId) : null,
+          jaId: account.jaId === null ? null : Number(account.jaId),
           screen: SCREEN_NAME_SCR012,
           table: TABLE_M_ACCOUNT,
           targetId: accountId,

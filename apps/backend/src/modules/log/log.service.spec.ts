@@ -20,6 +20,7 @@ describe('LogService', () => {
   let logRepo: any;
   let auditLog: any;
   let dataSource: any;
+  let codeService: any;
   let qbMock: any;
   let countQbMock: any;
 
@@ -92,7 +93,25 @@ describe('LogService', () => {
       transaction: jest.fn(async (cb: any) => cb({ getRepository: () => ({}) })),
     };
 
-    service = new LogService(logRepo, auditLog, dataSource);
+    // CodeService stub returns m_code labels for LOG_TYPE / RESULT_STATUS,
+    // matching the seeded values. Used only by CSV export now (list
+    // response no longer carries `*_label` per the project rule).
+    codeService = {
+      getLabel: jest.fn((category: string, value: number | string) => {
+        const maps: Record<string, Record<number, string>> = {
+          LOG_TYPE: {
+            1: 'ユーザー操作',
+            2: 'システム',
+            3: 'エラー',
+            4: 'ファイルアップロード',
+          },
+          RESULT_STATUS: { 1: '成功', 2: '失敗', 3: '警告' },
+        };
+        return maps[category]?.[Number(value)] ?? '';
+      }),
+    };
+
+    service = new LogService(logRepo, auditLog, dataSource, codeService);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -139,16 +158,22 @@ describe('LogService', () => {
         expect.objectContaining({
           log_id: 10500,
           log_type: 1,
-          log_type_label: 'ユーザー操作',
           result_status: 1,
-          result_status_label: '成功',
           account_id: 10,
           login_id: 'ja_honten_001',
         }),
       );
+      // [no-labels-policy] Authenticated list response no longer emits
+      // log_type_label / result_status_label — FE resolves via codes store.
+      expect(result.data[0]).not.toHaveProperty('log_type_label');
+      expect(result.data[0]).not.toHaveProperty('result_status_label');
     });
 
-    it('should map every log_type code to its Japanese label when service returns multiple rows', async () => {
+    it('should return every log_type / result_status code as a raw number (labels resolved client-side)', async () => {
+      // [no-labels-policy] Authenticated list endpoint does NOT include
+      // `log_type_label` / `result_status_label` per the project rule;
+      // FE resolves them via useCodesStore().label(...). The CSV export
+      // path is tested separately under the CSV describe block.
       qbMock.getRawMany.mockResolvedValue([
         { log_id: 1, log_type: 1, result_status: 1, log_datetime: new Date(), gamen_name: '', operation: '', target_table: '', after_value: '', ip_address: '', account_id: null, login_id: null, account_name: null, ja_id: null, target_id: null },
         { log_id: 2, log_type: 2, result_status: 1, log_datetime: new Date(), gamen_name: '', operation: '', target_table: '', after_value: '', ip_address: '', account_id: null, login_id: null, account_name: null, ja_id: null, target_id: null },
@@ -159,18 +184,11 @@ describe('LogService', () => {
 
       const result = await service.getLogList(buildSearchLogQuery(), buildSession());
 
-      expect(result.data.map((r: any) => r.log_type_label)).toEqual([
-        'ユーザー操作',
-        'システム',
-        'エラー',
-        'ファイルアップロード',
-      ]);
-      expect(result.data.map((r: any) => r.result_status_label)).toEqual([
-        '成功',
-        '成功',
-        '失敗',
-        '警告',
-      ]);
+      expect(result.data.map((r: any) => r.log_type)).toEqual([1, 2, 3, 4]);
+      expect(result.data.map((r: any) => r.result_status)).toEqual([1, 1, 2, 3]);
+      // Confirm the `*_label` fields are absent from the wire shape.
+      expect(result.data[0]).not.toHaveProperty('log_type_label');
+      expect(result.data[0]).not.toHaveProperty('result_status_label');
     });
 
     it('should format log_datetime as YYYY/MM/DD HH:mm:ss in JST when service returns a Date', async () => {

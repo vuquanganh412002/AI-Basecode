@@ -74,8 +74,13 @@ export class RolesService {
     if (!role) {
       throw new NotFoundException('ロール');
     }
-    const permissionIds = await this.findActivePermissionIds(roleId);
-    return { data: toRoleDetailResponse(role, permissionIds) };
+    const [permissionIds, lockedPermissionIds] = await Promise.all([
+      this.findActivePermissionIds(roleId),
+      this.findLockedPermissionIds(roleId),
+    ]);
+    return {
+      data: toRoleDetailResponse(role, permissionIds, lockedPermissionIds),
+    };
   }
 
   // ─── ACSMS-API-027-003 — PUT /api/v1/roles/:role_id ─────────────────
@@ -121,7 +126,48 @@ export class RolesService {
       }
     }
 
-    const beforePermissionIds = await this.findActivePermissionIds(roleId);
+    // [single-snapshot] One find() gives us BOTH the before-snapshot for
+    // the audit log AND the locked map for the guard below — saves a
+    // duplicate query and keeps spec mocking simple.
+    const currentAllocations = await this.rolePermissionRepo.find({
+      where: { roleId, deletedAt: IsNull() },
+      order: { permissionId: 'ASC' },
+    });
+    const beforePermissionIds = currentAllocations
+      .map((r) => Number(r.permissionId))
+      .sort((a, b) => a - b);
+
+    // [locked-guard] — snapshot which currently-active rows are locked
+    // (= seeded baseline; see migration 1711900900012). Rejection
+    // happens BEFORE the transaction so the audit log never records a
+    // half-attempt. Preservation map gets reused below when re-
+    // inserting so the locked flag survives the soft-delete + insert
+    // cycle (would otherwise reset to default FALSE on every PATCH).
+    const lockedByPermId = new Map<number, boolean>(
+      currentAllocations.map((r) => [Number(r.permissionId), r.locked]),
+    );
+    const requestedSet = new Set(dto.permission_ids);
+    const droppedLocked = [...lockedByPermId.entries()]
+      .filter(([pid, isLocked]) => isLocked && !requestedSet.has(pid))
+      .map(([pid]) => pid);
+    if (droppedLocked.length > 0) {
+      throw new HttpException(
+        {
+          code: 'VALIDATION_ERROR',
+          error_code: 'VALIDATION_ERROR',
+          message: 'システム必須権限のため、解除できません。',
+          errors: [
+            {
+              field: 'permission_ids',
+              message: `次の権限はシステム必須のため解除できません: ${droppedLocked.join(
+                ', ',
+              )}`,
+            },
+          ],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
 
     try {
       const result = await this.dataSource.transaction(async (manager) => {
@@ -144,11 +190,15 @@ export class RolesService {
         );
 
         // [business-insert] — INSERT new allocations (only when array is non-empty).
+        // Preserve `locked` from the snapshot above; freshly-added
+        // permission_ids that weren't in the current set default to
+        // FALSE (admin-added permissions are never locked).
         if (dto.permission_ids.length > 0) {
           const newRows = dto.permission_ids.map((permissionId) =>
             manager.create(RolePermission, {
               roleId,
               permissionId,
+              locked: lockedByPermId.get(permissionId) ?? false,
               createdBy: session.login_id,
               updatedBy: session.login_id,
             }),
@@ -194,11 +244,20 @@ export class RolesService {
       // the new set). Returning the dto directly avoids an extra round
       // trip to the DB and keeps unit-spec mocks deterministic — the
       // active list is sorted ASC to match api.md §3 example ordering.
+      // Locked subset comes from the pre-tx snapshot (lockedByPermId)
+      // intersected with the now-active set.
       const refreshedPermissionIds = [...dto.permission_ids].sort(
         (a, b) => a - b,
       );
+      const refreshedLockedIds = dto.permission_ids
+        .filter((pid) => lockedByPermId.get(pid) === true)
+        .sort((a, b) => a - b);
       return {
-        data: toRoleDetailResponse(result, refreshedPermissionIds),
+        data: toRoleDetailResponse(
+          result,
+          refreshedPermissionIds,
+          refreshedLockedIds,
+        ),
         message: '更新しました。',
       };
     } catch (err) {
@@ -231,6 +290,22 @@ export class RolesService {
     // Sort explicitly — TypeORM applies `order:` at the DB layer; unit
     // tests that mock `repo.find` ignore that option, so a defensive
     // in-memory sort keeps both paths consistent.
+    return rows
+      .map((r) => Number(r.permissionId))
+      .sort((a, b) => a - b);
+  }
+
+  /**
+   * Subset of active permission_ids whose row has `locked = true`
+   * (seeded baseline). FE disables matching checkboxes; BE rejects
+   * PATCH that drops any of them. See migration
+   * 1711900900012-AlterMRolesPermissionsAddLocked.
+   */
+  private async findLockedPermissionIds(roleId: number): Promise<number[]> {
+    const rows = await this.rolePermissionRepo.find({
+      where: { roleId, deletedAt: IsNull(), locked: true },
+      order: { permissionId: 'ASC' },
+    });
     return rows
       .map((r) => Number(r.permissionId))
       .sort((a, b) => a - b);

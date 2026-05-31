@@ -7,10 +7,10 @@ import {
   IsOptional,
   IsString,
   Matches,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
+
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
  * Whitelist of columns the client may sort by. Anything else is rejected
@@ -50,8 +50,12 @@ const stringToBool = ({ value }: { value: unknown }) => {
  *
  * All fields optional. `active_flg` omitted means "return both states"
  * (per api.md §4.3 — 省略時は両方を返却).
+ *
+ * Inherits page/per_page from {@link PaginationDto}. The runtime default
+ * (page=1, per_page=20) is applied by the service layer via `?? 1` /
+ * `?? 20` because query params arrive as `undefined` when omitted.
  */
-export class SearchTankaDto {
+export class SearchTankaDto extends PaginationDto {
   @ApiPropertyOptional({
     description: '単価種別（完全一致）。1=新聞購読料, 2=配達手数料',
   })
@@ -99,21 +103,6 @@ export class SearchTankaDto {
   @IsOptional()
   @IsBoolean({ message: '有効フラグは真偽値で指定してください。' })
   active_flg?: boolean;
-
-  @ApiPropertyOptional({ default: 1, description: 'ページ番号' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'ページ番号は整数で指定してください。' })
-  @Min(1, { message: 'ページ番号は1以上で指定してください。' })
-  page?: number = 1;
-
-  @ApiPropertyOptional({ default: 20, description: '1ページの件数（最大100）' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: '1ページの件数は整数で指定してください。' })
-  @Min(1, { message: '1ページの件数は1以上で指定してください。' })
-  @Max(100, { message: '1ページの件数は最大100件です。' })
-  per_page?: number = 20;
 
   @ApiPropertyOptional({
     enum: TANKA_SEARCH_SORT_BY,

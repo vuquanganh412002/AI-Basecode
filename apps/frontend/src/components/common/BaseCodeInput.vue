@@ -55,7 +55,7 @@ function onBeforeInput(e: Event): void {
 }
 
 function onUpdate(v: string): void {
-  emit('update:value', String(v).replace(/\s+/g, ''));
+  emit('update:value', String(v).replaceAll(/\s+/g, ''));
 }
 </script>
 

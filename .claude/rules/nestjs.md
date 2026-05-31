@@ -1,4 +1,4 @@
-# NestJS Backend Rules — agrinews
+# NestJS Backend Rules — AgriNews_ACSMS
 
 > All backend standards for `apps/backend/**/*.ts`. Covers architecture, API, database, error handling, and testing.
 
@@ -79,7 +79,7 @@ async function bootstrap() {
   });
 
   const config = new DocumentBuilder()
-    .setTitle('agrinews API')
+    .setTitle('AgriNews_ACSMS API')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
@@ -323,9 +323,9 @@ async updateUser(id: string, dto: UpdateUserDto): Promise<User> {}
 
 ### Contract-First
 
-1. Define OpenAPI spec (Swagger decorators) FIRST
+1. Define OpenAPI spec (Swagger decorators) FIRST — `@ApiOperation`, `@ApiResponse({type: XxxResponseDto})`, etc.
 2. Implement controller + DTO
-3. Generate frontend client via Orval
+3. Mirror the BE response shape in the FE wrapper at `apps/frontend/src/api/<tag>/<tag>.ts` (hand-written; see `.claude/rules/vue.md §API`)
 
 ### URL Structure
 
@@ -356,7 +356,7 @@ import { apiUrl } from '@test/utils/api-url';
 await request(app).post(apiUrl('auth/login')).send(body);   // → /api/v1/auth/login
 ```
 
-NEVER constantize individual route paths into a `route-table.ts` map (`API_ROUTES.AUTH.LOGIN = 'login'`). It harms readability at the call site, requires duplicate path-pattern + concrete-URL helpers for `:id` parameters, weakens integration tests (asserting a constant matches itself instead of the HTTP contract), and Swagger / Orval already provide central URL discovery via `/api/docs` + `swagger.json`.
+NEVER constantize individual route paths into a `route-table.ts` map (`API_ROUTES.AUTH.LOGIN = 'login'`). It harms readability at the call site, requires duplicate path-pattern + concrete-URL helpers for `:id` parameters, weakens integration tests (asserting a constant matches itself instead of the HTTP contract), and Swagger already provides central URL discovery via `/api/docs` + `npm run swagger:export`.
 
 ### HTTP Methods & Status Codes
 
@@ -1721,7 +1721,7 @@ export class MailService {
   async sendOtp(email: string, otpCode: string): Promise<void> {
     await this.mailerService.sendMail({
       to: email,
-      subject: '【agrinews】ログイン認証コード',
+      subject: '【AgriNews_ACSMS】ログイン認証コード',
       template: 'otp',
       context: { otpCode, expiresIn: '5分' },
     });
@@ -1731,7 +1731,7 @@ export class MailService {
   async sendPasswordReset(email: string, resetUrl: string): Promise<void> {
     await this.mailerService.sendMail({
       to: email,
-      subject: '【agrinews】パスワードリセット',
+      subject: '【AgriNews_ACSMS】パスワードリセット',
       template: 'password-reset',
       context: { resetUrl, expiresIn: '30分' },
     });
@@ -1741,7 +1741,7 @@ export class MailService {
   async sendNotification(email: string, subject: string, content: string): Promise<void> {
     await this.mailerService.sendMail({
       to: email,
-      subject: `【agrinews】${subject}`,
+      subject: `【AgriNews_ACSMS】${subject}`,
       template: 'notification',
       context: { content },
     });
@@ -1769,7 +1769,7 @@ MailerModule.forRootAsync({
         pass: config.get('SMTP_PASS'),
       },
     },
-    defaults: { from: '"agrinews" <noreply@agrinews.jp>' },
+    defaults: { from: '"AgriNews_ACSMS" <noreply@agrinews.jp>' },
     template: {
       dir: join(__dirname, 'templates'),
       adapter: new HandlebarsAdapter(),
@@ -1783,7 +1783,7 @@ Rules:
 - Never log full email address (use `maskEmail`)
 - Never log OTP code or reset token
 - Templates in `src/templates/` (otp.hbs, password-reset.hbs, notification.hbs)
-- Subject prefix: `【agrinews】`
+- Subject prefix: `【AgriNews_ACSMS】`
 
 ---
 

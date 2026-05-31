@@ -11,10 +11,15 @@ import {
   DuplicateCodeException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
+import { RoleCode } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { applyJaScope, fetchFkInJa } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
 import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
+import {
+  filterAllowedFields,
+  type FieldRestrictionTable,
+} from '@/common/utils/field-restrictions';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { pickString, pickBool, pickNumber } from '@/common/utils/pick';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -30,6 +35,43 @@ import { toShitenDetail, toShitenListItem } from './shiten.mapper';
 const SCREEN_NAME_SCR006 = '支店マスタ明細検索画面 (ACSMS-SCR-006)';
 const SCREEN_NAME_SCR007 = '支店マスタ登録画面 (ACSMS-SCR-007)';
 const TABLE_NAME = 'm_shiten';
+
+/**
+ * Field-level restriction table per `.claude/rules/security.md` §Layer 3.
+ *
+ * Customer policy 2026-05: every role except JA_KANRI_SHITEN may freely
+ * change any column on PUT — `['*']`. JA_KANRI_SHITEN can edit the same
+ * shiten row but `kanri_shiten_id` is read-only (the row's "parent
+ * kanri-shiten" assignment is owned by higher roles). The FE mirrors
+ * this with `:disabled` on the 管理支店 select in ShitenFormView.vue
+ * (`[role5-locked-fields]`); this BE table is the authoritative gate —
+ * a curl bypass that smuggles `kanri_shiten_id` past the FE still has
+ * the key silently dropped here.
+ *
+ * Roles not listed (= NICHINO_ADMIN / NICHINO_STAFF in production today)
+ * have no `shiten.update` permission and never reach this filter — the
+ * controller guard rejects them first. Listing CHUOKAI / JA_HONTEN with
+ * `['*']` makes the policy intent grep-able alongside JA_KANRI_SHITEN.
+ */
+const FIELD_RESTRICTIONS: FieldRestrictionTable = {
+  shiten: {
+    NICHINO_ADMIN: ['*'],
+    NICHINO_STAFF: ['*'],
+    CHUOKAI: ['*'],
+    JA_HONTEN: ['*'],
+    JA_KANRI_SHITEN: [
+      'shiten_name',
+      'shiten_name_kana',
+      'kinyu_shiten_flg',
+      'jastem_toriatsukai_tenpo_code',
+      'jastem_tenpo_name',
+      'jastem_tyokin_shubetsu',
+      'jastem_koza_no',
+      'biko',
+      // `kanri_shiten_id` deliberately absent — read-only for role 5.
+    ],
+  },
+};
 
 /**
  * Sort-by allow-list. `shiten_code` / `shiten_name` are local columns
@@ -195,8 +237,8 @@ export class ShitenService {
       deletedAt: IsNull(),
     };
     if (
-      session.role_code !== 'NICHINO_ADMIN' &&
-      session.role_code !== 'NICHINO_STAFF' &&
+      session.role_code !== RoleCode.NICHINO_ADMIN &&
+      session.role_code !== RoleCode.NICHINO_STAFF &&
       session.ja_id !== null
     ) {
       where.jaId = session.ja_id;
@@ -242,6 +284,57 @@ export class ShitenService {
     }
   }
 
+  // ─── ACSMS-API-COMMON — Shiten dropdown (SCR-011) ───────────────────
+  /**
+   * Minimal dropdown projection consumed by 購読者情報登録 (SCR-011)'s
+   * 引落口座支店 picker. Optional `kinyu_shiten_flg` filter narrows to
+   * 金融機関支店 only (machine-readable filter for the 口座引落 case).
+   * Scoped by `applyJaScope`; NICHINO_* see all JAs unless `ja_id` is
+   * supplied. Soft-deleted rows excluded. `q` partial-matches
+   * shiten_name (ILIKE).
+   */
+  async listDropdown(
+    query: { ja_id?: number; kinyu_shiten_flg?: boolean; q?: string },
+    session: SessionPayload,
+  ): Promise<
+    Array<{
+      shiten_id: number;
+      shiten_code: string;
+      shiten_name: string;
+      kanri_shiten_id: number;
+      kinyu_shiten_flg: boolean;
+      jastem_toriatsukai_tenpo_code: string;
+      jastem_tenpo_name: string;
+    }>
+  > {
+    const qb = this.repo
+      .createQueryBuilder('m')
+      .where('m.deleted_at IS NULL');
+    applyJaScope(qb, 'm', 'jaId', session);
+    if (session.ja_id == null && query.ja_id !== undefined) {
+      qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+    }
+    if (query.kinyu_shiten_flg !== undefined) {
+      qb.andWhere('m.kinyu_shiten_flg = :ksf', {
+        ksf: query.kinyu_shiten_flg,
+      });
+    }
+    if (query.q) {
+      qb.andWhere('m.shiten_name ILIKE :q', { q: `%${query.q}%` });
+    }
+    qb.orderBy('m.shiten_code', 'ASC');
+    const rows = await qb.getMany();
+    return rows.map((r) => ({
+      shiten_id: Number(r.shitenId),
+      shiten_code: r.shitenCode,
+      shiten_name: r.shitenName,
+      kanri_shiten_id: Number(r.kanriShitenId),
+      kinyu_shiten_flg: Boolean(r.kinyuShitenFlg),
+      jastem_toriatsukai_tenpo_code: r.jastemToriatsukaiTenpoCode ?? '',
+      jastem_tenpo_name: r.jastemTenpoName ?? '',
+    }));
+  }
+
   // ─── API-007-001 — GET /api/v1/shiten/:id ────────────────────────────
   /**
    * Detail view for the edit form. Applies §4.3 DataScope (combined
@@ -261,8 +354,8 @@ export class ShitenService {
     };
     // [data-scope] (画面定義§1.2) — non-admin roles scope by ja_id.
     if (
-      session.role_code !== 'NICHINO_ADMIN' &&
-      session.role_code !== 'NICHINO_STAFF' &&
+      session.role_code !== RoleCode.NICHINO_ADMIN &&
+      session.role_code !== RoleCode.NICHINO_STAFF &&
       session.ja_id !== null
     ) {
       where.jaId = session.ja_id;
@@ -404,8 +497,8 @@ export class ShitenService {
       deletedAt: IsNull(),
     };
     if (
-      session.role_code !== 'NICHINO_ADMIN' &&
-      session.role_code !== 'NICHINO_STAFF' &&
+      session.role_code !== RoleCode.NICHINO_ADMIN &&
+      session.role_code !== RoleCode.NICHINO_STAFF &&
       session.ja_id !== null
     ) {
       where.jaId = session.ja_id;
@@ -427,12 +520,19 @@ export class ShitenService {
       );
     }
 
-    // [role-allow-list] — per role. Per api.md, CHUOKAI /
-    // JA_HONTEN / JA_KANRI_SHITEN can update shiten_name,
-    // shiten_name_kana, kinyu_shiten_flg, kanri_shiten_id, biko.
-    // NICHINO_ADMIN has no shiten.* permissions (blocked at guard) so
-    // this branch handles only the 3 JA-level roles uniformly.
-    const filtered = dto as unknown as Record<string, unknown>;
+    // [role-allow-list] — silent-drop disallowed columns per
+    // FIELD_RESTRICTIONS. Today the only role with a narrower allow-list
+    // is JA_KANRI_SHITEN, which cannot touch `kanri_shiten_id`; every
+    // other role gets `['*']` (full passthrough). The `pickXxx(...)`
+    // helpers below fall back to the existing `before.*` value when a
+    // key is missing from `filtered`, so a dropped column simply
+    // preserves its prior value instead of writing null.
+    const filtered = filterAllowedFields(
+      dto as unknown as Record<string, unknown>,
+      'shiten',
+      session.role_code,
+      FIELD_RESTRICTIONS,
+    ) as Record<string, unknown>;
 
     let after: Shiten = before;
     try {

@@ -7,12 +7,15 @@ import axiosInstance from '@/api/axios-instance';
 export interface OshiraseListItem {
   oshirase_id: number;
   ja_id: number | null;
+  /**
+   * Resolved ja_name from BE leftJoin (m_ja). null when ja_id is null
+   * (= 全JA向け) OR when the referenced JA was hard-deleted. Renderer
+   * substitutes '全JA向け' for null.
+   */
+  ja_name: string | null;
   oshirase_type: number;
-  oshirase_type_label: string;
   publish_location: number;
-  publish_location_label: string;
   status: number;
-  status_label: string;
   title: string;
   publish_start_date: string;
   publish_end_date: string | null;
@@ -90,12 +93,14 @@ export async function listOshirase(
 
 // ─── ACSMS-API-010-001 — Menu screen list (authenticated, any role) ─────
 
+// [no-labels-policy] SCR-010 menu list is authenticated — BE does not
+// emit `oshirase_type_label`. Consumers resolve via
+// `useCodesStore().label('OSHIRASE_TYPE', oshirase_type)`.
 export interface MenuOshiraseItem {
   oshirase_id: number;
   title: string;
   content: string;
   oshirase_type: number;
-  oshirase_type_label: string;
   publish_start_date: string;
   publish_end_date: string | null;
   is_new: boolean;

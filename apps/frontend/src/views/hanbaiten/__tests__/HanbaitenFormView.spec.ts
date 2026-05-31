@@ -41,6 +41,28 @@ vi.mock('@/api/todofuken/todofuken', () => ({
   getTodofukenList: vi.fn(),
 }));
 
+// 配達手数料単価 dropdown (BaseTankaDropdown calls this on mount). Without
+// this stub the component hits the real network in jsdom → ERR_NETWORK
+// unhandled rejections pollute the suite output.
+vi.mock('@/api/tanka/tanka', () => ({
+  getTankaDropdown: vi.fn().mockResolvedValue({
+    data: [],
+    meta: { total: 0, page: 1, per_page: 50, has_more: false },
+  }),
+}));
+
+// BaseJaDropdown (only rendered for NICHINO_STAFF) calls /api/v1/ja/dropdown
+// — same rationale as the tanka stub above.
+vi.mock('@/api/ja/ja', () => ({
+  getJaDropdown: vi.fn().mockResolvedValue({
+    data: [
+      { ja_id: 7, ja_code: '0007', ja_name: 'JA 七つの郷' },
+      { ja_id: 42, ja_code: '0042', ja_name: 'JA 四二農協' },
+    ],
+    meta: { total: 2, page: 1, per_page: 50, has_more: false },
+  }),
+}));
+
 // Spy on antd's global toasts. Antd's `MessageType` is a callable
 // PromiseLike — return undefined via cast so the spy compiles even
 // once `@ts-nocheck` is removed.
@@ -55,6 +77,11 @@ interface RenderOptions {
   hanbaitenId?: number;
   /** Override default JA_HONTEN session (for access-denied path). */
   user?: ReturnType<typeof buildAuthUser>;
+  /**
+   * Optional route query (e.g. `{ ja_id: '42' }`) — staff-prefill
+   * flow exercises this when 販売店情報登録 navigates from the list.
+   */
+  query?: Record<string, string>;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -85,7 +112,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
       params: { id: String(opts.hanbaitenId) },
     });
   } else {
-    await router.push({ name: 'HanbaitenCreate' });
+    await router.push({ name: 'HanbaitenCreate', query: opts.query });
   }
   await router.isReady();
 
@@ -208,14 +235,25 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
     expect(labels.some((t) => t.includes('口座名義'))).toBe(true);
   });
 
-  it('should render the 配達手数料支払サイクル / 振込手数料負担区分 / 手数料 / 廃店フラグ / 備考 labels when mounted', async () => {
+  it('should render the 配達手数料支払サイクル / 振込手数料負担区分 / 手数料 / 備考 labels when mounted (create)', async () => {
+    // [haiten-edit-only] 廃店フラグ deliberately omitted from CREATE mode
+    // (customer 2026-05-26 — new hanbaiten are always 営業中). The edit
+    // mode below asserts it DOES render.
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label').map((l) => l.text());
     expect(labels.some((t) => t.includes('配達手数料支払サイクル'))).toBe(true);
     expect(labels.some((t) => t.includes('振込手数料負担区分'))).toBe(true);
     expect(labels.some((t) => t.includes('手数料'))).toBe(true);
-    expect(labels.some((t) => t.includes('廃店フラグ'))).toBe(true);
     expect(labels.some((t) => t.includes('備考'))).toBe(true);
+    expect(labels.some((t) => t.includes('廃店フラグ'))).toBe(false);
+  });
+
+  it('should render the 廃店フラグ checkbox in edit mode', async () => {
+    // [haiten-edit-only] EDIT mode keeps the toggle so ops can mark a
+    // store as 廃店.
+    const { wrapper } = await renderView({ hanbaitenId: 1 });
+    const labels = wrapper.findAll('label').map((l) => l.text());
+    expect(labels.some((t) => t.includes('廃店フラグ'))).toBe(true);
   });
 
   it('should fetch the todofuken dropdown once when mounted (COMMON-001)', async () => {
@@ -809,5 +847,161 @@ describe('HanbaitenFormView — 都道府県 dropdown (COMMON-001)', () => {
     await renderView({ hanbaitenId: 1 });
     const { getTodofukenList } = await import('@/api/todofuken/todofuken');
     expect(getTodofukenList).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// [staff-ja-id] NICHINO_STAFF 代行入力 create-form path
+// ───────────────────────────────────────────────────────────────────────
+describe('HanbaitenFormView — NICHINO_STAFF 代行入力 path', () => {
+  const staffUser = () =>
+    buildAuthUser({
+      role_code: 'NICHINO_STAFF',
+      role_id: 2,
+      ja_id: null,
+      permissions: ['hanbaiten.daiko_input'],
+    });
+
+  it('should render the JA picker form-item for staff', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    expect(
+      wrapper.find('[data-test="hanbaiten-staff-ja-form-item"]').exists(),
+    ).toBe(true);
+  });
+
+  it('should NOT render the JA picker for JA-scoped roles', async () => {
+    const { wrapper } = await renderView();
+    expect(
+      wrapper.find('[data-test="hanbaiten-staff-ja-form-item"]').exists(),
+    ).toBe(false);
+  });
+
+  it('should prefill formState.ja_id from ?ja_id query on create-mode mount', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      query: { ja_id: '42' },
+    });
+    const vm = wrapper.vm as unknown as { formState: { ja_id: number | null } };
+    expect(vm.formState.ja_id).toBe(42);
+  });
+
+  it('should flag ja_id REQUIRED when staff submits create without picking a JA', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    const vm = wrapper.vm as unknown as {
+      formState: Record<string, unknown>;
+      fieldErrors: Record<string, string>;
+    };
+    await fillForm(vm, {
+      hanbaiten_code: 'H777',
+      hanbaiten_name: '販売店A',
+      itaku_kubun: 2,
+    });
+    const form = wrapper.find('form');
+    await form.trigger('submit');
+    await flushPromises();
+    expect(vm.fieldErrors.ja_id).toBe('必須項目です。');
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    expect(createHanbaiten).not.toHaveBeenCalled();
+  });
+
+  it('should include ja_id in the POST body when NICHINO_STAFF submits create with JA picked', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      query: { ja_id: '42' },
+    });
+    const vm = wrapper.vm as unknown as { formState: Record<string, unknown> };
+    await fillForm(vm, {
+      hanbaiten_code: 'H777',
+      hanbaiten_name: '販売店A',
+      itaku_kubun: 2,
+    });
+    const form = wrapper.find('form');
+    await form.trigger('submit');
+    await flushPromises();
+
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    expect(createHanbaiten).toHaveBeenCalled();
+    const callBody = vi.mocked(createHanbaiten).mock.calls[0]?.[0] as
+      | unknown as Record<string, unknown> | undefined;
+    expect(callBody?.ja_id).toBe(42);
+  });
+
+  it('should NOT include ja_id in the POST body for JA-scoped roles (BE binds session.ja_id)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as { formState: Record<string, unknown> };
+    await fillForm(vm, {
+      hanbaiten_code: 'H777',
+      hanbaiten_name: '販売店A',
+      itaku_kubun: 2,
+    });
+    const form = wrapper.find('form');
+    await form.trigger('submit');
+    await flushPromises();
+
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    expect(createHanbaiten).toHaveBeenCalled();
+    const callBody = vi.mocked(createHanbaiten).mock.calls[0]?.[0] as
+      | unknown as Record<string, unknown> | undefined;
+    expect('ja_id' in (callBody ?? {})).toBe(false);
+  });
+
+  it('should disable the BaseJaDropdown in edit mode (FK immutable)', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      hanbaitenId: 1,
+    });
+    const dropdown = wrapper.findComponent({ name: 'BaseJaDropdown' });
+    expect(dropdown.exists()).toBe(true);
+    expect(dropdown.props('disabled')).toBe(true);
+  });
+
+  it('should disable BaseTankaDropdown for staff in create mode when no JA picked', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    const tanka = wrapper.findComponent({ name: 'BaseTankaDropdown' });
+    expect(tanka.exists()).toBe(true);
+    expect(tanka.props('disabled')).toBe(true);
+  });
+
+  it('should enable BaseTankaDropdown for staff once a JA is picked', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      query: { ja_id: '42' },
+    });
+    const tanka = wrapper.findComponent({ name: 'BaseTankaDropdown' });
+    expect(tanka.exists()).toBe(true);
+    expect(tanka.props('disabled')).toBe(false);
+    // jaId prop forwards the picked tenant so option fetches scope correctly.
+    expect(tanka.props('jaId')).toBe(42);
+  });
+
+  it('should keep BaseTankaDropdown enabled for staff in edit mode (JA immutable)', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      hanbaitenId: 1,
+    });
+    const tanka = wrapper.findComponent({ name: 'BaseTankaDropdown' });
+    expect(tanka.exists()).toBe(true);
+    expect(tanka.props('disabled')).toBe(false);
+  });
+
+  it('should reset haitatsuryo_tanka_id when staff swaps JA (cascade)', async () => {
+    const { wrapper } = await renderView({
+      user: staffUser(),
+      query: { ja_id: '42' },
+    });
+    const vm = wrapper.vm as unknown as {
+      formState: { ja_id: number | null; haitatsuryo_tanka_id: number | null };
+    };
+    // Pretend staff picked a tanka under JA=42.
+    vm.formState.haitatsuryo_tanka_id = 99;
+    await flushPromises();
+
+    // Switch JA via BaseJaDropdown → cascade watch must blank the tanka.
+    const dropdown = wrapper.findComponent({ name: 'BaseJaDropdown' });
+    dropdown.vm.$emit('update:value', 7);
+    await flushPromises();
+
+    expect(vm.formState.ja_id).toBe(7);
+    expect(vm.formState.haitatsuryo_tanka_id).toBeNull();
   });
 });

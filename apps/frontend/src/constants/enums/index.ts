@@ -17,4 +17,6 @@ export { ResultStatus } from './result-status';
 export { LoginResult } from './login-result';
 export { OtpType } from './otp-type';
 export { OshiraseStatus } from './oshirase-status';
+export { OshiraseType } from './oshirase-type';
 export { PublishLocation } from './publish-location';
+export { RoleCode } from './role-code';

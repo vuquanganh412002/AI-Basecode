@@ -798,5 +798,61 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
         resultStatus: 2,
       });
     });
+
+    // ─── FIELD_RESTRICTIONS (security.md Layer 3) ─────────────────────
+    it('should SILENTLY DROP kanri_shiten_id when JA_KANRI_SHITEN sends it on update', async () => {
+      // Customer policy 2026-05: role 5 cannot reassign a shiten to
+      // a different kanri-shiten. Existing row's kanriShitenId stays
+      // intact even when the DTO carries a different value.
+      // FE mirror: ShitenFormView.vue disables the 管理支店 select
+      // for role 5 — this BE drop is the authoritative gate.
+      const dtoWithKanri = {
+        ...validDto,
+        kanri_shiten_id: 99, // attempted reassignment
+      };
+      const ksSession = buildJaKanriShitenSession({ ja_id: 1, kanri_shiten_id: 1 });
+      // The fetchFkInJa guard runs BEFORE filterAllowedFields; mock so
+      // the lookup succeeds (parent row 99 exists in JA 1). The drop
+      // happens at the field-restriction step, not the FK step.
+      kanriShitenRepo.findOne.mockResolvedValue({ kanriShitenId: 99, jaId: 1 });
+
+      const result = await service.update(1, dtoWithKanri, ksSession, baseReq);
+      // The result should reflect the ORIGINAL kanri_shiten_id, not the
+      // smuggled 99 — proves filterAllowedFields dropped it before the
+      // pickNumber fallback to before.kanriShitenId.
+      expect(result.kanri_shiten_id).toBe(1);
+    });
+
+    it('should ACCEPT every other field (shiten_name / kinyu_shiten_flg / biko / JASTEM) when JA_KANRI_SHITEN updates', async () => {
+      // Regression guard — only kanri_shiten_id is locked. Every other
+      // column on the DTO must still round-trip for role 5.
+      const dto = {
+        shiten_name: 'role-5 renamed',
+        shiten_name_kana: 'ﾛｰﾙ5',
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '888',
+        jastem_tenpo_name: 'ﾃｽﾄﾃﾝﾎﾟ',
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+        biko: 'role 5 edited 備考',
+      };
+      const ksSession = buildJaKanriShitenSession({ ja_id: 1, kanri_shiten_id: 1 });
+
+      const result = await service.update(1, dto, ksSession, baseReq);
+      expect(result.shiten_name).toBe('role-5 renamed');
+      expect(result.shiten_name_kana).toBe('ﾛｰﾙ5');
+      expect(result.kinyu_shiten_flg).toBe(true);
+      expect(result.jastem_toriatsukai_tenpo_code).toBe('888');
+      expect(result.biko).toBe('role 5 edited 備考');
+    });
+
+    it('should ACCEPT kanri_shiten_id when CHUOKAI / JA_HONTEN update (lock is scoped to role 5)', async () => {
+      // CHUOKAI carries `['*']` in FIELD_RESTRICTIONS so the value
+      // flows through. Verifies the lock didn't accidentally generalise.
+      const dtoWithKanri = { ...validDto, kanri_shiten_id: 7 };
+      kanriShitenRepo.findOne.mockResolvedValueOnce({ kanriShitenId: 7, jaId: 1 });
+      const result = await service.update(1, dtoWithKanri, buildChuokaiSession({ ja_id: 1 }), baseReq);
+      expect(result.kanri_shiten_id).toBe(7);
+    });
   });
 });

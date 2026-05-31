@@ -18,12 +18,21 @@ interface Props {
    * list-below screens) or for selection state. Return `''` for no class.
    */
   rowClassName?: (row: T, index: number) => string;
+  /**
+   * Optional row-selection config forwarded to a-table — enables the
+   * checkbox column (multi-select) or radio column (single-select).
+   * Pass `{ selectedRowKeys, onChange }` for controlled multi-select.
+   * See `apps/frontend/src/views/file-download/FileDownloadView.vue`
+   * for canonical usage.
+   */
+  rowSelection?: Record<string, unknown>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
   rowKey: 'id',
   rowClassName: undefined,
+  rowSelection: undefined,
 });
 
 type SorterShape = { field?: string; order?: 'ascend' | 'descend' };
@@ -62,6 +71,7 @@ function handleChange(
       :loading="props.loading"
       :row-key="props.rowKey"
       :row-class-name="props.rowClassName"
+      :row-selection="props.rowSelection"
       :scroll="{ x: 'max-content' }"
       :pagination="{
         current: props.page,

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
+import BaseAccountDropdown from '@/components/common/BaseAccountDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
+import { useCodesStore } from '@/stores/codes.store';
+import { ResultStatus } from '@/constants/enums';
 import {
   listLogs,
   exportLogCsv,
@@ -13,9 +16,11 @@ import {
   type LogListItem,
 } from '@/api/log/log';
 import {
-  listAccountDropdown,
-  type AccountDropdownItem,
-} from '@/api/account/account';
+  parseDatetimeWithSecondsTokyo,
+  timestampForFilenameTokyo,
+} from '@/utils/datetime';
+
+const codes = useCodesStore();
 
 interface LogFilters {
   date_from: string;
@@ -39,15 +44,13 @@ const { state, loading, total, onChange, applyFilters, resetFilters } =
   });
 
 const rows = ref<LogListItem[]>([]);
-const accountOptions = ref<AccountDropdownItem[]>([]);
 
 // 機能定義 1.3 — ログ種別 dropdown options (デフォルト = すべて).
-const LOG_TYPE_OPTIONS = [
-  { value: 1, label: 'ユーザー操作ログ' },
-  { value: 2, label: 'システムログ' },
-  { value: 3, label: 'エラーログ' },
-  { value: 4, label: 'ファイルアップロード' },
-];
+// LOG_TYPE は Group A (TS enum あり) だが、表示ラベルは m_code 由来
+// （customer が管理画面でラベルを変えても FE redeploy 不要）。
+// 値で分岐するロジックは `LogType` 定数を使う（このファイルでは現状
+// 分岐ロジック無し — 選択値はそのまま BE クエリへ渡すだけ）。
+const LOG_TYPE_OPTIONS = computed(() => codes.options('LOG_TYPE'));
 
 const columns: TableColumnsType = [
   { title: '日時', dataIndex: 'log_datetime', key: 'log_datetime', sorter: true, width: 180 },
@@ -70,31 +73,21 @@ function buildQuery(): ListLogsQuery {
   };
 }
 
-function parseDatetime(s: string): Date | null {
-  const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
-  if (!m) return null;
-  const [, y, mo, d, h, mi, se] = m;
-  return new Date(
-    Number(y),
-    Number(mo) - 1,
-    Number(d),
-    Number(h),
-    Number(mi),
-    Number(se),
-  );
-}
-
 /**
  * Validates date range. Returns `true` when valid (or both blank), `false`
  * when invalid (and toasts the user-facing message — ACSMS-MSG-030-001 /
  * 030-002).
+ *
+ * Both ends are parsed as Asia/Tokyo via `@/utils/datetime` — the system
+ * is JST-only operationally (`.claude/rules/vue.md §Date/Time`), so the
+ * comparison must not depend on the browser's local TZ.
  */
 function validateDateRange(): boolean {
   const from = state.filters.date_from?.trim();
   const to = state.filters.date_to?.trim();
   if (!from || !to) return true;
-  const fromDate = parseDatetime(from);
-  const toDate = parseDatetime(to);
+  const fromDate = parseDatetimeWithSecondsTokyo(from);
+  const toDate = parseDatetimeWithSecondsTokyo(to);
   if (!fromDate || !toDate) return true;
   if (fromDate.getTime() > toDate.getTime()) {
     message.error('「開始日」は「終了日」以前の日付を入力してください。');
@@ -125,18 +118,10 @@ async function fetchList(): Promise<void> {
   }
 }
 
-async function fetchAccountOptions(): Promise<void> {
-  try {
-    const resp = await listAccountDropdown();
-    accountOptions.value = resp.data;
-  } catch {
-    accountOptions.value = [];
-  }
-}
-
 onMounted(() => {
   void fetchList();
-  void fetchAccountOptions();
+  // Account dropdown self-hydrates via <BaseAccountDropdown>'s onMounted
+  // hook — no view-level fetch required.
 });
 
 function onSearch(): void {
@@ -155,13 +140,9 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
   void fetchList();
 }
 
-function timestampForFilename(now: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-  );
-}
+// Filename timestamp is built in Asia/Tokyo by `timestampForFilenameTokyo`
+// — see `.claude/rules/vue.md §Date/Time`. Kept here as a tiny call-site
+// for readability.
 
 async function onCsvExport(): Promise<void> {
   if (!validateDateRange()) return;
@@ -173,14 +154,14 @@ async function onCsvExport(): Promise<void> {
       account_id: state.filters.account_id ?? undefined,
     };
     const blob = await exportLogCsv(params);
-    const url = window.URL.createObjectURL(blob);
+    const url = globalThis.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `log_export_${timestampForFilename(new Date())}.csv`;
+    link.download = `log_export_${timestampForFilenameTokyo()}.csv`;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    link.remove();
+    globalThis.URL.revokeObjectURL(url);
     message.success('CSVファイルをダウンロードしました。');
   } catch (err: unknown) {
     // ACSMS-MSG-030-005 — EXPORT_LIMIT_EXCEEDED has a user-actionable
@@ -199,8 +180,8 @@ async function onCsvExport(): Promise<void> {
 }
 
 function resultBadgeClass(status: number): string {
-  if (status === 1) return 'bg-success-subtle text-success';
-  if (status === 2) return 'bg-error-subtle text-error';
+  if (status === ResultStatus.SUCCESS) return 'bg-success-subtle text-success';
+  if (status === ResultStatus.FAILURE) return 'bg-error-subtle text-error';
   return 'bg-warning-subtle text-warning';
 }
 
@@ -223,11 +204,10 @@ defineExpose({ state, fetchList });
            jaJP locale (registered globally in App.vue's <ConfigProvider>).
            format=display (YYYY/MM/DD HH:mm:ss), value-format=wire (same)
            keeps the form-state field a plain string the BE accepts. -->
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          期間（開始）
-        </label>
+      <label for="log-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">期間（開始）</span>
         <a-date-picker
+          id="log-filter-1"
           v-model:value="state.filters.date_from"
           :show-time="{ format: 'HH:mm:ss' }"
           format="YYYY/MM/DD HH:mm:ss"
@@ -236,12 +216,11 @@ defineExpose({ state, fetchList });
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          期間（終了）
-        </label>
+      </label>
+      <label for="log-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">期間（終了）</span>
         <a-date-picker
+          id="log-filter-2"
           v-model:value="state.filters.date_to"
           :show-time="{ format: 'HH:mm:ss' }"
           format="YYYY/MM/DD HH:mm:ss"
@@ -250,12 +229,11 @@ defineExpose({ state, fetchList });
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          ログ種別
-        </label>
+      </label>
+      <label for="log-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">ログ種別</span>
         <a-select
+          id="log-filter-3"
           v-model:value="state.filters.log_type"
           placeholder="すべて"
           allow-clear
@@ -269,31 +247,22 @@ defineExpose({ state, fetchList });
             {{ opt.label }}
           </a-select-option>
         </a-select>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          ユーザ名
-        </label>
-        <a-select
-          v-model:value="state.filters.account_id"
-          placeholder="選択してください"
-          allow-clear
-          show-search
-          :filter-option="
-            (input: string, option: { children?: unknown }) =>
-              String(option?.children ?? '').includes(input)
-          "
-          class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in accountOptions"
-            :key="opt.account_id"
-            :value="opt.account_id"
-          >
-            {{ opt.login_id }}: {{ opt.account_name }}
-          </a-select-option>
-        </a-select>
-      </div>
+      </label>
+      <label for="log-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">ユーザー</span>
+        <!-- BaseAccountDropdown: server-side paginated (50/page) +
+             infinite scroll. Defaults intentionally — display
+             `${login_id} ${account_name}` (disambiguates accounts that
+             share a display name in log troubleshooting) + search both
+             login_id and account_name. -->
+        <div class="flex-1">
+          <BaseAccountDropdown
+            id="log-filter-4"
+            v-model:value="state.filters.account_id"
+            placeholder="選択してください"
+          />
+        </div>
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-030-003 — empty-result message rendered as a sibling
@@ -304,7 +273,7 @@ defineExpose({ state, fetchList });
       class="text-text-description text-sm"
       data-test="log-empty-message"
     >
-      検索結果はありません。
+      検索結果が見つかりませんでした。
     </p>
 
     <BaseDataTable
@@ -336,7 +305,7 @@ defineExpose({ state, fetchList });
             class="px-2 py-1 rounded text-xs font-bold"
             :class="resultBadgeClass((record as LogListItem).result_status)"
           >
-            {{ (record as LogListItem).result_status_label }}
+            {{ codes.label('RESULT_STATUS', (record as LogListItem).result_status) }}
           </span>
         </template>
       </template>

@@ -15,6 +15,14 @@ export interface RoleListItem {
 
 export interface RoleDetail extends RoleListItem {
   permission_ids: number[];
+  /**
+   * Subset of `permission_ids` that are part of the role's seeded
+   * baseline (`m_roles_permissions.locked = TRUE`). The FE renders
+   * matching checkboxes `disabled` so admins can't accidentally
+   * strip system-essential permissions; the BE rejects any PATCH
+   * that drops one with a `VALIDATION_ERROR`.
+   */
+  locked_permission_ids: number[];
   /** ISO8601. Nullable only on read-after-create races; otherwise populated. */
   created_at: string | null;
   /** ISO8601. Nullable per api.md (row 8). */

@@ -1,4 +1,4 @@
-# Naming Conventions — agrinews
+# Naming Conventions — AgriNews_ACSMS
 
 > Standard naming rules for NestJS backend, Vue 3 frontend, TypeORM database, Terraform infrastructure, and more.
 
@@ -170,7 +170,7 @@ output "rds_endpoint" { ... }
 ### Tags (MANDATORY)
 ```hcl
 tags = {
-  Project     = "agrinews"
+  Project     = "AgriNews_ACSMS"
   Environment = var.environment   # dev | stg | prod
   ManagedBy   = "terraform"
   Team        = "engineering"

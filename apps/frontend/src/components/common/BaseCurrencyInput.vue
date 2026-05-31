@@ -87,7 +87,7 @@ function onBeforeInput(e: Event): void {
 }
 
 function onUpdate(v: string): void {
-  const cleaned = String(v).replace(/\D+/g, '');
+  const cleaned = String(v).replaceAll(/\D+/g, '');
   emit('update:value', cleaned === '' ? null : Number(cleaned));
 }
 </script>

@@ -413,11 +413,13 @@
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
             >
-              <ol class="inline-flex items-center space-x-1">
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
                 <li>ホーム</li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>マスタ管理</span>
+                  <a class="text-primary hover:underline cursor-pointer"
+                    >支店マスタ明細検索</a
+                  >
                 </li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
@@ -466,26 +468,26 @@
           </div>
           <div class="p-4">
             <form class="space-y-6">
-              <!-- Row: 管理支店 & 金融支店フラグ -->
+              <!-- Row 1: 管理支店 (md:col-span-2 = 2/3 width) + 金融機関支店フラグ -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- 管理支店 -->
-                <div class="space-y-1">
+                <!-- 管理支店 — spans 2/3 of the row -->
+                <div class="space-y-1 md:col-span-2">
                   <label
                     class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
                     >管理支店 <span class="text-red-500">*</span></label
                   >
                   <select
-                    class="w-full  border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
                     required
                   >
                     <option value="">選択してください</option>
-                    <option value="1">北支店</option>
-                    <option value="2">南支店</option>
-                    <option value="3">東支店</option>
+                    <option value="1">KS-13-001 - 中央管理支店</option>
+                    <option value="2">KS-13-002 - 北部管理支店</option>
+                    <option value="3">KS-13-003 - 南部管理支店</option>
                   </select>
                 </div>
 
-                <!-- 金融支店フラグ -->
+                <!-- 金融機関支店フラグ -->
                 <div class="flex items-end gap-3 pb-1">
                   <div class="flex items-center gap-2">
                     <input
@@ -504,7 +506,7 @@
                 </div>
               </div>
 
-              <!-- Row: 支店コード・支店名・支店カナ -->
+              <!-- Row 2: 支店コード・支店名・支店名カナ -->
               <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div class="space-y-1">
                   <label
@@ -514,6 +516,8 @@
                   <input
                     class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
                     type="text"
+                    maxlength="3"
+                    placeholder="支店コードを入力してください"
                     required
                   />
                 </div>
@@ -525,6 +529,8 @@
                   <input
                     class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
                     type="text"
+                    maxlength="100"
+                    placeholder="支店名を入力してください"
                     required
                   />
                 </div>
@@ -536,11 +542,65 @@
                   <input
                     class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
                     type="text"
+                    maxlength="100"
                   />
                 </div>
               </div>
 
-              <!-- Row: 備考 -->
+              <!-- Row 3: JASTEM 店舗単位 — 4 fields (※空文字許容).
+                   Visible labels drop the JASTEM_ prefix per customer-facing copy;
+                   the prefix lives only in the DB column / docs comments. -->
+              <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-6">
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                    >データ送信取扱店舗コード</label
+                  >
+                  <input
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
+                    type="text"
+                    maxlength="3"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                    >店舗名</label
+                  >
+                  <input
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
+                    type="text"
+                    maxlength="15"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                    >貯金種別</label
+                  >
+                  <select
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
+                  >
+                    <option value="">選択してください</option>
+                    <option value="1">1（普通）</option>
+                    <option value="2">2（当座）</option>
+                    <option value="9">9（その他）</option>
+                  </select>
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                    >口座番号</label
+                  >
+                  <input
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm"
+                    type="text"
+                    maxlength="7"
+                  />
+                </div>
+              </div>
+
+              <!-- Row 4: 備考 -->
               <div class="grid grid-cols-1 gap-6">
                 <div class="space-y-1">
                   <label

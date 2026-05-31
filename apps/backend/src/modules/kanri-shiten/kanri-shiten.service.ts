@@ -373,7 +373,7 @@ export class KanriShitenService {
           createdBy: String(session.account_id),
           updatedBy: String(session.account_id),
         });
-        const created = (await manager.save(entity)) as KanriShiten;
+        const created = await manager.save(entity);
 
         // [audit-log-in-tx] — same tx so atomicity holds.
         await this.auditLog.logCreate(

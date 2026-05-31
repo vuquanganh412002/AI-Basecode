@@ -88,28 +88,27 @@ ACSMS-SCR-019
 | 7.0 | 販売店名称 | col_02 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 販売店名称 | hanbaiten_name | 列パネル表示中 |
 | 8.0 | 販売店名称（カナ） | col_03 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 販売店名称カナ | hanbaiten_name_kana | 列パネル表示中 |
 | 9.0 | インボイス番号 | col_04 | Checkbox | 入 |  | Boolean |  | 20 | VARCHAR(20) | 販売店マスタ | m_hanbaiten | インボイス番号 | torihikisaki_no | 列パネル表示中 |
-| 10.0 | 都道府県コード | col_05 | Checkbox | 入 | ○ | Boolean | 2 | 2 | VARCHAR(2) | 販売店マスタ | m_hanbaiten | 都道府県コード | todofuken_code | 列パネル表示中 |
-| 11.0 | 郵便番号 | col_06 | Checkbox | 入 |  | Boolean | 7 | 7 | VARCHAR(7) | 販売店マスタ | m_hanbaiten | 郵便番号 | yubin_no | 列パネル表示中 |
-| 12.0 | 住所 | col_07 | Checkbox | 入 |  | Boolean |  | 200 | VARCHAR(200) | 販売店マスタ | m_hanbaiten | 住所 | address | 列パネル表示中 |
-| 13.0 | 電話番号 | col_08 | Checkbox | 入 |  | Boolean |  | 15 | VARCHAR(15) | 販売店マスタ | m_hanbaiten | 電話番号 | tel | 列パネル表示中 |
-| 14.0 | FAX番号 | col_09 | Checkbox | 入 |  | Boolean |  | 15 | VARCHAR(15) | 販売店マスタ | m_hanbaiten | FAX番号 | fax | 列パネル表示中 |
-| 15.0 | 所長名 | col_10 | Checkbox | 入 |  | Boolean |  | 50 | VARCHAR(50) | 販売店マスタ | m_hanbaiten | 所長名 | shocho_name | 列パネル表示中 |
-| 16.0 | 委託区分 | col_11 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 委託区分 | itaku_kubun | 列パネル表示中 |
-| 17.0 | 配達手数料単価 | col_12 | Checkbox | 入 |  | Boolean |  | 10 | VARCHAR(10)→BIGINT | 販売店マスタ | m_hanbaiten | 配達手数料単価コード | haitatsuryo_tanka_code → haitatsuryo_tanka_id | 列パネル表示中 |
-| 18.0 | 金融機関コード | col_13 | Checkbox | 入 |  | Boolean |  | 4 | VARCHAR(4) | 販売店マスタ | m_hanbaiten | 金融機関コード | bank_code | 列パネル表示中 |
-| 19.0 | 金融機関名 | col_14 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 金融機関名 | bank_name | 列パネル表示中 |
-| 20.0 | 配達手数料支払サイクル | col_15 | Checkbox | 入 |  | Boolean |  |  | INTEGER | 販売店マスタ | m_hanbaiten | 配達手数料支払サイクル | haitatsuryo_shiharai_cycle | 列パネル表示中 |
-| 21.0 | 口座支店コード | col_16 | Checkbox | 入 |  | Boolean |  | 3 | VARCHAR(3) | 販売店マスタ | m_hanbaiten | 口座支店コード | bank_branch_code | 列パネル表示中 |
-| 22.0 | 口座支店名 | col_17 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 口座支店名 | bank_branch_name | 列パネル表示中 |
-| 23.0 | 口座種別 | col_18 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 口座種別 | yokin_shubetsu | 列パネル表示中 |
-| 24.0 | 口座番号 | col_19 | Checkbox | 入 |  | Boolean |  | 10 | VARCHAR(10) | 販売店マスタ | m_hanbaiten | 口座番号 | koza_no | 列パネル表示中 |
-| 25.0 | 口座名義 | col_20 | Checkbox | 入 |  | Boolean |  | 50 | VARCHAR(50) | 販売店マスタ | m_hanbaiten | 口座名義 | koza_meigi | 列パネル表示中 |
-| 26.0 | 手数料区分 | col_21 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 手数料区分 | tesuryo_kubun | 列パネル表示中 |
-| 27.0 | 手数料 | col_22 | Checkbox | 入 |  | Boolean |  | 10 | NUMERIC(10,0) | 販売店マスタ | m_hanbaiten | 手数料 | tesuryo_amount | 列パネル表示中 |
-| 28.0 | 備考 | col_23 | Checkbox | 入 |  | Boolean |  |  | TEXT | 販売店マスタ | m_hanbaiten | 備考 | biko | 列パネル表示中 |
-| 29.0 | 廃店フラグ | col_24 | Checkbox | 入 |  | Boolean |  |  | BOOLEAN | 販売店マスタ | m_hanbaiten | 廃店フラグ | haiten_flg | 列パネル表示中 |
-| 30.0 | 取込データプレビュー | previewSection | Label |  |  |  |  |  | — |  |  |  |  | 列パネル表示中 |
-| 31.0 | 取込開始ボタン | btnImport | Button | 入 |  |  |  |  | — |  |  |  |  | 常に表示 |
+| 10.0 | 郵便番号 | col_05 | Checkbox | 入 |  | Boolean | 7 | 7 | VARCHAR(7) | 販売店マスタ | m_hanbaiten | 郵便番号 | yubin_no | 列パネル表示中 |
+| 11.0 | 住所 | col_06 | Checkbox | 入 |  | Boolean |  | 200 | VARCHAR(200) | 販売店マスタ | m_hanbaiten | 住所 | address | 列パネル表示中 |
+| 12.0 | 電話番号 | col_07 | Checkbox | 入 |  | Boolean |  | 15 | VARCHAR(15) | 販売店マスタ | m_hanbaiten | 電話番号 | tel | 列パネル表示中 |
+| 13.0 | FAX番号 | col_08 | Checkbox | 入 |  | Boolean |  | 15 | VARCHAR(15) | 販売店マスタ | m_hanbaiten | FAX番号 | fax | 列パネル表示中 |
+| 14.0 | 所長名 | col_09 | Checkbox | 入 |  | Boolean |  | 50 | VARCHAR(50) | 販売店マスタ | m_hanbaiten | 所長名 | shocho_name | 列パネル表示中 |
+| 15.0 | 委託区分 | col_10 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 委託区分 | itaku_kubun | 列パネル表示中 |
+| 16.0 | 配達手数料単価 | col_11 | Checkbox | 入 |  | Boolean |  | 10 | VARCHAR(10)→BIGINT | 販売店マスタ | m_hanbaiten | 配達手数料単価コード | haitatsuryo_tanka_code → haitatsuryo_tanka_id | 列パネル表示中 |
+| 17.0 | 金融機関コード | col_12 | Checkbox | 入 |  | Boolean |  | 4 | VARCHAR(4) | 販売店マスタ | m_hanbaiten | 金融機関コード | bank_code | 列パネル表示中 |
+| 18.0 | 金融機関名 | col_13 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 金融機関名 | bank_name | 列パネル表示中 |
+| 19.0 | 配達手数料支払サイクル | col_14 | Checkbox | 入 |  | Boolean |  |  | INTEGER | 販売店マスタ | m_hanbaiten | 配達手数料支払サイクル | haitatsuryo_shiharai_cycle | 列パネル表示中 |
+| 20.0 | 口座支店コード | col_15 | Checkbox | 入 |  | Boolean |  | 3 | VARCHAR(3) | 販売店マスタ | m_hanbaiten | 口座支店コード | bank_branch_code | 列パネル表示中 |
+| 21.0 | 口座支店名 | col_16 | Checkbox | 入 |  | Boolean |  | 100 | VARCHAR(100) | 販売店マスタ | m_hanbaiten | 口座支店名 | bank_branch_name | 列パネル表示中 |
+| 22.0 | 口座種別 | col_17 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 口座種別 | yokin_shubetsu | 列パネル表示中 |
+| 23.0 | 口座番号 | col_18 | Checkbox | 入 |  | Boolean |  | 10 | VARCHAR(10) | 販売店マスタ | m_hanbaiten | 口座番号 | koza_no | 列パネル表示中 |
+| 24.0 | 口座名義 | col_19 | Checkbox | 入 |  | Boolean |  | 50 | VARCHAR(50) | 販売店マスタ | m_hanbaiten | 口座名義 | koza_meigi | 列パネル表示中 |
+| 25.0 | 手数料区分 | col_20 | Checkbox | 入 |  | Boolean | 1 | 1 | INTEGER | 販売店マスタ | m_hanbaiten | 手数料区分 | tesuryo_kubun | 列パネル表示中 |
+| 26.0 | 手数料 | col_21 | Checkbox | 入 |  | Boolean |  | 10 | NUMERIC(10,0) | 販売店マスタ | m_hanbaiten | 手数料 | tesuryo_amount | 列パネル表示中 |
+| 27.0 | 備考 | col_22 | Checkbox | 入 |  | Boolean |  |  | TEXT | 販売店マスタ | m_hanbaiten | 備考 | biko | 列パネル表示中 |
+| 28.0 | 廃店フラグ | col_23 | Checkbox | 入 |  | Boolean |  |  | TEXT | 販売店マスタ | m_hanbaiten | 廃店フラグ | haiten_flg | 列パネル表示中 |
+| 29.0 | 取込データプレビュー | previewSection | Label |  |  |  |  |  | — |  |  |  |  | 列パネル表示中 |
+| 30.0 | 取込開始ボタン | btnImport | Button | 入 |  |  |  |  | — |  |  |  |  | 常に表示 |
 
 
 ---
@@ -129,7 +128,7 @@ ACSMS-SCR-019
 | 0.0 | 画面初期表示 | ー | 表示 | 画面がデフォルト状態で表示され、取込列パネルは展開された状態で、全てのチェックボックスが選択済みの状態にあり |
 | 1.0 | Excelファイル選択 | Excelファイル選択 | 変更 | ファイル選択時にExcel内容を解析し、取込データプレビューを更新 |
 | 2.0 | 取込モード選択 | 取込モード | 変更 | デフォルト値は「新規登録」 |
-| 3.0 | テンプレートダウンロード | 「テンプレート」ボタン | クリック | 24列固定のExcelファイルテンプレートを生成しダウンロード |
+| 3.0 | テンプレートダウンロード | 「テンプレート」ボタン | クリック | 23列固定のExcelファイルテンプレートを生成しダウンロード |
 | 4.0 | 取込列パネルの折りたたみ・展開 | 取込列アコーディオンヘッダー | クリック | 取込列選択エリアの表示/非表示を切り替え |
 | 5.0 | 取込列チェックボックス操作 | 販売店コード〜備考 | 変更 | 一覧の各チェックボックスの状態を更新し、プレビューを再描画（必須列は常にチェック済みで選択不可） |
 | 6.0 | 取込データプレビュー表示 | 取込データプレビュー | （自動） | ファイル選択または列チェック変更時に自動で再描画 |
@@ -159,9 +158,9 @@ ACSMS-SCR-019
 
 #### 3. テンプレートダウンロード
 
-- **3.1** システムがExcelファイルを生成し、シート名: 「販売店」、1行目に24列を以下の順序通りに設定
-  - ・ 販売店コード、販売店名称、販売店名称カナ、インボイス番号、都道府県コード、郵便番号、住所、
-  - ・ 電話番号、FAX番号、所長名、委託区分、配達手数料単価、金融機関コード、金融機関名、
+- **3.1** システムがExcelファイルを生成し、シート名: 「販売店」、1行目に22列を以下の順序通りに設定
+  - ・ 販売店コード、販売店名称、販売店名称カナ、インボイス番号、郵便番号、住所、電話番号、
+  - ・ FAX番号、所長名、委託区分、配達手数料単価、金融機関コード、金融機関名、
   - ・ 配達手数料支払サイクル、口座支店コード、口座支店名、口座種別、口座番号、
   - ・ 口座名義、手数料区分、手数料、備考、廃店フラグ
 - **3.2** ファイル名 ＝ 販売店Excelデータ取込_テンプレート.xlsx でダウンロード

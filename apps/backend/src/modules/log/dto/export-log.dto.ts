@@ -2,14 +2,25 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
-const DATETIME_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/;
+/**
+ * YYYY/MM/DD HH:mm:ss format used by both date_from and date_to.
+ * Exported so SearchLogDto (and any future date-range DTO) can reuse
+ * the same regex literal — the duplicate `const DATETIME_RE = …` in
+ * search-log.dto.ts is now gone.
+ */
+export const LOG_DATETIME_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/;
 
+/** `@IsOptional` only skips null/undefined — strip blank strings first. */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
  * Query DTO for `GET /api/v1/log/export` (ACSMS-API-030-002).
- * Same filter fields as SearchLogDto minus pagination/sort.
+ *
+ * Carries ONLY the 4 filter fields shared with the list endpoint —
+ * `SearchLogDto` extends this class and adds `page`/`per_page`/
+ * `sort_by`/`sort_order`. The Sonar duplication detector previously
+ * counted the 4 filter blocks twice; centralising here eliminates that.
  */
 export class ExportLogDto {
   @ApiPropertyOptional({
@@ -19,7 +30,7 @@ export class ExportLogDto {
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: 'date_fromは文字列で指定してください。' })
-  @Matches(DATETIME_RE, {
+  @Matches(LOG_DATETIME_RE, {
     message: 'date_fromはYYYY/MM/DD HH:mm:ss形式で指定してください。',
   })
   date_from?: string;
@@ -31,7 +42,7 @@ export class ExportLogDto {
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: 'date_toは文字列で指定してください。' })
-  @Matches(DATETIME_RE, {
+  @Matches(LOG_DATETIME_RE, {
     message: 'date_toはYYYY/MM/DD HH:mm:ss形式で指定してください。',
   })
   date_to?: string;

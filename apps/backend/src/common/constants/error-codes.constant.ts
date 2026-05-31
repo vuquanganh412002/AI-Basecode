@@ -19,8 +19,16 @@ export const ErrorCode = {
 
   // ─── SCR-019 — 販売店Excelデータ取込 ──────────────────────────────────
   IMPORT_VALIDATION_ERROR: 'IMPORT_VALIDATION_ERROR', // 400 — row-level errors with errors[].row
-  FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',             // 400 — Excel parsing / unsupported format
+  FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',             // 400 — Excel parsing / unsupported format (also SCR-023)
   ROW_LIMIT_EXCEEDED: 'ROW_LIMIT_EXCEEDED',           // 400 — >500 rows in one import
+
+  // ─── SCR-023 — ファイルアップロード画面 ────────────────────────────────
+  FILE_SIZE_EXCEEDED: 'FILE_SIZE_EXCEEDED',           // 400 — single file > 10MB
+  TARGET_JA_REQUIRED: 'TARGET_JA_REQUIRED',           // 400 — ja_ids[] missing or empty
+
+  // ─── SCR-011 — 購読者情報登録画面 ──────────────────────────────────────
+  DUPLICATE_EMAIL: 'DUPLICATE_EMAIL',                 // 400 — same email already exists in JA scope
+  INVALID_STATUS: 'INVALID_STATUS',                   // 400 — approve/reject called on a row not in 承認待ち
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -44,7 +52,14 @@ export const ErrorMessage: Record<ErrorCode, string> = {
     'システムエラーが発生しました。しばらくしてから再度お試しください。',
   IMPORT_VALIDATION_ERROR:
     'Excel取込データにエラーがあります。詳細はerrorsフィールドを確認してください。',
+  // Default used by SCR-019 Excel import. SCR-023 (file upload) wants
+  // a different wording ('許可されていないファイル形式です。'); it overrides
+  // by passing an explicit message — see FileUploadFormatException.
   FILE_FORMAT_ERROR:
     'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。',
   ROW_LIMIT_EXCEEDED: '取込データ行数の上限（500行）を超えています。',
+  FILE_SIZE_EXCEEDED: 'ファイルサイズが30MBを超えています。',
+  TARGET_JA_REQUIRED: '対象JAを1つ以上選択してください。',
+  DUPLICATE_EMAIL: 'このメールアドレスは既に登録されています。',
+  INVALID_STATUS: '承認待ちの読者ではありません。',
 };

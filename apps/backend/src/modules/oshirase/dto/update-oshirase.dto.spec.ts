@@ -32,8 +32,12 @@ describe('UpdateOshiraseDto', () => {
     expect((await check(buildUpdateOshiraseBody({ title: 'a'.repeat(201) }))).some((e) => e.property === 'title')).toBe(true);
   });
 
-  it('should reject when publish_location is not 1 or 2', async () => {
-    expect((await check(buildUpdateOshiraseBody({ publish_location: 3 }))).some((e) => e.property === 'publish_location')).toBe(true);
+  it('should accept publish_location=3 (メニュー画面（締め切り時間）)', async () => {
+    expect((await check(buildUpdateOshiraseBody({ publish_location: 3 }))).some((e) => e.property === 'publish_location')).toBe(false);
+  });
+
+  it('should reject when publish_location is outside 1..3 (e.g. 4)', async () => {
+    expect((await check(buildUpdateOshiraseBody({ publish_location: 4 }))).some((e) => e.property === 'publish_location')).toBe(true);
   });
 
   it('should reject when status is outside 1..3', async () => {

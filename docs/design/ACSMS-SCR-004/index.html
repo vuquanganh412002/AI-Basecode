@@ -350,21 +350,17 @@
       <div class="p-8 pt-4 overflow-y-auto w-full">
         <header class="flex justify-between items-center">
           <div>
-            <h2 class="text-2xl font-bold">JAマスタ明細検索画面</h2>
+            <h2 class="text-2xl font-bold">JAマスタ明細検索</h2>
             <nav
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
             >
-              <ol class="inline-flex items-center space-x-1">
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
                 <li>ホーム</li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>マスタ管理</span>
-                </li>
-                <li class="flex items-center">
-                  <span class="material-icons text-xs mx-1">chevron_right</span>
                   <span class="text-slate-600 dark:text-slate-300"
-                    >JAマスタ明細検索画面</span
+                    >JAマスタ明細検索</span
                   >
                 </li>
               </ol>
@@ -396,27 +392,44 @@
           </div>
         </header>
         <div class="pt-4 space-y-6">
-          <!-- Search Section -->
+          <!-- Search Section — 3 filters per JaListView.vue:
+               JAコード / JA名 / 都道府県 (dropdown via ACSMS-API-COMMON-001).
+               4-col grid leaves col 4 empty so the 3 filters occupy
+               the left 3/4 of the card. -->
           <section
             class="bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800 p-4"
           >
             <div class="space-y-4">
               <div class="grid grid-cols-4 gap-x-4 gap-y-0 items-center">
-                <!-- JA Code -->
+                <!-- JAコード -->
                 <div class="flex items-center gap-2">
                   <label
                     class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
                     >JAコード</label
                   >
-                  <input class="ant-input flex-1" type="text" />
+                  <input class="ant-input flex-1" type="text" placeholder="JAコード" />
                 </div>
-                <!-- JA Name -->
+                <!-- JA名 -->
                 <div class="flex items-center gap-2">
                   <label
                     class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
                     >JA名</label
                   >
-                  <input class="ant-input flex-1" type="text" />
+                  <input class="ant-input flex-1" type="text" placeholder="JA名" />
+                </div>
+                <!-- 都道府県 dropdown -->
+                <div class="flex items-center gap-2">
+                  <label
+                    class="text-sm font-medium whitespace-nowrap text-slate-700 dark:text-slate-300"
+                    >都道府県</label
+                  >
+                  <select class="ant-select flex-1 pr-8">
+                    <option value="">選択してください</option>
+                    <option value="13">東京都</option>
+                    <option value="27">大阪府</option>
+                    <option value="23">愛知県</option>
+                    <option value="01">北海道</option>
+                  </select>
                 </div>
               </div>
               <!-- Buttons -->
@@ -458,140 +471,92 @@
               </div>
             </div>
             <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
+              <table class="w-full text-left border-collapse text-sm whitespace-nowrap">
                 <thead>
                   <tr
                     class="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 text-xs font-bold uppercase"
                   >
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
-                    >
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
                       <div class="flex items-center gap-1">
                         JAコード
-                        <svg
-                          class="w-3.5 h-3.5 text-slate-400"
-                          viewBox="0 0 12 16"
-                          fill="currentColor"
-                        >
+                        <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor">
                           <path d="M6 0L10 5H2L6 0Z" opacity="0.5" />
                           <path d="M6 16L2 11H10L6 16Z" opacity="0.5" />
                         </svg>
                       </div>
                     </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors"
-                    >
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">JA名</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 cursor-pointer hover:text-primary transition-colors">
                       <div class="flex items-center gap-1">
-                        JA名
-                        <svg
-                          class="w-3.5 h-3.5 text-slate-400"
-                          viewBox="0 0 12 16"
-                          fill="currentColor"
-                        >
+                        都道府県
+                        <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 12 16" fill="currentColor">
                           <path d="M6 0L10 5H2L6 0Z" opacity="0.5" />
                           <path d="M6 16L2 11H10L6 16Z" opacity="0.5" />
                         </svg>
                       </div>
                     </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
-                    >
-                      郵便番号
-                    </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
-                    >
-                      都道府県
-                    </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
-                    >
-                      電話番号
-                    </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
-                    >
-                      住所
-                    </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800"
-                    >
-                      FAX
-                    </th>
-                    <th
-                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-center"
-                    >
-                      操作
-                    </th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">郵便番号</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">住所</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">電話番号</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">FAX</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 text-center">中央会フラグ</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">委託者コード</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">委託者名</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">農協番号</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800">農協名</th>
+                    <th class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 text-center">操作</th>
                   </tr>
                 </thead>
-                <tbody
-                  class="text-sm divide-y divide-slate-100 dark:divide-slate-800"
-                >
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4 font-medium">
-                      <a class="text-primary" href="#">JA0001</a>
-                    </td>
-                    <td class="px-6 py-4">東京JA</td>
-                    <td class="px-6 py-4">100-0001</td>
-                    <td class="px-6 py-4">東京都</td>
-                    <td class="px-6 py-4">03-1234-5678</td>
-                    <td class="px-6 py-4">東京都千代田区丸の内</td>
-                    <td class="px-6 py-4">03-1234-5679</td>
-                    <td class="px-6 py-4 text-center">
-                      <div class="flex justify-center gap-3">
-                        <button
-                          class="text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
-                        >
-                          削除
-                        </button>
-                      </div>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3 font-medium"><a class="text-primary hover:underline" href="#">JC13001</a></td>
+                    <td class="px-4 py-3">東京中央会</td>
+                    <td class="px-4 py-3">東京都</td>
+                    <td class="px-4 py-3">100-0001</td>
+                    <td class="px-4 py-3">東京都千代田区丸の内1-1-1</td>
+                    <td class="px-4 py-3">03-1234-5678</td>
+                    <td class="px-4 py-3">03-1234-5679</td>
+                    <td class="px-4 py-3 text-center">中央会</td>
+                    <td class="px-4 py-3">1234567890</td>
+                    <td class="px-4 py-3">ﾄｳｷｮｳﾁｭｳｵｳ</td>
+                    <td class="px-4 py-3">1234</td>
+                    <td class="px-4 py-3">ﾄｳｷｮｳ</td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
                     </td>
                   </tr>
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4 font-medium">
-                      <a class="text-primary" href="#">JA0002</a>
-                    </td>
-                    <td class="px-6 py-4">大阪JA</td>
-                    <td class="px-6 py-4">530-0001</td>
-                    <td class="px-6 py-4">大阪府</td>
-                    <td class="px-6 py-4">06-1234-5678</td>
-                    <td class="px-6 py-4">大阪府大阪市北区梅田</td>
-                    <td class="px-6 py-4">06-1234-5679</td>
-                    <td class="px-6 py-4 text-center">
-                      <div class="flex justify-center gap-3">
-                        <button
-                          class="text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
-                        >
-                          削除
-                        </button>
-                      </div>
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3 font-medium"><a class="text-primary hover:underline" href="#">JA13001</a></td>
+                    <td class="px-4 py-3">JA東京</td>
+                    <td class="px-4 py-3">東京都</td>
+                    <td class="px-4 py-3">100-0002</td>
+                    <td class="px-4 py-3">東京都千代田区大手町2-2-2</td>
+                    <td class="px-4 py-3">03-2345-6789</td>
+                    <td class="px-4 py-3">03-2345-6790</td>
+                    <td class="px-4 py-3 text-center">JA</td>
+                    <td class="px-4 py-3">2345678901</td>
+                    <td class="px-4 py-3">ｼﾞｪｲｴｲﾄｳｷｮｳ</td>
+                    <td class="px-4 py-3">5001</td>
+                    <td class="px-4 py-3">ｼﾞｪｲｴｲﾄｳｷｮｳ</td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
                     </td>
                   </tr>
-                  <tr
-                    class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                  >
-                    <td class="px-6 py-4 font-medium">
-                      <a class="text-primary" href="#">JA0003</a>
-                    </td>
-                    <td class="px-6 py-4">名古屋JA</td>
-                    <td class="px-6 py-4">450-0001</td>
-                    <td class="px-6 py-4">愛知県</td>
-                    <td class="px-6 py-4">052-123-4567</td>
-                    <td class="px-6 py-4">愛知県名古屋市中村区</td>
-                    <td class="px-6 py-4">052-123-4568</td>
-                    <td class="px-6 py-4 text-center">
-                      <div class="flex justify-center gap-3">
-                        <button
-                          class="text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
-                        >
-                          削除
-                        </button>
-                      </div>
+                  <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td class="px-4 py-3 font-medium"><a class="text-primary hover:underline" href="#">JA27001</a></td>
+                    <td class="px-4 py-3">JA大阪</td>
+                    <td class="px-4 py-3">大阪府</td>
+                    <td class="px-4 py-3">530-0001</td>
+                    <td class="px-4 py-3">大阪府大阪市北区梅田3-3-3</td>
+                    <td class="px-4 py-3">06-1234-5678</td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3 text-center">JA</td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3"></td>
+                    <td class="px-4 py-3 text-center">
+                      <button class="text-red-500 hover:text-red-700 font-medium">削除</button>
                     </td>
                   </tr>
                 </tbody>

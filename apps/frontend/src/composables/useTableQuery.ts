@@ -54,12 +54,27 @@ export function useTableQuery<F extends object>(
   function onChange(
     pagination: TablePaginationConfig,
     _filters: unknown,
-    sorter: { field?: string; order?: 'ascend' | 'descend' },
+    sorter: {
+      field?: string | string[];
+      columnKey?: string;
+      order?: 'ascend' | 'descend';
+    },
   ): void {
     state.page = pagination.current ?? 1;
     state.per_page = pagination.pageSize ?? state.per_page;
-    if (sorter.field) {
-      state.sort_by = sorter.field;
+    // [sorter-key-priority] When a column has dataIndex ≠ key (e.g.
+    // SCR-008 account list 都道府県: dataIndex=todofuken_name for
+    // display, key=todofuken_code for the BE sort whitelist), antd's
+    // sorter callback emits BOTH `field` (= dataIndex) and `columnKey`
+    // (= key). The BE whitelists the column NAME, so prefer columnKey.
+    // Falling back to field keeps every existing screen working (where
+    // dataIndex === key) and avoids forcing a `key:` declaration on
+    // every column.
+    const sortKey =
+      sorter.columnKey ??
+      (Array.isArray(sorter.field) ? sorter.field.join('.') : sorter.field);
+    if (sortKey) {
+      state.sort_by = sortKey;
       state.sort_order = sorter.order === 'ascend' ? 'asc' : 'desc';
     }
     syncUrl();

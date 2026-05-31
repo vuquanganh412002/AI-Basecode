@@ -6,6 +6,7 @@ import { Modal, type TableColumnsType } from 'ant-design-vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
@@ -28,6 +29,14 @@ interface HanbaitenFilters {
   shocho_name: string;
   /** Default false — 廃店フラグの立つレコードを除外する。 */
   haiten_flg: boolean;
+  /**
+   * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) selects a
+   * JA via BaseJaDropdown before any search runs. Null means "no JA
+   * picked yet" — the list stays empty for staff until a JA is
+   * chosen. Non-staff roles ignore this field; the BE uses
+   * session.ja_id for them.
+   */
+  ja_id: number | null;
 }
 
 const router = useRouter();
@@ -36,11 +45,30 @@ const authStore = useAuthStore();
 const codes = useCodesStore();
 
 // Permission gates per seeder.md §3 hanbaiten matrix.
-// NICHINO_STAFF holds hanbaiten.view but NOT hanbaiten.create / .delete
-// (代行入力フロー経由のみ). CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold all four.
-const canCreate = computed(() => authStore.hasPermission('hanbaiten.create'));
-const canUpdate = computed(() => authStore.hasPermission('hanbaiten.update'));
+// CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold {view, create, update, delete}.
+// NICHINO_STAFF holds only `hanbaiten.daiko_input` (代行入力) — it can
+// reach this screen via the menu entry that targets the same route, and
+// gets create / update through the daiko_input permission. Delete stays
+// off for staff (代行入力 doesn't include removal authority).
+const canCreate = computed(
+  () =>
+    authStore.hasPermission('hanbaiten.create') ||
+    authStore.hasPermission('hanbaiten.daiko_input'),
+);
+const canUpdate = computed(
+  () =>
+    authStore.hasPermission('hanbaiten.update') ||
+    authStore.hasPermission('hanbaiten.daiko_input'),
+);
 const canDelete = computed(() => authStore.hasPermission('hanbaiten.delete'));
+
+// [staff-ja-filter] NICHINO_STAFF has no session.ja_id — every search /
+// list call must carry an explicit ja_id from the BaseJaDropdown above
+// the search form. Detected via the dedicated daiko_input permission so
+// we don't accidentally branch on role_code strings.
+const isStaff = computed(() =>
+  authStore.hasPermission('hanbaiten.daiko_input'),
+);
 
 const { state, loading, total, onChange, applyFilters, resetFilters } =
   useTableQuery<HanbaitenFilters>({
@@ -52,6 +80,7 @@ const { state, loading, total, onChange, applyFilters, resetFilters } =
       address: '',
       shocho_name: '',
       haiten_flg: false,
+      ja_id: null,
     },
     // api.md §sort_by default: hanbaiten_code asc (画面設計書 v1.2 §8.1).
     defaultSortBy: 'hanbaiten_code',
@@ -94,7 +123,10 @@ async function fetchList(): Promise<void> {
       // When true, include 廃店 rows. When false, BE applies default
       // (exclude 廃店). Pass-through both states explicitly so the
       // spec can assert `haiten_flg: true` was sent.
-      haiten_flg: state.filters.haiten_flg ? true : false,
+      haiten_flg: state.filters.haiten_flg,
+      // [staff-ja-filter] only sent when set — non-staff omit the key
+      // and the BE falls back to session.ja_id.
+      ja_id: state.filters.ja_id ?? undefined,
       page: state.page,
       per_page: state.per_page,
       sort_by: state.sort_by as ListHanbaitenQuery['sort_by'],
@@ -119,6 +151,14 @@ async function fetchList(): Promise<void> {
 onMounted(() => {
   void fetchList();
 });
+
+function onJaFilterChange(v: number | null): void {
+  // [staff-ja-filter] Pin the new JA into the filter state and refetch
+  // immediately so staff don't need a 検索 click after switching JA.
+  state.filters.ja_id = v;
+  applyFilters({ ...state.filters });
+  void fetchList();
+}
 
 function onSearch(): void {
   // Trim leading/trailing whitespace so paste artifacts / IME-confirmed
@@ -145,7 +185,14 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
 }
 
 function goCreate(): void {
-  void router.push({ name: 'HanbaitenCreate' });
+  // [staff-ja-prefill] When staff has a JA selected here, forward it
+  // to the create form via ?ja_id=... so the BaseJaDropdown there pre-
+  // selects the same value (otherwise the user has to repick).
+  const query =
+    isStaff.value && state.filters.ja_id != null
+      ? { ja_id: String(state.filters.ja_id) }
+      : undefined;
+  void router.push({ name: 'HanbaitenCreate', query });
 }
 
 function goEdit(row: HanbaitenListItem): void {
@@ -178,87 +225,114 @@ function askDelete(row: HanbaitenListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 4-col grid; the 7 fields wrap onto 2 rows. -->
+    <!-- 検索エリア — 4-col grid; the 7 fields wrap onto 2 rows.
+         [staff-ja-filter] NICHINO_STAFF gets an 8th cell (JA picker)
+         appended at the END of the form so the search panel reads as
+         one consistent block. The JA picker triggers an immediate
+         refetch on change (no 検索 click required) because the rest
+         of the form is empty by design when staff first lands here. -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
       @search="onSearch"
       @clear="onClear"
     >
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          販売店コード
-        </label>
+      <label for="hanbaiten-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">販売店コード</span>
         <a-input
+          id="hanbaiten-filter-1"
           v-model:value="state.filters.hanbaiten_code"
           placeholder="販売店コード"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          販売店名
-        </label>
+      </label>
+      <label for="hanbaiten-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">販売店名</span>
         <a-input
+          id="hanbaiten-filter-2"
           v-model:value="state.filters.hanbaiten_name"
           placeholder="販売店名"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          電話番号
-        </label>
+      </label>
+      <label for="hanbaiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">電話番号</span>
         <a-input
+          id="hanbaiten-filter-3"
           v-model:value="state.filters.tel"
           placeholder="電話番号"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          FAX
-        </label>
+      </label>
+      <label for="hanbaiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">FAX</span>
         <a-input
+          id="hanbaiten-filter-4"
           v-model:value="state.filters.fax"
           placeholder="FAX番号"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          住所
-        </label>
+      </label>
+      <label for="hanbaiten-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">住所</span>
         <a-input
+          id="hanbaiten-filter-5"
           v-model:value="state.filters.address"
           placeholder="住所"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          所長名
-        </label>
+      </label>
+      <label for="hanbaiten-filter-6" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">所長名</span>
         <a-input
+          id="hanbaiten-filter-6"
           v-model:value="state.filters.shocho_name"
           placeholder="所長名"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
       <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
+        <!-- Invisible spacer label matches the natural label column
+             width of other cells (販売店コード / 電話番号 / 住所 …) so
+             the checkbox aligns with the input boxes above instead
+             of hugging the cell's left edge. -->
+        <span
+          class="text-sm font-medium whitespace-nowrap invisible"
+          aria-hidden="true"
+        >
           廃店フラグ
-        </label>
+        </span>
         <a-checkbox v-model:checked="state.filters.haiten_flg">
-          廃店を含む
+          <span class="text-sm font-medium whitespace-nowrap text-text-main">
+            廃店フラグ
+          </span>
         </a-checkbox>
       </div>
+      <!-- [staff-ja-filter] Last cell for NICHINO_STAFF 代行入力.
+           Optional narrow-down filter. List auto-loads with every
+           tenant on mount; picking a JA refetches scoped to that
+           tenant. No required marker — empty value means "all JAs". -->
+      <label
+        v-if="isStaff"
+        for="hanbaiten-filter-staff-ja"
+        class="flex items-center gap-2 text-sm font-medium text-text-main"
+        data-test="hanbaiten-staff-ja-filter"
+      >
+        <span class="whitespace-nowrap">JA名</span>
+        <BaseJaDropdown
+          id="hanbaiten-filter-staff-ja"
+          :value="state.filters.ja_id"
+          placeholder="JAで絞り込む（任意）"
+          class="flex-1"
+          @update:value="onJaFilterChange"
+        />
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-018-001 — 検索結果が見つかりませんでした。
@@ -285,7 +359,8 @@ function askDelete(row: HanbaitenListItem): void {
     >
       <template #headerActions>
         <!-- 販売店情報登録 stays visible for every role; greyed-out
-             when the user lacks hanbaiten.create (NICHINO_STAFF). -->
+             when the user lacks the create capability. Staff without
+             a JA filter picks one inside the create form itself. -->
         <a-button
           type="primary"
           :disabled="!canCreate"

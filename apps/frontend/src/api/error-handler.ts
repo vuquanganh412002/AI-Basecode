@@ -4,6 +4,24 @@ import router from '@/router';
 import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
 
 /**
+ * Custom screen-specific error_codes whose toast is rendered by the caller
+ * view (its catch handler shows a user-actionable message keyed off the
+ * error_code). The global handler MUST skip toasting these so the user
+ * doesn't see the same message twice. New codes are added here whenever a
+ * view introduces an `if (error_code === 'X') message.error(...)` branch.
+ *
+ *  - DEADLINE_NOTICE_DUPLICATE: SCR-031 (お知らせ管理) create with
+ *    publish_location=メニュー画面 + oshirase_type=締め切り時間 already
+ *    has a record. View: OshiraseManagementView.applyServerErrors.
+ *  - EXPORT_LIMIT_EXCEEDED: SCR-030 (ログ参照) export beyond row cap.
+ *    View: LogListView export handler.
+ */
+const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
+  'DEADLINE_NOTICE_DUPLICATE',
+  'EXPORT_LIMIT_EXCEEDED',
+]);
+
+/**
  * Central Axios error handler.
  *
  * Strategy:
@@ -14,6 +32,7 @@ import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
  *  - `FORBIDDEN`: toast + redirect to /dashboard (no standalone 403 page —
  *    keep the user on a working screen instead of a dead end).
  *  - `VALIDATION_ERROR`: do NOT toast — caller's form handler maps `errors[]`.
+ *  - View-handled custom codes (`VIEW_HANDLED_CODES`): do NOT toast — caller toasts.
  *  - All other common codes: show a user-friendly toast.
  */
 export async function handleApiError(
@@ -23,6 +42,12 @@ export async function handleApiError(
   const data = error.response?.data;
   const code = data?.error_code;
   const url = error.config?.url || '';
+
+  // Screen-specific custom error_code that the calling view will toast.
+  // Skip the global toast to avoid a duplicate banner.
+  if (code && VIEW_HANDLED_CODES.has(code)) {
+    throw error;
+  }
   // User-initiated form posts where UNAUTHORIZED carries an actionable
   // meaning ("wrong password" / "wrong OTP") — toast it.
   const isAuthFormEndpoint =

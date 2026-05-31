@@ -3,6 +3,8 @@
 // snake_case response shape the FE consumes. No Nest DI, no repository —
 // importable from anywhere (service, tests).
 
+import { toIso, toNumber } from '@/common/utils/mapper-helpers';
+
 export interface AccountSearchRow {
   /** Raw row returned by the QueryBuilder.getRawMany() result. */
   account_id: number | string;
@@ -51,17 +53,7 @@ export interface AccountListItem {
   updated_at: string | null;
 }
 
-function toIso(value: Date | string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-function toNumber(value: number | string | null | undefined): number | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number') return value;
-  return Number(value);
-}
+// `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers`.
 
 /** Map a raw joined row → API list item per SCR-024 api.md §レスポンスデータ. */
 export function toAccountListItem(row: AccountSearchRow): AccountListItem {

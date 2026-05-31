@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+import { PaginationMetaDto } from '@/common/dto/responses.dto';
+
 /**
  * Single row in `GET /api/v1/shiten` response data array.
  * Shape mirrors ACSMS-SCR-006-api.md §レスポンスデータ.
@@ -53,4 +55,13 @@ export class ShitenListItemDto {
 
   @ApiProperty({ description: 'ISO 8601 更新日時', nullable: true })
   updated_at: string | null;
+}
+
+/** Wrapper for GET /api/v1/shiten paginated response. */
+export class ShitenListResponseDto {
+  @ApiProperty({ type: [ShitenListItemDto] })
+  data: ShitenListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
 }

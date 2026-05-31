@@ -83,6 +83,34 @@ describe('useTableQuery — onChange', () => {
     expect(vm.state.sort_by).toBe('ja_name');
   });
 
+  it('prefers sorter.columnKey over field when column has dataIndex ≠ key', async () => {
+    // [regression-sorter-key] SCR-008 account list 都道府県 column:
+    //   { dataIndex: 'todofuken_name', key: 'todofuken_code', sorter: true }
+    // BE whitelists `todofuken_code` only. Without columnKey priority,
+    // sort_by would be 'todofuken_name' → BE 400 VALIDATION_ERROR.
+    const { vm } = await mountHarness('/x');
+    vm.onChange(
+      { current: 1, pageSize: 20 },
+      {},
+      { field: 'todofuken_name', columnKey: 'todofuken_code', order: 'ascend' },
+    );
+    expect(vm.state.sort_by).toBe('todofuken_code');
+    expect(vm.state.sort_order).toBe('asc');
+  });
+
+  it('joins array-form sorter.field (nested column) with dots when no columnKey present', async () => {
+    // antd nested columns (rare in this project) emit field as a path
+    // array. Guard so we don't accidentally call .toString on Array
+    // and end up with "ja,ja_code".
+    const { vm } = await mountHarness('/x');
+    vm.onChange(
+      { current: 1, pageSize: 20 },
+      {},
+      { field: ['ja', 'ja_code'] as unknown as string, order: 'descend' },
+    );
+    expect(vm.state.sort_by).toBe('ja.ja_code');
+  });
+
   it('keeps current page/perPage when antd passes undefined', async () => {
     const { vm } = await mountHarness('/x');
     vm.state.page = 5;

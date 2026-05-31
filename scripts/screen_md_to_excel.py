@@ -27,12 +27,12 @@ except ImportError:
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-HEADER_BLUE  = "FFB4C6E7"   # bold metadata header (row 1) + 変更履歴 header
-SUB_HEADER   = "FFBDD7EE"   # section headers inside content sheets (画面項目定義, etc.)
+HEADER_BLUE  = "FFB4C6E7"   # bold metadata header (row 1) + 変更履歴 header + table headers
+SUB_HEADER   = HEADER_BLUE  # kept as alias for back-compat; source xlsx uses HEADER_BLUE everywhere
 SCREEN_META  = "FFD9E1F2"   # 画面ID/画面名 label rows
 COVER_META   = "FFDBE2F1"   # cover page metadata box (フォーマットコード, etc.)
 NAVY         = "FF1F3864"   # cover page title text color
-FONT_NAME    = "游ゴシック"
+FONT_NAME    = "Meiryo"     # matches the customer's VTI template; do not change without verifying source xlsx
 
 _THIN = Side(style="thin", color="FF000000")
 _NONE = Side(style=None)
@@ -48,7 +48,7 @@ def _fill(hex_color):
     return PatternFill("solid", fgColor=hex_color)
 
 
-def _font(bold=False, size=11, color="FF000000", name=FONT_NAME):
+def _font(bold=False, size=10, color="FF000000", name=FONT_NAME):
     return Font(name=name, size=size, bold=bold, color=color)
 
 
@@ -271,34 +271,33 @@ def _write_meta_header(ws, doc, sheet_name):
 
 def _write_screen_meta(ws, row, screen_id, screen_name, summary, max_col=37):
     """
-    Write the 画面ID / 画面名 box (2 rows).
-    Row N:   | 画面ID | <screen_id> | 概要 | <summary> |
-    Row N+1: | 画面名 | <screen_name> |     |           |
-    Column layout (B:AK or B:BU): label B, value C:F, label G, value H:AK/BU
+    Write the 画面ID / 画面名 box (2 rows). Mirrors the VTI template:
+      Row N:   | 画面ID (blue) | <screen_id> (white) | 概要 (blue) | <summary> (white, spans 2 rows) |
+      Row N+1: | 画面名 (blue) | <screen_name> (white) |                                              |
+    Label cells use HEADER_BLUE (FFB4C6E7) and value cells WHITE (FFFFFFFF)
+    to match the customer's template — NOT the lighter SCREEN_META tint.
     """
-    ec = max_col  # right-most column for the summary value
+    ec = max_col
+    label_fill = _fill(HEADER_BLUE)
+    value_fill = _fill("FFFFFFFF")
 
     # Row N: 画面ID label
     _mwrite(ws, _col("B"), _col("B"), row, "画面ID",
-            fill=_fill(SCREEN_META), font=_font(bold=True), align=_align(h="center"), borders=True)
+            fill=label_fill, font=_font(bold=True), align=_align(h="center"), borders=True)
     _mwrite(ws, _col("C"), _col("F"), row, screen_id,
-            fill=_fill(SCREEN_META), font=_font(), align=_align(), borders=True,
+            fill=value_fill, font=_font(), align=_align(), borders=True,
             number_format='@')
     _mwrite(ws, _col("G"), _col("J"), row, "概要",
-            fill=_fill(SCREEN_META), font=_font(bold=True), align=_align(h="center"), borders=True)
+            fill=label_fill, font=_font(bold=True), align=_align(h="center"), borders=True)
     _mwrite(ws, _col("K"), ec, row, summary,
-            fill=_fill(SCREEN_META), font=_font(), align=_align(), borders=True)
+            fill=value_fill, font=_font(), align=_align(), borders=True)
 
     # Row N+1: 画面名 label
     row2 = row + 1
     _mwrite(ws, _col("B"), _col("B"), row2, "画面名",
-            fill=_fill(SCREEN_META), font=_font(bold=True), align=_align(h="center"), borders=True)
+            fill=label_fill, font=_font(bold=True), align=_align(h="center"), borders=True)
     _mwrite(ws, _col("C"), _col("F"), row2, screen_name,
-            fill=_fill(SCREEN_META), font=_font(), align=_align(), borders=True)
-    _mwrite(ws, _col("G"), _col("J"), row2, "",
-            fill=_fill(SCREEN_META), font=_font(), align=_align(), borders=True)
-    _mwrite(ws, _col("K"), ec, row2, "",
-            fill=_fill(SCREEN_META), font=_font(), align=_align(), borders=True)
+            fill=value_fill, font=_font(), align=_align(), borders=True)
 
     ws.row_dimensions[row].height = 18.0
     ws.row_dimensions[row2].height = 18.0
@@ -378,6 +377,10 @@ def write_cover(wb, doc):
             right  = _THIN if col == BOX_RC else _NONE,
         )
 
+    # The VTI template uses exactly THREE titles on the cover:
+    #   row 10 — system_name (size 26)
+    #   row 12 — screen_name (size 24)
+    #   row 15 — version (size 16, small, right-aligned at S15:X15)
     # System name (row 10)
     ws.merge_cells("B10:AK10")
     c = ws["B10"]
@@ -387,34 +390,23 @@ def write_cover(wb, doc):
     ws["B10"].border  = Border(left=_THIN)
     ws["AK10"].border = Border(right=_THIN)
 
-    # Document type (row 12)
+    # Screen name (row 12) — second bold line from md; falls back to document_name.
+    screen_or_doc = doc.get("cover_screen_name") or doc.get("document_name", "")
     ws.merge_cells("B12:AK12")
     c = ws["B12"]
-    c.value = doc.get("document_name", "")
+    c.value = screen_or_doc
     c.font = Font(name=FONT_NAME, size=24, color=NAVY)
     c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
     ws["B12"].border  = Border(left=_THIN)
     ws["AK12"].border = Border(right=_THIN)
 
-    # Screen name (row 14) — only for 画面設計書
-    screen_name = doc.get("cover_screen_name", "")
-    if screen_name:
-        ws.merge_cells("B14:AK14")
-        c = ws["B14"]
-        c.value = screen_name
-        c.font = Font(name=FONT_NAME, size=18, color=NAVY)
-        c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-        ws["B14"].border  = Border(left=_THIN)
-        ws["AK14"].border = Border(right=_THIN)
-
-    # Version (row 16)
-    ws.merge_cells("B16:AK16")
-    c = ws["B16"]
+    # Version (row 15, small) — matches the customer template where the
+    # version sits in a short merged box at S15:X15 rather than a full row.
+    ws.merge_cells("S15:X15")
+    c = ws["S15"]
     c.value = f"版{doc.get('cover_version', '1.0')}"
     c.font = Font(name=FONT_NAME, size=16, color=NAVY)
     c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-    ws["B16"].border  = Border(left=_THIN)
-    ws["AK16"].border = Border(right=_THIN)
 
     # Metadata box (rows 20-22, cols O:S=label, T:X=value)
     meta_rows = [
@@ -462,12 +454,10 @@ def write_changelog(wb, doc, changes):
     ws = wb.create_sheet("変更履歴")
     _setup(ws, max_col=33, col_width=5.0)
 
-    _write_meta_header(ws, doc, "変更履歴")
-
-    row = 4
-    ws.row_dimensions[row].height = 15.0  # spacer
-
-    row = 5
+    # Customer's VTI template puts the changelog header at row 1 directly —
+    # 変更履歴 is the only content sheet without the standard
+    # システム・アプリケーション名/ドキュメント/シート名 doc-header band.
+    row = 1
     _write_table_header(ws, row, CHANGELOG_COLS, fill_color=HEADER_BLUE, height=18.0)
 
     for i, ch in enumerate(changes):
@@ -598,12 +588,18 @@ def write_screen_items(wb, doc, screen_id, screen_name, summary, sections):
         current_row += 1
 
         for data_row in section.get("rows", []):
-            # data_row: 17 values from MD table (see MD_ITEMS_COL_MAP)
-            # Build full ITEMS_COLS-length list (19 columns), filling missing slots with ""
+            # Build full ITEMS_COLS-length list (19 columns), filling missing slots with "".
+            # Two MD table shapes exist:
+            #   19-col (vti2 from screen_excel_to_md) — all ITEMS_COLS present; identity map.
+            #   17-col (gen/vti / hand-written) — 最小桁数 and 実桁数 absent; use MD_ITEMS_COL_MAP.
             full_row = [""] * len(ITEMS_COLS)
-            for md_idx, items_idx in enumerate(MD_ITEMS_COL_MAP):
-                if md_idx < len(data_row):
-                    full_row[items_idx] = data_row[md_idx]
+            if len(data_row) >= 19:
+                for i, val in enumerate(data_row[:len(ITEMS_COLS)]):
+                    full_row[i] = val
+            else:
+                for md_idx, items_idx in enumerate(MD_ITEMS_COL_MAP):
+                    if md_idx < len(data_row):
+                        full_row[items_idx] = data_row[md_idx]
 
             # Auto height from longest value
             h = max(
@@ -677,13 +673,15 @@ def write_function_def(wb, doc, screen_id, screen_name, summary, func_list, func
     current_row += 1
 
     for detail in func_details:
-        # Detail title (e.g. "1. 新規登録画面初期表示")
+        # Detail title (e.g. "1. 新規登録画面初期表示") — VTI template uses
+        # FFD9E1F2 light-blue fill, bold, size 11 across this row.
         title = detail.get("title", "")
         ws.row_dimensions[current_row].height = 18.0
         ws.merge_cells(f"B{current_row}:AK{current_row}")
         c = ws[f"B{current_row}"]
         c.value = title
-        c.font = _font(bold=True)
+        c.fill = _fill(SCREEN_META)   # FFD9E1F2
+        c.font = _font(bold=True, size=11)
         c.alignment = _align()
         current_row += 1
 
@@ -758,6 +756,34 @@ def write_messages(wb, doc, screen_id, screen_name, summary, messages):
 # Markdown parser
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _split_md_row(line):
+    """
+    Split a markdown table row into cells, correctly handling escaped pipes.
+
+    `cell_text()` in screen_excel_to_md.py escapes every `|` as `\|` and
+    every `\` as `\\`, so a column value like `a || b` becomes `a \|\| b`
+    in the markdown source.  A naive `.split("|")` would shatter that into
+    three fragments; this helper splits only on *unescaped* `|` and then
+    unescapes both `\|` → `|` and `\\` → `\` in each part.
+    """
+    line = line.strip()
+    # Drop leading and trailing pipe (one each, not strip which removes all)
+    if line.startswith("|"):
+        line = line[1:]
+    if line.endswith("|"):
+        line = line[:-1]
+    # Split on | not preceded by backslash
+    parts = re.split(r"(?<!\\)\|", line)
+    result = []
+    for p in parts:
+        # Unescape in the correct order: \| first, then \\
+        p = p.strip()
+        p = p.replace("\\|", "|")
+        p = p.replace("\\\\", "\\")
+        result.append(p)
+    return result
+
+
 def _parse_md_table(lines):
     """
     Parse a markdown table into a list of rows (list of strings).
@@ -770,14 +796,51 @@ def _parse_md_table(lines):
             break
         if re.match(r"^\|[\s\-|]+\|$", line):
             continue  # separator row
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        rows.append(cells)
+        rows.append(_split_md_row(line))
     return rows
 
 
 def _clean_br(text):
     """Replace <br> tags with newlines."""
     return re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+
+
+# 画面ID / 画面名 / 概要 may arrive in either of two shapes:
+#   bullet     — `- **画面ID**: ACSMS-SCR-013`  (current screen_excel_to_md output)
+#   pipe-table — `| 画面ID | ACSMS-SCR-013 | 概要 | ... |` (legacy hand-written md)
+# This helper accepts both so the script keeps working across format migrations.
+
+_SCREEN_META_BULLET_RE = re.compile(r"^-\s*\*\*([^*]+?)\*\*\s*[:：]\s*(.+?)\s*$")
+_SCREEN_META_KEY_MAP = {
+    "画面ID": "screen_id",
+    "画面名": "screen_name",
+    "概要":   "summary",
+}
+
+
+def _try_parse_screen_meta(line, target):
+    """If `line` carries 画面ID / 画面名 / 概要, write it into `target` and
+    return True (caller should `continue`). Otherwise return False."""
+    stripped = line.strip()
+    m = _SCREEN_META_BULLET_RE.match(stripped)
+    if m:
+        key = m.group(1).strip()
+        if key in _SCREEN_META_KEY_MAP:
+            target[_SCREEN_META_KEY_MAP[key]] = m.group(2).strip()
+            return True
+        return False
+    if stripped.startswith("|") and "画面ID" in stripped:
+        cells = _split_md_row(stripped)
+        if len(cells) >= 4:
+            target["screen_id"] = cells[1]
+            target["summary"]   = cells[3]
+        return True
+    if stripped.startswith("|") and "画面名" in stripped:
+        cells = _split_md_row(stripped)
+        if len(cells) >= 2:
+            target["screen_name"] = cells[1]
+        return True
+    return False
 
 
 def parse_document(md_text):
@@ -847,21 +910,32 @@ def parse_document(md_text):
     # 画面設計書 is the document_name
     doc["document_name"] = "画面設計書"
 
-    # Parse metadata table in 表紙
-    cover_text = "\n".join(cover_lines)
+    # Parse metadata in 表紙. Accept two shapes — bullet (new format from
+    # screen_excel_to_md.py emitted as `- **key**: value`) AND pipe-table
+    # (legacy `| key | value |`) — to remain backwards-compatible with any
+    # hand-edited md still on the older shape.
+    bullet_re = re.compile(r"^-\s*\*\*([^*]+?)\*\*\s*[:：]\s*(.+?)\s*$")
+
+    def _kv_from_line(line):
+        line = line.strip()
+        m = bullet_re.match(line)
+        if m:
+            return m.group(1).strip(), m.group(2).strip()
+        if line.startswith("|"):
+            parts = _split_md_row(line)
+            if len(parts) >= 2 and parts[0] and parts[1]:
+                return parts[0], parts[1]
+        return None, None
+
+    META_KEYS = {
+        "フォーマットコード":     "format_code",
+        "フォーマットバージョン":  "format_version",
+        "発行日":                "issue_date",
+    }
     for line in cover_lines:
-        if "フォーマットコード" in line:
-            parts = [c.strip() for c in line.strip("|").split("|")]
-            if len(parts) >= 2:
-                doc["format_code"] = parts[1]
-        elif "フォーマットバージョン" in line:
-            parts = [c.strip() for c in line.strip("|").split("|")]
-            if len(parts) >= 2:
-                doc["format_version"] = parts[1]
-        elif "発行日" in line and "|" in line:
-            parts = [c.strip() for c in line.strip("|").split("|")]
-            if len(parts) >= 2:
-                doc["issue_date"] = parts[1]
+        key, value = _kv_from_line(line)
+        if key in META_KEYS:
+            doc[META_KEYS[key]] = value
 
     # ── Parse standard meta from any section header table ──────────────────────
     # Format: | システム・アプリケーション名 | ドキュメント | シート名 | 作成日 | 作成者 | 更新日 | 更新者 |
@@ -875,7 +949,7 @@ def parse_document(md_text):
                 while j < len(section_lines):
                     vline = section_lines[j].strip()
                     if vline.startswith("|") and not re.match(r"^\|[\s\-|]+\|$", vline):
-                        cells = [c.strip() for c in vline.strip("|").split("|")]
+                        cells = _split_md_row(vline)
                         # cells: [sys_name, doc_name, sheet_name, created_date, created_by, ...]
                         if len(cells) >= 5:
                             if not doc.get("created_date") and len(cells) > 3:
@@ -902,7 +976,7 @@ def parse_document(md_text):
             continue
         if "No" in line or re.match(r"^\|[\s\-|]+\|$", line.strip()):
             continue
-        cells = [_clean_br(c.strip()) for c in line.strip("|").split("|")]
+        cells = [_clean_br(c) for c in _split_md_row(line)]
         if len(cells) >= 7:
             changes.append({
                 "no":          cells[0],
@@ -929,7 +1003,7 @@ def parse_document(md_text):
         if re.match(r"^\|[\s\-|]+\|$", stripped):
             continue
         if in_toc_table:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            cells = _split_md_row(stripped)
             if len(cells) >= 3:
                 toc_entries.append({
                     "no":           cells[0],
@@ -953,15 +1027,9 @@ def parse_document(md_text):
         stripped = line.strip()
         if stripped.startswith("> "):
             image_meta["note"] = stripped[2:].strip()
-        elif stripped.startswith("|") and "画面ID" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 4:
-                image_meta["screen_id"] = cells[1]
-                image_meta["summary"]   = cells[3]
-        elif stripped.startswith("|") and "画面名" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 2:
-                image_meta["screen_name"] = cells[1]
+            continue
+        if _try_parse_screen_meta(line, image_meta):
+            continue
     sections_data["image_meta"] = image_meta
 
     # ── Parse 画面項目定義 ───────────────────────────────────────────────────────
@@ -991,17 +1059,8 @@ def parse_document(md_text):
             items_in_section = True
             continue
 
-        # Screen meta table (always check regardless of section state)
-        if stripped.startswith("|") and "画面ID" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 4:
-                items_screen["screen_id"] = cells[1]
-                items_screen["summary"]   = cells[3]
-            continue
-        if stripped.startswith("|") and "画面名" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 2:
-                items_screen["screen_name"] = cells[1]
+        # Screen meta (bullet or pipe-table) — always check regardless of section state
+        if _try_parse_screen_meta(line, items_screen):
             continue
 
         # Only collect data rows after a ### section header
@@ -1013,7 +1072,7 @@ def parse_document(md_text):
                 continue
             if "No" in stripped and "項目名" in stripped:
                 continue
-            cells = [_clean_br(c.strip()) for c in stripped.strip("|").split("|")]
+            cells = [_clean_br(c) for c in _split_md_row(stripped)]
             if cells and any(cells):
                 current_section_rows.append(cells)
 
@@ -1034,17 +1093,8 @@ def parse_document(md_text):
         if not stripped:
             continue
 
-        # Screen meta
-        if stripped.startswith("|") and "画面ID" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 4:
-                func_data["screen_id"] = cells[1]
-                func_data["summary"]   = cells[3]
-            continue
-        if stripped.startswith("|") and "画面名" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 2:
-                func_data["screen_name"] = cells[1]
+        # Screen meta (bullet or pipe-table)
+        if _try_parse_screen_meta(line, func_data):
             continue
 
         # Section headers
@@ -1065,7 +1115,7 @@ def parse_document(md_text):
                 if "#" in stripped and "機能" in stripped:
                     func_state = "list"
                     continue
-                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                cells = _split_md_row(stripped)
                 if len(cells) >= 5 and any(cells):
                     func_data["func_list"].append({
                         "no":          cells[0],
@@ -1120,16 +1170,7 @@ def parse_document(md_text):
         if not stripped:
             continue
 
-        if stripped.startswith("|") and "画面ID" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 4:
-                msg_data["screen_id"] = cells[1]
-                msg_data["summary"]   = cells[3]
-            continue
-        if stripped.startswith("|") and "画面名" in stripped:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if len(cells) >= 2:
-                msg_data["screen_name"] = cells[1]
+        if _try_parse_screen_meta(line, msg_data):
             continue
 
         if stripped.startswith("|"):
@@ -1139,7 +1180,7 @@ def parse_document(md_text):
                 in_msg_table = True
                 continue
             if in_msg_table:
-                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                cells = _split_md_row(stripped)
                 if len(cells) >= 3 and any(cells):
                     msg_data["messages"].append({
                         "no":      cells[0],

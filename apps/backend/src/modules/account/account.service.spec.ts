@@ -72,7 +72,24 @@ describe('AccountService', () => {
     const kanriShitenRepo: any = {
       findOne: jest.fn().mockResolvedValue({ kanriShitenId: 1, jaId: 1 }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo);
+    // role_id → role_code resolver. Default mirrors the seed migration
+    // (1=NICHINO_ADMIN, 2=NICHINO_STAFF, 3=CHUOKAI, 4=JA_HONTEN,
+    // 5=JA_KANRI_SHITEN). Specs that want a "role not found" 400 path
+    // can override with `.mockResolvedValueOnce(null)`.
+    const ROLE_CODE_BY_ID: Record<number, string> = {
+      1: 'NICHINO_ADMIN',
+      2: 'NICHINO_STAFF',
+      3: 'CHUOKAI',
+      4: 'JA_HONTEN',
+      5: 'JA_KANRI_SHITEN',
+    };
+    const roleRepo: any = {
+      findOne: jest.fn(({ where }: any) => {
+        const code = ROLE_CODE_BY_ID[where?.roleId as number];
+        return Promise.resolve(code ? { roleCode: code } : null);
+      }),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -283,7 +300,24 @@ describe('AccountService — SCR-024 (search + delete)', () => {
     const kanriShitenRepo: any = {
       findOne: jest.fn().mockResolvedValue({ kanriShitenId: 1, jaId: 1 }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo);
+    // role_id → role_code resolver. Default mirrors the seed migration
+    // (1=NICHINO_ADMIN, 2=NICHINO_STAFF, 3=CHUOKAI, 4=JA_HONTEN,
+    // 5=JA_KANRI_SHITEN). Specs that want a "role not found" 400 path
+    // can override with `.mockResolvedValueOnce(null)`.
+    const ROLE_CODE_BY_ID: Record<number, string> = {
+      1: 'NICHINO_ADMIN',
+      2: 'NICHINO_STAFF',
+      3: 'CHUOKAI',
+      4: 'JA_HONTEN',
+      5: 'JA_KANRI_SHITEN',
+    };
+    const roleRepo: any = {
+      findOne: jest.fn(({ where }: any) => {
+        const code = ROLE_CODE_BY_ID[where?.roleId as number];
+        return Promise.resolve(code ? { roleCode: code } : null);
+      }),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -796,7 +830,24 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
     const kanriShitenRepo: any = {
       findOne: jest.fn().mockResolvedValue({ kanriShitenId: 1, jaId: 1 }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo);
+    // role_id → role_code resolver. Default mirrors the seed migration
+    // (1=NICHINO_ADMIN, 2=NICHINO_STAFF, 3=CHUOKAI, 4=JA_HONTEN,
+    // 5=JA_KANRI_SHITEN). Specs that want a "role not found" 400 path
+    // can override with `.mockResolvedValueOnce(null)`.
+    const ROLE_CODE_BY_ID: Record<number, string> = {
+      1: 'NICHINO_ADMIN',
+      2: 'NICHINO_STAFF',
+      3: 'CHUOKAI',
+      4: 'JA_HONTEN',
+      5: 'JA_KANRI_SHITEN',
+    };
+    const roleRepo: any = {
+      findOne: jest.fn(({ where }: any) => {
+        const code = ROLE_CODE_BY_ID[where?.roleId as number];
+        return Promise.resolve(code ? { roleCode: code } : null);
+      }),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -1231,6 +1282,52 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       expect(merged.passwordUpdatedAt).toBeDefined();
     });
 
+    it('should reset login_failure_count to 0 AND account_lock_at to null when admin unlocks (account_lock_flg=false)', async () => {
+      // COVERS: QA bug 2026-05 — unlock left account_lock_at frozen
+      // at the lock timestamp. Operator reading m_account couldn't
+      // tell "currently locked since X" from "previously locked at X
+      // but now unlocked". Fix: reset the timestamp alongside the flg
+      // + counter so the column means exactly "currently locked since".
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ account_lock_flg: false }),
+        adminSession(),
+        baseReq,
+      );
+
+      const updateCalls = txManager.update.mock.calls;
+      const merged = updateCalls.reduce(
+        (acc: any, c: any[]) => ({ ...acc, ...(c[c.length - 1] ?? {}) }),
+        {},
+      );
+      expect(merged.accountLockFlg).toBe(false);
+      expect(merged.loginFailureCount).toBe(0);
+      expect(merged.accountLockAt).toBeNull();
+    });
+
+    it('should NOT touch account_lock_at when admin LOCKS (account_lock_flg=true)', async () => {
+      // COVERS: lock direction stays controlled by auth.service.ts
+      // (sets account_lock_at = NOW() at threshold breach). Admin
+      // forcibly setting account_lock_flg=true via the form should
+      // NOT clear the timestamp from a prior auto-lock.
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ account_lock_flg: true }),
+        adminSession(),
+        baseReq,
+      );
+
+      const updateCalls = txManager.update.mock.calls;
+      const merged = updateCalls.reduce(
+        (acc: any, c: any[]) => ({ ...acc, ...(c[c.length - 1] ?? {}) }),
+        {},
+      );
+      expect(merged.accountLockFlg).toBe(true);
+      // The unlock-side resets are absent here:
+      expect(merged.loginFailureCount).toBeUndefined();
+      expect(merged.accountLockAt).toBeUndefined();
+    });
+
     it('should set todofuken_code / ja_id / kanri_shiten_id to NULL when role_id changes to 1 (日農管理者)', async () => {
       // COVERS: §4.4 注記 — role_id=1,2 の場合、scope columns を NULL
       await service.updateAccount(
@@ -1387,7 +1484,15 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      // [pagination] Service builds a paginated SELECT (limit/offset) and
+      // a separate scoped count query — both go through the same
+      // createQueryBuilder factory so qbMock is reused; getCount/getRawOne
+      // must be present on the shared mock.
+      limit: jest.fn().mockReturnThis(),
+      offset: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue(null),
+      getCount: jest.fn().mockResolvedValue(0),
     };
     accountRepo = {
       createQueryBuilder: jest.fn(() => qbMock),
@@ -1399,7 +1504,24 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
     const kanriShitenRepo: any = {
       findOne: jest.fn().mockResolvedValue({ kanriShitenId: 1, jaId: 1 }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo);
+    // role_id → role_code resolver. Default mirrors the seed migration
+    // (1=NICHINO_ADMIN, 2=NICHINO_STAFF, 3=CHUOKAI, 4=JA_HONTEN,
+    // 5=JA_KANRI_SHITEN). Specs that want a "role not found" 400 path
+    // can override with `.mockResolvedValueOnce(null)`.
+    const ROLE_CODE_BY_ID: Record<number, string> = {
+      1: 'NICHINO_ADMIN',
+      2: 'NICHINO_STAFF',
+      3: 'CHUOKAI',
+      4: 'JA_HONTEN',
+      5: 'JA_KANRI_SHITEN',
+    };
+    const roleRepo: any = {
+      findOne: jest.fn(({ where }: any) => {
+        const code = ROLE_CODE_BY_ID[where?.roleId as number];
+        return Promise.resolve(code ? { roleCode: code } : null);
+      }),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -1414,26 +1536,31 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
         ja_id: 100,
       },
     ]);
+    qbMock.getCount.mockResolvedValue(1);
 
-    const result = await service.getAccountDropdown(buildSession());
+    const result = await service.getAccountDropdown({}, buildSession());
 
-    expect(result).toEqual({
-      data: [
-        {
-          account_id: 10,
-          login_id: 'ja_honten_001',
-          account_name: 'JA本店 太郎',
-          role_code: 'JA_HONTEN',
-          ja_id: 100,
-        },
-      ],
+    expect(result.data).toEqual([
+      {
+        account_id: 10,
+        login_id: 'ja_honten_001',
+        account_name: 'JA本店 太郎',
+        role_code: 'JA_HONTEN',
+        ja_id: 100,
+      },
+    ]);
+    expect(result.meta).toEqual({
+      total: 1,
+      page: 1,
+      per_page: 50,
+      has_more: false,
     });
   });
 
   it('should apply NO DataScope predicate when session role_code is NICHINO_ADMIN (bypass)', async () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
-    await service.getAccountDropdown(buildSession());
+    await service.getAccountDropdown({}, buildSession());
 
     const calls = qbMock.andWhere.mock.calls;
     const scopedCall = calls.find(
@@ -1451,6 +1578,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
     await service.getAccountDropdown(
+      {},
       buildSession({ role_code: 'NICHINO_STAFF', role_id: 2 }),
     );
 
@@ -1469,7 +1597,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
   it('should bind a.ja_id scope predicate when session role_code is CHUOKAI', async () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
-    await service.getAccountDropdown(buildChuokaiSession({ ja_id: 7 }));
+    await service.getAccountDropdown({}, buildChuokaiSession({ ja_id: 7 }));
 
     const scopedCall = qbMock.andWhere.mock.calls.find(
       ([sql]: any[]) => typeof sql === 'string' && /\bja_?[Ii]d\b/.test(sql),
@@ -1480,7 +1608,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
   it('should bind a.ja_id scope predicate when session role_code is JA_HONTEN', async () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
-    await service.getAccountDropdown(buildJaHontenSession({ ja_id: 9 }));
+    await service.getAccountDropdown({}, buildJaHontenSession({ ja_id: 9 }));
 
     const scopedCall = qbMock.andWhere.mock.calls.find(
       ([sql]: any[]) => typeof sql === 'string' && /\bja_?[Ii]d\b/.test(sql),
@@ -1492,6 +1620,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
     await service.getAccountDropdown(
+      {},
       buildJaKanriShitenSession({ kanri_shiten_id: 33 }),
     );
 
@@ -1504,7 +1633,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
   it('should order results by login_id ASC when called', async () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
-    await service.getAccountDropdown(buildSession());
+    await service.getAccountDropdown({}, buildSession());
 
     const orderCall = qbMock.orderBy.mock.calls[0];
     expect(orderCall[0]).toMatch(/login_id/i);
@@ -1514,8 +1643,101 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
   it('should return data:[] when repository returns no rows', async () => {
     qbMock.getRawMany.mockResolvedValue([]);
 
-    const result = await service.getAccountDropdown(buildSession());
+    const result = await service.getAccountDropdown({}, buildSession());
 
-    expect(result).toEqual({ data: [] });
+    expect(result.data).toEqual([]);
+    expect(result.meta).toEqual({
+      total: 0,
+      page: 1,
+      per_page: 50,
+      has_more: false,
+    });
+  });
+
+  // [match-field] SCR-030 log view's ユーザ名 filter scopes ILIKE to
+  // account_name only — a hit on login_id would be invisible to the
+  // user and read as a bug.
+  it('should scope ILIKE to account_name only when match_field=name', async () => {
+    qbMock.getRawMany.mockResolvedValue([]);
+
+    await service.getAccountDropdown(
+      { q: '太郎', match_field: 'name' },
+      buildSession(),
+    );
+
+    const nameOnly = qbMock.andWhere.mock.calls.find(
+      ([sql]: any[]) =>
+        typeof sql === 'string' &&
+        sql.includes('account_name ILIKE') &&
+        !sql.includes('login_id'),
+    );
+    expect(nameOnly).toBeDefined();
+    expect(nameOnly![1]).toEqual({ q: '%太郎%' });
+
+    const orCall = qbMock.andWhere.mock.calls.find(
+      ([sql]: any[]) =>
+        typeof sql === 'string' &&
+        sql.includes('login_id ILIKE') &&
+        sql.includes('OR'),
+    );
+    expect(orCall).toBeUndefined();
+  });
+
+  it('should issue an OR-matched ILIKE on login_id and account_name by default when q is provided', async () => {
+    qbMock.getRawMany.mockResolvedValue([]);
+
+    await service.getAccountDropdown({ q: 'admin' }, buildSession());
+
+    const orCall = qbMock.andWhere.mock.calls.find(
+      ([sql]: any[]) =>
+        typeof sql === 'string' &&
+        sql.includes('login_id ILIKE') &&
+        sql.includes('OR') &&
+        sql.includes('account_name ILIKE'),
+    );
+    expect(orCall).toBeDefined();
+    expect(orCall![1]).toEqual({ q: '%admin%' });
+  });
+
+  it('should apply limit + offset and report has_more from total when paginated', async () => {
+    qbMock.getRawMany.mockResolvedValue([]);
+    qbMock.getCount.mockResolvedValue(137);
+
+    const result = await service.getAccountDropdown(
+      { page: 2, per_page: 50 },
+      buildSession(),
+    );
+
+    expect(qbMock.limit).toHaveBeenCalledWith(50);
+    expect(qbMock.offset).toHaveBeenCalledWith(50);
+    expect(result.meta).toEqual({
+      total: 137,
+      page: 2,
+      per_page: 50,
+      has_more: true,
+    });
+  });
+
+  it('should prepend include_id row when it is not in the current page slice', async () => {
+    qbMock.getRawMany.mockResolvedValue([
+      { account_id: 1, login_id: 'a001', account_name: 'A', role_code: 'JA_HONTEN', ja_id: 1 },
+      { account_id: 2, login_id: 'a002', account_name: 'B', role_code: 'JA_HONTEN', ja_id: 1 },
+    ]);
+    qbMock.getCount.mockResolvedValue(250);
+    qbMock.getRawOne.mockResolvedValue({
+      account_id: 99,
+      login_id: 'pinned',
+      account_name: 'Pinned User',
+      role_code: 'JA_HONTEN',
+      ja_id: 1,
+    });
+
+    const result = await service.getAccountDropdown(
+      { include_id: 99 },
+      buildSession(),
+    );
+
+    expect(result.data[0]).toMatchObject({ account_id: 99, login_id: 'pinned' });
+    expect(result.data).toHaveLength(3);
   });
 });

@@ -1,9 +1,10 @@
 import { HttpException, HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 
+import { LogType, ResultStatus, RoleCode } from '@/common/enums';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
@@ -23,13 +24,15 @@ import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { CreateHanbaitenDto } from './dto/create-hanbaiten.dto';
-import { ImportHanbaitenDto } from './dto/import-hanbaiten.dto';
+import {
+  ImportHanbaitenDto,
+  ImportHanbaitenRowDto,
+} from './dto/import-hanbaiten.dto';
 import {
   SearchHanbaitenDto,
   type HanbaitenSearchSortBy,
 } from './dto/search-hanbaiten.dto';
 import { UpdateHanbaitenDto } from './dto/update-hanbaiten.dto';
-import { FileFormatErrorException } from './exceptions/file-format-error.exception';
 import { ImportValidationException } from './exceptions/import-validation.exception';
 import { RowLimitExceededException } from './exceptions/row-limit-exceeded.exception';
 import {
@@ -38,87 +41,18 @@ import {
   type HanbaitenDetailRow,
 } from './hanbaiten-form.mapper';
 import { toHanbaitenListItem, type HanbaitenListItem } from './hanbaiten.mapper';
+import {
+  IMPORT_COLUMN_TO_FIELD,
+  IMPORT_FIELD_EMPTY_DEFAULT,
+  IMPORT_MAX_ROWS,
+  IMPORT_TEMPLATE_COLUMNS,
+} from './dto/import-template.constants';
 
 /** Per-screen audit-context labels — see api.md §4.6 INSERT INTO t_log. */
 const SCREEN_NAME = '販売店明細検索画面 (ACSMS-SCR-018)';
 const SCR017_SCREEN_NAME = '販売店情報登録画面 (ACSMS-SCR-017)';
 const SCR019_SCREEN_NAME = '販売店Excelデータ取込画面 (ACSMS-SCR-019)';
 const TABLE_NAME = 'm_hanbaiten';
-
-/**
- * SCR-019 — Excel template column headers in the canonical order
- * (api.md §テンプレートファイル仕様 / docs/design/ACSMS-SCR-019).
- * The DOM order is the contract: changing any string here is a
- * customer-visible change to the downloaded template.
- */
-const IMPORT_TEMPLATE_COLUMNS = [
-  '販売店コード',
-  '販売店名称',
-  '販売店名称（カナ）',
-  'インボイス番号',
-  '郵便番号',
-  '住所',
-  '電話番号',
-  'FAX番号',
-  '所長名',
-  '委託区分',
-  '配達手数料単価',
-  '金融機関コード',
-  '金融機関名',
-  '配達手数料支払サイクル',
-  '口座支店コード',
-  '口座支店名',
-  '口座種別',
-  '口座番号',
-  '口座名義',
-  '手数料区分',
-  '手数料',
-  '備考',
-  '廃店フラグ',
-] as const;
-
-/**
- * Hard cap on import payload row count. Mirrors the DTO's
- * `@ArrayMaxSize(500)` — service-layer defence-in-depth so the
- * canonical `ROW_LIMIT_EXCEEDED` error code surfaces even when a
- * client bypasses the DTO validator.
- */
-const IMPORT_MAX_ROWS = 500;
-
-/** Filename emitted in the Content-Disposition response header. */
-const IMPORT_TEMPLATE_FILENAME = '販売店Excelデータ取込_テンプレート.xlsx';
-
-/**
- * Maps logical request column (`hanbaiten_name`, …) → TypeORM entity
- * field (`hanbaitenName`, …). Used in UPDATE_PARTIAL to translate
- * `selected_columns` into the `manager.update()` partial. The two
- * special cases (`hanbaiten_code` excluded because it's the key column;
- * `haitatsuryo_tanka_code` because it goes through the m_tanka lookup
- * to resolve `haitatsuryoTankaId`) are handled in the call site.
- */
-const IMPORT_COLUMN_TO_FIELD: Record<string, keyof Hanbaiten> = {
-  hanbaiten_name: 'hanbaitenName',
-  hanbaiten_name_kana: 'hanbaitenNameKana',
-  torihikisaki_no: 'torihikisakiNo',
-  yubin_no: 'yubinNo',
-  address: 'address',
-  tel: 'tel',
-  fax: 'fax',
-  shocho_name: 'shochoName',
-  itaku_kubun: 'itakuKubun',
-  bank_code: 'bankCode',
-  bank_name: 'bankName',
-  haitatsuryo_shiharai_cycle: 'haitatsuryoShiharaiCycle',
-  bank_branch_code: 'bankBranchCode',
-  bank_branch_name: 'bankBranchName',
-  yokin_shubetsu: 'yokinShubetsu',
-  koza_no: 'kozaNo',
-  koza_meigi: 'kozaMeigi',
-  tesuryo_kubun: 'tesuryoKubun',
-  tesuryo_amount: 'tesuryoAmount',
-  biko: 'biko',
-  haiten_flg: 'haitenFlg',
-};
 
 /**
  * Fields that become REQUIRED when `itaku_kubun === 1` (振込) per
@@ -315,11 +249,26 @@ export class HanbaitenService {
     // NICHINO_* bypass the andWhere entirely.
     applyJaScope(qb, 'm', 'jaId', session);
 
-    // [filter-conditions] — default `haiten_flg = false`. Lifted only when
-    // the caller explicitly passed `haiten_flg=true` (screen-design v1.2 §1.1 / §2.1).
-    if (query.haiten_flg !== true) {
-      qb.andWhere('m.haiten_flg = false');
+    // [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) supplies
+    // ja_id explicitly via the 代行入力 search form's JA dropdown. The
+    // BE applies it here so the list scopes to ONE JA — without this,
+    // NICHINO_STAFF would see all JAs' hanbaiten. For session-scoped
+    // roles applyJaScope above already pinned the JA; query.ja_id is
+    // ignored to prevent a CHUOKAI passing another JA's id.
+    if (session.ja_id == null && query.ja_id !== undefined) {
+      qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
     }
+
+    // [filter-conditions] — exact-match on `haiten_flg`. The 廃店フラグ
+    // checkbox toggles which set the user sees:
+    //   unchecked / omitted → 営業中のみ (haiten_flg = false, default)
+    //   checked             → 廃店のみ (haiten_flg = true)
+    // Customer 2026-05-26 — the previous "include closed" semantic
+    // (checked = show all) was rejected as confusing once the
+    // checkbox label dropped from "廃店を含む" to plain "廃店フラグ".
+    qb.andWhere('m.haiten_flg = :haitenFlg', {
+      haitenFlg: query.haiten_flg === true,
+    });
 
     // [filter-conditions] — ILIKE partial-match, emitted only when the
     // corresponding query param is non-empty.
@@ -377,6 +326,43 @@ export class HanbaitenService {
     return paginate(data, total, page, per_page);
   }
 
+  // ─── ACSMS-API-COMMON — Hanbaiten dropdown (SCR-011) ────────────────
+  /**
+   * Minimal dropdown projection (hanbaiten_id, hanbaiten_code,
+   * hanbaiten_name). Scoped to the caller's JA via `applyJaScope`;
+   * NICHINO_* see all JAs unless `query.ja_id` is supplied as a
+   * narrow. Soft-deleted rows excluded. `q` partial-matches on
+   * hanbaiten_name (ILIKE).
+   */
+  async listDropdown(
+    query: { ja_id?: number; q?: string },
+    session: SessionPayload,
+  ): Promise<
+    Array<{
+      hanbaiten_id: number;
+      hanbaiten_code: string;
+      hanbaiten_name: string;
+    }>
+  > {
+    const qb = this.repo
+      .createQueryBuilder('m')
+      .where('m.deleted_at IS NULL');
+    applyJaScope(qb, 'm', 'jaId', session);
+    if (session.ja_id == null && query.ja_id !== undefined) {
+      qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+    }
+    if (query.q) {
+      qb.andWhere('m.hanbaiten_name ILIKE :q', { q: `%${query.q}%` });
+    }
+    qb.orderBy('m.hanbaiten_code', 'ASC');
+    const rows = await qb.getMany();
+    return rows.map((r) => ({
+      hanbaiten_id: Number(r.hanbaitenId),
+      hanbaiten_code: r.hanbaitenCode,
+      hanbaiten_name: r.hanbaitenName,
+    }));
+  }
+
   // ─── API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id ────────────
   /**
    * Logical delete. §4.3 combined existence + DataScope SELECT — an
@@ -400,8 +386,8 @@ export class HanbaitenService {
       deletedAt: IsNull(),
     };
     if (
-      session.role_code !== 'NICHINO_ADMIN' &&
-      session.role_code !== 'NICHINO_STAFF' &&
+      session.role_code !== RoleCode.NICHINO_ADMIN &&
+      session.role_code !== RoleCode.NICHINO_STAFF &&
       session.ja_id !== null
     ) {
       where.jaId = session.ja_id;
@@ -524,11 +510,12 @@ export class HanbaitenService {
     assertConditionalRequired(dto);
 
     // [data-scope] ja_id resolution. NICHINO_* (session.ja_id null) acts
-    // on behalf of an arbitrary JA via 代行入力 — fall back to the body
-    // value. Scoped roles always use the session value.
-    const bodyJaId = (dto as unknown as { ja_id?: number }).ja_id;
+    // on behalf of an arbitrary JA via 代行入力 — fall back to dto.ja_id
+    // (formalized as an optional field on CreateHanbaitenDto). Scoped
+    // roles always use the session value; their body's ja_id is ignored
+    // to block cross-tenant injection.
     const effectiveJaId =
-      session.ja_id ?? (bodyJaId !== undefined ? Number(bodyJaId) : null);
+      session.ja_id ?? (dto.ja_id === undefined ? null : Number(dto.ja_id));
     if (effectiveJaId === null || effectiveJaId === undefined) {
       throw new HttpException(
         {
@@ -976,67 +963,8 @@ export class HanbaitenService {
 
     const errors: Array<{ row: number; field: string; message: string }> = [];
 
-    // [batch-duplicate-guard] — same hanbaiten_code repeated within
-    // one import batch is a row-level error, not a DB collision.
-    const seenCodes = new Set<string>();
-    body.rows.forEach((row, idx) => {
-      const code = row.hanbaiten_code;
-      if (code && seenCodes.has(code)) {
-        errors.push({
-          row: idx + 2,
-          field: 'hanbaiten_code',
-          message: '同一の販売店コードが取込ファイル内で重複しています。',
-        });
-      } else if (code) {
-        seenCodes.add(code);
-      }
-    });
-
-    // [m-code-validation] — itaku_kubun / tesuryo_kubun / yokin_shubetsu
-    // values must be present in m_code (or be omitted). CodeService is
-    // optional on the service constructor; without it skip the check
-    // (the spec's SCR-018 4-arg constructor leaves it undefined, but
-    // SCR-019 always wires it through `requireCodeService`).
-    const cs = this.codeService;
-    body.rows.forEach((row, idx) => {
-      const rowNo = idx + 2;
-      if (row.itaku_kubun != null && cs && !cs.has('ITAKU_KUBUN', row.itaku_kubun)) {
-        errors.push({
-          row: rowNo,
-          field: 'itaku_kubun',
-          message: '委託区分の値が不正です。',
-        });
-      }
-      if (row.tesuryo_kubun != null && cs && !cs.has('TESURYO_KUBUN', row.tesuryo_kubun)) {
-        errors.push({
-          row: rowNo,
-          field: 'tesuryo_kubun',
-          message: '手数料区分の値が不正です。',
-        });
-      }
-      if (row.yokin_shubetsu != null && cs && !cs.has('YOKIN_SHUBETSU', row.yokin_shubetsu)) {
-        errors.push({
-          row: rowNo,
-          field: 'yokin_shubetsu',
-          message: '口座種別の値が不正です。',
-        });
-      }
-      // [type-guard] — Numeric-only fields that may have slipped past the
-      // DTO (`@IsInt()` does NOT fire when caller bypasses the
-      // ValidationPipe — e.g. service-direct test calls). Surface as
-      // an IMPORT_VALIDATION_ERROR field so the FE can highlight the
-      // offending row + column.
-      if (
-        row.tesuryo_amount != null &&
-        typeof row.tesuryo_amount !== 'number'
-      ) {
-        errors.push({
-          row: rowNo,
-          field: 'tesuryo_amount',
-          message: '手数料は数値で入力してください。',
-        });
-      }
-    });
+    this.collectBatchDuplicateCodeErrors(body.rows, errors);
+    this.collectImportRowMcodeErrors(body.rows, errors);
 
     // [existence-precheck] — fetch any rows whose hanbaiten_code matches
     // in the caller's JA. NEW mode treats a hit as "duplicate"; UPDATE_*
@@ -1058,64 +986,17 @@ export class HanbaitenService {
       existingRows.map((r) => [r.hanbaiten_code, Number(r.hanbaiten_id)]),
     );
 
-    if (body.import_mode === 'NEW') {
-      body.rows.forEach((row, idx) => {
-        if (row.hanbaiten_code && existingMap.has(row.hanbaiten_code)) {
-          errors.push({
-            row: idx + 2,
-            field: 'hanbaiten_code',
-            message: '同一の販売店コードが既に登録されています。',
-          });
-        }
-      });
-    } else {
-      // UPDATE_ALL / UPDATE_PARTIAL — missing code is an error.
-      body.rows.forEach((row, idx) => {
-        if (row.hanbaiten_code && !existingMap.has(row.hanbaiten_code)) {
-          errors.push({
-            row: idx + 2,
-            field: 'hanbaiten_code',
-            message: '指定された販売店コードが存在しません。',
-          });
-        }
-      });
-    }
+    this.collectExistenceErrors(body.rows, body.import_mode, existingMap, errors);
 
     // [tanka-fk-resolution] — resolve haitatsuryo_tanka_code → tanka_id.
-    // Filter by jaId so a row referencing a cross-tenant tanka is
-    // rejected the same way a missing tanka is (Layer 4 guard).
-    const tankaCodes = Array.from(
-      new Set(
-        body.rows
-          .map((r) => r.haitatsuryo_tanka_code)
-          .filter((c): c is string => typeof c === 'string' && c.length > 0),
-      ),
+    // Cross-tenant tankas are rejected the same way as missing ones
+    // (Layer 4 guard). Extracted helper handles both the resolution and
+    // the "not found" row errors.
+    const tankaIdMap = await this.resolveImportTankaIds(
+      body.rows,
+      targetJaId,
+      errors,
     );
-    const tankaIdMap = new Map<string, number>();
-    if (tankaCodes.length > 0 && this.tankaRepo) {
-      const rows = await this.tankaRepo.find({
-        where: tankaCodes.map((code) => ({
-          tankaCode: code,
-          jaId: targetJaId,
-          deletedAt: IsNull(),
-        })),
-      });
-      for (const t of rows) {
-        tankaIdMap.set(t.tankaCode, Number(t.tankaId));
-      }
-    }
-    body.rows.forEach((row, idx) => {
-      if (
-        row.haitatsuryo_tanka_code &&
-        !tankaIdMap.has(row.haitatsuryo_tanka_code)
-      ) {
-        errors.push({
-          row: idx + 2,
-          field: 'haitatsuryo_tanka_code',
-          message: '指定された配達手数料単価コードが見つかりません。',
-        });
-      }
-    });
 
     // Short-circuit — if anything failed pre-check, throw BEFORE
     // dataSource.transaction opens (api.md §4.3 — pre-check phase
@@ -1123,6 +1004,16 @@ export class HanbaitenService {
     if (errors.length > 0) {
       throw new ImportValidationException(errors);
     }
+
+    // [todofuken-default] — m_hanbaiten.todofuken_code is NOT NULL with
+    // FK to m_todofuken. The Excel template does not carry 都道府県
+    // (api.md §テンプレートファイル仕様), so default to the caller's
+    // JA prefecture. Lookup happens once per import (one row).
+    const jaTodofuken = await this.dataSource.query<Array<{ todofuken_code: string }>>(
+      `SELECT todofuken_code FROM m_ja WHERE ja_id = $1 AND deleted_at IS NULL`,
+      [targetJaId],
+    );
+    const defaultTodofukenCode = jaTodofuken[0]?.todofuken_code ?? '';
 
     // [transaction-phase] — all DML + a single audit row commit (or
     // roll back) together. Error log lives OUTSIDE so the failure
@@ -1132,12 +1023,14 @@ export class HanbaitenService {
     let updatedCount = 0;
     const createdIds: number[] = [];
 
-    const operation =
-      body.import_mode === 'NEW'
-        ? 'IMPORT_NEW'
-        : body.import_mode === 'UPDATE_ALL'
-          ? 'IMPORT_UPDATE_ALL'
-          : 'IMPORT_UPDATE_PARTIAL';
+    let operation: string;
+    if (body.import_mode === 'NEW') {
+      operation = 'IMPORT_NEW';
+    } else if (body.import_mode === 'UPDATE_ALL') {
+      operation = 'IMPORT_UPDATE_ALL';
+    } else {
+      operation = 'IMPORT_UPDATE_PARTIAL';
+    }
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -1147,87 +1040,29 @@ export class HanbaitenService {
             : null;
 
           if (body.import_mode === 'NEW') {
-            const entity = manager.create(Hanbaiten, {
-              jaId: targetJaId,
-              hanbaitenCode: row.hanbaiten_code,
-              hanbaitenName: row.hanbaiten_name ?? '',
-              hanbaitenNameKana: row.hanbaiten_name_kana ?? '',
-              torihikisakiNo: row.torihikisaki_no ?? '',
-              todofukenCode: '',
-              yubinNo: row.yubin_no ?? '',
-              address: row.address ?? '',
-              tel: row.tel ?? '',
-              fax: row.fax ?? '',
-              shochoName: row.shocho_name ?? '',
-              itakuKubun: row.itaku_kubun ?? null,
-              haitatsuryoTankaId: tankaId,
-              haitatsuryoShiharaiCycle: row.haitatsuryo_shiharai_cycle ?? null,
-              tesuryoKubun: row.tesuryo_kubun ?? null,
-              tesuryoAmount: row.tesuryo_amount ?? null,
-              bankCode: row.bank_code ?? '',
-              bankName: row.bank_name ?? '',
-              bankBranchCode: row.bank_branch_code ?? '',
-              bankBranchName: row.bank_branch_name ?? '',
-              yokinShubetsu: row.yokin_shubetsu ?? null,
-              kozaNo: row.koza_no ?? '',
-              kozaMeigi: row.koza_meigi ?? '',
-              haitenFlg: row.haiten_flg ?? false,
-              biko: row.biko ?? '',
-              createdBy: String(session.account_id),
-              updatedBy: String(session.account_id),
+            const saved = await this.applyImportRowNew(manager, row, {
+              targetJaId,
+              defaultTodofukenCode,
+              tankaId,
+              session,
             });
-            const saved = (await manager.save(Hanbaiten, entity)) as Hanbaiten;
             createdCount += 1;
             createdIds.push(Number(saved.hanbaitenId));
           } else if (body.import_mode === 'UPDATE_ALL') {
-            const existingId = existingMap.get(row.hanbaiten_code)!;
-            const payload: Partial<Hanbaiten> = {
-              hanbaitenName: row.hanbaiten_name ?? '',
-              hanbaitenNameKana: row.hanbaiten_name_kana ?? '',
-              torihikisakiNo: row.torihikisaki_no ?? '',
-              yubinNo: row.yubin_no ?? '',
-              address: row.address ?? '',
-              tel: row.tel ?? '',
-              fax: row.fax ?? '',
-              shochoName: row.shocho_name ?? '',
-              itakuKubun: row.itaku_kubun ?? null,
-              haitatsuryoTankaId: tankaId,
-              haitatsuryoShiharaiCycle: row.haitatsuryo_shiharai_cycle ?? null,
-              tesuryoKubun: row.tesuryo_kubun ?? null,
-              tesuryoAmount: row.tesuryo_amount ?? null,
-              bankCode: row.bank_code ?? '',
-              bankName: row.bank_name ?? '',
-              bankBranchCode: row.bank_branch_code ?? '',
-              bankBranchName: row.bank_branch_name ?? '',
-              yokinShubetsu: row.yokin_shubetsu ?? null,
-              kozaNo: row.koza_no ?? '',
-              kozaMeigi: row.koza_meigi ?? '',
-              haitenFlg: row.haiten_flg ?? false,
-              biko: row.biko ?? '',
-              updatedBy: String(session.account_id),
-            };
-            await manager.update(Hanbaiten, { hanbaitenId: existingId }, payload);
+            await this.applyImportRowUpdateAll(manager, row, {
+              existingMap,
+              tankaId,
+              session,
+            });
             updatedCount += 1;
           } else {
             // UPDATE_PARTIAL — only mutate columns named in selected_columns.
-            const existingId = existingMap.get(row.hanbaiten_code)!;
-            const payload: Partial<Hanbaiten> = {
-              updatedBy: String(session.account_id),
-            };
-            for (const col of body.selected_columns) {
-              if (col === 'hanbaiten_code') continue;
-              if (col === 'haitatsuryo_tanka_code') {
-                payload.haitatsuryoTankaId = tankaId;
-                continue;
-              }
-              const entityField = IMPORT_COLUMN_TO_FIELD[col];
-              if (!entityField) continue;
-              const raw = (row as unknown as Record<string, unknown>)[col];
-              // class-validator already validated; passing the raw value
-              // through preserves null vs. '' contract per nullable column policy.
-              (payload as Record<string, unknown>)[entityField] = raw ?? null;
-            }
-            await manager.update(Hanbaiten, { hanbaitenId: existingId }, payload);
+            await this.applyImportRowUpdatePartial(manager, row, {
+              existingMap,
+              selectedColumns: body.selected_columns,
+              tankaId,
+              session,
+            });
             updatedCount += 1;
           }
         }
@@ -1260,12 +1095,12 @@ export class HanbaitenService {
           // logOperation call so the audit row carries 'IMPORT_NEW'.
           await this.auditLog.logOperation(
             {
-              logType: 1,
+              logType: LogType.USER_OPERATION,
               accountId: ctx.accountId,
               jaId: ctx.jaId,
               gamenName: ctx.screen,
               operation,
-              resultStatus: 1,
+              resultStatus: ResultStatus.SUCCESS,
               targetId: null,
               targetTable: ctx.table,
               afterValue: JSON.stringify(after),
@@ -1289,12 +1124,12 @@ export class HanbaitenService {
           };
           await this.auditLog.logOperation(
             {
-              logType: 1,
+              logType: LogType.USER_OPERATION,
               accountId: ctx.accountId,
               jaId: ctx.jaId,
               gamenName: ctx.screen,
               operation,
-              resultStatus: 1,
+              resultStatus: ResultStatus.SUCCESS,
               targetId: null,
               targetTable: ctx.table,
               beforeValue: JSON.stringify(before),
@@ -1333,5 +1168,280 @@ export class HanbaitenService {
       },
       message: '正常に取り込みました。',
     };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — batch-duplicate guard. Same hanbaiten_code
+  //                  appearing twice in one upload is a row-level error
+  //                  rather than a DB constraint violation. Extracted
+  //                  from importExcel to keep that function's complexity
+  //                  below the Sonar S3776 threshold.
+  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — existence-check vs import_mode:
+  //   NEW → existing code is a duplicate-error;
+  //   UPDATE_* → missing code is a not-found-error.
+  // Extracted from importExcel to keep S3776 below threshold.
+  // ──────────────────────────────────────────────────────────────
+  private collectExistenceErrors(
+    rows: ImportHanbaitenRowDto[],
+    importMode: ImportHanbaitenDto['import_mode'],
+    existingMap: Map<string, number>,
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): void {
+    const isNew = importMode === 'NEW';
+    const message = isNew
+      ? '同一の販売店コードが既に登録されています。'
+      : '指定された販売店コードが存在しません。';
+    rows.forEach((row, idx) => {
+      const code = row.hanbaiten_code;
+      if (!code) return;
+      const has = existingMap.has(code);
+      if (isNew ? has : !has) {
+        errors.push({ row: idx + 2, field: 'hanbaiten_code', message });
+      }
+    });
+  }
+
+  // SCR-019 import — fetch tanka_id for every haitatsuryo_tanka_code
+  // referenced by the batch (filtered by jaId for Layer 4) and report
+  // rows whose code didn't resolve. Returns the lookup map for the
+  // INSERT/UPDATE phase to consume.
+  // ──────────────────────────────────────────────────────────────
+  private async resolveImportTankaIds(
+    rows: ImportHanbaitenRowDto[],
+    targetJaId: number,
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): Promise<Map<string, number>> {
+    const tankaCodes = Array.from(
+      new Set(
+        rows
+          .map((r) => r.haitatsuryo_tanka_code)
+          .filter((c): c is string => typeof c === 'string' && c.length > 0),
+      ),
+    );
+    const tankaIdMap = new Map<string, number>();
+    if (tankaCodes.length > 0 && this.tankaRepo) {
+      const found = await this.tankaRepo.find({
+        where: tankaCodes.map((code) => ({
+          tankaCode: code,
+          jaId: targetJaId,
+          deletedAt: IsNull(),
+        })),
+      });
+      for (const t of found) {
+        tankaIdMap.set(t.tankaCode, Number(t.tankaId));
+      }
+    }
+    rows.forEach((row, idx) => {
+      const code = row.haitatsuryo_tanka_code;
+      if (code && !tankaIdMap.has(code)) {
+        errors.push({
+          row: idx + 2,
+          field: 'haitatsuryo_tanka_code',
+          message: '指定された配達手数料単価コードが見つかりません。',
+        });
+      }
+    });
+    return tankaIdMap;
+  }
+
+  private collectBatchDuplicateCodeErrors(
+    rows: ImportHanbaitenRowDto[],
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): void {
+    const seenCodes = new Set<string>();
+    rows.forEach((row, idx) => {
+      const code = row.hanbaiten_code;
+      if (!code) return;
+      if (seenCodes.has(code)) {
+        errors.push({
+          row: idx + 2,
+          field: 'hanbaiten_code',
+          message: '同一の販売店コードが取込ファイル内で重複しています。',
+        });
+      } else {
+        seenCodes.add(code);
+      }
+    });
+  }
+
+  // SCR-019 import — pre-check m_code values + numeric-only type
+  //                  guard per row. Extracted from `importExcel` to
+  //                  keep that function's complexity below threshold.
+  // ──────────────────────────────────────────────────────────────
+  private collectImportRowMcodeErrors(
+    rows: ImportHanbaitenRowDto[],
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): void {
+    // [m-code-validation] — itaku_kubun / tesuryo_kubun / yokin_shubetsu
+    // values must be present in m_code (or be omitted). CodeService is
+    // optional on the service constructor; without it skip the check
+    // (the spec's SCR-018 4-arg constructor leaves it undefined, but
+    // SCR-019 always wires it through `requireCodeService`).
+    const cs = this.codeService;
+    rows.forEach((row, idx) => {
+      const rowNo = idx + 2;
+      if (row.itaku_kubun != null && cs && !cs.has('ITAKU_KUBUN', row.itaku_kubun)) {
+        errors.push({
+          row: rowNo,
+          field: 'itaku_kubun',
+          message: '委託区分の値が不正です。',
+        });
+      }
+      if (row.tesuryo_kubun != null && cs && !cs.has('TESURYO_KUBUN', row.tesuryo_kubun)) {
+        errors.push({
+          row: rowNo,
+          field: 'tesuryo_kubun',
+          message: '手数料区分の値が不正です。',
+        });
+      }
+      if (row.yokin_shubetsu != null && cs && !cs.has('YOKIN_SHUBETSU', row.yokin_shubetsu)) {
+        errors.push({
+          row: rowNo,
+          field: 'yokin_shubetsu',
+          message: '口座種別の値が不正です。',
+        });
+      }
+      // [type-guard] — Numeric-only fields that may have slipped past the
+      // DTO (`@IsInt()` does NOT fire when caller bypasses the
+      // ValidationPipe — e.g. service-direct test calls). Surface as
+      // an IMPORT_VALIDATION_ERROR field so the FE can highlight the
+      // offending row + column.
+      if (
+        row.tesuryo_amount != null &&
+        typeof row.tesuryo_amount !== 'number'
+      ) {
+        errors.push({
+          row: rowNo,
+          field: 'tesuryo_amount',
+          message: '手数料は数値で入力してください。',
+        });
+      }
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — per-row INSERT/UPDATE branches (extracted from
+  //                  the transaction callback to keep complexity low)
+  // ──────────────────────────────────────────────────────────────
+  private async applyImportRowNew(
+    manager: EntityManager,
+    row: ImportHanbaitenRowDto,
+    ctx: {
+      targetJaId: number;
+      defaultTodofukenCode: string;
+      tankaId: number | null;
+      session: SessionPayload;
+    },
+  ): Promise<Hanbaiten> {
+    const { targetJaId, defaultTodofukenCode, tankaId, session } = ctx;
+    const entity = manager.create(Hanbaiten, {
+      jaId: targetJaId,
+      hanbaitenCode: row.hanbaiten_code,
+      hanbaitenName: row.hanbaiten_name ?? '',
+      hanbaitenNameKana: row.hanbaiten_name_kana ?? '',
+      torihikisakiNo: row.torihikisaki_no ?? '',
+      todofukenCode: defaultTodofukenCode,
+      yubinNo: row.yubin_no ?? '',
+      address: row.address ?? '',
+      tel: row.tel ?? '',
+      fax: row.fax ?? '',
+      shochoName: row.shocho_name ?? '',
+      itakuKubun: row.itaku_kubun ?? null,
+      haitatsuryoTankaId: tankaId,
+      haitatsuryoShiharaiCycle: row.haitatsuryo_shiharai_cycle ?? null,
+      tesuryoKubun: row.tesuryo_kubun ?? null,
+      tesuryoAmount: row.tesuryo_amount ?? null,
+      bankCode: row.bank_code ?? '',
+      bankName: row.bank_name ?? '',
+      bankBranchCode: row.bank_branch_code ?? '',
+      bankBranchName: row.bank_branch_name ?? '',
+      yokinShubetsu: row.yokin_shubetsu ?? null,
+      kozaNo: row.koza_no ?? '',
+      kozaMeigi: row.koza_meigi ?? '',
+      haitenFlg: row.haiten_flg ?? false,
+      biko: row.biko ?? '',
+      createdBy: String(session.account_id),
+      updatedBy: String(session.account_id),
+    });
+    return manager.save(Hanbaiten, entity);
+  }
+
+  private async applyImportRowUpdateAll(
+    manager: EntityManager,
+    row: ImportHanbaitenRowDto,
+    ctx: {
+      existingMap: Map<string, number>;
+      tankaId: number | null;
+      session: SessionPayload;
+    },
+  ): Promise<void> {
+    const { existingMap, tankaId, session } = ctx;
+    const existingId = existingMap.get(row.hanbaiten_code)!;
+    const payload: Partial<Hanbaiten> = {
+      hanbaitenName: row.hanbaiten_name ?? '',
+      hanbaitenNameKana: row.hanbaiten_name_kana ?? '',
+      torihikisakiNo: row.torihikisaki_no ?? '',
+      yubinNo: row.yubin_no ?? '',
+      address: row.address ?? '',
+      tel: row.tel ?? '',
+      fax: row.fax ?? '',
+      shochoName: row.shocho_name ?? '',
+      itakuKubun: row.itaku_kubun ?? null,
+      haitatsuryoTankaId: tankaId,
+      haitatsuryoShiharaiCycle: row.haitatsuryo_shiharai_cycle ?? null,
+      tesuryoKubun: row.tesuryo_kubun ?? null,
+      tesuryoAmount: row.tesuryo_amount ?? null,
+      bankCode: row.bank_code ?? '',
+      bankName: row.bank_name ?? '',
+      bankBranchCode: row.bank_branch_code ?? '',
+      bankBranchName: row.bank_branch_name ?? '',
+      yokinShubetsu: row.yokin_shubetsu ?? null,
+      kozaNo: row.koza_no ?? '',
+      kozaMeigi: row.koza_meigi ?? '',
+      haitenFlg: row.haiten_flg ?? false,
+      biko: row.biko ?? '',
+      updatedBy: String(session.account_id),
+    };
+    await manager.update(Hanbaiten, { hanbaitenId: existingId }, payload);
+  }
+
+  private async applyImportRowUpdatePartial(
+    manager: EntityManager,
+    row: ImportHanbaitenRowDto,
+    ctx: {
+      existingMap: Map<string, number>;
+      selectedColumns: string[];
+      tankaId: number | null;
+      session: SessionPayload;
+    },
+  ): Promise<void> {
+    const { existingMap, selectedColumns, tankaId, session } = ctx;
+    const existingId = existingMap.get(row.hanbaiten_code)!;
+    const payload: Partial<Hanbaiten> = {
+      updatedBy: String(session.account_id),
+    };
+    for (const col of selectedColumns) {
+      if (col === 'hanbaiten_code') continue;
+      if (col === 'haitatsuryo_tanka_code') {
+        payload.haitatsuryoTankaId = tankaId;
+        continue;
+      }
+      const entityField = IMPORT_COLUMN_TO_FIELD[col];
+      if (!entityField) continue;
+      const raw = (row as unknown as Record<string, unknown>)[col];
+      // For empty cells, fall back to the column's NOT NULL default
+      // (empty string / false). Nullable columns (numeric / enum) are
+      // not in the map so they pass through as null.
+      const fallback = Object.prototype.hasOwnProperty.call(
+        IMPORT_FIELD_EMPTY_DEFAULT,
+        entityField,
+      )
+        ? IMPORT_FIELD_EMPTY_DEFAULT[entityField]
+        : null;
+      (payload as Record<string, unknown>)[entityField] =
+        raw == null || raw === '' ? fallback : raw;
+    }
+    await manager.update(Hanbaiten, { hanbaitenId: existingId }, payload);
   }
 }

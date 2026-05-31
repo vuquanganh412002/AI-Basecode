@@ -50,7 +50,7 @@ export function pickBool(
   key: string,
   fallback: boolean,
 ): boolean {
-  return typeof obj[key] === 'boolean' ? (obj[key] as boolean) : fallback;
+  return typeof obj[key] === 'boolean' ? obj[key] : fallback;
 }
 
 export function pickNumber(
@@ -58,5 +58,5 @@ export function pickNumber(
   key: string,
   fallback: number,
 ): number {
-  return typeof obj[key] === 'number' ? (obj[key] as number) : fallback;
+  return typeof obj[key] === 'number' ? obj[key] : fallback;
 }

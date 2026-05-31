@@ -24,10 +24,18 @@ import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
+import { SuccessMessageDto } from '@/common/dto/responses.dto';
+
 import { CreateTankaDto } from './dto/create-tanka.dto';
+import { TankaDropdownQueryDto } from './dto/tanka-dropdown-query.dto';
 import { UpdateTankaDto } from './dto/update-tanka.dto';
 import { SearchTankaDto } from './dto/search-tanka.dto';
-import { TankaResponseDto } from './dto/tanka-response.dto';
+import {
+  TankaDetailEnvelopeDto,
+  TankaListResponseDto,
+  TankaMutationResponseDto,
+  TankaResponseDto,
+} from './dto/tanka-response.dto';
 import { TankaService } from './tanka.service';
 
 @ApiTags('tanka')
@@ -40,7 +48,7 @@ export class TankaController {
   @Get()
   @Permissions('tanka.view')
   @ApiOperation({ summary: '単価マスタ明細検索画面 — 単価一覧取得' })
-  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 200, type: TankaListResponseDto })
   findAll(
     @Query() query: SearchTankaDto,
     @Req() req: Request & { user: SessionPayload },
@@ -48,10 +56,33 @@ export class TankaController {
     return this.service.findAll(query, req.user);
   }
 
+  // [dropdown-route-order] declared BEFORE `@Get(':id')` so the static
+  // literal path beats the dynamic param matcher. Otherwise NestJS
+  // routes `/tanka/dropdown` through `findById(':id')` and ParseIntPipe
+  // 400s on the non-numeric "dropdown".
+  //
+  // Permission deliberately NOT `tanka.create` — the dropdown is
+  // consumed from the SCR-017 hanbaiten create form. Callers split
+  // by role: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold `hanbaiten.view`
+  // (and `hanbaiten.create`); NICHINO_STAFF holds ONLY
+  // `hanbaiten.daiko_input` (代行入力). The PermissionsGuard treats
+  // multiple perms as OR ([perm-any-of]) so both groups get through.
+  @Get('dropdown')
+  @Permissions('hanbaiten.view', 'hanbaiten.daiko_input')
+  @ApiOperation({
+    summary: '単価ドロップダウン — 配達手数料単価 (SCR-017) 用',
+  })
+  getDropdown(
+    @Query() query: TankaDropdownQueryDto,
+    @Req() req: Request & { user: SessionPayload },
+  ) {
+    return this.service.getDropdown(query, req.user);
+  }
+
   @Delete(':id')
   @Permissions('tanka.delete')
   @ApiOperation({ summary: '単価マスタ明細検索画面 — 単価論理削除' })
-  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 200, type: SuccessMessageDto })
   remove(
     @Param('id', ParseIntPipe) tankaId: number,
     @Req() req: Request & { user: SessionPayload },
@@ -63,7 +94,7 @@ export class TankaController {
   @Get(':id')
   @Permissions('tanka.view')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価詳細取得（編集モード）' })
-  @ApiResponse({ status: 200, type: TankaResponseDto })
+  @ApiResponse({ status: 200, type: TankaDetailEnvelopeDto })
   async findById(
     @Param('id', ParseIntPipe) tankaId: number,
     @Req() req: Request & { user: SessionPayload },
@@ -76,7 +107,7 @@ export class TankaController {
   @Post()
   @Permissions('tanka.create')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価登録' })
-  @ApiResponse({ status: 201, type: TankaResponseDto })
+  @ApiResponse({ status: 201, type: TankaMutationResponseDto })
   async create(
     @Body() dto: CreateTankaDto,
     @Req() req: Request & { user: SessionPayload },
@@ -89,7 +120,7 @@ export class TankaController {
   @Put(':id')
   @Permissions('tanka.update')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価更新' })
-  @ApiResponse({ status: 200, type: TankaResponseDto })
+  @ApiResponse({ status: 200, type: TankaMutationResponseDto })
   async update(
     @Param('id', ParseIntPipe) tankaId: number,
     @Body() dto: UpdateTankaDto,

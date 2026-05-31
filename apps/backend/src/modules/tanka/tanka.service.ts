@@ -6,7 +6,6 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
-  ConflictException,
   DuplicateCodeException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
@@ -93,6 +92,27 @@ function assertCreateDateRange(start: string, end: string): void {
  * `@IsIn(TANKA_SEARCH_SORT_BY)` already rejects keys outside this map,
  * but keeping the lookup dynamic prevents SQL injection if the DTO drifts.
  */
+/**
+ * TypeORM round-trips `date`-typed columns as JS `Date` in production but
+ * as ISO string under pg-mem (tests). Normalize to the FE-expected
+ * `YYYY-MM-DD` (or null for nullable `tekiyo_end_date`). Hoisted to module
+ * scope so the `.map((t) => …)` callback in `searchTanka` stays compact
+ * (Sonar S7721).
+ */
+function tekiyoStartDateIso(t: Tanka): string {
+  if (typeof t.tekiyoStartDate === 'string') return t.tekiyoStartDate;
+  if (t.tekiyoStartDate) {
+    return (t.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10);
+  }
+  return '';
+}
+
+function tekiyoEndDateIso(t: Tanka): string | null {
+  if (t.tekiyoEndDate === null || t.tekiyoEndDate === undefined) return null;
+  if (typeof t.tekiyoEndDate === 'string') return t.tekiyoEndDate;
+  return (t.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10);
+}
+
 const SORT_COLUMN_MAP: Record<TankaSearchSortBy, string> = {
   tanka_code: 'mt.tanka_code',
   tanka_name: 'mt.tanka_name',
@@ -219,18 +239,8 @@ export class TankaService {
       tanka_type: Number(t.tankaType),
       tanka_code: t.tankaCode,
       tanka_name: t.tankaName,
-      tekiyo_start_date:
-        typeof t.tekiyoStartDate === 'string'
-          ? t.tekiyoStartDate
-          : t.tekiyoStartDate
-            ? (t.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10)
-            : '',
-      tekiyo_end_date:
-        t.tekiyoEndDate === null || t.tekiyoEndDate === undefined
-          ? null
-          : typeof t.tekiyoEndDate === 'string'
-            ? t.tekiyoEndDate
-            : (t.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10),
+      tekiyo_start_date: tekiyoStartDateIso(t),
+      tekiyo_end_date: tekiyoEndDateIso(t),
       kingaku_zeikomi: Number(t.kingakuZeikomi),
       kingaku_zeinuki: Number(t.kingakuZeinuki),
       tax_rate: Number(t.taxRate),
@@ -485,5 +495,113 @@ export class TankaService {
       await this.auditLog.logError(ctxBuilder(), 'UPDATE', err as Error);
       throw err;
     }
+  }
+
+  // ─── GET /api/v1/tanka/dropdown ───────────────────────────────────
+  /**
+   * Slim paginated + searchable list for the SCR-017 hanbaiten create
+   * form 配達手数料単価 dropdown. Behaviour:
+   *   - DataScope: restricted roles see own JA only. NICHINO_STAFF
+   *     (代行入力) is JA-scoped via the optional `ja_id` query param;
+   *     ignored for other roles since `applyJaScope` already pins
+   *     `session.ja_id`.
+   *   - `tanka_type`: optional category filter (typically 2 for
+   *     配達手数料 on this form, but generic enough to reuse).
+   *   - `q`: ILIKE on `tanka_name` only — the dropdown hides
+   *     `tanka_code` so searching code would surface invisible hits.
+   *   - Filters out soft-deleted, inactive, and out-of-period rows
+   *     (`tekiyo_end_date < CURRENT_DATE` excluded) — only currently-
+   *     effective unit prices appear.
+   *   - `include_id`: edit-form escape hatch — if the pre-selected
+   *     tanka_id falls outside page 1, BE prepends it so the label
+   *     resolves without a second GET.
+   */
+  async getDropdown(
+    query: import('./dto/tanka-dropdown-query.dto').TankaDropdownQueryDto,
+    session: SessionPayload,
+  ): Promise<{
+    data: Array<{
+      tanka_id: number;
+      tanka_code: string;
+      tanka_name: string;
+      tanka_type: number;
+      kingaku_zeikomi: number;
+    }>;
+    meta: { total: number; page: number; per_page: number; has_more: boolean };
+  }> {
+    const page = query.page ?? 1;
+    const per_page = query.per_page ?? 50;
+
+    const buildScopedQb = () => {
+      const qb = this.repo
+        .createQueryBuilder('mt')
+        .where('mt.deleted_at IS NULL')
+        .andWhere('mt.active_flg = TRUE')
+        .andWhere('mt.tekiyo_start_date <= CURRENT_DATE')
+        .andWhere(
+          '(mt.tekiyo_end_date IS NULL OR mt.tekiyo_end_date >= CURRENT_DATE)',
+        );
+
+      // [data-scope] Restricted roles → own JA only. NICHINO_STAFF
+      // (session.ja_id == null) → use the explicit ja_id query param
+      // (代行入力 picks a JA up-front in the form).
+      if (session.ja_id != null) {
+        applyJaScope(qb, 'mt', 'jaId', session);
+      } else if (query.ja_id !== undefined) {
+        qb.andWhere('mt.ja_id = :qja', { qja: query.ja_id });
+      }
+      // (NICHINO_ADMIN with no JA filter falls through and sees all JA's
+      //  tanka — not a typical caller for this endpoint, but harmless.)
+
+      if (query.tanka_type !== undefined) {
+        qb.andWhere('mt.tanka_type = :tt', { tt: query.tanka_type });
+      }
+      if (query.q) {
+        qb.andWhere('mt.tanka_name ILIKE :q', { q: `%${query.q}%` });
+      }
+      return qb;
+    };
+
+    const qb = buildScopedQb()
+      .select([
+        'mt.tankaId',
+        'mt.tankaCode',
+        'mt.tankaName',
+        'mt.tankaType',
+        'mt.kingakuZeikomi',
+      ])
+      .orderBy('mt.tanka_name', 'ASC')
+      .take(per_page)
+      .skip((page - 1) * per_page);
+
+    const [rows, total] = await qb.getManyAndCount();
+    const pageIds = new Set(rows.map((r) => Number(r.tankaId)));
+    const has_more = page * per_page < total;
+
+    // [include-id] prepend the pre-selected row when it survives the
+    // scope/active filter but falls outside the current page.
+    let pinned: Tanka | null = null;
+    if (query.include_id && !pageIds.has(query.include_id)) {
+      const pinnedQb = buildScopedQb()
+        .select([
+          'mt.tankaId',
+          'mt.tankaCode',
+          'mt.tankaName',
+          'mt.tankaType',
+          'mt.kingakuZeikomi',
+        ])
+        .andWhere('mt.tanka_id = :id', { id: query.include_id });
+      pinned = await pinnedQb.getOne();
+    }
+
+    const data = [...(pinned ? [pinned] : []), ...rows].map((r) => ({
+      tanka_id: Number(r.tankaId),
+      tanka_code: r.tankaCode,
+      tanka_name: r.tankaName,
+      tanka_type: r.tankaType,
+      kingaku_zeikomi: Number(r.kingakuZeikomi),
+    }));
+
+    return { data, meta: { total, page, per_page, has_more } };
   }
 }

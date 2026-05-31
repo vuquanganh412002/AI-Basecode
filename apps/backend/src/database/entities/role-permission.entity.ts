@@ -18,6 +18,15 @@ export class RolePermission {
   @Column({ name: 'permission_id', type: 'bigint' })
   permissionId: number;
 
+  /**
+   * TRUE when this row was seeded as part of the role's baseline
+   * (`1711900900003-SeedMRolesPermissions.ts`). FE renders the
+   * checkbox `disabled`; BE rejects PATCH that drops the row.
+   * FALSE for any row added later via the SCR-027 admin UI.
+   */
+  @Column({ name: 'locked', type: 'boolean', default: false })
+  locked: boolean;
+
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
 

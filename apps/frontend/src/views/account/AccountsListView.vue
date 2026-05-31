@@ -7,6 +7,7 @@ import BaseCard from '@/components/common/BaseCard.vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
@@ -20,7 +21,7 @@ import {
   listRolesDropdown,
   type RoleDropdownItem,
 } from '@/api/roles/roles';
-import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
+import { RoleCode } from '@/constants/enums';
 import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
@@ -40,7 +41,9 @@ interface AccountFilters {
 // so a non-admin landing on the URL sees ACSMS-MSG-024-006 instead of
 // firing the API.
 const authStore = useAuthStore();
-const isAdmin = computed(() => authStore.user?.role_code === 'NICHINO_ADMIN');
+const isAdmin = computed(
+  () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
+);
 const ACCESS_DENIED_MSG = 'アクセス権がありません。';
 
 const router = useRouter();
@@ -61,9 +64,9 @@ const { state, loading, total, onChange, applyFilters, resetFilters } =
 
 const rows = ref<AccountListItem[]>([]);
 
-// Dropdown options.
+// Dropdown options. JA list is served by <BaseJaDropdown> (server-side
+// paginated + searchable, 50/page with infinite scroll) — no local ref.
 const roleOptions = ref<RoleDropdownItem[]>([]);
-const jaOptions = ref<JaDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 
 // Column order per ACSMS-SCR-024 v1.x customer spec:
@@ -76,7 +79,7 @@ const columns: TableColumnsType = [
   { title: 'アカウント名', dataIndex: 'account_name', key: 'account_name', sorter: true, width: 200 },
   { title: '管理者区分', dataIndex: 'role_name', key: 'role_name', sorter: true, width: 160 },
   { title: '都道府県', dataIndex: 'todofuken_name', key: 'todofuken_code', sorter: true, width: 120 },
-  { title: 'JA', dataIndex: 'ja_name', key: 'ja_name', width: 180 },
+  { title: 'JA名', dataIndex: 'ja_name', key: 'ja_name', width: 180 },
   { title: '管理支店', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', width: 200 },
   { title: '通知先メールアドレス', dataIndex: 'email', key: 'email', width: 220 },
   { title: 'サブメール1', dataIndex: 'sub_email_1', key: 'sub_email_1', width: 220 },
@@ -125,15 +128,6 @@ async function fetchRoleOptions(): Promise<void> {
   }
 }
 
-async function fetchJaOptions(): Promise<void> {
-  try {
-    const resp = await getJaDropdown({ per_page: 100 });
-    jaOptions.value = resp.data;
-  } catch {
-    jaOptions.value = [];
-  }
-}
-
 async function fetchKanriShitenOptions(jaId: number): Promise<void> {
   try {
     const resp = await getKanriShitenDropdown(jaId);
@@ -164,7 +158,7 @@ onMounted(() => {
   if (!isAdmin.value) return;
   void fetchList();
   void fetchRoleOptions();
-  void fetchJaOptions();
+  // JA dropdown self-hydrates via <BaseJaDropdown>'s onMounted hook.
 });
 
 function onSearch(): void {
@@ -231,22 +225,20 @@ function askDelete(row: AccountListItem): void {
       @search="onSearch"
       @clear="onClear"
     >
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          ログインID
-        </label>
+      <label for="accounts-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">ログインID</span>
         <a-input
+          id="accounts-filter-1"
           v-model:value="state.filters.login_id"
           placeholder="ログインID"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          管理者区分
-        </label>
+      </label>
+      <label for="accounts-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">管理者区分</span>
         <a-select
+          id="accounts-filter-2"
           v-model:value="state.filters.role_id"
           placeholder="すべて"
           allow-clear
@@ -260,31 +252,26 @@ function askDelete(row: AccountListItem): void {
             {{ opt.role_name }}
           </a-select-option>
         </a-select>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          JA
-        </label>
+      </label>
+      <label for="accounts-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">JA名</span>
+        <!-- BaseJaDropdown: server-side paginated (50/page) + infinite
+             scroll. Account screen hides ja_code from option labels and
+             scopes ILIKE to ja_name only (label-format + search-field). -->
+        <div class="flex-1">
+          <BaseJaDropdown
+            id="accounts-filter-3"
+            v-model:value="state.filters.ja_id"
+            placeholder="すべて"
+            label-format="name"
+            search-field="name"
+          />
+        </div>
+      </label>
+      <label for="accounts-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">管理支店</span>
         <a-select
-          v-model:value="state.filters.ja_id"
-          placeholder="すべて"
-          allow-clear
-          class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in jaOptions"
-            :key="opt.ja_id"
-            :value="opt.ja_id"
-          >
-            {{ opt.ja_name }}
-          </a-select-option>
-        </a-select>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          管理支店
-        </label>
-        <a-select
+          id="accounts-filter-4"
           v-model:value="state.filters.kanri_shiten_id"
           placeholder="すべて"
           allow-clear
@@ -299,7 +286,7 @@ function askDelete(row: AccountListItem): void {
             {{ opt.kanri_shiten_name }}
           </a-select-option>
         </a-select>
-      </div>
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-024-001 — empty-result message rendered separately

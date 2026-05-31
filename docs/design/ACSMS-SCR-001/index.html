@@ -64,7 +64,7 @@
       <div class="w-full max-w-[400px] space-y-8">
         <header class="text-center">
           <h1 class="text-2xl font-bold text-text-main dark:text-white mb-2">
-            日本情報新聞
+            日本農業新聞
           </h1>
           <p class="text-text-secondary dark:text-slate-400 text-sm">
             クラウド版購読者管理システム
@@ -111,6 +111,17 @@
             >
               ログイン
             </button>
+            <!-- SCR-012 entry point — below ログイン button, before
+                 the terms-of-service line. Matches LoginView.vue
+                 lines 139-146. -->
+            <div class="text-center -mt-2">
+              <a
+                class="text-sm text-primary hover:underline"
+                href="forgot-password.html"
+              >
+                パスワードを忘れた場合
+              </a>
+            </div>
             <div
               class="text-xs text-center text-text-secondary dark:text-slate-500 leading-relaxed"
             >
@@ -181,7 +192,7 @@
                 <p
                   class="text-[11px] text-text-secondary dark:text-slate-400 mb-1"
                 >
-                  日本情報新聞 協同事業局業務管理部
+                  日本農業新聞 協同事業局業務管理部
                 </p>
                 <div class="flex items-baseline gap-2">
                   <span
@@ -199,11 +210,6 @@
         </div>
       </div>
     </div>
-    <footer class="py-8 text-center">
-      <p class="text-[11px] text-text-secondary dark:text-slate-500">
-        © 2026 Japan.
-      </p>
-    </footer>
     <div class="fixed bottom-6 right-6">
       <button
         class="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-800 text-text-secondary dark:text-slate-200 rounded-full shadow-lg border border-gray-200 dark:border-slate-700 hover:scale-105 transition-transform"

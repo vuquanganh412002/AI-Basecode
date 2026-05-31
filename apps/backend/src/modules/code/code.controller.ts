@@ -2,6 +2,10 @@ import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import { CodeService } from './code.service';
+import {
+  CodeListByCategoryResponseDto,
+  CodeListResponseDto,
+} from './dto/code-response.dto';
 
 @ApiTags('codes')
 @ApiCookieAuth('session_id')
@@ -18,6 +22,7 @@ export class CodeController {
   })
   @ApiResponse({
     status: 200,
+    type: CodeListByCategoryResponseDto,
     description: 'カテゴリ名をキーとするコードリスト',
   })
   findAll() {
@@ -30,7 +35,7 @@ export class CodeController {
     description:
       '指定カテゴリ（例: TANKA_TYPE, GENDER）のコード一覧を取得する。',
   })
-  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 200, type: CodeListResponseDto })
   findByCategory(@Param('category') category: string) {
     return { data: this.codeService.getByCategory(category) };
   }

@@ -165,8 +165,9 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       expect(res.body.data.every((r: any) => r.ja_id === 1)).toBe(true);
     });
 
-    it('should exclude haiten_flg=true rows by default (画面設計書 v1.2 §1.1 / §2.1)', async () => {
-      // COVERS: §4.3 — default `haiten_flg = false`
+    it('should return only 営業中 rows by default (haiten_flg=false)', async () => {
+      // COVERS: customer 2026-05-26 — exact-match semantic. Default
+      // = haiten_flg=false (営業中のみ).
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001', haitenFlg: false });
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H002', haitenFlg: true });
 
@@ -180,8 +181,9 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       expect(res.body.data[0].haiten_flg).toBe(false);
     });
 
-    it('should include haiten_flg=true rows when haiten_flg=true query is explicitly passed', async () => {
-      // COVERS: §4.3 — :include_haiten=true bypass
+    it('should return only 廃店 rows when haiten_flg=true is explicitly passed', async () => {
+      // COVERS: customer 2026-05-26 — exact-match. checked = 廃店のみ
+      // (NOT "include 廃店").
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001', haitenFlg: false });
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H002', haitenFlg: true });
 
@@ -192,7 +194,8 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
         .set('Cookie', cookie)
         .expect(200);
 
-      expect(res.body.meta.total).toBe(2);
+      expect(res.body.meta.total).toBe(1);
+      expect(res.body.data[0].haiten_flg).toBe(true);
     });
 
     it('should apply ILIKE filter when hanbaiten_name=山田 is passed', async () => {

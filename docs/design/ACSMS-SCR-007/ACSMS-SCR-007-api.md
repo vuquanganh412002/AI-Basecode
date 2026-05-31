@@ -679,6 +679,39 @@ WHERE shiten_id = :shiten_id
 
 ### 4.4 データ更新
 
+#### 4.4.1 フィールドレベル制限（顧客レビュー 2026-05）
+
+更新リクエストはロールごとに編集可能カラムが異なる。BE 側で
+`filterAllowedFields` がリクエストボディの非許可キーをサイレント
+ドロップする（HTTP 400 は返さない）。FE 側 `ShitenFormView.vue`
+は非許可カラムを `:disabled` で表示するため、UI 通過のリクエストは
+通常ドロップ対象を含まない — ただし curl 直叩きへの防御として BE
+ドロップは必須。
+
+| ロール             | 編集可能カラム                                    |
+|---|---|
+| NICHINO_ADMIN      | 全カラム                                          |
+| NICHINO_STAFF      | 全カラム                                          |
+| CHUOKAI            | 全カラム                                          |
+| JA_HONTEN          | 全カラム                                          |
+| JA_KANRI_SHITEN    | `kanri_shiten_id` 以外の全カラム ※                |
+
+※ JA_KANRI_SHITEN は支店の所属管理支店を変更できない（上位ロール
+のみが管理支店の再割当てを行う）。`kanri_shiten_id` を含む PUT を
+送ると BE 側で当該フィールドのみドロップし、他のカラムは通常通り
+更新される。`shiten_code` は全ロールで編集不可（`UpdateShitenDto`
+に存在しないため `ValidationPipe` が `forbidNonWhitelisted` で
+拒否）。
+
+実装：[`shiten.service.ts` `FIELD_RESTRICTIONS`](../../../apps/backend/src/modules/shiten/shiten.service.ts) +
+[`.claude/rules/security.md` §Layer 3](../../../.claude/rules/security.md)。
+
+#### 4.4.2 UPDATE SQL
+
+`filterAllowedFields` を通った後の値を `pickXxx(...)` で個別に取得
+する — DTO から落とされたキーは `before.*` の現在値が `:column`
+にセットされ、結果として「変更なし」になる。
+
 ```sql
 UPDATE m_shiten
 SET shiten_name = :shiten_name,

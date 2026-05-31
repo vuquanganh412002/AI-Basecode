@@ -5,6 +5,7 @@ import {
   DataScopeViolationException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
+import { RoleCode } from '@/common/enums';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 /**
@@ -94,15 +95,15 @@ export function assertBranchScope(
   resourceLabel?: string,
 ): void {
   if (
-    session.role_code === 'NICHINO_ADMIN' ||
-    session.role_code === 'NICHINO_STAFF'
+    session.role_code === RoleCode.NICHINO_ADMIN ||
+    session.role_code === RoleCode.NICHINO_STAFF
   ) {
     return;
   }
   // Coerce BIGINT-as-string from TypeORM to number (see numericId comment
   // in assertJaScope).
   const mismatch =
-    session.role_code === 'JA_KANRI_SHITEN'
+    session.role_code === RoleCode.JA_KANRI_SHITEN
       ? numericId(recordKanriShitenId) !== numericId(session.kanri_shiten_id)
       : numericId(recordJaId) !== numericId(session.ja_id);
   if (mismatch) {
@@ -145,18 +146,61 @@ export function applyBranchScope<T extends object>(
   session: SessionPayload,
 ): void {
   if (
-    session.role_code === 'NICHINO_ADMIN' ||
-    session.role_code === 'NICHINO_STAFF'
+    session.role_code === RoleCode.NICHINO_ADMIN ||
+    session.role_code === RoleCode.NICHINO_STAFF
   ) {
     return;
   }
-  if (session.role_code === 'JA_KANRI_SHITEN') {
+  if (session.role_code === RoleCode.JA_KANRI_SHITEN) {
     qb.andWhere(`${alias}.${fields.kanriShitenIdField} = :scopeKsId`, {
       scopeKsId: session.kanri_shiten_id,
     });
     return;
   }
   qb.andWhere(`${alias}.${fields.jaIdField} = :scopeJaId`, {
+    scopeJaId: session.ja_id,
+  });
+}
+
+/**
+ * Branch-aware variant for the (rare) case where `ja_id` and
+ * `kanri_shiten_id` live on DIFFERENT aliases — typically because
+ * `ja_id` is on the primary table but `kanri_shiten_id` is denormalised
+ * through a JOIN'd m_account row.
+ *
+ * Concrete user: `LogService.findAll/exportLogCsv` — `t_log.ja_id`
+ * (alias `l`) but `m_account.kanri_shiten_id` (alias `a`) on the JOIN.
+ *
+ * Each side carries its own `{ alias, field }` pair. Behavior is
+ * identical to `applyBranchScope` otherwise (NICHINO_* unrestricted,
+ * KANRI_SHITEN narrows by kanri_shiten_id, CHUOKAI/JA_HONTEN by ja_id).
+ *
+ * Use the simpler `applyBranchScope(qb, alias, { jaIdField, kanriShitenIdField })`
+ * when both fields sit on the same alias — this variant exists only
+ * for the cross-table case.
+ */
+export function applyBranchScopeWithJoinAlias<T extends object>(
+  qb: SelectQueryBuilder<T>,
+  scope: {
+    ja: { alias: string; field: string };
+    kanriShiten: { alias: string; field: string };
+  },
+  session: SessionPayload,
+): void {
+  if (
+    session.role_code === RoleCode.NICHINO_ADMIN ||
+    session.role_code === RoleCode.NICHINO_STAFF
+  ) {
+    return;
+  }
+  if (session.role_code === RoleCode.JA_KANRI_SHITEN) {
+    qb.andWhere(
+      `${scope.kanriShiten.alias}.${scope.kanriShiten.field} = :scopeKsId`,
+      { scopeKsId: session.kanri_shiten_id },
+    );
+    return;
+  }
+  qb.andWhere(`${scope.ja.alias}.${scope.ja.field} = :scopeJaId`, {
     scopeJaId: session.ja_id,
   });
 }

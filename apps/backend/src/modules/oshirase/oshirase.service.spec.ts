@@ -208,6 +208,9 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       getOne: jest.fn(),
       getMany: jest.fn().mockResolvedValue([]),
       getRawMany: jest.fn().mockResolvedValue([]),
+      getRawAndEntities: jest
+        .fn()
+        .mockResolvedValue({ entities: [], raw: [] }),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       getCount: jest.fn().mockResolvedValue(0),
     };
@@ -218,6 +221,18 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       getCount: jest.fn().mockResolvedValue(0),
     };
 
+    // [ja-name-batch] Second query builder for the m_ja lookup that
+    // resolves ja_name per row in getList(). Default seed returns no
+    // rows — tests that load oshirase rows with non-null ja_id seed
+    // this to map ja_id → ja_name explicitly.
+    const jaLookupQbMock: any = {
+      select: jest.fn().mockReturnThis(),
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    };
+
     oshiraseRepo = {
       createQueryBuilder: jest.fn(() => qbMock),
       findOne: jest.fn(),
@@ -225,8 +240,13 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       save: jest.fn(async (e: any) => e),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       softDelete: jest.fn().mockResolvedValue({ affected: 1 }),
-      manager: { transaction: jest.fn() },
+      manager: {
+        transaction: jest.fn(),
+        createQueryBuilder: jest.fn(() => jaLookupQbMock),
+      },
     };
+    // Expose for per-test seeding.
+    (oshiraseRepo as any).__jaLookupQbMock = jaLookupQbMock;
 
     codeService = {
       has: jest.fn().mockReturnValue(true),
@@ -294,6 +314,11 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
         ],
         25,
       ]);
+      // [ja-name-batch] Row 2 has jaId=1 → service does a batch lookup
+      // via repo.manager. Seed the m_ja row so ja_name resolves.
+      (oshiraseRepo as any).__jaLookupQbMock.getRawMany.mockResolvedValue([
+        { ja_id: 1, ja_name: 'JA東京中央' },
+      ]);
 
       const result = await service.getList({});
 
@@ -310,15 +335,22 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       expect(result.data[0]).toEqual(
         expect.objectContaining({
           oshirase_id: 1,
+          ja_id: null,
+          ja_name: null,
           oshirase_type: 1,
-          oshirase_type_label: 'システム',
           publish_location: 2,
-          publish_location_label: 'メニュー画面',
           status: 2,
-          status_label: '公開',
           title: 'システムメンテナンスのお知らせ',
         }),
       );
+      // [no-labels-policy] Authenticated SCR-031 list no longer emits
+      // *_label fields; FE resolves via useCodesStore().label(...).
+      expect(result.data[0]).not.toHaveProperty('oshirase_type_label');
+      expect(result.data[0]).not.toHaveProperty('publish_location_label');
+      expect(result.data[0]).not.toHaveProperty('status_label');
+      // [ja-name-join] Lock the leftJoin contract — row 2's ja_name
+      // is resolved from m_ja, not from any local FE lookup.
+      expect(result.data[1].ja_name).toBe('JA東京中央');
     });
 
     it('should filter soft-deleted rows via deleted_at IS NULL when querying', async () => {
@@ -374,7 +406,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   // API-031-002 — getDetail
   // ═══════════════════════════════════════════════════════════════════
   describe('getDetail', () => {
-    it('should return the detail with mapped labels when oshirase_id exists', async () => {
+    it('should return the detail with raw code values when oshirase_id exists (labels resolved client-side)', async () => {
       oshiraseRepo.findOne.mockResolvedValue(buildOshiraseEntity({ oshiraseId: 1 }));
 
       const result = await service.getDetail(1);
@@ -383,13 +415,16 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
         expect.objectContaining({
           oshirase_id: 1,
           oshirase_type: 1,
-          oshirase_type_label: 'システム',
-          publish_location_label: 'メニュー画面',
-          status_label: '公開',
+          publish_location: 2,
+          status: 2,
           content: expect.any(String),
           target_kanri_kubun: '1,2,3',
         }),
       );
+      // [no-labels-policy] Authenticated detail endpoint omits *_label.
+      expect(result.data).not.toHaveProperty('oshirase_type_label');
+      expect(result.data).not.toHaveProperty('publish_location_label');
+      expect(result.data).not.toHaveProperty('status_label');
     });
 
     it('should query repo with { oshirase_id, deleted_at IS NULL } when called', async () => {
@@ -421,27 +456,76 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       expect(result.data).toEqual(
         expect.objectContaining({
           oshirase_id: 10,
-          oshirase_type_label: 'システム',
-          publish_location_label: 'メニュー画面',
-          status_label: '公開',
+          oshirase_type: 1,
+          publish_location: 2,
+          status: 2,
         }),
       );
+      expect(result.data).not.toHaveProperty('oshirase_type_label');
       expect(result.message).toBe('登録しました。');
     });
 
-    it('should reject with DEADLINE_NOTICE_DUPLICATE when publish_location=2 + oshirase_type=4 already exists', async () => {
+    it('should reject with DEADLINE_NOTICE_DUPLICATE when an oshirase_type=4 (publish_location=3) already exists', async () => {
       oshiraseRepo.count.mockResolvedValue(1);
-      const body = buildCreateOshiraseBody({ publish_location: 2, oshirase_type: 4 });
+      const body = buildCreateOshiraseBody({ publish_location: 3, oshirase_type: 4 });
 
       await expect(service.create(body, session, req)).rejects.toMatchObject({
         response: expect.objectContaining({ error_code: 'DEADLINE_NOTICE_DUPLICATE' }),
       });
     });
 
-    it('should NOT run the duplicate-check when publish_location=1 or oshirase_type !== 4', async () => {
+    it('should reject with VALIDATION_ERROR when oshirase_type=4 is paired with publish_location≠3', async () => {
+      // 顧客確認 2026-05: type=4 ⇔ publish_location=3 は 1:1。
+      // FE は watcher で自動同期するが、API 直接呼び出し対策で BE 側も検査する。
+      const body = buildCreateOshiraseBody({ publish_location: 2, oshirase_type: 4 });
+
+      await expect(service.create(body, session, req)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'publish_location' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject with VALIDATION_ERROR when publish_location=3 is paired with oshirase_type≠4', async () => {
+      const body = buildCreateOshiraseBody({ publish_location: 3, oshirase_type: 1 });
+
+      await expect(service.create(body, session, req)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'oshirase_type' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should NOT run the duplicate-check when oshirase_type !== 4', async () => {
       const body = buildCreateOshiraseBody({ publish_location: 1, oshirase_type: 1 });
       await service.create(body, session, req);
       expect(oshiraseRepo.count).not.toHaveBeenCalled();
+    });
+
+    it('should reject with VALIDATION_ERROR when publish_start_date is in the past', async () => {
+      // 顧客確認 2026-05: 新規作成時、開始日は現在分以降であること。
+      const body = buildCreateOshiraseBody({ publish_start_date: pastDateString(1) });
+
+      await expect(service.create(body, session, req)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'publish_start_date',
+              message: '過去日は選択できません。',
+            }),
+          ]),
+        }),
+      });
     });
 
     it('should call AuditLogService.logCreate with operation CREATE inside the same transaction when create succeeds', async () => {
@@ -552,11 +636,10 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       );
     });
 
-    it('should reject when publish_start_date in the body differs from the existing past start_date', async () => {
-      // api.md §4.3: 過去日の場合、リクエストの publish_start_date との差分を
-      // 確認し、変更されている場合はバリデーションエラーとして扱う。
-      // Source throws BadRequestException with bare string message →
-      // GlobalExceptionFilter maps HTTP 400 → BAD_REQUEST error_code by default.
+    it('should reject with VALIDATION_ERROR when publish_start_date in the body differs from the existing past start_date', async () => {
+      // 顧客確認 2026-05: 保存済み開始日が過去 + 値変更 → 拒否。
+      // VALIDATION_ERROR + errors[publish_start_date] の標準形で投げ、
+      // FE の applyServerErrors が field-level エラーにマップできる形にする。
       const existing = buildOshiraseEntity({
         oshiraseId: 1,
         publishStartDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
@@ -564,8 +647,6 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       oshiraseRepo.findOne.mockResolvedValue(existing);
       txManager.findOne.mockResolvedValue(existing);
 
-      // Submit with a different (future) start date — should be rejected
-      // because the stored start_date has already passed.
       await expect(
         service.update(
           1,
@@ -575,7 +656,46 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
         ),
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringContaining('過去日'),
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'publish_start_date',
+              message: '過去日は選択できません。',
+            }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject with VALIDATION_ERROR when existing publish_start_date is future and the new value is in the past', async () => {
+      // 顧客確認 2026-05: 保存済み開始日=未来 + 新値<現在 → 拒否。
+      // 旧仕様（過去-存在 + 変更時のみ拒否）では未来→過去への改竄が通っていた。
+      const existing = buildOshiraseEntity({
+        oshiraseId: 1,
+        publishStartDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      });
+      oshiraseRepo.findOne.mockResolvedValue(existing);
+      txManager.findOne.mockResolvedValue(existing);
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateOshiraseBody({ publish_start_date: pastDateString(1) }),
+          session,
+          req,
+        ),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'publish_start_date',
+              message: '過去日は選択できません。',
+            }),
+          ]),
+        }),
       });
     });
   });
@@ -597,6 +717,20 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
     it('should throw NotFoundException when oshirase_id does not exist', async () => {
       oshiraseRepo.findOne.mockResolvedValue(null);
       await expect(service.remove(9999, session, req)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should reject deletion when the target record is 締め切り時間 (oshirase_type=4)', async () => {
+      // 顧客確認 2026-05: 締め切り時間レコードは削除不可。BE 側でも防御線を張る。
+      const existing = buildOshiraseEntity({ oshiraseId: 8, oshiraseType: 4 });
+      oshiraseRepo.findOne.mockResolvedValue(existing);
+
+      await expect(service.remove(8, session, req)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          error_code: 'BAD_REQUEST',
+          message: '締め切り時間のお知らせは削除できません。',
+        }),
+      });
     });
 
     it('should call AuditLogService.logDelete with bare DELETE operation + before state inside the same transaction', async () => {

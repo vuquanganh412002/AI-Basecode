@@ -193,33 +193,30 @@ function askDelete(row: KanriShitenListItem): void {
       @search="onSearch"
       @clear="onClear"
     >
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          管理支店コード
-        </label>
+      <label for="kanri-shiten-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">管理支店コード</span>
         <a-input
+          id="kanri-shiten-filter-1"
           v-model:value="state.filters.kanri_shiten_code"
           placeholder="選択してください"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          管理支店名
-        </label>
+      </label>
+      <label for="kanri-shiten-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">管理支店名</span>
         <a-input
+          id="kanri-shiten-filter-2"
           v-model:value="state.filters.kanri_shiten_name"
           placeholder="選択してください"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          都道府県
-        </label>
+      </label>
+      <label for="kanri-shiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">都道府県</span>
         <a-select
+          id="kanri-shiten-filter-3"
           v-model:value="state.filters.todofuken_code"
           placeholder="選択してください"
           allow-clear
@@ -233,29 +230,27 @@ function askDelete(row: KanriShitenListItem): void {
             {{ opt.todofuken_name }}
           </a-select-option>
         </a-select>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          電話番号
-        </label>
+      </label>
+      <label for="kanri-shiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">電話番号</span>
         <a-input
+          id="kanri-shiten-filter-4"
           v-model:value="state.filters.tel"
           placeholder="選択してください"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          FAX
-        </label>
+      </label>
+      <label for="kanri-shiten-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">FAX</span>
         <a-input
+          id="kanri-shiten-filter-5"
           v-model:value="state.filters.fax"
           placeholder="選択してください"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-008-001 — empty-result message rendered separately

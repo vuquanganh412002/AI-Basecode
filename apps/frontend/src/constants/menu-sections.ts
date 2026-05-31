@@ -86,13 +86,16 @@ export const MENU_SECTIONS: MenuSection[] = [
       { name: 'OshiraseList', label: 'お知らせ管理', icon: 'campaign', permission: 'oshirase.view' },
       { name: 'KanriShitenList', label: '管理支店マスタ', icon: 'admin_panel_settings', permission: 'kanri_shiten.view' },
       { name: 'AccountList', label: 'アカウント管理', icon: 'manage_accounts', permission: 'account.view' },
-      // 販売店代行入力 = NICHINO_STAFF only (account_concept.md ※2 +
-      // ACSMS-SCR-010 §3.2 "HANBAITEN_PROXY_INPUT権限"). Cannot reuse
-      // hanbaiten.create — CHUOKAI/JA_HONTEN/JA_KANRI all have it and they
-      // already see the regular 販売店情報登録 entry. Dedicated permission is
-      // granted exclusively to role_id=2 in migration
-      // 1711900900008-SeedRoleAndDaikoPermissions.
-      { name: 'HanbaitenDaikoInput', label: '販売店代行入力', icon: 'upload', permission: 'hanbaiten.daiko_input' },
+      // [daiko-shared-routes] 販売店代行入力 = NICHINO_STAFF only
+      // (account_concept.md ※2 + ACSMS-SCR-010 §3.2 "HANBAITEN_PROXY_INPUT
+      // 権限"). Cannot reuse hanbaiten.create — CHUOKAI/JA_HONTEN/JA_KANRI all
+      // have it and they already see the regular 販売店情報登録 entry.
+      // Dedicated permission `hanbaiten.daiko_input` is granted exclusively
+      // to role_id=2 in migration 1711900900008-SeedRoleAndDaikoPermissions.
+      // Target route = HanbaitenList: the search + form views are shared
+      // across roles and unify the staff flow behind a role-aware JA
+      // dropdown (only visible / required when session.ja_id is null).
+      { name: 'HanbaitenList', label: '販売店代行入力', icon: 'upload', permission: 'hanbaiten.daiko_input' },
       { name: 'RoleList', label: 'ロール管理', icon: 'security', permission: 'role.view' },
     ],
   },

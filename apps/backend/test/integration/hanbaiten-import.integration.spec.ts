@@ -146,9 +146,15 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       expect(res.headers['content-type']).toContain(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
-      expect(res.headers['content-disposition']).toContain(
-        '販売店Excelデータ取込_テンプレート.xlsx',
-      );
+      // [non-ascii-filename] Node's HTTP layer (RFC 7230) refuses
+      // multibyte bytes in a header value, so the controller serves
+      // Japanese filenames via RFC 6266 `filename*=UTF-8''<percent-
+      // encoded>` and uses an ASCII fallback in plain `filename=`.
+      // Assert the URL-encoded form is present and points at the
+      // expected Japanese name.
+      const expectedUtf8 =
+        `filename*=UTF-8''${encodeURIComponent('販売店Excelデータ取込_テンプレート.xlsx')}`;
+      expect(res.headers['content-disposition']).toContain(expectedUtf8);
       expect(Buffer.isBuffer(res.body) ? res.body.length : res.text.length).toBeGreaterThan(0);
     });
 

@@ -889,7 +889,11 @@ describe('AccountController.getAccountDropdown (COMMON-005)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   describe('GET /api/v1/account/dropdown', () => {
-    it('should return 200 with data array when service resolves with accounts', async () => {
+    // [pagination] Response includes meta.has_more so callers can drive
+    // <BaseAccountDropdown>'s infinite scroll.
+    const emptyMeta = { total: 0, page: 1, per_page: 50, has_more: false };
+
+    it('should return 200 with data array + meta when service resolves with accounts', async () => {
       service.getAccountDropdown.mockResolvedValue({
         data: [
           {
@@ -900,29 +904,39 @@ describe('AccountController.getAccountDropdown (COMMON-005)', () => {
             ja_id: 100,
           },
         ],
+        meta: { total: 1, page: 1, per_page: 50, has_more: false },
       });
 
       const res = await http().get(apiUrl('account/dropdown')).expect(200);
 
-      expect(res.body).toEqual({
-        data: [
-          {
-            account_id: 10,
-            login_id: 'ja_honten_001',
-            account_name: 'JA本店 太郎',
-            role_code: 'JA_HONTEN',
-            ja_id: 100,
-          },
-        ],
-      });
+      expect(res.body.data).toEqual([
+        {
+          account_id: 10,
+          login_id: 'ja_honten_001',
+          account_name: 'JA本店 太郎',
+          role_code: 'JA_HONTEN',
+          ja_id: 100,
+        },
+      ]);
+      expect(res.body.meta).toEqual({ total: 1, page: 1, per_page: 50, has_more: false });
     });
 
-    it('should pass the session payload to AccountService.getAccountDropdown', async () => {
-      service.getAccountDropdown.mockResolvedValue({ data: [] });
+    it('should pass the query + session payload to AccountService.getAccountDropdown', async () => {
+      service.getAccountDropdown.mockResolvedValue({ data: [], meta: emptyMeta });
 
-      await http().get(apiUrl('account/dropdown')).expect(200);
+      await http()
+        .get(apiUrl('account/dropdown'))
+        .query({ q: '太郎', match_field: 'name', page: 2, per_page: 50 })
+        .expect(200);
 
+      // First arg = parsed DTO; second arg = session.
       expect(service.getAccountDropdown).toHaveBeenCalledWith(
+        expect.objectContaining({
+          q: '太郎',
+          match_field: 'name',
+          page: 2,
+          per_page: 50,
+        }),
         expect.objectContaining({ account_id: 1, role_code: 'NICHINO_ADMIN' }),
       );
     });
@@ -940,6 +954,15 @@ describe('AccountController.getAccountDropdown (COMMON-005)', () => {
 
       const res = await http().get(apiUrl('account/dropdown')).expect(403);
       expect(res.body.error_code).toBe('FORBIDDEN');
+      expect(service.getAccountDropdown).not.toHaveBeenCalled();
+    });
+
+    it('should reject match_field=invalid via 400 VALIDATION_ERROR', async () => {
+      const res = await http()
+        .get(apiUrl('account/dropdown'))
+        .query({ match_field: 'invalid' })
+        .expect(400);
+      expect(res.body.code ?? res.body.error_code).toBe('VALIDATION_ERROR');
       expect(service.getAccountDropdown).not.toHaveBeenCalled();
     });
 

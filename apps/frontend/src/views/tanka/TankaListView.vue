@@ -188,11 +188,9 @@ function askDelete(row: TankaListItem): void {
     >
       <!-- 単価種別 — ラジオ per 画面項目定義 row 1.0. "未選択" is implicit:
            value '' clears the filter and is the default state after onClear. -->
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          単価種別
-        </label>
-        <a-radio-group v-model:value="state.filters.tanka_type">
+      <label for="tanka-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">単価種別</span>
+        <a-radio-group id="tanka-filter-1" v-model:value="state.filters.tanka_type">
           <a-radio
             v-for="opt in codes.options('TANKA_TYPE')"
             :key="opt.value"
@@ -201,63 +199,58 @@ function askDelete(row: TankaListItem): void {
             {{ opt.label }}
           </a-radio>
         </a-radio-group>
-      </div>
+      </label>
 
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          単価名
-        </label>
+      <label for="tanka-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">単価名</span>
         <a-input
+          id="tanka-filter-2"
           v-model:value="state.filters.tanka_name"
           placeholder="単価名"
           allow-clear
           class="flex-1"
         />
-      </div>
+      </label>
 
       <!-- 適用開始日 / 適用終了日 — antd's <a-date-picker> with explicit
            format='YYYY/MM/DD' (display) + value-format='YYYY-MM-DD' (wire).
            Native <input type='date'> rendered as dd/mm/yyyy on non-JP
            locale browsers; antd's picker pins the Japanese display
            format regardless of the user's OS locale. -->
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          適用開始日
-        </label>
+      <label for="tanka-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">適用開始日</span>
         <a-date-picker
+          id="tanka-filter-3"
           v-model:value="state.filters.tekiyo_start_date"
           format="YYYY/MM/DD"
           value-format="YYYY-MM-DD"
           placeholder="YYYY/MM/DD"
           class="flex-1"
         />
-      </div>
+      </label>
 
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          適用終了日
-        </label>
+      <label for="tanka-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">適用終了日</span>
         <a-date-picker
+          id="tanka-filter-4"
           v-model:value="state.filters.tekiyo_end_date"
           format="YYYY/MM/DD"
           value-format="YYYY-MM-DD"
           placeholder="YYYY/MM/DD"
           class="flex-1"
         />
-      </div>
+      </label>
 
       <!-- 有効単価フラグ — ラジオ. Two on-states (有効=1 / 無効=0); deselected
            (state value '') is the default and means "両方を返却" per
            api.md §4.3. 検索クリア resets to ''. -->
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          有効単価フラグ
-        </label>
-        <a-radio-group v-model:value="state.filters.active_flg">
+      <label for="tanka-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">有効単価フラグ</span>
+        <a-radio-group id="tanka-filter-5" v-model:value="state.filters.active_flg">
           <a-radio value="1">有効</a-radio>
           <a-radio value="0">無効</a-radio>
         </a-radio-group>
-      </div>
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-002-001 — empty-result message rendered as a sibling <p>

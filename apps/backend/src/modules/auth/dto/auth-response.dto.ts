@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AuthUserDto {
   @ApiProperty()
@@ -66,3 +66,79 @@ export class LoginMfaRequiredDto {
   @ApiProperty()
   expires_in: number;
 }
+
+/**
+ * `POST /auth/login` response — union of two shapes:
+ *   - MFA branch: { data: { mfa_required: true, mfa_token, expires_in } }
+ *   - Direct success: { data: { mfa_required: false, user } } (cookie set)
+ *
+ * Swagger doesn't introspect TS unions cleanly so we declare a permissive
+ * envelope with both shapes' fields marked optional. Orval surfaces the
+ * `mfa_required` boolean as the discriminator the FE narrows on.
+ */
+export class LoginResponseDataDto {
+  @ApiProperty({
+    description: 'Discriminator: true=OTP required next, false=session established.',
+  })
+  mfa_required: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Present only when mfa_required=true.',
+  })
+  mfa_token?: string;
+
+  @ApiPropertyOptional({
+    description: 'OTP expiry seconds; present only when mfa_required=true.',
+  })
+  expires_in?: number;
+
+  @ApiPropertyOptional({
+    type: AuthUserDto,
+    description: 'Present only when mfa_required=false.',
+  })
+  user?: AuthUserDto;
+}
+
+export class LoginResponseDto {
+  @ApiProperty({ type: LoginResponseDataDto })
+  data: LoginResponseDataDto;
+}
+
+/** Inner shape for {@link AuthUserEnvelopeDto}. */
+export class AuthUserPayloadDto {
+  @ApiProperty({ type: AuthUserDto })
+  user: AuthUserDto;
+}
+
+/** Authenticated-user envelope — used by mfa/verify and refresh. */
+export class AuthUserEnvelopeDto {
+  @ApiProperty({ type: AuthUserPayloadDto })
+  data: AuthUserPayloadDto;
+}
+
+/** POST /auth/mfa/resend payload. */
+export class MfaResendResultDto {
+  @ApiProperty() mfa_token: string;
+  @ApiProperty() expires_in: number;
+  @ApiProperty() resend_count: number;
+  @ApiProperty() max_resend: number;
+}
+
+export class MfaResendResponseDto {
+  @ApiProperty({ type: MfaResendResultDto })
+  data: MfaResendResultDto;
+}
+
+/** POST /auth/reset-password/verify payload. */
+export class VerifyResetTokenResultDto {
+  @ApiProperty({ example: true })
+  valid: true;
+}
+
+export class VerifyResetTokenResponseDto {
+  @ApiProperty({ type: VerifyResetTokenResultDto })
+  data: VerifyResetTokenResultDto;
+}
+
+/** Re-export shared message envelope for auth surfaces (logout / forgot / reset). */
+export { SuccessMessageDto } from '@/common/dto/responses.dto';

@@ -15,6 +15,7 @@ import Antd, { message, Modal } from 'ant-design-vue';
 import OshiraseManagementView from '@/views/oshirase/OshiraseManagementView.vue';
 import {
   buildOshiraseListResponse,
+  buildOshiraseListItem,
   buildOshiraseDetail,
   buildJaDropdownResponse,
   buildAdminUser,
@@ -76,6 +77,30 @@ async function renderView(opts: RenderOptions = {}): Promise<{
           stubActions: false,
           initialState: {
             auth: { user: opts.user ?? buildAdminUser() },
+            // Seed m_code so the view's useCodesStore().options(...) returns
+            // the canonical PUBLISH_LOCATION / OSHIRASE_TYPE / OSHIRASE_STATUS
+            // entries during unit tests (production hydrates this from
+            // GET /api/v1/codes after login).
+            codes: {
+              all: {
+                PUBLISH_LOCATION: [
+                  { value: 1, label: 'ログイン画面', label_short: 'ログイン画面' },
+                  { value: 2, label: 'メニュー画面', label_short: 'メニュー画面' },
+                  { value: 3, label: 'メニュー画面（締め切り時間）', label_short: '締切時間' },
+                ],
+                OSHIRASE_TYPE: [
+                  { value: 1, label: 'システム', label_short: 'システム' },
+                  { value: 2, label: '重要', label_short: '重要' },
+                  { value: 3, label: '一般', label_short: '一般' },
+                  { value: 4, label: '締め切り時間', label_short: '締切時間' },
+                ],
+                OSHIRASE_STATUS: [
+                  { value: 1, label: '下書き', label_short: '下書き' },
+                  { value: 2, label: '公開', label_short: '公開' },
+                  { value: 3, label: '非公開', label_short: '非公開' },
+                ],
+              },
+            },
           },
         }),
         Antd,
@@ -236,6 +261,109 @@ describe('OshiraseManagementView — create (機能定義 2.x)', () => {
     );
   });
 
+  it('should default 公開場所 and 状態 to 1 on a fresh create form (画面項目定義 No.2/3)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    expect(vm.formState.publish_location).toBe(1);
+    expect(vm.formState.status).toBe(1);
+  });
+
+  it('should auto-set oshirase_type to 4 when publish_location is set to 3 (締め切り時間 slot)', async () => {
+    // 顧客確認 2026-05: publish_location=3 ⇔ type=4 (1:1) — FE watcher は
+    // 公開場所選択を駆動側とし、種別を 4 にロックする。
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.publish_location = 3;
+    await flushPromises();
+    expect(vm.formState.oshirase_type).toBe(4);
+  });
+
+  it('should reset oshirase_type to null when publish_location changes from 3 to a non-deadline location', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.publish_location = 3;
+    await flushPromises();
+    expect(vm.formState.oshirase_type).toBe(4);
+    vm.formState.publish_location = 1;
+    await flushPromises();
+    expect(vm.formState.oshirase_type).toBeNull();
+  });
+
+  it('should expose type options 1,2,3 only when publish_location is not 3', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.publish_location = 1;
+    await flushPromises();
+    expect(vm.availableTypeOptions.map((o: { value: number }) => o.value)).toEqual([1, 2, 3]);
+  });
+
+  it('should expose type option 4 only when publish_location is 3', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.publish_location = 3;
+    await flushPromises();
+    expect(vm.availableTypeOptions.map((o: { value: number }) => o.value)).toEqual([4]);
+  });
+
+  it('should default 対象管理者区分 to all codes (1,2,3,4,5) on create when none is checked', async () => {
+    // 顧客要件: 新規作成時に対象管理者区分のチェックが1つも無い場合、
+    // 全区分（1〜5）が対象として保存される。
+    const { createOshirase } = await import('@/api/oshirase/oshirase');
+    const { wrapper } = await renderView();
+    vi.mocked(createOshirase).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.formState) {
+      vm.formState.title = 'テスト';
+      vm.formState.publish_location = 2;
+      vm.formState.status = 2;
+      vm.formState.oshirase_type = 1;
+      vm.formState.publish_start_date = futureDateString(7);
+      vm.formState.content = 'テスト本文';
+      vm.formState.target_kanri_kubun_codes = [];
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createOshirase).toHaveBeenCalledWith(
+      expect.objectContaining({ target_kanri_kubun: '1,2,3,4,5' }),
+    );
+  });
+
+  it('should reload the form from the server after a successful create so saved values display', async () => {
+    // BUG-FIX: 新規作成成功後は当該レコードの編集モードに切り替わるが、
+    // サーバ保存済みの値（例: 自動補完された対象管理者区分）が画面へ
+    // 反映されない不具合の回帰テスト。作成後に getOshirase で再取得する。
+    const { getOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(getOshirase).mockResolvedValueOnce({
+      data: buildOshiraseDetail({
+        oshirase_id: 99,
+        target_kanri_kubun: '1,2,3,4,5',
+      }),
+    });
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) {
+      vm.formState.title = 'テスト';
+      vm.formState.publish_location = 2;
+      vm.formState.status = 2;
+      vm.formState.oshirase_type = 1;
+      vm.formState.publish_start_date = futureDateString(7);
+      vm.formState.content = 'テスト本文';
+      vm.formState.target_kanri_kubun_codes = [];
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // 作成された ID（99）で詳細を再取得していること。
+    expect(getOshirase).toHaveBeenCalledWith(99);
+    // 取得結果がフォームへ反映され、チェックボックスが全選択状態になること。
+    expect(vm.formState.target_kanri_kubun_codes).toEqual(['1', '2', '3', '4', '5']);
+  });
+
   it('should display ACSMS-MSG-031-001 「登録しました。」 toast when createOshirase resolves', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
@@ -295,6 +423,61 @@ describe('OshiraseManagementView — create (機能定義 2.x)', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('終了日は開始日より後にしてください。');
+    expect(createOshirase).not.toHaveBeenCalled();
+  });
+
+  it('should display 終了日は開始日より後にしてください。 also when publish_end_date === publish_start_date (顧客 FB 2026-05-29)', async () => {
+    // 顧客レビュー 2026-05-29 — drop the special "重複" copy that the
+    // earlier split (commit f6522b7) introduced. End === start is now
+    // surfaced under the same `終了日は開始日より後にしてください。`
+    // message as end < start.
+    const { createOshirase } = await import('@/api/oshirase/oshirase');
+    const { wrapper } = await renderView();
+    vi.mocked(createOshirase).mockClear();
+
+    const sameMoment = futureDateString(14);
+    const vm = wrapper.vm as any;
+    if (vm.formState) {
+      vm.formState.title = 'テスト';
+      vm.formState.publish_location = 2;
+      vm.formState.status = 2;
+      vm.formState.oshirase_type = 1;
+      vm.formState.publish_start_date = sameMoment;
+      vm.formState.publish_end_date = sameMoment;
+      vm.formState.content = 'テスト本文';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('終了日は開始日より後にしてください。');
+    // The retired overlap copy must NOT appear anywhere.
+    expect(wrapper.text()).not.toContain(
+      '締め切り時間の公開期限が重複しています。',
+    );
+    expect(createOshirase).not.toHaveBeenCalled();
+  });
+
+  it('should reject publish_start_date in the past on create with 過去日は選択できません。', async () => {
+    // 顧客要件: 新規作成時、開始日に過去日を指定するとエラー。
+    const { createOshirase } = await import('@/api/oshirase/oshirase');
+    const { wrapper } = await renderView();
+    vi.mocked(createOshirase).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.formState) {
+      vm.formState.title = 'テスト';
+      vm.formState.publish_location = 2;
+      vm.formState.status = 2;
+      vm.formState.oshirase_type = 1;
+      vm.formState.publish_start_date = futureDateString(-7); // 7日前
+      vm.formState.content = 'テスト本文';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('過去日は選択できません。');
     expect(createOshirase).not.toHaveBeenCalled();
   });
 
@@ -408,6 +591,96 @@ const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
 
     expect(wrapper.text()).toContain('編集中');
     expect(wrapper.text()).toContain('42');
+  });
+
+  it('should mark publish_start_date picker read-only when the loaded start date is in the past', async () => {
+    // 顧客要件: 編集モードで読み込んだ開始日が過去日の場合、
+    // 開始日ピッカーは read-only（変更不可）とする。
+    const { getOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(getOshirase).mockResolvedValueOnce({
+      data: buildOshiraseDetail({
+        oshirase_id: 42,
+        publish_start_date: futureDateString(-7), // 7日前
+        publish_end_date: null,
+      }),
+    });
+
+    const { wrapper } = await renderView();
+    const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
+    await editBtn!.trigger('click');
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.isStartReadOnly).toBe(true);
+  });
+
+  it('should keep publish_start_date editable when the loaded start date is in the future', async () => {
+    // 顧客要件: 編集モードで読み込んだ開始日が未来日の場合、変更可能。
+    const { getOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(getOshirase).mockResolvedValueOnce({
+      data: buildOshiraseDetail({
+        oshirase_id: 42,
+        publish_start_date: futureDateString(7),
+        publish_end_date: null,
+      }),
+    });
+
+    const { wrapper } = await renderView();
+    const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
+    await editBtn!.trigger('click');
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.isStartReadOnly).toBe(false);
+  });
+
+  it('should reject submit when editing a future-start record and the new value is in the past', async () => {
+    // 顧客要件: 編集モード + 保存済み開始日=未来。新しい開始日を過去に
+    // 変更したらバリデーションでエラーとなる。
+    const { getOshirase, updateOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(getOshirase).mockResolvedValueOnce({
+      data: buildOshiraseDetail({
+        oshirase_id: 42,
+        publish_start_date: futureDateString(7),
+        publish_end_date: null,
+      }),
+    });
+
+    const { wrapper } = await renderView();
+    const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
+    await editBtn!.trigger('click');
+    await flushPromises();
+
+    vi.mocked(updateOshirase).mockClear();
+    const vm = wrapper.vm as any;
+    vm.formState.publish_start_date = futureDateString(-1); // 昨日
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('過去日は選択できません。');
+    expect(updateOshirase).not.toHaveBeenCalled();
+  });
+
+  it('should mark oshirase_type read-only when editing a 締め切り時間 (type=4) record', async () => {
+    // 顧客確認 2026-05: 編集モードで type=4 レコードを開いたら、種別は変更不可。
+    const { getOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(getOshirase).mockResolvedValueOnce({
+      data: buildOshiraseDetail({
+        oshirase_id: 42,
+        oshirase_type: 4,
+        publish_start_date: futureDateString(7),
+        publish_end_date: null,
+      }),
+    });
+
+    const { wrapper } = await renderView();
+    const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
+    await editBtn!.trigger('click');
+    await flushPromises();
+
+    const vm = wrapper.vm as any;
+    expect(vm.isTypeReadOnly).toBe(true);
   });
 });
 
@@ -540,6 +813,29 @@ describe('OshiraseManagementView — delete (機能定義 5.x)', () => {
     await flushPromises();
 
     expect(vi.mocked(removeOshirase)).toHaveBeenCalled();
+  });
+
+  it('should NOT render a clickable 削除 link for a 締め切り時間 (type=4) row', async () => {
+    // 顧客確認 2026-05: type=4 レコードは削除不可。テンプレートは <span>
+    // にフォールバックし、リンクは描画されない。リスト全体を type=4 で
+    // モックし、<a>削除</a> が0件であることを確認する。
+    const { listOshirase, removeOshirase } = await import(
+      '@/api/oshirase/oshirase'
+    );
+    vi.mocked(listOshirase).mockResolvedValueOnce({
+      data: [buildOshiraseListItem({ oshirase_id: 100, oshirase_type: 4 })],
+      meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+    });
+    vi.mocked(removeOshirase).mockClear();
+
+    const { wrapper } = await renderView();
+
+    const deleteAnchors = wrapper
+      .findAll('a')
+      .filter((a) => a.text().trim() === '削除');
+    expect(deleteAnchors).toHaveLength(0);
+    // 行内に「削除」の文字列自体は disabled な <span> として残る。
+    expect(wrapper.text()).toContain('削除');
   });
 });
 

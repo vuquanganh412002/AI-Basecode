@@ -12,6 +12,12 @@ export interface RoleListItem {
 /** Detail item (API-027-002 / API-027-003) — adds permission_ids + timestamps. */
 export interface RoleDetailResponse extends RoleListItem {
   permission_ids: number[];
+  /**
+   * Subset of `permission_ids` whose `m_roles_permissions.locked = TRUE`
+   * (seeded baseline). FE renders these checkboxes disabled. BE rejects
+   * any PATCH that drops one of these IDs.
+   */
+  locked_permission_ids: number[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -38,10 +44,12 @@ export function toRoleListItem(role: Role): RoleListItem {
 export function toRoleDetailResponse(
   role: Role,
   permissionIds: number[],
+  lockedPermissionIds: number[] = [],
 ): RoleDetailResponse {
   return {
     ...toRoleListItem(role),
     permission_ids: permissionIds,
+    locked_permission_ids: lockedPermissionIds,
     created_at: role.createdAt ? role.createdAt.toISOString() : null,
     updated_at: role.updatedAt ? role.updatedAt.toISOString() : null,
   };

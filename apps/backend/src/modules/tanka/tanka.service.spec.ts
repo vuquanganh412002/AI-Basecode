@@ -416,6 +416,118 @@ describe('TankaService — SCR-002 (list / delete)', () => {
     });
   });
 
+  // ─── GET /api/v1/tanka/dropdown (getDropdown) ─────────────────────────
+  describe('getDropdown', () => {
+    it('should return slim row shape + has_more meta', async () => {
+      const rows = [
+        {
+          tankaId: 11,
+          tankaCode: '0002001',
+          tankaName: '配達手数料A',
+          tankaType: 2,
+          kingakuZeikomi: 100,
+        },
+        {
+          tankaId: 12,
+          tankaCode: '0002002',
+          tankaName: '配達手数料B',
+          tankaType: 2,
+          kingakuZeikomi: 150,
+        },
+      ];
+      qbMock.getManyAndCount.mockResolvedValue([rows, 137]);
+
+      const result = await service.getDropdown(
+        { tanka_type: 2, page: 1, per_page: 50 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.data).toEqual([
+        {
+          tanka_id: 11,
+          tanka_code: '0002001',
+          tanka_name: '配達手数料A',
+          tanka_type: 2,
+          kingaku_zeikomi: 100,
+        },
+        {
+          tanka_id: 12,
+          tanka_code: '0002002',
+          tanka_name: '配達手数料B',
+          tanka_type: 2,
+          kingaku_zeikomi: 150,
+        },
+      ]);
+      expect(result.meta).toEqual({
+        total: 137,
+        page: 1,
+        per_page: 50,
+        has_more: true,
+      });
+    });
+
+    it('should filter by tanka_type when provided', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+      await service.getDropdown(
+        { tanka_type: 2 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      const ttCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          sql.includes('tanka_type') &&
+          params?.tt === 2,
+      );
+      expect(ttCall).toBeDefined();
+    });
+
+    it('should ILIKE on tanka_name when q is provided', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+      await service.getDropdown(
+        { q: '配達' } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      const ilike = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && sql.includes('tanka_name ILIKE'),
+      );
+      expect(ilike).toBeDefined();
+      expect(ilike![1]).toEqual({ q: '%配達%' });
+    });
+
+    it('should filter out inactive + out-of-period rows', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+      await service.getDropdown({} as any, buildChuokaiSession({ ja_id: 1 }));
+
+      const allWhereCalls = [
+        ...qbMock.where.mock.calls,
+        ...qbMock.andWhere.mock.calls,
+      ].map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''));
+      expect(allWhereCalls.some((s) => /active_flg/.test(s))).toBe(true);
+      expect(allWhereCalls.some((s) => /tekiyo_start_date/.test(s))).toBe(true);
+      expect(allWhereCalls.some((s) => /tekiyo_end_date/.test(s))).toBe(true);
+    });
+
+    it('should accept explicit ja_id filter when caller has no session JA (NICHINO_STAFF 代行入力)', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+      // Session with ja_id=null mimics NICHINO_STAFF / NICHINO_ADMIN.
+      await service.getDropdown(
+        { ja_id: 7 } as any,
+        buildChuokaiSession({ ja_id: null as any }),
+      );
+
+      const jaCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          sql.includes('ja_id') &&
+          params?.qja === 7,
+      );
+      expect(jaCall).toBeDefined();
+    });
+  });
+
   // ─── API-002-002 — DELETE /api/v1/tanka/:tanka_id (remove) ───────────────
   describe('remove', () => {
     it('should soft-delete and return success message when target exists', async () => {

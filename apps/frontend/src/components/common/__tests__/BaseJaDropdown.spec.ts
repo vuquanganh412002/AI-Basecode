@@ -319,13 +319,16 @@ describe('BaseJaDropdown — selection', () => {
     expect(wrapper.emitted('update:value')?.at(-1)).toEqual([42]);
   });
 
-  it('should emit update:value with undefined when cleared', async () => {
+  it('should emit update:value with null when cleared (normalized from antd undefined)', async () => {
+    // Antd fires @change with `undefined` on × click; the component
+    // normalizes to `null` so callers get one canonical "nothing
+    // selected" representation matching the Props/emit union.
     const wrapper = await mountDropdown({ value: 1, allowClear: true });
     await flushPromises();
     const sel = wrapper.findComponent({ name: 'ASelect' });
     sel.vm.$emit('change', undefined);
     await flushPromises();
-    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([undefined]);
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([null]);
   });
 
   it('should reset internal q on @change (without refetching) so the next dropdown open detects a stale filter', async () => {
@@ -416,6 +419,73 @@ describe('BaseJaDropdown — debounce', () => {
     await flushPromises();
     expect(getJaDropdown).toHaveBeenCalledTimes(1);
 
+    vi.useRealTimers();
+  });
+});
+
+// SCR-024 account list opts into name-only display + search. Default
+// callers (every other screen) must be unaffected.
+describe('BaseJaDropdown — labelFormat / searchField props', () => {
+  it('should compose option label as `${ja_code} ${ja_name}` by default', async () => {
+    const wrapper = await mountDropdown();
+    await flushPromises();
+    const sel = wrapper.findComponent({ name: 'ASelect' });
+    const opts = sel.props('options') as Array<{ value: number; label: string }>;
+    expect(opts).toEqual(
+      expect.arrayContaining([
+        { value: 1, label: '1301001001 JA東京中央' },
+        { value: 2, label: '1301002001 JA東京みどり' },
+      ]),
+    );
+  });
+
+  it('should compose option label as ja_name only when labelFormat=name', async () => {
+    const wrapper = await mountDropdown({ labelFormat: 'name' });
+    await flushPromises();
+    const sel = wrapper.findComponent({ name: 'ASelect' });
+    const opts = sel.props('options') as Array<{ value: number; label: string }>;
+    expect(opts).toEqual(
+      expect.arrayContaining([
+        { value: 1, label: 'JA東京中央' },
+        { value: 2, label: 'JA東京みどり' },
+      ]),
+    );
+    // Sanity: the ja_code prefix must NOT leak into any label.
+    for (const o of opts) expect(o.label).not.toMatch(/^\d/);
+  });
+
+  it('should NOT send match_field by default (BE treats absent as both)', async () => {
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    await mountDropdown();
+    await flushPromises();
+    const params = vi.mocked(getJaDropdown).mock.calls[0]?.[0] ?? {};
+    expect(params).not.toHaveProperty('match_field');
+  });
+
+  it('should send match_field=name when searchField=name', async () => {
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    await mountDropdown({ searchField: 'name' });
+    await flushPromises();
+    expect(getJaDropdown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ match_field: 'name' }),
+    );
+  });
+
+  it('should keep sending match_field=name on subsequent search requests', async () => {
+    vi.useFakeTimers();
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    const wrapper = await mountDropdown({ searchField: 'name' });
+    await flushPromises();
+    vi.mocked(getJaDropdown).mockClear();
+
+    const sel = wrapper.findComponent({ name: 'ASelect' });
+    sel.vm.$emit('search', '東京');
+    vi.advanceTimersByTime(400);
+    await flushPromises();
+
+    expect(getJaDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ q: '東京', match_field: 'name' }),
+    );
     vi.useRealTimers();
   });
 });

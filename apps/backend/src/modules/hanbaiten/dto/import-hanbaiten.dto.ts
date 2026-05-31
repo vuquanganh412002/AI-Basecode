@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -16,6 +16,37 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+
+/**
+ * Coerce blank cells (`""` after xlsx sheet_to_json with `defval: ''`)
+ * to `undefined` so `@IsOptional` actually short-circuits the
+ * downstream length / format validators. Per `.claude/rules/nestjs.md
+ * §DTO validation gotchas #1`. Wire BEFORE `@IsOptional()` so the
+ * coerced `undefined` reaches it.
+ */
+const blankToUndef = ({ value }: { value: unknown }) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/**
+ * Numeric variant — replaces the `@Type(() => Number) + @Transform(blankToUndef)`
+ * combo for optional numeric fields. `@Type(() => Number)` runs at the
+ * class-transformer step and turns `""` into `0`, defeating the blank
+ * transform downstream. This single-pass version handles BOTH coercions:
+ *   - blank string / null / undefined → undefined  (so @IsOptional skips)
+ *   - non-blank string                → Number(s)  (so @IsInt passes)
+ *   - already numeric                 → pass through
+ * Use INSTEAD of `@Type(() => Number)` on optional numeric DTO fields.
+ */
+const blankOrNumber = ({ value }: { value: unknown }) => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return undefined;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : trimmed;
+  }
+  return value;
+};
 
 /**
  * Body of POST /api/v1/hanbaiten/import (ACSMS-API-019-002).
@@ -46,12 +77,14 @@ export class ImportHanbaitenRowDto {
   hanbaiten_code!: string;
 
   @ApiPropertyOptional({ description: '販売店名称', maxLength: 100 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '販売店名称は文字列で指定してください。' })
   @MaxLength(100, { message: '販売店名称は最大100文字で指定してください。' })
   hanbaiten_name?: string;
 
   @ApiPropertyOptional({ description: '販売店名称(カナ)', maxLength: 100 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '販売店名称(カナ)は文字列で指定してください。' })
   @MaxLength(100, {
@@ -60,48 +93,55 @@ export class ImportHanbaitenRowDto {
   hanbaiten_name_kana?: string;
 
   @ApiPropertyOptional({ description: 'インボイス番号', maxLength: 20 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: 'インボイス番号は文字列で指定してください。' })
   @MaxLength(20, { message: 'インボイス番号は最大20文字で指定してください。' })
   torihikisaki_no?: string;
 
   @ApiPropertyOptional({ description: '郵便番号(7桁)' })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '郵便番号は文字列で指定してください。' })
   @Length(7, 7, { message: '郵便番号は7桁で指定してください。' })
   yubin_no?: string;
 
   @ApiPropertyOptional({ description: '住所', maxLength: 200 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '住所は文字列で指定してください。' })
   @MaxLength(200, { message: '住所は最大200文字で指定してください。' })
   address?: string;
 
   @ApiPropertyOptional({ description: '電話番号', maxLength: 15 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '電話番号は文字列で指定してください。' })
   @MaxLength(15, { message: '電話番号は最大15文字で指定してください。' })
   tel?: string;
 
   @ApiPropertyOptional({ description: 'FAX番号', maxLength: 15 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: 'FAX番号は文字列で指定してください。' })
   @MaxLength(15, { message: 'FAX番号は最大15文字で指定してください。' })
   fax?: string;
 
   @ApiPropertyOptional({ description: '所長名', maxLength: 50 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '所長名は文字列で指定してください。' })
   @MaxLength(50, { message: '所長名は最大50文字で指定してください。' })
   shocho_name?: string;
 
   @ApiPropertyOptional({ description: '委託区分 (m_code ITAKU_KUBUN)' })
+  @Transform(blankOrNumber)
   @IsOptional()
-  @Type(() => Number)
   @IsInt({ message: '委託区分は整数で指定してください。' })
   itaku_kubun?: number;
 
   @ApiPropertyOptional({ description: '配達手数料単価コード', maxLength: 10 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '配達手数料単価コードは文字列で指定してください。' })
   @MaxLength(10, {
@@ -110,20 +150,22 @@ export class ImportHanbaitenRowDto {
   haitatsuryo_tanka_code?: string;
 
   @ApiPropertyOptional({ description: '金融機関コード', maxLength: 4 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '金融機関コードは文字列で指定してください。' })
   @MaxLength(4, { message: '金融機関コードは最大4文字で指定してください。' })
   bank_code?: string;
 
   @ApiPropertyOptional({ description: '金融機関名', maxLength: 100 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '金融機関名は文字列で指定してください。' })
   @MaxLength(100, { message: '金融機関名は最大100文字で指定してください。' })
   bank_name?: string;
 
   @ApiPropertyOptional({ description: '配達手数料支払サイクル(月数)' })
+  @Transform(blankOrNumber)
   @IsOptional()
-  @Type(() => Number)
   @IsInt({ message: '配達手数料支払サイクルは整数で指定してください。' })
   @Min(0, {
     message: '配達手数料支払サイクルは0以上で指定してください。',
@@ -131,49 +173,54 @@ export class ImportHanbaitenRowDto {
   haitatsuryo_shiharai_cycle?: number;
 
   @ApiPropertyOptional({ description: '口座支店コード', maxLength: 3 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '口座支店コードは文字列で指定してください。' })
   @MaxLength(3, { message: '口座支店コードは最大3文字で指定してください。' })
   bank_branch_code?: string;
 
   @ApiPropertyOptional({ description: '口座支店名', maxLength: 100 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '口座支店名は文字列で指定してください。' })
   @MaxLength(100, { message: '口座支店名は最大100文字で指定してください。' })
   bank_branch_name?: string;
 
   @ApiPropertyOptional({ description: '口座種別 (m_code YOKIN_SHUBETSU)' })
+  @Transform(blankOrNumber)
   @IsOptional()
-  @Type(() => Number)
   @IsInt({ message: '口座種別は整数で指定してください。' })
   yokin_shubetsu?: number;
 
   @ApiPropertyOptional({ description: '口座番号', maxLength: 10 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '口座番号は文字列で指定してください。' })
   @MaxLength(10, { message: '口座番号は最大10文字で指定してください。' })
   koza_no?: string;
 
   @ApiPropertyOptional({ description: '口座名義', maxLength: 50 })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '口座名義は文字列で指定してください。' })
   @MaxLength(50, { message: '口座名義は最大50文字で指定してください。' })
   koza_meigi?: string;
 
   @ApiPropertyOptional({ description: '手数料区分 (m_code TESURYO_KUBUN)' })
+  @Transform(blankOrNumber)
   @IsOptional()
-  @Type(() => Number)
   @IsInt({ message: '手数料区分は整数で指定してください。' })
   tesuryo_kubun?: number;
 
   @ApiPropertyOptional({ description: '手数料金額(≧0)' })
+  @Transform(blankOrNumber)
   @IsOptional()
-  @Type(() => Number)
   @IsInt({ message: '手数料金額は整数で指定してください。' })
   @Min(0, { message: '手数料金額は0以上で指定してください。' })
   tesuryo_amount?: number;
 
   @ApiPropertyOptional({ description: '備考' })
+  @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '備考は文字列で指定してください。' })
   biko?: string;

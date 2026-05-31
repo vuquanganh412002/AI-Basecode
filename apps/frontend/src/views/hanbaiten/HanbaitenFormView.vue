@@ -13,13 +13,15 @@
 // required; when `itaku_kubun = 2 (日農委託)` or `9 (その他)` they're
 // optional. The validation here mirrors the BE DTO rules verbatim.
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { AxiosError } from 'axios';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
+import BaseTankaDropdown from '@/components/common/BaseTankaDropdown.vue';
 import { useNotify } from '@/composables/useNotify';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
@@ -45,6 +47,13 @@ import {
 // (`buildCreateHanbaitenForm`) line up 1:1.
 
 interface HanbaitenFormState {
+  /**
+   * [staff-ja-id] NICHINO_STAFF 代行入力 picks the target JA via the
+   * BaseJaDropdown rendered at the top of the form. Always omitted
+   * from the request when the user is JA-scoped (session.ja_id set)
+   * because the BE ignores it and uses session.ja_id instead.
+   */
+  ja_id: number | null;
   hanbaiten_code: string;
   hanbaiten_name: string;
   hanbaiten_name_kana: string;
@@ -72,6 +81,7 @@ interface HanbaitenFormState {
 }
 
 const formState = reactive<HanbaitenFormState>({
+  ja_id: null,
   hanbaiten_code: '',
   hanbaiten_name: '',
   hanbaiten_name_kana: '',
@@ -125,9 +135,25 @@ const isEdit = computed(() => hanbaitenId.value !== null);
 // somehow lands on the screen without permission.
 
 const canSubmit = computed(() => {
-  if (isEdit.value) return authStore.hasPermission?.('hanbaiten.update') ?? true;
-  return authStore.hasPermission?.('hanbaiten.create') ?? true;
+  // [perm-any-of] NICHINO_STAFF holds `hanbaiten.daiko_input` only —
+  // that grants both create AND update inside the daiko flow.
+  if (isEdit.value) {
+    return (
+      (authStore.hasPermission?.('hanbaiten.update') ?? false) ||
+      (authStore.hasPermission?.('hanbaiten.daiko_input') ?? false)
+    );
+  }
+  return (
+    (authStore.hasPermission?.('hanbaiten.create') ?? false) ||
+    (authStore.hasPermission?.('hanbaiten.daiko_input') ?? false)
+  );
 });
+
+// [staff-ja-id] NICHINO_STAFF has no session.ja_id — the BaseJaDropdown
+// at the top of the form is required (create) / disabled-read-only (edit).
+const isStaff = computed(() =>
+  authStore.hasPermission?.('hanbaiten.daiko_input') ?? false,
+);
 
 // ─── Dropdown options ──────────────────────────────────────────────
 
@@ -151,11 +177,28 @@ async function fetchTodofukenOptions(): Promise<void> {
 
 const isHydrating = ref(false);
 
+// [tanka-cascade] Reset haitatsuryo_tanka_id whenever the staff swaps
+// JA — the BaseTankaDropdown's option set is scoped to ja_id, so a
+// stale selection from the previous JA would no longer resolve and
+// the BE Layer-4 FK guard would reject the submit. Skip during edit
+// hydration (loadDetail mutates ja_id before populating tanka_id).
+watch(
+  () => formState.ja_id,
+  (next, prev) => {
+    if (isHydrating.value) return;
+    if (next === prev) return;
+    formState.haitatsuryo_tanka_id = null;
+  },
+);
+
 async function loadDetail(id: number): Promise<void> {
   try {
     const resp = await getHanbaiten(id);
     isHydrating.value = true;
     Object.assign(formState, {
+      // [staff-ja-id] Detail carries ja_id — populate so the disabled
+      // BaseJaDropdown in edit mode shows the owning JA.
+      ja_id: resp.data.ja_id,
       hanbaiten_code: resp.data.hanbaiten_code,
       hanbaiten_name: resp.data.hanbaiten_name,
       hanbaiten_name_kana: resp.data.hanbaiten_name_kana,
@@ -198,6 +241,18 @@ onMounted(async () => {
   void fetchTodofukenOptions();
   if (isEdit.value && hanbaitenId.value !== null) {
     await loadDetail(hanbaitenId.value);
+  } else if (isStaff.value) {
+    // [staff-ja-prefill] HanbaitenListView passes the active JA via
+    // ?ja_id=… when staff clicks 販売店情報登録 — pre-select it so they
+    // don't repeat the picker action. Falsy / NaN values are ignored;
+    // the user can pick another JA from the dropdown if they want.
+    const raw = route.query.ja_id;
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0) {
+        formState.ja_id = n;
+      }
+    }
   }
 });
 
@@ -219,6 +274,13 @@ const BANK_FIELDS = [
 
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
+
+  // [staff-ja-required] NICHINO_STAFF 代行入力 must pick a JA before
+  // submitting the form. JA-scoped roles let session.ja_id win and
+  // never see the picker so skip the check there.
+  if (isStaff.value && !isEdit.value && formState.ja_id == null) {
+    errs.ja_id = REQUIRED_MSG;
+  }
 
   // Required — base fields.
   if (!isEdit.value && !formState.hanbaiten_code?.trim()) {
@@ -258,6 +320,12 @@ function validateClient(): boolean {
 
 function buildCreateBody(): CreateHanbaitenBody {
   return {
+    // [staff-ja-id] Only emit ja_id for staff — JA-scoped roles let the
+    // BE bind session.ja_id and would have it ignored anyway. Keeps the
+    // payload clean and the spec assertions tight.
+    ...(isStaff.value && formState.ja_id != null
+      ? { ja_id: formState.ja_id }
+      : {}),
     hanbaiten_code: formState.hanbaiten_code,
     hanbaiten_name: formState.hanbaiten_name,
     hanbaiten_name_kana: formState.hanbaiten_name_kana,
@@ -382,6 +450,29 @@ defineExpose({ formState, fieldErrors });
         @keydown="preventEnterImplicitSubmit"
         @finish="onSubmit"
       >
+        <!-- ─── [staff-ja-id] JA picker — NICHINO_STAFF 代行入力 only ── -->
+        <a-form-item
+          v-if="isStaff"
+          name="ja_id"
+          :validate-status="fieldErrors.ja_id ? 'error' : ''"
+          :help="fieldErrors.ja_id"
+          data-test="hanbaiten-staff-ja-form-item"
+        >
+          <template #label>
+            <span>JA名</span>
+            <span v-if="!isEdit" class="text-error ml-1">*</span>
+          </template>
+          <!-- Disabled in edit mode (FK immutable — would orphan the
+               existing hanbaiten + every child reference). Required *
+               also drops in edit mode so the asterisk only signals what
+               the user actually has to fill in. -->
+          <BaseJaDropdown
+            v-model:value="formState.ja_id"
+            :disabled="isEdit"
+            placeholder="JAを選択してください"
+          />
+        </a-form-item>
+
         <!-- ─── 基本情報 ─────────────────────────────────────── -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
@@ -534,11 +625,28 @@ defineExpose({ formState, fieldErrors });
             :help="fieldErrors.haitatsuryo_tanka_id"
             label="配達手数料単価"
           >
-            <a-input-number
-              id="haitatsuryo_tanka_id"
+            <!--
+              Server-side paginated + searchable dropdown. tankaType=2
+              narrows to 配達手数料. For JA-scoped roles `jaId` is null
+              and the BE applies session.ja_id. For NICHINO_STAFF 代行
+              入力 we forward `formState.ja_id` so the option list is
+              scoped to the chosen tenant and the cascade watch above
+              clears any stale selection on JA swap.
+              [staff-tanka-gate] In create mode, staff must pick a JA
+              first — disabling the dropdown blocks them from selecting
+              a 単価 that would otherwise resolve against the wrong
+              tenant. Edit mode keeps it enabled (JA is locked anyway).
+            -->
+            <BaseTankaDropdown
               v-model:value="formState.haitatsuryo_tanka_id"
-              :min="0"
-              class="w-full"
+              :tanka-type="2"
+              :ja-id="isStaff ? formState.ja_id : null"
+              :disabled="isStaff && !isEdit && formState.ja_id == null"
+              :placeholder="
+                isStaff && !isEdit && formState.ja_id == null
+                  ? '先にJAを選択してください'
+                  : '配達手数料単価を選択'
+              "
             />
           </a-form-item>
 
@@ -745,7 +853,15 @@ defineExpose({ formState, fieldErrors });
             </a-radio-group>
           </a-form-item>
 
-          <a-form-item label="廃店フラグ">
+          <!-- [haiten-edit-only] 廃店フラグ stays hidden on CREATE — a
+               brand-new hanbaiten is always 営業中 (false), so showing
+               the toggle just invites accidental clicks. Edit mode
+               keeps it so ops can mark a store as 廃店. -->
+          <a-form-item
+            v-if="isEdit"
+            label="廃店フラグ"
+            data-test="hanbaiten-haiten-flg-form-item"
+          >
             <a-checkbox v-model:checked="formState.haiten_flg">廃店</a-checkbox>
           </a-form-item>
         </div>

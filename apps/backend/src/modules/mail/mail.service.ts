@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MailProvider } from './interfaces/mail-provider.interface';
 import { SmtpMailProvider } from './providers/smtp.provider';
 import { SesMailProvider } from './providers/ses.provider';
+import { renderFileUploadNotificationMail } from './templates/file-upload-notification.template';
 import { renderOtpMail } from './templates/otp.template';
 import { renderPasswordResetMail } from './templates/password-reset.template';
 
@@ -66,6 +67,30 @@ export class MailService implements OnModuleInit {
     });
     await this.provider.sendMail({ to: email, subject, text });
     this.logger.log({ event: 'mail.password_reset.sent', email: this.maskEmail(email) });
+  }
+
+  /**
+   * SCR-023 — ファイルアップロード完了通知メール。Worker
+   * (`file-upload-notification.worker.ts`) が、対象 JA に紐付く
+   * `m_account.email` および `sub_email_1/2/3` 全てに対して 1 回ずつ
+   * 呼び出す（重複排除は worker 側で実施）。
+   */
+  async sendFileUploadNotification(
+    email: string,
+    input: {
+      jaName: string;
+      fileName: string;
+      uploadDatetime: Date;
+      uploaderLoginId: string;
+      downloadUrl: string;
+    },
+  ): Promise<void> {
+    const { subject, text } = renderFileUploadNotificationMail(input);
+    await this.provider.sendMail({ to: email, subject, text });
+    this.logger.log({
+      event: 'mail.file_upload_notification.sent',
+      email: this.maskEmail(email),
+    });
   }
 
   async sendNotification(email: string, subject: string, content: string): Promise<void> {

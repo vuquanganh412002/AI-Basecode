@@ -10,6 +10,8 @@ export interface RoleListItem {
 
 export interface RoleDetail extends RoleListItem {
   permission_ids: number[];
+  /** Subset of permission_ids whose checkbox FE renders disabled. */
+  locked_permission_ids: number[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -78,6 +80,13 @@ export function buildRoleDetail(overrides: Partial<RoleDetail> = {}): RoleDetail
     role_name: '中央会',
     description: '中央会アカウント',
     permission_ids: [
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      17, 18, 20, 21, 22, 23, 36, 37, 38, 39, 40, 41, 42, 43,
+    ],
+    // Default: all seeded (= same as permission_ids) — exercises the
+    // canonical "everything locked" path that real roles produce.
+    // Specs that need a mix of locked + admin-added override this.
+    locked_permission_ids: overrides.locked_permission_ids ?? [
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
       17, 18, 20, 21, 22, 23, 36, 37, 38, 39, 40, 41, 42, 43,
     ],

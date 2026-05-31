@@ -1,6 +1,6 @@
 ## Purpose & Scope
 
-Terraform coding rules for `agrinews` mono-repository infrastructure. All generated code MUST comply.
+Terraform coding rules for `AgriNews_ACSMS` mono-repository infrastructure. All generated code MUST comply.
 
 ---
 
@@ -471,7 +471,7 @@ ALL resources MUST include common tags.
 variable "common_tags" {
   type = map(string)
   default = {
-    Project     = "agrinews"
+    Project     = "AgriNews_ACSMS"
     ManagedBy   = "Terraform"
     Environment = var.environment
     CostCenter  = "Engineering"

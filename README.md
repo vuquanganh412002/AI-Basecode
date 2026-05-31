@@ -1,4 +1,4 @@
-# agrinews — Cloud Subscriber Management System
+# AgriNews_ACSMS — Cloud Subscriber Management System
 
 > クラウド版購読者管理システム (ACSMS)
 >
@@ -14,7 +14,7 @@
 | **Frontend** | Vue 3 + Vite (`<script setup>`) |
 | **UI** | Ant Design Vue 4 + Tailwind CSS |
 | **State** | Pinia (Setup Store) |
-| **API Client** | Orval (auto-generated from OpenAPI) |
+| **API Client** | Hand-written axios wrappers per BE tag (`src/api/<tag>/<tag>.ts`) |
 | **ORM** | TypeORM + PostgreSQL (RDS) |
 | **Auth** | HTTP-only Cookie session (Redis-backed, 24h sliding TTL) + bcrypt + RBAC (model.action) |
 | **Cache / Session store** | Redis (ioredis + ElastiCache) |
@@ -28,7 +28,7 @@
 ## Project Structure
 
 ```
-agrinews/
+AgriNews_ACSMS/
 ├── .claude/                    # Claude Code AI configuration
 │   ├── agents/                 # Reserved
 │   ├── commands/               # Legacy slash commands (migrating to skills)
@@ -112,7 +112,6 @@ Authorization: 3-layer model (Permission Guard → DataScope Filter → Field-Le
 /gen-ut-backend     ACSMS-SCR-XXX   → (review BE specs)            [RED]
 /gen-code-backend   ACSMS-SCR-XXX                                 [BE src/ GREEN]
 npm run migration:generate -- -n <Name> && npm run migration:run
-npm run api:generate                 (Orval refresh from BE Swagger)
        ↓
 /gen-ut-frontend    ACSMS-SCR-XXX   → (review FE specs)            [RED]
 /gen-code-frontend  ACSMS-SCR-XXX                                 [FE src/ GREEN]
@@ -130,7 +129,7 @@ cd apps/frontend && npm test    # verify FE green
 4. **Verify** — user runs `npm test` manually; iterate if still red.
 
 **Order rules**:
-- **FE depends on BE when the screen has API calls**: `/gen-code-frontend` imports from `@/api/generated`, which Orval regenerates from BE Swagger. Always run `npm run api:generate` AFTER `/gen-code-backend` and BEFORE `/gen-code-frontend`. FE-only screens (dashboard / 404 / static) can skip the BE leg entirely.
+- **FE depends on BE when the screen has API calls**: `/gen-code-frontend` writes a hand-written wrapper at `apps/frontend/src/api/<tag>/<tag>.ts` mirroring the BE response shape. Run `/gen-code-backend` first so the response DTO is settled before mirroring it. FE-only screens (dashboard / 404 / static) can skip the BE leg entirely.
 - **Migration is not automatic**: `/gen-code-backend` emits the `@Entity` but migration files need a human-chosen name via `npm run migration:generate -- -n <Name>`.
 - **Specs are immutable** to `/gen-code-*`. The skill treats them as the contract and won't edit them.
 - **Stale-contract guard**: if `api.md` or `screen-design.md` mtime is newer than spec mtime, `/gen-code-*` aborts and asks to rerun `/gen-ut-*` first.

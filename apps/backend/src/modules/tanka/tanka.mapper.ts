@@ -9,6 +9,20 @@ import { TankaResponseDto } from './dto/tanka-response.dto';
  * specs, or other mappers.
  */
 export function toTankaResponse(tanka: Tanka): TankaResponseDto {
+  function tekiyoStartDateIso(): string {
+    if (typeof tanka.tekiyoStartDate === 'string') return tanka.tekiyoStartDate;
+    if (tanka.tekiyoStartDate) {
+      return (tanka.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10);
+    }
+    return '';
+  }
+
+  function tekiyoEndDateIso(): string | null {
+    if (tanka.tekiyoEndDate === null || tanka.tekiyoEndDate === undefined) return null;
+    if (typeof tanka.tekiyoEndDate === 'string') return tanka.tekiyoEndDate;
+    return (tanka.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10);
+  }
+
   return {
     tanka_id: Number(tanka.tankaId),
     ja_id: Number(tanka.jaId),
@@ -18,18 +32,8 @@ export function toTankaResponse(tanka: Tanka): TankaResponseDto {
     kingaku_zeikomi: Number(tanka.kingakuZeikomi),
     kingaku_zeinuki: Number(tanka.kingakuZeinuki),
     tax_rate: Number(tanka.taxRate),
-    tekiyo_start_date:
-      typeof tanka.tekiyoStartDate === 'string'
-        ? tanka.tekiyoStartDate
-        : tanka.tekiyoStartDate
-          ? (tanka.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10)
-          : '',
-    tekiyo_end_date:
-      tanka.tekiyoEndDate === null || tanka.tekiyoEndDate === undefined
-        ? null
-        : typeof tanka.tekiyoEndDate === 'string'
-          ? tanka.tekiyoEndDate
-          : (tanka.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10),
+    tekiyo_start_date: tekiyoStartDateIso(),
+    tekiyo_end_date: tekiyoEndDateIso(),
     biko: tanka.biko ?? '',
     active_flg: Boolean(tanka.activeFlg),
     created_at: tanka.createdAt ? tanka.createdAt.toISOString() : '',

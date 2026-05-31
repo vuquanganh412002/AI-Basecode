@@ -52,6 +52,13 @@ export interface ListHanbaitenQuery {
   shocho_name?: string;
   /** true:廃店レコードも含む / false (default):廃店を除外. */
   haiten_flg?: boolean;
+  /**
+   * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) supplies
+   * the JA to scope the search against via the 代行入力 list view's
+   * BaseJaDropdown filter. Other roles ignore this field — the BE
+   * always uses session.ja_id for them.
+   */
+  ja_id?: number;
   page?: number;
   per_page?: number;
   sort_by?: 'hanbaiten_code' | 'hanbaiten_name';
@@ -79,6 +86,46 @@ export async function removeHanbaiten(
 ): Promise<HanbaitenDeleteResponse> {
   const res = await axiosInstance.delete<HanbaitenDeleteResponse>(
     `/api/v1/hanbaiten/${hanbaitenId}`,
+  );
+  return res.data;
+}
+
+// ─── ACSMS-API-COMMON — 販売店 dropdown (consumed by SCR-011) ─────────
+
+/**
+ * Minimal projection used by the 購読者情報登録 (SCR-011) 販売店コード
+ * dropdown. Filters to the caller's JA scope server-side (the BE
+ * service applies `applyJaScope` on the underlying query).
+ */
+export interface HanbaitenDropdownItem {
+  hanbaiten_id: number;
+  hanbaiten_code: string;
+  hanbaiten_name: string;
+}
+
+export interface HanbaitenDropdownEnvelope {
+  data: HanbaitenDropdownItem[];
+  meta: { total: number; page: number; per_page: number; has_more: boolean };
+}
+
+export interface HanbaitenDropdownQuery {
+  /** Optional JA filter (NICHINO_* 代行入力 only — JA-scoped roles let session.ja_id win). */
+  ja_id?: number;
+  q?: string;
+  page?: number;
+  per_page?: number;
+}
+
+/**
+ * GET /api/v1/hanbaiten/dropdown — Shared dropdown lookup for SCR-011.
+ * Returns minimal projections so the dropdown can paginate cheaply.
+ */
+export async function getHanbaitenDropdown(
+  query: HanbaitenDropdownQuery = {},
+): Promise<HanbaitenDropdownEnvelope> {
+  const res = await axiosInstance.get<HanbaitenDropdownEnvelope>(
+    '/api/v1/hanbaiten/dropdown',
+    { params: query },
   );
   return res.data;
 }
@@ -121,6 +168,13 @@ export interface HanbaitenDetail {
 }
 
 export interface CreateHanbaitenBody {
+  /**
+   * [staff-ja-id] NICHINO_STAFF 代行入力 supplies ja_id explicitly via
+   * the form's BaseJaDropdown — session.ja_id is null for that role.
+   * Other roles may also send it; the BE service ignores it and uses
+   * session.ja_id, so cross-tenant injection is not possible.
+   */
+  ja_id?: number;
   hanbaiten_code: string;
   hanbaiten_name: string;
   hanbaiten_name_kana?: string;

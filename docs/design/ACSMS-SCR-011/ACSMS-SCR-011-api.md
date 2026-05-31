@@ -9,15 +9,17 @@ format_version: "1.0"
 issue_date: 2026-05-07
 created_date: 2026/05/07
 created_by: Tran Duc Tuyen
-updated_date: 2026/05/07
+updated_date: 2026/05/29
 updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
 
-| No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
-| --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
-| 1   | 2026/05/07 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| No  | 発行日     | 版数 | 担当者         | 変更内容                                                                                                  | 確認者         | 承認者         |
+| --- | ---------- | ---- | -------------- | --------------------------------------------------------------------------------------------------------- | -------------- | -------------- |
+| 1   | 2026/05/07 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                  | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/05/27 | 1.1  | Tran Duc Tuyen | 画面設計書 v1.1 反映：読者情報変更適用日（joho_henko_tekiyo_date）を入力項目として追加。項目仕様の整合修正 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/05/29 | 1.2  | Tran Duc Tuyen | 画面設計書 v1.1 追加反映：①郵送区分（yubin_kubun）を販売店連動の自動表示から `m_code.code_category='YUBIN_KUBUN'` プルダウン入力項目へ変更（commit e4a3721）、②引落口座支店をテキスト1項目から `bank_shiten_id`（`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込み）+ 自動表示ラベル（`jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name`）の3項目構成へ分割（commit cdc7ae6）、③機能定義の API パスを `/api/subscribers` から `/api/dokusya` へ統一（commit b2bbe9f）、④画面設計書のマークダウン表構造正規化への追従（commit a3b3204）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -128,26 +130,29 @@ updated_by: Tran Duc Tuyen
 | 39  | →hanbaiten_name              | String  | -        |              | -        | 販売店名（m_hanbaiten結合取得）                                                                                                                               |
 | 40  | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
 | 41  | →tanka_name                  | String  | -        |              | -        | 単価名（m_tanka結合取得）                                                                                                                                     |
-| 42  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                                                                            |
+| 42  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。デフォルト: '0'                                                                           |
 | 43  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）             |
 | 44  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
-| 45  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード                                                                                                                                            |
-| 46  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名                                                                                                                                                |
-| 47  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                               |
-| 48  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
-| 49  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
-| 50  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（カンマ区切り、空文字許容）                                                                                                                      |
-| 51  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（カンマ区切り、空文字許容）                                                                                                                        |
-| 52  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
-| 53  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
-| 54  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
-| 55  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
-| 56  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
-| 57  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
-| 58  | →rireki_no                   | Number  | -        |              | -        | 履歴No（最新の履歴番号）                                                                                                                                      |
-| 59  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:承認待ち, 1:承認済み, 2:否認）                                                                                                      |
-| 60  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 61  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 45  | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（m_shiten.shiten_id を `kinyu_shiten_flg=TRUE` で絞り込んだ値。プルダウン再ハイドレーション用）。口座引落以外の場合は null                     |
+| 46  | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                  |
+| 47  | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                      |
+| 48  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_toriatsukai_tenpo_code から非正規化保存）                                        |
+| 49  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_tenpo_name から非正規化保存）                                                        |
+| 50  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                               |
+| 51  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
+| 52  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
+| 53  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（カンマ区切り、空文字許容）                                                                                                                      |
+| 54  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（カンマ区切り、空文字許容）                                                                                                                        |
+| 55  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
+| 56  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
+| 57  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
+| 58  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
+| 59  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
+| 60  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
+| 61  | →rireki_no                   | Number  | -        |              | -        | 履歴No（最新の履歴番号）                                                                                                                                      |
+| 62  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:承認待ち, 1:承認済み, 2:否認）                                                                                                      |
+| 63  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 64  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
 
 ## リクエスト例
 
@@ -203,6 +208,9 @@ GET /api/v1/dokusya/1
     "yubin_kubun": "0",
     "shiharai_hoho": 1,
     "dokusyaryo_shiharai_cycle": 1,
+    "bank_shiten_id": 50,
+    "jastem_toriatsukai_tenpo_code": "001",
+    "jastem_tenpo_name": "本店",
     "bank_branch_code": "001",
     "bank_branch_name": "本店",
     "hikiotoshi_yokin_shubetsu": 1,
@@ -287,15 +295,23 @@ GET /api/v1/dokusya/1
 ### 4.3 データ取得
 
 - ログインユーザーのスコープを取得する。
-- 以下のSQLを実行して購読者情報を取得する（販売店名・単価名を結合）。
+- 以下のSQLを実行して購読者情報を取得する（販売店名・単価名・引落口座支店情報を結合）。
+- `bank_shiten_id` は `t_dokusya.bank_branch_code` をキーとして、ログインユーザー所属JA内で `kinyu_shiten_flg = TRUE` の `m_shiten` レコードから逆引きする（プルダウン再ハイドレーション用）。`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` も同じ JOIN から取得する。
 
 ```sql
 SELECT d.*,
        h.hanbaiten_name,
-       t.tanka_name
+       t.tanka_name,
+       bs.shiten_id                       AS bank_shiten_id,
+       bs.jastem_toriatsukai_tenpo_code   AS jastem_toriatsukai_tenpo_code,
+       bs.jastem_tenpo_name               AS jastem_tenpo_name
 FROM t_dokusya d
 LEFT JOIN m_hanbaiten h ON h.hanbaiten_id = d.hanbaiten_id AND h.deleted_at IS NULL
 LEFT JOIN m_tanka t ON t.tanka_id = d.tanka_id AND t.deleted_at IS NULL
+LEFT JOIN m_shiten bs ON bs.ja_id = d.ja_id
+                     AND bs.jastem_toriatsukai_tenpo_code = d.bank_branch_code
+                     AND bs.kinyu_shiten_flg = TRUE
+                     AND bs.deleted_at IS NULL
 WHERE d.dokusya_id = :dokusya_id
   AND d.ja_id = :ja_id
   AND d.deleted_at IS NULL
@@ -369,18 +385,18 @@ WHERE d.dokusya_id = :dokusya_id
 | 34  | haitatsu_shimei_kana_mei  | String  | -        | △   | 0      | 100    | 配達先氏名かな（名）                                                                                                                              |
 | 35  | hanbaiten_id              | Number  | -        | 〇   |        |        | 販売店ID                                                                                                                                          |
 | 36  | tanka_id                  | Number  | -        | 〇   |        |        | 単価ID（tanka_type=1: 購読料）                                                                                                                    |
-| 37  | yubin_kubun               | String  | -        | -    | 1      | 1      | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。デフォルト: '0'                                                               |
+| 37  | yubin_kubun               | String  | -        | -    | 1      | 1      | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。プルダウン入力。デフォルト: '0'                                               |
 | 38  | shiharai_hoho             | Number  | -        | 〇   |        |        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
-| 39  | dokusyaryo_shiharai_cycle | Number  | -        | -    |        |        | 購読料支払サイクル（月数）                                                                                                                        |
-| 40  | bank_branch_code          | String  | -        | △   | 0      | 3      | 引落口座支店コード（口座引落時は必須）                                                                                                            |
-| 41  | bank_branch_name          | String  | -        | △   | 0      | 100    | 引落口座支店名                                                                                                                                    |
-| 42  | hikiotoshi_yokin_shubetsu | Number  | -        | △   |        |        | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                   |
-| 43  | hikiotoshi_koza_no        | String  | -        | △   | 0      | 10     | 引落口座番号                                                                                                                                      |
-| 44  | hikiotoshi_koza_meigi     | String  | -        | △   | 0      | 50     | 引落口座名義                                                                                                                                      |
-| 45  | dokusyaso_bunrui          | String  | -        | -    | 0      | 50     | 購読者層分類（カンマ区切り）                                                                                                                      |
-| 46  | nogyosya_bunrui           | String  | -        | -    | 0      | 50     | 農業者分類（カンマ区切り）                                                                                                                        |
-| 47  | dokusya_kaishi_date       | String  | -        | 〇   |        |        | 購読開始日（YYYY-MM-DD）                                                                                                                          |
-| 48  | dokusya_chushi_date       | String  | -        | -    |        |        | 購読中止日（YYYY-MM-DD、解約時のみ）                                                                                                              |
+| 39  | dokusyaryo_shiharai_cycle | Number  | -        | -    |        | 2      | 購読料支払サイクル（月数）                                                                                                                        |
+| 40  | bank_shiten_id            | Number  | -        | △   |        |        | 引落口座支店ID（口座引落時は必須）。`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込んだ値。サーバ側で `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` を逆引きし `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する |
+| 41  | hikiotoshi_yokin_shubetsu | Number  | -        | △   |        |        | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                   |
+| 42  | hikiotoshi_koza_no        | String  | -        | △   | 0      | 10     | 引落口座番号                                                                                                                                      |
+| 43  | hikiotoshi_koza_meigi     | String  | -        | △   | 0      | 50     | 引落口座名義                                                                                                                                      |
+| 44  | dokusyaso_bunrui          | String  | -        | -    | 0      | 50     | 購読者層分類（カンマ区切り）                                                                                                                      |
+| 45  | nogyosya_bunrui           | String  | -        | △   | 0      | 50     | 農業者分類（カンマ区切り）。購読者層分類で「農業者」を選択した場合は必須                                                                          |
+| 46  | dokusya_kaishi_date       | String  | -        | 〇   |        |        | 購読開始日（YYYY-MM-DD）                                                                                                                          |
+| 47  | dokusya_chushi_date       | String  | -        | -    |        |        | 購読中止日（YYYY-MM-DD、解約時のみ）                                                                                                              |
+| 48  | joho_henko_tekiyo_date    | String  | -        | -    |        |        | 読者情報変更適用日（YYYY-MM-DD）。入力時は未来日であること                                                                                        |
 | 49  | seikyu_kaishi_month       | String  | -        | △   | 0      | 6      | 請求開始月（YYYYMM、電子版/併読の場合）                                                                                                           |
 | 50  | biko                      | String  | -        | -    | 0      | 500    | 備考                                                                                                                                              |
 
@@ -427,26 +443,29 @@ WHERE d.dokusya_id = :dokusya_id
 | 37  | →haitatsu_shimei_kana_mei    | String  | -        |              |          | 配達先氏名かな（名）（空文字許容）                                                                                                                            |
 | 38  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                                                                                                      |
 | 39  | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
-| 40  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分                                                                                                                                                      |
+| 40  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分（0:空, 1:郵送）                                                                                                                                      |
 | 41  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法                                                                                                                                                      |
 | 42  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
-| 43  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード                                                                                                                                            |
-| 44  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名                                                                                                                                                |
-| 45  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目                                                                                                                                              |
-| 46  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
-| 47  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
-| 48  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（空文字許容）                                                                                                                                    |
-| 49  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（空文字許容）                                                                                                                                      |
-| 50  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
-| 51  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
-| 52  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
-| 53  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
-| 54  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
-| 55  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
-| 56  | →rireki_no                   | Number  | -        |              | -        | 履歴No                                                                                                                                                        |
-| 57  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス                                                                                                                                        |
-| 58  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 59  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 43  | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（プルダウン再ハイドレーション用）。口座引落以外の場合は null                                                                                   |
+| 44  | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                          |
+| 45  | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                              |
+| 46  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列）                                                                                                                        |
+| 47  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列）                                                                                                                            |
+| 48  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目                                                                                                                                              |
+| 49  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
+| 50  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
+| 51  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（空文字許容）                                                                                                                                    |
+| 52  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（空文字許容）                                                                                                                                      |
+| 53  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
+| 54  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
+| 55  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
+| 56  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
+| 57  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
+| 58  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
+| 59  | →rireki_no                   | Number  | -        |              | -        | 履歴No                                                                                                                                                        |
+| 60  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス                                                                                                                                        |
+| 61  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 62  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
 
 ## リクエスト例
 
@@ -493,14 +512,14 @@ Content-Type: application/json
   "yubin_kubun": "0",
   "shiharai_hoho": 1,
   "dokusyaryo_shiharai_cycle": 1,
-  "bank_branch_code": "001",
-  "bank_branch_name": "本店",
+  "bank_shiten_id": 50,
   "hikiotoshi_yokin_shubetsu": 1,
   "hikiotoshi_koza_no": "1234567",
   "hikiotoshi_koza_meigi": "ヤマダタロウ",
   "dokusyaso_bunrui": "農業者",
   "nogyosya_bunrui": "水稲,野菜",
   "dokusya_kaishi_date": "2026-04-01",
+  "joho_henko_tekiyo_date": null,
   "seikyu_kaishi_month": "",
   "biko": ""
 }
@@ -552,6 +571,9 @@ Content-Type: application/json
     "yubin_kubun": "0",
     "shiharai_hoho": 1,
     "dokusyaryo_shiharai_cycle": 1,
+    "bank_shiten_id": 50,
+    "jastem_toriatsukai_tenpo_code": "001",
+    "jastem_tenpo_name": "本店",
     "bank_branch_code": "001",
     "bank_branch_name": "本店",
     "hikiotoshi_yokin_shubetsu": 1,
@@ -642,8 +664,12 @@ Content-Type: application/json
   - email：電子版/併読の場合は必須、形式チェック
   - haitatsu_same_flg=falseの場合：haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson, haitatsu_chome_banchi, haitatsu_shimei_*, haitatsu_shimei_kana_* が必須
   - hanbaiten_id / tanka_id：必須
-  - shiharai_hoho：必須。1（口座引落）の場合：bank_branch_code, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi が必須
+  - shiharai_hoho：必須。1（口座引落）の場合：bank_shiten_id, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi が必須
+  - bank_shiten_id：口座引落時は必須。`m_shiten` に存在し、かつ ログインユーザー所属JA内（`m_shiten.ja_id = user.ja_id`）かつ `kinyu_shiten_flg = TRUE` であること
+  - yubin_kubun：任意。入力時は `m_code.code_category='YUBIN_KUBUN'`（0:空, 1:郵送）に存在する値であること
   - dokusya_kaishi_date：必須、YYYY-MM-DD
+  - joho_henko_tekiyo_date：任意、YYYY-MM-DD。入力時は未来日であること
+  - nogyosya_bunrui：購読者層分類で「農業者」を選択した場合は必須
   - seikyu_kaishi_month：電子版/併読の場合、YYYYMM形式
   - biko：500文字以内
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
@@ -674,6 +700,21 @@ WHERE email = :email
 
 ### 4.4 データ登録
 
+- 支払方法=1（口座引落）の場合、`bank_shiten_id` を以下のSQLで解決し、`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` を取得して `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する（画面設計書 機能定義 §10.1）。
+
+```sql
+SELECT shiten_id,
+       jastem_toriatsukai_tenpo_code,
+       jastem_tenpo_name
+FROM m_shiten
+WHERE shiten_id = :bank_shiten_id
+  AND ja_id = :ja_id
+  AND kinyu_shiten_flg = TRUE
+  AND deleted_at IS NULL
+```
+
+- 該当レコードがない場合：HTTP 400 (`VALIDATION_ERROR`)（`field: 'bank_shiten_id'`）。
+- 支払方法 ≠ 1 の場合、`bank_branch_code = ''` / `bank_branch_name = ''` を設定する。
 - t_dokusya にレコードを INSERT する。
 - t_dokusya_rireki に履歴レコードを INSERT する（rireki_no=1, saishin_data_flg=true）。
 - フラグ設定ルール：
@@ -721,7 +762,7 @@ INSERT INTO t_dokusya (
   :hikiotoshi_yokin_shubetsu, :hikiotoshi_koza_no, :hikiotoshi_koza_meigi,
   :dokusyaso_bunrui, :nogyosya_bunrui,
   :dokusya_kaishi_date, :dokusya_kaishi_date, :dokusya_chushi_date,
-  NULL, :seikyu_kaishi_month, :biko, 1,
+  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko, 1,
   NULL,
   NOW(), :user_account_id, NOW(), :user_account_id
 )
@@ -769,7 +810,7 @@ INSERT INTO t_dokusya_rireki (
   :hikiotoshi_yokin_shubetsu, :hikiotoshi_koza_no, :hikiotoshi_koza_meigi,
   :dokusyaso_bunrui, :nogyosya_bunrui,
   :dokusya_kaishi_date, :dokusya_kaishi_date, :dokusya_chushi_date,
-  NULL, :seikyu_kaishi_month, :biko, '',
+  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko, '',
   TRUE, TRUE, :shinki_flg, :kaiyaku_flg,
   NULL, NULL, NULL,
   NULL, NULL, NULL,
@@ -898,14 +939,14 @@ Content-Type: application/json
   "yubin_kubun": "0",
   "shiharai_hoho": 1,
   "dokusyaryo_shiharai_cycle": 1,
-  "bank_branch_code": "001",
-  "bank_branch_name": "本店",
+  "bank_shiten_id": 50,
   "hikiotoshi_yokin_shubetsu": 1,
   "hikiotoshi_koza_no": "1234567",
   "hikiotoshi_koza_meigi": "ヤマダタロウ",
   "dokusyaso_bunrui": "農業者",
   "nogyosya_bunrui": "水稲,野菜",
   "dokusya_kaishi_date": "2026-04-01",
+  "joho_henko_tekiyo_date": null,
   "seikyu_kaishi_month": "",
   "biko": ""
 }
@@ -957,6 +998,9 @@ Content-Type: application/json
     "yubin_kubun": "0",
     "shiharai_hoho": 1,
     "dokusyaryo_shiharai_cycle": 1,
+    "bank_shiten_id": 50,
+    "jastem_toriatsukai_tenpo_code": "001",
+    "jastem_tenpo_name": "本店",
     "bank_branch_code": "001",
     "bank_branch_name": "本店",
     "hikiotoshi_yokin_shubetsu": 1,
@@ -1089,6 +1133,24 @@ WHERE email = :email
 ### 4.4 データ更新（履歴追記方式）
 
 機能定義 15.3 に基づく3ステップ処理：
+
+#### ステップ0：引落口座支店の解決（口座引落時のみ）
+
+- 支払方法=1（口座引落）の場合、`bank_shiten_id` から `m_shiten` を逆引きし、`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` を取得して `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する（画面設計書 機能定義 §10.1）。
+
+```sql
+SELECT shiten_id,
+       jastem_toriatsukai_tenpo_code,
+       jastem_tenpo_name
+FROM m_shiten
+WHERE shiten_id = :bank_shiten_id
+  AND ja_id = :ja_id
+  AND kinyu_shiten_flg = TRUE
+  AND deleted_at IS NULL
+```
+
+- 該当レコードがない場合：HTTP 400 (`VALIDATION_ERROR`)（`field: 'bank_shiten_id'`）。
+- 支払方法 ≠ 1 の場合、`bank_branch_code = ''` / `bank_branch_name = ''` を設定する。
 
 #### ステップ1：旧レコードの最新フラグを無効化
 

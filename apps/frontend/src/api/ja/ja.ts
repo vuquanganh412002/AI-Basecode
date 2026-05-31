@@ -156,8 +156,13 @@ export interface JaDropdownResponse {
 
 /** Query-string DTO for `GET /api/v1/ja/dropdown`. */
 export interface JaDropdownQuery {
-  /** Partial match on ja_code OR ja_name (ILIKE). */
+  /** Partial match on ja_code OR ja_name (ILIKE) — see `match_field`. */
   q?: string;
+  /**
+   * 'both' (default) = ja_code OR ja_name; 'name' = ja_name only.
+   * SCR-024 account list uses 'name' since it hides ja_code in the UI.
+   */
+  match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
   /** Edit-form escape hatch — BE prepends this ja_id if not in page 1. */

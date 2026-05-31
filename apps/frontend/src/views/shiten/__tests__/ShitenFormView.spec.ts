@@ -210,6 +210,79 @@ describe('ShitenFormView — edit-mode preload (§2)', () => {
     const html = codeItem!.html();
     expect(/disabled|ant-input-disabled/.test(html)).toBe(true);
   });
+
+  it('should disable 管理支店 only when JA_KANRI_SHITEN edits a shiten — every other field stays editable', async () => {
+    // [role5-locked-fields] Customer policy 2026-05 — role 5
+    // (JA_KANRI_SHITEN) can edit shiten in edit mode BUT 管理支店
+    // (kanri_shiten_id) is read-only because reassigning a branch
+    // to a different kanri-shiten is reserved for higher roles.
+    // 金融機関支店フラグ + 支店名 + JASTEM + 備考 + submit all stay
+    // editable for role 5.
+    const { wrapper } = await renderView({
+      id: 1,
+      user: buildAuthUser({
+        role_code: 'JA_KANRI_SHITEN',
+        ja_id: 1,
+        kanri_shiten_id: 5,
+        permissions: ['shiten.view', 'shiten.update'],
+      }),
+    });
+
+    const formItems = wrapper.findAllComponents({ name: 'AFormItem' });
+    const findItem = (label: string) =>
+      formItems.find((fi) => fi.text().includes(label));
+
+    // (a) Locked: 管理支店 select
+    const kanriItem = findItem('管理支店');
+    expect(kanriItem).toBeDefined();
+    expect(
+      /ant-select-disabled|disabled/.test(kanriItem!.html()),
+    ).toBe(true);
+
+    // (b) Editable: 金融機関支店フラグ + 支店名 + 備考 stay unrestricted
+    const flgItem = findItem('金融機関支店フラグ');
+    expect(flgItem).toBeDefined();
+    expect(
+      /ant-checkbox-disabled/.test(flgItem!.html()),
+    ).toBe(false);
+
+    const nameItem = findItem('支店名');
+    expect(nameItem).toBeDefined();
+    expect(
+      /ant-input-disabled|ant-select-disabled|ant-checkbox-disabled/.test(
+        nameItem!.html(),
+      ),
+    ).toBe(false);
+
+    const bikoItem = findItem('備考');
+    expect(bikoItem).toBeDefined();
+    expect(
+      /ant-input-disabled|ant-select-disabled|ant-checkbox-disabled/.test(
+        bikoItem!.html(),
+      ),
+    ).toBe(false);
+
+    // (c) Submit button stays clickable for role 5
+    const submitBtn = wrapper.find('button[type="submit"]');
+    expect(submitBtn.exists()).toBe(true);
+    expect(submitBtn.attributes('disabled')).toBeUndefined();
+  });
+
+  it('should keep 管理支店 editable when CHUOKAI edits a shiten (regression — locked scope is role 5 only)', async () => {
+    const { wrapper } = await renderView({
+      id: 1,
+      user: buildAuthUser({
+        role_code: 'CHUOKAI',
+        ja_id: 1,
+        permissions: ['shiten.view', 'shiten.update'],
+      }),
+    });
+    const formItems = wrapper.findAllComponents({ name: 'AFormItem' });
+    const kanriItem = formItems.find((fi) => fi.text().includes('管理支店'));
+    expect(kanriItem).toBeDefined();
+    // CHUOKAI must NOT see the kanri_shiten_id select as disabled.
+    expect(/ant-select-disabled/.test(kanriItem!.html())).toBe(false);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════

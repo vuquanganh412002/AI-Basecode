@@ -25,10 +25,17 @@ export class CreateOshiraseDto {
   @MaxLength(200, { message: 'お知らせタイトルは最大200文字で指定してください。' })
   title: string;
 
-  @ApiProperty({ description: '公開場所（1:ログイン画面, 2:メニュー画面）', enum: [1, 2] })
+  @ApiProperty({
+    description:
+      '公開場所（1:ログイン画面, 2:メニュー画面, 3:メニュー画面（締め切り時間）。3 は oshirase_type=4 専用）',
+    enum: [1, 2, 3],
+  })
   @Type(() => Number)
   @IsInt({ message: '公開場所は整数で指定してください。' })
-  @IsIn([1, 2], { message: '公開場所は1（ログイン画面）または2（メニュー画面）で指定してください。' })
+  @IsIn([1, 2, 3], {
+    message:
+      '公開場所は1（ログイン画面）／2（メニュー画面）／3（メニュー画面（締め切り時間））で指定してください。',
+  })
   publish_location: number;
 
   @ApiProperty({ description: '状態（1:下書き, 2:公開, 3:非公開）', enum: [1, 2, 3] })

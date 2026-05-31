@@ -78,10 +78,18 @@ describe('UpdateAccountDto', () => {
     });
   });
 
-  describe('email (optional, max 100, email format)', () => {
-    it('should accept when email is an empty string', async () => {
+  describe('email (required, max 100, email format)', () => {
+    it('should reject when email is an empty string', async () => {
+      // QA review 2026-05 — 通知先メールアドレス must be required
       const errs = await check({ ...VALID, email: '' });
-      expect(errs.some((e) => e.property === 'email')).toBe(false);
+      expect(errs.some((e) => e.property === 'email')).toBe(true);
+    });
+
+    it('should reject when email is missing entirely', async () => {
+      const body = { ...VALID } as Record<string, unknown>;
+      delete body.email;
+      const errs = await check(body);
+      expect(errs.some((e) => e.property === 'email')).toBe(true);
     });
 
     it('should reject when email is not in valid email format', async () => {

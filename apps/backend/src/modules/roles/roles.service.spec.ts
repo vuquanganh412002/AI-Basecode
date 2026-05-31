@@ -254,9 +254,37 @@ describe('RolesService', () => {
 
       await service.findOne(1);
 
-      // The find call MUST include a where clause that filters deleted_at.
-      // Assert it was called (impl decides exact shape).
-      expect(rolePermissionRepo.find).toHaveBeenCalledTimes(1);
+      // findOne now issues TWO `rolePermissionRepo.find` calls — one for
+      // the full permission_ids list, one filtered by `locked: true` for
+      // the locked_permission_ids subset. Both must filter deleted_at.
+      expect(rolePermissionRepo.find).toHaveBeenCalledTimes(2);
+      const calls = rolePermissionRepo.find.mock.calls;
+      for (const [arg] of calls) {
+        expect(arg.where).toEqual(expect.objectContaining({ roleId: 1 }));
+      }
+    });
+
+    // [locked-permissions] Detail endpoint must expose the locked
+    // subset so the FE can render those checkboxes disabled.
+    it('should return locked_permission_ids subset derived from rows where locked=true', async () => {
+      roleRepo.findOne.mockResolvedValue(buildRole({ roleId: 1 }));
+      // First find() = all active rows (permission_ids list).
+      // Second find() = locked-only filter (locked_permission_ids).
+      rolePermissionRepo.find
+        .mockResolvedValueOnce([
+          { permissionId: 1 },
+          { permissionId: 2 },
+          { permissionId: 99 },
+        ])
+        .mockResolvedValueOnce([
+          { permissionId: 1 },
+          { permissionId: 2 },
+        ]);
+
+      const result = await service.findOne(1);
+
+      expect(result.data.permission_ids).toEqual([1, 2, 99]);
+      expect(result.data.locked_permission_ids).toEqual([1, 2]);
     });
   });
 
@@ -306,6 +334,53 @@ describe('RolesService', () => {
       ).rejects.toMatchObject({
         response: { error_code: 'VALIDATION_ERROR' },
       });
+    });
+
+    // [locked-permissions] Guard fires BEFORE the transaction, so a
+    // body that drops a locked permission_id must throw VALIDATION_ERROR
+    // without ever updating the DB or writing an audit log.
+    it('should reject when the body drops a locked permission_id', async () => {
+      roleRepo.findOne.mockResolvedValue(buildRole({ roleId: 1, roleCode: 'NICHINO_ADMIN' }));
+      permissionRepo.count.mockResolvedValue(1);
+      // Current: ja.view (id=2) is locked, ja.delete (id=4) is NOT locked.
+      rolePermissionRepo.find.mockResolvedValue([
+        { permissionId: 2, locked: true },
+        { permissionId: 4, locked: false },
+      ]);
+
+      // Body tries to keep only id=4 (drops the locked id=2).
+      await expect(
+        service.update(1, buildUpdateRoleBody({ permission_ids: [4] }), buildSession(), baseReq),
+      ).rejects.toMatchObject({
+        response: { error_code: 'VALIDATION_ERROR' },
+      });
+      // Transaction never starts.
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should preserve the `locked` flag when re-inserting an unchanged locked permission', async () => {
+      const session = buildSession();
+      // Current: id=1 locked, id=2 NOT locked. Body keeps both.
+      rolePermissionRepo.find.mockResolvedValue([
+        { permissionId: 1, locked: true },
+        { permissionId: 2, locked: false },
+      ]);
+      roleRepo.findOne.mockResolvedValue(buildRole({ roleId: 3 }));
+      permissionRepo.count.mockResolvedValue(2);
+      txManager.findOne = jest.fn().mockResolvedValue(buildRole({ roleId: 3 }));
+
+      await service.update(3, buildUpdateRoleBody({ permission_ids: [1, 2] }), session, baseReq);
+
+      // Find the re-insert call (manager.save with RolePermission rows).
+      const saveCalls = txManager.save.mock.calls.filter(
+        (call: any[]) => Array.isArray(call[1]),
+      );
+      expect(saveCalls.length).toBeGreaterThan(0);
+      const insertedRows = saveCalls[0][1] as Array<{ permissionId: number; locked: boolean }>;
+      const row1 = insertedRows.find((r) => r.permissionId === 1);
+      const row2 = insertedRows.find((r) => r.permissionId === 2);
+      expect(row1?.locked).toBe(true);   // preserved
+      expect(row2?.locked).toBe(false);  // preserved
     });
 
     it('should soft-delete existing role_permission rows before INSERTing new ones (§4.4.2 → §4.4.3)', async () => {

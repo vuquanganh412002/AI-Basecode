@@ -26,6 +26,7 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import { RoleCode } from '@/constants/enums';
 import {
   KANRI_SHITEN_CODE_REGEX,
   formatKanriShitenCode,
@@ -55,11 +56,15 @@ const { fieldErrors, submitting, submit } = useApiForm();
  * Backend silently drops out-of-scope keys (Layer 3 in security.md);
  * the FE :disabled is UX hint only.
  */
-const RESTRICTED_EDITOR_ROLES = ['CHUOKAI', 'JA_HONTEN', 'JA_KANRI_SHITEN'];
+const RESTRICTED_EDITOR_ROLES: ReadonlySet<string> = new Set([
+  RoleCode.CHUOKAI,
+  RoleCode.JA_HONTEN,
+  RoleCode.JA_KANRI_SHITEN,
+]);
 const isRestrictedEditor = computed(
   () =>
     isEdit.value &&
-    RESTRICTED_EDITOR_ROLES.includes(authStore.user?.role_code ?? ''),
+    RESTRICTED_EDITOR_ROLES.has(authStore.user?.role_code ?? ''),
 );
 
 /** Numeric id from the path, or undefined for create mode. */
@@ -77,13 +82,15 @@ const todofukenOptions = ref<TodofukenItem[]>([]);
 // ja_id is typed as number on the request DTO, but the create form
 // must start UNSET so antd's <a-select> shows the placeholder
 // ("JAを選択してください") instead of a literal "0". `validateClient`
-// rejects an undefined/0 ja_id before the API call.
+// rejects a null/0 ja_id before the API call. `null` (not `undefined`)
+// matches BaseJaDropdown's emit shape, so we can use plain
+// `v-model:value` without a ?? bridge.
 type FormState = Omit<CreateKanriShitenRequest, 'ja_id'> & {
-  ja_id: number | undefined;
+  ja_id: number | null;
 };
 
 const formState = reactive<FormState>({
-  ja_id: undefined,
+  ja_id: null,
   kanri_shiten_code: '',
   kanri_shiten_name: '',
   kanri_shiten_name_kana: '',
@@ -168,6 +175,28 @@ const KANRI_SHITEN_CODE_FORMAT_MSG =
   '管理支店コードは「NNN-NNNN-NNN」の形式（半角数字とハイフンのみ）で入力してください。';
 const KANA_FORMAT_MSG = kanaFormatMessage('管理支店名');
 
+function validateOptionalFormatFields(
+  form: FormState,
+  errs: Record<string, string>,
+): void {
+  // ─── Format checks (skip for required-empty fields). ────────────
+  if (
+    form.kanri_shiten_name_kana &&
+    !HALF_WIDTH_KATAKANA_RE.test(form.kanri_shiten_name_kana)
+  ) {
+    errs.kanri_shiten_name_kana = KANA_FORMAT_MSG;
+  }
+  if (form.yubin_no && !/^\d{7}$/.test(form.yubin_no)) {
+    errs.yubin_no = POSTAL_DIGITS_ONLY_MSG;
+  }
+  if (form.tel && !/^\d+$/.test(form.tel)) {
+    errs.tel = TEL_DIGITS_ONLY_MSG;
+  }
+  if (form.fax && !/^\d+$/.test(form.fax)) {
+    errs.fax = FAX_DIGITS_ONLY_MSG;
+  }
+}
+
 function validateClient(form: FormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
@@ -201,22 +230,7 @@ function validateClient(form: FormState): Record<string, string> {
     errs.kanri_shiten_code = KANRI_SHITEN_CODE_FORMAT_MSG;
   }
 
-  // ─── Format checks (skip for required-empty fields). ────────────
-  if (
-    form.kanri_shiten_name_kana &&
-    !HALF_WIDTH_KATAKANA_RE.test(form.kanri_shiten_name_kana)
-  ) {
-    errs.kanri_shiten_name_kana = KANA_FORMAT_MSG;
-  }
-  if (form.yubin_no && !/^\d{7}$/.test(form.yubin_no)) {
-    errs.yubin_no = POSTAL_DIGITS_ONLY_MSG;
-  }
-  if (form.tel && !/^\d+$/.test(form.tel)) {
-    errs.tel = TEL_DIGITS_ONLY_MSG;
-  }
-  if (form.fax && !/^\d+$/.test(form.fax)) {
-    errs.fax = FAX_DIGITS_ONLY_MSG;
-  }
+  validateOptionalFormatFields(form, errs);
 
   return errs;
 }
@@ -290,7 +304,11 @@ async function submitWith(form: FormState): Promise<void> {
   }
 
   await submit(async () => {
-    if (kanriShitenIdParam.value !== undefined) {
+    if (kanriShitenIdParam.value === undefined) {
+      // validateClient has already guaranteed ja_id is set for create mode.
+      await createKanriShiten(form as CreateKanriShitenRequest);
+      notify.created();
+    } else {
       // PUT body drops ja_id + kanri_shiten_code (immutable after create).
       const {
         ja_id: _drop1,
@@ -304,10 +322,6 @@ async function submitWith(form: FormState): Promise<void> {
         updateBody as UpdateKanriShitenRequest,
       );
       notify.updated();
-    } else {
-      // validateClient has already guaranteed ja_id is set for create mode.
-      await createKanriShiten(form as CreateKanriShitenRequest);
-      notify.created();
     }
     await router.push({ name: 'KanriShitenList' });
   });
@@ -347,7 +361,7 @@ function onKanriShitenCodeInput(e: Event): void {
   const isDelete =
     (e as InputEvent).inputType?.startsWith('delete') ?? false;
   const bare = (formState.kanri_shiten_code ?? '')
-    .replace(/\D/g, '')
+    .replaceAll(/\D/g, '')
     .slice(0, 10);
 
   let formatted: string;

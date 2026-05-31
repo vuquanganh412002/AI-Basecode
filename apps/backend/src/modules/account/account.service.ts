@@ -1,16 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { Request } from 'express';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Account } from '@/database/entities/account.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
+import { Role } from '@/database/entities/role.entity';
 import {
   ConflictException,
   DuplicateCodeException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
+import { RoleCode } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { fetchFkInJa } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
@@ -33,8 +35,10 @@ import {
 } from './account-form.mapper';
 import type { CreateAccountDto } from './dto/create-account.dto';
 import type { UpdateAccountDto } from './dto/update-account.dto';
+import type { AccountDropdownQueryDto } from './dto/account-dropdown-query.dto';
 import {
   ACCOUNT_SEARCH_SORT_BY,
+  type AccountSearchSortBy,
   type SearchAccountsDto,
 } from './dto/search-accounts.dto';
 
@@ -78,10 +82,24 @@ function buildAccountAuditSnapshot(account: Account): Record<string, unknown> {
 
 /**
  * Roles whose accounts must NOT carry scope columns (per api.md §4.4
- * 注記). role_id 1/2 = 日農 (no JA scope), so todofuken_code / ja_id /
- * kanri_shiten_id are forced to null at create/update time.
+ * 注記). 日農 roles (NICHINO_ADMIN / NICHINO_STAFF) have no JA scope,
+ * so `todofuken_code` / `ja_id` / `kanri_shiten_id` are forced to null
+ * at create/update time.
+ *
+ * Branches on `role_code` rather than `role_id` so the check is stable
+ * against any future re-seed / reorder of `m_roles` (role_id is
+ * BIGSERIAL — values come from INSERT order; role_code is a fixed
+ * string identifier customers reference everywhere else). Resolution
+ * `role_id → role_code` happens via `resolveRoleCode()` on the service.
  */
-const NICHINO_ROLE_IDS = new Set<number>([1, 2]);
+const NICHINO_ROLE_CODES: ReadonlySet<string> = new Set<string>([
+  RoleCode.NICHINO_ADMIN,
+  RoleCode.NICHINO_STAFF,
+]);
+
+function isNichinoRole(roleCode: string): boolean {
+  return NICHINO_ROLE_CODES.has(roleCode);
+}
 
 export interface ToggleMfaContext {
   ipAddress: string;
@@ -112,7 +130,43 @@ export class AccountService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KanriShiten)
     private readonly kanriShitenRepo: Repository<KanriShiten>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
   ) {}
+
+  /**
+   * Resolve `role_id` (DTO input, FK to m_roles.role_id) → `role_code`
+   * by hitting the m_roles table. Used by create/update to branch on
+   * 日農 vs JA without depending on the numeric value of role_id (which
+   * is BIGSERIAL — drift-prone across seed reorders / re-seeds).
+   *
+   * Doubles as a FK existence check: throws `VALIDATION_ERROR` if
+   * `role_id` doesn't match any (non-deleted) m_roles row, matching
+   * the canonical FE-displayable shape that `useApiForm` parses.
+   *
+   * m_roles is a 5-row append-only table indexed by PK — the lookup
+   * is ~0.1ms; no need for a separate cache layer.
+   */
+  private async resolveRoleCode(roleId: number): Promise<string> {
+    const role = await this.roleRepo.findOne({
+      where: { roleId, deletedAt: IsNull() },
+      select: ['roleCode'],
+    });
+    if (!role) {
+      throw new HttpException(
+        {
+          code: 'VALIDATION_ERROR',
+          error_code: 'VALIDATION_ERROR',
+          message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
+          errors: [
+            { field: 'role_id', message: '指定されたロールが見つかりません。' },
+          ],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return role.roleCode;
+  }
 
   /**
    * Toggle the caller's own MFA flag. The caller's `account_id` MUST
@@ -140,7 +194,7 @@ export class AccountService {
     const after = { mfa_enable_flg: enabled };
     const auditCtx: AuditOperationContext = {
       accountId,
-      jaId: account.jaId !== null ? Number(account.jaId) : null,
+      jaId: account.jaId === null ? null : Number(account.jaId),
       screen: SCREEN_NAME,
       table: TABLE_NAME,
       targetId: accountId,
@@ -218,36 +272,14 @@ export class AccountService {
       ])
       .where('a.deleted_at IS NULL');
 
-    if (query.login_id && query.login_id.trim().length > 0) {
-      qb.andWhere('a.login_id LIKE :loginIdLike', {
-        loginIdLike: `%${query.login_id.trim()}%`,
-      });
-    }
-    if (query.role_id !== undefined && query.role_id !== null) {
-      qb.andWhere('a.role_id = :role_id', { role_id: query.role_id });
-    }
-    if (query.ja_id !== undefined && query.ja_id !== null) {
-      qb.andWhere('a.ja_id = :ja_id', { ja_id: query.ja_id });
-    }
-    if (query.kanri_shiten_id !== undefined && query.kanri_shiten_id !== null) {
-      qb.andWhere('a.kanri_shiten_id = :kanri_shiten_id', {
-        kanri_shiten_id: query.kanri_shiten_id,
-      });
-    }
+    this.applyAccountSearchFilters(qb, query);
 
     // Defensive — sortBy is already validated by the DTO @IsIn but
     // double-check before interpolating into the ORDER BY clause.
     // `role_name` lives on the joined m_roles row (alias r); every other
     // whitelisted key lives on m_account (alias a). Anything outside the
     // whitelist falls back to a.created_at.
-    let sortColumn: string;
-    if (sortBy === 'role_name') {
-      sortColumn = 'r.role_name';
-    } else if (ACCOUNT_SEARCH_SORT_BY.includes(sortBy)) {
-      sortColumn = `a.${sortBy}`;
-    } else {
-      sortColumn = 'a.created_at';
-    }
+    const sortColumn = this.resolveAccountSortColumn(sortBy);
     qb.orderBy(sortColumn, sortOrder)
       .take(perPage)
       .skip((page - 1) * perPage);
@@ -257,22 +289,7 @@ export class AccountService {
     const countQb = this.accountRepo
       .createQueryBuilder('a')
       .where('a.deleted_at IS NULL');
-    if (query.login_id && query.login_id.trim().length > 0) {
-      countQb.andWhere('a.login_id LIKE :loginIdLike', {
-        loginIdLike: `%${query.login_id.trim()}%`,
-      });
-    }
-    if (query.role_id !== undefined && query.role_id !== null) {
-      countQb.andWhere('a.role_id = :role_id', { role_id: query.role_id });
-    }
-    if (query.ja_id !== undefined && query.ja_id !== null) {
-      countQb.andWhere('a.ja_id = :ja_id', { ja_id: query.ja_id });
-    }
-    if (query.kanri_shiten_id !== undefined && query.kanri_shiten_id !== null) {
-      countQb.andWhere('a.kanri_shiten_id = :kanri_shiten_id', {
-        kanri_shiten_id: query.kanri_shiten_id,
-      });
-    }
+    this.applyAccountSearchFilters(countQb, query);
 
     const [rawRows, total] = await Promise.all([
       qb.getRawMany<AccountSearchRow>(),
@@ -286,12 +303,45 @@ export class AccountService {
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────────
   // Defined alongside SCR-030 (ログ参照画面) but consumed by any screen
   // that needs an account picker. DataScope auto-applied by role.
+  // Server-side paginated + searchable (default 50/page) so callers
+  // can drive a `<BaseAccountDropdown>` with infinite scroll.
   async getAccountDropdown(
+    query: AccountDropdownQueryDto,
     session: SessionPayload,
-  ): Promise<{ data: AccountDropdownItem[] }> {
-    const qb = this.accountRepo
-      .createQueryBuilder('a')
-      .innerJoin('m_roles', 'r', 'r.role_id = a.role_id AND r.deleted_at IS NULL')
+  ): Promise<{
+    data: AccountDropdownItem[];
+    meta: { total: number; page: number; per_page: number; has_more: boolean };
+  }> {
+    const page = query.page ?? 1;
+    const per_page = query.per_page ?? 50;
+
+    const buildScopedQb = () => {
+      const qb = this.accountRepo
+        .createQueryBuilder('a')
+        .innerJoin('m_roles', 'r', 'r.role_id = a.role_id AND r.deleted_at IS NULL')
+        .where('a.deleted_at IS NULL');
+
+      // [data-scope] CHUOKAI / JA_HONTEN see own JA's accounts;
+      // JA_KANRI_SHITEN sees own kanri_shiten only. NICHINO_* bypass.
+      if (
+        session.role_code !== RoleCode.NICHINO_ADMIN &&
+        session.role_code !== RoleCode.NICHINO_STAFF
+      ) {
+        if (
+          session.role_code === RoleCode.JA_KANRI_SHITEN &&
+          session.kanri_shiten_id != null
+        ) {
+          qb.andWhere('a.kanri_shiten_id = :scopeKanriShitenId', {
+            scopeKanriShitenId: session.kanri_shiten_id,
+          });
+        } else if (session.ja_id != null) {
+          qb.andWhere('a.ja_id = :scopeJaId', { scopeJaId: session.ja_id });
+        }
+      }
+      return qb;
+    };
+
+    const qb = buildScopedQb()
       .select([
         'a.account_id AS account_id',
         'a.login_id AS login_id',
@@ -299,43 +349,87 @@ export class AccountService {
         'r.role_code AS role_code',
         'a.ja_id AS ja_id',
       ])
-      .where('a.deleted_at IS NULL');
+      .orderBy('a.login_id', 'ASC')
+      .limit(per_page)
+      .offset((page - 1) * per_page);
 
-    if (
-      session.role_code !== 'NICHINO_ADMIN' &&
-      session.role_code !== 'NICHINO_STAFF'
-    ) {
-      if (
-        session.role_code === 'JA_KANRI_SHITEN' &&
-        session.kanri_shiten_id != null
-      ) {
-        qb.andWhere('a.kanri_shiten_id = :scopeKanriShitenId', {
-          scopeKanriShitenId: session.kanri_shiten_id,
-        });
-      } else if (session.ja_id != null) {
-        // CHUOKAI / JA_HONTEN — own JA only
-        qb.andWhere('a.ja_id = :scopeJaId', { scopeJaId: session.ja_id });
+    if (query.q) {
+      // [match-field] 'name' = account_name only (SCR-030 log view's
+      // field label is ユーザ名 and matching login_id would surface
+      // hits the user can't read by the column they searched).
+      // Default 'both' preserves legacy login_id OR account_name.
+      if (query.match_field === 'name') {
+        qb.andWhere('a.account_name ILIKE :q', { q: `%${query.q}%` });
+      } else {
+        qb.andWhere(
+          '(a.login_id ILIKE :q OR a.account_name ILIKE :q)',
+          { q: `%${query.q}%` },
+        );
       }
     }
 
-    qb.orderBy('a.login_id', 'ASC');
+    // Count via a separate scoped query — re-applies the same q filter
+    // so total reflects the filtered result set, not the whole table.
+    const countQb = buildScopedQb();
+    if (query.q) {
+      if (query.match_field === 'name') {
+        countQb.andWhere('a.account_name ILIKE :q', { q: `%${query.q}%` });
+      } else {
+        countQb.andWhere(
+          '(a.login_id ILIKE :q OR a.account_name ILIKE :q)',
+          { q: `%${query.q}%` },
+        );
+      }
+    }
 
-    const raw = await qb.getRawMany<{
-      account_id: number | string;
-      login_id: string;
-      account_name: string;
-      role_code: string;
-      ja_id: number | string | null;
-    }>();
+    const [raw, total] = await Promise.all([
+      qb.getRawMany<{
+        account_id: number | string;
+        login_id: string;
+        account_name: string;
+        role_code: string;
+        ja_id: number | string | null;
+      }>(),
+      countQb.getCount(),
+    ]);
 
+    const pageIds = new Set(raw.map((r) => Number(r.account_id)));
+    const has_more = page * per_page < total;
+
+    // [include-id] Prepend the pre-selected account_id when it survives
+    // DataScope but lives outside the current page slice — mirrors the
+    // JA dropdown's edit-form-pre-selection escape hatch.
+    let pinned: typeof raw[number] | undefined;
+    if (query.include_id && !pageIds.has(query.include_id)) {
+      const pinnedQb = buildScopedQb()
+        .select([
+          'a.account_id AS account_id',
+          'a.login_id AS login_id',
+          'a.account_name AS account_name',
+          'r.role_code AS role_code',
+          'a.ja_id AS ja_id',
+        ])
+        .andWhere('a.account_id = :id', { id: query.include_id });
+      pinned =
+        (await pinnedQb.getRawOne<{
+          account_id: number | string;
+          login_id: string;
+          account_name: string;
+          role_code: string;
+          ja_id: number | string | null;
+        }>()) ?? undefined;
+    }
+
+    const rows = [...(pinned ? [pinned] : []), ...raw];
     return {
-      data: raw.map((r) => ({
+      data: rows.map((r) => ({
         account_id: Number(r.account_id),
         login_id: r.login_id,
         account_name: r.account_name,
         role_code: r.role_code,
         ja_id: r.ja_id == null ? null : Number(r.ja_id),
       })),
+      meta: { total, page, per_page, has_more },
     };
   }
 
@@ -455,8 +549,12 @@ export class AccountService {
     // existing auth flow (apps/backend/src/modules/auth/auth.service.ts).
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
-    // role_id 1/2 (日農) accounts MUST have no JA scope.
-    const stripScope = NICHINO_ROLE_IDS.has(dto.role_id);
+    // 日農 accounts (NICHINO_ADMIN / NICHINO_STAFF) MUST have no JA
+    // scope. Resolve role_id → role_code via m_roles so we don't depend
+    // on the numeric value of role_id (BIGSERIAL — drift-prone). The
+    // lookup also acts as FK existence check for role_id.
+    const roleCode = await this.resolveRoleCode(dto.role_id);
+    const stripScope = isNichinoRole(roleCode);
 
     // FK guard + Layer 4 DataScope — kanri_shiten must belong to the
     // account's JA (whether scoped or 代行入力 from NICHINO_STAFF).
@@ -480,18 +578,7 @@ export class AccountService {
     const newRow: Partial<Account> = {
       loginId: dto.login_id,
       passwordHash,
-      accountName: dto.account_name,
-      roleId: dto.role_id,
-      todofukenCode: stripScope ? null : (dto.todofuken_code ?? null),
-      jaId: stripScope ? null : (dto.ja_id ?? null),
-      kanriShitenId: stripScope ? null : (dto.kanri_shiten_id ?? null),
-      email: dto.email ?? '',
-      subEmail1: dto.sub_email_1 ?? '',
-      subEmail2: dto.sub_email_2 ?? '',
-      subEmail3: dto.sub_email_3 ?? '',
-      paperFlg: dto.paper_flg ?? false,
-      denshiFlg: dto.denshi_flg ?? false,
-      biko: dto.biko ?? '',
+      ...this.buildAccountSharedPartial(dto, stripScope),
       // Initial security state per §4.4 注記.
       loginFailureCount: 0,
       accountLockFlg: false,
@@ -564,7 +651,9 @@ export class AccountService {
       throw new NotFoundException('アカウント');
     }
 
-    const stripScope = NICHINO_ROLE_IDS.has(dto.role_id);
+    // role_code-driven scope check — same rationale as createAccount.
+    const roleCode = await this.resolveRoleCode(dto.role_id);
+    const stripScope = isNichinoRole(roleCode);
 
     // FK guard + Layer 4 DataScope — new kanri_shiten (when provided)
     // must exist AND belong to the SAME JA as the existing account
@@ -588,44 +677,11 @@ export class AccountService {
       }
     }
 
-    const updatePartial: Partial<Account> = {
-      accountName: dto.account_name,
-      roleId: dto.role_id,
-      todofukenCode: stripScope ? null : (dto.todofuken_code ?? null),
-      jaId: stripScope ? null : (dto.ja_id ?? null),
-      kanriShitenId: stripScope ? null : (dto.kanri_shiten_id ?? null),
-      email: dto.email ?? '',
-      subEmail1: dto.sub_email_1 ?? '',
-      subEmail2: dto.sub_email_2 ?? '',
-      subEmail3: dto.sub_email_3 ?? '',
-      paperFlg: dto.paper_flg ?? false,
-      denshiFlg: dto.denshi_flg ?? false,
-      biko: dto.biko ?? '',
-      updatedBy: String(session.account_id),
-    };
-
-    // account_lock_flg is admin-only — present only when the caller
-    // explicitly toggles it from the SCR-025 edit form. Setting it to
-    // false (unlock) MUST also reset login_failure_count to 0; otherwise
-    // the next failed attempt re-trips the threshold (auth.service.ts
-    // increments + re-locks at LOGIN_FAILURE_LOCK_THRESHOLD).
-    if (dto.account_lock_flg !== undefined) {
-      updatePartial.accountLockFlg = dto.account_lock_flg;
-      if (dto.account_lock_flg === false) {
-        updatePartial.loginFailureCount = 0;
-      }
-    }
-
-    // password is OPTIONAL on update. Only hash + persist when
-    // the caller actually submitted a new value; an empty / undefined
-    // input means "leave password alone".
-    if (dto.password !== undefined && dto.password !== '') {
-      updatePartial.passwordHash = await bcrypt.hash(
-        dto.password,
-        BCRYPT_SALT_ROUNDS,
-      );
-      updatePartial.passwordUpdatedAt = new Date();
-    }
+    const updatePartial = await this.buildAccountUpdatePartial(
+      dto,
+      stripScope,
+      session,
+    );
 
     const auditCtx = buildAuditCtx(
       session,
@@ -669,6 +725,128 @@ export class AccountService {
   }
 
   // ─── helpers ─────────────────────────────────────────────────────────
+  private applyAccountSearchFilters(
+    qb: SelectQueryBuilder<Account>,
+    query: SearchAccountsDto,
+  ): void {
+    if (query.login_id && query.login_id.trim().length > 0) {
+      qb.andWhere('a.login_id LIKE :loginIdLike', {
+        loginIdLike: `%${query.login_id.trim()}%`,
+      });
+    }
+    if (query.role_id !== undefined && query.role_id !== null) {
+      qb.andWhere('a.role_id = :role_id', { role_id: query.role_id });
+    }
+    if (query.ja_id !== undefined && query.ja_id !== null) {
+      qb.andWhere('a.ja_id = :ja_id', { ja_id: query.ja_id });
+    }
+    if (query.kanri_shiten_id !== undefined && query.kanri_shiten_id !== null) {
+      qb.andWhere('a.kanri_shiten_id = :kanri_shiten_id', {
+        kanri_shiten_id: query.kanri_shiten_id,
+      });
+    }
+  }
+
+  private resolveAccountSortColumn(sortBy: AccountSearchSortBy): string {
+    if (sortBy === 'role_name') {
+      return 'r.role_name';
+    }
+    if (ACCOUNT_SEARCH_SORT_BY.includes(sortBy)) {
+      return `a.${sortBy}`;
+    }
+    return 'a.created_at';
+  }
+
+  /**
+   * The 12 columns BOTH `createAccount` and `updateAccount` write
+   * verbatim from the incoming DTO. Extracted so each caller can
+   * `...spread` it instead of restating the mapping — Sonar previously
+   * counted the two blocks as a 12-line duplication.
+   *
+   * `stripScope=true` zeroes the JA / kanri-shiten / 都道府県 tuple for
+   * NICHINO_* accounts (役職 1, 2) per api.md §4.4 — scope is implicit
+   * "all" for those roles, so storing values would lie about reality.
+   *
+   * Input type is the structural intersection of the relevant fields
+   * on `CreateAccountDto` / `UpdateAccountDto` so both DTOs are
+   * assignable without an explicit cast. Email defaults to '' rather
+   * than null because the entity column is NOT NULL.
+   */
+  private buildAccountSharedPartial(
+    dto: {
+      account_name: string;
+      role_id: number;
+      todofuken_code?: string | null;
+      ja_id?: number | null;
+      kanri_shiten_id?: number | null;
+      email?: string;
+      sub_email_1?: string;
+      sub_email_2?: string;
+      sub_email_3?: string;
+      paper_flg?: boolean;
+      denshi_flg?: boolean;
+      biko?: string;
+    },
+    stripScope: boolean,
+  ): Partial<Account> {
+    return {
+      accountName: dto.account_name,
+      roleId: dto.role_id,
+      todofukenCode: stripScope ? null : (dto.todofuken_code ?? null),
+      jaId: stripScope ? null : (dto.ja_id ?? null),
+      kanriShitenId: stripScope ? null : (dto.kanri_shiten_id ?? null),
+      email: dto.email ?? '',
+      subEmail1: dto.sub_email_1 ?? '',
+      subEmail2: dto.sub_email_2 ?? '',
+      subEmail3: dto.sub_email_3 ?? '',
+      paperFlg: dto.paper_flg ?? false,
+      denshiFlg: dto.denshi_flg ?? false,
+      biko: dto.biko ?? '',
+    };
+  }
+
+  private async buildAccountUpdatePartial(
+    dto: UpdateAccountDto,
+    stripScope: boolean,
+    session: SessionPayload,
+  ): Promise<Partial<Account>> {
+    const updatePartial: Partial<Account> = {
+      ...this.buildAccountSharedPartial(dto, stripScope),
+      updatedBy: String(session.account_id),
+    };
+
+    // account_lock_flg is admin-only — present only when the caller
+    // explicitly toggles it from the SCR-025 edit form. Setting it to
+    // false (unlock) MUST also reset:
+    //   - login_failure_count to 0 (otherwise the next failed attempt
+    //     re-trips the threshold — auth.service.ts increments + re-locks
+    //     at LOGIN_FAILURE_LOCK_THRESHOLD).
+    //   - account_lock_at to null (auth.service.ts stamped it with NOW()
+    //     at lock time; leaving the stale timestamp would falsely tell
+    //     ops "this account is still under the 2026-05-25 lock"; the
+    //     column is the canonical "currently-locked-since" pointer).
+    if (dto.account_lock_flg !== undefined) {
+      updatePartial.accountLockFlg = dto.account_lock_flg;
+      if (dto.account_lock_flg === false) {
+        updatePartial.loginFailureCount = 0;
+        updatePartial.accountLockAt = null;
+      }
+    }
+
+    // password is OPTIONAL on update. Only hash + persist when
+    // the caller actually submitted a new value; an empty / undefined
+    // input means "leave password alone".
+    if (dto.password !== undefined && dto.password !== '') {
+      updatePartial.passwordHash = await bcrypt.hash(
+        dto.password,
+        BCRYPT_SALT_ROUNDS,
+      );
+      updatePartial.passwordUpdatedAt = new Date();
+    }
+
+    return updatePartial;
+  }
+
   private buildDetailQuery(accountId: number) {
     // joined SELECT used by GET detail, create-then-read,
     // and update-then-read. Filters deleted_at IS NULL so soft-deleted

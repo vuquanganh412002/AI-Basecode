@@ -27,7 +27,7 @@ Perform a thorough code review of specified files or changes.
 ### Frontend (see `vue.md`)
 - [ ] `<script setup lang="ts">` only (no Options API)
 - [ ] Props/emits typed with TypeScript
-- [ ] Orval generated client used (no manual fetch)
+- [ ] API calls go through hand-written wrapper at `src/api/<tag>/<tag>.ts` (no raw `fetch` / `axios` from views/composables/stores)
 - [ ] Pinia setup store pattern
 - [ ] Router guard checks permission
 - [ ] No `v-html` with unsanitized content

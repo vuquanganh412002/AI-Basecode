@@ -27,7 +27,16 @@ import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import { extractAuditContext } from '@/common/utils/audit-context';
 import type { SessionPayload } from '@/modules/auth/session.service';
+import { SuccessMessageDto } from '@/common/dto/responses.dto';
 import { AccountService } from './account.service';
+import { AccountDropdownQueryDto } from './dto/account-dropdown-query.dto';
+import {
+  AccountDetailEnvelopeDto,
+  AccountDropdownResponseDto,
+  AccountListResponseDto,
+  AccountMutationResponseDto,
+  ToggleMfaResponseDto,
+} from './dto/account-response.dto';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { SearchAccountsDto } from './dto/search-accounts.dto';
 import { ToggleMfaDto } from './dto/toggle-mfa.dto';
@@ -59,7 +68,7 @@ export class AccountController {
       'Reads account_id from the authenticated session — the body cannot ' +
       'specify an arbitrary account. Logs an UPDATE entry to t_log.',
   })
-  @ApiResponse({ status: 200, description: 'MFA flag updated' })
+  @ApiResponse({ status: 200, type: ToggleMfaResponseDto })
   @ApiResponse({ status: 401, description: 'Session invalid' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   async toggleMfa(
@@ -82,14 +91,15 @@ export class AccountController {
   @HttpCode(HttpStatus.OK)
   @Permissions('log.view')
   @ApiOperation({ summary: 'アカウントプルダウン取得 — ACSMS-API-COMMON-005' })
-  @ApiResponse({ status: 200, description: '正常にアカウント一覧を取得しました' })
+  @ApiResponse({ status: 200, type: AccountDropdownResponseDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   async getAccountDropdown(
+    @Query() query: AccountDropdownQueryDto,
     @Req() req: Request & { user?: SessionPayload },
   ) {
     const session = req.user as SessionPayload;
-    return this.accountService.getAccountDropdown(session);
+    return this.accountService.getAccountDropdown(query, session);
   }
 
   // ─── ACSMS-API-024-001 — GET /api/v1/accounts ────────────────────
@@ -97,7 +107,7 @@ export class AccountController {
   @HttpCode(HttpStatus.OK)
   @Permissions('account.view')
   @ApiOperation({ summary: 'アカウント一覧取得 — ACSMS-API-024-001' })
-  @ApiResponse({ status: 200, description: '正常にアカウント一覧を取得しました' })
+  @ApiResponse({ status: 200, type: AccountListResponseDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   async searchAccounts(
@@ -113,7 +123,7 @@ export class AccountController {
   @HttpCode(HttpStatus.OK)
   @Permissions('account.view')
   @ApiOperation({ summary: 'アカウント詳細取得 — ACSMS-API-025-001' })
-  @ApiResponse({ status: 200, description: '正常にアカウント詳細を取得しました' })
+  @ApiResponse({ status: 200, type: AccountDetailEnvelopeDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   @ApiResponse({ status: 404, description: '指定されたアカウントが見つかりません。' })
@@ -130,7 +140,7 @@ export class AccountController {
   @HttpCode(HttpStatus.CREATED)
   @Permissions('account.create')
   @ApiOperation({ summary: 'アカウント登録 — ACSMS-API-025-002' })
-  @ApiResponse({ status: 201, description: '登録しました。' })
+  @ApiResponse({ status: 201, type: AccountMutationResponseDto })
   @ApiResponse({ status: 400, description: '入力内容にエラーがあります' })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
@@ -147,7 +157,7 @@ export class AccountController {
   @HttpCode(HttpStatus.OK)
   @Permissions('account.update')
   @ApiOperation({ summary: 'アカウント更新 — ACSMS-API-025-003' })
-  @ApiResponse({ status: 200, description: '更新しました。' })
+  @ApiResponse({ status: 200, type: AccountMutationResponseDto })
   @ApiResponse({ status: 400, description: '入力内容にエラーがあります' })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
@@ -166,7 +176,7 @@ export class AccountController {
   @HttpCode(HttpStatus.OK)
   @Permissions('account.delete')
   @ApiOperation({ summary: 'アカウント削除 — ACSMS-API-024-002' })
-  @ApiResponse({ status: 200, description: '削除しました。' })
+  @ApiResponse({ status: 200, type: SuccessMessageDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   @ApiResponse({ status: 404, description: '指定されたアカウントが見つかりません。' })

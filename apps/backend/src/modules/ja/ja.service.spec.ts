@@ -5,8 +5,8 @@
 // docs/design/ACSMS-SCR-005/ACSMS-SCR-005-api.md (find/create/update)
 // or docs/design/ACSMS-SCR-004/ACSMS-SCR-004-api.md (findAll/remove).
 
-import { BadRequestException } from '@nestjs/common';
 import {
+  BadRequestException,
   ConflictException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
@@ -1105,6 +1105,36 @@ describe('JaService', () => {
       );
       expect(orCall).toBeDefined();
       expect(orCall![1]).toEqual({ q: '%東京%' });
+    });
+
+    // [match-field] SCR-024 account list hides ja_code in the option
+    // label, so ILIKE must be scoped to ja_name only — a hit on ja_code
+    // would be invisible to the user and read as a bug.
+    it('should scope ILIKE to ja_name only when match_field=name', async () => {
+      qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+
+      await service.dropdown(
+        { page: 1, per_page: 50, q: '東京', match_field: 'name' } as any,
+        buildAdminSession(),
+      );
+
+      const nameOnly = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          sql.includes('ja_name ILIKE') &&
+          !sql.includes('ja_code'),
+      );
+      expect(nameOnly).toBeDefined();
+      expect(nameOnly![1]).toEqual({ q: '%東京%' });
+
+      // Sanity: the OR-on-both branch must NOT have fired.
+      const orCall = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          sql.includes('ja_code ILIKE') &&
+          sql.includes('OR'),
+      );
+      expect(orCall).toBeUndefined();
     });
 
     it('should sort by ja_code ASC and apply pagination via take/skip', async () => {

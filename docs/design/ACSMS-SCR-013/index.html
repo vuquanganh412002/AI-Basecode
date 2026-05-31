@@ -401,7 +401,7 @@
               class="px-6 py-4 bg-slate-50 dark:bg-slate-800/30 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between"
             >
               <p class="text-sm text-slate-600 dark:text-slate-400">
-                購読者履歴リスト
+                履歴一覧
               </p>
               <button
                 class="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors text-sm"
@@ -470,7 +470,7 @@
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >
-                      メールマガジンフラグ
+                      メールマガジンフラグ（コード名称）
                     </th>
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
@@ -505,6 +505,11 @@
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >
+                      配達先氏名
+                    </th>
+                    <th
+                      class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                    >
                       配達先郵便
                     </th>
                     <th
@@ -516,11 +521,6 @@
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >
                       配達先住所
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
-                    >
-                      配達先氏名
                     </th>
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
@@ -585,22 +585,12 @@
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >
-                      金融機関コード
+                      引落元口座店舗コード
                     </th>
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
                     >
-                      金融機関名
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
-                    >
-                      口座支店コード
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
-                    >
-                      口座支店名
+                      引落元口座店舗名
                     </th>
                     <th
                       class="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap"
@@ -667,6 +657,9 @@
                       2
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      山田太郎
+                    </td>
+                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       1234567
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -674,9 +667,6 @@
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       東京都渋谷区
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      山田太郎
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       東京都渋谷区
@@ -716,12 +706,6 @@
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       1234567890
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      0001
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      銀行名
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       001
@@ -791,6 +775,9 @@
                       4567890
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      JA販売店2
+                    </td>
+                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       東京都新宿区
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -798,9 +785,6 @@
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       東京都新宿区
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      JA販売店2
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       JA販売店2
@@ -837,12 +821,6 @@
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       田中花子
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      0002
-                    </td>
-                    <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      銀行名2
                     </td>
                     <td class="px-4 py-3 text-slate-700 dark:text-slate-300">
                       002

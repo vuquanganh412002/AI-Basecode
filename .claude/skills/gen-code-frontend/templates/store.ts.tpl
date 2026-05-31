@@ -6,14 +6,14 @@
 // Rules:
 //   - Composition API style (setup store), NOT Options-style `defineStore({})`
 //   - NO session_id / tokens in localStorage — HttpOnly cookie handles auth
-//   - API calls via Orval-generated client from `@/api/generated`
+//   - API calls via the hand-written wrapper at `@/api/__MODULE__/__MODULE__`
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { message } from 'ant-design-vue';
 
-// TODO(/gen-code-frontend): import real API functions from @/api/generated
-// import { list__ENTITY__Api, create__ENTITY__Api, update__ENTITY__Api, delete__ENTITY__Api } from '@/api/generated';
+// TODO(/gen-code-frontend): import real API functions from @/api/__MODULE__/__MODULE__
+// import { list__ENTITY__, create__ENTITY__, update__ENTITY__, delete__ENTITY__ } from '@/api/__MODULE__/__MODULE__';
 
 export const __STORE__ = defineStore('__MODULE__', () => {
   // ─── State ────────────────────────────────────────────────────────────

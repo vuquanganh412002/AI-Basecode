@@ -3,10 +3,12 @@
 
 import axiosInstance from '@/api/axios-instance';
 
+// [no-labels-policy] Authenticated endpoint — `log_type_label` /
+// `result_status_label` removed from the wire contract per the project
+// rule. Consumers resolve via `useCodesStore().label('LOG_TYPE'|'RESULT_STATUS', value)`.
 export interface LogListItem {
   log_id: number;
   log_type: number;
-  log_type_label: string;
   log_datetime: string;
   account_id: number | null;
   login_id: string | null;
@@ -15,7 +17,6 @@ export interface LogListItem {
   gamen_name: string;
   operation: string;
   result_status: number;
-  result_status_label: string;
   target_id: number | null;
   target_table: string;
   after_value: string;

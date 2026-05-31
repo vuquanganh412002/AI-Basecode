@@ -10,6 +10,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { PaginationDto } from '@/common/dto/pagination.dto';
+
 /** Whitelist of sortable columns per api.md §4.1. Any other value rejected. */
 export const ACCOUNT_SEARCH_SORT_BY = [
   'login_id',
@@ -23,9 +25,13 @@ export type AccountSearchSortBy = (typeof ACCOUNT_SEARCH_SORT_BY)[number];
 
 /**
  * Query DTO for `GET /api/v1/accounts` (ACSMS-API-024-001).
+ *
+ * Inherits `page` / `per_page` from {@link PaginationDto} (Japanese
+ * messages, default 20, max 100). Adds login-id / role / JA / branch
+ * filters and a `sort_by` whitelisted to `ACCOUNT_SEARCH_SORT_BY`.
  * Every field is optional; api.md §2 lists no 必須 column.
  */
-export class SearchAccountsDto {
+export class SearchAccountsDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'ログインID（部分一致）', maxLength: 20 })
   @IsOptional()
   @IsString({ message: 'ログインIDは文字列で指定してください。' })
@@ -51,26 +57,6 @@ export class SearchAccountsDto {
   @Type(() => Number)
   @IsInt({ message: '管理支店IDは整数で指定してください。' })
   kanri_shiten_id?: number;
-
-  @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'pageは整数で指定してください。' })
-  @Min(1, { message: 'pageは1以上で指定してください。' })
-  page?: number;
-
-  @ApiPropertyOptional({
-    description: '1ページあたりの件数（デフォルト: 20、最大: 100）',
-    minimum: 1,
-    maximum: 100,
-    default: 20,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'per_pageは整数で指定してください。' })
-  @Min(1, { message: 'per_pageは1〜100の範囲で指定してください。' })
-  @Max(100, { message: 'per_pageは1〜100の範囲で指定してください。' })
-  per_page?: number;
 
   @ApiPropertyOptional({
     description: 'ソート対象（login_id / account_name / role_id / role_name / todofuken_code / created_at）',

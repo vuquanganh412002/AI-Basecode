@@ -194,14 +194,14 @@ After writing all files:
 ✓ tsc --noEmit: pass
 ✓ @ts-nocheck banners removed: B
 
-→ Entity changed? Run migration + refresh Orval before going FE:
+→ Entity changed? Run migration before going FE:
     cd apps/backend
     npm run migration:generate -- -n Add<Module>Table
     npm run migration:run
-    npm run start:dev   # or: npm run swagger:export
-    cd ../frontend && npm run api:generate
 → Then: cd apps/backend && npm test -- <module>
 → Then (FE leg): /gen-ut-frontend <screen> → /gen-code-frontend <screen>
+   (FE wrapper at apps/frontend/src/api/<tag>/<tag>.ts is hand-written
+    to mirror this BE's response shape — no codegen step.)
 ```
 
 If tsc fails:
@@ -277,7 +277,7 @@ If tsc fails:
 - **Don't pair `@Length(N, N)` with `@Matches(/^\d{N}$/)`** on the same field — redundant. The priority picker collapses to one message, but prefer a single `@Matches(/^\d{N}$/)` that enforces both length and digits in one Japanese message.
 - **`@ValidateIf((o, v) => …)` is property-level, not per-decorator** — its condition gates ALL validators of the property, including `@IsNotEmpty`. So `@IsNotEmpty() @ValidateIf((_, v) => v.length > 0) @Matches(...)` does NOT mean "skip Matches on empty, keep required check"; on empty input the condition returns false and the property silently passes everything. Don't reach for `@ValidateIf` to dedupe constraint messages — rely on the picker.
 - **`api.md` may reference a common helper endpoint that has no dedicated module yet** (e.g. SCR-005 needs `GET /api/v1/todofuken` for the prefecture dropdown — read-only list, ACSMS-API-COMMON-001). When the screen's `api.md` mentions an `ACSMS-API-COMMON-NNN` endpoint and `apps/backend/src/modules/<name>/` doesn't exist, GENERATE the module too: small read-only service + controller + module, register in `app.module.ts`. Don't skip with the assumption "someone else will build it" — the FE view will 404 on dropdown load.
-- **After registering a NEW module, `swagger.json` is stale.** The `/gen-code-frontend` Phase 0 reads `apps/frontend/swagger.json` to regenerate Orval — if that file pre-dates this commit, the FE client won't see the new endpoint. Either run `cd apps/backend && npm run swagger:export` (writes to `apps/frontend/swagger.json`) before `/gen-code-frontend`, or `curl -s http://localhost:3000/api/docs-json -o apps/frontend/swagger.json` if the backend container is already running.
+- **After registering a NEW module, the live Swagger UI at `/api/docs` updates on the next BE reload** (handled by `npm run start:dev` watch mode). Useful for testing the new endpoint by hand. The on-disk snapshot at `apps/backend/swagger.json` (only generated when `npm run swagger:export` runs) stays stale until you rerun it — refresh only if a teammate is reading the snapshot or running offline tools (Postman / Insomnia / contract diff).
 - **Seed migration with `INSERT...SELECT...UNION ALL` needs explicit `::timestamptz` casts on date literals.** Postgres infers `'2026-01-01'` as `text` through a `UNION` (it doesn't with plain `INSERT...VALUES`, which is why the original 1711900900003 seed worked). Symptom: `error: column "created_at" is of type timestamp with time zone but expression is of type text`. Fix: write `'2026-01-01'::timestamptz` for every date literal in the SELECT branches. See `1711900900008-SeedRoleAndDaikoPermissions.ts` for the canonical shape.
 - **`SERIAL` sequences are NOT rolled back** when a migration's transaction fails. If your first attempt INSERTs 2 rows into `m_permissions` and then fails on the second statement, `permission_id` advances by 2 even after `ROLLBACK`. The next successful run gets ids that don't match what `seeder.md` documents (44/45 vs 66/67 in dev). For *fresh* databases the documented ids hold; for already-touched dev DBs, query `WHERE permission_code = 'X'` instead of trusting the id. Don't try to reset the sequence — there's no functional difference and the IDs are internal.
 - **Adding a new permission code is a 4-place change**: (1) seeder migration `INSERT INTO m_permissions`, (2) seeder migration `INSERT INTO m_roles_permissions` for the role(s) that should hold it, (3) `docs/database/seeder.md` §2.X subsection + §3 matrix + role summary + シードデータ table for affected role(s), (4) `docs/requirement/account_concept.md` 機能分類 matrix row. Skipping (1) or (2) means `hasPermission()` is silently false everywhere — the FE menu disappears with no error. Skipping (3)/(4) means the canonical spec drifts from runtime behavior.
@@ -287,7 +287,7 @@ If tsc fails:
 - Does NOT generate migration SQL. After entity changes, user runs:
   `npm run migration:generate -- -n <Name> && npm run migration:run`
   Integration specs that hit pg-mem read the entity metadata directly so migrations aren't strictly required for `npm test` to green — but real-PG integration environments do require them.
-- Does NOT regenerate the Orval client. FE leg needs fresh types — run `npm run api:generate` in `apps/frontend/` AFTER backend is up (or Swagger exported) and BEFORE `/gen-code-frontend`.
+- Does NOT touch the FE wrapper. When the BE response shape changes, the matching `apps/frontend/src/api/<tag>/<tag>.ts` wrapper must be updated by hand in the FE leg (`/gen-code-frontend` emits a new wrapper for new tags; existing wrappers stay until manually edited). The live Swagger UI at `/api/docs` is the easiest visual reference for the response shape.
 - Does NOT install npm packages.
 - Does NOT modify `vitest.config.ts`, `nest-cli.json`, or CI config.
 - Does NOT generate frontend code (use `/gen-code-frontend`).

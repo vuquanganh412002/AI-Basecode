@@ -33,45 +33,22 @@ The backend counterpart is `/gen-code-backend`; run it separately (order doesn't
 2. No `apps/frontend/src/views/**/*.spec.ts` for the screen's module → abort: `Run /gen-ut-frontend $ARGUMENTS first`.
 3. `mtime(screen-design.md) > mtime(any *.spec.ts)` OR (api.md exists AND `mtime(api.md) > mtime(spec)`) → abort: `screen-design.md / api.md newer than spec files — rerun /gen-ut-frontend $ARGUMENTS to refresh the contract`.
 
-The Orval client is **auto-regenerated** in Phase 0 below — no manual
-prerequisite check on `src/api/generated/`. If `npm run api:generate`
-fails (e.g. missing `apps/frontend/swagger.json`), Phase 0 itself
-aborts with a clear next step.
+The FE API layer is **hand-written axios wrappers** at
+`apps/frontend/src/api/<tag>/<tag>.ts` (not Orval-generated). Each
+wrapper imports the shared `axiosInstance` and exposes typed functions
+mirroring the BE response shape. See `.claude/rules/vue.md §API` for
+the canonical pattern and the rationale for reverting Orval.
+
+If a screen needs a NEW endpoint that doesn't have a wrapper yet,
+Phase 3 below emits both the wrapper file AND the view code in one go
+— treat the wrapper as a normal source artifact (same as views,
+stores, etc.). No Orval generation step.
 
 Use `stat -f %m <path>` (macOS) / `stat -c %Y <path>` (Linux) for timestamps.
 
 ## Process
 
-### Phase 0 — Auto-regenerate Orval client
-
-Run `npm run api:generate` in `apps/frontend/` BEFORE reading any spec
-or generating any source. This guarantees `src/api/generated/**` is in
-sync with the latest backend OpenAPI export, so the view code emitted
-in Phase 3 can import freshly-typed API functions and the spec mocks
-of those functions resolve without a "module not found" error.
-
-Sequence:
-
-1. Verify `apps/frontend/swagger.json` exists.
-   - If missing, abort: `swagger.json missing. Run in apps/backend/: npm run swagger:export (after /gen-code-backend $ARGUMENTS).`
-2. Run `cd apps/frontend && npm run api:generate` (timeout 120s).
-   - On non-zero exit, abort: `npm run api:generate failed. Inspect orval output above; common cause is invalid swagger.json from the backend.`
-3. On success, print: `✓ Orval client regenerated under apps/frontend/src/api/generated/`.
-
-Skip Phase 0 ONLY for genuinely API-less screens — i.e. NO spec file
-under `apps/frontend/src/views/<module>/__tests__/*.spec.ts` contains
-either `vi.mock('@/api/...'` or an import from `@/api/`. Static
-dashboards / 404 pages / tutorial views are typical examples. Detect
-this by grepping the spec files; if every spec is API-mock-free, skip.
-
-Re-running this skill is cheap: orval is idempotent and finishes in a
-few seconds when the spec hasn't changed.
-
-
-
 ### Phase 1 — Read
-
-(Phase 0 — Orval auto-regen — runs first; see above.)
 
 Parallel reads:
 
@@ -79,6 +56,7 @@ Parallel reads:
 - `apps/frontend/src/views/<module>/__tests__/*.spec.ts`
 - `apps/frontend/src/stores/__tests__/<module>.store.spec.ts` (if exists)
 - `apps/frontend/test/fixtures/<module>.fixture.ts` (if exists)
+- `apps/frontend/src/api/__tests__/<tag>.spec.ts` (if a new wrapper is needed)
 
 **Reference spec (for UI structure, copy, API shape) — read EVERY file
 that exists; the two screen-spec files complement each other:**
@@ -99,7 +77,8 @@ that exists; the two screen-spec files complement each other:**
 - `.claude/rules/naming-conventions.md`
 
 **Existing infra to reuse (do NOT redefine):**
-- `apps/frontend/src/api/generated/**` (Orval client — call, never redefine)
+- `apps/frontend/src/api/<tag>/<tag>.ts` (hand-written axios wrapper — extend if endpoint shape changes; only redefine if no wrapper exists for the BE tag yet)
+- `apps/frontend/src/api/axios-instance.ts` (the shared axios instance with auth + error interceptor; ALL wrappers import from here)
 - `apps/frontend/src/stores/auth.store.ts` (session-cookie auth pattern)
 - `apps/frontend/src/stores/codes.store.ts` (`useCodesStore` — m_code cache; dropdowns + labels read from here)
 - `apps/frontend/src/components/common/**` (Base* components)
@@ -121,7 +100,7 @@ Build a plan from spec files — tests dictate shape:
 | `wrapper.find('[data-testid="xxx"]')` | element with `data-testid="xxx"` in template |
 | `wrapper.emitted('yyy')` | `defineEmits<{ yyy: [...] }>()` + `emit('yyy', …)` call |
 | `router.push` mock called with path | router-link OR programmatic navigation to that path |
-| `vi.mocked(listXxx).mockResolvedValue(...)` | view calls `listXxx()` from `@/api/generated` |
+| `vi.mocked(listXxx).mockResolvedValue(...)` | view calls `listXxx()` from `@/api/<tag>/<tag>` wrapper |
 | `store.xxx` accessed | Pinia store exposes `xxx` as ref / computed |
 | `store.yyy(args)` called | store exposes async action `yyy` |
 | Error toast assertion (`message.error`) | view/store catches error, calls `message.error()` with literal Japanese string |
@@ -139,7 +118,7 @@ Cross-check with `api.md` (if present) for:
 
 **Order (dependency-first):**
 
-1. `types/<module>.types.ts` — request/response shapes (import from `@/api/generated` when possible)
+1. `types/<module>.types.ts` — request/response shapes (re-export interfaces from `@/api/<tag>/<tag>` wrapper when possible to avoid duplicating BE shape)
 2. `stores/<module>.store.ts` (only if specs reference it)
 3. `views/<module>/<View>.vue` (one file per View spec)
 4. **Register route**: add to `apps/frontend/src/router/index.ts` (idempotent — skip if path already present)
@@ -210,7 +189,7 @@ After writing all files:
 
 - [ ] NEVER edit any `*.spec.ts`, `*.fixture.ts` file — specs are the immutable contract
 - [ ] `<script setup lang="ts">` only — NO Options API
-- [ ] API calls go through Orval-generated client (`@/api/generated`) — NEVER raw `fetch` / `axios`
+- [ ] API calls go through the hand-written wrapper (`@/api/<tag>/<tag>`) — NEVER raw `fetch` / `axios` or `axiosInstance` from views/composables/stores
 - [ ] No `session_id` / tokens in `localStorage` / `sessionStorage` — HttpOnly cookie + `withCredentials: true` only
 - [ ] Ant Design Vue for complex components (Table, Form, Modal, DatePicker, Select); Tailwind for layout only
 - [ ] `v-for` has `:key` with stable unique id (never index)
@@ -230,7 +209,6 @@ After writing all files:
 ## Validation summary (print at end)
 
 ```
-✓ Orval client regenerated (Phase 0)
 ✓ View files: V
 ✓ Store files: S
 ✓ Type files: 1
@@ -268,7 +246,7 @@ If vue-tsc fails:
 
 | Template | Target | Purpose |
 |---|---|---|
-| `types.ts.tpl` | `src/types/{module}.types.ts` | Local request/response types (import from generated when possible) |
+| `types.ts.tpl` | `src/types/{module}.types.ts` | Local request/response types (re-export from `@/api/<tag>/<tag>` wrapper when possible) |
 | `store.ts.tpl` | `src/stores/{module}.store.ts` | Pinia Setup Store (state + actions) |
 | `view.vue.tpl` | `src/views/{module}/{View}.vue` | `<script setup>` + Ant Design template |
 
@@ -282,7 +260,7 @@ If vue-tsc fails:
 
 ## Common pitfalls
 
-- **Orval client regen**: handled automatically by Phase 0. If you see a stale generated client AFTER this skill runs, the failure is on the backend side — `swagger.json` wasn't refreshed. Run `cd apps/backend && npm run swagger:export` then re-run this skill.
+- **API wrapper drift**: when the BE response shape changes, the FE wrapper at `apps/frontend/src/api/<tag>/<tag>.ts` must be updated by hand — there's no auto-regen. Compare against the corresponding `XxxResponseDto` class on the BE side (the live Swagger UI at `/api/docs` is the easiest visual reference). If a spec expects new fields the wrapper doesn't return, fix the wrapper first.
 - **Page chrome lives in MainLayout, NOT the view.** Do NOT add a `<header><h2>{{ pageTitle }}</h2><nav>breadcrumb</nav></header>` block inside the view template. `MainLayout > AppHeader` already renders the title + breadcrumb from `route.meta.breadcrumb`. Including them in the view ships them twice. Compare the generated view against `TankaListView.vue` — that's the canonical pattern and it has no page-title element. See `.claude/rules/vue.md §Form / Layout Conventions`.
 - **Required-field marker uses the `#label` slot, NOT `required` prop.** Antd's `required` renders a leading red `*` (Western convention). Project standard is asterisk AFTER the label. Drop `required` and use the slot:
   ```vue
@@ -368,9 +346,8 @@ Wrapper parent route (`/ja`, `/tanka`, …) MUST NOT carry its own breadcrumb me
 
 ## Out of scope
 
-- Does NOT run `npm run swagger:export` on the backend. That step lives in `/gen-code-backend`'s post-write phase OR the operator runs it manually after backend code is in. Phase 0 here only consumes the resulting `apps/frontend/swagger.json` and regenerates the FE Orval client from it.
 - Does NOT install npm packages.
-- Does NOT modify `vitest.config.ts`, `vite.config.ts`, `orval.config.ts`, or CI config.
+- Does NOT modify `vitest.config.ts`, `vite.config.ts`, or CI config.
 - Does NOT generate backend code (use `/gen-code-backend`).
 - Does NOT iterate on vitest failures.
 - Does NOT edit specs or fixtures.

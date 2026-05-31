@@ -1,14 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
  * Whitelist of columns the client may sort by. Anything else is rejected
@@ -39,8 +33,12 @@ const blankToUndef = ({ value }: { value: unknown }) =>
  *
  * All fields optional; class-transformer applies the defaults below when
  * the property is absent so callers always see a fully-populated object.
+ *
+ * Inherits page/per_page from {@link PaginationDto}. The runtime default
+ * (page=1, per_page=20) is applied by the service layer via `?? 1` /
+ * `?? 20` because query params arrive as `undefined` when omitted.
  */
-export class SearchJaDto {
+export class SearchJaDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'JAコード（部分一致）', maxLength: 10 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -64,21 +62,6 @@ export class SearchJaDto {
   @IsString({ message: '都道府県コードは文字列で指定してください。' })
   @MaxLength(2, { message: '都道府県コードは2文字以内で指定してください。' })
   todofuken_code?: string;
-
-  @ApiPropertyOptional({ default: 1, description: 'ページ番号' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'pageは整数で指定してください。' })
-  @Min(1, { message: 'pageは1以上で指定してください。' })
-  page?: number = 1;
-
-  @ApiPropertyOptional({ default: 20, description: '1ページの件数 (1-100)' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'per_pageは整数で指定してください。' })
-  @Min(1, { message: 'per_pageは1以上で指定してください。' })
-  @Max(100, { message: 'per_pageは100以下で指定してください。' })
-  per_page?: number = 20;
 
   @ApiPropertyOptional({
     enum: JA_SEARCH_SORT_BY,

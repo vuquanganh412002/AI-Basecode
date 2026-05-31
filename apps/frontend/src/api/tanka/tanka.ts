@@ -180,3 +180,46 @@ export async function updateTanka(
   );
   return res.data;
 }
+
+// ─── GET /api/v1/tanka/dropdown ────────────────────────────────────────
+// Slim paginated + searchable list — consumed by SCR-017 hanbaiten
+// create form for the 配達手数料単価 field. See `BaseTankaDropdown`.
+
+export interface TankaDropdownItem {
+  tanka_id: number;
+  tanka_code: string;
+  tanka_name: string;
+  tanka_type: number;
+  kingaku_zeikomi: number;
+}
+
+export interface TankaDropdownResponse {
+  data: TankaDropdownItem[];
+  meta: { total: number; page: number; per_page: number; has_more: boolean };
+}
+
+export interface TankaDropdownQuery {
+  /** ILIKE on tanka_name only (tanka_code is hidden in the UI). */
+  q?: string;
+  /** m_code.code_category=TANKA_TYPE value. SCR-017 passes 2 (配達手数料). */
+  tanka_type?: number;
+  /**
+   * Explicit JA filter — for NICHINO_STAFF 代行入力 flow where the form
+   * picked a JA up-front. Ignored when the caller's session is JA-scoped.
+   */
+  ja_id?: number;
+  page?: number;
+  per_page?: number;
+  /** Edit-form escape hatch — BE prepends this tanka_id if not in page 1. */
+  include_id?: number;
+}
+
+export async function getTankaDropdown(
+  query: TankaDropdownQuery = {},
+): Promise<TankaDropdownResponse> {
+  const res = await axiosInstance.get<TankaDropdownResponse>(
+    '/api/v1/tanka/dropdown',
+    { params: query },
+  );
+  return res.data;
+}

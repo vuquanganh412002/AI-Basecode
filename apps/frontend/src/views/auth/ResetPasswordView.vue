@@ -59,7 +59,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (redirectTimer !== undefined) window.clearTimeout(redirectTimer);
+  if (redirectTimer !== undefined) globalThis.clearTimeout(redirectTimer);
 });
 
 /**
@@ -72,9 +72,9 @@ onUnmounted(() => {
 const PASSWORD_FORMAT_RE = new RegExp(
   '^(?=.{8,32}$)(?:' +
     [
-      '(?=.*[A-Za-z])(?=.*\\d).*',
-      '(?=.*[A-Za-z])(?=.*[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]).*',
-      '(?=.*\\d)(?=.*[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?]).*',
+      String.raw`(?=.*[A-Za-z])(?=.*\d).*`,
+      String.raw`(?=.*[A-Za-z])(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).*`,
+      String.raw`(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).*`,
     ].join('|') +
     ')$',
 );
@@ -141,7 +141,7 @@ async function onSubmit(): Promise<void> {
     // screen-design SCR-012 §4.5 — success message + §4.6 auto-redirect to /login after 3s.
     message.success(SUCCESS_MSG);
     phase.value = 'done';
-    redirectTimer = window.setTimeout(() => {
+    redirectTimer = globalThis.setTimeout(() => {
       router.push({ name: 'Login' });
     }, REDIRECT_DELAY_MS);
   });

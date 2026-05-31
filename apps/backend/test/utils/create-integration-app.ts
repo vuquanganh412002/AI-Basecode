@@ -63,6 +63,8 @@ import { RolePermission } from '@/database/entities/role-permission.entity';
 import { MCode } from '@/database/entities/m-code.entity';
 import { Log } from '@/database/entities/log.entity';
 import { LoginLog } from '@/database/entities/login-log.entity';
+import { FileDownload } from '@/database/entities/file-download.entity';
+import { FileUpload } from '@/database/entities/file-upload.entity';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Ja } from '@/database/entities/ja.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
@@ -70,6 +72,11 @@ import { Shiten } from '@/database/entities/shiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { Oshirase } from '@/database/entities/oshirase.entity';
+// SCR-011 — t_dokusya / t_dokusya_rireki entities are created by
+// /gen-code-backend ACSMS-SCR-011; this import is part of the RED-phase
+// integration spec that intentionally fails to compile until then.
+import { Dokusya } from '@/database/entities/dokusya.entity';
+import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
 import { AuthModule } from '@/modules/auth/auth.module';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
@@ -135,6 +142,10 @@ const ALL_ENTITIES = [
   Tanka,
   Todofuken,
   Oshirase,
+  FileUpload,
+  FileDownload,
+  Dokusya,
+  DokusyaRireki,
 ];
 
 function buildPgMemDataSource(): DataSource {
@@ -237,6 +248,39 @@ export async function createIntegrationTestApp(
     sendPasswordReset: () => Promise.resolve(),
     sendNotification: () => Promise.resolve(),
   });
+
+  // Stub StorageService — FileUploadService.upload/download/delete +
+  // signed-URL generation otherwise reach for the configured MinIO /
+  // S3 endpoint. Integration tests don't run a real object store, so
+  // a no-op shim that records the file path is enough for the
+  // controllers' happy paths to complete.
+  const storageMock: { uploaded: Array<{ path: string; size: number }> } & {
+    upload: (path: string, body: Buffer | Uint8Array | string, mimeType?: string) => Promise<void>;
+    download: (path: string) => Promise<Buffer>;
+    delete: (path: string) => Promise<void>;
+    getSignedUrl: (path: string) => Promise<string>;
+  } = {
+    uploaded: [],
+    upload: async (path, body) => {
+      const size =
+        body instanceof Buffer || body instanceof Uint8Array
+          ? body.byteLength
+          : Buffer.byteLength(String(body));
+      storageMock.uploaded.push({ path, size });
+    },
+    // Return an empty buffer — controllers stream this back to the
+    // client; specs only assert the response status + headers.
+    download: async () => Buffer.from(''),
+    delete: async () => undefined,
+    getSignedUrl: async (path: string) =>
+      `https://test-storage.local/${path}?signed=1`,
+  };
+  // The class is resolved lazily here so this util file doesn't need a
+  // direct import (keeps it usable in module trees that don't include
+  // StorageModule). `as any` because the shim is a structural subset.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { StorageService } = require('@/modules/storage/storage.service');
+  builder = builder.overrideProvider(StorageService).useValue(storageMock);
 
   if (options.customize) builder = options.customize(builder);
 

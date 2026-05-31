@@ -78,6 +78,68 @@ export async function removeShiten(
   return res.data;
 }
 
+// ─── ACSMS-API-COMMON — 支店 dropdown (consumed by SCR-011) ────────────
+
+/**
+ * Minimal projection used by 引落口座支店 / 配達先支店 dropdowns. The
+ * form view filters client-side by `kinyu_shiten_flg=true` for the
+ * 口座引落 cluster (画面設計書 SCR-011 §10.1: 「支店マスタの金融機関
+ * 支店フラグ=1」のもののみ表示). `kanri_shiten_id` is included so the
+ * dropdown can chain off the parent 管理支店 selection without a
+ * second round-trip.
+ */
+export interface ShitenDropdownItem {
+  shiten_id: number;
+  shiten_code: string;
+  shiten_name: string;
+  kanri_shiten_id: number;
+  kinyu_shiten_flg: boolean;
+  /**
+   * Optional — BE includes these when the response is consumed by the
+   * 引落口座支店 picker that auto-fills the JASTEM 店舗 fields. The
+   * dropdown for non-kinyu shiten omits them.
+   */
+  jastem_toriatsukai_tenpo_code?: string;
+  jastem_tenpo_name?: string;
+}
+
+export interface ShitenDropdownEnvelope {
+  data: ShitenDropdownItem[];
+  /**
+   * Optional cursor-pagination meta. Older callers expect just
+   * `{ data }`; newer dropdown views (SCR-011) consume `has_more` to
+   * drive infinite scroll. The field stays optional so both shapes
+   * type-check.
+   */
+  meta?: { total: number; page: number; per_page: number; has_more: boolean };
+}
+
+export interface ShitenDropdownQuery {
+  /** Optional JA filter (NICHINO_* 代行入力 only — JA-scoped roles let session.ja_id win). */
+  ja_id?: number;
+  /** true = 金融機関支店のみ (引落口座支店 picker); false / undefined = all. */
+  kinyu_shiten_flg?: boolean;
+  q?: string;
+  page?: number;
+  per_page?: number;
+}
+
+/**
+ * GET /api/v1/shiten/dropdown — Shared dropdown lookup for SCR-011
+ * (購読者情報登録). Returns minimal projections so the dropdown
+ * component can render thousands of rows without overweighting the
+ * payload.
+ */
+export async function getShitenDropdown(
+  query: ShitenDropdownQuery = {},
+): Promise<ShitenDropdownEnvelope> {
+  const res = await axiosInstance.get<ShitenDropdownEnvelope>(
+    '/api/v1/shiten/dropdown',
+    { params: query },
+  );
+  return res.data;
+}
+
 // ─── ACSMS-SCR-007 — 支店マスタ登録画面 ──────────────────────────────
 
 /**

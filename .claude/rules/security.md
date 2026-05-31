@@ -308,9 +308,27 @@ const FIELD_RESTRICTIONS: Record<string, Record<string, string[]>> = {
     JA_HONTEN: ['yubinNo', 'address', 'tel', 'fax', 'email', 'tantoBusho', 'tantoName', 'zeiKubun', 'biko'],
   },
   shiten: {
-    CHUOKAI: ['shitenCode', 'shitenName', 'shitenNameKana'],
-    JA_HONTEN: ['shitenCode', 'shitenName', 'shitenNameKana'],
-    JA_KANRI_SHITEN: ['shitenCode', 'shitenName', 'shitenNameKana'],
+    // Customer policy 2026-05 — every role with `shiten.update` may
+    // edit any column, EXCEPT JA_KANRI_SHITEN which cannot toggle the
+    // parent kanri-shiten assignment. `shiten_code` is immutable in
+    // edit mode for ALL roles (DTO-level: not on UpdateShitenDto).
+    // Keys are DTO field names (snake_case) — `filterAllowedFields`
+    // matches against `Object.keys(dto)`.
+    NICHINO_ADMIN: ['*'],
+    NICHINO_STAFF: ['*'],
+    CHUOKAI: ['*'],
+    JA_HONTEN: ['*'],
+    JA_KANRI_SHITEN: [
+      'shiten_name',
+      'shiten_name_kana',
+      'kinyu_shiten_flg',
+      'jastem_toriatsukai_tenpo_code',
+      'jastem_tenpo_name',
+      'jastem_tyokin_shubetsu',
+      'jastem_koza_no',
+      'biko',
+      // `kanri_shiten_id` deliberately absent — read-only for role 5.
+    ],
   },
   kanri_shiten: {
     NICHINO_ADMIN: ['*'],
@@ -559,11 +577,11 @@ app.enableCors({
 
 - NEVER use `v-html` with user-controlled content (XSS risk)
 - **NEVER** store session IDs, tokens, or credentials in `localStorage` / `sessionStorage` — authentication relies entirely on the HTTP-only session cookie, which the browser sends automatically
-- Axios / Orval client: set `withCredentials: true` so the session cookie is attached to cross-origin requests; ensure backend CORS allows the frontend origin with `credentials: true`
+- Axios instance (`src/api/axios-instance.ts`) MUST set `withCredentials: true` so the session cookie is attached to cross-origin requests; ensure backend CORS allows the frontend origin with `credentials: true`
 - Pinia auth store holds only the `user` object (role, permissions, profile) — `isAuthenticated` derives from `!!user`, NOT from any stored token
 - On `401 UNAUTHORIZED` from any API: clear local `user` state, redirect to `/login` (the server has already rejected the expired cookie)
 - NEVER log sensitive data to console in production
-- Use Orval generated client (built-in type safety)
+- All API calls go through a hand-written wrapper at `src/api/<tag>/<tag>.ts` (`.claude/rules/vue.md §API`)
 
 ---
 
@@ -593,5 +611,5 @@ npm audit --audit-level=high
 - [ ] Response DTO never exposes sensitive fields (password hash, session ID, OTP, reset token)
 - [ ] Never log passwords, session IDs, PII
 - [ ] CORS strict origin + `credentials: true` so the session cookie is sent
-- [ ] Frontend axios / Orval uses `withCredentials: true`; no token in `localStorage`
+- [ ] Frontend `axios-instance.ts` uses `withCredentials: true`; no token in `localStorage`
 - [ ] npm audit clean

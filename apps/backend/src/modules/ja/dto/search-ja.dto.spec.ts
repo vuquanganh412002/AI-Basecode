@@ -35,14 +35,17 @@ describe('SearchJaDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('should default page=1 when page is omitted', async () => {
+  it('should leave page undefined when omitted (service layer applies ?? 1)', async () => {
+    // page/per_page defaults moved to PaginationDto + service-layer
+    // runtime defaulting (`query.page ?? 1`). DTO no longer carries an
+    // inline default — kept the assertion to lock the new contract.
     const { dto } = await run({});
-    expect((dto as any).page).toBe(1);
+    expect((dto as any).page).toBeUndefined();
   });
 
-  it('should default per_page=20 when per_page is omitted', async () => {
+  it('should leave per_page undefined when omitted (service layer applies ?? 20)', async () => {
     const { dto } = await run({});
-    expect((dto as any).per_page).toBe(20);
+    expect((dto as any).per_page).toBeUndefined();
   });
 
   it('should default sort_by=ja_code when sort_by is omitted', async () => {

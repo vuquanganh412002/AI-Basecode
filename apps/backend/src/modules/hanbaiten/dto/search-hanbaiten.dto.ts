@@ -6,10 +6,11 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Max,
   MaxLength,
   Min,
 } from 'class-validator';
+
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
  * Whitelist of sortable columns. Per 画面設計書 v1.2 §8.1 only the two
@@ -47,8 +48,12 @@ const stringToBoolean = ({ value }: { value: unknown }) => {
  *
  * All fields optional; class-transformer applies defaults below so the
  * service always sees a fully-populated object.
+ *
+ * Inherits page/per_page from {@link PaginationDto}. The runtime default
+ * (page=1, per_page=20) is applied by the service layer via `?? 1` /
+ * `?? 20` because query params arrive as `undefined` when omitted.
  */
-export class SearchHanbaitenDto {
+export class SearchHanbaitenDto extends PaginationDto {
   @ApiPropertyOptional({ description: '販売店コード（部分一致検索）', maxLength: 10 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -91,6 +96,20 @@ export class SearchHanbaitenDto {
   @MaxLength(50, { message: '所長名は最大50文字で指定してください。' })
   shocho_name?: string;
 
+  // [staff-ja-filter] Explicit JA filter — for NICHINO_STAFF 代行入力
+  // flow where the user picks a JA up-front via <BaseJaDropdown>.
+  // Session-scoped roles ignore this (applyJaScope already pins
+  // session.ja_id); the service applies it ONLY when session.ja_id
+  // is null (NICHINO_*).
+  @ApiPropertyOptional({
+    description: 'JA絞り込み (NICHINO_STAFF 代行入力 専用)。',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'ja_idは整数で指定してください。' })
+  @Min(1, { message: 'ja_idは1以上で指定してください。' })
+  ja_id?: number;
+
   @ApiPropertyOptional({
     description:
       '廃店フラグ（true:廃店も含む, false:廃店を除外）。省略時は false。',
@@ -107,21 +126,6 @@ export class SearchHanbaitenDto {
   @IsOptional()
   @IsBoolean({ message: '廃店フラグはbooleanで指定してください。' })
   haiten_flg?: boolean;
-
-  @ApiPropertyOptional({ default: 1, description: 'ページ番号' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'pageは整数で指定してください。' })
-  @Min(1, { message: 'pageは1以上で指定してください。' })
-  page?: number = 1;
-
-  @ApiPropertyOptional({ default: 20, description: '1ページの件数 (1-100)' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'per_pageは整数で指定してください。' })
-  @Min(1, { message: 'per_pageは1以上で指定してください。' })
-  @Max(100, { message: 'per_pageは100以下で指定してください。' })
-  per_page?: number = 20;
 
   @ApiPropertyOptional({
     enum: HANBAITEN_SEARCH_SORT_BY,

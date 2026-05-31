@@ -42,8 +42,39 @@ const PAIRS: EnumPair[] = [
   { name: 'LoginResult', beFile: 'login-result.enum', feFile: 'login-result', beEnum: backendEnums.LoginResult },
   { name: 'OtpType', beFile: 'otp-type.enum', feFile: 'otp-type', beEnum: backendEnums.OtpType },
   { name: 'OshiraseStatus', beFile: 'oshirase-status.enum', feFile: 'oshirase-status', beEnum: backendEnums.OshiraseStatus },
+  { name: 'OshiraseType', beFile: 'oshirase-type.enum', feFile: 'oshirase-type', beEnum: backendEnums.OshiraseType },
   { name: 'PublishLocation', beFile: 'publish-location.enum', feFile: 'publish-location', beEnum: backendEnums.PublishLocation },
 ];
+
+/**
+ * String-valued enums (key == value, both UPPER_SNAKE_CASE). Currently
+ * just `RoleCode` — `role_code` is a varchar(50) in `m_roles`, not an
+ * integer id, so the value type diverges from the integer-valued
+ * categories handled by PAIRS / parseEnumFromSource above.
+ *
+ * Drift checked: same set of keys AND the value equals the key on
+ * both sides. Detects rename / typo / missing member.
+ */
+interface StringEnumPair {
+  name: string;
+  beFile: string;
+  feFile: string;
+  beEnum: Record<string, string>;
+}
+const STRING_PAIRS: StringEnumPair[] = [
+  { name: 'RoleCode', beFile: 'role-code.enum', feFile: 'role-code', beEnum: backendEnums.RoleCode },
+];
+
+function parseStringEnumFromSource(source: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  // Accepts `KEY: 'VALUE',` and `KEY: "VALUE",`.
+  const memberRe = /^\s*([A-Z_][A-Z0-9_]*)\s*:\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*,?\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = memberRe.exec(source)) !== null) {
+    result[match[1]] = match[2];
+  }
+  return result;
+}
 
 /**
  * Extract `{ MEMBER: value }` pairs from a TS source file by regex.
@@ -97,5 +128,19 @@ const FE_ENUMS_AVAILABLE = existsSync(FE_ENUMS_DIR);
     const beMap = asNumericMap(beEnum);
 
     expect(feMap).toEqual(beMap);
+  });
+
+  it.each(STRING_PAIRS)('$name (string-valued) matches between BE and FE', ({ feFile, beEnum }) => {
+    const fePath = join(FE_ENUMS_DIR, `${feFile}.ts`);
+    const feSource = readFileSync(fePath, 'utf-8');
+    const feMap = parseStringEnumFromSource(feSource);
+    // BE runtime object is already string-keyed → string-valued; no
+    // reverse-mapping noise (string enums don't generate one).
+    const beMap: Record<string, string> = { ...beEnum };
+
+    expect(feMap).toEqual(beMap);
+    // Extra invariant: every key equals its value (project convention
+    // for role/code string enums — keeps log greps + DB selects sane).
+    for (const [k, v] of Object.entries(beMap)) expect(v).toBe(k);
   });
 });

@@ -33,4 +33,6 @@ export { ResultStatus } from './result-status.enum';
 export { LoginResult } from './login-result.enum';
 export { OtpType } from './otp-type.enum';
 export { OshiraseStatus } from './oshirase-status.enum';
+export { OshiraseType } from './oshirase-type.enum';
 export { PublishLocation } from './publish-location.enum';
+export { RoleCode } from './role-code.enum';

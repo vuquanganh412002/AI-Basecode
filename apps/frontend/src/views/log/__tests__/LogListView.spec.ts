@@ -85,6 +85,23 @@ async function renderView(opts: RenderOptions = {}): Promise<{
           stubActions: false,
           initialState: {
             auth: { user: opts.user ?? buildLogUser() },
+            // Seed m_code so codes.label('LOG_TYPE' / 'RESULT_STATUS', value)
+            // returns the canonical Japanese labels in unit tests.
+            codes: {
+              all: {
+                LOG_TYPE: [
+                  { value: 1, label: 'ユーザー操作', label_short: 'ユーザー操作' },
+                  { value: 2, label: 'システム', label_short: 'システム' },
+                  { value: 3, label: 'エラー', label_short: 'エラー' },
+                  { value: 4, label: 'ファイルアップロード', label_short: 'ファイルUP' },
+                ],
+                RESULT_STATUS: [
+                  { value: 1, label: '成功', label_short: '成功' },
+                  { value: 2, label: '失敗', label_short: '失敗' },
+                  { value: 3, label: '警告', label_short: '警告' },
+                ],
+              },
+            },
           },
         }),
         Antd,
@@ -301,7 +318,7 @@ describe('LogListView — search (機能定義 2.x)', () => {
     expect(listLogs).not.toHaveBeenCalled();
   });
 
-  it('should display ACSMS-MSG-030-003 「検索結果はありません。」 when search returns zero rows (機能定義 2.2)', async () => {
+  it('should display ACSMS-MSG-030-003 「検索結果が見つかりませんでした。」 when search returns zero rows (機能定義 2.2)', async () => {
     const { listLogs } = await import('@/api/log/log');
     vi.mocked(listLogs).mockResolvedValue(
       buildLogListResponse({
@@ -311,7 +328,7 @@ describe('LogListView — search (機能定義 2.x)', () => {
     );
 
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('検索結果はありません。');
+    expect(wrapper.text()).toContain('検索結果が見つかりませんでした。');
   });
 
   it('should still call listLogs when listLogs rejects with 500 (interceptor handles toast)', async () => {

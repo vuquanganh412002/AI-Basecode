@@ -43,6 +43,21 @@ const HALF_WIDTH_KATAKANA_RE = /^[ｦ-ﾟ\s0-9]+$/u;
  * `class-validator` runs before Nest DI is wired.
  */
 export class CreateHanbaitenDto {
+  // [staff-ja-id] NICHINO_STAFF 代行入力 sends ja_id explicitly via the
+  // form's <BaseJaDropdown> — session.ja_id is null for that role, so
+  // the service falls back to this body field. Session-scoped roles
+  // (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) may also send it; the
+  // service ignores it and uses session.ja_id instead, so cross-tenant
+  // injection isn't possible.
+  @ApiPropertyOptional({
+    description: 'JA ID (NICHINO_STAFF 代行入力 専用)。',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'JA IDは整数で指定してください。' })
+  @Min(1, { message: 'JA IDは1以上で指定してください。' })
+  ja_id?: number;
+
   @ApiProperty({ description: '販売店コード', minLength: 1, maxLength: 10 })
   @IsString({ message: '販売店コードは文字列で指定してください。' })
   @IsNotEmpty({ message: '販売店コードは必須です。' })

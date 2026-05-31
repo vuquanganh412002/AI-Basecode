@@ -189,33 +189,30 @@ function askDelete(row: JaListItem): void {
       @search="onSearch"
       @clear="onClear"
     >
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          JAコード
-        </label>
+      <label for="ja-filter-code" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">JAコード</span>
         <a-input
+          id="ja-filter-code"
           v-model:value="state.filters.ja_code"
           placeholder="JAコード"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          JA名
-        </label>
+      </label>
+      <label for="ja-filter-name" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">JA名</span>
         <a-input
+          id="ja-filter-name"
           v-model:value="state.filters.ja_name"
           placeholder="JA名"
           allow-clear
           class="flex-1"
         />
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-sm font-medium whitespace-nowrap text-text-main">
-          都道府県
-        </label>
+      </label>
+      <label for="ja-filter-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">都道府県</span>
         <a-select
+          id="ja-filter-todofuken"
           v-model:value="state.filters.todofuken_code"
           placeholder="選択してください"
           allow-clear
@@ -229,7 +226,7 @@ function askDelete(row: JaListItem): void {
             {{ opt.todofuken_name }}
           </a-select-option>
         </a-select>
-      </div>
+      </label>
     </BaseSearchForm>
 
     <!-- 一覧テーブル -->

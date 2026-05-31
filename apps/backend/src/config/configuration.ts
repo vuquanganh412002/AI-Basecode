@@ -98,6 +98,16 @@ export default () => {
     storage: {
       provider: process.env.STORAGE_PROVIDER || 'minio',
       endpoint: process.env.STORAGE_ENDPOINT || 'http://localhost:9000',
+      // [public-endpoint] Browser-facing host used to rewrite presigned
+      // URLs. Internal `endpoint` (e.g. `http://minio:9000`) is for the
+      // Node SDK to connect; browsers can't resolve Docker hostnames.
+      // Defaults to the same value — only set when the two differ
+      // (e.g. dev: backend talks `http://minio:9000`, browser fetches
+      // `http://localhost:9000`).
+      publicEndpoint:
+        process.env.STORAGE_PUBLIC_ENDPOINT ||
+        process.env.STORAGE_ENDPOINT ||
+        'http://localhost:9000',
       region: process.env.STORAGE_REGION || 'ap-northeast-1',
       // dev fallback — assertProductionSecrets() rejects these in prod.
       accessKey: process.env.STORAGE_ACCESS_KEY || DEV_FALLBACKS.STORAGE_ACCESS_KEY,

@@ -1,10 +1,21 @@
 // Test fixtures for ACSMS-SCR-030 (ログ参照画面).
 // Shapes mirror docs/design/ACSMS-SCR-030/ACSMS-SCR-030-api.md レスポンスデータ.
 
+// Re-export production dropdown types so consumers can keep importing
+// from this fixture file, but the shape definition stays in one place
+// (any future field added to AccountDropdownItem trips the type-checker
+// here on next run, instead of silently going stale).
+import type {
+  AccountDropdownItem,
+  AccountDropdownResponse,
+} from '@/api/account/account';
+export type { AccountDropdownItem, AccountDropdownResponse };
+
+// Fixture mirrors the FE wire contract — `log_type_label` /
+// `result_status_label` were removed per the no-labels policy.
 export interface LogListItem {
   log_id: number;
   log_type: number;
-  log_type_label: string;
   log_datetime: string;
   account_id: number | null;
   login_id: string | null;
@@ -13,7 +24,6 @@ export interface LogListItem {
   gamen_name: string;
   operation: string;
   result_status: number;
-  result_status_label: string;
   target_id: number | null;
   target_table: string;
   after_value: string;
@@ -39,7 +49,6 @@ export function buildLogListItem(
   return {
     log_id: 10500,
     log_type: 1,
-    log_type_label: 'ユーザー操作',
     log_datetime: '2026/04/17 14:30:45',
     account_id: 10,
     login_id: 'ja_honten_001',
@@ -48,7 +57,6 @@ export function buildLogListItem(
     gamen_name: '単価マスタ登録画面 (ACSMS-SCR-003)',
     operation: 'CREATE',
     result_status: 1,
-    result_status_label: '成功',
     target_id: 50,
     target_table: 'm_tanka',
     after_value: '{"tanka_id":50,"tanka_code":"T050","tanka_name":"新単価"}',
@@ -65,20 +73,16 @@ export function buildLogListResponse(
     buildLogListItem({
       log_id: 10500,
       log_type: 1,
-      log_type_label: 'ユーザー操作',
       log_datetime: '2026/04/17 14:30:45',
       result_status: 1,
-      result_status_label: '成功',
     }),
     buildLogListItem({
       log_id: 10499,
       log_type: 3,
-      log_type_label: 'エラー',
       log_datetime: '2026/04/17 14:25:10',
       gamen_name: '購読者情報登録画面 (ACSMS-SCR-005)',
       operation: 'CREATE',
       result_status: 2,
-      result_status_label: '失敗',
       target_id: null,
       target_table: 't_dokusya',
       after_value: '',
@@ -96,18 +100,8 @@ export function buildLogListResponse(
 }
 
 // ─── Account dropdown (COMMON-005) ──────────────────────────────────
-
-export interface AccountDropdownItem {
-  account_id: number;
-  login_id: string;
-  account_name: string;
-  role_code: string;
-  ja_id: number | null;
-}
-
-export interface AccountDropdownResponse {
-  data: AccountDropdownItem[];
-}
+// Types re-exported from production at the top of this file — keep the
+// production interface as the single source of truth.
 
 export function buildAccountDropdownList(): AccountDropdownItem[] {
   return [
@@ -129,7 +123,11 @@ export function buildAccountDropdownList(): AccountDropdownItem[] {
 }
 
 export function buildAccountDropdownResponse(): AccountDropdownResponse {
-  return { data: buildAccountDropdownList() };
+  const data = buildAccountDropdownList();
+  return {
+    data,
+    meta: { total: data.length, page: 1, per_page: 50, has_more: false },
+  };
 }
 
 // ─── Auth user with log.view ────────────────────────────────────────

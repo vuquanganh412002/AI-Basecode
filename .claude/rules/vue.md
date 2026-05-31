@@ -333,7 +333,7 @@ localStorage.setItem('session_id', sid);   // XSS-exfiltratable
 localStorage.setItem('accessToken', token); // Same problem
 ```
 
-Axios / Orval client must be created with `withCredentials: true` so the browser attaches the session cookie on every request.
+The shared axios instance (`src/api/axios-instance.ts`) MUST be created with `withCredentials: true` so the browser attaches the session cookie on every request.
 
 ### 4. Store Mutations via Actions Only
 
@@ -348,34 +348,63 @@ userStore.users = response.data;    // ❌ Direct mutation
 
 ## API & Data Fetching
 
-### 1. Orval-Generated API Client (MANDATORY)
+### 1. Hand-written axios wrappers (MANDATORY)
 
-Use Orval-generated client from `src/api/generated`. Manual `fetch()`/`axios` to backend is PROHIBITED.
+Each backend tag gets one wrapper file at `src/api/<tag>/<tag>.ts` that
+imports the shared `axiosInstance` and exposes typed functions for every
+endpoint. Views/composables/stores import only from these wrappers —
+never call `fetch()` or instantiate axios elsewhere.
 
 ```typescript
-// ✅ Using auto-generated API client
-import { getUsersApi, createUserApi } from '@/api/generated';
+// ✅ Hand-written wrapper — src/api/users/users.ts
+import axiosInstance from '@/api/axios-instance';
 
-async function fetchUsers() {
-  return (await getUsersApi()).data;
+export interface User {
+  id: number;
+  name: string;
+  email: string;
 }
 
-// ❌ Manual fetch bypassing generated client
+export interface UserListResponse {
+  data: User[];
+  meta: { total: number; page: number; per_page: number; total_pages: number };
+}
+
+export async function listUsers(params: { page?: number } = {}): Promise<UserListResponse> {
+  const res = await axiosInstance.get<UserListResponse>('/api/v1/users', { params });
+  return res.data;
+}
+
+// ❌ View bypassing the wrapper
 async function fetchUsers() {
-  const response = await fetch('/api/users');
+  const response = await fetch('/api/v1/users');
   return response.json();
 }
 ```
 
-Exception: Third-party APIs (Google Maps, Stripe) may use direct `fetch()` or SDK.
+**Why hand-written, not Orval-generated**: tried Orval-delegation
+across all 14 modules; trade-offs (type lossy `nullable: true` →
+`{ [k:string]: unknown } | null`, intentional FE/BE type divergence
+on m_code radio bindings, factory-wrapped ugly function names, extra
+build step + generated folder churn in PRs) outweighed the manual-sync
+risk at this codebase size. Reverted in commit `<rollback>` —
+hand-written wrappers stay as the canonical pattern.
 
-### 2. API Client Regeneration
+The BE Swagger UI at `/api/docs` and the on-disk snapshot via
+`npm run swagger:export` (BE-only) remain available for testing tools
+and offline docs.
 
-Regenerate when OpenAPI contract changes:
-```bash
-npm run api:generate
-npm run api:watch  # Watch mode
-```
+Exception: Third-party APIs (Google Maps, Stripe) may use direct
+`fetch()` or SDK.
+
+### 2. Wrapper conventions
+
+- File per BE controller: `src/api/<tag>/<tag>.ts`
+- Export DTO-mirror interfaces + envelope helpers + async functions
+- Functions return the unwrapped body (most cases `res.data`; for
+  `{ data, meta }` list endpoints, return the whole envelope so the
+  caller has access to pagination meta)
+- Spec lives at `src/api/__tests__/<tag>.spec.ts`, mocks `axiosInstance`
 
 ### 3. Error Handling
 
@@ -1382,6 +1411,90 @@ Always render API values through these — never inline `value.toLocaleString()`
 | `formatPostalCode('1234567')` | `123-4567` |
 | `formatPhone('0312345678')` | `03-1234-5678` (10 or 11 digits) |
 | `truncate(str, 20)` | `<= 20 chars + "…"` |
+
+### Date/Time — pin to Asia/Tokyo (MANDATORY)
+
+The system is JST-only operationally. Every "what is now" / "what is today" calculation, every parse of a `YYYY/MM/DD HH:mm` string the user typed, and every filename timestamp MUST be computed in **Asia/Tokyo**, not in the browser's local TZ. A developer in Vietnam (UTC+7) or CI in UTC must produce the same validation pass/fail as an admin in Japan (UTC+9).
+
+Helpers live at [`src/utils/datetime.ts`](../../apps/frontend/src/utils/datetime.ts) — call sites import from there.
+
+| Helper | Use for |
+|---|---|
+| `nowTokyo()` | Current `Dayjs` in `Asia/Tokyo` |
+| `todayStartTokyo()` | 00:00:00 of today in JST |
+| `nowMinuteFloorTokyo()` | Current minute floor in JST (past-datetime checks at minute precision) |
+| `parseDatetimeTokyo(s)` | Parse `YYYY/MM/DD HH:mm` interpreting numbers as JST wall-clock → `Date` (UTC instant) |
+| `parseDatetimeWithSecondsTokyo(s)` | Same, with seconds (`YYYY/MM/DD HH:mm:ss`) — log search range |
+| `pickerToTokyoWallclock(d)` | Antd `<a-date-picker>` Dayjs (browser-local) → Tokyo-pinned Dayjs with the SAME wall-clock numbers (user-intent preserving) |
+| `todayIsoTokyo()` | Today as `YYYY-MM-DD` in JST (for `<input type="date">` / BE date-only columns) |
+| `timestampForFilenameTokyo()` | `YYYYMMDD_HHmmss` for downloaded filenames |
+
+### Banned patterns
+
+```ts
+// ❌ Browser-local "now" / "today"
+const now = dayjs();
+const today = dayjs().startOf('day');
+const stamp = new Date();
+const fn = `log_${now.getFullYear()}${...}.csv`;
+
+// ❌ Browser-local datetime parse — `new Date(y, mo-1, ...)` is hard-wired
+//    to local TZ. A picker in Vietnam stores "2026/05/28 14:00" intending
+//    JST, but this constructs the instant for 14:00 VN (= 12:00 JST).
+function parseDatetime(s: string): Date | null {
+  const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  return new Date(+y, +mo - 1, +d, +h, +mi);
+}
+```
+
+### Canonical replacements
+
+```ts
+import {
+  nowTokyo,
+  todayStartTokyo,
+  nowMinuteFloorTokyo,
+  parseDatetimeTokyo,
+  pickerToTokyoWallclock,
+  timestampForFilenameTokyo,
+} from '@/utils/datetime';
+
+// ✅ Past-datetime check at minute precision
+const start = parseDatetimeTokyo(formState.publish_start_date);
+if (start && start.getTime() < nowMinuteFloorTokyo().valueOf()) {
+  fieldErrors.publish_start_date = '過去日時は指定できません。';
+}
+
+// ✅ Disable past dates on picker
+function disabledStartDate(current: Dayjs | null): boolean {
+  if (!current) return false;
+  return current.isBefore(todayStartTokyo());
+}
+
+// ✅ Picker time-panel — disable hours/minutes before "now in JST"
+function disabledStartTime(current: Dayjs | null) {
+  if (!current) return {};
+  const currentTokyo = pickerToTokyoWallclock(current);
+  const now = nowTokyo();
+  if (!currentTokyo.isSame(now, 'day')) return {};
+  return buildDisabledTimeFor(now);
+}
+
+// ✅ Filename timestamp — always JST
+link.download = `log_export_${timestampForFilenameTokyo()}.csv`;
+```
+
+### When `dayjs()` direct call is allowed
+
+- **Never** for "now" / "today" — use `nowTokyo()` / `todayStartTokyo()`.
+- **Allowed** for parsing a picker-frame string (e.g. `dayjs(formState.tekiyo_start_date)` where `tekiyo_start_date` is a `YYYY-MM-DD` string from `<a-date-picker>`) when comparing against another picker-frame `Dayjs` (`current` from the picker's `:disabled-date` callback). Both sides are in the same TZ frame so the comparison is consistent; pinning one side to Tokyo while the other stays browser-local would create a mismatch.
+- For DISPLAY-only formatting from an ISO string the BE returned, use `formatDate / formatDateTime` from `src/utils/formatters.ts` — those already pin to Tokyo via `dayjs.tz.setDefault('Asia/Tokyo')`.
+
+### Testing pattern
+
+Tests for any of the helpers above flip `vi.setSystemTime()` to a UTC instant that straddles a JST day boundary and assert the output renders the JST date — see [`src/utils/__tests__/datetime.spec.ts`](../../apps/frontend/src/utils/__tests__/datetime.spec.ts). New form-validation specs that hit the helpers MUST do the same so they fail in JST production if a future refactor accidentally re-introduces a browser-local call.
 
 ### Reference patterns
 

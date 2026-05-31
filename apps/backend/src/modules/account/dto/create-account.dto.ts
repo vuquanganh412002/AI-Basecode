@@ -35,7 +35,7 @@ export class CreateAccountDto {
   @IsString({ message: 'ログインIDは文字列で指定してください。' })
   @IsNotEmpty({ message: 'ログインIDは必須です。' })
   @MaxLength(20, { message: 'ログインIDは最大20文字で指定してください。' })
-  @Matches(/^[a-zA-Z0-9_]+$/, {
+  @Matches(/^\w+$/, {
     message: 'ログインIDは半角英数字とアンダースコアのみで指定してください。',
   })
   login_id!: string;
@@ -78,12 +78,16 @@ export class CreateAccountDto {
   @MaxLength(50, { message: 'アカウント名は最大50文字で指定してください。' })
   account_name!: string;
 
-  @ApiPropertyOptional({ description: 'メールアドレス（空欄可、最大100桁）', maxLength: 100 })
-  @Transform(blankToUndef)
-  @IsOptional()
+  // [email-required] QA review 2026-05 — primary 通知先メールアドレス is now
+  // mandatory; SCR-023's notification worker drops a recipient when this
+  // is blank, so creating an account without one means the user silently
+  // never receives notifications. Sub-mails stay optional.
+  @ApiProperty({ description: 'メールアドレス（最大100桁）', maxLength: 100 })
+  @IsString({ message: 'メールアドレスは文字列で指定してください。' })
+  @IsNotEmpty({ message: 'メールアドレスは必須です。' })
   @MaxLength(100, { message: 'メールアドレスは最大100文字で指定してください。' })
   @IsEmail({}, { message: 'メールアドレスの形式が不正です。' })
-  email?: string;
+  email!: string;
 
   @ApiPropertyOptional({ description: 'サブメールアドレス1（空欄可、最大100桁）', maxLength: 100 })
   @Transform(blankToUndef)

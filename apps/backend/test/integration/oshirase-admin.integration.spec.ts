@@ -36,7 +36,8 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
            ('NICHINO_ADMIN',   '日農（管理者）', '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
            ('CHUOKAI',         '中央会',         '', NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // 3 seeded oshirase: 1 published メニュー画面 / 1 draft ログイン画面 /
-        // 1 published メニュー画面+締め切り時間 (to drive DEADLINE_NOTICE_DUPLICATE).
+        // 1 published メニュー画面（締め切り時間）= publish_location=3 (to drive
+        // DEADLINE_NOTICE_DUPLICATE per the type=4 ⇔ location=3 pairing).
         `INSERT INTO t_oshirase
            (ja_id, oshirase_type, publish_location, status, title, content,
             publish_start_date, publish_end_date, target_kanri_kubun,
@@ -50,7 +51,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
             '新機能リリース本文。',
             '2026-04-15 00:00:00+09:00', NULL, '',
             NOW(), '1', NOW(), '1'),
-           (NULL, 4, 2, 2, '締め切り時間のお知らせ',
+           (NULL, 4, 3, 2, '締め切り時間のお知らせ',
             '集金締め切り時間本文。',
             '2026-04-10 00:00:00+09:00', NULL, '',
             NOW(), '1', NOW(), '1')`,
@@ -152,10 +153,10 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
       expect(res.body.message).toBe('登録しました。');
     });
 
-    it('should return 400 DEADLINE_NOTICE_DUPLICATE when publish_location=2 + oshirase_type=4 already exists', async () => {
+    it('should return 400 DEADLINE_NOTICE_DUPLICATE when an oshirase_type=4 (publish_location=3) already exists', async () => {
       const cookie = await asAdmin();
       const body = buildCreateOshiraseBody({
-        publish_location: 2,
+        publish_location: 3,
         oshirase_type: 4,
         title: '別の締め切り時間お知らせ',
       });

@@ -1,12 +1,11 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { DataSource, IsNull, Not, Repository } from 'typeorm';
 
 import { Oshirase } from '@/database/entities/oshirase.entity';
-import { OshiraseStatus, PublishLocation } from '@/common/enums';
-import { NotFoundException } from '@/common/exceptions/common.exceptions';
-import { BadRequestException } from '@/common/exceptions/common.exceptions';
+import { OshiraseStatus, OshiraseType, PublishLocation } from '@/common/enums';
+import { BadRequestException, NotFoundException } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
@@ -36,13 +35,99 @@ import {
 const SCREEN_NAME = 'お知らせ一覧画面 (ACSMS-SCR-031)';
 const TABLE_NAME = 't_oshirase';
 
-/** Item shape returned by SCR-010's `GET /api/v1/oshirase/menu`. */
+// OSHIRASE_TYPE was promoted from Group B → Group A: value 4
+// (`OshiraseType.DEADLINE`) drives mandatory business branching in 3
+// places (location pairing, system-wide uniqueness, delete-not-allowed),
+// so it now lives in `@/common/enums` with its BE/FE mirror enforced
+// by the enum-sync integration test. The local
+// `const OshiraseType.DEADLINE = 4` previously declared here was
+// retired in favor of `OshiraseType.DEADLINE`.
+
+/**
+ * Epoch ms at the start of the current minute (JST or whatever the
+ * container TZ is — production fixes both ECS task and Postgres session
+ * to Asia/Tokyo via Dockerfile + TypeORM options). Past-date validation
+ * for publish_start_date uses minute precision because the form input
+ * is `YYYY/MM/DD HH:mm` (no seconds).
+ */
+function nowMinuteFloor(): number {
+  const d = new Date();
+  d.setSeconds(0, 0);
+  return d.getTime();
+}
+
+/**
+ * Builds the canonical VALIDATION_ERROR shape so the FE's
+ * `applyServerErrors` maps `publish_start_date` to a field-level error.
+ * Used when the BE rejects a past start date.
+ */
+function publishStartPastException(): HttpException {
+  return new HttpException(
+    {
+      code: 'VALIDATION_ERROR',
+      error_code: 'VALIDATION_ERROR',
+      message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
+      errors: [
+        { field: 'publish_start_date', message: '過去日は選択できません。' },
+      ],
+    },
+    HttpStatus.BAD_REQUEST,
+  );
+}
+
+/**
+ * Enforce the bidirectional pairing between 締め切り時間 (oshirase_type=4)
+ * and MENU_DEADLINE (publish_location=3):
+ *   - type=4 MUST be at publish_location=3
+ *   - publish_location=3 MUST carry type=4
+ * Returns a VALIDATION_ERROR shape so FE's applyServerErrors maps it.
+ * Used by both create() and update().
+ */
+function assertDeadlineLocationPairing(
+  oshiraseType: number,
+  publishLocation: number,
+): void {
+  const isDeadlineType = oshiraseType === OshiraseType.DEADLINE;
+  const isDeadlineLocation = publishLocation === PublishLocation.MENU_DEADLINE;
+  if (isDeadlineType === isDeadlineLocation) return;
+  const errors: { field: string; message: string }[] = [];
+  if (isDeadlineType && !isDeadlineLocation) {
+    errors.push({
+      field: 'publish_location',
+      message:
+        '締め切り時間のお知らせは「メニュー画面（締め切り時間）」のみ選択できます。',
+    });
+  } else {
+    errors.push({
+      field: 'oshirase_type',
+      message:
+        '「メニュー画面（締め切り時間）」は締め切り時間のお知らせ専用です。',
+    });
+  }
+  throw new HttpException(
+    {
+      code: 'VALIDATION_ERROR',
+      error_code: 'VALIDATION_ERROR',
+      message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
+      errors,
+    },
+    HttpStatus.BAD_REQUEST,
+  );
+}
+
+/**
+ * Item shape returned by SCR-010's `GET /api/v1/oshirase/menu`.
+ *
+ * [no-labels-policy] Authenticated endpoint — no `oshirase_type_label`.
+ * FE resolves via `useCodesStore().label('OSHIRASE_TYPE', value)`.
+ * (Public SCR-001 `findLogin` still serializes the label because the
+ * unauthenticated login screen has no m_code cache.)
+ */
 export interface MenuOshiraseItem {
   oshirase_id: number;
   title: string;
   content: string;
   oshirase_type: number;
-  oshirase_type_label: string;
   publish_start_date: string;
   publish_end_date: string | null;
   is_new: boolean;
@@ -115,13 +200,19 @@ export class OshiraseService {
     const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
     const userJaId = session.ja_id;
 
-    // Common filter: publish_location=2, status=公開, deleted_at IS NULL,
-    // within publish window, ja_id NULL OR ja_id = user.ja_id.
+    // Common filter: publish_location IN (MENU=2, MENU_DEADLINE=3),
+    // status=公開, deleted_at IS NULL, within publish window,
+    // ja_id NULL OR ja_id = user.ja_id. The two locations cover the two
+    // header slots — regular menu notices (type≠4) live at MENU, the
+    // singleton 締め切り時間 (type=4) at MENU_DEADLINE.
     const baseQb = () => {
       const qb = this.repo
         .createQueryBuilder('o')
-        .where('o.publish_location = :publishLocation', {
-          publishLocation: PublishLocation.MENU,
+        .where('o.publish_location IN (:...publishLocations)', {
+          publishLocations: [
+            PublishLocation.MENU,
+            PublishLocation.MENU_DEADLINE,
+          ],
         })
         .andWhere('o.status = :status', { status: OshiraseStatus.PUBLIC })
         .andWhere('o.publish_start_date <= :now', { now })
@@ -140,12 +231,16 @@ export class OshiraseService {
 
     const [rows, deadlineRow] = await Promise.all([
       baseQb()
-        .andWhere('o.oshirase_type != 4')
+        .andWhere('o.oshirase_type != :deadlineType', {
+          deadlineType: OshiraseType.DEADLINE,
+        })
         .orderBy('o.publish_start_date', 'DESC')
         .take(limit)
         .getMany(),
       baseQb()
-        .andWhere('o.oshirase_type = 4')
+        .andWhere('o.oshirase_type = :deadlineType', {
+          deadlineType: OshiraseType.DEADLINE,
+        })
         .orderBy('o.publish_start_date', 'DESC')
         .take(1)
         .getOne(),
@@ -156,10 +251,6 @@ export class OshiraseService {
       title: r.title,
       content: r.content,
       oshirase_type: r.oshiraseType,
-      oshirase_type_label: this.codeService.getLabel(
-        'OSHIRASE_TYPE',
-        r.oshiraseType,
-      ),
       publish_start_date: formatJstDateTimeMinutes(r.publishStartDate),
       publish_end_date: r.publishEndDate
         ? formatJstDateTimeMinutes(r.publishEndDate)
@@ -194,20 +285,50 @@ export class OshiraseService {
       ? `o.${sortBy}`
       : 'o.created_at';
 
-    // Pin the 締め切り時間 row (oshirase_type=4) at the top of every page,
-    // regardless of the requested sort. The boolean expression evaluates
-    // to TRUE for the deadline notice → DESC puts it first. Postgres
-    // accepts the bare boolean in ORDER BY.
+    // Pin the 締め切り時間 row at the top of every page, regardless of
+    // the requested sort. The boolean expression evaluates to TRUE for
+    // the deadline notice → DESC puts it first. Postgres accepts the
+    // bare boolean in ORDER BY. ORDER BY does NOT take TypeORM params
+    // by name, so we inline `OshiraseType.DEADLINE` via a template
+    // literal — typed as a number constant so the embedded value is
+    // safe (no user input).
     const qb = this.repo
       .createQueryBuilder('o')
       .where({ deletedAt: IsNull() })
-      .orderBy('(o.oshirase_type = 4)', 'DESC')
+      .orderBy(`(o.oshirase_type = ${OshiraseType.DEADLINE})`, 'DESC')
       .addOrderBy(sortColumn, sortOrder)
       .take(perPage)
       .skip((page - 1) * perPage);
 
     const [rows, total] = await qb.getManyAndCount();
-    return paginate(rows.map(toOshiraseListItem), total, page, perPage);
+
+    // [ja-name-batch] Resolve ja_name in ONE extra query keyed by the
+    // page's distinct ja_ids — avoids the N+1 a per-row lookup would
+    // cause and sidesteps TypeORM 0.3.x's expression-ORDER-BY parser
+    // failure with .getRawAndEntities()+leftJoin (it tried to alias
+    // the literal "(o" prefix of the boolean expression above).
+    const jaIds = Array.from(
+      new Set(rows.map((r) => r.jaId).filter((id): id is number => id !== null)),
+    );
+    const jaNameById = new Map<number, string>();
+    if (jaIds.length > 0) {
+      const jaRows = await this.repo.manager
+        .createQueryBuilder()
+        .select(['j.ja_id AS ja_id', 'j.ja_name AS ja_name'])
+        .from('m_ja', 'j')
+        .where('j.ja_id IN (:...ids)', { ids: jaIds })
+        .andWhere('j.deleted_at IS NULL')
+        .getRawMany<{ ja_id: number | string; ja_name: string }>();
+      for (const j of jaRows) jaNameById.set(Number(j.ja_id), j.ja_name);
+    }
+
+    const items = rows.map((row) =>
+      toOshiraseListItem(
+        row,
+        row.jaId === null ? null : (jaNameById.get(Number(row.jaId)) ?? null),
+      ),
+    );
+    return paginate(items, total, page, perPage);
   }
 
   // API-031-002 — GET /api/v1/oshirase/:id
@@ -225,18 +346,24 @@ export class OshiraseService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ data: OshiraseDetail; message: string }> {
-    if (!this.dataSource || !this.auditLog) {
-      throw new Error(
-        'OshiraseService.dataSource/auditLog undefined — SCR-031 endpoints require both.',
-      );
-    }
+    this.assertScrAdminDeps();
 
-    // [uniqueness-check] 締め切り時間重複チェック (publish_location=2 + oshirase_type=4)
-    if (dto.publish_location === 2 && dto.oshirase_type === 4) {
+    // [deadline-pairing] type=4 ⇔ publish_location=3 (MENU_DEADLINE) は
+    // 1:1 で対応する。FE は type=4 選択時に publish_location=3 へロック
+    // するため通常到達しないが、API 直接呼び出し対策で BE 側でも検査。
+    assertDeadlineLocationPairing(dto.oshirase_type, dto.publish_location);
+
+    // [uniqueness-check] 締め切り時間 重複チェック
+    // System-wide rule (顧客確認 2026-05): only ONE 締め切り時間 record
+    // may exist at a time regardless of publish_location. The earlier
+    // narrower form (`publish_location = MENU AND type = 4`) let users
+    // create a 2nd type=4 row on a different publish_location and slip
+    // through. oshirase_type is Group B (no TS enum); the constant
+    // `OshiraseType.DEADLINE` documents the 締め切り時間 m_code value.
+    if (dto.oshirase_type === OshiraseType.DEADLINE) {
       const exists = await this.repo.count({
         where: {
-          publishLocation: 2,
-          oshiraseType: 4,
+          oshiraseType: OshiraseType.DEADLINE,
           deletedAt: IsNull(),
         },
       });
@@ -254,9 +381,16 @@ export class OshiraseService {
       throw new BadRequestException('表示終了日時の形式が不正です。');
     }
 
+    // [past-start-check] 新規作成時は publish_start_date が現在分以降で
+    // あること（顧客確認 2026-05、分精度）。FE は disabled-date /
+    // disabled-time + validateForm で防御するが、BE 側でも防御線を張る。
+    if (startDate.getTime() < nowMinuteFloor()) {
+      throw publishStartPastException();
+    }
+
     let saved: Oshirase | null = null;
     try {
-      saved = await this.dataSource.transaction(async (manager) => {
+      saved = await this.dataSource!.transaction(async (manager) => {
         const payload = manager.create(Oshirase, {
           jaId: dto.ja_id ?? null,
           oshiraseType: dto.oshirase_type,
@@ -279,7 +413,7 @@ export class OshiraseService {
         return created;
       });
     } catch (err) {
-      await this.auditLog.logError(
+      await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
         'CREATE',
         err as Error,
@@ -288,7 +422,7 @@ export class OshiraseService {
     }
 
     return {
-      data: toOshiraseDetail(saved!),
+      data: toOshiraseDetail(saved),
       message: '登録しました。',
     };
   }
@@ -300,25 +434,26 @@ export class OshiraseService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ data: OshiraseDetail; message: string }> {
-    if (!this.dataSource || !this.auditLog) {
-      throw new Error(
-        'OshiraseService.dataSource/auditLog undefined — SCR-031 endpoints require both.',
-      );
-    }
+    this.assertScrAdminDeps();
 
     const existing = await this.repo.findOne({
       where: { oshiraseId, deletedAt: IsNull() },
     });
     if (!existing) throw new NotFoundException('お知らせ');
 
-    // 締め切り時間重複チェック (publish_location=2 + oshirase_type=4).
-    // Same rule as create — but exclude the row being edited so saving
-    // the existing deadline notice itself doesn't trip the check.
-    if (dto.publish_location === 2 && dto.oshirase_type === 4) {
+    // [deadline-pairing] type=4 ⇔ publish_location=3 (MENU_DEADLINE).
+    // Same rule as create — applied to the incoming DTO so any change
+    // also satisfies the 1:1 mapping (and API-direct callers can't slip
+    // an inconsistent body through past the FE form).
+    assertDeadlineLocationPairing(dto.oshirase_type, dto.publish_location);
+
+    // 締め切り時間 重複チェック. Same system-wide uniqueness rule as
+    // create — but exclude the row being edited so saving the existing
+    // 締め切り時間 itself doesn't trip the check.
+    if (dto.oshirase_type === OshiraseType.DEADLINE) {
       const exists = await this.repo.count({
         where: {
-          publishLocation: 2,
-          oshiraseType: 4,
+          oshiraseType: OshiraseType.DEADLINE,
           deletedAt: IsNull(),
           oshiraseId: Not(oshiraseId),
         },
@@ -337,21 +472,39 @@ export class OshiraseService {
       throw new BadRequestException('表示終了日時の形式が不正です。');
     }
 
-    // [input-validation] 過去日チェック: 既存の publish_start_date が過去日の場合、
-    // リクエストで変更されているとバリデーションエラーとして扱う。
-    const now = Date.now();
-    if (
-      existing.publishStartDate.getTime() < now &&
-      newStart.getTime() !== existing.publishStartDate.getTime()
-    ) {
-      throw new BadRequestException(
-        '過去日の表示開始日時は変更できません。',
-      );
+    // [past-start-check] 編集時の publish_start_date ルール（顧客確認 2026-05、分精度）:
+    //   - 保存済み開始日=過去 + 値変更なし → 通す（read-only 維持）
+    //   - 保存済み開始日=過去 + 値変更あり → 拒否（過去日の編集不可）
+    //   - 保存済み開始日=未来 + 新値<現在 → 拒否（過去日への変更不可）
+    //   - 保存済み開始日=未来 + 新値>=現在 → 通す
+    //
+    // [minute-precision] Form input is YYYY/MM/DD HH:mm (no seconds);
+    // parseJstDateTimeMinutes always returns a Date with seconds=0.
+    // The DB row, however, keeps the full timestamp from INSERT (e.g.
+    // 15:44:55.303). Strict-equal `getTime()` would tag every PATCH —
+    // even one that doesn't touch the field — as a change. Compare at
+    // minute precision so "submit unchanged" passes through.
+    const truncateToMinute = (d: Date): number => {
+      const x = new Date(d);
+      x.setSeconds(0, 0);
+      return x.getTime();
+    };
+    const startChanged =
+      truncateToMinute(newStart) !== truncateToMinute(existing.publishStartDate);
+    const existingWasPast =
+      existing.publishStartDate.getTime() < nowMinuteFloor();
+    if (startChanged) {
+      // 1) 保存済み開始日が過去のレコードは開始日を変更できない
+      //    （FE は read-only にする。攻撃者の改竄もここで遮断）。
+      // 2) 保存済み開始日が未来でも、新値が過去ならば不可。
+      if (existingWasPast || newStart.getTime() < nowMinuteFloor()) {
+        throw publishStartPastException();
+      }
     }
 
     let updated: Oshirase | null = null;
     try {
-      updated = await this.dataSource.transaction(async (manager) => {
+      updated = await this.dataSource!.transaction(async (manager) => {
         const before = await manager.findOne(Oshirase, {
           where: { oshiraseId, deletedAt: IsNull() },
         });
@@ -381,7 +534,7 @@ export class OshiraseService {
         return saved;
       });
     } catch (err) {
-      await this.auditLog.logError(
+      await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
         'UPDATE',
         err as Error,
@@ -390,7 +543,7 @@ export class OshiraseService {
     }
 
     return {
-      data: toOshiraseDetail(updated!),
+      data: toOshiraseDetail(updated),
       message: '更新しました。',
     };
   }
@@ -401,19 +554,22 @@ export class OshiraseService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    if (!this.dataSource || !this.auditLog) {
-      throw new Error(
-        'OshiraseService.dataSource/auditLog undefined — SCR-031 endpoints require both.',
-      );
-    }
+    this.assertScrAdminDeps();
 
     const existing = await this.repo.findOne({
       where: { oshiraseId, deletedAt: IsNull() },
     });
     if (!existing) throw new NotFoundException('お知らせ');
 
+    // [deadline-not-deletable] 締め切り時間（oshirase_type=4）は削除不可
+    // （顧客確認 2026-05、1件のみ運用される締め切り時間データの取り違え／
+    // 消失防止）。FE は削除リンクを無効化するが、BE 側でも遮断する。
+    if (existing.oshiraseType === OshiraseType.DEADLINE) {
+      throw new BadRequestException('締め切り時間のお知らせは削除できません。');
+    }
+
     try {
-      await this.dataSource.transaction(async (manager) => {
+      await this.dataSource!.transaction(async (manager) => {
         const before = await manager.findOne(Oshirase, {
           where: { oshiraseId, deletedAt: IsNull() },
         });
@@ -427,7 +583,7 @@ export class OshiraseService {
         );
       });
     } catch (err) {
-      await this.auditLog.logError(
+      await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
         'DELETE',
         err as Error,
@@ -436,5 +592,26 @@ export class OshiraseService {
     }
 
     return { message: '削除しました。' };
+  }
+
+  /**
+   * [scr031-deps-guard] Centralised runtime check for create / update /
+   * remove — the 3 admin endpoints SCR-031 added on top of the SCR-001
+   * public-notice service. Both `dataSource` and `auditLog` are
+   * `@Optional()` so the SCR-001 unit specs can construct the service
+   * with only `(repo, codeService)`; production DI always wires both.
+   *
+   * Returns void rather than narrowing via `asserts this is …` because
+   * the latter collapses to `never` when TS tries to intersect this
+   * class (private auditLog) with a public-typed override. Call this
+   * at the top of every admin method; downstream sites use the `!`
+   * non-null assertion to read the now-checked deps.
+   */
+  private assertScrAdminDeps(): void {
+    if (!this.dataSource || !this.auditLog) {
+      throw new Error(
+        'OshiraseService.dataSource/auditLog undefined — SCR-031 endpoints require both.',
+      );
+    }
   }
 }

@@ -26,6 +26,7 @@ import { useApiForm } from '@/composables/useApiForm';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import { RoleCode } from '@/constants/enums';
 import {
   createShiten,
   getShiten,
@@ -54,6 +55,25 @@ const shitenIdParam = computed<number | undefined>(() => {
 });
 
 const isEdit = computed(() => shitenIdParam.value !== undefined);
+
+// [role5-locked-fields] Customer policy 2026-05 — JA_KANRI_SHITEN can
+// edit shiten in edit mode BUT 管理支店 (kanri_shiten_id) must stay
+// read-only. That's the shiten's "parent" assignment — only higher
+// roles (CHUOKAI / JA_HONTEN / NICHINO_*) reassign a branch to a
+// different kanri-shiten; role 5 sees the value for context but
+// can't change it. Everything else (金融機関支店フラグ / 支店名 /
+// カナ / JASTEM / 備考 / 更新 submit) stays editable for role 5.
+//
+// Kept as a Set + computed (vs. inline `role_code === ...`) so future
+// additions stay one-line: extend the Set, no code-flow changes.
+const ROLE5_LOCKED_FIELDS_ROLES: ReadonlySet<string> = new Set([
+  RoleCode.JA_KANRI_SHITEN,
+]);
+const isRole5LockedFields = computed(
+  () =>
+    isEdit.value &&
+    ROLE5_LOCKED_FIELDS_ROLES.has(authStore.user?.role_code ?? ''),
+);
 
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 
@@ -152,6 +172,31 @@ const TYOKIN_SHUBETSU_OPTIONS = [
   { value: '9', label: '9（その他）' },
 ];
 
+function validateJastemFields(
+  form: FormState,
+  errs: Record<string, string>,
+): void {
+  // JASTEM 4 fields — format checks only when non-empty (Optional).
+  if (
+    form.jastem_toriatsukai_tenpo_code &&
+    !DIGITS_RE.test(form.jastem_toriatsukai_tenpo_code)
+  ) {
+    errs.jastem_toriatsukai_tenpo_code = TENPO_CODE_FORMAT_MSG;
+  }
+  if (form.jastem_tenpo_name && !HALF_WIDTH_RE.test(form.jastem_tenpo_name)) {
+    errs.jastem_tenpo_name = TENPO_NAME_FORMAT_MSG;
+  }
+  if (
+    form.jastem_tyokin_shubetsu &&
+    !TYOKIN_SHUBETSU_RE.test(form.jastem_tyokin_shubetsu)
+  ) {
+    errs.jastem_tyokin_shubetsu = TYOKIN_SHUBETSU_FORMAT_MSG;
+  }
+  if (form.jastem_koza_no && !DIGITS_RE.test(form.jastem_koza_no)) {
+    errs.jastem_koza_no = KOZA_NO_FORMAT_MSG;
+  }
+}
+
 function validateClient(form: FormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
@@ -185,25 +230,7 @@ function validateClient(form: FormState): Record<string, string> {
     errs.shiten_name_kana = KANA_FORMAT_MSG;
   }
 
-  // JASTEM 4 fields — format checks only when non-empty (Optional).
-  if (
-    form.jastem_toriatsukai_tenpo_code &&
-    !DIGITS_RE.test(form.jastem_toriatsukai_tenpo_code)
-  ) {
-    errs.jastem_toriatsukai_tenpo_code = TENPO_CODE_FORMAT_MSG;
-  }
-  if (form.jastem_tenpo_name && !HALF_WIDTH_RE.test(form.jastem_tenpo_name)) {
-    errs.jastem_tenpo_name = TENPO_NAME_FORMAT_MSG;
-  }
-  if (
-    form.jastem_tyokin_shubetsu &&
-    !TYOKIN_SHUBETSU_RE.test(form.jastem_tyokin_shubetsu)
-  ) {
-    errs.jastem_tyokin_shubetsu = TYOKIN_SHUBETSU_FORMAT_MSG;
-  }
-  if (form.jastem_koza_no && !DIGITS_RE.test(form.jastem_koza_no)) {
-    errs.jastem_koza_no = KOZA_NO_FORMAT_MSG;
-  }
+  validateJastemFields(form, errs);
 
   return errs;
 }
@@ -282,7 +309,12 @@ async function submitWith(form: FormState): Promise<void> {
     // (customer ask 2026-05-19 — better feedback than scrolling
     // through a code-sorted list to find the change).
     let highlightId: number | undefined;
-    if (shitenIdParam.value !== undefined) {
+    if (shitenIdParam.value === undefined) {
+      // validateClient guarantees kanri_shiten_id is set for create mode.
+      const created = await createShiten(form as CreateShitenRequest);
+      notify.created();
+      highlightId = created.data.shiten_id;
+    } else {
       // PUT body drops shiten_code (immutable per api.md §3 注記).
       const { shiten_code: _drop, ...updateBody } = form;
       void _drop;
@@ -292,11 +324,6 @@ async function submitWith(form: FormState): Promise<void> {
       );
       notify.updated();
       highlightId = shitenIdParam.value;
-    } else {
-      // validateClient guarantees kanri_shiten_id is set for create mode.
-      const created = await createShiten(form as CreateShitenRequest);
-      notify.created();
-      highlightId = created.data.shiten_id;
     }
     await router.push({
       name: 'ShitenList',
@@ -369,6 +396,7 @@ defineExpose({ submitWith, form: formState });
                 }))
               "
               allow-clear
+              :disabled="isRole5LockedFields"
             />
           </a-form-item>
 
@@ -420,7 +448,10 @@ defineExpose({ submitWith, form: formState });
             :validate-status="allFieldErrors.shiten_name_kana ? 'error' : ''"
             :help="allFieldErrors.shiten_name_kana"
           >
-            <a-input v-model:value="formState.shiten_name_kana" :maxlength="100" />
+            <a-input
+              v-model:value="formState.shiten_name_kana"
+              :maxlength="100"
+            />
           </a-form-item>
         </div>
 
@@ -447,7 +478,10 @@ defineExpose({ submitWith, form: formState });
             :validate-status="allFieldErrors.jastem_tenpo_name ? 'error' : ''"
             :help="allFieldErrors.jastem_tenpo_name"
           >
-            <a-input v-model:value="formState.jastem_tenpo_name" :maxlength="15" />
+            <a-input
+              v-model:value="formState.jastem_tenpo_name"
+              :maxlength="15"
+            />
           </a-form-item>
 
           <a-form-item

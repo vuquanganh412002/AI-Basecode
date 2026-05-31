@@ -1,35 +1,25 @@
 // Pure entity → response DTO mappers for the SCR-031 admin endpoints.
 // No Nest DI, no repo, no service — importable from anywhere.
+//
+// [no-labels-policy] Authenticated endpoints must NOT serialize
+// `*_label` fields per `.claude/rules/nestjs.md §Response serialization`.
+// The FE resolves labels via `useCodesStore().label('CATEGORY', value)`
+// from its in-memory m_code cache — that way customer-edited m_code
+// labels flow into the UI on reload without an FE redeploy AND the API
+// response stays a small, stable contract.
 
 import type { Oshirase } from '@/database/entities/oshirase.entity';
-
-const OSHIRASE_TYPE_LABELS: Record<number, string> = {
-  1: 'システム',
-  2: '重要',
-  3: '一般',
-  4: '締め切り時間',
-};
-
-const PUBLISH_LOCATION_LABELS: Record<number, string> = {
-  1: 'ログイン画面',
-  2: 'メニュー画面',
-};
-
-const OSHIRASE_STATUS_LABELS: Record<number, string> = {
-  1: '下書き',
-  2: '公開',
-  3: '非公開',
-};
 
 export interface OshiraseListItem {
   oshirase_id: number;
   ja_id: number | null;
+  // [ja-name-join] Resolved from m_ja via leftJoin in OshiraseService.getList.
+  // null when ja_id is null (= 全JA向け) OR when the referenced JA was
+  // hard-deleted. FE renders '全JA向け' for null in the table cell.
+  ja_name: string | null;
   oshirase_type: number;
-  oshirase_type_label: string;
   publish_location: number;
-  publish_location_label: string;
   status: number;
-  status_label: string;
   title: string;
   publish_start_date: string;
   publish_end_date: string | null;
@@ -42,16 +32,17 @@ export interface OshiraseDetail extends OshiraseListItem {
   content: string;
 }
 
-export function toOshiraseListItem(o: Oshirase): OshiraseListItem {
+export function toOshiraseListItem(
+  o: Oshirase,
+  jaName: string | null = null,
+): OshiraseListItem {
   return {
     oshirase_id: Number(o.oshiraseId),
     ja_id: o.jaId === null ? null : Number(o.jaId),
+    ja_name: jaName,
     oshirase_type: o.oshiraseType,
-    oshirase_type_label: OSHIRASE_TYPE_LABELS[o.oshiraseType] ?? '',
     publish_location: o.publishLocation,
-    publish_location_label: PUBLISH_LOCATION_LABELS[o.publishLocation] ?? '',
     status: o.status,
-    status_label: OSHIRASE_STATUS_LABELS[o.status] ?? '',
     title: o.title,
     publish_start_date: formatJstDateTimeMinutes(o.publishStartDate),
     publish_end_date: o.publishEndDate ? formatJstDateTimeMinutes(o.publishEndDate) : null,
@@ -61,9 +52,12 @@ export function toOshiraseListItem(o: Oshirase): OshiraseListItem {
   };
 }
 
-export function toOshiraseDetail(o: Oshirase): OshiraseDetail {
+export function toOshiraseDetail(
+  o: Oshirase,
+  jaName: string | null = null,
+): OshiraseDetail {
   return {
-    ...toOshiraseListItem(o),
+    ...toOshiraseListItem(o, jaName),
     content: o.content,
   };
 }

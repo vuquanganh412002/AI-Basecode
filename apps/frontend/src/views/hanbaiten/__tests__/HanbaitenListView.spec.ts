@@ -24,6 +24,19 @@ vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   removeHanbaiten: vi.fn(),
 }));
 
+// BaseJaDropdown calls /api/v1/ja/dropdown via getJaDropdown — stub it
+// so the staff-path tests don't issue real network requests when
+// mounting the dropdown card above the search form.
+vi.mock('@/api/ja/ja', () => ({
+  getJaDropdown: vi.fn().mockResolvedValue({
+    data: [
+      { ja_id: 7, ja_code: '0007', ja_name: 'JA 七つの郷' },
+      { ja_id: 42, ja_code: '0042', ja_name: 'JA 四二農協' },
+    ],
+    meta: { total: 2, page: 1, per_page: 50, has_more: false },
+  }),
+}));
+
 // Spy on antd's global toasts. Antd's `MessageType` is a callable
 // PromiseLike — return undefined via cast so the spy compiles even
 // once `@ts-nocheck` is removed.
@@ -284,19 +297,18 @@ describe('HanbaitenListView — search (機能定義 2.x)', () => {
     expect(callArg).toMatchObject({ shocho_name: '山田' });
   });
 
-  it('should default haiten_flg to false (or omit) so 廃店レコード are excluded when mounted', async () => {
-    // COVERS: 機能定義 1.1 / 2.1 — 廃店フラグが立っているものは販売店の一覧
-    // に表示しないこと。FE sends `haiten_flg=false` (or omits — BE default
-    // is false) on the initial fetch.
+  it('should default haiten_flg to false so only 営業中 rows show on mount', async () => {
+    // COVERS: customer 2026-05-26 — exact-match semantic. Default
+    // (checkbox unchecked) sends haiten_flg=false → BE filters to
+    // 営業中のみ. Replaces the old "include 廃店" semantic.
     await renderView();
     const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as Record<string, unknown> | undefined;
-    // Either falsy (false / undefined) — both achieve the same outcome.
-    expect(callArg?.haiten_flg).not.toBe(true);
+    expect(callArg?.haiten_flg).toBe(false);
   });
 
-  it('should include haiten_flg=true in listHanbaiten params when the 廃店フラグ toggle is enabled', async () => {
-    // COVERS: API-018-001 §haiten_flg — `true` means include 廃店レコード.
+  it('should send haiten_flg=true when 廃店フラグ is checked (show 廃店のみ)', async () => {
+    // COVERS: customer 2026-05-26 — checked = 廃店のみ (NOT include).
     const { wrapper } = await renderView();
     const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     vi.mocked(listHanbaiten).mockClear();
@@ -702,5 +714,129 @@ describe('HanbaitenListView — permission gating (seeder.md §3)', () => {
       .find((b) => b.text().trim() === '削除');
     expect(firstDeleteBtn).toBeDefined();
     expect(firstDeleteBtn!.attributes('disabled')).toBeUndefined();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// [staff-ja-filter] NICHINO_STAFF 代行入力 path
+// ───────────────────────────────────────────────────────────────────────
+describe('HanbaitenListView — NICHINO_STAFF 代行入力 path', () => {
+  const staffUser = () =>
+    buildAuthUser({
+      role_code: 'NICHINO_STAFF',
+      role_id: 2,
+      ja_id: null,
+      permissions: ['hanbaiten.daiko_input'],
+    });
+
+  it('should render the JA filter card above the search form for staff', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    expect(
+      wrapper.find('[data-test="hanbaiten-staff-ja-filter"]').exists(),
+    ).toBe(true);
+  });
+
+  it('should NOT render the JA filter card for JA-scoped roles', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({
+        role_code: 'JA_HONTEN',
+        ja_id: 1,
+        permissions: ['hanbaiten.view'],
+      }),
+    });
+    expect(
+      wrapper.find('[data-test="hanbaiten-staff-ja-filter"]').exists(),
+    ).toBe(false);
+  });
+
+  it('should auto-fetch the list on mount for staff (no JA filter = all tenants)', async () => {
+    await renderView({ user: staffUser() });
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    expect(listHanbaiten).toHaveBeenCalledTimes(1);
+    // No ja_id key in the initial call — staff sees every JA's
+    // hanbaiten until the dropdown narrows it down.
+    const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(callArg?.ja_id).toBeUndefined();
+  });
+
+  it('should leave 販売店情報登録 button enabled for staff (JA is picked inside the form)', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    const createBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('販売店情報登録'));
+    expect(createBtn).toBeDefined();
+    expect(createBtn!.attributes('disabled')).toBeUndefined();
+  });
+
+  it('should fetch list with ja_id once staff picks a JA from the dropdown', async () => {
+    const { wrapper } = await renderView({ user: staffUser() });
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(listHanbaiten).mockClear();
+
+    // Drive the BaseJaDropdown's `update:value` event directly — the
+    // view's onJaFilterChange handler doesn't depend on antd's internal
+    // popup state, only on the emitted value.
+    const dropdown = wrapper.findComponent({ name: 'BaseJaDropdown' });
+    expect(dropdown.exists()).toBe(true);
+    dropdown.vm.$emit('update:value', 7);
+    await flushPromises();
+
+    expect(listHanbaiten).toHaveBeenCalled();
+    const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(callArg?.ja_id).toBe(7);
+  });
+
+  it('should NOT send ja_id from JA-scoped roles (anti-spoof, BE binds session.ja_id)', async () => {
+    await renderView({
+      user: buildAuthUser({
+        role_code: 'JA_HONTEN',
+        ja_id: 1,
+        permissions: ['hanbaiten.view'],
+      }),
+    });
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(callArg?.ja_id).toBeUndefined();
+  });
+
+  it('should forward the staff-selected ja_id via ?ja_id when navigating to create form', async () => {
+    const { wrapper, router } = await renderView({ user: staffUser() });
+    const pushSpy = vi.spyOn(router, 'push');
+
+    // Pick a JA first; click 販売店情報登録 should carry it forward.
+    const dropdown = wrapper.findComponent({ name: 'BaseJaDropdown' });
+    dropdown.vm.$emit('update:value', 42);
+    await flushPromises();
+
+    const createBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('販売店情報登録'));
+    await createBtn!.trigger('click');
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'HanbaitenCreate',
+      query: { ja_id: '42' },
+    });
+  });
+
+  it('should omit ?ja_id when staff navigates to create without picking a JA', async () => {
+    const { wrapper, router } = await renderView({ user: staffUser() });
+    const pushSpy = vi.spyOn(router, 'push');
+
+    const createBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('販売店情報登録'));
+    await createBtn!.trigger('click');
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'HanbaitenCreate',
+      query: undefined,
+    });
   });
 });

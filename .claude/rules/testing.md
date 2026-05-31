@@ -1,6 +1,6 @@
 # Testing Standards — Jest (BE) + Vitest (FE) + NestJS + Vue 3
 
-> Standards for testing in the `agrinews` project.
+> Standards for testing in the `AgriNews_ACSMS` project.
 > - **Backend (NestJS)**: Jest + ts-jest + supertest — NestJS docs default; ts-jest emits decorator metadata natively.
 > - **Frontend (Vue 3)**: Vitest + Vue Test Utils — Vue/Vite ecosystem default; shares Vite transform pipeline.
 
@@ -33,12 +33,11 @@ Backend (`apps/backend/jest.config.ts` → `collectCoverageFrom`):
 
 Frontend (`apps/frontend/vitest.config.ts`):
 - `src/main.ts`, `src/App.vue`, `src/router/index.ts`
-- `src/api/generated/**` — Orval output
 - `src/env.d.ts`, `src/types/**`, `src/**/*.d.ts`
 
 ## TDD workflow
 
-Per-screen pipeline (order, review steps, migration + Orval timing) lives in the **[README.md § Development Workflow](../../README.md)** — canonical reference, do not duplicate.
+Per-screen pipeline (order, review steps, migration timing) lives in the **[README.md § Development Workflow](../../README.md)** — canonical reference, do not duplicate.
 
 Rules that govern test files specifically:
 

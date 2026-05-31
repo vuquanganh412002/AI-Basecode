@@ -1,6 +1,6 @@
 # Monitoring & Observability — CloudWatch + NestJS
 
-> Standards for logging, metrics, and alerting in the `agrinews` project on AWS.
+> Standards for logging, metrics, and alerting in the `AgriNews_ACSMS` project on AWS.
 
 ---
 

@@ -63,8 +63,6 @@ apps/backend/.env*
 apps/frontend/.env*
 !apps/frontend/.env.example
 
-# Generated API client
-apps/frontend/src/api/generated*
 apps/frontend/swagger.json
 
 # E2E tests workspace
@@ -75,6 +73,7 @@ cookies.txt
 *.cookies
 *.cookie-jar
 
-# SonarQube — local scanner working dir + project config
+# SonarQube — local scanner working dir only. The project config
+# (`sonar-project.properties`) is checked in so suppressions stay
+# under code review; the token is sourced from $SONAR_TOKEN env var.
 .scannerwork/
-sonar-project.properties

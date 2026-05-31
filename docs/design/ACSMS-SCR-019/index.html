@@ -343,49 +343,95 @@
             <form class="space-y-4">
               <!-- Row 1: file | mode | template -->
               <div class="grid grid-cols-6 gap-x-4 gap-y-4 items-start">
-                <!-- Excelファイル名 -->
-                <div class="col-span-1">
+                <!-- Excelファイル名 — UI in Japanese regardless of browser locale. -->
+                <div class="col-span-2">
                   <label
                     class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                    for="file-input"
                   >
                     Excelファイル名 <span class="text-red-500 ml-0.5">*</span>
                   </label>
+                  <div
+                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1 text-sm bg-white dark:bg-slate-800 flex items-center gap-3"
+                  >
+                    <button
+                      id="file-trigger"
+                      type="button"
+                      class="py-1 px-3 rounded text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      ファイルを選択
+                    </button>
+                    <span
+                      id="file-name-display"
+                      class="flex-1 truncate text-slate-400 dark:text-slate-500"
+                    >
+                      ファイルが選択されていません
+                    </span>
+                  </div>
                   <input
                     id="file-input"
                     type="file"
                     accept=".xlsx,.xls"
-                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-0.5 text-sm text-slate-700 dark:text-slate-300 dark:bg-slate-800 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                    class="sr-only"
                   />
                 </div>
-                <!-- 取込モード -->
-                <div class="col-span-1">
-                  <label
-                    for="import-mode"
+                <!-- 取込モード — radio group (customer 2026-05-27). -->
+                <div class="col-span-2">
+                  <span
+                    id="import-mode-label"
                     class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
                   >
                     取込モード
-                  </label>
-                  <select
-                    id="import-mode"
-                        name="import-mode"
-                    class="w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 dark:bg-slate-800 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em]"
-                    style="
-                      background-image: url(&quot;data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e&quot;);
-                    "
+                  </span>
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="import-mode-label"
+                    class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
                   >
-                    <option value="new" selected>新規登録</option>
-                    <option value="update">全項目更新</option>
-                    <option value="cancel">入力箇所のみ更新</option>
-                  </select>
+                    <label
+                      class="inline-flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        value="new"
+                        checked
+                        class="w-3.5 h-3.5 border-slate-300 text-primary focus:ring-primary/20"
+                      />
+                      新規登録
+                    </label>
+                    <label
+                      class="inline-flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        value="update"
+                        class="w-3.5 h-3.5 border-slate-300 text-primary focus:ring-primary/20"
+                      />
+                      全項目更新
+                    </label>
+                    <label
+                      class="inline-flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="import-mode"
+                        value="cancel"
+                        class="w-3.5 h-3.5 border-slate-300 text-primary focus:ring-primary/20"
+                      />
+                      入力箇所のみ更新
+                    </label>
+                  </div>
                 </div>
                 <!-- テンプレート -->
                 <div
-                  class="col-span-1 col-start-6 flex flex-col items-end justify-end h-full pt-6"
+                  class="col-span-2 flex flex-col items-end justify-end h-full pt-6"
                 >
                   <button
                     id="download-template-btn"
                     type="button"
-                    class="w-full flex items-center justify-center gap-1.5 px-3 py-[7px] text-sm font-medium text-primary border border-primary/40 rounded hover:bg-primary/5 transition-colors whitespace-nowrap"
+                    class="flex items-center justify-center gap-1.5 px-3 py-[7px] text-sm font-medium text-primary border border-primary/40 rounded hover:bg-primary/5 transition-colors whitespace-nowrap"
                   >
                     <span class="material-icons text-[16px]">download</span>
                     テンプレート
@@ -393,46 +439,33 @@
                 </div>
               </div>
 
-              <!-- 取込列マッピング -->
+              <!-- 取込列マッピング — header text + すべて選択／解除 toggle
+                   (customer 2026-05-27). Always-open panel; the
+                   accordion toggle was dropped from the Vue port. -->
               <div
                 class="border border-slate-200 dark:border-slate-700 rounded"
               >
-                <button
-                  id="col-toggle"
-                  type="button"
-                  class="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors rounded"
+                <div
+                  class="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-800"
                 >
                   <span
                     class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5"
                   >
                     <span class="text-primary">◆</span>
-                    取込列の見出し名または列名を選択
-                    <span
-                      class="text-xs font-normal text-slate-400 ml-2"
-                      id="col-count"
-                      >(23/23項目)</span
-                    >
+                    取込列
                   </span>
-                  <div class="flex items-center gap-3">
-                    <label
-                      class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 cursor-pointer"
-                      onclick="event.stopPropagation()"
-                    >
-                      <input
-                        id="check-all"
-                        type="checkbox"
-                        checked
-                        class="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/20"
-                      />
-                      すべて選択
-                    </label>
-                    <span
-                      id="col-chevron"
-                      class="material-icons text-slate-400 text-[18px] transition-transform duration-200"
-                      >expand_more</span
-                    >
-                  </div>
-                </button>
+                  <label
+                    class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 cursor-pointer"
+                  >
+                    <input
+                      id="check-all"
+                      type="checkbox"
+                      checked
+                      class="w-3.5 h-3.5 rounded border-slate-300 text-primary focus:ring-primary/20"
+                    />
+                    すべて選択／解除
+                  </label>
+                </div>
                 <div id="col-panel" class="px-4 py-3">
                   <div
                     class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
@@ -497,23 +530,7 @@
                         >インボイス番号</span
                       >
                     </label>
-                    <!-- 5. 都道府県コード -->
-                    <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked
-                        disabled
-                        name="col"
-                        value="都道府県コード"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
-                      />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >都道府県コード <span class="text-red-500">*</span></span
-                      >
-                    </label>
-                    <!-- 6. 郵便番号 -->
+                    <!-- 4. 郵便番号 -->
                     <label
                       class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
@@ -850,9 +867,9 @@
     </main>
     <script>
       const fileInput = document.getElementById("file-input");
+      const fileTrigger = document.getElementById("file-trigger");
+      const fileNameDisplay = document.getElementById("file-name-display");
       const checkAll = document.getElementById("check-all");
-      const colPanel = document.getElementById("col-panel");
-      const colChevron = document.getElementById("col-chevron");
       const previewSec = document.getElementById("preview-section");
       const previewThead = document.getElementById("preview-thead");
       const previewTbody = document.getElementById("preview-tbody");
@@ -863,7 +880,6 @@
         "販売店名称",
         "販売店名称カナ",
         "インボイス番号",
-        "都道府県コード",
         "郵便番号",
         "住所",
         "電話番号",
@@ -888,23 +904,12 @@
       const colCheckboxes = () =>
         document.querySelectorAll('input[name="col"]');
 
-      function updateColCount() {
-        const checked = [...colCheckboxes()].filter((cb) => cb.checked).length;
-        const total = colCheckboxes().length;
-        colCount.textContent = `(${checked}/${total}項目)`;
-      }
+      // --- Custom JA file picker — proxy click into the hidden native input. ---
+      fileTrigger.addEventListener("click", () => fileInput.click());
 
-      // --- Accordion ---
-      document.getElementById("col-toggle").addEventListener("click", () => {
-        const open = !colPanel.classList.contains("hidden");
-        colPanel.classList.toggle("hidden", open);
-        colChevron.style.transform = open ? "rotate(-90deg)" : "rotate(0deg)";
-      });
-
-      // --- すべて選択 ---
+      // --- すべて選択／解除 ---
       checkAll.addEventListener("change", () => {
         colCheckboxes().forEach((cb) => (cb.checked = checkAll.checked));
-        updateColCount();
         renderPreview();
       });
       document.addEventListener("change", (e) => {
@@ -913,7 +918,6 @@
           checkAll.checked = [...all].every((cb) => cb.checked);
           checkAll.indeterminate =
             !checkAll.checked && [...all].some((cb) => cb.checked);
-          updateColCount();
           renderPreview();
         }
       });
@@ -937,9 +941,15 @@
         if (!file) {
           excelRows = [];
           excelHeaders = [];
+          fileNameDisplay.textContent = "ファイルが選択されていません";
+          fileNameDisplay.classList.add("text-slate-400", "dark:text-slate-500");
+          fileNameDisplay.classList.remove("text-slate-700", "dark:text-slate-300");
           renderPreview();
           return;
         }
+        fileNameDisplay.textContent = file.name;
+        fileNameDisplay.classList.remove("text-slate-400", "dark:text-slate-500");
+        fileNameDisplay.classList.add("text-slate-700", "dark:text-slate-300");
         const reader = new FileReader();
         reader.onload = (evt) => {
           try {

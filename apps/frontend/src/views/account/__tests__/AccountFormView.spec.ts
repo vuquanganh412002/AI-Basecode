@@ -287,7 +287,7 @@ describe('AccountFormView — role-based dropdown visibility (機能定義 4.x)'
     const labels = wrapper.findAll('label').map((l) => l.text());
     // Asterisks present on 都道府県 + JA, absent on 管理支店.
     expect(labels.some((t) => t === '都道府県*')).toBe(true);
-    expect(labels.some((t) => t === 'JA*')).toBe(true);
+    expect(labels.some((t) => t === 'JA名*')).toBe(true);
     expect(labels.some((t) => t === '管理支店*')).toBe(false);
   });
 
@@ -300,7 +300,7 @@ describe('AccountFormView — role-based dropdown visibility (機能定義 4.x)'
 
     const labels = wrapper.findAll('label').map((l) => l.text());
     expect(labels.some((t) => t === '都道府県*')).toBe(true);
-    expect(labels.some((t) => t === 'JA*')).toBe(true);
+    expect(labels.some((t) => t === 'JA名*')).toBe(true);
     expect(labels.some((t) => t === '管理支店*')).toBe(true);
   });
 });
@@ -401,6 +401,70 @@ describe('AccountFormView — 都道府県 / JA cascade (機能定義 5.x / 6.x)
     await flushPromises();
 
     expect(vm.formState?.kanri_shiten_id).toBeFalsy();
+  });
+
+  it('should reset 都道府県 / JA / 管理支店 when role_id changes between two non-null roles (QA 2026-05)', async () => {
+    // [role-change-full-reset] User report — switching role left the
+    // previous role's selections sitting in the dropdowns. Even when
+    // the new role shows the same fields (e.g. role 5 → 4 both show
+    // 都道府県+JA), all 3 must clear so the user picks from scratch.
+    //
+    // Sequence: first pick role=5 (null→5, NO reset by design — see
+    // [skip-initial-pick] in AccountFormView.vue), flush, then assign
+    // dependents, flush, THEN switch role 5 → 4. The latter triggers
+    // the reset.
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) vm.formState.role_id = 5;
+    await flushPromises();
+    if (vm.formState) {
+      vm.formState.todofuken_code = '13';
+      vm.formState.ja_id = 10;
+      vm.formState.kanri_shiten_id = 20;
+    }
+    await flushPromises();
+
+    if (vm.formState) vm.formState.role_id = 4;
+    await flushPromises();
+
+    expect(vm.formState?.todofuken_code).toBeFalsy();
+    expect(vm.formState?.ja_id).toBeFalsy();
+    expect(vm.formState?.kanri_shiten_id).toBeFalsy();
+  });
+
+  it('should also reset dependent fields when role_id changes between siblings (3 → 4)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) vm.formState.role_id = 3;
+    await flushPromises();
+    if (vm.formState) {
+      vm.formState.todofuken_code = '13';
+      vm.formState.ja_id = 10;
+    }
+    await flushPromises();
+
+    if (vm.formState) vm.formState.role_id = 4;
+    await flushPromises();
+
+    expect(vm.formState?.todofuken_code).toBeFalsy();
+    expect(vm.formState?.ja_id).toBeFalsy();
+  });
+
+  it('should NOT reset dependents on the first role pick (null → value)', async () => {
+    // [skip-initial-pick] Guards the Object.assign() pattern used by
+    // fillForm() across create-flow tests: role_id + todofuken bundle
+    // into one tick. role_id transition null→N must NOT clear the
+    // dependents that were assigned in the same Object.assign call.
+    // Real UX: dependents are null at first pick anyway, no observable
+    // diff — this is purely a test-stability guard.
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) {
+      vm.formState.role_id = 5;
+      vm.formState.todofuken_code = '13';
+    }
+    await flushPromises();
+    expect(vm.formState?.todofuken_code).toBe('13');
   });
 });
 

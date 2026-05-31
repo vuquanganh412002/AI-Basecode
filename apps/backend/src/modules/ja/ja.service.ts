@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
@@ -19,6 +19,7 @@ import {
 } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import {
+  BadRequestException,
   DuplicateCodeException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
@@ -542,9 +543,16 @@ export class JaService {
     applyJaScope(qb, 'mj', 'jaId', session);
 
     if (query.q) {
-      qb.andWhere('(mj.ja_code ILIKE :q OR mj.ja_name ILIKE :q)', {
-        q: `%${query.q}%`,
-      });
+      // [match-field] 'name' = ja_name only (SCR-024 account list hides
+      // ja_code so searching by code would be invisible to the user).
+      // Default 'both' preserves legacy behavior for every other caller.
+      if (query.match_field === 'name') {
+        qb.andWhere('mj.ja_name ILIKE :q', { q: `%${query.q}%` });
+      } else {
+        qb.andWhere('(mj.ja_code ILIKE :q OR mj.ja_name ILIKE :q)', {
+          q: `%${query.q}%`,
+        });
+      }
     }
 
     if (query.todofuken_code) {

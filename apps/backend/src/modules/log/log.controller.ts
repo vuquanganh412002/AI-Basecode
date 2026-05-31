@@ -22,6 +22,7 @@ import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ExportLogDto } from './dto/export-log.dto';
+import { LogListResponseDto } from './dto/log-response.dto';
 import { SearchLogDto } from './dto/search-log.dto';
 import { LogService } from './log.service';
 
@@ -37,7 +38,7 @@ export class LogController {
   @HttpCode(HttpStatus.OK)
   @Permissions('log.view')
   @ApiOperation({ summary: '操作ログ一覧取得 — ACSMS-API-030-001' })
-  @ApiResponse({ status: 200, description: '正常にログ一覧を取得しました' })
+  @ApiResponse({ status: 200, type: LogListResponseDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   async getLogList(
@@ -53,7 +54,15 @@ export class LogController {
   @HttpCode(HttpStatus.OK)
   @Permissions('log.view')
   @ApiOperation({ summary: '操作ログCSV出力 — ACSMS-API-030-002' })
-  @ApiResponse({ status: 200, description: '正常にCSVをダウンロードしました' })
+  // CSV download — binary body, no typed JSON. Orval emits `void` for
+  // the return type, which is correct: the FE wrapper consumes the
+  // response as a Blob and triggers a download. Don't decorate with a
+  // `type:` here — there's nothing JSON-shaped to model.
+  @ApiResponse({
+    status: 200,
+    description: 'CSV file (text/csv; charset=utf-8) as attachment.',
+    content: { 'text/csv': {} },
+  })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   @ApiResponse({ status: 409, description: '検索結果が5,000件を超えています。条件を絞り込んでください。' })

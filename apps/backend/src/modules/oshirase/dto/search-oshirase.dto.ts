@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsOptional } from 'class-validator';
+
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /** Whitelist of sortable columns per api.md §4.1 of API-031-001. */
 export const OSHIRASE_SEARCH_SORT_BY = [
@@ -15,30 +16,13 @@ export type OshiraseSearchSortBy = (typeof OSHIRASE_SEARCH_SORT_BY)[number];
 
 /**
  * Query DTO for `GET /api/v1/oshirase` (ACSMS-API-031-001).
- * Every field is optional; defaults: page=1, per_page=20,
- * sort_by=created_at, sort_order=desc.
+ *
+ * Inherits `page` / `per_page` from {@link PaginationDto} (canonical
+ * defaults: page=1, per_page=20, max 100, Japanese error messages).
+ * Adds an `OSHIRASE_SEARCH_SORT_BY`-whitelisted `sort_by` + `sort_order`
+ * — the enum varies per search endpoint so those two fields stay local.
  */
-export class SearchOshiraseDto {
-  @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'pageは整数で指定してください。' })
-  @Min(1, { message: 'pageは1以上で指定してください。' })
-  page?: number;
-
-  @ApiPropertyOptional({
-    description: '1ページあたりの件数（デフォルト: 20、最大: 100）',
-    minimum: 1,
-    maximum: 100,
-    default: 20,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'per_pageは整数で指定してください。' })
-  @Min(1, { message: 'per_pageは1〜100の範囲で指定してください。' })
-  @Max(100, { message: 'per_pageは1〜100の範囲で指定してください。' })
-  per_page?: number;
-
+export class SearchOshiraseDto extends PaginationDto {
   @ApiPropertyOptional({
     description: 'ソート対象',
     enum: OSHIRASE_SEARCH_SORT_BY,

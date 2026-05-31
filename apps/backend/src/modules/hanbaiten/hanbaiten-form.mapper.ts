@@ -3,6 +3,11 @@
 // shape returned by GET/POST/PUT endpoints. No Nest DI, no repo —
 // importable from anywhere (service, tests).
 
+import { toIso, toNumber } from '@/common/utils/mapper-helpers';
+
+/** Numeric column coming from pg as number-or-string, nullable. */
+type NumOrStringNull = number | string | null;
+
 /**
  * Raw row shape produced by HanbaitenService.buildDetailQuery(...).
  * Numeric BIGINT / NUMERIC columns may come back as string from pg
@@ -22,16 +27,16 @@ export interface HanbaitenDetailRow {
   tel: string | null;
   fax: string | null;
   shocho_name: string | null;
-  itaku_kubun: number | string | null;
-  haitatsuryo_tanka_id: number | string | null;
-  haitatsuryo_shiharai_cycle: number | string | null;
-  tesuryo_kubun: number | string | null;
-  tesuryo_amount: number | string | null;
+  itaku_kubun: NumOrStringNull;
+  haitatsuryo_tanka_id: NumOrStringNull;
+  haitatsuryo_shiharai_cycle: NumOrStringNull;
+  tesuryo_kubun: NumOrStringNull;
+  tesuryo_amount: NumOrStringNull;
   bank_code: string | null;
   bank_name: string | null;
   bank_branch_code: string | null;
   bank_branch_name: string | null;
-  yokin_shubetsu: number | string | null;
+  yokin_shubetsu: NumOrStringNull;
   koza_no: string | null;
   koza_meigi: string | null;
   haiten_flg: boolean;
@@ -72,18 +77,7 @@ export interface HanbaitenDetailResponse {
   updated_at: string | null;
 }
 
-function toIso(v: Date | string | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v.toISOString();
-  return String(v);
-}
-
-function toNumber(v: number | string | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'number') return v;
-  const n = Number(v);
-  return Number.isNaN(n) ? null : n;
-}
+// `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers`.
 
 /**
  * Map a raw joined row → SCR-017 detail-response shape. NOT NULL columns

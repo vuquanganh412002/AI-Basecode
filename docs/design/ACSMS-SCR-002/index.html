@@ -410,12 +410,8 @@
               aria-label="Breadcrumb"
               class="flex text-xs text-slate-400 mt-1"
             >
-              <ol class="inline-flex items-center space-x-1">
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
                 <li>ホーム</li>
-                <li class="flex items-center">
-                  <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>マスタ管理</span>
-                </li>
                 <li class="flex items-center">
                   <span class="material-icons text-xs mx-1">chevron_right</span>
                   <span class="text-slate-600 dark:text-slate-300"
@@ -657,6 +653,13 @@
                         </svg>
                       </div>
                     </th>
+                    <!-- 有効単価フラグ — inserted per customer feedback 2026-05-11.
+                         Non-sortable (sort_by whitelist excludes it). Badge: 有効=green, 無効=red. -->
+                    <th
+                      class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-center"
+                    >
+                      有効単価フラグ
+                    </th>
                     <th
                       class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-right"
                     >
@@ -692,6 +695,9 @@
                     <td class="px-6 py-4">一般新聞月極</td>
                     <td class="px-6 py-4">2026/01/01</td>
                     <td class="px-6 py-4">-</td>
+                    <td class="px-6 py-4 text-center">
+                      <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">有効</span>
+                    </td>
                     <td
                       class="px-6 py-4 text-right text-slate-900 dark:text-slate-100"
                     >
@@ -719,6 +725,9 @@
                     <td class="px-6 py-4">学生割引新聞</td>
                     <td class="px-6 py-4">2026/04/01</td>
                     <td class="px-6 py-4">2026/03/31</td>
+                    <td class="px-6 py-4 text-center">
+                      <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">無効</span>
+                    </td>
                     <td
                       class="px-6 py-4 text-right text-slate-900 dark:text-slate-100"
                     >
@@ -746,6 +755,9 @@
                     <td class="px-6 py-4">早朝配達加算</td>
                     <td class="px-6 py-4">2025/10/01</td>
                     <td class="px-6 py-4">-</td>
+                    <td class="px-6 py-4 text-center">
+                      <span class="inline-block px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">有効</span>
+                    </td>
                     <td
                       class="px-6 py-4 text-right text-slate-900 dark:text-slate-100"
                     >

@@ -1,15 +1,17 @@
 // Screen: __SCREEN_ID__ — __SCREEN__
 //
-// Local type aliases for __MODULE__. Prefer re-exporting Orval-generated
-// types from `@/api/generated` — only define new types for UI-only shapes
-// (form state, table row decorators) that don't exist in the API client.
+// Local type aliases for __MODULE__. Prefer re-exporting the interfaces
+// already declared in the hand-written wrapper at
+// `@/api/__MODULE__/__MODULE__` — only define new types for UI-only
+// shapes (form state, table row decorators) that don't exist in the
+// wrapper.
 
-// Example — re-export backend types:
+// Example — re-export wrapper types:
 // export type {
-//   __ENTITY__ResponseDto as __ENTITY__,
-//   Create__ENTITY__Dto,
-//   Update__ENTITY__Dto,
-// } from '@/api/generated';
+//   __ENTITY__Detail as __ENTITY__,
+//   Create__ENTITY__Body,
+//   Update__ENTITY__Body,
+// } from '@/api/__MODULE__/__MODULE__';
 
 // Example — UI-only form state type:
 // export interface __ENTITY__FormState {
