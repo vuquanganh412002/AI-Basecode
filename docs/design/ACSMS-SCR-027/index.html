@@ -1,0 +1,1527 @@
+<!doctype html>
+
+<html class="light" lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>購読者管理システム - ロール管理画面</title>
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1e40af",
+              "background-light": "#f1f5f9",
+              "background-dark": "#0f172a",
+            },
+            fontFamily: {
+              display: ["'Noto Sans JP'", "sans-serif"],
+              body: ["'Noto Sans JP'", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.375rem",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        font-family: "Noto Sans JP", sans-serif;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+
+      .dark .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+    </style>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1677ff",
+              "primary-hover": "#4096ff",
+              "background-light": "#f5f5f5",
+              "background-dark": "#0f172a",
+            },
+            fontFamily: {
+              display: ["'Noto Sans JP'", "'Public Sans'", "sans-serif"],
+              body: ["'Noto Sans JP'", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "6px",
+              lg: "8px",
+              xl: "12px",
+              full: "9999px",
+            },
+          },
+        },
+      };
+    </script>
+    <style type="text/tailwindcss">
+      body {
+        font-family: "Noto Sans JP", sans-serif;
+      }
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+      .material-symbols-outlined {
+        font-variation-settings:
+          "FILL" 0,
+          "wght" 400,
+          "GRAD" 0,
+          "opsz" 20;
+      }
+      /* Ant Design specific styles */
+      .ant-input {
+        @apply w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm;
+      }
+      .ant-select {
+        @apply border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em];
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+      }
+    </style>
+    <style>
+      body {
+        font-family: "Noto Sans JP", sans-serif;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+
+      .dark .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+
+      .permission-list::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .permission-list::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 10px;
+      }
+
+      .permission-list::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+
+      .dark .permission-list::-webkit-scrollbar-track {
+        background: #1e293b;
+      }
+
+      .dark .permission-list::-webkit-scrollbar-thumb {
+        background: #475569;
+      }
+
+      .permission-item {
+        transition: all 0.15s ease;
+      }
+
+      .permission-item:hover {
+        transform: translateX(2px);
+      }
+
+      .permission-item.selected {
+        background-color: #dbeafe;
+        border-color: #3b82f6;
+      }
+
+      .dark .permission-item.selected {
+        background-color: #1e3a5f;
+        border-color: #3b82f6;
+      }
+
+      .transfer-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+
+      .fade-in {
+        animation: fadeIn 0.2s ease-in;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .category-badge {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+      }
+
+      .perm-grid::-webkit-scrollbar {
+        width: 6px;
+      }
+      .perm-grid::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .perm-grid::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark .perm-grid::-webkit-scrollbar-thumb {
+        background: #475569;
+      }
+      .perm-row:nth-child(even) {
+        background-color: rgba(241, 245, 249, 0.5);
+      }
+      .dark .perm-row:nth-child(even) {
+        background-color: rgba(30, 41, 59, 0.3);
+      }
+      .perm-row:hover {
+        background-color: #e0f2fe !important;
+      }
+      .dark .perm-row:hover {
+        background-color: rgba(30, 58, 95, 0.4) !important;
+      }
+    </style>
+  </head>
+
+  <body
+    class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex"
+  >
+    <!-- Sidebar -->
+    <aside
+      class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0"
+    >
+      <div
+        class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3"
+      >
+        <div
+          class="w-8 h-8 bg-primary rounded flex items-center justify-center"
+        >
+          <span class="material-icons text-white text-sm">auto_stories</span>
+        </div>
+        <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
+      </div>
+      <nav
+        class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6"
+      >
+        <div class="space-y-1">
+          <a
+            class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+            href="#"
+          >
+            <span class="material-icons text-[18px]">home</span>
+            <span>メニュー画面</span>
+          </a>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            購読者管理
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">person_add</span>
+              <span>購読者情報登録</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">upload_file</span>
+              <span>購読者Excelデータ取込</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">search</span>
+              <span>購読者明細検索</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]"
+                >published_with_changes</span
+              >
+              <span>購読者販売店一括置換</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            販売店管理
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">store</span>
+              <span>販売店情報登録</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">sim_card_download</span>
+              <span>販売店Excelデータ取込</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">find_in_page</span>
+              <span>支店マスタ明細検索画面</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            データ作成
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">account_balance</span>
+              <span>口座振替データ出力</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">payments</span>
+              <span>支払情報出力</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            レポート作成
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">assignment</span>
+              <span>購読者名簿</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">trending_up</span>
+              <span>増減連絡票（販売店）</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">newspaper</span>
+              <span>増減通知（日本農業新聞）</span>
+            </a>
+          </div>
+        </div>
+        <div class="pb-10">
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            管理者機能
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">history</span>
+              <span>ログ参照</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">manage_accounts</span>
+              <span>アカウント管理</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">campaign</span>
+              <span>お知らせ一覧</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">upload</span>
+              <span>販売店代行入力</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">security</span>
+              <span>ロール管理</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]"
+                >admin_panel_settings</span
+              >
+              <span>管理支店マスタ</span>
+            </a>
+          </div>
+        </div>
+      </nav>
+      <div
+        class="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-center"
+      >
+        <button
+          class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+          onclick="document.documentElement.classList.toggle('dark')"
+        >
+          <span class="material-icons block dark:hidden">dark_mode</span>
+          <span class="material-icons hidden dark:block">light_mode</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+      <div class="p-8 pt-4 overflow-y-auto w-full">
+        <!-- Header -->
+        <header class="flex justify-between items-center">
+          <div>
+            <h2 class="text-2xl font-bold">ロール管理画面</h2>
+            <nav
+              aria-label="Breadcrumb"
+              class="flex text-xs text-slate-400 mt-1"
+            >
+              <ol class="inline-flex items-center space-x-1">
+                <li>ホーム</li>
+                <li class="flex items-center">
+                  <span class="material-icons text-xs mx-1">chevron_right</span>
+                  <span>管理者機能</span>
+                </li>
+                <li class="flex items-center">
+                  <span class="material-icons text-xs mx-1">chevron_right</span>
+                  <span class="text-slate-600 dark:text-slate-300"
+                    >ロール管理画面
+                  </span>
+                </li>
+              </ol>
+            </nav>
+          </div>
+          <div class="flex items-center gap-4 flex-shrink-0">
+            <div class="flex items-center gap-3">
+              <button
+                class="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative"
+              >
+                <span class="material-icons">notifications</span>
+                <span
+                  class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"
+                ></span>
+              </button>
+              <div
+                class="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700"
+              >
+                <div
+                  class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden"
+                >
+                  <span class="material-icons text-slate-500"
+                    >account_circle</span
+                  >
+                </div>
+                <span class="text-sm">admin:日農（管理者）</span>
+              </div>
+            </div>
+          </div>
+        </header>
+        <div class="pt-4">
+          <!-- Registration Form (unified) -->
+          <section
+            id="registrationForm"
+            class="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-6 hidden"
+          >
+            <!-- Role Info Fields -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <!-- ロールコード -->
+              <div>
+                <label
+                  class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  ロールコード <span class="text-red-500">*</span>
+                </label>
+                <input
+                  id="roleCodeInput"
+                  type="text"
+                  maxlength="50"
+                  placeholder="例：NICHINO_ADMIN"
+                  oninput="markDirty()"
+                  class="w-full border border-slate-300 dark:border-slate-700 rounded-md py-2 px-3 text-sm focus:ring-primary focus:border-primary transition-all outline-none dark:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-900"
+                />
+              </div>
+
+              <!-- ロール名 -->
+              <div>
+                <label
+                  class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  ロール名 <span class="text-red-500">*</span>
+                </label>
+                <input
+                  id="roleNameInput"
+                  type="text"
+                  maxlength="100"
+                  placeholder="例：日農"
+                  oninput="markDirty()"
+                  class="w-full border border-slate-300 dark:border-slate-700 rounded-md py-2 px-3 text-sm focus:ring-primary focus:border-primary transition-all outline-none dark:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-900"
+                />
+              </div>
+
+              <!-- 説明 -->
+              <div>
+                <label
+                  class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  説明
+                </label>
+                <input
+                  id="roleDescInput"
+                  type="text"
+                  maxlength="200"
+                  placeholder="ロールの説明を入力してください"
+                  oninput="markDirty()"
+                  class="w-full border border-slate-300 dark:border-slate-700 rounded-md py-2 px-3 text-sm focus:ring-primary focus:border-primary transition-all outline-none dark:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-900"
+                />
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div
+              id="permissionDivider"
+              class="border-t border-slate-200 dark:border-slate-700 hidden"
+            ></div>
+
+            <!-- 権限設定 -->
+            <div id="permissionPanel" class="hidden">
+              <!-- Section Title -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-3">
+                  <div class="flex items-center gap-2">
+                    <h4
+                      class="text-sm font-bold text-slate-700 dark:text-slate-300"
+                    >
+                      権限設定
+                    </h4>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Permission Content (always visible) -->
+              <div id="permissionContent">
+                <!-- Checkbox Grid -->
+                <div
+                  id="permissionCheckboxGrid"
+                  class="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div class="border-t border-slate-200 dark:border-slate-700"></div>
+
+            <!-- Save / Cancel Buttons -->
+            <div class="flex items-center gap-3">
+              <button
+                id="btnSave"
+                onclick="saveAll()"
+                class="px-6 py-2.5 bg-primary hover:bg-blue-600 text-white rounded-md font-bold transition-colors shadow-sm text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
+              >
+                保存
+              </button>
+              <button
+                onclick="cancelAll()"
+                class="px-5 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-md font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm whitespace-nowrap"
+              >
+                クリア
+              </button>
+            </div>
+          </section>
+
+          <!-- ロール一覧 -->
+          <div
+            class="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
+          >
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse table-fixed">
+                <thead>
+                  <tr
+                    class="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800"
+                  >
+                    <th
+                      class="w-[8%] px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider whitespace-nowrap"
+                    >
+                      編集
+                    </th>
+                    <th
+                      class="w-[15%] px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider whitespace-nowrap"
+                    >
+                      ロールコード
+                    </th>
+                    <th
+                      class="w-[13%] px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider whitespace-nowrap"
+                    >
+                      ロール名
+                    </th>
+                    <th
+                      class="w-[20%] px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 tracking-wider whitespace-nowrap"
+                    >
+                      説明
+                    </th>
+                  </tr>
+                </thead>
+                <tbody
+                  class="divide-y divide-slate-100 dark:divide-slate-800"
+                  id="roleTableBody"
+                ></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Confirm Modal (クリア確認) -->
+    <div
+      id="clearConfirmModal"
+      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center"
+    >
+      <div
+        class="bg-white dark:bg-slate-900 rounded-lg p-6 max-w-sm w-full shadow-xl mx-4"
+      >
+        <h3 class="font-bold text-lg text-slate-800 dark:text-slate-100 mb-3">
+          確認
+        </h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300 mb-6">
+          入力内容を破棄してクリアしますか？
+        </p>
+        <div class="flex items-center gap-3 justify-end">
+          <button
+            onclick="confirmClear()"
+            class="px-5 py-2 bg-primary hover:bg-blue-700 text-white rounded-md font-bold text-sm transition-colors"
+          >
+            はい
+          </button>
+          <button
+            onclick="hideClearModal()"
+            class="px-5 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-md font-medium text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+          >
+            いいえ
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ===== DATA (from seeder.md m_permissions) =====
+      const allPermissions = [
+        // 2.1 購読者（dokusya）
+        {
+          id: 1,
+          name: "購読者登録",
+          code: "dokusya.create",
+          desc: "購読者情報の新規登録",
+          category: "dokusya",
+        },
+        {
+          id: 2,
+          name: "購読者参照",
+          code: "dokusya.view",
+          desc: "購読者明細検索・一覧表示",
+          category: "dokusya",
+        },
+        {
+          id: 3,
+          name: "購読者編集",
+          code: "dokusya.update",
+          desc: "購読者情報の編集",
+          category: "dokusya",
+        },
+        {
+          id: 4,
+          name: "購読者削除",
+          code: "dokusya.delete",
+          desc: "購読者情報の削除",
+          category: "dokusya",
+        },
+        {
+          id: 5,
+          name: "購読者Excelデータ取込",
+          code: "dokusya.import",
+          desc: "購読者情報のExcel一括取込",
+          category: "dokusya",
+        },
+        {
+          id: 6,
+          name: "購読者販売店一括置換",
+          code: "dokusya.replace_hanbaiten",
+          desc: "購読者の販売店を一括置換",
+          category: "dokusya",
+        },
+        // 2.2 販売店（hanbaiten）
+        {
+          id: 7,
+          name: "販売店登録",
+          code: "hanbaiten.create",
+          desc: "販売店情報の新規登録",
+          category: "hanbaiten",
+        },
+        {
+          id: 8,
+          name: "販売店参照",
+          code: "hanbaiten.view",
+          desc: "販売店明細検索・一覧表示",
+          category: "hanbaiten",
+        },
+        {
+          id: 9,
+          name: "販売店編集",
+          code: "hanbaiten.update",
+          desc: "販売店情報の編集",
+          category: "hanbaiten",
+        },
+        {
+          id: 10,
+          name: "販売店削除",
+          code: "hanbaiten.delete",
+          desc: "販売店情報の削除",
+          category: "hanbaiten",
+        },
+        {
+          id: 11,
+          name: "販売店Excelデータ取込",
+          code: "hanbaiten.import",
+          desc: "販売店情報のExcel一括取込",
+          category: "hanbaiten",
+        },
+        // 2.3 単価マスタ（tanka）
+        {
+          id: 12,
+          name: "単価登録",
+          code: "tanka.create",
+          desc: "単価マスタの新規登録",
+          category: "tanka",
+        },
+        {
+          id: 13,
+          name: "単価参照",
+          code: "tanka.view",
+          desc: "単価マスタの検索・一覧表示",
+          category: "tanka",
+        },
+        {
+          id: 14,
+          name: "単価編集",
+          code: "tanka.update",
+          desc: "単価マスタの編集",
+          category: "tanka",
+        },
+        {
+          id: 15,
+          name: "単価削除",
+          code: "tanka.delete",
+          desc: "単価マスタの削除",
+          category: "tanka",
+        },
+        // 2.4 JAマスタ（ja）
+        {
+          id: 16,
+          name: "JA登録",
+          code: "ja.create",
+          desc: "JAマスタの新規登録",
+          category: "ja",
+        },
+        {
+          id: 17,
+          name: "JA参照",
+          code: "ja.view",
+          desc: "JAマスタの参照",
+          category: "ja",
+        },
+        {
+          id: 18,
+          name: "JA編集",
+          code: "ja.update",
+          desc: "JAマスタの編集",
+          category: "ja",
+        },
+        {
+          id: 19,
+          name: "JA削除",
+          code: "ja.delete",
+          desc: "JAマスタの削除",
+          category: "ja",
+        },
+        // 2.5 支店マスタ（shiten）
+        {
+          id: 20,
+          name: "支店登録",
+          code: "shiten.create",
+          desc: "支店マスタの新規登録",
+          category: "shiten",
+        },
+        {
+          id: 21,
+          name: "支店参照",
+          code: "shiten.view",
+          desc: "支店マスタの参照",
+          category: "shiten",
+        },
+        {
+          id: 22,
+          name: "支店編集",
+          code: "shiten.update",
+          desc: "支店マスタの編集",
+          category: "shiten",
+        },
+        {
+          id: 23,
+          name: "支店削除",
+          code: "shiten.delete",
+          desc: "支店マスタの削除",
+          category: "shiten",
+        },
+        // 2.6 管理支店マスタ（kanri_shiten）
+        {
+          id: 24,
+          name: "管理支店登録",
+          code: "kanri_shiten.create",
+          desc: "管理支店マスタの新規登録",
+          category: "kanri_shiten",
+        },
+        {
+          id: 25,
+          name: "管理支店参照",
+          code: "kanri_shiten.view",
+          desc: "管理支店マスタの参照",
+          category: "kanri_shiten",
+        },
+        {
+          id: 26,
+          name: "管理支店編集",
+          code: "kanri_shiten.update",
+          desc: "管理支店マスタの編集",
+          category: "kanri_shiten",
+        },
+        {
+          id: 27,
+          name: "管理支店削除",
+          code: "kanri_shiten.delete",
+          desc: "管理支店マスタの削除",
+          category: "kanri_shiten",
+        },
+        // 2.7 アカウント（account）
+        {
+          id: 28,
+          name: "アカウント登録",
+          code: "account.create",
+          desc: "アカウントの新規作成",
+          category: "account",
+        },
+        {
+          id: 29,
+          name: "アカウント参照",
+          code: "account.view",
+          desc: "アカウントの参照",
+          category: "account",
+        },
+        {
+          id: 30,
+          name: "アカウント編集",
+          code: "account.update",
+          desc: "アカウントの編集",
+          category: "account",
+        },
+        {
+          id: 31,
+          name: "アカウント削除",
+          code: "account.delete",
+          desc: "アカウントの削除",
+          category: "account",
+        },
+        // 2.8 お知らせ（oshirase）
+        {
+          id: 32,
+          name: "お知らせ登録",
+          code: "oshirase.create",
+          desc: "お知らせの新規登録",
+          category: "oshirase",
+        },
+        {
+          id: 33,
+          name: "お知らせ参照",
+          code: "oshirase.view",
+          desc: "お知らせの参照",
+          category: "oshirase",
+        },
+        {
+          id: 34,
+          name: "お知らせ編集",
+          code: "oshirase.update",
+          desc: "お知らせの編集",
+          category: "oshirase",
+        },
+        {
+          id: 35,
+          name: "お知らせ削除",
+          code: "oshirase.delete",
+          desc: "お知らせの削除",
+          category: "oshirase",
+        },
+        // 2.9 ファイル（file）
+        {
+          id: 36,
+          name: "ファイルアップロード",
+          code: "file.upload",
+          desc: "ファイルのアップロード",
+          category: "file",
+        },
+        {
+          id: 37,
+          name: "ファイルダウンロード",
+          code: "file.download",
+          desc: "ファイルのダウンロード",
+          category: "file",
+        },
+        // 2.10 ログ（log）
+        {
+          id: 38,
+          name: "ログ参照",
+          code: "log.view",
+          desc: "操作ログの参照",
+          category: "log",
+        },
+        // 2.11 口座振替（koza_furikae）
+        {
+          id: 39,
+          name: "口座振替データ出力",
+          code: "koza_furikae.export",
+          desc: "口座振替データの出力（全銀フォーマット/Excel）",
+          category: "koza_furikae",
+        },
+        // 2.12 配達手数料（haitatsuryo）
+        {
+          id: 40,
+          name: "配達手数料支払情報出力",
+          code: "haitatsuryo.export",
+          desc: "配達手数料支払情報の出力",
+          category: "haitatsuryo",
+        },
+        // 2.13 レポート（report）
+        {
+          id: 41,
+          name: "購読者名簿出力",
+          code: "report.export_meibo",
+          desc: "販売店別・管理支店別購読者名簿の出力",
+          category: "report",
+        },
+        {
+          id: 42,
+          name: "増減連絡票（販売店）出力",
+          code: "report.export_zougen_hanbaiten",
+          desc: "販売店向け増減連絡票の出力",
+          category: "report",
+        },
+        {
+          id: 43,
+          name: "増減通知（日本農業新聞）出力",
+          code: "report.export_zougen_nichino",
+          desc: "日本農業新聞向け増減通知の出力",
+          category: "report",
+        },
+      ];
+
+      const roles = [
+        {
+          id: 1,
+          code: "NICHINO_ADMIN",
+          name: "日農（管理者）",
+          desc: "日本農業新聞 管理者アカウント",
+        },
+        {
+          id: 2,
+          code: "NICHINO_STAFF",
+          name: "日農（担当者）",
+          desc: "日本農業新聞 担当者アカウント",
+        },
+        { id: 3, code: "CHUOKAI", name: "中央会", desc: "中央会アカウント" },
+        { id: 4, code: "JA_HONTEN", name: "JA本店", desc: "JA本店アカウント" },
+        {
+          id: 5,
+          code: "JA_KANRI_SHITEN",
+          name: "JA管理支店",
+          desc: "JA管理支店アカウント",
+        },
+      ];
+
+      // m_roles_permissions data (from seeder.md)
+      const rolePermissions = {
+        // role_id=1 日農（管理者）— 19件
+        1: new Set([
+          16, 17, 18, 19, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+          37, 38,
+        ]),
+        // role_id=2 日農（担当者）— 7件
+        2: new Set([7, 8, 9, 11, 36, 37, 38]),
+        // role_id=3 中央会 — 29件
+        3: new Set([
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 22,
+          23, 36, 37, 38, 39, 40, 41, 42, 43,
+        ]),
+        // role_id=4 JA本店 — 29件（中央会と同一）
+        4: new Set([
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 22,
+          23, 36, 37, 38, 39, 40, 41, 42, 43,
+        ]),
+        // role_id=5 JA管理支店 — 27件（JA本店から ja.view, ja.update を除く）
+        5: new Set([
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 36,
+          37, 38, 39, 40, 41, 42, 43,
+        ]),
+      };
+
+      let currentEditingRoleId = null;
+      let isEditMode = false;
+      let isDirty = false;
+
+      const categoryLabels = {
+        dokusya: {
+          label: "購読者",
+          color:
+            "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+        },
+        hanbaiten: {
+          label: "販売店",
+          color:
+            "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
+        },
+        tanka: {
+          label: "単価",
+          color:
+            "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+        },
+        ja: {
+          label: "JA",
+          color:
+            "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        },
+        shiten: {
+          label: "支店",
+          color:
+            "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+        },
+        kanri_shiten: {
+          label: "管理支店",
+          color:
+            "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+        },
+        account: {
+          label: "アカウント",
+          color:
+            "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+        },
+        oshirase: {
+          label: "お知らせ",
+          color:
+            "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
+        },
+        file: {
+          label: "ファイル",
+          color:
+            "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+        },
+        log: {
+          label: "ログ",
+          color:
+            "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
+        },
+        koza_furikae: {
+          label: "口座振替",
+          color:
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+        },
+        haitatsuryo: {
+          label: "配達手数料",
+          color:
+            "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+        },
+        report: {
+          label: "レポート",
+          color: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+        },
+      };
+
+      // ===== RENDER ROLE TABLE =====
+      function renderRoleTable() {
+        const tbody = document.getElementById("roleTableBody");
+        tbody.innerHTML = roles
+          .map((role) => {
+            const assignedCount = rolePermissions[role.id]
+              ? rolePermissions[role.id].size
+              : 0;
+            const isEditing = currentEditingRoleId === role.id;
+            return `
+                <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${isEditing ? "bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500" : ""}">
+                    <td class="px-4 py-4">
+                        <button onclick="editRole(${role.id})" class="text-primary hover:text-blue-700 font-medium text-sm">編集</button>
+                    </td>
+                    <td class="px-4 py-4 text-sm text-slate-700 dark:text-slate-300 font-mono">${escapeHtml(role.code)}</td>
+                    <td class="px-4 py-4 text-sm text-slate-700 dark:text-slate-300">${escapeHtml(role.name)}</td>
+                    <td class="px-4 py-4 text-sm text-slate-500 dark:text-slate-400 truncate">${escapeHtml(role.desc)}</td>
+                    
+                </tr>`;
+          })
+          .join("");
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      // ===== MODE CONTROL =====
+      function markDirty() {
+        isDirty = true;
+      }
+
+      function enableCreateMode() {
+        document.getElementById("registrationForm").classList.remove("hidden");
+        document.getElementById("roleCodeInput").disabled = false;
+        document.getElementById("roleNameInput").disabled = false;
+        document.getElementById("roleDescInput").disabled = false;
+        document.getElementById("btnSave").disabled = false;
+        document.getElementById("permissionPanel").classList.add("hidden");
+        document.getElementById("permissionDivider").classList.add("hidden");
+        isEditMode = false;
+      }
+
+      function enableEditMode() {
+        document.getElementById("registrationForm").classList.remove("hidden");
+        document.getElementById("roleCodeInput").disabled = true;
+        document.getElementById("roleNameInput").disabled = false;
+        document.getElementById("roleDescInput").disabled = false;
+        document.getElementById("btnSave").disabled = false;
+        document.getElementById("permissionPanel").classList.remove("hidden");
+        document.getElementById("permissionDivider").classList.remove("hidden");
+        isEditMode = true;
+        renderPermissionCheckboxes();
+      }
+
+      // ===== MODAL CONFIRM (クリア) =====
+      function showClearModal() {
+        var modal = document.getElementById("clearConfirmModal");
+        modal.classList.remove("hidden");
+      }
+
+      function hideClearModal() {
+        var modal = document.getElementById("clearConfirmModal");
+        modal.classList.add("hidden");
+      }
+
+      function confirmClear() {
+        hideClearModal();
+        clearForm();
+      }
+
+      // ===== EDIT ROLE (fill form) =====
+      function editRole(roleId) {
+        const role = roles.find((r) => r.id === roleId);
+        if (!role) return;
+        document.getElementById("roleCodeInput").value = role.code;
+        document.getElementById("roleNameInput").value = role.name;
+        document.getElementById("roleDescInput").value = role.desc;
+        currentEditingRoleId = roleId;
+        isDirty = false;
+
+        enableEditMode();
+        renderPermissionCheckboxes();
+        renderRoleTable();
+
+        // Scroll to form
+        setTimeout(function () {
+          document
+            .getElementById("registrationForm")
+            .scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 100);
+      }
+
+      function clearForm() {
+        document.getElementById("roleCodeInput").value = "";
+        document.getElementById("roleNameInput").value = "";
+        document.getElementById("roleDescInput").value = "";
+        currentEditingRoleId = null;
+        isDirty = false;
+        document.getElementById("registrationForm").classList.add("hidden");
+        renderRoleTable();
+      }
+
+      function showCreateForm() {
+        clearFormInputs();
+        enableCreateMode();
+        document
+          .getElementById("registrationForm")
+          .scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      function clearFormInputs() {
+        document.getElementById("roleCodeInput").value = "";
+        document.getElementById("roleNameInput").value = "";
+        document.getElementById("roleDescInput").value = "";
+        currentEditingRoleId = null;
+        isDirty = false;
+      }
+
+      // ===== PERMISSION PANEL =====
+      function openPermissionPanel(roleId) {
+        editRole(roleId);
+        setTimeout(function () {
+          document
+            .getElementById("permissionPanel")
+            .scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 50);
+      }
+
+      function closePermissionPanel() {
+        currentEditingRoleId = null;
+        renderPermissionCheckboxes();
+        renderRoleTable();
+      }
+
+      // ===== CHECKBOX PERMISSION GRID =====
+      function renderPermissionCheckboxes() {
+        const assignedIds = currentEditingRoleId
+          ? rolePermissions[currentEditingRoleId] || new Set()
+          : new Set();
+        const grid = document.getElementById("permissionCheckboxGrid");
+
+        // Group by category
+        const categories = {};
+        allPermissions.forEach(function (p) {
+          if (!categories[p.category]) categories[p.category] = [];
+          categories[p.category].push(p);
+        });
+
+        let html = "";
+        // Sticky table header
+        html +=
+          '<div class="grid grid-cols-[44px_1fr_1fr_2fr] gap-0 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">';
+        html += '<div class="px-2 py-2.5 flex items-center justify-center">';
+        html +=
+          '<input type="checkbox" id="selectAllPerms" ' +
+          (assignedIds.size === allPermissions.length ? "checked" : "") +
+          ' onchange="toggleSelectAllPerms()"' +
+          (!isEditMode ? " disabled" : "") +
+          ' class="rounded border-slate-300 text-primary focus:ring-primary w-4 h-4' +
+          (!isEditMode ? " opacity-50 cursor-not-allowed" : "") +
+          '" />';
+        html += "</div>";
+        html +=
+          '<div class="px-3 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center">コード</div>';
+        html +=
+          '<div class="px-3 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center">権限名</div>';
+
+        html +=
+          '<div class="px-3 py-2.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center">説明</div>';
+        html += "</div>";
+        // Scrollable body
+        html +=
+          '<div class="perm-grid overflow-y-auto" style="max-height: 460px;">';
+        var rowIdx = 0;
+        Object.keys(categories).forEach(function (cat) {
+          const perms = categories[cat];
+
+          // Permission rows
+          perms.forEach(function (p) {
+            const isChecked = assignedIds.has(p.id);
+            html +=
+              '<label class="grid grid-cols-[44px_1fr_1fr_2fr] gap-0 cursor-pointer transition-colors perm-row">';
+            html +=
+              '<div class="px-2 py-2.5 flex items-center justify-center border-r border-slate-100 dark:border-slate-800">';
+            html +=
+              '<input type="checkbox" ' +
+              (isChecked ? "checked" : "") +
+              ' onchange="togglePermission(' +
+              p.id +
+              ')"' +
+              (!isEditMode ? " disabled" : "") +
+              ' class="rounded border-slate-300 text-primary focus:ring-primary w-4 h-4' +
+              (!isEditMode ? " opacity-50 cursor-not-allowed" : "") +
+              '" />';
+            html += "</div>";
+            html +=
+              '<div class="px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 flex items-center border-r border-slate-100 dark:border-slate-800">' +
+              escapeHtml(p.name) +
+              "</div>";
+            html +=
+              '<div class="px-3 py-2.5 text-xs text-blue-600 dark:text-blue-400 font-mono truncate flex items-center border-r border-slate-100 dark:border-slate-800">' +
+              escapeHtml(p.code) +
+              "</div>";
+            html +=
+              '<div class="px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400 truncate flex items-center">' +
+              escapeHtml(p.desc) +
+              "</div>";
+            html += "</label>";
+            rowIdx++;
+          });
+        });
+        html += "</div>";
+
+        grid.innerHTML = html;
+        updatePermissionCount();
+      }
+
+      function togglePermission(permId) {
+        if (!currentEditingRoleId || !isEditMode) return;
+        if (!rolePermissions[currentEditingRoleId])
+          rolePermissions[currentEditingRoleId] = new Set();
+        if (rolePermissions[currentEditingRoleId].has(permId)) {
+          rolePermissions[currentEditingRoleId].delete(permId);
+        } else {
+          rolePermissions[currentEditingRoleId].add(permId);
+        }
+        markDirty();
+        renderPermissionCheckboxes();
+        renderRoleTable();
+      }
+
+      function toggleCategory(cat) {
+        if (!currentEditingRoleId || !isEditMode) return;
+        if (!rolePermissions[currentEditingRoleId])
+          rolePermissions[currentEditingRoleId] = new Set();
+        const perms = allPermissions.filter(function (p) {
+          return p.category === cat;
+        });
+        const allChecked = perms.every(function (p) {
+          return rolePermissions[currentEditingRoleId].has(p.id);
+        });
+        perms.forEach(function (p) {
+          if (allChecked) {
+            rolePermissions[currentEditingRoleId].delete(p.id);
+          } else {
+            rolePermissions[currentEditingRoleId].add(p.id);
+          }
+        });
+        markDirty();
+        renderPermissionCheckboxes();
+        renderRoleTable();
+      }
+
+      function toggleSelectAllPerms() {
+        if (!currentEditingRoleId || !isEditMode) return;
+        if (!rolePermissions[currentEditingRoleId])
+          rolePermissions[currentEditingRoleId] = new Set();
+        const allChecked = allPermissions.every(function (p) {
+          return rolePermissions[currentEditingRoleId].has(p.id);
+        });
+        allPermissions.forEach(function (p) {
+          if (allChecked) {
+            rolePermissions[currentEditingRoleId].delete(p.id);
+          } else {
+            rolePermissions[currentEditingRoleId].add(p.id);
+          }
+        });
+        markDirty();
+        renderPermissionCheckboxes();
+        renderRoleTable();
+      }
+
+      function updatePermissionCount() {
+        const assignedIds = currentEditingRoleId
+          ? rolePermissions[currentEditingRoleId] || new Set()
+          : new Set();
+        document.getElementById("assignedCount").textContent = assignedIds.size;
+        document.getElementById("totalCount").textContent =
+          allPermissions.length;
+        var selectAll = document.getElementById("selectAllPerms");
+        if (selectAll)
+          selectAll.checked = assignedIds.size === allPermissions.length;
+      }
+
+      // ===== SAVE ALL (Role Info + Permissions) =====
+      function saveAll() {
+        var roleCode = document.getElementById("roleCodeInput").value.trim();
+        var roleName = document.getElementById("roleNameInput").value.trim();
+        var roleDesc = document.getElementById("roleDescInput").value.trim();
+
+        if (!roleCode || !roleName) {
+          alert("ロールコードとロール名は必須です。");
+          return;
+        }
+
+        var msg = "";
+
+        if (currentEditingRoleId) {
+          // Update existing role
+          var role = roles.find(function (r) {
+            return r.id === currentEditingRoleId;
+          });
+          role.code = roleCode;
+          role.name = roleName;
+          role.desc = roleDesc;
+
+          msg += "【ロール情報】\n";
+          msg +=
+            "UPDATE m_roles SET role_code = '" +
+            roleCode +
+            "', role_name = '" +
+            roleName +
+            "', description = '" +
+            roleDesc +
+            "', updated_at = now(), updated_by = 'ADMIN' WHERE role_id = " +
+            role.id +
+            ";\n\n";
+
+          // Permissions
+          var count = rolePermissions[currentEditingRoleId]
+            ? rolePermissions[currentEditingRoleId].size
+            : 0;
+
+          msg +=
+            "DELETE FROM m_roles_permission WHERE role_id = " + role.id + ";\n";
+          if (count > 0) {
+            msg +=
+              "INSERT INTO m_roles_permission (role_id, permission_id, created_at, created_by, updated_at, updated_by) VALUES\n";
+            var ids = Array.from(rolePermissions[currentEditingRoleId]).sort(
+              function (a, b) {
+                return a - b;
+              },
+            );
+            ids.forEach(function (pid, idx) {
+              msg +=
+                "  (" +
+                role.id +
+                ", " +
+                pid +
+                ", now(), 'ADMIN', now(), 'ADMIN')";
+              msg += idx < ids.length - 1 ? ",\n" : ";\n";
+            });
+          }
+        } else {
+          // New role — only insert role info, no permissions
+          var newId =
+            roles.length > 0
+              ? Math.max.apply(
+                  null,
+                  roles.map(function (r) {
+                    return r.id;
+                  }),
+                ) + 1
+              : 1;
+          roles.push({
+            id: newId,
+            code: roleCode,
+            name: roleName,
+            desc: roleDesc,
+          });
+          rolePermissions[newId] = new Set();
+
+          msg += "【新規ロール登録】（権限設定は編集画面で行ってください）\n";
+          msg +=
+            "INSERT INTO m_roles (role_code, role_name, description, created_at, created_by, updated_at, updated_by) VALUES\n";
+          msg +=
+            "  ('" +
+            roleCode +
+            "', '" +
+            roleName +
+            "', '" +
+            roleDesc +
+            "', now(), 'ADMIN', now(), 'ADMIN');\n";
+        }
+
+        alert(msg + "\n保存しました");
+        isDirty = false;
+        clearForm();
+      }
+
+      function cancelAll() {
+        if (isDirty) {
+          showClearModal();
+        } else {
+          clearForm();
+        }
+      }
+
+      // ===== INIT =====
+      renderRoleTable();
+    </script>
+  </body>
+</html>

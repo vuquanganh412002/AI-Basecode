@@ -1,0 +1,657 @@
+<!doctype html>
+
+<html class="light" lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>購読者管理システム - 管理支店マスタ登録画面</title>
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1e40af",
+              "background-light": "#f1f5f9",
+              "background-dark": "#0f172a",
+            },
+            fontFamily: {
+              display: ["'Noto Sans JP'", "sans-serif"],
+              body: ["'Noto Sans JP'", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.375rem",
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      .scrollbar-thin::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+      }
+      .scrollbar-thin::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+    </style>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1677ff",
+              "primary-hover": "#4096ff",
+              "background-light": "#f5f5f5",
+              "background-dark": "#0f172a",
+            },
+            fontFamily: {
+              display: ["'Noto Sans JP'", "'Public Sans'", "sans-serif"],
+              body: ["'Noto Sans JP'", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "6px",
+              lg: "8px",
+              xl: "12px",
+              full: "9999px",
+            },
+          },
+        },
+      };
+    </script>
+    <style type="text/tailwindcss">
+      body {
+        font-family: "Noto Sans JP", sans-serif;
+      }
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+      .material-symbols-outlined {
+        font-variation-settings:
+          "FILL" 0,
+          "wght" 400,
+          "GRAD" 0,
+          "opsz" 20;
+      }
+      /* Ant Design specific styles */
+      .ant-input {
+        @apply w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm;
+      }
+      .ant-select {
+        @apply border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em];
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+      }
+    </style>
+  </head>
+  <body
+    class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex"
+  >
+    <aside
+      class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0"
+    >
+      <div
+        class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3"
+      >
+        <div
+          class="w-8 h-8 bg-primary rounded flex items-center justify-center"
+        >
+          <span class="material-icons text-white text-sm">auto_stories</span>
+        </div>
+        <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
+      </div>
+      <nav
+        class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6"
+      >
+        <div class="space-y-1">
+          <a
+            class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+            href="#"
+          >
+            <span class="material-icons text-[18px]">home</span>
+            <span>メニュー画面</span>
+          </a>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            購読者管理
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">person_add</span>
+              <span>購読者情報登録</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">upload_file</span>
+              <span>購読者Excelデータ取込</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">search</span>
+              <span>購読者明細検索</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]"
+                >published_with_changes</span
+              >
+              <span>購読者販売店一括置換</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            販売店管理
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">store</span>
+              <span>販売店情報登録</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">sim_card_download</span>
+              <span>販売店Excelデータ取込</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">find_in_page</span>
+              <span>販売店明細検索</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            データ作成
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">account_balance</span>
+              <span>口座振替データ出力</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">payments</span>
+              <span>支払情報出力</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            レポート作成
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">assignment</span>
+              <span>購読者名簿</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">trending_up</span>
+              <span>増減連絡票（販売店）</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">newspaper</span>
+              <span>増減通知（日本農業新聞）</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            マスタ管理
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">settings_suggest</span>
+              <span>単価マスタ</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">domain</span>
+              <span>JAマスタ</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">apartment</span>
+              <span>支店マスタ</span>
+            </a>
+          </div>
+        </div>
+        <div>
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            その他
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">upload</span>
+              <span>ファイルアップロード</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">download</span>
+              <span>ファイルダウンロード</span>
+            </a>
+          </div>
+        </div>
+        <div class="pb-10">
+          <h3
+            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
+          >
+            管理者機能
+          </h3>
+          <div class="space-y-1">
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">history</span>
+              <span>ログ参照</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">manage_accounts</span>
+              <span>アカウント管理</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">campaign</span>
+              <span>お知らせ一覧</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">upload</span>
+              <span>販売店代行入力</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+              href="#"
+            >
+              <span class="material-icons text-[18px]">security</span>
+              <span>ロール管理</span>
+            </a>
+            <a
+              class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
+              href="#"
+            >
+              <span class="material-icons text-[18px]"
+                >admin_panel_settings</span
+              >
+              <span>管理支店マスタ</span>
+            </a>
+          </div>
+        </div>
+      </nav>
+      <div
+        class="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-center"
+      >
+        <button
+          class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+          onclick="document.documentElement.classList.toggle('dark')"
+        >
+          <span class="material-icons block dark:hidden">dark_mode</span>
+          <span class="material-icons hidden dark:block">light_mode</span>
+        </button>
+      </div>
+    </aside>
+    <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+      <div class="p-8 pt-4 overflow-y-auto w-full">
+        <header class="flex justify-between items-center">
+          <div>
+            <h2 class="text-2xl font-bold">管理支店マスタ登録画面</h2>
+            <nav
+              aria-label="Breadcrumb"
+              class="flex text-xs text-slate-400 mt-1"
+            >
+              <ol class="inline-flex items-center space-x-1 m-0 pl-0 list-none">
+                <li>ホーム</li>
+                <li class="flex items-center">
+                  <span class="material-icons text-xs mx-1">chevron_right</span>
+                  <a class="text-primary hover:underline cursor-pointer"
+                    >管理支店マスタ明細検索</a
+                  >
+                </li>
+                <li class="flex items-center">
+                  <span class="material-icons text-xs mx-1">chevron_right</span>
+                  <span class="text-slate-600 dark:text-slate-300"
+                    >管理支店マスタ登録画面</span
+                  >
+                </li>
+              </ol>
+            </nav>
+          </div>
+          <div class="flex items-center gap-4 flex-shrink-0">
+            <div class="flex items-center gap-3">
+              <button
+                class="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative"
+              >
+                <span class="material-icons">notifications</span>
+                <span
+                  class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"
+                ></span>
+              </button>
+              <div
+                class="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700"
+              >
+                <div
+                  class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden"
+                >
+                  <span class="material-icons text-slate-500"
+                    >account_circle</span
+                  >
+                </div>
+                <span>admin:日農（管理者）</span>
+              </div>
+            </div>
+          </div>
+        </header>
+        <!-- Form Container -->
+        <div
+          class="mt-4 bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800"
+        >
+          <div
+            class="px-4 py-4 border-b border-slate-100 dark:border-slate-800"
+          >
+            <!-- Card heading — matches KanriShitenFormView.vue's h3 literal.
+                 NOTE: '管理店支' is a typo for '管理支店' (店 and 支 swapped)
+                 also present in the code + spec; fixing requires touching
+                 KanriShitenFormView.vue + KanriShitenFormView.spec.ts in
+                 the same change. Tracked as a separate cleanup. -->
+            <h3 class="text-lg font-medium text-slate-800 dark:text-slate-200">
+              管理店支情報入力
+            </h3>
+          </div>
+          <div class="p-4">
+            <form class="space-y-6">
+              <!-- Row 1: JA名 (Full Width) -->
+              <div>
+                <label
+                  class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  JA名 <span class="text-red-500">*</span>
+                </label>
+                <select class="w-full ant-select">
+                  <option value="">JAコードを選択</option>
+                  <option value="JA001">JA001 - 北海道JA</option>
+                  <option value="JA002">JA002 - 東北JA</option>
+                  <option value="JA003">JA003 - 東京JA</option>
+                  <option value="JA004">JA004 - 関西JA</option>
+                </select>
+              </div>
+
+              <!-- Row 2: 管理支店コード, 管理支店名, 管理支店名(カナ) -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    管理支店コード <span class="text-red-500">*</span>
+                  </label>
+                  <input type="text" class="ant-input" />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    管理支店名 <span class="text-red-500">*</span>
+                  </label>
+                  <input type="text" class="ant-input" />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    管理支店名(カナ)
+                  </label>
+                  <input type="text" class="ant-input" />
+                </div>
+              </div>
+
+              <!-- Row 3: 郵便番号, 都道府県 -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    郵便番号
+                  </label>
+                  <input type="text" class="ant-input" />
+                </div>
+                <div class="md:col-span-2 space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    都道府県 <span class="text-red-500">*</span>
+                  </label>
+                  <select class="w-full ant-select">
+                    <option value="">選択してください</option>
+                    <option>北海道</option>
+                    <option>青森県</option>
+                    <option>岩手県</option>
+                    <option>宮城県</option>
+                    <option>秋田県</option>
+                    <option>山形県</option>
+                    <option>福島県</option>
+                    <option>茨城県</option>
+                    <option>栃木県</option>
+                    <option>群馬県</option>
+                    <option>埼玉県</option>
+                    <option>千葉県</option>
+                    <option>東京都</option>
+                    <option>神奈川県</option>
+                    <option>新潟県</option>
+                    <option>富山県</option>
+                    <option>石川県</option>
+                    <option>福井県</option>
+                    <option>山梨県</option>
+                    <option>長野県</option>
+                    <option>岐阜県</option>
+                    <option>静岡県</option>
+                    <option>愛知県</option>
+                    <option>三重県</option>
+                    <option>滋賀県</option>
+                    <option>京都府</option>
+                    <option>大阪府</option>
+                    <option>兵庫県</option>
+                    <option>奈良県</option>
+                    <option>和歌山県</option>
+                    <option>鳥取県</option>
+                    <option>島根県</option>
+                    <option>岡山県</option>
+                    <option>広島県</option>
+                    <option>山口県</option>
+                    <option>徳島県</option>
+                    <option>香川県</option>
+                    <option>愛媛県</option>
+                    <option>高知県</option>
+                    <option>福岡県</option>
+                    <option>佐賀県</option>
+                    <option>長崎県</option>
+                    <option>熊本県</option>
+                    <option>大分県</option>
+                    <option>宮崎県</option>
+                    <option>鹿児島県</option>
+                    <option>沖縄県</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Row 4: 住所, 電話番号, FAX番号 -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    住所
+                  </label>
+                  <input type="text" class="ant-input" />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    電話番号
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="0300000000"
+                    class="ant-input"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                  >
+                    FAX番号
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="0300000000"
+                    class="ant-input"
+                  />
+                </div>
+              </div>
+
+              <!-- Row 5: Checkboxes -->
+              <div class="flex items-center gap-6">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 dark:bg-slate-800 dark:border-slate-700"
+                  />
+                  <span class="text-sm text-slate-700 dark:text-slate-300"
+                    >紙版フラグ</span
+                  >
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 dark:bg-slate-800 dark:border-slate-700"
+                  />
+                  <span class="text-sm text-slate-700 dark:text-slate-300"
+                    >電子版フラグ</span
+                  >
+                </label>
+              </div>
+
+              <!-- Row 6: 備考 -->
+              <div>
+                <label
+                  class="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5"
+                >
+                  備考
+                </label>
+                <textarea rows="4" class="ant-input resize-vertical"></textarea>
+              </div>
+
+              <!-- Footer Buttons -->
+              <div
+                class="pt-4 flex flex-col sm:flex-row gap-3 border-t border-slate-100 dark:border-slate-800"
+              >
+                <button
+                  class="px-10 py-2 bg-primary hover:bg-primary-hover text-white rounded font-medium transition-colors shadow-sm text-sm"
+                  type="submit"
+                >
+                  登録
+                </button>
+                <button
+                  class="px-6 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm"
+                  type="button"
+                >
+                  前の画面に戻る
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

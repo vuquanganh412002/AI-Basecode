@@ -1,0 +1,992 @@
+<!doctype html>
+
+<html class="light" lang="ja">
+
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>購読者管理システム - 購読者情報登録画面</title>
+  <link href="https://fonts.googleapis.com" rel="preconnect" />
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap"
+    rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#1677ff",
+            "primary-hover": "#4096ff",
+            "background-light": "#f5f5f5",
+            "background-dark": "#0f172a",
+          },
+          fontFamily: {
+            display: ["'Noto Sans JP'", "'Public Sans'", "sans-serif"],
+            body: ["'Noto Sans JP'", "sans-serif"],
+          },
+          borderRadius: {
+            DEFAULT: "6px",
+            lg: "8px",
+            xl: "12px",
+            full: "9999px",
+          },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    body {
+        font-family: "Noto Sans JP", sans-serif;
+      }
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 4px;
+      }
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 10px;
+      }
+      .dark .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: #334155;
+      }
+      .material-symbols-outlined {
+        font-variation-settings:
+          "FILL" 0,
+          "wght" 400,
+          "GRAD" 0,
+          "opsz" 20;
+      }
+      /* Form styles */
+      .form-input {
+        @apply w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm;
+      }
+      .form-select {
+        @apply w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm appearance-none bg-no-repeat bg-[right_0.75rem_center] bg-[length:1em_1em];
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+      }
+      /* Placeholder appearance: greyed text when the empty option is selected.
+         Empty option stays selectable so users can clear back to placeholder. */
+      .form-select:has(option[value=""]:checked) {
+        @apply text-slate-400 dark:text-slate-500;
+      }
+      .form-select option {
+        @apply text-slate-900 dark:text-slate-100;
+      }
+      .form-select option[value=""] {
+        @apply text-slate-400 dark:text-slate-500;
+      }
+      .form-label {
+        @apply text-sm font-medium text-slate-700 dark:text-slate-300;
+      }
+      .form-label-required::after {
+        @apply content-['*'] text-red-600 ml-1;
+      }
+      .form-row {
+        @apply flex gap-6 mb-4;
+      }
+      .form-col {
+        @apply flex-1;
+      }
+      .form-section {
+        @apply bg-white dark:bg-slate-900 rounded-lg p-6 border border-slate-200 dark:border-slate-800 shadow-sm mb-6;
+      }
+      .disabled-section {
+        @apply opacity-50 pointer-events-none;
+      }
+      .hidden-field {
+        @apply hidden;
+      }
+    </style>
+</head>
+
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex">
+  <aside
+    class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0">
+    <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
+      <div class="w-8 h-8 bg-primary rounded flex items-center justify-center">
+        <span class="material-icons text-white text-sm">auto_stories</span>
+      </div>
+      <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
+    </div>
+    <nav class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6">
+      <div class="space-y-1">
+        <a class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+          href="#">
+          <span class="material-icons text-[18px]">home</span>
+          <span>メニュー画面</span>
+        </a>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          購読者管理
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
+            href="#">
+            <span class="material-icons text-[18px]">person_add</span>
+            <span>購読者情報登録</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload_file</span>
+            <span>購読者Excelデータ取込</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">search</span>
+            <span>購読者明細検索</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">published_with_changes</span>
+            <span>購読者販売店一括置換</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          販売店管理
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">store</span>
+            <span>販売店情報登録</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">sim_card_download</span>
+            <span>販売店Excelデータ取込</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">find_in_page</span>
+            <span>販売店明細検索</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          データ作成
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">account_balance</span>
+            <span>口座振替データ出力</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">payments</span>
+            <span> 支払情報出力</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          レポート作成
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">assignment</span>
+            <span>購読者名簿</span>
+          </a>
+
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">trending_up</span>
+            <span>増減連絡票（販売店）</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">newspaper</span>
+            <span>増減通知（日本農業新聞）</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          マスタ管理
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">settings_suggest</span>
+            <span>単価マスタ</span>
+          </a>
+
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">apartment</span>
+            <span>支店マスタ</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          その他
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload</span>
+            <span>ファイルアップロード</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">download</span>
+            <span>ファイルダウンロード</span>
+          </a>
+        </div>
+      </div>
+      <div class="pb-10">
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          管理者機能
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">history</span>
+            <span>ログ参照</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">manage_accounts</span>
+            <span>アカウント管理</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">campaign</span>
+            <span>お知らせ一覧</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload</span>
+            <span>販売店代行入力</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">security</span>
+            <span>ロール管理</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">admin_panel_settings</span>
+            <span>管理支店マスタ</span>
+          </a>
+        </div>
+      </div>
+    </nav>
+    <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-center">
+      <button class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+        onclick="document.documentElement.classList.toggle('dark')">
+        <span class="material-icons block dark:hidden">dark_mode</span>
+        <span class="material-icons hidden dark:block">light_mode</span>
+      </button>
+    </div>
+  </aside>
+  <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+    <div class="p-8 pt-4 overflow-y-auto w-full">
+      <header class="flex justify-between items-center">
+        <div>
+          <h2 id="screenTitle" class="text-2xl font-bold">購読者情報登録画面</h2>
+          <nav
+            aria-label="Breadcrumb"
+            class="flex text-xs text-slate-400 mt-1"
+          >
+            <ol class="inline-flex items-center space-x-1">
+              <li>ホーム</li>
+              <li class="flex items-center">
+                <span class="material-icons text-xs mx-1">chevron_right</span>
+                <span>購読者管理</span>
+              </li>
+              <li class="flex items-center">
+                <span class="material-icons text-xs mx-1">chevron_right</span>
+                <span id="screenBreadcrumb" class="text-slate-600 dark:text-slate-300">購読者情報登録画面</span>
+              </li>
+            </ol>
+          </nav>
+        </div>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <button
+              class="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative">
+              <span class="material-icons">notifications</span>
+              <span
+                class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+            </button>
+            <div class="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700">
+              <div
+                class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+                <span class="material-icons text-slate-500">account_circle</span>
+              </div>
+              <span>admin:日農（管理者）</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="pt-4 space-y-6">
+      <form class="space-y-6 mb-8">
+        <!-- Section 1: 購読種別、手続種類、電子版読者種別等 -->
+        <section class="form-section border border-slate-300 dark:border-slate-600">
+          <h3 class="text-lg font-bold mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">一般情報</h3>
+
+          <div class="space-y-6">
+            <!-- Row 1: 購読種別、手続種類、電子版読者種別、ID -->
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <label class="form-label form-label-required">購読種別</label>
+                <div class="flex gap-6 mt-2 flex-wrap">
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="subscription_type" value="paper" onchange="handleSubscriptionTypeChange()" />
+                    <span>紙版</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="subscription_type" value="digital" onchange="handleSubscriptionTypeChange()" />
+                    <span>電子版</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="subscription_type" value="both" onchange="handleSubscriptionTypeChange()" />
+                    <span>併読</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label class="form-label form-label-required">手続種類</label>
+                <div class="flex gap-6 mt-2 flex-wrap">
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="procedure_type" value="1" checked onchange="handleProcedureTypeChange()" />
+                    <span>新規</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="procedure_type" value="0" onchange="handleProcedureTypeChange()" />
+                    <span>解約</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">電子版読者種別</label>
+                <div class="flex gap-6 mt-2 flex-wrap">
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="digital_type" checked disabled />
+                    <span>有料</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="digital_type" disabled />
+                    <span>無料</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label class="form-label">ID</label>
+                <input type="text" class="form-input mt-2 bg-slate-100 dark:bg-slate-700" value="DK-20240001" disabled />
+              </div>
+            </div>
+
+            <!-- Row 2: 管理支店、支店、組合員コード、履歴No -->
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <label class="form-label form-label-required">管理支店</label>
+                <select class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">支店</label>
+                <select class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">組合員コード</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label">履歴No</label>
+                <div class="flex gap-2 items-center">
+                  <input type="text" class="form-input bg-slate-100 dark:bg-slate-700" value="001" disabled />
+                  <button type="button" class="whitespace-nowrap px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 border border-blue-600 rounded transition-colors">履歴表示</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 3: 購読者氏名、かな、購読部数、新聞単価 -->
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="form-label form-label-required">購読者氏名_氏</label>
+                    <input type="text" class="form-input" />
+                  </div>
+                  <div>
+                    <label class="form-label form-label-required">購読者氏名_名</label>
+                    <input type="text" class="form-input" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="form-label form-label-required">購読者かな_氏</label>
+                    <input type="text" class="form-input" />
+                  </div>
+                  <div>
+                    <label class="form-label form-label-required">購読者かな_名</label>
+                    <input type="text" class="form-input" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label class="form-label form-label-required">購読部数</label>
+                <input id="copiesInput" type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label form-label-required">新聞単価</label>
+                <select class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 2: 購読者情報 -->
+        <section class="form-section border border-slate-300 dark:border-slate-600">
+          <h3 class="text-lg font-bold mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">購読者情報</h3>
+
+          <div class="space-y-4">
+            <!-- Address -->
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <label class="form-label form-label-required">郵便番号</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label form-label-required">都道府県</label>
+                <select class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label form-label-required">市町村郡</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label form-label-required">丁目番地</label>
+                <input type="text" class="form-input" />
+              </div>
+            </div>
+
+            <!-- Mansion -->
+            <div>
+              <label class="form-label">マンション・アパート名</label>
+              <input type="text" class="form-input" />
+            </div>
+
+            <!-- Contact -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="form-label">連絡先1</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label">連絡先2</label>
+                <input type="text" class="form-input" />
+              </div>
+            </div>
+
+            <!-- Email + Birth Year -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label id="emailLabel" class="form-label">メールアドレス</label>
+                <input id="emailInput" type="email" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label text-sm">生年（西暦）</label>
+                <input type="text" class="form-input" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="YYYY" oninput="this.value = this.value.replace(/\D/g, '').slice(0, 4)" />
+              </div>
+            </div>
+
+            <!-- Mail Magazine + Gender -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="form-label text-sm">メールマガジン</label>
+                <div class="flex gap-4 items-center mt-2">
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="mail_magazine" />
+                    <span>に信する</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="mail_magazine" checked />
+                    <span>に信しない</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label class="form-label form-label-required">性別</label>
+                <div class="flex gap-4 items-center mt-2">
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="gender" />
+                    <span>男性</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="gender" />
+                    <span>女性</span>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="radio" name="gender" checked />
+                    <span>回答しない</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 3: 配達先情報 -->
+        <section id="deliverySection" class="form-section border border-slate-300 dark:border-slate-600">
+          <div class="flex justify-between items-start pb-4 mb-6 border-b border-slate-200 dark:border-slate-800"">
+            <h3 class="text-lg font-bold">配達先情報</h3>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" id="sameAsSubscriberChk" class="rounded" onchange="handleDeliveryVisibility()" />
+              <span class="text-primary">購読者情報と同じ</span>
+            </label>
+          </div>
+
+          <div id="deliveryInputs">
+          <div class="space-y-4 pb-4">
+            <!-- Address -->
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <label class="form-label">郵便番号</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label">都道府県</label>
+                <select class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">市町村郡</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label">丁目番地</label>
+                <input type="text" class="form-input" />
+              </div>
+            </div>
+
+            <!-- Mansion -->
+            <div>
+              <label class="form-label">マンション・アパート名</label>
+              <input type="text" class="form-input" />
+            </div>
+
+            <!-- Contact -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="form-label">連絡先1</label>
+                <input type="text" class="form-input" />
+              </div>
+              <div>
+                <label class="form-label">連絡先2</label>
+                <input type="text" class="form-input" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Delivery Person -->
+          <div class="space-y-4 pt-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label id="haitatsuSeiKanjiLabel" class="form-label">配達先苗字（漢字）</label>
+                    <input id="haitatsuSeiKanjiInput" type="text" class="form-input" />
+                  </div>
+                  <div>
+                    <label id="haitatsuMeiKanjiLabel" class="form-label">配達先名前（漢字）</label>
+                    <input id="haitatsuMeiKanjiInput" type="text" class="form-input" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label id="haitatsuSeiKanaLabel" class="form-label">配達先苗字（かな）</label>
+                    <input id="haitatsuSeiKanaInput" type="text" class="form-input" />
+                  </div>
+                  <div>
+                    <label id="haitatsuMeiKanaLabel" class="form-label">配達先名前（かな）</label>
+                    <input id="haitatsuMeiKanaInput" type="text" class="form-input" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+        </section>
+
+        <!-- Section 4: 販売店・支払方法 -->
+        <section class="form-section border border-slate-300 dark:border-slate-600">
+          <h3 class="text-lg font-bold mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">販売店・支払方法</h3>
+
+          <div class="space-y-6">
+            <!-- Sales Shop -->
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="form-label form-label-required">販売店コード</label>
+                <select id="hanbaitenCode" class="form-select" onchange="handleHanbaitenChange()">
+                  <option value="">選択してください</option>
+                  <option value="HT001" data-name="ストアA">HT001</option>
+                  <option value="HT002" data-name="ストアB">HT002</option>
+                  <option value="HT003" data-name="ストアC">HT003</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">販売店名</label>
+                <input id="hanbaitenName" type="text" class="form-input bg-slate-100 dark:bg-slate-700" disabled />
+              </div>
+              <div>
+                <label class="form-label">郵送区分</label>
+                <select id="yubinKubun" class="form-select">
+                  <option value="">選択してください</option>
+                  <option value="0">空文字</option>
+                  <option value="1">郵送</option>
+                </select>
+              </div>
+            </div>
+
+
+            <!-- Payment Method -->
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="form-label form-label-required">支払方法</label>
+                <select id="paymentMethod" class="form-select" onchange="handlePaymentMethodChange()">
+                  <option value="">選択してください</option>
+                  <option value="1">口座引落</option>
+                  <option value="2">現金集金</option>
+                  <option value="3">振込集金</option>
+                  <option value="4">JA施設等</option>
+                  <option value="5">給与天引き</option>
+                  <option value="6">クレジットカード</option>
+                  <option value="9">その他</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">購読料支払サイクル</label>
+                <div class="flex items-center gap-2">
+                  <input type="text" class="form-input" />
+                  <p class="text-sm w-14">ヶ月</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bank Account -->
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label id="bankAccountTypeLabel" class="form-label">引落口座貯金種目</label>
+                <select id="bankAccountTypeInput" class="form-select">
+                  <option value="">選択してください</option>
+                </select>
+              </div>
+              <div>
+                <label id="bankAccountNoLabel" class="form-label">引落口座番号</label>
+                <input id="bankAccountNoInput" type="text" class="form-input" />
+              </div>
+              <div>
+                <label id="bankAccountHolderLabel" class="form-label">引落口座名義</label>
+                <input id="bankAccountHolderInput" type="text" class="form-input" />
+              </div>
+            </div>
+
+            <!-- Withdrawal Source Branch (auto-filled, read-only) -->
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label id="bankBranchLabel" class="form-label">引落口座支店</label>
+                <select id="bankBranchInput" class="form-select">
+                  <option value="">選択してください</option>
+                  <!-- Filtered by 金融機関支店フラグ=1 from 支店マスタ -->
+                </select>
+              </div>
+              <div>
+                <label class="form-label">引落元口座店舗コード</label>
+                <input type="text" class="form-input bg-slate-100 dark:bg-slate-700" disabled />
+              </div>
+              <div>
+                <label class="form-label">引落元口座店舗名</label>
+                <input type="text" class="form-input bg-slate-100 dark:bg-slate-700" disabled />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 5: 購読者層分類 -->
+        <section class="form-section border border-slate-300 dark:border-slate-600">
+          <h3 class="text-lg font-bold mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">購読者層分類</h3>
+
+          <div class="space-y-6">
+            <!-- 読者属性 -->
+            <div>
+              <label class="form-label text-slate-700 dark:text-slate-300 mb-4 block">読者属性</label>
+              <div class="flex flex-wrap gap-x-6 gap-y-2">
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" id="nogyoshaChk" class="rounded" onchange="handleNogyoshaToggle()" />
+                  <span>農業者</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>企業・団体</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>その他</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>JAグループ役職員</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>学生</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 主な生産物 -->
+            <div id="shusanbutsuBlock" class="hidden-field">
+              <label class="form-label text-slate-700 dark:text-slate-300 mb-4 block">主な生産物（農業者の場合）</label>
+              <div class="flex flex-wrap gap-x-6 gap-y-2">
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>米</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>野菜</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>果実</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>花</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>畜産</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" class="rounded" />
+                  <span>その他</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 6: 購読開始日、中止日 -->
+        <section class="form-section border border-slate-300 dark:border-slate-600">
+          <h3 class="text-lg font-bold mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">購読開始日、中止日</h3>
+
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <label class="form-label">購読開始日</label>
+              <input type="date" class="form-input" />
+            </div>
+            <div>
+              <label class="form-label">購読中止日</label>
+              <input type="date" class="form-input" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6">
+            <div id="billingStartMonthField" class="hidden-field mb-6">
+              <label class="form-label">請求開始月</label>
+              <select class="form-select mt-2">
+                <option value="">選択してください</option>
+                <option value="1">1月</option>
+                <option value="2">2月</option>
+                <option value="3">3月</option>
+                <option value="4">4月</option>
+                <option value="5">5月</option>
+                <option value="6">6月</option>
+                <option value="7">7月</option>
+                <option value="8">8月</option>
+                <option value="9">9月</option>
+                <option value="10">10月</option>
+                <option value="11">11月</option>
+                <option value="12">12月</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="form-label">備考</label>
+            <textarea rows="6" class="form-input resize-none mt-1"></textarea>
+          </div>
+        </section>
+
+        <!-- Form Actions -->
+        <div class="flex gap-4 mb-8">
+         <button type="submit"
+            class="px-6 py-2 bg-primary text-white rounded font-medium hover:bg-primary-hover transition-colors">
+            承認・登録
+          </button>
+          <button type="button"
+            class="px-6 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors">
+            承認しない
+          </button>
+           <button type="button"
+            class="px-6 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors">
+            前の画面に戻る
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+  <script>
+    function handleSubscriptionTypeChange() {
+      const selectedType = document.querySelector('input[name="subscription_type"]:checked')?.value;
+      const billingStartMonthField = document.getElementById('billingStartMonthField');
+      const emailLabel = document.getElementById('emailLabel');
+      const emailInput = document.getElementById('emailInput');
+
+      // 電子版 or 併読 → show billing-start-month field
+      if (selectedType === 'digital' || selectedType === 'both') {
+        billingStartMonthField.classList.remove('hidden-field');
+      } else {
+        billingStartMonthField.classList.add('hidden-field');
+      }
+
+      // メールアドレス required for 紙版 / 電子版 / 併読 (i.e. always when 購読種別 is selected)
+      const emailRequired = selectedType === 'paper' || selectedType === 'digital' || selectedType === 'both';
+      emailLabel.classList.toggle('form-label-required', emailRequired);
+      if (emailRequired) emailInput.setAttribute('required', '');
+      else emailInput.removeAttribute('required');
+
+      handleDeliveryVisibility();
+    }
+
+    function handleDeliveryVisibility() {
+      const selectedType = document.querySelector('input[name="subscription_type"]:checked')?.value;
+      const sameAsSubscriberChk = document.getElementById('sameAsSubscriberChk');
+      const deliverySection = document.getElementById('deliverySection');
+      const deliveryInputs = document.getElementById('deliveryInputs');
+
+      // 電子版 only → hide entire section AND clear all field values inside
+      // 紙版 / 併読 → keep section visible (併読 still has paper delivery)
+      const hideSection = selectedType === 'digital';
+      deliverySection.classList.toggle('hidden-field', hideSection);
+
+      if (hideSection) {
+        clearDeliveryFields();
+        toggleDeliveryNameRequired(false);
+        return;
+      }
+
+      // Section visible — hide just the inputs block when 購読者情報と同じ is checked
+      const hideInputs = !!sameAsSubscriberChk?.checked;
+      deliveryInputs.classList.toggle('hidden-field', hideInputs);
+      if (hideInputs) clearDeliveryFields();
+
+      // 配達先 name fields required when 紙版/併読 AND 購読者情報と同じ is unchecked
+      const nameRequired = (selectedType === 'paper' || selectedType === 'both') && !hideInputs;
+      toggleDeliveryNameRequired(nameRequired);
+    }
+
+    function toggleDeliveryNameRequired(required) {
+      const ids = [
+        ['haitatsuSeiKanjiLabel', 'haitatsuSeiKanjiInput'],
+        ['haitatsuMeiKanjiLabel', 'haitatsuMeiKanjiInput'],
+        ['haitatsuSeiKanaLabel', 'haitatsuSeiKanaInput'],
+        ['haitatsuMeiKanaLabel', 'haitatsuMeiKanaInput'],
+      ];
+      ids.forEach(([labelId, inputId]) => {
+        const label = document.getElementById(labelId);
+        const input = document.getElementById(inputId);
+        label?.classList.toggle('form-label-required', required);
+        if (input) {
+          if (required) input.setAttribute('required', '');
+          else input.removeAttribute('required');
+        }
+      });
+    }
+
+    function handleNogyoshaToggle() {
+      const checked = !!document.getElementById('nogyoshaChk')?.checked;
+      const block = document.getElementById('shusanbutsuBlock');
+      block.classList.toggle('hidden-field', !checked);
+      if (!checked) {
+        block.querySelectorAll('input[type="checkbox"]').forEach((el) => (el.checked = false));
+      }
+    }
+
+    function handlePaymentMethodChange() {
+      const value = document.getElementById('paymentMethod')?.value;
+      // 口座引落 (value=1) → require bank fields
+      const required = value === '1';
+      const fields = [
+        ['bankBranchLabel', 'bankBranchInput'],
+        ['bankAccountTypeLabel', 'bankAccountTypeInput'],
+        ['bankAccountNoLabel', 'bankAccountNoInput'],
+        ['bankAccountHolderLabel', 'bankAccountHolderInput'],
+      ];
+      fields.forEach(([labelId, inputId]) => {
+        const label = document.getElementById(labelId);
+        const input = document.getElementById(inputId);
+        label?.classList.toggle('form-label-required', required);
+        if (input) {
+          if (required) input.setAttribute('required', '');
+          else input.removeAttribute('required');
+        }
+      });
+    }
+
+    function handleProcedureTypeChange() {
+      // 解約 (value=0) → 購読部数 forced to 0 and readonly (screen-design §8.1)
+      const selected = document.querySelector('input[name="procedure_type"]:checked')?.value;
+      const copies = document.getElementById('copiesInput');
+      if (!copies) return;
+      if (selected === '0') {
+        copies.value = '0';
+        copies.readOnly = true;
+        copies.classList.add('bg-slate-100', 'dark:bg-slate-700');
+      } else {
+        copies.readOnly = false;
+        copies.classList.remove('bg-slate-100', 'dark:bg-slate-700');
+      }
+    }
+
+    function handleHanbaitenChange() {
+      const select = document.getElementById('hanbaitenCode');
+      const opt = select.options[select.selectedIndex];
+      document.getElementById('hanbaitenName').value = opt?.dataset.name || '';
+    }
+
+    function clearDeliveryFields() {
+      document.getElementById('deliveryInputs')?.querySelectorAll('input, select, textarea').forEach((el) => {
+        if (el.type === 'checkbox' || el.type === 'radio') el.checked = false;
+        else el.value = '';
+      });
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      handleSubscriptionTypeChange();
+      handlePaymentMethodChange();
+      handleProcedureTypeChange();
+    });
+  </script>
+</body>
+
+</html>

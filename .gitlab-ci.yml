@@ -1,0 +1,68 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+# --- Backend ---
+.backend_job:
+  image: node:20-alpine
+  cache:
+    key: backend_npm_$CI_COMMIT_REF_SLUG
+    paths: [apps/backend/node_modules/]
+    policy: pull
+  rules:
+    - changes: [apps/backend/**/*]
+
+backend_lint:
+  extends: .backend_job
+  stage: lint
+  script:
+    - cd apps/backend
+    - npm ci
+    - npm run lint
+
+backend_test:
+  extends: .backend_job
+  stage: test
+  script:
+    - cd apps/backend
+    - npm ci
+    - npm run test:coverage
+  coverage: '/Lines\s*:\s*(\d+\.?\d*)%/'
+
+# --- Frontend ---
+.frontend_job:
+  image: node:20-alpine
+  cache:
+    key: frontend_npm_$CI_COMMIT_REF_SLUG
+    paths: [apps/frontend/node_modules/]
+    policy: pull
+  rules:
+    - changes: [apps/frontend/**/*]
+
+frontend_lint:
+  extends: .frontend_job
+  stage: lint
+  script:
+    - cd apps/frontend
+    - npm ci
+    - npm run lint
+
+frontend_test:
+  extends: .frontend_job
+  stage: test
+  script:
+    - cd apps/frontend
+    - npm ci
+    - npm run test:coverage
+
+# --- Build & Deploy ---
+# See .claude/rules/gitlab-ci.md for full deployment rules

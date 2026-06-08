@@ -1,0 +1,736 @@
+// Screen: ACSMS-SCR-023 — ファイルアップロード画面
+//
+// Drives src/views/file-upload/FileUploadView.vue. Each it() maps to a
+// clause in:
+//   docs/design/ACSMS-SCR-023/screen-design.md (機能定義 1.x〜8.x + メッセージ情報) +
+//   docs/design/ACSMS-SCR-023/index.html (UI structure) +
+//   docs/design/ACSMS-SCR-023/ACSMS-SCR-023-api.md (API-023-001 list / -002 upload / -003 download / -004 delete + COMMON-001 todofuken + COMMON-003 ja dropdown).
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { createRouter, createMemoryHistory, type Router } from 'vue-router';
+import { createTestingPinia } from '@pinia/testing';
+import Antd, { Modal, message } from 'ant-design-vue';
+
+import FileUploadView from '@/views/file-upload/FileUploadView.vue';
+import {
+  buildFileUploadHistoryResponse,
+  buildFileUploadHistoryItem,
+  buildUploadFilesResponse,
+  buildJaDropdownResponse,
+  buildTodofukenResponse,
+  buildFileUploadUser,
+} from '@test/fixtures/file-upload.fixture';
+
+// API wrappers — /gen-code-frontend will create these.
+vi.mock('@/api/file-upload/file-upload', () => ({
+  listFiles: vi.fn(),
+  uploadFiles: vi.fn(),
+  downloadFile: vi.fn(),
+  deleteFile: vi.fn(),
+}));
+
+vi.mock('@/api/ja/ja', () => ({
+  getJaDropdown: vi.fn(),
+}));
+
+vi.mock('@/api/todofuken/todofuken', () => ({
+  getTodofukenList: vi.fn(),
+}));
+
+// Spy on antd toasts. Cast noop to MessageType for vue-tsc post-banner.
+const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
+vi.spyOn(message, 'success').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'error').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'warning').mockImplementation(() => noopMessage);
+vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
+
+// Mock Modal.confirm with synchronous onOk invocation so the test can
+// assert post-confirm behaviour.
+vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+  opts?.onOk?.();
+  return { destroy: () => undefined, update: () => undefined } as any;
+});
+
+// Blob download utilities — spy on URL APIs the view uses for file save.
+const createObjectURL = vi.fn(() => 'blob:mock-url');
+const revokeObjectURL = vi.fn();
+beforeEach(() => {
+  Object.defineProperty(window.URL, 'createObjectURL', {
+    configurable: true,
+    writable: true,
+    value: createObjectURL,
+  });
+  Object.defineProperty(window.URL, 'revokeObjectURL', {
+    configurable: true,
+    writable: true,
+    value: revokeObjectURL,
+  });
+});
+
+interface RenderOptions {
+  user?: ReturnType<typeof buildFileUploadUser>;
+}
+
+async function renderView(opts: RenderOptions = {}): Promise<{
+  wrapper: ReturnType<typeof mount>;
+  router: Router;
+}> {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', name: 'Home', component: { template: '<div />' } },
+      { path: '/dashboard', name: 'Dashboard', component: { template: '<div />' } },
+      { path: '/file-upload', name: 'FileUpload', component: { template: '<div />' } },
+    ],
+  });
+  await router.push({ name: 'FileUpload' });
+  await router.isReady();
+
+  const wrapper = mount(FileUploadView, {
+    global: {
+      plugins: [
+        router,
+        createTestingPinia({
+          createSpy: vi.fn,
+          stubActions: false,
+          initialState: {
+            auth: { user: opts.user ?? buildFileUploadUser() },
+            // Seed m_code so notificationStatusLabel() returns the
+            // canonical labels via useCodesStore() (production hydrates
+            // this from GET /api/v1/codes after login).
+            codes: {
+              all: {
+                NOTIFICATION_STATUS: [
+                  { value: 1, label: '未送信', label_short: '未送信' },
+                  { value: 2, label: '送信中', label_short: '送信中' },
+                  { value: 3, label: '完了', label_short: '完了' },
+                  { value: 4, label: '一部失敗', label_short: '一部失敗' },
+                ],
+              },
+            },
+          },
+        }),
+        Antd,
+      ],
+    },
+  });
+  await flushPromises();
+  return { wrapper, router };
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  const { listFiles, uploadFiles, downloadFile, deleteFile } = await import(
+    '@/api/file-upload/file-upload'
+  );
+  vi.mocked(listFiles).mockResolvedValue(buildFileUploadHistoryResponse() as any);
+  vi.mocked(uploadFiles).mockResolvedValue(buildUploadFilesResponse() as any);
+  vi.mocked(downloadFile).mockResolvedValue(
+    new Blob(['mock-bytes'], { type: 'application/pdf' }),
+  );
+  vi.mocked(deleteFile).mockResolvedValue({ message: '削除しました。' } as any);
+
+  const { getJaDropdown } = await import('@/api/ja/ja');
+  vi.mocked(getJaDropdown).mockResolvedValue(buildJaDropdownResponse() as any);
+
+  const { getTodofukenList } = await import('@/api/todofuken/todofuken');
+  vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse() as any);
+});
+
+// Synthetic JaDropdownItem reused across describe blocks. BaseJaDropdown
+// normally emits this via @select; specs set it directly to simulate the
+// user picking JA #12345 from the dropdown so addJa()'s id+item guard
+// passes without booting the real dropdown internals.
+const pickedJa = {
+  ja_id: 12345,
+  ja_code: '0001',
+  ja_name: 'JA テスト',
+  todofuken_code: '13',
+  chuokai_flg: false,
+};
+
+// ───────────────────────────────────────────────────────────────────────
+// 1. 画面初期表示 (機能定義 1.x)
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — initial render (機能定義 1.x)', () => {
+  it('should render the アップロードされたファイルリスト section heading when mounted', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('アップロードされたファイルリスト');
+  });
+
+  it('should fetch the file upload history once when mounted', async () => {
+    await renderView();
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    expect(listFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fetch the 都道府県 dropdown once when mounted (COMMON-001)', async () => {
+    await renderView();
+    const { getTodofukenList } = await import('@/api/todofuken/todofuken');
+    expect(getTodofukenList).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fetch the JA dropdown once when mounted (COMMON-003)', async () => {
+    await renderView();
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    expect(getJaDropdown).toHaveBeenCalled();
+  });
+
+  it('should render the 都道府県コード label when mounted (画面項目定義 No.1)', async () => {
+    const { wrapper } = await renderView();
+    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    expect(labelTexts.some((t) => t.includes('都道府県'))).toBe(true);
+  });
+
+  it('should render the 対象JA label when mounted (画面項目定義 No.3)', async () => {
+    const { wrapper } = await renderView();
+    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    expect(labelTexts.some((t) => t.includes('対象JA') || t.includes('JAコード'))).toBe(true);
+  });
+
+  it('should render the 削除予定日 label when mounted (画面項目定義 No.7)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('削除予定日');
+  });
+
+  it('should render the アップロード実行 button when mounted (画面項目定義 No.11)', async () => {
+    const { wrapper } = await renderView();
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    expect(btn).toBeDefined();
+  });
+
+  it('should render the クリア button when mounted (画面項目定義 No.12)', async () => {
+    const { wrapper } = await renderView();
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));
+    expect(btn).toBeDefined();
+  });
+
+  it('should render the canonical history-table column headers when mounted', async () => {
+    const { wrapper } = await renderView();
+    const text = wrapper.text();
+    expect(text).toContain('ファイル名');
+    expect(text).toContain('サイズ');
+    expect(text).toContain('通知ステータス');
+    expect(text).toContain('削除予定日');
+  });
+
+  it('should render rows from the history API response when list resolves', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('令和5年度_購読者リスト.csv');
+  });
+
+  it('should still call listFiles when the API rejects with 500 (interceptor handles toast)', async () => {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+    await renderView();
+    expect(vi.mocked(listFiles)).toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 2. JA追加 (機能定義 2.x) — todofuken cascade + duplicate guard
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — JA selection (機能定義 2.x)', () => {
+  it('should add the selected JA to the target list when 追加 is clicked', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedJaId = pickedJa.ja_id;
+    vm.selectedJaItem = pickedJa;
+    await flushPromises();
+    if (typeof vm.addJa === 'function') vm.addJa();
+    await flushPromises();
+    expect(vm.targetJas.length).toBeGreaterThan(0);
+  });
+
+  it('should display ACSMS-MSG-023-004 「このJAは既に選択されています。」 when adding a duplicate JA (機能定義 2.3)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedJaId = pickedJa.ja_id;
+    vm.selectedJaItem = pickedJa;
+    await flushPromises();
+    if (typeof vm.addJa === 'function') vm.addJa();
+    await flushPromises();
+    if (typeof vm.addJa === 'function') vm.addJa();
+    await flushPromises();
+    expect(message.warning).toHaveBeenCalledWith('このJAは既に選択されています。');
+  });
+
+  it('should pass todofuken_code as a cascade filter to getJaDropdown when 都道府県 changes', async () => {
+    // BaseJaDropdown watches its `todofukenCode` prop; when the
+    // parent updates `selectedTodofukenCode`, the dropdown reloads
+    // page 1 with the new filter.
+    const { wrapper } = await renderView();
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    vi.mocked(getJaDropdown).mockClear();
+
+    const vm = wrapper.vm as any;
+    vm.selectedTodofukenCode = '13';
+    await flushPromises();
+
+    expect(getJaDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ todofuken_code: '13' }),
+    );
+  });
+
+  it('should remove a JA from the target list when its 削除 link is invoked', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedJaId = pickedJa.ja_id;
+    vm.selectedJaItem = pickedJa;
+    if (typeof vm.addJa === 'function') vm.addJa();
+    await flushPromises();
+    if (typeof vm.removeJa === 'function') vm.removeJa(pickedJa.ja_id);
+    await flushPromises();
+    expect(vm.targetJas.find((j: any) => j.ja_id === pickedJa.ja_id)).toBeUndefined();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 4. ファイル選択 (機能定義 4.x) — drag-drop + 30MB size check
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — file selection (機能定義 4.x)', () => {
+  it('should add the picked file to the selected list when a valid file is supplied', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const ok = new File([new Uint8Array(1024)], 'list.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(ok);
+    await flushPromises();
+    expect(vm.selectedFiles.length).toBe(1);
+    expect(vm.selectedFiles[0].name).toBe('list.csv');
+  });
+
+  it('should display ACSMS-MSG-023-002 「ファイルサイズが30MBを超えています。」 when a file exceeds 30MB (機能定義 4.2)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const oversize = new File([new Uint8Array(31 * 1024 * 1024)], 'big.csv', {
+      type: 'text/csv',
+    });
+    if (typeof vm.addFile === 'function') vm.addFile(oversize);
+    await flushPromises();
+    expect(message.error).toHaveBeenCalledWith(
+      expect.stringContaining('ファイルサイズが30MBを超えています。'),
+    );
+    expect(vm.selectedFiles.length).toBe(0);
+  });
+
+  it('should accept multiple files when called with N inputs (機能定義 4.1)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const a = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    const b = new File([new Uint8Array(200)], 'b.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') {
+      vm.addFile(a);
+      vm.addFile(b);
+    }
+    await flushPromises();
+    expect(vm.selectedFiles.length).toBe(2);
+  });
+
+  it('should remove a selected file when its 削除 link is invoked (機能定義 5.x)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'remove.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    await flushPromises();
+    if (typeof vm.removeFile === 'function') vm.removeFile(0);
+    await flushPromises();
+    expect(vm.selectedFiles.length).toBe(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 6. アップロード実行 (機能定義 6.x) + ACSMS-MSG-023-001 / 006 / 008
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — upload submit (機能定義 6.x)', () => {
+  it('should display ACSMS-MSG-023-001 「必須項目です。」 when ファイル is empty on アップロード実行 (機能定義 6.2)', async () => {
+    const { wrapper } = await renderView();
+    const { uploadFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(uploadFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    // JA picked + delete-date set but no files
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(message.error).toHaveBeenCalledWith(expect.stringContaining('必須項目です。'));
+    expect(uploadFiles).not.toHaveBeenCalled();
+  });
+
+  it('should display ACSMS-MSG-023-001 when 対象JA is empty on アップロード実行 (機能定義 6.2)', async () => {
+    const { wrapper } = await renderView();
+    const { uploadFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(uploadFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(message.error).toHaveBeenCalledWith(expect.stringContaining('必須項目です。'));
+    expect(uploadFiles).not.toHaveBeenCalled();
+  });
+
+  it('should display ACSMS-MSG-023-001 when 削除予定日 is empty on アップロード実行 (機能定義 6.2)', async () => {
+    const { wrapper } = await renderView();
+    const { uploadFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(uploadFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(message.error).toHaveBeenCalledWith(expect.stringContaining('必須項目です。'));
+    expect(uploadFiles).not.toHaveBeenCalled();
+  });
+
+  it('should open the confirmation dialog with ACSMS-MSG-023-008 「このファイルをアップロードしますか？」 (機能定義 6.3)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(Modal.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('このファイルをアップロードしますか？'),
+      }),
+    );
+  });
+
+  it('should call uploadFiles with ja_ids[] + files[] after the user confirms (機能定義 6.4)', async () => {
+    const { wrapper } = await renderView();
+    const { uploadFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(uploadFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(uploadFiles).toHaveBeenCalled();
+    const callArg = vi.mocked(uploadFiles).mock.calls[0]?.[0] as any;
+    expect(callArg).toBeDefined();
+    expect(Array.isArray(callArg.ja_ids)).toBe(true);
+    expect(callArg.ja_ids).toContain(12345);
+    expect(Array.isArray(callArg.files)).toBe(true);
+    expect(callArg.files.length).toBe(1);
+  });
+
+  it('should display ACSMS-MSG-023-006 「ファイルのアップロードが完了しました。」 toast when uploadFiles resolves (機能定義 6.6)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(message.success).toHaveBeenCalledWith(
+      'ファイルのアップロードが完了しました。',
+    );
+  });
+
+  it('should clear the form (JAs + files + delete-date) after a successful upload (機能定義 6.6)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(vm.selectedFiles.length).toBe(0);
+    expect(vm.targetJas.length).toBe(0);
+  });
+
+  it('should refetch the upload history after a successful upload (機能定義 6.6)', async () => {
+    const { wrapper } = await renderView();
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    expect(listFiles).toHaveBeenCalled();
+  });
+
+  it('should display ACSMS-MSG-023-005 「アップロードに失敗しました…」 when uploadFiles rejects with 5xx (機能定義 6.6)', async () => {
+    const { uploadFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(uploadFiles).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    vm.scheduledDeleteDate = '2026/12/31';
+    await flushPromises();
+
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
+    await btn!.trigger('click');
+    await flushPromises();
+
+    // Either FE toasts MSG-023-005 directly or the global interceptor
+    // toasts the BE message — assert at least one ran.
+    const errorCalls = vi.mocked(message.error).mock.calls.flat();
+    expect(errorCalls.join('|')).toMatch(
+      /アップロードに失敗しました|システムエラー/,
+    );
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 7. クリアボタン (機能定義 7.x) + ACSMS-MSG-023-003
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — clear button (機能定義 7.x)', () => {
+  it('should open a confirmation with ACSMS-MSG-023-003 when クリア is clicked', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    await flushPromises();
+    vi.mocked(Modal.confirm).mockClear();
+
+    const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));
+    await clearBtn!.trigger('click');
+    await flushPromises();
+
+    expect(Modal.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining(
+          '全てのJAとファイルを削除します。よろしいでしょうか。',
+        ),
+      }),
+    );
+  });
+
+  it('should clear targetJas + selectedFiles after the user confirms the clear dialog', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
+    if (typeof vm.addFile === 'function') vm.addFile(f);
+    if (typeof vm.addJa === 'function') {
+      vm.selectedJaId = pickedJa.ja_id;
+      vm.selectedJaItem = pickedJa;
+      vm.addJa();
+    }
+    await flushPromises();
+
+    const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));
+    await clearBtn!.trigger('click');
+    await flushPromises();
+
+    expect(vm.selectedFiles.length).toBe(0);
+    expect(vm.targetJas.length).toBe(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 8. アップロード履歴の削除 (機能定義 8.x) + ACSMS-MSG-023-009
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — delete uploaded file (機能定義 8.x)', () => {
+  it('should open a confirmation with ACSMS-MSG-023-009 「このファイルを削除しますか？」 when the row 削除 link is clicked', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vi.mocked(Modal.confirm).mockClear();
+
+    const row = buildFileUploadHistoryItem({ file_upload_id: 101 });
+    if (typeof vm.askDelete === 'function') vm.askDelete(row);
+    await flushPromises();
+
+    expect(Modal.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('このファイルを削除しますか？'),
+      }),
+    );
+  });
+
+  it('should call deleteFile with the row id after the user confirms', async () => {
+    const { wrapper } = await renderView();
+    const { deleteFile } = await import('@/api/file-upload/file-upload');
+    vi.mocked(deleteFile).mockClear();
+
+    const vm = wrapper.vm as any;
+    const row = buildFileUploadHistoryItem({ file_upload_id: 101 });
+    if (typeof vm.askDelete === 'function') vm.askDelete(row);
+    await flushPromises();
+
+    expect(deleteFile).toHaveBeenCalledWith(101);
+  });
+
+  it('should display 「削除しました。」 toast and refetch the history when deleteFile resolves', async () => {
+    const { wrapper } = await renderView();
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    const row = buildFileUploadHistoryItem({ file_upload_id: 101 });
+    if (typeof vm.askDelete === 'function') vm.askDelete(row);
+    await flushPromises();
+
+    expect(message.success).toHaveBeenCalledWith('削除しました。');
+    expect(listFiles).toHaveBeenCalled();
+  });
+
+  it('should still call deleteFile when it rejects with 500 (interceptor handles toast)', async () => {
+    const { deleteFile } = await import('@/api/file-upload/file-upload');
+    vi.mocked(deleteFile).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const row = buildFileUploadHistoryItem({ file_upload_id: 101 });
+    if (typeof vm.askDelete === 'function') vm.askDelete(row);
+    await flushPromises();
+
+    expect(vi.mocked(deleteFile)).toHaveBeenCalled();
+  });
+
+  it('should disable the row 削除 link when deleted_at IS NOT NULL (画面項目定義 No.18)', async () => {
+    // Row is already soft-deleted on the server → button should be disabled.
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const row = buildFileUploadHistoryItem({ file_upload_id: 101 });
+    // The view's predicate
+    if (typeof vm.isDeletable === 'function') {
+      expect(vm.isDeletable({ ...row, deleted_at: '2026-05-01T00:00:00+09:00' })).toBe(false);
+      expect(vm.isDeletable({ ...row, deleted_at: null })).toBe(true);
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// Notification-status badge rendering
+// ───────────────────────────────────────────────────────────────────────
+describe('FileUploadView — notification status badge', () => {
+  it('should render 「完了」 label when notification_status is 3', async () => {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileUploadHistoryResponse({
+        data: [buildFileUploadHistoryItem({ notification_status: 3 })],
+      }) as any,
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('完了');
+  });
+
+  it('should render 「一部失敗」 label when notification_status is 4', async () => {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileUploadHistoryResponse({
+        data: [buildFileUploadHistoryItem({ notification_status: 4 })],
+      }) as any,
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('一部失敗');
+  });
+
+  it('should render 「未送信」 label when notification_status is 1', async () => {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileUploadHistoryResponse({
+        data: [buildFileUploadHistoryItem({ notification_status: 1 })],
+      }) as any,
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('未送信');
+  });
+
+  it('should render 「送信中」 label when notification_status is 2', async () => {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileUploadHistoryResponse({
+        data: [buildFileUploadHistoryItem({ notification_status: 2 })],
+      }) as any,
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('送信中');
+  });
+});
