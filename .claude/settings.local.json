@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(docker compose *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(python3 scripts/screen_excel_to_md.py \"docs/design/ACSMS-SCR-011/【日本農業新聞様】VTIジャパン_クラウド版購読者管理システム_画面設計書_購読者情報登録画面_v1.1.xlsx\" /tmp/scr011_test.md)",
+      "Bash(python3 scripts/screen_md_to_excel.py /tmp/scr011_test.md /tmp/scr011_rebuilt.xlsx)"
+    ]
+  }
+}
