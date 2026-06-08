@@ -440,6 +440,16 @@
                   </div>
                 </button>
                 <div id="col-panel" class="px-4 py-3">
+                  <p
+                    class="text-xs text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5"
+                  >
+                    <span
+                      class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded"
+                      >必須</span
+                    >
+                    の付いた列は新規登録モードの必須項目（SCR-011
+                    の必須入力項目）です。常に選択され、解除できません。
+                  </p>
                   <div
                     class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
                   >
@@ -458,49 +468,55 @@
                         >ID</span
                       >
                     </label>
-                    <!-- 2. 購読種別 -->
+                    <!-- 2. 購読種別 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="購読種別"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読種別</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読種別<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 3. 手続種類 -->
+                    <!-- 3. 手続種類 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="手続種類"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >手続種類</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >手続種類<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 4. 管理支店 -->
+                    <!-- 4. 管理支店 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="管理支店"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >管理支店</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >管理支店<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 5. 支店 -->
@@ -533,94 +549,106 @@
                         >組合員コード</span
                       >
                     </label>
-                    <!-- 7. 購読者苗字（漢字） -->
+                    <!-- 7. 購読者氏名_氏 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
-                        value="購読者苗字（漢字）"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        value="購読者氏名_氏"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読者苗字（漢字）</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読者氏名_氏<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 8. 購読者名前（漢字） -->
+                    <!-- 8. 購読者氏名_名 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
-                        value="購読者名前（漢字）"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        value="購読者氏名_名"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読者名前（漢字）</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読者氏名_名<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 9. 購読者苗字（かな） -->
+                    <!-- 9. 購読者かな_氏 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
-                        value="購読者苗字（かな）"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        value="購読者かな_氏"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読者苗字（かな）</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読者かな_氏<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 10. 購読者名前（かな） -->
+                    <!-- 10. 購読者かな_名 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
-                        value="購読者名前（かな）"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        value="購読者かな_名"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読者名前（かな）</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読者かな_名<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 11. 購読部数 -->
+                    <!-- 11. 購読部数 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="購読部数"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読部数</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読部数<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 12. 新聞単価 -->
+                    <!-- 12. 新聞単価 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="新聞単価"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >新聞単価</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >新聞単価<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 13. メールアドレス -->
@@ -683,64 +711,72 @@
                         >性別</span
                       >
                     </label>
-                    <!-- 17. 郵便番号 -->
+                    <!-- 17. 郵便番号 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="郵便番号"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >郵便番号</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >郵便番号<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 18. 都道府県 -->
+                    <!-- 18. 都道府県 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="都道府県"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >都道府県</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >都道府県<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 19. 市町村郡 -->
+                    <!-- 19. 市町村郡 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="市町村郡"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >市町村郡</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >市町村郡<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
-                    <!-- 20. 丁目番地 -->
+                    <!-- 20. 丁目番地 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="丁目番地"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >丁目番地</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >丁目番地<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 21. マンション・アパート名 -->
@@ -758,19 +794,21 @@
                         >マンション・アパート名</span
                       >
                     </label>
-                    <!-- 22. 連絡先１ -->
+                    <!-- 22. 連絡先１ [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="連絡先１"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >連絡先１</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >連絡先１<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 23. 連絡先２ -->
@@ -953,19 +991,21 @@
                         >配達先名前（かな）</span
                       >
                     </label>
-                    <!-- 35. 販売店コード -->
+                    <!-- 35. 販売店コード [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="販売店コード"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >販売店コード</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >販売店コード<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 36. 郵送区分 -->
@@ -983,19 +1023,21 @@
                         >郵送区分</span
                       >
                     </label>
-                    <!-- 37. 支払方法 -->
+                    <!-- 37. 支払方法 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="支払方法"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >支払方法</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >支払方法<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 38. 購読料支払サイクル（月数） -->
@@ -1118,19 +1160,21 @@
                         >農業者分類</span
                       >
                     </label>
-                    <!-- 46. 購読開始日 -->
+                    <!-- 46. 購読開始日 [新規登録 必須・固定] -->
                     <label
-                      class="flex items-center gap-3 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                      title="新規登録モードの必須列のため、選択を解除できません。"
+                      class="flex items-center gap-3 px-3 py-2 border border-primary/40 bg-primary/5 rounded cursor-not-allowed transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked
+                        disabled
                         name="col"
                         value="購読開始日"
-                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0"
+                        class="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/20 flex-shrink-0 cursor-not-allowed opacity-90"
                       />
-                      <span class="text-sm text-slate-700 dark:text-slate-300"
-                        >購読開始日</span
+                      <span class="text-sm text-slate-700 dark:text-slate-300 flex items-center gap-1"
+                        >購読開始日<span class="text-[10px] font-bold text-white bg-error leading-none px-1 py-0.5 rounded">必須</span></span
                       >
                     </label>
                     <!-- 47. 購読中止日 -->
@@ -1367,10 +1411,10 @@
         "管理支店",
         "支店",
         "組合員コード",
-        "購読者苗字（漢字）",
-        "購読者名前（漢字）",
-        "購読者苗字（かな）",
-        "購読者名前（かな）",
+        "購読者氏名_氏",
+        "購読者氏名_名",
+        "購読者かな_氏",
+        "購読者かな_名",
         "購読部数",
         "新聞単価",
         "メールアドレス",
@@ -1481,7 +1525,10 @@
 
         // --- すべて選択 ---
         checkAll.addEventListener("change", () => {
-          colCheckboxes().forEach((cb) => (cb.checked = checkAll.checked));
+          // 新規登録モードの必須列（disabled）は常に選択状態を維持する。
+          colCheckboxes().forEach((cb) => {
+            if (!cb.disabled) cb.checked = checkAll.checked;
+          });
           updateColCount();
           renderPreview();
         });

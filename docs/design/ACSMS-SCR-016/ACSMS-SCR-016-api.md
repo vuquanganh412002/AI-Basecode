@@ -105,10 +105,10 @@ updated_by: Tran Duc Tuyen
 | 4  | 管理支店                         | 管理支店ID                 | kanri_shiten_id            | BIGINT        | -    |
 | 5  | 支店                             | 支店ID                     | shiten_id                  | BIGINT        | -    |
 | 6  | 組合員コード                     | 組合員コード               | kumiaiin_code              | VARCHAR       | 20   |
-| 7  | 購読者苗字（漢字）               | 氏名（姓）                 | shimei_sei                 | VARCHAR       | 50   |
-| 8  | 購読者名前（漢字）               | 氏名（名）                 | shimei_mei                 | VARCHAR       | 50   |
-| 9  | 購読者苗字（かな）               | 氏名かな（姓）             | shimei_kana_sei            | VARCHAR       | 100  |
-| 10 | 購読者名前（かな）               | 氏名かな（名）             | shimei_kana_mei            | VARCHAR       | 100  |
+| 7  | 購読者氏名_氏               | 氏名（姓）                 | shimei_sei                 | VARCHAR       | 50   |
+| 8  | 購読者氏名_名               | 氏名（名）                 | shimei_mei                 | VARCHAR       | 50   |
+| 9  | 購読者かな_氏               | 氏名かな（姓）             | shimei_kana_sei            | VARCHAR       | 100  |
+| 10 | 購読者かな_名               | 氏名かな（名）             | shimei_kana_mei            | VARCHAR       | 100  |
 | 11 | 購読部数                         | 購読部数                   | dokusya_busu               | INTEGER       | -    |
 | 12 | 新聞単価                         | 単価コード                 | tanka_code                 | VARCHAR       | 10   |
 | 13 | メールアドレス                   | メールアドレス             | email                      | VARCHAR       | 100  |
@@ -214,7 +214,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 - ExcelJSライブラリを使用して新規ワークブックを生成する。
 - シート名：`購読者`
 - 1行目に49列のヘッダー文字列を以下の順序で書き込む。
-  - 「ID」「購読種別」「手続種類」「管理支店」「支店」「組合員コード」「購読者苗字（漢字）」「購読者名前（漢字）」「購読者苗字（かな）」「購読者名前（かな）」「購読部数」「新聞単価」「メールアドレス」「メールマガジン」「生年（西暦）」「性別」「郵便番号」「都道府県」「市町村郡」「丁目番地」「マンション・アパート名」「連絡先１」「連絡先２」「郵便番号(配達先)」「都道府県(配達先)」「市町村郡(配達先)」「丁目番地(配達先)」「ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)」「連絡先１(配達先)」「連絡先２(配達先)」「配達先苗字（漢字）」「配達先名前（漢字）」「配達先苗字（かな）」「配達先名前（かな）」「販売店コード」「郵送区分」「支払方法」「購読料支払サイクル（月数）」「引落口座貯金種目」「引落口座支店コード」「引落口座支店名」「引落口座番号」「引落口座名義」「購読者層分類」「農業者分類」「購読開始日」「購読中止日」「備考」「読者情報変更適用日」
+  - 「ID」「購読種別」「手続種類」「管理支店」「支店」「組合員コード」「購読者氏名_氏」「購読者氏名_名」「購読者かな_氏」「購読者かな_名」「購読部数」「新聞単価」「メールアドレス」「メールマガジン」「生年（西暦）」「性別」「郵便番号」「都道府県」「市町村郡」「丁目番地」「マンション・アパート名」「連絡先１」「連絡先２」「郵便番号(配達先)」「都道府県(配達先)」「市町村郡(配達先)」「丁目番地(配達先)」「ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)」「連絡先１(配達先)」「連絡先２(配達先)」「配達先苗字（漢字）」「配達先名前（漢字）」「配達先苗字（かな）」「配達先名前（かな）」「販売店コード」「郵送区分」「支払方法」「購読料支払サイクル（月数）」「引落口座貯金種目」「引落口座支店コード」「引落口座支店名」「引落口座番号」「引落口座名義」「購読者層分類」「農業者分類」「購読開始日」「購読中止日」「備考」「読者情報変更適用日」
 - ヘッダー行はボールドスタイル、背景色を設定する。
 - 各列の幅を項目内容に合わせて自動調整する。
 - 数字コードと文言の両方での取込みに対応するため、コードまたは文言のいずれかを入力可能とする旨を備考欄や説明シートで案内してもよい（例: 性別は「1」「男性」のいずれも可）。
@@ -503,7 +503,7 @@ Content-Type: application/json
 - リクエストボディの検証：
   - `import_mode`：必須、`NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のいずれか
   - `selected_columns`：必須、配列、1件以上
-    - `NEW` モードでは、新規登録必須項目（dokusya_shubetsu, tetsuzuki_shurui, kanri_shiten_id, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと
+    - `NEW` モードでは、新規登録必須項目（dokusya_shubetsu, tetsuzuki_shurui, kanri_shiten_id, shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと
   - `rows`：必須、配列、1件以上、30000件以下
     - 30000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
   - 各行 `rows[i]` の検証（`selected_columns` 対象列のみ）：

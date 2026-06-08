@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Run the project's mandatory code-review checklist against the source code of a given screen (ACSMS-SCR-XXX). Side selector (BE / FE / both — default both) scopes the review. Produces an inline OK/NOK/NA table with file:line evidence and suggested diffs for each NOK. Does NOT apply fixes — review only.
+description: Run the project's mandatory code-review checklist against the source code of a given screen (ACSMS-SCR-XXX). Side selector (BE / FE / both — default both) scopes the review. Produces an inline OK/NOK/NA table with file:line evidence and suggested diffs for each NOK, AND writes a parseable report file per side to docs/review/<scr>/ that scripts/checklist_md_to_excel.py converts into the customer's VTI "Checklist Coding" xlsx. Does NOT apply source fixes — review only.
 disable-model-invocation: true
 argument-hint: "ACSMS-SCR-XXX [BE|FE]"
 ---
@@ -10,6 +10,33 @@ argument-hint: "ACSMS-SCR-XXX [BE|FE]"
 ## Description
 
 Evaluates the source code generated for a screen (`ACSMS-SCR-XXX`) against the project's mandatory code-review checklist. The optional second argument scopes the review to one side (`BE` or `FE`); omitted = review both sides. Output is an inline markdown report with `OK` / `NOK` / `NA` per item; each `NOK` row carries file:line evidence + a suggested diff (NOT applied).
+
+## Review metadata (EDIT THESE)
+
+The report's identity fields are configured here. Edit the **Value** column
+below and every generated report (chat + `docs/review/<scr>/<side>.md`) picks
+them up. These map 1:1 to the customer's VTI "Checklist Coding" cover +
+"Record of change" sheet columns.
+
+| Field | Value | Maps to (xlsx) |
+|---|---|---|
+| PIC | `dat.nguyenhuy` | Record-of-change → **PIC** column |
+| Reviewer | `quanh` | Record-of-change → **Reviewer** column + Checklist `Reviewer` metadata row |
+| Approver | `` | Record-of-change → **Approver** column |
+| Project name | `AGRI_CMS` | Cover title + Checklist metadata |
+| Project manager | `dat.nguyenhuy` | Checklist metadata |
+
+How this is used:
+
+- The skill copies these values **verbatim** into the report's
+  machine-readable metadata block (see §Write report file(s)). PIC and
+  Reviewer are independent — set them to different people when the person
+  recording the change (PIC) differs from the person who reviewed.
+- To change who is recorded, edit the **Value** column above — nothing else.
+- Leave a cell blank (empty backticks `` ` ` ``) to omit it. A blank
+  Approver is fine.
+- When a value is set here, do **NOT** re-derive Reviewer from
+  `git config user.name` — the table is the source of truth.
 
 ## Arguments
 
@@ -228,6 +255,76 @@ Verdict rule:
 - **Acceptable**: 0 🔴, ≤ 2 🟡
 - **Review Again**: any 🔴 OR > 2 🟡
 
+## Write report file(s) for Excel export (MANDATORY — last step)
+
+After emitting the report in chat, ALSO persist it to disk so it can be
+converted to the customer's VTI "Checklist Coding" xlsx. This is the ONE
+exception to the read-only rule: writing the review report file is allowed;
+editing source code is still forbidden.
+
+### Where + how many files
+
+- Directory: `docs/review/<scr>/` (create if missing — `mkdir -p`).
+- **One file per side.** Filename = `<side>.md` lowercased:
+  - `<side>=BE`   → write `docs/review/<scr>/backend.md`
+  - `<side>=FE`   → write `docs/review/<scr>/frontend.md`
+  - `<side>=BOTH` → write **both** `backend.md` AND `frontend.md`, each a
+    self-contained single-side report (the backend file evaluates BE source
+    and marks FE-only items `NA`; the frontend file does the reverse). Do
+    NOT write a single combined file — each file maps 1:1 to one xlsx.
+
+### Updating an existing review (re-review)
+
+When the target `docs/review/<scr>/<side>.md` **already exists**, this is a
+re-review — UPDATE the existing file in place, do NOT create a second/renamed
+file (no `backend-v2.md`, no timestamp suffix). Steps:
+
+1. `Read` the existing report first.
+2. Re-evaluate all 42 items against the current source and overwrite the file
+   with the fresh results (`Write` to the same path replaces it).
+3. **Carry forward** the `PIC` / `Reviewer` / `Approver` / `Project name` /
+   `Project manager` metadata from the §Review metadata table (the table is
+   always the source of truth — if the user edited it since the last review,
+   the new values win).
+4. Set `Review date` to **today (JST)** — a re-review is a new review event.
+5. In your chat summary, note that this overwrote a prior review and mention
+   what changed since (e.g. "3.1 NOK→OK: missing DataScope now fixed").
+
+There is exactly one report file per `<scr>`/`<side>`; re-running the skill
+always edits that one file rather than accumulating duplicates.
+
+### Each file's content
+
+Each `.md` is a complete single-side report following the Output template,
+and MUST contain, in order:
+
+1. The H1 title + `**Scope**:` line.
+2. The **machine-readable metadata block** (the `- Project name:` … `- Side:`
+   bullets from the skeleton). `Products/Files` lists only the files reviewed
+   for that side; `Side` is `Backend` or `Frontend` (never `Both`).
+3. The per-item tables — all 42 rows (`1.1`-`1.9`, `2.1`-`2.10`, `3.1`-`3.2`,
+   `4.1`-`4.21`), each with its `✅ OK` / `❌ NOK` / `⚪ NA` status. The
+   converter keys off the row `#` and status; never omit a row.
+4. The long-form Summary + Suggested diffs (kept for human readers; the
+   converter ignores them).
+
+### Convert to xlsx
+
+After writing, tell the user the exact command(s) to produce the xlsx:
+
+```bash
+python3 scripts/checklist_md_to_excel.py docs/review/<scr>/backend.md
+python3 scripts/checklist_md_to_excel.py docs/review/<scr>/frontend.md
+```
+
+Each produces `{Backend_|Frontend_}Checklist_Coding 【日本農業新聞様】<scr>.xlsx`
+in the same directory, matching the customer template (3 sheets, dropdowns,
+COUNTIF summary). Round-filling rule applied by the script: an `OK`/`NA` item
+ticks all three rounds; a `NOK` item ticks only Round 1 (left open for re-review).
+
+Do NOT run the converter yourself — the user runs it (the review is read-only
+w.r.t. everything except the report file). Just surface the command.
+
 ## Checklist (mandatory items)
 
 ### §1 Format
@@ -304,6 +401,19 @@ After both halves, the **Suggested diffs** block lists each NOK with a compileab
 # Báo cáo Code Review — <scr> (<screen Japanese name>) — <Bản chi tiết Summary | Backend only | Frontend only>
 
 **Scope**: <BE | FE | BE + FE>
+
+<!-- machine-readable metadata — consumed by scripts/checklist_md_to_excel.py.
+     Keep these exact bullet keys; one block per report file (= per side).
+     PIC / Reviewer / Approver / Project name / Project manager come VERBATIM
+     from the §Review metadata (EDIT THESE) table at the top of this skill. -->
+- Project name: <Project name from §Review metadata>
+- Project manager: <Project manager from §Review metadata>
+- Products/Files: <comma-separated list of the files actually reviewed for THIS side, e.g. apps/backend/src/modules/tanka/*>
+- PIC: <PIC from §Review metadata>
+- Reviewer: <Reviewer from §Review metadata>
+- Approver: <Approver from §Review metadata — leave blank if empty>
+- Review date: <YYYY/MM/DD — today in JST>
+- Side: <Backend | Frontend>
 
 ## Files reviewed
 
@@ -489,7 +599,8 @@ Suggested fix:
 
 ### Formatting requirements (non-negotiable)
 
-- **Language**: Vietnamese narrative, Japanese literals preserved as-is in evidence cells.
+- **Language**: Vietnamese narrative (scores, bucket notes, Strength/Weakness, Action items). **Per-item table Evidence cells MUST be written in English** — they populate the customer's VTI Excel "Remark" column, which is English-facing. Japanese system literals (messages, screen names) stay verbatim inside the English evidence. Example: `Magic number formState.itaku_kubun === 1 repeated 8× (HanbaitenFormView.vue:302, :693…). BE has named const ITAKU_KUBUN_FURIKOMI; FE does not mirror it.`
+- **OK-row evidence**: leave as `—`. The Excel converter blanks the Remark for any OK row regardless, so an OK item never carries a remark in the xlsx.
 - **Status emoji**: `✅ OK` / `❌ NOK` / `⚪ NA` — always with emoji prefix.
 - **Severity emoji**: `🔴 Block` / `🟡 Major` / `🟢 Minor` / `—` (for OK/NA). Always with emoji prefix.
 - **File links**: render as `[`path`](path#L<line>)` markdown link, NOT bare path.
@@ -505,7 +616,7 @@ Suggested fix:
 
 ## Rules for the reviewer
 
-1. **Read-only**: NEVER call `Edit` / `Write` / `NotebookEdit`. Suggested diffs are inline-only.
+1. **Read-only w.r.t. source**: NEVER `Edit` / `Write` / `NotebookEdit` any source, spec, doc, or config file. Suggested diffs are inline-only. The SINGLE allowed write is the review report at `docs/review/<scr>/<side>.md` (see §Write report file(s) for Excel export). Never run the md→excel converter — surface the command for the user.
 2. **Evidence required**: every NOK MUST have file:line. No "looks bad" without citation.
 3. **Distinguish severities**: don't tag everything 🔴. Use the column in §Checklist above as ground truth.
 4. **NA is fine**: if a screen has no FK to another tenant, §Layer 4 FK check is `NA` — don't force-fit.
@@ -516,7 +627,7 @@ Suggested fix:
 9. **Be concrete in diffs**: every suggested diff must compile if applied. No `// fill this in` placeholders.
 10. **Follow the Output template exactly**: every row of the customer's 42-item checklist (1.1-1.9, 2.1-2.10, 3.1-3.2, 4.1-4.21) MUST appear in the per-item tables — even OK rows with `—` evidence. Skipping rows breaks the Excel export.
 11. **Long-form Summary is mandatory**: §Summary chi tiết must include all 7 subsections (Bảng số liệu, Phân bổ severity, Đánh giá theo nhóm tiêu chí, Strength, Weakness, Verdict cuối, Action items). NEVER collapse to a 4-line summary — the customer needs the long debrief for project reporting.
-12. **Vietnamese narrative**: explanations, scores, and bucket notes are in Vietnamese. Only Japanese system literals (messages, screen names) are preserved verbatim in evidence cells.
+12. **Language split**: narrative (scores, bucket notes, Strength/Weakness, Action items, effort) in Vietnamese. The per-item table **Evidence cells are in English** — they become the customer Excel "Remark" column. Japanese system literals (messages, screen names) stay verbatim inside the English evidence. OK rows: evidence `—` (converter blanks it).
 13. **Bucketing in §Đánh giá theo nhóm tiêu chí**: use the 8 canonical buckets from the Output template (Architecture & Naming, Comments & Documentation, Hardcode & Duplication, Security & Auth, Sensitive Data Handling, Code Length & Complexity, Code Hygiene, Third Party). Adjust only when a bucket has zero items relevant to this screen.
 14. **Strength + Weakness are distinct lenses**: Strength = patterns to copy in future screens (cite file:line). Weakness = root-cause / process-gap analysis, NOT a restatement of action items.
 15. **Verdict is mechanical**: apply the ruleset (Pass / Acceptable / Review Again) by counting severities, not by intuition. If the count says Acceptable, mark Acceptable even when there are 0 NOK (which would be Pass) — re-read the ruleset.
@@ -634,4 +745,9 @@ Diff:
 
 ## Final reminder
 
-Output the inline table + diffs IN CHAT. Do not write a file. Do not apply edits. Do not run tests. End with the Summary block and Verdict.
+Output the inline table + diffs IN CHAT, AND write the report file(s) to
+`docs/review/<scr>/` per §Write report file(s) for Excel export (one per
+side; BOTH → two files). Do NOT apply source edits. Do NOT run tests. Do NOT
+run the md→excel converter yourself — surface the command for the user. End
+with the Summary block, Verdict, the written file path(s), and the convert
+command.

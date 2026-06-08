@@ -123,9 +123,43 @@ python3 screen_excel_to_md.py <input.xlsx> <output_dir>
 
 ---
 
+---
+
+### 5. Coding Checklist: Markdown -> Excel
+
+#### `checklist_md_to_excel.py` — Markdown -> Excel (VTI "Checklist Coding")
+
+Convert a code-review checklist Markdown (produced by the `/code-review`
+skill, one file per side at `docs/review/<scr>/{backend,frontend}.md`) into
+the customer's VTI "Checklist Coding" Excel workbook (3 sheets: Cover /
+Record of change / Checklist — with dropdowns, A-column numbering, and
+COUNTIF summary preserved).
+
+```bash
+python3 checklist_md_to_excel.py <input.md>
+python3 checklist_md_to_excel.py <input.md> <output.xlsx>
+python3 checklist_md_to_excel.py <input.md> --author "Tran Duc Tuyen"
+```
+
+- Output filename (when not given) follows the customer pattern:
+  `{Backend_|Frontend_}Checklist_Coding 【日本農業新聞様】ACSMS-SCR-{NNN}.xlsx`,
+  derived from the `Side:` and `ACSMS-SCR-XXX` metadata in the Markdown.
+- `--author`: name shown as PIC / Reviewer / Approver in the Record of change
+  sheet (default `Tran Duc Tuyen`).
+- Round-filling rule: an `OK`/`NA` item ticks all three Assessment rounds;
+  a `NOK` item ticks only Round 1 (Round 2/3 left blank for re-review).
+- The 42 check-item texts are static template content baked into the script;
+  the Markdown only supplies each item's status (`OK`/`NOK`/`NA`) + remark
+  plus the header metadata (Products/Files, Reviewer, Review date).
+
+---
+
 ## Examples
 
 ```bash
+# Convert a code-review checklist (Backend) Markdown to the VTI Excel template
+python3 scripts/checklist_md_to_excel.py docs/review/ACSMS-SCR-006/backend.md
+
 # Convert API design from Excel to Markdown
 python3 scripts/api_excel_to_md.py docs/design/ACSMS-SCR-001/api-design.xlsx
 

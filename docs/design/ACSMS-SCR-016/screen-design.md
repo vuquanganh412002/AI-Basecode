@@ -96,10 +96,10 @@ ACSMS-SCR-016_購読者Excelデータ取込画面_画面イメージ
 | 9 | 管理支店 | col_04 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - | BIGINT | 読者テーブル | t_dokusya | 管理支店ID | kanri_shiten_id | 列パネル表示中 | checked | 新規登録場合は必須 |
 | 10 | 支店 | col_05 | チェックボックス | 入 |  | Boolean | - | - | BIGINT | 読者テーブル | t_dokusya | 支店ID | shiten_id | 列パネル表示中 | checked |  |
 | 11 | 組合員コード | col_06 | チェックボックス | 入 |  | Boolean | - | 20 | VARCHAR(20) | 読者テーブル | t_dokusya | 組合員コード | kumiaiin_code | 列パネル表示中 | checked | 一括中止時に必須（組合員コードをキーにして、手続種別を解約とし、購読中止日を設定して更新する） |
-| 12 | 購読者苗字（漢字） | col_07 | チェックボックス | 入 |  | Boolean | - | 50 | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（姓） | shimei_sei | 列パネル表示中 | checked |  |
-| 13 | 購読者名前（漢字） | col_08 | チェックボックス | 入 |  | Boolean | - | 50 | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（名） | shimei_mei | 列パネル表示中 | checked |  |
-| 14 | 購読者苗字（かな） | col_09 | チェックボックス | 入 |  | Boolean | - | 100 | VARCHAR(100) | 読者テーブル | t_dokusya | 氏名かな（姓） | shimei_kana_sei | 列パネル表示中 | checked |  |
-| 15 | 購読者名前（かな） | col_10 | チェックボックス | 入 |  | Boolean | - | 100 | VARCHAR(100) | 読者テーブル | t_dokusya | 氏名かな（名） | shimei_kana_mei | 列パネル表示中 | checked |  |
+| 12 | 購読者氏名_氏 | col_07 | チェックボックス | 入 | ●(新規登録) | Boolean | - | 50 | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（姓） | shimei_sei | 列パネル表示中 | checked | 漢字; 新規登録場合は必須 |
+| 13 | 購読者氏名_名 | col_08 | チェックボックス | 入 | ●(新規登録) | Boolean | - | 50 | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（名） | shimei_mei | 列パネル表示中 | checked | 漢字; 新規登録場合は必須 |
+| 14 | 購読者かな_氏 | col_09 | チェックボックス | 入 | ●(新規登録) | Boolean | - | 100 | VARCHAR(100) | 読者テーブル | t_dokusya | 氏名かな（姓） | shimei_kana_sei | 列パネル表示中 | checked | かな; 新規登録場合は必須 |
+| 15 | 購読者かな_名 | col_10 | チェックボックス | 入 | ●(新規登録) | Boolean | - | 100 | VARCHAR(100) | 読者テーブル | t_dokusya | 氏名かな（名） | shimei_kana_mei | 列パネル表示中 | checked | かな; 新規登録場合は必須 |
 | 16 | 購読部数 | col_11 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - | INTEGER | 読者テーブル | t_dokusya | 購読部数 | dokusya_busu | 列パネル表示中 | checked | ≥0,新規登録場合は必須 |
 | 17 | 新聞単価 | col_12 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - | BIGINT | 読者テーブル | t_dokusya | 単価ID | tanka_id | 列パネル表示中 | checked | m_tankaルックアップ(tanka_type=1),新規登録場合は必須 |
 | 18 | メールアドレス | col_13 | チェックボックス | 入 |  | Boolean | - | 100 | VARCHAR(100) | 読者テーブル | t_dokusya | メールアドレス | email | 列パネル表示中 | checked | メール形式チェック |
@@ -141,6 +141,33 @@ ACSMS-SCR-016_購読者Excelデータ取込画面_画面イメージ
 | 54 | 読者情報変更適用日 | col_49 | チェックボックス | 入 |  | Boolean | - | - | DATE | 読者テーブル | t_dokusya | 読者情報変更適用日 | joho_henko_tekiyo_date | 列パネル表示中 | checked | YYYY-MM-DD |
 | 55 | 取込データプレビュー | previewSection | ラベル | 出 |  |  |  |  | — |  |  |  |  | 列パネル表示中 |  |  |
 | 56 | 取込開始ボタン | btnImport | ボタン | 入 |  |  |  |  | — |  |  |  |  | 常に表示 |  |  |
+
+
+### 新規登録モードの必須固定列（disabled・常時チェック）
+
+取込モード＝**新規登録**のとき、以下の 17 列は SCR-011（購読者情報登録画面）の必須入力項目に対応するため、チェックボックスを `disabled`（常にチェック済み・解除不可）とする。`chkSelectAll`（すべて選択／解除）でも解除されない。全項目更新／入力箇所のみ更新モードでは固定解除（任意選択可）。
+
+| No. | 項目ID | 列名（画面） | 物理カラム（t_dokusya） | 対応 SCR-011 必須項目 | 備考 |
+| --- | --- | --- | --- | --- | --- |
+| 7  | col_02 | 購読種別     | dokusya_shubetsu   | dokusya_shubetsu   | 1:紙版, 2:電子版（3:併読は取込不可） |
+| 8  | col_03 | 手続種類     | tetsuzuki_shurui   | tetsuzuki_shurui   | 0:解約, 1:新規 |
+| 9  | col_04 | 管理支店     | kanri_shiten_id    | kanri_shiten_id    | マスタ存在チェック |
+| 12 | col_07 | 購読者氏名_氏 | shimei_sei         | shimei_sei         | 漢字 |
+| 13 | col_08 | 購読者氏名_名 | shimei_mei         | shimei_mei         | 漢字 |
+| 14 | col_09 | 購読者かな_氏 | shimei_kana_sei    | shimei_kana_sei    | かな |
+| 15 | col_10 | 購読者かな_名 | shimei_kana_mei    | shimei_kana_mei    | かな |
+| 16 | col_11 | 購読部数     | dokusya_busu       | dokusya_busu       | ≥0 |
+| 17 | col_12 | 新聞単価     | tanka_id           | tanka_id（tanka_code で解決） | m_tanka ルックアップ tanka_type=1 |
+| 22 | col_17 | 郵便番号     | yubin_no           | yubin_no           | 7桁・ハイフン除去 |
+| 23 | col_18 | 都道府県     | todofuken_code     | todofuken_code     | 2桁コード |
+| 24 | col_19 | 市町村郡     | shikuchoson        | shikuchoson        |  |
+| 25 | col_20 | 丁目番地     | chome_banchi       | chome_banchi       |  |
+| 27 | col_22 | 連絡先１     | renrakusaki_1      | renrakusaki_1      | 数字のみ |
+| 40 | col_35 | 販売店コード | hanbaiten_id       | hanbaiten_id（hanbaiten_code で解決） | m_hanbaiten ルックアップ |
+| 42 | col_37 | 支払方法     | shiharai_hoho      | shiharai_hoho      | m_code SHIHARAI_HOHO |
+| 51 | col_46 | 購読開始日   | dokusya_kaishi_date| dokusya_kaishi_date| YYYY-MM-DD |
+
+> 注: 購読者氏名（shimei_sei / shimei_mei / shimei_kana_sei / shimei_kana_mei）は SCR-011 の必須入力項目に合わせ、新規登録モードの必須固定列に含める（顧客方針 2026-06）。API §4.3 の新規登録必須列定義もこの 17 列に統一する。
 
 
 ---
@@ -188,7 +215,7 @@ ACSMS-SCR-016_購読者Excelデータ取込画面_画面イメージ
 - **3.2** デフォルト値: 新規登録
 - **4.0** テンプレートダウンロード
 - **4.1** システムがExcelファイルを生成し、シート名: 「購読者」、1行目に49列を以下の順序通りに設定
-  - ・ID 、購読種別、手続種類、管理支店、支店、組合員コード、住所、購読者苗字（漢字）、購読者名前（漢字）、購読者苗字（かな）、購読者名前（かな）
+  - ・ID 、購読種別、手続種類、管理支店、支店、組合員コード、住所、購読者氏名_氏、購読者氏名_名、購読者かな_氏、購読者かな_名
   - ・ 購読部数、新聞単価、メールアドレス、メールマガジン、生年（西暦）、性別、郵便番号、都道府県、市町村郡、丁目番地 、マンション・アパート名、連絡先１、連絡先２、郵便番号(配達先)、都道府県(配達先)市町村郡(配達先)、丁目番地(配達先)、ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)、連絡先１(配達先)、連絡先２(配達先)
   - ・ 配達先苗字（漢字）、配達先名前（漢字）、配達先苗字（かな）、配達先名前（かな）、販売店コード、郵送区分、支払方法、購読料支払サイクル（月数）、引落口座貯金種目、引落口座支店コード、引落口座支店名、引落口座番号、引落口座名義、読者層分類、農業者分類、購読開始日、購読中止日、備考、読者情報変更適用日
   - ・数字コードと文言の両方での取込みに対応する（例: 引落口座貯金種目は「1」「2」のほか「普通」「当座」も可、性別は「男性」「女性」「回答しない」も可
