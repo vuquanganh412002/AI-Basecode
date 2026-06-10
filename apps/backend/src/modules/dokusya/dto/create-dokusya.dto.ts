@@ -1,0 +1,503 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEmpty,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+import { DokusyaShubetsu } from '@/common/enums';
+
+/**
+ * Empty-string → undefined transformer. `@IsOptional()` only skips
+ * `null` / `undefined`, NOT `""`. Form posts send blank optional
+ * inputs as `""` — without this, `@MaxLength` / `@Matches` would
+ * reject. See `.claude/rules/nestjs.md §DTO validation gotchas #1`.
+ */
+const blankToUndef = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/**
+ * 配達先 住所・氏名 が「必須」になる条件 (機能定義 §9.2 / FE
+ * `haitatsuRequired` computed と一致):
+ *   haitatsu_same_flg = false（購読者情報と同じ をオフ）
+ *   AND 紙版 (dokusya_shubetsu = 1)  ※電子版/併読 (2/3) は配達先
+ *   セクションが非表示のため検証しない。
+ *
+ * 各 haitatsu_* 必須項目には `@ValidateIf(d => isHaitatsuAddressRequired(d)
+ * || d.<field> !== undefined)` を付与する。これにより:
+ *   - 紙版+別住所 → 必須 (@IsNotEmpty) + フォーマット検証
+ *   - それ以外で値が入力済み → フォーマット/桁数のみ検証 (旧挙動維持)
+ *   - それ以外で空 → スキップ (blankToUndef で undefined 化済み)
+ * `@IsOptional()` は使えない — undefined を先に握り潰し @IsNotEmpty が
+ * 走らなくなる (`.claude/rules/nestjs.md §DTO validation gotchas #4`)。
+ */
+function isHaitatsuAddressRequired(o: {
+  haitatsu_same_flg?: boolean;
+  dokusya_shubetsu?: number;
+}): boolean {
+  return (
+    o.haitatsu_same_flg === false &&
+    Number(o.dokusya_shubetsu) === DokusyaShubetsu.PAPER
+  );
+}
+
+/**
+ * Date-only literal accepting BOTH separators: YYYY/MM/DD (the picker's
+ * display format the user sees + types) and YYYY-MM-DD (ISO). The service
+ * normalises the slash form to hyphen before persisting, so the varchar(10)
+ * columns stay hyphen-consistent for the lexicographic range filters
+ * (`d.dokusya_kaishi_date <= :to`). Mirrors the YYYY/MM/DD-friendly inputs
+ * on the file-upload / oshirase / log screens.
+ */
+const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
+
+/**
+ * Body for POST /api/v1/dokusya (ACSMS-API-011-002).
+ *
+ * `ja_id` and `dokusya_id` are intentionally NOT declared — the global
+ * `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`
+ * strips/rejects them at the controller boundary. Both are derived
+ * server-side (ja_id from session, dokusya_id auto-assigned).
+ *
+ * Runtime allow-list checks against `m_code` (dokusya_shubetsu,
+ * tetsuzuki_shurui, yubin_kubun, shiharai_hoho, etc.) and the future-
+ * date check on `joho_henko_tekiyo_date` live in the service layer —
+ * `class-validator` decorators can't inject `CodeService` because they
+ * run before Nest DI is wired.
+ */
+export class CreateDokusyaDto {
+  /**
+   * `ja_id` is server-side derived from the session — the body MUST NOT
+   * supply it. Declared with `@IsEmpty()` so even if `whitelist:true` /
+   * `forbidNonWhitelisted:true` are off, a client that smuggles
+   * `ja_id` gets a 400 with a `ja_id` field error. Used by the
+   * dto.spec.ts assertion `should reject ja_id in body`.
+   */
+  @IsEmpty({ message: 'ja_id はリクエストボディに含められません。' })
+  ja_id?: never;
+
+  @ApiPropertyOptional({ description: '管理支店ID (FK: m_kanri_shiten)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '管理支店IDは整数で指定してください。' })
+  kanri_shiten_id?: number;
+
+  @ApiProperty({
+    description:
+      '支店ID (FK: m_shiten)。購読者の所属支店として必須。金融支店 (kinyu_shiten_flg=true) は対象外（引落口座支店専用）。',
+  })
+  @Type(() => Number)
+  @IsInt({ message: '支店IDは整数で指定してください。' })
+  shiten_id!: number;
+
+  @ApiPropertyOptional({ description: '組合員コード', maxLength: 20 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '組合員コードは文字列で指定してください。' })
+  @MaxLength(20, { message: '組合員コードは最大20文字で指定してください。' })
+  kumiaiin_code?: string;
+
+  @ApiProperty({
+    description: '購読者種別 (m_code.code_category=DOKUSYA_SHUBETSU)',
+  })
+  @Type(() => Number)
+  @IsInt({ message: '購読者種別は整数で指定してください。' })
+  dokusya_shubetsu!: number;
+
+  @ApiProperty({
+    description: '手続種類 (m_code.code_category=TETSUZUKI_SHURUI)',
+  })
+  @Type(() => Number)
+  @IsInt({ message: '手続種類は整数で指定してください。' })
+  tetsuzuki_shurui!: number;
+
+  @ApiProperty({ description: '購読部数 (0以上、解約時は0)' })
+  @Type(() => Number)
+  @IsInt({ message: '購読部数は整数で指定してください。' })
+  @Min(0, { message: '購読部数は0以上で指定してください。' })
+  dokusya_busu!: number;
+
+  @ApiProperty({ description: '氏名 (姓)', maxLength: 50 })
+  @IsString({ message: '氏名(姓)は文字列で指定してください。' })
+  @IsNotEmpty({ message: '氏名(姓)は必須です。' })
+  @MaxLength(50, { message: '氏名(姓)は最大50文字で指定してください。' })
+  shimei_sei!: string;
+
+  @ApiProperty({ description: '氏名 (名)', maxLength: 50 })
+  @IsString({ message: '氏名(名)は文字列で指定してください。' })
+  @IsNotEmpty({ message: '氏名(名)は必須です。' })
+  @MaxLength(50, { message: '氏名(名)は最大50文字で指定してください。' })
+  shimei_mei!: string;
+
+  @ApiProperty({ description: '氏名カナ (姓)', maxLength: 100 })
+  @IsString({ message: '氏名カナ(姓)は文字列で指定してください。' })
+  @IsNotEmpty({ message: '氏名カナ(姓)は必須です。' })
+  @MaxLength(100, {
+    message: '氏名カナ(姓)は最大100文字で指定してください。',
+  })
+  shimei_kana_sei!: string;
+
+  @ApiProperty({ description: '氏名カナ (名)', maxLength: 100 })
+  @IsString({ message: '氏名カナ(名)は文字列で指定してください。' })
+  @IsNotEmpty({ message: '氏名カナ(名)は必須です。' })
+  @MaxLength(100, {
+    message: '氏名カナ(名)は最大100文字で指定してください。',
+  })
+  shimei_kana_mei!: string;
+
+  @ApiProperty({ description: '郵便番号 (半角数字7桁)' })
+  @IsString({ message: '郵便番号は文字列で指定してください。' })
+  @IsNotEmpty({ message: '郵便番号は必須です。' })
+  @Matches(/^\d{7}$/, {
+    message: '郵便番号は半角数字7桁で指定してください。',
+  })
+  yubin_no!: string;
+
+  @ApiProperty({ description: '都道府県コード (2桁)' })
+  @IsString({ message: '都道府県コードは文字列で指定してください。' })
+  @IsNotEmpty({ message: '都道府県コードは必須です。' })
+  @Length(2, 2, { message: '都道府県コードは2桁で指定してください。' })
+  todofuken_code!: string;
+
+  @ApiProperty({ description: '市区町村', maxLength: 100 })
+  @IsString({ message: '市区町村は文字列で指定してください。' })
+  @IsNotEmpty({ message: '市区町村は必須です。' })
+  @MaxLength(100, { message: '市区町村は最大100文字で指定してください。' })
+  shikuchoson!: string;
+
+  @ApiProperty({ description: '町域・番地', maxLength: 100 })
+  @IsString({ message: '町域・番地は文字列で指定してください。' })
+  @IsNotEmpty({ message: '町域・番地は必須です。' })
+  @MaxLength(100, { message: '町域・番地は最大100文字で指定してください。' })
+  chome_banchi!: string;
+
+  @ApiPropertyOptional({ description: '建物名', maxLength: 100 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '建物名は文字列で指定してください。' })
+  @MaxLength(100, { message: '建物名は最大100文字で指定してください。' })
+  tatemono_mei?: string;
+
+  @ApiProperty({ description: '連絡先1 (電話番号)', maxLength: 15 })
+  @IsString({ message: '連絡先1は文字列で指定してください。' })
+  @IsNotEmpty({ message: '連絡先1は必須です。' })
+  @MaxLength(15, { message: '連絡先1は最大15文字で指定してください。' })
+  renrakusaki_1!: string;
+
+  @ApiPropertyOptional({ description: '連絡先2 (電話番号)', maxLength: 15 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '連絡先2は文字列で指定してください。' })
+  @MaxLength(15, { message: '連絡先2は最大15文字で指定してください。' })
+  renrakusaki_2?: string;
+
+  @ApiPropertyOptional({ description: 'メールアドレス', maxLength: 100 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @MaxLength(100, {
+    message: 'メールアドレスは最大100文字で指定してください。',
+  })
+  @IsEmail({}, { message: 'メールアドレスの形式が不正です。' })
+  email?: string;
+
+  @ApiPropertyOptional({
+    description: 'メルマガ配信フラグ (m_code.code_category=MAIL_MAGAZINE_FLG)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'メルマガ配信フラグは整数で指定してください。' })
+  mail_magazine_flg?: number;
+
+  @ApiPropertyOptional({ description: '生年 (西暦)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '生年は整数で指定してください。' })
+  birth_year?: number;
+
+  @ApiPropertyOptional({
+    description: '性別 (m_code.code_category=GENDER)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '性別は整数で指定してください。' })
+  gender?: number;
+
+  @ApiProperty({
+    description: '配達先=連絡先と同じフラグ (true=同じ、配達先カラムは空)',
+  })
+  @IsBoolean({ message: '配達先=連絡先と同じフラグはbool型で指定してください。' })
+  haitatsu_same_flg!: boolean;
+
+  @ApiPropertyOptional({ description: '配達先 郵便番号 (半角数字7桁)', maxLength: 7 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) => isHaitatsuAddressRequired(o) || o.haitatsu_yubin_no !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 郵便番号は必須です。' })
+  @IsString({ message: '配達先 郵便番号は文字列で指定してください。' })
+  @Matches(/^\d{7}$/, {
+    message: '配達先 郵便番号は半角数字7桁で指定してください。',
+  })
+  haitatsu_yubin_no?: string;
+
+  @ApiPropertyOptional({ description: '配達先 都道府県コード', maxLength: 2 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) =>
+      isHaitatsuAddressRequired(o) || o.haitatsu_todofuken_code !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 都道府県コードは必須です。' })
+  @IsString({ message: '配達先 都道府県コードは文字列で指定してください。' })
+  @MaxLength(2, {
+    message: '配達先 都道府県コードは最大2文字で指定してください。',
+  })
+  haitatsu_todofuken_code?: string;
+
+  @ApiPropertyOptional({ description: '配達先 市区町村', maxLength: 100 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) => isHaitatsuAddressRequired(o) || o.haitatsu_shikuchoson !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 市区町村は必須です。' })
+  @IsString({ message: '配達先 市区町村は文字列で指定してください。' })
+  @MaxLength(100, {
+    message: '配達先 市区町村は最大100文字で指定してください。',
+  })
+  haitatsu_shikuchoson?: string;
+
+  @ApiPropertyOptional({ description: '配達先 町域・番地', maxLength: 100 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) => isHaitatsuAddressRequired(o) || o.haitatsu_chome_banchi !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 町域・番地は必須です。' })
+  @IsString({ message: '配達先 町域・番地は文字列で指定してください。' })
+  @MaxLength(100, {
+    message: '配達先 町域・番地は最大100文字で指定してください。',
+  })
+  haitatsu_chome_banchi?: string;
+
+  @ApiPropertyOptional({ description: '配達先 建物名', maxLength: 100 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '配達先 建物名は文字列で指定してください。' })
+  @MaxLength(100, {
+    message: '配達先 建物名は最大100文字で指定してください。',
+  })
+  haitatsu_tatemono_mei?: string;
+
+  @ApiPropertyOptional({ description: '配達先 連絡先1', maxLength: 15 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '配達先 連絡先1は文字列で指定してください。' })
+  @MaxLength(15, {
+    message: '配達先 連絡先1は最大15文字で指定してください。',
+  })
+  haitatsu_renrakusaki_1?: string;
+
+  @ApiPropertyOptional({ description: '配達先 連絡先2', maxLength: 15 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '配達先 連絡先2は文字列で指定してください。' })
+  @MaxLength(15, {
+    message: '配達先 連絡先2は最大15文字で指定してください。',
+  })
+  haitatsu_renrakusaki_2?: string;
+
+  @ApiPropertyOptional({ description: '配達先 氏名 (姓)', maxLength: 50 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) => isHaitatsuAddressRequired(o) || o.haitatsu_shimei_sei !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 氏名(姓)は必須です。' })
+  @IsString({ message: '配達先 氏名(姓)は文字列で指定してください。' })
+  @MaxLength(50, {
+    message: '配達先 氏名(姓)は最大50文字で指定してください。',
+  })
+  haitatsu_shimei_sei?: string;
+
+  @ApiPropertyOptional({ description: '配達先 氏名 (名)', maxLength: 50 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) => isHaitatsuAddressRequired(o) || o.haitatsu_shimei_mei !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 氏名(名)は必須です。' })
+  @IsString({ message: '配達先 氏名(名)は文字列で指定してください。' })
+  @MaxLength(50, {
+    message: '配達先 氏名(名)は最大50文字で指定してください。',
+  })
+  haitatsu_shimei_mei?: string;
+
+  @ApiPropertyOptional({ description: '配達先 氏名カナ (姓)', maxLength: 100 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) =>
+      isHaitatsuAddressRequired(o) || o.haitatsu_shimei_kana_sei !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 氏名カナ(姓)は必須です。' })
+  @IsString({ message: '配達先 氏名カナ(姓)は文字列で指定してください。' })
+  @MaxLength(100, {
+    message: '配達先 氏名カナ(姓)は最大100文字で指定してください。',
+  })
+  haitatsu_shimei_kana_sei?: string;
+
+  @ApiPropertyOptional({ description: '配達先 氏名カナ (名)', maxLength: 100 })
+  @Transform(blankToUndef)
+  @ValidateIf(
+    (o) =>
+      isHaitatsuAddressRequired(o) || o.haitatsu_shimei_kana_mei !== undefined,
+  )
+  @IsNotEmpty({ message: '配達先 氏名カナ(名)は必須です。' })
+  @IsString({ message: '配達先 氏名カナ(名)は文字列で指定してください。' })
+  @MaxLength(100, {
+    message: '配達先 氏名カナ(名)は最大100文字で指定してください。',
+  })
+  haitatsu_shimei_kana_mei?: string;
+
+  @ApiProperty({ description: '販売店ID (FK: m_hanbaiten)' })
+  @Type(() => Number)
+  @IsInt({ message: '販売店IDは整数で指定してください。' })
+  hanbaiten_id!: number;
+
+  @ApiProperty({ description: '単価ID (FK: m_tanka)' })
+  @Type(() => Number)
+  @IsInt({ message: '単価IDは整数で指定してください。' })
+  tanka_id!: number;
+
+  @ApiPropertyOptional({
+    description: '郵送区分 (m_code.code_category=YUBIN_KUBUN, 1文字)',
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '郵送区分は文字列で指定してください。' })
+  @Length(1, 1, { message: '郵送区分は1文字で指定してください。' })
+  yubin_kubun?: string;
+
+  @ApiProperty({
+    description: '支払方法 (m_code.code_category=SHIHARAI_HOHO)',
+  })
+  @Type(() => Number)
+  @IsInt({ message: '支払方法は整数で指定してください。' })
+  shiharai_hoho!: number;
+
+  @ApiPropertyOptional({
+    description: '購読料支払サイクル (月数、最大99)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '購読料支払サイクルは整数で指定してください。' })
+  @Min(0, { message: '購読料支払サイクルは0以上で指定してください。' })
+  dokusyaryo_shiharai_cycle?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '銀行支店ID (m_shiten.shiten_id、支払方法=1 口座引落 の場合は必須)。' +
+      'サーバ側で jastem_toriatsukai_tenpo_code / jastem_tenpo_name を逆引き。',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '銀行支店IDは整数で指定してください。' })
+  bank_shiten_id?: number;
+
+  @ApiPropertyOptional({
+    description: '引落 預金種別 (m_code.code_category=YOKIN_SHUBETSU)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '引落 預金種別は整数で指定してください。' })
+  hikiotoshi_yokin_shubetsu?: number;
+
+  @ApiPropertyOptional({ description: '引落 口座番号', maxLength: 10 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '引落 口座番号は文字列で指定してください。' })
+  @MaxLength(10, {
+    message: '引落 口座番号は最大10文字で指定してください。',
+  })
+  hikiotoshi_koza_no?: string;
+
+  @ApiPropertyOptional({ description: '引落 口座名義', maxLength: 50 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '引落 口座名義は文字列で指定してください。' })
+  @MaxLength(50, {
+    message: '引落 口座名義は最大50文字で指定してください。',
+  })
+  hikiotoshi_koza_meigi?: string;
+
+  @ApiPropertyOptional({ description: '購読者層分類', maxLength: 50 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '購読者層分類は文字列で指定してください。' })
+  @MaxLength(50, {
+    message: '購読者層分類は最大50文字で指定してください。',
+  })
+  dokusyaso_bunrui?: string;
+
+  @ApiPropertyOptional({ description: '農業者分類', maxLength: 50 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '農業者分類は文字列で指定してください。' })
+  @MaxLength(50, {
+    message: '農業者分類は最大50文字で指定してください。',
+  })
+  nogyosya_bunrui?: string;
+
+  @ApiProperty({ description: '購読開始日 (YYYY/MM/DD)' })
+  @IsString({ message: '購読開始日は文字列で指定してください。' })
+  @IsNotEmpty({ message: '購読開始日は必須です。' })
+  @Matches(DATE_INPUT_RE, {
+    message: '購読開始日はYYYY/MM/DD形式で指定してください。',
+  })
+  dokusya_kaishi_date!: string;
+
+  @ApiPropertyOptional({
+    description: '購読中止日 (YYYY/MM/DD)',
+    nullable: true,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '購読中止日は文字列で指定してください。' })
+  @Matches(DATE_INPUT_RE, {
+    message: '購読中止日はYYYY/MM/DD形式で指定してください。',
+  })
+  dokusya_chushi_date?: string | null;
+
+  @ApiPropertyOptional({
+    description: '情報変更適用日 (YYYY/MM/DD、未来日)',
+    nullable: true,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '情報変更適用日は文字列で指定してください。' })
+  @Matches(DATE_INPUT_RE, {
+    message: '情報変更適用日はYYYY/MM/DD形式で指定してください。',
+  })
+  joho_henko_tekiyo_date?: string | null;
+
+  @ApiPropertyOptional({
+    description: '請求開始月 (YYYYMM)',
+    maxLength: 6,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '請求開始月は文字列で指定してください。' })
+  @MaxLength(6, { message: '請求開始月は最大6文字で指定してください。' })
+  seikyu_kaishi_month?: string;
+
+  @ApiPropertyOptional({ description: '備考', maxLength: 500 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '備考は文字列で指定してください。' })
+  @MaxLength(500, { message: '備考は最大500文字で指定してください。' })
+  biko?: string;
+}

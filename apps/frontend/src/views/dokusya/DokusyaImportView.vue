@@ -1,0 +1,798 @@
+<script setup lang="ts">
+// ACSMS-SCR-016 — 購読者Excelデータ取込画面.
+//
+// Single-page form: pick an Excel file → client-side parse via xlsx →
+// show preview → toggle column subset → choose import mode → submit to
+// the BE import endpoint.
+//
+// Mirrors the SCR-019 precedent (HanbaitenImportView.vue): native
+// <input type="file"> + native <input type="checkbox" name="col"
+// value="..."> so the spec's name+value selectors keep working in
+// vitest without traversing antd component internals.
+//
+// Spec contract: src/views/dokusya/__tests__/DokusyaImportView.spec.ts.
+
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { message, Modal } from 'ant-design-vue';
+import * as XLSX from 'xlsx';
+
+import { useAuthStore } from '@/stores/auth.store';
+import {
+  downloadDokusyaImportTemplate,
+  importDokusyaExcel,
+  type DokusyaImportMode,
+  type ImportDokusyaRow,
+} from '@/api/dokusya/dokusya';
+
+/**
+ * 49 physical column names — exact order per api.md §テンプレートファイル
+ * 仕様. Index N maps to the index-N Japanese header below and to the
+ * matching checkbox `value` attribute.
+ */
+const PHYSICAL_COLUMNS = [
+  'dokusya_id',
+  'dokusya_shubetsu',
+  'tetsuzuki_shurui',
+  'kanri_shiten_id',
+  'shiten_id',
+  'kumiaiin_code',
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
+  'dokusya_busu',
+  'tanka_code',
+  'email',
+  'mail_magazine_flg',
+  'birth_year',
+  'gender',
+  'yubin_no',
+  'todofuken_code',
+  'shikuchoson',
+  'chome_banchi',
+  'tatemono_mei',
+  'renrakusaki_1',
+  'renrakusaki_2',
+  'haitatsu_yubin_no',
+  'haitatsu_todofuken_code',
+  'haitatsu_shikuchoson',
+  'haitatsu_chome_banchi',
+  'haitatsu_tatemono_mei',
+  'haitatsu_renrakusaki_1',
+  'haitatsu_renrakusaki_2',
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+  'hanbaiten_code',
+  'yubin_kubun',
+  'shiharai_hoho',
+  'dokusyaryo_shiharai_cycle',
+  'hikiotoshi_yokin_shubetsu',
+  'bank_branch_code',
+  'bank_branch_name',
+  'hikiotoshi_koza_no',
+  'hikiotoshi_koza_meigi',
+  'dokusyaso_bunrui',
+  'nogyosya_bunrui',
+  'dokusya_kaishi_date',
+  'dokusya_chushi_date',
+  'biko',
+  'joho_henko_tekiyo_date',
+] as const;
+type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
+
+/** Japanese display headers — must match BE template column order. */
+const JP_HEADERS: Record<PhysicalColumn, string> = {
+  dokusya_id: 'ID',
+  dokusya_shubetsu: '購読種別',
+  tetsuzuki_shurui: '手続種類',
+  kanri_shiten_id: '管理支店',
+  shiten_id: '支店',
+  kumiaiin_code: '組合員コード',
+  shimei_sei: '購読者氏名_氏',
+  shimei_mei: '購読者氏名_名',
+  shimei_kana_sei: '購読者かな_氏',
+  shimei_kana_mei: '購読者かな_名',
+  dokusya_busu: '購読部数',
+  tanka_code: '新聞単価',
+  email: 'メールアドレス',
+  mail_magazine_flg: 'メールマガジン',
+  birth_year: '生年（西暦）',
+  gender: '性別',
+  yubin_no: '郵便番号',
+  todofuken_code: '都道府県',
+  shikuchoson: '市町村郡',
+  chome_banchi: '丁目番地',
+  tatemono_mei: 'マンション・アパート名',
+  renrakusaki_1: '連絡先１',
+  renrakusaki_2: '連絡先２',
+  haitatsu_yubin_no: '郵便番号(配達先)',
+  haitatsu_todofuken_code: '都道府県(配達先)',
+  haitatsu_shikuchoson: '市町村郡(配達先)',
+  haitatsu_chome_banchi: '丁目番地(配達先)',
+  haitatsu_tatemono_mei: 'ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)',
+  haitatsu_renrakusaki_1: '連絡先１(配達先)',
+  haitatsu_renrakusaki_2: '連絡先２(配達先)',
+  haitatsu_shimei_sei: '配達先苗字（漢字）',
+  haitatsu_shimei_mei: '配達先名前（漢字）',
+  haitatsu_shimei_kana_sei: '配達先苗字（かな）',
+  haitatsu_shimei_kana_mei: '配達先名前（かな）',
+  hanbaiten_code: '販売店コード',
+  yubin_kubun: '郵送区分',
+  shiharai_hoho: '支払方法',
+  dokusyaryo_shiharai_cycle: '購読料支払サイクル（月数）',
+  hikiotoshi_yokin_shubetsu: '引落口座貯金種目',
+  bank_branch_code: '引落口座支店コード',
+  bank_branch_name: '引落口座支店名',
+  hikiotoshi_koza_no: '引落口座番号',
+  hikiotoshi_koza_meigi: '引落口座名義',
+  dokusyaso_bunrui: '購読者層分類',
+  nogyosya_bunrui: '農業者分類',
+  dokusya_kaishi_date: '購読開始日',
+  dokusya_chushi_date: '購読中止日',
+  biko: '備考',
+  joho_henko_tekiyo_date: '読者情報変更適用日',
+};
+
+/** Header (JP) → physical column. sheet_to_json keys are row-1 strings. */
+const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
+  const out: Record<string, PhysicalColumn> = {};
+  for (const col of PHYSICAL_COLUMNS) {
+    out[JP_HEADERS[col]] = col;
+  }
+  return out;
+})();
+
+/**
+ * Physical columns required + always-checked + disabled when import
+ * mode = 新規登録 (NEW). Mirrors api.md §4.1 NEW-mode required list.
+ */
+const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
+  'dokusya_shubetsu',
+  'tetsuzuki_shurui',
+  'kanri_shiten_id',
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
+  'dokusya_busu',
+  'tanka_code',
+  'yubin_no',
+  'todofuken_code',
+  'shikuchoson',
+  'chome_banchi',
+  'renrakusaki_1',
+  'hanbaiten_code',
+  'shiharai_hoho',
+  'dokusya_kaishi_date',
+];
+const REQUIRED_SET = new Set<string>(REQUIRED_COLUMNS_NEW);
+
+const MAX_ROWS = 30000;
+
+// FE radio display value → BE wire value.
+const MODE_TO_BE: Record<string, DokusyaImportMode> = {
+  new: 'NEW',
+  update: 'UPDATE_ALL',
+  cancel: 'UPDATE_PARTIAL',
+};
+
+const IMPORT_MODE_OPTIONS: ReadonlyArray<{
+  value: keyof typeof MODE_TO_BE;
+  label: string;
+}> = [
+  { value: 'new', label: '新規登録' },
+  { value: 'update', label: '全項目更新' },
+  { value: 'cancel', label: '入力箇所のみ更新' },
+];
+
+// ─── messages (screen-design.md §メッセージ情報) ──────────────────────
+const MSG_016_001 =
+  'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。';
+const MSG_016_002 = '取込処理を開始します。よろしいですか？';
+const MSG_016_004 = '取り込みました。';
+const MSG_016_006 =
+  'ファイルの行数が上限（30000行）を超えているため、取込みできません。';
+
+// m_code values for the 電子版クレカ guard (seeder §5).
+const DOKUSYA_SHUBETSU_DENSHI = 2; // 電子版
+const SHIHARAI_HOHO_CREDIT = 6; // クレジットカード
+const TETSUZUKI_SHURUI_KAIYAKU = 0; // 解約
+
+const authStore = useAuthStore();
+const canImport = computed(() => authStore.hasPermission('dokusya.import'));
+
+// ─── form state ──────────────────────────────────────────────────────
+
+const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
+
+/** Selected columns — every physical column starts checked. */
+const selected = reactive<Record<PhysicalColumn, boolean>>(
+  PHYSICAL_COLUMNS.reduce(
+    (acc, col) => {
+      acc[col] = true;
+      return acc;
+    },
+    {} as Record<PhysicalColumn, boolean>,
+  ),
+);
+
+/** Parsed Excel rows, populated after a successful file change. */
+const parsedRows = ref<Array<Record<string, unknown>>>([]);
+const fileName = ref<string>('');
+const submitting = ref(false);
+const panelCollapsed = ref(false);
+
+/** Row-level errors surfaced from IMPORT_VALIDATION_ERROR (capped at 10). */
+interface RowError {
+  row: number;
+  field: string;
+  message: string;
+}
+const rowErrors = ref<RowError[]>([]);
+
+/** Import result counts (機能 8.4). */
+const importResult = ref<{
+  created_count: number;
+  updated_count: number;
+  cancelled_count: number;
+  skipped_count: number;
+  rireki_count: number;
+  total_rows: number;
+} | null>(null);
+
+// ─── derived ─────────────────────────────────────────────────────────
+
+const hasFile = computed(() => parsedRows.value.length > 0);
+const previewVisible = computed(() => hasFile.value);
+
+/**
+ * Whether a column is LOCKED (force-checked + disabled) in the current mode:
+ *   - 全項目更新 (UPDATE_ALL) → ALL columns are targets, so all locked.
+ *   - 新規登録 (NEW)          → the required columns are locked.
+ *   - 入力箇所のみ更新 (PARTIAL) → free choice, nothing locked.
+ * Mirrors the hanbaiten import column-lock behaviour.
+ */
+function isLocked(col: PhysicalColumn): boolean {
+  if (importModeFe.value === 'update') return true;
+  if (importModeFe.value === 'new') return REQUIRED_SET.has(col);
+  return false;
+}
+
+/** Columns the preview table renders — checked only. */
+const previewColumns = computed<PhysicalColumn[]>(() =>
+  PHYSICAL_COLUMNS.filter((col) => selected[col]),
+);
+
+/**
+ * Rows the preview table actually renders. Capped so a huge file
+ * (up to 30000 rows) doesn't blow up the DOM / heap — the full set is
+ * still kept in `parsedRows` for the count badge, validation and submit.
+ */
+const PREVIEW_ROW_CAP = 100;
+const previewRows = computed(() => parsedRows.value.slice(0, PREVIEW_ROW_CAP));
+
+/** Bound to the すべて選択／解除 checkbox. Disabled in 全項目更新 (all locked). */
+const allChecked = computed<boolean>({
+  get: () => PHYSICAL_COLUMNS.every((col) => selected[col]),
+  set: (value: boolean) => {
+    for (const col of PHYSICAL_COLUMNS) {
+      // Locked columns stay checked even on uncheck-all.
+      selected[col] = isLocked(col) ? true : value;
+    }
+  },
+});
+
+// On mode change, force every LOCKED column checked (全項目更新 → all,
+// 新規登録 → required). Mirrors the hanbaiten import behaviour.
+watch(importModeFe, () => {
+  for (const col of PHYSICAL_COLUMNS) {
+    if (isLocked(col)) selected[col] = true;
+  }
+});
+
+// ─── file change → xlsx parse → preview ─────────────────────────────
+
+function isExcelFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.endsWith('.xlsx') || lower.endsWith('.xls');
+}
+
+function rejectInvalidFile(): void {
+  message.error(MSG_016_001);
+  parsedRows.value = [];
+  fileName.value = '';
+  rowErrors.value = [];
+  resetFileInput();
+}
+
+async function onFileChange(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  fileName.value = file.name;
+  rowErrors.value = [];
+  importResult.value = null;
+
+  // [format-guard] Extension check BEFORE parse. `accept=".xlsx,.xls"`
+  // is advisory only (bypassable via drag&drop / Safari), and XLSX.read
+  // parses CSV/TXT without throwing — so a catch alone can't detect a
+  // non-Excel file.
+  if (!isExcelFileName(file.name)) {
+    rejectInvalidFile();
+    return;
+  }
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array' });
+    const firstSheetName = wb.SheetNames[0];
+    if (!firstSheetName) throw new Error('empty workbook');
+    const sheet = wb.Sheets[firstSheetName];
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: '',
+    });
+    // sheet_to_json keys are row-1 cell strings. Accept either the JP
+    // header OR the physical name as a key (test fixtures pass physical
+    // names directly); drop unknown columns.
+    parsedRows.value = rawRows.map((r) => {
+      const out: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(r)) {
+        const physical =
+          HEADER_TO_PHYSICAL[key] ??
+          ((PHYSICAL_COLUMNS as readonly string[]).includes(key)
+            ? (key as PhysicalColumn)
+            : undefined);
+        if (physical) out[physical] = value;
+      }
+      return out;
+    });
+  } catch {
+    rejectInvalidFile();
+  }
+}
+
+// ─── template download ──────────────────────────────────────────────
+
+async function onTemplateDownload(): Promise<void> {
+  try {
+    const blob = await downloadDokusyaImportTemplate();
+    if (
+      globalThis.window !== undefined &&
+      typeof globalThis.URL?.createObjectURL === 'function'
+    ) {
+      const url = globalThis.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '購読者Excelデータ取込_テンプレート.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      globalThis.URL.revokeObjectURL(url);
+    }
+  } catch {
+    // Global axios interceptor already toasted the 500 — swallow here.
+  }
+}
+
+// ─── client validation (機能 8.1) ─────────────────────────────────────
+
+/**
+ * Run all client-side preflight checks. Returns the first blocking
+ * error message (toast) or null when the file is clean enough to submit.
+ * Row-level 電子版クレカ / 購読部数 violations populate `rowErrors` so the
+ * error panel renders them; the BE re-validates everything anyway.
+ */
+function validateBeforeSubmit(): string | null {
+  if (!hasFile.value) return MSG_016_001;
+  if (parsedRows.value.length > MAX_ROWS) return MSG_016_006;
+
+  const errors: RowError[] = [];
+  const isNew = importModeFe.value === 'new';
+  parsedRows.value.forEach((row, idx) => {
+    const rowNo = idx + 2; // +2: row 1 is the header, data starts at 2.
+    const shubetsu = Number(row.dokusya_shubetsu);
+    const shiharai = Number(row.shiharai_hoho);
+    const tetsuzuki = Number(row.tetsuzuki_shurui);
+    const busu = Number(row.dokusya_busu);
+
+    // 電子版 かつ クレジットカード決済 → 取込不可 (MSG-016-005).
+    if (shubetsu === DOKUSYA_SHUBETSU_DENSHI && shiharai === SHIHARAI_HOHO_CREDIT) {
+      errors.push({
+        row: rowNo,
+        field: 'shiharai_hoho',
+        message: '電子版かつクレジットカード決済の組み合わせは取込みできません。',
+      });
+    }
+    // 新規登録: 購読部数 > 0.
+    if (isNew && tetsuzuki !== TETSUZUKI_SHURUI_KAIYAKU && busu <= 0) {
+      errors.push({
+        row: rowNo,
+        field: 'dokusya_busu',
+        message: '新規登録の場合、購読部数は0より大きい値を指定してください。',
+      });
+    }
+    // 解約: 購読部数 = 0.
+    if (tetsuzuki === TETSUZUKI_SHURUI_KAIYAKU && busu > 0) {
+      errors.push({
+        row: rowNo,
+        field: 'dokusya_busu',
+        message: '解約の場合、購読部数は0を指定してください。',
+      });
+    }
+  });
+
+  if (errors.length > 0) {
+    rowErrors.value = errors.slice(0, 10);
+    return '取込み処理にエラーが発生しました。';
+  }
+  return null;
+}
+
+// ─── submit ─────────────────────────────────────────────────────────
+
+function onSubmit(): void {
+  if (submitting.value) return;
+  rowErrors.value = [];
+  importResult.value = null;
+
+  const blocking = validateBeforeSubmit();
+  if (blocking) {
+    message.error(blocking);
+    return;
+  }
+
+  // ACSMS-MSG-016-002 — confirm dialog wording.
+  Modal.confirm({
+    title: '取込処理',
+    content: MSG_016_002,
+    okText: 'はい',
+    cancelText: 'いいえ',
+    onOk: async () => {
+      await runImport();
+    },
+  });
+}
+
+async function runImport(): Promise<void> {
+  if (submitting.value) return;
+  submitting.value = true;
+  try {
+    // selected_columns — every checked column. NEW-mode required columns
+    // are always included (their checkbox is disabled+checked).
+    const selectedCols = PHYSICAL_COLUMNS.filter((c) => selected[c]);
+
+    const rows: ImportDokusyaRow[] = parsedRows.value.map((r) => {
+      const out: Record<string, unknown> = {};
+      for (const col of PHYSICAL_COLUMNS) {
+        if (r[col] !== undefined && r[col] !== '') {
+          out[col] = r[col];
+        }
+      }
+      return out;
+    });
+
+    const body = {
+      import_mode: MODE_TO_BE[importModeFe.value],
+      selected_columns: selectedCols,
+      rows,
+    };
+    const res = await importDokusyaExcel(body);
+    message.success(res.message || MSG_016_004);
+    // 機能 8.4 — show counts, then reset for the next upload.
+    importResult.value = {
+      created_count: res.data?.created_count ?? 0,
+      updated_count: res.data?.updated_count ?? 0,
+      cancelled_count: res.data?.cancelled_count ?? 0,
+      skipped_count: res.data?.skipped_count ?? 0,
+      rireki_count: res.data?.rireki_count ?? 0,
+      total_rows: res.data?.total_rows ?? 0,
+    };
+    parsedRows.value = [];
+    fileName.value = '';
+    resetFileInput();
+  } catch (err: unknown) {
+    // Render row-level errors for both IMPORT_VALIDATION_ERROR (service
+    // business rules) AND VALIDATION_ERROR (nested-row DTO failures — the
+    // global ValidationPipe in main.ts flattens rows[i].field to
+    // { row, field, message }). The global axios interceptor stays silent
+    // for both codes (FORBIDDEN / 500 are toasted centrally), so the view
+    // owns the per-row list here.
+    const body = (err as { response?: { data?: unknown } })?.response?.data as
+      | { error_code?: string; errors?: RowError[] }
+      | undefined;
+    if (
+      (body?.error_code === 'IMPORT_VALIDATION_ERROR' ||
+        body?.error_code === 'VALIDATION_ERROR') &&
+      Array.isArray(body.errors)
+    ) {
+      rowErrors.value = body.errors.slice(0, 10);
+    }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// ─── refs / locks ────────────────────────────────────────────────────
+
+const fileInputEl = ref<HTMLInputElement | null>(null);
+
+function resetFileInput(): void {
+  if (fileInputEl.value) fileInputEl.value.value = '';
+}
+
+/** DOM nodes for the NEW-mode required checkboxes — see onMounted lock. */
+const requiredEls = reactive<Record<string, HTMLInputElement | null>>({});
+
+function onColumnInputRef(col: PhysicalColumn, el: HTMLInputElement | null): void {
+  if (REQUIRED_SET.has(col)) requiredEls[col] = el;
+}
+
+function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
+  // Required columns in NEW mode can never be unchecked — snap back.
+  if (isLocked(col)) {
+    el.checked = true;
+    selected[col] = true;
+    return;
+  }
+  selected[col] = el.checked;
+}
+
+function onPanelToggle(): void {
+  panelCollapsed.value = !panelCollapsed.value;
+}
+
+onMounted(() => {
+  // [required-column-veto-lock] Vue Test Utils' setValue(false) (and any
+  // path bypassing the change event) directly assigns element.checked.
+  // Override the `checked` property on each required input so reads
+  // always return the canonical (always-true) state and writes no-op.
+  // Real users can't hit this — the input is also `disabled`.
+  for (const col of REQUIRED_COLUMNS_NEW) {
+    const el = requiredEls[col];
+    if (!el) continue;
+    Object.defineProperty(el, 'checked', {
+      configurable: true,
+      enumerable: true,
+      get: () => isLocked(col) || selected[col],
+      set: () => {
+        /* no-op — required column cannot be unchecked in NEW mode */
+      },
+    });
+  }
+});
+
+function renderCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? '✓' : '';
+  return String(value);
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <section
+      class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
+    >
+      <form class="space-y-4" @submit.prevent>
+        <!-- Row 1: file | mode | template -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-4 items-start">
+          <div>
+            <label
+              class="block text-sm font-semibold text-text-main mb-1.5"
+              for="file-input"
+            >
+              Excelファイル名
+              <span class="text-error ml-1">*</span>
+            </label>
+            <!--
+              @click clears the value BEFORE the OS picker opens, so
+              re-selecting the SAME filename (after editing the Excel) still
+              fires `change` and re-parses. Resetting on @change instead would
+              wipe the native "filename" display right after selecting.
+            -->
+            <input
+              id="file-input"
+              ref="fileInputEl"
+              type="file"
+              accept=".xlsx,.xls"
+              class="w-full border border-border-strong rounded px-3 py-1 text-sm text-text-main bg-surface-card file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+              @click="resetFileInput"
+              @change="onFileChange"
+            />
+          </div>
+
+          <div>
+            <span
+              id="import-mode-label"
+              class="block text-sm font-semibold text-text-main mb-1.5"
+            >
+              取込モード
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="import-mode-label"
+              data-test="import-mode"
+              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
+            >
+              <label
+                v-for="opt in IMPORT_MODE_OPTIONS"
+                :key="opt.value"
+                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+              >
+                <input
+                  v-model="importModeFe"
+                  type="radio"
+                  name="import-mode"
+                  :value="opt.value"
+                  :data-test="`import-mode-${opt.value}`"
+                  class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                />
+                {{ opt.label }}
+              </label>
+            </div>
+          </div>
+
+          <div class="flex flex-col items-start md:items-end justify-end h-full md:pt-6">
+            <button
+              data-test="template-download-btn"
+              type="button"
+              class="flex items-center justify-center gap-1.5 px-3 py-[7px] text-sm font-medium text-primary border border-primary/40 rounded hover:bg-primary/5 transition-colors whitespace-nowrap"
+              @click="onTemplateDownload"
+            >
+              <span class="material-icons text-[16px]">download</span>
+              テンプレート
+            </button>
+          </div>
+        </div>
+
+        <!-- Column selector accordion -->
+        <div class="border border-border rounded">
+          <div
+            class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-card-subtle"
+          >
+            <button
+              data-test="col-toggle"
+              type="button"
+              class="flex items-center gap-1.5 text-sm font-semibold text-text-main"
+              :aria-expanded="!panelCollapsed"
+              @click="onPanelToggle"
+            >
+              <span class="material-icons text-[18px]">
+                {{ panelCollapsed ? 'chevron_right' : 'expand_more' }}
+              </span>
+              取込列
+            </button>
+            <label
+              class="flex items-center gap-1.5 text-xs text-text-description cursor-pointer"
+            >
+              <input
+                v-model="allChecked"
+                data-test="select-all-checkbox"
+                type="checkbox"
+                :disabled="importModeFe === 'update'"
+                class="w-3.5 h-3.5 rounded border-border-strong accent-primary focus:ring-primary/20 disabled:cursor-not-allowed"
+              />
+              すべて選択／解除
+            </label>
+          </div>
+
+          <div v-show="!panelCollapsed" data-test="col-panel" class="px-4 py-3">
+            <div
+              class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
+            >
+              <label
+                v-for="col in PHYSICAL_COLUMNS"
+                :key="col"
+                class="flex items-center gap-3 px-3 py-2 border border-border rounded cursor-pointer hover:bg-surface-hover transition-colors"
+              >
+                <input
+                  :ref="(el) => onColumnInputRef(col, el as HTMLInputElement | null)"
+                  type="checkbox"
+                  name="col"
+                  :value="col"
+                  :checked="selected[col]"
+                  :disabled="isLocked(col)"
+                  class="w-4 h-4 rounded border-border-strong accent-primary focus:ring-primary/20 flex-shrink-0"
+                  @change="(e) => onColumnToggle(col, e.target as HTMLInputElement)"
+                />
+                <span class="text-sm text-text-main">{{ JP_HEADERS[col] }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div v-if="previewVisible" data-test="preview-section" class="space-y-2">
+          <div class="flex items-center justify-between">
+            <p class="text-sm font-semibold text-text-main">
+              <span class="text-primary">◆</span>
+              取込データプレビュー
+              <span class="text-xs font-normal text-text-secondary ml-2">
+                {{ parsedRows.length }}件
+              </span>
+            </p>
+          </div>
+          <div class="overflow-x-auto border border-border rounded">
+            <table class="w-full text-sm border-collapse min-w-max">
+              <thead>
+                <tr class="bg-surface-card-subtle text-left">
+                  <th
+                    v-for="col in previewColumns"
+                    :key="col"
+                    class="px-3 py-2 text-sm font-semibold text-text-main border-b border-border"
+                  >
+                    {{ JP_HEADERS[col] }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(row, rowIdx) in previewRows"
+                  :key="rowIdx"
+                  class="border-b border-border"
+                >
+                  <td
+                    v-for="col in previewColumns"
+                    :key="col"
+                    class="px-3 py-2 text-sm text-text-main"
+                  >
+                    {{ renderCell(row[col]) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Row-level error list (max 10) -->
+        <div
+          v-if="rowErrors.length > 0"
+          data-test="import-error-list"
+          class="border border-error/40 bg-error-subtle rounded p-3 space-y-1"
+        >
+          <p class="text-sm font-semibold text-error">
+            取込み処理にエラーが発生しました。
+          </p>
+          <ul class="m-0 pl-0 list-none space-y-0.5">
+            <li
+              v-for="(e, idx) in rowErrors"
+              :key="idx"
+              data-test="import-error-row"
+              class="text-sm text-error"
+            >
+              行{{ e.row }}: {{ JP_HEADERS[(e.field as PhysicalColumn)] ?? e.field }} — {{ e.message }}
+            </li>
+          </ul>
+        </div>
+
+        <!-- Import result counts -->
+        <div
+          v-if="importResult"
+          data-test="import-result"
+          class="border border-success/40 bg-success-subtle rounded p-3 text-sm text-text-main"
+        >
+          取込件数：登録 {{ importResult.created_count }}件 / 更新
+          {{ importResult.updated_count }}件 / 解約
+          {{ importResult.cancelled_count }}件 / スキップ
+          {{ importResult.skipped_count }}件 / 履歴
+          {{ importResult.rireki_count }}件（合計 {{ importResult.total_rows }}件）
+        </div>
+      </form>
+
+      <div class="flex gap-3 pt-4">
+        <button
+          data-test="import-submit-btn"
+          type="button"
+          :disabled="!canImport || submitting"
+          class="px-10 py-2 bg-primary hover:bg-primary-hover text-white rounded font-medium transition-colors shadow-ant-card text-sm disabled:bg-text-disabled disabled:cursor-not-allowed disabled:hover:bg-text-disabled"
+          :class="{ 'ant-btn-disabled': !canImport || submitting }"
+          @click="onSubmit"
+        >
+          取込開始
+        </button>
+      </div>
+    </section>
+  </div>
+</template>
