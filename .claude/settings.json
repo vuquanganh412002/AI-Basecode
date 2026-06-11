@@ -24,7 +24,10 @@
       "Bash(python3)",
       "Bash(cat)",
       "Bash(python3 /tmp/gen_md.py)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(grep -nA40 \"TETSUZUKI_SHURUI\" docs/database/seeder.md)",
+      "Bash(grep -nA8 \"\\(YUBIN_KUBUN\\)\\\\|\\(MAIL_MAGAZINE_FLG\\)\\\\|### 5.1 購読種別\\\\|\\(DOKUSYA_SHUBETSU\\)\" docs/database/seeder.md)",
+      "Bash(docker exec *)"
     ],
     "additionalDirectories": [
       "/tmp"
