@@ -37,7 +37,7 @@ export function pickString(
   // 3. Key truly absent (e.g. role-restricted field dropped by
   //    filterAllowedFields, or PATCH-style partial body) → keep the
   //    existing entity value.
-  if (Object.prototype.hasOwnProperty.call(obj, key)) {
+  if (Object.hasOwn(obj, key)) {
     const v = obj[key];
     if (typeof v === 'string') return v;
     if (v === undefined || v === null) return '';

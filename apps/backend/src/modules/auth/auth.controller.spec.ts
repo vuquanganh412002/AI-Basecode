@@ -583,7 +583,69 @@ describe('AuthController — branch coverage', () => {
     });
   });
 
-  describe('cookieOptions — production branch', () => {
+  describe('cookieOptions — secure flag by nodeEnv', () => {
+    it('should set secure=false when nodeEnv="local"', async () => {
+      const authService: any = {
+        login: jest.fn().mockResolvedValue({
+          mfa_required: false,
+          session_id: 'sid-local',
+          user: {},
+        }),
+      };
+      const controller = new AuthController(
+        authService,
+        buildConfig({
+          'session.cookieName': 'session_id',
+          'session.ttlSeconds': 60,
+          nodeEnv: 'local',
+        }),
+      );
+
+      const res = buildRes();
+      await controller.login(
+        { login_id: 'a', password: 'b' } as any,
+        { ip: '1.2.3.4', headers: {} } as any,
+        res,
+      );
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        'session_id',
+        'sid-local',
+        expect.objectContaining({ secure: false }),
+      );
+    });
+
+    it('should set secure=true when nodeEnv="staging" (non-local HTTPS env)', async () => {
+      const authService: any = {
+        login: jest.fn().mockResolvedValue({
+          mfa_required: false,
+          session_id: 'sid-stg',
+          user: {},
+        }),
+      };
+      const controller = new AuthController(
+        authService,
+        buildConfig({
+          'session.cookieName': 'session_id',
+          'session.ttlSeconds': 60,
+          nodeEnv: 'staging',
+        }),
+      );
+
+      const res = buildRes();
+      await controller.login(
+        { login_id: 'a', password: 'b' } as any,
+        { ip: '1.2.3.4', headers: {} } as any,
+        res,
+      );
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        'session_id',
+        'sid-stg',
+        expect.objectContaining({ secure: true }),
+      );
+    });
+
     it('should set secure=true when nodeEnv="production"', async () => {
       const authService: any = {
         login: jest.fn().mockResolvedValue({
@@ -639,10 +701,12 @@ describe('AuthController — branch coverage', () => {
         res,
       );
 
+      // nodeEnv absent → defaults to 'development', which runs over HTTPS,
+      // so secure stays on. Only 'local' opts out of the Secure flag.
       expect(res.cookie).toHaveBeenCalledWith(
         'session_id',
         'sid',
-        expect.objectContaining({ maxAge: 24 * 60 * 60 * 1000, secure: false }),
+        expect.objectContaining({ maxAge: 24 * 60 * 60 * 1000, secure: true }),
       );
     });
   });

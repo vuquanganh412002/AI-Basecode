@@ -61,6 +61,16 @@ updated_by: Tran Duc Tuyen
 | 8   | 画面固有     | NOT_FOUND             | 指定された購読者が見つかりません。                                     | HTTP 404 |
 | 9   | 画面固有     | DUPLICATE_EMAIL       | このメールアドレスは既に登録されています。                             | HTTP 400 |
 | 10  | 画面固有     | INVALID_STATUS        | 承認待ちの読者ではありません。                                         | HTTP 400 |
+| 11  | 画面固有     | SHUBETSU_PERMISSION_DENIED | 紙版購読者の登録・編集を行う権限がありません。／電子版購読者の登録・編集・承認を行う権限がありません。 | HTTP 403 |
+
+> ※11 購読種別フラグ判定（account_concept.md §その他）。登録/編集/削除 API は
+> 購読種別=紙版(1) に paper_flg、電子版(2) に denshi_flg を要求する。承認/否認
+> API は電子版ワークフローのため denshi_flg を要求する。Excel一括取込・販売店
+> 一括置換 API は購読種別が混在しうるため「いずれか一方のフラグ」を要求する
+> （BE: `assertAnyDokusyaFlag`）。併読(3) は読み取り専用のため対象外。role 権限
+> （dokusya.create / update / delete / import / replace_hanbaiten）に追加される
+> 判定で、権限とフラグの両方が揃って初めて操作可能。フラグの無いメニューは FE で
+> 非活性表示（BE: `DokusyaService.assertShubetsuFlag` / `assertAnyDokusyaFlag`）。
 
 ---
 
@@ -388,7 +398,7 @@ WHERE d.dokusya_id = :dokusya_id
 | 37  | yubin_kubun               | String  | -        | -    | 1      | 1      | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。プルダウン入力。デフォルト: '0'                                               |
 | 38  | shiharai_hoho             | Number  | -        | 〇   |        |        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
 | 39  | dokusyaryo_shiharai_cycle | Number  | -        | -    |        | 2      | 購読料支払サイクル（月数）                                                                                                                        |
-| 40  | bank_shiten_id            | Number  | -        | △   |        |        | 引落口座支店ID（口座引落時は必須）。`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込んだ値。サーバ側で `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` を逆引きし `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する |
+| 40  | bank_shiten_id            | Number  | -        | △   |        |        | 引落口座支店ID（口座引落時は必須、他の支払方法では任意）。`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込んだ値。指定された場合は支払方法を問わずサーバ側で `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` を逆引きし `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する |
 | 41  | hikiotoshi_yokin_shubetsu | Number  | -        | △   |        |        | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                   |
 | 42  | hikiotoshi_koza_no        | String  | -        | △   | 0      | 10     | 引落口座番号                                                                                                                                      |
 | 43  | hikiotoshi_koza_meigi     | String  | -        | △   | 0      | 50     | 引落口座名義                                                                                                                                      |
@@ -665,7 +675,7 @@ Content-Type: application/json
   - haitatsu_same_flg=falseの場合：haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson, haitatsu_chome_banchi, haitatsu_shimei_*, haitatsu_shimei_kana_* が必須
   - hanbaiten_id / tanka_id：必須
   - shiharai_hoho：必須。1（口座引落）の場合：bank_shiten_id, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi が必須
-  - bank_shiten_id：口座引落時は必須。`m_shiten` に存在し、かつ ログインユーザー所属JA内（`m_shiten.ja_id = user.ja_id`）かつ `kinyu_shiten_flg = TRUE` であること
+  - bank_shiten_id：口座引落時は必須、他の支払方法では任意。指定された場合は `m_shiten` に存在し、かつ ログインユーザー所属JA内（`m_shiten.ja_id = user.ja_id`）かつ `kinyu_shiten_flg = TRUE` であること（不正値は支払方法を問わず VALIDATION_ERROR）
   - yubin_kubun：任意。入力時は `m_code.code_category='YUBIN_KUBUN'`（0:空, 1:郵送）に存在する値であること
   - dokusya_kaishi_date：必須、YYYY-MM-DD
   - joho_henko_tekiyo_date：任意、YYYY-MM-DD。入力時は未来日であること
@@ -1134,9 +1144,10 @@ WHERE email = :email
 
 機能定義 15.3 に基づく3ステップ処理：
 
-#### ステップ0：引落口座支店の解決（口座引落時のみ）
+#### ステップ0：引落口座支店の解決（bank_shiten_id 指定時）
 
-- 支払方法=1（口座引落）の場合、`bank_shiten_id` から `m_shiten` を逆引きし、`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` を取得して `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する（画面設計書 機能定義 §10.1）。
+- `bank_shiten_id` が指定された場合、支払方法を問わず `m_shiten` を逆引きし、`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` を取得して `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する（画面設計書 機能定義 §10.1 / §10.2、顧客要件 2026-06）。
+- 支払方法=1（口座引落）では `bank_shiten_id` 必須（未指定→VALIDATION_ERROR）。他の支払方法では任意で、未指定なら bank_branch_code/name は空で保存する。指定値が不正（非存在 / 他JA / 金融機関支店でない）の場合は支払方法を問わず VALIDATION_ERROR。
 
 ```sql
 SELECT shiten_id,
@@ -1171,11 +1182,22 @@ WHERE dokusya_id = :dokusya_id
 
 #### ステップ3：新しい履歴レコードの追加 + t_dokusya 本体の更新
 
-- フラグ設定ルール（機能定義 14.2）：
+- フラグ設定ルール（機能定義 14.2 / 増減報告フラグの正準仕様は
+  `docs/requirement/change_notification_concept.md`「購読者登録のレコードの
+  考え方」の例示テーブル）：
   - saishin_data_flg = TRUE
   - shinki_flg = (tetsuzuki_shurui=1) ? TRUE : FALSE（再読時もTRUE）
   - kaiyaku_flg = (tetsuzuki_shurui=0) ? TRUE : FALSE
-  - zougen_hokoku_flg = (購読部数/販売店/住所変更時) ? TRUE : FALSE
+  - zougen_hokoku_flg = 次のいずれかが更新前後で変わったとき TRUE、それ以外の
+    項目のみの変更（例：口座情報のみ）なら FALSE：
+    - 購読部数（dokusya_busu）
+    - 販売店（hanbaiten_id）
+    - 住所5項目 — `haitatsu_same_flg=TRUE` なら購読者住所（yubin_no / todofuken_code / shikuchoson / chome_banchi / tatemono_mei）、`FALSE` なら配達先住所（haitatsu_yubin_no / haitatsu_todofuken_code / haitatsu_shikuchoson / haitatsu_chome_banchi / haitatsu_tatemono_mei）
+    - 解約（tetsuzuki_shurui=0）は購読部数が N→0 になるため上記「購読部数変更」に
+      含まれ TRUE（change_notification_concept.md 解約例）。
+    （判定は zenkai_* 退避と同一条件。BE: buildZenkaiSnapshot の結果が空でなければ
+    TRUE。change_notification_concept.md の例：口座情報のみ変更=0 / 部数・販売店・
+    住所変更=1 と一致）
 - zenkai_* 列：更新前の対応する値を格納する（増減比較用）。
 
 ```sql

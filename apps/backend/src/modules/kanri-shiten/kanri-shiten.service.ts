@@ -492,7 +492,7 @@ export class KanriShitenService {
         };
         await manager.update(KanriShiten, { kanriShitenId: id }, updatePayload);
 
-        const after = { ...before, ...updatePayload, kanriShitenId: id } as KanriShiten;
+        const after: KanriShiten = { ...before, ...updatePayload, kanriShitenId: id };
 
         // [audit-log-in-tx] — UPDATE with before/after JSON.
         await this.auditLog.logUpdate(

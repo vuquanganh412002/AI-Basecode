@@ -82,11 +82,17 @@ watch(
             v-for="item in section.items"
             :key="item.name"
             type="button"
-            class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded text-left transition-colors"
+            :disabled="item.disabled"
+            :title="
+              item.disabled
+                ? '紙版・電子版いずれの取扱い権限もありません'
+                : undefined
+            "
+            class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             :class="
               isActive(item.name)
                 ? 'bg-surface-active text-primary font-medium'
-                : 'text-text-main hover:bg-surface-hover'
+                : 'text-text-main hover:bg-surface-hover disabled:hover:bg-transparent'
             "
             @click="navigate(item.name)"
           >

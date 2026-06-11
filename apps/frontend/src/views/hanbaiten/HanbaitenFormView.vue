@@ -631,7 +631,7 @@ defineExpose({ formState, fieldErrors });
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item name="todofuken_code" label="都道府県">
             <!-- [pref-from-ja] Read-only — 都道府県 always mirrors the
-                 hanbaiten's JA (m_ja.todofuken_code), never user-editable.
+                 hanbaiten's JA (m_ja の都道府県コード), never user-editable.
                  Staff: follows the picked JA; roles 3/4/5: the session
                  user's JA; edit: the detail response. Shows the resolved
                  prefecture NAME while formState keeps the 2-digit code. -->

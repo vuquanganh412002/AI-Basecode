@@ -605,4 +605,51 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
       expect(successDeleteLogs).toHaveLength(0);
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // API-COMMON-003 — GET /api/v1/ja/dropdown (perm-any-of)
+  // ───────────────────────────────────────────────────────────────────
+  describe('GET /api/v1/ja/dropdown — authenticated-only (shared dropdown)', () => {
+    it('should return 200 for a JA_KANRI_SHITEN holding only file.upload (no ja.view) — ファイルアップロード画面', async () => {
+      // Regression — the ファイルアップロード画面 (SCR-023) は JA roles にも
+      // 開放されており (account_concept ※5)、その 都道府県→JA picker が
+      // /ja/dropdown を叩く。JA_KANRI_SHITEN は file.upload を持つが ja.view
+      // は持たない。共有ドロップダウンは authenticated-only なので 200。
+      const sid = await ctx.seedSession({
+        account_id: 5,
+        login_id: 'kanri01',
+        role_id: 5,
+        role_code: 'JA_KANRI_SHITEN',
+        ja_id: 1,
+        kanri_shiten_id: 1,
+        permissions: ['file.upload', 'file.download'],
+      });
+
+      await http()
+        .get('/api/v1/ja/dropdown')
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+    });
+
+    it('should return 200 for any authenticated user regardless of CRUD permissions (data scoped server-side)', async () => {
+      const sid = await ctx.seedSession({
+        account_id: 6,
+        login_id: 'minimal01',
+        role_id: 5,
+        role_code: 'JA_KANRI_SHITEN',
+        ja_id: 1,
+        kanri_shiten_id: 1,
+        permissions: ['log.view'],
+      });
+
+      await http()
+        .get('/api/v1/ja/dropdown')
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+    });
+
+    it('should return 401 when the session cookie is missing', async () => {
+      await http().get('/api/v1/ja/dropdown').expect(401);
+    });
+  });
 });

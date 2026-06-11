@@ -370,13 +370,14 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
       expect(res.body.error_code).toBe('UNAUTHORIZED');
     });
 
-    it('should return 403 FORBIDDEN when caller does not hold log.view (calling-screen perm)', async () => {
+    it('should return 200 for an authenticated caller without log.view — shared dropdown is authenticated-only (data scoped server-side)', async () => {
+      // [shared-dropdown-rule] account/dropdown carries NO @Permissions;
+      // visibility is bounded by AccountService.getDropdown → applyBranchScope.
       const cookie = await withoutLogView();
-      const res = await http()
+      await http()
         .get(apiUrl('account/dropdown'))
         .set('Cookie', cookie)
-        .expect(403);
-      expect(res.body.error_code).toBe('FORBIDDEN');
+        .expect(200);
     });
 
     it('should order results by login_id ascending when called', async () => {

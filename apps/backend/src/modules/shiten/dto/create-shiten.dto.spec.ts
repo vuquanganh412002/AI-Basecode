@@ -146,4 +146,44 @@ describe('CreateShitenDto', () => {
       expect(errs.some((e) => e.property === 'biko')).toBe(false);
     });
   });
+
+  // ─── JASTEM conditional-required (金融機関支店フラグ=true) ───────────────
+  describe('JASTEM fields required when kinyu_shiten_flg=true', () => {
+    it('should reject blank JASTEM fields with 必須項目です。 when kinyu_shiten_flg=true', async () => {
+      const errs = await check({
+        ...VALID,
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '',
+        jastem_tenpo_name: '',
+        jastem_tyokin_shubetsu: '',
+        jastem_koza_no: '',
+      });
+      for (const field of [
+        'jastem_toriatsukai_tenpo_code',
+        'jastem_tenpo_name',
+        'jastem_tyokin_shubetsu',
+        'jastem_koza_no',
+      ]) {
+        const e = errs.find((x) => x.property === field);
+        expect(e?.constraints?.isNotEmpty).toBe('必須項目です。');
+      }
+    });
+
+    it('should accept a fully-populated JASTEM payload when kinyu_shiten_flg=true', async () => {
+      const errs = await check({
+        ...VALID,
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: 'ﾎﾝﾃﾝ',
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      });
+      expect(errs).toHaveLength(0);
+    });
+
+    it('should keep JASTEM fields optional when kinyu_shiten_flg=false', async () => {
+      const errs = await check({ ...VALID, kinyu_shiten_flg: false });
+      expect(errs).toHaveLength(0);
+    });
+  });
 });

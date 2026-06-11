@@ -61,6 +61,16 @@ function isHaitatsuAddressRequired(o: {
 const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
 
 /**
+ * 氏名 (氏/名) は漢字のみ — CJK統合漢字 (U+4E00-9FFF) + 々(U+3005 繰返し)
+ * + 〇(U+3007) + CJK互換漢字 (U+F900-FAFF, 﨑/髙等の人名漢字). 空白は
+ * トークン区切りとして許容。FE 側 `KANJI_RE`
+ * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
+ * 片方を変えたら両方更新すること。
+ */
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿\s]+$/u;
+const KANJI_NAME_MSG = '漢字で入力してください。';
+
+/**
  * Body for POST /api/v1/dokusya (ACSMS-API-011-002).
  *
  * `ja_id` and `dokusya_id` are intentionally NOT declared — the global
@@ -126,16 +136,18 @@ export class CreateDokusyaDto {
   @Min(0, { message: '購読部数は0以上で指定してください。' })
   dokusya_busu!: number;
 
-  @ApiProperty({ description: '氏名 (姓)', maxLength: 50 })
+  @ApiProperty({ description: '氏名 (姓) — 漢字のみ', maxLength: 50 })
   @IsString({ message: '氏名(姓)は文字列で指定してください。' })
   @IsNotEmpty({ message: '氏名(姓)は必須です。' })
   @MaxLength(50, { message: '氏名(姓)は最大50文字で指定してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   shimei_sei!: string;
 
-  @ApiProperty({ description: '氏名 (名)', maxLength: 50 })
+  @ApiProperty({ description: '氏名 (名) — 漢字のみ', maxLength: 50 })
   @IsString({ message: '氏名(名)は文字列で指定してください。' })
   @IsNotEmpty({ message: '氏名(名)は必須です。' })
   @MaxLength(50, { message: '氏名(名)は最大50文字で指定してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   shimei_mei!: string;
 
   @ApiProperty({ description: '氏名カナ (姓)', maxLength: 100 })

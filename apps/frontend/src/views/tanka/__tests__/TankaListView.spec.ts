@@ -620,9 +620,10 @@ describe('TankaListView — pagination (機能定義 §4.5)', () => {
       const page = Number(callArg?.page ?? 1);
       expect(page).toBeGreaterThanOrEqual(1);
     } else {
-      // 2-row fixture only generates 1 page → next-page control is
-      // present but disabled. Skip rather than fail.
-      expect(true).toBe(true);
+      // 2-row fixture only generates 1 page → the next-page control is
+      // rendered but disabled, so no enabled next-page button was found.
+      // Assert that premise rather than a tautology.
+      expect(nextPageBtn).toBeUndefined();
     }
   });
 });

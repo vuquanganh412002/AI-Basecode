@@ -239,11 +239,13 @@ WHERE shiten_id = :shiten_id
 | 3   | shiten_name_kana                | String | -        | -    |        | 100    | 支店名称（カナ）                           |
 | 4   | kanri_shiten_id                 | Number | -        | 〇   |        |        | 管理支店ID（プルダウン選択値）             |
 | 5   | kinyu_shiten_flg                | Boolean| -        |  -   |        |        | 金融機関支店フラグ（デフォルト: false）   |
-| 6   | jastem_toriatsukai_tenpo_code   | String | -        | -    |        | 3      | JASTEM_データ送信取扱店舗コード※空文字許容 |
-| 7   | jastem_tenpo_name               | String | -        | -    |        | 15     | JASTEM_店舗名※空文字許容                  |
-| 8   | jastem_tyokin_shubetsu          | String | -        | -    |        | 1      | JASTEM_貯金種別※空文字許容                |
-| 9   | jastem_koza_no                  | String | -        | -    |        | 7      | JASTEM_口座番号※空文字許容                |
+| 6   | jastem_toriatsukai_tenpo_code   | String | -        | △※   |        | 3      | JASTEM_データ送信取扱店舗コード。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 7   | jastem_tenpo_name               | String | -        | △※   |        | 15     | JASTEM_店舗名。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 8   | jastem_tyokin_shubetsu          | String | -        | △※   |        | 1      | JASTEM_貯金種別。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 9   | jastem_koza_no                  | String | -        | △※   |        | 7      | JASTEM_口座番号。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
 | 10  | biko                            | String | -        | -    |        |        | 備考※空文字許容                            |
+
+> ※ 金融機関支店フラグ（kinyu_shiten_flg）= true のとき、JASTEM 4項目（データ送信取扱店舗コード / 店舗名 / 貯金種別 / 口座番号）は必須。未入力で submit すると `必須項目です。`（VALIDATION_ERROR）。BE は `@ValidateIf` + `@IsNotEmpty` で判定。
 
 ## レスポンスデータ
 
@@ -512,11 +514,13 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 3   | shiten_name_kana                | String | -        | -    |        | 100    | 支店名称（カナ）                        |
 | 4   | kanri_shiten_id                 | Number | -        | 〇   |        |        | 管理支店ID                              |
 | 5   | kinyu_shiten_flg                | Boolean| -        | -    |        |        | 金融機関支店フラグ                       |
-| 6   | jastem_toriatsukai_tenpo_code   | String | -        | -    |        | 3      | JASTEM_データ送信取扱店舗コード※空文字許容 |
-| 7   | jastem_tenpo_name               | String | -        | -    |        | 15     | JASTEM_店舗名※空文字許容                |
-| 8   | jastem_tyokin_shubetsu          | String | -        | -    |        | 1      | JASTEM_貯金種別※空文字許容              |
-| 9   | jastem_koza_no                  | String | -        | -    |        | 7      | JASTEM_口座番号※空文字許容              |
+| 6   | jastem_toriatsukai_tenpo_code   | String | -        | △※   |        | 3      | JASTEM_データ送信取扱店舗コード。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 7   | jastem_tenpo_name               | String | -        | △※   |        | 15     | JASTEM_店舗名。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 8   | jastem_tyokin_shubetsu          | String | -        | △※   |        | 1      | JASTEM_貯金種別。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
+| 9   | jastem_koza_no                  | String | -        | △※   |        | 7      | JASTEM_口座番号。kinyu_shiten_flg=true 時は必須（必須項目です。）、false 時は空文字許容 |
 | 10  | biko                            | String | -        | -    |        |        | 備考※空文字許容                          |
+
+> ※ 金融機関支店フラグ（kinyu_shiten_flg）= true のとき、JASTEM 4項目は必須（未入力で submit すると `必須項目です。` / VALIDATION_ERROR）。BE は `@ValidateIf` + `@IsNotEmpty` で判定。
 ※ shiten_code は更新不可（画面侧でdisabled）。リクエストに含めない。
 
 ## レスポンスデータ

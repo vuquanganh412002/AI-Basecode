@@ -37,6 +37,10 @@ export const ErrorCode = {
   // ─── SCR-023 — ファイルアップロード画面 ───────────────────────────────
   FILE_SIZE_EXCEEDED: 'FILE_SIZE_EXCEEDED',
   TARGET_JA_REQUIRED: 'TARGET_JA_REQUIRED',
+
+  // ─── SCR-011 — 購読者情報登録画面 ─────────────────────────────────────
+  // 403 — account lacks paper_flg/denshi_flg for the row's 購読種別.
+  SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

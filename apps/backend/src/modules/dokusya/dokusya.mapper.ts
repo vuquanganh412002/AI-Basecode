@@ -39,6 +39,9 @@ function coerceNullableNumber(
   return Number.isNaN(n) ? null : n;
 }
 
+/** Nullable scalar shape a raw `getRawMany()` column can take before coercion. */
+type RawScalarNullable = number | string | null;
+
 function isoOrEmpty(value: Date | string | null | undefined): string {
   if (!value) return '';
   if (value instanceof Date) return value.toISOString();
@@ -196,42 +199,34 @@ export function toDokusyaListItem(
   const dokusyaShubetsu = coerceNumber(row.dokusya_shubetsu as number | string);
   const shiharaiHoho = coerceNumber(row.shiharai_hoho as number | string);
   const isReadOnly =
-    row.is_read_only !== undefined
-      ? Boolean(row.is_read_only)
-      : isDokusyaReadOnly(dokusyaShubetsu, shiharaiHoho);
+    row.is_read_only === undefined
+      ? isDokusyaReadOnly(dokusyaShubetsu, shiharaiHoho)
+      : Boolean(row.is_read_only);
   return {
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
     ja_id: coerceNumber(row.ja_id as number | string),
     kanri_shiten_id: coerceNullableNumber(
-      row.kanri_shiten_id as number | string | null,
+      row.kanri_shiten_id as RawScalarNullable,
     ),
-    kanri_shiten_name:
-      row.kanri_shiten_name == null ? null : String(row.kanri_shiten_name),
-    shiten_id: coerceNullableNumber(row.shiten_id as number | string | null),
-    shiten_name: row.shiten_name == null ? null : String(row.shiten_name),
-    kumiaiin_code: row.kumiaiin_code == null ? '' : String(row.kumiaiin_code),
-    full_name: row.full_name == null ? '' : String(row.full_name),
-    full_name_kana:
-      row.full_name_kana == null ? '' : String(row.full_name_kana),
-    renrakusaki_1: row.renrakusaki_1 == null ? '' : String(row.renrakusaki_1),
-    renrakusaki_2: row.renrakusaki_2 == null ? '' : String(row.renrakusaki_2),
-    haitatsu_yubin_no:
-      row.haitatsu_yubin_no == null ? '' : String(row.haitatsu_yubin_no),
-    haitatsu: row.haitatsu == null ? '' : String(row.haitatsu),
+    kanri_shiten_name: nullableString(row.kanri_shiten_name),
+    shiten_id: coerceNullableNumber(row.shiten_id as RawScalarNullable),
+    shiten_name: nullableString(row.shiten_name),
+    kumiaiin_code: stringOrEmpty(row.kumiaiin_code),
+    full_name: stringOrEmpty(row.full_name),
+    full_name_kana: stringOrEmpty(row.full_name_kana),
+    renrakusaki_1: stringOrEmpty(row.renrakusaki_1),
+    renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
+    haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
+    haitatsu: stringOrEmpty(row.haitatsu),
     hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
-    hanbaiten_name:
-      row.hanbaiten_name == null ? '' : String(row.hanbaiten_name),
+    hanbaiten_name: stringOrEmpty(row.hanbaiten_name),
     dokusya_shubetsu: dokusyaShubetsu,
     shiharai_hoho: shiharaiHoho,
     denshi_shonin_status: coerceNullableNumber(
-      row.denshi_shonin_status as number | string | null,
+      row.denshi_shonin_status as RawScalarNullable,
     ),
-    shoki_dokusya_kaishi_date:
-      row.shoki_dokusya_kaishi_date == null
-        ? ''
-        : String(row.shoki_dokusya_kaishi_date),
-    dokusya_chushi_date:
-      row.dokusya_chushi_date == null ? null : String(row.dokusya_chushi_date),
+    shoki_dokusya_kaishi_date: stringOrEmpty(row.shoki_dokusya_kaishi_date),
+    dokusya_chushi_date: nullableString(row.dokusya_chushi_date),
     is_read_only: isReadOnly,
   };
 }
@@ -360,14 +355,24 @@ export interface DokusyaRirekiListItem {
   created_by: string;
 }
 
+/**
+ * Narrow a raw `getRawMany()` column (always scalar at runtime) to a
+ * primitive so String() can't hit the `[object Object]` path. The
+ * assertion is required here — the `string | number` receiver does not
+ * accept `unknown` without it.
+ */
+function asScalar(value: unknown): string | number {
+  return value as string | number;
+}
+
 /** `null` → null, otherwise the trimmed string form. */
 function nullableString(value: unknown): string | null {
-  return value == null ? null : String(value);
+  return value == null ? null : String(asScalar(value));
 }
 
 /** `null` → '', otherwise the string form. */
 function stringOrEmpty(value: unknown): string {
-  return value == null ? '' : String(value);
+  return value == null ? '' : String(asScalar(value));
 }
 
 /**
@@ -388,10 +393,10 @@ export function toDokusyaRirekiListItem(
     rireki_no: coerceNumber(row.rireki_no as number | string),
     ja_id: coerceNumber(row.ja_id as number | string),
     kanri_shiten_id: coerceNullableNumber(
-      row.kanri_shiten_id as number | string | null,
+      row.kanri_shiten_id as RawScalarNullable,
     ),
     kanri_shiten_name: nullableString(row.kanri_shiten_name),
-    shiten_id: coerceNullableNumber(row.shiten_id as number | string | null),
+    shiten_id: coerceNullableNumber(row.shiten_id as RawScalarNullable),
     shiten_name: nullableString(row.shiten_name),
     kumiaiin_code: stringOrEmpty(row.kumiaiin_code),
     shimei_sei: stringOrEmpty(row.shimei_sei),
@@ -405,13 +410,13 @@ export function toDokusyaRirekiListItem(
     renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
     email: stringOrEmpty(row.email),
     mail_magazine_flg: coerceNumber(row.mail_magazine_flg as number | string),
-    birth_year: coerceNullableNumber(row.birth_year as number | string | null),
-    gender: coerceNullableNumber(row.gender as number | string | null),
+    birth_year: coerceNullableNumber(row.birth_year as RawScalarNullable),
+    gender: coerceNullableNumber(row.gender as RawScalarNullable),
     dokusyaso_bunrui: stringOrEmpty(row.dokusyaso_bunrui),
     nogyosya_bunrui: stringOrEmpty(row.nogyosya_bunrui),
     dokusya_busu: coerceNumber(row.dokusya_busu as number | string),
     zenkai_dokusya_busu: coerceNullableNumber(
-      row.zenkai_dokusya_busu as number | string | null,
+      row.zenkai_dokusya_busu as RawScalarNullable,
     ),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     zenkai_yubin_no: nullableString(row.zenkai_yubin_no),
@@ -430,7 +435,7 @@ export function toDokusyaRirekiListItem(
     hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
     hanbaiten_name: nullableString(row.hanbaiten_name),
     zenkai_hanbaiten_id: coerceNullableNumber(
-      row.zenkai_hanbaiten_id as number | string | null,
+      row.zenkai_hanbaiten_id as RawScalarNullable,
     ),
     zenkai_hanbaiten_name: nullableString(row.zenkai_hanbaiten_name),
     tetsuzuki_shurui: coerceNumber(row.tetsuzuki_shurui as number | string),
@@ -443,7 +448,7 @@ export function toDokusyaRirekiListItem(
     shinki_flg: Boolean(row.shinki_flg),
     kaiyaku_flg: Boolean(row.kaiyaku_flg),
     hikiotoshi_yokin_shubetsu: coerceNullableNumber(
-      row.hikiotoshi_yokin_shubetsu as number | string | null,
+      row.hikiotoshi_yokin_shubetsu as RawScalarNullable,
     ),
     bank_branch_code: stringOrEmpty(row.bank_branch_code),
     bank_branch_name: stringOrEmpty(row.bank_branch_name),
@@ -516,34 +521,27 @@ export interface ReplaceSearchItem {
 export function toReplaceSearchItem(
   row: Record<string, unknown>,
 ): ReplaceSearchItem {
-  const sei = row.shimei_sei == null ? '' : String(row.shimei_sei);
-  const mei = row.shimei_mei == null ? '' : String(row.shimei_mei);
-  const todofuken = row.todofuken_name == null ? '' : String(row.todofuken_name);
-  const shikuchoson =
-    row.haitatsu_shikuchoson == null ? '' : String(row.haitatsu_shikuchoson);
-  const chomeBanchi =
-    row.haitatsu_chome_banchi == null ? '' : String(row.haitatsu_chome_banchi);
-  const tatemono =
-    row.haitatsu_tatemono_mei == null ? '' : String(row.haitatsu_tatemono_mei);
+  const sei = stringOrEmpty(row.shimei_sei);
+  const mei = stringOrEmpty(row.shimei_mei);
+  const todofuken = stringOrEmpty(row.todofuken_name);
+  const shikuchoson = stringOrEmpty(row.haitatsu_shikuchoson);
+  const chomeBanchi = stringOrEmpty(row.haitatsu_chome_banchi);
+  const tatemono = stringOrEmpty(row.haitatsu_tatemono_mei);
   return {
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
     kanri_shiten_id: coerceNullableNumber(
-      row.kanri_shiten_id as number | string | null,
+      row.kanri_shiten_id as RawScalarNullable,
     ),
-    kanri_shiten_name:
-      row.kanri_shiten_name == null ? null : String(row.kanri_shiten_name),
-    shiten_id: coerceNullableNumber(row.shiten_id as number | string | null),
-    shiten_name: row.shiten_name == null ? null : String(row.shiten_name),
-    kumiaiin_code: row.kumiaiin_code == null ? '' : String(row.kumiaiin_code),
+    kanri_shiten_name: nullableString(row.kanri_shiten_name),
+    shiten_id: coerceNullableNumber(row.shiten_id as RawScalarNullable),
+    shiten_name: nullableString(row.shiten_name),
+    kumiaiin_code: stringOrEmpty(row.kumiaiin_code),
     shimei: `${sei} ${mei}`.trim(),
-    haitatsu_yubin_no:
-      row.haitatsu_yubin_no == null ? '' : String(row.haitatsu_yubin_no),
+    haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu_address: `${todofuken}${shikuchoson}${chomeBanchi}${tatemono}`,
     hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
-    hanbaiten_code:
-      row.hanbaiten_code == null ? '' : String(row.hanbaiten_code),
-    hanbaiten_name:
-      row.hanbaiten_name == null ? '' : String(row.hanbaiten_name),
+    hanbaiten_code: stringOrEmpty(row.hanbaiten_code),
+    hanbaiten_name: stringOrEmpty(row.hanbaiten_name),
     dokusya_shubetsu: coerceNumber(row.dokusya_shubetsu as number | string),
     shiharai_hoho: coerceNumber(row.shiharai_hoho as number | string),
   };

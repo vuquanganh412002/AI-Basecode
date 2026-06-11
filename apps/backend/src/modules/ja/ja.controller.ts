@@ -59,13 +59,14 @@ export class JaController {
   // NOTE: must come BEFORE `@Get(':id')` — otherwise the dynamic
   // route swallows `/dropdown` as a ParseIntPipe-failed id.
   @Get('dropdown')
-  // [perm-any-of] OR semantics via PermissionsGuard. The JA dropdown
-  // is form-facing — any role that fills in a JA-bound form needs
-  // to enumerate JAs. NICHINO_STAFF holds `hanbaiten.daiko_input`
-  // (販売店代行入力 SCR-017/018) and `account.create` (代行アカウント
-  // 作成) but not `ja.view`, so list those alongside the natural
-  // `ja.view` grant.
-  @Permissions('ja.view', 'hanbaiten.daiko_input', 'account.create')
+  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. This is
+  // a form-facing shared dropdown: many screens with different permission
+  // gates embed it (JA / dokusya / hanbaiten 代行 / account / ファイル
+  // アップロード …). Gating it by any single CRUD permission would lock
+  // out a consuming screen's role (e.g. JA_KANRI_SHITEN holds file.upload
+  // but not ja.view — the file-upload screen broke). The data boundary is
+  // `JaService.dropdown` → `applyJaScope` (JA roles see only their own JA);
+  // screen access is enforced by each route's own guard.
   @ApiOperation({
     summary:
       'JA共通ドロップダウン — フォーム用のページング付き検索可能リスト',

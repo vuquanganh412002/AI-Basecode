@@ -51,6 +51,22 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
             '大阪府大阪市', '06-1234-5678', '', '', '', '',
             1, '', false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        // ─── m_account — the gate (assertShubetsuFlag) re-queries
+        //     m_account.paper_flg / denshi_flg by session.account_id.
+        //     1/10/11/12 hold BOTH flags so the CRUD/approve happy paths
+        //     pass; 13 is denshi-only, 14 is paper-only for the 403 gate
+        //     tests. ─────────────────────────────────────────────────────
+        `INSERT INTO m_account
+           (account_id, login_id, password_hash, account_name, role_id,
+            ja_id, kanri_shiten_id, paper_flg, denshi_flg,
+            created_by, updated_by)
+         VALUES
+           (1,  'admin01',  'x', '管理者',      1, NULL, NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (10, 'chuo01',   'x', '中央会',      3, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (11, 'honten01', 'x', 'JA本店',      4, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (12, 'kanri01',  'x', 'JA管理支店',  5, 1,    1,    true,  true,  'SYSTEM', 'SYSTEM'),
+           (13, 'denshi01', 'x', '電子版のみ',  3, 1,    NULL, false, true,  'SYSTEM', 'SYSTEM'),
+           (14, 'paper01',  'x', '紙版のみ',    3, 1,    NULL, true,  false, 'SYSTEM', 'SYSTEM')`,
         // ─── m_kanri_shiten — explicit ids so the create fixture FK ids
         //     (kanri_shiten_id=10) AND the helper default (ksId=1) both
         //     resolve, all under JA 1. ─────────────────────────────────────
@@ -194,6 +210,27 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       role_id: 5,
       ja_id: jaId,
       kanri_shiten_id: ksId,
+      permissions: ['dokusya.view', 'dokusya.create', 'dokusya.update'],
+    });
+  }
+
+  // CHUOKAI sessions whose m_account carries only ONE 購読種別 flag —
+  // used to assert the gate (account_concept.md §139-145).
+  function asDenshiOnly(jaId = 1) {
+    return ctx.seedSession({
+      account_id: 13,
+      role_code: 'CHUOKAI',
+      role_id: 3,
+      ja_id: jaId,
+      permissions: ['dokusya.view', 'dokusya.create', 'dokusya.update'],
+    });
+  }
+  function asPaperOnly(jaId = 1) {
+    return ctx.seedSession({
+      account_id: 14,
+      role_code: 'CHUOKAI',
+      role_id: 3,
+      ja_id: jaId,
       permissions: ['dokusya.view', 'dokusya.create', 'dokusya.update'],
     });
   }
@@ -408,6 +445,37 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
     });
+
+    // ─── 購読種別-flag permission gate (account_concept.md §139-145) ────────
+    it('should return 403 SHUBETSU_PERMISSION_DENIED creating 紙版 without paper_flg', async () => {
+      const sid = await asDenshiOnly(1);
+      const res = await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-NP', dokusya_shubetsu: 1 }))
+        .expect(403);
+      expect(res.body.error_code).toBe('SHUBETSU_PERMISSION_DENIED');
+      const rows = await ctx.dataSource.query(
+        `SELECT 1 FROM t_dokusya WHERE kumiaiin_code = 'INT-NP'`,
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('should return 403 SHUBETSU_PERMISSION_DENIED creating 電子版 without denshi_flg', async () => {
+      const sid = await asPaperOnly(1);
+      const res = await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildCreateDokusyaBody({
+            kumiaiin_code: 'INT-ND',
+            dokusya_shubetsu: 2,
+            shiharai_hoho: 1,
+          }),
+        )
+        .expect(403);
+      expect(res.body.error_code).toBe('SHUBETSU_PERMISSION_DENIED');
+    });
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -501,6 +569,65 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(rireki).toHaveLength(2);
       expect(rireki[0].saishin_data_flg).toBe(false);
       expect(rireki[1].saishin_data_flg).toBe(true);
+    });
+
+    it('should return 403 DOKUSYA_READ_ONLY when updating a 併読(3) record (any account)', async () => {
+      // 併読 cannot be created via POST, so create a 紙版 row then flip its
+      // 購読種別 to 3 directly to mimic the converted/synced state. seeder.md
+      // §425 — 併読者は編集・削除不可。
+      const { id, sid } = await seed();
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_shubetsu = 3 WHERE dokusya_id = $1`,
+        [id],
+      );
+      const res = await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildUpdateDokusyaBody({ kumiaiin_code: 'INT-UPD' }))
+        .expect(403);
+      expect(res.body.error_code).toBe('DOKUSYA_READ_ONLY');
+    });
+
+    it('should set the new rireki row zougen_hokoku_flg=true when dokusya_busu changed', async () => {
+      // 顧客要件 — dokusya_busu / hanbaiten_id / 住所5項目 の変更で増減報告対象。
+      const { id, sid } = await seed(); // create body busu=1
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        // buildUpdateDokusyaBody default busu=2 → 1→2 変更。
+        .send(buildUpdateDokusyaBody({ kumiaiin_code: 'INT-UPD' }))
+        .expect(200);
+      const [row] = await ctx.dataSource.query(
+        `SELECT zougen_hokoku_flg FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 AND saishin_data_flg = true`,
+        [id],
+      );
+      expect(row.zougen_hokoku_flg).toBe(true);
+    });
+
+    it('should set the new rireki row zougen_hokoku_flg=false when only a non-trigger field changed', async () => {
+      const { id, sid } = await seed();
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        // dokusya_busu / hanbaiten_id / 住所5項目 を create と同値に固定、biko のみ変更。
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_busu: 1,
+            hanbaiten_id: 5,
+            haitatsu_same_flg: true,
+            chome_banchi: '千代田1-1',
+            biko: '変更後メモ',
+          }),
+        )
+        .expect(200);
+      const [row] = await ctx.dataSource.query(
+        `SELECT zougen_hokoku_flg FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 AND saishin_data_flg = true`,
+        [id],
+      );
+      expect(row.zougen_hokoku_flg).toBe(false);
     });
 
     it('should write t_log row (operation=UPDATE, log_type=1, result_status=1)', async () => {
@@ -791,6 +918,22 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
             '大阪府大阪市', '06-1234-5678', '', '', '', '',
             1, '', false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        // ─── m_account — the gate (assertShubetsuFlag) re-queries
+        //     m_account.paper_flg / denshi_flg by session.account_id.
+        //     1/10/11/12 hold BOTH flags so the CRUD/approve happy paths
+        //     pass; 13 is denshi-only, 14 is paper-only for the 403 gate
+        //     tests. ─────────────────────────────────────────────────────
+        `INSERT INTO m_account
+           (account_id, login_id, password_hash, account_name, role_id,
+            ja_id, kanri_shiten_id, paper_flg, denshi_flg,
+            created_by, updated_by)
+         VALUES
+           (1,  'admin01',  'x', '管理者',      1, NULL, NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (10, 'chuo01',   'x', '中央会',      3, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (11, 'honten01', 'x', 'JA本店',      4, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (12, 'kanri01',  'x', 'JA管理支店',  5, 1,    1,    true,  true,  'SYSTEM', 'SYSTEM'),
+           (13, 'denshi01', 'x', '電子版のみ',  3, 1,    NULL, false, true,  'SYSTEM', 'SYSTEM'),
+           (14, 'paper01',  'x', '紙版のみ',    3, 1,    NULL, true,  false, 'SYSTEM', 'SYSTEM')`,
         // m_kanri_shiten
         // Explicit ids matching buildCreateDokusyaBody FK defaults
         // (kanri_shiten_id=10, shiten_id=100, hanbaiten_id=5, tanka_id=1,
@@ -1108,6 +1251,31 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       expect(row.deleted_at).not.toBeNull();
     });
 
+    it('should return 403 SHUBETSU_PERMISSION_DENIED deleting a 紙版 row without paper_flg', async () => {
+      // account_concept.md §139-145 — 紙版(1) の削除には paper_flg が必要。
+      // 13 (denshi-only) は paper_flg=false → 403.
+      const { id } = await seedDeletable('INT-014-DEL-NP');
+      // account 13 = denshi-only (paper_flg=false) — seeded in this block too.
+      const sid = await ctx.seedSession({
+        account_id: 13,
+        role_code: 'CHUOKAI',
+        role_id: 3,
+        ja_id: 1,
+        permissions: ['dokusya.view', 'dokusya.delete'],
+      });
+      const res = await http()
+        .delete(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(403);
+      expect(res.body.error_code).toBe('SHUBETSU_PERMISSION_DENIED');
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT deleted_at FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(row.deleted_at).toBeNull();
+    });
+
     it('should write a t_log row (operation=DELETE, log_type=1, result_status=1) in the same tx', async () => {
       const { id, sid } = await seedDeletable('INT-014-DEL-LOG');
       await http()
@@ -1284,6 +1452,22 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
             '大阪府大阪市', '06-1234-5678', '', '', '', '',
             1, '', false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        // ─── m_account — the gate (assertShubetsuFlag) re-queries
+        //     m_account.paper_flg / denshi_flg by session.account_id.
+        //     1/10/11/12 hold BOTH flags so the CRUD/approve happy paths
+        //     pass; 13 is denshi-only, 14 is paper-only for the 403 gate
+        //     tests. ─────────────────────────────────────────────────────
+        `INSERT INTO m_account
+           (account_id, login_id, password_hash, account_name, role_id,
+            ja_id, kanri_shiten_id, paper_flg, denshi_flg,
+            created_by, updated_by)
+         VALUES
+           (1,  'admin01',  'x', '管理者',      1, NULL, NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (10, 'chuo01',   'x', '中央会',      3, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (11, 'honten01', 'x', 'JA本店',      4, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (12, 'kanri01',  'x', 'JA管理支店',  5, 1,    1,    true,  true,  'SYSTEM', 'SYSTEM'),
+           (13, 'denshi01', 'x', '電子版のみ',  3, 1,    NULL, false, true,  'SYSTEM', 'SYSTEM'),
+           (14, 'paper01',  'x', '紙版のみ',    3, 1,    NULL, true,  false, 'SYSTEM', 'SYSTEM')`,
         // Explicit ids matching buildCreateDokusyaBody FK defaults
         // (kanri_shiten_id=10, shiten_id=100, hanbaiten_id=5, tanka_id=1,
         // bank_shiten_id=50/1) — all JA 1 — so create-seeded POSTs pass.

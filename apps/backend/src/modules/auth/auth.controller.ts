@@ -19,6 +19,7 @@ import {
   SuccessMessageDto,
   VerifyResetTokenResponseDto,
 } from './dto/auth-response.dto';
+import { baseCookieOptions } from '@/common/utils/cookie';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -37,7 +38,7 @@ function clientContext(req: Request) {
 export class AuthController {
   private readonly cookieName: string;
   private readonly ttlSeconds: number;
-  private readonly isProd: boolean;
+  private readonly nodeEnv: string;
 
   constructor(
     private readonly authService: AuthService,
@@ -45,7 +46,7 @@ export class AuthController {
   ) {
     this.cookieName = this.configService.get<string>('session.cookieName') ?? 'session_id';
     this.ttlSeconds = this.configService.get<number>('session.ttlSeconds') ?? 24 * 60 * 60;
-    this.isProd = this.configService.get<string>('nodeEnv') === 'production';
+    this.nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
   }
 
   @Post('login')
@@ -190,12 +191,12 @@ export class AuthController {
   }
 
   private cookieOptions(): CookieOptions {
+    // Inherit the project-wide hardening flags (HttpOnly + Secure +
+    // SameSite=Strict + Path=/); add the session-specific `signed`
+    // tamper-detection and 24h Max-Age on top.
     return {
-      httpOnly: true,
-      secure: this.isProd,
-      sameSite: 'strict',
+      ...baseCookieOptions(this.nodeEnv),
       signed: true,
-      path: '/',
       maxAge: this.ttlSeconds * 1000,
     };
   }

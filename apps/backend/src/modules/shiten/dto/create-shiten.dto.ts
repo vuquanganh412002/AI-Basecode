@@ -8,6 +8,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 /**
@@ -16,6 +17,15 @@ import {
  */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/**
+ * 金融機関支店フラグ (kinyu_shiten_flg) = true のとき、JASTEM 4項目
+ * （データ送信取扱店舗コード / 店舗名 / 貯金種別 / 口座番号）は必須。
+ * 各フィールドは `@ValidateIf(isJastemRequired || 値が指定されている)` で
+ * gate し、`@IsNotEmpty` を効かせる（blankToUndef で空文字は undefined 化済み）。
+ */
+const isJastemRequired = (o: { kinyu_shiten_flg?: boolean }): boolean =>
+  o.kinyu_shiten_flg === true;
 
 /**
  * Request body for ACSMS-API-007-002 — POST /api/v1/shiten.
@@ -65,7 +75,10 @@ export class CreateShitenDto {
     maxLength: 3,
   })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf(
+    (o) => isJastemRequired(o) || o.jastem_toriatsukai_tenpo_code !== undefined,
+  )
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: 'データ送信取扱店舗コードは文字列で入力してください。' })
   @MaxLength(3, {
     message: 'データ送信取扱店舗コードは3文字以内で入力してください。',
@@ -78,7 +91,8 @@ export class CreateShitenDto {
   // 店舗名 — half-width characters (ASCII printable + half-width katakana).
   @ApiPropertyOptional({ description: 'JASTEM_店舗名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf((o) => isJastemRequired(o) || o.jastem_tenpo_name !== undefined)
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '店舗名は文字列で入力してください。' })
   @MaxLength(15, { message: '店舗名は15文字以内で入力してください。' })
   @Matches(/^[\x20-\x7E｡-ﾟ]+$/u, {
@@ -95,7 +109,10 @@ export class CreateShitenDto {
     maxLength: 1,
   })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf(
+    (o) => isJastemRequired(o) || o.jastem_tyokin_shubetsu !== undefined,
+  )
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '貯金種別は文字列で入力してください。' })
   @MaxLength(1, { message: '貯金種別は1文字以内で入力してください。' })
   @Matches(/^[129]$/, {
@@ -106,7 +123,8 @@ export class CreateShitenDto {
   // 口座番号 — half-width digits.
   @ApiPropertyOptional({ description: 'JASTEM_口座番号 ※空文字許容', maxLength: 7 })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf((o) => isJastemRequired(o) || o.jastem_koza_no !== undefined)
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '口座番号は文字列で入力してください。' })
   @MaxLength(7, { message: '口座番号は7文字以内で入力してください。' })
   @Matches(/^\d+$/, {

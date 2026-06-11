@@ -8,10 +8,17 @@ import {
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/**
+ * 金融機関支店フラグ = true のとき JASTEM 4項目は必須（create DTO と同条件）。
+ */
+const isJastemRequired = (o: { kinyu_shiten_flg?: boolean }): boolean =>
+  o.kinyu_shiten_flg === true;
 
 /**
  * Request body for ACSMS-API-007-003 — PUT /api/v1/shiten/:id.
@@ -53,7 +60,10 @@ export class UpdateShitenDto {
     maxLength: 3,
   })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf(
+    (o) => isJastemRequired(o) || o.jastem_toriatsukai_tenpo_code !== undefined,
+  )
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: 'データ送信取扱店舗コードは文字列で入力してください。' })
   @MaxLength(3, {
     message: 'データ送信取扱店舗コードは3文字以内で入力してください。',
@@ -65,7 +75,8 @@ export class UpdateShitenDto {
 
   @ApiPropertyOptional({ description: 'JASTEM_店舗名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf((o) => isJastemRequired(o) || o.jastem_tenpo_name !== undefined)
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '店舗名は文字列で入力してください。' })
   @MaxLength(15, { message: '店舗名は15文字以内で入力してください。' })
   @Matches(/^[\x20-\x7E｡-ﾟ]+$/u, {
@@ -75,7 +86,10 @@ export class UpdateShitenDto {
 
   @ApiPropertyOptional({ description: 'JASTEM_貯金種別 ※空文字許容', maxLength: 1 })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf(
+    (o) => isJastemRequired(o) || o.jastem_tyokin_shubetsu !== undefined,
+  )
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '貯金種別は文字列で入力してください。' })
   @MaxLength(1, { message: '貯金種別は1文字以内で入力してください。' })
   @Matches(/^[129]$/, {
@@ -85,7 +99,8 @@ export class UpdateShitenDto {
 
   @ApiPropertyOptional({ description: 'JASTEM_口座番号 ※空文字許容', maxLength: 7 })
   @Transform(blankToUndef)
-  @IsOptional()
+  @ValidateIf((o) => isJastemRequired(o) || o.jastem_koza_no !== undefined)
+  @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '口座番号は文字列で入力してください。' })
   @MaxLength(7, { message: '口座番号は7文字以内で入力してください。' })
   @Matches(/^\d+$/, {

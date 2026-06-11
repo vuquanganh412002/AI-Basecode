@@ -123,6 +123,12 @@ export async function handleApiError(
       message.error(data.message);
       break;
 
+    // SCR-011 — account lacks paper_flg/denshi_flg for the row's 購読種別.
+    // Toast only (no /dashboard bounce) — the user stays on the form.
+    case ErrorCode.SHUBETSU_PERMISSION_DENIED:
+      message.error(data.message);
+      break;
+
     case ErrorCode.VALIDATION_ERROR:
       // Caller's useApiForm composable maps `errors[]` to form fields.
       break;

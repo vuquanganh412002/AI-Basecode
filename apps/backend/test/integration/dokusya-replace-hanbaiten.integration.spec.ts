@@ -51,6 +51,16 @@ describe('ACSMS-SCR-015 integration — dokusya replace-hanbaiten (search + bulk
             '大阪府大阪市', '06-1234-5678', '', '', '', '',
             1, '', false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        // ─── m_account — assertAnyDokusyaFlag re-queries paper_flg/denshi_flg
+        //     by session.account_id. 1/10 hold both flags so the replace happy
+        //     paths pass; 15 has neither for the 403 gate test. ──────────────
+        `INSERT INTO m_account
+           (account_id, login_id, password_hash, account_name, role_id,
+            ja_id, kanri_shiten_id, paper_flg, denshi_flg, created_by, updated_by)
+         VALUES
+           (1,  'admin01', 'x', '管理者',  1, NULL, NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (10, 'chuo01',  'x', '中央会',  3, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (15, 'noflag01','x', 'フラグ無', 3, 1,    NULL, false, false, 'SYSTEM', 'SYSTEM')`,
         // ─── m_kanri_shiten ────────────────────────────────────────────────
         `INSERT INTO m_kanri_shiten
            (ja_id, kanri_shiten_code, kanri_shiten_name, kanri_shiten_name_kana,
@@ -284,6 +294,23 @@ describe('ACSMS-SCR-015 integration — dokusya replace-hanbaiten (search + bulk
         .send(buildReplaceBody())
         .expect(403);
       expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 403 SHUBETSU_PERMISSION_DENIED when the account has neither 購読種別 flag', async () => {
+      // account_concept.md §139-145 — no paper_flg/denshi_flg → 一括置換不可.
+      const sid = await ctx.seedSession({
+        account_id: 15,
+        role_code: 'CHUOKAI',
+        role_id: 3,
+        ja_id: 1,
+        permissions: ['dokusya.view', 'dokusya.replace_hanbaiten'],
+      });
+      const res = await http()
+        .post(apiUrl('dokusya/replace-hanbaiten'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildReplaceBody())
+        .expect(403);
+      expect(res.body.error_code).toBe('SHUBETSU_PERMISSION_DENIED');
     });
 
     it('should return 400 VALIDATION_ERROR when dokusya_ids is empty', async () => {

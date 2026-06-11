@@ -22,6 +22,7 @@ import {
   NotFoundException,
   DataScopeViolationException,
 } from '@/common/exceptions/common.exceptions';
+import { ShubetsuPermissionException } from '@/modules/dokusya/exceptions/shubetsu-permission.exception';
 import {
   buildSession,
   buildChuokaiSession,
@@ -56,6 +57,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
   let kanriShitenRepo: any;
   let hanbaitenRepo: any;
   let tankaRepo: any;
+  let accountRepo: any;
   let dokusyaQb: any;
   let rirekiQb: any;
   let shitenQb: any;
@@ -187,6 +189,16 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
     kanriShitenRepo = { findOne: jest.fn(async () => ({ jaId: fkScopeJaId })) };
     hanbaitenRepo = { findOne: jest.fn(async () => ({ jaId: fkScopeJaId })) };
     tankaRepo = { findOne: jest.fn(async () => ({ jaId: fkScopeJaId })) };
+    // Account-flag gate (assertShubetsuFlag re-queries m_account). Default
+    // grants BOTH flags so existing create/update/approve tests pass; the
+    // dedicated 購読種別-permission tests override paperFlg / denshiFlg.
+    accountRepo = {
+      findOne: jest.fn(async () => ({
+        accountId: 1,
+        paperFlg: true,
+        denshiFlg: true,
+      })),
+    };
 
     service = new (DokusyaService as any)(
       dokusyaRepo,
@@ -195,6 +207,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       kanriShitenRepo,
       hanbaitenRepo,
       tankaRepo,
+      accountRepo,
       dataSource,
       auditLog,
       codeService,
@@ -292,6 +305,26 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
       expect(result.bank_shiten_id).toBeNull();
+    });
+
+    it('should expose bank_shiten_id for a NON-口座引落 row that has a 引落口座 (顧客要件: 全支払方法で保存・表示)', async () => {
+      // 以前は shiharai_hoho!=1 で bank_shiten_id を null に潰していた。
+      const row = buildDokusya({
+        dokusyaId: 1, jaId: 1, shiharaiHoho: 4, // JA施設等 + 引落口座あり
+        bankBranchCode: '001', bankBranchName: '本店',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(row);
+      dokusyaQb.getRawOne.mockResolvedValue({
+        ...row,
+        hanbaiten_name: 'X', tanka_name: 'X',
+        bank_shiten_id: 50,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: '本店',
+      });
+
+      const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
+      expect(result.bank_shiten_id).toBe(50);
+      expect(result.jastem_toriatsukai_tenpo_code).toBe('001');
     });
 
     it('should throw NotFoundException when dokusya does not exist', async () => {
@@ -412,6 +445,56 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       ).rejects.toBeInstanceOf(DataScopeViolationException);
     });
 
+    // ─── 購読種別-flag permission gate (account_concept.md §139-145) ────────
+    it('should throw SHUBETSU_PERMISSION_DENIED when creating 紙版 without paper_flg', async () => {
+      mockBankShitenLookup(true);
+      accountRepo.findOne.mockResolvedValueOnce({
+        accountId: 11,
+        paperFlg: false,
+        denshiFlg: true,
+      });
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({ dokusya_shubetsu: 1 }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toBeInstanceOf(ShubetsuPermissionException);
+      expect(txManager.save).not.toHaveBeenCalled();
+    });
+
+    it('should throw SHUBETSU_PERMISSION_DENIED when creating 電子版 without denshi_flg', async () => {
+      mockBankShitenLookup(true);
+      accountRepo.findOne.mockResolvedValueOnce({
+        accountId: 11,
+        paperFlg: true,
+        denshiFlg: false,
+      });
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({ dokusya_shubetsu: 2, shiharai_hoho: 1 }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toBeInstanceOf(ShubetsuPermissionException);
+      expect(txManager.save).not.toHaveBeenCalled();
+    });
+
+    it('should allow creating 紙版 when paper_flg is true', async () => {
+      mockBankShitenLookup(true);
+      accountRepo.findOne.mockResolvedValueOnce({
+        accountId: 11,
+        paperFlg: true,
+        denshiFlg: false,
+      });
+      const result = await service.create(
+        buildCreateDokusyaBody({ dokusya_shubetsu: 1 }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(result.dokusya_id).toBe(100);
+    });
+
     it('should reverse-lookup m_shiten and persist jastem_toriatsukai_tenpo_code as bank_branch_code', async () => {
       // COVERS: §4.4 — bank_shiten_id → m_shiten → bank_branch_code
       mockBankShitenLookup(true);
@@ -439,6 +522,30 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       // (Service may persist via repo or via tx; we check at least one writes them.)
       const reachedExpected = code === '001' || name === '本店';
       expect(reachedExpected).toBe(true);
+    });
+
+    it('should reverse-lookup + persist bank_branch_code even when shiharai_hoho is NOT 口座引落 (顧客要件: 全支払方法で引落口座保存可)', async () => {
+      // 以前は resolveBankBranch が shiharai_hoho!=1 で即 空 を返し、
+      // bank_shiten_id を渡しても保存されなかった。
+      mockBankShitenLookup(true);
+      let savedRow: any;
+      txManager.save.mockImplementation(async (_entity: any, value: any) => {
+        if (value && 'dokusyaBusu' in (value ?? {})) savedRow = value;
+        return value && typeof value === 'object' && 'dokusyaId' in value
+          ? value
+          : { ...value, dokusyaId: 100 };
+      });
+
+      await service.create(
+        buildCreateDokusyaBody({ shiharai_hoho: 4, bank_shiten_id: 50 }), // JA施設等 + 引落口座
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const persisted = savedRow ?? {};
+      const code = persisted.bankBranchCode ?? persisted.bank_branch_code;
+      const name = persisted.bankBranchName ?? persisted.bank_branch_name;
+      expect(code === '001' || name === '本店').toBe(true);
     });
 
     it('should normalise a YYYY/MM/DD date to hyphen before persisting (varchar column stays ISO for range filters)', async () => {
@@ -1345,6 +1452,91 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(rirekiRow.zenkaiTatemonoMei).toBe('配達ビル');
     });
 
+    // ─── 増減報告フラグ (zougen_hokoku_flg) — dokusya_busu / hanbaiten_id /
+    //     住所5項目 のいずれかが変わったときのみ true ──────────────────────
+    it('should set zougen_hokoku_flg=true on the rireki row when dokusya_busu changed', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1, dokusyaBusu: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+      await service.update(
+        100,
+        // chome_banchi を before と同値にして住所変更を排除、busu のみ 1→3。
+        buildUpdateDokusyaBody({ dokusya_busu: 3, chome_banchi: '千代田1-1' }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(findRirekiRow(saved).zougenHokokuFlg).toBe(true);
+    });
+
+    it('should set zougen_hokoku_flg=true on the rireki row when hanbaiten_id changed', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1, hanbaitenId: 5 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ dokusya_busu: 1, chome_banchi: '千代田1-1', hanbaiten_id: 9 }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(findRirekiRow(saved).zougenHokokuFlg).toBe(true);
+    });
+
+    it('should set zougen_hokoku_flg=true when a 購読者住所 field changed (haitatsu_same_flg=true)', async () => {
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        haitatsuSameFlg: true,
+        chomeBanchi: '千代田1-1',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({
+          dokusya_busu: 1,
+          haitatsu_same_flg: true,
+          chome_banchi: '千代田9-9', // ← changed
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(findRirekiRow(saved).zougenHokokuFlg).toBe(true);
+    });
+
+    it('should set zougen_hokoku_flg=false when only a non-trigger field (biko) changed', async () => {
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaBusu: 1,
+        hanbaitenId: 5,
+        haitatsuSameFlg: true,
+        chomeBanchi: '千代田1-1',
+        biko: '旧メモ',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+      await service.update(
+        100,
+        // dokusya_busu / hanbaiten_id / 住所5項目 はすべて before と同値、biko のみ変更。
+        buildUpdateDokusyaBody({
+          dokusya_busu: 1,
+          hanbaiten_id: 5,
+          haitatsu_same_flg: true,
+          chome_banchi: '千代田1-1',
+          biko: '新メモ',
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(findRirekiRow(saved).zougenHokokuFlg).toBe(false);
+    });
+
     it('should force denshi_shonin_status=null when updating a 紙版 (dokusya_shubetsu=1) record', async () => {
       // 顧客要件 — 紙版は承認/否認ワークフロー対象外なので update でも常に null。
       const before = buildDokusya({
@@ -2156,6 +2348,8 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
+      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
@@ -3284,6 +3478,8 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
+      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
@@ -3645,6 +3841,8 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
+      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
@@ -3918,15 +4116,32 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
   // ══════════════════════════════════════════════════════════════════════════
   describe('replaceHanbaiten', () => {
     /**
-     * Prime the §4.3 candidate-fetch SELECT and §4.4 hanbaiten-validation
-     * SELECT. The service issues raw queries through dataSource.query
-     * (pre-tx checks) and manager.query (inside the tx). Both mocks are
-     * routed by SQL substring so the test doesn't depend on call order.
+     * Prime the SCR-015 bulk-replace mocks. The candidate fetch is now a
+     * `dokusyaRepo.find` returning FULL entities (so the history snapshot
+     * can reuse `buildHistoryFromEntity`); the §4.4 hanbaiten-validation
+     * SELECT and the master bulk-UPDATE (RETURNING) still go through
+     * dataSource.query / manager.query, routed by SQL substring. The
+     * rireki rows are written via `manager.save(DokusyaRireki, rows)`.
+     *
+     * Accepts the same snake_case candidate specs (buildReplaceCandidateRow)
+     * and converts them to camelCase entities for find().
      */
     function primeReplace(candidateRows: any[], newHanbaitenJaId: number | null = 1) {
+      const candidateEntities = candidateRows.map((r) =>
+        buildDokusya({
+          dokusyaId: r.dokusya_id,
+          jaId: r.ja_id,
+          kanriShitenId: r.kanri_shiten_id,
+          hanbaitenId: r.hanbaiten_id,
+          dokusyaShubetsu: r.dokusya_shubetsu,
+          shiharaiHoho: r.shiharai_hoho,
+          rirekiNo: r.rireki_no,
+        }),
+      );
+      dokusyaRepo.find.mockResolvedValue(candidateEntities);
+
       const route = async (sql: any) => {
         const text = String(sql ?? '');
-        if (/from\s+t_dokusya/i.test(text)) return candidateRows;
         if (/from\s+m_hanbaiten/i.test(text)) {
           return newHanbaitenJaId === null
             ? []
@@ -3973,12 +4188,18 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       expect(result.message).toBe('置換処理が完了しました。');
     });
 
-    it('should INSERT the rireki snapshot with every NOT NULL column + zenkai_hanbaiten_id=previous hanbaiten (regression: 500 on bulk replace)', async () => {
-      // Regression — the bulk-replace history INSERT previously only listed a
-      // handful of columns, so the master row's NOT-NULL business fields were
-      // dropped → not-null violation on real Postgres → システムエラー (500).
+    it('should snapshot every NOT NULL column + zenkai_hanbaiten_id=previous hanbaiten into the rireki save (regression: 500 on bulk replace)', async () => {
+      // Regression — the bulk-replace history previously dropped the master
+      // row's NOT-NULL business fields → not-null violation → 500. It now
+      // reuses buildHistoryFromEntity, so the saved rireki rows carry every
+      // column. zenkai_hanbaiten_id = the pre-replace hanbaiten.
       const rows = [buildReplaceCandidateRow({ dokusya_id: 5001, hanbaiten_id: 200 })];
       primeReplace(rows);
+      const saved: any[] = [];
+      txManager.save.mockImplementation(async (_entity: any, value: any) => {
+        saved.push(value);
+        return value;
+      });
 
       await service.replaceHanbaiten(
         buildReplaceBody({
@@ -3990,38 +4211,34 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         baseReq,
       );
 
-      const insertCall = txManager.query.mock.calls.find((c: any[]) =>
-        /insert\s+into\s+t_dokusya_rireki/i.test(String(c[0])),
+      // rireki rows are saved as an array of DokusyaRireki entities.
+      const rirekiArray = saved.find(
+        (v) => Array.isArray(v) && v.length > 0 && 'rirekiNo' in (v[0] ?? {}),
       );
-      expect(insertCall).toBeDefined();
-      const sql = String(insertCall![0]);
-      // Every NOT NULL (no DB default) column MUST be present or the real
-      // Postgres INSERT fails. These are the ones the old query omitted.
-      for (const col of [
-        'dokusya_shubetsu',
-        'tetsuzuki_shurui',
-        'shimei_sei',
-        'shimei_mei',
-        'shimei_kana_sei',
-        'shimei_kana_mei',
-        'dokusya_busu',
-        'yubin_no',
-        'todofuken_code',
+      expect(rirekiArray).toBeDefined();
+      const r = rirekiArray[0];
+      // Every NOT NULL business column present (via buildHistoryFromEntity).
+      for (const k of [
+        'dokusyaShubetsu',
+        'tetsuzukiShurui',
+        'shimeiSei',
+        'shimeiMei',
+        'dokusyaBusu',
+        'yubinNo',
+        'todofukenCode',
         'shikuchoson',
-        'chome_banchi',
-        'mail_magazine_flg',
-        'tanka_id',
-        'shiharai_hoho',
-        'shoki_dokusya_kaishi_date',
-        'dokusya_kaishi_date',
+        'chomeBanchi',
+        'mailMagazineFlg',
+        'tankaId',
+        'shiharaiHoho',
+        'shokiDokusyaKaishiDate',
+        'dokusyaKaishiDate',
       ]) {
-        expect(sql).toContain(col);
+        expect(r[k] === undefined || r[k] === null).toBe(false);
       }
-      // zenkai_hanbaiten_id = 置換前の販売店 (200), passed as a zipped array
-      // param paired with the dokusya ids.
-      const params = insertCall![1];
-      expect(params[0]).toEqual([5001]);
-      expect(params[1]).toEqual([200]);
+      expect(Number(r.zenkaiHanbaitenId)).toBe(200); // 置換前の販売店
+      expect(Number(r.hanbaitenId)).toBe(201); // 置換後
+      expect(r.henkoRiyu).toBe('販売店一括置換');
     });
 
     it('should perform the writes inside a single dataSource.transaction when all rows are eligible', async () => {
@@ -4553,6 +4770,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
+      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
@@ -5266,6 +5485,7 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
     dokusyaRepo = { createQueryBuilder: jest.fn(() => dokusyaQb) };
     service = new (DokusyaService as any)(
       dokusyaRepo,
+      {},
       {},
       {},
       {},

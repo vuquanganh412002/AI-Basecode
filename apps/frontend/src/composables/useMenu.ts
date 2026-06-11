@@ -1,7 +1,26 @@
 import { computed, type ComputedRef } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
-import { MENU_SECTIONS, type MenuSection } from '@/constants/menu-sections';
+import {
+  MENU_SECTIONS,
+  type MenuItem,
+  type MenuSection,
+} from '@/constants/menu-sections';
 import { RoleCode } from '@/constants/enums';
+
+/** A menu item plus the runtime `disabled` state computed by `useMenu()`. */
+export interface VisibleMenuItem extends MenuItem {
+  /**
+   * Permission is held (otherwise the item is filtered out), but the item
+   * requires a 購読種別 flag the account lacks → render greyed + non-clickable
+   * (account_concept.md §139-145).
+   */
+  disabled?: boolean;
+}
+
+/** A menu section whose items carry the computed `disabled` flag. */
+export interface VisibleMenuSection extends Omit<MenuSection, 'items'> {
+  items: VisibleMenuItem[];
+}
 
 /**
  * For NICHINO_STAFF, the 販売店 screens are operated in 代行 (proxy-input)
@@ -37,23 +56,31 @@ export interface UseMenuOptions {
  * so the two surfaces stay in sync.
  */
 export function useMenu(options: UseMenuOptions = {}): {
-  visibleSections: ComputedRef<MenuSection[]>;
+  visibleSections: ComputedRef<VisibleMenuSection[]>;
 } {
   const authStore = useAuthStore();
 
-  const visibleSections = computed<MenuSection[]>(() => {
+  const visibleSections = computed<VisibleMenuSection[]>(() => {
     const isStaff = authStore.user?.role_code === RoleCode.NICHINO_STAFF;
+    // 紙版・電子版いずれの取扱い権限も無いアカウントは購読者の登録/取込/
+    // 一括置換ができない → 該当メニューを非活性化 (account_concept.md §139-145)。
+    const hasAnyDokusyaFlag =
+      !!authStore.user?.paper_flg || !!authStore.user?.denshi_flg;
     return MENU_SECTIONS
       .filter((section) => !options.excludeRoot || section.heading !== undefined)
       .map((section) => ({
         ...section,
         items: section.items
           .filter((it) => !it.permission || authStore.hasPermission(it.permission))
-          .map((it) =>
-            isStaff && STAFF_DAIKO_ROUTE_NAMES.has(it.name)
-              ? { ...it, label: it.label + STAFF_DAIKO_LABEL_SUFFIX }
-              : it,
-          ),
+          .map((it): VisibleMenuItem => {
+            const label =
+              isStaff && STAFF_DAIKO_ROUTE_NAMES.has(it.name)
+                ? it.label + STAFF_DAIKO_LABEL_SUFFIX
+                : it.label;
+            const disabled =
+              it.requiresAnyDokusyaFlag === true && !hasAnyDokusyaFlag;
+            return { ...it, label, disabled };
+          }),
       }))
       .filter((section) => section.items.length > 0);
   });

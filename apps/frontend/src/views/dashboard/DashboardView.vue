@@ -248,8 +248,19 @@ onMounted(async () => {
             v-for="item in section.items"
             :key="item.name"
             href="#"
-            class="px-4 py-3 text-sm text-text-main hover:bg-surface-hover flex items-center gap-2"
-            @click.prevent="goTo(item.name)"
+            class="px-4 py-3 text-sm flex items-center gap-2"
+            :class="
+              item.disabled
+                ? 'text-text-disabled opacity-40 cursor-not-allowed'
+                : 'text-text-main hover:bg-surface-hover'
+            "
+            :aria-disabled="item.disabled ? 'true' : undefined"
+            :title="
+              item.disabled
+                ? '紙版・電子版いずれの取扱い権限もありません'
+                : undefined
+            "
+            @click.prevent="!item.disabled && goTo(item.name)"
           >
             <span class="material-icons text-lg text-icon">{{ item.icon }}</span>
             <span>{{ item.label }}</span>

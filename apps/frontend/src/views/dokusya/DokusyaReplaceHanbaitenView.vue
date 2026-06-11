@@ -456,7 +456,7 @@ defineExpose({
       @clear="onClear"
     >
       <!-- 管理支店 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
         <a-select
           :value="state.filters.kanri_shiten_id"
@@ -473,10 +473,10 @@ defineExpose({
             {{ opt.kanri_shiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 支店 (disabled until 管理支店 chosen) -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">支店</span>
         <a-select
           v-model:value="state.filters.shiten_id"
@@ -493,10 +493,10 @@ defineExpose({
             {{ opt.shiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 組合員コード -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
           v-model:value="state.filters.kumiaiin_code"
@@ -504,10 +504,10 @@ defineExpose({
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 氏名 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
           v-model:value="state.filters.shimei"
@@ -515,10 +515,10 @@ defineExpose({
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- かな氏名 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
           v-model:value="state.filters.shimei_kana"
@@ -526,10 +526,10 @@ defineExpose({
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 配達先住所 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達先住所</span>
         <a-input
           v-model:value="state.filters.haitatsu_address"
@@ -537,10 +537,10 @@ defineExpose({
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 配達販売店 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
         <a-select
           v-model:value="state.filters.hanbaiten_id"
@@ -556,10 +556,10 @@ defineExpose({
             {{ opt.hanbaiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 購読開始日 (date range) -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">購読開始日</span>
         <a-date-picker
           v-model:value="state.filters.dokusya_kaishi_date_from"
@@ -578,7 +578,7 @@ defineExpose({
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 適用日 / 置換先配達販売店 — revealed once ≥1 row selected
            (機能定義 1.1 / 5.x). Wrapped col-span-full so the two
@@ -588,7 +588,7 @@ defineExpose({
         class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center"
       >
         <!-- 適用日 -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">適用日</span>
           <span class="text-error">*</span>
           <a-date-picker
@@ -599,10 +599,10 @@ defineExpose({
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 置換先配達販売店 -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">置換先配達販売店</span>
           <span class="text-error">*</span>
           <a-select
@@ -619,7 +619,7 @@ defineExpose({
               {{ opt.hanbaiten_name }}
             </a-select-option>
           </a-select>
-        </label>
+        </div>
       </div>
 
       <!-- 置換処理実行 — enabled once ≥1 row selected. -->

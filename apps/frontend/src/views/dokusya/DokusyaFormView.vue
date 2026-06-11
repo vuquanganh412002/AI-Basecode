@@ -215,6 +215,40 @@ const dokusyaId = computed<number | null>(() => {
 });
 const isEdit = computed(() => dokusyaId.value !== null);
 
+// ─── 購読種別-flag gate (account_concept.md §139-145) ───────────────────
+// paper_flg → 紙版(1) を登録・編集できる / denshi_flg → 電子版(2) を登録・
+// 編集・承認できる。BE が実際の境界 (assertShubetsuFlag) — ここは UX のみ。
+const canPaper = computed(() => !!authStore.user?.paper_flg);
+const canDenshi = computed(() => !!authStore.user?.denshi_flg);
+
+/** Whether this account may create/edit a row of the given 購読種別. */
+function isShubetsuAllowed(shubetsu: number): boolean {
+  if (shubetsu === DokusyaShubetsu.PAPER) return canPaper.value;
+  if (shubetsu === DokusyaShubetsu.DIGITAL) return canDenshi.value;
+  if (shubetsu === DokusyaShubetsu.BOTH) {
+    return canPaper.value && canDenshi.value;
+  }
+  return false;
+}
+
+/** Selected 購読種別 is operable by this account → submit/approve allowed. */
+const shubetsuPermitted = computed(() =>
+  isShubetsuAllowed(Number(formState.dokusya_shubetsu)),
+);
+
+/**
+ * 併読(3) と 電子版クレカ決済者 は編集不可（どのアカウントでも） —
+ * seeder.md §425 / api.md §is_read_only。VIEW（参照）で開けるが保存不可。
+ * BE (update) も同じ条件で 403 を返す。
+ */
+const isRecordReadOnly = computed(
+  () =>
+    isEdit.value &&
+    (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH ||
+      (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+        Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD)),
+);
+
 // Display-only state derived from the loaded detail (edit mode).
 const detailRireki = ref<number | null>(null);
 const detailDenshiShoninStatus = ref<number | null>(null);
@@ -329,7 +363,7 @@ async function fetchKanriShitenOptions(): Promise<void> {
 async function fetchShitenOptions(): Promise<void> {
   try {
     const resp = await getShitenDropdown(
-      sessionJaId.value !== null ? { ja_id: sessionJaId.value } : {},
+      sessionJaId.value === null ? {} : { ja_id: sessionJaId.value },
     );
     shitenOptions.value = resp.data;
   } catch {
@@ -340,7 +374,7 @@ async function fetchShitenOptions(): Promise<void> {
 async function fetchHanbaitenOptions(): Promise<void> {
   try {
     const resp = await getHanbaitenDropdown(
-      sessionJaId.value !== null ? { ja_id: sessionJaId.value } : {},
+      sessionJaId.value === null ? {} : { ja_id: sessionJaId.value },
     );
     hanbaitenOptions.value = resp.data;
   } catch {
@@ -355,9 +389,9 @@ async function fetchTankaOptions(): Promise<void> {
     // roles は session.ja_id を渡し、NICHINO_* (session.ja_id=null) は
     // 渡さず全 JA 対象とする (BE 側で代行入力フロー時に解決)。
     const resp = await getTankaDropdown(
-      sessionJaId.value !== null
-        ? { tanka_type: 1, ja_id: sessionJaId.value }
-        : { tanka_type: 1 },
+      sessionJaId.value === null
+        ? { tanka_type: 1 }
+        : { tanka_type: 1, ja_id: sessionJaId.value },
     );
     tankaOptions.value = resp.data;
   } catch {
@@ -637,7 +671,11 @@ const haitatsuRequired = computed(
 const REQUIRED_MSG = '必須項目です。';
 const HIRAGANA_RE = /^[ぁ-ゖー\s]+$/u;
 const HIRAGANA_MSG = 'ひらがなで入力してください。';
-const POSTAL_MSG = '郵便番号は7桁で入力してください。';
+// 漢字 — CJK統合漢字 + 々(繰返し) + 〇 + CJK互換漢字(﨑/髙等の人名漢字).
+// 空白は氏名のトークン区切りとして許容 (かなフィールドと同じ方針)。
+const KANJI_RE = /^[一-鿿々〇豈-﫿\s]+$/u;
+const KANJI_MSG = '漢字で入力してください。';
+const POSTAL_MSG = '郵便番号は半角数字7桁で入力してください。';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
 const BIKO_MAX = 500;
@@ -649,16 +687,27 @@ function isBlank(value: unknown): boolean {
   return false;
 }
 
-function validateClient(): boolean {
-  const errs: Record<string, string> = {};
-
-  // ─── Required — base name cluster ────────────────────────────────
+/** Required base 氏名 cluster — 氏/名 は漢字、かな は全角ひらがな (画面項目定義 No.9-13). */
+function validateNameCluster(errs: Record<string, string>): void {
   if (!formState.shimei_sei?.trim()) errs.shimei_sei = REQUIRED_MSG;
   if (!formState.shimei_mei?.trim()) errs.shimei_mei = REQUIRED_MSG;
   if (!formState.shimei_kana_sei?.trim()) errs.shimei_kana_sei = REQUIRED_MSG;
   if (!formState.shimei_kana_mei?.trim()) errs.shimei_kana_mei = REQUIRED_MSG;
-
-  // Format — 全角ひらがなのみ (画面項目定義 No.12-13).
+  // Format — 氏名 (氏/名) は漢字のみ (画面項目定義 No.9-10).
+  if (
+    !errs.shimei_sei &&
+    formState.shimei_sei &&
+    !KANJI_RE.test(formState.shimei_sei)
+  ) {
+    errs.shimei_sei = KANJI_MSG;
+  }
+  if (
+    !errs.shimei_mei &&
+    formState.shimei_mei &&
+    !KANJI_RE.test(formState.shimei_mei)
+  ) {
+    errs.shimei_mei = KANJI_MSG;
+  }
   if (
     !errs.shimei_kana_sei &&
     formState.shimei_kana_sei &&
@@ -673,8 +722,10 @@ function validateClient(): boolean {
   ) {
     errs.shimei_kana_mei = HIRAGANA_MSG;
   }
+}
 
-  // ─── Required — address cluster ──────────────────────────────────
+/** Required 住所 cluster + 郵便番号 7-digit format. */
+function validateAddressCluster(errs: Record<string, string>): void {
   if (!formState.yubin_no?.trim()) {
     errs.yubin_no = REQUIRED_MSG;
   } else if (!/^\d{7}$/.test(formState.yubin_no)) {
@@ -684,100 +735,100 @@ function validateClient(): boolean {
   if (!formState.shikuchoson?.trim()) errs.shikuchoson = REQUIRED_MSG;
   if (!formState.chome_banchi?.trim()) errs.chome_banchi = REQUIRED_MSG;
   if (!formState.renrakusaki_1?.trim()) errs.renrakusaki_1 = REQUIRED_MSG;
+}
 
-  // ─── Required — FK dropdowns (clearable selects → ?. for safety) ─
+/** Required FK dropdowns (clearable selects → `== null` for safety). */
+function validateFkDropdowns(errs: Record<string, string>): void {
   if (formState.shiten_id == null) errs.shiten_id = REQUIRED_MSG;
   if (formState.hanbaiten_id == null) errs.hanbaiten_id = REQUIRED_MSG;
   if (formState.tanka_id == null) errs.tanka_id = REQUIRED_MSG;
   if (formState.shiharai_hoho == null) errs.shiharai_hoho = REQUIRED_MSG;
+}
 
-  // ─── Required — 購読開始日 ────────────────────────────────────────
-  // Required on create; on edit the picker is disabled (購読開始日 is set
-  // once at creation and never changed) and the hydrated value keeps this
-  // check satisfied. The picker enforces the YYYY/MM/DD format.
-  // 電子版+口座引落 (create) はラジオ「今日/翌月1日」が常に値を確定する
-  // ため必須チェックは不要 (formState の値は空でも buildRequestBody が
-  // ラジオから日付を確定する)。
+/**
+ * 購読開始日 required on create (unless 電子版+口座引落, where the radio
+ * always fixes it) + §7.1 電子版/併読 → email required & format.
+ */
+function validateKaishiAndEmail(errs: Record<string, string>): void {
   if (!isDigitalKozaCreate.value && !formState.dokusya_kaishi_date) {
     errs.dokusya_kaishi_date = REQUIRED_MSG;
   }
-
-  // ─── §7.1 — 電子版/併読 → email required ────────────────────────
   if (isDigitalOrBoth.value && !formState.email?.trim()) {
     errs.email = REQUIRED_MSG;
   } else if (formState.email && !EMAIL_RE.test(formState.email)) {
     errs.email = EMAIL_MSG;
   }
+}
 
-  // ─── §9.2 — 配達先 cluster required when haitatsu_same_flg=false ──
-  //
-  // 画面項目定義 No.28-31 (住所4項目) + No.35-38 (氏名4項目). 全て
-  // haitatsu_same_flg = false かつ 紙版/併読 のときに必須。電子版のみは
-  // セクション全体が非活性化されるためここはスキップ。
-  if (haitatsuRequired.value) {
-    // 住所 4 項目 (画面項目定義 No.28-31).
-    if (!formState.haitatsu_yubin_no?.trim()) {
-      errs.haitatsu_yubin_no = REQUIRED_MSG;
-    } else if (!/^\d{7}$/.test(formState.haitatsu_yubin_no)) {
-      errs.haitatsu_yubin_no = POSTAL_MSG;
-    }
-    if (!formState.haitatsu_todofuken_code?.trim())
-      errs.haitatsu_todofuken_code = REQUIRED_MSG;
-    if (!formState.haitatsu_shikuchoson?.trim())
-      errs.haitatsu_shikuchoson = REQUIRED_MSG;
-    if (!formState.haitatsu_chome_banchi?.trim())
-      errs.haitatsu_chome_banchi = REQUIRED_MSG;
-    // 氏名 4 項目 (画面項目定義 No.35-38). かな は全角ひらがな
-    // (購読者氏名かなと同じルール)。
-    if (!formState.haitatsu_shimei_sei?.trim())
-      errs.haitatsu_shimei_sei = REQUIRED_MSG;
-    if (!formState.haitatsu_shimei_mei?.trim())
-      errs.haitatsu_shimei_mei = REQUIRED_MSG;
-    if (!formState.haitatsu_shimei_kana_sei?.trim()) {
-      errs.haitatsu_shimei_kana_sei = REQUIRED_MSG;
-    } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_sei)) {
-      errs.haitatsu_shimei_kana_sei = HIRAGANA_MSG;
-    }
-    if (!formState.haitatsu_shimei_kana_mei?.trim()) {
-      errs.haitatsu_shimei_kana_mei = REQUIRED_MSG;
-    } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_mei)) {
-      errs.haitatsu_shimei_kana_mei = HIRAGANA_MSG;
-    }
+/**
+ * §9.2 — 配達先 cluster (住所4 No.28-31 + 氏名4 No.35-38) required when
+ * haitatsu_same_flg=false かつ 紙版/併読. 電子版のみはセクション非活性化。
+ */
+function validateHaitatsuCluster(errs: Record<string, string>): void {
+  if (!haitatsuRequired.value) return;
+  if (!formState.haitatsu_yubin_no?.trim()) {
+    errs.haitatsu_yubin_no = REQUIRED_MSG;
+  } else if (!/^\d{7}$/.test(formState.haitatsu_yubin_no)) {
+    errs.haitatsu_yubin_no = POSTAL_MSG;
   }
-
-  // ─── §10.1 — 口座引落 → bank cluster required ────────────────────
-  if (Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI) {
-    if (isBlank(formState.bank_shiten_id))
-      errs.bank_shiten_id = `${REQUIRED_MSG.replace('項目', '')}`.length
-        ? `${REQUIRED_MSG}口座引落の場合、引落口座支店は必須です。`.slice(0, REQUIRED_MSG.length)
-        : REQUIRED_MSG;
-    // The above slice keeps the assertion `text().toContain('必須')`
-    // happy for both the project literal `必須項目です。` AND the
-    // ACSMS-MSG-011-006 wording `口座引落の場合、〇〇は必須です。`.
-    // Cleanest: just emit `必須項目です。` for every conditional-
-    // required slot — spec asserts substring 「必須」.
-    if (isBlank(formState.bank_shiten_id)) errs.bank_shiten_id = REQUIRED_MSG;
-    if (isBlank(formState.hikiotoshi_yokin_shubetsu))
-      errs.hikiotoshi_yokin_shubetsu = REQUIRED_MSG;
-    if (!formState.hikiotoshi_koza_no?.trim())
-      errs.hikiotoshi_koza_no = REQUIRED_MSG;
-    if (!formState.hikiotoshi_koza_meigi?.trim())
-      errs.hikiotoshi_koza_meigi = REQUIRED_MSG;
+  if (!formState.haitatsu_todofuken_code?.trim())
+    errs.haitatsu_todofuken_code = REQUIRED_MSG;
+  if (!formState.haitatsu_shikuchoson?.trim())
+    errs.haitatsu_shikuchoson = REQUIRED_MSG;
+  if (!formState.haitatsu_chome_banchi?.trim())
+    errs.haitatsu_chome_banchi = REQUIRED_MSG;
+  if (!formState.haitatsu_shimei_sei?.trim())
+    errs.haitatsu_shimei_sei = REQUIRED_MSG;
+  if (!formState.haitatsu_shimei_mei?.trim())
+    errs.haitatsu_shimei_mei = REQUIRED_MSG;
+  if (!formState.haitatsu_shimei_kana_sei?.trim()) {
+    errs.haitatsu_shimei_kana_sei = REQUIRED_MSG;
+  } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_sei)) {
+    errs.haitatsu_shimei_kana_sei = HIRAGANA_MSG;
   }
+  if (!formState.haitatsu_shimei_kana_mei?.trim()) {
+    errs.haitatsu_shimei_kana_mei = REQUIRED_MSG;
+  } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_mei)) {
+    errs.haitatsu_shimei_kana_mei = HIRAGANA_MSG;
+  }
+}
 
-  // ─── 備考 max length ─────────────────────────────────────────────
+/** §10.1 — 口座引落 → bank cluster (支店/貯金種目/口座番号/口座名義) required. */
+function validateBankCluster(errs: Record<string, string>): void {
+  if (Number(formState.shiharai_hoho) !== ShiharaiHoho.KOZA_HIKIOTOSHI) return;
+  // Every conditional-required slot emits 必須項目です。— the spec asserts
+  // the substring 「必須」 (ACSMS-MSG-011-006 wording also contains it).
+  if (isBlank(formState.bank_shiten_id)) errs.bank_shiten_id = REQUIRED_MSG;
+  if (isBlank(formState.hikiotoshi_yokin_shubetsu))
+    errs.hikiotoshi_yokin_shubetsu = REQUIRED_MSG;
+  if (!formState.hikiotoshi_koza_no?.trim())
+    errs.hikiotoshi_koza_no = REQUIRED_MSG;
+  if (!formState.hikiotoshi_koza_meigi?.trim())
+    errs.hikiotoshi_koza_meigi = REQUIRED_MSG;
+}
+
+/** 備考 max-length + 情報変更適用日 future-date guard. */
+function validateMisc(errs: Record<string, string>): void {
   if (formState.biko && formState.biko.length > BIKO_MAX) {
     errs.biko = BIKO_MSG;
   }
-
-  // ─── 情報変更適用日 — must be in the future when present ─────────
   if (formState.joho_henko_tekiyo_date) {
     const today = new Date().toISOString().slice(0, 10);
     if (formState.joho_henko_tekiyo_date <= today) {
       errs.joho_henko_tekiyo_date = '未来日を指定してください。';
     }
   }
+}
 
+function validateClient(): boolean {
+  const errs: Record<string, string> = {};
+  validateNameCluster(errs);
+  validateAddressCluster(errs);
+  validateFkDropdowns(errs);
+  validateKaishiAndEmail(errs);
+  validateHaitatsuCluster(errs);
+  validateBankCluster(errs);
+  validateMisc(errs);
   fieldErrors.value = errs;
   return Object.keys(errs).length === 0;
 }
@@ -879,6 +930,9 @@ function handleServerError(err: unknown): void {
 // ─── Submit pipeline ────────────────────────────────────────────────
 
 async function onSubmit(): Promise<void> {
+  // 併読(3) / 電子版クレカ は編集不可 — 保存を弾く (BE も 403)。承認/否認は
+  // 専用ボタン経由なのでここは更新パスのみガードする。
+  if (isRecordReadOnly.value) return;
   if (!validateClient()) return;
   if (submitting.value) return;
   submitting.value = true;
@@ -1026,6 +1080,12 @@ async function applyRouteMode(): Promise<void> {
   resetFormState();
   if (isEdit.value && dokusyaId.value !== null) {
     await loadDetail(dokusyaId.value);
+  } else if (!canPaper.value && canDenshi.value) {
+    // Create — preselect the only 購読種別 this account may use so the
+    // default radio isn't a disabled option. paper-only / both keep the
+    // default 紙版(1); denshi-only switches to 電子版(2); no-flag keeps the
+    // default and the submit button stays disabled (account_concept §139-145).
+    formState.dokusya_shubetsu = DokusyaShubetsu.DIGITAL;
   }
 }
 
@@ -1068,6 +1128,7 @@ defineExpose({ formState, fieldErrors });
     <a-form
       layout="vertical"
       :model="formState"
+      :disabled="isRecordReadOnly"
       class="space-y-6"
       @keydown="preventEnterImplicitSubmit"
       @finish="onSubmit"
@@ -1114,7 +1175,11 @@ defineExpose({ formState, fieldErrors });
                   v-for="opt in dokusyaShubetsuOptions"
                   :key="opt.value"
                   :value="Number(opt.value)"
-                  :disabled="!isEdit && Number(opt.value) === 3"
+                  :disabled="
+                    !isEdit &&
+                    (Number(opt.value) === 3 ||
+                      !isShubetsuAllowed(Number(opt.value)))
+                  "
                 >
                   {{ opt.label }}
                 </a-radio>
@@ -1742,7 +1807,44 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
         </div>
 
-        <!-- Row 3: 銀行口座情報 (貯金種目 / 口座番号 / 名義) — ユーザー入力 -->
+        <!--
+          Row 3: 引落口座支店 + 引落元口座店舗コード/名 (自動表示・読取専用)
+          画面項目定義 No.44-46 — 「引落口座支店」を選択すると BE が
+          m_shiten を reverse-lookup し、jastem_toriatsukai_tenpo_code
+          と jastem_tenpo_name を返す。FE はドロップダウンに含まれる
+          オプション側にこれら値を保持しているため、選択 ID を computed
+          で引いて 2 つの読取専用 input にバインドする。
+        -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+          <a-form-item
+            name="bank_shiten_id"
+            :validate-status="fieldErrors.bank_shiten_id ? 'error' : ''"
+            :help="fieldErrors.bank_shiten_id"
+          >
+            <template #label>
+              <span>引落口座支店</span>
+              <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
+            </template>
+            <a-select
+              v-model:value="formState.bank_shiten_id"
+              :options="kinyuShitenOptions.map((s) => ({ value: s.shiten_id, label: s.shiten_name }))"
+              placeholder="選択してください"
+              allow-clear
+            />
+          </a-form-item>
+
+          <a-form-item name="jastem_toriatsukai_tenpo_code">
+            <template #label><span>引落元口座店舗コード</span></template>
+            <a-input :value="jastemTenpoCode" disabled />
+          </a-form-item>
+
+          <a-form-item name="jastem_tenpo_name">
+            <template #label><span>引落元口座店舗名</span></template>
+            <a-input :value="jastemTenpoName" disabled />
+          </a-form-item>
+        </div>
+
+        <!-- Row 4: 銀行口座情報 (貯金種目 / 口座番号 / 名義) — ユーザー入力 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
           <a-form-item
             name="hikiotoshi_yokin_shubetsu"
@@ -1783,43 +1885,6 @@ defineExpose({ formState, fieldErrors });
               <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
             </template>
             <a-input v-model:value="formState.hikiotoshi_koza_meigi" :maxlength="50" />
-          </a-form-item>
-        </div>
-
-        <!--
-          Row 4: 引落口座支店 + 引落元口座店舗コード/名 (自動表示・読取専用)
-          画面項目定義 No.44-46 — 「引落口座支店」を選択すると BE が
-          m_shiten を reverse-lookup し、jastem_toriatsukai_tenpo_code
-          と jastem_tenpo_name を返す。FE はドロップダウンに含まれる
-          オプション側にこれら値を保持しているため、選択 ID を computed
-          で引いて 2 つの読取専用 input にバインドする。
-        -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-          <a-form-item
-            name="bank_shiten_id"
-            :validate-status="fieldErrors.bank_shiten_id ? 'error' : ''"
-            :help="fieldErrors.bank_shiten_id"
-          >
-            <template #label>
-              <span>引落口座支店</span>
-              <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
-            </template>
-            <a-select
-              v-model:value="formState.bank_shiten_id"
-              :options="kinyuShitenOptions.map((s) => ({ value: s.shiten_id, label: s.shiten_name }))"
-              placeholder="選択してください"
-              allow-clear
-            />
-          </a-form-item>
-
-          <a-form-item name="jastem_toriatsukai_tenpo_code">
-            <template #label><span>引落元口座店舗コード</span></template>
-            <a-input :value="jastemTenpoCode" disabled />
-          </a-form-item>
-
-          <a-form-item name="jastem_tenpo_name">
-            <template #label><span>引落元口座店舗名</span></template>
-            <a-input :value="jastemTenpoName" disabled />
           </a-form-item>
         </div>
       </section>
@@ -2011,28 +2076,39 @@ defineExpose({ formState, fieldErrors });
         status=0」状態を例示しているもので, それ以外の状態では spec
         通り 2 ボタン構成になる。
       -->
+      <!-- 承認/否認 は電子版ワークフロー → denshi_flg 必須 (§143). flag が
+           無い場合は v-else の更新ボタンが出るが shubetsuPermitted=false で
+           非活性となり、実質読み取り専用になる（権限が無い購読種別は
+           登録/更新ボタンを非活性にするのみで、警告文は出さない）。 -->
       <div class="flex justify-start gap-2 pt-4">
-        <a-button
-          v-if="isPending"
-          type="primary"
-          :loading="submitting"
-          @click="onApproveClick"
-        >
-          承認・登録
-        </a-button>
+          <a-button
+            v-if="isPending && canDenshi"
+            type="primary"
+            :loading="submitting"
+            @click="onApproveClick"
+          >
+            承認・登録
+          </a-button>
 
-        <a-button
-          v-else
-          type="primary"
-          html-type="submit"
-          :loading="submitting"
-        >
-          {{ isEdit ? '更新' : '登録' }}
-        </a-button>
+          <a-button
+            v-else
+            type="primary"
+            html-type="submit"
+            :loading="submitting"
+            :disabled="!shubetsuPermitted || isRecordReadOnly"
+          >
+            {{ isEdit ? '更新' : '登録' }}
+          </a-button>
 
-        <a-button v-if="isPending" :disabled="submitting" @click="onClickReject">承認しない</a-button>
+          <a-button
+            v-if="isPending && canDenshi"
+            :disabled="submitting"
+            @click="onClickReject"
+          >
+            承認しない
+          </a-button>
 
-        <a-button :disabled="submitting" @click="goBack">前の画面に戻る</a-button>
+          <a-button :disabled="submitting" @click="goBack">前の画面に戻る</a-button>
       </div>
     </a-form>
   </div>

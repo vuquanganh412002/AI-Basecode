@@ -562,7 +562,7 @@ export class ShitenService {
         // Project the merged row in-memory; TypeORM's manager.update
         // doesn't refresh the entity, and a re-read would round-trip
         // for no benefit since we already know the payload that won.
-        after = { ...before, ...updatePayload, shitenId: id } as Shiten;
+        after = { ...before, ...updatePayload, shitenId: id };
 
         // [audit-log-in-tx] — UPDATE with before/after JSON.
         await this.auditLog.logUpdate(

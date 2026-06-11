@@ -328,14 +328,13 @@ describe('FileUploadController — SCR-022', () => {
       expect(res.status).not.toBe(401); // guard overridden allows through
     });
 
-    it('should rely on PermissionsGuard with @Permissions("file.download") on all endpoints', async () => {
-      // COVERS: §4.2 — FORBIDDEN handled by PermissionsGuard.
-      // Smoke check that the @Permissions decorator metadata exists is
-      // best done via reflection — defer to integration spec for the
-      // end-to-end 403 assertion.
-      it.todo as never; // marker so coverage skip is intentional
-      expect(true).toBe(true);
-    });
+    // COVERS: §4.2 — FORBIDDEN handled by PermissionsGuard. The
+    // @Permissions decorator metadata smoke check is best done via
+    // reflection; the end-to-end 403 assertion lives in the integration
+    // spec, so this stays a pending marker rather than a no-op assertion.
+    it.todo(
+      'should rely on PermissionsGuard with @Permissions("file.download") on all endpoints',
+    );
 
     it.todo('should return 429 with error_code=TOO_MANY_REQUESTS — covered in integration (throttler is application-level)');
   });

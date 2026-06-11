@@ -29,6 +29,7 @@ export const ErrorCode = {
   // ─── SCR-011 — 購読者情報登録画面 ──────────────────────────────────────
   DUPLICATE_EMAIL: 'DUPLICATE_EMAIL',                 // 400 — same email already exists in JA scope
   INVALID_STATUS: 'INVALID_STATUS',                   // 400 — approve/reject called on a row not in 承認待ち
+  SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED', // 403 — account lacks paper_flg/denshi_flg for the row's 購読種別
 
   // ─── SCR-015 — 購読者販売店一括置換画面 ────────────────────────────────
   SAME_HANBAITEN: 'SAME_HANBAITEN',                   // 400 — replace target equals the candidate's current hanbaiten
@@ -67,6 +68,7 @@ export const ErrorMessage: Record<ErrorCode, string> = {
   TARGET_JA_REQUIRED: '対象JAを1つ以上選択してください。',
   DUPLICATE_EMAIL: 'このメールアドレスは既に登録されています。',
   INVALID_STATUS: '承認待ちの読者ではありません。',
+  SHUBETSU_PERMISSION_DENIED: 'この購読種別に対する操作権限がありません。',
   SAME_HANBAITEN: '現在の販売店と同じ販売店は選択できません。',
   INELIGIBLE_DOKUSYA: '電子版クレカ決済者・併読者は編集・削除できません。',
   DATE_RANGE_INVALID: '「開始日」は「終了日」以前の日付を入力してください。',

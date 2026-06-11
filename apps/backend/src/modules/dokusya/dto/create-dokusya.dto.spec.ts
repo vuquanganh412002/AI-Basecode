@@ -46,6 +46,16 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_sei')).toBe(true);
   });
 
+  it('should fail with 漢字で入力してください。 when shimei_sei is not kanji', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ shimei_sei: 'ヤマダ' }),
+    );
+    const errors = await validate(dto);
+    const e = errors.find((x) => x.property === 'shimei_sei');
+    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+  });
+
   // ─── shimei_mei (String, required, max 50) ──────────────────────────────
   it('should fail when shimei_mei is missing', async () => {
     const dto = plainToInstance(
@@ -63,6 +73,16 @@ describe('CreateDokusyaDto', () => {
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'shimei_mei')).toBe(true);
+  });
+
+  it('should fail with 漢字で入力してください。 when shimei_mei is not kanji', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ shimei_mei: 'Taro' }),
+    );
+    const errors = await validate(dto);
+    const e = errors.find((x) => x.property === 'shimei_mei');
+    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
   });
 
   // ─── shimei_kana_sei (String, required, max 100) ────────────────────────

@@ -30,6 +30,37 @@ function seedAdmin(): void {
   };
 }
 
+function seedDokusyaUser(paper: boolean, denshi: boolean): void {
+  setActivePinia(createPinia());
+  useAuthStore().user = {
+    account_id: 5,
+    login_id: 'ja',
+    account_name: 'JA',
+    role_id: 4,
+    role_code: 'JA_HONTEN',
+    role_name: 'JA_HONTEN',
+    ja_id: 1,
+    kanri_shiten_id: null,
+    todofuken_code: '13',
+    paper_flg: paper,
+    denshi_flg: denshi,
+    email: '',
+    mfa_enable_flg: false,
+    permissions: [
+      'dokusya.view',
+      'dokusya.create',
+      'dokusya.import',
+      'dokusya.replace_hanbaiten',
+    ],
+  };
+}
+
+function dokusyaItems(): Record<string, { name: string; disabled?: boolean }> {
+  const { visibleSections } = useMenu();
+  const section = visibleSections.value.find((s) => s.heading === '購読者管理');
+  return Object.fromEntries((section?.items ?? []).map((i) => [i.name, i]));
+}
+
 describe('useMenu', () => {
   describe('default (excludeRoot=false)', () => {
     it('should include the rootless Dashboard entry when excludeRoot is omitted', () => {
@@ -78,6 +109,25 @@ describe('useMenu', () => {
       expect(visibleSections.value[0].heading).toBeUndefined();
       expect(visibleSections.value[0].items).toHaveLength(1);
       expect(visibleSections.value[0].items[0].name).toBe('Dashboard');
+    });
+  });
+
+  describe('購読種別-flag gate (account_concept §139-145)', () => {
+    it('disables 登録/取込/一括置換 (but not 検索) when the account has neither flag', () => {
+      seedDokusyaUser(false, false);
+      const items = dokusyaItems();
+      expect(items.DokusyaCreate.disabled).toBe(true);
+      expect(items.DokusyaImport.disabled).toBe(true);
+      expect(items.DokusyaReplaceHanbaiten.disabled).toBe(true);
+      expect(items.DokusyaList.disabled).toBe(false);
+    });
+
+    it('does NOT disable the items when the account holds paper_flg only', () => {
+      seedDokusyaUser(true, false);
+      const items = dokusyaItems();
+      expect(items.DokusyaCreate.disabled).toBe(false);
+      expect(items.DokusyaImport.disabled).toBe(false);
+      expect(items.DokusyaReplaceHanbaiten.disabled).toBe(false);
     });
   });
 });

@@ -60,6 +60,16 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
             '大阪府大阪市', '06-1234-5678', '', '', '', '',
             1, '', false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        // ─── m_account — assertAnyDokusyaFlag re-queries paper_flg/denshi_flg
+        //     by session.account_id. 1/11 hold both flags so the import happy
+        //     paths pass; 15 has neither for the 403 gate test. ──────────────
+        `INSERT INTO m_account
+           (account_id, login_id, password_hash, account_name, role_id,
+            ja_id, kanri_shiten_id, paper_flg, denshi_flg, created_by, updated_by)
+         VALUES
+           (1,  'admin01',  'x', '管理者',  1, NULL, NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (11, 'honten01', 'x', 'JA本店',  4, 1,    NULL, true,  true,  'SYSTEM', 'SYSTEM'),
+           (15, 'noflag01', 'x', 'フラグ無', 4, 1,    NULL, false, false, 'SYSTEM', 'SYSTEM')`,
         // ─── m_kanri_shiten (WITH todofuken_code) — 101 = caller JA=1 ──────
         `INSERT INTO m_kanri_shiten
            (kanri_shiten_id, ja_id, kanri_shiten_code, kanri_shiten_name,
@@ -183,6 +193,17 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
     });
   }
 
+  // Holds dokusya.import but m_account has neither 購読種別 flag.
+  function asNoFlag(jaId = 1) {
+    return ctx.seedSession({
+      account_id: 15,
+      role_code: 'JA_HONTEN',
+      role_id: 4,
+      ja_id: jaId,
+      permissions: ['dokusya.view', 'dokusya.import'],
+    });
+  }
+
   // ════════════════════════════════════════════════════════════════════════
   // API-016-001 — GET /api/v1/dokusya/import/template
   // ════════════════════════════════════════════════════════════════════════
@@ -269,6 +290,17 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
         .send(buildImportBody())
         .expect(403);
       expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 403 SHUBETSU_PERMISSION_DENIED when the account has neither 購読種別 flag', async () => {
+      // account_concept.md §139-145 — no paper_flg/denshi_flg → Excel取込不可.
+      const sid = await asNoFlag(1);
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildImportBody())
+        .expect(403);
+      expect(res.body.error_code).toBe('SHUBETSU_PERMISSION_DENIED');
     });
 
     it('should return 400 VALIDATION_ERROR when import_mode is missing', async () => {

@@ -200,7 +200,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
 
   it('should render all 12 search input labels (常時表示エリア) when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     // 12 search labels per index.html — 常時表示 area only.
     // Detailed-search fields (詳細検索) live under a toggle and are
     // covered by the toggle-button tests below.
@@ -312,7 +312,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
 
     expect(wrapper.text()).toContain('詳細検索を非表示');
     // After expansion, advanced-search fields should be reachable.
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('引落元口座支店コード'))).toBe(true);
     expect(labels.some((t) => t.includes('引落元口座支店名'))).toBe(true);
     expect(labels.some((t) => t.includes('連絡先1'))).toBe(true);
@@ -800,6 +800,18 @@ describe('DokusyaListView — row navigation (機能定義 5.x)', () => {
       user: buildAuthUser({
         permissions: ['dokusya.view', 'dokusya.update', 'dokusya.delete'],
       }),
+    });
+    const createBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('購読者情報登録'));
+    expect(createBtn).toBeDefined();
+    expect(createBtn!.attributes('disabled')).toBeDefined();
+  });
+
+  it('should disable 購読者情報登録 when the account has dokusya.create but neither 購読種別 flag', async () => {
+    // account_concept.md §139-145 — no paper_flg/denshi_flg → cannot create.
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: false, denshi_flg: false }),
     });
     const createBtn = wrapper
       .findAll('button')

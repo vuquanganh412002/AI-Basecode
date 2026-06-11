@@ -666,7 +666,7 @@ export class HanbaitenService {
       savedId = await this.dataSource.transaction(async (manager) => {
         // [business-insert] — `manager.save(Entity, value)` returns the
         // hydrated row with the IDENTITY-generated hanbaiten_id.
-        const saved = (await manager.save(Hanbaiten, newRow)) as Hanbaiten;
+        const saved = await manager.save(Hanbaiten, newRow);
         const insertedId = Number(saved.hanbaitenId);
 
         // [audit-log-in-tx] — business write + audit row commit (or roll
@@ -939,7 +939,7 @@ export class HanbaitenService {
     // wide enough for the longest column name '配達手数料支払サイクル' (12 JP chars).
     sheet.columns = headers.map(() => ({ width: 16 }));
     const buf = await workbook.xlsx.writeBuffer();
-    return Buffer.isBuffer(buf) ? buf : Buffer.from(buf as ArrayBuffer);
+    return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   }
 
   // ─── ACSMS-API-019-002 — POST /api/v1/hanbaiten/import ────────────────
@@ -1588,10 +1588,7 @@ export class HanbaitenService {
       // For empty cells, fall back to the column's NOT NULL default
       // (empty string / false). Nullable columns (numeric / enum) are
       // not in the map so they pass through as null.
-      const fallback = Object.prototype.hasOwnProperty.call(
-        IMPORT_FIELD_EMPTY_DEFAULT,
-        entityField,
-      )
+      const fallback = Object.hasOwn(IMPORT_FIELD_EMPTY_DEFAULT, entityField)
         ? IMPORT_FIELD_EMPTY_DEFAULT[entityField]
         : null;
       (payload as Record<string, unknown>)[entityField] =

@@ -120,7 +120,7 @@ export class SearchTankaDto extends PaginationDto {
   })
   @IsOptional()
   @IsString({ message: 'ソート対象カラムは文字列で指定してください。' })
-  @IsIn(TANKA_SEARCH_SORT_BY as unknown as string[], {
+  @IsIn(TANKA_SEARCH_SORT_BY, {
     message: 'ソート対象カラムが不正です。',
   })
   sort_by?: TankaSearchSortBy = 'updated_at';

@@ -109,6 +109,17 @@ const canCreate = computed(() => authStore.hasPermission('dokusya.create'));
 const canUpdate = computed(() => authStore.hasPermission('dokusya.update'));
 const canDelete = computed(() => authStore.hasPermission('dokusya.delete'));
 
+// 購読種別-flag gate (account_concept.md §139-145): an account with neither
+// paper_flg nor denshi_flg cannot create/delete any 購読者, so 新規登録 +
+// 削除 are greyed even when it holds dokusya.create / dokusya.delete. BE
+// (assertShubetsuFlag) is the real boundary.
+const hasAnyDokusyaFlag = computed(
+  () => !!authStore.user?.paper_flg || !!authStore.user?.denshi_flg,
+);
+const canCreateDokusya = computed(
+  () => canCreate.value && hasAnyDokusyaFlag.value,
+);
+
 const {
   state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
 } =
@@ -336,6 +347,63 @@ function validateFilters(f: DokusyaFilters): boolean {
   return true;
 }
 
+/**
+ * Number filters — copied when explicitly set (`0` is a valid m_code
+ * value, so a truthy check would wrongly drop it). Split out of
+ * `buildSearchParams` to keep each builder's cognitive complexity low.
+ */
+function applyNumberFilters(
+  params: DokusyaSearchParams,
+  f: DokusyaFilters,
+): void {
+  if (f.kanri_shiten_id !== undefined) params.kanri_shiten_id = f.kanri_shiten_id;
+  if (f.shiten_id !== undefined) params.shiten_id = f.shiten_id;
+  if (f.hanbaiten_id !== undefined) params.hanbaiten_id = f.hanbaiten_id;
+  if (f.tetsuzuki_shurui !== undefined)
+    params.tetsuzuki_shurui = f.tetsuzuki_shurui;
+  if (f.dokusya_shubetsu !== undefined)
+    params.dokusya_shubetsu = f.dokusya_shubetsu;
+  if (f.denshi_shonin_status !== undefined)
+    params.denshi_shonin_status = f.denshi_shonin_status;
+  if (f.shiharai_hoho !== undefined) params.shiharai_hoho = f.shiharai_hoho;
+}
+
+/** Free-text filters — copied when non-empty (blank → BE sees no value). */
+function applyTextFilters(
+  params: DokusyaSearchParams,
+  f: DokusyaFilters,
+): void {
+  if (f.kumiaiin_code) params.kumiaiin_code = f.kumiaiin_code;
+  if (f.full_name) params.full_name = f.full_name;
+  if (f.full_name_kana) params.full_name_kana = f.full_name_kana;
+  if (f.haitatsu) params.haitatsu = f.haitatsu;
+  if (f.jastem_toriatsukai_tenpo_code)
+    params.jastem_toriatsukai_tenpo_code = f.jastem_toriatsukai_tenpo_code;
+  if (f.jastem_tenpo_name) params.jastem_tenpo_name = f.jastem_tenpo_name;
+  if (f.renrakusaki_1) params.renrakusaki_1 = f.renrakusaki_1;
+  if (f.email) params.email = f.email;
+  if (f.seikyu_kaishi_month) params.seikyu_kaishi_month = f.seikyu_kaishi_month;
+}
+
+/** Date-range filters — copied when non-empty. */
+function applyDateFilters(
+  params: DokusyaSearchParams,
+  f: DokusyaFilters,
+): void {
+  if (f.shoki_dokusya_kaishi_date_from)
+    params.shoki_dokusya_kaishi_date_from = f.shoki_dokusya_kaishi_date_from;
+  if (f.shoki_dokusya_kaishi_date_to)
+    params.shoki_dokusya_kaishi_date_to = f.shoki_dokusya_kaishi_date_to;
+  if (f.dokusya_chushi_date_from)
+    params.dokusya_chushi_date_from = f.dokusya_chushi_date_from;
+  if (f.dokusya_chushi_date_to)
+    params.dokusya_chushi_date_to = f.dokusya_chushi_date_to;
+  if (f.joho_henko_tekiyo_date_from)
+    params.joho_henko_tekiyo_date_from = f.joho_henko_tekiyo_date_from;
+  if (f.joho_henko_tekiyo_date_to)
+    params.joho_henko_tekiyo_date_to = f.joho_henko_tekiyo_date_to;
+}
+
 /** Strip empty strings + undefined so the BE doesn't see falsy filter values. */
 function buildSearchParams(): DokusyaSearchParams {
   const f = state.filters;
@@ -345,37 +413,9 @@ function buildSearchParams(): DokusyaSearchParams {
     sort_by: state.sort_by,
     sort_order: state.sort_order,
   };
-  if (f.kanri_shiten_id !== undefined) params.kanri_shiten_id = f.kanri_shiten_id;
-  if (f.shiten_id !== undefined) params.shiten_id = f.shiten_id;
-  if (f.kumiaiin_code) params.kumiaiin_code = f.kumiaiin_code;
-  if (f.full_name) params.full_name = f.full_name;
-  if (f.full_name_kana) params.full_name_kana = f.full_name_kana;
-  if (f.haitatsu) params.haitatsu = f.haitatsu;
-  if (f.hanbaiten_id !== undefined) params.hanbaiten_id = f.hanbaiten_id;
-  if (f.tetsuzuki_shurui !== undefined) params.tetsuzuki_shurui = f.tetsuzuki_shurui;
-  if (f.shoki_dokusya_kaishi_date_from)
-    params.shoki_dokusya_kaishi_date_from = f.shoki_dokusya_kaishi_date_from;
-  if (f.shoki_dokusya_kaishi_date_to)
-    params.shoki_dokusya_kaishi_date_to = f.shoki_dokusya_kaishi_date_to;
-  if (f.dokusya_chushi_date_from)
-    params.dokusya_chushi_date_from = f.dokusya_chushi_date_from;
-  if (f.dokusya_chushi_date_to)
-    params.dokusya_chushi_date_to = f.dokusya_chushi_date_to;
-  if (f.dokusya_shubetsu !== undefined)
-    params.dokusya_shubetsu = f.dokusya_shubetsu;
-  if (f.denshi_shonin_status !== undefined)
-    params.denshi_shonin_status = f.denshi_shonin_status;
-  if (f.jastem_toriatsukai_tenpo_code)
-    params.jastem_toriatsukai_tenpo_code = f.jastem_toriatsukai_tenpo_code;
-  if (f.jastem_tenpo_name) params.jastem_tenpo_name = f.jastem_tenpo_name;
-  if (f.renrakusaki_1) params.renrakusaki_1 = f.renrakusaki_1;
-  if (f.email) params.email = f.email;
-  if (f.seikyu_kaishi_month) params.seikyu_kaishi_month = f.seikyu_kaishi_month;
-  if (f.joho_henko_tekiyo_date_from)
-    params.joho_henko_tekiyo_date_from = f.joho_henko_tekiyo_date_from;
-  if (f.joho_henko_tekiyo_date_to)
-    params.joho_henko_tekiyo_date_to = f.joho_henko_tekiyo_date_to;
-  if (f.shiharai_hoho !== undefined) params.shiharai_hoho = f.shiharai_hoho;
+  applyNumberFilters(params, f);
+  applyTextFilters(params, f);
+  applyDateFilters(params, f);
   return params;
 }
 
@@ -595,7 +635,7 @@ defineExpose({ state });
       @clear="onClear"
     >
       <!-- 1. 管理支店 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
         <a-select
           v-model:value="state.filters.kanri_shiten_id"
@@ -611,10 +651,10 @@ defineExpose({ state });
             {{ opt.kanri_shiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 2. 支店 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">支店</span>
         <a-select
           v-model:value="state.filters.shiten_id"
@@ -630,10 +670,10 @@ defineExpose({ state });
             {{ opt.shiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 3. 組合員コード -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
           v-model:value="state.filters.kumiaiin_code"
@@ -641,10 +681,10 @@ defineExpose({ state });
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 4. 氏名 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
           v-model:value="state.filters.full_name"
@@ -652,10 +692,10 @@ defineExpose({ state });
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 5. かな氏名 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
           v-model:value="state.filters.full_name_kana"
@@ -663,10 +703,10 @@ defineExpose({ state });
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 6. 配達先住所 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達先住所</span>
         <a-input
           v-model:value="state.filters.haitatsu"
@@ -674,10 +714,10 @@ defineExpose({ state });
           allow-clear
           class="flex-1"
         />
-      </label>
+      </div>
 
       <!-- 7. 配達販売店 -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
         <a-select
           v-model:value="state.filters.hanbaiten_id"
@@ -693,10 +733,10 @@ defineExpose({ state });
             {{ opt.hanbaiten_name }}
           </a-select-option>
         </a-select>
-      </label>
+      </div>
 
       <!-- 8. 手続種類 (radio group, m_code TETSUZUKI_SHURUI) -->
-      <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">手続種類</span>
         <a-radio-group
           v-model:value="state.filters.tetsuzuki_shurui"
@@ -710,13 +750,13 @@ defineExpose({ state });
             {{ opt.label }}
           </a-radio>
         </a-radio-group>
-      </label>
+      </div>
 
       <!-- 9+10. 購読開始日 + 購読中止日 — wrapped in a 2-col sub-grid
            (col-span-full) so each date-range field takes half the row. -->
       <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
         <!-- 購読開始日 (date range) -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読開始日</span>
           <a-date-picker
             v-model:value="state.filters.shoki_dokusya_kaishi_date_from"
@@ -735,10 +775,10 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 購読中止日 (date range) -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読中止日</span>
           <a-date-picker
             v-model:value="state.filters.dokusya_chushi_date_from"
@@ -757,7 +797,7 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
       </div>
 
       <!-- 11+12. 購読種別 + 電子版承認ステータス — wrapped in a 2-col
@@ -766,7 +806,7 @@ defineExpose({ state });
            grid-cols-2). -->
       <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
         <!-- 購読種別 (radio group, m_code DOKUSYA_SHUBETSU) -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読種別</span>
           <a-radio-group
             v-model:value="state.filters.dokusya_shubetsu"
@@ -780,10 +820,10 @@ defineExpose({ state });
               {{ opt.label }}
             </a-radio>
           </a-radio-group>
-        </label>
+        </div>
 
         <!-- 電子版承認ステータス (radio group, hardcoded — NOT m_code) -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">電子版承認ステータス</span>
           <a-radio-group
             v-model:value="state.filters.denshi_shonin_status"
@@ -797,7 +837,7 @@ defineExpose({ state });
               {{ opt.label }}
             </a-radio>
           </a-radio-group>
-        </label>
+        </div>
       </div>
 
       <!-- 詳細検索 toggle — full-width row (border-top + grey button +
@@ -820,7 +860,7 @@ defineExpose({ state });
       <!-- 詳細検索エリア — collapsed by default. -->
       <template v-if="showAdvanced">
         <!-- 13. 引落元口座支店コード -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">引落元口座支店コード</span>
           <a-input
             v-model:value="state.filters.jastem_toriatsukai_tenpo_code"
@@ -828,10 +868,10 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 14. 引落元口座支店名 -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">引落元口座支店名</span>
           <a-input
             v-model:value="state.filters.jastem_tenpo_name"
@@ -839,10 +879,10 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 15. 連絡先1 -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">連絡先1</span>
           <a-input
             v-model:value="state.filters.renrakusaki_1"
@@ -850,10 +890,10 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 16. メールアドレス -->
-        <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">メールアドレス</span>
           <a-input
             v-model:value="state.filters.email"
@@ -861,13 +901,13 @@ defineExpose({ state });
             allow-clear
             class="flex-1"
           />
-        </label>
+        </div>
 
         <!-- 17+18. 請求開始月 + 適用日 — 2-col sub-grid (col-span-full)
              so each field takes half the row. -->
         <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
           <!-- 請求開始月 (month picker → YYYYMM) -->
-          <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <div class="flex items-center gap-2 text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">請求開始月</span>
             <a-date-picker
               v-model:value="state.filters.seikyu_kaishi_month"
@@ -878,10 +918,10 @@ defineExpose({ state });
               allow-clear
               class="flex-1"
             />
-          </label>
+          </div>
 
           <!-- 適用日 (date range) -->
-          <label class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <div class="flex items-center gap-2 text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">適用日</span>
             <a-date-picker
               v-model:value="state.filters.joho_henko_tekiyo_date_from"
@@ -900,13 +940,13 @@ defineExpose({ state });
               allow-clear
               class="flex-1"
             />
-          </label>
+          </div>
         </div>
 
         <!-- 19. 支払方法 (radio group, m_code SHIHARAI_HOHO) — full-width
              (col-span-full) so the radios lay out on one row (per
              index.html) instead of wrapping inside a narrow grid cell. -->
-        <label class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">支払方法</span>
           <a-radio-group
             v-model:value="state.filters.shiharai_hoho"
@@ -920,7 +960,7 @@ defineExpose({ state });
               {{ opt.label }}
             </a-radio>
           </a-radio-group>
-        </label>
+        </div>
       </template>
 
       <!-- 検索 / 検索クリア (BaseSearchForm) + Excel出力 on the same
@@ -972,7 +1012,7 @@ defineExpose({ state });
       @change="onPageChange"
     >
       <template #headerActions>
-        <a-button type="primary" :disabled="!canCreate" @click="goCreate">
+        <a-button type="primary" :disabled="!canCreateDokusya" @click="goCreate">
           <template #icon>
             <span class="material-icons text-sm mr-1">add</span>
           </template>
@@ -1011,7 +1051,9 @@ defineExpose({ state });
           <BaseActionColumn
             :can-edit="false"
             :disable-delete="
-              !canDelete || (record as DokusyaListItem).is_read_only
+              !canDelete ||
+              !hasAnyDokusyaFlag ||
+              (record as DokusyaListItem).is_read_only
             "
             @delete="askDelete(record as DokusyaListItem)"
           />

@@ -590,7 +590,7 @@ export class AccountService {
         // join the same transaction.
         await this.auditLog.logCreate(
           auditCtxFactory(insertedId),
-          buildAccountAuditSnapshot(saved as Account),
+          buildAccountAuditSnapshot(saved),
           manager,
         );
 

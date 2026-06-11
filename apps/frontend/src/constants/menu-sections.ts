@@ -17,6 +17,14 @@ export interface MenuItem {
   icon: string;
   /** Required permission to show this item. Omit for always-visible (e.g. Dashboard itself). */
   permission?: string;
+  /**
+   * When true, the item also requires the account to hold at least one
+   * 購読種別 flag (m_account.paper_flg / denshi_flg). An account that has the
+   * permission but neither flag sees the item DISABLED (greyed, not hidden) —
+   * it cannot 登録/取込/一括置換 any 購読者 (account_concept.md §139-145).
+   * `useMenu()` computes the runtime `disabled` state.
+   */
+  requiresAnyDokusyaFlag?: boolean;
 }
 
 export interface MenuSection {
@@ -34,10 +42,10 @@ export const MENU_SECTIONS: MenuSection[] = [
   {
     heading: '購読者管理',
     items: [
-      { name: 'DokusyaCreate', label: '購読者情報登録', icon: 'person_add', permission: 'dokusya.create' },
-      { name: 'DokusyaImport', label: '購読者Excelデータ取込', icon: 'upload_file', permission: 'dokusya.import' },
+      { name: 'DokusyaCreate', label: '購読者情報登録', icon: 'person_add', permission: 'dokusya.create', requiresAnyDokusyaFlag: true },
+      { name: 'DokusyaImport', label: '購読者Excelデータ取込', icon: 'upload_file', permission: 'dokusya.import', requiresAnyDokusyaFlag: true },
       { name: 'DokusyaList', label: '購読者明細検索', icon: 'search', permission: 'dokusya.view' },
-      { name: 'DokusyaReplaceHanbaiten', label: '購読者販売店一括置換', icon: 'published_with_changes', permission: 'dokusya.replace_hanbaiten' },
+      { name: 'DokusyaReplaceHanbaiten', label: '購読者販売店一括置換', icon: 'published_with_changes', permission: 'dokusya.replace_hanbaiten', requiresAnyDokusyaFlag: true },
     ],
   },
   {

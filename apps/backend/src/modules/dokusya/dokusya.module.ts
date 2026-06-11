@@ -7,6 +7,7 @@ import { Shiten } from '@/database/entities/shiten.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
+import { Account } from '@/database/entities/account.entity';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { CodeModule } from '@/modules/code/code.module';
@@ -36,6 +37,7 @@ import { DokusyaService } from './dokusya.service';
       KanriShiten,
       Hanbaiten,
       Tanka,
+      Account,
     ]),
     AuthModule,
     AuditLogModule,

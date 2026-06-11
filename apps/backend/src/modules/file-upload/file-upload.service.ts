@@ -117,7 +117,7 @@ function todayJstDateString(): string {
  * columns as strings; the raw-SQL / pg path may hand back a Date (UTC
  * midnight of the calendar date) — use UTC parts so no TZ shift occurs.
  */
-function toDateOnly(v: Date | string | null): string | null {
+function toDateOnly(v: DateOrString): string | null {
   if (v == null) return null;
   if (typeof v === 'string') return v.slice(0, 10);
   const y = v.getUTCFullYear();
@@ -165,6 +165,16 @@ function toUploadedRow(
  */
 type Numericish = number | string;
 
+/** A `date`/`timestamptz` column value as TypeORM / pg may hand it back. */
+type DateOrString = Date | string | null;
+
+/** One (jaId × file) pair staged for the DB insert after storage upload. */
+interface UploadInput {
+  jaId: number;
+  file: UploadedMulterFile;
+  filePath: string;
+}
+
 /**
  * Raw row shape returned by the list endpoint's hand-written SQL.
  * pg-style snake_case so `paginate(...)` can pass it through to the
@@ -186,9 +196,9 @@ interface JoinedRow {
   error_count: Numericish | null;
   status: Numericish;
   notification_status: Numericish;
-  notified_at: Date | string | null;
-  scheduled_delete_date: Date | string | null;
-  deleted_at: Date | string | null;
+  notified_at: DateOrString;
+  scheduled_delete_date: DateOrString;
+  deleted_at: DateOrString;
   error_file_path: string;
   created_by: string;
   created_by_name: string | null;
@@ -641,53 +651,13 @@ export class FileUploadService {
     // ─── [4.4] Physical-file upload — runs BEFORE the DB tx so a
     // storage failure doesn't leave half-committed rows. Track each
     // successful key for compensation rollback. ────────────────────
-    const uploadedKeys: string[] = [];
-    const inputs: Array<{
-      jaId: number;
-      file: UploadedMulterFile;
-      filePath: string;
-    }> = [];
-
-    try {
-      for (const jaId of jaIds) {
-        const folder = this.buildJaFolder(jaId, jaCodeById.get(Number(jaId)));
-        for (const file of files) {
-          const filePath = `${folder}/files/${randomUUID()}-${file.originalname}`;
-          this.logger.log({
-            event: 'file_upload.storage.upload.start',
-            ja_id: Number(jaId),
-            file_path: filePath,
-            mimetype: file.mimetype,
-            size: file.size,
-            buffer_bytes: file.buffer?.length ?? 0,
-          });
-          await this.storage.upload(filePath, file.buffer, file.mimetype);
-          this.logger.log({
-            event: 'file_upload.storage.upload.ok',
-            file_path: filePath,
-          });
-          uploadedKeys.push(filePath);
-          inputs.push({ jaId: Number(jaId), file, filePath });
-        }
-      }
-    } catch (err) {
-      this.logger.error({
-        event: 'file_upload.storage.upload.failed',
-        uploaded_keys: uploadedKeys,
-        err: (err as Error).message,
-        stack: (err as Error).stack,
-      });
-      await this.compensateStorage(uploadedKeys);
-      const errorCtx = buildAuditCtx(
-        session,
-        req,
-        SCR023_SCREEN,
-        TABLE_NAME,
-        null,
-      );
-      await this.auditLog.logError(errorCtx, 'CREATE', err as Error);
-      throw err;
-    }
+    const { uploadedKeys, inputs } = await this.uploadPhysicalFiles(
+      jaIds,
+      files,
+      jaCodeById,
+      session,
+      req,
+    );
 
     // ─── [4.5 + 4.6] INSERT t_file_upload + t_log in one tx ─────
     const savedRows: FileUpload[] = [];
@@ -782,36 +752,7 @@ export class FileUploadService {
     //          isolates retry: SES throttle on JA-X must NOT force
     //          a retry of JA-Y's mail. Trade-off is more Redis ops,
     //          which is cheap. See review thread for context. ──────
-    if (this.notificationQueue) {
-      for (const saved of savedRows) {
-        if (saved.jaId == null) {
-          // [skip-null-ja] Upload to "全JA向け" folder (ja_id NULL)
-          // doesn't have a target audience for notification — skip.
-          // Real-world: SCR-023 upload requires jaIds[] non-empty so
-          // this branch is defensive only.
-          continue;
-        }
-        try {
-          await this.notificationQueue.enqueue({
-            file_upload_id: Number(saved.fileUploadId),
-            ja_id: Number(saved.jaId),
-            uploaded_by: session.account_id,
-          });
-        } catch (err) {
-          // enqueue failure must NOT fail the API — just log it. Row
-          // stays at notification_status=1 (未送信); a manual resend
-          // or recovery job is the operator path. Continue with the
-          // other rows so a single Redis hiccup doesn't lose every
-          // pending notification.
-          this.logger.error({
-            event: 'notification.enqueue.failed',
-            file_upload_id: Number(saved.fileUploadId),
-            ja_id: Number(saved.jaId),
-            err: (err as Error).message,
-          });
-        }
-      }
-    }
+    await this.enqueueUploadNotifications(savedRows, session);
 
     this.logger.log({
       event: 'file_upload.service.done',
@@ -824,6 +765,95 @@ export class FileUploadService {
       message:
         'アップロードを受け付けました。通知メールはバックグラウンドで送信されます。',
     };
+  }
+
+  /**
+   * [4.4] Upload every (jaId × file) to storage BEFORE the DB tx so a
+   * storage failure leaves no half-committed rows. On any failure,
+   * compensate (delete already-uploaded objects) + error-log, then
+   * rethrow. Returns the uploaded keys (for the caller's own
+   * compensation on a later DB failure) and the per-file inputs.
+   */
+  private async uploadPhysicalFiles(
+    jaIds: number[],
+    files: UploadedMulterFile[],
+    jaCodeById: Map<number, string>,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<{ uploadedKeys: string[]; inputs: UploadInput[] }> {
+    const uploadedKeys: string[] = [];
+    const inputs: UploadInput[] = [];
+    try {
+      for (const jaId of jaIds) {
+        const folder = this.buildJaFolder(jaId, jaCodeById.get(Number(jaId)));
+        for (const file of files) {
+          const filePath = `${folder}/files/${randomUUID()}-${file.originalname}`;
+          this.logger.log({
+            event: 'file_upload.storage.upload.start',
+            ja_id: Number(jaId),
+            file_path: filePath,
+            mimetype: file.mimetype,
+            size: file.size,
+            buffer_bytes: file.buffer?.length ?? 0,
+          });
+          await this.storage.upload(filePath, file.buffer, file.mimetype);
+          this.logger.log({
+            event: 'file_upload.storage.upload.ok',
+            file_path: filePath,
+          });
+          uploadedKeys.push(filePath);
+          inputs.push({ jaId: Number(jaId), file, filePath });
+        }
+      }
+    } catch (err) {
+      this.logger.error({
+        event: 'file_upload.storage.upload.failed',
+        uploaded_keys: uploadedKeys,
+        err: (err as Error).message,
+        stack: (err as Error).stack,
+      });
+      await this.compensateStorage(uploadedKeys);
+      const errorCtx = buildAuditCtx(session, req, SCR023_SCREEN, TABLE_NAME, null);
+      await this.auditLog.logError(errorCtx, 'CREATE', err as Error);
+      throw err;
+    }
+    return { uploadedKeys, inputs };
+  }
+
+  /**
+   * [4.7] Enqueue one notification job per saved row (== one per JA per
+   * file) AFTER commit. 1-job-per-JA isolates retry: an SES throttle on
+   * JA-X must NOT force a retry of JA-Y's mail. enqueue failure must NOT
+   * fail the API — log and continue so a single Redis hiccup doesn't lose
+   * every pending notification (row stays at notification_status=1 未送信).
+   */
+  private async enqueueUploadNotifications(
+    savedRows: FileUpload[],
+    session: SessionPayload,
+  ): Promise<void> {
+    if (!this.notificationQueue) return;
+    for (const saved of savedRows) {
+      if (saved.jaId == null) {
+        // [skip-null-ja] Upload to "全JA向け" folder (ja_id NULL) has no
+        // target audience for notification — SCR-023 requires jaIds[]
+        // non-empty so this branch is defensive only.
+        continue;
+      }
+      try {
+        await this.notificationQueue.enqueue({
+          file_upload_id: Number(saved.fileUploadId),
+          ja_id: Number(saved.jaId),
+          uploaded_by: session.account_id,
+        });
+      } catch (err) {
+        this.logger.error({
+          event: 'notification.enqueue.failed',
+          file_upload_id: Number(saved.fileUploadId),
+          ja_id: Number(saved.jaId),
+          err: (err as Error).message,
+        });
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════

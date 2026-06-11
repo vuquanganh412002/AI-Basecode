@@ -304,6 +304,45 @@ describe('ShitenFormView — required-field validation (§3.1)', () => {
     expect(createShiten).not.toHaveBeenCalled();
   });
 
+  it('should require the 4 JASTEM fields (必須項目です。) when 金融機関支店フラグ is checked but they are blank', async () => {
+    const { createShiten } = await import('@/api/shiten/shiten');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.form) {
+      Object.assign(vm.form, buildCreateShitenForm(), {
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '',
+        jastem_tenpo_name: '',
+        jastem_tyokin_shubetsu: '',
+        jastem_koza_no: '',
+      });
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('必須項目です。');
+    expect(createShiten).not.toHaveBeenCalled();
+  });
+
+  it('should call createShiten when 金融機関支店フラグ is checked and the 4 JASTEM fields are filled', async () => {
+    const { createShiten } = await import('@/api/shiten/shiten');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.form) {
+      Object.assign(vm.form, buildCreateShitenForm(), {
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: 'ﾎﾝﾃﾝ',
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      });
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createShiten).toHaveBeenCalled();
+  });
+
   it('should NOT throw エラーが発生しました when 管理支店 is cleared via allow-clear (regression for ?.trim() vs .trim())', async () => {
     // COVERS: vue.md §Validation — required-string checks MUST use ?.trim()
     // because antd's <a-select allow-clear> sets the v-model to `undefined`

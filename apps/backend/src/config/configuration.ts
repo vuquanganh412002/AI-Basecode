@@ -78,7 +78,7 @@ export default () => {
        * logs key on the proxy IP (every request looks like one client) or
        * trust a spoofable leftmost XFF entry. Local/no-proxy: set 0.
        */
-      trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS ?? '2', 10),
+      trustProxyHops: Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '2', 10),
     },
     database: {
       host: process.env.DB_HOST || 'localhost',

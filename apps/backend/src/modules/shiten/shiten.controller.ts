@@ -68,7 +68,7 @@ export class ShitenController {
     @Query() query: { ja_id?: string; kinyu_shiten_flg?: string; q?: string },
     @Req() req: Request & { user: SessionPayload },
   ) {
-    const jaId = query.ja_id !== undefined ? Number(query.ja_id) : undefined;
+    const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
     // Query-string booleans arrive as 'true' / 'false' / undefined; coerce.
     let kinyuFlg: boolean | undefined;
     if (query.kinyu_shiten_flg === 'true') kinyuFlg = true;

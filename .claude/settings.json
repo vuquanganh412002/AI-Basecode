@@ -19,7 +19,15 @@
       "Bash(echo \"exit: $?\")",
       "Read(//root/.nvm/versions/**)",
       "Read(//usr/local/bin/**)",
-      "Bash(command -v fnm n volta)"
+      "Bash(command -v fnm n volta)",
+      "Bash(python3 -c \"import openpyxl; print\\('openpyxl', openpyxl.__version__\\)\")",
+      "Bash(python3)",
+      "Bash(cat)",
+      "Bash(python3 /tmp/gen_md.py)",
+      "Read(//tmp/**)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

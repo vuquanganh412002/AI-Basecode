@@ -1451,7 +1451,7 @@ t_log に operation=`CREATE`, result_status=1, target_table=`t_dokusya`, ja_id=1
 
 補足：
 ・t_dokusya + t_dokusya_rireki を1トランザクションで作成すること（機能定義 §2.6）
-・支払方法=口座引落の場合、bank_shiten_id から `m_shiten.jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` を逆引きし、`t_dokusya.bank_branch_code` / `bank_branch_name` へ非正規化保存すること
+・bank_shiten_id が指定された場合、支払方法を問わず（口座引落以外も含む） `m_shiten.jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` を逆引きし、`t_dokusya.bank_branch_code` / `bank_branch_name` へ非正規化保存すること（顧客要件 2026-06）
 ・登録（業務書き込み）と監査ログは単一トランザクションで実行されること
 
 ### テスト結果（1回目）

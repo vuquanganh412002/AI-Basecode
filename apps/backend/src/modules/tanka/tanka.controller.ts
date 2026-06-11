@@ -61,14 +61,14 @@ export class TankaController {
   // routes `/tanka/dropdown` through `findById(':id')` and ParseIntPipe
   // 400s on the non-numeric "dropdown".
   //
-  // Permission deliberately NOT `tanka.create` — the dropdown is
-  // consumed from the SCR-017 hanbaiten create form. Callers split
-  // by role: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold `hanbaiten.view`
-  // (and `hanbaiten.create`); NICHINO_STAFF holds ONLY
-  // `hanbaiten.daiko_input` (代行入力). The PermissionsGuard treats
-  // multiple perms as OR ([perm-any-of]) so both groups get through.
+  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. Shared
+  // form-facing dropdown consumed by multiple screens with different
+  // gates (SCR-017 hanbaiten form AND SCR-011 dokusya form). Gating it by
+  // one CRUD permission risks locking out a consuming screen's role; the
+  // data boundary is `TankaService.dropdown` → `applyJaScope` (restricted
+  // roles see only their own JA's tanka), screen access is each route's
+  // own guard.
   @Get('dropdown')
-  @Permissions('hanbaiten.view', 'hanbaiten.daiko_input')
   @ApiOperation({
     summary: '単価ドロップダウン — 配達手数料単価 (SCR-017) 用',
   })

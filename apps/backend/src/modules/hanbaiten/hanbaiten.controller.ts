@@ -95,7 +95,7 @@ export class HanbaitenController {
     @Query() query: { ja_id?: string; q?: string },
     @Req() req: Request & { user: SessionPayload },
   ) {
-    const jaId = query.ja_id !== undefined ? Number(query.ja_id) : undefined;
+    const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
     const q = typeof query.q === 'string' ? query.q : undefined;
     const data = await this.service.listDropdown(
       { ja_id: jaId, q },

@@ -202,7 +202,7 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
 
   it('should render the 管理支店 / 支店 / 組合員コード / 氏名 / 配達販売店 search labels when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('管理支店'))).toBe(true);
     expect(labels.some((t) => t.includes('支店'))).toBe(true);
     expect(labels.some((t) => t.includes('組合員コード'))).toBe(true);
@@ -256,7 +256,7 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
   it('should NOT show the 適用日 / 置換先配達販売店 fields when no row is selected on mount', async () => {
     const { wrapper } = await renderView();
     // 機能定義 1.1 — 置換先配達販売店 is hidden until ≥1 row selected.
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('置換先配達販売店'))).toBe(false);
     expect(labels.some((t) => t.includes('適用日'))).toBe(false);
   });
@@ -474,7 +474,7 @@ describe('DokusyaReplaceHanbaitenView — row selection (機能定義 5.x)', () 
 
     await selectRows(wrapper, 1);
 
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('置換先配達販売店'))).toBe(true);
     expect(labels.some((t) => t.includes('適用日'))).toBe(true);
   });
@@ -932,7 +932,7 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     await flushPromises();
     await selectRows(wrapper, 1);
     // 置換先 now visible.
-    expect(wrapper.findAll('label').map((l) => l.text()).some((t) => t.includes('置換先配達販売店'))).toBe(true);
+    expect(wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text()).some((t) => t.includes('置換先配達販売店'))).toBe(true);
 
     const clearBtn = wrapper
       .findAll('button')
@@ -940,7 +940,7 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
 
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('置換先配達販売店'))).toBe(false);
   });
 });

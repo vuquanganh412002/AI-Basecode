@@ -172,29 +172,64 @@ const TYOKIN_SHUBETSU_OPTIONS = [
   { value: '9', label: '9（その他）' },
 ];
 
+/**
+ * One JASTEM field: required (when 金融機関支店フラグ=true) first, then a
+ * format check only when non-empty — so the user sees one message at a time.
+ */
+function checkJastemField(
+  errs: Record<string, string>,
+  field: string,
+  value: string | undefined,
+  required: boolean,
+  formatRe: RegExp,
+  formatMsg: string,
+): void {
+  if (required && !value?.trim()) {
+    errs[field] = REQUIRED_MSG;
+  } else if (value && !formatRe.test(value)) {
+    errs[field] = formatMsg;
+  }
+}
+
 function validateJastemFields(
   form: FormState,
   errs: Record<string, string>,
 ): void {
-  // JASTEM 4 fields — format checks only when non-empty (Optional).
-  if (
-    form.jastem_toriatsukai_tenpo_code &&
-    !DIGITS_RE.test(form.jastem_toriatsukai_tenpo_code)
-  ) {
-    errs.jastem_toriatsukai_tenpo_code = TENPO_CODE_FORMAT_MSG;
-  }
-  if (form.jastem_tenpo_name && !HALF_WIDTH_RE.test(form.jastem_tenpo_name)) {
-    errs.jastem_tenpo_name = TENPO_NAME_FORMAT_MSG;
-  }
-  if (
-    form.jastem_tyokin_shubetsu &&
-    !TYOKIN_SHUBETSU_RE.test(form.jastem_tyokin_shubetsu)
-  ) {
-    errs.jastem_tyokin_shubetsu = TYOKIN_SHUBETSU_FORMAT_MSG;
-  }
-  if (form.jastem_koza_no && !DIGITS_RE.test(form.jastem_koza_no)) {
-    errs.jastem_koza_no = KOZA_NO_FORMAT_MSG;
-  }
+  // 金融機関支店フラグ = true のとき JASTEM 4項目（データ送信取扱店舗コード /
+  // 店舗名 / 貯金種別 / 口座番号）は必須。
+  const required = form.kinyu_shiten_flg === true;
+  checkJastemField(
+    errs,
+    'jastem_toriatsukai_tenpo_code',
+    form.jastem_toriatsukai_tenpo_code,
+    required,
+    DIGITS_RE,
+    TENPO_CODE_FORMAT_MSG,
+  );
+  checkJastemField(
+    errs,
+    'jastem_tenpo_name',
+    form.jastem_tenpo_name,
+    required,
+    HALF_WIDTH_RE,
+    TENPO_NAME_FORMAT_MSG,
+  );
+  checkJastemField(
+    errs,
+    'jastem_tyokin_shubetsu',
+    form.jastem_tyokin_shubetsu,
+    required,
+    TYOKIN_SHUBETSU_RE,
+    TYOKIN_SHUBETSU_FORMAT_MSG,
+  );
+  checkJastemField(
+    errs,
+    'jastem_koza_no',
+    form.jastem_koza_no,
+    required,
+    DIGITS_RE,
+    KOZA_NO_FORMAT_MSG,
+  );
 }
 
 function validateClient(form: FormState): Record<string, string> {
@@ -461,11 +496,14 @@ defineExpose({ submitWith, form: formState });
              Lengths mirror database-design.md §m_shiten rows 7-10. -->
         <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-6">
           <a-form-item
-            label="データ送信取扱店舗コード"
             name="jastem_toriatsukai_tenpo_code"
             :validate-status="allFieldErrors.jastem_toriatsukai_tenpo_code ? 'error' : ''"
             :help="allFieldErrors.jastem_toriatsukai_tenpo_code"
           >
+            <template #label>
+              <span>データ送信取扱店舗コード</span>
+              <span v-if="formState.kinyu_shiten_flg" class="text-error ml-1">*</span>
+            </template>
             <a-input
               v-model:value="formState.jastem_toriatsukai_tenpo_code"
               :maxlength="3"
@@ -473,11 +511,14 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
 
           <a-form-item
-            label="店舗名"
             name="jastem_tenpo_name"
             :validate-status="allFieldErrors.jastem_tenpo_name ? 'error' : ''"
             :help="allFieldErrors.jastem_tenpo_name"
           >
+            <template #label>
+              <span>店舗名</span>
+              <span v-if="formState.kinyu_shiten_flg" class="text-error ml-1">*</span>
+            </template>
             <a-input
               v-model:value="formState.jastem_tenpo_name"
               :maxlength="15"
@@ -485,11 +526,14 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
 
           <a-form-item
-            label="貯金種別"
             name="jastem_tyokin_shubetsu"
             :validate-status="allFieldErrors.jastem_tyokin_shubetsu ? 'error' : ''"
             :help="allFieldErrors.jastem_tyokin_shubetsu"
           >
+            <template #label>
+              <span>貯金種別</span>
+              <span v-if="formState.kinyu_shiten_flg" class="text-error ml-1">*</span>
+            </template>
             <a-select
               v-model:value="formState.jastem_tyokin_shubetsu"
               placeholder="選択してください"
@@ -499,11 +543,14 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
 
           <a-form-item
-            label="口座番号"
             name="jastem_koza_no"
             :validate-status="allFieldErrors.jastem_koza_no ? 'error' : ''"
             :help="allFieldErrors.jastem_koza_no"
           >
+            <template #label>
+              <span>口座番号</span>
+              <span v-if="formState.kinyu_shiten_flg" class="text-error ml-1">*</span>
+            </template>
             <a-input v-model:value="formState.jastem_koza_no" :maxlength="7" />
           </a-form-item>
         </div>

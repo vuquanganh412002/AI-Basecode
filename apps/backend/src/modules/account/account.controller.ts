@@ -85,15 +85,16 @@ export class AccountController {
   }
 
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────
-  // Defined alongside SCR-030 (ログ参照画面). Auth-only — calling-screen
-  // permission gates visibility downstream.
+  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. Shared
+  // form-facing dropdown (defined alongside SCR-030 ログ参照画面). The data
+  // boundary is `AccountService.getDropdown` → `applyBranchScope`
+  // (restricted roles see only their own JA / kanri_shiten accounts);
+  // screen access is each route's own guard.
   @Get('account/dropdown')
   @HttpCode(HttpStatus.OK)
-  @Permissions('log.view')
   @ApiOperation({ summary: 'アカウントプルダウン取得 — ACSMS-API-COMMON-005' })
   @ApiResponse({ status: 200, type: AccountDropdownResponseDto })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
-  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   async getAccountDropdown(
     @Query() query: AccountDropdownQueryDto,
     @Req() req: Request & { user?: SessionPayload },

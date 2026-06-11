@@ -486,6 +486,11 @@ describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
       shiten_name_kana: 'ﾎﾝﾃﾝｴｲｷﾞｮｳﾌﾞ',
       kanri_shiten_id: 1,
       kinyu_shiten_flg: true,
+      // kinyu_shiten_flg=true なので JASTEM 4項目は必須（半角）。
+      jastem_toriatsukai_tenpo_code: '001',
+      jastem_tenpo_name: 'ﾎﾝﾃﾝ',
+      jastem_tyokin_shubetsu: '1',
+      jastem_koza_no: '1234567',
       biko: '本店ビル1F 改装済み',
     };
 
