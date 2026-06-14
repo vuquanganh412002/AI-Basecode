@@ -27,10 +27,15 @@
       "Read(//tmp/**)",
       "Bash(grep -nA40 \"TETSUZUKI_SHURUI\" docs/database/seeder.md)",
       "Bash(grep -nA8 \"\\(YUBIN_KUBUN\\)\\\\|\\(MAIL_MAGAZINE_FLG\\)\\\\|### 5.1 購読種別\\\\|\\(DOKUSYA_SHUBETSU\\)\" docs/database/seeder.md)",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(ls -la /home/AI-Source-Code/ | grep -i checklist; echo \"---\"; ls -ld /home/AI-Source-Code/automation-test-AI/scripts 2>&1)",
+      "Read(//home/AI-Source-Code/**)",
+      "Read(//home/AI-Source-Code/automation-test-AI/scripts/**)",
+      "Bash(cp /home/AI-Source-Code/checklist_md_to_excel.py /home/AI-Source-Code/agrinews/scripts/ && ls -la /home/AI-Source-Code/agrinews/scripts/checklist_md_to_excel.py)"
     ],
     "additionalDirectories": [
-      "/tmp"
+      "/tmp",
+      "/home/AI-Source-Code"
     ]
   }
 }

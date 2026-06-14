@@ -472,6 +472,38 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(true);
   });
 
+  it.each([
+    'shimei_sei',
+    'shimei_mei',
+    'shimei_kana_sei',
+    'shimei_kana_mei',
+  ])('should disable %s in edit mode (set once at creation, read-only after)', async (field) => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === field);
+    expect(item).toBeDefined();
+    const input = item!.find('input');
+    expect(input.exists()).toBe(true);
+    expect((input.element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it.each([
+    'shimei_sei',
+    'shimei_mei',
+    'shimei_kana_sei',
+    'shimei_kana_mei',
+  ])('should keep %s editable in create mode', async (field) => {
+    const { wrapper } = await renderView({});
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === field);
+    expect(item).toBeDefined();
+    const input = item!.find('input');
+    expect(input.exists()).toBe(true);
+    expect((input.element as HTMLInputElement).disabled).toBe(false);
+  });
+
   it('should keep 購読中止日 editable in edit mode', async () => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
     const item = wrapper

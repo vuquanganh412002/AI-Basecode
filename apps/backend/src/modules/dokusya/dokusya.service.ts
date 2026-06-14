@@ -727,6 +727,17 @@ export class DokusyaService {
     // is the boundary). 購読中止日 stays editable.
     dto.dokusya_kaishi_date = before.dokusyaKaishiDate;
 
+    // [name-immutable] 購読者氏名 (氏/名) と 購読者かな (氏/名) は作成時に
+    // 確定し、編集では変更不可。FE は4項目を disabled にするが、画面は
+    // フォーム全体を送信するので body には届く。保存値に pin して、
+    // 改変リクエスト (または FE の disable 退行) が氏名を書き換えられない
+    // ようにする (FE の disable は UX、ここが境界)。dokusya_shubetsu /
+    // dokusya_kaishi_date と同じ扱い。
+    dto.shimei_sei = before.shimeiSei;
+    dto.shimei_mei = before.shimeiMei;
+    dto.shimei_kana_sei = before.shimeiKanaSei;
+    dto.shimei_kana_mei = before.shimeiKanaMei;
+
     // [layer4-fk-guard] Validate body FK ids against the EXISTING row's JA
     // (not session) so editing stays bound to the record's tenant.
     await this.assertFkScope(dto, effectiveJaId);
@@ -766,6 +777,8 @@ export class DokusyaService {
         // 紙版 (dokusya_shubetsu=1) は Web 承認/否認ワークフロー対象外なので
         // denshi_shonin_status は常に null に揃える (create と同じルール)。
         // 購読種別は edit で不変 (before に pin 済み) なので before を見る。
+        // 電子版/併読は buildUpdatePartial が key を落として既存値を維持する
+        // ため、ここでは触らない (承認済み→編集で 承認待ち に戻さない)。
         if (Number(before.dokusyaShubetsu) === DokusyaShubetsu.PAPER) {
           updatePartial.denshiShoninStatus = null;
         }
@@ -1393,6 +1406,14 @@ export class DokusyaService {
   ): Partial<Dokusya> {
     const base = this.buildInsertPayload(dto, jaId, bankBranch, session);
     delete (base as Partial<Dokusya> & { createdBy?: string }).createdBy;
+    // [denshi-shonin-preserve] 承認状態 (denshi_shonin_status) は編集対象外。
+    // create が 承認待ち(0) を立て、approve/reject 専用ワークフローだけが
+    // 状態遷移を担う。編集ペイロードに含めると 承認済み(1)/否認(2) の記録を
+    // 編集しただけで 承認待ち(0) に戻り、承認・登録/承認しないボタンが再表示
+    // されてしまう。UPDATE では既存値を維持する (key を落として touch しない)。
+    // 紙版→null の正規化は update() 側で明示的に行う。
+    delete (base as Partial<Dokusya> & { denshiShoninStatus?: number | null })
+      .denshiShoninStatus;
     return {
       ...base,
       rirekiNo: newRirekiNo,

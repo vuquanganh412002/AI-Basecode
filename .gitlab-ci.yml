@@ -1,8 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AgriNews_ACSMS — GitLab CI/CD
+#
+# Current scope: `develop` → dev and `staging` → staging environments (AWS).
+# CI validation is ON (VALIDATION_ENABLED=true), but unit tests are
+#   TEMPORARILY OFF (TESTS_ENABLED=false) — only `run lint` + `run build`
+#   execute. Flip TESTS_ENABLED to "true" to restore tests; set
+#   VALIDATION_ENABLED=false to drop back to CD-only.
+#   - MR pipelines  : lint + build-check for changed domains (tests skipped)
+#   - develop push  : deploy dev ONLY (backend ECS / FE S3+CF) — no validation
+#   - staging push  : deploy staging ONLY (env-scoped vars) — no validation
+#   - main / tags   : nothing for now (prod deploy later —
+#                     see .claude/rules/git-workflow.md for the target matrix)
+#
+# Runner (temporary): a LOCAL machine registered as a SHELL-executor runner.
+#   - `image:` is therefore not used — jobs run directly on the host. The
+#     host must provide: Node.js 22+, npm, Docker, AWS CLI v2, jq, python3
+#     (same prerequisites as docs/deploy-aws.md — it's the same machine that
+#     ran manual deploys until now).
+#   - The gitlab-runner user needs: docker group membership + AWS credentials
+#     (~/.aws or AWS_PROFILE inside .env.deploy).
+#   - If the runner was registered WITH a tag, uncomment `tags:` in
+#     `.default_job` below and match it. If it accepts untagged jobs,
+#     leave as is.
+#
+# Deploy env files (.env.deploy are gitignored — never in the checkout).
+# The deploy job REBUILDS them from one of 3 sources, first match wins:
+#   1. Individual key-value CI/CD variables with a domain prefix
+#      (Settings > CI/CD > Variables, protected):
+#        BE_DEPLOY_<KEY>  →  apps/backend/.env.deploy   (KEY=value)
+#        FE_DEPLOY_<KEY>  →  apps/frontend/.env.deploy  (KEY=value)
+#      e.g. BE_DEPLOY_ECS_CLUSTER=agn-dev-ecs-cluster becomes the line
+#      `ECS_CLUSTER='agn-dev-ecs-cluster'`. Adding a new env key later =
+#      add one more GitLab variable; no CI edit needed.
+#      MULTI-ENV: scope these variables per environment (development /
+#      staging) in Settings > CI/CD > Variables. The deploy job sets
+#      `environment.name`, so GitLab injects the env-matching value and the
+#      same prefix serves every environment without CI edits.
+#   2. GitLab CI/CD **File**-type variables BACKEND_ENV_DEPLOY /
+#      FRONTEND_ENV_DEPLOY — whole-file content pasted as one variable.
+#   3. Host fallback dir on the runner machine ($AGRINEWS_DEPLOY_ENV_DIR,
+#      default /opt/agrinews/deploy-env/ containing backend.env.deploy +
+#      frontend.env.deploy).
+# ─────────────────────────────────────────────────────────────────────────────
+
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_COMMIT_TAG'
+    # MR pipelines (validation)
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    # develop → dev deploy. NOTE: no "$CI_OPEN_MERGE_REQUESTS → never" dedup
+    # rule here — it would sit ABOVE this row and silently suppress develop
+    # branch pipelines (= no deploy) whenever a long-lived develop→main MR
+    # is open. Feature branches already get no branch pipeline (no rule
+    # matches them), so there are no duplicates to dedup anyway.
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+    # staging → staging deploy
+    - if: '$CI_COMMIT_BRANCH == "staging"'
+    # main / tags: no branch pipeline for now — validation happens on the MR
+    # into main, and there's no prod deploy yet. Adding a main row here with
+    # no matching job would create an empty pipeline (GitLab error). Restore
+    # it together with the future prod deploy jobs.
     - when: never
 
 stages:
@@ -11,58 +67,371 @@ stages:
   - build
   - deploy
 
-# --- Backend ---
-.backend_job:
-  image: node:20-alpine
-  cache:
-    key: backend_npm_$CI_COMMIT_REF_SLUG
-    paths: [apps/backend/node_modules/]
-    policy: pull
-  rules:
-    - changes: [apps/backend/**/*]
+variables:
+  # ── CI VALIDATION TOGGLES ───────────────────────────────────────────────────
+  # Master switch: "false" = CD only (no lint/test/build). "true" = run them.
+  VALIDATION_ENABLED: "true"
+  # Sub-toggle: tests are TEMPORARILY OFF — only `run lint` + `run build` run
+  # while validation is on. Flip to "true" to restore unit tests.
+  TESTS_ENABLED: "false"
 
-backend_lint:
-  extends: .backend_job
+# ─── Shared templates ────────────────────────────────────────────────────────
+
+.default_job:
+  # tags: [agrinews-local]   # ← uncomment + match your runner's tag if needed
+  interruptible: true        # newer push cancels stale MR/develop validation
+  timeout: 20m
+
+# npm cache strategy: cache the npm DOWNLOAD cache (.npm), NOT node_modules —
+# `npm ci` always deletes node_modules first, so caching it is wasted I/O.
+# Key on the lockfile so a dependency bump invalidates cleanly.
+.backend_cache_pull_push:
+  cache:
+    key:
+      files: [apps/backend/package-lock.json]
+      prefix: backend-npm
+    paths: [apps/backend/.npm/]
+    policy: pull-push
+
+.backend_cache_pull:
+  cache:
+    key:
+      files: [apps/backend/package-lock.json]
+      prefix: backend-npm
+    paths: [apps/backend/.npm/]
+    policy: pull
+
+.frontend_cache_pull_push:
+  cache:
+    key:
+      files: [apps/frontend/package-lock.json]
+      prefix: frontend-npm
+    paths: [apps/frontend/.npm/]
+    policy: pull-push
+
+.frontend_cache_pull:
+  cache:
+    key:
+      files: [apps/frontend/package-lock.json]
+      prefix: frontend-npm
+    paths: [apps/frontend/.npm/]
+    policy: pull
+
+# Domain change filters — backend / frontend jobs run only when their
+# domain (or the CI definition itself) changed.
+.backend_changes: &backend_changes
+  - apps/backend/**/*
+  - apps/docker/backend/**/*
+  - .gitlab-ci.yml
+
+.frontend_changes: &frontend_changes
+  - apps/frontend/**/*
+  - .gitlab-ci.yml
+
+# Deploy change filters — a push that touched these paths auto-triggers the
+# matching deploy. Differs from the validation filters above: includes the
+# deploy script, excludes .gitlab-ci.yml (a CI-only edit shouldn't redeploy).
+.backend_deploy_changes: &backend_deploy_changes
+  - apps/backend/**/*
+  - apps/docker/backend/**/*
+  - scripts/deploy-aws.sh
+
+.frontend_deploy_changes: &frontend_deploy_changes
+  - apps/frontend/**/*
+  - scripts/deploy-aws.sh
+
+# Validation (lint/test/build) runs on MR pipelines ONLY. A branch push (i.e.
+# a merge into develop/staging) skips validation and goes straight to deploy —
+# the code was already validated on the MR before it merged.
+.backend_rules:
+  rules:
+    - if: '$VALIDATION_ENABLED != "true"'   # toggle — see `variables:` at top
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *backend_changes
+
+.frontend_rules:
+  rules:
+    - if: '$VALIDATION_ENABLED != "true"'   # toggle — see `variables:` at top
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *frontend_changes
+
+# Test jobs get an EXTRA gate (TESTS_ENABLED) on top of the MR-only domain
+# rules, so tests can be skipped independently while lint/build keep running.
+.backend_test_rules:
+  rules:
+    - if: '$VALIDATION_ENABLED != "true"'   # master toggle — see `variables:`
+      when: never
+    - if: '$TESTS_ENABLED != "true"'        # tests temporarily off
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *backend_changes
+
+.frontend_test_rules:
+  rules:
+    - if: '$VALIDATION_ENABLED != "true"'   # master toggle — see `variables:`
+      when: never
+    - if: '$TESTS_ENABLED != "true"'        # tests temporarily off
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *frontend_changes
+
+# ─── MR gate ─────────────────────────────────────────────────────────────────
+# Always-on no-op for MR pipelines (~2s). Guarantees EVERY MR has at least
+# one job, so the project setting "Merge checks → Pipelines must succeed"
+# can be enabled without dead-locking docs-only MRs (GitLab refuses to
+# merge when that setting is on and the MR produced NO pipeline at all).
+mr_pipeline_gate:
+  extends: .default_job
+  stage: lint
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - echo "MR pipeline created. Domain jobs (lint/test/build) run only for changed paths."
+
+# ─── Backend — lint / test / build-check ────────────────────────────────────
+
+backend_lint_eslint:
+  extends: [.default_job, .backend_rules, .backend_cache_pull_push]
   stage: lint
   script:
-    - cd apps/backend
-    - npm ci
-    - npm run lint
+    - |
+      set -e
+      cd apps/backend
+      npm ci --cache .npm --prefer-offline
+      npm run lint
 
-backend_test:
-  extends: .backend_job
+backend_test_unit:
+  extends: [.default_job, .backend_test_rules, .backend_cache_pull]
   stage: test
+  needs: [{ job: backend_lint_eslint, optional: true }]
   script:
-    - cd apps/backend
-    - npm ci
-    - npm run test:coverage
+    - |
+      set -e
+      cd apps/backend
+      npm ci --cache .npm --prefer-offline
+      npm run test:coverage
   coverage: '/Lines\s*:\s*(\d+\.?\d*)%/'
+  artifacts:
+    paths: [apps/backend/coverage/]
+    expire_in: 7 days
+    when: always
 
-# --- Frontend ---
-.frontend_job:
-  image: node:20-alpine
-  cache:
-    key: frontend_npm_$CI_COMMIT_REF_SLUG
-    paths: [apps/frontend/node_modules/]
-    policy: pull
+backend_build_check:
+  extends: [.default_job, .backend_rules, .backend_cache_pull]
+  stage: build
+  needs: [{ job: backend_lint_eslint, optional: true }]
   rules:
-    - changes: [apps/frontend/**/*]
+    - if: '$VALIDATION_ENABLED != "true"'   # toggle — see `variables:` at top
+      when: never
+    # MR-only: develop deploy rebuilds the image anyway (Dockerfile.prod),
+    # so a separate compile check there would duplicate work.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *backend_changes
+  script:
+    - |
+      set -e
+      cd apps/backend
+      npm ci --cache .npm --prefer-offline
+      npm run build
 
-frontend_lint:
-  extends: .frontend_job
+# ─── Frontend — lint / test / build-check ───────────────────────────────────
+
+frontend_lint_eslint:
+  extends: [.default_job, .frontend_rules, .frontend_cache_pull_push]
   stage: lint
   script:
-    - cd apps/frontend
-    - npm ci
-    - npm run lint
+    - |
+      set -e
+      cd apps/frontend
+      npm ci --cache .npm --prefer-offline
+      npm run lint
 
-frontend_test:
-  extends: .frontend_job
+frontend_test_unit:
+  extends: [.default_job, .frontend_test_rules, .frontend_cache_pull]
   stage: test
+  needs: [{ job: frontend_lint_eslint, optional: true }]
   script:
-    - cd apps/frontend
-    - npm ci
-    - npm run test:coverage
+    - |
+      set -e
+      cd apps/frontend
+      npm ci --cache .npm --prefer-offline
+      npm run test:coverage
+  artifacts:
+    paths: [apps/frontend/coverage/]
+    expire_in: 7 days
+    when: always
 
-# --- Build & Deploy ---
-# See .claude/rules/gitlab-ci.md for full deployment rules
+frontend_build_check:
+  extends: [.default_job, .frontend_rules, .frontend_cache_pull]
+  stage: build
+  needs: [{ job: frontend_lint_eslint, optional: true }]
+  rules:
+    - if: '$VALIDATION_ENABLED != "true"'   # toggle — see `variables:` at top
+      when: never
+    # MR-only: runs vue-tsc -b (type-check) + vite build. On develop the
+    # deploy script runs the same `npm run build` with the real
+    # VITE_API_BASE_URL, so skip the duplicate there.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *frontend_changes
+  script:
+    - |
+      set -e
+      cd apps/frontend
+      npm ci --cache .npm --prefer-offline
+      npm run build
+
+# ─── Deploy — develop → dev / staging → staging (AWS) ────────────────────────
+# Wraps scripts/deploy-aws.sh (same flow as manual deploys; see
+# docs/deploy-aws.md). Image tag: {branch}-{short_sha} per git-workflow.md.
+#
+# NOTHING per-environment is hard-coded in the job bodies. Each env job below
+# only sets three things:
+#   • variables.DEPLOY_BRANCH  — branch that triggers it (develop / staging)
+#   • environment.name         — GitLab environment (development / staging)
+#   • resource_group           — serializes concurrent deploys per env+domain
+# The real ECS cluster / S3 bucket / CloudFront ID / etc. come from
+# environment-SCOPED CI/CD variables: create the SAME BE_DEPLOY_* / FE_DEPLOY_*
+# (and FRONTEND_S3_BUCKET, etc.) keys in Settings > CI/CD > Variables twice —
+# once scoped to `development`, once to `staging`. GitLab injects the value
+# matching the job's `environment`, so the YAML stays identical per env.
+
+.deploy_base:
+  extends: .default_job
+  stage: deploy
+  interruptible: false       # never cancel a deploy mid-rollout
+  timeout: 40m
+  variables:
+    GIT_DEPTH: "50"
+    NO_COLOR: "1"            # plain logs (script also auto-detects non-TTY)
+
+# Backend deploy logic — environment-agnostic. Triggered on a push to
+# $DEPLOY_BRANCH that touched backend code, with a manual redeploy button
+# otherwise. Env-specific jobs set DEPLOY_BRANCH + environment + resource_group.
+.deploy_backend:
+  extends: .deploy_base
+  needs:
+    # optional: lint/test are skipped when only scripts/ or docker/ changed;
+    # when they did run, a red test blocks the deploy. artifacts: false —
+    # deploy has no use for the coverage report.
+    - { job: backend_lint_eslint, optional: true, artifacts: false }
+    - { job: backend_test_unit, optional: true, artifacts: false }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $DEPLOY_BRANCH'
+      changes: *backend_deploy_changes
+    # Manual redeploy button when nothing relevant changed (e.g. re-run after
+    # an infra fix). allow_failure keeps the pipeline green while the button
+    # is unpressed — documented exception to the allow_failure ban.
+    - if: '$CI_COMMIT_BRANCH == $DEPLOY_BRANCH'
+      when: manual
+      allow_failure: true
+  script:
+    - |
+      set -e
+      # Rebuild the gitignored apps/backend/.env.deploy (see header for the
+      # 3 sources). Values are single-quoted (with embedded quotes escaped)
+      # so `source` in deploy-aws.sh handles spaces/special chars safely.
+      ENV_DIR="${AGRINEWS_DEPLOY_ENV_DIR:-/opt/agrinews/deploy-env}"
+      if env | grep -q '^BE_DEPLOY_'; then
+        python3 - > apps/backend/.env.deploy <<'PY'
+      import os
+      PREFIX = 'BE_DEPLOY_'
+      for k, v in sorted(os.environ.items()):
+          if k.startswith(PREFIX) and len(k) > len(PREFIX):
+              key = k[len(PREFIX):]
+              print(f"{key}='" + v.replace("'", "'\\''") + "'")
+      PY
+        echo "env source: BE_DEPLOY_* CI variables ($(grep -c . apps/backend/.env.deploy) keys)"
+      elif [ -n "${BACKEND_ENV_DEPLOY:-}" ]; then
+        cp "$BACKEND_ENV_DEPLOY" apps/backend/.env.deploy
+        echo "env source: BACKEND_ENV_DEPLOY file variable"
+      elif [ -f "$ENV_DIR/backend.env.deploy" ]; then
+        cp "$ENV_DIR/backend.env.deploy" apps/backend/.env.deploy
+        echo "env source: $ENV_DIR/backend.env.deploy (runner host)"
+      else
+        echo "ERROR: no backend deploy env — create BE_DEPLOY_* variables (or the BACKEND_ENV_DEPLOY file variable) in Settings > CI/CD > Variables" >&2
+        exit 1
+      fi
+      export IMAGE_TAG="${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+      ./scripts/deploy-aws.sh --backend-only
+
+# Frontend deploy logic — environment-agnostic (mirror of .deploy_backend).
+.deploy_frontend:
+  extends: .deploy_base
+  needs:
+    - { job: frontend_lint_eslint, optional: true, artifacts: false }
+    - { job: frontend_test_unit, optional: true, artifacts: false }
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $DEPLOY_BRANCH'
+      changes: *frontend_deploy_changes
+    - if: '$CI_COMMIT_BRANCH == $DEPLOY_BRANCH'
+      when: manual
+      allow_failure: true    # optional manual redeploy — see backend note
+  script:
+    - |
+      set -e
+      # Rebuild the gitignored apps/frontend/.env.deploy — same 3-source
+      # logic as .deploy_backend, prefix FE_DEPLOY_*.
+      ENV_DIR="${AGRINEWS_DEPLOY_ENV_DIR:-/opt/agrinews/deploy-env}"
+      if env | grep -q '^FE_DEPLOY_'; then
+        python3 - > apps/frontend/.env.deploy <<'PY'
+      import os
+      PREFIX = 'FE_DEPLOY_'
+      for k, v in sorted(os.environ.items()):
+          if k.startswith(PREFIX) and len(k) > len(PREFIX):
+              key = k[len(PREFIX):]
+              print(f"{key}='" + v.replace("'", "'\\''") + "'")
+      PY
+        echo "env source: FE_DEPLOY_* CI variables ($(grep -c . apps/frontend/.env.deploy) keys)"
+      elif [ -n "${FRONTEND_ENV_DEPLOY:-}" ]; then
+        cp "$FRONTEND_ENV_DEPLOY" apps/frontend/.env.deploy
+        echo "env source: FRONTEND_ENV_DEPLOY file variable"
+      elif [ -f "$ENV_DIR/frontend.env.deploy" ]; then
+        cp "$ENV_DIR/frontend.env.deploy" apps/frontend/.env.deploy
+        echo "env source: $ENV_DIR/frontend.env.deploy (runner host)"
+      else
+        echo "ERROR: no frontend deploy env — create FE_DEPLOY_* variables (or the FRONTEND_ENV_DEPLOY file variable) in Settings > CI/CD > Variables" >&2
+        exit 1
+      fi
+      ./scripts/deploy-aws.sh --frontend-only
+
+# ── dev environment (develop branch) ─────────────────────────────────────────
+
+dev:deploy_backend:
+  extends: .deploy_backend
+  resource_group: dev-deploy-backend     # serialize concurrent develop merges
+  variables:
+    DEPLOY_BRANCH: develop
+  environment:
+    name: development
+    deployment_tier: development
+
+dev:deploy_frontend:
+  extends: .deploy_frontend
+  resource_group: dev-deploy-frontend
+  variables:
+    DEPLOY_BRANCH: develop
+  environment:
+    name: development
+    deployment_tier: development
+
+# ── staging environment (staging branch) ─────────────────────────────────────
+
+staging:deploy_backend:
+  extends: .deploy_backend
+  resource_group: staging-deploy-backend
+  variables:
+    DEPLOY_BRANCH: staging
+  environment:
+    name: staging
+    deployment_tier: staging
+
+staging:deploy_frontend:
+  extends: .deploy_frontend
+  resource_group: staging-deploy-frontend
+  variables:
+    DEPLOY_BRANCH: staging
+  environment:
+    name: staging
+    deployment_tier: staging

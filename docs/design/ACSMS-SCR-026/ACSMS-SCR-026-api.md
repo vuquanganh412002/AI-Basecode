@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-06-05
 created_date: 2026/06/05
 created_by: Tran Duc Tuyen
-updated_date: 2026/06/05
+updated_date: 2026/06/12
 updated_by: Tran Duc Tuyen
 ---
 
@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/05 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書（画面項目No.5「併読は除外」）に合わせ購読種別フィルタを修正：dokusya_shubetsu は 1/2 のみ許可、併読(3)は常に除外（リクエストパラメータ・4.1/4.3/4.4 SQL） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -90,8 +91,8 @@ updated_by: Tran Duc Tuyen
 | 2   | report_type     | String   | -        | 〇   |        |        | 帳票種別。`hanbaiten`: 販売店別購読者名簿（照会用、デフォルト）／`kanri_shiten`: 管理支店別購読者名簿                                                  |
 | 3   | hanbaiten_ids   | Number[] | 〇       | △    |        |        | 販売店ID（複数選択可）。`report_type=hanbaiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-002                                                      |
 | 4   | kanri_shiten_ids| Number[] | 〇       | △    |        |        | 管理支店ID（複数選択可）。`report_type=kanri_shiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-003                                                 |
-| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読（紙版＋電子版））。未指定の場合すべて出力                            |
-| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数: 1:毎月, 2:隔月, 3:3ヶ月, 6:半年, 12:年払い）。`report_type=kanri_shiten` のときのみ有効。未指定の場合すべて出力              |
+| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外（画面項目No.5「併読は除外」） |
+| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数: 1:毎月, 2:隔月, 3:3ヶ月, 6:半年, 12:年払い）。両帳票種別で有効（画面項目No.6 常時表示）。未指定の場合すべて出力              |
 
 ## レスポンスデータ
 
@@ -100,10 +101,15 @@ updated_by: Tran Duc Tuyen
 | 1   | data                            | Object   | -        |              | -        | プレビューデータ                                                                                  |
 | 2   | →report_type                    | String   | -        |              | -        | 帳票種別（`hanbaiten` / `kanri_shiten`）                                                          |
 | 3   | →tekiyo_date                    | String   | -        | YYYY-MM-DD   | -        | 適用日                                                                                            |
+| 3a  | →ja_name                        | String   | -        |              | -        | JA名（帳票ヘッダの組合情報）                                                                       |
+| 3b  | →ja_tel                         | String   | -        |              | -        | JA電話番号（帳票ヘッダ）                                                                           |
 | 4   | →grand_total_busu               | Number   | -        |              | -        | 全体合計部数                                                                                      |
 | 5   | →hanbaiten_groups               | Array    | 〇       |              | -        | 販売店別グループ（`report_type=hanbaiten` のときのみ。それ以外は空配列）                          |
 | 6   | →→hanbaiten_id                  | Number   | -        |              | -        | 販売店ID                                                                                          |
 | 7   | →→hanbaiten_name                | String   | -        |              | -        | 販売店名                                                                                          |
+| 7a  | →→hanbaiten_code                | String   | -        |              | -        | 販売店コード（帳票ヘッダ）                                                                         |
+| 7b  | →→hanbaiten_tel                 | String   | -        |              | -        | 販売店電話番号（帳票ヘッダ、空文字許容）                                                           |
+| 7c  | →→hanbaiten_fax                 | String   | -        |              | -        | 販売店FAX（帳票ヘッダ、空文字許容）                                                                |
 | 8   | →→total_busu                    | Number   | -        |              | -        | 販売店の合計部数（合計行）                                                                        |
 | 9   | →→kanri_shiten_groups           | Array    | 〇       |              | -        | 管理支店別サブグループ                                                                            |
 | 10  | →→→kanri_shiten_id              | Number   | -        |              | 〇       | 管理支店ID（未割当の場合 null）                                                                   |
@@ -274,7 +280,7 @@ GET /api/v1/report/meibo/preview?tekiyo_date=2026-04-01&report_type=hanbaiten&ha
   - report_type：必須、`hanbaiten` または `kanri_shiten`
   - report_type = `hanbaiten` の場合：hanbaiten_ids が1件以上必須。未選択の場合：`{ field: "hanbaiten_ids", message: "販売店を1件以上選択してください。" }`（ACSMS-MSG-026-002）
   - report_type = `kanri_shiten` の場合：kanri_shiten_ids が1件以上必須。未選択の場合：`{ field: "kanri_shiten_ids", message: "管理支店を1件以上選択してください。" }`（ACSMS-MSG-026-003）
-  - dokusya_shubetsu：指定時は m_code.code_category='DOKUSYA_SHUBETSU' に存在する値（CodeService で検証）
+  - dokusya_shubetsu：指定時は 1（紙版）または 2（電子版）のみ許可（CodeService で検証）。併読(3)は本帳票では選択不可
   - shiharai_cycle：指定時は数値（月数）
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
@@ -295,9 +301,11 @@ GET /api/v1/report/meibo/preview?tekiyo_date=2026-04-01&report_type=hanbaiten&ha
 - 各 dokusya_id について `joho_henko_tekiyo_date <= :tekiyo_date` を満たす最大 rireki_no（適用日時点の最新スナップショット）を対象とする。
 - 抽出条件：
   - `tetsuzuki_shurui = 1`（新規）のみ。解約（`tetsuzuki_shurui = 0`）は除外
-  - dokusya_shubetsu 指定時は該当値で絞込み
+  - 併読（`dokusya_shubetsu = 3`）は常に除外（画面項目No.5「併読は除外」）。未指定時は紙版(1)＋電子版(2)の両方を出力
+  - dokusya_shubetsu 指定時は該当値（1 または 2）で絞込み
   - report_type = `hanbaiten`: `hanbaiten_id IN (:hanbaiten_ids)`
-  - report_type = `kanri_shiten`: `kanri_shiten_id IN (:kanri_shiten_ids)` かつ shiharai_cycle 指定時は `dokusyaryo_shiharai_cycle = :shiharai_cycle`
+  - report_type = `kanri_shiten`: `kanri_shiten_id IN (:kanri_shiten_ids)`
+  - shiharai_cycle 指定時は `dokusyaryo_shiharai_cycle = :shiharai_cycle`（両帳票種別で適用）
   - DataScope 条件を付与
 
 ### 4.4 データ取得
@@ -338,11 +346,13 @@ LEFT JOIN m_shiten s
   ON s.shiten_id = l.shiten_id AND s.deleted_at IS NULL
 WHERE l.rn = 1
   AND l.tetsuzuki_shurui = 1
+  AND l.dokusya_shubetsu <> 3      /* 併読は常に除外（画面項目No.5「併読は除外」） */
   AND (:dokusya_shubetsu IS NULL OR l.dokusya_shubetsu = :dokusya_shubetsu)
   /* report_type = hanbaiten */
   AND (:hanbaiten_ids IS NULL OR l.hanbaiten_id = ANY(:hanbaiten_ids))
   /* report_type = kanri_shiten */
   AND (:kanri_shiten_ids IS NULL OR l.kanri_shiten_id = ANY(:kanri_shiten_ids))
+  /* 支払区分（購読料支払サイクル）— 両帳票種別で適用 */
   AND (:shiharai_cycle IS NULL OR l.dokusyaryo_shiharai_cycle = :shiharai_cycle)
   /* DataScope: JA_KANRI_SHITEN */
   AND (:user_kanri_shiten_id IS NULL OR l.kanri_shiten_id = :user_kanri_shiten_id)
@@ -393,8 +403,8 @@ ACSMS-API-026-001（Preview）と同一。
 | 2   | report_type     | String   | -        | 〇   |        |        | 帳票種別（`hanbaiten` / `kanri_shiten`）                                                                     |
 | 3   | hanbaiten_ids   | Number[] | 〇       | △    |        |        | 販売店ID（複数選択可）。`report_type=hanbaiten` のとき必須                                                    |
 | 4   | kanri_shiten_ids| Number[] | 〇       | △    |        |        | 管理支店ID（複数選択可）。`report_type=kanri_shiten` のとき必須                                               |
-| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。未指定の場合すべて出力 |
-| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数）。`report_type=kanri_shiten` のときのみ有効                                         |
+| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外 |
+| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数）。両帳票種別で有効                                                                  |
 
 ## レスポンスデータ
 

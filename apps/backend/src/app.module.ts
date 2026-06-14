@@ -23,6 +23,7 @@ import { ShitenModule } from './modules/shiten/shiten.module';
 import { OshiraseModule } from './modules/oshirase/oshirase.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { ReportModule } from './modules/report/report.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { TankaModule } from './modules/tanka/tanka.module';
 import { TodofukenModule } from './modules/todofuken/todofuken.module';
@@ -58,6 +59,7 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     ShitenModule,
     TankaModule,
     TodofukenModule,
+    ReportModule,
     RolesModule,
   ],
   // Wire ThrottlerGuard globally so the @Throttle() decorators on auth

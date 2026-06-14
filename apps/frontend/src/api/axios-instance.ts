@@ -19,6 +19,14 @@ const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
+  // Serialize array query params as repeated keys WITHOUT brackets
+  // (`ids=1&ids=2`), not the axios default `ids[]=1`. The NestJS
+  // ValidationPipe runs `forbidNonWhitelisted`, and the bracketed form
+  // parses to a literal key `ids[]` on the server → "property ids[]
+  // should not exist" 400. Repeat form parses to an `ids` array under
+  // the DTO's declared property name. Single-value arrays arrive as a
+  // scalar and each list DTO normalises them via @Transform → number[].
+  paramsSerializer: { indexes: null },
 });
 
 instance.interceptors.response.use(

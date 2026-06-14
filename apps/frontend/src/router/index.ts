@@ -305,6 +305,31 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ログ参照', permission: 'log.view' },
       },
 
+      // 購読者名簿出力画面 (ACSMS-SCR-026). 出力条件 → プレビュー / Excel出力。
+      // report.export_meibo を持つ JA ロール (CHUOKAI / JA_HONTEN /
+      // JA_KANRI_SHITEN) のみ。日農アカウントは画面内で MSG-026-001 を表示。
+      {
+        path: 'report/meibo',
+        name: 'ReportMeibo',
+        component: () => import('@/views/report/MeiboReportView.vue'),
+        meta: { breadcrumb: '購読者名簿出力', permission: 'report.export_meibo' },
+      },
+
+      // 増減連絡票（販売店）出力画面 (ACSMS-SCR-028). 出力条件 →
+      // プレビュー / 電子帳票(PDF)出力。販売店＋管理支店ごとに増部/減部/
+      // 住所変更の3区分。report.export_zougen_hanbaiten を持つ JA ロール
+      // (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) のみ。日農アカウントは
+      // 画面内で MSG-028-001 を表示。route 名は MENU_SECTIONS と一致させる。
+      {
+        path: 'report/zougen-hanbaiten',
+        name: 'ReportZougenHanbaiten',
+        component: () => import('@/views/report/ZougenHanbaitenReportView.vue'),
+        meta: {
+          breadcrumb: '増減連絡票（販売店）出力',
+          permission: 'report.export_zougen_hanbaiten',
+        },
+      },
+
       // ファイルダウンロード画面 (ACSMS-SCR-022). Read-only list +
       // preview (S3 presigned URL) + binary download. All 5 roles hold
       // `file.download`; DataScope is enforced server-side.

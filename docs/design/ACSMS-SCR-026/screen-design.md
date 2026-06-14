@@ -1,4 +1,4 @@
-# 【日本農業新聞様】VTIジャパン_クラウド版購読者管理システム_画面設計書_購読者名簿出力画面_v1.1
+# 【日本農業新聞様】VTIジャパン_クラウド版購読者管理システム_画面設計書_購読者名簿出力画面_v1.3
 
 
 ---
@@ -9,7 +9,7 @@
 
 **購読者名簿出力画面**
 
-**版1.1**
+**版1.3**
 
 - **フォーマットコード**: 16-BM/PM/VTI
 - **フォーマットバージョン**: 2.0
@@ -23,6 +23,8 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/04/02 | 1.0 | Nguyen Truong An | 新規作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/04/02 | 1.1 | Nguyen Truong An | 指摘対応<br>※修正箇所：<br>1.「画面イメージ」シート<br>2.「画面項目定義」シート：No. 1、3、5、6、10、11、19、27、30、31<br>3.「機能定義」シート：1.1、1.3、3.1、4.2 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3 | 2026/06/12 | 1.2 | Tran Duc Tuyen | 「画面項目定義」シートの物理カラム名・論理名の誤記を修正：<br>・No.5/No.19 カラム名（論理名）「管理支店ID」→「購読種別」<br>・No.6 カラム名（物理名）「dokusya_shubetsu」→「dokusyaryo_shiharai_cycle」<br>・No.27 論理名「購読料支払サイクル」→「支払方法」、物理名「dokusyaryo_shiharai_cycle」→「shiharai_hoho」 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4 | 2026/06/12 | 1.3 | Tran Duc Tuyen | No.6 支払区分の表示条件を「帳票種別=管理支店別」→「常時表示」に変更（画面イメージに合わせ、販売店別でも購読料支払サイクルで絞込み可とする） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ---
 
@@ -96,8 +98,8 @@ ACSMS-SCR-026_購読者名簿出力画面_画面イメージ
 | 2 | 帳票種別（出力種別） | reportType | プルダウン | 入 | o | 文字列 |  |  | 左寄せ |  | — | — | — | — | 常時表示 | 販売店別購読者名簿（照会用） | ・必須選択<br>・販売店別購読者名簿（照会用）/ 管理支店別購読者名簿 |
 | 3 | 販売店 | hanbaitenIds | プルダウン | 入 |  | — |  |  | 左寄せ |  | 販売店マスタ | m_hanbaiten | 販売店ID | hanbaiten_id | 帳票種別 = 販売店別 |  | ・複数選択可<br>・販売店別選択時のみ活性<br>・活性時は1件以上の選択が必須 |
 | 4 | 管理支店 | kanriShitenIds | プルダウン | 入 |  | — |  |  | 左寄せ |  | 管理支店マスタ | m_kanri_shiten | 管理支店ID | kanri_shiten_id | 帳票種別 = 管理支店別 |  | ・複数選択可<br>・管理支店別選択時のみ活性<br>・活性時は1件以上の選択が必須 |
-| 5 | 購読種別 | dokusyaShubetsuType | プルダウン | 入 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 管理支店ID | dokusya_shubetsu | 常時表示 |  | ・紙版＋電子版 / 紙版 / 電子版（併読は除外）<br>・未選択の場合、すべて出力<br>・「電子版」または「紙版＋電子版」を含む場合は、「クレジットカード」は選択不可 |
-| 6 | 支払区分 | ShiharaiKubun | プルダウン | 入 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読料支払サイクル | dokusya_shubetsu | 帳票種別 = 管理支店別 |  | 毎月/隔月/3ヶ月/半年/年払い |
+| 5 | 購読種別 | dokusyaShubetsuType | プルダウン | 入 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読種別 | dokusya_shubetsu | 常時表示 |  | ・紙版＋電子版 / 紙版 / 電子版（併読は除外）<br>・未選択の場合、すべて出力<br>・「電子版」または「紙版＋電子版」を含む場合は、「クレジットカード」は選択不可 |
+| 6 | 支払区分 | ShiharaiKubun | プルダウン | 入 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読料支払サイクル | dokusyaryo_shiharai_cycle | 常時表示 |  | ・毎月/隔月/3ヶ月/半年/年払い<br>・販売店別／管理支店別とも購読料支払サイクルで絞込み可 |
 | 7 | レポートプレビュー | btnPreview | ボタン | 入 |  | — |  |  |  | 購読種別 | — | — | — | — | 常時表示 |  | 帳票プレビューを表示 |
 | 8 | レポートデータExcel出力 | btnExport | ボタン | 入 |  | — |  |  |  |  | — | — | — | — | 常時表示 |  | Excel形式で出力＋S3への保存 |
 
@@ -120,7 +122,7 @@ ACSMS-SCR-026_購読者名簿出力画面_画面イメージ
 
 | No | 項目名 | 項目ID | 項目タイプ | 入力/出力 | 必須 | 入力データ型 | 最小桁数 | 最大桁数 | 文字揃え | フォーマット | テーブル名（論理名） | テーブル名（物理名） | カラム名（論理名） | カラム名（物理名） | 表示条件 | デフォルト値 | 備考 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19 | 購読種別 | dokusyaShubetsuType | ラベル | 出 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 管理支店ID | dokusya_shubetsu | 帳票種別 = 管理支店別 |  |  |
+| 19 | 購読種別 | dokusyaShubetsuType | ラベル | 出 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読種別 | dokusya_shubetsu | 帳票種別 = 管理支店別 |  |  |
 | 20 | 購読者名 | colBrSubscriberName | ラベル | 出 |  | 文字列 |  | 100 | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 氏名（姓）＋氏名（名） | shimei_sei \|\| shimei_mei | 帳票種別 = 管理支店別 |  |  |
 | 21 | 購読者かな | colBrSubscriberKana | ラベル | 出 |  | 文字列 |  | 200 | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 氏名かな（姓）＋氏名かな（名） | shimei_kana_sei \|\| shimei_kana_mei | 帳票種別 = 管理支店別 |  |  |
 | 22 | 組合員コード | colKumiaiinCode | ラベル | 出 |  | 文字列 |  | 20 | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 組合員コード | kumiaiin_code | 帳票種別 = 管理支店別 |  |  |
@@ -128,7 +130,7 @@ ACSMS-SCR-026_購読者名簿出力画面_画面イメージ
 | 24 | 支店 | colShiten | ラベル | 出 |  | 文字列 |  | 100 | 左寄せ |  | 支店マスタ | m_shiten | 支店名 | shiten_name | 帳票種別 = 管理支店別 |  | 配達担当支店 |
 | 25 | 配達先住所 | colBrDeliveryAddress | ラベル | 出 |  | 文字列 |  | 407 | 左寄せ | 〒{7}+{100}+{100}+{100} | 読者履歴テーブル | t_dokusya_rireki | 配達先郵便番号＋配達先市町村郡＋配達先丁目番地＋配達先建物名 | haitatsu_yubin_no \|\| haitatsu_shikuchoson \|\| haitatsu_chome_banchi \|\| haitatsu_tatemono_mei | 帳票種別 = 管理支店別 |  |  |
 | 26 | 購読部数 | colBrCopies | ラベル | 出 |  | 数値 |  |  | 中央 |  | 読者履歴テーブル | t_dokusya_rireki | 購読部数 | dokusya_busu | 帳票種別 = 管理支店別 |  |  |
-| 27 | 支払い方法 | colShiharaiKubun | ラベル | 出 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読料支払サイクル | dokusyaryo_shiharai_cycle | 帳票種別 = 管理支店別 |  | 口座振替/現金集金/振込集金/JA施設等/給与天引き/クレジットカード/その他 |
+| 27 | 支払い方法 | colShiharaiKubun | ラベル | 出 |  | 文字列 |  |  | 左寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 支払方法 | shiharai_hoho | 帳票種別 = 管理支店別 |  | 口座振替/現金集金/振込集金/JA施設等/給与天引き/クレジットカード/その他 |
 | 28 | 購読開始日 | colBrStartDate | ラベル | 出 |  | 日付 |  | 10 | 左寄せ | yyyy/MM/dd | 読者履歴テーブル | t_dokusya_rireki | 購読開始日 | dokusya_kaishi_date | 帳票種別 = 管理支店別 |  |  |
 | 29 | 配達担当販売店 | colBrHanbaiten | ラベル | 出 |  | 文字列 |  | 100 | 左寄せ |  | 販売店マスタ | m_hanbaiten | 販売店名 | hanbaiten_name | 帳票種別 = 管理支店別 |  |  |
 | 30 | 小計 | rowSubtotal | ラベル | 出 |  | 文字列 |  |  | 右寄せ |  | — | — | — | — | 帳票種別 = 管理支店別 |  | 管理支店の小計。出力順：管理支店コード、購読者ID順。管理支店が変わるタイミングでその管理支店の小計を表示 |

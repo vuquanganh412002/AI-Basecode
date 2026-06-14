@@ -1118,6 +1118,43 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(masterUpdate[2].dokusyaKaishiDate).toBe('2026-04-01');
     });
 
+    it('should keep the stored 購読者氏名/かな and ignore changed name fields on update (immutable after create)', async () => {
+      // 氏名4項目 (氏名_氏/名, かな_氏/名) は作成時に確定し編集不可。
+      // body に改変値が届いても保存値に pin する。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        shimeiSei: '山田',
+        shimeiMei: '太郎',
+        shimeiKanaSei: 'やまだ',
+        shimeiKanaMei: 'たろう',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({
+          shimei_sei: '田中',
+          shimei_mei: '次郎',
+          shimei_kana_sei: 'たなか',
+          shimei_kana_mei: 'じろう',
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const masterUpdate = txManager.update.mock.calls.find(
+        (c: any[]) => c[2] && typeof c[2] === 'object' && 'shimeiSei' in c[2],
+      );
+      expect(masterUpdate).toBeDefined();
+      expect(masterUpdate[2].shimeiSei).toBe('山田');
+      expect(masterUpdate[2].shimeiMei).toBe('太郎');
+      expect(masterUpdate[2].shimeiKanaSei).toBe('やまだ');
+      expect(masterUpdate[2].shimeiKanaMei).toBe('たろう');
+    });
+
     it('should throw NotFoundException when target does not exist', async () => {
       // COVERS: §4.3 + err:NOT_FOUND
       dokusyaRepo.findOne.mockResolvedValue(null);
@@ -1557,6 +1594,35 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       );
 
       expect(result.denshi_shonin_status).toBeNull();
+    });
+
+    it('should preserve denshi_shonin_status when updating an already-approved (1) 電子版 record', async () => {
+      // 回帰テスト — 承認済み(1)の電子版を編集しただけで 承認待ち(0) に戻り、
+      // 承認・登録/承認しないボタンが再表示されてしまうバグの防止。
+      // denshi_shonin_status は approve/reject 専用ワークフローでのみ遷移する。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaShubetsu: 2, // 電子版
+        denshiShoninStatus: 1, // 承認済み
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      const result = await service.update(
+        100,
+        buildUpdateDokusyaBody({
+          dokusya_shubetsu: 2,
+          shiharai_hoho: 1,
+          bank_shiten_id: 50,
+          email: 'denshi@example.com',
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.denshi_shonin_status).toBe(1);
     });
 
     it('should snapshot previous 購読部数 into zenkai_dokusya_busu when dokusya_busu changed', async () => {

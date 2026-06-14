@@ -1317,7 +1317,7 @@ defineExpose({ formState, fieldErrors });
                   <span>購読者氏名_氏</span>
                   <span class="text-error ml-1">*</span>
                 </template>
-                <a-input v-model:value="formState.shimei_sei" :maxlength="50" />
+                <a-input v-model:value="formState.shimei_sei" :maxlength="50" :disabled="isEdit" />
               </a-form-item>
 
               <a-form-item
@@ -1329,7 +1329,7 @@ defineExpose({ formState, fieldErrors });
                   <span>購読者氏名_名</span>
                   <span class="text-error ml-1">*</span>
                 </template>
-                <a-input v-model:value="formState.shimei_mei" :maxlength="50" />
+                <a-input v-model:value="formState.shimei_mei" :maxlength="50" :disabled="isEdit" />
               </a-form-item>
             </div>
 
@@ -1344,7 +1344,7 @@ defineExpose({ formState, fieldErrors });
                   <span>購読者かな_氏</span>
                   <span class="text-error ml-1">*</span>
                 </template>
-                <a-input v-model:value="formState.shimei_kana_sei" :maxlength="100" />
+                <a-input v-model:value="formState.shimei_kana_sei" :maxlength="100" :disabled="isEdit" />
               </a-form-item>
 
               <a-form-item
@@ -1356,7 +1356,7 @@ defineExpose({ formState, fieldErrors });
                   <span>購読者かな_名</span>
                   <span class="text-error ml-1">*</span>
                 </template>
-                <a-input v-model:value="formState.shimei_kana_mei" :maxlength="100" />
+                <a-input v-model:value="formState.shimei_kana_mei" :maxlength="100" :disabled="isEdit" />
               </a-form-item>
             </div>
 

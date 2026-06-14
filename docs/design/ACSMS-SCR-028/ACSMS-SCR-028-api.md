@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-06-01
 created_date: 2026/06/01
 created_by: Nguyen Truong An
-updated_date: 2026/06/01
-updated_by: Nguyen Truong An
+updated_date: 2026/06/12
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -18,6 +18,7 @@ updated_by: Nguyen Truong An
 | No  | 発行日     | 版数 | 担当者           | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | ---------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/01 | 1.0  | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書との整合：住所変更テーブルの住所カラム組（変更前=zenkai_*, 変更後=haitatsu_*）を4.5に明記、システムエラーメッセージ（ACSMS-MSG-028-003）の句点を統一 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -246,7 +247,7 @@ GET /api/v1/report/zougen-hanbaiten/preview?tekiyo_date=2026-05-01&hanbaiten_id=
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -336,7 +337,10 @@ ORDER BY h.hanbaiten_code ASC, r.kanri_shiten_id ASC
   - **住所変更**（`address_change`）：前回配達先住所（`zenkai_*`）と現配達先住所（`haitatsu_*`）が異なる場合。1購読者につき `変更前` / `変更後` の2行を生成する。
 - 各行の整形：
   - 部数（`busu`）：`"{zenkai_dokusya_busu} → {dokusya_busu}"`
-  - 住所：`{todofuken_name}{shikuchoson}{chome_banchi}{tatemono_mei}` を連結（現＝`td_now`、変更前＝`td_zen`＋`zenkai_*`）
+  - 住所：`{todofuken_name}{市町村郡}{丁目番地}{建物名}` を連結する。区分・ラベルにより住所カラムの組が異なる：
+    - **増部 / 減部**：現配達先住所＝`td_now.todofuken_name` ＋ `haitatsu_shikuchoson` ＋ `haitatsu_chome_banchi` ＋ `haitatsu_tatemono_mei`
+    - **住所変更「変更後」**：現配達先住所（増部/減部と同じく `td_now` ＋ `haitatsu_*`）
+    - **住所変更「変更前」**：前回配達先住所＝`td_zen.todofuken_name` ＋ `zenkai_shikuchoson` ＋ `zenkai_chome_banchi` ＋ `zenkai_tatemono_mei`
   - 氏名（`name`）：`{shimei_sei} {shimei_mei}`
   - 配達先読者名（`delivery_name`）：`{haitatsu_shimei_sei} {haitatsu_shimei_mei}`
   - 電話番号（`phone`）：`haitatsu_renrakusaki_1`
@@ -467,7 +471,7 @@ Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filen
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
