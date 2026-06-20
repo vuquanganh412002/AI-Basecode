@@ -19,6 +19,7 @@ updated_by: Nguyen Duyen Manh
 | --- | ---------- | ---- | ----------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/22 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/30 | 1.1  | Nguyen Duyen Manh | 画面設計書 v1.2 / 画面イメージ v1.2 同期：<br>1. リクエストパラメータ：`bank_branch_code` / `bank_branch_name` を `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` にリネーム（物理カラム `bank_branch_code` / `bank_branch_name` は不変）<br>2. 期間検索化：`shoki_dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date` を `_from` / `_to` ペアに分割（相関チェック：from ≦ to）<br>3. 機能定義 2.2 と整合：手続種類・購読種別・電子版承認ステータスを常時表示エリアに配置（API には影響なし、備考のみ更新）<br>4. Excel 出力カラムを画面検索結果テーブル（24-35）に合わせて 12 列に圧縮（かな氏名・購読種別・支払方法を除外） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/06/16 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06 反映：<br>1. 検索条件の部分一致対象を拡張：`full_name`＝購読者氏名＋配達先氏名（shimei_sei/mei・haitatsu_shimei_sei/mei）、`full_name_kana`＝同かな4項目、`haitatsu`＝配達先住所4項目＋購読者住所4項目（todofuken_code/shikuchoson/chome_banchi/tatemono_mei）、`renrakusaki_1`＝連絡先１＋配達先連絡先１<br>2. レスポンス／検索結果テーブルに `tetsuzuki_shurui`（手続種類）と `haitatsu_full_name`（配達先氏名）を追加。一覧から 支店・連絡先２ 列を削除し、手続種類・購読種別を購読者名の後、配達先氏名を連絡先１の後、支払方法を販売店名の後に配置<br>3. Excel 出力を上記の新一覧（14 列）に合わせて変更。手続種類・購読種別・支払方法は m_code ラベルを出力 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -90,10 +91,10 @@ updated_by: Nguyen Duyen Manh
 | 3   | kumiaiin_code             | String  | -        | -    |        | 20     | 組合員コード（部分一致）【常時表示】                                                                |
 | 4   | jastem_toriatsukai_tenpo_code | String | -        | -    |        | 3      | 引落元口座支店コード（部分一致）。物理カラムは `bank_branch_code`（レガシー名）【詳細検索】          |
 | 5   | jastem_tenpo_name             | String | -        | -    |        | 100    | 引落元口座支店名（部分一致）。物理カラムは `bank_branch_name`（レガシー名）【詳細検索】              |
-| 6   | full_name                 | String  | -        | -    |        | 100    | 氏名（shimei_sei + shimei_mei の組み合わせ、部分一致）【常時表示】                                  |
-| 7   | full_name_kana            | String  | -        | -    |        | 100    | かな氏名（shimei_kana_sei + shimei_kana_mei の組み合わせ、部分一致）【常時表示】                    |
-| 8   | renrakusaki_1             | String  | -        | -    |        | 15     | 連絡先１（部分一致）【詳細検索】                                                                    |
-| 9   | haitatsu                  | String  | -        | -    |        | 200    | 配達先住所（todofuken + shikuchoson + chome_banchi + tatemono_mei の組み合わせ、部分一致）【常時表示】 |
+| 6   | full_name                 | String  | -        | -    |        | 100    | 氏名（部分一致）。`shimei_sei` / `shimei_mei` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei` のいずれかに部分一致（OR）【常時表示】 |
+| 7   | full_name_kana            | String  | -        | -    |        | 100    | かな氏名（部分一致）。`shimei_kana_sei` / `shimei_kana_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei` のいずれかに部分一致（OR）【常時表示】 |
+| 8   | renrakusaki_1             | String  | -        | -    |        | 15     | 連絡先１（部分一致）。`renrakusaki_1` / `haitatsu_renrakusaki_1` のいずれかに部分一致（OR）【詳細検索】 |
+| 9   | haitatsu                  | String  | -        | -    |        | 200    | 配達先住所（部分一致）。配達先住所4項目（`haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei`）＋購読者住所4項目（`todofuken_code` / `shikuchoson` / `chome_banchi` / `tatemono_mei`）のいずれかに部分一致（OR）【常時表示】 |
 | 10  | hanbaiten_id              | Number  | -        | -    |        |        | 配達販売店ID（プルダウン）【常時表示】                                                              |
 | 11  | email                     | String  | -        | -    |        | 100    | メールアドレス（部分一致、メール形式チェック）【詳細検索】                                          |
 | 12  | seikyu_kaishi_month       | String  | -        | -    |        | 6      | 請求開始月（YYYYMM、部分一致）【詳細検索】                                                          |
@@ -109,7 +110,7 @@ updated_by: Nguyen Duyen Manh
 | 22  | shiharai_hoho                  | Number | -        | -    |        |        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）【詳細検索】 |
 | 23  | page                           | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                         |
 | 24  | per_page                       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
-| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
+| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
 | 26  | sort_order                     | String | -        | -    |        |        | ソート順（asc / desc、デフォルト: desc）                                                            |
 
 ## レスポンスデータ
@@ -126,23 +127,25 @@ updated_by: Nguyen Duyen Manh
 | 8   | →kumiaiin_code               | String  | -        |              | -        | 組合員コード（空文字許容）                                                 |
 | 9   | →full_name                   | String  | -        |              | -        | 氏名（shimei_sei + " " + shimei_mei）                                      |
 | 10  | →full_name_kana              | String  | -        |              | -        | かな氏名（shimei_kana_sei + " " + shimei_kana_mei）                        |
-| 11  | →renrakusaki_1               | String  | -        |              | -        | 連絡先１（空文字許容）                                                     |
-| 12  | →renrakusaki_2               | String  | -        |              | -        | 連絡先２（空文字許容）                                                     |
-| 13  | →haitatsu_yubin_no           | String  | -        |              | -        | 配達先郵便番号（空文字許容）                                               |
-| 14  | →haitatsu                    | String  | -        |              | -        | 配達先住所（todofuken_name + shikuchoson + chome_banchi + tatemono_mei）   |
-| 15  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                   |
-| 16  | →hanbaiten_name              | String  | -        |              | -        | 販売店名                                                                   |
-| 17  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読） |
-| 18  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                       |
-| 19  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子版承認ステータス（NULL=Web申込以外, 0:未承認, 1:承認済み, 2:否認）     |
-| 20  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY/MM/DD   | -        | 初回購読開始日                                                             |
-| 21  | →dokusya_chushi_date         | String  | -        | YYYY/MM/DD   | 〇       | 購読中止日                                                                 |
-| 22  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ（true=電子版クレジットカード決済者または併読者）        |
-| 23  | meta                         | Object  | -        |              | -        | ページネーション情報                                                       |
-| 24  | →total                       | Number  | -        |              | -        | 総件数                                                                     |
-| 25  | →page                        | Number  | -        |              | -        | 現在ページ番号                                                             |
-| 26  | →per_page                    | Number  | -        |              | -        | 1ページの件数                                                              |
-| 27  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                 |
+| 11  | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）  |
+| 12  | →renrakusaki_1               | String  | -        |              | -        | 連絡先１（空文字許容）                                                     |
+| 13  | →renrakusaki_2               | String  | -        |              | -        | 連絡先２（空文字許容）                                                     |
+| 14  | →haitatsu_full_name          | String  | -        |              | -        | 配達先氏名（haitatsu_shimei_sei + " " + haitatsu_shimei_mei、前後空白トリム） |
+| 15  | →haitatsu_yubin_no           | String  | -        |              | -        | 配達先郵便番号（空文字許容）                                               |
+| 16  | →haitatsu                    | String  | -        |              | -        | 配達先住所（todofuken_name + shikuchoson + chome_banchi + tatemono_mei）   |
+| 17  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                   |
+| 18  | →hanbaiten_name              | String  | -        |              | -        | 販売店名                                                                   |
+| 19  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読） |
+| 20  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                       |
+| 21  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子版承認ステータス（NULL=Web申込以外, 0:未承認, 1:承認済み, 2:否認）     |
+| 22  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY/MM/DD   | -        | 初回購読開始日                                                             |
+| 23  | →dokusya_chushi_date         | String  | -        | YYYY/MM/DD   | 〇       | 購読中止日                                                                 |
+| 24  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ（true=電子版クレジットカード決済者または併読者）        |
+| 25  | meta                         | Object  | -        |              | -        | ページネーション情報                                                       |
+| 26  | →total                       | Number  | -        |              | -        | 総件数                                                                     |
+| 27  | →page                        | Number  | -        |              | -        | 現在ページ番号                                                             |
+| 28  | →per_page                    | Number  | -        |              | -        | 1ページの件数                                                              |
+| 29  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                 |
 
 ## リクエスト例
 
@@ -165,8 +168,10 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
       "kumiaiin_code": "K000001",
       "full_name": "山田 太郎",
       "full_name_kana": "ヤマダ タロウ",
+      "tetsuzuki_shurui": 1,
       "renrakusaki_1": "03-1234-5678",
       "renrakusaki_2": "",
+      "haitatsu_full_name": "山田 花子",
       "haitatsu_yubin_no": "1500001",
       "haitatsu": "東京都渋谷区神宮前1-1-1 渋谷マンション101",
       "hanbaiten_id": 501,
@@ -188,8 +193,10 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
       "kumiaiin_code": "K000002",
       "full_name": "佐藤 花子",
       "full_name_kana": "サトウ ハナコ",
+      "tetsuzuki_shurui": 1,
       "renrakusaki_1": "03-9876-5432",
       "renrakusaki_2": "",
+      "haitatsu_full_name": "",
       "haitatsu_yubin_no": "1500002",
       "haitatsu": "東京都渋谷区神宮前2-2-2",
       "hanbaiten_id": 502,
@@ -303,10 +310,10 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
   - kumiaiin_code 指定時：`d.kumiaiin_code ILIKE '%' || :kumiaiin_code || '%'`
   - jastem_toriatsukai_tenpo_code 指定時：`d.bank_branch_code ILIKE '%' || :jastem_toriatsukai_tenpo_code || '%'` ※物理カラムは `bank_branch_code`（レガシー名）
   - jastem_tenpo_name 指定時：`d.bank_branch_name ILIKE '%' || :jastem_tenpo_name || '%'` ※物理カラムは `bank_branch_name`（レガシー名）
-  - full_name 指定時：`(d.shimei_sei || ' ' || d.shimei_mei) ILIKE '%' || :full_name || '%'`
-  - full_name_kana 指定時：`(d.shimei_kana_sei || ' ' || d.shimei_kana_mei) ILIKE '%' || :full_name_kana || '%'`
-  - renrakusaki_1 指定時：部分一致
-  - haitatsu 指定時：配達先住所の連結文字列に部分一致
+  - full_name 指定時：`(d.shimei_sei ILIKE '%' || :full_name || '%' OR d.shimei_mei ILIKE '%' || :full_name || '%' OR d.haitatsu_shimei_sei ILIKE '%' || :full_name || '%' OR d.haitatsu_shimei_mei ILIKE '%' || :full_name || '%')`（購読者氏名＋配達先氏名の各カラムに OR 部分一致）
+  - full_name_kana 指定時：`(d.shimei_kana_sei ILIKE '%' || :full_name_kana || '%' OR d.shimei_kana_mei ILIKE ... OR d.haitatsu_shimei_kana_sei ILIKE ... OR d.haitatsu_shimei_kana_mei ILIKE ...)`（購読者かな氏名＋配達先かな氏名の各カラムに OR 部分一致）
+  - renrakusaki_1 指定時：`(d.renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%' OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%')`（連絡先１＋配達先連絡先１に OR 部分一致）
+  - haitatsu 指定時：配達先住所4項目（`haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei`）＋購読者住所4項目（`todofuken_code` / `shikuchoson` / `chome_banchi` / `tatemono_mei`）の各カラムに OR 部分一致
   - hanbaiten_id 指定時：`d.hanbaiten_id = :hanbaiten_id`
   - email 指定時：部分一致
   - seikyu_kaishi_month 指定時：部分一致
@@ -335,7 +342,10 @@ WHERE d.deleted_at IS NULL
   AND (:kanri_shiten_id IS NULL OR d.kanri_shiten_id = :kanri_shiten_id)
   AND (:shiten_id IS NULL OR d.shiten_id = :shiten_id)
   AND (:kumiaiin_code IS NULL OR d.kumiaiin_code ILIKE '%' || :kumiaiin_code || '%')
-  AND (:full_name IS NULL OR (d.shimei_sei || ' ' || d.shimei_mei) ILIKE '%' || :full_name || '%')
+  AND (:full_name IS NULL OR d.shimei_sei ILIKE '%' || :full_name || '%'
+                          OR d.shimei_mei ILIKE '%' || :full_name || '%'
+                          OR d.haitatsu_shimei_sei ILIKE '%' || :full_name || '%'
+                          OR d.haitatsu_shimei_mei ILIKE '%' || :full_name || '%')
   AND (:dokusya_shubetsu IS NULL OR d.dokusya_shubetsu = :dokusya_shubetsu)
   /* ... 他の検索条件は省略 */
 ```
@@ -349,7 +359,9 @@ SELECT d.dokusya_id, d.ja_id,
        d.kumiaiin_code,
        (d.shimei_sei || ' ' || d.shimei_mei) AS full_name,
        (d.shimei_kana_sei || ' ' || d.shimei_kana_mei) AS full_name_kana,
+       d.tetsuzuki_shurui,
        d.renrakusaki_1, d.renrakusaki_2,
+       (d.haitatsu_shimei_sei || ' ' || d.haitatsu_shimei_mei) AS haitatsu_full_name,
        d.haitatsu_yubin_no,
        (COALESCE(t.todofuken_name, '') || d.haitatsu_shikuchoson || d.haitatsu_chome_banchi || d.haitatsu_tatemono_mei) AS haitatsu,
        d.hanbaiten_id, h.hanbaiten_name,
@@ -629,27 +641,30 @@ Excelファイル（`Content-Type: application/vnd.openxmlformats-officedocument
 
 ```
 Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-Content-Disposition: attachment; filename="dokusya_export_YYYYMMDD_HHmmss.xlsx"
+Content-Disposition: attachment; filename*=UTF-8''<URLエンコードした 購読者一覧出力_YYYYMMDD_HHmmss.xlsx>
 ```
 
 ### Excelフォーマット
 
-> 画面設計書 v1.2「検索結果テーブル」（項目 #24-#35）と完全一致。購読種別 / 支払方法 / かな氏名 等の検索専用フィールドは含めない。
+> 顧客要件 2026-06 の検索結果テーブル（15 列）と完全一致。先頭に ID（dokusya_id）列を追加。支店 / 連絡先２ 列は廃止、手続種類 / 購読種別 / 配達先氏名 / 支払方法 を追加。かな氏名 は検索専用のため含めない。手続種類 / 購読種別 / 支払方法 は m_code（`TETSUZUKI_SHURUI` / `DOKUSYA_SHUBETSU` / `SHIHARAI_HOHO`）のラベルを出力する（`CodeService.getLabel` で解決）。
 
-| 列順 | カラム名         | 説明                       |
-| ---- | ---------------- | -------------------------- |
-| 1    | 管理支店         | kanri_shiten_name          |
-| 2    | 支店             | shiten_name                |
-| 3    | 組合員コード     | kumiaiin_code              |
-| 4    | 購読者名         | full_name                  |
-| 5    | 連絡先１         | renrakusaki_1              |
-| 6    | 連絡先２         | renrakusaki_2              |
-| 7    | 配達先郵便       | haitatsu_yubin_no          |
-| 8    | 配達先住所       | haitatsu                   |
-| 9    | 販売店コード     | hanbaiten_id               |
-| 10   | 販売店名         | hanbaiten_name             |
-| 11   | 購読開始日       | shoki_dokusya_kaishi_date  |
-| 12   | 購読中止日       | dokusya_chushi_date        |
+| 列順 | カラム名         | 説明                                                  |
+| ---- | ---------------- | ----------------------------------------------------- |
+| 1    | ID               | dokusya_id（プレフィックス無しのDB値）                |
+| 2    | 管理支店         | kanri_shiten_name                                     |
+| 3    | 組合員コード     | kumiaiin_code                                         |
+| 4    | 購読者名         | full_name                                             |
+| 5    | 手続種類         | tetsuzuki_shurui（m_code ラベル）                     |
+| 6    | 購読種別         | dokusya_shubetsu（m_code ラベル）                     |
+| 7    | 連絡先１         | renrakusaki_1                                         |
+| 8    | 配達先氏名       | haitatsu_full_name                                    |
+| 9    | 配達先郵便       | haitatsu_yubin_no                                     |
+| 10   | 配達先住所       | haitatsu                                              |
+| 11   | 販売店コード     | hanbaiten_id                                          |
+| 12   | 販売店名         | hanbaiten_name                                        |
+| 13   | 支払方法         | shiharai_hoho（m_code ラベル）                        |
+| 14   | 購読開始日       | shoki_dokusya_kaishi_date                             |
+| 15   | 購読中止日       | dokusya_chushi_date                                   |
 
 ## リクエスト例
 
@@ -761,9 +776,10 @@ LIMIT 30000
 
 ### 4.5 Excel生成
 
-- ファイル名：`dokusya_export_YYYYMMDD_HHmmss.xlsx`（現在日時、JST）
+- ファイル名：`購読者一覧出力_YYYYMMDD_HHmmss.xlsx`（現在日時、JST）
 - 文字コード：UTF-8
-- ヘッダー行（画面設計書 v1.2 検索結果テーブル #24-#35 と一致、12 列）：`管理支店, 支店, 組合員コード, 購読者名, 連絡先１, 連絡先２, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 購読開始日, 購読中止日`
+- ヘッダー行（検索結果テーブルと一致、15 列）：`ID, 管理支店, 組合員コード, 購読者名, 手続種類, 購読種別, 連絡先１, 配達先氏名, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 支払方法, 購読開始日, 購読中止日`
+- 手続種類 / 購読種別 / 支払方法 は m_code ラベルを `CodeService.getLabel` で解決して出力する
 - 日付を `YYYY/MM/DD` 形式でフォーマットする（NULL の場合は空文字）
 
 ### 4.6 操作ログ記録
@@ -799,7 +815,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
 
 - Excel ファイルをレスポンスボディとして返却する。HTTP 200。
 - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- `Content-Disposition: attachment; filename="dokusya_export_YYYYMMDD_HHmmss.xlsx"`
+- `Content-Disposition: attachment; filename*=UTF-8''<URLエンコードした 購読者一覧出力_YYYYMMDD_HHmmss.xlsx>`
 
 ### 4.8 例外処理
 

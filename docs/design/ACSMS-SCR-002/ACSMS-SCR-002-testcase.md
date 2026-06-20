@@ -1806,7 +1806,8 @@ GET `/api/v1/tanka?page=1&per_page=20&sort_by=updated_at&sort_order=desc` が送
 補足：
 ・最新更新されたレコードが先頭に表示されること
 ・データスコープ制御により自中央会のレコードのみが返却されること
-・適用期間条件（`tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE`）が適用されること
+・※ 顧客要件(2026-06)：既定の適用期間条件は廃止。適用終了日が過去（期限切れ）の
+　レコードも含めて全件表示されること
 
 ### テスト結果（1回目）
 
@@ -2806,7 +2807,7 @@ HTTPステータスコード200が返却されること、レスポンスボデ�
 
 (なし)
 
-## ACSMS-TC-002-048 — 適用期間フィルタ（CURRENT_DATE 以降のみ表示）
+## ACSMS-TC-002-048 — 既定で期限切れ単価も全件表示（適用期間フィルタ廃止・顧客要件2026-06）
 
 - 観点ID: VP-B-05
 - 種類: Normal (正常)
@@ -2831,10 +2832,10 @@ DB確認：`SELECT tanka_id, tekiyo_end_date FROM m_tanka WHERE ja_id = :ja_id A
 画面が表示されること
 
 ステップ2：
-適用終了日が `2025-12-31`（過去）のレコードは表示されないこと、NULL（無期限）と `>= CURRENT_DATE` のレコードのみ表示されること
+適用終了日が `2025-12-31`（過去・期限切れ）のレコードも、NULL（無期限）のレコードも、すべて表示されること（既定の適用期間絞り込みは行わない）
 
 ステップ3：
-DBには過去のレコードも残存していること（論理削除されていない）が、APIのSQL `WHERE (tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE)` により一覧から除外されていること
+APIのSQLには既定の `WHERE (tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE)` 条件が無く、論理削除・データスコープ以外で期間による除外がされていないこと
 
 補足：
 ・適用期間条件が適用されること（api.md §4.3 基本条件）

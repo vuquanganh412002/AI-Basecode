@@ -753,7 +753,6 @@ describe('HanbaitenController — SCR-017 HTTP (detail / create / update)', () =
   });
 
   // ─── TOO_MANY_REQUESTS — only testable at integration layer ──────────
-  it.todo('should return 429 TOO_MANY_REQUESTS when throttle limit exceeded — covered in integration');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1201,5 +1200,4 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
   });
 
   // ─── TOO_MANY_REQUESTS — only testable at integration layer ──────────
-  it.todo('should return 429 TOO_MANY_REQUESTS for /import when throttle limit exceeded — covered in integration');
 });

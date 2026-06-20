@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
@@ -53,7 +54,7 @@ const router = useRouter();
 const notify = useNotify();
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<AccountFilters>({
     defaultFilters: {
@@ -183,28 +184,18 @@ onMounted(() => {
   // JA dropdown self-hydrates via <BaseJaDropdown>'s onMounted hook.
 });
 
-function onSearch(): void {
-  // Trim text filter so paste artifacts / IME spaces don't widen the
-  // ILIKE pattern. role_id / ja_id / kanri_shiten_id come from selects
-  // — no whitespace.
-  state.filters.login_id = state.filters.login_id.trim();
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  kanriShitenOptions.value = [];
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim the text filter; role_id / ja_id / kanri_shiten_id come from selects.
+  beforeSearch() {
+    state.filters.login_id = state.filters.login_id.trim();
+  },
+  // On an actual reset, also clear the cascaded 管理支店 dropdown options.
+  afterReset() {
+    kanriShitenOptions.value = [];
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -220,23 +211,16 @@ function goEdit(row: AccountListItem): void {
 }
 
 function askDelete(row: AccountListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    content: 'このアカウントを削除してもよろしいですか？',
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeAccount(row.account_id);
-        notify.deleted();
-        await fetchList();
-      } catch {
-        // Global interceptor toasts CONFLICT (ACSMS-MSG-024-003) and
-        // 500 (ACSMS-MSG-024-002) — view must NOT re-toast per
-        // .claude/rules/vue.md §Error Handling Architecture.
-      }
-    },
+  confirmDelete('このアカウントを削除してもよろしいですか？', async () => {
+    try {
+      await removeAccount(row.account_id);
+      notify.deleted();
+      await fetchList();
+    } catch {
+      // Global interceptor toasts CONFLICT (ACSMS-MSG-024-003) and
+      // 500 (ACSMS-MSG-024-002) — view must NOT re-toast per
+      // .claude/rules/vue.md §Error Handling Architecture.
+    }
   });
 }
 </script>

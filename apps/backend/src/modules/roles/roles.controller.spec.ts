@@ -322,5 +322,4 @@ describe('RolesController (HTTP)', () => {
   });
 
   // ─── TOO_MANY_REQUESTS — only testable at integration layer ──────────
-  it.todo('should return 429 TOO_MANY_REQUESTS when throttle limit exceeded — covered in integration');
 });

@@ -55,7 +55,11 @@ updated_by: Tran Duc Tuyen
 | 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 8   | 画面固有     | NO_TARGET_DATA        | 該当する支払い情報が存在しません。                                     | HTTP 404 |
+
+※ 対象0件は業務エラーではなく「検索成功・結果なし」として扱う。プレビュー・出力とも
+HTTP 200 を返し（プレビュー: `data:[]`、出力: `application/json` の `{ data: [] }`）、FE が画面内に
+ACSMS-MSG-021-003「該当する支払い情報が存在しません。」を表示する（トーストではない）。
+SCR-026 / SCR-028 と方針統一。
 
 ---
 
@@ -72,7 +76,7 @@ updated_by: Tran Duc Tuyen
 | リクエストボディー     | なし                                                                                                                                                                                                                                                                                |
 | リクエストパラメーター | クエリパラメーター（後述）                                                                                                                                                                                                                                                          |
 | ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                                 |
-| HTTPレスポンスコード   | 200:正常に集計情報を取得しました, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:該当する支払い情報が存在しません, 500:システムエラーが発生しました                                                       |
+| HTTPレスポンスコード   | 200:正常に集計情報を取得しました（対象0件のときは data:[]）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                                                       |
 
 ## リクエストパラメータ
 
@@ -80,6 +84,8 @@ updated_by: Tran Duc Tuyen
 | --- | --------------------------- | ------- | ---- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | target_month                | String  | ○    | 10     | 10     | 対象年月日（`YYYY-MM-DD` 形式）。年月単位で集計するため日は任意（月初を推奨）。t_dokusya・m_hanbaiten・m_tanka の当該年月時点のスナップショットで集計する。 |
 | 2   | haitatsuryo_shiharai_cycle  | Integer |      | -      | -      | 配達手数料支払サイクル（月数、1〜12）。指定時は `m_hanbaiten.haitatsuryo_shiharai_cycle` で絞込。未指定時は全サイクルを対象。                                |
+| 3   | page                        | Integer |      | -      | -      | ページ番号（1始まり）。preview のみ有効。未指定時は 1。                                                       |
+| 4   | per_page                    | Integer |      | -      | -      | 1ページ件数（1〜100）。preview のみ有効。未指定時は 20。export は無視し全件出力する。                          |
 
 ## レスポンスデータ
 
@@ -100,12 +106,16 @@ updated_by: Tran Duc Tuyen
 | 13  | →yokin_shubetsu               | Integer       | -            | 〇       | 預金種別 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                              |
 | 14  | →koza_no                      | String        | -            |          | 口座番号（`m_hanbaiten.koza_no`、半角数字最大 10 桁）※空文字許容                                      |
 | 15  | →koza_meigi                   | String        | -            |          | 口座名義（`m_hanbaiten.koza_meigi`、半角カナ最大 50 桁）※空文字許容                                   |
-| 16  | →biko                         | String        | -            |          | 備考（`m_hanbaiten.biko`）※空文字許容                                                                 |
-| 17  | meta                          | Object        | -            |          | 集計サマリ                                                                                            |
-| 18  | →total                        | Integer       | -            |          | 集計対象の販売店件数                                                                                  |
-| 19  | →grand_total_busu             | Integer       | -            |          | 全販売店合計部数（`Σ total_busu`）                                                                    |
-| 20  | →grand_total_kingaku          | Integer       | -            |          | 全販売店合計金額（`Σ total_kingaku`）                                                                 |
-| 21  | →zei_kubun                    | Integer       | -            |          | 適用税区分（`m_ja.zei_kubun`、1:内税, 2:外税）— 金額計算に使用した区分                                |
+| 16  | →tesuryo                      | Integer       | -            |          | 手数料（配達手数料単価、1部あたり）。税区分で `m_tanka.kingaku_zeikomi`（内税）/`kingaku_zeinuki`（外税）を切替。`当月金額 = 当月部数 × 手数料` |
+| 17  | →biko                         | String        | -            |          | 備考（`m_hanbaiten.biko`）※空文字許容                                                                 |
+| 18  | meta                          | Object        | -            |          | 集計サマリ＋ページ情報                                                                                |
+| 19  | →total                        | Integer       | -            |          | 集計対象の販売店総数（全ページ通算）                                                                  |
+| 20  | →page                         | Integer       | -            |          | 現在ページ（1始まり）                                                                                 |
+| 21  | →per_page                     | Integer       | -            |          | 1ページ件数                                                                                           |
+| 22  | →total_pages                  | Integer       | -            |          | 総ページ数（`ceil(total / per_page)`）                                                                |
+| 23  | →grand_total_busu             | Integer       | -            |          | 全販売店合計部数（`Σ total_busu`、全件通算でページ非依存）                                            |
+| 24  | →grand_total_kingaku          | Integer       | -            |          | 全販売店合計金額（`Σ total_kingaku`、全件通算でページ非依存）                                         |
+| 25  | →zei_kubun                    | Integer       | -            |          | 適用税区分（`m_ja.zei_kubun`、1:内税, 2:外税）— 金額計算に使用した区分                                |
 
 ## リクエスト例
 
@@ -194,12 +204,16 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
 }
 ```
 
-### HTTP 404 — NO_TARGET_DATA
+### HTTP 200 — 対象データなし
+
+対象0件は業務エラーではないため 200 を返す。FE は `data.length === 0`（出力は
+レスポンスが application/json）を検出して画面内に ACSMS-MSG-021-003「該当する
+支払い情報が存在しません。」を表示する。
 
 ```json
 {
-  "error_code": "NO_TARGET_DATA",
-  "message": "該当する支払い情報が存在しません。"
+  "data": [],
+  "meta": { "total": 0, "grand_total_busu": 0, "grand_total_kingaku": 0, "zei_kubun": 1 }
 }
 ```
 
@@ -282,6 +296,10 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
             WHEN :zei_kubun = 1 THEN t.kingaku_zeikomi
             ELSE t.kingaku_zeinuki
        END)                                          AS total_kingaku,
+       MAX(CASE
+            WHEN :zei_kubun = 1 THEN t.kingaku_zeikomi
+            ELSE t.kingaku_zeinuki
+       END)                                          AS tesuryo,        -- 配達手数料単価（1部）
        h.haitatsuryo_shiharai_cycle,
        h.bank_code,
        h.bank_name,
@@ -311,7 +329,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
  ORDER BY h.hanbaiten_code
 ```
 
-- 取得件数が 0 件の場合：HTTP 404 (`NO_TARGET_DATA`)（ACSMS-MSG-021-003）。
+- 取得件数が 0 件の場合：HTTP 200 + `data:[]`（FE が ACSMS-MSG-021-003 を画面内表示）。
 
 ### 4.5 レスポンス生成
 
@@ -328,7 +346,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 - DataScope 違反の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
-- 対象データ 0 件の場合：HTTP 404 (`NO_TARGET_DATA`)
+- 対象データ 0 件の場合：HTTP 200 + `data:[]`（FE が画面内表示）
 - DB 接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
 - レート制限超過の場合：HTTP 429 (`TOO_MANY_REQUESTS`)
 
@@ -347,7 +365,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                                                                                                       |
 | リクエストパラメーター | リクエストボディ（後述）                                                                                                                                                                                                                                                                                                                   |
 | ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                                                                                        |
-| HTTPレスポンスコード   | 200:正常に Excel ファイルを出力しました（バイナリ応答）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:該当する支払い情報が存在しません, 500:システムエラーが発生しました                                                                                       |
+| HTTPレスポンスコード   | 200:正常に Excel ファイルを出力しました（バイナリ応答。対象0件のときは application/json で { data: [] }）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                                                                                       |
 
 ## リクエストパラメータ
 
@@ -425,12 +443,16 @@ ACSMS-MSG-021-004「Excelファイルを出力しました。」は FE 側で 20
 }
 ```
 
-### HTTP 404 — NO_TARGET_DATA
+### HTTP 200 — 対象データなし
+
+対象0件は業務エラーではないため 200 を返す。FE は `data.length === 0`（出力は
+レスポンスが application/json）を検出して画面内に ACSMS-MSG-021-003「該当する
+支払い情報が存在しません。」を表示する。
 
 ```json
 {
-  "error_code": "NO_TARGET_DATA",
-  "message": "該当する支払い情報が存在しません。"
+  "data": [],
+  "meta": { "total": 0, "grand_total_busu": 0, "grand_total_kingaku": 0, "zei_kubun": 1 }
 }
 ```
 
@@ -469,7 +491,7 @@ ACSMS-MSG-021-004「Excelファイルを出力しました。」は FE 側で 20
 ### 4.3 集計データの取得
 
 - API-021-001 §4.3 + §4.4 と同一 SQL で集計データを取得する。
-- 取得件数が 0 件の場合：HTTP 404 (`NO_TARGET_DATA`)（ACSMS-MSG-021-003）。Excel 出力 / S3 保存 / DB 登録は実行しない。
+- 取得件数が 0 件の場合：HTTP 200 + `application/json` `{ data: [] }`（Excel 出力 / S3 保存 / DB 登録は実行しない。FE が画面内表示）。
 
 ### 4.4 Excel 生成・S3 保存（トランザクション外）
 
@@ -562,7 +584,7 @@ VALUES (4, NOW(), :account_id, :user_ja_id,
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 - DataScope 違反の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
-- 対象データ 0 件の場合：HTTP 404 (`NO_TARGET_DATA`)（ACSMS-MSG-021-003）。Excel 出力 / S3 保存 / DB 登録は実行しない。
+- 対象データ 0 件の場合：HTTP 200 + `application/json` `{ data: [] }`（Excel 出力 / S3 保存 / DB 登録は実行しない。FE が画面内表示）。
 - S3 / DB 接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)（ACSMS-MSG-021-002）。
 - レート制限超過の場合：HTTP 429 (`TOO_MANY_REQUESTS`)
 - エラーログ記録（トランザクション外で別途記録）:

@@ -95,6 +95,11 @@ export interface DokusyaDetail {
   rireki_no: number;
   /** denshi_shonin_status — null=non-digital, 0=承認待ち, 1=承認, 2=否認. */
   denshi_shonin_status: number | null;
+  /**
+   * 電子版会員ID — 外部システムの会員ID。外部連携機能（後続開発）が設定する
+   * 読取専用値。未連携は null。
+   */
+  denshi_kaiin_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -156,8 +161,13 @@ export interface CreateDokusyaRequest {
   dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
   dokusya_chushi_date?: string | null;
-  /** YYYY-MM-DD — must be future date when present. */
+  /** YYYY-MM-DD — 情報変更適用日（別フィールド変更用・後日定義）。当面 null。 */
   joho_henko_tekiyo_date?: string | null;
+  /**
+   * YYYY-MM-DD — 販売店適用日。編集で販売店を変更したときのみ送る（当日以降）。
+   * BE は t_dokusya_rireki.hanbaiten_tekiyo_date に記録する。
+   */
+  hanbaiten_tekiyo_date?: string | null;
   /** YYYYMM. */
   seikyu_kaishi_month?: string;
   biko?: string;
@@ -280,8 +290,12 @@ export interface DokusyaListItem {
   kumiaiin_code: string;
   full_name: string;
   full_name_kana: string;
+  /** 手続種類 — m_code TETSUZUKI_SHURUI (0:解約, 1:新規). */
+  tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  /** 配達先氏名 — haitatsu_shimei_sei + haitatsu_shimei_mei (concat, trimmed). */
+  haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;

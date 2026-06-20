@@ -37,6 +37,7 @@ import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useAuthStore } from '@/stores/auth.store';
+import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
 import {
   searchDokusyaForReplace,
   replaceDokusyaHanbaiten,
@@ -75,12 +76,17 @@ const DEFAULT_FILTERS: ReplaceFilters = {
 
 const authStore = useAuthStore();
 
-const { state, loading, total, onChange, applyFilters, resetFilters } =
-  useTableQuery<ReplaceFilters>({
-    defaultFilters: { ...DEFAULT_FILTERS },
-    defaultSortBy: 'kumiaiin_code',
-    defaultSortOrder: 'asc',
-  });
+const {
+  state,
+  loading,
+  total,
+  onChange,
+  searchActions,
+} = useTableQuery<ReplaceFilters>({
+  defaultFilters: { ...DEFAULT_FILTERS },
+  defaultSortBy: 'kumiaiin_code',
+  defaultSortOrder: 'asc',
+});
 
 const rows = ref<ReplaceSearchItem[]>([]);
 const selectedRowKeys = ref<number[]>([]);
@@ -300,6 +306,9 @@ async function fetchList(): Promise<void> {
 onMounted(() => {
   void fetchKanriShitenDropdown();
   void fetchHanbaitenDropdown();
+  // 初期表示でフィルタ未指定のまま検索を実行し、購読中の購読者一覧を
+  // デフォルト表示する（検索ボタンを押さなくてもデータを表示）。
+  void fetchList();
 });
 
 // ─── Event handlers ───────────────────────────────────────────────────
@@ -312,24 +321,23 @@ function trimTextFilters(): void {
   f.haitatsu_address = f.haitatsu_address.trim();
 }
 
-function onSearch(): void {
-  trimTextFilters();
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  resetFilters();
-  rows.value = [];
-  total.value = 0;
-  selectedRowKeys.value = [];
-  shitenOptions.value = [];
-  replaceForm.value = {
-    new_hanbaiten_id: undefined,
-    hanbaiten_tekiyo_date: '',
-  };
-  replaceError.value = '';
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions)。
+// 表示中の一覧と同じ条件での 検索 連打、デフォルト状態での クリア 連打は API を
+// 呼ばない（重複呼び出し防止）。クリアは選択行・置換フォーム等のローカル状態を
+// 常にクリアしてから、絞り込み中なら条件をリセットして一覧を再取得する。
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  beforeSearch: trimTextFilters,
+  beforeClear() {
+    selectedRowKeys.value = [];
+    shitenOptions.value = [];
+    replaceForm.value = {
+      new_hanbaiten_id: undefined,
+      hanbaiten_tekiyo_date: '',
+    };
+    replaceError.value = '';
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -343,10 +351,6 @@ const MSG_SAME_HANBAITEN = '現在の販売店と同じ販売店は選択でき�
 const MSG_INELIGIBLE = '電子版クレカ決済者・併読者は編集・削除できません。'; // ACSMS-MSG-015-006
 const MSG_CONFIRM = '選択した購読者の販売店を置換します。よろしいでしょうか？'; // ACSMS-MSG-015-007
 const MSG_SUCCESS = '置換処理が完了しました。'; // ACSMS-MSG-015-008
-
-const SHUBETSU_HEIDOKU = 3; // 併読
-const SHUBETSU_DENSHI = 2; // 電子版
-const SHIHARAI_CREDIT = 6; // クレジットカード
 
 /** Rows currently checked. */
 const selectedRows = computed(() =>
@@ -379,9 +383,9 @@ function validateReplace(): boolean {
   // 併読 / 電子版クレカ are ineligible.
   const ineligible = selectedRows.value.some(
     (r) =>
-      r.dokusya_shubetsu === SHUBETSU_HEIDOKU ||
-      (r.dokusya_shubetsu === SHUBETSU_DENSHI &&
-        r.shiharai_hoho === SHIHARAI_CREDIT),
+      r.dokusya_shubetsu === DokusyaShubetsu.BOTH ||
+      (r.dokusya_shubetsu === DokusyaShubetsu.DIGITAL &&
+        r.shiharai_hoho === ShiharaiHoho.CREDIT_CARD),
   );
   if (ineligible) {
     replaceError.value = MSG_INELIGIBLE;

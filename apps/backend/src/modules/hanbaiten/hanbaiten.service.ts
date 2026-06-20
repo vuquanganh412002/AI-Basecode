@@ -4,7 +4,8 @@ import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 
-import { LogType, ResultStatus } from '@/common/enums';
+import {
+  AuditOperation, LogType, ResultStatus } from '@/common/enums';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
@@ -197,6 +198,9 @@ const RELATED_TABLES: ReadonlyArray<{
   hasDeletedAt: boolean;
 }> = [
   { table: 't_dokusya', hasDeletedAt: true },
+  // 購読者履歴テーブル — append-only（deleted_at 列なし）。api.md §4.4 の
+  // 履歴チェック SQL に対応（`AND deleted_at IS NULL` を付けない）。
+  { table: 't_dokusya_rireki', hasDeletedAt: false },
 ];
 
 /**
@@ -512,7 +516,7 @@ export class HanbaitenService {
       // here — a manager-bound INSERT would also be rolled back.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
-        'DELETE',
+        AuditOperation.DELETE,
         err as Error,
       );
       throw err;
@@ -687,7 +691,7 @@ export class HanbaitenService {
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           auditCtxFactory(null),
-          'CREATE',
+          AuditOperation.CREATE,
           err as Error,
         );
         throw new DuplicateCodeException('販売店コード', dto.hanbaiten_code);
@@ -696,7 +700,7 @@ export class HanbaitenService {
       // trace survives.
       await this.auditLog.logError(
         auditCtxFactory(null),
-        'CREATE',
+        AuditOperation.CREATE,
         err as Error,
       );
       throw err;
@@ -833,7 +837,7 @@ export class HanbaitenService {
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
       });
     } catch (err) {
-      await this.auditLog.logError(auditCtx, 'UPDATE', err as Error);
+      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
       throw err;
     }
 

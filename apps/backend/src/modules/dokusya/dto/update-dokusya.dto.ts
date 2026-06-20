@@ -1,5 +1,12 @@
-import { IsEmpty } from 'class-validator';
-import { CreateDokusyaDto } from './create-dokusya.dto';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsEmpty, IsOptional, IsString, Matches } from 'class-validator';
+
+import {
+  CreateDokusyaDto,
+  DATE_INPUT_RE,
+  blankToUndef,
+} from './create-dokusya.dto';
 
 /**
  * Body for PUT /api/v1/dokusya/{dokusya_id} (ACSMS-API-011-003).
@@ -23,4 +30,23 @@ export class UpdateDokusyaDto extends CreateDokusyaDto {
    */
   @IsEmpty({ message: 'dokusya_id はリクエストボディに含められません。' })
   dokusya_id?: never;
+
+  /**
+   * 販売店適用日 — 編集で販売店 (hanbaiten_id) を変更したときの適用日。
+   * 当日以降（過去日不可・当日は即日適用）。サービスで
+   * `t_dokusya_rireki.hanbaiten_tekiyo_date` に記録する。マスタには
+   * 列が無いため保存しない。販売店を変更しない更新では未送信 (null)。
+   * 情報変更適用日 (joho_henko_tekiyo_date) とは別概念（後者は後日定義）。
+   */
+  @ApiPropertyOptional({
+    description: '販売店適用日 (YYYY/MM/DD、当日以降)。販売店変更時のみ。',
+    nullable: true,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '販売店適用日は文字列で指定してください。' })
+  @Matches(DATE_INPUT_RE, {
+    message: '販売店適用日はYYYY/MM/DD形式で指定してください。',
+  })
+  hanbaiten_tekiyo_date?: string | null;
 }

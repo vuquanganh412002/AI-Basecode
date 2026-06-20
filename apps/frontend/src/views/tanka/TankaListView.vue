@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -60,7 +61,7 @@ const canUpdate = computed(() => authStore.hasPermission('tanka.update'));
 const canDelete = computed(() => authStore.hasPermission('tanka.delete'));
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<TankaFilters>({
     defaultFilters: {
@@ -133,29 +134,15 @@ async function fetchList(): Promise<void> {
 
 onMounted(fetchList);
 
-function onSearch(): void {
-  // Trim leading/trailing whitespace so "  基本  " → "基本". Paste
-  // artifacts and IME-confirmed spaces shouldn't widen the ILIKE
-  // pattern. Mutate state.filters directly so the input visibly
-  // updates — clear feedback that 検索 did something (vue.md §List
-  // view rule 5a).
-  state.filters.tanka_name = state.filters.tanka_name.trim();
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim so "  基本  " → "基本"; paste artifacts / IME spaces shouldn't widen
+  // the ILIKE pattern. Mutate in place so the input visibly updates (vue.md §5a).
+  beforeSearch() {
+    state.filters.tanka_name = state.filters.tanka_name.trim();
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -172,23 +159,16 @@ function goEdit(row: TankaListItem): void {
 
 function askDelete(row: TankaListItem): void {
   // ACSMS-MSG-002-005 — confirm copy verbatim from screen-design.md.
-  Modal.confirm({
-    title: '削除確認',
-    content: 'この単価を削除してもよろしいですか？',
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeTanka(row.tanka_id);
-        notify.deleted();  // ACSMS-MSG-002-007 — '削除しました。'
-        await fetchList();
-      } catch {
-        // Global axios interceptor handles 409 CONFLICT
-        // (ACSMS-MSG-002-006) and 500 (ACSMS-MSG-002-004); view must
-        // NOT re-toast (vue.md §Error Handling Architecture rule 1).
-      }
-    },
+  confirmDelete('この単価を削除してもよろしいですか？', async () => {
+    try {
+      await removeTanka(row.tanka_id);
+      notify.deleted();  // ACSMS-MSG-002-007 — '削除しました。'
+      await fetchList();
+    } catch {
+      // Global axios interceptor handles 409 CONFLICT
+      // (ACSMS-MSG-002-006) and 500 (ACSMS-MSG-002-004); view must
+      // NOT re-toast (vue.md §Error Handling Architecture rule 1).
+    }
   });
 }
 </script>

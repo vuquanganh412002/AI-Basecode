@@ -18,18 +18,20 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import dayjs, { type Dayjs } from 'dayjs';
+import { message } from 'ant-design-vue';
 
-import { todayStartTokyo, todayIsoTokyo } from '@/utils/datetime';
+import { todayIsoTokyo, isPastDayTokyo } from '@/utils/datetime';
 // `dayjs` is kept ONLY to parse picker-frame strings (e.g. user-selected
 // YYYY-MM-DD) into a Dayjs that lives in the same TZ frame as the picker
 // output. NEVER call `dayjs()` (no args) here — use `nowTokyo()` /
-// `todayStartTokyo()` instead per `.claude/rules/vue.md §Date/Time`.
+// `isPastDayTokyo()` instead per `.claude/rules/vue.md §Date/Time`.
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseCurrencyInput from '@/components/common/BaseCurrencyInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
+import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
@@ -115,7 +117,7 @@ function todayIso(): string {
  * `validateClient` re-enforces this as defence-in-depth.
  */
 function disableStartDate(current: Dayjs): boolean {
-  return current && current.isBefore(todayStartTokyo());
+  return isPastDayTokyo(current);
 }
 
 /**
@@ -134,7 +136,7 @@ function disableEndDate(current: Dayjs): boolean {
     ? dayjs(formState.tekiyo_start_date)
     : null;
   if (start && current.isBefore(start, 'day')) return true;
-  if (!isEdit.value && current.isBefore(todayStartTokyo())) return true;
+  if (!isEdit.value && isPastDayTokyo(current)) return true;
   return false;
 }
 
@@ -171,6 +173,9 @@ const formState = reactive<TankaFormState>({
   campaign_flg: false,
 });
 
+// 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
+const editGuard = useEditGuard(() => formState);
+
 /* ─── Lifecycle ────────────────────────────────────────────────────── */
 
 onMounted(async () => {
@@ -202,6 +207,7 @@ onMounted(async () => {
       active_flg: Boolean(resp.data.active_flg),
       campaign_flg: Boolean(resp.data.campaign_flg),
     });
+    await editGuard.capture();
   } catch {
     // 404 / 403 — global axios interceptor already toasted via
     // src/api/error-handler.ts. Drop back to the list so we don't
@@ -470,6 +476,11 @@ async function submitWith(form: TankaFormState): Promise<void> {
 }
 
 async function onFormSubmit(): Promise<void> {
+  // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
+  if (tankaIdParam.value !== undefined && editGuard.isPristine()) {
+    message.info('変更がありません。');
+    return;
+  }
   await submitWith({ ...formState });
 }
 

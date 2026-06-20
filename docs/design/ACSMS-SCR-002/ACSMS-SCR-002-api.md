@@ -201,7 +201,10 @@ GET /api/v1/tanka?tanka_type=1&tanka_name=基本&tekiyo_start_date=2026-04-01&te
 - 基本条件：
   - スコープ制御（ja_id = user.ja_id）
   - 論理削除除外（deleted_at IS NULL）
-  - 有効期間条件（tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE）
+  - ※ 顧客要件（2026-06）：既定の有効期間条件
+    （tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE）は**廃止**。
+    適用終了日が過去の（期限切れ）単価も既定で全件表示する。期間での絞り込みは
+    tekiyo_start_date / tekiyo_end_date の明示パラメータでのみ行う。
 - 検索条件：
   - tanka_type：完全一致（=）
   - tanka_name：部分一致（ILIKE '%value%'）
@@ -228,7 +231,7 @@ SELECT tanka_id, tanka_type, tanka_code, tanka_name,
 FROM m_tanka
 WHERE ja_id = :ja_id
   AND deleted_at IS NULL
-  AND (tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE)
+  -- 顧客要件(2026-06): 既定の有効期間条件は廃止（期限切れも全件表示）
   AND (:tanka_type IS NULL OR tanka_type = :tanka_type)
   AND (:tanka_name IS NULL OR tanka_name ILIKE '%' || :tanka_name || '%')
   AND (:tekiyo_start_date IS NULL OR tekiyo_start_date >= :tekiyo_start_date)

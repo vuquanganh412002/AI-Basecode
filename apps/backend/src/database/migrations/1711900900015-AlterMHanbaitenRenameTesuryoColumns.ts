@@ -23,12 +23,21 @@ export class AlterMHanbaitenRenameTesuryoColumns1711900900015
   name = 'AlterMHanbaitenRenameTesuryoColumns1711900900015';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE m_hanbaiten RENAME COLUMN tesuryo_kubun TO furikomi_tesuryo_futan_kubun`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE m_hanbaiten RENAME COLUMN tesuryo_amount TO furikomi_tesuryo`,
-    );
+    // 冪等化: 旧名カラムが存在する場合のみリネームする。CreateMHanbaiten 本体は
+    // 既に新名称で作成するため、新規 DB（migration を頭から流す環境 / DR / CI の
+    // 統合テスト用 DB）では旧カラムが無く、無ガードだと RENAME が
+    // 「column "tesuryo_kubun" does not exist」で失敗していた。hasColumn で
+    // ガードし、既デプロイ環境ではリネーム、新規環境では no-op にする。
+    if (await queryRunner.hasColumn('m_hanbaiten', 'tesuryo_kubun')) {
+      await queryRunner.query(
+        `ALTER TABLE m_hanbaiten RENAME COLUMN tesuryo_kubun TO furikomi_tesuryo_futan_kubun`,
+      );
+    }
+    if (await queryRunner.hasColumn('m_hanbaiten', 'tesuryo_amount')) {
+      await queryRunner.query(
+        `ALTER TABLE m_hanbaiten RENAME COLUMN tesuryo_amount TO furikomi_tesuryo`,
+      );
+    }
     await queryRunner.query(
       `COMMENT ON COLUMN m_hanbaiten.furikomi_tesuryo_futan_kubun IS '振込手数料負担区分（1:JA, 2:販売店）'`,
     );

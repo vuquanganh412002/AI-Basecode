@@ -748,6 +748,67 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
   });
 
   // ──────────────────────────────────────────────────────────────
+  // API-022-004 — downloadZip (一括ダウンロード → 1 ZIP)
+  // ──────────────────────────────────────────────────────────────
+  describe('downloadZip', () => {
+    it('should bundle selected files into one application/zip named 一括ダウンロード_yyyyMMddHHmmss.zip', async () => {
+      repo.find.mockResolvedValue([
+        buildFileUpload({ fileUploadId: 101, fileName: 'a.pdf', filePath: 'p/a.pdf' }),
+        buildFileUpload({ fileUploadId: 102, fileName: 'b.csv', filePath: 'p/b.csv' }),
+      ]);
+      const result = await service.downloadZip([101, 102], buildSession(), baseReq);
+      expect(result.contentType).toBe('application/zip');
+      expect(result.fileName).toMatch(/^一括ダウンロード_\d{14}\.zip$/);
+      expect(result.body).toBeInstanceOf(Buffer);
+      expect(result.contentLength).toBe(result.body.length);
+    });
+
+    it('should fetch every selected file from storage by its file_path', async () => {
+      repo.find.mockResolvedValue([
+        buildFileUpload({ fileUploadId: 101, filePath: 'p/a.pdf' }),
+        buildFileUpload({ fileUploadId: 102, filePath: 'p/b.csv' }),
+      ]);
+      await service.downloadZip([101, 102], buildSession(), baseReq);
+      expect(storage.download).toHaveBeenCalledWith('p/a.pdf');
+      expect(storage.download).toHaveBeenCalledWith('p/b.csv');
+    });
+
+    it('should throw NotFoundException when any requested id is missing (all-or-nothing)', async () => {
+      // 102 absent from the result set.
+      repo.find.mockResolvedValue([buildFileUpload({ fileUploadId: 101 })]);
+      await expect(
+        service.downloadZip([101, 102], buildSession(), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException (existence-hiding) when a CHUOKAI selects a file outside managed JAs', async () => {
+      repo.find.mockResolvedValue([
+        buildFileUpload({ fileUploadId: 101, jaId: 999 }),
+        buildFileUpload({ fileUploadId: 102, jaId: 999 }),
+      ]);
+      dataSource.query = jest.fn(async () => []); // manages no JA incl. 999
+      await expect(
+        service.downloadZip([101, 102], buildChuokaiSession(), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should INSERT one t_file_download per file + one batch t_log (log_type=4, DOWNLOAD) in a transaction', async () => {
+      repo.find.mockResolvedValue([
+        buildFileUpload({ fileUploadId: 101 }),
+        buildFileUpload({ fileUploadId: 102 }),
+      ]);
+      await service.downloadZip([101, 102], buildSession(), baseReq);
+      expect(dataSource.transaction).toHaveBeenCalled();
+      expect(txManager.save).toHaveBeenCalledTimes(2); // one FileDownload per file
+      expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
+      expect(auditLog.logOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ logType: 4, operation: 'DOWNLOAD' }),
+        expect.anything(),
+      );
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────
   // API-023-001 — extended list response fields (notification_status etc.)
   //
   // Same endpoint as SCR-022's findAll but the response shape has more

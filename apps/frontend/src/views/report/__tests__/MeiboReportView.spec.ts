@@ -276,11 +276,31 @@ describe('MeiboReportView — レポートプレビュー', () => {
 // 4. Excel出力 (機能定義 4)
 // ───────────────────────────────────────────────────────────────────────
 describe('MeiboReportView — Excel出力', () => {
-  it('should call exportMeibo and create a Blob object URL when Excel出力 is clicked with valid conditions', async () => {
+  /** プレビューでデータを取得して Excel出力 を活性化する。 */
+  async function previewWithData(wrapper: any): Promise<void> {
+    wrapper.vm.formState.tekiyo_date = '2026-04-01';
+    wrapper.vm.formState.report_type = 'hanbaiten';
+    wrapper.vm.formState.hanbaiten_ids = [1];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+  }
+
+  it('should disable Excel出力 on initial mount (no preview data yet) and NOT call exportMeibo on click', async () => {
     const { wrapper } = await renderView();
     const { exportMeibo } = await import('@/api/report/report');
-    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
-    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+
+    const btn = wrapper.find(exportBtn());
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+
+    await btn.trigger('click');
+    await flushPromises();
+    expect(exportMeibo).not.toHaveBeenCalled();
+  });
+
+  it('should call exportMeibo and create a Blob object URL when Excel出力 is clicked after preview returns data', async () => {
+    const { wrapper } = await renderView();
+    const { exportMeibo } = await import('@/api/report/report');
+    await previewWithData(wrapper);
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();
@@ -289,27 +309,13 @@ describe('MeiboReportView — Excel出力', () => {
     expect(createObjectURL).toHaveBeenCalled();
   });
 
-  it('should NOT call exportMeibo when 適用日 is empty on Excel出力 click', async () => {
-    const { wrapper } = await renderView();
-    const { exportMeibo } = await import('@/api/report/report');
-    (wrapper.vm as any).formState.tekiyo_date = '';
-    (wrapper.vm as any).formState.hanbaiten_ids = [1];
-
-    await wrapper.find(exportBtn()).trigger('click');
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('必須項目です。');
-    expect(exportMeibo).not.toHaveBeenCalled();
-  });
-
   it('should still call exportMeibo when it rejects with 500 (interceptor handles the toast)', async () => {
     const { wrapper } = await renderView();
     const { exportMeibo } = await import('@/api/report/report');
+    await previewWithData(wrapper);
     vi.mocked(exportMeibo).mockRejectedValueOnce({
       error_code: 'INTERNAL_SERVER_ERROR',
     });
-    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
-    (wrapper.vm as any).formState.hanbaiten_ids = [1];
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();

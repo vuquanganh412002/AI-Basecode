@@ -108,10 +108,13 @@ export class DokusyaController {
       req.user,
       req,
     );
+    // RFC 6266 filename*=UTF-8'' so the multibyte Japanese name
+    // (購読者一覧出力_…) survives Node's header-value restriction.
+    const encoded = encodeURIComponent(filename);
     res.set({
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encoded}`,
       'Content-Length': String(buffer.length),
     });
     res.send(buffer);

@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AuditOperation } from '@/common/enums';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Ja } from '@/database/entities/ja.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
+import { Role } from '@/database/entities/role.entity';
+import { RoleCode } from '@/common/enums/role-code.enum';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { CreateJaDto } from './dto/create-ja.dto';
 import { UpdateJaDto } from './dto/update-ja.dto';
@@ -57,17 +60,6 @@ const SORT_COLUMN_MAP: Record<JaSearchSortBy, string> = {
   // updated_at) bubbles to row 1 so users see what they just changed.
   updated_at: 'mj.updated_at',
 };
-
-/**
- * Role-id values used by the COMMON-003 dropdown's `role_id`
- * cascade. Mirrors `m_roles.role_id` per `docs/database/seeder.md
- * §1`. Kept local to this service because the only consumer is the
- * `dropdown()` method below; promote to a project-wide Group A enum
- * (with FE mirror + enum-sync test) when a second call site
- * appears.
- */
-const ROLE_ID_CHUOKAI = 3;
-const ROLE_IDS_SINGLE_JA = [4, 5] as const; // JA_HONTEN, JA_KANRI_SHITEN
 
 /**
  * Tables whose existence of a row referencing the JA blocks a delete.
@@ -143,6 +135,8 @@ export class JaService {
     private readonly repo: Repository<Ja>,
     @InjectRepository(Todofuken)
     private readonly todofukenRepo: Repository<Todofuken>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
@@ -244,7 +238,7 @@ export class JaService {
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
-          'CREATE',
+          AuditOperation.CREATE,
           err as Error,
         );
         throw new DuplicateCodeException('JAコード', dto.ja_code);
@@ -252,7 +246,7 @@ export class JaService {
       // [audit-error-log] — OUTSIDE the (rolled-back) transaction.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
-        'CREATE',
+        AuditOperation.CREATE,
         err as Error,
       );
       throw err;
@@ -350,7 +344,7 @@ export class JaService {
       // [audit-error-log] — OUTSIDE the (rolled-back) transaction.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, jaId),
-        'UPDATE',
+        AuditOperation.UPDATE,
         err as Error,
       );
       throw err;
@@ -486,7 +480,7 @@ export class JaService {
     } catch (err) {
       // [audit-error-log] — OUTSIDE the rolled-back tx so the trace
       // survives even when the business write was discarded.
-      await this.auditLog.logError(ctxBuilder(), 'DELETE', err as Error);
+      await this.auditLog.logError(ctxBuilder(), AuditOperation.DELETE, err as Error);
       throw err;
     }
   }
@@ -504,10 +498,10 @@ export class JaService {
    *      driven by sibling dropdowns.
    *
    * Both contracts return the SAME paginated shape; cascade-callers
-   * just ignore the `meta` and use `data`. The pre-cascade
-   * `role_id → chuokai_flg` mapping is documented on the DTO:
-   *   role_id=3 → chuokai_flg=TRUE  (central association)
-   *   role_id=4 or 5 → chuokai_flg=FALSE (single JA)
+   * just ignore the `meta` and use `data`. The `role_id → chuokai_flg`
+   * mapping resolves role_id → role_code first (never hardcodes the PK):
+   *   CHUOKAI                     → chuokai_flg=TRUE  (central association)
+   *   JA_HONTEN / JA_KANRI_SHITEN → chuokai_flg=FALSE (single JA)
    *
    * DataScope: applied via `applyJaScope` so non-NICHINO roles only
    * see JAs in their organizational hierarchy. `include_id` does NOT
@@ -561,15 +555,25 @@ export class JaService {
       });
     }
 
-    // role_id → chuokai_flg cascade. Unknown role_ids fall through
-    // (no filter) rather than 400, matching the SCR-024 spec.
-    if (query.role_id === ROLE_ID_CHUOKAI) {
-      qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: true });
-    } else if (
-      query.role_id !== undefined &&
-      ROLE_IDS_SINGLE_JA.includes(query.role_id as 4 | 5)
-    ) {
-      qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: false });
+    // role_id → chuokai_flg cascade. Resolve the (DB-assigned, BIGSERIAL)
+    // role_id to its STABLE role_code before branching, so the logic never
+    // hardcodes m_roles PK values (insert-order dependent — see
+    // SeedMRoles migration). 中央会 → chuokai_flg=TRUE; 単協 (JA本店 /
+    // JA管理支店) → FALSE. Unknown role_id / 日農 roles fall through (no
+    // filter) rather than 400, matching the SCR-024 spec.
+    if (query.role_id !== undefined) {
+      const role = await this.roleRepo.findOne({
+        where: { roleId: query.role_id },
+        select: ['roleCode'],
+      });
+      if (role?.roleCode === RoleCode.CHUOKAI) {
+        qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: true });
+      } else if (
+        role?.roleCode === RoleCode.JA_HONTEN ||
+        role?.roleCode === RoleCode.JA_KANRI_SHITEN
+      ) {
+        qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: false });
+      }
     }
 
     qb.orderBy('mj.ja_code', 'ASC')

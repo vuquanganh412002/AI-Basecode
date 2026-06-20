@@ -425,19 +425,16 @@ describe('ReportController (HTTP) — 増減連絡票（販売店） (SCR-028)',
       expect(res.body.error_code).toBe('DATA_SCOPE_VIOLATION');
     });
 
-    it('should return 404 NO_REPORT_DATA when service reports no matching data', async () => {
-      service.previewZougenHanbaiten.mockRejectedValue(
-        new NotFoundException({
-          code: 'NO_REPORT_DATA',
-          error_code: 'NO_REPORT_DATA',
-          message: '対象のデータが存在しません。',
-        }),
-      );
+    it('should return 200 with empty reports (NOT 404) when service reports no matching data', async () => {
+      service.previewZougenHanbaiten.mockResolvedValue({
+        tekiyo_date: '2026-05-01',
+        reports: [],
+      });
       const res = await http()
         .get(apiUrl('report/zougen-hanbaiten/preview'))
         .query({ tekiyo_date: '2026-05-01' })
-        .expect(404);
-      expect(res.body.error_code).toBe('NO_REPORT_DATA');
+        .expect(200);
+      expect(res.body.data.reports).toEqual([]);
     });
 
     it('should return 500 INTERNAL_SERVER_ERROR when service throws an unexpected error', async () => {
@@ -454,8 +451,10 @@ describe('ReportController (HTTP) — 増減連絡票（販売店） (SCR-028)',
   describe('POST /api/v1/report/zougen-hanbaiten/export', () => {
     it('should return 200 with a pdf attachment when data exists', async () => {
       service.exportZougenHanbaitenPdf.mockResolvedValue({
+        empty: false,
         buffer: Buffer.from('%PDF-1.4'),
         filename: '増減連絡票_販売店_2026年05月01日.pdf',
+        asciiFilename: 'zougen_hanbaiten_20260501.pdf',
       });
 
       const res = await http()
@@ -493,19 +492,14 @@ describe('ReportController (HTTP) — 増減連絡票（販売店） (SCR-028)',
       expect(res.body.error_code).toBe('FORBIDDEN');
     });
 
-    it('should return 404 NO_REPORT_DATA when service reports no matching data', async () => {
-      service.exportZougenHanbaitenPdf.mockRejectedValue(
-        new NotFoundException({
-          code: 'NO_REPORT_DATA',
-          error_code: 'NO_REPORT_DATA',
-          message: '対象のデータが存在しません。',
-        }),
-      );
+    it('should return 200 application/json with empty reports (NOT 404) when service reports no matching data', async () => {
+      service.exportZougenHanbaitenPdf.mockResolvedValue({ empty: true });
       const res = await http()
         .post(apiUrl('report/zougen-hanbaiten/export'))
         .send({ tekiyo_date: '2026-05-01' })
-        .expect(404);
-      expect(res.body.error_code).toBe('NO_REPORT_DATA');
+        .expect(200);
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.body.data.reports).toEqual([]);
     });
 
     it('should return 500 INTERNAL_SERVER_ERROR when export throws an unexpected error', async () => {

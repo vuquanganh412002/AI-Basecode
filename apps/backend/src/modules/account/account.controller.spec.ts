@@ -441,7 +441,6 @@ describe('AccountController (HTTP) — SCR-024 (search + delete)', () => {
   });
 
   // ─── TOO_MANY_REQUESTS — only testable at integration layer ──────────
-  it.todo('should return 429 TOO_MANY_REQUESTS when throttle limit exceeded — covered in integration');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -785,7 +784,6 @@ describe('AccountController (HTTP) — SCR-025 (detail + create + update)', () =
   });
 
   // ─── TOO_MANY_REQUESTS — only testable at integration layer ──────────
-  it.todo('should return 429 TOO_MANY_REQUESTS when throttle limit exceeded — covered in integration');
 });
 
 // ═══════════════════════════════════════════════════════════════════════

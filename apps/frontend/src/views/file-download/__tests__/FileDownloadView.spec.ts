@@ -16,6 +16,7 @@ import Antd, { message } from 'ant-design-vue';
 import FileDownloadView from '@/views/file-download/FileDownloadView.vue';
 import {
   buildFileUploadListResponse,
+  buildFileUploadItem,
   buildFilePreviewResponse,
   buildTodofukenResponse,
   buildFileDownloadUser,
@@ -26,6 +27,7 @@ vi.mock('@/api/file-upload/file-upload', () => ({
   listFiles: vi.fn(),
   getFilePreview: vi.fn(),
   downloadFile: vi.fn(),
+  downloadFilesAsZip: vi.fn(),
 }));
 
 vi.mock('@/api/todofuken/todofuken', () => ({
@@ -97,14 +99,17 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  const { listFiles, getFilePreview, downloadFile } = await import(
-    '@/api/file-upload/file-upload'
-  );
+  const { listFiles, getFilePreview, downloadFile, downloadFilesAsZip } =
+    await import('@/api/file-upload/file-upload');
   vi.mocked(listFiles).mockResolvedValue(buildFileUploadListResponse());
   vi.mocked(getFilePreview).mockResolvedValue(buildFilePreviewResponse());
   vi.mocked(downloadFile).mockResolvedValue(
     new Blob(['%PDF-mock-bytes'], { type: 'application/pdf' }),
   );
+  vi.mocked(downloadFilesAsZip).mockResolvedValue({
+    blob: new Blob(['PK-zip-mock'], { type: 'application/zip' }),
+    filename: '一括ダウンロード_20260619153000.zip',
+  });
 
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse());
@@ -319,6 +324,50 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
+// 2b. 論理削除済みファイルの無効化 (deleted_at)
+// ───────────────────────────────────────────────────────────────────────
+describe('FileDownloadView — soft-deleted files disabled (deleted_at)', () => {
+  const deletedRow = buildFileUploadItem({
+    file_upload_id: 999,
+    file_name: 'old_report.pdf',
+    deleted_at: '2026-06-01T10:00:00+09:00',
+  });
+  const liveRow = buildFileUploadItem({
+    file_upload_id: 101,
+    file_name: 'live_report.pdf',
+    deleted_at: null,
+  });
+
+  async function renderWithRows() {
+    const { listFiles } = await import('@/api/file-upload/file-upload');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileUploadListResponse({
+        data: [liveRow, deletedRow],
+        meta: { total: 2, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    return renderView();
+  }
+
+  it('disables the selection checkbox for a soft-deleted row but not a live one', async () => {
+    const { wrapper } = await renderWithRows();
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(deletedRow).disabled).toBe(true);
+    expect(cfg.getCheckboxProps(liveRow).disabled).toBe(false);
+  });
+
+  it('renders a soft-deleted filename as plain 削除済み text, not a preview link', async () => {
+    const { wrapper } = await renderWithRows();
+    expect(wrapper.text()).toContain('削除済み');
+    const linkTexts = wrapper.findAll('a').map((a) => a.text());
+    // deleted file → not a clickable link
+    expect(linkTexts.some((t) => t.includes('old_report.pdf'))).toBe(false);
+    // live previewable file → still a link
+    expect(linkTexts.some((t) => t.includes('live_report.pdf'))).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
 // 3. 検索条件クリア (機能定義 3.x)
 // ───────────────────────────────────────────────────────────────────────
 describe('FileDownloadView — clear search (機能定義 3.x)', () => {
@@ -500,10 +549,13 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
     expect(downloadFile).toHaveBeenCalledWith(101);
   });
 
-  it('should call downloadFile once per selected file when multiple checkboxes are checked', async () => {
+  it('should bundle into ONE ZIP via downloadFilesAsZip (not per-file downloadFile) when multiple files are selected (機能定義 8.x)', async () => {
     const { wrapper } = await renderView();
-    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { downloadFile, downloadFilesAsZip } = await import(
+      '@/api/file-upload/file-upload'
+    );
     vi.mocked(downloadFile).mockClear();
+    vi.mocked(downloadFilesAsZip).mockClear();
 
     const vm = wrapper.vm as any;
     vm.selectedIds = [101, 102];
@@ -515,7 +567,32 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
     await dlBtn!.trigger('click');
     await flushPromises();
 
-    expect(downloadFile).toHaveBeenCalledTimes(2);
+    // 複数選択 → ZIP 1回 with all ids; 単体 downloadFile は呼ばない。
+    expect(downloadFilesAsZip).toHaveBeenCalledTimes(1);
+    expect(downloadFilesAsZip).toHaveBeenCalledWith([101, 102]);
+    expect(downloadFile).not.toHaveBeenCalled();
+  });
+
+  it('should download the raw file via downloadFile (NOT zip) when exactly one file is selected', async () => {
+    const { wrapper } = await renderView();
+    const { downloadFile, downloadFilesAsZip } = await import(
+      '@/api/file-upload/file-upload'
+    );
+    vi.mocked(downloadFile).mockClear();
+    vi.mocked(downloadFilesAsZip).mockClear();
+
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [101];
+    await flushPromises();
+
+    const dlBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('ダウンロード実行'));
+    await dlBtn!.trigger('click');
+    await flushPromises();
+
+    expect(downloadFile).toHaveBeenCalledWith(101);
+    expect(downloadFilesAsZip).not.toHaveBeenCalled();
   });
 
   it('should create a Blob object URL for the downloaded file when downloadFile resolves', async () => {

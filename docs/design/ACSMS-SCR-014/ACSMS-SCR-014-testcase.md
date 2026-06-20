@@ -1704,13 +1704,13 @@ DataScope適用後の購読者レコードが既定順（最新順）で表示�
 HTTPステータスコード200が返却されること（`data: []`、`meta.total: 0` を返却）
 
 ステップ2：
-検索結果なしのメッセージ `該当するデータが存在しません。` が一覧テーブル外に表示されること
+検索結果なしのメッセージ `検索結果が見つかりませんでした。` が一覧テーブル外に表示されること
 
 ステップ3：
 データ行が表示されないこと、ページネーションは「全 0 件」と表示されること
 
 補足：
-・ACSMS-MSG-014-002 該当
+・ACSMS-MSG-014-002 検索結果が見つかりませんでした。
 ・空メッセージは a-table の `#emptyText` スロットではなく、テーブル外の兄弟要素として表示されること
 
 ### テスト結果（1回目）
@@ -2168,7 +2168,7 @@ HTTPステータスコード200が返却されること（検索条件が適用�
 HTTPステータスコード200が返却されること、Excelファイルがダウンロードされること、トースト `Excel出力が正常に完了しました。` が表示されること
 
 ステップ3：
-ファイル名が `dokusya_export_YYYYMMDD_HHmmss.xlsx`（JST）であること、`Content-Type` が `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` であること、ヘッダー行が `管理支店, 支店, 組合員コード, 購読者名, 連絡先１, 連絡先２, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 購読開始日, 購読中止日`（12列）であること
+ファイル名が `購読者一覧出力_YYYYMMDD_HHmmss.xlsx`（JST）であること、`Content-Type` が `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` であること、ヘッダー行が `管理支店, 支店, 組合員コード, 購読者名, 連絡先１, 連絡先２, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 購読開始日, 購読中止日`（12列）であること
 
 ステップ4：
 1 行確認、`log_type=1`、`operation='EXPORT_EXCEL'`、`result_status=1`、`after_value` JSON にエクスポート条件と件数（`record_count`）が記録されること

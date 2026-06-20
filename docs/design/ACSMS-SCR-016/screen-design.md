@@ -95,8 +95,8 @@ ACSMS-SCR-016_購読者Excelデータ取込画面_画面イメージ
 | 6 | ID | col_01 | チェックボックス | 入 |  | Boolean | - | - |  | BIGINT | 読者テーブル | t_dokusya | 購読者ID | dokusya_id | 列パネル表示中 | checked | 変更登録時必須; 新規時自動採番 |
 | 7 | 購読種別 | col_02 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - |  | INTEGER | 読者テーブル | t_dokusya | 購読種別 | dokusya_shubetsu | 列パネル表示中 | checked | 1:紙版, 2:電子版のみ取込可。3:併読はExcel取込不可（エラーとする）（併読は電子版連携のみで、Excel取込み対象外）<br>常に選択されており、選択を解除することはできません。 |
 | 8 | 手続種類 | col_03 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - |  | INTEGER | 読者テーブル | t_dokusya | 手続種類 | tetsuzuki_shurui | 列パネル表示中 | checked | 0:解約, 1:新規<br>常に選択されており、選択を解除することはできません。 |
-| 9 | 管理支店 | col_04 | チェックボックス | 入 | ●(新規登録) | Boolean | - | - |  | BIGINT | 読者テーブル | t_dokusya | 管理支店ID | kanri_shiten_id | 列パネル表示中 | checked | 新規登録場合は必須<br>常に選択されており、選択を解除することはできません。 |
-| 10 | 支店 | col_05 | チェックボックス | 入 |  | Boolean | - | - |  | BIGINT | 読者テーブル | t_dokusya | 支店ID | shiten_id | 列パネル表示中 | checked |  |
+| 9 | 管理支店 | col_04 | チェックボックス | 入 | ●(新規登録) | Boolean | - | 20 |  | VARCHAR(20) | 読者テーブル | t_dokusya | 管理支店コード | kanri_shiten_code | 列パネル表示中 | checked | 列名は「管理支店」のまま、値は管理支店コードで取込む（m_kanri_shiten.kanri_shiten_code を自JA内で解決し t_dokusya.kanri_shiten_id へ保存）。新規登録場合は必須<br>常に選択されており、選択を解除することはできません。 |
+| 10 | 支店 | col_05 | チェックボックス | 入 |  | Boolean | - | 20 |  | VARCHAR(20) | 読者テーブル | t_dokusya | 支店コード | shiten_code | 列パネル表示中 | checked | 列名は「支店」のまま、値は支店コードで取込む（m_shiten.shiten_code を自JA内で解決し t_dokusya.shiten_id へ保存）。 |
 | 11 | 組合員コード | col_06 | チェックボックス | 入 |  | Boolean | - | 20 |  | VARCHAR(20) | 読者テーブル | t_dokusya | 組合員コード | kumiaiin_code | 列パネル表示中 | checked | 一括中止時に必須（組合員コードをキーにして、手続種別を解約とし、購読中止日を設定して更新する） |
 | 12 | 購読者氏名_氏 | col_07 | チェックボックス | 入 |  | Boolean | - | 50 |  | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（姓） | shimei_sei | 列パネル表示中 | checked | 常に選択されており、選択を解除することはできません。 |
 | 13 | 購読者氏名_名 | col_08 | チェックボックス | 入 |  | Boolean | - | 50 |  | VARCHAR(50) | 読者テーブル | t_dokusya | 氏名（名） | shimei_mei | 列パネル表示中 | checked | 常に選択されており、選択を解除することはできません。 |

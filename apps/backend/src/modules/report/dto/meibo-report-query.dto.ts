@@ -22,7 +22,7 @@ const TEKIYO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const toNumberArray = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null) return value;
   const arr = Array.isArray(value) ? value : [value];
-  return arr.map((v) => (v === '' || v === null ? NaN : Number(v)));
+  return arr.map((v) => (v === '' || v === null ? Number.NaN : Number(v)));
 };
 
 /**

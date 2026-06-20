@@ -405,14 +405,15 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       );
     });
 
-    it('should return 400 DUPLICATE_EMAIL when same email exists in same ja_id', async () => {
+    it('should return 400 DUPLICATE_EMAIL when same email exists among 電子版 records in same ja_id', async () => {
       const sid = await asChuokai(1);
-      // Seed first record
+      // Seed first 電子版 record (email unique among 電子版/併読 only).
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
           kumiaiin_code: 'INT-DUP-1',
+          dokusya_shubetsu: 2,
           email: 'dup-test@example.com',
         }))
         .expect(201);
@@ -422,11 +423,93 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
           kumiaiin_code: 'INT-DUP-2',
+          dokusya_shubetsu: 2,
           email: 'dup-test@example.com',
         }))
         .expect(400);
 
       expect(res.body.error_code).toBe('DUPLICATE_EMAIL');
+    });
+
+    it('should allow a duplicate email between 紙版 records (uniqueness is 電子版/併読 only)', async () => {
+      const sid = await asChuokai(1);
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-PDUP-1',
+          dokusya_shubetsu: 1,
+          email: 'paper-dup@example.com',
+        }))
+        .expect(201);
+
+      // Same email, also 紙版 → permitted (紙版 is not checked for uniqueness).
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-PDUP-2',
+          dokusya_shubetsu: 1,
+          email: 'paper-dup@example.com',
+        }))
+        .expect(201);
+    });
+
+    it('should allow a 電子版 email that collides only with a 紙版 record', async () => {
+      const sid = await asChuokai(1);
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-MIX-1',
+          dokusya_shubetsu: 1,
+          email: 'mixed@example.com',
+        }))
+        .expect(201);
+
+      // A 電子版 row with the same email — the 紙版 row is ignored by the
+      // uniqueness check, so this is allowed.
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-MIX-2',
+          dokusya_shubetsu: 2,
+          email: 'mixed@example.com',
+        }))
+        .expect(201);
+    });
+
+    it('should return 400 VALIDATION_ERROR when email is missing for 電子版', async () => {
+      const sid = await asChuokai(1);
+      const res = await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-EMAIL-REQ',
+          dokusya_shubetsu: 2,
+          email: undefined,
+        }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: 'email' }),
+        ]),
+      );
+    });
+
+    it('should allow a missing email for 紙版', async () => {
+      const sid = await asChuokai(1);
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({
+          kumiaiin_code: 'INT-EMAIL-OPT',
+          dokusya_shubetsu: 1,
+          email: undefined,
+        }))
+        .expect(201);
     });
 
     it('should return 401 when session cookie is missing', async () => {
@@ -1000,11 +1083,13 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
             '2026-01-01', NULL, '', TRUE,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // FK-conflict helper for DELETE — dokusya.remove() checks
-        // t_koza_furikae (not yet a synchronized entity). Bare columns.
+        // t_koza_furikae (not yet a synchronized entity). 本番マイグレーション
+        // と同じく deleted_at 列は持たない（出力スナップショット表・ソフト
+        // デリートなし）。fixture をスキーマと一致させ、remove() が
+        // `deleted_at IS NULL` で絞ると 500 になる回帰を防ぐ。
         `DROP TABLE IF EXISTS t_koza_furikae`,
         `CREATE TABLE t_koza_furikae (
-           dokusya_id INT,
-           deleted_at TIMESTAMPTZ
+           dokusya_id INT
          )`,
         // m_todofuken (haitatsu concatenation needs todofuken_name)
         `INSERT INTO m_todofuken
@@ -1251,6 +1336,34 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       expect(row.deleted_at).not.toBeNull();
     });
 
+    it('should return 409 CONFLICT (not 500) when t_koza_furikae references the dokusya', async () => {
+      // 回帰: t_koza_furikae は deleted_at 列を持たない。remove() の FK ガードが
+      // `deleted_at IS NULL` で絞ると本番で「column does not exist」→ 500。
+      // 行があれば 409 CONFLICT で弾けることを実スキーマ準拠の fixture で保証。
+      const { id, sid } = await seedDeletable('INT-014-DEL-FK');
+      await ctx.dataSource.query(
+        `INSERT INTO t_koza_furikae (dokusya_id) VALUES ($1)`,
+        [id],
+      );
+      const res = await http()
+        .delete(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(409);
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT deleted_at FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(row.deleted_at).toBeNull();
+
+      // クリーンアップ（後続テストの FK ガードに影響させない）。
+      await ctx.dataSource.query(
+        `DELETE FROM t_koza_furikae WHERE dokusya_id = $1`,
+        [id],
+      );
+    });
+
     it('should return 403 SHUBETSU_PERMISSION_DENIED deleting a 紙版 row without paper_flg', async () => {
       // account_concept.md §139-145 — 紙版(1) の削除には paper_flg が必要。
       // 13 (denshi-only) は paper_flg=false → 403.
@@ -1371,8 +1484,10 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       expect(res.headers['content-type']).toContain(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
+      // RFC 6266 filename*=UTF-8'' — 購読者一覧出力_YYYYMMDD_HHmmss.xlsx を
+      // URL エンコードした形（%E8%B3%BC… で始まる）。
       expect(res.headers['content-disposition']).toMatch(
-        /dokusya_export_\d{8}_\d{6}\.xlsx/,
+        /filename\*=UTF-8''.+_\d{8}_\d{6}\.xlsx/,
       );
     });
 

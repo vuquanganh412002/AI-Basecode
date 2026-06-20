@@ -32,7 +32,7 @@ interface LogFilters {
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<LogFilters>({
     defaultFilters: {
@@ -126,24 +126,12 @@ onMounted(() => {
   // hook — no view-level fetch required.
 });
 
-function onSearch(): void {
-  if (!validateDateRange()) return;
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Validate the date range first; returning false aborts the search.
+  beforeSearch: validateDateRange,
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);

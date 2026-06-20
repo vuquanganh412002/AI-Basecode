@@ -110,6 +110,44 @@ export async function downloadFile(fileUploadId: number): Promise<Blob> {
   return res.data;
 }
 
+/** POST /api/v1/file-upload/download-zip — ACSMS-API-022-004.
+ *  Bundles the selected files server-side into one ZIP. Returns the Blob
+ *  plus the server-provided filename (一括ダウンロード_yyyyMMddHHmmss.zip),
+ *  parsed from the Content-Disposition `filename*` (UTF-8). */
+export async function downloadFilesAsZip(
+  fileUploadIds: number[],
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await axiosInstance.post<Blob>(
+    '/api/v1/file-upload/download-zip',
+    { file_upload_ids: fileUploadIds },
+    { responseType: 'blob' },
+  );
+  const disposition = String(res.headers['content-disposition'] ?? '');
+  return {
+    blob: res.data,
+    filename: parseContentDispositionFilename(disposition),
+  };
+}
+
+/**
+ * Extract the download filename from a `Content-Disposition` header. Prefers
+ * RFC 5987 `filename*=UTF-8''<pct-encoded>` (carries the Japanese name),
+ * falls back to the bare `filename="..."`, then a generic default.
+ */
+function parseContentDispositionFilename(disposition: string): string {
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      // Malformed percent-encoding — fall through to the ASCII form.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  if (plain?.[1]) return plain[1].trim();
+  return 'download.zip';
+}
+
 // ─── SCR-023 — POST + DELETE ──────────────────────────────────────────
 
 export interface UploadedFileRow {

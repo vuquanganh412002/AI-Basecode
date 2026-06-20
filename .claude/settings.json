@@ -31,7 +31,15 @@
       "Bash(ls -la /home/AI-Source-Code/ | grep -i checklist; echo \"---\"; ls -ld /home/AI-Source-Code/automation-test-AI/scripts 2>&1)",
       "Read(//home/AI-Source-Code/**)",
       "Read(//home/AI-Source-Code/automation-test-AI/scripts/**)",
-      "Bash(cp /home/AI-Source-Code/checklist_md_to_excel.py /home/AI-Source-Code/agrinews/scripts/ && ls -la /home/AI-Source-Code/agrinews/scripts/checklist_md_to_excel.py)"
+      "Bash(cp /home/AI-Source-Code/checklist_md_to_excel.py /home/AI-Source-Code/agrinews/scripts/ && ls -la /home/AI-Source-Code/agrinews/scripts/checklist_md_to_excel.py)",
+      "Bash(node -e \"const p=require\\('./apps/backend/package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(ls node_modules/.bin/nest)",
+      "Bash(find . -name \"*.tsbuildinfo\" -not -path \"./node_modules/*\")",
+      "Bash(node -e \"try{console.log\\(require\\('./nest-cli.json'\\).compilerOptions.tsConfigPath||'\\(default tsconfig.build.json\\)'\\)}catch\\(e\\){console.log\\(e.message\\)}\")",
+      "Bash(python3 -c \"import yaml,sys; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('yaml OK'\\)\")",
+      "Skill(code-review)",
+      "Skill(code-review:*)",
+      "Bash(git check-ignore *)"
     ],
     "additionalDirectories": [
       "/tmp",

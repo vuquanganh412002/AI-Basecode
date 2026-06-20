@@ -222,6 +222,24 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     expect(getHanbaitenDropdown).toHaveBeenCalled();
   });
 
+  it('should call searchDokusyaForReplace on mount so the 購読者一覧 is shown by default (no 検索 click)', async () => {
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
+    const { wrapper } = await renderView();
+    expect(searchDokusyaForReplace).toHaveBeenCalledTimes(1);
+    // Default search runs with no filters but with the default paging/sort.
+    const arg = vi.mocked(searchDokusyaForReplace).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({
+      page: 1,
+      per_page: 20,
+      sort_by: 'kumiaiin_code',
+      sort_order: 'asc',
+    });
+    expect(wrapper.text()).toContain('山田 太郎');
+  });
+
   it('should NOT call getShitenDropdown when mounted before 管理支店 is chosen (支店 stays empty)', async () => {
     await renderView();
     const { getShitenDropdown } = await import('@/api/shiten/shiten');
@@ -280,15 +298,35 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
 // 2. 購読者検索 (機能定義 B-2)
 // ═══════════════════════════════════════════════════════════════════════
 describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
-  it('should call searchDokusyaForReplace when the search form is submitted', async () => {
+  it('should call searchDokusyaForReplace when the search form is submitted with a changed filter', async () => {
     const { wrapper } = await renderView();
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
     vi.mocked(searchDokusyaForReplace).mockClear();
 
+    // A 検索 press only fetches when the criteria changed vs the displayed
+    // list (other-module guard: filtersChangedSinceApplied). Change one filter.
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.kumiaiin_code = '10001';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
     expect(searchDokusyaForReplace).toHaveBeenCalled();
+  });
+
+  it('should NOT call searchDokusyaForReplace again when 検索 is pressed with no filter change (avoids continuous API calls)', async () => {
+    const { wrapper } = await renderView();
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    // Initial mount fetch already loaded the default list.
+    vi.mocked(searchDokusyaForReplace).mockClear();
+
+    // Press 検索 twice with the form still at its defaults — both no-ops.
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
   });
 
   it('should pass the kumiaiin_code filter to searchDokusyaForReplace when set + submitted', async () => {
@@ -349,10 +387,9 @@ describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
     expect(wrapper.text()).toContain('検索結果が見つかりませんでした。');
   });
 
-  it('should re-render the table with new rows when searchDokusyaForReplace returns a different response', async () => {
+  it('should re-render the table with new rows when a changed search returns a different response', async () => {
     const { wrapper } = await renderView();
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
+    // The mount fetch already shows the default list.
     expect(wrapper.text()).toContain('山田 太郎');
 
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
@@ -368,6 +405,10 @@ describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
         meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
       }) as never,
     );
+    // Change a filter so the 検索 actually fires (guard: only fetch on change).
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.kumiaiin_code = '99999';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -904,12 +945,43 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     }
   });
 
-  it('should clear the result list + row selection when 検索クリア is clicked', async () => {
+  it('should reset filters + clear selection + re-fetch the default list when 検索クリア is clicked after a search', async () => {
     const { wrapper } = await renderView();
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+
+    // Narrow with a real filter so the screen is non-pristine.
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.kumiaiin_code = '10001';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     await selectRows(wrapper, 1);
     expect(wrapper.text()).toContain('山田 太郎');
+
+    vi.mocked(searchDokusyaForReplace).mockClear();
+    const clearBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('検索クリア'));
+    await clearBtn!.trigger('click');
+    await flushPromises();
+
+    // 検索クリア resets the filters and re-fetches the default list (not emptied).
+    expect(searchDokusyaForReplace).toHaveBeenCalledTimes(1);
+    if (vm.state?.filters) expect(vm.state.filters.kumiaiin_code).toBe('');
+    if (typeof vm.rows !== 'undefined') {
+      expect(vm.rows.length).toBeGreaterThan(0);
+    }
+    if (typeof vm.selectedRowKeys !== 'undefined') {
+      expect(vm.selectedRowKeys.length).toBe(0);
+    }
+  });
+
+  it('should NOT re-fetch on 検索クリア when the screen is already pristine, but still clear the selection (avoids continuous API calls)', async () => {
+    const { wrapper } = await renderView();
+    // Select a row without changing any filter — screen stays pristine.
+    await selectRows(wrapper, 1);
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
 
     const clearBtn = wrapper
       .findAll('button')
@@ -917,10 +989,8 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
 
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
     const vm = wrapper.vm as any;
-    if (typeof vm.rows !== 'undefined') {
-      expect(vm.rows.length).toBe(0);
-    }
     if (typeof vm.selectedRowKeys !== 'undefined') {
       expect(vm.selectedRowKeys.length).toBe(0);
     }

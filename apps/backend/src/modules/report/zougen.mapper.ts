@@ -253,23 +253,25 @@ function addressSection(rows: AddressChangeRow[]): Content {
   for (let i = 0; i < rows.length; i += 2) {
     const before = rows[i];
     const after = rows[i + 1];
-    body.push([
-      { text: '変更前', bold: true, alignment: 'center', fontSize: 8 },
-      cell(before.address),
-      { text: before.name, rowSpan: 2, fontSize: 8 },
-      { text: before.delivery_name, rowSpan: 2, fontSize: 8 },
-      { text: before.phone, rowSpan: 2, fontSize: 8 },
-      { text: before.biko, rowSpan: 2, fontSize: 8 },
-    ]);
-    body.push([
-      { text: '変更後', bold: true, alignment: 'center', fontSize: 8 },
-      cell(after?.address ?? ''),
-      // rowSpan=2 で覆われるセルはプレースホルダ（空オブジェクト）が必須。
-      {},
-      {},
-      {},
-      {},
-    ]);
+    body.push(
+      [
+        { text: '変更前', bold: true, alignment: 'center', fontSize: 8 },
+        cell(before.address),
+        { text: before.name, rowSpan: 2, fontSize: 8 },
+        { text: before.delivery_name, rowSpan: 2, fontSize: 8 },
+        { text: before.phone, rowSpan: 2, fontSize: 8 },
+        { text: before.biko, rowSpan: 2, fontSize: 8 },
+      ],
+      [
+        { text: '変更後', bold: true, alignment: 'center', fontSize: 8 },
+        cell(after?.address ?? ''),
+        // rowSpan=2 で覆われるセルはプレースホルダ（空オブジェクト）が必須。
+        {},
+        {},
+        {},
+        {},
+      ],
+    );
   }
   body.push(emptyRow());
   return {

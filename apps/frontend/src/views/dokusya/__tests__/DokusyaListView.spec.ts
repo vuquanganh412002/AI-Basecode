@@ -218,23 +218,30 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('電子版承認ステータス'))).toBe(true);
   });
 
-  it('should render all 12 result table column headers when mounted', async () => {
+  it('should render the 15 result table column headers when mounted', async () => {
     const { wrapper } = await renderView();
-    const text = wrapper.text();
-    // Per index.html §検索結果テーブル — 12 column headers + 操作.
-    expect(text).toContain('管理支店');
-    expect(text).toContain('支店');
-    expect(text).toContain('組合員コード');
-    expect(text).toContain('購読者名');
-    expect(text).toContain('連絡先1');
-    expect(text).toContain('連絡先2');
-    expect(text).toContain('配達先郵便');
-    expect(text).toContain('配達先住所');
-    expect(text).toContain('販売店コード');
-    expect(text).toContain('販売店名');
-    expect(text).toContain('購読開始日');
-    expect(text).toContain('購読中止日');
-    expect(text).toContain('操作');
+    const headerText = wrapper.findAll('th').map((th) => th.text());
+    // 顧客要件 2026-06 検索結果テーブル — ID + 14 列 + 操作
+    // (ID added first; 支店 / 連絡先２ removed; 手続種類 / 購読種別 / 配達先氏名 / 支払方法 added).
+    expect(headerText).toContain('ID');
+    expect(headerText).toContain('管理支店');
+    expect(headerText).toContain('組合員コード');
+    expect(headerText).toContain('購読者名');
+    expect(headerText).toContain('手続種類');
+    expect(headerText).toContain('購読種別');
+    expect(headerText).toContain('連絡先1');
+    expect(headerText).toContain('配達先氏名');
+    expect(headerText).toContain('配達先郵便');
+    expect(headerText).toContain('配達先住所');
+    expect(headerText).toContain('販売店コード');
+    expect(headerText).toContain('販売店名');
+    expect(headerText).toContain('支払方法');
+    expect(headerText).toContain('購読開始日');
+    expect(headerText).toContain('購読中止日');
+    expect(headerText).toContain('操作');
+    // Removed columns must NOT appear as standalone table headers.
+    expect(headerText).not.toContain('支店');
+    expect(headerText).not.toContain('連絡先2');
   });
 
   it('should render the 購読者一覧 section title when mounted (index.html row 690)', async () => {
@@ -273,8 +280,8 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(exportBtn).toBeDefined();
   });
 
-  it('should render ACSMS-MSG-014-002 「該当するデータが存在しません。」 when results.length === 0', async () => {
-    // COVERS: 機能定義 2.2 — 検索結果なし時のメッセージ.
+  it('should render ACSMS-MSG-014-002 「検索結果が見つかりませんでした。」 when results.length === 0', async () => {
+    // COVERS: 機能定義 2.2 — 検索結果なし時のメッセージ（プロジェクト共通文言）。
     const { listDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(listDokusya).mockResolvedValue({
       data: [],
@@ -282,7 +289,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     } as never);
 
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('該当するデータが存在しません。');
+    expect(wrapper.text()).toContain('検索結果が見つかりませんでした。');
   });
 
   it('should render rows from the API response when listDokusya resolves', async () => {
@@ -418,6 +425,36 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
       kumiaiin_code: 'K000001',
       full_name: '山田',
     });
+  });
+
+  it('should run the search (not throw) when 請求開始月 was typed then cleared and 検索 is clicked', async () => {
+    // Regression: seikyu_kaishi_month is bound to <a-date-picker>. Clearing
+    // it makes antd set the v-model to undefined; the old trimTextFilters()
+    // called .trim() on it → TypeError → generic error toast on 検索 instead
+    // of running the search. listDokusya being called proves onSearch ran to
+    // completion past the (now removed) trim.
+    const { wrapper } = await renderView();
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    // Simulate antd's clear icon: month value becomes undefined (not '').
+    // Pair with a real text filter so the search actually fires (a no-change
+    // submit is skipped) — the trim step still runs first, which is where the
+    // old code threw on the undefined month.
+    vm.state.filters.seikyu_kaishi_month = undefined;
+    vm.state.filters.kumiaiin_code = 'K000001';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(listDokusya).toHaveBeenCalled();
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    // Cleared month → omitted from the request params.
+    expect(arg?.seikyu_kaishi_month).toBeUndefined();
+    expect(arg?.kumiaiin_code).toBe('K000001');
   });
 
   it('should omit empty text filters (send undefined, not empty string) so BE does not see falsy values', async () => {

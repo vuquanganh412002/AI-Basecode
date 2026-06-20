@@ -50,7 +50,7 @@ export class PdfExportService {
       defaultStyle: {
         font: 'IPAexGothic',
         fontSize: 9,
-        ...(docDefinition.defaultStyle ?? {}),
+        ...docDefinition.defaultStyle,
       },
     };
     const doc = this.printer.createPdfKitDocument(finalDoc);

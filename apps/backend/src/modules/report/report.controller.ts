@@ -25,6 +25,7 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { MeiboReportQueryDto } from './dto/meibo-report-query.dto';
 import { ZougenHanbaitenQueryDto } from './dto/zougen-hanbaiten-query.dto';
+import { ZougenNichinoQueryDto } from './dto/zougen-nichino-query.dto';
 import { ReportService } from './report.service';
 
 @ApiTags('report')
@@ -93,10 +94,12 @@ export class ReportController {
   @HttpCode(HttpStatus.OK)
   @Permissions('report.export_zougen_hanbaiten')
   @ApiOperation({ summary: '増減連絡票（販売店）プレビュー取得 — ACSMS-API-028-001' })
-  @ApiResponse({ status: 200, description: 'プレビューデータ（販売店＋管理支店ごと）' })
+  @ApiResponse({
+    status: 200,
+    description: 'プレビューデータ（販売店＋管理支店ごと）。対象0件のときは reports:[]。',
+  })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
-  @ApiResponse({ status: 404, description: '対象のデータが存在しません。' })
   async previewZougenHanbaiten(
     @Query() query: ZougenHanbaitenQueryDto,
     @Req() req: Request & { user?: SessionPayload },
@@ -113,26 +116,93 @@ export class ReportController {
   @ApiOperation({ summary: '増減連絡票（販売店）PDF出力 — ACSMS-API-028-002' })
   @ApiResponse({
     status: 200,
-    description: 'PDF file as attachment.',
-    content: { 'application/pdf': {} },
+    description:
+      'PDF file as attachment。対象0件のときは application/json で { data: { reports: [] } } を返す。',
+    content: { 'application/pdf': {}, 'application/json': {} },
   })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
-  @ApiResponse({ status: 404, description: '対象のデータが存在しません。' })
   async exportZougenHanbaitenPdf(
     @Body() body: ZougenHanbaitenQueryDto,
     @Req() req: Request & { user?: SessionPayload },
     @Res() res: Response,
   ): Promise<void> {
     const session = req.user as SessionPayload;
-    const { buffer, filename, asciiFilename } =
-      await this.reportService.exportZougenHanbaitenPdf(body, session, req);
+    const result = await this.reportService.exportZougenHanbaitenPdf(
+      body,
+      session,
+      req,
+    );
+    // 対象0件 → PDFは生成せず 200 + 空配列(JSON)で応答する。FE は Blob の
+    // content-type が application/json のとき「対象のデータが存在しません。」を
+    // 画面内表示する（ダウンロードはしない）。
+    if (result.empty) {
+      res.status(HttpStatus.OK).json({ data: { reports: [] } });
+      return;
+    }
     res.setHeader('Content-Type', 'application/pdf');
     // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      `attachment; filename="${result.asciiFilename}"; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
     );
-    res.status(HttpStatus.OK).send(buffer);
+    res.status(HttpStatus.OK).send(result.buffer);
+  }
+
+  // ─── ACSMS-API-029-001 — GET /api/v1/report/zougen-nichino/preview ────
+  @Get('zougen-nichino/preview')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('report.export_zougen_nichino')
+  @ApiOperation({ summary: '増減通知（日本農業新聞）プレビュー取得 — ACSMS-API-029-001' })
+  @ApiResponse({
+    status: 200,
+    description: 'プレビューデータ（管理支店ごと）。対象0件のときは reports:[]。',
+  })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  async previewZougenNichino(
+    @Query() query: ZougenNichinoQueryDto,
+    @Req() req: Request & { user?: SessionPayload },
+  ) {
+    const session = req.user as SessionPayload;
+    const data = await this.reportService.previewZougenNichino(query, session);
+    return { data };
+  }
+
+  // ─── ACSMS-API-029-002 — POST /api/v1/report/zougen-nichino/export ────
+  @Post('zougen-nichino/export')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('report.export_zougen_nichino')
+  @ApiOperation({ summary: '増減通知（日本農業新聞）PDF/ZIP出力 — ACSMS-API-029-002' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '単一管理支店はPDF、複数管理支店はZIP。対象0件のときは application/json で { data: { reports: [] } } を返す。',
+    content: { 'application/pdf': {}, 'application/zip': {}, 'application/json': {} },
+  })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  async exportZougenNichinoPdf(
+    @Body() body: ZougenNichinoQueryDto,
+    @Req() req: Request & { user?: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const session = req.user as SessionPayload;
+    const result = await this.reportService.exportZougenNichinoPdf(
+      body,
+      session,
+      req,
+    );
+    // 対象0件 → ファイル生成せず 200 + 空配列(JSON)で応答する。
+    if (result.empty) {
+      res.status(HttpStatus.OK).json({ data: { reports: [] } });
+      return;
+    }
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.asciiFilename}"; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+    );
+    res.status(HttpStatus.OK).send(result.buffer);
   }
 }

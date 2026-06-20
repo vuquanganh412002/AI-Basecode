@@ -4,9 +4,9 @@
 // via createIntegrationTestApp(). Adds the new entities (FileUpload,
 // FileDownload) to the helper's ALL_ENTITIES list during /gen-code-backend.
 //
-// Rate-limit (429 TOO_MANY_REQUESTS) is throttler-dependent — covered
-// here only as it.todo until throttler config is wired in the integration
-// helper.
+// Rate-limit (429 TOO_MANY_REQUESTS) is application-level (global
+// ThrottlerGuard) and proven end-to-end in auth.throttle.integration.spec.ts;
+// not re-asserted per endpoint here.
 
 import request from 'supertest';
 
@@ -279,11 +279,6 @@ describe('SCR-022 — file download integration', () => {
       expect(res.status).toBe(404);
     });
   });
-
-  // ──────────────────────────────────────────────────────────────
-  // Rate-limit + observability deferred to throttler integration
-  // ──────────────────────────────────────────────────────────────
-  it.todo('should return 429 TOO_MANY_REQUESTS — covered when @nestjs/throttler is wired into createIntegrationTestApp');
 });
 
 // ══════════════════════════════════════════════════════════════════════

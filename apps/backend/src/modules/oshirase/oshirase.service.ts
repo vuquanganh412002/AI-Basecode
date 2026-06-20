@@ -4,7 +4,8 @@ import type { Request } from 'express';
 import { DataSource, IsNull, Not, Repository } from 'typeorm';
 
 import { Oshirase } from '@/database/entities/oshirase.entity';
-import { OshiraseStatus, OshiraseType, PublishLocation } from '@/common/enums';
+import {
+  AuditOperation, OshiraseStatus, OshiraseType, PublishLocation } from '@/common/enums';
 import {
   BadRequestException,
   NotFoundException,
@@ -28,14 +29,16 @@ import {
 } from './dto/search-oshirase.dto';
 import { DeadlineNoticeDuplicateException } from './exceptions/deadline-notice-duplicate.exception';
 import {
-  formatJstDate,
-  formatJstDateTimeMinutes,
-  parseJstDateTimeMinutes,
   toOshiraseDetail,
   toOshiraseListItem,
   type OshiraseDetail,
   type OshiraseListItem,
 } from './oshirase.mapper';
+import {
+  dateOnlyIsoJst,
+  formatDateTimeMinutesJst,
+  parseDatetimeMinutesJst,
+} from '@/common/utils/datetime';
 
 const SCREEN_NAME = 'お知らせ一覧画面 (ACSMS-SCR-031)';
 const TABLE_NAME = 't_oshirase';
@@ -199,7 +202,7 @@ export class OshiraseService {
       title: r.title,
       // JST calendar date — NOT toISOString().slice(0,10) (UTC, off-by-one
       // for instants before 09:00 JST).
-      publish_start_date: formatJstDate(r.publishStartDate),
+      publish_start_date: dateOnlyIsoJst(r.publishStartDate),
     }));
   }
 
@@ -292,9 +295,9 @@ export class OshiraseService {
         title: r.title,
         content: r.content,
         oshirase_type: r.oshiraseType,
-        publish_start_date: formatJstDateTimeMinutes(r.publishStartDate),
+        publish_start_date: formatDateTimeMinutesJst(r.publishStartDate),
         publish_end_date: r.publishEndDate
-          ? formatJstDateTimeMinutes(r.publishEndDate)
+          ? formatDateTimeMinutesJst(r.publishEndDate)
           : null,
         is_new: now.getTime() - freshnessBasis.getTime() <= sevenDaysMs,
         ja_id: r.jaId === null ? null : Number(r.jaId),
@@ -418,9 +421,9 @@ export class OshiraseService {
       if (exists > 0) throw new DeadlineNoticeDuplicateException();
     }
 
-    const startDate = parseJstDateTimeMinutes(dto.publish_start_date);
+    const startDate = parseDatetimeMinutesJst(dto.publish_start_date);
     const endDate = dto.publish_end_date
-      ? parseJstDateTimeMinutes(dto.publish_end_date)
+      ? parseDatetimeMinutesJst(dto.publish_end_date)
       : null;
     if (!startDate) {
       throw new BadRequestException('表示開始日時の形式が不正です。');
@@ -471,7 +474,7 @@ export class OshiraseService {
     } catch (err) {
       await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
-        'CREATE',
+        AuditOperation.CREATE,
         err as Error,
       );
       throw err;
@@ -517,9 +520,9 @@ export class OshiraseService {
       if (exists > 0) throw new DeadlineNoticeDuplicateException();
     }
 
-    const newStart = parseJstDateTimeMinutes(dto.publish_start_date);
+    const newStart = parseDatetimeMinutesJst(dto.publish_start_date);
     const newEnd = dto.publish_end_date
-      ? parseJstDateTimeMinutes(dto.publish_end_date)
+      ? parseDatetimeMinutesJst(dto.publish_end_date)
       : null;
     if (!newStart) {
       throw new BadRequestException('表示開始日時の形式が不正です。');
@@ -541,7 +544,7 @@ export class OshiraseService {
     //   - 保存済み開始日=未来 + 新値>=現在 → 通す
     //
     // [minute-precision] Form input is YYYY/MM/DD HH:mm (no seconds);
-    // parseJstDateTimeMinutes always returns a Date with seconds=0.
+    // parseDatetimeMinutesJst always returns a Date with seconds=0.
     // The DB row, however, keeps the full timestamp from INSERT (e.g.
     // 15:44:55.303). Strict-equal `getTime()` would tag every PATCH —
     // even one that doesn't touch the field — as a change. Compare at
@@ -598,7 +601,7 @@ export class OshiraseService {
     } catch (err) {
       await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
-        'UPDATE',
+        AuditOperation.UPDATE,
         err as Error,
       );
       throw err;
@@ -647,7 +650,7 @@ export class OshiraseService {
     } catch (err) {
       await this.auditLog!.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
-        'DELETE',
+        AuditOperation.DELETE,
         err as Error,
       );
       throw err;

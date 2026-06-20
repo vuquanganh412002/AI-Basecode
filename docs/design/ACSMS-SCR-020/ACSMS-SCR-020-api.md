@@ -419,7 +419,7 @@ SELECT d.dokusya_id,
    AND t.tekiyo_start_date <= :target_month
    AND (t.tekiyo_end_date IS NULL OR t.tekiyo_end_date >= :target_month)
   LEFT JOIN m_shiten s
-    ON s.bank_branch_code = d.bank_branch_code
+    ON s.shiten_code = d.bank_branch_code
    AND s.ja_id = d.ja_id
    AND s.kinyu_shiten_flg = TRUE
    AND s.deleted_at IS NULL

@@ -463,7 +463,6 @@ describe('ReportService', () => {
       expect(scopedCall).toBeDefined();
     });
 
-    it.todo('should rate-limit when TOO_MANY_REQUESTS threshold is exceeded (covered in integration / throttler layer)');
   });
 });
 
@@ -697,15 +696,16 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(scoped).toBeDefined();
     });
 
-    it('should throw NO_REPORT_DATA (HTTP 404) when no record matches', async () => {
-      // COVERS: 4.4 0件 → 404
+    it('should return empty reports (NOT 404) when no record matches', async () => {
+      // COVERS: 4.4 0件 → HTTP 200 + reports:[]（業務エラーではない）
       qbMock.getRawMany.mockResolvedValue([]);
 
-      await expect(
-        service.previewZougenHanbaiten(buildZougenQuery(), zSession()),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({ error_code: 'NO_REPORT_DATA' }),
-      });
+      const result = await service.previewZougenHanbaiten(
+        buildZougenQuery(),
+        zSession(),
+      );
+      expect(result.reports).toEqual([]);
+      expect(result.tekiyo_date).toBe(buildZougenQuery().tekiyo_date);
     });
   });
 
@@ -804,19 +804,21 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(auditLog.logError).toHaveBeenCalled();
     });
 
-    it('should throw NO_REPORT_DATA (HTTP 404) and NOT generate a PDF when no record matches', async () => {
-      // COVERS: 4.3 0件 → 404, ファイル生成しない
+    it('should return { empty: true } and NOT generate a PDF when no record matches', async () => {
+      // COVERS: 4.3 0件 → HTTP 200 + 空配列, ファイル生成しない
       qbMock.getRawMany.mockResolvedValue([]);
 
-      await expect(
-        service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({ error_code: 'NO_REPORT_DATA' }),
-      });
+      const result = await service.exportZougenHanbaitenPdf(
+        buildZougenQuery(),
+        zSession(),
+        req,
+      );
+      expect(result).toEqual({ empty: true });
       expect(pdfService.generatePdf).not.toHaveBeenCalled();
       expect(storage.upload).not.toHaveBeenCalled();
+      // 0件は履歴・操作ログも残さない。
+      expect(auditLog.logOperation).not.toHaveBeenCalled();
     });
 
-    it.todo('should rate-limit when TOO_MANY_REQUESTS threshold is exceeded (covered in integration / throttler layer)');
   });
 });

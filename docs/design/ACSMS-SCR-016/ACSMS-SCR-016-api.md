@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/06/16 | 1.1  | Tran Duc Tuyen | 不具合修正：UPDATE_ALL / UPDATE_PARTIAL の更新カラム欠落を修正。`UPDATE_ALL` は §4.4.2 の全項目（email / 郵便番号 / 都道府県 / 住所 / 配達先 / 口座 / 単価・販売店 等）を更新するよう実装を是正（旧実装は7列のみ）。`UPDATE_PARTIAL` の更新可能カラムを取込テンプレート全項目（FKコード列 hanbaiten_code→hanbaiten_id / tanka_code→tanka_id 解決含む）へ拡張。NOT NULL の FK・参照列（管理支店 / 支店 / 販売店 / 単価 / 購読種別 / 手続種類 / 支払方法）は空欄上書きで制約違反にならないよう `COALESCE(:値, 既存値)` で既存値を維持。購読開始日(初回・shoki_dokusya_kaishi_date)は不変のため更新対象外。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -102,8 +103,8 @@ updated_by: Tran Duc Tuyen
 | 1  | ID                               | 購読者ID                   | dokusya_id                 | BIGINT        | -    |
 | 2  | 購読種別                         | 購読種別                   | dokusya_shubetsu           | INTEGER       | -    |
 | 3  | 手続種類                         | 手続種類                   | tetsuzuki_shurui           | INTEGER       | -    |
-| 4  | 管理支店                         | 管理支店ID                 | kanri_shiten_id            | BIGINT        | -    |
-| 5  | 支店                             | 支店ID                     | shiten_id                  | BIGINT        | -    |
+| 4  | 管理支店                         | 管理支店コード             | kanri_shiten_code          | VARCHAR       | 20   |
+| 5  | 支店                             | 支店コード                 | shiten_code                | VARCHAR       | 20   |
 | 6  | 組合員コード                     | 組合員コード               | kumiaiin_code              | VARCHAR       | 20   |
 | 7  | 購読者苗字（漢字）               | 氏名（姓）                 | shimei_sei                 | VARCHAR       | 50   |
 | 8  | 購読者名前（漢字）               | 氏名（名）                 | shimei_mei                 | VARCHAR       | 50   |
@@ -258,8 +259,8 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 4   | →dokusya_id                   | Number  | -        | -    | -      | -      | 購読者ID。`UPDATE_ALL` / `UPDATE_PARTIAL` モード（組合員コード未指定時）はキー項目として必須。`NEW` モードは無視する。                                     |
 | 5   | →dokusya_shubetsu             | Number  | -        | -    | -      | -      | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。Excel取込みは 1/2 のみ受付。3 はエラー。                              |
 | 6   | →tetsuzuki_shurui             | Number  | -        | -    | -      | -      | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                  |
-| 7   | →kanri_shiten_id              | Number  | -        | -    | -      | -      | 管理支店ID。`NEW` モードは必須。                                                                                                                            |
-| 8   | →shiten_id                    | Number  | -        | -    | -      | -      | 支店ID                                                                                                                                                      |
+| 7   | →kanri_shiten_code            | String  | -        | -    | 0      | 20     | 管理支店コード。自JA内の m_kanri_shiten.kanri_shiten_code を解決し t_dokusya.kanri_shiten_id へ保存。`NEW` モードは必須。                                    |
+| 8   | →shiten_code                  | String  | -        | -    | 0      | 20     | 支店コード。自JA内の m_shiten.shiten_code を解決し t_dokusya.shiten_id へ保存。                                                                              |
 | 9   | →kumiaiin_code                | String  | -        | -    | 0      | 20     | 組合員コード。一括中止時にキー項目として必須。                                                                                                              |
 | 10  | →shimei_sei                   | String  | -        | -    | 0      | 50     | 氏名（姓・漢字）                                                                                                                                            |
 | 11  | →shimei_mei                   | String  | -        | -    | 0      | 50     | 氏名（名・漢字）                                                                                                                                            |
@@ -337,7 +338,8 @@ Content-Type: application/json
   "selected_columns": [
     "dokusya_shubetsu",
     "tetsuzuki_shurui",
-    "kanri_shiten_id",
+    "kanri_shiten_code",
+    "shiten_code",
     "shimei_sei",
     "shimei_mei",
     "dokusya_busu",
@@ -355,7 +357,8 @@ Content-Type: application/json
     {
       "dokusya_shubetsu": 1,
       "tetsuzuki_shurui": 1,
-      "kanri_shiten_id": 101,
+      "kanri_shiten_code": "KS001",
+      "shiten_code": "SH001",
       "shimei_sei": "山田",
       "shimei_mei": "太郎",
       "dokusya_busu": 1,
@@ -372,7 +375,8 @@ Content-Type: application/json
     {
       "dokusya_shubetsu": 1,
       "tetsuzuki_shurui": 1,
-      "kanri_shiten_id": 101,
+      "kanri_shiten_code": "KS001",
+      "shiten_code": "SH001",
       "shimei_sei": "鈴木",
       "shimei_mei": "花子",
       "dokusya_busu": 1,
@@ -504,7 +508,7 @@ Content-Type: application/json
 - リクエストボディの検証：
   - `import_mode`：必須、`NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のいずれか
   - `selected_columns`：必須、配列、1件以上
-    - `NEW` モードでは、新規登録必須項目（dokusya_shubetsu, tetsuzuki_shurui, kanri_shiten_id, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと
+    - `NEW` モードでは、新規登録必須項目（dokusya_shubetsu, tetsuzuki_shurui, kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと
   - `rows`：必須、配列、1件以上、30000件以下
     - 30000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
   - 各行 `rows[i]` の検証（`selected_columns` 対象列のみ）：
@@ -577,19 +581,24 @@ WHERE ja_id = :ja_id
 
 #### 4.3.3 管理支店・支店の存在チェック
 
+管理支店・支店はコードで取込み、自JA内で `*_code → *_id` に解決して保存する（hanbaiten_code / tanka_code と同方針）。
+
 ```sql
-SELECT kanri_shiten_id
+SELECT kanri_shiten_id, kanri_shiten_code
 FROM m_kanri_shiten
 WHERE ja_id = :ja_id
-  AND kanri_shiten_id = ANY(:kanri_shiten_ids)
+  AND kanri_shiten_code = ANY(:kanri_shiten_codes)
   AND deleted_at IS NULL
 
-SELECT shiten_id, kanri_shiten_id
+SELECT shiten_id, shiten_code
 FROM m_shiten
 WHERE ja_id = :ja_id
-  AND shiten_id = ANY(:shiten_ids)
+  AND shiten_code = ANY(:shiten_codes)
   AND deleted_at IS NULL
 ```
+
+- 未ヒットの `kanri_shiten_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='kanri_shiten_code'）
+- 未ヒットの `shiten_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='shiten_code'）
 
 - 未ヒット：`IMPORT_VALIDATION_ERROR` + errors（row, field）
 - JA_KANRI_SHITEN の場合、自管理支店 ID と一致しない `kanri_shiten_id` も DataScope 違反とする。
@@ -667,6 +676,7 @@ RETURNING *
 #### 4.4.2 UPDATE_ALL モード（全項目更新）
 
 - 既存購読者を `dokusya_id` または `kumiaiin_code` で検索し、`selected_columns` 対象外の項目も含めて全項目を更新する（未選択列は NULL / 空文字 / 0 で上書き）。
+- ただし NOT NULL の FK・参照列（kanri_shiten_id / shiten_id / hanbaiten_id / tanka_id / dokusya_shubetsu / tetsuzuki_shurui / shiharai_hoho）は空欄上書きで制約違反になるため `COALESCE(:値, 既存値)` で既存値を維持する（UPDATE モードでは FK コードは任意入力＝存在時のみ検証）。`dokusya_kaishi_date` も空欄時は既存値を維持。`shoki_dokusya_kaishi_date`（初回購読開始日）は不変のため SET から除外する。FK コード列（kanri_shiten_code / shiten_code / hanbaiten_code / tanka_code）は物理カラム kanri_shiten_id / shiten_id / hanbaiten_id / tanka_id へ解決して書く。
 
 ```sql
 -- 更新前データ取得（操作ログ用）
@@ -738,6 +748,7 @@ RETURNING *
 #### 4.4.3 UPDATE_PARTIAL モード（入力箇所のみ更新）
 
 - `selected_columns` に含まれる列のみ更新する。未選択列は既存値を維持する。
+- 更新可能カラムは取込テンプレートの全項目（email / 住所 / 配達先 / 口座 / 単価・販売店 等を含む）。FK コード列（kanri_shiten_code / shiten_code / hanbaiten_code / tanka_code）は物理カラム kanri_shiten_id / shiten_id / hanbaiten_id / tanka_id へ解決して書く。NOT NULL の FK・参照列は `COALESCE(:値, 既存値)` で既存値を維持する。`dokusya_id` はキーのため更新しない。
 - 動的に SET 句を構築する（擬似コード）。
 
 ```sql

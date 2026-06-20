@@ -138,10 +138,10 @@ beforeEach(async () => {
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse() as any);
 });
 
-// Synthetic JaDropdownItem reused across describe blocks. BaseJaDropdown
-// normally emits this via @select; specs set it directly to simulate the
-// user picking JA #12345 from the dropdown so addJa()'s id+item guard
-// passes without booting the real dropdown internals.
+// Synthetic JaDropdownItem reused across describe blocks. The 対象JA
+// multi-select emits label-in-value on @change; selection-behaviour specs
+// call vm.onJaChange([...]) and staging specs set vm.targetJas directly,
+// avoiding the real dropdown internals.
 const pickedJa = {
   ja_id: 12345,
   ja_code: '0001',
@@ -243,34 +243,76 @@ describe('FileUploadView — initial render (機能定義 1.x)', () => {
 // 2. JA追加 (機能定義 2.x) — todofuken cascade + duplicate guard
 // ───────────────────────────────────────────────────────────────────────
 describe('FileUploadView — JA selection (機能定義 2.x)', () => {
-  it('should add the selected JA to the target list when 追加 is clicked', async () => {
-    const { wrapper } = await renderView();
-    const vm = wrapper.vm as any;
-    vm.selectedJaId = pickedJa.ja_id;
-    vm.selectedJaItem = pickedJa;
-    await flushPromises();
-    if (typeof vm.addJa === 'function') vm.addJa();
-    await flushPromises();
-    expect(vm.targetJas.length).toBeGreaterThan(0);
+  const labelOf = (j: typeof pickedJa) => ({
+    value: j.ja_id,
+    label: `${j.ja_code} ${j.ja_name}`,
   });
 
-  it('should display ACSMS-MSG-023-004 「このJAは既に選択されています。」 when adding a duplicate JA (機能定義 2.3)', async () => {
+  it('should reflect a choice into the target list and clear the picker box (機能定義 2.x — チェック→一覧反映)', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
-    vm.selectedJaId = pickedJa.ja_id;
-    vm.selectedJaItem = pickedJa;
+    // a-select(mode=multiple) @change emits the full label-in-value array.
+    vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
-    if (typeof vm.addJa === 'function') vm.addJa();
+    expect(vm.targetJas.length).toBe(1);
+    expect(vm.targetJas.find((j: any) => j.ja_id === pickedJa.ja_id)).toBeDefined();
+    // box は純粋なピッカー：選択後はタグを保持しない（二重表示防止）。
+    expect(vm.jaPickerValue.length).toBe(0);
+  });
+
+  it('should add multiple JAs and keep both when selected together', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const other = { ...pickedJa, ja_id: 67890, ja_code: 'JA04001', ja_name: 'JA宮城' };
+    vm.onJaChange([labelOf(pickedJa), labelOf(other)]);
     await flushPromises();
-    if (typeof vm.addJa === 'function') vm.addJa();
+    expect(vm.targetJas.map((j: any) => j.ja_id).sort()).toEqual(
+      [pickedJa.ja_id, other.ja_id].sort(),
+    );
+  });
+
+  it('should NOT add a duplicate when the same JA is selected again (チェック重複防止)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
-    expect(message.warning).toHaveBeenCalledWith('このJAは既に選択されています。');
+    // 一覧にある JA をもう一度選んでも重複追加されない（1件のまま）。
+    vm.onJaChange([labelOf(pickedJa)]);
+    await flushPromises();
+    expect(
+      vm.targetJas.filter((j: any) => j.ja_id === pickedJa.ja_id).length,
+    ).toBe(1);
+    expect(vm.targetJas.length).toBe(1);
+  });
+
+  it('should mark already-listed JAs via selectedJaIds so the dropdown can highlight them', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    expect(vm.selectedJaIds.has(pickedJa.ja_id)).toBe(false);
+    vm.onJaChange([labelOf(pickedJa)]);
+    await flushPromises();
+    // 一覧入り後は selectedJaIds に含まれる → option を太字＋✓ で表示できる。
+    expect(vm.selectedJaIds.has(pickedJa.ja_id)).toBe(true);
+  });
+
+  it('should KEEP the accumulated target list when 都道府県 changes (box は常に空)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.onJaChange([labelOf(pickedJa)]);
+    await flushPromises();
+    expect(vm.targetJas.length).toBe(1);
+    expect(vm.jaPickerValue.length).toBe(0); // ピッカーは常に空
+
+    vm.selectedTodofukenCode = '13'; // 都道府県を切り替え
+    await flushPromises();
+
+    expect(vm.targetJas.length).toBe(1); // 蓄積済みリストは保持
+    expect(vm.jaPickerValue.length).toBe(0);
   });
 
   it('should pass todofuken_code as a cascade filter to getJaDropdown when 都道府県 changes', async () => {
-    // BaseJaDropdown watches its `todofukenCode` prop; when the
-    // parent updates `selectedTodofukenCode`, the dropdown reloads
-    // page 1 with the new filter.
+    // useEntityDropdown (reused in the view) watches selectedTodofukenCode
+    // as a reset trigger and refetches page 1 with the new filter.
     const { wrapper } = await renderView();
     const { getJaDropdown } = await import('@/api/ja/ja');
     vi.mocked(getJaDropdown).mockClear();
@@ -287,9 +329,7 @@ describe('FileUploadView — JA selection (機能定義 2.x)', () => {
   it('should remove a JA from the target list when its 削除 link is invoked', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
-    vm.selectedJaId = pickedJa.ja_id;
-    vm.selectedJaItem = pickedJa;
-    if (typeof vm.addJa === 'function') vm.addJa();
+    vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
     if (typeof vm.removeJa === 'function') vm.removeJa(pickedJa.ja_id);
     await flushPromises();
@@ -361,11 +401,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
 
     const vm = wrapper.vm as any;
     // JA picked + delete-date set but no files
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -445,11 +481,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -472,11 +504,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -498,11 +526,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -520,11 +544,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -544,11 +564,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -569,11 +585,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     vm.scheduledDeleteDate = '2026/12/31';
     await flushPromises();
 
@@ -599,11 +611,7 @@ describe('FileUploadView — clear button (機能定義 7.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     await flushPromises();
     vi.mocked(Modal.confirm).mockClear();
 
@@ -625,11 +633,7 @@ describe('FileUploadView — clear button (機能定義 7.x)', () => {
     const vm = wrapper.vm as any;
     const f = new File([new Uint8Array(100)], 'a.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(f);
-    if (typeof vm.addJa === 'function') {
-      vm.selectedJaId = pickedJa.ja_id;
-      vm.selectedJaItem = pickedJa;
-      vm.addJa();
-    }
+    vm.targetJas = [{ ja_id: pickedJa.ja_id, ja_code: pickedJa.ja_code, ja_name: pickedJa.ja_name }];
     await flushPromises();
 
     const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));

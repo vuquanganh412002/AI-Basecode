@@ -184,7 +184,7 @@ describe('dokusya API wrapper — exportDokusyaExcel (API-014-003)', () => {
       data: blob,
       headers: {
         'content-disposition':
-          'attachment; filename="dokusya_export_20260530_120000.xlsx"',
+          "attachment; filename*=UTF-8''%E8%B3%BC%E8%AA%AD%E8%80%85%E4%B8%80%E8%A6%A7%E5%87%BA%E5%8A%9B_20260530_120000.xlsx",
       },
     });
 
@@ -205,7 +205,7 @@ describe('dokusya API wrapper — exportDokusyaExcel (API-014-003)', () => {
       data: blob,
       headers: {
         'content-disposition':
-          'attachment; filename="dokusya_export_20260530_120000.xlsx"',
+          "attachment; filename*=UTF-8''%E8%B3%BC%E8%AA%AD%E8%80%85%E4%B8%80%E8%A6%A7%E5%87%BA%E5%8A%9B_20260530_120000.xlsx",
       },
     });
 
@@ -220,7 +220,7 @@ describe('dokusya API wrapper — exportDokusyaExcel (API-014-003)', () => {
     } else {
       expect((out as { blob: Blob }).blob).toBeInstanceOf(Blob);
       expect((out as { filename: string }).filename).toContain(
-        'dokusya_export_',
+        '%E8%B3%BC',
       );
     }
   });

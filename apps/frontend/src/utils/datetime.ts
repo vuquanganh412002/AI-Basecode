@@ -56,6 +56,25 @@ export function todayStartTokyo(): Dayjs {
 }
 
 /**
+ * a-date-picker の `:disabled-date` 用の共通判定。
+ * 「本日 (Asia/Tokyo) より前の暦日」を無効化する（当日・未来日は選択可）。
+ *
+ * `current` は picker フレームの Dayjs。`todayStartTokyo()`（JST 0:00 の
+ * instant）と instant 比較する。`isBefore(x, 'day')` のように粒度 'day' を
+ * 付けると、ブラウザ TZ の日境界で endOf('day') を計算してしまい JST との
+ * オフセット分だけ前日が無効化されない（VN 開発機で「昨日」が選べてしまう
+ * バグ）。粒度を付けない instant 比較が運用 TZ（JST/VN）で暦日一致する。
+ *
+ * 全ての過去日不可カレンダー（適用日 / 適用開始日 / 公開開始日 …）は
+ * この関数を経由すること。個別 view で `current.isBefore(todayStartTokyo())`
+ * をインライン展開しない。
+ */
+export function isPastDayTokyo(current: Dayjs | null): boolean {
+  if (!current) return false;
+  return current.isBefore(todayStartTokyo());
+}
+
+/**
  * 現在分の頭（Asia/Tokyo, 秒以下切り捨て）。分精度の past-datetime
  * 判定（例: `publish_start_date >= now`）に使う。
  */

@@ -24,6 +24,7 @@ const blankToUndef = ({ value }: { value: unknown }): unknown =>
 
 /** Allow-list of columns the FE can sort by (api.md §4.1 sort_by). */
 const ALLOWED_SORT_COLUMNS = [
+  'dokusya_id',
   'kanri_shiten_id',
   'shiten_id',
   'kumiaiin_code',

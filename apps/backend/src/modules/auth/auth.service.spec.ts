@@ -43,8 +43,29 @@ import {
 } from '@test/fixtures/auth.factory';
 import { buildResetTokenOtp } from '@test/fixtures/password-reset.factory';
 
+/**
+ * Stateful in-memory RedisService stub for the mfa_token → otp_id binding.
+ * Backed by a Map so login()→issueOtp() (setEx) and verifyMfa()/resendMfa()
+ * (get/del) round-trip the token exactly like the real Redis would.
+ */
+function makeRedisMock() {
+  const store = new Map<string, string>();
+  return {
+    setEx: jest.fn(async (key: string, _ttl: number, value: string) => {
+      store.set(key, value);
+    }),
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+    del: jest.fn(async (...keys: string[]) => {
+      let n = 0;
+      for (const k of keys) if (store.delete(k)) n += 1;
+      return n;
+    }),
+  };
+}
+
 describe('AuthService — SCR-001 (login + MFA + refresh + logout)', () => {
   let service: AuthService;
+  let redis: ReturnType<typeof makeRedisMock>;
   let mailService: any;
   let auditLog: any;
   let sessionService: any;
@@ -132,6 +153,7 @@ describe('AuthService — SCR-001 (login + MFA + refresh + logout)', () => {
       createQueryBuilder: jest.fn(() => qbMock),
     };
     permRepo = {};
+    redis = makeRedisMock();
 
     service = new AuthService(
       mailService,
@@ -142,6 +164,7 @@ describe('AuthService — SCR-001 (login + MFA + refresh + logout)', () => {
       roleRepo,
       rolePermRepo,
       permRepo,
+      redis as any,
     );
   });
 
@@ -755,6 +778,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       roleRepo,
       rolePermRepo,
       permRepo,
+      makeRedisMock() as any,
       dataSource,
     );
   });

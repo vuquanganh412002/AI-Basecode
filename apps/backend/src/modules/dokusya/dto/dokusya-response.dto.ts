@@ -81,6 +81,12 @@ export class DokusyaResponseDto {
   @ApiProperty() biko: string;
   @ApiProperty() rireki_no: number;
   @ApiProperty({ nullable: true }) denshi_shonin_status: number | null;
+  @ApiProperty({
+    nullable: true,
+    description:
+      '電子版会員ID（外部システムの会員ID）。外部連携機能が設定する読取専用値。',
+  })
+  denshi_kaiin_id: number | null;
   @ApiProperty() created_at: string;
   @ApiProperty() updated_at: string;
 }

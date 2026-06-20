@@ -215,6 +215,44 @@ describe('CodeService', () => {
     });
   });
 
+  // ─── getValueByLabel() ──────────────────────────────────────────────
+  describe('getValueByLabel()', () => {
+    it('returns the value when (category, label) matches', async () => {
+      const { service } = buildService([
+        row({ codeCategory: 'GENDER', codeValue: '1', codeName: '男性' }),
+        row({ codeCategory: 'GENDER', codeValue: '9', codeName: '回答しない' }),
+      ]);
+      await service.onModuleInit();
+      expect(service.getValueByLabel('GENDER', '男性')).toBe(1);
+      expect(service.getValueByLabel('GENDER', '回答しない')).toBe(9);
+    });
+
+    it('returns null when category is unknown', async () => {
+      const { service } = buildService([]);
+      await service.onModuleInit();
+      expect(service.getValueByLabel('NONEXISTENT', '男性')).toBeNull();
+    });
+
+    it('returns null when the label is not in the category', async () => {
+      const { service } = buildService([
+        row({ codeCategory: 'GENDER', codeValue: '1', codeName: '男性' }),
+      ]);
+      await service.onModuleInit();
+      expect(service.getValueByLabel('GENDER', '不明')).toBeNull();
+    });
+
+    it('reflects a renamed label without a code change (m_code is the source of truth)', async () => {
+      // Customer renames 男性 → 男 in m_code: the new label resolves, the old
+      // one no longer does — exactly the behaviour a hardcoded map can't give.
+      const { service } = buildService([
+        row({ codeCategory: 'GENDER', codeValue: '1', codeName: '男' }),
+      ]);
+      await service.onModuleInit();
+      expect(service.getValueByLabel('GENDER', '男')).toBe(1);
+      expect(service.getValueByLabel('GENDER', '男性')).toBeNull();
+    });
+  });
+
   // ─── getByCategory() / getAll() ─────────────────────────────────────
   describe('getByCategory() / getAll()', () => {
     it('getByCategory returns empty array for unknown category (never throws)', async () => {

@@ -12,11 +12,16 @@
 //
 // Spec contract: src/views/dokusya/__tests__/DokusyaImportView.spec.ts.
 
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
 import { useAuthStore } from '@/stores/auth.store';
+import {
+  DokusyaShubetsu,
+  ShiharaiHoho,
+  TetsuzukiShurui,
+} from '@/constants/enums';
 import {
   downloadDokusyaImportTemplate,
   importDokusyaExcel,
@@ -33,8 +38,8 @@ const PHYSICAL_COLUMNS = [
   'dokusya_id',
   'dokusya_shubetsu',
   'tetsuzuki_shurui',
-  'kanri_shiten_id',
-  'shiten_id',
+  'kanri_shiten_code',
+  'shiten_code',
   'kumiaiin_code',
   'shimei_sei',
   'shimei_mei',
@@ -82,13 +87,60 @@ const PHYSICAL_COLUMNS = [
 ] as const;
 type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
+/** 日付列（XLSX のシリアル値を YYYY-MM-DD へ変換する対象）。 */
+const DATE_PHYSICAL_COLUMNS = new Set<string>([
+  'dokusya_kaishi_date',
+  'dokusya_chushi_date',
+  'joho_henko_tekiyo_date',
+]);
+
+/**
+ * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を
+ * 'YYYY-MM-DD' へ変換する。TZ ずれを避けるため UTC で計算する。
+ */
+function excelSerialToIsoDate(serial: number): string {
+  const ms = Math.round(serial) * 86_400_000 + Date.UTC(1899, 11, 30);
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+/**
+ * Excel の日付セルは様々な形で届く（数値シリアル 46188 / 文字列シリアル
+ * "46188" / "YYYY-MM-DD" / "YYYY/MM/DD" / "D/M/YY" 等）。すべて DB が受け取る
+ * 'YYYY-MM-DD' へ正規化する。判別不能な値はそのまま返し、BE 側で再検証させる。
+ */
+function normalizeImportDate(value: unknown): unknown {
+  if (typeof value === 'number') return excelSerialToIsoDate(value);
+  if (typeof value !== 'string') return value;
+  const s = value.trim();
+  if (s === '') return value;
+  // 文字列シリアル（区切り無しの純粋な数字）。
+  if (/^\d{4,6}$/.test(s)) return excelSerialToIsoDate(Number(s));
+  // 既に YYYY-MM-DD / YYYY/MM/DD → ハイフン + ゼロ埋め。
+  let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  // D/M/YY・D/M/YYYY（Excel "d/m/yy" 表示）。月>12 のときは M/D とみなし入替。
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s);
+  if (m) {
+    let day = Number(m[1]);
+    let mon = Number(m[2]);
+    if (mon > 12 && day <= 12) [day, mon] = [mon, day];
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return s;
+}
+
 /** Japanese display headers — must match BE template column order. */
 const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_id: 'ID',
   dokusya_shubetsu: '購読種別',
   tetsuzuki_shurui: '手続種類',
-  kanri_shiten_id: '管理支店',
-  shiten_id: '支店',
+  kanri_shiten_code: '管理支店',
+  shiten_code: '支店',
   kumiaiin_code: '組合員コード',
   shimei_sei: '購読者氏名_氏',
   shimei_mei: '購読者氏名_名',
@@ -151,7 +203,8 @@ const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
 const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
   'dokusya_shubetsu',
   'tetsuzuki_shurui',
-  'kanri_shiten_id',
+  'kanri_shiten_code',
+  'shiten_code',
   'shimei_sei',
   'shimei_mei',
   'shimei_kana_sei',
@@ -168,6 +221,24 @@ const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
   'dokusya_kaishi_date',
 ];
 const REQUIRED_SET = new Set<string>(REQUIRED_COLUMNS_NEW);
+
+/** UPDATE_* のキー列。常にチェック＋disable（更新対象の特定キー）。 */
+const KEY_COLUMN: PhysicalColumn = 'dokusya_id';
+
+/**
+ * 入力箇所のみ更新（UPDATE_PARTIAL）で「編集不可」の項目。
+ * 購読種別 / 氏名4項目 / 購読開始日 はフォーム編集でも不変のため、
+ * 部分更新でも未チェック＋disable にして更新対象から外す。
+ */
+const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
+  'dokusya_shubetsu',
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
+  'dokusya_kaishi_date',
+];
+const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);
 
 const MAX_ROWS = 30000;
 
@@ -196,9 +267,6 @@ const MSG_016_006 =
   'ファイルの行数が上限（30000行）を超えているため、取込みできません。';
 
 // m_code values for the 電子版クレカ guard (seeder §5).
-const DOKUSYA_SHUBETSU_DENSHI = 2; // 電子版
-const SHIHARAI_HOHO_CREDIT = 6; // クレジットカード
-const TETSUZUKI_SHURUI_KAIYAKU = 0; // 解約
 
 const authStore = useAuthStore();
 const canImport = computed(() => authStore.hasPermission('dokusya.import'));
@@ -248,16 +316,32 @@ const hasFile = computed(() => parsedRows.value.length > 0);
 const previewVisible = computed(() => hasFile.value);
 
 /**
- * Whether a column is LOCKED (force-checked + disabled) in the current mode:
- *   - 全項目更新 (UPDATE_ALL) → ALL columns are targets, so all locked.
- *   - 新規登録 (NEW)          → the required columns are locked.
- *   - 入力箇所のみ更新 (PARTIAL) → free choice, nothing locked.
- * Mirrors the hanbaiten import column-lock behaviour.
+ * 強制チェック＋disable（forced ON）になる列か:
+ *   - 全項目更新 (UPDATE_ALL) → 編集不可項目を除く全列を lock（全項目対象）。
+ *   - 新規登録 (NEW)          → 必須列を lock。
+ *   - 入力箇所のみ更新 (PARTIAL) → キー列 (dokusya_id) のみ lock。
  */
 function isLocked(col: PhysicalColumn): boolean {
-  if (importModeFe.value === 'update') return true;
+  if (importModeFe.value === 'update') return !EDIT_IMMUTABLE_SET.has(col);
   if (importModeFe.value === 'new') return REQUIRED_SET.has(col);
-  return false;
+  return importModeFe.value === 'cancel' && col === KEY_COLUMN;
+}
+
+/**
+ * 強制 未チェック＋disable（forced OFF）になる列か。
+ * 更新モード（全項目更新 / 入力箇所のみ更新）の編集不可項目
+ * （購読種別 / 氏名4 / 購読開始日）は更新対象外なので未チェック＋disable。
+ */
+function isForcedUnchecked(col: PhysicalColumn): boolean {
+  const isUpdateMode =
+    importModeFe.value === 'update' || importModeFe.value === 'cancel';
+  if (!isUpdateMode) return false;
+  return col !== KEY_COLUMN && EDIT_IMMUTABLE_SET.has(col);
+}
+
+/** チェックボックスを disable にするか（forced ON / forced OFF のどちらか）。 */
+function isColumnDisabled(col: PhysicalColumn): boolean {
+  return isLocked(col) || isForcedUnchecked(col);
 }
 
 /** Columns the preview table renders — checked only. */
@@ -273,22 +357,36 @@ const previewColumns = computed<PhysicalColumn[]>(() =>
 const PREVIEW_ROW_CAP = 100;
 const previewRows = computed(() => parsedRows.value.slice(0, PREVIEW_ROW_CAP));
 
-/** Bound to the すべて選択／解除 checkbox. Disabled in 全項目更新 (all locked). */
+/**
+ * Bound to the すべて選択／解除 checkbox. Disabled in 全項目更新 (all locked).
+ * 編集不可項目（チェックボックス無し）は判定から除外する — 当該列は常に
+ * 未チェックなので、含めると「全選択」でも常に false になってしまう。
+ */
 const allChecked = computed<boolean>({
-  get: () => PHYSICAL_COLUMNS.every((col) => selected[col]),
+  get: () =>
+    PHYSICAL_COLUMNS.filter((col) => !isForcedUnchecked(col)).every(
+      (col) => selected[col],
+    ),
   set: (value: boolean) => {
     for (const col of PHYSICAL_COLUMNS) {
-      // Locked columns stay checked even on uncheck-all.
-      selected[col] = isLocked(col) ? true : value;
+      // forced ON は常にチェック、forced OFF は常に未チェック、それ以外のみ追従。
+      if (isLocked(col)) selected[col] = true;
+      else if (isForcedUnchecked(col)) selected[col] = false;
+      else selected[col] = value;
     }
   },
 });
 
-// On mode change, force every LOCKED column checked (全項目更新 → all,
-// 新規登録 → required). Mirrors the hanbaiten import behaviour.
+// モード変更時に各列のチェック状態を初期化する:
+//   - forced ON  → チェック
+//   - forced OFF → 未チェック
+//   - それ以外   → 全モードで既定はチェック（入力箇所のみ更新でも編集不可項目
+//                  以外は既定ですべてチェックし、ユーザーが任意で外せる）。
 watch(importModeFe, () => {
   for (const col of PHYSICAL_COLUMNS) {
     if (isLocked(col)) selected[col] = true;
+    else if (isForcedUnchecked(col)) selected[col] = false;
+    else selected[col] = true;
   }
 });
 
@@ -344,7 +442,13 @@ async function onFileChange(event: Event): Promise<void> {
           ((PHYSICAL_COLUMNS as readonly string[]).includes(key)
             ? (key as PhysicalColumn)
             : undefined);
-        if (physical) out[physical] = value;
+        if (physical) {
+          // 日付列はシリアル値(46188) / "D/M/YY" 等で届くため YYYY-MM-DD に
+          // 正規化する。それ以外の列はそのまま。
+          out[physical] = DATE_PHYSICAL_COLUMNS.has(physical)
+            ? normalizeImportDate(value)
+            : value;
+        }
       }
       return out;
     });
@@ -378,6 +482,13 @@ async function onTemplateDownload(): Promise<void> {
 
 // ─── client validation (機能 8.1) ─────────────────────────────────────
 
+/** 電子版(2)・併読(3) はメール必須かつ一意。紙版(1) は任意・重複可。 */
+function isDigitalOrBoth(shubetsu: number): boolean {
+  return (
+    shubetsu === DokusyaShubetsu.DIGITAL || shubetsu === DokusyaShubetsu.BOTH
+  );
+}
+
 /**
  * Run all client-side preflight checks. Returns the first blocking
  * error message (toast) or null when the file is clean enough to submit.
@@ -385,28 +496,58 @@ async function onTemplateDownload(): Promise<void> {
  * error panel renders them; the BE re-validates everything anyway.
  */
 function validateBeforeSubmit(): string | null {
-  if (!hasFile.value) return MSG_016_001;
+  // no-file は onSubmit が warning で先に処理するためここには来ない。
   if (parsedRows.value.length > MAX_ROWS) return MSG_016_006;
 
   const errors: RowError[] = [];
   const isNew = importModeFe.value === 'new';
+  // 新規取込時の電子版/併読メール重複検知用（メール → 初出の行番号）。
+  // 既存DBとの重複はBEが判定する（ここはバッチ内の素早いフィードバック）。
+  const batchDigitalEmail = new Map<string, number>();
   parsedRows.value.forEach((row, idx) => {
     const rowNo = idx + 2; // +2: row 1 is the header, data starts at 2.
     const shubetsu = Number(row.dokusya_shubetsu);
     const shiharai = Number(row.shiharai_hoho);
     const tetsuzuki = Number(row.tetsuzuki_shurui);
     const busu = Number(row.dokusya_busu);
+    const email = String(row.email ?? '').trim();
 
     // 電子版 かつ クレジットカード決済 → 取込不可 (MSG-016-005).
-    if (shubetsu === DOKUSYA_SHUBETSU_DENSHI && shiharai === SHIHARAI_HOHO_CREDIT) {
+    if (
+      shubetsu === DokusyaShubetsu.DIGITAL &&
+      shiharai === ShiharaiHoho.CREDIT_CARD
+    ) {
       errors.push({
         row: rowNo,
         field: 'shiharai_hoho',
         message: '電子版かつクレジットカード決済の組み合わせは取込みできません。',
       });
     }
+    // 顧客要件 — メールは電子版(2)・併読(3) で必須かつ電子版/併読間で一意。
+    // 新規取込は行の購読種別が確定値（更新は購読種別変更不可のためBEが既存値で
+    // 判定）。新規モードでのみFE側でも検証し、即時フィードバックする。
+    if (isNew && isDigitalOrBoth(shubetsu)) {
+      if (!email) {
+        errors.push({
+          row: rowNo,
+          field: 'email',
+          message: 'メールアドレスは電子版・併読の場合は必須です。',
+        });
+      } else {
+        const first = batchDigitalEmail.get(email);
+        if (first !== undefined) {
+          errors.push({
+            row: rowNo,
+            field: 'email',
+            message: 'このメールアドレスは既に登録されています。',
+          });
+        } else {
+          batchDigitalEmail.set(email, rowNo);
+        }
+      }
+    }
     // 新規登録: 購読部数 > 0.
-    if (isNew && tetsuzuki !== TETSUZUKI_SHURUI_KAIYAKU && busu <= 0) {
+    if (isNew && tetsuzuki !== TetsuzukiShurui.KAIYAKU && busu <= 0) {
       errors.push({
         row: rowNo,
         field: 'dokusya_busu',
@@ -414,7 +555,7 @@ function validateBeforeSubmit(): string | null {
       });
     }
     // 解約: 購読部数 = 0.
-    if (tetsuzuki === TETSUZUKI_SHURUI_KAIYAKU && busu > 0) {
+    if (tetsuzuki === TetsuzukiShurui.KAIYAKU && busu > 0) {
       errors.push({
         row: rowNo,
         field: 'dokusya_busu',
@@ -436,6 +577,13 @@ function onSubmit(): void {
   if (submitting.value) return;
   rowErrors.value = [];
   importResult.value = null;
+
+  // 未選択ファイルは「選択してください」warning（hanbaiten と統一）。
+  // ファイル形式エラー（MSG_016_001）とは区別する。
+  if (!hasFile.value) {
+    message.warning('Excelファイルを選択してください。');
+    return;
+  }
 
   const blocking = validateBeforeSubmit();
   if (blocking) {
@@ -522,18 +670,17 @@ function resetFileInput(): void {
   if (fileInputEl.value) fileInputEl.value.value = '';
 }
 
-/** DOM nodes for the NEW-mode required checkboxes — see onMounted lock. */
-const requiredEls = reactive<Record<string, HTMLInputElement | null>>({});
-
-function onColumnInputRef(col: PhysicalColumn, el: HTMLInputElement | null): void {
-  if (REQUIRED_SET.has(col)) requiredEls[col] = el;
-}
-
 function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
-  // Required columns in NEW mode can never be unchecked — snap back.
+  // forced ON は常にチェックへスナップ（テスト等が change を発火させても veto）。
   if (isLocked(col)) {
     el.checked = true;
     selected[col] = true;
+    return;
+  }
+  // forced OFF は常に未チェックへスナップ。
+  if (isForcedUnchecked(col)) {
+    el.checked = false;
+    selected[col] = false;
     return;
   }
   selected[col] = el.checked;
@@ -542,26 +689,6 @@ function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
 function onPanelToggle(): void {
   panelCollapsed.value = !panelCollapsed.value;
 }
-
-onMounted(() => {
-  // [required-column-veto-lock] Vue Test Utils' setValue(false) (and any
-  // path bypassing the change event) directly assigns element.checked.
-  // Override the `checked` property on each required input so reads
-  // always return the canonical (always-true) state and writes no-op.
-  // Real users can't hit this — the input is also `disabled`.
-  for (const col of REQUIRED_COLUMNS_NEW) {
-    const el = requiredEls[col];
-    if (!el) continue;
-    Object.defineProperty(el, 'checked', {
-      configurable: true,
-      enumerable: true,
-      get: () => isLocked(col) || selected[col],
-      set: () => {
-        /* no-op — required column cannot be unchecked in NEW mode */
-      },
-    });
-  }
-});
 
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -652,18 +779,26 @@ function renderCell(value: unknown): string {
           <div
             class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-card-subtle"
           >
-            <button
-              data-test="col-toggle"
-              type="button"
-              class="flex items-center gap-1.5 text-sm font-semibold text-text-main"
-              :aria-expanded="!panelCollapsed"
-              @click="onPanelToggle"
-            >
-              <span class="material-icons text-[18px]">
-                {{ panelCollapsed ? 'chevron_right' : 'expand_more' }}
+            <div class="flex items-center">
+              <button
+                data-test="col-toggle"
+                type="button"
+                class="flex items-center gap-1.5 text-sm font-semibold text-text-main"
+                :aria-expanded="!panelCollapsed"
+                @click="onPanelToggle"
+              >
+                <span class="material-icons text-[18px]">
+                  {{ panelCollapsed ? 'chevron_right' : 'expand_more' }}
+                </span>
+                取込列
+              </button>
+              <span
+                v-if="importModeFe === 'update'"
+                class="ml-2 text-xs font-normal text-text-secondary"
+              >
+                全項目更新では全列が対象です。列を選択する場合は「入力箇所のみ更新」を選択してください。
               </span>
-              取込列
-            </button>
+            </div>
             <label
               class="flex items-center gap-1.5 text-xs text-text-description cursor-pointer"
             >
@@ -685,19 +820,37 @@ function renderCell(value: unknown): string {
               <label
                 v-for="col in PHYSICAL_COLUMNS"
                 :key="col"
-                class="flex items-center gap-3 px-3 py-2 border border-border rounded cursor-pointer hover:bg-surface-hover transition-colors"
+                class="flex items-center gap-3 px-3 py-2 border border-border rounded transition-colors"
+                :class="
+                  isForcedUnchecked(col)
+                    ? 'bg-surface-card-subtle cursor-not-allowed'
+                    : 'cursor-pointer hover:bg-surface-hover'
+                "
               >
+                <!-- 編集不可項目（更新で変更不可）はチェックボックスを出さず、
+                     グレー表示のみにする（操作不可を視覚的に明示）。 -->
                 <input
-                  :ref="(el) => onColumnInputRef(col, el as HTMLInputElement | null)"
+                  v-if="!isForcedUnchecked(col)"
                   type="checkbox"
                   name="col"
                   :value="col"
                   :checked="selected[col]"
-                  :disabled="isLocked(col)"
+                  :disabled="isColumnDisabled(col)"
                   class="w-4 h-4 rounded border-border-strong accent-primary focus:ring-primary/20 flex-shrink-0"
                   @change="(e) => onColumnToggle(col, e.target as HTMLInputElement)"
                 />
-                <span class="text-sm text-text-main">{{ JP_HEADERS[col] }}</span>
+                <span
+                  v-else
+                  class="w-4 h-4 flex-shrink-0"
+                  aria-hidden="true"
+                ></span>
+                <span
+                  class="text-sm"
+                  :class="
+                    isForcedUnchecked(col) ? 'text-text-disabled' : 'text-text-main'
+                  "
+                  >{{ JP_HEADERS[col] }}</span
+                >
               </label>
             </div>
           </div>

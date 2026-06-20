@@ -1,23 +1,39 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
+import { buildZipArchive } from '@/common/utils/zip';
 import { DataSource, Repository } from 'typeorm';
 
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
+import { MailService } from '@/modules/mail/mail.service';
 import { StorageService } from '@/modules/storage/storage.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
+import {
+  isoDateToSlash,
+  nowDateJst,
+  nowTimeJst,
+} from '@/common/utils/datetime';
 import { applyBranchScope } from '@/common/utils/data-scope';
 import { ValidationException } from '@/common/exceptions/common.exceptions';
+import {
+  AuditOperation,
+  DokusyaShubetsu,
+  DownloadType,
+  LogType,
+  ResultStatus,
+  TetsuzukiShurui,
+} from '@/common/enums';
 
 import { MeiboReportQueryDto } from './dto/meibo-report-query.dto';
 import { ZougenHanbaitenQueryDto } from './dto/zougen-hanbaiten-query.dto';
+import { ZougenNichinoQueryDto } from './dto/zougen-nichino-query.dto';
 import { ReportNoDataException } from './exceptions/report-no-data.exception';
-import { ZougenNoDataException } from './exceptions/zougen-no-data.exception';
 import { PdfExportService } from './pdf-export.service';
 import {
   groupByHanbaiten,
@@ -32,6 +48,14 @@ import {
   type ZougenPreviewData,
   type ZougenRawRow,
 } from './zougen.mapper';
+import {
+  buildZougenNichinoDocDefinition,
+  formatKanriShitenCode,
+  groupZougenNichinoReports,
+  type ZougenNichinoPreviewData,
+  type ZougenNichinoRawRow,
+  type ZougenNichinoReport,
+} from './zougen-nichino.mapper';
 
 const SCREEN_NAME = '購読者名簿出力画面 (ACSMS-SCR-026)';
 const TABLE_NAME = 't_dokusya_rireki';
@@ -39,32 +63,53 @@ const TABLE_NAME = 't_dokusya_rireki';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '購読者名簿';
-/** m_code DOWNLOAD_TYPE = 5 : 購読者名簿 (seeder.md §5). */
-const DOWNLOAD_TYPE_MEIBO = 5;
-/** 紙版＋電子版の対象。併読(3)は本帳票では常に除外（画面項目No.5）。 */
-const SHUBETSU_HEIYO = 3;
-/** 新規（解約=0は除外）。 */
-const TETSUZUKI_NEW = 1;
+// 出力種別は DownloadType enum を直接使用（MEIBO=5 / ZOUGEN=3 /
+// ZOUGEN_NICHINO=4）。併読(DokusyaShubetsu.BOTH)は本帳票では常に除外
+// （画面項目No.5）、新規(TetsuzukiShurui.SHINKI)のみ対象（解約=0は除外）。
 
 // ─── ACSMS-SCR-028 — 増減連絡票（販売店） ─────────────────────────────
 const ZOUGEN_SCREEN_NAME = '増減連絡票（販売店）出力画面 (ACSMS-SCR-028)';
 const ZOUGEN_TARGET_TABLE = 't_file_download';
 const PDF_MIME = 'application/pdf';
-/** m_code DOWNLOAD_TYPE = 3 : 増減連絡票 (seeder.md §5). */
-const DOWNLOAD_TYPE_ZOUGEN = 3;
+
+// ─── ACSMS-SCR-029 — 増減通知（日本農業新聞） ─────────────────────────
+const NICHINO_SCREEN_NAME = '増減通知（日本農業新聞）出力画面 (ACSMS-SCR-029)';
+const ZIP_MIME = 'application/zip';
+/** 日農担当者向け通知メールの宛先（未設定時のフォールバック）。 */
+const NICHINO_NOTIFY_FALLBACK = 'nichino-gyomu@agrinews.jp';
 
 export interface ExportMeiboResult {
   buffer: Buffer;
   filename: string;
 }
 
-export interface ExportZougenResult {
-  buffer: Buffer;
-  /** 表示名（日本語、Content-Disposition filename* 用）。 */
-  filename: string;
-  /** ASCII 別名（Content-Disposition filename 用）。 */
-  asciiFilename: string;
-}
+export type ExportZougenResult =
+  | {
+      /** 対象0件 → PDFは生成せず、controller は 200 + 空配列で応答する。 */
+      empty: true;
+    }
+  | {
+      empty: false;
+      buffer: Buffer;
+      /** 表示名（日本語、Content-Disposition filename* 用）。 */
+      filename: string;
+      /** ASCII 別名（Content-Disposition filename 用）。 */
+      asciiFilename: string;
+    };
+
+/**
+ * SCR-029 出力結果。対象0件は `{ empty: true }`。1管理支店は PDF、複数管理支店は
+ * 各PDFをまとめたZIP。`contentType` で controller がレスポンスヘッダを切り替える。
+ */
+export type ExportZougenNichinoResult =
+  | { empty: true }
+  | {
+      empty: false;
+      buffer: Buffer;
+      filename: string;
+      asciiFilename: string;
+      contentType: 'application/pdf' | 'application/zip';
+    };
 
 @Injectable()
 export class ReportService {
@@ -86,6 +131,12 @@ export class ReportService {
     private readonly dataSource?: DataSource,
     @Optional()
     private readonly pdfService?: PdfExportService,
+    // SCR-029 appends these (mail通知 + 通知先アドレス取得). @Optional() so the
+    // SCR-026/028 specs that `new` with fewer args keep type-checking.
+    @Optional()
+    private readonly mailService?: MailService,
+    @Optional()
+    private readonly configService?: ConfigService,
   ) {}
 
   // ─── ACSMS-API-026-001 — GET /api/v1/report/meibo/preview ────────
@@ -123,7 +174,7 @@ export class ReportService {
         this.fileDownloadRepo.create({
           jaId: session.ja_id ?? null,
           downloadDatetime: new Date(),
-          downloadType: DOWNLOAD_TYPE_MEIBO,
+          downloadType: DownloadType.MEIBO,
           fileName: filename,
           filePath: key,
           fileSize: buffer.length,
@@ -140,7 +191,7 @@ export class ReportService {
       if (err instanceof ReportNoDataException) throw err;
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
-        'EXPORT',
+        AuditOperation.EXPORT,
         err as Error,
       );
       throw err;
@@ -153,8 +204,9 @@ export class ReportService {
     session: SessionPayload,
   ): Promise<ZougenPreviewData> {
     const rows = await this.fetchZougenRows(query, session);
-    // 増減連絡票は0件の場合は意味を成さないため、プレビューでも404を返す（4.4）。
-    if (rows.length === 0) throw new ZougenNoDataException();
+    // 0件は「検索成功・結果なし」として 200 + 空 reports を返す（REST 準拠、
+    // SCR-026 プレビューと同じ方針）。FE は reports.length===0 で画面内に
+    // 「対象のデータが存在しません。」を表示する。
     return {
       tekiyo_date: query.tekiyo_date,
       reports: groupZougenReports(rows),
@@ -180,8 +232,9 @@ export class ReportService {
 
     try {
       const rows = await this.fetchZougenRows(query, session);
-      // 対象データなし → PDFは生成しない（業務的な404、エラーログ対象外）。
-      if (rows.length === 0) throw new ZougenNoDataException();
+      // 対象0件 → PDFは生成せず、ダウンロード履歴・操作ログも残さない。
+      // controller が 200 + 空配列で応答する（preview と同じ no-data 方針）。
+      if (rows.length === 0) return { empty: true };
 
       const reports = groupZougenReports(rows);
       const docDefinition = buildZougenDocDefinition(reports, query.tekiyo_date);
@@ -202,7 +255,7 @@ export class ReportService {
           manager.create(FileDownload, {
             jaId: session.ja_id ?? null,
             downloadDatetime: new Date(),
-            downloadType: DOWNLOAD_TYPE_ZOUGEN,
+            downloadType: DownloadType.ZOUGEN,
             fileName: filename,
             filePath: key,
             fileSize: buffer.length,
@@ -230,12 +283,12 @@ export class ReportService {
         });
         await this.auditLog.logOperation(
           {
-            logType: 1,
+            logType: LogType.USER_OPERATION,
             accountId: ctx.accountId,
             jaId: ctx.jaId,
             gamenName: ctx.screen,
-            operation: 'EXPORT_PDF',
-            resultStatus: 1,
+            operation: AuditOperation.EXPORT_PDF,
+            resultStatus: ResultStatus.SUCCESS,
             targetId: ctx.targetId,
             targetTable: ctx.table,
             beforeValue: '',
@@ -247,14 +300,182 @@ export class ReportService {
         );
       });
 
-      return { buffer, filename, asciiFilename };
+      return { empty: false, buffer, filename, asciiFilename };
     } catch (err) {
-      // 業務的な「対象なし」(404) はエラーログ対象外。それ以外（DB/S3/PDF障害等）
-      // は log_type=3 をトランザクション外で記録する（4.8）。
-      if (err instanceof ZougenNoDataException) throw err;
+      // DB/S3/PDF障害等は log_type=3 をトランザクション外で記録する（4.8）。
+      // 0件は throw ではなく早期 return のためここには到達しない。
       await this.auditLog.logError(
         buildAuditCtx(session, req, ZOUGEN_SCREEN_NAME, ZOUGEN_TARGET_TABLE, null),
-        'EXPORT_PDF',
+        AuditOperation.EXPORT_PDF,
+        err as Error,
+      );
+      throw err;
+    }
+  }
+
+  // ─── ACSMS-API-029-001 — GET /api/v1/report/zougen-nichino/preview ────
+  async previewZougenNichino(
+    query: ZougenNichinoQueryDto,
+    session: SessionPayload,
+  ): Promise<ZougenNichinoPreviewData> {
+    const rows = await this.fetchZougenNichinoRows(query, session);
+    // 0件は「検索成功・結果なし」として 200 + 空 reports を返す（SCR-026/028 と
+    // 同じ no-data 方針）。FE は reports.length===0 で画面内メッセージを表示する。
+    return {
+      tekiyo_date: query.tekiyo_date,
+      reports: groupZougenNichinoReports(rows),
+    };
+  }
+
+  // ─── ACSMS-API-029-002 — POST /api/v1/report/zougen-nichino/export ────
+  async exportZougenNichinoPdf(
+    query: ZougenNichinoQueryDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<ExportZougenNichinoResult> {
+    if (!this.dataSource) {
+      throw new Error(
+        'ReportService.dataSource is undefined — SCR-029 export requires it.',
+      );
+    }
+    if (!this.pdfService) {
+      throw new Error(
+        'ReportService.pdfService is undefined — SCR-029 export requires it.',
+      );
+    }
+
+    try {
+      const rows = await this.fetchZougenNichinoRows(query, session);
+      // 対象0件 → PDFは生成せず、履歴・操作ログ・メールも発生しない（4.3）。
+      if (rows.length === 0) return { empty: true };
+
+      const reports = groupZougenNichinoReports(rows);
+      const bikoByKs = new Map<number, string>(
+        (query.remarks ?? []).map((r) => [Number(r.kanri_shiten_id), r.biko ?? '']),
+      );
+      const ymd = query.tekiyo_date.replaceAll('-', '');
+
+      // 管理支店ごとに1枚のPDFを生成し、S3に保存する（4.4。外部I/OはDB登録前に
+      // トランザクション外で完了させる）。
+      const pdfs: {
+        report: ZougenNichinoReport;
+        filename: string;
+        asciiFilename: string;
+        key: string;
+        buffer: Buffer;
+        recordCount: number;
+      }[] = [];
+      for (let i = 0; i < reports.length; i++) {
+        const report = reports[i];
+        const biko = bikoByKs.get(report.kanri_shiten_id) ?? '';
+        const doc = buildZougenNichinoDocDefinition(report, query.tekiyo_date, biko, {
+          index: i,
+          total: reports.length,
+        });
+        const buffer = await this.pdfService.generatePdf(doc);
+        const filename = this.buildNichinoPdfFilename(report.kanri_shiten_code, ymd);
+        const asciiFilename = this.buildNichinoPdfAsciiFilename(
+          report.kanri_shiten_code,
+          ymd,
+        );
+        const key = `ja-${session.ja_id ?? 0}/report/zougen_nichino_${report.kanri_shiten_code}_${ymd}_${Date.now()}.pdf`;
+        await this.storage.upload(key, buffer, PDF_MIME);
+        pdfs.push({
+          report,
+          filename,
+          asciiFilename,
+          key,
+          buffer,
+          recordCount: report.rows.length,
+        });
+      }
+
+      // 日農担当者へメール自動通知（4.5）。失敗してもPDF出力は成功扱いとし、
+      // 警告ログ（log_type=2）を残す（トランザクション外）。
+      await this.notifyNichino(query, reports, session, req);
+
+      // ダウンロード履歴登録（4.6）+ 操作ログ（4.7）を単一トランザクションで実行。
+      await this.dataSource.transaction(async (manager) => {
+        const fileNames: string[] = [];
+        let lastDownloadId: number | null = null;
+        for (const p of pdfs) {
+          const saved = await manager.save(
+            FileDownload,
+            manager.create(FileDownload, {
+              jaId: session.ja_id ?? null,
+              downloadDatetime: new Date(),
+              downloadType: DownloadType.ZOUGEN_NICHINO,
+              fileName: p.filename,
+              filePath: p.key,
+              fileSize: p.buffer.length,
+              recordCount: p.recordCount,
+              targetMonth: this.zougenTargetMonth(query.tekiyo_date),
+              createdBy: String(session.account_id),
+            }),
+          );
+          fileNames.push(p.filename);
+          lastDownloadId = saved.fileDownloadId ?? lastDownloadId;
+        }
+
+        const ctx = buildAuditCtx(
+          session,
+          req,
+          NICHINO_SCREEN_NAME,
+          ZOUGEN_TARGET_TABLE,
+          lastDownloadId,
+        );
+        // 個人情報（氏名・住所）は含めず、出力条件と件数のみを記録する（4.7）。
+        const afterValue = JSON.stringify({
+          tekiyo_date: query.tekiyo_date,
+          kanri_shiten_id: query.kanri_shiten_id ?? null,
+          report_count: reports.length,
+          record_count: rows.length,
+          file_names: fileNames,
+        });
+        await this.auditLog.logOperation(
+          {
+            logType: LogType.USER_OPERATION,
+            accountId: ctx.accountId,
+            jaId: ctx.jaId,
+            gamenName: ctx.screen,
+            operation: AuditOperation.EXPORT_PDF,
+            resultStatus: ResultStatus.SUCCESS,
+            targetId: ctx.targetId,
+            targetTable: ctx.table,
+            beforeValue: '',
+            afterValue,
+            ipAddress: ctx.ipAddress,
+            userAgent: ctx.userAgent,
+          },
+          manager,
+        );
+      });
+
+      // 1管理支店 → PDF、複数管理支店 → 各PDFをまとめたZIP（4.8）。
+      if (pdfs.length === 1) {
+        return {
+          empty: false,
+          buffer: pdfs[0].buffer,
+          filename: pdfs[0].filename,
+          asciiFilename: pdfs[0].asciiFilename,
+          contentType: PDF_MIME,
+        };
+      }
+      const zipBuffer = await buildZipArchive(
+        pdfs.map((p) => ({ name: p.filename, body: p.buffer })),
+      );
+      return {
+        empty: false,
+        buffer: zipBuffer,
+        filename: `増減通知_${ymd}.zip`,
+        asciiFilename: `zougen_nichino_${ymd}.zip`,
+        contentType: ZIP_MIME,
+      };
+    } catch (err) {
+      // DB/S3/PDF障害等は log_type=3 をトランザクション外で記録する（4.9）。
+      await this.auditLog.logError(
+        buildAuditCtx(session, req, NICHINO_SCREEN_NAME, ZOUGEN_TARGET_TABLE, null),
+        AuditOperation.EXPORT_PDF,
         err as Error,
       );
       throw err;
@@ -359,9 +580,13 @@ export class ReportService {
           'AND r2.joho_henko_tekiyo_date <= :tekiyo_date)',
       )
       // 新規のみ（解約 tetsuzuki_shurui=0 は除外）。
-      .andWhere('r.tetsuzuki_shurui = :tetsuzuki', { tetsuzuki: TETSUZUKI_NEW })
+      .andWhere('r.tetsuzuki_shurui = :tetsuzuki', {
+        tetsuzuki: TetsuzukiShurui.SHINKI,
+      })
       // 併読(3)は常に除外（画面項目No.5「併読は除外」）。
-      .andWhere('r.dokusya_shubetsu <> :heiyo', { heiyo: SHUBETSU_HEIYO });
+      .andWhere('r.dokusya_shubetsu <> :heiyo', {
+        heiyo: DokusyaShubetsu.BOTH,
+      });
 
     if (query.dokusya_shubetsu != null) {
       qb.andWhere('r.dokusya_shubetsu = :shubetsu', {
@@ -438,6 +663,8 @@ export class ReportService {
   private async buildExcelBuffer(data: MeiboPreviewData): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(SHEET_NAME);
+    // 既定のグリッド線（View）を非表示にして、明示した枠線だけを見せる。
+    sheet.views = [{ showGridLines: false }];
 
     if (data.report_type === 'hanbaiten') {
       this.fillHanbaitenSheet(sheet, data);
@@ -481,26 +708,50 @@ export class ReportService {
     }
   }
 
-  /** 帳票ヘッダ（タイトル・チェック日/確認印・販売店/組合情報）を描く。 */
+  /**
+   * 帳票ヘッダ（タイトル・チェック日/確認印・販売店/組合情報）を描く。
+   * `showCheckBox=false` でチェック日/確認印ボックスを省略する（管理支店別は
+   * 手書きチェック欄が無いため出さない）。
+   */
   private writeReportHeader(
     sheet: ExcelJS.Worksheet,
     cols: number,
     title: string,
     leftLines: string[],
     rightLines: string[],
+    showCheckBox = true,
   ): void {
     const lastCol = String.fromCodePoint(64 + cols); // A=65
     const midCol = String.fromCodePoint(64 + Math.ceil(cols / 2));
     const nextMid = String.fromCodePoint(64 + Math.ceil(cols / 2) + 1);
 
-    // チェック日 / 確認印（右上）
-    const chk = sheet.addRow([]);
-    chk.getCell(cols - 1).value = 'チェック日';
-    chk.getCell(cols).value = '確認印';
-    chk.getCell(cols - 1).border = this.THIN_BORDER;
-    chk.getCell(cols).border = this.THIN_BORDER;
-    chk.getCell(cols - 1).alignment = { horizontal: 'center' };
-    chk.getCell(cols).alignment = { horizontal: 'center' };
+    // チェック日 / 確認印（右上）— ヘッダ行 + 手書き用の空欄ボックス。
+    // 見出し行の下に枠線付きの空セルを数行積み、手書きで日付・確認印を
+    // 記入できるようにする（販売店別のみ。管理支店別は省略）。
+    if (showCheckBox) {
+      const CHECK_BOX_BLANK_ROWS = 3;
+      const chkHeader = sheet.addRow([]);
+      chkHeader.getCell(cols - 1).value = 'チェック日';
+      chkHeader.getCell(cols).value = '確認印';
+      for (const c of [cols - 1, cols]) {
+        chkHeader.getCell(c).border = this.THIN_BORDER;
+        chkHeader.getCell(c).alignment = { horizontal: 'center' };
+        chkHeader.getCell(c).font = { bold: true };
+      }
+      // 空欄（手書き記入エリア）— 複数行を縦結合して 1 列につき 1 つの
+      // 背の高いボックスにする（チェック日 / 確認印 をそれぞれ手書き）。
+      const firstBlank = chkHeader.number + 1;
+      for (let i = 0; i < CHECK_BOX_BLANK_ROWS; i++) {
+        const blank = sheet.addRow([]);
+        blank.getCell(cols - 1).border = this.THIN_BORDER;
+        blank.getCell(cols).border = this.THIN_BORDER;
+      }
+      const lastBlank = firstBlank + CHECK_BOX_BLANK_ROWS - 1;
+      const chkCol1 = String.fromCodePoint(64 + cols - 1);
+      const chkCol2 = String.fromCodePoint(64 + cols);
+      sheet.mergeCells(`${chkCol1}${firstBlank}:${chkCol1}${lastBlank}`);
+      sheet.mergeCells(`${chkCol2}${firstBlank}:${chkCol2}${lastBlank}`);
+    }
 
     // タイトル（中央・太字）
     const titleRow = sheet.addRow([title]);
@@ -556,8 +807,8 @@ export class ReportService {
       [
         `${data.ja_name}　TEL：${data.ja_tel || '-'}`,
         `${shisho || '（未割当）支所'}　TEL：-`,
-        `出力日：${this.nowJstDate()}`,
-        `出力時間：${this.nowJstTime()}`,
+        `出力日：${nowDateJst()}`,
+        `出力時間：${nowTimeJst()}`,
         'ページ数：1/1',
       ],
     );
@@ -572,66 +823,68 @@ export class ReportService {
       { fill: true, bold: true, center: true },
     );
 
-    // 管理支店(支所)単位でまとめる。
-    const merged = new Map<
-      string,
-      { name: string; subtotal: number; rows: HanbaitenReportRow[] }
-    >();
+    // 販売店ごとにグループ化（販売店 → 管理支店 → 購読者）。
+    const lastCol = String.fromCodePoint(64 + COLS); // COLS=7 → 'G'
     for (const hg of data.hanbaiten_groups) {
+      // 販売店 見出し帯 — 店名は全列を結合して1行に表示（狭い1列目で
+      // 折り返さないよう mergeCells する）。
+      const codeSuffix = hg.hanbaiten_code ? `（${hg.hanbaiten_code}）` : '';
+      const bandRow = sheet.addRow([`${hg.hanbaiten_name}${codeSuffix}`]);
+      this.styleRow(bandRow, COLS, { fill: true, bold: true });
+      sheet.mergeCells(`A${bandRow.number}:${lastCol}${bandRow.number}`);
+      bandRow.getCell(1).alignment = {
+        vertical: 'middle',
+        horizontal: 'left',
+        wrapText: false,
+      };
       for (const sg of hg.kanri_shiten_groups) {
-        const key = sg.kanri_shiten_id == null ? 'none' : String(sg.kanri_shiten_id);
-        const ex = merged.get(key);
-        if (ex) {
-          ex.subtotal += sg.subtotal_busu;
-          ex.rows.push(...sg.rows);
-        } else {
-          merged.set(key, {
-            name: sg.kanri_shiten_name || '（未割当）',
-            subtotal: sg.subtotal_busu,
-            rows: [...sg.rows],
-          });
-        }
-      }
-    }
-    for (const g of merged.values()) {
-      for (const row of g.rows) {
-        this.styleRow(
-          sheet.addRow([
-            '',
+        for (const row of sg.rows) {
+          const detailRow = sheet.addRow([
+            '□', // チェック欄 — 手書きチェック用の空ボックス
             `${row.shimei}\n${row.shimei_kana}`,
             this.formatAddressMultiline(row.haitatsu_address),
             row.kanri_shiten_name,
             row.haitatsu_tel,
-            this.formatDateSlash(row.dokusya_kaishi_date),
+            isoDateToSlash(row.dokusya_kaishi_date),
             row.dokusya_busu,
-          ]),
-          COLS,
-        );
+          ]);
+          this.styleRow(detailRow, COLS);
+          // チェック欄の □ を中央・大きめにして手書きボックスらしく見せる。
+          detailRow.getCell(1).alignment = {
+            vertical: 'middle',
+            horizontal: 'center',
+          };
+          detailRow.getCell(1).font = { size: 36 };
+          detailRow.height = 48;
+        }
       }
-      // 管理支店 小計
+      // 販売店 小計（1販売店につき1行）
       this.styleRow(
-        sheet.addRow(['', '', '', '', '', g.name, `${g.subtotal}件`]),
+        sheet.addRow(['', '', '', '', '', '小計', `${hg.total_busu}件`]),
         COLS,
         { fill: true, bold: true, center: true },
       );
     }
-    // 全体 合計
-    this.styleRow(
-      sheet.addRow(['', '', '', '', '', names, `${data.grand_total_busu}件`]),
-      COLS,
-      { fill: true, bold: true, center: true },
-    );
+    // 合計（複数販売店のときのみ）
+    if (data.hanbaiten_groups.length > 1) {
+      this.styleRow(
+        sheet.addRow(['', '', '', '', '', '合計', `${data.grand_total_busu}件`]),
+        COLS,
+        { fill: true, bold: true, center: true },
+      );
+    }
   }
 
   private fillKanriShitenSheet(
     sheet: ExcelJS.Worksheet,
     data: MeiboPreviewData,
   ): void {
-    const COLS = 12;
+    // 画面イメージ準拠の 7 列（2項目をセル内2行で表現）。管理支店名は
+    // ヘッダ左上に「管理支店：名」として表示する。
+    const COLS = 7;
     sheet.columns = [
-      { width: 14 }, { width: 10 }, { width: 22 }, { width: 14 }, { width: 16 },
-      { width: 14 }, { width: 30 }, { width: 10 }, { width: 14 }, { width: 14 },
-      { width: 18 }, { width: 4 },
+      { width: 22 }, { width: 18 }, { width: 30 }, { width: 9 },
+      { width: 12 }, { width: 12 }, { width: 28 },
     ];
     const names = data.kanri_shiten_groups
       .map((g) => g.kanri_shiten_name || '（未割当）')
@@ -641,22 +894,28 @@ export class ReportService {
       sheet,
       COLS,
       '管理支店別購読者名簿',
-      [`${names}　御中`, `${data.tekiyo_date} 現在`],
+      [`管理支店：${names}`, `${data.tekiyo_date} 現在`],
       [
         `${data.ja_name}　TEL：${data.ja_tel || '-'}`,
-        `出力日：${this.nowJstDate()}`,
-        `出力時間：${this.nowJstTime()}`,
+        `出力日：${nowDateJst()}`,
+        `出力時間：${nowTimeJst()}`,
         'ページ数：1/1',
       ],
+      false, // 管理支店別は手書きチェック欄なし
     );
 
+    // 表ヘッダ（2項目を改行で1セルに）
     this.styleRow(
       sheet.addRow([
-        '管理支店', '購読種別', '購読者名\n購読者かな', '組合員コード',
-        '配達先電話番号', '支店', '配達先住所', '購読部数', '支払い方法',
-        '購読開始日', '配達担当販売店', '',
+        '配達先氏名\n配達先氏名かな',
+        '組合員コード\n配達先電話番号',
+        '支店\n配達先住所',
+        '購読部数',
+        '購読種別',
+        '支払方法',
+        '購読開始日\n配達担当販売店',
       ]),
-      COLS - 1,
+      COLS,
       { fill: true, bold: true, center: true },
     );
 
@@ -664,62 +923,32 @@ export class ReportService {
       for (const row of kg.rows) {
         this.styleRow(
           sheet.addRow([
-            kg.kanri_shiten_name || '（未割当）',
-            this.codeService.getLabel('DOKUSYA_SHUBETSU', row.dokusya_shubetsu),
             `${row.shimei}\n${row.shimei_kana}`,
-            row.kumiaiin_code,
-            row.haitatsu_tel,
-            row.shiten_name,
-            this.formatAddressMultiline(row.haitatsu_address),
+            `${row.kumiaiin_code || '-'}\n${row.haitatsu_tel}`,
+            `${row.shiten_name}\n${this.formatAddressMultiline(row.haitatsu_address)}`,
             row.dokusya_busu,
+            this.codeService.getLabel('DOKUSYA_SHUBETSU', row.dokusya_shubetsu),
             this.codeService.getLabel('SHIHARAI_HOHO', row.shiharai_hoho),
-            this.formatDateSlash(row.dokusya_kaishi_date),
-            row.hanbaiten_name,
+            `${isoDateToSlash(row.dokusya_kaishi_date)}\n${row.hanbaiten_name}`,
           ]),
-          COLS - 1,
+          COLS,
         );
       }
+      // 管理支店 小計（1管理支店につき1行）
       this.styleRow(
-        sheet.addRow([
-          `${kg.kanri_shiten_name || '（未割当）'} 小計`,
-          '', '', '', '', '', '', `${kg.subtotal_busu}件`,
-        ]),
-        COLS - 1,
+        sheet.addRow(['', '', '', '', '', '小計', `${kg.subtotal_busu}件`]),
+        COLS,
         { fill: true, bold: true, center: true },
       );
     }
-    this.styleRow(
-      sheet.addRow(['合計', '', '', '', '', '', '', `${data.grand_total_busu}件`]),
-      COLS - 1,
-      { fill: true, bold: true, center: true },
-    );
-  }
-
-  /** 出力日（Asia/Tokyo）— YYYY/MM/DD。 */
-  private nowJstDate(): string {
-    return this.jstParts('YMD');
-  }
-
-  /** 出力時間（Asia/Tokyo）— HH:mm:ss。 */
-  private nowJstTime(): string {
-    return this.jstParts('HMS');
-  }
-
-  private jstParts(kind: 'YMD' | 'HMS'): string {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date());
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-    return kind === 'YMD'
-      ? `${get('year')}/${get('month')}/${get('day')}`
-      : `${get('hour')}:${get('minute')}:${get('second')}`;
+    // 合計（複数管理支店のときのみ）
+    if (data.kanri_shiten_groups.length > 1) {
+      this.styleRow(
+        sheet.addRow(['', '', '', '', '', '合計', `${data.grand_total_busu}件`]),
+        COLS,
+        { fill: true, bold: true, center: true },
+      );
+    }
   }
 
   /** `〒{7桁}{住所}` を `〒XXX-XXXX\n{住所}` の2行表記に整形。 */
@@ -727,11 +956,6 @@ export class ReportService {
     const m = /^〒(\d{7})(.*)$/.exec(addr ?? '');
     if (!m) return addr ?? '';
     return `〒${m[1].slice(0, 3)}-${m[1].slice(3)}\n${m[2]}`;
-  }
-
-  /** YYYY-MM-DD → YYYY/MM/DD（空はそのまま）。 */
-  private formatDateSlash(d: string): string {
-    return d ? d.replaceAll('-', '/') : '';
   }
 
   /** 購読者名簿_{YYYY年MM月}.xlsx（適用日 tekiyo_date=YYYY-MM-DD に基づく）。 */
@@ -851,5 +1075,143 @@ export class ReportService {
   private zougenTargetMonth(tekiyoDate: string): string {
     const [y, m] = tekiyoDate.split('-');
     return `${y}${m}`;
+  }
+
+  // ─── ACSMS-SCR-029 private helpers ─────────────────────────────────
+
+  /**
+   * 適用日に増減があった増減対象レコードを取得する（api.md §4.5 のSQLと同一）。
+   *   joho_henko_tekiyo_date = :tekiyo_date / zougen_hokoku_flg = true /
+   *   h.haiten_flg = false / 現在部数=0 かつ 新部数=0 を除外 / DataScope適用。
+   */
+  private async fetchZougenNichinoRows(
+    query: ZougenNichinoQueryDto,
+    session: SessionPayload,
+  ): Promise<ZougenNichinoRawRow[]> {
+    const qb = this.rirekiRepo
+      .createQueryBuilder('r')
+      // 廃店(haiten_flg=true)はINNER JOINのON条件でサーバ側強制除外する。
+      .innerJoin(
+        'm_hanbaiten',
+        'h',
+        'h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false',
+      )
+      .innerJoin(
+        'm_kanri_shiten',
+        'ks',
+        'ks.kanri_shiten_id = r.kanri_shiten_id AND ks.deleted_at IS NULL',
+      )
+      .innerJoin('m_ja', 'j', 'j.ja_id = r.ja_id AND j.deleted_at IS NULL')
+      .leftJoin('m_todofuken', 'td', 'td.todofuken_code = ks.todofuken_code')
+      .select([
+        'r.dokusya_rireki_id AS dokusya_rireki_id',
+        'r.hanbaiten_id AS hanbaiten_id',
+        'h.hanbaiten_code AS hanbaiten_code',
+        'h.hanbaiten_name AS hanbaiten_name',
+        'h.itaku_kubun AS itaku_kubun',
+        'h.torihikisaki_no AS torihikisaki_no',
+        'r.kanri_shiten_id AS kanri_shiten_id',
+        'ks.kanri_shiten_code AS kanri_shiten_code',
+        'ks.kanri_shiten_name AS kanri_shiten_name',
+        'ks.tel AS kanri_shiten_tel',
+        'ks.fax AS kanri_shiten_fax',
+        'td.todofuken_name AS todofuken_name',
+        'j.ja_name AS ja_name',
+        'j.tanto_busho AS tanto_busho',
+        'j.tanto_name AS tanto_name',
+        'r.dokusya_busu AS dokusya_busu',
+        'r.zenkai_dokusya_busu AS zenkai_dokusya_busu',
+      ])
+      .where('1 = 1')
+      .andWhere('r.joho_henko_tekiyo_date = :tekiyo_date', {
+        tekiyo_date: query.tekiyo_date,
+      })
+      .andWhere('r.zougen_hokoku_flg = :zougenFlg', { zougenFlg: true })
+      // 現在部数=0 かつ 新部数=0 のレコードは除外（api.md §4.5）。
+      .andWhere(
+        'NOT (COALESCE(r.zenkai_dokusya_busu, 0) = 0 AND r.dokusya_busu = 0)',
+      );
+
+    if (query.kanri_shiten_id && query.kanri_shiten_id.length > 0) {
+      qb.andWhere('r.kanri_shiten_id IN (:...kanri_shiten_id)', {
+        kanri_shiten_id: query.kanri_shiten_id,
+      });
+    }
+
+    // DataScope: CHUOKAI/JA_HONTEN → ja_id, JA_KANRI_SHITEN → kanri_shiten_id。
+    applyBranchScope(
+      qb,
+      'r',
+      { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
+      session,
+    );
+
+    qb.orderBy('ks.kanri_shiten_code', 'ASC').addOrderBy('h.hanbaiten_code', 'ASC');
+
+    return qb.getRawMany<ZougenNichinoRawRow>();
+  }
+
+  /**
+   * 日農担当者へ増減通知の作成完了をメールで通知する（4.5）。宛先は
+   * `mail.nichinoNotifyAddress`（未設定時はフォールバック）。本文は適用日・
+   * 対象管理支店・件数のみ（個人情報は含めない）。送信失敗時はPDF出力を成功扱い
+   * とし、警告ログ（log_type=2）を残してフローを継続する。
+   */
+  private async notifyNichino(
+    query: ZougenNichinoQueryDto,
+    reports: ZougenNichinoReport[],
+    session: SessionPayload,
+    req: Request,
+  ): Promise<void> {
+    if (!this.mailService) return;
+    const to =
+      this.configService?.get<string>('mail.nichinoNotifyAddress') ??
+      NICHINO_NOTIFY_FALLBACK;
+    const recordCount = reports.reduce((sum, r) => sum + r.rows.length, 0);
+    const targets = reports
+      .map((r) => `${formatKanriShitenCode(r.kanri_shiten_code)} ${r.kanri_shiten_name}`)
+      .join('、');
+    const content =
+      `増減通知を作成しました。\n` +
+      `適用日：${query.tekiyo_date}\n` +
+      `対象管理支店：${targets}\n` +
+      `件数：${recordCount}件`;
+    try {
+      await this.mailService.sendNotification(to, '増減通知 作成完了', content);
+    } catch (err) {
+      // メール失敗はPDF出力の成否に影響させない（4.5）。警告ログのみ。
+      this.logger.warn({
+        event: 'report.nichino.mail_failed',
+        accountId: session.account_id,
+        message: (err as Error).message,
+      });
+      await this.auditLog.logOperation({
+        logType: LogType.SYSTEM,
+        accountId: session.account_id,
+        jaId: session.ja_id ?? null,
+        gamenName: NICHINO_SCREEN_NAME,
+        operation: AuditOperation.EXPORT_PDF,
+        resultStatus: ResultStatus.WARNING,
+        targetTable: ZOUGEN_TARGET_TABLE,
+        beforeValue: '',
+        afterValue: '',
+        errorMessage: `mail notify failed: ${(err as Error).message}`,
+        ipAddress: String(req?.ip ?? ''),
+        userAgent: String(req?.headers?.['user-agent'] ?? ''),
+      });
+    }
+  }
+
+  /** 表示名：増減通知_{管理支店コード3-4-3}_{YYYYMMDD}.pdf。 */
+  private buildNichinoPdfFilename(kanriShitenCode: string, ymd: string): string {
+    return `増減通知_${formatKanriShitenCode(kanriShitenCode)}_${ymd}.pdf`;
+  }
+
+  /** ASCII別名：zougen_nichino_{管理支店コード3-4-3}_{YYYYMMDD}.pdf。 */
+  private buildNichinoPdfAsciiFilename(
+    kanriShitenCode: string,
+    ymd: string,
+  ): string {
+    return `zougen_nichino_${formatKanriShitenCode(kanriShitenCode)}_${ymd}.pdf`;
   }
 }

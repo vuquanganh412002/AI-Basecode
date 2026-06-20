@@ -34,11 +34,17 @@ import { MfaOtp } from '@/database/entities/mfa-otp.entity';
 import { Role } from '@/database/entities/role.entity';
 import { RolePermission } from '@/database/entities/role-permission.entity';
 import { Permission } from '@/database/entities/permission.entity';
-import { LoginResult, OtpType, LogType, ResultStatus } from '@/common/enums';
+import {
+  AuditOperation, LoginResult, OtpType, LogType, ResultStatus } from '@/common/enums';
 import { SessionService, SessionPayload } from './session.service';
+import { RedisService } from '@/modules/redis/redis.service';
 
 const SALT_ROUNDS = 10;
 const OTP_EXPIRY_MINUTES = 5;
+// Redis key prefix for the short-lived mfa_token → otp_id binding. Stored in
+// Redis (not in-process) so the verify/resend request can land on a different
+// ECS task than the one that issued the token (multi-instance correctness).
+const MFA_TOKEN_PREFIX = 'mfa_token:';
 const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const OTP_MAX_RESEND = 3;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
@@ -97,13 +103,9 @@ export type LoginOutcome =
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  /**
-   * In-memory map: mfa_token (UUID) → otp_id.
-   * Short-lived (OTP expires in 5 min) so single-instance memory is fine
-   * for dev. For multi-instance production move to Redis
-   * (`mfa_token:{token}` → otp_id with TTL 5min).
-   */
-  private readonly mfaTokenToOtpId = new Map<string, number>();
+  // mfa_token (UUID) → otp_id lives in Redis (`mfa_token:{token}`, TTL 5min),
+  // NOT in process memory: login can issue the token on one ECS task while the
+  // verify/resend request lands on another, so the binding MUST be shared.
 
   constructor(
     private readonly mailService: MailService,
@@ -116,6 +118,8 @@ export class AuthService {
     private readonly rolePermRepo: Repository<RolePermission>,
     @InjectRepository(Permission)
     private readonly permRepo: Repository<Permission>,
+    // Shared store for the mfa_token → otp_id binding (multi-instance safe).
+    private readonly redis: RedisService,
     // SCR-012 password reset wraps DML + audit log inside a transaction.
     // `@Optional()` keeps SCR-001's plain `new AuthService(...8 args)` specs
     // type-checking after their banner is later removed — DI still injects
@@ -238,31 +242,40 @@ export class AuthService {
     return this.buildSessionResponse(account);
   }
 
+  /**
+   * Resolve the otp_id bound to an mfa_token from Redis. Returns undefined
+   * when the key is absent/expired (→ INVALID_MFA_TOKEN at the call site).
+   */
+  private async lookupOtpId(mfaToken: string): Promise<number | undefined> {
+    const raw = await this.redis.get(MFA_TOKEN_PREFIX + mfaToken);
+    return raw ? Number(raw) : undefined;
+  }
+
   async verifyMfa(
     mfaToken: string,
     otpCode: string,
     ctx: LoginContext,
   ): Promise<Extract<LoginOutcome, { mfa_required: false }>> {
-    const otpId = this.mfaTokenToOtpId.get(mfaToken);
+    const otpId = await this.lookupOtpId(mfaToken);
     if (!otpId) throw new InvalidMfaTokenException();
 
     const otp = await this.otpRepo.findOne({
       where: { otpId, usedFlg: false, otpType: OtpType.MFA },
     });
     if (!otp) {
-      this.mfaTokenToOtpId.delete(mfaToken);
+      await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
       throw new InvalidMfaTokenException();
     }
 
     if (otp.expiredAt.getTime() < Date.now()) {
       await this.otpRepo.update({ otpId }, { usedFlg: true });
-      this.mfaTokenToOtpId.delete(mfaToken);
+      await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
       throw new OtpExpiredException();
     }
 
     if (otp.verifyAttemptCount >= OTP_MAX_VERIFY_ATTEMPTS) {
       await this.otpRepo.update({ otpId }, { usedFlg: true });
-      this.mfaTokenToOtpId.delete(mfaToken);
+      await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
       throw new OtpMaxAttemptsException();
     }
 
@@ -272,14 +285,14 @@ export class AuthService {
       const incremented = otp.verifyAttemptCount + 1;
       if (incremented >= OTP_MAX_VERIFY_ATTEMPTS) {
         await this.otpRepo.update({ otpId }, { usedFlg: true });
-        this.mfaTokenToOtpId.delete(mfaToken);
+        await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
         throw new OtpMaxAttemptsException();
       }
       throw new InvalidOtpException();
     }
 
     await this.otpRepo.update({ otpId }, { usedFlg: true });
-    this.mfaTokenToOtpId.delete(mfaToken);
+    await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
 
     const account = await this.accountRepo.findOne({
       where: { accountId: otp.accountId, deletedAt: IsNull() },
@@ -300,20 +313,20 @@ export class AuthService {
   async resendMfa(
     mfaToken: string,
   ): Promise<{ mfa_token: string; expires_in: number; resend_count: number; max_resend: number }> {
-    const otpId = this.mfaTokenToOtpId.get(mfaToken);
+    const otpId = await this.lookupOtpId(mfaToken);
     if (!otpId) throw new InvalidMfaTokenException();
 
     const otp = await this.otpRepo.findOne({
       where: { otpId, usedFlg: false, otpType: OtpType.MFA },
     });
     if (!otp) {
-      this.mfaTokenToOtpId.delete(mfaToken);
+      await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
       throw new InvalidMfaTokenException();
     }
 
     if (otp.resendCount >= OTP_MAX_RESEND) {
       await this.otpRepo.update({ otpId }, { usedFlg: true });
-      this.mfaTokenToOtpId.delete(mfaToken);
+      await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
       throw new OtpResendLimitException();
     }
 
@@ -329,7 +342,7 @@ export class AuthService {
 
     // Invalidate old OTP, issue new one with incremented resend_count.
     await this.otpRepo.update({ otpId }, { usedFlg: true });
-    this.mfaTokenToOtpId.delete(mfaToken);
+    await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
 
     const nextResendCount = otp.resendCount + 1;
     const { mfaToken: newMfaToken } = await this.issueOtp(
@@ -462,7 +475,7 @@ export class AuthService {
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
           gamenName: SCREEN_NAME_SCR012,
-          operation: 'PASSWORD_RESET_REQUEST',
+          operation: AuditOperation.PASSWORD_RESET_REQUEST,
           resultStatus: ResultStatus.SUCCESS,
           targetTable: TABLE_T_MFA_OTP,
           afterValue: JSON.stringify({ event: 'reset_token_issued' }),
@@ -482,7 +495,7 @@ export class AuthService {
           ipAddress: ctx.ipAddress ?? '',
           userAgent: ctx.userAgent ?? '',
         },
-        'PASSWORD_RESET_REQUEST',
+        AuditOperation.PASSWORD_RESET_REQUEST,
         err as Error,
       );
       throw err;
@@ -588,7 +601,9 @@ export class AuthService {
             passwordHash: newHash,
             passwordUpdatedAt: now,
             updatedAt: now,
-            updatedBy: 'SYSTEM',
+            // パスワードリセットはトークンで本人確認済みの当該アカウント自身による
+            // 操作のため、updated_by は当該アカウントID(FK)を記録する。
+            updatedBy: String(accountId),
           },
         );
         await manager.update(
@@ -602,7 +617,7 @@ export class AuthService {
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
           gamenName: SCREEN_NAME_SCR012,
-          operation: 'PASSWORD_RESET',
+          operation: AuditOperation.PASSWORD_RESET,
           resultStatus: ResultStatus.SUCCESS,
           targetTable: TABLE_M_ACCOUNT,
           targetId: accountId,
@@ -622,7 +637,7 @@ export class AuthService {
           ipAddress: ctx.ipAddress ?? '',
           userAgent: ctx.userAgent ?? '',
         },
-        'PASSWORD_RESET',
+        AuditOperation.PASSWORD_RESET,
         err as Error,
       );
       throw err;
@@ -810,7 +825,11 @@ export class AuthService {
     );
 
     const mfaToken = randomUUID();
-    this.mfaTokenToOtpId.set(mfaToken, Number(saved.otpId));
+    await this.redis.setEx(
+      MFA_TOKEN_PREFIX + mfaToken,
+      OTP_EXPIRY_MINUTES * 60,
+      String(saved.otpId),
+    );
 
     try {
       await this.mailService.sendOtp(email, accountName, otpCode);

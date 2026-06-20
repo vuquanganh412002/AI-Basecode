@@ -18,11 +18,13 @@
  */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { message } from 'ant-design-vue';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
+import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
@@ -99,6 +101,9 @@ const formState = reactive<FormState>({
   biko: '',
 });
 
+// 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
+const editGuard = useEditGuard(() => formState);
+
 /* ─── Lifecycle ────────────────────────────────────────────────────── */
 
 onMounted(async () => {
@@ -137,6 +142,7 @@ onMounted(async () => {
         jastem_koza_no: resp.data.jastem_koza_no ?? '',
         biko: resp.data.biko ?? '',
       });
+      await editGuard.capture();
     } catch {
       // 404 / 403 — global axios interceptor toasts + this view bounces.
       try {
@@ -372,6 +378,11 @@ async function submitWith(form: FormState): Promise<void> {
 }
 
 async function onFormSubmit(): Promise<void> {
+  // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
+  if (isEdit.value && editGuard.isPristine()) {
+    message.info('変更がありません。');
+    return;
+  }
   // antd `<a-select allow-clear>` sets v-model to `undefined` on × click.
   // JSON.stringify drops undefined → BE's pickString sees "key absent"
   // and keeps the prior value, so a cleared dropdown wouldn't actually

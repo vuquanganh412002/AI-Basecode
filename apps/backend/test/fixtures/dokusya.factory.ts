@@ -90,6 +90,7 @@ export function buildDokusya(overrides: Partial<Dokusya> = {}): Dokusya {
     biko: '',
     rirekiNo: 1,
     denshiShoninStatus: null,
+    denshiKaiinId: null,
     deletedAt: null,
     createdAt: now,
     createdBy: 'SYSTEM',
@@ -261,6 +262,9 @@ export function buildUpdateDokusyaBody(
     ...buildCreateDokusyaBody(),
     dokusya_busu: 2,
     chome_banchi: '千代田1-2',
+    // 編集時の 情報変更適用日 はユーザー入力で必須・過去日不可（既定は当日）。
+    // happy-path update が通るよう未来日を入れる。
+    joho_henko_tekiyo_date: futureDate(7),
     ...overrides,
   };
 }
@@ -334,6 +338,7 @@ export function buildDokusyaDetailResponse(
     biko: '',
     rireki_no: 1,
     denshi_shonin_status: null,
+    denshi_kaiin_id: null,
     created_at: '2026-04-01T10:00:00.000Z',
     updated_at: '2026-04-01T10:00:00.000Z',
     ...overrides,
@@ -411,8 +416,10 @@ export function buildDokusyaListRow(
     kumiaiin_code: 'K000001',
     full_name: '山田 太郎',
     full_name_kana: 'ヤマダ タロウ',
+    tetsuzuki_shurui: 1,
     renrakusaki_1: '03-1234-5678',
     renrakusaki_2: '',
+    haitatsu_full_name: '山田 花子',
     haitatsu_yubin_no: '1500001',
     haitatsu: '東京都渋谷区神宮前1-1-1 渋谷マンション101',
     hanbaiten_id: 501,
@@ -661,7 +668,8 @@ export function buildImportRequiredColumns(): string[] {
   return [
     'dokusya_shubetsu',
     'tetsuzuki_shurui',
-    'kanri_shiten_id',
+    'kanri_shiten_code',
+    'shiten_code',
     'dokusya_busu',
     'tanka_code',
     'yubin_no',
@@ -689,8 +697,8 @@ export function buildImportRow(
   return {
     dokusya_shubetsu: 1,
     tetsuzuki_shurui: 1,
-    kanri_shiten_id: 101,
-    shiten_id: 1001,
+    kanri_shiten_code: 'KS001',
+    shiten_code: 'SH001',
     kumiaiin_code: 'K00001',
     shimei_sei: '山田',
     shimei_mei: '太郎',

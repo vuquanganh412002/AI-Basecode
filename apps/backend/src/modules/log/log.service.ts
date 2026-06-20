@@ -3,7 +3,8 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
-import { LogType, ResultStatus } from '@/common/enums';
+import {
+  AuditOperation, LogType, ResultStatus } from '@/common/enums';
 import { Log } from '@/database/entities/log.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
@@ -11,6 +12,11 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx, extractAuditContext } from '@/common/utils/audit-context';
 import { applyBranchScopeWithJoinAlias } from '@/common/utils/data-scope';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import {
+  formatDateTimeJst,
+  parseDatetimeJst,
+  timestampForFilenameJst,
+} from '@/common/utils/datetime';
 
 import type { SearchLogDto } from './dto/search-log.dto';
 import type { ExportLogDto } from './dto/export-log.dto';
@@ -214,14 +220,14 @@ export class LogService {
 
       const rawRows = await qb.getRawMany<CsvRawRow>();
       const buffer = this.buildCsvBuffer(rawRows);
-      const filename = `log_export_${this.timestampForFilename(new Date())}.csv`;
+      const filename = `log_export_${timestampForFilenameJst()}.csv`;
 
       await this.auditLog.logOperation({
         logType: LogType.USER_OPERATION,
         accountId: session.account_id,
         jaId: session.ja_id,
         gamenName: SCREEN_NAME,
-        operation: 'EXPORT_CSV',
+        operation: AuditOperation.EXPORT_CSV,
         resultStatus: ResultStatus.SUCCESS,
         targetId: null,
         targetTable: TABLE_NAME,
@@ -241,7 +247,7 @@ export class LogService {
     } catch (err) {
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
-        'EXPORT_CSV',
+        AuditOperation.EXPORT_CSV,
         err as Error,
       );
       throw err;
@@ -252,8 +258,8 @@ export class LogService {
 
   private assertDateRange(from?: string, to?: string): void {
     if (!from || !to) return;
-    const fromDate = this.parseDatetime(from);
-    const toDate = this.parseDatetime(to);
+    const fromDate = parseDatetimeJst(from);
+    const toDate = parseDatetimeJst(to);
     if (!fromDate || !toDate) return; // DTO validator already rejected malformed values
     if (fromDate.getTime() > toDate.getTime()) {
       throw new DateRangeInvalidException();
@@ -261,20 +267,6 @@ export class LogService {
     if (toDate.getTime() - fromDate.getTime() > ONE_YEAR_MS) {
       throw new DateRangeTooLongException();
     }
-  }
-
-  private parseDatetime(s: string): Date | null {
-    const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
-    if (!m) return null;
-    const [, y, mo, d, h, mi, se] = m;
-    return new Date(
-      Number(y),
-      Number(mo) - 1,
-      Number(d),
-      Number(h),
-      Number(mi),
-      Number(se),
-    );
   }
 
   /**
@@ -306,12 +298,12 @@ export class LogService {
   ): void {
     if (query.date_from) {
       qb.andWhere('l.log_datetime >= :date_from', {
-        date_from: this.parseDatetime(query.date_from),
+        date_from: parseDatetimeJst(query.date_from),
       });
     }
     if (query.date_to) {
       qb.andWhere('l.log_datetime <= :date_to', {
-        date_to: this.parseDatetime(query.date_to),
+        date_to: parseDatetimeJst(query.date_to),
       });
     }
     if (query.log_type != null) {
@@ -326,7 +318,7 @@ export class LogService {
     return {
       log_id: Number(row.log_id),
       log_type: row.log_type,
-      log_datetime: this.formatDatetime(row.log_datetime),
+      log_datetime: formatDateTimeJst(row.log_datetime),
       account_id: row.account_id == null ? null : Number(row.account_id),
       login_id: row.login_id ?? null,
       account_name: row.account_name ?? null,
@@ -341,45 +333,6 @@ export class LogService {
     };
   }
 
-  private formatDatetime(value: Date | string): string {
-    // Format in Asia/Tokyo. Container TZ defaults to JST, but be explicit so
-    // tests pass regardless of host timezone.
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-    // en-CA produces YYYY-MM-DD; we want YYYY/MM/DD HH:mm:ss.
-    return `${get('year')}/${get('month')}/${get('day')} ${get('hour')}:${get(
-      'minute',
-    )}:${get('second')}`;
-  }
-
-  private timestampForFilename(now: Date): string {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(now);
-    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-    return `${get('year')}${get('month')}${get('day')}_${get('hour')}${get(
-      'minute',
-    )}${get('second')}`;
-  }
-
   private buildCsvBuffer(rows: CsvRawRow[]): Buffer {
     const lines: string[] = [];
     lines.push(CSV_HEADER.map((h) => this.csvEscape(h)).join(','));
@@ -388,7 +341,7 @@ export class LogService {
         [
           String(Number(row.log_id)),
           this.codeService.getLabel('LOG_TYPE', row.log_type),
-          this.formatDatetime(row.log_datetime),
+          formatDateTimeJst(row.log_datetime),
           row.login_id ?? '',
           row.ja_id == null ? '' : String(Number(row.ja_id)),
           row.gamen_name ?? '',

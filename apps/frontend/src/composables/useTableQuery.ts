@@ -207,6 +207,69 @@ export function useTableQuery<F extends object>(
     syncUrl();
   }
 
+  /**
+   * Configuration for {@link searchActions} — the shared 検索 / 検索クリア
+   * handler pair every list screen wires to `<BaseSearchForm @search @clear>`.
+   */
+  interface SearchActionsConfig {
+    /** The view's list fetch. Run after applyFilters (検索) and after reset (クリア). */
+    fetchList: () => void | Promise<void>;
+    /**
+     * Run at the start of 検索, BEFORE the changed-since-applied guard. Use to
+     * trim text filters in place / validate. Return `false` to abort the search
+     * (validation failed, a required-field guard, etc.).
+     */
+    beforeSearch?: () => boolean | void;
+    /**
+     * Run at the start of 検索クリア, ALWAYS (even on a pristine screen). Use to
+     * clear local-only UI that the table-query state doesn't own — row
+     * selection, a staged bulk-action form, dependent dropdown options.
+     */
+    beforeClear?: () => void;
+    /**
+     * Run AFTER resetFilters() on 検索クリア, only when an actual reset happens
+     * (screen was not pristine). Use for local resets that only matter when the
+     * filters really changed (e.g. clearing a cascaded dropdown's options).
+     */
+    afterReset?: () => void;
+    /** Fetch used by 検索クリア — defaults to {@link SearchActionsConfig.fetchList}. */
+    clearFetch?: () => void | Promise<void>;
+  }
+
+  /**
+   * Build the canonical 検索 / 検索クリア handlers with the redundant-call
+   * guards baked in, so every list screen behaves identically and pressing
+   * either button repeatedly with no change does NOT re-hit the API:
+   *
+   * - `onSearch`: run `beforeSearch` (trim/validate; `false` aborts), then skip
+   *   when the form matches the displayed list (`filtersChangedSinceApplied`),
+   *   else `applyFilters` + `fetchList`.
+   * - `onClear`: run `beforeClear` (always — clears local UI), then skip the
+   *   reset+refetch when already pristine (`isPristine`), else `resetFilters`,
+   *   `afterReset`, and fetch (via `clearFetch ?? fetchList`).
+   *
+   * Wire to the template: `<BaseSearchForm @search="onSearch" @clear="onClear">`.
+   */
+  function searchActions(cfg: SearchActionsConfig): {
+    onSearch: () => void;
+    onClear: () => void;
+  } {
+    function onSearch(): void {
+      if (cfg.beforeSearch?.() === false) return;
+      if (!filtersChangedSinceApplied()) return;
+      applyFilters({ ...(state.filters as object) } as Partial<F>);
+      void cfg.fetchList();
+    }
+    function onClear(): void {
+      cfg.beforeClear?.();
+      if (isPristine()) return;
+      resetFilters();
+      cfg.afterReset?.();
+      void (cfg.clearFetch ?? cfg.fetchList)();
+    }
+    return { onSearch, onClear };
+  }
+
   function syncUrl(): void {
     if (!opts.syncUrl) return;
     router.replace({
@@ -241,6 +304,7 @@ export function useTableQuery<F extends object>(
     hasActiveFilters,
     filtersChangedSinceApplied,
     isPristine,
+    searchActions,
     watch,
   };
 }

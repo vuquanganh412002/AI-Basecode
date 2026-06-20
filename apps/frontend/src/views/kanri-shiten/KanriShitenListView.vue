@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -46,7 +47,7 @@ const canDelete = computed(() => authStore.hasPermission('kanri_shiten.delete'))
 // surfaces at the top of the list on the next render. The 3 sortable
 // column headers from 画面定義§8.1 still override this when clicked.
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<KanriShitenFilters>({
     defaultFilters: {
@@ -132,32 +133,18 @@ onMounted(() => {
   void fetchTodofuken();
 });
 
-function onSearch(): void {
-  // Trim leading/trailing whitespace on every text filter so paste
-  // artifacts and IME-confirmed spaces don't widen the ILIKE pattern.
-  // Mutate state.filters directly so inputs visibly update (vue.md §5a).
-  state.filters.kanri_shiten_code = state.filters.kanri_shiten_code.trim();
-  state.filters.kanri_shiten_name = state.filters.kanri_shiten_name.trim();
-  state.filters.tel = state.filters.tel.trim();
-  state.filters.fax = state.filters.fax.trim();
-  // todofuken_code comes from a select — no whitespace to trim, just
-  // pass through.
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim text filters so paste artifacts / IME spaces don't widen the ILIKE
+  // pattern. todofuken_code comes from a select — no whitespace to trim.
+  beforeSearch() {
+    state.filters.kanri_shiten_code = state.filters.kanri_shiten_code.trim();
+    state.filters.kanri_shiten_name = state.filters.kanri_shiten_name.trim();
+    state.filters.tel = state.filters.tel.trim();
+    state.filters.fax = state.filters.fax.trim();
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -173,22 +160,16 @@ function goEdit(row: KanriShitenListItem): void {
 }
 
 function askDelete(row: KanriShitenListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    content: 'この管理支店を削除してもよろしいですか？', // ACSMS-MSG-008-005
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeKanriShiten(row.kanri_shiten_id);
-        notify.deleted(); // ACSMS-MSG-008-006 '削除しました。' (verb-only)
-        await fetchList();
-      } catch {
-        // Global interceptor handled 409 CONFLICT (ACSMS-MSG-008-004) /
-        // 500 (ACSMS-MSG-008-003); view must NOT re-toast.
-      }
-    },
+  confirmDelete('この管理支店を削除してもよろしいですか？', async () => {
+    // ACSMS-MSG-008-005
+    try {
+      await removeKanriShiten(row.kanri_shiten_id);
+      notify.deleted(); // ACSMS-MSG-008-006 '削除しました。' (verb-only)
+      await fetchList();
+    } catch {
+      // Global interceptor handled 409 CONFLICT (ACSMS-MSG-008-004) /
+      // 500 (ACSMS-MSG-008-003); view must NOT re-toast.
+    }
   });
 }
 </script>

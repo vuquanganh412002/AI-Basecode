@@ -17,11 +17,13 @@
  */
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { message } from 'ant-design-vue';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
+import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
@@ -104,6 +106,9 @@ const formState = reactive<FormState>({
   biko: '',
 });
 
+// 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
+const editGuard = useEditGuard(() => formState);
+
 /**
  * [ja-name-fallback]
  * JA_KANRI_SHITEN doesn't hold the `ja.view` permission, so calling
@@ -153,6 +158,7 @@ onMounted(async () => {
         denshi_flg: !!resp.data.denshi_flg,
         biko: resp.data.biko ?? '',
       });
+      await editGuard.capture();
     } catch {
       // 404 / 403 — axios interceptor toasts; bounce so we don't leave
       // the user staring at an empty edit form.
@@ -394,6 +400,11 @@ function onKanriShitenCodeBlur(): void {
 }
 
 async function onFormSubmit(): Promise<void> {
+  // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
+  if (isEdit.value && editGuard.isPristine()) {
+    message.info('変更がありません。');
+    return;
+  }
   // Auto-format kanri_shiten_code one more time on submit in case the
   // user pasted-and-submitted without ever firing @blur (paste with
   // Enter, or programmatic fill). Belt-and-suspenders with the blur

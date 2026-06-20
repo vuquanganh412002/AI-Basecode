@@ -43,7 +43,9 @@ const CHUOKAI_PERMS = [
   'tanka.create', 'tanka.view', 'tanka.update', 'tanka.delete',
   'ja.view', 'ja.update',
   'shiten.create', 'shiten.view', 'shiten.update', 'shiten.delete',
-  'file.upload', 'file.download', 'log.view',
+  // file.upload intentionally absent — 中央会/JA本店/JA管理支店 cannot use
+  // ファイルアップロード (2026-06, migration 1711900900020). file.download stays.
+  'file.download', 'log.view',
   'koza_furikae.export', 'haitatsuryo.export',
   'report.export_meibo', 'report.export_zougen_hanbaiten', 'report.export_zougen_nichino',
 ];
@@ -213,8 +215,7 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).toContain('単価マスタ');
       expect(labels).toContain('JAマスタ');
       expect(labels).toContain('支店マスタ');
-      // その他
-      expect(labels).toContain('ファイルアップロード');
+      // その他 — ファイルアップロードは日農のみ (2026-06)。ダウンロードのみ表示。
       expect(labels).toContain('ファイルダウンロード');
       // 管理者機能
       expect(labels).toContain('ログ参照');
@@ -226,6 +227,8 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).not.toContain('お知らせ管理');
       expect(labels).not.toContain('ロール管理');
       expect(labels).not.toContain('販売店代行入力');
+      // ファイルアップロードは日農のみ (file.upload 剥奪 2026-06)。
+      expect(labels).not.toContain('ファイルアップロード');
     });
   });
 
@@ -255,6 +258,8 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).not.toContain('お知らせ管理');
       expect(labels).not.toContain('ロール管理');
       expect(labels).not.toContain('販売店代行入力');
+      // ファイルアップロードは日農のみ (file.upload 剥奪 2026-06)。
+      expect(labels).not.toContain('ファイルアップロード');
     });
   });
 
@@ -287,6 +292,8 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).not.toContain('お知らせ管理');
       expect(labels).not.toContain('ロール管理');
       expect(labels).not.toContain('販売店代行入力');
+      // ファイルアップロードは日農のみ (file.upload 剥奪 2026-06)。
+      expect(labels).not.toContain('ファイルアップロード');
     });
   });
 

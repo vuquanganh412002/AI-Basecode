@@ -328,15 +328,24 @@ describe('FileUploadController — SCR-022', () => {
       expect(res.status).not.toBe(401); // guard overridden allows through
     });
 
-    // COVERS: §4.2 — FORBIDDEN handled by PermissionsGuard. The
-    // @Permissions decorator metadata smoke check is best done via
-    // reflection; the end-to-end 403 assertion lives in the integration
-    // spec, so this stays a pending marker rather than a no-op assertion.
-    it.todo(
-      'should rely on PermissionsGuard with @Permissions("file.download") on all endpoints',
-    );
+    // COVERS: §4.2 — FORBIDDEN handled by PermissionsGuard. Verify every GET
+    // endpoint declares @Permissions('file.download') via the decorator
+    // metadata (key 'permissions'); the end-to-end 403 path lives in the
+    // integration spec.
+    it('should declare @Permissions("file.download") on every GET endpoint', () => {
+      const handlers = [
+        FileUploadController.prototype.findAll,
+        FileUploadController.prototype.getPreview,
+        FileUploadController.prototype.download,
+      ];
+      for (const handler of handlers) {
+        const perms = Reflect.getMetadata('permissions', handler) as
+          | string[]
+          | undefined;
+        expect(perms).toEqual(['file.download']);
+      }
+    });
 
-    it.todo('should return 429 with error_code=TOO_MANY_REQUESTS — covered in integration (throttler is application-level)');
   });
 });
 
@@ -631,6 +640,5 @@ describe('FileUploadController — SCR-023 (POST upload + DELETE)', () => {
       expect(res.status).not.toBe(401); // guard overridden — smoke check
     });
 
-    it.todo('should return 429 with error_code=TOO_MANY_REQUESTS — covered in integration (throttler is application-level)');
   });
 });

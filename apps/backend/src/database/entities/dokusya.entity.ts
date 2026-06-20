@@ -33,6 +33,11 @@ import {
 @Index('IX_t_dokusya_hanbaiten_id', ['hanbaitenId'])
 @Index('IX_t_dokusya_email', ['jaId', 'email'])
 @Index('IX_t_dokusya_deleted_at', ['deletedAt'])
+// 電子版会員IDは全レコードで一意（NULL・削除済みは対象外の部分 UNIQUE）。
+@Index('UQ_t_dokusya_denshi_kaiin_id', ['denshiKaiinId'], {
+  unique: true,
+  where: 'denshi_kaiin_id IS NOT NULL AND deleted_at IS NULL',
+})
 export class Dokusya {
   @PrimaryGeneratedColumn({ name: 'dokusya_id', type: 'bigint' })
   dokusyaId: number;
@@ -270,6 +275,16 @@ export class Dokusya {
 
   @Column({ name: 'denshi_shonin_status', type: 'int', nullable: true })
   denshiShoninStatus: number | null;
+
+  /**
+   * 電子版会員ID — 外部（電子版読者管理）システムの会員ID。本システムでは
+   * 直接入力せず、後続で開発する外部連携機能が設定する。NULL許容。
+   * 全レコードで重複不可（外部会員IDと 1:1）— 部分 UNIQUE 制約は
+   * UQ_t_dokusya_denshi_kaiin_id（denshi_kaiin_id IS NOT NULL かつ
+   * 未削除行のみ）で担保する。
+   */
+  @Column({ name: 'denshi_kaiin_id', type: 'bigint', nullable: true })
+  denshiKaiinId: number | null;
 
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;

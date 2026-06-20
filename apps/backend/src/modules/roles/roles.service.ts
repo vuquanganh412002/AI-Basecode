@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AuditOperation } from '@/common/enums';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
@@ -164,7 +165,7 @@ export class RolesService {
           {
             roleName: dto.role_name,
             description: dto.description ?? null,
-            updatedBy: session.login_id,
+            updatedBy: String(session.account_id),
           },
         );
 
@@ -172,7 +173,7 @@ export class RolesService {
         await manager.update(
           RolePermission,
           { roleId, deletedAt: IsNull() },
-          { deletedAt: new Date(), updatedBy: session.login_id },
+          { deletedAt: new Date(), updatedBy: String(session.account_id) },
         );
 
         // [business-insert] — INSERT new allocations (only when array is non-empty).
@@ -185,8 +186,8 @@ export class RolesService {
               roleId,
               permissionId,
               locked: lockedByPermId.get(permissionId) ?? false,
-              createdBy: session.login_id,
-              updatedBy: session.login_id,
+              createdBy: String(session.account_id),
+              updatedBy: String(session.account_id),
             }),
           );
           await manager.save(RolePermission, newRows);
@@ -251,7 +252,7 @@ export class RolesService {
       // trace survives. Do NOT pass manager here.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, roleId),
-        'UPDATE',
+        AuditOperation.UPDATE,
         err as Error,
       );
       throw err;

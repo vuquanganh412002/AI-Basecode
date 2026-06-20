@@ -28,6 +28,7 @@ export interface FileUploadListItem {
   created_by: string;
   created_by_name: string;
   created_at: string;
+  deleted_at?: string | null;
 }
 
 export interface FileUploadListMeta {
@@ -76,6 +77,7 @@ export function buildFileUploadItem(
     created_by: 'nichino_admin01',
     created_by_name: '日農 管理者',
     created_at: '2026-05-07T10:30:00+09:00',
+    deleted_at: null,
     ...overrides,
   };
 }

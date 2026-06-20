@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AuditOperation } from '@/common/enums';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
@@ -290,7 +291,7 @@ export class KanriShitenService {
       // survives even when the business write was discarded.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
-        'DELETE',
+        AuditOperation.DELETE,
         err as Error,
       );
       throw err;
@@ -413,7 +414,7 @@ export class KanriShitenService {
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, null),
-          'CREATE',
+          AuditOperation.CREATE,
           err as Error,
         );
         throw new DuplicateCodeException('管理支店コード', dto.kanri_shiten_code);
@@ -421,7 +422,7 @@ export class KanriShitenService {
       // [audit-error-log] — OUTSIDE the rolled-back tx.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, null),
-        'CREATE',
+        AuditOperation.CREATE,
         err as Error,
       );
       throw err;
@@ -520,7 +521,7 @@ export class KanriShitenService {
     } catch (err) {
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, id),
-        'UPDATE',
+        AuditOperation.UPDATE,
         err as Error,
       );
       throw err;

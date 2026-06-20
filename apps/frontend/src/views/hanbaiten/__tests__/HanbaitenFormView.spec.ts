@@ -756,6 +756,9 @@ describe('HanbaitenFormView — update flow (edit mode)', () => {
     );
     vi.mocked(updateHanbaiten).mockClear();
 
+    // 編集で何か変更しないと「変更なし」ガードでスキップされる。
+    (wrapper.vm as any).formState.hanbaiten_name = '変更後販売店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -770,6 +773,8 @@ describe('HanbaitenFormView — update flow (edit mode)', () => {
     const { updateHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     vi.mocked(updateHanbaiten).mockClear();
 
+    (wrapper.vm as any).formState.hanbaiten_name = '変更後販売店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -783,6 +788,8 @@ describe('HanbaitenFormView — update flow (edit mode)', () => {
     const successSpy = vi.spyOn(message, 'success');
     successSpy.mockClear();
 
+    (wrapper.vm as any).formState.hanbaiten_name = '変更後販売店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -793,11 +800,27 @@ describe('HanbaitenFormView — update flow (edit mode)', () => {
     const { wrapper, router } = await renderView({ hanbaitenId: 1 });
     const pushSpy = vi.spyOn(router, 'push');
 
+    (wrapper.vm as any).formState.hanbaiten_name = '変更後販売店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
     const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
     expect(pushed).toContain('HanbaitenList');
+  });
+
+  it('should NOT call updateHanbaiten (skip) when nothing changed in edit mode', async () => {
+    const { wrapper } = await renderView({ hanbaitenId: 1 });
+    const { updateHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(updateHanbaiten).mockClear();
+    const infoSpy = vi.spyOn(message, 'info');
+    infoSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateHanbaiten).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('変更がありません。');
   });
 
   it('should NOT call createHanbaiten when submit is fired in edit mode', async () => {

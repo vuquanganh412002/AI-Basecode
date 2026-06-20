@@ -305,6 +305,34 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ログ参照', permission: 'log.view' },
       },
 
+      // 口座振替データ出力画面 (ACSMS-SCR-020). JASTEM 委託者/支店情報入力 →
+      // 作成開始（全銀フォーマット CSV 出力）。koza_furikae.export を持つ JA
+      // ロール (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) のみ。route 名は
+      // MENU_SECTIONS の KozaFurikaeExport と一致させる。
+      {
+        path: 'koza-furikae',
+        name: 'KozaFurikaeExport',
+        component: () => import('@/views/koza-furikae/KozaFurikaeExportView.vue'),
+        meta: {
+          breadcrumb: '口座振替データ出力',
+          permission: 'koza_furikae.export',
+        },
+      },
+
+      // 配達手数料支払情報出力画面 (ACSMS-SCR-021). 出力条件（年月日 +
+      // 配達手数料支払サイクル）→ 検索（販売店ごとの集計）+ Excel出力。
+      // haitatsuryo.export を持つ JA ロール (CHUOKAI / JA_HONTEN /
+      // JA_KANRI_SHITEN) のみ。route 名は MENU_SECTIONS と一致させる。
+      {
+        path: 'haitatsuryo',
+        name: 'HaitatsuryoExport',
+        component: () => import('@/views/haitatsuryo/HaitatsuryoExportView.vue'),
+        meta: {
+          breadcrumb: '配達手数料支払情報出力',
+          permission: 'haitatsuryo.export',
+        },
+      },
+
       // 購読者名簿出力画面 (ACSMS-SCR-026). 出力条件 → プレビュー / Excel出力。
       // report.export_meibo を持つ JA ロール (CHUOKAI / JA_HONTEN /
       // JA_KANRI_SHITEN) のみ。日農アカウントは画面内で MSG-026-001 を表示。
@@ -330,6 +358,22 @@ const routes: RouteRecordRaw[] = [
         },
       },
 
+      // 増減通知（日本農業新聞）出力画面 (ACSMS-SCR-029). 出力条件 →
+      // プレビュー / 電子帳票(PDF / 複数管理支店は ZIP)出力。管理支店ごとに
+      // 1帳票。電子帳票作成は MSG-029-005 の確認ダイアログ（日農担当者へメール
+      // 送信）を挟む。report.export_zougen_nichino を持つ JA ロール
+      // (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) のみ。日農アカウントは
+      // 画面内で MSG-029-001 を表示。route 名は MENU_SECTIONS と一致させる。
+      {
+        path: 'report/zougen-nichino',
+        name: 'ReportZougenNichino',
+        component: () => import('@/views/report/ZougenNichinoReportView.vue'),
+        meta: {
+          breadcrumb: '増減通知（日本農業新聞）出力',
+          permission: 'report.export_zougen_nichino',
+        },
+      },
+
       // ファイルダウンロード画面 (ACSMS-SCR-022). Read-only list +
       // preview (S3 presigned URL) + binary download. All 5 roles hold
       // `file.download`; DataScope is enforced server-side.
@@ -341,8 +385,9 @@ const routes: RouteRecordRaw[] = [
       },
 
       // ファイルアップロード画面 (ACSMS-SCR-023). Multi-JA × multi-file
-      // upload with notification queue + soft delete. All 5 roles hold
-      // `file.upload`; DataScope is enforced server-side.
+      // upload with notification queue + soft delete. 2026-06 以降は日農
+      // (NICHINO_ADMIN / NICHINO_STAFF) のみが `file.upload` を保持する
+      // (migration 1711900900020); DataScope is enforced server-side.
       {
         path: 'file-upload',
         name: 'FileUpload',

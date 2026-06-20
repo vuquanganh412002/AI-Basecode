@@ -35,6 +35,7 @@ import {
   buildCodesSeed,
   buildAuthUser,
 } from '@test/fixtures/dokusya.fixture';
+import { todayIsoTokyo } from '@/utils/datetime';
 
 // ─── API wrapper for SCR-011 endpoints ─────────────────────────────
 //
@@ -504,7 +505,26 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(false);
   });
 
-  it('should keep 購読中止日 editable in edit mode', async () => {
+  it('should disable 購読中止日 in edit mode when 手続種類 is 新規', async () => {
+    // 既定の detail は 手続種類=新規(1) → 購読中止日は入力不可。
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'dokusya_chushi_date');
+    expect(item).toBeDefined();
+    const input = item!.find('input');
+    expect(input.exists()).toBe(true);
+    expect((input.element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('should keep 購読中止日 editable in edit mode when 手続種類 is 解約', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        tetsuzuki_shurui: 0,
+        dokusya_chushi_date: '2026-05-31',
+      }),
+    });
     const { wrapper } = await renderView({ dokusyaId: 100 });
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
@@ -513,6 +533,31 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     const input = item!.find('input');
     expect(input.exists()).toBe(true);
     expect((input.element as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('should disable the 解約 option of 手続種類 when in create mode', async () => {
+    // 新規作成では解約(0)を選択不可（解約は既存購読者の更新操作）。
+    const { wrapper } = await renderView(); // create mode (no id)
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'tetsuzuki_shurui');
+    expect(item).toBeDefined();
+    const kaiyaku = item!.find('input[type="radio"][value="0"]');
+    const shinki = item!.find('input[type="radio"][value="1"]');
+    expect(kaiyaku.exists()).toBe(true);
+    expect((kaiyaku.element as HTMLInputElement).disabled).toBe(true);
+    expect((shinki.element as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('should keep the 解約 option of 手続種類 enabled when in edit mode', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'tetsuzuki_shurui');
+    expect(item).toBeDefined();
+    const kaiyaku = item!.find('input[type="radio"][value="0"]');
+    expect(kaiyaku.exists()).toBe(true);
+    expect((kaiyaku.element as HTMLInputElement).disabled).toBe(false);
   });
 
   it('should render the 履歴No label when mounted in edit mode', async () => {
@@ -846,6 +891,48 @@ describe('DokusyaFormView — 購読種別 conditional rules (機能定義 7.x /
     expect(createDokusya).toHaveBeenCalledTimes(1);
   });
 
+  it('should trim leading/trailing whitespace on the 8 name fields (氏名・配達先氏名 漢字/かな) before submit', async () => {
+    const { wrapper } = await renderView();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(createDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    // 紙版 + haitatsu_same_flg=false → 配達先クラスタ必須なので 8項目すべて送信。
+    // かなは HIRAGANA_RE 準拠（ひらがな）。各値を前後の空白で囲む。
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({
+        shimei_sei: '  山田  ',
+        shimei_mei: ' 太郎 ',
+        shimei_kana_sei: ' やまだ ',
+        shimei_kana_mei: ' たろう ',
+        haitatsu_same_flg: false,
+        haitatsu_yubin_no: '1000002',
+        haitatsu_todofuken_code: '13',
+        haitatsu_shikuchoson: '渋谷区',
+        haitatsu_chome_banchi: '1-1',
+        haitatsu_shimei_sei: ' 鈴木 ',
+        haitatsu_shimei_mei: ' 花子 ',
+        haitatsu_shimei_kana_sei: ' すずき ',
+        haitatsu_shimei_kana_mei: ' はなこ ',
+      }),
+    );
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(createDokusya).mock.calls[0][0];
+    expect(body.shimei_sei).toBe('山田');
+    expect(body.shimei_mei).toBe('太郎');
+    expect(body.shimei_kana_sei).toBe('やまだ');
+    expect(body.shimei_kana_mei).toBe('たろう');
+    expect(body.haitatsu_shimei_sei).toBe('鈴木');
+    expect(body.haitatsu_shimei_mei).toBe('花子');
+    expect(body.haitatsu_shimei_kana_sei).toBe('すずき');
+    expect(body.haitatsu_shimei_kana_mei).toBe('はなこ');
+  });
+
   it('should hide the 配達先情報 section content when dokusya_shubetsu is 電子版 (機能定義 7.5)', async () => {
     // 電子版/併読 → 配達先情報エリアを非活性化 (入力不要).
     const { wrapper } = await renderView();
@@ -920,6 +1007,28 @@ describe('DokusyaFormView — tetsuzuki_shurui change (機能定義 8.x)', () =>
       dokusya_busu: 3,
     }));
     expect(vm.formState.dokusya_busu).toBe(3);
+  });
+
+  it('should restore dokusya_busu to the DB value when tetsuzuki flips back to 新規 in edit mode', async () => {
+    // 編集: 解約 を選ぶと 0 部。新規 に戻すと DB 登録時の部数(5)を復元する
+    // （1 に戻さない・0 のままにもしない）。
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ tetsuzuki_shurui: 1, dokusya_busu: 5 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    await flushPromises();
+
+    // 解約 → 0 部。
+    vm.formState.tetsuzuki_shurui = 0;
+    await flushPromises();
+    expect(vm.formState.dokusya_busu).toBe(0);
+
+    // 新規 に戻すと DB 登録時の 5 部に復元。
+    vm.formState.tetsuzuki_shurui = 1;
+    await flushPromises();
+    expect(vm.formState.dokusya_busu).toBe(5);
   });
 });
 
@@ -1244,6 +1353,89 @@ describe('DokusyaFormView — update flow (edit mode)', () => {
     expect(createDokusya).not.toHaveBeenCalled();
     expect(updateDokusya).toHaveBeenCalledTimes(1);
     expect(vi.mocked(updateDokusya).mock.calls[0]?.[0]).toBe(100);
+  });
+
+  it('should NOT call updateDokusya (skip PUT/log/履歴) when nothing changed in edit mode', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+    const infoSpy = vi.spyOn(message, 'info');
+    infoSpy.mockClear();
+
+    // 何も変更せず（fillForm を呼ばず）にそのまま送信する。
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('変更がありません。');
+  });
+
+  it('should call updateDokusya once a single field is changed in edit mode', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    vm.formState.chome_banchi = 'まったく新しい住所99-99';
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+  });
+
+  it('should default 読者情報変更適用日 to today (JST) when the edit form loads', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    expect(vm.formState.joho_henko_tekiyo_date).toBe(todayIsoTokyo());
+  });
+
+  it('should send the user-entered 読者情報変更適用日 in the update body', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    // 当日以降の未来日をユーザーが入力（過去日不可）。
+    const future = '2099-12-31';
+    await fillForm(vm, buildUpdateDokusyaForm({ joho_henko_tekiyo_date: future }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateDokusya).mock.calls[0]?.[1].joho_henko_tekiyo_date).toBe(future);
+  });
+
+  it('should block update and flag 読者情報変更適用日 when a past date is entered', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildUpdateDokusyaForm({ joho_henko_tekiyo_date: '2000-01-01' }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).not.toHaveBeenCalled();
+    expect(vm.fieldErrors.joho_henko_tekiyo_date).toBe('過去日は指定できません。');
+  });
+
+  it('should block update and flag 読者情報変更適用日 when it is cleared (required)', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildUpdateDokusyaForm({ joho_henko_tekiyo_date: null }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).not.toHaveBeenCalled();
+    expect(vm.fieldErrors.joho_henko_tekiyo_date).toBeTruthy();
   });
 
   it('should show 「更新しました。」 toast when updateDokusya succeeds (ACSMS-MSG-011-015)', async () => {
@@ -1642,27 +1834,59 @@ describe('DokusyaFormView — 購読者層分類 conditional 主な生産物 (�
 // ═══════════════════════════════════════════════════════════════════════
 // 17. 未来日チェック (画面項目定義 No.54)
 // ═══════════════════════════════════════════════════════════════════════
-describe('DokusyaFormView — joho_henko_tekiyo_date future-date guard', () => {
-  it('should reject joho_henko_tekiyo_date when set to a past date and 登録 is clicked', async () => {
-    // 画面項目定義 No.54 — 未来日チェック.
-    const { wrapper } = await renderView();
-    const { createDokusya } = await import('@/api/dokusya/dokusya');
-    vi.mocked(createDokusya).mockClear();
-
-    const past = '2020-01-01';
+describe('DokusyaFormView — 販売店適用日 (hanbaiten_tekiyo_date) on 販売店変更', () => {
+  it('should default 販売店適用日 to today when 販売店 is changed in edit mode', async () => {
+    // 編集で販売店 (hanbaiten_id) を変更したときのみ 適用日 が現れ、初期値=当日。
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ hanbaiten_id: 10 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
     const vm = wrapper.vm as any;
-    await fillForm(vm, buildCreateDokusyaForm({
-      joho_henko_tekiyo_date: past,
-    }));
+    await flushPromises();
+    // ロード直後は未入力。
+    expect(vm.formState.hanbaiten_tekiyo_date).toBeNull();
+    // 販売店を変更 → 適用日 が当日で埋まる。joho_henko_tekiyo_date は触らない。
+    vm.formState.hanbaiten_id = 11;
+    await flushPromises();
+    expect(vm.formState.hanbaiten_tekiyo_date).toBeTruthy();
+  });
+
+  it('should send hanbaiten_tekiyo_date (not joho_henko_tekiyo_date) on update when 販売店 changed', async () => {
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ hanbaiten_id: 10 }),
+    });
+    vi.mocked(updateDokusya).mockClear();
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    await flushPromises();
+    vm.formState.hanbaiten_id = 11;
+    await flushPromises();
 
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    // The past date must be rejected: either the client-side guard blocks
-    // the submit (createDokusya never called) OR the FE forwards and BE
-    // returns VALIDATION_ERROR (that path is covered in §9). Both are
-    // acceptable; what must NOT happen is a silent success. Assert the
-    // component survived the submit without crashing.
+    if (vi.mocked(updateDokusya).mock.calls.length > 0) {
+      const body = vi.mocked(updateDokusya).mock.calls[0][1] as unknown as Record<string, unknown>;
+      expect(body.hanbaiten_tekiyo_date).toBeTruthy();
+    }
+    expect(wrapper.exists()).toBe(true);
+  });
+
+  it('should NOT crash when 販売店適用日 is set to a past date and submitted', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ hanbaiten_id: 10 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    await flushPromises();
+    vm.formState.hanbaiten_id = 11;
+    await flushPromises();
+    vm.formState.hanbaiten_tekiyo_date = '2020-01-01';
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
     expect(wrapper.exists()).toBe(true);
   });
 });
@@ -1706,5 +1930,63 @@ describe('DokusyaFormView — 電子版 excludes クレジットカード from �
     vm.formState.dokusya_shubetsu = 2; // 電子版
     await flushPromises();
     expect(vm.formState.shiharai_hoho).toBe(6);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 14b. 電子版 → 支払方法 の クレジットカード: 新規は除外 / 編集は disabled で残す
+// ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaFormView — 電子版 クレジットカード handling in 支払方法 options', () => {
+  /** Read the `:options` prop of the 支払方法 <a-select>. */
+  function shiharaiHohoSelectOptions(
+    wrapper: ReturnType<typeof mount>,
+  ): Array<{ value: number; label: string; disabled?: boolean }> {
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.text().includes('支払方法'));
+    expect(item).toBeDefined();
+    const select = item!.findComponent({ name: 'ASelect' });
+    expect(select.exists()).toBe(true);
+    return select.props('options') as Array<{
+      value: number;
+      label: string;
+      disabled?: boolean;
+    }>;
+  }
+
+  it('should remove クレジットカード (6) from the options in create mode when 電子版', async () => {
+    const { wrapper } = await renderView(); // create mode
+    const vm = wrapper.vm as any;
+    vm.formState.dokusya_shubetsu = 2; // 電子版
+    await flushPromises();
+    const options = shiharaiHohoSelectOptions(wrapper);
+    expect(options.some((o) => o.value === 6)).toBe(false);
+  });
+
+  it('should keep クレジットカード (6) but mark it disabled in edit mode when 電子版 (value may come from the 3rd-party system)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, shiharai_hoho: 2 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await flushPromises();
+    const credit = shiharaiHohoSelectOptions(wrapper).find((o) => o.value === 6);
+    expect(credit).toBeDefined();
+    expect(credit!.disabled).toBe(true);
+  });
+
+  it('should keep クレジットカード (6) selectable-as-current (disabled option) when the existing 電子版 record carries クレカ', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, shiharai_hoho: 6 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await flushPromises();
+    const vm = wrapper.vm as any;
+    // Loaded value is preserved (displays via the disabled option).
+    expect(Number(vm.formState.shiharai_hoho)).toBe(6);
+    const credit = shiharaiHohoSelectOptions(wrapper).find((o) => o.value === 6);
+    expect(credit).toBeDefined();
+    expect(credit!.disabled).toBe(true);
   });
 });

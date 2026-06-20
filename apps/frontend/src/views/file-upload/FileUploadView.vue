@@ -12,12 +12,13 @@ import {
 } from 'ant-design-vue';
 
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
-import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import {
   formatDate as formatDateTokyo,
   formatDateTime as formatDateTimeTokyo,
 } from '@/utils/formatters';
+import { confirmDelete } from '@/utils/confirm';
 import { useCodesStore } from '@/stores/codes.store';
+import { useEntityDropdown } from '@/composables/useEntityDropdown';
 
 const codes = useCodesStore();
 import {
@@ -26,7 +27,11 @@ import {
   uploadFiles,
   type FileUploadListItem,
 } from '@/api/file-upload/file-upload';
-import { type JaDropdownItem } from '@/api/ja/ja';
+import {
+  getJaDropdown,
+  type JaDropdownItem,
+  type JaDropdownQuery,
+} from '@/api/ja/ja';
 import {
   getTodofukenList,
   type TodofukenItem,
@@ -62,14 +67,75 @@ interface TargetJa {
 
 const todofukenOptions = ref<TodofukenItem[]>([]);
 const selectedTodofukenCode = ref<string | null>(null);
-const selectedJaId = ref<number | null>(null);
 /**
- * Caches the latest option picked through BaseJaDropdown so addJa()
- * can read ja_code + ja_name without keeping a parent-side option
- * list. Replaces the previous `jaOptions.find(...)` lookup.
+ * アップロード対象 JA 一覧（= マルチセレクトで選んだ JA、送信時に ja_ids[]
+ * へ展開）。「対象JA」は a-select(mode=multiple) のタグ＝この配列。下の一覧も
+ * 同じ配列を表示する（単一の真実）。
  */
-const selectedJaItem = ref<JaDropdownItem | null>(null);
 const targetJas = ref<TargetJa[]>([]);
+
+// ── 対象JA マルチセレクト（検索＋ページング＋都道府県カスケードは
+// useEntityDropdown を再利用。selected は単一ピン用なので multiple では未使用 → null）。
+const {
+  options: jaOptions,
+  loading: jaLoading,
+  onSearch: onJaSearch,
+  onPopupScroll: onJaPopupScroll,
+  onDropdownVisibleChange: onJaDropdownVisibleChange,
+} = useEntityDropdown<JaDropdownItem, JaDropdownQuery>({
+  fetcher: getJaDropdown,
+  idField: 'ja_id',
+  selected: ref(null),
+  perPage: ref(50),
+  buildExtraParams: () =>
+    selectedTodofukenCode.value
+      ? { todofuken_code: selectedTodofukenCode.value }
+      : {},
+  resetTriggers: [selectedTodofukenCode],
+  resetMode: 'soft',
+});
+
+/** ドロップダウンのオプション（現在の検索結果ページ）。 */
+const jaSelectOptions = computed(() =>
+  jaOptions.value.map((o) => ({
+    value: o.ja_id,
+    label: `${o.ja_code} ${o.ja_name}`,
+  })),
+);
+
+/**
+ * ドロップダウン box の「一時選択」（label-in-value）。box は純粋なピッカー
+ * として扱い、選択は即 targetJas（下の一覧）へ移してタグは保持しない。
+ * これで「box のタグ」と「一覧の行」で同じ JA が二重表示されない。
+ */
+const jaPickerValue = ref<Array<{ value: number; label: string }>>([]);
+
+/** 下の一覧に既に入っている JA の id 集合。ドロップダウンで太字＋✓ 表示に使う。 */
+const selectedJaIds = computed(() => new Set(targetJas.value.map((j) => j.ja_id)));
+
+/**
+ * 機能定義 2.x — box で選んだ JA をアップロード対象一覧へ追加する。
+ * 既に一覧にある JA は重複追加しない（チェック重複防止）。追加後は box の
+ * タグをクリアし、続けて別の JA を選べるようにする。
+ */
+function onJaChange(selected: Array<{ value: number; label: string }>): void {
+  for (const sel of selected) {
+    if (targetJas.value.some((j) => j.ja_id === sel.value)) continue; // 既に一覧
+    const opt = jaOptions.value.find((o) => o.ja_id === sel.value);
+    targetJas.value.push(
+      opt
+        ? { ja_id: opt.ja_id, ja_code: opt.ja_code, ja_name: opt.ja_name }
+        : { ja_id: sel.value, ja_code: '', ja_name: sel.label },
+    );
+  }
+  jaPickerValue.value = [];
+}
+
+// 都道府県を切り替えたら box の選択だけクリア（新しい都道府県の JA を選び直す）。
+// 蓄積済みの targetJas（下のアップロード対象一覧）は保持する。
+watch(selectedTodofukenCode, () => {
+  jaPickerValue.value = [];
+});
 
 const selectedFiles = ref<File[]>([]);
 const scheduledDeleteDate = ref<string | null>(null);
@@ -139,14 +205,9 @@ onMounted(() => {
   void fetchHistory();
 });
 
-// Cascade — clear the currently-picked JA whenever 都道府県 changes
-// so a stale ja_id from the previous filter doesn't leak through.
-// BaseJaDropdown itself reloads its option list internally via its
-// own watcher on todofukenCode.
-watch(selectedTodofukenCode, () => {
-  selectedJaId.value = null;
-  selectedJaItem.value = null;
-});
+// 都道府県カスケードは useEntityDropdown の resetTriggers が JA オプションを
+// 再読込する。選択済み targetJas は意図的に保持する（都道府県を変えても既選択
+// は消さない）。
 
 const todofukenName = computed(() => {
   const code = selectedTodofukenCode.value;
@@ -154,28 +215,10 @@ const todofukenName = computed(() => {
   return todofukenOptions.value.find((o) => o.todofuken_code === code)?.todofuken_name ?? '';
 });
 
-// ──────────────────── 機能定義 2.x — JA add/remove ────────────────────
-function addJa(): void {
-  const id = selectedJaId.value;
-  const opt = selectedJaItem.value;
-  // Defence-in-depth: id + opt should always be in sync (the
-  // BaseJaDropdown emits select alongside update:value) but guard
-  // against a desync just in case.
-  if (id == null || opt == null || opt.ja_id !== id) return;
-  if (targetJas.value.some((j) => j.ja_id === id)) {
-    // ACSMS-MSG-023-004
-    message.warning('このJAは既に選択されています。');
-    return;
-  }
-  targetJas.value.push({
-    ja_id: opt.ja_id,
-    ja_code: opt.ja_code,
-    ja_name: opt.ja_name,
-  });
-}
-
 function removeJa(jaId: number): void {
   targetJas.value = targetJas.value.filter((j) => j.ja_id !== jaId);
+  // box に現在表示中の同じ JA があればタグも外す。
+  jaPickerValue.value = jaPickerValue.value.filter((s) => s.value !== jaId);
 }
 
 // ──────────────────── 機能定義 4.x — file selection ────────────────────
@@ -304,21 +347,14 @@ function isDeletable(row: FileUploadListItem): boolean {
 
 function askDelete(row: FileUploadListItem): void {
   if (!isDeletable(row)) return;
-  Modal.confirm({
-    title: '削除確認',
-    content: `このファイルを削除しますか？（${row.file_name}）`,
-    okText: 'はい',
-    cancelText: 'いいえ',
-    okType: 'danger',
-    async onOk() {
-      try {
-        await deleteFile(row.file_upload_id);
-        message.success('削除しました。');
-        await fetchHistory();
-      } catch {
-        // [interceptor-handled] 401/403/500 toasted by global interceptor.
-      }
-    },
+  confirmDelete(`このファイルを削除しますか？（${row.file_name}）`, async () => {
+    try {
+      await deleteFile(row.file_upload_id);
+      message.success('削除しました。');
+      await fetchHistory();
+    } catch {
+      // [interceptor-handled] 401/403/500 toasted by global interceptor.
+    }
   });
 }
 
@@ -380,12 +416,13 @@ function onPageChange(pagination: TablePaginationConfig): void {
 defineExpose({
   // form state
   selectedTodofukenCode,
-  selectedJaId,
   targetJas,
+  jaPickerValue,
+  selectedJaIds,
   selectedFiles,
   scheduledDeleteDate,
   // actions
-  addJa,
+  onJaChange,
   removeJa,
   addFile,
   removeFile,
@@ -401,7 +438,9 @@ defineExpose({
     <!-- ───── 対象JA選択エリア ─────────────────────────────── -->
     <section class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
       <h3 class="font-bold text-text-main text-base mb-4">対象JA選択</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end mb-4">
+      <!-- 都道府県 / 都道府県名 が上段で半々（各 1/2）、対象JA は下段に独立して
+           全幅（タグが複数行でも横いっぱい使える）。 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start mb-4">
         <label for="file-upload-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">都道府県</span>
           <a-select
@@ -427,27 +466,41 @@ defineExpose({
           <span class="whitespace-nowrap">都道府県名</span>
           <a-input id="file-upload-todofuken-name" :value="todofukenName" disabled class="flex-1" />
         </label>
-        <label for="file-upload-ja" class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">対象JA</span>
-          <!-- BaseJaDropdown: paginated 50/page + infinite scroll +
-               BE-side ILIKE on ja_code OR ja_name. The 都道府県 cascade
-               narrows the option set via the prefecture-code prop. -->
-          <BaseJaDropdown
+        <label for="file-upload-ja" class="md:col-span-2 flex items-start gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap pt-1">対象JA</span>
+          <!-- マルチセレクト：JAコード・JA名で検索（BE側 ILIKE・50件/ページ・
+               無限スクロール）→ 選んだ JA は下の一覧へ即反映（box はタグ非保持）。
+               既に一覧にある JA はドロップダウン側で太字＋✓ で区別する。-->
+          <a-select
             id="file-upload-ja"
-            v-model:value="selectedJaId"
-            :todofuken-code="selectedTodofukenCode"
-            placeholder="JAコード・JA名で検索..."
+            mode="multiple"
+            label-in-value
+            :value="jaPickerValue"
+            :options="jaSelectOptions"
+            :loading="jaLoading"
+            show-search
+            :filter-option="false"
+            option-filter-prop="label"
+            placeholder="JAコード・JA名で検索して選択（複数可）"
             class="flex-1"
-            @select="(item) => (selectedJaItem = item)"
-          />
+            @change="onJaChange"
+            @search="onJaSearch"
+            @popup-scroll="onJaPopupScroll"
+            @dropdown-visible-change="onJaDropdownVisibleChange"
+          >
+            <template #option="{ value, label }">
+              <span
+                :class="
+                  selectedJaIds.has(value as number)
+                    ? 'font-bold text-primary'
+                    : ''
+                "
+              >
+                <span v-if="selectedJaIds.has(value as number)" class="mr-1">✓</span>{{ label }}
+              </span>
+            </template>
+          </a-select>
         </label>
-      </div>
-
-      <div class="flex gap-2 mb-4">
-        <a-button type="primary" @click="addJa">
-          <template #icon><span class="material-icons text-sm mr-1">add</span></template>
-          追加
-        </a-button>
       </div>
 
       <div v-if="targetJas.length > 0" class="border border-border rounded-ant overflow-hidden">

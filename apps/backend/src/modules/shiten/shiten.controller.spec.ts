@@ -547,3 +547,87 @@ describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
     });
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// ACSMS-API-COMMON-008 — Get Koza Shiten Dropdown (定義元: ACSMS-SCR-020)
+// GET /api/v1/shiten/koza-dropdown — 認証済みなら誰でも可（呼び出し元画面の権限に依存）。
+// ══════════════════════════════════════════════════════════════════════
+describe('ShitenController — COMMON-008 HTTP (koza-dropdown)', () => {
+  let app: INestApplication;
+  let service: any;
+  let currentSession: any = null;
+
+  const sessionGuard: CanActivate = {
+    canActivate: (ctx: ExecutionContext) => {
+      if (!currentSession) {
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          error_code: 'UNAUTHORIZED',
+          message: 'セッションが切れました。再度ログインしてください。',
+        });
+      }
+      ctx.switchToHttp().getRequest().user = currentSession;
+      return true;
+    },
+  };
+
+  beforeEach(async () => {
+    service = { getKozaDropdown: jest.fn() };
+    currentSession = buildSession({ ja_id: 1 });
+
+    const module = await Test.createTestingModule({
+      controllers: [ShitenController],
+      providers: [{ provide: ShitenService, useValue: service }],
+    })
+      .overrideGuard(SessionAuthGuard)
+      .useValue(sessionGuard)
+      .overrideGuard(PermissionsGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    app = module.createNestApplication();
+    app.useGlobalFilters(new GlobalExceptionFilter());
+    app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] });
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  const http = () => request(app.getHttpServer() as Server);
+
+  it('should return 200 with the koza-shiten list when the session is valid', async () => {
+    service.getKozaDropdown.mockResolvedValue({
+      data: [
+        { shiten_id: 10, shiten_code: '001', shiten_name: '本店', kanri_shiten_id: 1 },
+        { shiten_id: 11, shiten_code: '002', shiten_name: '北支店', kanri_shiten_id: 1 },
+      ],
+    });
+
+    const res = await http().get(apiUrl('shiten/koza-dropdown')).expect(200);
+
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data[0]).toMatchObject({ shiten_id: 10, shiten_code: '001' });
+  });
+
+  it('should pass kanri_shiten_ids query into the service when provided', async () => {
+    service.getKozaDropdown.mockResolvedValue({ data: [] });
+
+    await http().get(apiUrl('shiten/koza-dropdown')).query({ kanri_shiten_ids: '1,2' }).expect(200);
+
+    expect(service.getKozaDropdown).toHaveBeenCalled();
+  });
+
+  it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+    currentSession = null;
+    const res = await http().get(apiUrl('shiten/koza-dropdown')).expect(401);
+    expect(res.body.error_code).toBe('UNAUTHORIZED');
+  });
+
+  it('should return 500 INTERNAL_SERVER_ERROR when the service throws an unexpected error', async () => {
+    service.getKozaDropdown.mockRejectedValue(new Error('boom'));
+    const res = await http().get(apiUrl('shiten/koza-dropdown')).expect(500);
+    expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+  });
+});

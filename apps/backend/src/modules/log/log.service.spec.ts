@@ -390,7 +390,6 @@ describe('LogService', () => {
       expect(result.meta.total_pages).toBe(0);
     });
 
-    it.todo('should rate-limit when TOO_MANY_REQUESTS threshold is exceeded (covered in integration / throttler layer)');
   });
 
   // ═══════════════════════════════════════════════════════════════════

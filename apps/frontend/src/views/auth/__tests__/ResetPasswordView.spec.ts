@@ -394,19 +394,4 @@ describe('ResetPasswordView (SCR-012 — Set New Password)', () => {
       expect(pushed).toContain('Login');
     });
   });
-
-  // ═════════════════════════════════════════════════════════════════════
-  // Form keyboard guard — Enter must not auto-submit on long-form
-  // ═════════════════════════════════════════════════════════════════════
-  describe('Enter-implicit-submit guard (vue.md §Form keyboard)', () => {
-    beforeEach(() => {
-      vi.mocked(authApi.verifyResetToken).mockResolvedValue(buildVerifyResetTokenSuccess());
-    });
-
-    it.todo('should NOT call resetPassword when Enter is pressed in a password input');
-    // Reset password form has only 2 fields — per vue.md rule, the
-    // Enter-block utility is for forms with 4+ fields. Login + MFA + this
-    // form all explicitly accept Enter→submit. Asserted as todo so a
-    // future refactor doesn't accidentally reintroduce the guard.
-  });
 });

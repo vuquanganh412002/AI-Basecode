@@ -288,6 +288,34 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
       expect((cb.element as HTMLInputElement).disabled).toBe(true);
     }
   });
+
+  it('should set PARTIAL (入力箇所のみ更新) column states: ID checked+disabled, immutable fields rendered WITHOUT a checkbox, others enabled', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-cancel"]').setValue();
+    await flushPromises();
+
+    // ID（キー）→ チェック + disable
+    const idCb = wrapper.find('input[type="checkbox"][value="dokusya_id"]');
+    expect((idCb.element as HTMLInputElement).checked).toBe(true);
+    expect((idCb.element as HTMLInputElement).disabled).toBe(true);
+
+    // 編集不可項目（購読種別 / 氏名4 / 購読開始日）→ チェックボックスを描画しない
+    for (const col of [
+      'dokusya_shubetsu',
+      'shimei_sei',
+      'shimei_mei',
+      'shimei_kana_sei',
+      'shimei_kana_mei',
+      'dokusya_kaishi_date',
+    ]) {
+      const cb = wrapper.find(`input[type="checkbox"][value="${col}"]`);
+      expect(cb.exists()).toBe(false);
+    }
+
+    // 通常の編集可能列（email）→ enable（disable されない）
+    const email = wrapper.find('input[type="checkbox"][value="email"]');
+    expect((email.element as HTMLInputElement).disabled).toBe(false);
+  });
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — テンプレートダウンロード', () => {
@@ -432,12 +460,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — file selection + preview', () =>
     expect(head.text()).not.toContain('備考');
   });
 
-  it('should keep the required 購読種別 column checked when the user clicks its disabled checkbox in 新規登録 mode', async () => {
+  it('should lock the required 購読種別 column (checked + disabled) in 新規登録 mode so the user cannot deselect it', async () => {
     const { wrapper } = await renderView();
     const cb = wrapper.find('input[type="checkbox"][value="dokusya_shubetsu"]');
+    // disabled なので実ユーザーはクリックで外せない（これが唯一の保証）。
     expect((cb.element as HTMLInputElement).disabled).toBe(true);
-    await cb.setValue(false);
-    await flushPromises();
     expect((cb.element as HTMLInputElement).checked).toBe(true);
   });
 });
@@ -525,18 +552,34 @@ describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
     expect(body.import_mode).toBe('UPDATE_ALL');
   });
 
-  it('should lock (check + disable) ALL columns when 全項目更新 (UPDATE_ALL) is selected', async () => {
-    // 全項目更新 targets every column — like hanbaiten, all checkboxes are
-    // force-checked and disabled so the user cannot deselect any.
+  it('should disable+check every updatable column in 全項目更新 (UPDATE_ALL) and render edit-immutable fields (購読種別/氏名/購読開始日) WITHOUT a checkbox', async () => {
+    // 全項目更新 targets every updatable column — those checkboxes are disabled
+    // and checked. Edit-immutable fields (購読種別・氏名4・購読開始日) are NOT
+    // updated on update, so they render with NO checkbox at all (grey label only).
+    const IMMUTABLE = [
+      'dokusya_shubetsu',
+      'shimei_sei',
+      'shimei_mei',
+      'shimei_kana_sei',
+      'shimei_kana_mei',
+      'dokusya_kaishi_date',
+    ];
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
     const cols = wrapper.findAll('input[type="checkbox"][name="col"]');
     expect(cols.length).toBeGreaterThan(0);
+    const rendered = cols.map((cb) => (cb.element as HTMLInputElement).value);
     for (const cb of cols) {
-      expect((cb.element as HTMLInputElement).checked).toBe(true);
-      expect((cb.element as HTMLInputElement).disabled).toBe(true);
+      const el = cb.element as HTMLInputElement;
+      // Edit-immutable fields must NOT render a checkbox at all.
+      expect(IMMUTABLE).not.toContain(el.value);
+      // Every rendered (updatable) column is disabled + checked.
+      expect(el.disabled).toBe(true);
+      expect(el.checked).toBe(true);
     }
+    // None of the immutable columns appear as a checkbox.
+    for (const imm of IMMUTABLE) expect(rendered).not.toContain(imm);
     // The すべて選択／解除 toggle is also disabled in this mode.
     const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
     expect((selectAll.element as HTMLInputElement).disabled).toBe(true);
@@ -550,6 +593,30 @@ describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
     expect((biko.element as HTMLInputElement).disabled).toBe(false);
     await biko.setValue(false);
     expect((biko.element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('should default to all checked (incl. the すべて選択 toggle) in 入力箇所のみ更新, then unchecking the toggle clears editable columns but keeps the key', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
+    await flushPromises();
+
+    // 既定: 全列チェック → すべて選択 トグルも ON。
+    const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
+    expect((selectAll.element as HTMLInputElement).checked).toBe(true);
+    const email = wrapper.find('input[type="checkbox"][value="email"]');
+    expect((email.element as HTMLInputElement).checked).toBe(true);
+
+    // トグル OFF → 編集可能列は外れるが、キー(ID)は残る。
+    await selectAll.setValue(false);
+    await flushPromises();
+    expect((email.element as HTMLInputElement).checked).toBe(false);
+    // 回帰: NEW 必須列（手続種類）も入力箇所のみ更新では外れること。
+    const tetsuzuki = wrapper.find(
+      'input[type="checkbox"][value="tetsuzuki_shurui"]',
+    );
+    expect((tetsuzuki.element as HTMLInputElement).checked).toBe(false);
+    const idCb = wrapper.find('input[type="checkbox"][value="dokusya_id"]');
+    expect((idCb.element as HTMLInputElement).checked).toBe(true);
   });
 
   it('should send import_mode=UPDATE_PARTIAL to the API when the user picks 入力箇所のみ更新 radio', async () => {
@@ -568,17 +635,15 @@ describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit', () => {
-  it('should block submit and show ACSMS-MSG-016-001 when 取込開始 is clicked without a file', async () => {
-    // 機能 8.1 — ファイル未選択 → バリデーションエラー, 処理停止.
+  it('should block submit and show a 選択してください warning when 取込開始 is clicked without a file', async () => {
+    // 機能 8.1 — ファイル未選択 → warning（hanbaiten と統一）, 処理停止.
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
-    const toasted = [
-      ...vi.mocked(message.error).mock.calls,
-      ...vi.mocked(message.warning).mock.calls,
-    ].flatMap((c) => c);
-    expect(toasted).toContain(MSG_016_001);
+    expect(vi.mocked(message.warning)).toHaveBeenCalledWith(
+      'Excelファイルを選択してください。',
+    );
   });
 
   it('should block submit and NOT call the API when a row is 電子版 with クレジットカード payment', async () => {
@@ -607,6 +672,43 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
       /電子版|クレ/.test(text) ||
       toastedErr.some((m) => typeof m === 'string' && /電子版|クレ|行/.test(m));
     expect(sawError).toBe(true);
+  });
+
+  it('should block submit when a 新規 電子版 row has a blank email (email required for 電子版/併読)', async () => {
+    // 顧客要件 — メールは電子版(2)・併読(3) で必須。
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: '' }),
+    ]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('メールアドレスは電子版・併読の場合は必須です。');
+  });
+
+  it('should block submit when two 新規 電子版 rows share the same email (uniqueness among 電子版/併読)', async () => {
+    // 顧客要件 — メール一意性は電子版/併読間で担保（バッチ内重複も検知）。
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K1' }),
+      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K2' }),
+    ]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
+  });
+
+  it('should allow submit when two 新規 紙版 rows share the same email (紙版 not checked for uniqueness)', async () => {
+    // 顧客要件 — 紙版(1) は重複可。
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_shubetsu: 1, email: 'paper@example.com', kumiaiin_code: 'K1' }),
+      buildImportRow({ dokusya_shubetsu: 1, email: 'paper@example.com', kumiaiin_code: 'K2' }),
+    ]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
   });
 
   it('should block submit when a 新規登録 row has 購読部数 = 0', async () => {
@@ -913,15 +1015,3 @@ describe('DokusyaImportView (ACSMS-SCR-016) — permission gating', () => {
     expect(html.includes('ant-btn-disabled')).toBe(false);
   });
 });
-
-// ─── Out-of-scope (covered elsewhere) ─────────────────────────────────
-
-it.todo(
-  'should render the page title 購読者Excelデータ取込画面 when MainLayout AppHeader owns it (not unit-testable here)',
-);
-it.todo(
-  'should respect the 49-column ORDER in the preview table matching DOKUSYA_IMPORT_JP_HEADERS when covered by integration / e2e',
-);
-it.todo(
-  'should convert 全角カナ to 半角カナ on 引落口座名義 when covered by integration (transform runs BE-side)',
-);

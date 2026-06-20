@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AuditOperation } from '@/common/enums';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
@@ -282,7 +283,7 @@ export class ShitenService {
       // survives even when the business write was discarded.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR006, TABLE_NAME, id),
-        'DELETE',
+        AuditOperation.DELETE,
         err as Error,
       );
       throw err;
@@ -343,6 +344,52 @@ export class ShitenService {
       jastem_toriatsukai_tenpo_code: r.jastemToriatsukaiTenpoCode ?? '',
       jastem_tenpo_name: r.jastemTenpoName ?? '',
     }));
+  }
+
+  // ─── ACSMS-API-COMMON-008 — GET /api/v1/shiten/koza-dropdown ─────────
+  /**
+   * 口座支店（金融機関支店フラグ=TRUE）のプルダウン (定義元: ACSMS-SCR-020)。
+   * DataScope: ja_id = user.ja_id（JA_KANRI_SHITEN は kanri_shiten_id も絞込）。
+   * 任意の kanri_shiten_ids でさらに絞り込む。
+   */
+  async getKozaDropdown(
+    query: { kanri_shiten_ids?: number[] },
+    session: SessionPayload,
+  ): Promise<{
+    data: Array<{
+      shiten_id: number;
+      shiten_code: string;
+      shiten_name: string;
+      kanri_shiten_id: number;
+    }>;
+  }> {
+    const qb = this.repo
+      .createQueryBuilder('s')
+      .where('s.deleted_at IS NULL')
+      .andWhere('s.kinyu_shiten_flg = TRUE')
+      .andWhere('s.ja_id = :jaId', { jaId: session.ja_id });
+    // JA_KANRI_SHITEN は自管理支店のみ。
+    if (session.kanri_shiten_id != null) {
+      qb.andWhere('s.kanri_shiten_id = :userKsId', {
+        userKsId: session.kanri_shiten_id,
+      });
+    }
+    // 画面の絞込条件。
+    if (query.kanri_shiten_ids && query.kanri_shiten_ids.length > 0) {
+      qb.andWhere('s.kanri_shiten_id = ANY(:ksIds)', {
+        ksIds: query.kanri_shiten_ids,
+      });
+    }
+    qb.orderBy('s.shiten_code', 'ASC');
+    const rows = await qb.getMany();
+    return {
+      data: rows.map((r) => ({
+        shiten_id: Number(r.shitenId),
+        shiten_code: r.shitenCode,
+        shiten_name: r.shitenName,
+        kanri_shiten_id: Number(r.kanriShitenId),
+      })),
+    };
   }
 
   // ─── API-007-001 — GET /api/v1/shiten/:id ────────────────────────────
@@ -463,7 +510,7 @@ export class ShitenService {
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, null),
-          'CREATE',
+          AuditOperation.CREATE,
           err as Error,
         );
         throw new DuplicateCodeException('支店コード', dto.shiten_code);
@@ -471,7 +518,7 @@ export class ShitenService {
       // [audit-error-log] — OUTSIDE the rolled-back tx.
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, null),
-        'CREATE',
+        AuditOperation.CREATE,
         err as Error,
       );
       throw err;
@@ -580,7 +627,7 @@ export class ShitenService {
     } catch (err) {
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, id),
-        'UPDATE',
+        AuditOperation.UPDATE,
         err as Error,
       );
       throw err;

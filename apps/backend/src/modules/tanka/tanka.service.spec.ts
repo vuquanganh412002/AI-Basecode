@@ -239,8 +239,9 @@ describe('TankaService — SCR-002 (list / delete)', () => {
       expect(deletedAtClause).toBeDefined();
     });
 
-    it('should apply effective-period filter (tekiyo_end_date IS NULL OR >= today)', async () => {
-      // COVERS: §4.3 有効期間条件
+    it('should NOT apply a default effective-period filter so expired 単価 are also returned (顧客要件 2026-06)', async () => {
+      // COVERS: 顧客要件 — デフォルトで期限切れ含む全件表示。以前の
+      // 「(tekiyo_end_date IS NULL OR >= CURRENT_DATE)」既定フィルタは廃止。
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
       await service.findAll({}, buildChuokaiSession({ ja_id: 1 }));
 
@@ -249,9 +250,11 @@ describe('TankaService — SCR-002 (list / delete)', () => {
         ...qbMock.andWhere.mock.calls,
       ].find(
         ([sql]: any[]) =>
-          typeof sql === 'string' && /tekiyo_end_date/i.test(sql),
+          typeof sql === 'string' &&
+          (/CURRENT_DATE/i.test(sql) ||
+            /tekiyo_end_date\s+IS\s+NULL/i.test(sql)),
       );
-      expect(periodClause).toBeDefined();
+      expect(periodClause).toBeUndefined();
     });
 
     it('should filter by tanka_type exactly when provided', async () => {

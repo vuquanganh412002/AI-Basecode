@@ -14,6 +14,7 @@ import {
   listFiles,
   getFilePreview,
   downloadFile,
+  downloadFilesAsZip,
   type ListFilesQuery,
   type FileUploadListItem,
 } from '@/api/file-upload/file-upload';
@@ -28,7 +29,7 @@ interface FileFilters {
 }
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<FileFilters>({
     defaultFilters: { file_name: '', todofuken_code: '' },
@@ -48,6 +49,13 @@ const previewUrl = ref('');
 const previewFileName = ref('');
 const previewContentType = ref('');
 
+// [deleted-row] 論理削除済み (deleted_at が立っている) ファイルはダウンロード／
+// プレビュー対象外。一覧には表示するが、選択チェックボックスを disabled にし、
+// ファイル名はリンクではなくグレーの取り消し線テキストにする。
+function isDeleted(row: FileUploadListItem): boolean {
+  return !!row.deleted_at;
+}
+
 // [row-selection] Bind a stable computed config object so the inline
 // template doesn't try to reassign `selectedIds` (a ref — `selectedIds
 // = ...` would shadow the binding, not mutate the underlying value).
@@ -56,6 +64,10 @@ const rowSelectionConfig = computed(() => ({
   onChange: (keys: (string | number)[]) => {
     selectedIds.value = keys.map(Number);
   },
+  // 削除済みファイルは選択不可（チェックボックス disabled）。
+  getCheckboxProps: (record: FileUploadListItem) => ({
+    disabled: isDeleted(record),
+  }),
 }));
 
 // [previewable-types] Inline preview only supports formats the browser
@@ -75,7 +87,7 @@ function isPreviewable(fileName: string): boolean {
 const canPreviewSelected = computed(() => {
   if (selectedIds.value.length !== 1) return false;
   const row = rows.value.find((r) => r.file_upload_id === selectedIds.value[0]);
-  return !!row && isPreviewable(row.file_name);
+  return !!row && !isDeleted(row) && isPreviewable(row.file_name);
 });
 
 // [image-preview] Render <img> instead of <iframe> when the file is
@@ -161,31 +173,17 @@ onMounted(() => {
   void fetchTodofukenOptions();
 });
 
-function onSearch(): void {
-  // [trim-filters] Mutate state.filters in place so the input visibly
-  // reflects the trimmed value when the user hits 検索. Guards against
-  // paste artifacts / IME-confirmed spaces widening the ILIKE pattern.
-  // Use `?.trim() ?? ''`: `<a-select allow-clear>` (都道府県) sets the
-  // v-model to `undefined` when the × is clicked, so a bare `.trim()`
-  // throws TypeError → the generic エラーが発生しました。 toast (reported bug).
-  state.filters.file_name = state.filters.file_name?.trim() ?? '';
-  state.filters.todofuken_code = state.filters.todofuken_code?.trim() ?? '';
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim in place. `?.trim() ?? ''`: `<a-select allow-clear>` (都道府県) sets
+  // the v-model to undefined on ×, so a bare .trim() throws TypeError → the
+  // generic エラーが発生しました。 toast (reported bug).
+  beforeSearch() {
+    state.filters.file_name = state.filters.file_name?.trim() ?? '';
+    state.filters.todofuken_code = state.filters.todofuken_code?.trim() ?? '';
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -232,7 +230,7 @@ async function onPreview(): Promise<void> {
  *  Only previewable types reach here (the template renders other
  *  filenames as plain text), but guard defensively. */
 async function onPreviewRow(row: FileUploadListItem): Promise<void> {
-  if (!isPreviewable(row.file_name)) return;
+  if (isDeleted(row) || !isPreviewable(row.file_name)) return;
   await openPreviewById(row.file_upload_id);
 }
 
@@ -253,29 +251,35 @@ async function onDownload(): Promise<void> {
     message.warning('ファイルを選択してください。');
     return;
   }
-  let anySuccess = false;
-  let notFoundShown = false;
-  for (const id of selectedIds.value) {
-    const row = rows.value.find((r) => r.file_upload_id === id);
-    const fallbackName = row?.file_name ?? `file_${id}`;
+
+  // 機能定義 8.x — 複数ファイル選択時は ZIP に1つにまとめてダウンロードする
+  // （ファイル名：一括ダウンロード_yyyyMMddHHmmss.zip。サーバが生成・命名）。
+  if (selectedIds.value.length > 1) {
     try {
-      const blob = await downloadFile(id);
-      downloadBlob(blob, fallbackName);
-      anySuccess = true;
+      const { blob, filename } = await downloadFilesAsZip([
+        ...selectedIds.value,
+      ]);
+      downloadBlob(blob, filename);
+      // ACSMS-MSG-022-005 — verb-specific copy ("完了" not "開始").
+      message.success('ダウンロードが完了しました。');
     } catch (err: unknown) {
-      // Show MSG-022-003 only once even if multiple files miss.
-      if (!notFoundShown && handleFileError(err)) {
-        notFoundShown = true;
-        continue;
-      }
-      // [interceptor-handled] Other errors (401/403/500) handled by
-      // the global axios interceptor.
+      // 一括は all-or-nothing。NOT_FOUND → MSG-022-003、その他（401/403/500）
+      // は global axios interceptor が処理する。
+      handleFileError(err);
     }
+    return;
   }
-  if (anySuccess) {
-    // ACSMS-MSG-022-005 — verb-specific copy ("完了" not "開始"); use
-    // raw message.success with the literal (not notify.downloaded()).
+
+  // 単一選択時は元ファイルをそのままダウンロードする（ZIP 化しない）。
+  const id = selectedIds.value[0];
+  const row = rows.value.find((r) => r.file_upload_id === id);
+  const fallbackName = row?.file_name ?? `file_${id}`;
+  try {
+    const blob = await downloadFile(id);
+    downloadBlob(blob, fallbackName);
     message.success('ダウンロードが完了しました。');
+  } catch (err: unknown) {
+    handleFileError(err);
   }
 }
 
@@ -302,6 +306,7 @@ defineExpose({
   previewOpen,
   previewUrl,
   clearSelection,
+  rowSelectionConfig,
 });
 </script>
 
@@ -408,8 +413,16 @@ defineExpose({
                to be ticked first. Only previewable types (image / PDF)
                are rendered as links; others are plain text since there
                is no inline viewer for them. -->
+          <!-- 削除済み: グレー＋取り消し線のプレーンテキスト（リンク化しない）。 -->
+          <span
+            v-if="isDeleted(record as FileUploadListItem)"
+            class="text-text-disabled line-through"
+            title="削除済みファイル"
+          >
+            {{ (record as FileUploadListItem).file_name }}（削除済み）
+          </span>
           <a
-            v-if="isPreviewable((record as FileUploadListItem).file_name)"
+            v-else-if="isPreviewable((record as FileUploadListItem).file_name)"
             href="#"
             class="text-primary hover:underline cursor-pointer"
             @click.prevent="onPreviewRow(record as FileUploadListItem)"

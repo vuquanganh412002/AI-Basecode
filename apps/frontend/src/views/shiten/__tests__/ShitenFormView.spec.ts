@@ -456,6 +456,9 @@ describe('ShitenFormView — submit (§3.3, §3.4)', () => {
   it('should show 更新しました。 toast when updateShiten resolves', async () => {
     const { wrapper } = await renderView({ id: 5 });
     await flushPromises();
+    // 編集で何か変更しないと「変更なし」ガードでスキップされる。
+    (wrapper.vm as any).form.shiten_name = '変更後支店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     expect(message.success).toHaveBeenCalledWith('更新しました。');
@@ -464,10 +467,27 @@ describe('ShitenFormView — submit (§3.3, §3.4)', () => {
   it('should navigate to ShitenList after successful update', async () => {
     const { wrapper, pushSpy } = await renderView({ id: 5 });
     await flushPromises();
+    (wrapper.vm as any).form.shiten_name = '変更後支店名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
     expect(pushed).toContain('ShitenList');
+  });
+
+  it('should NOT call updateShiten (skip) when nothing changed in edit mode', async () => {
+    const { wrapper } = await renderView({ id: 5 });
+    await flushPromises();
+    const { updateShiten } = await import('@/api/shiten/shiten');
+    vi.mocked(updateShiten).mockClear();
+    const infoSpy = vi.spyOn(message, 'info');
+    infoSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateShiten).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('変更がありません。');
   });
 
   it('should map BE VALIDATION_ERROR errors[].field to <a-form-item :help> when create rejects', async () => {

@@ -39,3 +39,8 @@ export { RoleCode } from './role-code.enum';
 export { DokusyaShubetsu } from './dokusya-shubetsu.enum';
 export { ShiharaiHoho } from './shiharai-hoho.enum';
 export { ItakuKubun } from './itaku-kubun.enum';
+export { TetsuzukiShurui } from './tetsuzuki-shurui.enum';
+// BE-only (no FE mirror — FE doesn't branch on the value; see file header).
+export { DenshiShoninStatus } from './denshi-shonin-status.enum';
+export { DownloadType } from './download-type.enum';
+export { AuditOperation } from './audit-operation.enum';

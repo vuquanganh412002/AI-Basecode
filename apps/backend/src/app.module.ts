@@ -21,6 +21,8 @@ import { KanriShitenModule } from './modules/kanri-shiten/kanri-shiten.module';
 import { LogModule } from './modules/log/log.module';
 import { ShitenModule } from './modules/shiten/shiten.module';
 import { OshiraseModule } from './modules/oshirase/oshirase.module';
+import { HaitatsuryoModule } from './modules/haitatsuryo/haitatsuryo.module';
+import { KozaFurikaeModule } from './modules/koza-furikae/koza-furikae.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { ReportModule } from './modules/report/report.module';
@@ -60,6 +62,8 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     TankaModule,
     TodofukenModule,
     ReportModule,
+    HaitatsuryoModule,
+    KozaFurikaeModule,
     RolesModule,
   ],
   // Wire ThrottlerGuard globally so the @Throttle() decorators on auth

@@ -13,7 +13,8 @@ import {
   NotFoundException,
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
-import { RoleCode } from '@/common/enums';
+import {
+  AuditOperation, RoleCode } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { applyBranchScope, fetchFkInJa } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
@@ -208,7 +209,7 @@ export class AccountService {
       });
     } catch (err) {
       // Error log outside the rolled-back tx so it survives.
-      await this.auditLog.logError(auditCtx, 'UPDATE', err as Error);
+      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
       throw err;
     }
 
@@ -493,7 +494,7 @@ export class AccountService {
     } catch (err) {
       // [audit-error-log] — OUTSIDE the rolled-back transaction so the
       // failure trace survives. NEVER pass `manager` here.
-      await this.auditLog.logError(auditCtx, 'DELETE', err as Error);
+      await this.auditLog.logError(auditCtx, AuditOperation.DELETE, err as Error);
       throw err;
     }
 
@@ -602,12 +603,12 @@ export class AccountService {
       // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
       // letting it bubble as 500.
       if (isUniqueViolation(err)) {
-        await this.auditLog.logError(auditCtxFactory(null), 'CREATE', err as Error);
+        await this.auditLog.logError(auditCtxFactory(null), AuditOperation.CREATE, err as Error);
         throw new DuplicateCodeException('ログインID', dto.login_id);
       }
       // [audit-error-log] — OUTSIDE the rolled-back tx so the failure
       // trace survives.
-      await this.auditLog.logError(auditCtxFactory(null), 'CREATE', err as Error);
+      await this.auditLog.logError(auditCtxFactory(null), AuditOperation.CREATE, err as Error);
       throw err;
     }
 
@@ -700,7 +701,7 @@ export class AccountService {
         );
       });
     } catch (err) {
-      await this.auditLog.logError(auditCtx, 'UPDATE', err as Error);
+      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
       throw err;
     }
 

@@ -376,9 +376,32 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       expect(row.deleted_at).toBeNull();
     });
 
-    it.todo(
-      'should return 409 CONFLICT when t_dokusya_rireki has rows referencing the hanbaiten (re-enable when 購読者 SCR ships t_dokusya_rireki table)',
-    );
+    it('should return 409 CONFLICT when t_dokusya_rireki has rows referencing the hanbaiten', async () => {
+      // COVERS: §4.4 関連データチェック — 購読者履歴（t_dokusya は空でも履歴で 409）
+      const id = await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001' });
+      await ctx.dataSource.query(
+        `INSERT INTO t_dokusya_rireki (dokusya_rireki_id, hanbaiten_id) VALUES ($1, $2)`,
+        [1, id],
+      );
+
+      const cookie = await chuokaiCookie(1);
+      const res = await http()
+        .delete(`/api/v1/hanbaiten/${id}`)
+        .set('Cookie', cookie)
+        .expect(409);
+
+      expect(res.body.error_code).toBe('CONFLICT');
+      expect(res.body.message).toBe(
+        'この販売店は関連オブジェクトに紐づいているため削除できません。',
+      );
+
+      // m_hanbaiten must NOT be soft-deleted on conflict
+      const [row] = await ctx.dataSource.query(
+        `SELECT deleted_at FROM m_hanbaiten WHERE hanbaiten_id = $1`,
+        [id],
+      );
+      expect(row.deleted_at).toBeNull();
+    });
 
     it('should NOT write a success t_log row when the conflict check fails', async () => {
       // COVERS: 409 path — no operation='DELETE' result_status=1 row produced

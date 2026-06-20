@@ -220,7 +220,7 @@
 | 33 | oshirase.view | ○ | × | × | × | × |
 | 34 | oshirase.update | ○ | × | × | × | × |
 | 35 | oshirase.delete | ○ | × | × | × | × |
-| 36 | file.upload | ○ | ○ | ○ | ○ | ○ |
+| 36 | file.upload | ○ | ○ | × | × | × |
 | 37 | file.download | ○ | ○ | ○ | ○ | ○ |
 | 38 | log.view | ○ | ○ | ○ | ○ | ○ |
 | 39 | koza_furikae.export | × | × | ○ | ○ | ○ |
@@ -237,9 +237,9 @@
 | --- | --- | --- | --- |
 | 日農（管理者） | 1 | 20 | ja.*, kanri_shiten.*, account.*, oshirase.*, file.upload, file.download, log.view, role.view |
 | 日農（担当者） | 2 | 8 | hanbaiten.{create,view,update,import,daiko_input}, file.upload, file.download, log.view |
-| 中央会 | 3 | 31 | dokusya.*, hanbaiten.{create,view,update,delete,import}, tanka.*, ja.{view,update}, shiten.*, kanri_shiten.{view,update}, file.*, log.view, koza_furikae.export, haitatsuryo.export, report.* |
-| JA本店 | 4 | 31 | （中央会と同一） |
-| JA管理支店 | 5 | 29 | （JA本店から ja.view, ja.update を除いた権限） |
+| 中央会 | 3 | 30 | dokusya.*, hanbaiten.{create,view,update,delete,import}, tanka.*, ja.{view,update}, shiten.*, kanri_shiten.{view,update}, file.download, log.view, koza_furikae.export, haitatsuryo.export, report.* |
+| JA本店 | 4 | 30 | （中央会と同一） |
+| JA管理支店 | 5 | 28 | （JA本店から ja.view, ja.update を除いた権限） |
 
 ### 共通カラム（全レコード共通）
 
@@ -298,9 +298,11 @@
 
 ※ role_permission_id=113 は移行マイグレーション 1711900900008-SeedRoleAndDaikoPermissions で追加。
 
-#### role_id=3 中央会 — 31件
+#### role_id=3 中央会 — 30件
 
 ※ 自中央会のみ選択可（データスコープはService層で制御）
+※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+   ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
@@ -325,7 +327,6 @@
 | 45 | 3 | 21 | shiten.view |
 | 46 | 3 | 22 | shiten.update |
 | 47 | 3 | 23 | shiten.delete |
-| 48 | 3 | 36 | file.upload |
 | 49 | 3 | 37 | file.download |
 | 50 | 3 | 38 | log.view |
 | 51 | 3 | 39 | koza_furikae.export |
@@ -336,9 +337,11 @@
 | 114 | 3 | 25 | kanri_shiten.view |
 | 115 | 3 | 26 | kanri_shiten.update |
 
-#### role_id=4 JA本店 — 31件
+#### role_id=4 JA本店 — 30件
 
 ※ 自JAのみ選択可。中央会と同一権限セット。
+※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+   ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
@@ -363,7 +366,6 @@
 | 74 | 4 | 21 | shiten.view |
 | 75 | 4 | 22 | shiten.update |
 | 76 | 4 | 23 | shiten.delete |
-| 77 | 4 | 36 | file.upload |
 | 78 | 4 | 37 | file.download |
 | 79 | 4 | 38 | log.view |
 | 80 | 4 | 39 | koza_furikae.export |
@@ -374,9 +376,11 @@
 | 116 | 4 | 25 | kanri_shiten.view |
 | 117 | 4 | 26 | kanri_shiten.update |
 
-#### role_id=5 JA管理支店 — 29件
+#### role_id=5 JA管理支店 — 28件
 
 ※ 自管理支店のみ選択可。JA本店から ja.view, ja.update を除いた権限。
+※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+   ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
@@ -399,7 +403,6 @@
 | 101 | 5 | 21 | shiten.view |
 | 102 | 5 | 22 | shiten.update |
 | 103 | 5 | 23 | shiten.delete |
-| 104 | 5 | 36 | file.upload |
 | 105 | 5 | 37 | file.download |
 | 106 | 5 | 38 | log.view |
 | 107 | 5 | 39 | koza_furikae.export |

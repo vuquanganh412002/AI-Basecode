@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -55,7 +56,7 @@ const DEFAULT_FILTERS: ShitenFilters = {
 };
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<ShitenFilters>({
     defaultFilters: { ...DEFAULT_FILTERS },
@@ -169,30 +170,17 @@ onMounted(() => {
   void loadKanriShitenOptions();
 });
 
-function onSearch(): void {
-  // Trim leading/trailing whitespace so paste artifacts and IME-confirmed
-  // spaces don't widen the ILIKE pattern. Mutate state.filters directly
-  // so the input visibly updates (vue.md §List view rules #5a).
-  state.filters.shiten_name = state.filters.shiten_name.trim();
-  state.filters.shiten_code = state.filters.shiten_code.trim();
-  state.filters.jastem_toriatsukai_tenpo_code =
-    state.filters.jastem_toriatsukai_tenpo_code.trim();
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim text filters so paste artifacts / IME spaces don't widen the ILIKE pattern.
+  beforeSearch() {
+    state.filters.shiten_name = state.filters.shiten_name.trim();
+    state.filters.shiten_code = state.filters.shiten_code.trim();
+    state.filters.jastem_toriatsukai_tenpo_code =
+      state.filters.jastem_toriatsukai_tenpo_code.trim();
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -208,22 +196,16 @@ function goEdit(row: ShitenListItem): void {
 }
 
 function askDelete(row: ShitenListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    content: 'この支店を削除してもよろしいですか？', // ACSMS-MSG-006-005
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeShiten(row.shiten_id);
-        notify.deleted(); // '削除しました。' (verb-only — vue.md §useNotify)
-        await fetchList();
-      } catch {
-        // Global interceptor handled 409 CONFLICT (ACSMS-MSG-006-006) /
-        // 500 (ACSMS-MSG-006-004); view must NOT re-toast.
-      }
-    },
+  confirmDelete('この支店を削除してもよろしいですか？', async () => {
+    // ACSMS-MSG-006-005
+    try {
+      await removeShiten(row.shiten_id);
+      notify.deleted(); // '削除しました。' (verb-only — vue.md §useNotify)
+      await fetchList();
+    } catch {
+      // Global interceptor handled 409 CONFLICT (ACSMS-MSG-006-006) /
+      // 500 (ACSMS-MSG-006-004); view must NOT re-toast.
+    }
   });
 }
 </script>

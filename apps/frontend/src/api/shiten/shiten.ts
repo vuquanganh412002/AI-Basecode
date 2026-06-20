@@ -146,6 +146,39 @@ export async function getShitenDropdown(
   return res.data;
 }
 
+// ─── ACSMS-API-COMMON-008 — Get Koza Shiten Dropdown (定義元: ACSMS-SCR-020) ──
+
+/** 口座支店ドロップダウンの1行（金融機関支店フラグ=TRUE のみ）。 */
+export interface KozaShitenDropdownItem {
+  shiten_id: number;
+  shiten_code: string;
+  shiten_name: string;
+  kanri_shiten_id: number;
+}
+
+export interface KozaShitenDropdownEnvelope {
+  data: KozaShitenDropdownItem[];
+}
+
+/**
+ * GET /api/v1/shiten/koza-dropdown — 口座支店（kinyu_shiten_flg=TRUE）の
+ * プルダウン。SCR-020 の引落口座支店ピッカーで使用。DataScope は BE が自動適用。
+ * 任意の kanri_shiten_ids（カンマ区切り）で絞込。
+ */
+export async function getKozaShitenDropdown(
+  query: { kanri_shiten_ids?: number[] } = {},
+): Promise<KozaShitenDropdownEnvelope> {
+  const params =
+    query.kanri_shiten_ids && query.kanri_shiten_ids.length > 0
+      ? { kanri_shiten_ids: query.kanri_shiten_ids.join(',') }
+      : {};
+  const res = await axiosInstance.get<KozaShitenDropdownEnvelope>(
+    '/api/v1/shiten/koza-dropdown',
+    { params },
+  );
+  return res.data;
+}
+
 // ─── ACSMS-SCR-007 — 支店マスタ登録画面 ──────────────────────────────
 
 /**

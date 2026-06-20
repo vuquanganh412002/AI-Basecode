@@ -241,6 +241,35 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
+    it('should map denshi_kaiin_id (電子版会員ID) from the entity into the detail response', async () => {
+      // 外部システム会員ID。BIGINT は driver が string で返すため Number 化される。
+      const row = buildDokusya({ dokusyaId: 1, jaId: 1 });
+      (row as { denshiKaiinId: number | null }).denshiKaiinId =
+        9007199254 as unknown as number;
+      dokusyaRepo.findOne.mockResolvedValue(row);
+      dokusyaQb.getRawOne.mockResolvedValue({
+        ...row,
+        hanbaiten_name: '山田販売店',
+        tanka_name: '基本購読料（月額）',
+      });
+
+      const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
+      expect(result.denshi_kaiin_id).toBe(9007199254);
+    });
+
+    it('should return denshi_kaiin_id = null when the subscriber is not linked to the external system', async () => {
+      const row = buildDokusya({ dokusyaId: 1, jaId: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(row);
+      dokusyaQb.getRawOne.mockResolvedValue({
+        ...row,
+        hanbaiten_name: '山田販売店',
+        tanka_name: '基本購読料（月額）',
+      });
+
+      const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
+      expect(result.denshi_kaiin_id).toBeNull();
+    });
+
     it('should include hanbaiten_name (joined from m_hanbaiten) when target resolves', async () => {
       // COVERS: §4.3 LEFT JOIN m_hanbaiten — hanbaiten_name in response
       const row = buildDokusya({ dokusyaId: 1, jaId: 1, hanbaitenId: 5 });
@@ -653,7 +682,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result.denshi_shonin_status).toBeNull();
     });
 
-    it('should keep denshi_shonin_status=0 (承認待ち) when creating a 電子版 record', async () => {
+    it('should set denshi_shonin_status=1 (承認済) when creating a 電子版 record (職員操作 → 自動承認)', async () => {
       mockBankShitenLookup(true); // 電子版 requires 口座引落
       const result = await service.create(
         buildCreateDokusyaBody({
@@ -665,7 +694,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
       );
-      expect(result.denshi_shonin_status).toBe(0);
+      expect(result.denshi_shonin_status).toBe(1);
     });
 
     it('should persist bank_branch_code="" and bank_branch_name="" when shiharai_hoho is NOT 口座引落', async () => {
@@ -711,15 +740,16 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result).toBeDefined();
     });
 
-    it('should throw DUPLICATE_EMAIL HTTP 400 when email already exists in same ja_id', async () => {
+    it('should throw DUPLICATE_EMAIL HTTP 400 when email already exists among 電子版 records in same ja_id', async () => {
       // COVERS: §4.3 + err:DUPLICATE_EMAIL (row 9)
+      // 一意性は電子版(2)・併読(3) のみ — 電子版で作成して重複を検知させる。
       mockBankShitenLookup(true);
       dokusyaQb.getCount.mockResolvedValue(1);
       dokusyaRepo.count.mockResolvedValue(1);
 
       await expect(
         service.create(
-          buildCreateDokusyaBody({ email: 'dup@example.com' }),
+          buildCreateDokusyaBody({ dokusya_shubetsu: 2, email: 'dup@example.com' }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
@@ -743,6 +773,40 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
       expect(result).toBeDefined();
+    });
+
+    it('should NOT flag a duplicate email for a 紙版 record even when a matching row exists', async () => {
+      // 顧客要件: 一意性は電子版/併読のみ — 紙版は重複可なので照会自体しない。
+      mockBankShitenLookup(true);
+      dokusyaQb.getCount.mockResolvedValue(1); // would throw if the check ran
+      dokusyaRepo.count.mockResolvedValue(0);
+
+      const result = await service.create(
+        buildCreateDokusyaBody({ dokusya_shubetsu: 1, email: 'dup@example.com' }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('should throw VALIDATION_ERROR (field=email) when email is blank for 電子版', async () => {
+      // 顧客要件: メールは電子版(2)・併読(3) で必須。
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({ dokusya_shubetsu: 2, email: '' }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'email' }),
+          ]),
+        }),
+      });
     });
 
     it('should reject when dokusya_shubetsu is not a valid DOKUSYA_SHUBETSU code', async () => {
@@ -888,28 +952,24 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(shinki).toBe(true);
     });
 
-    it('should force dokusya_busu=0 when tetsuzuki_shurui=0 (解約)', async () => {
-      // COVERS: §4.4 — 解約時は dokusya_busu=0 を強制
+    it('should reject create when tetsuzuki_shurui=0 (解約) — 新規登録では解約不可', async () => {
+      // COVERS: 新規登録は解約(0)を選択不可（解約は既存購読者の更新操作）。
       mockBankShitenLookup(true);
-      const saved: any[] = [];
-      txManager.save.mockImplementation(async (_entity: any, value: any) => {
-        saved.push(value);
-        return value && 'dokusyaId' in value
-          ? value
-          : { ...value, dokusyaId: 100 };
+
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({ tetsuzuki_shurui: 0, dokusya_busu: 5 }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'tetsuzuki_shurui' }),
+          ]),
+        }),
       });
-
-      await service.create(
-        buildCreateDokusyaBody({ tetsuzuki_shurui: 0, dokusya_busu: 5 }),
-        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-        baseReq,
-      );
-
-      const dokusyaRow = saved.find(
-        (row) => row && ('dokusyaBusu' in row || 'dokusya_busu' in row),
-      );
-      const busu = dokusyaRow.dokusyaBusu ?? dokusyaRow.dokusya_busu;
-      expect(busu).toBe(0);
     });
 
     it('should wrap INSERT t_dokusya + INSERT t_dokusya_rireki + audit log in a single transaction', async () => {
@@ -1118,6 +1178,83 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(masterUpdate[2].dokusyaKaishiDate).toBe('2026-04-01');
     });
 
+    it('should preserve 初回購読開始日 (shoki_dokusya_kaishi_date) on update — not clobber it with the current kaishi date', async () => {
+      // shoki(初回) と kaishi(当期) が異なる行を更新しても初回日は保持する。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        shokiDokusyaKaishiDate: '2020-04-01', // 初回
+        dokusyaKaishiDate: '2026-04-01', // 当期（pin される）
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ dokusya_kaishi_date: '2030/01/01' }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const masterUpdate = txManager.update.mock.calls.find(
+        (c: any[]) => c[2] && typeof c[2] === 'object' && 'shokiDokusyaKaishiDate' in c[2],
+      );
+      expect(masterUpdate).toBeDefined();
+      expect(masterUpdate[2].shokiDokusyaKaishiDate).toBe('2020-04-01');
+    });
+
+    it('should preserve denshi_dokusya_shubetsu on update (電子版読者種別 is edit-exempt)', async () => {
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaShubetsu: 2, // 電子版
+        denshiDokusyaShubetsu: 2,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      // 電子版編集には denshi_flg が要る。
+      accountRepo.findOne.mockResolvedValue({
+        accountId: 11,
+        paperFlg: true,
+        denshiFlg: true,
+      });
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ dokusya_shubetsu: 2, shiharai_hoho: 1 }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const masterUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiDokusyaShubetsu' in c[2],
+      );
+      expect(masterUpdate).toBeDefined();
+      expect(masterUpdate[2].denshiDokusyaShubetsu).toBe(2);
+    });
+
+    it('should lock the master row (FOR UPDATE) before assigning rireki_no', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ chome_banchi: '新住所9-9' }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const lockCall = txManager.findOne.mock.calls.find(
+        (c: any[]) => c[1]?.lock?.mode === 'pessimistic_write',
+      );
+      expect(lockCall).toBeDefined();
+      expect(lockCall[1].where).toEqual({ dokusyaId: 100 });
+    });
+
     it('should keep the stored 購読者氏名/かな and ignore changed name fields on update (immutable after create)', async () => {
       // 氏名4項目 (氏名_氏/名, かな_氏/名) は作成時に確定し編集不可。
       // body に改変値が届いても保存値に pin する。
@@ -1201,7 +1338,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
     it('should check email duplicate excluding the current dokusya_id', async () => {
       // COVERS: §4.3 — dokusya_id <> :dokusya_id excludes own row
-      const before = buildDokusya({ dokusyaId: 100, jaId: 1 });
+      // 一意性は電子版(2)・併読(3) のみなので before を電子版にして照会を走らせる。
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 2 });
       dokusyaRepo.findOne.mockResolvedValue(before);
       mockBankShitenLookup(true);
       dokusyaQb.getCount.mockResolvedValue(0);
@@ -1227,9 +1365,15 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(excluded).toBeDefined();
     });
 
-    it('should throw DUPLICATE_EMAIL HTTP 400 when another row in same ja_id has same email', async () => {
+    it('should throw DUPLICATE_EMAIL HTTP 400 when another 電子版 row in same ja_id has same email', async () => {
       // COVERS: §4.3 + err:DUPLICATE_EMAIL
-      const before = buildDokusya({ dokusyaId: 100, jaId: 1, email: 'a@example.com' });
+      // 一意性は電子版(2)・併読(3) のみ — before を電子版にして検知させる。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        dokusyaShubetsu: 2,
+        email: 'a@example.com',
+      });
       dokusyaRepo.findOne.mockResolvedValue(before);
       mockBankShitenLookup(true);
       dokusyaQb.getCount.mockResolvedValue(1);
@@ -1413,7 +1557,134 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(rirekiRow.chomeBanchi).toBe('千代田9-9');
     });
 
-    it('should NOT set zenkai_* when no 購読者住所 field changed (haitatsu_same_flg=true)', async () => {
+    it('should record hanbaiten_tekiyo_date into the rireki snapshot when 販売店 changes on update', async () => {
+      // 販売店変更時の適用日は履歴の hanbaiten_tekiyo_date に記録する
+      // （マスタの joho_henko_tekiyo_date は触らない・後日定義）。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        hanbaitenId: 200,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({
+          hanbaiten_id: 201, // 販売店変更
+          hanbaiten_tekiyo_date: '2099-12-31',
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const rirekiRow = findRirekiRow(saved);
+      expect(rirekiRow).toBeDefined();
+      expect(rirekiRow.hanbaitenTekiyoDate).toBe('2099-12-31');
+      // 前回販売店も退避される。
+      expect(Number(rirekiRow.zenkaiHanbaitenId)).toBe(200);
+    });
+
+    it('should reject update when hanbaiten_tekiyo_date is in the past', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({
+            hanbaiten_id: 201,
+            hanbaiten_tekiyo_date: '2020-01-01',
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'hanbaiten_tekiyo_date' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should record the user-entered joho_henko_tekiyo_date on update (顧客要件 2026-06 更新)', async () => {
+      // 顧客要件 2026-06 更新 — joho_henko_tekiyo_date はユーザー入力。
+      // 編集で送られた値がそのまま master / 履歴に記録される（自動当日では
+      // ない）。既定は当日だが利用者が変更可。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        johoHenkoTekiyoDate: null,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      const saved = captureRirekiSaves();
+
+      const userDate = futureDate(10);
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({
+          chome_banchi: '新住所9-9',
+          joho_henko_tekiyo_date: userDate,
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const rirekiRow = findRirekiRow(saved);
+      expect(rirekiRow).toBeDefined();
+      expect(rirekiRow.johoHenkoTekiyoDate).toBe(userDate);
+    });
+
+    it('should reject update when joho_henko_tekiyo_date is in the past', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({ joho_henko_tekiyo_date: pastDate(7) }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'joho_henko_tekiyo_date' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject update when joho_henko_tekiyo_date is missing (required)', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({ joho_henko_tekiyo_date: null }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'joho_henko_tekiyo_date' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should ALWAYS snapshot 購読者住所 into zenkai_* when haitatsu_same_flg=true even if unchanged (顧客要件 2026-06)', async () => {
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -1445,8 +1716,12 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       const rirekiRow = findRirekiRow(saved);
       expect(rirekiRow).toBeDefined();
-      expect(rirekiRow.zenkaiYubinNo).toBeUndefined();
-      expect(rirekiRow.zenkaiChomeBanchi).toBeUndefined();
+      // 住所無変更でも購読者住所4項目（+郵便）を zenkai_* に保存する。
+      expect(rirekiRow.zenkaiTodofukenCode).toBe('13');
+      expect(rirekiRow.zenkaiShikuchoson).toBe('千代田区');
+      expect(rirekiRow.zenkaiChomeBanchi).toBe('千代田1-1');
+      expect(rirekiRow.zenkaiTatemonoMei).toBe('');
+      expect(rirekiRow.zenkaiYubinNo).toBe('1000001');
     });
 
     it('should snapshot previous 配達先住所 into zenkai_* when haitatsu_same_flg=false and a 配達先 field changed', async () => {
@@ -3264,7 +3539,7 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       ).resolves.toBeDefined();
     });
 
-    it('should return a Buffer + filename matching dokusya_export_YYYYMMDD_HHmmss.xlsx', async () => {
+    it('should return a Buffer + filename matching 購読者一覧出力_YYYYMMDD_HHmmss.xlsx', async () => {
       // COVERS: §4.5 — filename pattern (JST)
       dokusyaQb.getCount.mockResolvedValue(2);
       const rows = [
@@ -3283,13 +3558,14 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
-          filename: expect.stringMatching(/^dokusya_export_\d{8}_\d{6}\.xlsx$/),
+          filename: expect.stringMatching(/^購読者一覧出力_\d{8}_\d{6}\.xlsx$/),
         }),
       );
     });
 
-    it('should write the 12-column Japanese header row per api.md §4.5 v1.1 spec', async () => {
-      // COVERS: §4.5 — ヘッダー行 (画面設計書 v1.2 検索結果テーブル #24-#35, 12列)
+    it('should write the 15-column Japanese header row mirroring the検索結果テーブル layout', async () => {
+      // COVERS: §4.5 — ヘッダー行 (顧客要件 2026-06 検索結果テーブル, 14列:
+      // 支店 / 連絡先２ 削除、手続種類 / 購読種別 / 配達先氏名 / 支払方法 追加)
       dokusyaQb.getCount.mockResolvedValue(1);
       const rows = [buildDokusyaListRow()];
       dokusyaQb.getRawMany.mockResolvedValue(rows);
@@ -3306,31 +3582,34 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       // SHOULD expose it on the return shape for verification) OR
       // decode the buffer via a lightweight assertion: check Buffer length > 0.
       expect(result.buffer.length).toBeGreaterThan(0);
-      // The 12 canonical column labels MUST appear in the service's
+      // The 14 canonical column labels MUST appear in the service's
       // configured header definition. The service is expected to surface
       // them via the `headers` field for test-time verification (mirrors
       // file-download.service pattern).
       if (Array.isArray((result as any).headers)) {
         const headers: string[] = (result as any).headers;
         expect(headers).toEqual([
+          'ID',
           '管理支店',
-          '支店',
           '組合員コード',
           '購読者名',
+          '手続種類',
+          '購読種別',
           '連絡先１',
-          '連絡先２',
+          '配達先氏名',
           '配達先郵便',
           '配達先住所',
           '販売店コード',
           '販売店名',
+          '支払方法',
           '購読開始日',
           '購読中止日',
         ]);
       }
     });
 
-    it('should NOT include 購読種別 / 支払方法 / かな氏名 columns (per v1.1 spec — search-only fields)', async () => {
-      // COVERS: §4.5 v1.1 — 検索専用フィールド is excluded
+    it('should NOT include 支店 / 連絡先２ / かな氏名 columns (removed / search-only fields)', async () => {
+      // COVERS: §4.5 — 支店・連絡先２ 列削除、かな氏名 は検索専用
       dokusyaQb.getCount.mockResolvedValue(1);
       const rows = [buildDokusyaListRow()];
       dokusyaQb.getRawMany.mockResolvedValue(rows);
@@ -3344,8 +3623,8 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
 
       if (Array.isArray((result as any).headers)) {
         const headers: string[] = (result as any).headers;
-        expect(headers).not.toContain('購読種別');
-        expect(headers).not.toContain('支払方法');
+        expect(headers).not.toContain('支店');
+        expect(headers).not.toContain('連絡先２');
         expect(headers).not.toContain('かな氏名');
       }
     });
@@ -4669,7 +4948,6 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
 
     // err:TOO_MANY_REQUESTS (row 6) — ThrottlerGuard fires only through the
     // full app pipeline, not at the service layer.
-    it.todo('should return 429 TOO_MANY_REQUESTS when the rate limit is exceeded (covered in integration)');
   });
 });
 
@@ -4746,8 +5024,10 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
   } = {}) {
     const tanka = over.tanka ?? [{ tanka_id: 1, tanka_code: 'T001' }];
     const hanbaiten = over.hanbaiten ?? [{ hanbaiten_id: 5, hanbaiten_code: 'H001' }];
-    const kanriShiten = over.kanriShiten ?? [{ kanri_shiten_id: 101 }];
-    const shiten = over.shiten ?? [{ shiten_id: 1001, kanri_shiten_id: 101 }];
+    const kanriShiten = over.kanriShiten ?? [
+      { kanri_shiten_id: 101, kanri_shiten_code: 'KS001' },
+    ];
+    const shiten = over.shiten ?? [{ shiten_id: 1001, shiten_code: 'SH001' }];
     const existing = over.existing ?? [];
     return async (sql: unknown): Promise<Array<Record<string, unknown>>> => {
       const text = String(sql ?? '');
@@ -4774,6 +5054,31 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
     const route = buildSqlRouter(over);
     dataSource.query.mockImplementation(route);
     txManager.query.mockImplementation(route);
+    // writeRirekiSnapshot は after(=Dokusya) / before(=DokusyaRireki) を
+    // manager.findOne で取得する。entity 名で分岐して最小スタブを返す。
+    txManager.findOne.mockImplementation(async (entity: any) => {
+      const name = entity?.name;
+      const addr = {
+        haitatsuSameFlg: true,
+        yubinNo: '',
+        todofukenCode: '',
+        shikuchoson: '',
+        chomeBanchi: '',
+        tatemonoMei: '',
+        haitatsuYubinNo: '',
+        haitatsuTodofukenCode: '',
+        haitatsuShikuchoson: '',
+        haitatsuChomeBanchi: '',
+        haitatsuTatemonoMei: '',
+        dokusyaBusu: 1,
+        hanbaitenId: 5,
+      };
+      if (name === 'DokusyaRireki') {
+        return { dokusyaId: 7001, rirekiNo: 1, saishinDataFlg: true, ...addr };
+      }
+      // Dokusya (after)
+      return { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 1, ...addr };
+    });
   }
 
   beforeEach(() => {
@@ -4801,6 +5106,16 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
     codeService = {
       has: jest.fn().mockReturnValue(true),
       getLabel: jest.fn().mockReturnValue(''),
+      // Reverse lookup the import uses to turn a Japanese m_code label
+      // (「男性」/「普通」) into its stored numeric code. Mirrors the seeded
+      // GENDER / YOKIN_SHUBETSU rows; unknown labels resolve to null.
+      getValueByLabel: jest.fn((category: string, label: string) => {
+        const map: Record<string, Record<string, number>> = {
+          GENDER: { 男性: 1, 女性: 2, 回答しない: 9 },
+          YOKIN_SHUBETSU: { 普通: 1, 当座: 2 },
+        };
+        return map[category]?.[label] ?? null;
+      }),
       reload: jest.fn(),
     };
     txManager = {
@@ -4998,6 +5313,40 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(result.data.total_rows).toBe(2);
       expect(result.data.rireki_count).toBe(2);
     });
+
+    it('should set denshi_shonin_status=承認(1) on NEW import for 電子版(2) and null for 紙版(1)', async () => {
+      // 顧客要件: Excel一括取込の電子版(2)は承認済(1)で登録する（職員操作のため）。
+      // 紙版(1)は電子申請ワークフロー対象外なので null。INSERT の $52 を検証。
+      const captured: unknown[][] = [];
+      const route = buildSqlRouter();
+      const wrap = async (sql: unknown, params?: unknown[]) => {
+        if (/insert\s+into\s+t_dokusya\b/i.test(String(sql ?? ''))) {
+          captured.push(params ?? []);
+          return [{ dokusya_id: 1 }];
+        }
+        return route(sql);
+      };
+      dataSource.query.mockImplementation(wrap);
+      txManager.query.mockImplementation(wrap);
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'NEW',
+          rows: [
+            buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1' }),
+            buildImportRow({ dokusya_shubetsu: 1, shiharai_hoho: 1, kumiaiin_code: 'P1' }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // INSERT パラメータ数が列数と整合（$1..$53、$53 は created_by/updated_by 兼用）。
+      expect(captured[0]).toHaveLength(53);
+      // 電子版 → 承認(1)。紙版 → null。
+      expect(captured[0][51]).toBe(1);
+      expect(captured[1][51]).toBeNull();
+    });
   });
 
   describe('importExcel — top-level validation', () => {
@@ -5074,32 +5423,26 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       ).toBe(true);
     });
 
-    it('should throw IMPORT_VALIDATION_ERROR (field=kumiaiin_code) when a NEW row kumiaiin_code already exists in the JA', async () => {
-      // Regression: re-importing the same NEW kumiaiin must give a graceful
-      // "既に登録されています" error — not silently create a duplicate
-      // subscriber + crash the rireki INSERT on uq_t_dokusya_rireki.
+    it('should ALLOW a NEW row whose kumiaiin_code already exists in the JA (組合員コードは重複可)', async () => {
+      // 組合員コードは JA 内で重複を許容する（世帯員など）。DB にも UNIQUE
+      // 制約は無いため、既存コードと同じでも NEW 取込みは成功し新規作成される。
       primeImport({
         existing: [
           { dokusya_id: 999, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
         ],
       });
 
-      let caught: any;
-      try {
-        await service.importExcel(
-          buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'K00001' })] }),
-          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
-          baseReq,
-        );
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught?.code).toBe('IMPORT_VALIDATION_ERROR');
-      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
-      const errors = body?.errors ?? caught?.errors ?? [];
-      expect(
-        errors.some((e: Record<string, unknown>) => e.field === 'kumiaiin_code'),
-      ).toBe(true);
+      const result = await service.importExcel(
+        buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'K00001' })] }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.data).toMatchObject({
+        import_mode: 'NEW',
+        total_rows: 1,
+        created_count: 1,
+      });
     });
 
     it('should throw IMPORT_VALIDATION_ERROR when 電子版 (dokusya_shubetsu=2) is paired with クレジットカード (shiharai_hoho=6)', async () => {
@@ -5115,6 +5458,124 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           baseReq,
         ),
       ).rejects.toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR with field=email when a 電子版 row has a blank email', async () => {
+      // 顧客要件: メールは電子版(2)・併読(3) で必須。
+      primeImport();
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            rows: [buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, email: '' })],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some((e: Record<string, unknown>) => e.field === 'email'),
+      ).toBe(true);
+    });
+
+    it('should allow a blank email for a 紙版 row (email optional for 紙版)', async () => {
+      // 顧客要件: 紙版(1) は email 任意。
+      primeImport();
+
+      const result = await service.importExcel(
+        buildImportBody({
+          rows: [buildImportRow({ dokusya_shubetsu: 1, email: '' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.data).toMatchObject({ total_rows: 1, created_count: 1 });
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR (field=email) when two 電子版 rows in the batch share an email', async () => {
+      // 顧客要件: メール一意性は電子版/併読のレコード間で担保 — バッチ内重複も検知。
+      primeImport();
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            rows: [
+              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'same@example.com' }),
+              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D2', email: 'same@example.com' }),
+            ],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some((e: Record<string, unknown>) => e.field === 'email'),
+      ).toBe(true);
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR (field=email) when a 電子版 row reuses an existing 電子版 email', async () => {
+      // 顧客要件: DB 内の電子版/併読レコードとの重複も検知する。
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 999,
+            kumiaiin_code: 'XXX',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+            dokusya_shubetsu: 2,
+            email: 'taken@example.com',
+          },
+        ],
+      });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            rows: [
+              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'taken@example.com' }),
+            ],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some((e: Record<string, unknown>) => e.field === 'email'),
+      ).toBe(true);
+    });
+
+    it('should allow two 紙版 rows in the batch to share an email (紙版 not checked for uniqueness)', async () => {
+      // 顧客要件: 紙版は重複可。
+      primeImport();
+
+      const result = await service.importExcel(
+        buildImportBody({
+          rows: [
+            buildImportRow({ dokusya_shubetsu: 1, kumiaiin_code: 'P1', email: 'paper@example.com' }),
+            buildImportRow({ dokusya_shubetsu: 1, kumiaiin_code: 'P2', email: 'paper@example.com' }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.data).toMatchObject({ total_rows: 2, created_count: 2 });
     });
 
     it('should throw IMPORT_VALIDATION_ERROR with field=tanka_code when the tanka_code does not resolve', async () => {
@@ -5163,6 +5624,146 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           (e: Record<string, unknown>) => e.field === 'hanbaiten_code',
         ),
       ).toBe(true);
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR with field=kanri_shiten_code when the kanri_shiten_code does not resolve', async () => {
+      // 顧客要件: 管理支店はコードで取込み — 未ヒットのコードは行エラー化。
+      primeImport({ kanriShiten: [] });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            rows: [buildImportRow({ kanri_shiten_code: 'KSNOPE' })],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some(
+          (e: Record<string, unknown>) => e.field === 'kanri_shiten_code',
+        ),
+      ).toBe(true);
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR with field=shiten_code when the shiten_code does not resolve', async () => {
+      // 顧客要件: 支店はコードで取込み — 未ヒットのコードは行エラー化。
+      primeImport({ shiten: [] });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            rows: [buildImportRow({ shiten_code: 'SHNOPE' })],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some(
+          (e: Record<string, unknown>) => e.field === 'shiten_code',
+        ),
+      ).toBe(true);
+    });
+
+    it('should resolve kanri_shiten_code / shiten_code to their ids in the NEW INSERT params', async () => {
+      // 取込みはコード入力 → 物理カラム kanri_shiten_id / shiten_id へ解決して保存。
+      const captured: unknown[][] = [];
+      const route = buildSqlRouter();
+      const wrap = async (sql: unknown, params?: unknown[]) => {
+        if (/insert\s+into\s+t_dokusya\b/i.test(String(sql ?? ''))) {
+          captured.push(params ?? []);
+          return [{ dokusya_id: 1 }];
+        }
+        return route(sql);
+      };
+      dataSource.query.mockImplementation(wrap);
+      txManager.query.mockImplementation(wrap);
+
+      await service.importExcel(
+        buildImportBody({
+          rows: [buildImportRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH001' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // $2 = kanri_shiten_id (KS001→101), $3 = shiten_id (SH001→1001).
+      expect(captured[0][1]).toBe(101);
+      expect(captured[0][2]).toBe(1001);
+    });
+
+    it('should set haitatsu_same_flg=false in the NEW INSERT params and zougen_hokoku_flg=true on the rireki when 配達先 fields have data', async () => {
+      // 配達先(delivery destination)に入力があれば「別住所」: same_flg=false
+      // ＋ 増減報告対象(zougen_hokoku_flg=true)。
+      primeImport(); // findOne(after/before) スタブを用意（rireki スナップショット用）。
+      const captured: unknown[][] = [];
+      const route = buildSqlRouter();
+      const wrap = async (sql: unknown, params?: unknown[]) => {
+        if (/insert\s+into\s+t_dokusya\b/i.test(String(sql ?? ''))) {
+          captured.push(params ?? []);
+          return [{ dokusya_id: 1 }];
+        }
+        return route(sql);
+      };
+      dataSource.query.mockImplementation(wrap);
+      txManager.query.mockImplementation(wrap);
+
+      await service.importExcel(
+        buildImportBody({
+          rows: [
+            buildImportRow({
+              haitatsu_shimei_sei: '配達',
+              haitatsu_shimei_mei: '太郎',
+            }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // $23 (index 22) = haitatsu_same_flg → 配達先入力あり → false
+      expect(captured[0][22]).toBe(false);
+
+      const rirekiSave = txManager.save.mock.calls
+        .map((c: unknown[]) => (c[1] ?? c[0]) as Record<string, unknown>)
+        .find((v: Record<string, unknown> | undefined) => v && typeof v === 'object' && 'rirekiNo' in v);
+      expect(rirekiSave?.zougenHokokuFlg).toBe(true);
+    });
+
+    it('should keep haitatsu_same_flg=true in the NEW INSERT params when no 配達先 field has data', async () => {
+      // 配達先入力なし → 従来どおり「同じ」(true)。
+      const captured: unknown[][] = [];
+      const route = buildSqlRouter();
+      const wrap = async (sql: unknown, params?: unknown[]) => {
+        if (/insert\s+into\s+t_dokusya\b/i.test(String(sql ?? ''))) {
+          captured.push(params ?? []);
+          return [{ dokusya_id: 1 }];
+        }
+        return route(sql);
+      };
+      dataSource.query.mockImplementation(wrap);
+      txManager.query.mockImplementation(wrap);
+
+      await service.importExcel(
+        buildImportBody({ rows: [buildImportRow()] }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(captured[0][22]).toBe(true);
     });
 
     it('should throw IMPORT_VALIDATION_ERROR when NEW mode dokusya_busu is 0 (must be > 0)', async () => {
@@ -5259,6 +5860,297 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           (e: Record<string, unknown>) => e.field === 'kumiaiin_code',
         ),
       ).toBe(true);
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR (field=kumiaiin_code) when a 解約 keys by kumiaiin_code that matches MORE THAN ONE record', async () => {
+      // 組合員コードは重複可。dokusya_id 無しで kumiaiin キーが複数ヒットすると
+      // 一括誤更新になるため、ID 指定を促すエラーにする。
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+          { dokusya_id: 7002, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+      });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            import_mode: 'UPDATE_PARTIAL',
+            selected_columns: ['kumiaiin_code', 'tetsuzuki_shurui', 'dokusya_busu'],
+            rows: [
+              buildImportRow({
+                tetsuzuki_shurui: 0,
+                dokusya_busu: 0,
+                kumiaiin_code: 'K00001',
+              }),
+            ],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught?.code).toBe('IMPORT_VALIDATION_ERROR');
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some(
+          (e: Record<string, unknown>) =>
+            e.field === 'kumiaiin_code' &&
+            String(e.message).includes('重複'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should ALLOW a 解約 keyed by kumiaiin_code when it matches EXACTLY ONE record', async () => {
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+
+      const result = await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['kumiaiin_code', 'tetsuzuki_shurui', 'dokusya_busu'],
+          rows: [
+            buildImportRow({
+              tetsuzuki_shurui: 0,
+              dokusya_busu: 0,
+              kumiaiin_code: 'K00001',
+            }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.data).toMatchObject({ cancelled_count: 1 });
+    });
+
+    it('should proceed (no duplicate error) when dokusya_id is supplied even if its kumiaiin_code is duplicated', async () => {
+      // dokusya_id があれば一意に決まるため、kumiaiin が重複しても更新可。
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+          { dokusya_id: 7002, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+
+      const result = await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'dokusya_busu'],
+          rows: [
+            buildImportRow({ dokusya_id: 7001, kumiaiin_code: 'K00001', dokusya_busu: 5 }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.data).toMatchObject({ updated_count: 1 });
+    });
+
+    /** Count DokusyaRireki snapshots saved via manager.save (value has rirekiNo). */
+    function countRirekiSaves(): number {
+      return txManager.save.mock.calls.filter((call: unknown[]) => {
+        const value = (call[1] ?? call[0]) as Record<string, unknown> | undefined;
+        return !!value && typeof value === 'object' && 'rirekiNo' in value;
+      }).length;
+    }
+
+    it('should write exactly ONE t_dokusya_rireki snapshot for a NEW row', async () => {
+      // NEW → t_dokusya 1件 + t_dokusya_rireki 1件（共通 writeRirekiSnapshot）。
+      primeImport();
+
+      await service.importExcel(
+        buildImportBody(),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(countRirekiSaves()).toBe(1);
+    });
+
+    it('should acquire a FOR UPDATE (pessimistic_write) lock on the master row before assigning rireki_no (UI と同じ直列化)', async () => {
+      // 同一購読者への同時編集で rireki_no 衝突しないよう、採番前に行ロック。
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'email'],
+          rows: [buildImportRow({ dokusya_id: 7001, email: 'new@example.com' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const lockCall = txManager.findOne.mock.calls.find((c: unknown[]) => {
+        const opts = c[1] as { lock?: { mode?: string } } | undefined;
+        return opts?.lock?.mode === 'pessimistic_write';
+      });
+      expect(lockCall).toBeDefined();
+    });
+
+    it('should write exactly ONE t_dokusya_rireki snapshot for an UPDATE_ALL row', async () => {
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_ALL',
+          selected_columns: ['dokusya_id', 'dokusya_busu'],
+          rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 5 })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(countRirekiSaves()).toBe(1);
+    });
+
+    it('should write exactly ONE t_dokusya_rireki snapshot for an UPDATE_PARTIAL row', async () => {
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'email'],
+          rows: [buildImportRow({ dokusya_id: 7001, email: 'new@example.com' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(countRirekiSaves()).toBe(1);
+    });
+
+    it('should add haitatsu_same_flg=false to the SET clause and force zougen_hokoku_flg=true for UPDATE_PARTIAL when a selected 配達先 column has data', async () => {
+      // 増減対象の変更(購読部数/販売店/住所)が無くても、選択された配達先列に
+      // 値があれば same_flg を下ろし zougen_hokoku_flg を立てる。
+      let updateSql = '';
+      const route = buildSqlRouter({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+      const wrap = async (sql: unknown, params?: unknown[]) => {
+        if (/update\s+t_dokusya\b/i.test(String(sql ?? ''))) {
+          updateSql = String(sql ?? '');
+        }
+        return route(sql);
+      };
+      dataSource.query.mockImplementation(wrap);
+      txManager.query.mockImplementation(wrap);
+      // before/after は 増減対象に変更なし（購読部数/販売店/住所 すべて同一）。
+      txManager.findOne.mockImplementation(async (entity: any) => {
+        const addr = {
+          haitatsuSameFlg: true,
+          yubinNo: '', todofukenCode: '', shikuchoson: '', chomeBanchi: '', tatemonoMei: '',
+          haitatsuYubinNo: '', haitatsuTodofukenCode: '', haitatsuShikuchoson: '',
+          haitatsuChomeBanchi: '', haitatsuTatemonoMei: '', dokusyaBusu: 1, hanbaitenId: 5,
+        };
+        if (entity?.name === 'DokusyaRireki') {
+          return { dokusyaId: 7001, rirekiNo: 1, saishinDataFlg: true, ...addr };
+        }
+        return { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 1, ...addr };
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'haitatsu_shikuchoson'],
+          rows: [buildImportRow({ dokusya_id: 7001, haitatsu_shikuchoson: '渋谷区' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(/haitatsu_same_flg\s*=\s*false/i.test(updateSql)).toBe(true);
+      const rirekiSave = txManager.save.mock.calls
+        .map((c: unknown[]) => (c[1] ?? c[0]) as Record<string, unknown>)
+        .find((v: Record<string, unknown> | undefined) => v && typeof v === 'object' && 'rirekiNo' in v);
+      expect(rirekiSave?.zougenHokokuFlg).toBe(true);
+    });
+
+    it('should set shinki_flg=true and zougen_hokoku_flg=true on the rireki snapshot for a NEW row (UI と同じ)', async () => {
+      primeImport();
+
+      await service.importExcel(
+        buildImportBody({ rows: [buildImportRow({ tetsuzuki_shurui: 1 })] }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const rirekiSave = txManager.save.mock.calls
+        .map((c: unknown[]) => (c[1] ?? c[0]) as Record<string, unknown>)
+        .find((v: Record<string, unknown> | undefined) => v && typeof v === 'object' && 'rirekiNo' in v);
+      expect(rirekiSave).toBeDefined();
+      expect(rirekiSave?.shinkiFlg).toBe(true);
+      expect(rirekiSave?.kaiyakuFlg).toBe(false);
+      expect(rirekiSave?.zougenHokokuFlg).toBe(true);
+    });
+
+    it('should set kaiyaku_flg=true on the rireki snapshot for a 解約 row (UI と同じ)', async () => {
+      primeImport({
+        existing: [
+          { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+        ],
+        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      });
+      // after(=master) は解約済み(0)を返すよう findOne を上書き。
+      txManager.findOne.mockImplementation(async (entity: any) => {
+        const base = {
+          haitatsuSameFlg: true,
+          yubinNo: '', todofukenCode: '', shikuchoson: '', chomeBanchi: '', tatemonoMei: '',
+          haitatsuYubinNo: '', haitatsuTodofukenCode: '', haitatsuShikuchoson: '',
+          haitatsuChomeBanchi: '', haitatsuTatemonoMei: '', dokusyaBusu: 0, hanbaitenId: 5,
+        };
+        if (entity?.name === 'DokusyaRireki') {
+          return { dokusyaId: 7001, rirekiNo: 1, saishinDataFlg: true, ...base, dokusyaBusu: 3 };
+        }
+        return { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 0, ...base };
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'tetsuzuki_shurui', 'dokusya_busu'],
+          rows: [buildImportRow({ dokusya_id: 7001, tetsuzuki_shurui: 0, dokusya_busu: 0 })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const rirekiSave = txManager.save.mock.calls
+        .map((c: unknown[]) => (c[1] ?? c[0]) as Record<string, unknown>)
+        .find((v: Record<string, unknown> | undefined) => v && typeof v === 'object' && 'rirekiNo' in v);
+      expect(rirekiSave?.kaiyakuFlg).toBe(true);
+      expect(rirekiSave?.shinkiFlg).toBe(false);
+      // 購読部数 3→0 の変更 → 増減報告対象。
+      expect(rirekiSave?.zougenHokokuFlg).toBe(true);
+      expect(rirekiSave?.zenkaiDokusyaBusu).toBe(3);
     });
 
     it('should cap the errors array at 10 entries when more than 10 rows fail', async () => {
@@ -5427,8 +6319,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(/shimei_sei/i.test(dokusyaUpdate as string)).toBe(false);
     });
 
-    it('should overwrite unselected columns with defaults when import_mode is UPDATE_ALL', async () => {
-      // COVERS: §4.4.2 — 未選択列は NULL / 空文字 / 0 で上書き (全項目 UPDATE)
+    it('should overwrite unselected non-immutable columns but PRESERVE edit-immutable fields (購読種別/氏名/購読開始日) when import_mode is UPDATE_ALL', async () => {
+      // COVERS: §4.4.2 — 未選択列は上書き (全項目 UPDATE)。ただし編集不可項目
+      // （購読種別・氏名4・購読開始日）は更新でも既存値を維持する。
       const updateSql: string[] = [];
       primeImport({
         existing: [
@@ -5459,9 +6352,67 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
         /update\s+t_dokusya\b/i.test(s),
       );
       expect(dokusyaUpdate).toBeDefined();
-      // UPDATE_ALL writes every column even when unselected — shimei_sei
-      // (NOT in selected_columns) must still appear in the SET clause.
-      expect(/shimei_sei/i.test(dokusyaUpdate as string)).toBe(true);
+      const sql = dokusyaUpdate as string;
+      // 顧客報告バグ回帰防止 — email / 郵便番号 / 都道府県コード /
+      // 配達先住所 / 口座 等の更新可能列は必ず SET に含めること（旧実装は7列のみ）。
+      expect(/\bemail\s*=/i.test(sql)).toBe(true);
+      expect(/\byubin_no\s*=/i.test(sql)).toBe(true);
+      expect(/\btodofuken_code\s*=/i.test(sql)).toBe(true);
+      expect(/\bhaitatsu_chome_banchi\s*=/i.test(sql)).toBe(true);
+      expect(/\bbank_branch_code\s*=/i.test(sql)).toBe(true);
+      expect(/\bshiharai_hoho\s*=/i.test(sql)).toBe(true);
+      // 編集不可項目は COALESCE(列, $n) で既存値維持（NOT NULL 列なので常に既存値）。
+      expect(/dokusya_shubetsu\s*=\s*COALESCE\(\s*dokusya_shubetsu/i.test(sql)).toBe(true);
+      expect(/shimei_sei\s*=\s*COALESCE\(\s*shimei_sei/i.test(sql)).toBe(true);
+      expect(/shimei_mei\s*=\s*COALESCE\(\s*shimei_mei/i.test(sql)).toBe(true);
+      expect(/shimei_kana_sei\s*=\s*COALESCE\(\s*shimei_kana_sei/i.test(sql)).toBe(true);
+      expect(/shimei_kana_mei\s*=\s*COALESCE\(\s*shimei_kana_mei/i.test(sql)).toBe(true);
+      expect(/dokusya_kaishi_date\s*=\s*COALESCE\(\s*dokusya_kaishi_date/i.test(sql)).toBe(true);
+    });
+
+    it('should include the selected column (email) in the SET clause when import_mode is UPDATE_PARTIAL', async () => {
+      // COVERS: §4.4.3 回帰防止 — 旧 WRITABLE は email 等を欠落し、選択しても
+      // 更新されなかった。selected_columns に email があれば SET に出ること。
+      const updateSql: string[] = [];
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 7001,
+            kumiaiin_code: 'K00001',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+          },
+        ],
+        onUpdate: (sql) => {
+          updateSql.push(sql);
+          return [{ dokusya_id: 7001, rireki_no: 2 }];
+        },
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE_PARTIAL',
+          selected_columns: ['dokusya_id', 'email', 'todofuken_code'],
+          rows: [
+            buildImportRow({
+              dokusya_id: 7001,
+              email: 'new@example.com',
+              todofuken_code: '27',
+            }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const dokusyaUpdate = updateSql.find((s) =>
+        /update\s+t_dokusya\b/i.test(s),
+      ) as string;
+      expect(dokusyaUpdate).toBeDefined();
+      expect(/\bemail\s*=/i.test(dokusyaUpdate)).toBe(true);
+      expect(/\btodofuken_code\s*=/i.test(dokusyaUpdate)).toBe(true);
+      // 未選択列は SET に出ない（partial の核）。
+      expect(/\bshimei_sei\s*=/i.test(dokusyaUpdate)).toBe(false);
     });
   });
 
@@ -5527,7 +6478,6 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
   // err:TOO_MANY_REQUESTS (row 6) — ThrottlerGuard fires only through the
   // full app pipeline, not at the service layer.
-  it.todo('should return 429 TOO_MANY_REQUESTS when the rate limit is exceeded (covered in integration)');
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -5612,5 +6562,270 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
           Object.prototype.hasOwnProperty.call(p, 'scopeKsId')),
     );
     expect(scoped).toBeUndefined();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// rireki 生成の UI ↔ Excel取込 同一性 (parity)
+//
+// create()/update()（UI）と importExcel()（取込）は同じヘルパー
+// （buildHistoryFromEntity / buildZenkaiSnapshot / hasZougenReportableChange /
+// nextRirekiNo）を共有する。同じ業務入力に対して、両経路が生成する
+// t_dokusya_rireki の業務フラグ（shinki/kaiyaku/zougen）と前回値(zenkai_*)が
+// 一致することを behavioral に証明する。
+// ════════════════════════════════════════════════════════════════════════════
+describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => {
+  let service: any;
+  let dokusyaRepo: any;
+  let shitenRepo: any;
+  let txManager: any;
+  let dataSource: any;
+
+  const baseReq = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as any;
+
+  function qb(): Record<string, any> {
+    return {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      setLock: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
+      getCount: jest.fn().mockResolvedValue(0),
+      getRawOne: jest.fn().mockResolvedValue({ new_rireki_no: 2 }),
+      getRawMany: jest.fn().mockResolvedValue([]),
+      getMany: jest.fn().mockResolvedValue([]),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+  }
+
+  /** Return the LAST DokusyaRireki snapshot saved via manager.save. */
+  function grabRireki(): Record<string, any> | undefined {
+    const saves = txManager.save.mock.calls
+      .map((c: unknown[]) => (c[1] ?? c[0]) as Record<string, unknown>)
+      .filter((v: any) => v && typeof v === 'object' && 'rirekiNo' in v);
+    return saves[saves.length - 1] as Record<string, any> | undefined;
+  }
+
+  /** SQL router for importExcel pre-tx lookups + INSERT/UPDATE. */
+  function importRoute(over: { existing?: any[]; onUpdate?: () => any[] } = {}) {
+    const existing = over.existing ?? [];
+    return async (sql: unknown): Promise<any[]> => {
+      const t = String(sql ?? '');
+      if (/update\s+t_dokusya_rireki/i.test(t)) return [];
+      if (/insert\s+into\s+t_dokusya_rireki/i.test(t)) return [{}];
+      if (/insert\s+into\s+t_dokusya\b/i.test(t)) return [{ dokusya_id: 7001 }];
+      if (/update\s+t_dokusya\b/i.test(t))
+        return over.onUpdate ? over.onUpdate() : [{ dokusya_id: 7001 }];
+      if (/from\s+m_tanka/i.test(t)) return [{ tanka_id: 1, tanka_code: 'T001' }];
+      if (/from\s+m_hanbaiten/i.test(t)) return [{ hanbaiten_id: 5, hanbaiten_code: 'H001' }];
+      if (/from\s+m_kanri_shiten/i.test(t)) return [{ kanri_shiten_id: 101, kanri_shiten_code: 'KS001' }];
+      if (/from\s+m_shiten/i.test(t)) return [{ shiten_id: 1001, shiten_code: 'SH001' }];
+      if (/from\s+t_dokusya\b/i.test(t)) return existing;
+      return [];
+    };
+  }
+
+  /** Configure importExcel + writeRirekiSnapshot for one scenario. */
+  function primeImport(opts: {
+    existing?: any[];
+    onUpdate?: () => any[];
+    after: Record<string, any>;
+    before?: Record<string, any> | null;
+  }) {
+    const route = importRoute({ existing: opts.existing, onUpdate: opts.onUpdate });
+    dataSource.query.mockImplementation(route);
+    txManager.query.mockImplementation(route);
+    txManager.findOne.mockImplementation(async (entity: any) =>
+      entity?.name === 'DokusyaRireki' ? (opts.before ?? null) : opts.after,
+    );
+  }
+
+  beforeEach(() => {
+    dokusyaRepo = {
+      findOne: jest.fn(),
+      createQueryBuilder: jest.fn(() => qb()),
+    };
+    shitenRepo = {
+      // FK-scope check + bank reverse lookup both resolve in-scope (ja_id=1).
+      findOne: jest.fn(async () => ({
+        shitenId: 50,
+        jaId: 1,
+        kinyuShitenFlg: true,
+        jastemToriatsukaiTenpoCode: '001',
+        jastemTenpoName: '本店',
+      })),
+      createQueryBuilder: jest.fn(() => ({
+        ...qb(),
+        getRawOne: jest
+          .fn()
+          .mockResolvedValue({
+            shiten_id: 50,
+            jastem_toriatsukai_tenpo_code: '001',
+            jastem_tenpo_name: '本店',
+          }),
+      })),
+    };
+    txManager = {
+      create: jest.fn((_e: unknown, v: unknown) => ({ ...(v as object) })),
+      save: jest.fn(async (e: unknown, v?: unknown) => ({
+        ...((v ?? e) as object),
+        dokusyaId: (((v ?? e) as any).dokusyaId ?? 100),
+      })),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      findOne: jest.fn(),
+      query: jest.fn(async () => []),
+      createQueryBuilder: jest.fn(() => qb()),
+    };
+    dataSource = {
+      transaction: jest.fn(async (cb: any) => cb(txManager)),
+      query: jest.fn(async () => []),
+    };
+    const fkRepo = { findOne: jest.fn(async () => ({ jaId: 1 })) };
+    const accountRepo = {
+      findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })),
+    };
+    const codeService = {
+      has: jest.fn().mockReturnValue(true),
+      getLabel: jest.fn().mockReturnValue(''),
+      getValueByLabel: jest.fn().mockReturnValue(null),
+      reload: jest.fn(),
+    };
+    const auditLog = {
+      logOperation: jest.fn().mockResolvedValue(undefined),
+      logCreate: jest.fn().mockResolvedValue(undefined),
+      logUpdate: jest.fn().mockResolvedValue(undefined),
+      logDelete: jest.fn().mockResolvedValue(undefined),
+      logError: jest.fn().mockResolvedValue(undefined),
+    };
+
+    service = new (DokusyaService as any)(
+      dokusyaRepo,
+      { findOne: jest.fn(), createQueryBuilder: jest.fn(() => qb()) },
+      shitenRepo,
+      fkRepo, // kanriShitenRepo
+      fkRepo, // hanbaitenRepo
+      fkRepo, // tankaRepo
+      accountRepo,
+      dataSource,
+      auditLog,
+      codeService,
+    );
+  });
+
+  it('NEW: UI create と 取込NEW で shinki/kaiyaku/zougen フラグが一致する', async () => {
+    // --- UI create (新規 種類=1) ---
+    await service.create(
+      buildCreateDokusyaBody({ tetsuzuki_shurui: 1 }),
+      buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const ui = grabRireki();
+    txManager.save.mockClear();
+
+    // --- 取込 NEW (種類=1) ---
+    primeImport({
+      after: { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 1, haitatsuSameFlg: true, dokusyaBusu: 1, hanbaitenId: 5 },
+    });
+    await service.importExcel(
+      buildImportBody({ rows: [buildImportRow({ tetsuzuki_shurui: 1 })] }),
+      buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const imp = grabRireki();
+
+    expect(ui).toBeDefined();
+    expect(imp).toBeDefined();
+    expect(ui!.shinkiFlg).toBe(true);
+    expect(imp!.shinkiFlg).toBe(ui!.shinkiFlg);
+    expect(imp!.kaiyakuFlg).toBe(ui!.kaiyakuFlg);
+    expect(imp!.zougenHokokuFlg).toBe(ui!.zougenHokokuFlg);
+    expect(imp!.saishinDataFlg).toBe(ui!.saishinDataFlg);
+  });
+
+  it('解約: UI update と 取込解約 で kaiyaku_flg=true / zougen=true / 前回購読部数が一致する', async () => {
+    // --- UI update (種類=0 解約, 購読部数 3→0) ---
+    dokusyaRepo.findOne.mockResolvedValue(
+      buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1, dokusyaBusu: 3 }),
+    );
+    await service.update(
+      100,
+      buildUpdateDokusyaBody({ tetsuzuki_shurui: 0, dokusya_busu: 0 }),
+      buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const ui = grabRireki();
+    txManager.save.mockClear();
+
+    // --- 取込 解約 (種類=0, 購読部数 3→0) ---
+    primeImport({
+      existing: [{ dokusya_id: 7001, kumiaiin_code: 'K1', ja_id: 1, kanri_shiten_id: 10 }],
+      onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      before: { dokusyaId: 7001, rirekiNo: 1, saishinDataFlg: true, haitatsuSameFlg: true, dokusyaBusu: 3, hanbaitenId: 5 },
+      after: { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 0, haitatsuSameFlg: true, dokusyaBusu: 0, hanbaitenId: 5 },
+    });
+    await service.importExcel(
+      buildImportBody({
+        import_mode: 'UPDATE_PARTIAL',
+        selected_columns: ['dokusya_id', 'tetsuzuki_shurui', 'dokusya_busu'],
+        rows: [buildImportRow({ dokusya_id: 7001, tetsuzuki_shurui: 0, dokusya_busu: 0 })],
+      }),
+      buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const imp = grabRireki();
+
+    expect(ui!.kaiyakuFlg).toBe(true);
+    expect(imp!.kaiyakuFlg).toBe(ui!.kaiyakuFlg);
+    expect(imp!.shinkiFlg).toBe(ui!.shinkiFlg); // 両方 false
+    expect(imp!.zougenHokokuFlg).toBe(ui!.zougenHokokuFlg); // 両方 true (購読部数変更)
+    expect(ui!.zenkaiDokusyaBusu).toBe(3);
+    expect(imp!.zenkaiDokusyaBusu).toBe(ui!.zenkaiDokusyaBusu);
+  });
+
+  it('UPDATE 増減対象外 (口座/備考のみ変更): UI update と 取込更新 で zougen=false が一致する', async () => {
+    // --- UI update: 購読部数/販売店/住所 を据え置き、備考のみ変更 ---
+    const before = buildDokusya({
+      dokusyaId: 100, jaId: 1, rirekiNo: 1, dokusyaBusu: 2, hanbaitenId: 5,
+    });
+    dokusyaRepo.findOne.mockResolvedValue(before);
+    await service.update(
+      100,
+      buildUpdateDokusyaBody({
+        dokusya_busu: 2, // 据え置き
+        hanbaiten_id: 5,
+        chome_banchi: before.chomeBanchi, // 住所据え置き
+        biko: '備考だけ変更',
+      }),
+      buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const ui = grabRireki();
+    txManager.save.mockClear();
+
+    // --- 取込 UPDATE: before==after (購読部数/販売店/住所 不変) ---
+    const same = { haitatsuSameFlg: true, dokusyaBusu: 2, hanbaitenId: 5, yubinNo: '', todofukenCode: '', shikuchoson: '', chomeBanchi: '', tatemonoMei: '', haitatsuYubinNo: '', haitatsuTodofukenCode: '', haitatsuShikuchoson: '', haitatsuChomeBanchi: '', haitatsuTatemonoMei: '' };
+    primeImport({
+      existing: [{ dokusya_id: 7001, kumiaiin_code: 'K1', ja_id: 1, kanri_shiten_id: 10 }],
+      onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
+      before: { dokusyaId: 7001, rirekiNo: 1, saishinDataFlg: true, ...same },
+      after: { dokusyaId: 7001, jaId: 1, tetsuzukiShurui: 1, ...same },
+    });
+    await service.importExcel(
+      buildImportBody({
+        import_mode: 'UPDATE_PARTIAL',
+        selected_columns: ['dokusya_id', 'biko'],
+        rows: [buildImportRow({ dokusya_id: 7001, biko: '備考だけ変更' })],
+      }),
+      buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+      baseReq,
+    );
+    const imp = grabRireki();
+
+    expect(ui!.zougenHokokuFlg).toBe(false);
+    expect(imp!.zougenHokokuFlg).toBe(ui!.zougenHokokuFlg);
   });
 });

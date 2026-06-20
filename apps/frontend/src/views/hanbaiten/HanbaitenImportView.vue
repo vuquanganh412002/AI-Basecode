@@ -16,7 +16,7 @@
 //     the spec's name+value selector working. wrapping in antd `<a-checkbox>`
 //     would require setValue to traverse the wrapper.
 
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
@@ -104,7 +104,6 @@ const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
   return out;
 })();
 
-const REQUIRED_COLUMN: PhysicalColumn = 'hanbaiten_code';
 const MAX_ROWS = 500;
 
 // FE display value → BE wire value. Shorter IDs match screen-design.md
@@ -203,6 +202,12 @@ const parsedRows = ref<Array<Record<PhysicalColumn, unknown>>>([]);
 const fileName = ref<string>('');
 const submitting = ref(false);
 
+/** 取込列パネルの開閉（dokusya import と同じ折りたたみ挙動）。 */
+const panelCollapsed = ref(false);
+function onPanelToggle(): void {
+  panelCollapsed.value = !panelCollapsed.value;
+}
+
 /**
  * Per-row / per-field server errors from the last import attempt, rendered
  * in a persistent panel below the form (NOT a toast). antd's `message.error`
@@ -210,6 +215,18 @@ const submitting = ref(false);
  * the panel shows each row + field + message in a scrollable table instead.
  */
 const importErrors = ref<ImportError[]>([]);
+
+/**
+ * Import counts from the last successful run — rendered in a green banner
+ * below the form (mirrors the dokusya 取込結果 display). hanbaiten has no
+ * 解約 / 履歴 concept, so only 登録 / 更新 / スキップ / 合計 are shown.
+ */
+const importResult = ref<{
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  total_rows: number;
+} | null>(null);
 
 /**
  * Structured server-side import error shape. Each entry may carry a
@@ -283,8 +300,9 @@ async function onFileChange(event: Event): Promise<void> {
   const file = target.files?.[0];
   if (!file) return;
   fileName.value = file.name;
-  // A fresh file invalidates the previous run's error panel.
+  // A fresh file invalidates the previous run's error panel + result banner.
   importErrors.value = [];
+  importResult.value = null;
 
   // [format-guard] 拡張子チェックを parse の前に実施する。
   // `accept=".xlsx,.xls"` は file picker のフィルタ（advisory）でしかなく、
@@ -383,9 +401,10 @@ function onSubmit(): void {
 
 async function runImport(): Promise<void> {
   submitting.value = true;
-  // Clear any errors from a previous attempt so the panel reflects only
-  // the current run.
+  // Clear any errors / counts from a previous attempt so the panel reflects
+  // only the current run.
   importErrors.value = [];
+  importResult.value = null;
   try {
     // selected_columns — every checked column. hanbaiten_code is always
     // present because the checkbox is `disabled checked`.
@@ -415,6 +434,13 @@ async function runImport(): Promise<void> {
     const res = await importHanbaitenExcel(body);
     // ACSMS-MSG-007-004 wording — flow through BE response.
     message.success(res.message || '取り込みました。');
+    // 取込件数を緑のバナーで表示（dokusya と同様）。
+    importResult.value = {
+      created_count: res.data?.created_count ?? 0,
+      updated_count: res.data?.updated_count ?? 0,
+      skipped_count: res.data?.skipped_count ?? 0,
+      total_rows: res.data?.total_rows ?? 0,
+    };
     // 機能 7.4 — reset state for next upload.
     parsedRows.value = [];
     fileName.value = '';
@@ -475,13 +501,6 @@ function resetFileInput(): void {
   if (fileInputEl.value) fileInputEl.value.value = '';
 }
 
-/** Template ref on the required-column checkbox — see onMounted below. */
-const requiredCheckboxEl = ref<HTMLInputElement | null>(null);
-
-function onColumnInputRef(col: PhysicalColumn, el: HTMLInputElement | null): void {
-  if (col === REQUIRED_COLUMN) requiredCheckboxEl.value = el;
-}
-
 function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
   // [locked-column-veto-handler]
   // Defence-in-depth: in real browsers `disabled` blocks `change`
@@ -496,32 +515,6 @@ function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
   }
   selected[col] = el.checked;
 }
-
-onMounted(() => {
-  // [required-column-veto-lock]
-  // Vue Test Utils' `setValue(false)` (and any other code path that
-  // bypasses the change event) directly assigns `element.checked =
-  // false` on the DOM input. Vue's diff sees `selected[REQUIRED] ===
-  // true` unchanged across re-renders and never reconciles the DOM
-  // back. To guarantee the required column stays visibly checked,
-  // override the `checked` property descriptor on the rendered
-  // element: the getter always returns `selected[REQUIRED_COLUMN]`
-  // (always true), and the setter is a no-op. Reads from anywhere —
-  // including test assertions — see the canonical state. Real users
-  // can't hit this code path because the input is also `disabled`
-  // in the template; the property override is purely an extra
-  // belt-and-braces guard for non-browser environments.
-  const el = requiredCheckboxEl.value;
-  if (!el) return;
-  Object.defineProperty(el, 'checked', {
-    configurable: true,
-    enumerable: true,
-    get: () => selected[REQUIRED_COLUMN],
-    set: () => {
-      /* no-op — required column cannot be unchecked */
-    },
-  });
-});
 
 // Helper: render preview cell value (booleans → ✓/-, null → blank).
 function renderCell(value: unknown): string {
@@ -615,21 +608,31 @@ function renderCell(value: unknown): string {
           </div>
         </div>
 
-        <!-- Column selector accordion (always-open in v1) -->
+        <!-- Column selector accordion -->
         <div class="border border-border rounded">
           <div
             class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-card-subtle"
           >
-            <span class="text-sm font-semibold text-text-main">
-              <span class="text-primary">◆</span>
-              取込列
+            <div class="flex items-center">
+              <button
+                data-test="col-toggle"
+                type="button"
+                class="flex items-center gap-1.5 text-sm font-semibold text-text-main"
+                :aria-expanded="!panelCollapsed"
+                @click="onPanelToggle"
+              >
+                <span class="material-icons text-[18px]">
+                  {{ panelCollapsed ? 'chevron_right' : 'expand_more' }}
+                </span>
+                取込列
+              </button>
               <span
                 v-if="selectAllDisabled"
                 class="ml-2 text-xs font-normal text-text-secondary"
               >
                 全項目更新では全列が対象です。列を選択する場合は「入力箇所のみ更新」を選択してください。
               </span>
-            </span>
+            </div>
             <label
               class="flex items-center gap-1.5 text-xs text-text-description cursor-pointer"
             >
@@ -644,7 +647,7 @@ function renderCell(value: unknown): string {
             </label>
           </div>
 
-          <div class="px-4 py-3">
+          <div v-show="!panelCollapsed" data-test="col-panel" class="px-4 py-3">
             <div
               class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
             >
@@ -661,7 +664,6 @@ function renderCell(value: unknown): string {
                      attempts at the JS layer too. Which columns are locked
                      depends on the mode (see REQUIRED_BY_MODE). -->
                 <input
-                  :ref="(el) => onColumnInputRef(col, el as HTMLInputElement | null)"
                   type="checkbox"
                   name="col"
                   :value="col"
@@ -776,6 +778,17 @@ function renderCell(value: unknown): string {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Import result counts (緑バナー) — dokusya と同じ表示 -->
+      <div
+        v-if="importResult"
+        data-test="import-result"
+        class="mt-4 border border-success/40 bg-success-subtle rounded p-3 text-sm text-text-main"
+      >
+        取込件数：登録 {{ importResult.created_count }}件 / 更新
+        {{ importResult.updated_count }}件 / スキップ
+        {{ importResult.skipped_count }}件（合計 {{ importResult.total_rows }}件）
       </div>
 
       <div class="flex gap-3 pt-4">

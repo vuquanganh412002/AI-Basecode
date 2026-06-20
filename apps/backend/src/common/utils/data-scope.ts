@@ -111,6 +111,61 @@ export function assertBranchScope(
   }
 }
 
+/**
+ * Same branch-scope check as {@link assertBranchScope}, but throws
+ * `DataScopeViolationException` (HTTP 403) instead of NotFound (404).
+ *
+ * Use when the id was NOT taken from the request URL — e.g. a bulk
+ * operation acting on candidate rows the caller supplied (SCR-015
+ * replace candidates, SCR-016 import existing rows). There the 404
+ * existence-masking rationale doesn't apply (the caller already knows
+ * the row exists), and the customer decision (2026-05-19,
+ * `.claude/rules/security.md` Layer 4) is to surface an explicit 403.
+ */
+export function assertBranchScopeViolation(
+  recordJaId: number | null | undefined,
+  recordKanriShitenId: number | null | undefined,
+  session: SessionPayload,
+): void {
+  if (
+    session.role_code === RoleCode.NICHINO_ADMIN ||
+    session.role_code === RoleCode.NICHINO_STAFF
+  ) {
+    return;
+  }
+  const mismatch =
+    session.role_code === RoleCode.JA_KANRI_SHITEN
+      ? numericId(recordKanriShitenId) !== numericId(session.kanri_shiten_id)
+      : numericId(recordJaId) !== numericId(session.ja_id);
+  if (mismatch) {
+    throw new DataScopeViolationException();
+  }
+}
+
+/**
+ * JA-level scope check that throws `DataScopeViolationException` (HTTP
+ * 403) instead of NotFound (404). The JA-level counterpart of
+ * {@link assertBranchScopeViolation}: every restricted role (including
+ * JA_KANRI_SHITEN) is checked against `ja_id` — use for a JA-scoped
+ * resource that has no kanri_shiten_id of its own (e.g. the m_hanbaiten
+ * replace-target in SCR-015, whose existence the caller already
+ * confirmed). NICHINO_* bypass.
+ */
+export function assertJaScopeViolation(
+  recordJaId: number | null | undefined,
+  session: SessionPayload,
+): void {
+  if (
+    session.role_code === RoleCode.NICHINO_ADMIN ||
+    session.role_code === RoleCode.NICHINO_STAFF
+  ) {
+    return;
+  }
+  if (numericId(recordJaId) !== numericId(session.ja_id)) {
+    throw new DataScopeViolationException();
+  }
+}
+
 /* ─────────────── Query-builder helpers (for list queries) ───────────── */
 
 /**

@@ -65,6 +65,20 @@ export class CodeService implements OnModuleInit {
     return this.cache.get(category)?.find((x) => x.value === value)?.label ?? '';
   }
 
+  /**
+   * Reverse of {@link getLabel} — resolve a code's VALUE from its label
+   * (`m_code.code_name`). Returns null when no code in the category carries
+   * that label. Used e.g. by the Excel import, where a cell may hold the
+   * customer-editable Japanese label (「男性」) instead of the numeric code.
+   * Tracking the live m_code labels means a customer-renamed label keeps
+   * resolving without a code change — never hardcode a label→code map.
+   */
+  getValueByLabel(category: string, label: string): number | string | null {
+    return (
+      this.cache.get(category)?.find((x) => x.label === label)?.value ?? null
+    );
+  }
+
   private normalizeValue(codeValue: string): number | string {
     const asNumber = Number(codeValue);
     return Number.isInteger(asNumber) && String(asNumber) === codeValue ? asNumber : codeValue;

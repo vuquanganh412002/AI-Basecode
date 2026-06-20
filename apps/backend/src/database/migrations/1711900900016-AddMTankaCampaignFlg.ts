@@ -18,9 +18,15 @@ export class AddMTankaCampaignFlg1711900900016 implements MigrationInterface {
   name = 'AddMTankaCampaignFlg1711900900016';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE m_tanka ADD COLUMN campaign_flg BOOLEAN NOT NULL DEFAULT FALSE`,
-    );
+    // 冪等化: CreateMTanka 本体が既に campaign_flg を持つため、新規 DB
+    // （migration を頭から流す環境 / DR / 統合テスト用 DB）では無ガードだと
+    // 「column "campaign_flg" already exists」で失敗する。hasColumn で
+    // ガードし、既デプロイ環境では追加、新規環境では no-op にする。
+    if (!(await queryRunner.hasColumn('m_tanka', 'campaign_flg'))) {
+      await queryRunner.query(
+        `ALTER TABLE m_tanka ADD COLUMN campaign_flg BOOLEAN NOT NULL DEFAULT FALSE`,
+      );
+    }
     await queryRunner.query(
       `COMMENT ON COLUMN m_tanka.campaign_flg IS 'キャンペーンフラグ（TRUE: 有効, FALSE: 無効）'`,
     );

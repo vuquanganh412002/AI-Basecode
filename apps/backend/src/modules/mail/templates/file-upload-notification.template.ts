@@ -11,6 +11,8 @@
  * definition で AWS Secrets Manager から注入）を参照する。
  */
 
+import { formatDateTimeMinutesJst } from '@/common/utils/datetime';
+
 interface FileUploadNotificationInput {
   jaName: string;
   fileName: string;
@@ -25,16 +27,6 @@ interface RenderedMail {
 }
 
 const SUBJECT_PREFIX = '【クラウド版購読者管理システム】';
-
-function formatJp(d: Date): string {
-  // JST 表示（コンテナ TZ=Asia/Tokyo 前提）。
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
-}
 
 export function renderFileUploadNotificationMail({
   jaName,
@@ -51,7 +43,7 @@ export function renderFileUploadNotificationMail({
     '',
     `JA名　　　　: ${jaName}`,
     `ファイル名　: ${fileName}`,
-    `アップロード日時: ${formatJp(uploadDatetime)}`,
+    `アップロード日時: ${formatDateTimeMinutesJst(uploadDatetime)}`,
     `アップロード者: ${uploaderLoginId}`,
     '',
     '下記のURLよりファイルダウンロード画面にアクセスし、内容をご確認ください。',

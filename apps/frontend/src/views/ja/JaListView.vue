@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -40,7 +41,7 @@ const canUpdate = computed(() => authStore.hasPermission('ja.update'));
 const canDelete = computed(() => authStore.hasPermission('ja.delete'));
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, searchActions,
 } =
   useTableQuery<JaFilters>({
     defaultFilters: { ja_code: '', ja_name: '', todofuken_code: undefined },
@@ -126,30 +127,16 @@ onMounted(() => {
   void fetchTodofuken();
 });
 
-function onSearch(): void {
-  // Trim leading/trailing whitespace so "  002001  " → "002001".
-  // Paste artifacts and IME-confirmed spaces shouldn't alter the
-  // search ILIKE pattern. Mutate state.filters directly so the input
-  // visibly reflects the trimmed value too. todofuken_code is sourced
-  // from a select — no whitespace to trim, pass through as-is.
-  state.filters.ja_code = state.filters.ja_code.trim();
-  state.filters.ja_name = state.filters.ja_name.trim();
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim text filters so paste artifacts / IME spaces don't alter the ILIKE
+  // pattern. todofuken_code comes from a select — no whitespace to trim.
+  beforeSearch() {
+    state.filters.ja_code = state.filters.ja_code.trim();
+    state.filters.ja_name = state.filters.ja_name.trim();
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -165,26 +152,17 @@ function goEdit(row: JaListItem): void {
 }
 
 function askDelete(row: JaListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    content: 'このJAを削除してもよろしいですか？',
-    // Project convention: confirm dialogs use はい / いいえ. The danger
-    // styling already conveys "destructive" — see BaseConfirmModal default.
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeJa(row.ja_id);
-        notify.deleted();
-        await fetchList();
-      } catch {
-        // The global axios interceptor handles 409 CONFLICT
-        // (ACSMS-MSG-004-003) and 500 (ACSMS-MSG-004-005); the view
-        // must not re-toast — see .claude/rules/vue.md
-        // §Error Handling Architecture.
-      }
-    },
+  confirmDelete('このJAを削除してもよろしいですか？', async () => {
+    try {
+      await removeJa(row.ja_id);
+      notify.deleted();
+      await fetchList();
+    } catch {
+      // The global axios interceptor handles 409 CONFLICT
+      // (ACSMS-MSG-004-003) and 500 (ACSMS-MSG-004-005); the view
+      // must not re-toast — see .claude/rules/vue.md
+      // §Error Handling Architecture.
+    }
   });
 }
 </script>

@@ -24,6 +24,10 @@ const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
   'DEADLINE_NOTICE_DUPLICATE',
   'EXPORT_LIMIT_EXCEEDED',
   'IMPORT_VALIDATION_ERROR',
+  // NO_TARGET_DATA: SCR-020 (口座振替データ出力) export with 0 target rows.
+  //   The wrapper normalizes the 404 blob to `{ error_code }` and the view
+  //   shows 対象データがありません。 in-screen — a global toast would duplicate.
+  'NO_TARGET_DATA',
 ]);
 
 /**
@@ -44,6 +48,19 @@ export async function handleApiError(
   error: AxiosError<ApiErrorResponse>,
 ): Promise<never> {
   const status = error.response?.status;
+  // Blob responseType (CSV / Excel export) delivers a JSON error body as a
+  // Blob. Parse it back to the standard `{ error_code, message }` shape so the
+  // switch below + VIEW_HANDLED_CODES can read the code, and so downstream
+  // wrappers see the parsed object on `error.response.data`.
+  if (error.response && (error.response.data as unknown) instanceof Blob) {
+    try {
+      error.response.data = JSON.parse(
+        await (error.response.data as unknown as Blob).text(),
+      );
+    } catch {
+      // Non-JSON blob — leave as-is; falls through to the network branch.
+    }
+  }
   const data = error.response?.data;
   const code = data?.error_code;
   const url = error.config?.url || '';

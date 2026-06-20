@@ -2,10 +2,12 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { AxiosError } from 'axios';
+import { message } from 'ant-design-vue';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
+import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { useAuthStore } from '@/stores/auth.store';
@@ -86,6 +88,9 @@ const formState = reactive<AccountFormState>({
   biko: '',
 });
 
+// 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
+const editGuard = useEditGuard(() => formState);
+
 const fieldErrors = ref<Record<string, string>>({});
 const submitting = ref(false);
 
@@ -103,17 +108,28 @@ const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 // USER-driven change reverts to normal cascade behaviour.
 const isHydrating = ref(false);
 
-// 機能定義 4.x — role_id によるドロップダウンの表示制御.
-// role_id 1/2 (日農): 都道府県 / JA / 管理支店 非表示
-// role_id 3/4: 都道府県 + JA 表示、管理支店 非表示
-// role_id 5: すべて表示
-const showTodofuken = computed(
-  () => formState.role_id !== null && formState.role_id >= 3,
+// 機能定義 4.x — ロールによるドロップダウンの表示制御.
+//   日農 (NICHINO_ADMIN / NICHINO_STAFF): 都道府県 / JA / 管理支店 非表示
+//   CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN: 都道府県 + JA 表示
+//   JA_KANRI_SHITEN のみ: 管理支店も表示
+// 選択中ロールの role_code で分岐する。role_id (m_roles の BIGSERIAL PK、
+// seeder 採番順依存) を直接ハードコードしない — BE 側の dropdown カスケード
+// と同じ方針 (ja.service.ts)。role_code は roleOptions に同梱されている。
+const selectedRoleCode = computed(
+  () =>
+    roleOptions.value.find((r) => r.role_id === formState.role_id)?.role_code ??
+    null,
 );
-const showJa = computed(
-  () => formState.role_id !== null && formState.role_id >= 3,
+const isJaScopedRole = (code: string | null): boolean =>
+  code === RoleCode.CHUOKAI ||
+  code === RoleCode.JA_HONTEN ||
+  code === RoleCode.JA_KANRI_SHITEN;
+
+const showTodofuken = computed(() => isJaScopedRole(selectedRoleCode.value));
+const showJa = computed(() => isJaScopedRole(selectedRoleCode.value));
+const showKanriShiten = computed(
+  () => selectedRoleCode.value === RoleCode.JA_KANRI_SHITEN,
 );
-const showKanriShiten = computed(() => formState.role_id === 5);
 
 // ─── Mount / edit-mode load ─────────────────────────────────────────
 async function fetchRoleOptions(): Promise<void> {
@@ -207,6 +223,8 @@ onMounted(async () => {
       if (resp.data.ja_id) {
         void fetchKanriShitenOptions(resp.data.ja_id);
       }
+      // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
+      await editGuard.capture();
     } catch {
       // Global axios interceptor toasts NOT_FOUND / 500 — view stays
       // mounted with empty fields rather than crashing onMounted.
@@ -406,6 +424,11 @@ function handleServerError(err: unknown): void {
 
 async function onSubmit(): Promise<void> {
   if (!validateClient()) return;
+  // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
+  if (isEdit.value && accountId.value !== null && editGuard.isPristine()) {
+    message.info('変更がありません。');
+    return;
+  }
   // Guard against a double submit (e.g. rapid double-Enter): a second
   // form-submit while the first request is in flight must be ignored.
   if (submitting.value) return;

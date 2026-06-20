@@ -43,7 +43,7 @@ const formState = reactive<{
 const fieldErrors = reactive<{ tekiyo_date: string }>({ tekiyo_date: '' });
 
 const previewData = ref<ZougenPreviewData | null>(null);
-/** 対象データなし（0件 or BE 404 NO_REPORT_DATA）→ ACSMS-MSG-028-002 を表示。 */
+/** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-028-002 を表示。 */
 const noDataMessage = ref(false);
 
 const hanbaitenOptions = ref<SelectOption[]>([]);
@@ -96,28 +96,17 @@ function buildQuery(): ZougenHanbaitenQuery {
   return q;
 }
 
-function isNoReportData(err: unknown): boolean {
-  const e = err as
-    | { error_code?: string; response?: { data?: { error_code?: string } } }
-    | undefined;
-  return (
-    e?.error_code === 'NO_REPORT_DATA' ||
-    e?.response?.data?.error_code === 'NO_REPORT_DATA'
-  );
-}
-
 async function onPreview(): Promise<void> {
   if (!validate()) return;
   noDataMessage.value = false;
   try {
     const resp = await previewZougenHanbaiten(buildQuery());
     previewData.value = resp.data;
+    // 対象0件は 200 + reports:[] で返る（業務エラーではない）→ 画面内テキスト。
     if (resp.data.reports.length === 0) noDataMessage.value = true;
-  } catch (err) {
+  } catch {
+    // 403/500 は集約 axios インターセプタがトースト済み。ローカル状態のみ整理。
     previewData.value = null;
-    // 対象データなし(404)は画面内メッセージで表示。403/500 は
-    // 集約 axios インターセプタがトースト済み。
-    if (isNoReportData(err)) noDataMessage.value = true;
   }
 }
 
@@ -125,6 +114,13 @@ async function onExport(): Promise<void> {
   if (!validate()) return;
   try {
     const blob = await exportZougenHanbaiten(buildQuery());
+    // 対象0件のとき BE は PDF ではなく application/json を返す。その場合は
+    // ダウンロードせず画面内テキスト（対象のデータが存在しません。）を表示。
+    if (blob.type.includes('application/json')) {
+      previewData.value = null;
+      noDataMessage.value = true;
+      return;
+    }
     const url = globalThis.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -135,12 +131,8 @@ async function onExport(): Promise<void> {
     link.remove();
     globalThis.URL.revokeObjectURL(url);
     notify.downloaded();
-  } catch (err) {
-    // 対象なし(404)は画面内メッセージ、500 はインターセプタがトースト済み。
-    if (isNoReportData(err)) {
-      previewData.value = null;
-      noDataMessage.value = true;
-    }
+  } catch {
+    // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
   }
 }
 
@@ -183,58 +175,58 @@ defineExpose({ formState });
       data-test="no-permission"
     />
 
-    <!-- 出力条件エリア（適用日 / 販売店 / 管理支店） -->
+    <!-- 出力条件エリア（適用日 / 販売店 / 管理支店）— index.html 準拠：
+         販売店・管理支店はチェックボックス（複数選択可、未選択＝全件）。 -->
     <div class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-        <!-- 適用日 -->
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">
-            適用日<span class="text-error ml-1">*</span>
-          </label>
-          <a-date-picker
-            v-model:value="formState.tekiyo_date"
-            value-format="YYYY-MM-DD"
-            format="YYYY/MM/DD"
-            placeholder="YYYY/MM/DD"
-            class="flex-1"
-          />
+      <div class="space-y-4">
+        <!-- ① 適用日（単独行）— バリデーションメッセージは直下に表示する -->
+        <div>
+          <div class="flex items-center gap-2">
+            <label for="zh-tekiyo-date" class="text-sm font-medium whitespace-nowrap text-text-main">
+              適用日<span class="text-error ml-1">*</span>
+            </label>
+            <a-date-picker
+              id="zh-tekiyo-date"
+              v-model:value="formState.tekiyo_date"
+              value-format="YYYY-MM-DD"
+              format="YYYY/MM/DD"
+              placeholder="YYYY/MM/DD"
+              style="width: 200px"
+            />
+          </div>
+          <p v-if="fieldErrors.tekiyo_date" class="text-error text-sm mt-1">
+            {{ fieldErrors.tekiyo_date }}
+          </p>
         </div>
 
-        <!-- 販売店（任意・複数選択可。廃店は除外済みの一覧） -->
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">販売店</label>
-          <a-select
-            v-model:value="formState.hanbaiten_id"
-            mode="multiple"
-            :options="hanbaitenOptions"
-            allow-clear
-            placeholder="全販売店"
-            class="flex-1"
-            data-test="hanbaiten-select"
-          />
-        </div>
+        <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3） -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+          <!-- 販売店（任意・複数選択可。廃店は除外済みの一覧）。件数が多いため
+               内側を複数列に折り返し、高さ上限＋スクロールで間延びを防ぐ。 -->
+          <div class="md:col-span-2">
+            <div class="text-sm font-medium text-text-main mb-2">販売店</div>
+            <a-checkbox-group
+              v-model:value="formState.hanbaiten_id"
+              :options="hanbaitenOptions"
+              class="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
+              data-test="hanbaiten-checkbox"
+            />
+          </div>
 
-        <!-- 管理支店（任意・複数選択可） -->
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">管理支店</label>
-          <a-select
-            v-model:value="formState.kanri_shiten_id"
-            mode="multiple"
-            :options="kanriShitenOptions"
-            allow-clear
-            placeholder="全管理支店"
-            class="flex-1"
-            data-test="kanri-shiten-select"
-          />
+          <!-- 管理支店（任意・複数選択可） -->
+          <div>
+            <div class="text-sm font-medium text-text-main mb-2">管理支店</div>
+            <a-checkbox-group
+              v-model:value="formState.kanri_shiten_id"
+              :options="kanriShitenOptions"
+              class="flex flex-col gap-2 max-h-56 overflow-y-auto pr-2"
+              data-test="kanri-shiten-checkbox"
+            />
+          </div>
         </div>
       </div>
 
-      <!-- バリデーションメッセージ -->
-      <div v-if="fieldErrors.tekiyo_date" class="mt-2">
-        <p class="text-error text-sm">{{ fieldErrors.tekiyo_date }}</p>
-      </div>
-
-      <div class="pt-4 mt-3 border-t border-border flex items-center justify-start gap-2">
+      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
         <a-button
           type="primary"
           :disabled="!canUse"
@@ -243,7 +235,7 @@ defineExpose({ formState });
         >
           レポートプレビュー
         </a-button>
-        <a-button :disabled="!canUse" data-test="export-btn" @click="onExport">
+        <a-button :disabled="!canUse || !hasReports" data-test="export-btn" @click="onExport">
           電子帳票作成
         </a-button>
       </div>

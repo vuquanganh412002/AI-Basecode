@@ -89,6 +89,32 @@ export class ShitenController {
     };
   }
 
+  // ─── ACSMS-API-COMMON-008 — GET /api/v1/shiten/koza-dropdown ─────────
+  // 口座支店（金融機関支店フラグ=TRUE）プルダウン。認証済みなら誰でも可
+  // （呼び出し元画面の権限に依存）。`@Get(':id')` より前に宣言する。
+  @Get('koza-dropdown')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '口座支店プルダウン (SCR-020 用) — ACSMS-API-COMMON-008' })
+  @ApiResponse({ status: 200, description: '金融機関支店プルダウン投影。' })
+  async listKozaShitenDropdown(
+    @Query() query: { kanri_shiten_ids?: string },
+    @Req() req: Request & { user: SessionPayload },
+  ) {
+    // クエリの kanri_shiten_ids は 'カンマ区切り' 文字列で届く。数値配列へ正規化。
+    const kanriShitenIds =
+      typeof query.kanri_shiten_ids === 'string' &&
+      query.kanri_shiten_ids.length > 0
+        ? query.kanri_shiten_ids
+            .split(',')
+            .map((v) => Number(v.trim()))
+            .filter((v) => !Number.isNaN(v))
+        : undefined;
+    return this.service.getKozaDropdown(
+      { kanri_shiten_ids: kanriShitenIds },
+      req.user,
+    );
+  }
+
   @Get(':id')
   @Permissions('shiten.view')
   @ApiOperation({ summary: '支店マスタ登録画面 — 支店詳細取得' })

@@ -26,6 +26,7 @@ describe('JaService', () => {
   let repo: any;
   let qbMock: any;
   let todofukenRepo: any;
+  let roleRepo: any;
   let auditLog: any;
   let codeService: any;
   let dataSource: any;
@@ -65,6 +66,12 @@ describe('JaService', () => {
     todofukenRepo = {
       findOne: jest.fn().mockResolvedValue({ todofukenCode: '13', todofukenName: '東京都' }),
       find: jest.fn().mockResolvedValue([]),
+    };
+    // m_roles lookup for the dropdown role_id→role_code cascade. Tests that
+    // exercise the cascade override findOne per the seeded role_id↔role_code
+    // contract (3=CHUOKAI, 4=JA_HONTEN, 5=JA_KANRI_SHITEN per seeder.md §1).
+    roleRepo = {
+      findOne: jest.fn().mockResolvedValue(null),
     };
     /**
      * AuditLogService mock — `logOperation` is the unified row-emit point.
@@ -166,6 +173,7 @@ describe('JaService', () => {
     service = new JaService(
       repo,
       todofukenRepo,
+      roleRepo,
       dataSource,
       auditLog,
       codeService,
@@ -1245,8 +1253,9 @@ describe('JaService', () => {
       expect(tdCall![1]).toEqual({ tdcode: '13' });
     });
 
-    it('should apply chuokai_flg=true when role_id=3 (SCR-024 cascade — 中央会)', async () => {
+    it('should apply chuokai_flg=true when role_id resolves to CHUOKAI (SCR-024 cascade — 中央会)', async () => {
       qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+      roleRepo.findOne.mockResolvedValue({ roleCode: 'CHUOKAI' });
 
       await service.dropdown(
         { page: 1, per_page: 50, role_id: 3 } as any,
@@ -1262,8 +1271,9 @@ describe('JaService', () => {
       expect(chuokaiCall).toBeDefined();
     });
 
-    it('should apply chuokai_flg=false when role_id=4 or 5 (SCR-024 cascade — 単協)', async () => {
+    it('should apply chuokai_flg=false when role_id resolves to JA_HONTEN / JA_KANRI_SHITEN (SCR-024 cascade — 単協)', async () => {
       qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+      roleRepo.findOne.mockResolvedValue({ roleCode: 'JA_HONTEN' });
 
       await service.dropdown(
         { page: 1, per_page: 50, role_id: 4 } as any,

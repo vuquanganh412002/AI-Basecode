@@ -129,6 +129,7 @@ export function toDokusyaResponse(
     biko: entity.biko ?? '',
     rireki_no: coerceNumber(entity.rirekiNo),
     denshi_shonin_status: coerceNullableNumber(entity.denshiShoninStatus),
+    denshi_kaiin_id: coerceNullableNumber(entity.denshiKaiinId),
     created_at: isoOrEmpty(entity.createdAt),
     updated_at: isoOrEmpty(entity.updatedAt),
   };
@@ -153,8 +154,12 @@ export interface DokusyaListItem {
   kumiaiin_code: string;
   full_name: string;
   full_name_kana: string;
+  /** 手続種類 — m_code TETSUZUKI_SHURUI (0:解約, 1:新規). */
+  tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  /** 配達先氏名 — haitatsu_shimei_sei + ' ' + haitatsu_shimei_mei (concat, trimmed). */
+  haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;
@@ -214,8 +219,11 @@ export function toDokusyaListItem(
     kumiaiin_code: stringOrEmpty(row.kumiaiin_code),
     full_name: stringOrEmpty(row.full_name),
     full_name_kana: stringOrEmpty(row.full_name_kana),
+    tetsuzuki_shurui: coerceNumber(row.tetsuzuki_shurui as number | string),
     renrakusaki_1: stringOrEmpty(row.renrakusaki_1),
     renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
+    // 配達先氏名 concat — trim so an empty 配達先氏名 renders '' (not a lone space).
+    haitatsu_full_name: stringOrEmpty(row.haitatsu_full_name).trim(),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu: stringOrEmpty(row.haitatsu),
     hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
@@ -232,46 +240,71 @@ export function toDokusyaListItem(
 }
 
 /**
- * Canonical 12-column Japanese header row for the Excel export
- * (api.md §API-014-003 §4.5 v1.1 spec). Exported so the unit spec
- * can assert against a single source of truth.
+ * Canonical 15-column Japanese header row for the Excel export. Mirrors
+ * the SCR-014 検索結果テーブル column layout (顧客要件 2026-06):
+ *   - ID (dokusya_id) added as the first column
+ *   - 支店 / 連絡先２ columns removed
+ *   - 手続種類 / 購読種別 added after 購読者名
+ *   - 配達先氏名 added after 連絡先１
+ *   - 支払方法 added after 販売店名
  *
- * Order matches the screen-design v1.2 検索結果テーブル #24-#35.
- * 購読種別 / 支払方法 / かな氏名 are search-only fields and are
- * intentionally excluded.
+ * かな氏名 stays search-only (no display/export column). Exported so the
+ * unit spec can assert against a single source of truth.
  */
 export const DOKUSYA_EXPORT_HEADERS: readonly string[] = [
+  'ID',
   '管理支店',
-  '支店',
   '組合員コード',
   '購読者名',
+  '手続種類',
+  '購読種別',
   '連絡先１',
-  '連絡先２',
+  '配達先氏名',
   '配達先郵便',
   '配達先住所',
   '販売店コード',
   '販売店名',
+  '支払方法',
   '購読開始日',
   '購読中止日',
 ] as const;
 
 /**
- * Convert a DokusyaListItem → 12 string cells in Excel header order.
- * NULL date columns render as ''. The service then feeds these into
- * an ExcelJS worksheet.
+ * Resolved m_code labels for the three code-bound export columns
+ * (手続種類 / 購読種別 / 支払方法). The service resolves these via
+ * `CodeService.getLabel` before calling the mapper so the Excel file
+ * shows customer-facing labels, not raw numeric codes.
  */
-export function toDokusyaExcelRow(item: DokusyaListItem): string[] {
+export interface DokusyaExcelLabels {
+  tetsuzuki_shurui: string;
+  dokusya_shubetsu: string;
+  shiharai_hoho: string;
+}
+
+/**
+ * Convert a DokusyaListItem → 15 string cells in Excel header order.
+ * The three m_code columns render the resolved label (passed in by the
+ * service). NULL date columns render as ''. The service then feeds these
+ * into an ExcelJS worksheet.
+ */
+export function toDokusyaExcelRow(
+  item: DokusyaListItem,
+  labels: DokusyaExcelLabels,
+): string[] {
   return [
+    String(item.dokusya_id),
     item.kanri_shiten_name ?? '',
-    item.shiten_name ?? '',
     item.kumiaiin_code,
     item.full_name,
+    labels.tetsuzuki_shurui,
+    labels.dokusya_shubetsu,
     item.renrakusaki_1,
-    item.renrakusaki_2,
+    item.haitatsu_full_name,
     item.haitatsu_yubin_no,
     item.haitatsu,
     String(item.hanbaiten_id),
     item.hanbaiten_name,
+    labels.shiharai_hoho,
     item.shoki_dokusya_kaishi_date,
     item.dokusya_chushi_date ?? '',
   ];

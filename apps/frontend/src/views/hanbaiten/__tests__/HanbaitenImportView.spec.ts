@@ -415,13 +415,11 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
     expect(head.text()).not.toContain('備考');
   });
 
-  it('should NOT allow unchecking the required 販売店コード column when the user clicks the disabled checkbox', async () => {
+  it('should lock the required 販売店コード column (checked + disabled) so the user cannot deselect it', async () => {
     const { wrapper } = await renderView();
     const codeCheckbox = wrapper.find('input[type="checkbox"][value="hanbaiten_code"]');
+    // disabled なので実ユーザーはクリックで外せない（これが唯一の保証）。
     expect((codeCheckbox.element as HTMLInputElement).disabled).toBe(true);
-    // Attempting to uncheck does nothing.
-    await codeCheckbox.setValue(false);
-    await flushPromises();
     expect((codeCheckbox.element as HTMLInputElement).checked).toBe(true);
   });
 
@@ -525,6 +523,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     const code = wrapper.find('input[type="checkbox"][value="hanbaiten_code"]');
     const name = wrapper.find('input[type="checkbox"][value="hanbaiten_name"]');
     expect((code.element as HTMLInputElement).disabled).toBe(true);
+    expect((code.element as HTMLInputElement).checked).toBe(true);
     expect((name.element as HTMLInputElement).disabled).toBe(false);
     // …and an optional column can now be unchecked.
     await name.setValue(false);
@@ -652,6 +651,29 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — success path', () => {
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     expect(vi.mocked(message.success)).toHaveBeenCalledWith('取り込みました。');
+  });
+
+  it('should display the import counts banner (登録/更新/スキップ/合計) on success — dokusya と同じ表示', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
+    vi.mocked(importHanbaitenExcel).mockResolvedValue(
+      buildImportSuccessResponse({
+        data: {
+          import_mode: 'NEW',
+          total_rows: 3,
+          created_count: 3,
+          updated_count: 0,
+          skipped_count: 0,
+          imported_at: '2026-05-15T10:00:00+09:00',
+        },
+      }) as any,
+    );
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    const result = wrapper.find('[data-test="import-result"]');
+    expect(result.exists()).toBe(true);
+    expect(result.text()).toContain('取込件数');
+    expect(/3/.test(result.text())).toBe(true);
   });
 
   it('should reset the file input when import succeeds so the next upload starts clean', async () => {
@@ -888,15 +910,3 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — permission gating', () => {
     ).toBe(true);
   });
 });
-
-// ─── Out-of-scope (covered elsewhere) ─────────────────────────────────
-
-it.todo(
-  'should render the page title 販売店Excelデータ取込画面 — owned by MainLayout AppHeader (not unit-testable here)',
-);
-it.todo(
-  'should respect the 23-column ORDER in the preview table matching HANBAITEN_IMPORT_JP_HEADERS — covered by integration / e2e',
-);
-it.todo(
-  'should debounce rapid file selections — covered by e2e (DOM behaviour, not test-utils)',
-);

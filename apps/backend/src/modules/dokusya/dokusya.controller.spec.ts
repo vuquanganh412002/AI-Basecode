@@ -848,7 +848,6 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
       expect(res.body.error_code).toBe('DATA_SCOPE_VIOLATION');
     });
 
-    it.todo('should return 429 TOO_MANY_REQUESTS when rate-limited (covered by global ThrottlerGuard spec)');
 
     it('should return 500 INTERNAL_SERVER_ERROR when service throws unexpected', async () => {
       service.search.mockRejectedValue(new Error('DB exploded'));
@@ -954,11 +953,11 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
       res.on('end', () => callback(null, Buffer.concat(chunks)));
     }
 
-    it('should return 200 + Excel content-type + Content-Disposition with dokusya_export_*.xlsx filename', async () => {
+    it('should return 200 + Excel content-type + Content-Disposition with RFC6266-encoded 購読者一覧出力_*.xlsx filename', async () => {
       // COVERS: §4.7 response headers
       service.exportExcel.mockResolvedValue({
         buffer: Buffer.from('PK\x03\x04mock-xlsx-bytes'),
-        filename: 'dokusya_export_20260530_120000.xlsx',
+        filename: '購読者一覧出力_20260530_120000.xlsx',
       });
 
       const res = await http()
@@ -970,8 +969,12 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
       expect(res.headers['content-type']).toContain(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
+      // 多バイト名は RFC 6266 filename*=UTF-8'' でエンコードされる。
       expect(res.headers['content-disposition']).toMatch(
-        /attachment; filename="dokusya_export_\d{8}_\d{6}\.xlsx"/,
+        /attachment; filename\*=UTF-8''.+_\d{8}_\d{6}\.xlsx/,
+      );
+      expect(res.headers['content-disposition']).toContain(
+        encodeURIComponent('購読者一覧出力_20260530_120000.xlsx'),
       );
       expect(Buffer.isBuffer(res.body)).toBe(true);
     });
@@ -979,7 +982,7 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
     it('should pass query params to service.exportExcel (page/per_page/sort_by/sort_order also bound but service ignores)', async () => {
       service.exportExcel.mockResolvedValue({
         buffer: Buffer.from('PK\x03\x04'),
-        filename: 'dokusya_export_20260530_120000.xlsx',
+        filename: '購読者一覧出力_20260530_120000.xlsx',
       });
 
       await http()
@@ -1249,7 +1252,6 @@ describe('DokusyaController — SCR-013 (HTTP: rireki list)', () => {
     // err:TOO_MANY_REQUESTS (row 6) — ThrottlerGuard only fires through the
     // full app pipeline, not the controller-isolated test module. Covered by
     // the rate-limit integration layer.
-    it.todo('should return 429 TOO_MANY_REQUESTS when the rate limit is exceeded (integration)');
   });
 });
 
@@ -1669,7 +1671,6 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
     });
 
     // err:TOO_MANY_REQUESTS (row 6) — covered at the integration / throttler layer.
-    it.todo('should return 429 TOO_MANY_REQUESTS when the rate limit is exceeded (integration)');
   });
 });
 
@@ -2061,7 +2062,6 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
     });
 
     // err:TOO_MANY_REQUESTS (row 6) — covered at the integration / throttler layer.
-    it.todo('should return 429 TOO_MANY_REQUESTS when the rate limit is exceeded (integration)');
   });
 });
 

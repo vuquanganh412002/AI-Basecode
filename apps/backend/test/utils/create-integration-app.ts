@@ -50,8 +50,10 @@ import cookieParser from 'cookie-parser';
 import IORedis from 'ioredis-mock';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { newDb } from 'pg-mem';
+import { join } from 'node:path';
 
 import configuration from '@/config/configuration';
+import { configurePgTypeParsers } from '@/database/pg-type-parsers';
 import { API_PREFIX } from '@/common/constants/api.constants';
 // All entity classes — pg-mem needs an explicit list to register schema
 // because dataSourceFactory bypasses TypeOrmModule.forFeature autoload.
@@ -77,6 +79,8 @@ import { Oshirase } from '@/database/entities/oshirase.entity';
 // integration spec that intentionally fails to compile until then.
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
+// SCR-020 — t_koza_furikae snapshot table (口座振替データ出力).
+import { KozaFurikae } from '@/database/entities/koza-furikae.entity';
 
 import { AuthModule } from '@/modules/auth/auth.module';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
@@ -146,6 +150,7 @@ const ALL_ENTITIES = [
   FileDownload,
   Dokusya,
   DokusyaRireki,
+  KozaFurikae,
 ];
 
 function buildPgMemDataSource(): DataSource {
@@ -163,6 +168,137 @@ function buildPgMemDataSource(): DataSource {
     entities: ALL_ENTITIES,
     synchronize: false, // we trigger synchronize() explicitly later
   }) as DataSource;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Real-Postgres integration harness
+//
+// Some endpoints use SQL that pg-mem cannot execute (window functions like
+// ROW_NUMBER(), `= ANY($1)`, `RETURNING`, `DISTINCT ON`, CONCAT/`||` in LIKE,
+// dynamic SET). Those specs are gated behind `describeRealPg` and run only
+// when `REAL_PG=1` is set (nightly CI / local opt-in) — default `npm test`
+// stays on pg-mem so contributors without Docker keep a green suite.
+//
+// Each Jest worker provisions its OWN database (`agrinews_inttest_<workerId>`)
+// once: create-if-missing + run all migrations. Tables are TRUNCATEd between
+// tests (see bootApp). Connection defaults to localhost:5432/postgres — set
+// INTEGRATION_DB_HOST / DB_PORT / DB_USERNAME / DB_PASSWORD to override.
+// NB: we deliberately do NOT read DB_HOST (the docker-compose `.env` sets it
+// to the in-container hostname `postgres`, unreachable from the host runner).
+// ════════════════════════════════════════════════════════════════════════
+
+/** True when the real-Postgres integration suites should run. */
+export const REAL_PG_ENABLED = process.env.REAL_PG === '1';
+
+/**
+ * `describe` that only runs when REAL_PG=1, else skips the whole block.
+ * Use for any integration suite whose SQL needs a real Postgres engine.
+ */
+export const describeRealPg: jest.Describe = REAL_PG_ENABLED
+  ? describe
+  : describe.skip;
+
+function realPgConnection() {
+  return {
+    host: process.env.INTEGRATION_DB_HOST || 'localhost',
+    port: Number.parseInt(process.env.DB_PORT || '5432', 10),
+    username: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || 'postgres',
+  };
+}
+
+/** Per-worker DB name so parallel Jest workers don't collide. */
+function realPgDbName(): string {
+  const base = process.env.INTEGRATION_DB_NAME || 'agrinews_inttest';
+  const worker = process.env.JEST_WORKER_ID || '1';
+  return `${base}_${worker}`;
+}
+
+// Module-scope = per Jest worker process. Guarantees migrations run at most
+// once per DB per worker, even when the worker handles multiple spec files.
+const provisionedDbs = new Set<string>();
+
+/** Create the per-worker DB if missing and run every migration once. */
+async function ensureRealPgSchema(dbName: string): Promise<void> {
+  if (provisionedDbs.has(dbName)) return;
+  const conn = realPgConnection();
+
+  // 1. CREATE DATABASE (cannot run inside a tx) via the default `postgres` db.
+  const admin = new DataSource({
+    type: 'postgres',
+    ...conn,
+    database: 'postgres',
+  });
+  await admin.initialize();
+  try {
+    const exists = await admin.query(
+      `SELECT 1 FROM pg_database WHERE datname = $1`,
+      [dbName],
+    );
+    if (exists.length === 0) {
+      await admin.query(`CREATE DATABASE "${dbName}"`);
+    }
+  } finally {
+    await admin.destroy();
+  }
+
+  // 2. Run migrations against the (now existing) per-worker DB.
+  const migrationDs = new DataSource({
+    type: 'postgres',
+    ...conn,
+    database: dbName,
+    entities: ALL_ENTITIES,
+    migrations: [join(__dirname, '..', '..', 'src', 'database', 'migrations', '*.{ts,js}')],
+    synchronize: false,
+    extra: { options: '-c timezone=Asia/Tokyo' },
+  });
+  await migrationDs.initialize();
+  try {
+    await migrationDs.runMigrations();
+  } finally {
+    await migrationDs.destroy();
+  }
+
+  provisionedDbs.add(dbName);
+}
+
+function buildRealPgDataSource(dbName: string): DataSource {
+  // Match runtime: DATE columns come back as 'YYYY-MM-DD' strings, JST tz.
+  configurePgTypeParsers();
+  return new DataSource({
+    type: 'postgres',
+    ...realPgConnection(),
+    database: dbName,
+    entities: ALL_ENTITIES,
+    synchronize: false,
+    extra: { options: '-c timezone=Asia/Tokyo' },
+  });
+}
+
+/** TRUNCATE every public table except the migrations ledger. */
+async function truncateAllTables(ds: DataSource): Promise<void> {
+  const rows: Array<{ tablename: string }> = await ds.query(
+    `SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public' AND tablename <> 'migrations'`,
+  );
+  if (rows.length === 0) return;
+  const list = rows.map((r) => `"${r.tablename}"`).join(', ');
+  await ds.query(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
+}
+
+/**
+ * Real-Postgres variant of `createIntegrationTestApp`. Same Nest wiring +
+ * Redis/Mail/Storage stubs, but backed by an actual Postgres DB so
+ * pg-mem-incompatible SQL runs. Call ONLY inside a `describeRealPg(...)`
+ * block (otherwise it tries to connect when REAL_PG is unset).
+ */
+export async function createRealPgIntegrationApp(
+  options: CreateIntegrationOptions = {},
+): Promise<IntegrationTestContext> {
+  const dbName = realPgDbName();
+  await ensureRealPgSchema(dbName);
+  const ds = buildRealPgDataSource(dbName);
+  return bootApp(ds, options, { kind: 'truncate' });
 }
 
 /**
@@ -189,7 +325,24 @@ export async function createIntegrationTestApp(
 ): Promise<IntegrationTestContext> {
   // 1. pg-mem datasource — built ONCE, passed to Nest via dataSourceFactory
   const ds = buildPgMemDataSource();
+  return bootApp(ds, options, { kind: 'synchronize' });
+}
 
+/**
+ * Internal — assemble the Nest test app around a pre-built DataSource.
+ * Shared by the pg-mem path (`createIntegrationTestApp`) and the real
+ * Postgres path (`createRealPgIntegrationApp`). The only variation is
+ * `provision`: pg-mem builds its schema via TypeORM `synchronize()`,
+ * real PG already has the migration-built schema and just needs every
+ * data table TRUNCATEd so each test starts from a clean slate.
+ */
+type ProvisionMode = { kind: 'synchronize' } | { kind: 'truncate' };
+
+async function bootApp(
+  ds: DataSource,
+  options: CreateIntegrationOptions,
+  provision: ProvisionMode,
+): Promise<IntegrationTestContext> {
   // 2. ioredis-mock — single instance shared across SessionService methods
   const redis = new IORedis();
   const redisServiceMock = {
@@ -213,7 +366,7 @@ export async function createIntegrationTestApp(
           // to satisfy its config validation.
           ...(ds.options as DataSourceOptions),
           autoLoadEntities: true,
-          synchronize: true,
+          synchronize: provision.kind === 'synchronize',
         }),
         // Critical: tells Nest to USE our pre-built pg-mem DataSource
         // instead of spinning up a real Postgres connection.
@@ -365,12 +518,20 @@ export async function createIntegrationTestApp(
   // Health probe is served under the prefix at `/api/v1/health`.
   app.setGlobalPrefix(API_PREFIX);
 
-  // 4. Schema sync — when we provide a pre-built DataSource via
-  //    `dataSourceFactory`, Nest does NOT auto-run `synchronize`. Trigger
-  //    it manually so all entity tables (m_ja, m_code, m_todofuken, t_log,
-  //    …) exist before seed SQL runs.
+  // 4. Provision schema/state before seed SQL runs.
+  //    - pg-mem: Nest does NOT auto-run `synchronize` when a pre-built
+  //      DataSource is supplied via `dataSourceFactory`, so trigger it
+  //      manually to create all entity tables.
+  //    - real PG: schema already exists (migrations ran once per worker
+  //      in `ensureRealPgSchema`); TRUNCATE every data table so each test
+  //      starts clean (RESTART IDENTITY resets serial PKs; CASCADE handles
+  //      FK order).
   const dataSource = moduleRef.get<DataSource>(getDataSourceToken());
-  await dataSource.synchronize();
+  if (provision.kind === 'synchronize') {
+    await dataSource.synchronize();
+  } else {
+    await truncateAllTables(dataSource);
+  }
 
   //    Seed reference rows BEFORE app.init() so CodeService.onModuleInit()
   //    (which runs during init) sees the m_code rows.

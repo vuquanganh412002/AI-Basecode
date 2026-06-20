@@ -22,7 +22,7 @@ import { DokusyaShubetsu } from '@/common/enums';
  * inputs as `""` — without this, `@MaxLength` / `@Matches` would
  * reject. See `.claude/rules/nestjs.md §DTO validation gotchas #1`.
  */
-const blankToUndef = ({ value }: { value: unknown }): unknown =>
+export const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
@@ -58,7 +58,7 @@ function isHaitatsuAddressRequired(o: {
  * (`d.dokusya_kaishi_date <= :to`). Mirrors the YYYY/MM/DD-friendly inputs
  * on the file-upload / oshirase / log screens.
  */
-const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
+export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
 
 /**
  * 氏名 (氏/名) は漢字のみ — CJK統合漢字 (U+4E00-9FFF) + 々(U+3005 繰返し)
@@ -212,7 +212,13 @@ export class CreateDokusyaDto {
   @MaxLength(15, { message: '連絡先2は最大15文字で指定してください。' })
   renrakusaki_2?: string;
 
-  @ApiPropertyOptional({ description: 'メールアドレス', maxLength: 100 })
+  @ApiPropertyOptional({
+    description:
+      'メールアドレス。電子版(dokusya_shubetsu=2)・併読(3) では必須かつ ' +
+      '電子版/併読レコード間で一意（紙版(1) は任意・重複可）。必須・一意の判定は ' +
+      'dokusya_shubetsu に依存するため DTO ではなく DokusyaService で検証する。',
+    maxLength: 100,
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @MaxLength(100, {

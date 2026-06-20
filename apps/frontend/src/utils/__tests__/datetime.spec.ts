@@ -6,7 +6,7 @@
 // every assertion below would fail when the suite runs in CI (UTC) or
 // on a Vietnam laptop (UTC+7).
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -19,6 +19,7 @@ import {
   parseDatetimeTokyo,
   parseDatetimeWithSecondsTokyo,
   todayIsoTokyo,
+  isPastDayTokyo,
   timestampForFilenameTokyo,
 } from '@/utils/datetime';
 
@@ -103,6 +104,34 @@ describe('todayIsoTokyo', () => {
     vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
     expect(todayIsoTokyo()).toBe('2026-05-28');
     vi.useRealTimers();
+  });
+});
+
+describe('isPastDayTokyo', () => {
+  // TZ 非依存を保証するため、システム時刻を JST/UTC 境界の手前に固定する。
+  // 2026-05-27 22:00 UTC = 2026-05-28 07:00 JST → JST 当日は 2026-05-28。
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns false when current is null', () => {
+    expect(isPastDayTokyo(null)).toBe(false);
+  });
+
+  it('returns true for the day before JST today', () => {
+    expect(isPastDayTokyo(dayjs('2026-05-27'))).toBe(true);
+  });
+
+  it('returns false for JST today (same-day is selectable)', () => {
+    expect(isPastDayTokyo(dayjs('2026-05-28'))).toBe(false);
+  });
+
+  it('returns false for a future day', () => {
+    expect(isPastDayTokyo(dayjs('2026-05-29'))).toBe(false);
   });
 });
 

@@ -2168,7 +2168,7 @@ Trả về HTTP 200 (điều kiện tìm kiếm được áp dụng)
 Trả về HTTP 200, file Excel được download, hiển thị toast `Excel出力が正常に完了しました。`
 
 ステップ3：
-Tên file là `dokusya_export_YYYYMMDD_HHmmss.xlsx` (JST), `Content-Type` là `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, dòng header là `管理支店, 支店, 組合員コード, 購読者名, 連絡先１, 連絡先２, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 購読開始日, 購読中止日` (12 cột)
+Tên file là `購読者一覧出力_YYYYMMDD_HHmmss.xlsx` (JST), `Content-Type` là `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, dòng header là `管理支店, 支店, 組合員コード, 購読者名, 連絡先１, 連絡先２, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 購読開始日, 購読中止日` (12 cột)
 
 ステップ4：
 Xác nhận 1 dòng, `log_type=1`, `operation='EXPORT_EXCEL'`, `result_status=1`, `after_value` JSON ghi điều kiện export và số lượng (`record_count`)

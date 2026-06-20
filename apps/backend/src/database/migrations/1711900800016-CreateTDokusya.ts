@@ -77,6 +77,7 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                      -- 更新日時
         updated_by VARCHAR(50) NOT NULL,                                    -- 更新者
         denshi_shonin_status INTEGER,                                       -- 電子申込承認ステータス
+        denshi_kaiin_id BIGINT,                                             -- 電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）
         CONSTRAINT FK_t_dokusya_m_ja FOREIGN KEY (ja_id) REFERENCES m_ja (ja_id),
         CONSTRAINT FK_t_dokusya_m_kanri_shiten FOREIGN KEY (kanri_shiten_id) REFERENCES m_kanri_shiten (kanri_shiten_id),
         CONSTRAINT FK_t_dokusya_m_shiten FOREIGN KEY (shiten_id) REFERENCES m_shiten (shiten_id),
@@ -92,6 +93,10 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_hanbaiten_id ON t_dokusya (hanbaiten_id)`);
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_ja_kumiaiin ON t_dokusya (ja_id, kumiaiin_code)`);
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_hierarchy ON t_dokusya (ja_id, kanri_shiten_id, shiten_id)`);
+    // 電子版会員IDは全レコードで一意（NULL・削除済みは除外する部分 UNIQUE）。
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX UQ_t_dokusya_denshi_kaiin_id ON t_dokusya (denshi_kaiin_id) WHERE denshi_kaiin_id IS NOT NULL AND deleted_at IS NULL`,
+    );
 
     await queryRunner.query(`COMMENT ON TABLE t_dokusya IS '購読者テーブル'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusya_id IS '購読者ID（IDENTITY）'`);
@@ -155,6 +160,7 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.updated_at IS '更新日時'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.updated_by IS '更新者'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_shonin_status IS '電子申込承認ステータス'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_kaiin_id IS '電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）'`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

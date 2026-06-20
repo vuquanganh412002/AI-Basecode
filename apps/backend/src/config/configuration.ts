@@ -160,6 +160,10 @@ export default () => {
       // the set so its CloudWatch metrics + SNS bounce/complaint events fire.
       // Undefined when unset → SES sends without a configuration set.
       configurationSet: process.env.MAIL_CONFIGURATION_SET || undefined,
+      // 日農担当者向け 増減通知（SCR-029）作成完了メールの宛先。本番は ECS task
+      // env / Secrets で日農の業務管理部アドレスを設定する。
+      nichinoNotifyAddress:
+        process.env.MAIL_NICHINO_NOTIFY_ADDRESS || 'nichino-gyomu@agrinews.jp',
     },
   };
 };

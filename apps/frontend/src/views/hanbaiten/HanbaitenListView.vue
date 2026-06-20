@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Modal, type TableColumnsType } from 'ant-design-vue';
+import { type TableColumnsType } from 'ant-design-vue';
+import { confirmDelete } from '@/utils/confirm';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -71,7 +72,7 @@ const isStaff = computed(() =>
 );
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, applyFilters, searchActions,
 } =
   useTableQuery<HanbaitenFilters>({
     defaultFilters: {
@@ -196,45 +197,33 @@ function onJaFilterChange(v: number | null): void {
   runSearch();
 }
 
-function onSearch(): void {
-  // Trim leading/trailing whitespace so paste artifacts / IME-confirmed
-  // spaces don't widen the ILIKE pattern. haiten_flg is a checkbox —
-  // no whitespace to trim.
-  state.filters.hanbaiten_code = state.filters.hanbaiten_code.trim();
-  state.filters.hanbaiten_name = state.filters.hanbaiten_name.trim();
-  state.filters.tel = state.filters.tel.trim();
-  state.filters.fax = state.filters.fax.trim();
-  state.filters.address = state.filters.address.trim();
-  state.filters.shocho_name = state.filters.shocho_name.trim();
-  // [staff-ja-required] Clicking 検索 without a JA flags the field as
-  // required (機能: 代行検索は JA選択が前提) and skips the fetch.
-  if (staffMustPickJa.value) {
-    jaRequiredError.value = true;
-    rows.value = [];
-    total.value = 0;
-    return;
-  }
-  jaRequiredError.value = false;
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  // (Staff with no JA already returned above via the required guard.)
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  jaRequiredError.value = false;
-  // Staff: ja_id reset to null → runSearch keeps the list empty + shows
-  // the JA prompt. Non-staff: reloads their scoped list.
-  runSearch();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim text filters (haiten_flg is a checkbox). 代行検索は JA選択が前提 —
+  // staff with no JA flags the field as required and aborts (return false).
+  beforeSearch() {
+    state.filters.hanbaiten_code = state.filters.hanbaiten_code.trim();
+    state.filters.hanbaiten_name = state.filters.hanbaiten_name.trim();
+    state.filters.tel = state.filters.tel.trim();
+    state.filters.fax = state.filters.fax.trim();
+    state.filters.address = state.filters.address.trim();
+    state.filters.shocho_name = state.filters.shocho_name.trim();
+    if (staffMustPickJa.value) {
+      jaRequiredError.value = true;
+      rows.value = [];
+      total.value = 0;
+      return false;
+    }
+    jaRequiredError.value = false;
+  },
+  // On an actual reset: clear the required-field flag. Staff → ja_id null so
+  // runSearch keeps the list empty + shows the JA prompt; non-staff reloads.
+  afterReset() {
+    jaRequiredError.value = false;
+  },
+  clearFetch: runSearch,
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -263,25 +252,18 @@ function goEdit(row: HanbaitenListItem): void {
 }
 
 function askDelete(row: HanbaitenListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    // ACSMS-MSG-018-005.
-    content: 'この販売店を削除してもよろしいですか？',
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeHanbaiten(row.hanbaiten_id);
-        // notify.deleted() emits '削除しました。' (ACSMS-MSG-018-006).
-        notify.deleted();
-        await fetchList();
-      } catch {
-        // The global axios interceptor handles 409 CONFLICT
-        // (ACSMS-MSG-018-004) and 500 (ACSMS-MSG-018-003); view must
-        // NOT re-toast — see .claude/rules/vue.md §Error Handling Architecture.
-      }
-    },
+  // ACSMS-MSG-018-005.
+  confirmDelete('この販売店を削除してもよろしいですか？', async () => {
+    try {
+      await removeHanbaiten(row.hanbaiten_id);
+      // notify.deleted() emits '削除しました。' (ACSMS-MSG-018-006).
+      notify.deleted();
+      await fetchList();
+    } catch {
+      // The global axios interceptor handles 409 CONFLICT
+      // (ACSMS-MSG-018-004) and 500 (ACSMS-MSG-018-003); view must
+      // NOT re-toast — see .claude/rules/vue.md §Error Handling Architecture.
+    }
   });
 }
 </script>

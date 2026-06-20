@@ -732,6 +732,9 @@ describe('AccountFormView — update flow (edit mode)', () => {
     const { updateAccount, createAccount } = await import('@/api/account/account');
     vi.mocked(updateAccount).mockClear();
 
+    // 編集で何か変更しないと「変更なし」ガードでスキップされる。
+    (wrapper.vm as any).formState.account_name = '変更後アカウント名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -746,6 +749,9 @@ describe('AccountFormView — update flow (edit mode)', () => {
     const { updateAccount } = await import('@/api/account/account');
     vi.mocked(updateAccount).mockClear();
 
+    // パスワード以外を変更 → 「変更なし」ガードを通過しつつ password は空欄のまま。
+    (wrapper.vm as any).formState.account_name = '変更後アカウント名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -758,6 +764,8 @@ describe('AccountFormView — update flow (edit mode)', () => {
     const successSpy = vi.spyOn(message, 'success');
     successSpy.mockClear();
 
+    (wrapper.vm as any).formState.account_name = '変更後アカウント名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -768,11 +776,27 @@ describe('AccountFormView — update flow (edit mode)', () => {
     const { wrapper, router } = await renderView({ accountId: 2 });
     const pushSpy = vi.spyOn(router, 'push');
 
+    (wrapper.vm as any).formState.account_name = '変更後アカウント名';
+    await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
     const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
     expect(pushed).toContain('AccountList');
+  });
+
+  it('should NOT call updateAccount (skip) when nothing changed in edit mode', async () => {
+    const { wrapper } = await renderView({ accountId: 2 });
+    const { updateAccount } = await import('@/api/account/account');
+    vi.mocked(updateAccount).mockClear();
+    const infoSpy = vi.spyOn(message, 'info');
+    infoSpy.mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateAccount).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('変更がありません。');
   });
 
   it('should NOT submit createAccount when called in edit mode', async () => {

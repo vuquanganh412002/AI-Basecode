@@ -81,8 +81,8 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'dokusya_id',
   'dokusya_shubetsu',
   'tetsuzuki_shurui',
-  'kanri_shiten_id',
-  'shiten_id',
+  'kanri_shiten_code',
+  'shiten_code',
   'kumiaiin_code',
   'shimei_sei',
   'shimei_mei',
@@ -138,7 +138,8 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
 export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
   'dokusya_shubetsu',
   'tetsuzuki_shurui',
-  'kanri_shiten_id',
+  'kanri_shiten_code',
+  'shiten_code',
   'shimei_sei',
   'shimei_mei',
   'shimei_kana_sei',
@@ -197,8 +198,8 @@ export function buildImportRow(
   return {
     dokusya_shubetsu: 1, // 紙版
     tetsuzuki_shurui: 1, // 新規
-    kanri_shiten_id: 101,
-    shiten_id: 201,
+    kanri_shiten_code: 'KS001',
+    shiten_code: 'SH001',
     kumiaiin_code: 'K0001',
     shimei_sei: '山田',
     shimei_mei: '太郎',

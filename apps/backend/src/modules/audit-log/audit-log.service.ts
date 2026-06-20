@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { Log } from '@/database/entities/log.entity';
 import { LoginLog } from '@/database/entities/login-log.entity';
-import { LogType, ResultStatus } from '@/common/enums';
+import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
 
 // `LogType` / `ResultStatus` used to live in this file (inline `as const`
 // objects) and the canonical home moved to `@/common/enums`. The previous
@@ -69,7 +69,7 @@ export class AuditLogService {
         accountId: ctx.accountId,
         jaId: ctx.jaId,
         gamenName: ctx.screen,
-        operation: 'CREATE',
+        operation: AuditOperation.CREATE,
         resultStatus: ResultStatus.SUCCESS,
         targetId: ctx.targetId,
         targetTable: ctx.table,
@@ -94,7 +94,7 @@ export class AuditLogService {
         accountId: ctx.accountId,
         jaId: ctx.jaId,
         gamenName: ctx.screen,
-        operation: 'UPDATE',
+        operation: AuditOperation.UPDATE,
         resultStatus: ResultStatus.SUCCESS,
         targetId: ctx.targetId,
         targetTable: ctx.table,
@@ -119,7 +119,7 @@ export class AuditLogService {
         accountId: ctx.accountId,
         jaId: ctx.jaId,
         gamenName: ctx.screen,
-        operation: 'DELETE',
+        operation: AuditOperation.DELETE,
         resultStatus: ResultStatus.SUCCESS,
         targetId: ctx.targetId,
         targetTable: ctx.table,
@@ -184,6 +184,9 @@ export class AuditLogService {
       accountId: number | null;
       jaId: number | null;
       gamenName: string;
+      // Open string vocabulary — `AuditOperation` lists the canonical verbs
+      // but some callers compute it dynamically (hanbaiten IMPORT_*). Prefer
+      // an AuditOperation member; raw strings still accepted.
       operation: string;
       resultStatus: number;
       targetId?: number | null;

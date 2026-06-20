@@ -23,3 +23,4 @@ export { RoleCode } from './role-code';
 export { DokusyaShubetsu } from './dokusya-shubetsu';
 export { ShiharaiHoho } from './shiharai-hoho';
 export { ItakuKubun } from './itaku-kubun';
+export { TetsuzukiShurui } from './tetsuzuki-shurui';

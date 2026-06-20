@@ -31,10 +31,14 @@ services:
       timeout: 3s
       retries: 5
 
-  backend:
+  # Shared backend definition — both backend instances build the same
+  # image and mount the same source. Only container_name + published
+  # host port differ (overridden per service below).
+  backend: &backend-base
     build:
       context: ./backend
       dockerfile: ../docker/backend/Dockerfile
+    container_name: agrinews-backend-1
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test
@@ -62,6 +66,18 @@ services:
       redis:
         condition: service_healthy
 
+  # Second backend instance — load-balanced behind nginx (upstream
+  # backend_pool in docker/nginx/nginx-ssl.conf). `<<: *backend-base`
+  # inherits all of backend's config; we override only the bits that
+  # must be unique per container. Published on host 3001 so both stay
+  # directly reachable for dev; nginx talks to it over the compose
+  # network as backend-2:3000.
+  backend-2:
+    <<: *backend-base
+    container_name: agrinews-backend-2
+    ports:
+      - "3001:3000"
+
   frontend:
     build:
       context: ./frontend
@@ -87,6 +103,7 @@ services:
       - "443:443"
     depends_on:
       - backend
+      - backend-2
       - frontend
 
   mailhog:

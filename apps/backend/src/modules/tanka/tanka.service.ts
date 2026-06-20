@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AuditOperation } from '@/common/enums';
+import { dateOnlyIsoJst, todayIsoJst } from '@/common/utils/datetime';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { DataSource, IsNull, Repository } from 'typeorm';
@@ -33,27 +35,6 @@ const SCREEN_NAME_SCR002 = '単価マスタ明細検索画面 (ACSMS-SCR-002)';
 const SCREEN_NAME_SCR003 = '単価マスタ登録画面 (ACSMS-SCR-003)';
 const TABLE_NAME = 'm_tanka';
 
-/**
- * Today as YYYY-MM-DD in Asia/Tokyo (operation timezone per
- * `.claude/rules/nestjs.md §Timestamp policy`). String compare against
- * the DTO's YYYY-MM-DD wire format is lexicographically correct.
- *
- * Uses Intl rather than `new Date()` host-locale extractors so the
- * result stays correct on dev machines that didn't set
- * `TZ=Asia/Tokyo` (the Dockerfile pins it for production, but Mac
- * dev or other contributors may not).
- */
-const JST_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Tokyo',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
-function todayJstIso(): string {
-  // en-CA yields `YYYY-MM-DD` directly, no part-stitching needed.
-  return JST_DATE_FORMATTER.format(new Date());
-}
 
 /**
  * Enforce date-range constraints for CREATE:
@@ -67,7 +48,7 @@ function todayJstIso(): string {
  */
 function assertCreateDateRange(start: string, end: string): void {
   const errors: Array<{ field: string; message: string }> = [];
-  const today = todayJstIso();
+  const today = todayIsoJst();
   if (start < today) {
     errors.push({
       field: 'tekiyo_start_date',
@@ -98,17 +79,14 @@ function assertCreateDateRange(start: string, end: string): void {
  * (Sonar S7721).
  */
 function tekiyoStartDateIso(t: Tanka): string {
-  if (typeof t.tekiyoStartDate === 'string') return t.tekiyoStartDate;
-  if (t.tekiyoStartDate) {
-    return (t.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10);
-  }
-  return '';
+  // DATE 列: 文字列はそのまま、Date は JST 暦日へ。UTC ずれを避けるため
+  // toISOString().slice ではなく dateOnlyIsoJst を使う。
+  return dateOnlyIsoJst(t.tekiyoStartDate);
 }
 
 function tekiyoEndDateIso(t: Tanka): string | null {
   if (t.tekiyoEndDate === null || t.tekiyoEndDate === undefined) return null;
-  if (typeof t.tekiyoEndDate === 'string') return t.tekiyoEndDate;
-  return (t.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10);
+  return dateOnlyIsoJst(t.tekiyoEndDate);
 }
 
 const SORT_COLUMN_MAP: Record<TankaSearchSortBy, string> = {
@@ -186,10 +164,10 @@ export class TankaService {
     // [soft-delete-filter]
     qb.where('mt.deleted_at IS NULL');
 
-    // [filter-conditions] effective-period: NULL=無期限 OR end >= today.
-    qb.andWhere(
-      '(mt.tekiyo_end_date IS NULL OR mt.tekiyo_end_date >= CURRENT_DATE)',
-    );
+    // 顧客要件 (2026-06): デフォルトで適用終了日が過去の（期限切れ）単価も含めて
+    // 全件表示する。以前の「(tekiyo_end_date IS NULL OR >= CURRENT_DATE)」既定
+    // フィルタは廃止 — 期間での絞り込みは tekiyo_start_date / tekiyo_end_date の
+    // 明示クエリパラメータでのみ行う。
 
     // [data-scope] — restricted roles see only their own JA.
     applyJaScope(qb, 'mt', 'jaId', session);
@@ -304,7 +282,7 @@ export class TankaService {
       return { message: '削除しました。' };
     } catch (err) {
       // [audit-error-log] — OUTSIDE the rolled-back tx so the trace survives
-      await this.auditLog.logError(ctxBuilder(), 'DELETE', err as Error);
+      await this.auditLog.logError(ctxBuilder(), AuditOperation.DELETE, err as Error);
       throw err;
     }
   }
@@ -414,11 +392,11 @@ export class TankaService {
       // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
       // letting it bubble as 500.
       if (isUniqueViolation(err)) {
-        await this.auditLog.logError(ctxBuilder(null), 'CREATE', err as Error);
+        await this.auditLog.logError(ctxBuilder(null), AuditOperation.CREATE, err as Error);
         throw new DuplicateCodeException('単価コード', dto.tanka_code);
       }
       // [audit-error-log] — OUTSIDE the rolled-back tx.
-      await this.auditLog.logError(ctxBuilder(null), 'CREATE', err as Error);
+      await this.auditLog.logError(ctxBuilder(null), AuditOperation.CREATE, err as Error);
       throw err;
     }
   }
@@ -468,7 +446,7 @@ export class TankaService {
     // Silent-drop pattern (same shape as FIELD_RESTRICTIONS in
     // .claude/rules/security.md Layer 3): preserve the stored value
     // and ignore the incoming dto field.
-    const today = todayJstIso();
+    const today = todayIsoJst();
     const startLocked = String(before.tekiyoStartDate) < today;
     const effectiveStartDate = startLocked
       ? String(before.tekiyoStartDate)
@@ -500,7 +478,7 @@ export class TankaService {
       });
       return toTankaResponse(updated);
     } catch (err) {
-      await this.auditLog.logError(ctxBuilder(), 'UPDATE', err as Error);
+      await this.auditLog.logError(ctxBuilder(), AuditOperation.UPDATE, err as Error);
       throw err;
     }
   }

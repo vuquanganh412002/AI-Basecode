@@ -634,6 +634,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 59 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
 | 60 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 | 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 62 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | ID hội viên bản điện tử (ID hội viên của hệ thống ngoài. Do tính năng liên kết ngoài thiết lập. Duy nhất toàn bộ) |
 
 ## Chỉ mục
 
@@ -647,6 +648,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 6 | IX_t_dokusya_hanbaiten_id | hanbaiten_id |  |  | Tìm kiếm theo cửa hàng |
 | 7 | IX_t_dokusya_ja_kumiaiin | ja_id, kumiaiin_code |  |  | Tìm kiếm kết hợp mã thành viên |
 | 8 | IX_t_dokusya_hierarchy | ja_id, kanri_shiten_id, shiten_id |  |  | Tìm kiếm phân cấp |
+| 9 | UQ_t_dokusya_denshi_kaiin_id | denshi_kaiin_id |  | 〇 | Duy nhất ID hội viên bản điện tử (toàn bộ bản ghi. UNIQUE một phần, loại trừ NULL và đã xóa) |
 
 ---
 

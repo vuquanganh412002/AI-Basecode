@@ -7,7 +7,7 @@
 // Entities `Log`, `Account`, `Role` are already in ALL_ENTITIES at
 // test/utils/create-integration-app.ts — no helper edits needed.
 
-import type { Server } from 'http';
+import type { Server } from 'node:http';
 import request from 'supertest';
 
 import { LogModule } from '@/modules/log/log.module';
@@ -15,9 +15,64 @@ import { AccountModule } from '@/modules/account/account.module';
 import {
   buildSessionCookie,
   createIntegrationTestApp,
+  createRealPgIntegrationApp,
+  describeRealPg,
   type IntegrationTestContext,
 } from '@test/utils/create-integration-app';
 import { apiUrl } from '@test/utils/api-url';
+
+// Shared seed (FK order already correct: roles → account → t_log). Module
+// scope so the pg-mem suite and the real-PG DataScope suite reuse it.
+const SCR030_SEED_SQL: string[] = [
+  `INSERT INTO m_roles (role_code, role_name, description, created_at, created_by, updated_at, updated_by)
+   VALUES
+     ('NICHINO_ADMIN',   '日農（管理者）', '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('NICHINO_STAFF',   '日農（担当者）', '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('CHUOKAI',         '中央会',         '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('JA_HONTEN',       'JA本店',         '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('JA_KANRI_SHITEN', 'JA管理支店',     '', NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+  // m_ja(100) + m_kanri_shiten(200) — referenced by m_account/t_log FKs.
+  // pg-mem ignored these FKs; real PG enforces them, so seed the parents.
+  `INSERT INTO m_ja
+     (ja_id, ja_code, ja_name, ja_name_kana, todofuken_code, yubin_no,
+      address, tel, fax, email, tanto_busho, tanto_name,
+      zei_kubun, biko, chuokai_flg,
+      created_at, created_by, updated_at, updated_by)
+   VALUES
+     (100, '1301002001', '東京中央会', 'ﾄｳｷｮｳﾁｭｳｵｳ', '13', '1000001',
+      '東京都千代田区', '03-1234-5678', '', '', '', '',
+      1, '', false,
+      NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+  `INSERT INTO m_kanri_shiten
+     (kanri_shiten_id, ja_id, kanri_shiten_code, kanri_shiten_name,
+      kanri_shiten_name_kana, yubin_no, todofuken_code, address,
+      tel, fax, biko, created_at, created_by, updated_at, updated_by)
+   VALUES
+     (200, 100, 'KS200', '千代田管理支店', 'ﾁﾖﾀﾞ',
+      '1000001', '13', '東京都千代田区', '', '', '',
+      NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+  // 3 accounts: admin (ja=null), JA本店 of ja=100, JA管理支店 of ja=100/ks=200
+  `INSERT INTO m_account
+     (login_id, password_hash, account_name, role_id, ja_id, kanri_shiten_id,
+      todofuken_code, paper_flg, denshi_flg, email, sub_email_1, sub_email_2, sub_email_3,
+      login_failure_count, account_lock_flg, biko, mfa_enable_flg,
+      created_at, created_by, updated_at, updated_by)
+   VALUES
+     ('admin001',     'h', '管理者 太郎', 1, NULL, NULL,  NULL, TRUE, FALSE, 'a@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('ja_honten001', 'h', 'JA本店 花子', 4,  100, NULL,  '13', TRUE, TRUE,  'b@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     ('ja_shiten001', 'h', 'JA管理支店 次郎', 5, 100, 200, '13', TRUE, FALSE, 'c@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+  // 5 log rows spanning two JAs + different log_types
+  `INSERT INTO t_log
+     (log_type, log_datetime, account_id, ja_id, gamen_name, operation,
+      result_status, target_id, target_table, before_value, after_value,
+      ip_address, user_agent, error_message, stack_trace)
+   VALUES
+     (1, '2026-04-17 14:30:45+09:00', 2, 100, '単価マスタ登録画面', 'CREATE', 1, 50, 'm_tanka', '', '{"x":1}', '192.168.1.100', 'jest', '', ''),
+     (1, '2026-04-16 10:00:00+09:00', 3, 100, '購読者情報登録画面', 'UPDATE', 1, 60, 't_dokusya', '{"x":0}', '{"x":1}', '192.168.1.101', 'jest', '', ''),
+     (3, '2026-04-15 08:00:00+09:00', 2, 100, '購読者情報登録画面', 'CREATE', 2, NULL, 't_dokusya', '', '', '192.168.1.100', 'jest', 'oops', ''),
+     (2, '2026-04-14 09:00:00+09:00', NULL, NULL, 'システム',       'BATCH',  1, NULL, '', '', '', '', '', '', ''),
+     (4, '2026-04-13 12:00:00+09:00', 1, NULL, 'ログ参照画面 (ACSMS-SCR-030)', 'EXPORT_CSV', 1, NULL, 't_log', '', '{"record_count":1}', '127.0.0.1', 'jest', '', '')`,
+];
 
 describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () => {
   let ctx: IntegrationTestContext;
@@ -25,37 +80,7 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
   beforeEach(async () => {
     ctx = await createIntegrationTestApp({
       modules: [LogModule, AccountModule],
-      seedSql: [
-        // Roles
-        `INSERT INTO m_roles (role_code, role_name, description, created_at, created_by, updated_at, updated_by)
-         VALUES
-           ('NICHINO_ADMIN',   '日農（管理者）', '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('NICHINO_STAFF',   '日農（担当者）', '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('CHUOKAI',         '中央会',         '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('JA_HONTEN',       'JA本店',         '', NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('JA_KANRI_SHITEN', 'JA管理支店',     '', NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
-        // 3 accounts: admin (ja=null), JA本店 of ja=100, JA管理支店 of ja=100/ks=200
-        `INSERT INTO m_account
-           (login_id, password_hash, account_name, role_id, ja_id, kanri_shiten_id,
-            todofuken_code, paper_flg, denshi_flg, email, sub_email_1, sub_email_2, sub_email_3,
-            login_failure_count, account_lock_flg, biko, mfa_enable_flg,
-            created_at, created_by, updated_at, updated_by)
-         VALUES
-           ('admin001',     'h', '管理者 太郎', 1, NULL, NULL,  NULL, TRUE, FALSE, 'a@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('ja_honten001', 'h', 'JA本店 花子', 4,  100, NULL,  '13', TRUE, TRUE,  'b@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           ('ja_shiten001', 'h', 'JA管理支店 次郎', 5, 100, 200, '13', TRUE, FALSE, 'c@x', '', '', '', 0, FALSE, '', FALSE, NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
-        // 5 log rows spanning two JAs + different log_types
-        `INSERT INTO t_log
-           (log_type, log_datetime, account_id, ja_id, gamen_name, operation,
-            result_status, target_id, target_table, before_value, after_value,
-            ip_address, user_agent, error_message, stack_trace)
-         VALUES
-           (1, '2026-04-17 14:30:45+09:00', 2, 100, '単価マスタ登録画面', 'CREATE', 1, 50, 'm_tanka', '', '{"x":1}', '192.168.1.100', 'jest', '', ''),
-           (1, '2026-04-16 10:00:00+09:00', 3, 100, '購読者情報登録画面', 'UPDATE', 1, 60, 't_dokusya', '{"x":0}', '{"x":1}', '192.168.1.101', 'jest', '', ''),
-           (3, '2026-04-15 08:00:00+09:00', 2, 100, '購読者情報登録画面', 'CREATE', 2, NULL, 't_dokusya', '', '', '192.168.1.100', 'jest', 'oops', ''),
-           (2, '2026-04-14 09:00:00+09:00', NULL, NULL, 'システム',       'BATCH',  1, NULL, '', '', '', '', '', '', ''),
-           (4, '2026-04-13 12:00:00+09:00', 1, NULL, 'ログ参照画面 (ACSMS-SCR-030)', 'EXPORT_CSV', 1, NULL, 't_log', '', '{"record_count":1}', '127.0.0.1', 'jest', '', '')`,
-      ],
+      seedSql: SCR030_SEED_SQL,
     });
   });
 
@@ -168,15 +193,9 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
       expect(res.body.data.every((r: any) => r.account_id === 2)).toBe(true);
     });
 
-    // pg-mem limit — LEFT JOIN m_account + WHERE l.ja_id = N throws
-    // "🔨 lookups on joins". DataScope is exercised at the service-spec
-    // level (where the qb is mocked) — real-Postgres nightly CI runs
-    // this end-to-end. Skip here to keep the integration suite green.
-    it.skip('should restrict to ja_id=100 rows when caller is JA_HONTEN of ja=100 (skipped — pg-mem JOIN limit)', async () => {
-      const cookie = await asJaHonten();
-      const res = await http().get(apiUrl('log')).set('Cookie', cookie).expect(200);
-      expect(res.body.data.every((r: any) => r.ja_id === 100)).toBe(true);
-    });
+    // JA_HONTEN ja_id scope (LEFT JOIN m_account + WHERE l.ja_id = N) needs
+    // real Postgres — pg-mem throws "🔨 lookups on joins". Moved to the
+    // describeRealPg suite at the bottom of this file (REAL_PG=1).
 
     it('should restrict to rows of accounts under same kanri_shiten when caller is JA_KANRI_SHITEN', async () => {
       const cookie = await asJaKanriShiten();
@@ -391,5 +410,43 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
       const sorted = [...loginIds].sort();
       expect(loginIds).toEqual(sorted);
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SCR-030 DataScope — real Postgres only (REAL_PG=1). The JA_HONTEN
+// scope uses LEFT JOIN m_account + WHERE l.ja_id = N which pg-mem cannot
+// run ("🔨 lookups on joins").
+// ═══════════════════════════════════════════════════════════════════
+describeRealPg('ACSMS-SCR-030 integration — log DataScope (real postgres)', () => {
+  let ctx: IntegrationTestContext;
+
+  beforeEach(async () => {
+    ctx = await createRealPgIntegrationApp({
+      modules: [LogModule, AccountModule],
+      seedSql: SCR030_SEED_SQL,
+    });
+  });
+
+  afterEach(async () => {
+    await ctx.close();
+  });
+
+  const http = () => request(ctx.app.getHttpServer() as Server);
+
+  it('should restrict to ja_id=100 rows when caller is JA_HONTEN of ja=100', async () => {
+    // COVERS: DataScope §JA_HONTEN — only own-JA log rows returned.
+    const sid = await ctx.seedSession({
+      account_id: 2,
+      role_code: 'JA_HONTEN',
+      role_id: 4,
+      ja_id: 100,
+      kanri_shiten_id: null,
+      permissions: ['log.view'],
+    });
+    const cookie = buildSessionCookie(ctx.app, sid);
+    const res = await http().get(apiUrl('log')).set('Cookie', cookie).expect(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.every((r: { ja_id: number }) => r.ja_id === 100)).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { Modal, message, type TableColumnsType } from 'ant-design-vue';
 import type { AxiosError } from 'axios';
 
@@ -18,10 +18,11 @@ import {
 } from '@/api/oshirase/oshirase';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { confirmDelete } from '@/utils/confirm';
 import type { Dayjs } from 'dayjs';
 import {
   nowTokyo,
-  todayStartTokyo,
+  isPastDayTokyo,
   nowMinuteFloorTokyo,
   parseDatetimeTokyo,
   pickerToTokyoWallclock,
@@ -129,8 +130,7 @@ const isTypeReadOnly = computed(
 
 /** 過去日（本日より前）を無効化。a-date-picker の :disabled-date 用。 */
 function disabledStartDate(current: Dayjs | null): boolean {
-  if (!current) return false;
-  return current.isBefore(todayStartTokyo());
+  return isPastDayTokyo(current);
 }
 
 /**
@@ -160,7 +160,7 @@ function setEndToNowTokyo(): void {
 /** 終了日：過去日 + 開始日より前 を無効化（開始日が選択済みの場合）。 */
 function disabledEndDate(current: Dayjs | null): boolean {
   if (!current) return false;
-  if (current.isBefore(todayStartTokyo())) return true;
+  if (isPastDayTokyo(current)) return true;
   const startDate = parseDatetimeTokyo(formState.publish_start_date);
   if (startDate && current.isBefore(startDate, 'day')) return true;
   return false;
@@ -523,6 +523,29 @@ function onClear(): void {
   });
 }
 
+// 編集フォーム (上段) の BaseCard。編集ボタン押下時に画面最上部へ
+// スクロールするためのターゲット。ページをスクロールして一覧から
+// 編集を押したユーザーが、フォームへ視点を戻せるようにする。
+const formCardRef = ref<InstanceType<typeof BaseCard> | null>(null);
+
+/**
+ * 編集フォームを画面内に表示されるまでスクロールする。スクロール
+ * コンテナは MainLayout のコンテンツ領域（window ではない）なので、
+ * フォーム要素自身の scrollIntoView を使い対象コンテナを自動解決する。
+ * loadDetail で DOM 反映が終わってから動くよう nextTick で1フレーム待つ。
+ */
+function scrollToForm(): void {
+  void nextTick(() => {
+    const el = (formCardRef.value as unknown as { $el?: HTMLElement } | null)
+      ?.$el;
+    // jsdom (test env) doesn't implement scrollIntoView — guard so the
+    // microtask never throws an unhandled rejection there.
+    if (typeof el?.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
 /**
  * サーバから1件取得してフォームへ反映し、編集モードへ切り替える。
  * 編集行クリック時（onEdit）と、新規作成／更新の保存成功直後の
@@ -566,6 +589,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
   if (editingId.value === row.oshirase_id) {
     try {
       await loadDetail(row.oshirase_id);
+      scrollToForm();
     } catch {
       // Global interceptor toasts 404 / 500.
     }
@@ -585,6 +609,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
       async onOk() {
         try {
           await loadDetail(row.oshirase_id);
+          scrollToForm();
         } catch {
           // Global interceptor toasts.
         }
@@ -595,6 +620,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
 
   try {
     await loadDetail(row.oshirase_id);
+    scrollToForm();
   } catch {
     // Global interceptor toasts 404 / 500.
   }
@@ -604,23 +630,16 @@ function askDelete(row: OshiraseListItem): void {
   // [deadline-not-deletable] 締め切り時間（oshirase_type=4）は削除不可。
   // テンプレート側のリンク非表示で通常は到達しないが、念のため早期 return。
   if (row.oshirase_type === OshiraseType.DEADLINE) return;
-  Modal.confirm({
-    title: '削除確認',
-    content: DELETE_CONFIRM_CONTENT,
-    okText: 'はい',
-    okType: 'danger',
-    cancelText: 'いいえ',
-    async onOk() {
-      try {
-        await removeOshirase(row.oshirase_id);
-        message.success('削除しました。');
-        // If we were editing the deleted row, return to create mode.
-        if (editingId.value === row.oshirase_id) onClear();
-        await fetchList();
-      } catch {
-        // Global interceptor handles 409 (CONFLICT) / 500.
-      }
-    },
+  confirmDelete(DELETE_CONFIRM_CONTENT, async () => {
+    try {
+      await removeOshirase(row.oshirase_id);
+      message.success('削除しました。');
+      // If we were editing the deleted row, return to create mode.
+      if (editingId.value === row.oshirase_id) onClear();
+      await fetchList();
+    } catch {
+      // Global interceptor handles 409 (CONFLICT) / 500.
+    }
   });
 }
 
@@ -680,7 +699,7 @@ defineExpose({ formState, state, fetchList, editingId });
 
   <div v-else class="space-y-6">
     <!-- ─── 編集フォーム (上段) ───────────────────────────────────── -->
-    <BaseCard padding="lg">
+    <BaseCard ref="formCardRef" padding="lg">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-bold text-text-main text-base">
           {{ isEdit ? '編集中: お知らせ #' + editingId : '新規登録' }}

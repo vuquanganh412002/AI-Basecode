@@ -182,3 +182,97 @@ export async function exportZougenHanbaiten(
   );
   return res.data;
 }
+
+// ─── ACSMS-SCR-029 — 増減通知（日本農業新聞）出力画面 ──────────────────
+
+/** 管理支店ごとの備考（出力時のみ。プレビューで直接入力）。 */
+export interface ZougenNichinoRemark {
+  kanri_shiten_id: number;
+  biko?: string;
+}
+
+/** Query DTO shared by preview (GET) + PDF/ZIP export (POST body). */
+export interface ZougenNichinoQuery {
+  tekiyo_date: string;
+  /** 未指定時はスコープ内の全管理支店。 */
+  kanri_shiten_id?: number[];
+  /** 出力時のみ。管理支店ごとの「＜備考＞」欄テキスト。 */
+  remarks?: ZougenNichinoRemark[];
+}
+
+/** 帳票明細の1行（販売店単位）。 */
+export interface ZougenNichinoReportRow {
+  hanbaiten_id: number;
+  /** 日農委託のとき「委託」、それ以外は ""。 */
+  itaku_label: string;
+  hanbaiten_code: string;
+  /** 免税販売店は先頭に「（免）」が付く。 */
+  hanbaiten_name: string;
+  genzai_busu: number;
+  zou_busu: number;
+  gen_busu: number;
+  shin_busu: number;
+  /** 前回出力との差異がある行は true（帳票で「◆」を付与）。 */
+  diff_mark: boolean;
+}
+
+/** 管理支店内の全販売店合計。 */
+export interface ZougenNichinoTotal {
+  genzai_busu: number;
+  zou_busu: number;
+  gen_busu: number;
+  shin_busu: number;
+}
+
+/** 管理支店ごとの1帳票。 */
+export interface ZougenNichinoReport {
+  kanri_shiten_id: number;
+  /** 10桁。帳票では 3-4-3 ハイフン区切り表示。 */
+  kanri_shiten_code: string;
+  kanri_shiten_name: string;
+  ja_name: string;
+  todofuken_name: string;
+  tanto_busho: string;
+  tanto_name: string;
+  tel: string;
+  fax: string;
+  rows: ZougenNichinoReportRow[];
+  total: ZougenNichinoTotal;
+}
+
+export interface ZougenNichinoPreviewData {
+  tekiyo_date: string;
+  reports: ZougenNichinoReport[];
+}
+
+/** Single-object envelope `{ data: … }` from the BE controller. */
+export interface ZougenNichinoPreviewEnvelope {
+  data: ZougenNichinoPreviewData;
+}
+
+/** GET /api/v1/report/zougen-nichino/preview — ACSMS-API-029-001. */
+export async function previewZougenNichino(
+  query: ZougenNichinoQuery,
+): Promise<ZougenNichinoPreviewEnvelope> {
+  const res = await axiosInstance.get<ZougenNichinoPreviewEnvelope>(
+    '/api/v1/report/zougen-nichino/preview',
+    { params: { tekiyo_date: query.tekiyo_date, kanri_shiten_id: query.kanri_shiten_id } },
+  );
+  return res.data;
+}
+
+/**
+ * POST /api/v1/report/zougen-nichino/export — ACSMS-API-029-002.
+ * Returns a Blob: application/pdf（1管理支店）/ application/zip（複数）/
+ * application/json（対象0件 → ダウンロードせず画面内メッセージ）。
+ */
+export async function exportZougenNichino(
+  query: ZougenNichinoQuery,
+): Promise<Blob> {
+  const res = await axiosInstance.post<Blob>(
+    '/api/v1/report/zougen-nichino/export',
+    query,
+    { responseType: 'blob' },
+  );
+  return res.data;
+}

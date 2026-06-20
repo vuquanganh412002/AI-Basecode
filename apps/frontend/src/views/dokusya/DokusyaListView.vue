@@ -22,7 +22,7 @@
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Modal, message, type TableColumnsType } from 'ant-design-vue';
+import { message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -32,6 +32,8 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { formatDate } from '@/utils/formatters';
+import { timestampForFilenameTokyo } from '@/utils/datetime';
+import { confirmDelete } from '@/utils/confirm';
 import {
   listDokusya,
   removeDokusya,
@@ -121,7 +123,7 @@ const canCreateDokusya = computed(
 );
 
 const {
-  state, loading, total, onChange, applyFilters, resetFilters, filtersChangedSinceApplied, isPristine,
+  state, loading, total, onChange, applyFilters, searchActions,
 } =
   useTableQuery<DokusyaFilters>({
     defaultFilters: { ...DEFAULT_FILTERS },
@@ -207,16 +209,16 @@ async function fetchDropdowns(): Promise<void> {
 
 const columns: TableColumnsType = [
   {
+    title: 'ID',
+    dataIndex: 'dokusya_id',
+    key: 'dokusya_id',
+    sorter: true,
+    width: 100,
+  },
+  {
     title: '管理支店',
     dataIndex: 'kanri_shiten_name',
     key: 'kanri_shiten_id',
-    sorter: true,
-    width: 140,
-  },
-  {
-    title: '支店',
-    dataIndex: 'shiten_name',
-    key: 'shiten_id',
     sorter: true,
     width: 140,
   },
@@ -234,16 +236,28 @@ const columns: TableColumnsType = [
     width: 180,
   },
   {
+    title: '手続種類',
+    dataIndex: 'tetsuzuki_shurui',
+    key: 'tetsuzuki_shurui',
+    width: 100,
+  },
+  {
+    title: '購読種別',
+    dataIndex: 'dokusya_shubetsu',
+    key: 'dokusya_shubetsu',
+    width: 100,
+  },
+  {
     title: '連絡先1',
     dataIndex: 'renrakusaki_1',
     key: 'renrakusaki_1',
     width: 140,
   },
   {
-    title: '連絡先2',
-    dataIndex: 'renrakusaki_2',
-    key: 'renrakusaki_2',
-    width: 140,
+    title: '配達先氏名',
+    dataIndex: 'haitatsu_full_name',
+    key: 'haitatsu_full_name',
+    width: 160,
   },
   {
     title: '配達先郵便',
@@ -269,6 +283,12 @@ const columns: TableColumnsType = [
     dataIndex: 'hanbaiten_name',
     key: 'hanbaiten_name',
     width: 160,
+  },
+  {
+    title: '支払方法',
+    dataIndex: 'shiharai_hoho',
+    key: 'shiharai_hoho',
+    width: 120,
   },
   {
     title: '購読開始日',
@@ -483,28 +503,21 @@ function trimTextFilters(): void {
   f.jastem_tenpo_name = f.jastem_tenpo_name.trim();
   f.renrakusaki_1 = f.renrakusaki_1.trim();
   f.email = f.email.trim();
-  f.seikyu_kaishi_month = f.seikyu_kaishi_month.trim();
+  // seikyu_kaishi_month は <a-date-picker> 由来の YYYYMM 文字列で空白を含まない。
+  // クリア時に antd が undefined をセットするため .trim() すると TypeError →
+  // 検索ボタンで「エラーが発生しました」トーストになる。trim 対象外とする。
 }
 
-function onSearch(): void {
-  trimTextFilters();
-  if (!validateFilters(state.filters)) return;
-  // Only fetch when the search would change what's on screen — skip when the
-  // form matches the filters already applied to the displayed list (fresh
-  // empty form, or re-pressing 検索 with no change). After clearing inputs by
-  // hand this still fires once to restore the full list. 検索クリア resets.
-  if (!filtersChangedSinceApplied()) return;
-  applyFilters({ ...state.filters });
-  void fetchList();
-}
-
-function onClear(): void {
-  // 検索クリア is a no-op on a pristine screen — form already at defaults AND
-  // the list already showing the default set. Skip the redundant fetch.
-  if (isPristine()) return;
-  resetFilters();
-  void fetchList();
-}
+// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+const { onSearch, onClear } = searchActions({
+  fetchList,
+  // Trim every text filter, then client-validate (email / date ranges).
+  // Returning false aborts the search before the changed-since-applied guard.
+  beforeSearch() {
+    trimTextFilters();
+    return validateFilters(state.filters);
+  },
+});
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -527,23 +540,16 @@ function goEdit(row: DokusyaListItem): void {
 }
 
 function askDelete(row: DokusyaListItem): void {
-  Modal.confirm({
-    title: '削除確認',
-    content: `この購読者を削除してもよろしいですか？（${row.full_name}）`,
-    okText: '削除',
-    okType: 'danger',
-    cancelText: 'キャンセル',
-    async onOk() {
-      try {
-        await removeDokusya(row.dokusya_id);
-        notify.deleted();
-        await fetchList();
-      } catch {
-        // The global axios interceptor handles 403 DOKUSYA_READ_ONLY /
-        // 409 CONFLICT / 500 — the view must NOT re-toast. See
-        // .claude/rules/vue.md §Error Handling Architecture.
-      }
-    },
+  confirmDelete('この購読者を削除してもよろしいですか？', async () => {
+    try {
+      await removeDokusya(row.dokusya_id);
+      notify.deleted();
+      await fetchList();
+    } catch {
+      // The global axios interceptor handles 403 DOKUSYA_READ_ONLY /
+      // 409 CONFLICT / 500 — the view must NOT re-toast. See
+      // .claude/rules/vue.md §Error Handling Architecture.
+    }
   });
 }
 
@@ -568,17 +574,9 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 function buildExportFilename(): string {
-  // YYYYMMDD_HHmmss in JST per .claude/rules/vue.md §Date/Time —
-  // inline the timestamp because adding a util dep here for a single
-  // filename would over-extract. Use new Date() formatted in JST.
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mi = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
-  return `dokusya_export_${yyyy}${mm}${dd}_${hh}${mi}${ss}.xlsx`;
+  // YYYYMMDD_HHmmss in JST — always via the shared helper (browser-local
+  // new Date().getHours() would mis-stamp for non-JST users).
+  return `購読者一覧出力_${timestampForFilenameTokyo()}.xlsx`;
 }
 
 interface AxiosLikeError {
@@ -997,7 +995,7 @@ defineExpose({ state });
       class="text-text-description text-sm"
       data-test="dokusya-empty-message"
     >
-      該当するデータが存在しません。
+      検索結果が見つかりませんでした。
     </p>
 
     <BaseDataTable
@@ -1034,6 +1032,17 @@ defineExpose({ state });
             {{ (record as DokusyaListItem).full_name }}
           </a>
           <span v-else>{{ (record as DokusyaListItem).full_name }}</span>
+        </template>
+        <!-- m_code value → 顧客編集可能ラベル via useCodesStore (codes 値を
+             ハードコードしない — .claude/rules/vue.md §Code Master)。 -->
+        <template v-else-if="column.key === 'tetsuzuki_shurui'">
+          {{ codes.label('TETSUZUKI_SHURUI', (record as DokusyaListItem).tetsuzuki_shurui) }}
+        </template>
+        <template v-else-if="column.key === 'dokusya_shubetsu'">
+          {{ codes.label('DOKUSYA_SHUBETSU', (record as DokusyaListItem).dokusya_shubetsu) }}
+        </template>
+        <template v-else-if="column.key === 'shiharai_hoho'">
+          {{ codes.label('SHIHARAI_HOHO', (record as DokusyaListItem).shiharai_hoho) }}
         </template>
         <!-- Date columns — format to YYYY/MM/DD (pinned Asia/Tokyo) so the
              cell shows a JST date, not a raw Date.toString(). -->

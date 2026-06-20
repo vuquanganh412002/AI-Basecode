@@ -289,21 +289,27 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     expect(wrapper.text()).toContain('対象のデータが存在しません。');
   });
 
-  it('should show 対象のデータが存在しません。 when previewZougenHanbaiten rejects with NO_REPORT_DATA (404)', async () => {
+  it('should show 対象のデータが存在しません。 and NOT download when 電子帳票作成 returns an application/json (no-data) blob', async () => {
     const { wrapper } = await renderView();
-    const { previewZougenHanbaiten } = await import('@/api/report/report');
-    vi.mocked(previewZougenHanbaiten).mockRejectedValueOnce(
-      Object.assign(new Error('no data'), {
-        error_code: 'NO_REPORT_DATA',
-        response: { data: { error_code: 'NO_REPORT_DATA' } },
+    const { exportZougenHanbaiten } = await import('@/api/report/report');
+    // プレビューでデータを取得して 電子帳票作成 を活性化する。
+    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    (wrapper.vm as any).formState.hanbaiten_id = [200];
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+    // 対象0件 → BE は PDF ではなく application/json の Blob を返す。
+    vi.mocked(exportZougenHanbaiten).mockResolvedValueOnce(
+      new Blob([JSON.stringify({ data: { reports: [] } })], {
+        type: 'application/json',
       }),
     );
-    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
 
-    await wrapper.find(previewBtn()).trigger('click');
+    await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();
 
     expect(wrapper.text()).toContain('対象のデータが存在しません。');
+    // ダウンロードは発生しない（object URL を作らない）。
+    expect(createObjectURL).not.toHaveBeenCalled();
   });
 });
 
@@ -311,11 +317,30 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
 // 4. 電子帳票作成 — PDF (機能定義 3)
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenHanbaitenReportView — 電子帳票作成', () => {
-  it('should call exportZougenHanbaiten and create a Blob object URL when 電子帳票作成 is clicked with valid conditions', async () => {
+  /** プレビューでデータを取得して 電子帳票作成 を活性化する。 */
+  async function previewWithData(wrapper: any): Promise<void> {
+    wrapper.vm.formState.tekiyo_date = '2026-05-01';
+    wrapper.vm.formState.hanbaiten_id = [200];
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+  }
+
+  it('should disable 電子帳票作成 on initial mount (no preview data yet) and NOT call exportZougenHanbaiten on click', async () => {
     const { wrapper } = await renderView();
     const { exportZougenHanbaiten } = await import('@/api/report/report');
-    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
-    (wrapper.vm as any).formState.hanbaiten_id = [200];
+
+    const btn = wrapper.find(exportBtn());
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+
+    await btn.trigger('click');
+    await flushPromises();
+    expect(exportZougenHanbaiten).not.toHaveBeenCalled();
+  });
+
+  it('should call exportZougenHanbaiten and create a Blob object URL when 電子帳票作成 is clicked after preview returns data', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaiten } = await import('@/api/report/report');
+    await previewWithData(wrapper);
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();
@@ -324,27 +349,13 @@ describe('ZougenHanbaitenReportView — 電子帳票作成', () => {
     expect(createObjectURL).toHaveBeenCalled();
   });
 
-  it('should NOT call exportZougenHanbaiten when 適用日 is empty on 電子帳票作成 click', async () => {
-    const { wrapper } = await renderView();
-    const { exportZougenHanbaiten } = await import('@/api/report/report');
-    (wrapper.vm as any).formState.tekiyo_date = '';
-    (wrapper.vm as any).formState.hanbaiten_id = [200];
-
-    await wrapper.find(exportBtn()).trigger('click');
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('必須項目です。');
-    expect(exportZougenHanbaiten).not.toHaveBeenCalled();
-  });
-
   it('should still call exportZougenHanbaiten when it rejects with 500 (interceptor handles the toast)', async () => {
     const { wrapper } = await renderView();
     const { exportZougenHanbaiten } = await import('@/api/report/report');
+    await previewWithData(wrapper);
     vi.mocked(exportZougenHanbaiten).mockRejectedValueOnce({
       error_code: 'INTERNAL_SERVER_ERROR',
     });
-    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
-    (wrapper.vm as any).formState.hanbaiten_id = [200];
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();

@@ -398,7 +398,6 @@ describe('OshiraseController — SCR-031 HTTP (admin CRUD)', () => {
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
 
-    it.todo('should return 429 TOO_MANY_REQUESTS when throttler ceiling is hit (covered in integration / throttler layer)');
   });
 
   // ═══════════════════════════════════════════════════════════════════

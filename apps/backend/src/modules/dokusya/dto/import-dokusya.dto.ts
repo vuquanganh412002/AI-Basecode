@@ -88,17 +88,19 @@ export class ImportDokusyaRowDto {
   @IsNumber()
   tetsuzuki_shurui?: number;
 
-  @ApiPropertyOptional({ description: '管理支店ID' })
-  @Transform(blankOrNumber)
+  @ApiPropertyOptional({ description: '管理支店コード' })
+  @Transform(blankToUndef)
   @IsOptional()
-  @IsNumber()
-  kanri_shiten_id?: number;
+  @IsString()
+  @MaxLength(20, { message: '管理支店コードは20文字以内で入力してください。' })
+  kanri_shiten_code?: string;
 
-  @ApiPropertyOptional({ description: '支店ID' })
-  @Transform(blankOrNumber)
+  @ApiPropertyOptional({ description: '支店コード' })
+  @Transform(blankToUndef)
   @IsOptional()
-  @IsNumber()
-  shiten_id?: number;
+  @IsString()
+  @MaxLength(20, { message: '支店コードは20文字以内で入力してください。' })
+  shiten_code?: string;
 
   @ApiPropertyOptional({ description: '組合員コード' })
   @Transform(blankToUndef)
@@ -148,7 +150,12 @@ export class ImportDokusyaRowDto {
   @MaxLength(10, { message: '新聞単価コードは10文字以内で入力してください。' })
   tanka_code?: string;
 
-  @ApiPropertyOptional({ description: 'メールアドレス' })
+  @ApiPropertyOptional({
+    description:
+      'メールアドレス。電子版(2)・併読(3) では必須かつ電子版/併読レコード間で ' +
+      '一意（紙版(1) は任意・重複可）。必須・一意の判定は DokusyaService の ' +
+      '取込バリデーションで行う（実効購読種別は更新時に既存レコードの値を使う）。',
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()

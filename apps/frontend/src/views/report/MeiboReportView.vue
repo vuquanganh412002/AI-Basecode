@@ -83,6 +83,11 @@ const isEmptyResult = computed(
     previewData.value.grand_total_busu === 0,
 );
 
+/** プレビュー結果に出力対象データがあるか（Excel出力ボタンの活性判定）。 */
+const hasReportData = computed(
+  () => previewData.value !== null && previewData.value.grand_total_busu > 0,
+);
+
 // 帳票種別を切り替えたらプレビューをクリア（機能定義 2.2）。
 watch(
   () => formState.report_type,
@@ -248,10 +253,11 @@ const headerHanbaiten = computed(() => previewData.value?.hanbaiten_groups[0]);
 /** ヘッダの支所（代表 = 先頭の管理支店グループ）。 */
 const headerShisho = computed(() => mergedKanriGroups.value[0]?.kanri_shiten_name ?? '');
 
-// ─── 管理支店別：選択した複数管理支店を1帳票に統合 ─────────────────────
-/** 選択管理支店名（ヘッダ・合計行表示用）。 */
+/** 選択管理支店名（管理支店別ヘッダの「管理支店：」表示用）。 */
 const selectedKanriShitenNames = computed(() =>
-  previewData.value?.kanri_shiten_groups.map((g) => g.kanri_shiten_name || '（未割当）').join('、') ?? '',
+  previewData.value?.kanri_shiten_groups
+    .map((g) => g.kanri_shiten_name || '（未割当）')
+    .join('、') ?? '',
 );
 
 defineExpose({ formState });
@@ -268,28 +274,38 @@ defineExpose({ formState });
       data-test="no-permission"
     />
 
-    <!-- 出力条件エリア — index.html と同じ 5列1行レイアウト
-         （適用日 / 購読種別 / 帳票種別 / 販売店(管理支店) / 支払区分）。 -->
+    <!-- 出力条件エリア — 上段に単一選択フィルタ（適用日 / 購読種別 / 帳票種別 /
+         支払区分）、下段に販売店(管理支店)をチェックボックスで複数選択。 -->
     <div class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
-      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-center">
-        <!-- 適用日 -->
-        <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">
-            適用日<span class="text-error ml-1">*</span>
-          </label>
-          <a-date-picker
-            v-model:value="formState.tekiyo_date"
-            value-format="YYYY-MM-DD"
-            format="YYYY/MM/DD"
-            placeholder="YYYY/MM/DD"
-            class="flex-1"
-          />
+      <!-- items-start: 適用日 直下にエラーが出ても他フィルタが上下にずれないよう
+           上揃えにする（items-center だとエラーで伸びた行に合わせて兄弟が中央寄せ
+           されてズレる）。各フィルタ行は flex items-center で入力欄の高さが揃う。 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+        <!-- 適用日（バリデーションメッセージは直下に表示） -->
+        <div>
+          <div class="flex items-center gap-2">
+            <label for="meibo-tekiyo-date" class="text-sm font-medium whitespace-nowrap text-text-main">
+              適用日<span class="text-error ml-1">*</span>
+            </label>
+            <a-date-picker
+              id="meibo-tekiyo-date"
+              v-model:value="formState.tekiyo_date"
+              value-format="YYYY-MM-DD"
+              format="YYYY/MM/DD"
+              placeholder="YYYY/MM/DD"
+              class="flex-1"
+            />
+          </div>
+          <p v-if="fieldErrors.tekiyo_date" class="text-error text-sm mt-1">
+            {{ fieldErrors.tekiyo_date }}
+          </p>
         </div>
 
         <!-- 購読種別 -->
         <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">購読種別</label>
+          <label for="meibo-shubetsu" class="text-sm font-medium whitespace-nowrap text-text-main">購読種別</label>
           <a-select
+            id="meibo-shubetsu"
             v-model:value="formState.dokusya_shubetsu"
             :options="shubetsuOptions"
             allow-clear
@@ -300,50 +316,20 @@ defineExpose({ formState });
 
         <!-- 帳票種別 -->
         <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">帳票種別</label>
+          <label for="meibo-report-type" class="text-sm font-medium whitespace-nowrap text-text-main">帳票種別</label>
           <a-select
+            id="meibo-report-type"
             v-model:value="formState.report_type"
             :options="reportTypeOptions"
             class="flex-1"
           />
         </div>
 
-        <!-- 販売店（販売店別のみ） -->
-        <div v-if="formState.report_type === 'hanbaiten'" class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">
-            販売店<span class="text-error ml-1">*</span>
-          </label>
-          <a-select
-            v-model:value="formState.hanbaiten_ids"
-            mode="multiple"
-            :options="hanbaitenOptions"
-            allow-clear
-            placeholder="選択してください"
-            class="flex-1"
-            data-test="hanbaiten-select"
-          />
-        </div>
-
-        <!-- 管理支店（管理支店別のみ） -->
-        <div v-else class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">
-            管理支店<span class="text-error ml-1">*</span>
-          </label>
-          <a-select
-            v-model:value="formState.kanri_shiten_ids"
-            mode="multiple"
-            :options="kanriShitenOptions"
-            allow-clear
-            placeholder="選択してください"
-            class="flex-1"
-            data-test="kanri-shiten-select"
-          />
-        </div>
-
         <!-- 支払区分（常時表示。販売店別・管理支店別とも購読料支払サイクルで絞込み可） -->
         <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">支払区分</label>
+          <label for="meibo-shiharai-cycle" class="text-sm font-medium whitespace-nowrap text-text-main">支払区分</label>
           <a-select
+            id="meibo-shiharai-cycle"
             v-model:value="formState.shiharai_cycle"
             :options="cycleOptions"
             allow-clear
@@ -353,17 +339,42 @@ defineExpose({ formState });
         </div>
       </div>
 
-      <!-- バリデーションメッセージ -->
-      <div
-        v-if="fieldErrors.tekiyo_date || fieldErrors.hanbaiten_ids || fieldErrors.kanri_shiten_ids"
-        class="mt-2 space-y-1"
-      >
-        <p v-if="fieldErrors.tekiyo_date" class="text-error text-sm">{{ fieldErrors.tekiyo_date }}</p>
-        <p v-if="fieldErrors.hanbaiten_ids" class="text-error text-sm">{{ fieldErrors.hanbaiten_ids }}</p>
-        <p v-if="fieldErrors.kanri_shiten_ids" class="text-error text-sm">{{ fieldErrors.kanri_shiten_ids }}</p>
+      <!-- 販売店（販売店別のみ）— チェックボックスで複数選択。件数が多いため
+           複数列に折り返し、高さ上限＋スクロールで間延びを防ぐ。 -->
+      <div v-if="formState.report_type === 'hanbaiten'" class="mt-4">
+        <div class="text-sm font-medium text-text-main mb-1">
+          販売店<span class="text-error ml-1">*</span>
+        </div>
+        <!-- エラーはラベル直下に表示する -->
+        <p v-if="fieldErrors.hanbaiten_ids" class="text-error text-sm mb-2">
+          {{ fieldErrors.hanbaiten_ids }}
+        </p>
+        <a-checkbox-group
+          v-model:value="formState.hanbaiten_ids"
+          :options="hanbaitenOptions"
+          class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
+          data-test="hanbaiten-checkbox"
+        />
       </div>
 
-      <div class="pt-4 mt-3 border-t border-border flex items-center justify-start gap-2">
+      <!-- 管理支店（管理支店別のみ）— チェックボックスで複数選択。 -->
+      <div v-else class="mt-4">
+        <div class="text-sm font-medium text-text-main mb-1">
+          管理支店<span class="text-error ml-1">*</span>
+        </div>
+        <!-- エラーはラベル直下に表示する -->
+        <p v-if="fieldErrors.kanri_shiten_ids" class="text-error text-sm mb-2">
+          {{ fieldErrors.kanri_shiten_ids }}
+        </p>
+        <a-checkbox-group
+          v-model:value="formState.kanri_shiten_ids"
+          :options="kanriShitenOptions"
+          class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
+          data-test="kanri-shiten-checkbox"
+        />
+      </div>
+
+      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
         <a-button
           type="primary"
           :disabled="!canUse"
@@ -372,7 +383,7 @@ defineExpose({ formState });
         >
           レポートプレビュー
         </a-button>
-        <a-button :disabled="!canUse" data-test="export-btn" @click="onExport">
+        <a-button :disabled="!canUse || !hasReportData" data-test="export-btn" @click="onExport">
           レポートデータExcel出力
         </a-button>
       </div>
@@ -404,11 +415,23 @@ defineExpose({ formState });
             class="mx-auto border border-border-strong bg-surface-card px-12 py-10 font-display"
             style="max-width: 960px"
           >
-            <!-- チェック日 / 確認印 -->
+            <!-- チェック日 / 確認印 — 見出し行 + 手書き用の空欄ボックス -->
             <div class="flex justify-end mb-2">
-              <div class="border border-border-strong flex text-xs">
-                <div class="border-r border-border-strong px-4 py-2">チェック日</div>
-                <div class="px-4 py-2">確認印</div>
+              <div class="border border-border-strong text-xs">
+                <!-- 見出し行 -->
+                <div class="flex">
+                  <div class="w-28 border-r border-b border-border-strong px-4 py-1 text-center">
+                    チェック日
+                  </div>
+                  <div class="w-28 border-b border-border-strong px-4 py-1 text-center">
+                    確認印
+                  </div>
+                </div>
+                <!-- 空欄（手書き記入エリア） -->
+                <div class="flex">
+                  <div class="w-28 h-12 border-r border-border-strong"></div>
+                  <div class="w-28 h-12"></div>
+                </div>
               </div>
             </div>
 
@@ -456,33 +479,49 @@ defineExpose({ formState });
                 </tr>
               </thead>
               <tbody>
-                <template v-for="kg in mergedKanriGroups" :key="kg.kanri_shiten_id ?? 'none'">
-                  <tr v-for="row in kg.rows" :key="row.dokusya_id">
-                    <td class="border border-border-strong px-2 py-3 text-center">
-                      <div class="w-5 h-5 border border-border-strong mx-auto"></div>
+                <!-- 販売店ごとにグループ化（販売店 → 管理支店 → 購読者） -->
+                <template
+                  v-for="hg in previewData.hanbaiten_groups"
+                  :key="hg.hanbaiten_id"
+                >
+                  <!-- 販売店 見出し帯 -->
+                  <tr class="bg-surface-active font-bold">
+                    <td class="border border-border-strong px-2 py-1.5" colspan="7">
+                      {{ hg.hanbaiten_name }}<span v-if="hg.hanbaiten_code">（{{ hg.hanbaiten_code }}）</span>
                     </td>
-                    <td class="border border-border-strong px-2 py-1.5">
-                      {{ row.shimei }}<br /><span class="text-text-secondary">{{ row.shimei_kana }}</span>
-                    </td>
-                    <td class="border border-border-strong px-2 py-1.5">
-                      {{ splitAddress(row.haitatsu_address).postal }}<br />{{ splitAddress(row.haitatsu_address).rest }}
-                    </td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.kanri_shiten_name }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.haitatsu_tel }}</td>
-                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ formatDate(row.dokusya_kaishi_date) }}</td>
-                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ row.dokusya_busu }}</td>
                   </tr>
-                  <!-- 管理支店 小計 -->
-                  <tr class="bg-surface-card-subtle font-semibold">
-                    <td class="border border-border-strong px-2 py-1.5" colspan="5"></td>
-                    <td class="border border-border-strong px-2 py-1.5 text-right">{{ kg.kanri_shiten_name || '（未割当）' }}</td>
-                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ kg.subtotal_busu }}件</td>
+                  <template
+                    v-for="kg in hg.kanri_shiten_groups"
+                    :key="kg.kanri_shiten_id ?? 'none'"
+                  >
+                    <tr v-for="row in kg.rows" :key="row.dokusya_id">
+                      <td class="border border-border-strong px-2 py-3 text-center">
+                        <div class="w-5 h-5 border border-border-strong mx-auto"></div>
+                      </td>
+                      <td class="border border-border-strong px-2 py-1.5">
+                        {{ row.shimei }}<br /><span class="text-text-secondary">{{ row.shimei_kana }}</span>
+                      </td>
+                      <td class="border border-border-strong px-2 py-1.5">
+                        {{ splitAddress(row.haitatsu_address).postal }}<br />{{ splitAddress(row.haitatsu_address).rest }}
+                      </td>
+                      <td class="border border-border-strong px-2 py-1.5">{{ row.kanri_shiten_name }}</td>
+                      <td class="border border-border-strong px-2 py-1.5">{{ row.haitatsu_tel }}</td>
+                      <td class="border border-border-strong px-2 py-1.5 text-center">{{ formatDate(row.dokusya_kaishi_date) }}</td>
+                      <td class="border border-border-strong px-2 py-1.5 text-center">{{ row.dokusya_busu }}</td>
+                    </tr>
+                  </template>
+                  <!-- 販売店 小計（1販売店につき1行） -->
+                  <tr class="bg-surface-card-subtle font-bold">
+                    <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">小計</td>
+                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ hg.total_busu }}件</td>
                   </tr>
                 </template>
-                <!-- 全体 合計 -->
-                <tr class="bg-surface-card-subtle font-bold">
-                  <td class="border border-border-strong px-2 py-1.5" colspan="5"></td>
-                  <td class="border border-border-strong px-2 py-1.5 text-right">{{ selectedHanbaitenNames }}</td>
+                <!-- 合計（複数販売店のときのみ） -->
+                <tr
+                  v-if="previewData.hanbaiten_groups.length > 1"
+                  class="bg-surface-active font-bold"
+                >
+                  <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
                   <td class="border border-border-strong px-2 py-1.5 text-center">{{ previewData.grand_total_busu }}件</td>
                 </tr>
               </tbody>
@@ -496,68 +535,65 @@ defineExpose({ formState });
             class="mx-auto border border-border-strong bg-surface-card px-12 py-10 font-display"
             style="max-width: 1100px"
           >
-            <h3 class="text-center text-xl font-bold tracking-widest mb-4">管理支店別購読者名簿</h3>
-            <div class="flex justify-between items-start mb-4">
-              <div>
-                <div class="text-base mb-2">{{ selectedKanriShitenNames }} &nbsp;&nbsp;&nbsp; 御中</div>
-                <div class="text-xs">{{ tekiyoLabel }} 現在</div>
-              </div>
-              <div class="text-right space-y-1">
+            <h3 class="text-center text-xl font-bold tracking-widest mb-1">管理支店別購読者名簿</h3>
+            <div class="flex justify-end mb-2">
+              <div class="text-right space-y-0.5">
                 <div class="flex items-center justify-end gap-8">
                   <span class="text-sm">{{ previewData.ja_name }}</span>
                   <span class="text-xs">TEL：{{ previewData.ja_tel || '-' }}</span>
                 </div>
-                <div class="text-xs pt-1">出力日：{{ outputDate }}</div>
+                <div class="text-xs">出力日：{{ outputDate }}</div>
                 <div class="text-xs">出力時間：{{ outputTime }}</div>
-                <div class="text-xs">ページ数：&nbsp;1/1</div>
               </div>
             </div>
+            <!-- 管理支店：名（左） / 適用日 現在（中央） / ページ数（右） -->
+            <div class="flex justify-between items-start mb-4 text-sm">
+              <div><span class="font-semibold">管理支店：</span><span class="font-bold">{{ selectedKanriShitenNames }}</span></div>
+              <div class="font-bold">{{ tekiyoLabel }} 現在</div>
+              <div class="text-xs">ページ数：&nbsp;1/1</div>
+            </div>
 
-            <table class="w-full text-xs border-collapse">
+            <table class="w-full text-xs border-collapse" style="table-layout: fixed">
+              <colgroup>
+                <col style="width: 16%" /><col style="width: 13%" /><col style="width: 20%" />
+                <col style="width: 8%" /><col style="width: 10%" /><col style="width: 10%" /><col style="width: 23%" />
+              </colgroup>
               <thead>
                 <tr class="bg-surface-card-subtle">
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">管理支店</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">購読種別</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">購読者名<br /><span class="font-normal">購読者かな</span></th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">組合員コード</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">配達先電話番号</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">支店</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">配達先住所</th>
+                  <th class="border border-border-strong px-2 py-1.5 text-left font-semibold">配達先氏名<br /><span class="font-normal">配達先氏名かな</span></th>
+                  <th class="border border-border-strong px-2 py-1.5 text-left font-semibold">組合員コード<br /><span class="font-normal">配達先電話番号</span></th>
+                  <th class="border border-border-strong px-2 py-1.5 text-left font-semibold">支店<br /><span class="font-normal">配達先住所</span></th>
                   <th class="border border-border-strong px-2 py-1.5 text-center font-semibold">購読部数</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">支払い方法</th>
-                  <th class="border border-border-strong px-2 py-1.5 text-center font-semibold">購読開始日</th>
-                  <th class="border border-border-strong px-2 py-1.5 font-semibold">配達担当販売店</th>
+                  <th class="border border-border-strong px-2 py-1.5 text-center font-semibold">購読種別</th>
+                  <th class="border border-border-strong px-2 py-1.5 text-center font-semibold">支払方法</th>
+                  <th class="border border-border-strong px-2 py-1.5 text-left font-semibold">購読開始日<br /><span class="font-normal">配達担当販売店</span></th>
                 </tr>
               </thead>
               <tbody>
+                <!-- 管理支店ごとにグループ化 -->
                 <template v-for="kg in previewData.kanri_shiten_groups" :key="kg.kanri_shiten_id ?? 'none'">
                   <tr v-for="row in kg.rows" :key="row.dokusya_id">
-                    <td class="border border-border-strong px-2 py-1.5">{{ kg.kanri_shiten_name || '（未割当）' }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ codes.label('DOKUSYA_SHUBETSU', row.dokusya_shubetsu) }}</td>
                     <td class="border border-border-strong px-2 py-1.5">{{ row.shimei }}<br /><span class="text-text-secondary">{{ row.shimei_kana }}</span></td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.kumiaiin_code }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.haitatsu_tel }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.shiten_name }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">
-                      {{ splitAddress(row.haitatsu_address).postal }}<br />{{ splitAddress(row.haitatsu_address).rest }}
-                    </td>
+                    <td class="border border-border-strong px-2 py-1.5">{{ row.kumiaiin_code || '-' }}<br /><span class="text-text-secondary">{{ row.haitatsu_tel }}</span></td>
+                    <td class="border border-border-strong px-2 py-1.5">{{ row.shiten_name }}<br /><span class="text-text-secondary">{{ splitAddress(row.haitatsu_address).postal }} {{ splitAddress(row.haitatsu_address).rest }}</span></td>
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ row.dokusya_busu }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ codes.label('SHIHARAI_HOHO', row.shiharai_hoho) }}</td>
-                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ formatDate(row.dokusya_kaishi_date) }}</td>
-                    <td class="border border-border-strong px-2 py-1.5">{{ row.hanbaiten_name }}</td>
+                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ codes.label('DOKUSYA_SHUBETSU', row.dokusya_shubetsu) }}</td>
+                    <td class="border border-border-strong px-2 py-1.5 text-center">{{ codes.label('SHIHARAI_HOHO', row.shiharai_hoho) }}</td>
+                    <td class="border border-border-strong px-2 py-1.5">{{ formatDate(row.dokusya_kaishi_date) }}<br /><span class="text-text-secondary">{{ row.hanbaiten_name }}</span></td>
                   </tr>
-                  <!-- 管理支店 小計 -->
-                  <tr class="bg-surface-card-subtle font-semibold">
-                    <td class="border border-border-strong px-2 py-1.5 text-right" colspan="7">{{ kg.kanri_shiten_name || '（未割当）' }}</td>
+                  <!-- 管理支店 小計（1管理支店につき1行） -->
+                  <tr class="bg-surface-card-subtle font-bold">
+                    <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">小計</td>
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ kg.subtotal_busu }}件</td>
-                    <td class="border border-border-strong px-2 py-1.5" colspan="3"></td>
                   </tr>
                 </template>
-                <!-- 全体 合計 -->
-                <tr class="bg-surface-card-subtle font-bold">
-                  <td class="border border-border-strong px-2 py-1.5 text-right" colspan="7">合計</td>
+                <!-- 合計（複数管理支店のときのみ） -->
+                <tr
+                  v-if="previewData.kanri_shiten_groups.length > 1"
+                  class="bg-surface-active font-bold"
+                >
+                  <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
                   <td class="border border-border-strong px-2 py-1.5 text-center">{{ previewData.grand_total_busu }}件</td>
-                  <td class="border border-border-strong px-2 py-1.5" colspan="3"></td>
                 </tr>
               </tbody>
             </table>

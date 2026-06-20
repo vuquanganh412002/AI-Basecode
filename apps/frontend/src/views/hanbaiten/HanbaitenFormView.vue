@@ -16,12 +16,14 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { AxiosError } from 'axios';
+import { message } from 'ant-design-vue';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import BaseTankaDropdown from '@/components/common/BaseTankaDropdown.vue';
+import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
@@ -114,6 +116,9 @@ function defaultFormState(): HanbaitenFormState {
 }
 
 const formState = reactive<HanbaitenFormState>(defaultFormState());
+
+// 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
+const editGuard = useEditGuard(() => formState);
 
 // 配達手数料支払サイクル（月数）: 1〜12 から選択。固定レンジなので m_code
 // ではなくローカル定数で options を生成する。
@@ -303,6 +308,8 @@ async function applyRouteMode(): Promise<void> {
   resetFormState();
   if (isEdit.value && hanbaitenId.value !== null) {
     await loadDetail(hanbaitenId.value);
+    // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
+    await editGuard.capture();
     return;
   }
   if (isStaff.value) {
@@ -514,6 +521,11 @@ function handleServerError(err: unknown): void {
 
 async function onSubmit(): Promise<void> {
   if (!validateClient()) return;
+  // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
+  if (isEdit.value && hanbaitenId.value !== null && editGuard.isPristine()) {
+    message.info('変更がありません。');
+    return;
+  }
   if (submitting.value) return;
   submitting.value = true;
   try {

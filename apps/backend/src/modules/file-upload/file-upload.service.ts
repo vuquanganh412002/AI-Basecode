@@ -2,9 +2,15 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
-import { LogType, ResultStatus, RoleCode } from '@/common/enums';
+import {
+  AuditOperation,
+  DownloadType,
+  LogType,
+  ResultStatus,
+  RoleCode,
+} from '@/common/enums';
 import {
   DataScopeViolationException,
   NotFoundException,
@@ -15,6 +21,12 @@ import {
   extractAuditContext,
 } from '@/common/utils/audit-context';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import {
+  compactTimestampJst,
+  dateOnlyIsoJst,
+  todayIsoJst,
+} from '@/common/utils/datetime';
+import { buildZipArchive } from '@/common/utils/zip';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
@@ -97,20 +109,6 @@ function parseScheduledDeleteDate(input: string | undefined): string | null {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
-/** Calendar date (`YYYY-MM-DD`) of an instant in JST, TZ-independent (Intl). */
-function jstDateString(instant: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(instant); // en-CA → 'YYYY-MM-DD'
-}
-
-/** Today's calendar date in JST (`YYYY-MM-DD`). Used to reject a past date. */
-function todayJstDateString(): string {
-  return jstDateString(new Date());
-}
 
 /**
  * Normalise a `date` column value to `YYYY-MM-DD`. TypeORM returns date
@@ -206,46 +204,17 @@ interface JoinedRow {
 }
 
 /**
- * Self-documenting const for the 5 `download_type` values
- * (`m_code.code_category='DOWNLOAD_TYPE'` per seeder.md §5.19).
- *
- * DOWNLOAD_TYPE is Group B (customer-extensible — no TS enum), but
- * `classifyDownloadType` branches on these values, so we declare a
- * named const here to replace the bare 1/2/3/4/5 literals. Same Group-B
- * named-const pattern as `ITAKU_KUBUN_FURIKOMI` (hanbaiten.service.ts).
- * (OSHIRASE_TYPE was previously similar but has since been promoted to
- * Group A — see `@/common/enums/oshirase-type.enum.ts`.)
- *
- * Sync requirement: if the customer renames a label via the m_code
- * admin screen the customer-visible string flips immediately (no
- * deploy). But adding / removing a VALUE here requires a code change
- * — the classifier above maps filename patterns to one specific value
- * each.
- */
-const DOWNLOAD_TYPE = {
-  /** 口座振替 — Zengin / OA-連動 CSV files. */
-  KOUZA_FURIKAE: 1,
-  /** その他 — fallback when no filename pattern matches. */
-  OTHER: 2,
-  /** 増減連絡票 — 販売店宛て増減レポート. */
-  ZOUGEN_RENRAKU: 3,
-  /** 増減通知書 — 日本農業新聞宛て増減通知. */
-  ZOUGEN_TSUCHI: 4,
-  /** 購読者名簿 — 販売店 / 管理支店別の名簿出力. */
-  MEIBO: 5,
-} as const;
-
-/**
  * `download_type` classifier per api.md §4.5. Priority-ordered — first
- * match wins; default = OTHER. Keep this list in sync with
- * `m_code.code_category='DOWNLOAD_TYPE'`.
+ * match wins; default = OTHER (その他). Maps filename patterns to the
+ * centralised `DownloadType` enum (`m_code.code_category='DOWNLOAD_TYPE'`,
+ * seeder.md §5.19).
  */
 function classifyDownloadType(fileName: string): number {
-  if (fileName.includes('kouza_furikae')) return DOWNLOAD_TYPE.KOUZA_FURIKAE;
-  if (fileName.includes('zougen_renraku')) return DOWNLOAD_TYPE.ZOUGEN_RENRAKU;
-  if (fileName.includes('zougen_tsuchi')) return DOWNLOAD_TYPE.ZOUGEN_TSUCHI;
-  if (fileName.includes('meibo')) return DOWNLOAD_TYPE.MEIBO;
-  return DOWNLOAD_TYPE.OTHER;
+  if (fileName.includes('kouza_furikae')) return DownloadType.KOZA_FURIKAE;
+  if (fileName.includes('zougen_renraku')) return DownloadType.ZOUGEN;
+  if (fileName.includes('zougen_tsuchi')) return DownloadType.ZOUGEN_NICHINO;
+  if (fileName.includes('meibo')) return DownloadType.MEIBO;
+  return DownloadType.OTHER;
 }
 
 /**
@@ -413,7 +382,7 @@ export class FileUploadService {
       SELECT COUNT(*) AS total
         FROM t_file_upload fu
         LEFT JOIN m_ja j      ON j.ja_id    = fu.ja_id      AND j.deleted_at IS NULL
-        LEFT JOIN m_account a ON a.login_id = fu.created_by AND a.deleted_at IS NULL
+        LEFT JOIN m_account a ON a.account_id::text = fu.created_by AND a.deleted_at IS NULL
        WHERE ${whereSql}
     `;
     const countRows = await this.dataSource.query<Array<{ total: Numericish }>>(
@@ -448,7 +417,7 @@ export class FileUploadService {
           fu.created_at
         FROM t_file_upload fu
         LEFT JOIN m_ja j      ON j.ja_id    = fu.ja_id      AND j.deleted_at IS NULL
-        LEFT JOIN m_account a ON a.login_id = fu.created_by AND a.deleted_at IS NULL
+        LEFT JOIN m_account a ON a.account_id::text = fu.created_by AND a.deleted_at IS NULL
        WHERE ${whereSql}
        ORDER BY ${orderColumn} ${sort_order}
        LIMIT ${Number(per_page)} OFFSET ${(Number(page) - 1) * Number(per_page)}
@@ -559,7 +528,7 @@ export class FileUploadService {
           fileSize,
           recordCount: row.recordCount == null ? 0 : Number(row.recordCount),
           targetMonth,
-          createdBy: session.login_id,
+          createdBy: String(session.account_id),
         });
         const savedDownload = await manager.save(FileDownload, fileDownload);
 
@@ -572,7 +541,7 @@ export class FileUploadService {
             accountId: ctx.accountId,
             jaId: ctx.jaId,
             gamenName: ctx.screen,
-            operation: 'DOWNLOAD',
+            operation: AuditOperation.DOWNLOAD,
             resultStatus: ResultStatus.SUCCESS,
             targetId: ctx.targetId,
             targetTable: ctx.table,
@@ -593,11 +562,113 @@ export class FileUploadService {
     } catch (err) {
       // Error log lives OUTSIDE the rolled-back transaction so the
       // failure trace persists. Never pass `manager` here.
-      await this.auditLog.logError(ctx, 'DOWNLOAD', err as Error);
+      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
       throw err;
     }
 
     return { body, contentType, contentLength: fileSize, fileName: row.fileName };
+  }
+
+  /**
+   * 一括ダウンロード (SCR-022 §8) — bundle the selected files into one ZIP
+   * named `一括ダウンロード_yyyyMMddHHmmss.zip`. Strict: every requested id
+   * must exist AND be in DataScope (mirrors single-file download → 404 on a
+   * missing/out-of-scope id). One `t_file_download` row per bundled file
+   * (per-file history preserved) + one batch `t_log` entry, atomic.
+   */
+  async downloadZip(
+    fileUploadIds: number[],
+    session: SessionPayload,
+    req: Request,
+  ): Promise<DownloadResult> {
+    const rows = await this.repo.find({
+      where: { fileUploadId: In(fileUploadIds), deletedAt: IsNull() },
+    });
+    const byId = new Map(rows.map((r) => [Number(r.fileUploadId), r]));
+    // Resolve in the caller's selection order; reject the whole batch if any
+    // id is missing or out of scope (consistent + secure).
+    const ordered: FileUpload[] = [];
+    for (const id of fileUploadIds) {
+      const row = byId.get(id);
+      if (!row) throw new NotFoundException('ファイル');
+      this.assertScope(row, session);
+      ordered.push(row);
+    }
+
+    // Fetch every object from storage BEFORE the transaction — an S3 failure
+    // must leave no t_file_download / t_log side-effects (mirrors download()).
+    const fetched = await Promise.all(
+      ordered.map(async (row) => ({
+        row,
+        body: await this.storage.download(row.filePath),
+      })),
+    );
+
+    const zipBuffer = await buildZipArchive(
+      fetched.map((f) => ({ name: f.row.fileName, body: f.body })),
+    );
+    const fileName = `一括ダウンロード_${compactTimestampJst()}.zip`;
+
+    const ctx = buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null);
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        // One t_file_download row per bundled file (keep per-file history).
+        for (const f of fetched) {
+          const size =
+            f.row.fileSize == null
+              ? Buffer.byteLength(f.body)
+              : Number(f.row.fileSize);
+          await manager.save(
+            FileDownload,
+            manager.create(FileDownload, {
+              jaId: session.ja_id ?? null,
+              downloadDatetime: new Date(),
+              downloadType: classifyDownloadType(f.row.fileName),
+              fileName: f.row.fileName,
+              filePath: f.row.filePath,
+              fileSize: size,
+              recordCount:
+                f.row.recordCount == null ? 0 : Number(f.row.recordCount),
+              targetMonth: extractTargetMonth(f.row.fileName),
+              createdBy: String(session.account_id),
+            }),
+          );
+        }
+        // One batch operation log (log_type=4, operation='DOWNLOAD').
+        await this.auditLog.logOperation(
+          {
+            logType: LogType.FILE_OPERATION,
+            accountId: ctx.accountId,
+            jaId: ctx.jaId,
+            gamenName: ctx.screen,
+            operation: AuditOperation.DOWNLOAD,
+            resultStatus: ResultStatus.SUCCESS,
+            targetId: ctx.targetId,
+            targetTable: ctx.table,
+            beforeValue: '',
+            afterValue: JSON.stringify({
+              bulk: true,
+              zip_file_name: fileName,
+              file_count: fetched.length,
+              file_upload_ids: ordered.map((r) => Number(r.fileUploadId)),
+            }),
+            ipAddress: ctx.ipAddress,
+            userAgent: ctx.userAgent,
+          },
+          manager,
+        );
+      });
+    } catch (err) {
+      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
+      throw err;
+    }
+
+    return {
+      body: zipBuffer,
+      contentType: 'application/zip',
+      contentLength: Buffer.byteLength(zipBuffer),
+      fileName,
+    };
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -632,7 +703,7 @@ export class FileUploadService {
     // upload so a bad date fails cleanly with no side effects. Compared
     // at JST day precision (Asia/Tokyo) regardless of container TZ.
     const parsedDeleteDate = parseScheduledDeleteDate(scheduledDeleteDateInput);
-    if (parsedDeleteDate && parsedDeleteDate < todayJstDateString()) {
+    if (parsedDeleteDate && parsedDeleteDate < todayIsoJst()) {
       throw new ValidationException([
         {
           field: 'scheduled_delete_date',
@@ -671,7 +742,7 @@ export class FileUploadService {
         // timestamptz and discarded the user's selection — reported bug.
         const deleteDate =
           parsedDeleteDate ??
-          jstDateString(new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000));
+          dateOnlyIsoJst(new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000));
         for (const { jaId, file, filePath } of inputs) {
           const entity = manager.create(FileUpload, {
             jaId,
@@ -686,7 +757,7 @@ export class FileUploadService {
             status: 1,
             notificationStatus: 1,
             errorFilePath: '',
-            createdBy: session.login_id,
+            createdBy: String(session.account_id),
           });
           const saved = await manager.save(FileUpload, entity);
           this.logger.log({
@@ -703,7 +774,7 @@ export class FileUploadService {
               accountId: session.account_id,
               jaId,
               gamenName: SCR023_SCREEN,
-              operation: 'CREATE',
+              operation: AuditOperation.CREATE,
               resultStatus: ResultStatus.SUCCESS,
               targetId: Number(saved.fileUploadId),
               targetTable: TABLE_NAME,
@@ -743,7 +814,7 @@ export class FileUploadService {
         TABLE_NAME,
         null,
       );
-      await this.auditLog.logError(errorCtx, 'CREATE', err as Error);
+      await this.auditLog.logError(errorCtx, AuditOperation.CREATE, err as Error);
       throw err;
     }
 
@@ -814,7 +885,7 @@ export class FileUploadService {
       });
       await this.compensateStorage(uploadedKeys);
       const errorCtx = buildAuditCtx(session, req, SCR023_SCREEN, TABLE_NAME, null);
-      await this.auditLog.logError(errorCtx, 'CREATE', err as Error);
+      await this.auditLog.logError(errorCtx, AuditOperation.CREATE, err as Error);
       throw err;
     }
     return { uploadedKeys, inputs };
@@ -894,7 +965,7 @@ export class FileUploadService {
             accountId: ctx.accountId,
             jaId: ctx.jaId,
             gamenName: ctx.screen,
-            operation: 'DELETE',
+            operation: AuditOperation.DELETE,
             resultStatus: ResultStatus.SUCCESS,
             targetId: ctx.targetId,
             targetTable: ctx.table,
@@ -921,7 +992,7 @@ export class FileUploadService {
       });
       committed = true;
     } catch (err) {
-      await this.auditLog.logError(ctx, 'DELETE', err as Error);
+      await this.auditLog.logError(ctx, AuditOperation.DELETE, err as Error);
       throw err;
     }
 

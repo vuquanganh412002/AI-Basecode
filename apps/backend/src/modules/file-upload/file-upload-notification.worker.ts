@@ -1,4 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { AuditOperation } from '@/common/enums';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -210,7 +211,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
           ipAddress: '',
           userAgent: 'worker:file-upload-notification',
         },
-        'SEND_NOTIFICATION',
+        AuditOperation.SEND_NOTIFICATION,
         new Error(
           `${failed}/${total} recipients failed: ${failedEmails.map(maskEmail).join(', ')}`,
         ),

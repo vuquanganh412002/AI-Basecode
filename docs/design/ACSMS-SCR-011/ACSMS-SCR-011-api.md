@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/07 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                  | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/27 | 1.1  | Tran Duc Tuyen | 画面設計書 v1.1 反映：読者情報変更適用日（joho_henko_tekiyo_date）を入力項目として追加。項目仕様の整合修正 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/05/29 | 1.2  | Tran Duc Tuyen | 画面設計書 v1.1 追加反映：①郵送区分（yubin_kubun）を販売店連動の自動表示から `m_code.code_category='YUBIN_KUBUN'` プルダウン入力項目へ変更（commit e4a3721）、②引落口座支店をテキスト1項目から `bank_shiten_id`（`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込み）+ 自動表示ラベル（`jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name`）の3項目構成へ分割（commit cdc7ae6）、③機能定義の API パスを `/api/subscribers` から `/api/dokusya` へ統一（commit b2bbe9f）、④画面設計書のマークダウン表構造正規化への追従（commit a3b3204）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/06/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-06 反映：更新時の履歴 zenkai_* 退避ルールを変更。`haitatsu_same_flg=TRUE` のときは住所が変更されていなくても購読者住所（todofuken_code / shikuchoson / chome_banchi / tatemono_mei + yubin_no）を常に zenkai_* に格納する。増減報告フラグ（zougen_hokoku_flg）は zenkai_* 退避有無とは独立に、実際の変更（購読部数 / 販売店 / 住所）でのみ判定するよう明確化。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -710,6 +711,11 @@ WHERE email = :email
 
 ### 4.4 データ登録
 
+- `denshi_shonin_status`（電子申込承認ステータス）の初期値:
+  - 紙版（dokusya_shubetsu=1）: `NULL`（承認ワークフロー対象外）。
+  - 電子版（2）/ 併読（3）: `1`（承認済）。画面からの新規登録は職員操作のため
+    承認待ち(0)ではなく自動承認(1)とする（Excel一括取込と同方針 — 顧客要件）。
+
 - 支払方法=1（口座引落）の場合、`bank_shiten_id` を以下のSQLで解決し、`jastem_toriatsukai_tenpo_code` および `jastem_tenpo_name` を取得して `t_dokusya.bank_branch_code` / `bank_branch_name` に非正規化保存する（画面設計書 機能定義 §10.1）。
 
 ```sql
@@ -773,7 +779,7 @@ INSERT INTO t_dokusya (
   :dokusyaso_bunrui, :nogyosya_bunrui,
   :dokusya_kaishi_date, :dokusya_kaishi_date, :dokusya_chushi_date,
   :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko, 1,
-  NULL,
+  :denshi_shonin_status,  -- 紙版:NULL / 電子版・併読:1(承認済)
   NOW(), :user_account_id, NOW(), :user_account_id
 )
 RETURNING *
@@ -1195,10 +1201,21 @@ WHERE dokusya_id = :dokusya_id
     - 住所5項目 — `haitatsu_same_flg=TRUE` なら購読者住所（yubin_no / todofuken_code / shikuchoson / chome_banchi / tatemono_mei）、`FALSE` なら配達先住所（haitatsu_yubin_no / haitatsu_todofuken_code / haitatsu_shikuchoson / haitatsu_chome_banchi / haitatsu_tatemono_mei）
     - 解約（tetsuzuki_shurui=0）は購読部数が N→0 になるため上記「購読部数変更」に
       含まれ TRUE（change_notification_concept.md 解約例）。
-    （判定は zenkai_* 退避と同一条件。BE: buildZenkaiSnapshot の結果が空でなければ
-    TRUE。change_notification_concept.md の例：口座情報のみ変更=0 / 部数・販売店・
+    （判定は実際の変更有無のみで行う。BE: hasZougenReportableChange。
+    change_notification_concept.md の例：口座情報のみ変更=0 / 部数・販売店・
     住所変更=1 と一致）
 - zenkai_* 列：更新前の対応する値を格納する（増減比較用）。
+  - 住所5項目の zenkai_*（zenkai_yubin_no / zenkai_todofuken_code /
+    zenkai_shikuchoson / zenkai_chome_banchi / zenkai_tatemono_mei）の退避ルール
+    （顧客要件 2026-06）：
+    - `haitatsu_same_flg=TRUE` のとき：住所が変更されていなくても、購読者住所
+      （yubin_no / todofuken_code / shikuchoson / chome_banchi / tatemono_mei）
+      の値を **常に** zenkai_* に格納する。
+    - `haitatsu_same_flg=FALSE` のとき：従来どおり、配達先住所が1項目でも
+      変わったときのみ配達先住所5項目を退避する。
+  - 購読部数（zenkai_dokusya_busu）・販売店（zenkai_hanbaiten_id）は変更時のみ退避。
+  - zenkai_* の退避有無と zougen_hokoku_flg は独立（same_flg=TRUE で住所無変更でも
+    zenkai_* は退避するが、増減報告フラグは立てない）。
 
 ```sql
 INSERT INTO t_dokusya_rireki (

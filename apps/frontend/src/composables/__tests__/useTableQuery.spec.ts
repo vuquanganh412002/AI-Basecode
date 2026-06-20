@@ -2,7 +2,7 @@
 // state used by every list view. Lock the onChange/applyFilters/
 // resetFilters semantics + URL-sync path so changes here are visible.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createMemoryHistory, createRouter, type RouteRecordRaw } from 'vue-router';
 import { defineComponent } from 'vue';
@@ -25,6 +25,13 @@ interface HarnessVm {
   hasActiveFilters: () => boolean;
   filtersChangedSinceApplied: () => boolean;
   isPristine: () => boolean;
+  searchActions: (cfg: {
+    fetchList: () => void | Promise<void>;
+    beforeSearch?: () => boolean | void;
+    beforeClear?: () => void;
+    afterReset?: () => void;
+    clearFetch?: () => void | Promise<void>;
+  }) => { onSearch: () => void; onClear: () => void };
 }
 
 async function mountHarness(initial: string, syncUrl = false) {
@@ -319,5 +326,71 @@ describe('useTableQuery — filtersChangedSinceApplied', () => {
     expect(vm.filtersChangedSinceApplied()).toBe(true);  // 検索 must fetch (restore all)
     vm.applyFilters({ q: '' });            // that fetch applied the empty filter
     expect(vm.filtersChangedSinceApplied()).toBe(false); // further 検索 → no-op
+  });
+});
+
+describe('useTableQuery — searchActions (検索 / 検索クリア wiring)', () => {
+  it('onSearch fetches once when a filter changed, then is a no-op on repeat (no continuous calls)', async () => {
+    const { vm } = await mountHarness('/x');
+    const fetchList = vi.fn();
+    const { onSearch } = vm.searchActions({ fetchList });
+
+    vm.state.filters.q = 'abc';
+    onSearch();
+    expect(fetchList).toHaveBeenCalledTimes(1);
+
+    // Same criteria → no second fetch.
+    onSearch();
+    expect(fetchList).toHaveBeenCalledTimes(1);
+  });
+
+  it('onSearch does NOT fetch when the form is still at its defaults', async () => {
+    const { vm } = await mountHarness('/x');
+    const fetchList = vi.fn();
+    const { onSearch } = vm.searchActions({ fetchList });
+    onSearch();
+    expect(fetchList).not.toHaveBeenCalled();
+  });
+
+  it('onSearch runs beforeSearch first and aborts (no fetch) when it returns false', async () => {
+    const { vm } = await mountHarness('/x');
+    const fetchList = vi.fn();
+    const beforeSearch = vi.fn(() => false);
+    vm.state.filters.q = 'abc';
+    const { onSearch } = vm.searchActions({ fetchList, beforeSearch });
+    onSearch();
+    expect(beforeSearch).toHaveBeenCalledTimes(1);
+    expect(fetchList).not.toHaveBeenCalled();
+  });
+
+  it('onClear runs beforeClear ALWAYS but skips reset+fetch when pristine', async () => {
+    const { vm } = await mountHarness('/x');
+    const fetchList = vi.fn();
+    const beforeClear = vi.fn();
+    const afterReset = vi.fn();
+    const { onClear } = vm.searchActions({ fetchList, beforeClear, afterReset });
+    onClear();
+    expect(beforeClear).toHaveBeenCalledTimes(1); // local UI cleared regardless
+    expect(fetchList).not.toHaveBeenCalled();      // pristine → no refetch
+    expect(afterReset).not.toHaveBeenCalled();     // afterReset only on real reset
+  });
+
+  it('onClear resets, runs afterReset, and fetches via clearFetch when not pristine', async () => {
+    const { vm } = await mountHarness('/x');
+    const fetchList = vi.fn();
+    const clearFetch = vi.fn();
+    const afterReset = vi.fn();
+    const { onSearch, onClear } = vm.searchActions({ fetchList, afterReset, clearFetch });
+
+    // Apply a filter so the screen is non-pristine.
+    vm.state.filters.q = 'abc';
+    onSearch();
+    expect(fetchList).toHaveBeenCalledTimes(1);
+
+    onClear();
+    expect(vm.state.filters.q).toBe('');          // resetFilters restored defaults
+    expect(afterReset).toHaveBeenCalledTimes(1);
+    expect(clearFetch).toHaveBeenCalledTimes(1);  // クリア uses clearFetch override
+    expect(fetchList).toHaveBeenCalledTimes(1);   // not called again by クリア
   });
 });

@@ -18,6 +18,7 @@ import {
 
 import { ShitenService } from '@/modules/shiten/shiten.service';
 import { buildShiten } from '@test/fixtures/shiten.factory';
+import { buildKozaShitenDropdownRow } from '@test/fixtures/koza-furikae.factory';
 import {
   buildSession,
   buildChuokaiSession,
@@ -857,5 +858,106 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
       const result = await service.update(1, dtoWithKanri, buildChuokaiSession({ ja_id: 1 }), baseReq);
       expect(result.kanri_shiten_id).toBe(7);
     });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// ACSMS-API-COMMON-008 — Get Koza Shiten Dropdown (定義元: ACSMS-SCR-020)
+// GET /api/v1/shiten/koza-dropdown — 金融機関支店(kinyu_shiten_flg=TRUE)のみ。
+// ══════════════════════════════════════════════════════════════════════
+describe('ShitenService — COMMON-008 (koza-dropdown)', () => {
+  let service: any;
+  let repo: any;
+  let qbMock: any;
+  let kanriShitenRepo: any;
+  let auditLog: any;
+  let dataSource: any;
+
+  beforeEach(() => {
+    qbMock = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([
+        { shitenId: 10, shitenCode: '001', shitenName: '本店', kanriShitenId: 1 },
+        { shitenId: 11, shitenCode: '002', shitenName: '北支店', kanriShitenId: 1 },
+      ]),
+      getRawMany: jest.fn().mockResolvedValue([
+        buildKozaShitenDropdownRow({ shiten_id: 10 }),
+        buildKozaShitenDropdownRow({ shiten_id: 11, shiten_code: '002', shiten_name: '北支店' }),
+      ]),
+    };
+    repo = { createQueryBuilder: jest.fn(() => qbMock) };
+    kanriShitenRepo = { findOne: jest.fn(), find: jest.fn() };
+    auditLog = { logOperation: jest.fn() };
+    dataSource = { transaction: jest.fn(), query: jest.fn() };
+
+    service = new ShitenService(repo, kanriShitenRepo, dataSource, auditLog);
+  });
+
+  it('should return the koza-shiten list shaped { shiten_id, shiten_code, shiten_name, kanri_shiten_id } when called', async () => {
+    // COVERS: 4.3 / 4.4 レスポンスデータ
+    const result = await service.getKozaDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+
+    expect(Array.isArray(result.data)).toBe(true);
+    expect(result.data[0]).toEqual(
+      expect.objectContaining({
+        shiten_id: expect.any(Number),
+        shiten_code: expect.any(String),
+        shiten_name: expect.any(String),
+        kanri_shiten_id: expect.any(Number),
+      }),
+    );
+  });
+
+  it('should restrict the query to kinyu_shiten_flg = TRUE when building the koza-dropdown', async () => {
+    // COVERS: 4.3 WHERE kinyu_shiten_flg = TRUE
+    await service.getKozaDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+
+    const matched = qbMock.andWhere.mock.calls
+      .concat(qbMock.where.mock.calls)
+      .find(([sql]: any[]) => typeof sql === 'string' && /kinyu_?[Ss]hiten_?[Ff]lg/.test(sql));
+    expect(matched).toBeDefined();
+  });
+
+  it('should bind ja_id scope when the session role is CHUOKAI', async () => {
+    // COVERS: 4.2 DataScope ja_id = user.ja_id
+    await service.getKozaDropdown({}, buildChuokaiSession({ ja_id: 7 }));
+
+    const calls = qbMock.andWhere.mock.calls.concat(qbMock.where.mock.calls);
+    const scoped = calls.find(
+      ([sql, params]: any[]) =>
+        typeof sql === 'string' && /\bja_?[Ii]d\b/.test(sql) && params && JSON.stringify(params).includes('7'),
+    );
+    expect(scoped).toBeDefined();
+  });
+
+  it('should additionally bind kanri_shiten_id scope when the session role is JA_KANRI_SHITEN', async () => {
+    // COVERS: 4.2 DataScope JA_KANRI_SHITEN は kanri_shiten_id も絞込
+    await service.getKozaDropdown(
+      {},
+      buildJaKanriShitenSession({ ja_id: 1, kanri_shiten_id: 5 }),
+    );
+
+    const calls = qbMock.andWhere.mock.calls.concat(qbMock.where.mock.calls);
+    const scoped = calls.find(
+      ([_sql, params]: any[]) => params && JSON.stringify(params).includes('5'),
+    );
+    expect(scoped).toBeDefined();
+  });
+
+  it('should apply the kanri_shiten_ids filter when provided in the query', async () => {
+    // COVERS: 4.1 / 4.3 画面の絞込条件 kanri_shiten_ids
+    await service.getKozaDropdown(
+      { kanri_shiten_ids: [1, 2] },
+      buildChuokaiSession({ ja_id: 1 }),
+    );
+
+    const calls = qbMock.andWhere.mock.calls.concat(qbMock.where.mock.calls);
+    const filtered = calls.find(
+      ([_sql, params]: any[]) => params && JSON.stringify(params).includes('[1,2]'),
+    );
+    expect(filtered).toBeDefined();
   });
 });

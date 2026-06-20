@@ -1,4 +1,5 @@
 import { Tanka } from '@/database/entities/tanka.entity';
+import { dateOnlyIsoJst } from '@/common/utils/datetime';
 import { TankaResponseDto } from './dto/tanka-response.dto';
 
 /**
@@ -10,17 +11,14 @@ import { TankaResponseDto } from './dto/tanka-response.dto';
  */
 export function toTankaResponse(tanka: Tanka): TankaResponseDto {
   function tekiyoStartDateIso(): string {
-    if (typeof tanka.tekiyoStartDate === 'string') return tanka.tekiyoStartDate;
-    if (tanka.tekiyoStartDate) {
-      return (tanka.tekiyoStartDate as unknown as Date).toISOString().slice(0, 10);
-    }
-    return '';
+    // DATE 列。文字列('YYYY-MM-DD')はそのまま、Date は JST 暦日へ
+    // (toISOString().slice は UTC で早朝に1日ずれるため使わない)。
+    return dateOnlyIsoJst(tanka.tekiyoStartDate);
   }
 
   function tekiyoEndDateIso(): string | null {
     if (tanka.tekiyoEndDate === null || tanka.tekiyoEndDate === undefined) return null;
-    if (typeof tanka.tekiyoEndDate === 'string') return tanka.tekiyoEndDate;
-    return (tanka.tekiyoEndDate as unknown as Date).toISOString().slice(0, 10);
+    return dateOnlyIsoJst(tanka.tekiyoEndDate);
   }
 
   return {

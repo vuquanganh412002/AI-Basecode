@@ -693,9 +693,18 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it.todo(
-      'should throw ConflictException when t_dokusya_rireki has rows referencing the hanbaiten (re-enable when 購読者 SCR ships t_dokusya_rireki table)',
-    );
+    it('should throw ConflictException when t_dokusya_rireki has rows referencing the hanbaiten', async () => {
+      // COVERS: §4.4 conflict check on t_dokusya_rireki.hanbaiten_id
+      // (history table — counted even when t_dokusya itself is clear).
+      dataSource.query = jest.fn(async (sql: string) => {
+        if (/t_dokusya_rireki\b/i.test(sql)) return [{ count: '3' }];
+        return [{ count: '0' }];
+      });
+
+      await expect(
+        service.remove(5, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow(ConflictException);
+    });
 
     it('should surface ACSMS-MSG-018-004 literal when CONFLICT is raised', async () => {
       // COVERS: §4.4 — message literal must match the screen-design MSG row
@@ -2551,14 +2560,6 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           }),
         });
       });
-
-      it.todo(
-        'should reject with UNAUTHORIZED when no session is attached — covered in integration (guard-level)',
-      );
-
-      it.todo(
-        'should reject with TOO_MANY_REQUESTS when throttle limit is hit — covered in integration (Throttler)',
-      );
 
       it('should propagate FILE_FORMAT_ERROR when downstream parser rejects an unparseable payload', async () => {
         // §エラー一覧 row 11 — although this is more naturally raised on

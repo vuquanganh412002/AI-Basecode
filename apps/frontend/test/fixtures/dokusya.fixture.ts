@@ -13,6 +13,8 @@
 // SHIHARAI_HOHO / YUBIN_KUBUN / GENDER / MAIL_MAGAZINE_FLG /
 // YOKIN_SHUBETSU) come from docs/database/seeder.md §5.
 
+import { todayIsoTokyo } from '@/utils/datetime';
+
 export interface DokusyaDetail {
   dokusya_id: number;
   ja_id: number;
@@ -75,6 +77,7 @@ export interface DokusyaDetail {
   biko: string;
   rireki_no: number;
   denshi_shonin_status: number | null;
+  denshi_kaiin_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -225,6 +228,7 @@ export function buildDokusyaDetail(
     biko: '',
     rireki_no: 1,
     denshi_shonin_status: null,
+    denshi_kaiin_id: null,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
     ...overrides,
@@ -302,6 +306,9 @@ export function buildUpdateDokusyaForm(
     ...buildCreateDokusyaForm(),
     dokusya_busu: 2,
     chome_banchi: '千代田1-2',
+    // 編集時の 読者情報変更適用日 はユーザー入力で必須（既定は当日・過去日不可）。
+    // 当日を入れて update happy-path が通るようにする。
+    joho_henko_tekiyo_date: todayIsoTokyo(),
     ...overrides,
   };
 }
@@ -712,8 +719,10 @@ export interface DokusyaListRow {
   kumiaiin_code: string;
   full_name: string;
   full_name_kana: string;
+  tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;
@@ -756,8 +765,10 @@ export function buildDokusyaListRow(
     kumiaiin_code: 'K000001',
     full_name: '山田 太郎',
     full_name_kana: 'ヤマダ タロウ',
+    tetsuzuki_shurui: 1,
     renrakusaki_1: '03-1234-5678',
     renrakusaki_2: '',
+    haitatsu_full_name: '山田 花子',
     haitatsu_yubin_no: '1500001',
     haitatsu: '東京都渋谷区神宮前1-1-1 渋谷マンション101',
     hanbaiten_id: 501,

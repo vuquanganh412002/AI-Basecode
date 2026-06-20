@@ -1805,7 +1805,8 @@ Hiển thị 20 dòng trang đầu theo updated_at giảm dần, pagination hi�
 補足：
 ・Record được cập nhật mới nhất hiển thị ở đầu
 ・Theo data scope, chỉ record của chuokai của mình được trả về
-・Điều kiện thời gian áp dụng (`tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE`) được áp dụng
+・※ Yêu cầu khách hàng (2026-06): bỏ điều kiện thời gian áp dụng mặc định. Hiển thị
+　toàn bộ, kể cả record có ngày kết thúc áp dụng đã ở quá khứ (hết hạn)
 
 ### テスト結果（1回目）
 
@@ -2805,7 +2806,7 @@ Mỗi record chứa `tanka_id` / `tanka_type` / `tanka_code` / `tanka_name` / `t
 
 (なし)
 
-## ACSMS-TC-002-048 — Filter thời gian áp dụng (chỉ hiển thị từ CURRENT_DATE trở đi)
+## ACSMS-TC-002-048 — Mặc định hiển thị cả đơn giá hết hạn (bỏ filter thời gian áp dụng・yêu cầu KH 2026-06)
 
 - 観点ID: VP-B-05
 - 種類: Normal (正常)
@@ -2830,10 +2831,10 @@ Kiểm tra DB: `SELECT tanka_id, tekiyo_end_date FROM m_tanka WHERE ja_id = :ja_
 Màn hình được hiển thị
 
 ステップ2：
-Record có 適用終了日 `2025-12-31` (quá khứ) không được hiển thị, chỉ record có NULL (vô thời hạn) và `>= CURRENT_DATE` được hiển thị
+Cả record có 適用終了日 `2025-12-31` (quá khứ・hết hạn) lẫn record NULL (vô thời hạn) đều được hiển thị (không áp dụng lọc theo thời gian mặc định)
 
 ステップ3：
-Trong DB record quá khứ vẫn còn lưu lại (không bị xóa logical), nhưng bị loại trừ khỏi list bởi SQL của API `WHERE (tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE)`
+SQL của API KHÔNG còn điều kiện mặc định `WHERE (tekiyo_end_date IS NULL OR tekiyo_end_date >= CURRENT_DATE)`; ngoài logical-delete và data scope thì không loại trừ theo thời gian
 
 補足：
 ・Điều kiện thời gian áp dụng được áp dụng (api.md §4.3 điều kiện cơ bản)

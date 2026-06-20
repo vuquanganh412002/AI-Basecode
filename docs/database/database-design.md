@@ -635,6 +635,7 @@ updated_by: Tran Duc Tuyen
 | 59 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
 | 60 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 | 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 62 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | 電子版会員ID（外部システムの会員ID。外部連携機能が設定。全体一意） |
 
 ## インデックス
 
@@ -648,6 +649,7 @@ updated_by: Tran Duc Tuyen
 | 6 | IX_t_dokusya_hanbaiten_id | hanbaiten_id |  |  | 販売店別検索 |
 | 7 | IX_t_dokusya_ja_kumiaiin | ja_id, kumiaiin_code |  |  | 組合員コード複合検索 |
 | 8 | IX_t_dokusya_hierarchy | ja_id, kanri_shiten_id, shiten_id |  |  | 階層検索 |
+| 9 | UQ_t_dokusya_denshi_kaiin_id | denshi_kaiin_id |  | 〇 | 電子版会員ID一意（全レコード対象。NULL・削除済みを除く部分UNIQUE） |
 
 ---
 

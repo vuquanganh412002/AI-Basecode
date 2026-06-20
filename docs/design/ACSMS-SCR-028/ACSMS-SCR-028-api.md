@@ -69,7 +69,10 @@ updated_by: Tran Duc Tuyen
 | 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 8   | 画面固有     | NO_REPORT_DATA        | 対象のデータが存在しません。                                           | HTTP 404 |
+
+※ 対象0件は業務エラーではなく「検索成功・結果なし」として扱う。プレビュー・出力とも
+HTTP 200 を返し（プレビュー: `reports:[]`、出力: `{ data: { reports: [] } }`）、FE が画面内に
+ACSMS-MSG-028-002「対象のデータが存在しません。」を表示する（トーストではない）。
 
 ※ ACSMS-MSG-028-001「この機能はJAアカウントのみ使用できます。」は、画面ルートガード（FE）で
 NICHINO_ADMIN / NICHINO_STAFF をブロックする際に表示するメッセージである。API側は権限
@@ -92,7 +95,7 @@ NICHINO_ADMIN / NICHINO_STAFF をブロックする際に表示するメッセ�
 | リクエストボディー     | なし                                                                                                                                                                                                                                |
 | リクエストパラメーター | クエリパラメータ                                                                                                                                                                                                                    |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                |
-| HTTPレスポンスコード   | 200:正常にプレビューデータを取得しました, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象のデータが存在しません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:正常にプレビューデータを取得しました（対象0件のときは reports:[]）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -233,12 +236,17 @@ GET /api/v1/report/zougen-hanbaiten/preview?tekiyo_date=2026-05-01&hanbaiten_id=
 }
 ```
 
-### 404 Not Found（対象データなし）
+### 200 OK（対象データなし）
+
+対象0件は業務エラーではないため 200 を返す。FE は `reports.length === 0`（出力は
+レスポンスが application/json）を検出して画面内に ACSMS-MSG-028-002「対象のデータが
+存在しません。」を表示する。プレビューは `data.tekiyo_date` を併せて返す。
 
 ```json
 {
-  "error_code": "NO_REPORT_DATA",
-  "message": "対象のデータが存在しません。"
+  "data": {
+    "reports": []
+  }
 }
 ```
 
@@ -326,7 +334,7 @@ WHERE r.joho_henko_tekiyo_date = :tekiyo_date
 ORDER BY h.hanbaiten_code ASC, r.kanri_shiten_id ASC
 ```
 
-- 取得件数が0件の場合：HTTP 404 (`NO_REPORT_DATA`)（ACSMS-MSG-028-002「対象のデータが存在しません。」）
+- 取得件数が0件の場合：HTTP 200 + `reports:[]`（FE が ACSMS-MSG-028-002「対象のデータが存在しません。」を画面内表示）
 
 ### 4.5 レスポンス生成
 
@@ -367,7 +375,7 @@ ORDER BY h.hanbaiten_code ASC, r.kanri_shiten_id ASC
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                                |
 | リクエストパラメーター |                                                                                                                                                                                                                                                                    |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                |
-| HTTPレスポンスコード   | 200:正常に電子帳票を出力しました, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象のデータが存在しません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:正常に電子帳票を出力しました（対象0件のときは application/json で `{ data: { reports: [] } }`）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -457,12 +465,17 @@ Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filen
 }
 ```
 
-### 404 Not Found（対象データなし）
+### 200 OK（対象データなし）
+
+対象0件は業務エラーではないため 200 を返す。FE は `reports.length === 0`（出力は
+レスポンスが application/json）を検出して画面内に ACSMS-MSG-028-002「対象のデータが
+存在しません。」を表示する。プレビューは `data.tekiyo_date` を併せて返す。
 
 ```json
 {
-  "error_code": "NO_REPORT_DATA",
-  "message": "対象のデータが存在しません。"
+  "data": {
+    "reports": []
+  }
 }
 ```
 
@@ -506,7 +519,7 @@ Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filen
 ### 4.3 データ取得
 
 - `ACSMS-API-028-001` の 4.3 / 4.4 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`h.haiten_flg = false`、DataScope適用）。
-- 取得件数が0件の場合：HTTP 404 (`NO_REPORT_DATA`)（ファイルは生成しない。ACSMS-MSG-028-002 を表示）。
+- 取得件数が0件の場合：HTTP 200 + `application/json` `{ data: { reports: [] } }`（ファイルは生成しない。FE が ACSMS-MSG-028-002 を画面内表示）。
 
 ### 4.4 PDF生成・S3保存
 

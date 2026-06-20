@@ -11,9 +11,9 @@
 
 **版1.2**
 
-- **フォーマットコード**: 16-BM/PM/VTI
-- **フォーマットバージョン**: 1
-- **発行日**: 2019/04/19
+| フォーマットコード | 16-BM/PM/VTI |
+| フォーマットバージョン | 1 |
+| 発行日 | 2019/04/19 |
 
 ---
 
@@ -24,6 +24,7 @@
 | 1 | 2026/03/31 | 1.0 | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/04/13 | 1.1 | Nguyen Duyen Manh | 指摘対応<br>※修正箇所：<br>1. 「画面遷移」シート：UI更新<br>2. 「画面項目定義」シート：No.2、7、8、9、15、19、21<br>3. 「機能定義」シート：ステップ2.2、8.6、10<br>4. 「メッセージ表示」シート：メッセージNo.12 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3 | 2026/05/25 | 1.2 | Nguyen Duyen Manh | 指摘対応<br>※修正箇所：<br>1. 「画面イメージ」シート：UI更新<br>2. 「画面項目定義」シート：No.2、4、5、8、9、12、19、13、14、16、21、27<br>3. 「機能定義」シート：ステップ2.2、3.1<br>4. 「メッセージ表示」シート：メッセージNo.004の削除 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4 | 2026/06/16 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-06 反映<br>※修正箇所：<br>1. 「画面項目定義」検索エリア：氏名(No.4)・かな氏名(No.5)・配達先住所(No.6)・連絡先１(No.15) の部分一致対象カラムを購読者＋配達先の両方に拡張<br>2. 「検索結果テーブル」：支店・連絡先２ 列を削除、手続種類・購読種別・配達先氏名・支払方法 列を追加（計14列）<br>3. 「機能定義」ステップ8（Excel出力）：出力カラムを新一覧（14列）に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ---
 
@@ -62,9 +63,8 @@ ACSMS-SCR-014_購読者明細検索画面_画面遷移
 | --- | --- | --- | --- | --- | --- | --- |
 | クラウド版購読者管理システム | 画面設計書 | 画面イメージ | 2026/03/31 | Nguyen Duyen Manh | 2026/03/31 | Nguyen Duyen Manh |
 
-- **画面ID**: ACSMS-SCR-014
-- **画面名**: 購読者明細検索画面
-- **概要**: 購読者明細検索画面
+| 画面ID | ACSMS-SCR-014 | 概要 | 購読者明細検索画面 |
+| 画面名 | 購読者明細検索画面 | | |
 
 ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 
@@ -78,9 +78,8 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | --- | --- | --- | --- | --- | --- | --- |
 | クラウド版購読者管理システム | 画面設計書 | 画面項目定義 | 2026/03/31 | Nguyen Duyen Manh | 2026/03/31 | Nguyen Duyen Manh |
 
-- **画面ID**: ACSMS-SCR-014
-- **画面名**: 購読者明細検索画面
-- **概要**: 購読者明細検索画面
+| 画面ID | ACSMS-SCR-014 | 概要 | 購読者明細検索画面 |
+| 画面名 | 購読者明細検索画面 | | |
 
 ### 検索入力エリア
 
@@ -89,9 +88,9 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | 1 | 管理支店 | kanri_shiten_id | プルダウン | 入力 | - | BIGINT | - | 15 | 左 | - | 購読者テーブル | t_dokusya | 管理支店ID（外部キー） | kanri_shiten_id | 常時表示 | - |  |
 | 2 | 支店 | shiten_id | プルダウン | 入力 | - | BIGINT | - | 10 | 左 | - | 購読者テーブル | t_dokusya | 支店ID（外部キー） | shiten_id | 常時表示 | - |  |
 | 3 | 組合員コード | kumiaiin_code | テキストボックス | 入力 | - | BIGINT | - | 20 | 左 | - | 購読者テーブル | t_dokusya | 組合員コード | kumiaiin_code | 常時表示 | - | 部分一致検索 |
-| 4 | 氏名 | full_name | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | 氏名 | shimei_sei + shimei_mei | 常時表示 | - | 部分一致検索。shimei_seiとshimei_meiの組み合わせ |
-| 5 | かな氏名 | full_name_kana | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | かな氏名 | shimei_kana_sei + shimei_kana_mei | 常時表示 | - | 部分一致検索。shimei_kana_seiとshimei_kana_meiの組み合わせ |
-| 6 | 配達先住所 | haitatsu | テキストボックス | 入力 | - | VARCHAR | - | 50 | 左 | - | 購読者テーブル | t_dokusya | 配達先住所 | haitatsu_todofuken_code/haitatsu_shikuchoson/haitatsu_chome_banchi/haitatsu_tatemono_mei | 常時表示 | - | 部分一致検索。配達先の都道府県+市町村群+丁目番地+ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名の組み合わせ |
+| 4 | 氏名 | full_name | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | 氏名 | shimei_sei / shimei_mei / haitatsu_shimei_sei / haitatsu_shimei_mei | 常時表示 | - | 部分一致検索。購読者氏名（姓・名）と配達先氏名（姓・名）の各カラムにOR部分一致 |
+| 5 | かな氏名 | full_name_kana | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | かな氏名 | shimei_kana_sei / shimei_kana_mei / haitatsu_shimei_kana_sei / haitatsu_shimei_kana_mei | 常時表示 | - | 部分一致検索。購読者かな氏名（姓・名）と配達先かな氏名（姓・名）の各カラムにOR部分一致 |
+| 6 | 配達先住所 | haitatsu | テキストボックス | 入力 | - | VARCHAR | - | 50 | 左 | - | 購読者テーブル | t_dokusya | 配達先住所 | haitatsu_todofuken_code/haitatsu_shikuchoson/haitatsu_chome_banchi/haitatsu_tatemono_mei / todofuken_code/shikuchoson/chome_banchi/tatemono_mei | 常時表示 | - | 部分一致検索。配達先住所4項目（都道府県+市町村群+丁目番地+建物名）＋購読者住所4項目の各カラムにOR部分一致 |
 | 7 | 配達販売店 | hanbaiten_id | プルダウン | 入力 | - | BIGINT | - | - | 左 | - | 販売店マスタ | m_hanbaiten | 配達販売店 | hanbaiten_name | 常時表示 | - | hanbaiten_nameで表示され、キーはhanbaiten_idである |
 | 8 | 手続種類 | tetsuzuki_shurui | ラジオボタン | 入力 | - | INTEGER | - | - | 左 | - | 購読者テーブル | t_dokusya | 手続種類 | tetsuzuki_shurui | 常時表示 | - | 手続種類（0:解約、1:新規） |
 | 9 | 購読開始日 | shoki_dokusya_kaishi_date | カレンダー | 入力 | - | Date | - | - | 右 | - | 購読者テーブル | t_dokusya | 購読開始日 | shoki_dokusya_kaishi_date | 常時表示 | - |  |
@@ -105,7 +104,7 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 13 | 引落元口座支店コード | jastem_toriatsukai_tenpo_code | ドロップダウン | 入力 | - | VARCHAR | - | 3 | 左 | - | 購読者テーブル | t_dokusya | - | bank_branch_code | 常時表示 | - | 部分一致検索 |
 | 14 | 引落元口座支店名 | jastem_tenpo_name | ドロップダウン | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | - | bank_branch_name | 常時表示 | - | 部分一致検索 |
-| 15 | 連絡先１ | renrakusaki_1 | テキストボックス | 入力 | - | VARCHAR | - | 15 | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 | 常時表示 | - | 部分一致検索 |
+| 15 | 連絡先１ | renrakusaki_1 | テキストボックス | 入力 | - | VARCHAR | - | 15 | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 / haitatsu_renrakusaki_1 | 常時表示 | - | 部分一致検索。連絡先１と配達先連絡先１の各カラムにOR部分一致 |
 | 16 | メールアドレス | email | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | メールアドレス | email | 常時表示 | - | 部分一致検索 |
 | 17 | 請求開始月 | seikyu_kaishi_month | テキストボックス | 入力 | - | VARCHAR | - | 6 | 右 | - | 購読者テーブル | t_dokusya | 請求開始月 | seikyu_kaishi_month | 常時表示 | - | 部分一致検索 |
 | 18 | 適用日 | joho_henko_tekiyo_date | カレンダー | 入力 | - | Date | - | - | 右 | - | 購読者テーブル | t_dokusya | 適用日 | joho_henko_tekiyo_date | 常時表示 | - | 適用日が空欄なら購読者データの最新データフラグが１のものを抽出する。適用日が入力されているなら購読者データの変更適用日 <= 画面条件の適用日のものを抽出する。購読者データの変更適用日が画面条件の適用日以前のものを抽出する。 |
@@ -124,19 +123,22 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 
 | No | 項目名 | 項目ID | 項目タイプ | 入力/出力 | 必須 | 入力データ型 | 最小桁数 | 最大桁数 | 文字揃え | フォーマット | テーブル名（論理名） | テーブル名（物理名） | カラム名（論理名） | カラム名（物理名） | 表示条件 | デフォルト値 | 備考 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 24 | 管理支店 | kanri_shiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 管理支店ID（外部キー） | kanri_shiten_id | 常時表示 | - |  |
-| 25 | 支店 | shiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 支店名 | bank_branch_name | 常時表示 | - |  |
+| 24 | ID | dokusya_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読者ID | dokusya_id | 常時表示 | - | プレフィックス無しのDB値をそのまま表示 |
+| 25 | 管理支店 | kanri_shiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 管理支店ID（外部キー） | kanri_shiten_id | 常時表示 | - |  |
 | 26 | 組合員コード | kumiaiin_code | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 組合員コード | kumiaiin_code | 常時表示 | - |  |
 | 27 | 購読者名 | full_name | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読者名 | shimei_sei + shimei_mei | 常時表示 | - |  |
-| 28 | 連絡先１ | renrakusaki_1 | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 | 常時表示 | - |  |
-| 29 | 連絡先２ | renrakusaki_2 | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 連絡先2 | renrakusaki_2 | 常時表示 | - |  |
-| 30 | 配達先郵便 | haitatsu_yubin_no | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先郵便 | haitatsu_yubin_no | 常時表示 | - |  |
-| 31 | 配達先住所 | haitatsu | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先住所 | haitatsu_todofuken_code/haitatsu_shikuchoson/haitatsu_chome_banchi/haitatsu_tatemono_mei | 常時表示 | - |  |
-| 32 | 販売店コード | hanbaiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達販売店 | hanbaiten_id | 常時表示 | - |  |
-| 33 | 販売店名 | hanbaiten_name | ラベル | 出力 | - | - | - | - | 左 | - | 販売店マスタ | m_hanbaiten | 販売店名 | hanbaiten_name | 常時表示 | - |  |
-| 34 | 購読開始日 | shoki_dokusya_kaishi_date | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読開始日 | shoki_dokusya_kaishi_date | 常時表示 | - |  |
-| 35 | 購読中止日 | dokusya_chushi_date | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読中止日 | dokusya_chushi_date | 常時表示 | - |  |
-| 36 | 操作（列） | colActions | ラベル | 出力 | - | - | - | - | 中央 | - |  |  |  |  | 常時表示 | - | 「削除」を押下すると、確認ダイアログを表示し、論理削除（deleted_at設定）を実行する |
+| 28 | 手続種類 | tetsuzuki_shurui | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 手続種類 | tetsuzuki_shurui | 常時表示 | - | m_code(TETSUZUKI_SHURUI)のラベルを表示 |
+| 29 | 購読種別 | dokusya_shubetsu | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読種別 | dokusya_shubetsu | 常時表示 | - | m_code(DOKUSYA_SHUBETSU)のラベルを表示 |
+| 30 | 連絡先１ | renrakusaki_1 | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 | 常時表示 | - |  |
+| 31 | 配達先氏名 | haitatsu_full_name | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先氏名 | haitatsu_shimei_sei + haitatsu_shimei_mei | 常時表示 | - |  |
+| 32 | 配達先郵便 | haitatsu_yubin_no | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先郵便 | haitatsu_yubin_no | 常時表示 | - |  |
+| 33 | 配達先住所 | haitatsu | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先住所 | haitatsu_todofuken_code/haitatsu_shikuchoson/haitatsu_chome_banchi/haitatsu_tatemono_mei | 常時表示 | - |  |
+| 34 | 販売店コード | hanbaiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達販売店 | hanbaiten_id | 常時表示 | - |  |
+| 35 | 販売店名 | hanbaiten_name | ラベル | 出力 | - | - | - | - | 左 | - | 販売店マスタ | m_hanbaiten | 販売店名 | hanbaiten_name | 常時表示 | - |  |
+| 36 | 支払方法 | shiharai_hoho | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 支払方法 | shiharai_hoho | 常時表示 | - | m_code(SHIHARAI_HOHO)のラベルを表示 |
+| 37 | 購読開始日 | shoki_dokusya_kaishi_date | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読開始日 | shoki_dokusya_kaishi_date | 常時表示 | - |  |
+| 38 | 購読中止日 | dokusya_chushi_date | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読中止日 | dokusya_chushi_date | 常時表示 | - |  |
+| 39 | 操作（列） | colActions | ラベル | 出力 | - | - | - | - | 中央 | - |  |  |  |  | 常時表示 | - | 「削除」を押下すると、確認ダイアログを表示し、論理削除（deleted_at設定）を実行する |
 | 37 | ページネーション | pagination | ラベル | 出力 | - | - | - | - | - | - |  |  |  |  | 結果がある場合 | - | デフォルト20件/ページ |
 
 ---
@@ -147,9 +149,8 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | --- | --- | --- | --- | --- | --- | --- |
 | クラウド版購読者管理システム | 画面設計書 | 機能定義 | 2026/03/31 | Nguyen Duyen Manh | 2026/03/31 | Nguyen Duyen Manh |
 
-- **画面ID**: ACSMS-SCR-014
-- **画面名**: 購読者明細検索画面
-- **概要**: 購読者明細検索画面
+| 画面ID | ACSMS-SCR-014 | 概要 | 購読者明細検索画面 |
+| 画面名 | 購読者明細検索画面 | | |
 
 ### A. 機能一覧
 
@@ -164,7 +165,7 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | 7 | ページネーション | 検索結果一覧 | 検索完了時 | 検索結果を一覧形式で表示する |
 | 8 | Excel出力 | 検索結果一覧 | 出力ボタン押下 | 検索結果をExcel形式で出力。ダウンロード可能 |
 | 9 | 適用日 | 「適用日」ボタン | クリック | 適用日が空欄なら購読者データの最新データフラグが１のものを抽出。適用日が入力されているなら購読者データの変更適用日 <= 画面条件の適用日のものを抽出。購読者データの変更適用日が画面条件の適用日以前のものを抽出 |
-| 10 | ソート機能 | ヘッダ | クリック | 管理支店・支店・組合員コード・販売店コード・購読開始日・購読中止日によるソート機能 |
+| 10 | ソート機能 | ヘッダ | クリック | ID・管理支店・組合員コード・販売店コード・購読開始日・購読中止日によるソート機能 |
 
 ### B. 機能詳細
 
@@ -259,8 +260,8 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 #### 10. ソート機能
 
 - **10.1** ソート対象カラム:
+  - ・ID
   - ・管理支店
-  - ・支店
   - ・組合員コード
   - ・販売店コード
   - ・購読開始日
@@ -284,14 +285,13 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | --- | --- | --- | --- | --- | --- | --- |
 | クラウド版購読者管理システム | 画面設計書 | メッセージ情報 | 2026/03/31 | Nguyen Duyen Manh | 2026/03/31 | Nguyen Duyen Manh |
 
-- **画面ID**: ACSMS-SCR-014
-- **画面名**: 購読者明細検索画面
-- **概要**: 購読者明細検索画面
+| 画面ID | ACSMS-SCR-014 | 概要 | 購読者明細検索画面 |
+| 画面名 | 購読者明細検索画面 | | |
 
 | # | メッセージコード | メッセージ内容 |
 | --- | --- | --- |
 | 1 | ACSMS-MSG-014-001 | 検索が完了しました。 |
-| 2 | ACSMS-MSG-014-002 | 該当するデータが存在しません。 |
+| 2 | ACSMS-MSG-014-002 | 検索結果が見つかりませんでした。 |
 | 3 | ACSMS-MSG-014-003 | システムエラーが発生しました。しばらくしてから再度お試しください。 |
 | 4 | ACSMS-MSG-014-004 | アクセス権がありません。 |
 | 4 | ACSMS-MSG-014-004 | 検索条件をクリアしました。 |
