@@ -22,7 +22,6 @@
 export const DOKUSYA_IMPORT_JP_HEADERS = [
   'ID',
   '購読種別',
-  '手続種類',
   '管理支店',
   '支店',
   '組合員コード',
@@ -43,6 +42,7 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
   'マンション・アパート名',
   '連絡先１',
   '連絡先２',
+  '購読者情報と同じ',
   '郵便番号(配達先)',
   '都道府県(配達先)',
   '市町村郡(配達先)',
@@ -69,6 +69,7 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
   '購読中止日',
   '備考',
   '読者情報変更適用日',
+  '販売店適用日',
 ] as const;
 
 /**
@@ -80,7 +81,6 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
 export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'dokusya_id',
   'dokusya_shubetsu',
-  'tetsuzuki_shurui',
   'kanri_shiten_code',
   'shiten_code',
   'kumiaiin_code',
@@ -101,6 +101,7 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'tatemono_mei',
   'renrakusaki_1',
   'renrakusaki_2',
+  'haitatsu_same_flg',
   'haitatsu_yubin_no',
   'haitatsu_todofuken_code',
   'haitatsu_shikuchoson',
@@ -127,6 +128,7 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'dokusya_chushi_date',
   'biko',
   'joho_henko_tekiyo_date',
+  'hanbaiten_tekiyo_date',
 ] as const;
 
 /**
@@ -137,7 +139,6 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
  */
 export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
   'dokusya_shubetsu',
-  'tetsuzuki_shurui',
   'kanri_shiten_code',
   'shiten_code',
   'shimei_sei',
@@ -197,7 +198,6 @@ export function buildImportRow(
 ): Record<string, unknown> {
   return {
     dokusya_shubetsu: 1, // 紙版
-    tetsuzuki_shurui: 1, // 新規
     kanri_shiten_code: 'KS001',
     shiten_code: 'SH001',
     kumiaiin_code: 'K0001',
@@ -218,6 +218,8 @@ export function buildImportRow(
     yubin_kubun: '0',
     shiharai_hoho: 1, // 口座引落
     dokusya_kaishi_date: '2026-05-01',
+    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。既定で入れておく。
+    joho_henko_tekiyo_date: '2026-05-01',
     biko: '',
     ...overrides,
   };

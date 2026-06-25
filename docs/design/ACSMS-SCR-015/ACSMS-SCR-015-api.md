@@ -546,6 +546,7 @@ WHERE hanbaiten_id = :new_hanbaiten_id
 ```sql
 UPDATE t_dokusya
 SET hanbaiten_id = :new_hanbaiten_id,
+    joho_henko_tekiyo_date = :hanbaiten_tekiyo_date,  -- 顧客要件 2026-06: 販売店適用日に揃える
     rireki_no = rireki_no + 1,
     updated_at = NOW(),
     updated_by = :user_account_id
@@ -601,7 +602,7 @@ SELECT
   d.hanbaiten_id, d.tanka_id, d.yubin_kubun, d.shiharai_hoho, d.dokusyaryo_shiharai_cycle,
   d.bank_branch_code, d.bank_branch_name, d.hikiotoshi_yokin_shubetsu, d.hikiotoshi_koza_no, d.hikiotoshi_koza_meigi,
   d.dokusyaso_bunrui, d.nogyosya_bunrui,
-  d.shoki_dokusya_kaishi_date, d.dokusya_kaishi_date, d.dokusya_chushi_date, d.joho_henko_tekiyo_date,
+  d.shoki_dokusya_kaishi_date, d.dokusya_kaishi_date, d.dokusya_chushi_date, :hanbaiten_tekiyo_date,
   d.seikyu_kaishi_month, d.biko, '販売店一括置換',
   TRUE, TRUE, FALSE, FALSE,
   :zenkai_hanbaiten_id_per_dokusya, :hanbaiten_tekiyo_date,
@@ -614,6 +615,7 @@ WHERE d.dokusya_id = :dokusya_id
 - `zougen_hokoku_flg`：販売店変更のため `TRUE`（増減報告対象）。
 - `zenkai_hanbaiten_id`：更新前の `t_dokusya.hanbaiten_id`（4.3 で取得した値）を設定する。
 - `hanbaiten_tekiyo_date`：リクエストの `hanbaiten_tekiyo_date` を設定する。
+- `joho_henko_tekiyo_date`（顧客要件 2026-06）：**販売店のみ変更イベントのため `hanbaiten_tekiyo_date` と同じ適用日を設定する**（`hanbaiten_tekiyo_date = joho_henko_tekiyo_date`。UI 編集 Rule2 / SCR-011 §8.1・§14.3 と同一）。マスタ側 `t_dokusya.joho_henko_tekiyo_date` も同日に更新し、最新履歴（saishin）と整合させる。
 
 ### 4.6 操作ログ記録
 

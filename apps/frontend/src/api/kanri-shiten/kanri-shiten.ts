@@ -103,18 +103,33 @@ export interface KanriShitenDropdownEnvelope {
   meta?: { total: number; page: number; per_page: number; has_more: boolean };
 }
 
+export interface KanriShitenDropdownQuery {
+  ja_id: number;
+  q?: string;
+  /** 'both' (default) matches kanri_shiten_code OR kanri_shiten_name; 'name' matches name only. */
+  match_field?: 'both' | 'name';
+  page?: number;
+  per_page?: number;
+  include_id?: number;
+}
+
 /**
  * Shared dropdown lookup used by SCR-007 / SCR-024 / SCR-025 forms.
  * Authenticated-only — no role gate (the caller's screen-level guard
  * already authorized the user). Spec:
  * `docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md §ACSMS-API-COMMON-004`.
+ *
+ * 後方互換: 数値 `jaId` を渡すと従来どおり全件取得（ページングなし）。
+ * 検索/ページング/無限スクロールを使う呼び出し元（SCR-028 マルチセレクト等）は
+ * クエリオブジェクト（q / page / per_page / match_field / include_id）を渡す。
  */
 export async function getKanriShitenDropdown(
-  jaId: number,
+  arg: number | KanriShitenDropdownQuery,
 ): Promise<KanriShitenDropdownEnvelope> {
+  const params = typeof arg === 'number' ? { ja_id: arg } : arg;
   const res = await axiosInstance.get<KanriShitenDropdownEnvelope>(
     '/api/v1/kanri-shiten/dropdown',
-    { params: { ja_id: jaId } },
+    { params },
   );
   return res.data;
 }

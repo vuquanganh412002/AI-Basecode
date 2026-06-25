@@ -1,6 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import Antd from 'ant-design-vue';
+import Antd, { message } from 'ant-design-vue';
 // Antd reset is imported INSIDE styles/tailwind.css with `layer(antd)` so
 // Tailwind utilities (in layer(utilities), declared later) win the cascade.
 // Importing reset.css directly here would put it unlayered, which wins
@@ -25,10 +25,9 @@ async function bootstrap() {
    */
   app.config.errorHandler = (err, _vm, info) => {
     // Avoid pulling in useNotify here — at this point Vue may be in a
-    // partial state. Use antd's global message API directly.
-    void import('ant-design-vue').then(({ message }) => {
-      message.error('予期しないエラーが発生しました。');
-    });
+    // partial state. Use antd's global `message` API directly (statically
+    // imported above; Antd is already in the main bundle via `app.use`).
+    message.error('予期しないエラーが発生しました。');
     console.error('[Vue errorHandler]', err, info);
   };
 

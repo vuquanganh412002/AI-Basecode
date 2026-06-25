@@ -186,4 +186,29 @@ describe('CreateShitenDto', () => {
       expect(errs).toHaveLength(0);
     });
   });
+
+  // 顧客要件 2026-06: 店舗名はカタカナ・英数字は半角だが、漢字・ひらがなは入力可。
+  // 顧客要件 2026-06-25: 銀行charset限定 [ｱ-ﾟ A-Z0-9.()\-]。
+  describe('jastem_tenpo_name (店舗名 — 銀行charset: 半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -)', () => {
+    const ok = ['ﾎﾝﾃﾝ', 'BR123', 'ﾐﾄﾞﾘ', 'A.B-C (1)']; // max 15
+    const ng = [
+      '本店', // 漢字
+      'ほんてん', // ひらがな
+      'ホンテン', // 全角カタカナ
+      'ＢＲ', // 全角英数
+      'br', // 半角英小文字
+      'ﾎﾝﾃﾝｰ', // 長音符 ｰ（範囲外）
+      'ｷｬｸ', // 小書き半角カナ
+    ];
+
+    it.each(ok)('should pass with %s', async (v) => {
+      const errs = await check({ ...VALID, jastem_tenpo_name: v });
+      expect(errs.some((e) => e.property === 'jastem_tenpo_name')).toBe(false);
+    });
+
+    it.each(ng)('should fail with %s', async (v) => {
+      const errs = await check({ ...VALID, jastem_tenpo_name: v });
+      expect(errs.some((e) => e.property === 'jastem_tenpo_name')).toBe(true);
+    });
+  });
 });

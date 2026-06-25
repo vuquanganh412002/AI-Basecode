@@ -288,7 +288,9 @@ export function buildCreateDokusyaForm(
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲,野菜',
-    dokusya_kaishi_date: '2026-04-01',
+    // 購読開始日は本日以降（過去日不可）。当日を既定にして create happy-path が
+    // 通るようにする（固定日だと時間経過で過去日になり検証に弾かれるため動的）。
+    dokusya_kaishi_date: todayIsoTokyo(),
     dokusya_chushi_date: null,
     joho_henko_tekiyo_date: null,
     seikyu_kaishi_month: '',

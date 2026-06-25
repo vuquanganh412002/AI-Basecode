@@ -7,7 +7,9 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -80,4 +82,28 @@ export class ZougenNichinoQueryDto {
   @ValidateNested({ each: true })
   @Type(() => ZougenNichinoRemarkDto)
   remarks?: ZougenNichinoRemarkDto[];
+
+  // ─── ページ送り（preview のみ。export PDF は全件で無視）───────────────
+  @ApiPropertyOptional({
+    description: 'ページ番号（1始まり）。preview のみ。未指定時は1',
+    example: 1,
+    default: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'ページ番号は整数で指定してください。' })
+  @Min(1, { message: 'ページ番号は1以上で指定してください。' })
+  page?: number;
+
+  @ApiPropertyOptional({
+    description: '1ページの販売店行数（1〜500。≒購読者数）。preview のみ。未指定時は15',
+    example: 15,
+    default: 15,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '1ページの行数は整数で指定してください。' })
+  @Min(1, { message: '1ページの行数は1以上で指定してください。' })
+  @Max(500, { message: '1ページの行数は500以下で指定してください。' })
+  per_page?: number;
 }

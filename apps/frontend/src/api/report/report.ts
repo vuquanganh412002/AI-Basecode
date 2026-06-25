@@ -11,8 +11,12 @@ export interface MeiboReportQuery {
   kanri_shiten_ids?: number[];
   /** 1: 紙版, 2: 電子版（併読(3)は本帳票では選択不可）。 */
   dokusya_shubetsu?: number;
-  /** 購読料支払サイクル（月数）。report_type=kanri_shiten のみ。 */
-  shiharai_cycle?: number;
+  /** 支払方法（m_code SHIHARAI_HOHO: 1=口座引落 … 9=その他）。両帳票種別で有効。 */
+  shiharai_hoho?: number;
+  /** 文書ページ番号（1始まり）。preview のみ。未指定時は1。 */
+  page?: number;
+  /** 1ページの明細行数。preview のみ。未指定時は50。 */
+  per_page?: number;
 }
 
 // ─── 販売店別購読者名簿 (report_type=hanbaiten) ─────────────────────────
@@ -32,6 +36,10 @@ export interface KanriShitenSubGroup {
   kanri_shiten_name: string;
   subtotal_busu: number;
   rows: HanbaitenReportRow[];
+  /** ページ送り: 前ページから継続（見出しに「(続き)」）。 */
+  is_continued?: boolean;
+  /** ページ送り: このページでグループが終わる（小計を表示）。 */
+  show_subtotal?: boolean;
 }
 
 export interface HanbaitenGroup {
@@ -42,6 +50,8 @@ export interface HanbaitenGroup {
   hanbaiten_fax: string;
   total_busu: number;
   kanri_shiten_groups: KanriShitenSubGroup[];
+  is_continued?: boolean;
+  show_total?: boolean;
 }
 
 // ─── 管理支店別購読者名簿 (report_type=kanri_shiten) ────────────────────
@@ -66,6 +76,9 @@ export interface KanriShitenGroup {
   subtotal_busu: number;
   total_busu: number;
   rows: KanriShitenReportRow[];
+  is_continued?: boolean;
+  show_subtotal?: boolean;
+  show_total?: boolean;
 }
 
 export interface MeiboPreviewData {
@@ -76,6 +89,14 @@ export interface MeiboPreviewData {
   grand_total_busu: number;
   hanbaiten_groups: HanbaitenGroup[];
   kanri_shiten_groups: KanriShitenGroup[];
+  /** ページ送りメタ（preview のみ設定）。 */
+  page_no?: number;
+  per_page?: number;
+  total_pages?: number;
+  total_rows?: number;
+  is_last_page?: boolean;
+  /** 全ページ通算のトップレベルグループ数（合計行の表示要否判定用）。 */
+  group_count?: number;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */
@@ -113,6 +134,12 @@ export interface ZougenHanbaitenQuery {
   hanbaiten_id?: number[];
   /** 未指定時は全管理支店。 */
   kanri_shiten_id?: number[];
+  /** 文書ページ番号（1始まり）。preview のみ。未指定時は1。 */
+  page?: number;
+  /** 1ページのレコード数。preview のみ。未指定時は15。 */
+  per_page?: number;
+  /** 発行日時（プレビュー押下時刻 `YYYY/MM/DD HH:mm`）。export のみ。PDFフッタに印字。 */
+  issued_at?: string;
 }
 
 /** 増部 / 減部 の1レコード。 */
@@ -148,11 +175,19 @@ export interface ZougenReport {
   zoubu: ZougenEntry[];
   genbu: ZougenEntry[];
   address_change: ZougenAddressChangeRow[];
+  /** ページ送り: この販売店が前ページから継続（見出しに「(続き)」）。 */
+  is_continued?: boolean;
 }
 
 export interface ZougenPreviewData {
   tekiyo_date: string;
   reports: ZougenReport[];
+  /** ページ送りメタ（preview のみ）。 */
+  page_no?: number;
+  per_page?: number;
+  total_pages?: number;
+  total_rows?: number;
+  is_last_page?: boolean;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */
@@ -191,13 +226,17 @@ export interface ZougenNichinoRemark {
   biko?: string;
 }
 
-/** Query DTO shared by preview (GET) + PDF/ZIP export (POST body). */
+/** Query DTO shared by preview (GET) + PDF export (POST body). */
 export interface ZougenNichinoQuery {
   tekiyo_date: string;
   /** 未指定時はスコープ内の全管理支店。 */
   kanri_shiten_id?: number[];
   /** 出力時のみ。管理支店ごとの「＜備考＞」欄テキスト。 */
   remarks?: ZougenNichinoRemark[];
+  /** ページ番号（1始まり）。preview のみ。未指定時は1。 */
+  page?: number;
+  /** 1ページの販売店行数（≒購読者数）。preview のみ。未指定時は15。 */
+  per_page?: number;
 }
 
 /** 帳票明細の1行（販売店単位）。 */
@@ -243,6 +282,12 @@ export interface ZougenNichinoReport {
 export interface ZougenNichinoPreviewData {
   tekiyo_date: string;
   reports: ZougenNichinoReport[];
+  /** ページ送りメタ（preview のみ）。 */
+  page_no?: number;
+  per_page?: number;
+  total_pages?: number;
+  total_rows?: number;
+  is_last_page?: boolean;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */
@@ -256,7 +301,14 @@ export async function previewZougenNichino(
 ): Promise<ZougenNichinoPreviewEnvelope> {
   const res = await axiosInstance.get<ZougenNichinoPreviewEnvelope>(
     '/api/v1/report/zougen-nichino/preview',
-    { params: { tekiyo_date: query.tekiyo_date, kanri_shiten_id: query.kanri_shiten_id } },
+    {
+      params: {
+        tekiyo_date: query.tekiyo_date,
+        kanri_shiten_id: query.kanri_shiten_id,
+        page: query.page,
+        per_page: query.per_page,
+      },
+    },
   );
   return res.data;
 }

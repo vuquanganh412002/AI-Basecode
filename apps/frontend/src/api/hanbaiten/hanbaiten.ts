@@ -122,8 +122,12 @@ export interface HanbaitenDropdownQuery {
   /** Optional JA filter (NICHINO_* 代行入力 only — JA-scoped roles let session.ja_id win). */
   ja_id?: number;
   q?: string;
+  /** 'both' (default) matches hanbaiten_code OR hanbaiten_name; 'name' matches name only. */
+  match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
+  /** Edit-mode pin — force the selected id onto page 1 so its label resolves. */
+  include_id?: number;
 }
 
 /**

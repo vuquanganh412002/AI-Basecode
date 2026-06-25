@@ -29,7 +29,12 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
-import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import {
+  HALF_WIDTH_KATAKANA_RE,
+  JASTEM_NAME_RE,
+  kanaFormatMessage,
+  jastemNameFormatMessage,
+} from '@/utils/kana';
 import { RoleCode } from '@/constants/enums';
 import {
   createJa,
@@ -171,11 +176,11 @@ const KANA_FORMAT_MSG = kanaFormatMessage('JA名');
 // instant feedback without a server round-trip.
 const ITAKUSHA_CODE_FORMAT_MSG =
   '委託者コードは半角英数字で入力してください（スペース不可）。';
-const ITAKUSHA_NAME_FORMAT_MSG = '委託者名は半角文字で入力してください。';
+// 委託者名・農協名 — カタカナ/英数字は半角、漢字・ひらがなは可（JASTEM_NAME_RE）。
+const ITAKUSHA_NAME_FORMAT_MSG = jastemNameFormatMessage('委託者名');
 const JA_NUM_FORMAT_MSG = '農協番号は半角数字で入力してください。';
-const JA_NAME_FORMAT_MSG = '農協名は半角カタカナ・半角数字で入力してください。';
+const JA_NAME_FORMAT_MSG = jastemNameFormatMessage('農協名');
 const ITAKUSHA_CODE_RE = /^[A-Za-z0-9]+$/;
-const HALF_WIDTH_RE = /^[\x20-\x7E｡-ﾟ]+$/u; // ASCII printable + half-width kana
 const DIGITS_RE = /^\d+$/;
 
 function validateClient(form: CreateJaRequest): Record<string, string> {
@@ -221,13 +226,13 @@ function validateClient(form: CreateJaRequest): Record<string, string> {
   if (form.jastem_itakusha_code && !ITAKUSHA_CODE_RE.test(form.jastem_itakusha_code)) {
     errs.jastem_itakusha_code = ITAKUSHA_CODE_FORMAT_MSG;
   }
-  if (form.jastem_itakusha_name && !HALF_WIDTH_RE.test(form.jastem_itakusha_name)) {
+  if (form.jastem_itakusha_name && !JASTEM_NAME_RE.test(form.jastem_itakusha_name)) {
     errs.jastem_itakusha_name = ITAKUSHA_NAME_FORMAT_MSG;
   }
   if (form.jastem_ja_code && !DIGITS_RE.test(form.jastem_ja_code)) {
     errs.jastem_ja_code = JA_NUM_FORMAT_MSG;
   }
-  if (form.jastem_ja_name && !HALF_WIDTH_KATAKANA_RE.test(form.jastem_ja_name)) {
+  if (form.jastem_ja_name && !JASTEM_NAME_RE.test(form.jastem_ja_name)) {
     errs.jastem_ja_name = JA_NAME_FORMAT_MSG;
   }
 

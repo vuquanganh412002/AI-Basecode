@@ -196,8 +196,30 @@ const router = useRouter();
 const notify = useNotify();
 const codes = useCodesStore();
 const authStore = useAuthStore();
+// 氏名系8項目 — 登録・更新時に前後空白がトリムされる対象。
+const NAME_FIELDS = [
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+] as const;
+
 // 編集で何も変更せず更新した場合に PUT/ログ/履歴をスキップするガード。
-const editGuard = useEditGuard(() => formState);
+// 比較は「実際に保存される値」を基準にする：氏名系8項目は送信前にトリム
+// されるので、baseline／現在の両方でトリムしてから比較する。これで
+// (a) ロード値の前後空白、(b) 前後空白だけの編集、どちらも「変更」と誤検知
+// しない（保存結果が変わらないため）。
+const editGuard = useEditGuard(() => {
+  const snap: Record<string, unknown> = { ...formState };
+  for (const f of NAME_FIELDS) {
+    if (typeof snap[f] === 'string') snap[f] = (snap[f] as string).trim();
+  }
+  return snap;
+});
 
 /**
  * Session の ja_id (JA-scoped roles: CHUOKAI / JA_HONTEN /
@@ -261,6 +283,10 @@ const isRecordReadOnly = computed(
 const detailRireki = ref<number | null>(null);
 // DB 登録時の購読部数（編集モードで 解約→0 にした後、新規 に戻したとき復元する）。
 const originalDokusyaBusu = ref<number>(1);
+// 読込時の手続種類・支払方法（再加入可否 canResubscribe 判定用。手続種類は編集で
+// 可変になり得るため、判定は読込時のスナップショットで固定する＝循環回避）。
+const originalTetsuzukiShurui = ref<number | null>(null);
+const originalShiharaiHoho = ref<number | null>(null);
 const detailDenshiShoninStatus = ref<number | null>(null);
 /** 電子版読者種別 (m_code DENSHI_DOKUSYA_SHUBETSU). Edit-mode readonly. */
 const detailDenshiDokusyaShubetsu = ref<number | null>(null);
@@ -475,6 +501,9 @@ async function loadDetail(id: number): Promise<void> {
     originalHanbaitenId.value = resp.data.hanbaiten_id ?? null;
     // DB 登録時の部数を控える（解約→新規 と切替えたとき復元する）。
     originalDokusyaBusu.value = resp.data.dokusya_busu;
+    // 読込時の手続種類・支払方法を控える（canResubscribe 判定用スナップショット）。
+    originalTetsuzukiShurui.value = resp.data.tetsuzuki_shurui;
+    originalShiharaiHoho.value = resp.data.shiharai_hoho;
     detailRireki.value = resp.data.rireki_no;
     detailDenshiShoninStatus.value = resp.data.denshi_shonin_status;
     detailDenshiDokusyaShubetsu.value = resp.data.denshi_dokusya_shubetsu;
@@ -531,9 +560,23 @@ watch(
   },
 );
 
-// 手続種類: 新規(1)=購読中止日 入力不可 / 解約(0)=購読中止日 必須。
-const isNewTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === 1);
+// 購読中止日（解約予定日）: 編集画面では任意入力可（手続種類は変更不可）。
+// 新規作成画面では入力不可。解約処理自体は日次バッチが本日付で実行する
+// （顧客要件 2026-06。バッチ未実装。UPDATE API は日付を保存するのみ）。
 const isCancelTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === 0);
+
+// 再加入可否（顧客要件 2026-06）: 解約済みの購読者を編集する際、購読開始日と
+// 手続種類を再度入力可にする条件。判定は読込時スナップショット（手続種類は
+// 編集で可変になるため循環回避）。dokusya_shubetsu は編集で不変。
+//   (紙版 かつ 解約) または (電子版 かつ 支払方法≠クレカ かつ 解約)
+const canResubscribe = computed(
+  () =>
+    isEdit.value &&
+    Number(originalTetsuzukiShurui.value) === 0 && // 解約
+    (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.PAPER ||
+      (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+        Number(originalShiharaiHoho.value) !== ShiharaiHoho.CREDIT_CARD)),
+);
 
 // ── 販売店変更時の情報変更適用日 (画面項目定義 No.54) ─────────────────
 // 編集モードで販売店 (hanbaiten_id) を変更した場合のみ「適用日」を表示・
@@ -745,6 +788,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
 const BIKO_MAX = 500;
 const BIKO_MSG = '備考は500文字以内で入力してください。';
+const KAISHI_DATE_NOT_PAST_MSG = '購読開始日は本日以降の日付を入力してください。';
+const BUSU_MIN_MSG = '購読部数は1以上で入力してください。';
 
 function isBlank(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -818,6 +863,18 @@ function validateKaishiAndEmail(errs: Record<string, string>): void {
   if (!isDigitalKozaCreate.value && !formState.dokusya_kaishi_date) {
     errs.dokusya_kaishi_date = REQUIRED_MSG;
   }
+  // 購読開始日は本日以降（過去日不可）。編集モードは読取専用で既存の過去日を
+  // そのまま保持するため対象外。電子版+口座引落 create はラジオ(今日/翌月1日)で
+  // 確定するので date-picker 経路（!isDigitalKozaCreate）のみチェック。
+  if (
+    !isEdit.value &&
+    !isDigitalKozaCreate.value &&
+    !errs.dokusya_kaishi_date &&
+    formState.dokusya_kaishi_date &&
+    formState.dokusya_kaishi_date < todayIsoTokyo()
+  ) {
+    errs.dokusya_kaishi_date = KAISHI_DATE_NOT_PAST_MSG;
+  }
   if (isDigitalOrBoth.value && !formState.email?.trim()) {
     errs.email = REQUIRED_MSG;
   } else if (formState.email && !EMAIL_RE.test(formState.email)) {
@@ -842,10 +899,17 @@ function validateHaitatsuCluster(errs: Record<string, string>): void {
     errs.haitatsu_shikuchoson = REQUIRED_MSG;
   if (!formState.haitatsu_chome_banchi?.trim())
     errs.haitatsu_chome_banchi = REQUIRED_MSG;
-  if (!formState.haitatsu_shimei_sei?.trim())
+  // 配達先苗字/名前（漢字）— 購読者氏名（氏/名）と同じく必須＋漢字のみ。
+  if (!formState.haitatsu_shimei_sei?.trim()) {
     errs.haitatsu_shimei_sei = REQUIRED_MSG;
-  if (!formState.haitatsu_shimei_mei?.trim())
+  } else if (!KANJI_RE.test(formState.haitatsu_shimei_sei)) {
+    errs.haitatsu_shimei_sei = KANJI_MSG;
+  }
+  if (!formState.haitatsu_shimei_mei?.trim()) {
     errs.haitatsu_shimei_mei = REQUIRED_MSG;
+  } else if (!KANJI_RE.test(formState.haitatsu_shimei_mei)) {
+    errs.haitatsu_shimei_mei = KANJI_MSG;
+  }
   if (!formState.haitatsu_shimei_kana_sei?.trim()) {
     errs.haitatsu_shimei_kana_sei = REQUIRED_MSG;
   } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_sei)) {
@@ -876,6 +940,10 @@ function validateBankCluster(errs: Record<string, string>): void {
 function validateMisc(errs: Record<string, string>): void {
   if (formState.biko && formState.biko.length > BIKO_MAX) {
     errs.biko = BIKO_MSG;
+  }
+  // 購読部数: 解約以外は 1 以上（解約 (手続種類=0) は §8 で 0 固定・readonly）。
+  if (!isCancelTetsuzuki.value && Number(formState.dokusya_busu) <= 0) {
+    errs.dokusya_busu = BUSU_MIN_MSG;
   }
   // 解約 (手続種類=0) のとき購読中止日は必須。新規 (=1) は入力不可なので対象外。
   if (isCancelTetsuzuki.value && !formState.dokusya_chushi_date?.trim()) {
@@ -1029,25 +1097,20 @@ function handleServerError(err: unknown): void {
  * 入力欄にもトリム結果が反映される（ペースト/IME確定の余分な空白対策）。
  */
 function trimNameFields(): void {
-  formState.shimei_sei = formState.shimei_sei.trim();
-  formState.shimei_mei = formState.shimei_mei.trim();
-  formState.shimei_kana_sei = formState.shimei_kana_sei.trim();
-  formState.shimei_kana_mei = formState.shimei_kana_mei.trim();
-  formState.haitatsu_shimei_sei = formState.haitatsu_shimei_sei.trim();
-  formState.haitatsu_shimei_mei = formState.haitatsu_shimei_mei.trim();
-  formState.haitatsu_shimei_kana_sei = formState.haitatsu_shimei_kana_sei.trim();
-  formState.haitatsu_shimei_kana_mei = formState.haitatsu_shimei_kana_mei.trim();
+  for (const f of NAME_FIELDS) {
+    const v = formState[f];
+    if (typeof v === 'string') formState[f] = v.trim();
+  }
 }
 
 async function onSubmit(): Promise<void> {
   // 併読(3) / 電子版クレカ は編集不可 — 保存を弾く (BE も 403)。承認/否認は
   // 専用ボタン経由なのでここは更新パスのみガードする。
   if (isRecordReadOnly.value) return;
-  // 氏名系8項目は登録・更新前に前後空白を除去（バリデーション前）。
-  trimNameFields();
-  if (!validateClient()) return;
   // 編集で何も変更していない場合は更新（PUT・監査ログ・t_dokusya_rireki 履歴）を
   // スキップ。承認待ち(承認パス)は対象外。
+  // trimNameFields() より前に判定すること — ロード値の氏名に前後空白がある
+  // レコードで、トリムが formState を書き換えて「変更あり」と誤検知するのを防ぐ。
   if (
     isEdit.value &&
     dokusyaId.value !== null &&
@@ -1057,6 +1120,9 @@ async function onSubmit(): Promise<void> {
     message.info('変更がありません。');
     return;
   }
+  // 氏名系8項目は登録・更新前に前後空白を除去（バリデーション前）。
+  trimNameFields();
+  if (!validateClient()) return;
   if (submitting.value) return;
   submitting.value = true;
   try {
@@ -1330,11 +1396,17 @@ defineExpose({ formState, fieldErrors });
                 <span>手続種類</span>
                 <span class="text-error ml-1">*</span>
               </template>
-              <a-radio-group v-model:value="formState.tetsuzuki_shurui">
-                <!--
-                  新規作成では解約(0)を選択不可（解約は既存購読者に対する
-                  更新操作）。BE も create() で同値を VALIDATION_ERROR で弾く。
-                -->
+              <!--
+                編集画面では原則 手続種類を変更不可（作成時に確定。顧客要件）。
+                例外: 再加入可（canResubscribe = 解約済みの 紙版 / 電子版(非クレカ)）
+                のときのみ編集可にする。
+                新規作成では解約(0)を選択不可（解約は既存購読者に対する更新操作。
+                BE も create() で同値を VALIDATION_ERROR で弾く）。
+              -->
+              <a-radio-group
+                v-model:value="formState.tetsuzuki_shurui"
+                :disabled="isEdit && !canResubscribe"
+              >
                 <a-radio
                   v-for="opt in tetsuzukiShuruiOptions"
                   :key="opt.value"
@@ -1512,7 +1584,7 @@ defineExpose({ formState, fieldErrors });
               </template>
               <a-input-number
                 v-model:value="formState.dokusya_busu"
-                :min="0"
+                :min="isCancelTetsuzuki ? 0 : 1"
                 :readonly="Number(formState.tetsuzuki_shurui) === 0"
                 class="w-full"
               />
@@ -2140,7 +2212,8 @@ defineExpose({ formState, fieldErrors });
                 format="YYYY/MM/DD"
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
-                :disabled="isEdit"
+                :disabled="isEdit && !canResubscribe"
+                :disabled-date="isPastDayTokyo"
                 class="w-full"
               />
             </a-form-item>
@@ -2182,7 +2255,7 @@ defineExpose({ formState, fieldErrors });
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
-                :disabled="isNewTetsuzuki"
+                :disabled="!isEdit"
                 :disabled-date="isPastDayTokyo"
               />
             </a-form-item>

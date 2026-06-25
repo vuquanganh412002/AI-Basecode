@@ -88,15 +88,17 @@ export class CreateShitenDto {
   })
   jastem_toriatsukai_tenpo_code?: string;
 
-  // 店舗名 — half-width characters (ASCII printable + half-width katakana).
+  // 店舗名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
+  // FE: utils/kana.ts JASTEM_NAME_RE と一致。
   @ApiPropertyOptional({ description: 'JASTEM_店舗名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
   @ValidateIf((o) => isJastemRequired(o) || o.jastem_tenpo_name !== undefined)
   @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '店舗名は文字列で入力してください。' })
   @MaxLength(15, { message: '店舗名は15文字以内で入力してください。' })
-  @Matches(/^[\x20-\x7E｡-ﾟ]+$/u, {
-    message: '店舗名は半角文字で入力してください。',
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+    message:
+      '店舗名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })
   jastem_tenpo_name?: string;
 

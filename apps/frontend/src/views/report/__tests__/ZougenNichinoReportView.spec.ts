@@ -145,6 +145,12 @@ describe('ZougenNichinoReportView — 画面初期表示', () => {
     expect(wrapper.find(exportBtn()).exists()).toBe(true);
   });
 
+  it('should render the 管理支店 multi-select dropdown (not checkbox)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('[data-test="kanri-shiten-select"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="kanri-shiten-checkbox"]').exists()).toBe(false);
+  });
+
   it('should default 適用日 to empty when first mounted', async () => {
     const { wrapper } = await renderView();
     expect((wrapper.vm as any).formState.tekiyo_date).toBe('');
@@ -299,7 +305,56 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// 4. 電子帳票作成 — PDF/ZIP + 確認ダイアログ (機能定義 3 — ACSMS-MSG-029-005)
+// 3b. ページ送り（15販売店行/ページ・別API再取得。SCR-028 と同方針）
+// ───────────────────────────────────────────────────────────────────────
+describe('ZougenNichinoReportView — ページ送り', () => {
+  const pagedResponse = (pageNo: number) => ({
+    data: {
+      ...buildNichinoPreviewResponse().data,
+      page_no: pageNo,
+      per_page: 15,
+      total_pages: 2,
+      total_rows: 20,
+      is_last_page: pageNo >= 2,
+    },
+  });
+
+  it('should send page=1 + per_page=15 on レポートプレビュー', async () => {
+    const { wrapper } = await renderView();
+    const { previewZougenNichino } = await import('@/api/report/report');
+    vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(1) as any);
+    (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    const arg = vi.mocked(previewZougenNichino).mock.calls.at(-1)?.[0];
+    expect(arg?.page).toBe(1);
+    expect(arg?.per_page).toBe(15);
+    expect(wrapper.find('[data-test="zougen-nichino-pager"]').exists()).toBe(true);
+  });
+
+  it('should re-fetch page 2 when the pager 2nd page is clicked', async () => {
+    const { wrapper } = await renderView();
+    const { previewZougenNichino } = await import('@/api/report/report');
+    vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(1) as any);
+    (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(2) as any);
+    const page2 = wrapper.find('.ant-pagination-item-2');
+    expect(page2.exists()).toBe(true);
+    await page2.trigger('click');
+    await flushPromises();
+
+    const arg = vi.mocked(previewZougenNichino).mock.calls.at(-1)?.[0];
+    expect(arg?.page).toBe(2);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 4. 電子帳票作成 — PDF + 確認ダイアログ (機能定義 3 — ACSMS-MSG-029-005)
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenNichinoReportView — 電子帳票作成', () => {
   /** プレビューでデータを取得して 電子帳票作成 を活性化する。 */

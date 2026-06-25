@@ -39,7 +39,11 @@
       "Bash(python3 -c \"import yaml,sys; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('yaml OK'\\)\")",
       "Skill(code-review)",
       "Skill(code-review:*)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(grep -iA12 \"postgres\\\\|db:\")",
+      "Bash(node -e ' *)",
+      "Bash(docker volume *)",
+      "Bash(DB_NAME=agrinews_dev DB_USERNAME=postgres DB_PASSWORD=postgres docker compose up -d postgres)"
     ],
     "additionalDirectories": [
       "/tmp",

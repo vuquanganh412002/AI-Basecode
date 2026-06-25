@@ -78,13 +78,12 @@ updated_by: Nguyen Duyen Manh
 | --- | ---------------- | ------ | -------- | ---- | ------ | ------ | -------------------------------------------------------------------- |
 | 1   | login_id         | String | -        | -    |        | 20     | ログインID（部分一致検索）                                           |
 | 2   | role_id          | Number | -        | -    |        |        | 管理者区分（1〜5）。未指定=全て                                      |
-| 3   | todofuken_code   | String | -        | -    | 2      | 2      | 都道府県コード（01〜47）。完全一致。未指定=全て                      |
-| 4   | ja_id            | Number | -        | -    |        |        | JA ID                                                                |
-| 5   | kanri_shiten_id  | Number | -        | -    |        |        | 管理支店ID                                                           |
-| 6   | page             | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                          |
-| 7   | per_page         | Number | -        | -    |        |        | 1ページあたりの件数（デフォルト: 20、最大: 100）                     |
-| 8   | sort_by          | String | -        | -    |        |        | ソート項目（デフォルト: created_at）                                  |
-| 9   | sort_order       | String | -        | -    |        |        | ソート順（asc / desc、デフォルト: desc）                             |
+| 3   | ja_id            | Number | -        | -    |        |        | JA ID                                                                |
+| 4   | kanri_shiten_id  | Number | -        | -    |        |        | 管理支店ID                                                           |
+| 5   | page             | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                          |
+| 6   | per_page         | Number | -        | -    |        |        | 1ページあたりの件数（デフォルト: 20、最大: 100）                     |
+| 7   | sort_by          | String | -        | -    |        |        | ソート項目（デフォルト: created_at）                                  |
+| 8   | sort_order       | String | -        | -    |        |        | ソート順（asc / desc、デフォルト: desc）                             |
 
 ## レスポンスデータ
 
@@ -115,7 +114,7 @@ updated_by: Nguyen Duyen Manh
 ## リクエスト例
 
 ```
-GET /api/v1/accounts?login_id=admin&role_id=4&todofuken_code=13&ja_id=10&page=1&per_page=20&sort_by=created_at&sort_order=desc
+GET /api/v1/accounts?login_id=admin&role_id=1&page=1&per_page=20&sort_by=created_at&sort_order=desc
 ```
 
 ## レスポンス成功例
@@ -203,7 +202,6 @@ GET /api/v1/accounts?login_id=admin&role_id=4&todofuken_code=13&ja_id=10&page=1&
 - クエリパラメータの検証：
   - login_id：最大20桁、文字列
   - role_id：1〜5の整数
-  - todofuken_code：2桁の文字列（01〜47）
   - ja_id：数値型チェック
   - kanri_shiten_id：数値型チェック
   - page：正の整数（デフォルト: 1）
@@ -226,7 +224,6 @@ GET /api/v1/accounts?login_id=admin&role_id=4&todofuken_code=13&ja_id=10&page=1&
 - 検索条件を構築する。
   - login_id が指定されている場合：`LIKE '%' || :login_id || '%'`（部分一致）
   - role_id が指定されている場合：`= :role_id`（完全一致）
-  - todofuken_code が指定されている場合：`= :todofuken_code`（完全一致）
   - ja_id が指定されている場合：`= :ja_id`（完全一致）
   - kanri_shiten_id が指定されている場合：`= :kanri_shiten_id`（完全一致）
 - 常に `deleted_at IS NULL` でフィルタリングする。
@@ -240,7 +237,6 @@ FROM m_account a
 WHERE a.deleted_at IS NULL
   AND (:login_id IS NULL OR a.login_id LIKE '%' || :login_id || '%')
   AND (:role_id IS NULL OR a.role_id = :role_id)
-  AND (:todofuken_code IS NULL OR a.todofuken_code = :todofuken_code)
   AND (:ja_id IS NULL OR a.ja_id = :ja_id)
   AND (:kanri_shiten_id IS NULL OR a.kanri_shiten_id = :kanri_shiten_id)
 ```
@@ -263,7 +259,6 @@ FROM m_account a
 WHERE a.deleted_at IS NULL
   AND (:login_id IS NULL OR a.login_id LIKE '%' || :login_id || '%')
   AND (:role_id IS NULL OR a.role_id = :role_id)
-  AND (:todofuken_code IS NULL OR a.todofuken_code = :todofuken_code)
   AND (:ja_id IS NULL OR a.ja_id = :ja_id)
   AND (:kanri_shiten_id IS NULL OR a.kanri_shiten_id = :kanri_shiten_id)
 ORDER BY a.:sort_by :sort_order

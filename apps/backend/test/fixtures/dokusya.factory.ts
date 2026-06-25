@@ -242,7 +242,9 @@ export function buildCreateDokusyaBody(
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲,野菜',
-    dokusya_kaishi_date: '2026-04-01',
+    // 購読開始日は本日以降（過去日不可）。固定日は時間経過で過去日になり検証で
+    // 弾かれるため、未来日（明日）を既定にして create happy-path を通す。
+    dokusya_kaishi_date: futureDate(1),
     joho_henko_tekiyo_date: null,
     seikyu_kaishi_month: '',
     biko: '',
@@ -730,6 +732,9 @@ export function buildImportRow(
     nogyosya_bunrui: '水稲',
     dokusya_kaishi_date: new Date().toISOString().slice(0, 10),
     biko: '',
+    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。NEW では任意だが
+    // 既定で未来日を入れておき、UPDATE_* テストがバリデーションを通るようにする。
+    joho_henko_tekiyo_date: futureDate(7),
     ...overrides,
   };
 }

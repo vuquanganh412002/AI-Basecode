@@ -242,4 +242,47 @@ describe('CreateJaDto', () => {
       expect(errors.some((e) => e.property === 'biko')).toBe(true);
     });
   });
+
+  // 顧客要件 2026-06: カタカナ・英数字は半角だが、漢字・ひらがなは入力可。
+  // 顧客要件 2026-06-25: 銀行charset限定 [ｱ-ﾟ A-Z0-9.()\-]。漢字/ひらがな/全角/
+  // 半角小文字/小書き半角カナ/ｦ/長音符ｰ/許可外記号は不可。
+  describe('jastem_itakusha_name (委託者名 — 銀行charset: 半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -)', () => {
+    const ok = ['ﾎﾝﾃﾝ', 'JA123', 'ﾐﾄﾞﾘ', 'A.B-C (1)', 'ﾃｽﾄ ｾﾝﾀ'];
+    const ng = [
+      '東京農業協同組合', // 漢字
+      'とうきょう', // ひらがな
+      'トウキョウ', // 全角カタカナ
+      'ＪＡ１２３', // 全角英数
+      'ja123', // 半角英小文字
+      'ｷｬｸ', // 小書き半角カナ ｬ
+      'ﾄｳｷｮｳ', // 小書き ｮ を含む
+      'ｾﾝﾀｰ', // 長音符 ｰ（範囲外）
+      'A@B', // 許可外記号
+    ];
+
+    it.each(ok)('should pass with %s', async (v) => {
+      const errors = await run({ ...base, jastem_itakusha_name: v });
+      expect(errors.some((e) => e.property === 'jastem_itakusha_name')).toBe(false);
+    });
+
+    it.each(ng)('should fail with %s', async (v) => {
+      const errors = await run({ ...base, jastem_itakusha_name: v });
+      expect(errors.some((e) => e.property === 'jastem_itakusha_name')).toBe(true);
+    });
+  });
+
+  describe('jastem_ja_name (農協名 — 銀行charset: 半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -)', () => {
+    const ok = ['ﾐﾄﾞﾘ123', 'ﾐﾄﾞﾘ', 'AB.C-1', 'ﾎﾝﾃﾝ ()']; // max 15
+    const ng = ['東京みどり', 'みどり', 'ミドリ', 'ＡＢ', 'ab', 'ﾐﾄﾞﾘｰ'];
+
+    it.each(ok)('should pass with %s', async (v) => {
+      const errors = await run({ ...base, jastem_ja_name: v });
+      expect(errors.some((e) => e.property === 'jastem_ja_name')).toBe(false);
+    });
+
+    it.each(ng)('should fail with %s', async (v) => {
+      const errors = await run({ ...base, jastem_ja_name: v });
+      expect(errors.some((e) => e.property === 'jastem_ja_name')).toBe(true);
+    });
+  });
 });

@@ -211,32 +211,77 @@ export class KanriShitenService {
    * Spec: docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md §ACSMS-API-COMMON-004.
    */
   async listDropdown(
-    jaId: number,
+    query: {
+      ja_id: number;
+      q?: string;
+      match_field?: 'both' | 'name';
+      page?: number;
+      per_page?: number;
+      include_id?: number;
+    },
     session: SessionPayload,
-  ): Promise<KanriShitenDropdownItemDto[]> {
-    const qb = this.repo
-      .createQueryBuilder('mks')
-      .where('mks.deleted_at IS NULL')
-      .andWhere('mks.ja_id = :jaId', { jaId });
-
-    // [data-scope] per role:
-    //   NICHINO_*          → no extra filter (param ja_id bounds it)
-    //   CHUOKAI / JA_HONTEN → ja_id = session.ja_id
-    //   JA_KANRI_SHITEN    → kanri_shiten_id = session.kanri_shiten_id
-    //                        (自分の管理支店のみ — 支店登録の親選択を限定)
-    applyBranchScope(
-      qb,
-      'mks',
-      { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' },
-      session,
-    );
-
-    const rows = await qb.orderBy('mks.kanri_shiten_code', 'ASC').getMany();
-    return rows.map((r) => ({
+  ): Promise<{ data: KanriShitenDropdownItemDto[]; has_more: boolean }> {
+    const toItem = (r: KanriShiten): KanriShitenDropdownItemDto => ({
       kanri_shiten_id: Number(r.kanriShitenId),
       kanri_shiten_code: r.kanriShitenCode,
       kanri_shiten_name: r.kanriShitenName,
-    }));
+    });
+
+    const buildScoped = () => {
+      const qb = this.repo
+        .createQueryBuilder('mks')
+        .where('mks.deleted_at IS NULL')
+        .andWhere('mks.ja_id = :jaId', { jaId: query.ja_id });
+      // [data-scope] per role: NICHINO_* → ja_id bound by param /
+      // CHUOKAI・JA_HONTEN → session.ja_id / JA_KANRI_SHITEN → 自分の管理支店のみ。
+      applyBranchScope(
+        qb,
+        'mks',
+        { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' },
+        session,
+      );
+      return qb;
+    };
+
+    const qb = buildScoped();
+    if (query.q) {
+      const like = `%${query.q}%`;
+      if (query.match_field === 'name') {
+        qb.andWhere('mks.kanri_shiten_name ILIKE :q', { q: like });
+      } else {
+        qb.andWhere(
+          '(mks.kanri_shiten_code ILIKE :q OR mks.kanri_shiten_name ILIKE :q)',
+          { q: like },
+        );
+      }
+    }
+    qb.orderBy('mks.kanri_shiten_code', 'ASC');
+
+    // ページングは opt-in（page 未指定なら全件・has_more=false。既存呼び出し元と互換）。
+    const paginate = query.page !== undefined;
+    let hasMore = false;
+    let rows: KanriShiten[];
+    if (paginate) {
+      const page = Math.max(query.page ?? 1, 1);
+      const perPage = Math.min(Math.max(query.per_page ?? 50, 1), 100);
+      rows = await qb.skip((page - 1) * perPage).take(perPage + 1).getMany();
+      hasMore = rows.length > perPage;
+      if (hasMore) rows = rows.slice(0, perPage);
+
+      if (
+        page === 1 &&
+        query.include_id !== undefined &&
+        !rows.some((r) => Number(r.kanriShitenId) === query.include_id)
+      ) {
+        const pinned = await buildScoped()
+          .andWhere('mks.kanri_shiten_id = :pid', { pid: query.include_id })
+          .getOne();
+        if (pinned) return { data: [toItem(pinned), ...rows.map(toItem)], has_more: hasMore };
+      }
+    } else {
+      rows = await qb.getMany();
+    }
+    return { data: rows.map(toItem), has_more: hasMore };
   }
 
   // ─── API-008-002 — DELETE /api/v1/kanri-shiten/:id ───────────────────

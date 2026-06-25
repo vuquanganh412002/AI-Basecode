@@ -206,14 +206,23 @@ beforeEach(() => {
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
-  it('should render all 49 column checkboxes checked when the view first mounts', async () => {
+  it('should render the selectable column checkboxes all checked in NEW mode, excluding the UPDATE-only date columns', async () => {
     const { wrapper } = await renderView();
-    // 機能 1.1 — 取込列パネルは展開された状態で、全てのチェックボックスが選択済み.
+    // 機能 1.1 — 取込列パネルは展開済み。新規登録では変更イベント日
+    // （読者情報変更適用日 / 販売店適用日）は対象外でチェックボックスを出さず
+    // グレー表示にする（49列中2列を除く47列がチェックボックス＋全選択済み）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes.length).toBe(49);
+    expect(colCheckboxes.length).toBe(48);
     for (const cb of colCheckboxes) {
-      expect((cb.element as HTMLInputElement).checked).toBe(true);
+      const el = cb.element as HTMLInputElement;
+      expect(['joho_henko_tekiyo_date', 'hanbaiten_tekiyo_date']).not.toContain(
+        el.value,
+      );
+      expect(el.checked).toBe(true);
     }
+    // 除外2列はラベルとしては表示される（グレー）。
+    expect(wrapper.text()).toContain('読者情報変更適用日');
+    expect(wrapper.text()).toContain('販売店適用日');
   });
 
   it('should render every Japanese column header label when the view first mounts', async () => {
@@ -610,11 +619,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
     await selectAll.setValue(false);
     await flushPromises();
     expect((email.element as HTMLInputElement).checked).toBe(false);
-    // 回帰: NEW 必須列（手続種類）も入力箇所のみ更新では外れること。
-    const tetsuzuki = wrapper.find(
-      'input[type="checkbox"][value="tetsuzuki_shurui"]',
+    // 回帰: 編集可能な必須列（購読部数）も入力箇所のみ更新では外れること。
+    const busu = wrapper.find(
+      'input[type="checkbox"][value="dokusya_busu"]',
     );
-    expect((tetsuzuki.element as HTMLInputElement).checked).toBe(false);
+    expect((busu.element as HTMLInputElement).checked).toBe(false);
     const idCb = wrapper.find('input[type="checkbox"][value="dokusya_id"]');
     expect((idCb.element as HTMLInputElement).checked).toBe(true);
   });
@@ -722,13 +731,13 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
   });
 
-  it('should block submit when a 解約 row has 購読部数 > 0', async () => {
-    // 機能 8.1 — 解約(tetsuzuki_shurui=0): 購読部数 = 0.
+  it('should block submit when an UPDATE row omits 読者情報変更適用日', async () => {
+    // 顧客要件 2026-06 — UPDATE は読者情報変更適用日が必須。
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
     await flushPromises();
     await uploadFile(wrapper, [
-      buildImportRow({ tetsuzuki_shurui: 0, dokusya_busu: 3 }),
+      buildImportRow({ dokusya_id: 7001, joho_henko_tekiyo_date: '' }),
     ]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();

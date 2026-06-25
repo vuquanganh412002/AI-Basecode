@@ -53,6 +53,40 @@ describe('useEditGuard', () => {
     expect(guard.isPristine()).toBe(false);
   });
 
+  it('treats null / undefined / "" as the same empty value (no false dirty)', async () => {
+    const state = reactive<{ a: string | null | undefined }>({ a: null });
+    const guard = useEditGuard(() => state);
+    await guard.capture();
+    state.a = ''; // control coerces null → '' after load
+    expect(guard.isPristine()).toBe(true);
+    state.a = undefined;
+    expect(guard.isPristine()).toBe(true);
+  });
+
+  it('treats a canonical integer string as equal to the number (1 ≡ "1")', async () => {
+    const state = reactive<{ t: number | string }>({ t: 1 });
+    const guard = useEditGuard(() => state);
+    await guard.capture();
+    state.t = '1'; // radio/select rebinds number → string
+    expect(guard.isPristine()).toBe(true);
+  });
+
+  it('does NOT collapse leading-zero strings to numbers (still detects real change)', async () => {
+    const state = reactive({ tel: '0312345678' });
+    const guard = useEditGuard(() => state);
+    await guard.capture();
+    state.tel = '312345678'; // genuinely different input
+    expect(guard.isPristine()).toBe(false);
+  });
+
+  it('still detects a real empty → non-empty change', async () => {
+    const state = reactive<{ a: string | null }>({ a: null });
+    const guard = useEditGuard(() => state);
+    await guard.capture();
+    state.a = '山田';
+    expect(guard.isPristine()).toBe(false);
+  });
+
   it('reset() drops the baseline so isPristine is false again', async () => {
     const state = reactive({ a: 1 });
     const guard = useEditGuard(() => state);

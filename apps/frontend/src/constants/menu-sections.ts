@@ -76,6 +76,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     items: [
       { name: 'TankaList', label: '単価マスタ', icon: 'settings_suggest', permission: 'tanka.view' },
       { name: 'JaList', label: 'JAマスタ', icon: 'domain', permission: 'ja.view' },
+      { name: 'KanriShitenList', label: '管理支店マスタ', icon: 'admin_panel_settings', permission: 'kanri_shiten.view' },
       { name: 'ShitenList', label: '支店マスタ', icon: 'apartment', permission: 'shiten.view' },
     ],
   },
@@ -92,7 +93,6 @@ export const MENU_SECTIONS: MenuSection[] = [
     items: [
       { name: 'LogList', label: 'ログ参照', icon: 'history', permission: 'log.view' },
       { name: 'OshiraseList', label: 'お知らせ管理', icon: 'campaign', permission: 'oshirase.view' },
-      { name: 'KanriShitenList', label: '管理支店マスタ', icon: 'admin_panel_settings', permission: 'kanri_shiten.view' },
       { name: 'AccountList', label: 'アカウント管理', icon: 'manage_accounts', permission: 'account.view' },
       // NOTE: the standalone 販売店代行入力 entry was removed (2026-06).
       // NICHINO_STAFF now reaches the 代行 flow through the 販売店管理 section

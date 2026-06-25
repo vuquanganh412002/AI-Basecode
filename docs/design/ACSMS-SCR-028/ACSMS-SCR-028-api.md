@@ -104,6 +104,9 @@ NICHINO_ADMIN / NICHINO_STAFF をブロックする際に表示するメッセ�
 | 1   | tekiyo_date      | String | -        | 〇   |        |        | 適用日（YYYY-MM-DD）。`t_dokusya_rireki.joho_henko_tekiyo_date` と一致するレコードを抽出。未入力時は `VALIDATION_ERROR`（ACSMS-MSG-028-004） |
 | 2   | hanbaiten_id     | Number | 〇       | -    |        |        | 販売店ID（繰り返し指定可：`hanbaiten_id=200&hanbaiten_id=201`）。未指定の場合は全販売店を対象とする |
 | 3   | kanri_shiten_id  | Number | 〇       | -    |        |        | 管理支店ID（繰り返し指定可）。未指定の場合は全管理支店を対象とする                     |
+| 4   | page             | Number | -        | -    |        |        | ページ番号（1始まり）。未指定時は1。SQL OFFSET/LIMIT を購読者単位で適用              |
+| 5   | per_page         | Number | -        | -    |        |        | 1ページの購読者数（1〜500。≒レコード数）。未指定時は15                                 |
+| 6   | issued_at        | String | -        | -    |        |        | 発行日時（`YYYY/MM/DD HH:mm`）。**出力API（028-002）のみ**。プレビュー押下時刻をPDFフッタ右下に印字。形式不正は `VALIDATION_ERROR` |
 
 ## レスポンスデータ
 
@@ -111,7 +114,12 @@ NICHINO_ADMIN / NICHINO_STAFF をブロックする際に表示するメッセ�
 | --- | ----------------------- | ------ | -------- | ------------ | -------- | -------------------------------------------------------------------------- |
 | 1   | data                    | Object | -        |              | -        | プレビュー結果                                                             |
 | 2   | →tekiyo_date            | String | -        | YYYY-MM-DD   | -        | 適用日（リクエストのエコーバック）                                         |
-| 3   | →reports                | Array  | 〇       |              | -        | 販売店＋管理支店の組み合わせごとの帳票データ（販売店コード昇順）            |
+| -   | →page_no                | Number | -        |              | -        | 現在の文書ページ番号                                                       |
+| -   | →per_page               | Number | -        |              | -        | 1ページのレコード数                                                        |
+| -   | →total_pages            | Number | -        |              | -        | 総ページ数                                                                 |
+| -   | →total_rows             | Number | -        |              | -        | 対象購読者数（`COUNT(DISTINCT dokusya_id)`。ページングの単位）               |
+| -   | →is_last_page           | Boolean| -        |              | -        | 最終ページか                                                               |
+| 3   | →reports                | Array  | 〇       |              | -        | このページの帳票データ（販売店コード昇順）                                  |
 | 4   | →→hanbaiten_id          | Number | -        |              | -        | 販売店ID                                                                   |
 | 5   | →→hanbaiten_code        | String | -        |              | -        | 販売店コード                                                               |
 | 6   | →→hanbaiten_name        | String | -        |              | -        | 販売店名                                                                   |
@@ -119,21 +127,21 @@ NICHINO_ADMIN / NICHINO_STAFF をブロックする際に表示するメッセ�
 | 8   | →→kanri_shiten_name     | String | -        |              | 〇       | 管理支店名称                                                               |
 | 9   | →→kanri_shiten_tel      | String | -        |              | 〇       | 管理支店電話番号（帳票TEL欄に表示）                                        |
 | 10  | →→kanri_shiten_fax      | String | -        |              | 〇       | 管理支店FAX番号（帳票FAX欄に表示）                                         |
-| 11  | →→zoubu                 | Array  | 〇       |              | -        | 増部レコード一覧（`dokusya_busu > zenkai_dokusya_busu`）                    |
+| 11  | →→zoubu                 | Array  | 〇       |              | -        | 増部一覧（同日累計後 net 増、または販売店変更の新店分）                     |
 | 12  | →→→busu                 | String | -        | {前} → {後}  | -        | 部数（前回購読部数→購読部数）                                              |
 | 13  | →→→address              | String | -        |              | -        | 配達先住所（都道府県名＋市町村郡＋丁目番地＋建物名）                        |
 | 14  | →→→name                 | String | -        |              | -        | 新規氏名（氏名（姓）＋氏名（名））                                         |
 | 15  | →→→delivery_name        | String | -        |              | -        | 配達先読者名（配達先氏名（姓）＋配達先氏名（名））                         |
 | 16  | →→→phone                | String | -        |              | -        | 電話番号（配達先連絡先１）                                                 |
 | 17  | →→→biko                 | String | -        |              | -        | 備考（空欄は `""`）                                                        |
-| 18  | →→genbu                 | Array  | 〇       |              | -        | 減部レコード一覧（`dokusya_busu < zenkai_dokusya_busu`）                    |
+| 18  | →→genbu                 | Array  | 〇       |              | -        | 減部一覧（同日累計後 net 減・解約、または販売店変更の旧店分）               |
 | 19  | →→→busu                 | String | -        | {前} → {後}  | -        | 部数（前回購読部数→購読部数）                                              |
 | 20  | →→→address              | String | -        |              | -        | 配達先住所                                                                 |
 | 21  | →→→name                 | String | -        |              | -        | 中止氏名（氏名（姓）＋氏名（名））                                         |
 | 22  | →→→delivery_name        | String | -        |              | -        | 配達先読者名                                                               |
 | 23  | →→→phone                | String | -        |              | -        | 電話番号（配達先連絡先１）                                                 |
 | 24  | →→→biko                 | String | -        |              | -        | 備考（空欄は `""`）                                                        |
-| 25  | →→address_change        | Array  | 〇       |              | -        | 住所変更レコード一覧（前回配達先住所 ≠ 現配達先住所）。1購読者につき2行（変更前／変更後） |
+| 25  | →→address_change        | Array  | 〇       |              | -        | 住所変更一覧（前回配達先住所 ≠ 現配達先住所、前回住所が空の初回は除く）。1購読者2行（変更前／変更後） |
 | 26  | →→→label                | String | -        |              | -        | ラベル（`変更前` / `変更後`）                                              |
 | 27  | →→→address              | String | -        |              | -        | 住所（変更前＝前回住所、変更後＝現住所）                                   |
 | 28  | →→→name                 | String | -        |              | -        | 氏名（氏名（姓）＋氏名（名））                                             |
@@ -287,18 +295,24 @@ GET /api/v1/report/zougen-hanbaiten/preview?tekiyo_date=2026-05-01&hanbaiten_id=
 
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
 - 抽出条件を設定する：
-  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致）
+  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。**`<=` ではない**：その日の変動のみを対象とする）
   - `r.zougen_hokoku_flg = true`（増減報告対象の変更）
   - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
-  - hanbaiten_id 指定時：`r.hanbaiten_id = ANY(:hanbaiten_ids)`
+  - hanbaiten_id 指定時：`r.hanbaiten_id = ANY(:hanbaiten_ids)` **OR** `r.zenkai_hanbaiten_id = ANY(:hanbaiten_ids)`
+    （販売店変更の「転出元（旧店）」も拾うため、現販売店・前回販売店のどちらかが一致すれば対象）
   - kanri_shiten_id 指定時：`r.kanri_shiten_id = ANY(:kanri_shiten_ids)`
   - DataScope条件（4.2 参照）を追加する。
+  - 並び順は **`r.dokusya_id`, `r.rireki_no` 昇順**（同一購読者の同日複数履歴を累計するため。帳票の販売店コード順はレスポンス生成側で再整列）。
 
 ### 4.4 データ取得
 
 ```sql
-SELECT r.dokusya_rireki_id,
+SELECT r.dokusya_rireki_id, r.dokusya_id,
        r.hanbaiten_id, r.kanri_shiten_id,
+       /* 前回販売店（販売店変更の旧店表示・1減/1増判定用） */
+       r.zenkai_hanbaiten_id,
+       zh.hanbaiten_code AS zenkai_hanbaiten_code,
+       zh.hanbaiten_name AS zenkai_hanbaiten_name,
        r.dokusya_busu, r.zenkai_dokusya_busu,
        r.shimei_sei, r.shimei_mei,
        r.haitatsu_shimei_sei, r.haitatsu_shimei_mei,
@@ -314,7 +328,10 @@ SELECT r.dokusya_rireki_id,
        ks.kanri_shiten_name, ks.tel AS kanri_shiten_tel, ks.fax AS kanri_shiten_fax
 FROM t_dokusya_rireki r
 INNER JOIN m_hanbaiten h
-        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL
+        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false
+/* 前回販売店（初回履歴は NULL のため LEFT JOIN） */
+LEFT JOIN m_hanbaiten zh
+        ON zh.hanbaiten_id = r.zenkai_hanbaiten_id AND zh.deleted_at IS NULL
 LEFT JOIN m_kanri_shiten ks
         ON ks.kanri_shiten_id = r.kanri_shiten_id AND ks.deleted_at IS NULL
 LEFT JOIN m_todofuken td_now
@@ -323,28 +340,44 @@ LEFT JOIN m_todofuken td_zen
         ON td_zen.todofuken_code = r.zenkai_todofuken_code
 WHERE r.joho_henko_tekiyo_date = :tekiyo_date
   AND r.zougen_hokoku_flg = true
-  AND h.haiten_flg = false
-  /* 販売店フィルタ（任意） */
-  AND (:hanbaiten_ids IS NULL OR r.hanbaiten_id = ANY(:hanbaiten_ids))
+  /* 販売店フィルタ（任意）：現販売店 OR 前回販売店（転出元）が一致 */
+  AND (:hanbaiten_ids IS NULL
+       OR r.hanbaiten_id = ANY(:hanbaiten_ids)
+       OR r.zenkai_hanbaiten_id = ANY(:hanbaiten_ids))
   /* 管理支店フィルタ（任意） */
   AND (:kanri_shiten_ids IS NULL OR r.kanri_shiten_id = ANY(:kanri_shiten_ids))
   /* DataScope: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN */
   AND r.ja_id = :user_ja_id
   AND (:user_kanri_shiten_id IS NULL OR r.kanri_shiten_id = :user_kanri_shiten_id)
-ORDER BY h.hanbaiten_code ASC, r.kanri_shiten_id ASC
+/* 同一購読者の同日履歴を累計するため dokusya_id, rireki_no 昇順 */
+ORDER BY r.dokusya_id ASC, r.rireki_no ASC
 ```
 
 - 取得件数が0件の場合：HTTP 200 + `reports:[]`（FE が ACSMS-MSG-028-002「対象のデータが存在しません。」を画面内表示）
 
 ### 4.5 レスポンス生成
 
-- 取得レコードを 販売店ID＋管理支店ID の組み合わせでグループ化する（`reports` 配列。販売店コード昇順）。
-- 各レコードを以下の条件で各区分に振り分ける：
-  - **増部**（`zoubu`）：`dokusya_busu > zenkai_dokusya_busu`
-  - **減部**（`genbu`）：`dokusya_busu < zenkai_dokusya_busu`
-  - **住所変更**（`address_change`）：前回配達先住所（`zenkai_*`）と現配達先住所（`haitatsu_*`）が異なる場合。1購読者につき `変更前` / `変更後` の2行を生成する。
+- **同一購読者（`dokusya_id`）の同日複数履歴を累計する**：その日に複数回変更がある場合
+  （例 1→3→5）は2件ではなく **1件**に集約する。
+  - **日初の状態** = その日の最小 `rireki_no` レコードの前回値
+    （前回部数 `busuBefore` / 前回販売店 `storeBefore` / 前回住所）。
+  - **日末の状態** = その日の最大 `rireki_no` レコードの現在値
+    （現部数 `busuAfter` / 現販売店 `storeAfter` / 現住所 ＋ 表示用の氏名等）。
+  - 例：1→3→5 は **1→5** の1件、解約 …→0 は減として反映。
+- 集約結果を 販売店ID＋管理支店ID の組み合わせでグループ化する（`reports` 配列。販売店コード昇順）。
+- 各購読者を以下で各区分に振り分ける：
+  - **販売店変更**（`storeBefore` ≠ `storeAfter`）：
+    - 旧販売店（`zenkai_hanbaiten_id`）の `genbu` に **減 `busuBefore`**（`"{busuBefore} → 0"`）
+    - 新販売店（`hanbaiten_id`）の `zoubu` に **増 `busuAfter`**（`"0 → {busuAfter}"`）
+    - （前回販売店と販売店を比較し、変わっていれば1減/1増で反映する仕様。
+      旧店の管理支店は履歴に保持されないため、暫定的に当日最終レコードの管理支店を用いる。）
+  - **同一販売店**：net = `busuAfter − busuBefore`
+    - net > 0 → **増部**（`zoubu`）、net < 0 → **減部**（`genbu`）、net = 0 → 出力なし
+  - **住所変更**（`address_change`）：日初の前回住所（`zen_*`）と日末の現住所（`haitatsu_*`）が
+    異なる場合。1購読者につき `変更前` / `変更後` の2行を生成する。
+    **前回住所が空（初回履歴）の場合は出力しない**（新規購読者を住所変更に出さない）。
 - 各行の整形：
-  - 部数（`busu`）：`"{zenkai_dokusya_busu} → {dokusya_busu}"`
+  - 部数（`busu`）：`"{busuBefore} → {busuAfter}"`（販売店変更時は旧店 `"{busuBefore} → 0"` / 新店 `"0 → {busuAfter}"`）
   - 住所：`{todofuken_name}{市町村郡}{丁目番地}{建物名}` を連結する。区分・ラベルにより住所カラムの組が異なる：
     - **増部 / 減部**：現配達先住所＝`td_now.todofuken_name` ＋ `haitatsu_shikuchoson` ＋ `haitatsu_chome_banchi` ＋ `haitatsu_tatemono_mei`
     - **住所変更「変更後」**：現配達先住所（増部/減部と同じく `td_now` ＋ `haitatsu_*`）
@@ -353,6 +386,24 @@ ORDER BY h.hanbaiten_code ASC, r.kanri_shiten_id ASC
   - 配達先読者名（`delivery_name`）：`{haitatsu_shimei_sei} {haitatsu_shimei_mei}`
   - 電話番号（`phone`）：`haitatsu_renrakusaki_1`
   - TEL / FAX は管理支店（`m_kanri_shiten.tel` / `fax`）の情報を返す。
+- **ページ送り（SQL OFFSET/LIMIT。購読者単位）**：
+  - 累計は**同日履歴をまたいで分割できない**（1購読者の複数履歴をまとめて初回→最終で
+    集約する）ため、`OFFSET/LIMIT` の最小単位は **`dokusya_id`（購読者）**であり、行/
+    レコード単位ではない。`per_page`（既定15）は「1ページの購読者数」（≒レコード数。
+    大半は1レコード/購読者。販売店変更=2、部数+住所変更=2 になり得る）。
+  - 処理：① `COUNT(DISTINCT r.dokusya_id)` で対象購読者数 → `total_pages` 算出、②
+    `GROUP BY r.dokusya_id ORDER BY MIN(h.hanbaiten_code), r.dokusya_id OFFSET (page-1)*per_page
+    LIMIT per_page` でページ対象の `dokusya_id` を取得、③ その購読者の明細行のみ取得して
+    集約。**BEは1ページ分の購読者の明細だけをロードする**（メモリ内全件ロードではない）。
+  - メタ（`page_no` / `per_page` / `total_pages` / `total_rows`＝購読者数 / `is_last_page`）を返す。
+  - `is_continued`（「(続き)」）はこのSQL方式では設定しない（販売店がページをまたいでも
+    見出しは通常表示）。
+  - export PDF も**プレビューと同じ改ページ**（1ページ=15購読者・同じ並び）で出力する
+    （§4.4 / API-028-002 参照）。全件を取得した上で同じ購読者順に15人ずつへ区切り、各
+    ページ先頭で改ページする。PDF の n ページ目 = プレビューの n ページ目。
+  - **発行日時**：出力APIが受け取った `issued_at`（`YYYY/MM/DD HH:mm`）を、全ページの
+    フッタ**右寄せ**に「発行日時：{issued_at}」として印字する（pdfmake の `footer`）。
+    `issued_at` 未指定時はフッタを出さない（FEは常にプレビュー押下時刻を送る）。
 - data オブジェクトを含むJSONを返却する。HTTP 200。
 
 ### 4.6 例外処理
@@ -410,7 +461,11 @@ Content-Disposition: attachment; filename="zougen_hanbaiten_YYYYMMDD.pdf"
 | 住所変更    | ラベル（変更前/変更後）/ 住所 / 氏名 / 配達先読者名 / 電話番号 / 備考（1購読者2行）|
 
 ※ 表示順序：①増部を昇順表示 → ②増部が尽きたら減部を表示 → ③減部が尽きたら住所変更を表示。
-  いずれかの区分が0件の場合はタイトルと空白行を表示する。販売店＋管理支店の組み合わせごとに改ページする（販売店コード昇順）。
+  いずれかの区分が0件の場合はタイトルと空白行を表示する。
+※ 改ページは**プレビューと同じく1ページ=15購読者単位**（購読者を販売店コード昇順・dokusya_id
+  昇順に並べ15人ずつ）。1ページに複数販売店が載る場合は各販売店ブロックを続けて積み、ページ
+  先頭でのみ改ページする。Page表記は「ページ番号/総ページ数」。PDF の n ページ目 = プレビューの
+  n ページ目。
 
 ## リクエスト例
 

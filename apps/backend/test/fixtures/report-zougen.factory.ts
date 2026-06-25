@@ -31,9 +31,15 @@ export function buildZougenRawRow(overrides: Record<string, unknown> = {}) {
   const id = nextId();
   return {
     dokusya_rireki_id: 5000 + id,
+    // 既定は購読者ごとに一意（1行=1購読者）。同日累計テストでは同じ値を渡す。
+    dokusya_id: 7000 + id,
     hanbaiten_id: 200,
     hanbaiten_code: 'H001',
     hanbaiten_name: '千代田販売店',
+    // 既定は前回販売店＝現販売店（販売店変更なし）。
+    zenkai_hanbaiten_id: 200,
+    zenkai_hanbaiten_code: 'H001',
+    zenkai_hanbaiten_name: '千代田販売店',
     kanri_shiten_id: 20,
     kanri_shiten_name: 'JA東京中央 本店管理支店',
     kanri_shiten_tel: '03-1234-5678',

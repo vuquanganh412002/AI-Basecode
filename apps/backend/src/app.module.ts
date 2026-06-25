@@ -13,6 +13,8 @@ import { StorageModule } from './modules/storage/storage.module';
 import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CodeModule } from './modules/code/code.module';
+import { DenshibanDbModule } from './modules/denshiban/denshiban-db.module';
+import { DokusyaSyncModule } from './modules/dokusya-sync/dokusya-sync.module';
 import { DokusyaModule } from './modules/dokusya/dokusya.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { HanbaitenModule } from './modules/hanbaiten/hanbaiten.module';
@@ -44,6 +46,8 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     RedisModule,
     QueueModule,
     DatabaseModule,
+    DenshibanDbModule,
+    DokusyaSyncModule,
     AuditLogModule,
     CodeModule,
     MailModule,

@@ -92,22 +92,38 @@ export class HanbaitenController {
   @ApiOperation({ summary: '販売店プルダウン (SCR-011 用)' })
   @ApiResponse({ status: 200, description: 'Dropdown projection.' })
   async listHanbaitenDropdown(
-    @Query() query: { ja_id?: string; q?: string },
+    @Query()
+    query: {
+      ja_id?: string;
+      q?: string;
+      match_field?: string;
+      page?: string;
+      per_page?: string;
+      include_id?: string;
+    },
     @Req() req: Request & { user: SessionPayload },
   ) {
-    const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
-    const q = typeof query.q === 'string' ? query.q : undefined;
-    const data = await this.service.listDropdown(
-      { ja_id: jaId, q },
+    const num = (v?: string) => (v === undefined ? undefined : Number(v));
+    const page = num(query.page);
+    const perPage = num(query.per_page);
+    const { data, has_more } = await this.service.listDropdown(
+      {
+        ja_id: num(query.ja_id),
+        q: typeof query.q === 'string' ? query.q : undefined,
+        match_field: query.match_field === 'name' ? 'name' : 'both',
+        page,
+        per_page: perPage,
+        include_id: num(query.include_id),
+      },
       req.user,
     );
     return {
       data,
       meta: {
         total: data.length,
-        page: 1,
-        per_page: data.length,
-        has_more: false,
+        page: page ?? 1,
+        per_page: perPage ?? data.length,
+        has_more,
       },
     };
   }

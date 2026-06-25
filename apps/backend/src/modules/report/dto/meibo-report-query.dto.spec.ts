@@ -110,22 +110,22 @@ describe('MeiboReportQueryDto', () => {
     expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
   });
 
-  // ─── shiharai_cycle (optional number) ──────────────────────────────────
-  it('should pass when shiharai_cycle is a valid month number', async () => {
+  // ─── shiharai_hoho (optional number — m_code SHIHARAI_HOHO) ─────────────
+  it('should pass when shiharai_hoho is a valid integer', async () => {
     const dto = plainToInstance(MeiboReportQueryDto, {
       tekiyo_date: '2026-04-01',
       report_type: 'kanri_shiten',
       kanri_shiten_ids: [10],
-      shiharai_cycle: 12,
+      shiharai_hoho: 1,
     });
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'shiharai_cycle')).toBe(false);
+    expect(errors.some((e) => e.property === 'shiharai_hoho')).toBe(false);
   });
 
-  it('should fail when shiharai_cycle is not an integer', async () => {
-    const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, shiharai_cycle: 'monthly' });
+  it('should fail when shiharai_hoho is not an integer', async () => {
+    const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, shiharai_hoho: 'koza' });
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'shiharai_cycle')).toBe(true);
+    expect(errors.some((e) => e.property === 'shiharai_hoho')).toBe(true);
   });
 
   // ─── whitelist (forbidNonWhitelisted at the pipe) ──────────────────────

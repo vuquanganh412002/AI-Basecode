@@ -173,12 +173,12 @@ export class ReportController {
   @Post('zougen-nichino/export')
   @HttpCode(HttpStatus.OK)
   @Permissions('report.export_zougen_nichino')
-  @ApiOperation({ summary: '増減通知（日本農業新聞）PDF/ZIP出力 — ACSMS-API-029-002' })
+  @ApiOperation({ summary: '増減通知（日本農業新聞）PDF出力 — ACSMS-API-029-002' })
   @ApiResponse({
     status: 200,
     description:
-      '単一管理支店はPDF、複数管理支店はZIP。対象0件のときは application/json で { data: { reports: [] } } を返す。',
-    content: { 'application/pdf': {}, 'application/zip': {}, 'application/json': {} },
+      '全管理支店をプレビューと同じ改ページ（15行/ページ）でまとめた1つのPDF。対象0件のときは application/json で { data: { reports: [] } } を返す。',
+    content: { 'application/pdf': {}, 'application/json': {} },
   })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })

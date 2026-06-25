@@ -497,7 +497,7 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
   // ─── ACSMS-API-COMMON-004 — listDropdown (管理支店プルダウン) ──────────
   describe('listDropdown (API-COMMON-004)', () => {
     it('should filter by the requested ja_id', async () => {
-      await service.listDropdown(7, buildChuokaiSession({ ja_id: 7 }));
+      await service.listDropdown({ ja_id: 7 }, buildChuokaiSession({ ja_id: 7 }));
       const jaCall = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
           typeof sql === 'string' && /\bja_?id\b/i.test(sql) && /=\s*:jaId/.test(sql),
@@ -510,7 +510,7 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
       // 顧客要件 — 支店登録フォームの 管理支店 プルダウンは、JA_KANRI_SHITEN
       // には自分の管理支店だけを出す (以前は JA 全件が見えていた)。
       await service.listDropdown(
-        1,
+        { ja_id: 1 },
         buildJaKanriShitenSession({ ja_id: 1, kanri_shiten_id: 5 }),
       );
       const ksScope = qbMock.andWhere.mock.calls.find(
@@ -522,12 +522,92 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
     });
 
     it('should NOT add a kanri_shiten_id scope for CHUOKAI (JA-level only)', async () => {
-      await service.listDropdown(1, buildChuokaiSession({ ja_id: 1 }));
+      await service.listDropdown({ ja_id: 1 }, buildChuokaiSession({ ja_id: 1 }));
       const ksScope = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
           typeof sql === 'string' && /kanri_?shiten_?id\s*=/i.test(sql),
       );
       expect(ksScope).toBeUndefined();
+    });
+
+    it('should search by code OR name (match_field default both)', async () => {
+      await service.listDropdown(
+        { ja_id: 1, q: '千代田' },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const search = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /kanri_shiten_code ILIKE/i.test(sql) &&
+          /kanri_shiten_name ILIKE/i.test(sql) &&
+          /\bOR\b/.test(sql),
+      );
+      expect(search).toBeDefined();
+      expect(search[1]).toMatchObject({ q: '%千代田%' });
+    });
+
+    it('should search by name only when match_field=name', async () => {
+      await service.listDropdown(
+        { ja_id: 1, q: 'x', match_field: 'name' },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const search = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /kanri_shiten_name ILIKE/i.test(sql) &&
+          !/\bOR\b/.test(sql),
+      );
+      expect(search).toBeDefined();
+    });
+
+    it('should paginate with skip/take and report has_more when an extra row exists', async () => {
+      const mk = (id: number) => ({
+        kanriShitenId: id,
+        kanriShitenCode: `KS${id}`,
+        kanriShitenName: `支所${id}`,
+      });
+      // per_page=2 → take(3); 3 rows back → has_more, sliced to 2.
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2), mk(3)]);
+      const res = await service.listDropdown(
+        { ja_id: 1, page: 1, per_page: 2 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(qbMock.skip).toHaveBeenCalledWith(0);
+      expect(qbMock.take).toHaveBeenCalledWith(3);
+      expect(res.has_more).toBe(true);
+      expect(res.data).toHaveLength(2);
+    });
+
+    it('should NOT paginate (return all, has_more=false) when page is absent', async () => {
+      const mk = (id: number) => ({
+        kanriShitenId: id,
+        kanriShitenCode: `KS${id}`,
+        kanriShitenName: `支所${id}`,
+      });
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2)]);
+      const res = await service.listDropdown(
+        { ja_id: 1 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(qbMock.take).not.toHaveBeenCalled();
+      expect(res.has_more).toBe(false);
+      expect(res.data).toHaveLength(2);
+    });
+
+    it('should pin include_id onto page 1 when not in the fetched page', async () => {
+      const mk = (id: number) => ({
+        kanriShitenId: id,
+        kanriShitenCode: `KS${id}`,
+        kanriShitenName: `支所${id}`,
+      });
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2)]); // page rows (no 99)
+      qbMock.getOne.mockResolvedValueOnce(mk(99)); // pinned row
+      const res = await service.listDropdown(
+        { ja_id: 1, page: 1, per_page: 5, include_id: 99 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(res.data[0].kanri_shiten_id).toBe(99);
+      expect(res.data).toHaveLength(3);
     });
   });
 });

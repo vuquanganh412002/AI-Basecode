@@ -305,6 +305,43 @@ describe('JaFormView — form validation (per screen-design.md メッセージ�
     expect(wrapper.text()).toContain('郵便番号は半角数字のみ（ハイフンなし）入力可能です。');
   });
 
+  it('should REJECT kanji/hiragana in 委託者名・農協名 (銀行charset 2026-06-25)', async () => {
+    const { createJa } = await import('@/api/ja/ja');
+    const { wrapper } = await renderView();
+    await wrapper.vm.submitWith?.({
+      ...buildCreateJaForm(),
+      jastem_itakusha_name: '東京農業協同組合', // 漢字 → 不可
+      jastem_ja_name: '東京みどり', // 漢字 → 不可
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('半角カタカナ・半角英大文字');
+    expect(createJa).not.toHaveBeenCalled();
+  });
+
+  it('should REJECT full-width katakana in 委託者名 (半角で入力)', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.vm.submitWith?.({
+      ...buildCreateJaForm(),
+      jastem_itakusha_name: 'トウキョウ', // 全角カナ → 不可
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('半角カタカナ・半角英大文字');
+  });
+
+  it('should ACCEPT half-width katakana (no small kana) + A-Z0-9 in 委託者名・農協名', async () => {
+    const { createJa } = await import('@/api/ja/ja');
+    vi.mocked(createJa).mockResolvedValue({ data: buildJa() } as any);
+    const { wrapper } = await renderView();
+    await wrapper.vm.submitWith?.({
+      ...buildCreateJaForm(),
+      jastem_itakusha_name: 'ﾆﾎﾝﾉｳｷﾞﾖｳ', // 半角カナ（小書きなし）
+      jastem_ja_name: 'ﾐﾄﾞﾘ JA-1',
+    });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('半角カタカナ・半角英大文字');
+    expect(createJa).toHaveBeenCalled();
+  });
+
   it('should show "電話番号は半角数字のみ（ハイフンなし）入力可能です。" when tel contains non-digit characters', async () => {
     const { wrapper } = await renderView();
     await wrapper.vm.submitWith?.({ ...buildCreateJaForm(), tel: '03-1234-5678' });

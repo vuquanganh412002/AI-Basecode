@@ -27,7 +27,12 @@ import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
-import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import {
+  HALF_WIDTH_KATAKANA_RE,
+  JASTEM_NAME_RE,
+  kanaFormatMessage,
+  jastemNameFormatMessage,
+} from '@/utils/kana';
 import { RoleCode } from '@/constants/enums';
 import {
   createShiten,
@@ -163,11 +168,11 @@ const KANA_FORMAT_MSG = kanaFormatMessage('支店名');
 // JASTEM 店舗単位 fields — mirror BE @Matches regexes for instant feedback.
 const TENPO_CODE_FORMAT_MSG =
   'データ送信取扱店舗コードは半角数字で入力してください（スペース不可）。';
-const TENPO_NAME_FORMAT_MSG = '店舗名は半角文字で入力してください。';
+// 店舗名 — カタカナ/英数字は半角、漢字・ひらがなは可（JASTEM_NAME_RE）。
+const TENPO_NAME_FORMAT_MSG = jastemNameFormatMessage('店舗名');
 const TYOKIN_SHUBETSU_FORMAT_MSG =
   '貯金種別は 1（普通貯金）/ 2（当座貯金）/ 9（その他）のいずれかを指定してください。';
 const KOZA_NO_FORMAT_MSG = '口座番号は半角数字で入力してください。';
-const HALF_WIDTH_RE = /^[\x20-\x7E｡-ﾟ]+$/u; // ASCII printable + half-width kana
 const DIGITS_RE = /^\d+$/;
 const TYOKIN_SHUBETSU_RE = /^[129]$/;
 
@@ -217,7 +222,7 @@ function validateJastemFields(
     'jastem_tenpo_name',
     form.jastem_tenpo_name,
     required,
-    HALF_WIDTH_RE,
+    JASTEM_NAME_RE,
     TENPO_NAME_FORMAT_MSG,
   );
   checkJastemField(

@@ -698,6 +698,26 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'haitatsu_shimei_sei')).toBe(true);
   });
 
+  it('should fail with 漢字で入力してください。 when haitatsu_shimei_sei is not kanji', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'スズキ' }),
+    );
+    const errors = await validate(dto);
+    const e = errors.find((x) => x.property === 'haitatsu_shimei_sei');
+    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+  });
+
+  it('should fail with 漢字で入力してください。 when haitatsu_shimei_mei is not kanji', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ haitatsu_shimei_mei: 'Hanako' }),
+    );
+    const errors = await validate(dto);
+    const e = errors.find((x) => x.property === 'haitatsu_shimei_mei');
+    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+  });
+
   it('should fail when haitatsu_shimei_kana_sei exceeds 100 chars', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,

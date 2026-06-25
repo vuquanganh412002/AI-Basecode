@@ -8,6 +8,8 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
+  Min,
 } from 'class-validator';
 
 /** `YYYY-MM-DD` — 適用日。 */
@@ -87,11 +89,35 @@ export class MeiboReportQueryDto {
 
   @ApiPropertyOptional({
     description:
-      '購読料支払サイクル（月数: 1:毎月, 2:隔月, 3:3ヶ月, 6:半年, 12:年払い）。report_type=kanri_shiten のときのみ有効',
-    example: 12,
+      '支払方法（m_code SHIHARAI_HOHO: 1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）。両帳票種別で有効',
+    example: 1,
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: '購読料支払サイクルは整数で指定してください。' })
-  shiharai_cycle?: number;
+  @IsInt({ message: '支払方法は整数で指定してください。' })
+  shiharai_hoho?: number;
+
+  // ─── ページ送り（preview のみ。export は全件で無視される）───────────────
+  @ApiPropertyOptional({
+    description: '文書ページ番号（1始まり）。preview のみ。未指定時は1',
+    example: 1,
+    default: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'ページ番号は整数で指定してください。' })
+  @Min(1, { message: 'ページ番号は1以上で指定してください。' })
+  page?: number;
+
+  @ApiPropertyOptional({
+    description: '1ページの明細行数。preview のみ。未指定時は50',
+    example: 50,
+    default: 50,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '1ページの行数は整数で指定してください。' })
+  @Min(1, { message: '1ページの行数は1以上で指定してください。' })
+  @Max(500, { message: '1ページの行数は500以下で指定してください。' })
+  per_page?: number;
 }

@@ -92,7 +92,7 @@ updated_by: Tran Duc Tuyen
 | 3   | hanbaiten_ids   | Number[] | 〇       | △    |        |        | 販売店ID（複数選択可）。`report_type=hanbaiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-002                                                      |
 | 4   | kanri_shiten_ids| Number[] | 〇       | △    |        |        | 管理支店ID（複数選択可）。`report_type=kanri_shiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-003                                                 |
 | 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外（画面項目No.5「併読は除外」） |
-| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数: 1:毎月, 2:隔月, 3:3ヶ月, 6:半年, 12:年払い）。両帳票種別で有効（画面項目No.6 常時表示）。未指定の場合すべて出力              |
+| 6   | shiharai_hoho   | Number   | -        | -    |        |        | 支払方法（m_code SHIHARAI_HOHO: 1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）。`t_dokusya_rireki.shiharai_hoho` で絞込み。両帳票種別で有効（画面項目No.6 常時表示）。未指定の場合すべて出力。旧 `shiharai_cycle`（支払サイクル）から変更 |
 
 ## レスポンスデータ
 

@@ -16,6 +16,7 @@ import { createTestingPinia } from '@pinia/testing';
 import Antd, { message } from 'ant-design-vue';
 
 import MeiboReportView from '@/views/report/MeiboReportView.vue';
+import { meiboRowsPerA4 } from '@/utils/meibo-page';
 import {
   buildReportUser,
   buildNichinoUser,
@@ -95,6 +96,16 @@ async function renderView(opts: RenderOptions = {}): Promise<{
                   { value: 2, label: '電子版', label_short: '電子版' },
                   { value: 3, label: '併読', label_short: '併読' },
                 ],
+                // 支払い方法（m_code SHIHARAI_HOHO）— 支払区分(固定UI)から変更。
+                SHIHARAI_HOHO: [
+                  { value: 1, label: '口座引落', label_short: '口座引落' },
+                  { value: 2, label: '現金集金', label_short: '現金集金' },
+                  { value: 3, label: '振込集金', label_short: '振込集金' },
+                  { value: 4, label: 'JA施設等', label_short: 'JA施設等' },
+                  { value: 5, label: '給与天引き', label_short: '給与天引き' },
+                  { value: 6, label: 'クレジットカード', label_short: 'クレカ' },
+                  { value: 9, label: 'その他', label_short: 'その他' },
+                ],
               },
             },
           },
@@ -158,14 +169,64 @@ describe('MeiboReportView — 画面初期表示', () => {
 // 2. 帳票種別切替 (機能定義 2)
 // ───────────────────────────────────────────────────────────────────────
 describe('MeiboReportView — 帳票種別切替', () => {
-  it('should always render the 支払区分 condition when report_type is hanbaiten or kanri_shiten', async () => {
+  it('should render the 販売店 multi-select dropdown (not checkbox) for hanbaiten report', async () => {
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('支払区分');
+    expect(wrapper.find('[data-test="hanbaiten-select"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="hanbaiten-checkbox"]').exists()).toBe(false);
+  });
+
+  it('should render the 管理支店 multi-select dropdown for kanri_shiten report', async () => {
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.report_type = 'kanri_shiten';
+    await flushPromises();
+    expect(wrapper.find('[data-test="kanri-shiten-select"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="kanri-shiten-checkbox"]').exists()).toBe(false);
+  });
+
+  it('should always render the 支払い方法 condition when report_type is hanbaiten or kanri_shiten', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('支払い方法');
 
     (wrapper.vm as any).formState.report_type = 'kanri_shiten';
     await flushPromises();
 
-    expect(wrapper.text()).toContain('支払区分');
+    expect(wrapper.text()).toContain('支払い方法');
+  });
+
+  it('should populate the 支払い方法 dropdown from m_code SHIHARAI_HOHO (not hardcoded cycle values)', async () => {
+    const { wrapper } = await renderView();
+    const hohoSel = wrapper.findAllComponents({ name: 'ASelect' }).find((s) => {
+      const o = (s.props('options') ?? []) as Array<{ label: string }>;
+      return o.some((x) => x.label === '口座引落');
+    });
+    expect(hohoSel).toBeDefined();
+    const opts = hohoSel!.props('options') as Array<{ value: number; label: string }>;
+    expect(opts.map((o) => o.label)).toEqual([
+      '口座引落',
+      '現金集金',
+      '振込集金',
+      'JA施設等',
+      '給与天引き',
+      'クレジットカード',
+      'その他',
+    ]);
+    // 旧・固定UIの支払サイクル値は出ないこと。
+    expect(wrapper.text()).not.toContain('年払い');
+  });
+
+  it('should send shiharai_hoho (not shiharai_cycle) to previewMeibo', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+    (wrapper.vm as any).formState.shiharai_hoho = 1;
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    const arg = vi.mocked(previewMeibo).mock.calls.at(-1)?.[0] as any;
+    expect(arg?.shiharai_hoho).toBe(1);
+    expect(arg).not.toHaveProperty('shiharai_cycle');
   });
 
   it('should clear the previously loaded preview when report_type is switched', async () => {
@@ -338,5 +399,81 @@ describe('MeiboReportView — 権限', () => {
     const btn = wrapper.find(preview());
     expect(btn.exists()).toBe(true);
     expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 6. ページ送り（文書ページ / SCR-026）
+// ───────────────────────────────────────────────────────────────────────
+describe('MeiboReportView — ページ送り', () => {
+  // A4 1枚に収まる行数（販売店別 = 15）。FE はこの値を per_page として送る。
+  const HB_PER = meiboRowsPerA4('hanbaiten');
+  const paged = (page_no: number) =>
+    buildHanbaitenPreviewResponse({
+      page_no,
+      per_page: HB_PER,
+      total_pages: 3,
+      total_rows: HB_PER * 3,
+      is_last_page: page_no >= 3,
+      group_count: 1,
+    });
+
+  it('sends page/per_page on preview and renders the pager + ページ数', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockResolvedValueOnce(paged(1));
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(previewMeibo).mock.calls[0]?.[0]).toMatchObject({
+      page: 1,
+      per_page: HB_PER,
+    });
+    expect(wrapper.find('[data-test="meibo-pager"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('1/3');
+  });
+
+  it('re-fetches the chosen page when the pager is clicked', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockResolvedValueOnce(paged(1));
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    vi.mocked(previewMeibo).mockResolvedValueOnce(paged(2));
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+
+    const lastArg = vi.mocked(previewMeibo).mock.calls.at(-1)?.[0];
+    expect(lastArg).toMatchObject({ page: 2, per_page: HB_PER });
+    expect(wrapper.text()).toContain('2/3');
+  });
+
+  it('does NOT render the pager when there is a single page', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockResolvedValueOnce(
+      buildHanbaitenPreviewResponse({
+        page_no: 1,
+        per_page: HB_PER,
+        total_pages: 1,
+        total_rows: 3,
+        is_last_page: true,
+        group_count: 1,
+      }),
+    );
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="meibo-pager"]').exists()).toBe(false);
   });
 });

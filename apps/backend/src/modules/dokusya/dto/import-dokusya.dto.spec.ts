@@ -91,8 +91,8 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
       expect(errors.some((e) => e.property === 'selected_columns')).toBe(true);
     });
 
-    it('should fail when selected_columns exceeds 49 entries (ArrayMaxSize 49)', async () => {
-      const tooMany = Array.from({ length: 50 }, (_, i) => `col_${i}`);
+    it('should fail when selected_columns exceeds 50 entries (ArrayMaxSize 50)', async () => {
+      const tooMany = Array.from({ length: 51 }, (_, i) => `col_${i}`);
       const errors = await validateBody(
         buildImportBody({ selected_columns: tooMany }),
       );
@@ -106,8 +106,8 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
       expect(errors.some((e) => e.property === 'selected_columns')).toBe(true);
     });
 
-    it('should accept exactly 49 selected_columns when the upper bound is hit', async () => {
-      const max = Array.from({ length: 49 }, (_, i) => `col_${i}`);
+    it('should accept exactly 50 selected_columns when the upper bound is hit', async () => {
+      const max = Array.from({ length: 50 }, (_, i) => `col_${i}`);
       const errors = await validateBody(
         buildImportBody({ selected_columns: max }),
       );

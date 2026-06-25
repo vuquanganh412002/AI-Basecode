@@ -17,11 +17,7 @@ import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
 import { useAuthStore } from '@/stores/auth.store';
-import {
-  DokusyaShubetsu,
-  ShiharaiHoho,
-  TetsuzukiShurui,
-} from '@/constants/enums';
+import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
 import {
   downloadDokusyaImportTemplate,
   importDokusyaExcel,
@@ -37,7 +33,6 @@ import {
 const PHYSICAL_COLUMNS = [
   'dokusya_id',
   'dokusya_shubetsu',
-  'tetsuzuki_shurui',
   'kanri_shiten_code',
   'shiten_code',
   'kumiaiin_code',
@@ -58,6 +53,7 @@ const PHYSICAL_COLUMNS = [
   'tatemono_mei',
   'renrakusaki_1',
   'renrakusaki_2',
+  'haitatsu_same_flg',
   'haitatsu_yubin_no',
   'haitatsu_todofuken_code',
   'haitatsu_shikuchoson',
@@ -84,6 +80,7 @@ const PHYSICAL_COLUMNS = [
   'dokusya_chushi_date',
   'biko',
   'joho_henko_tekiyo_date',
+  'hanbaiten_tekiyo_date',
 ] as const;
 type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
@@ -92,7 +89,24 @@ const DATE_PHYSICAL_COLUMNS = new Set<string>([
   'dokusya_kaishi_date',
   'dokusya_chushi_date',
   'joho_henko_tekiyo_date',
+  'hanbaiten_tekiyo_date',
 ]);
+
+/** 真偽値列（Excel のチェック/文字列を boolean へ変換する対象）。 */
+const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
+
+/**
+ * Excel の真偽セルを boolean へ正規化する。TRUE/1/○/はい/Y を true、
+ * FALSE/0/×/いいえ/N を false とし、空欄は undefined（BE で未指定扱い）。
+ */
+function normalizeImportBool(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  const s = String(value ?? '').trim();
+  if (s === '') return undefined;
+  if (/^(true|1|○|はい|yes|y)$/i.test(s)) return true;
+  if (/^(false|0|×|いいえ|no|n)$/i.test(s)) return false;
+  return undefined;
+}
 
 /**
  * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を
@@ -138,7 +152,6 @@ function normalizeImportDate(value: unknown): unknown {
 const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_id: 'ID',
   dokusya_shubetsu: '購読種別',
-  tetsuzuki_shurui: '手続種類',
   kanri_shiten_code: '管理支店',
   shiten_code: '支店',
   kumiaiin_code: '組合員コード',
@@ -159,6 +172,7 @@ const JP_HEADERS: Record<PhysicalColumn, string> = {
   tatemono_mei: 'マンション・アパート名',
   renrakusaki_1: '連絡先１',
   renrakusaki_2: '連絡先２',
+  haitatsu_same_flg: '購読者情報と同じ',
   haitatsu_yubin_no: '郵便番号(配達先)',
   haitatsu_todofuken_code: '都道府県(配達先)',
   haitatsu_shikuchoson: '市町村郡(配達先)',
@@ -185,6 +199,7 @@ const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_chushi_date: '購読中止日',
   biko: '備考',
   joho_henko_tekiyo_date: '読者情報変更適用日',
+  hanbaiten_tekiyo_date: '販売店適用日',
 };
 
 /** Header (JP) → physical column. sheet_to_json keys are row-1 strings. */
@@ -202,7 +217,6 @@ const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
  */
 const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
   'dokusya_shubetsu',
-  'tetsuzuki_shurui',
   'kanri_shiten_code',
   'shiten_code',
   'shimei_sei',
@@ -239,6 +253,17 @@ const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
   'dokusya_kaishi_date',
 ];
 const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);
+
+/**
+ * 新規登録（NEW）で対象外の列。読者情報変更適用日 / 販売店適用日 は履歴の
+ * 「変更イベント日」であり、新規登録には概念が無いため NEW では未チェック＋
+ * disable にする（顧客要件 2026-06。UPDATE でのみ使用）。
+ */
+const NEW_EXCLUDED_COLUMNS: readonly PhysicalColumn[] = [
+  'joho_henko_tekiyo_date',
+  'hanbaiten_tekiyo_date',
+];
+const NEW_EXCLUDED_SET = new Set<string>(NEW_EXCLUDED_COLUMNS);
 
 const MAX_ROWS = 30000;
 
@@ -333,6 +358,8 @@ function isLocked(col: PhysicalColumn): boolean {
  * （購読種別 / 氏名4 / 購読開始日）は更新対象外なので未チェック＋disable。
  */
 function isForcedUnchecked(col: PhysicalColumn): boolean {
+  // 新規登録: 読者情報変更適用日 / 販売店適用日 は対象外（UPDATE 専用の変更イベント日）。
+  if (importModeFe.value === 'new') return NEW_EXCLUDED_SET.has(col);
   const isUpdateMode =
     importModeFe.value === 'update' || importModeFe.value === 'cancel';
   if (!isUpdateMode) return false;
@@ -444,10 +471,15 @@ async function onFileChange(event: Event): Promise<void> {
             : undefined);
         if (physical) {
           // 日付列はシリアル値(46188) / "D/M/YY" 等で届くため YYYY-MM-DD に
-          // 正規化する。それ以外の列はそのまま。
-          out[physical] = DATE_PHYSICAL_COLUMNS.has(physical)
-            ? normalizeImportDate(value)
-            : value;
+          // 正規化。真偽列（購読者情報と同じ）は boolean へ。それ以外はそのまま。
+          if (DATE_PHYSICAL_COLUMNS.has(physical)) {
+            out[physical] = normalizeImportDate(value);
+          } else if (BOOLEAN_PHYSICAL_COLUMNS.has(physical)) {
+            const b = normalizeImportBool(value);
+            if (b !== undefined) out[physical] = b;
+          } else {
+            out[physical] = value;
+          }
         }
       }
       return out;
@@ -508,7 +540,6 @@ function validateBeforeSubmit(): string | null {
     const rowNo = idx + 2; // +2: row 1 is the header, data starts at 2.
     const shubetsu = Number(row.dokusya_shubetsu);
     const shiharai = Number(row.shiharai_hoho);
-    const tetsuzuki = Number(row.tetsuzuki_shurui);
     const busu = Number(row.dokusya_busu);
     const email = String(row.email ?? '').trim();
 
@@ -546,20 +577,20 @@ function validateBeforeSubmit(): string | null {
         }
       }
     }
-    // 新規登録: 購読部数 > 0.
-    if (isNew && tetsuzuki !== TetsuzukiShurui.KAIYAKU && busu <= 0) {
+    // 購読部数は 1 以上（解約は取込対象外。顧客要件 2026-06）。
+    if (row.dokusya_busu !== undefined && busu <= 0) {
       errors.push({
         row: rowNo,
         field: 'dokusya_busu',
-        message: '新規登録の場合、購読部数は0より大きい値を指定してください。',
+        message: '購読部数は1以上で入力してください。',
       });
     }
-    // 解約: 購読部数 = 0.
-    if (tetsuzuki === TetsuzukiShurui.KAIYAKU && busu > 0) {
+    // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日）。
+    if (!isNew && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
       errors.push({
         row: rowNo,
-        field: 'dokusya_busu',
-        message: '解約の場合、購読部数は0を指定してください。',
+        field: 'joho_henko_tekiyo_date',
+        message: '読者情報変更適用日を入力してください。',
       });
     }
   });

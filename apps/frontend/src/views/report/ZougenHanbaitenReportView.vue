@@ -3,7 +3,7 @@
 // 出力条件 → レポートプレビュー / 電子帳票作成（PDF）。販売店＋管理支店の
 // 組み合わせごとに「増部 / 減部 / 住所変更」の3区分で1帳票を表示する。
 // 帳票レイアウトは docs/design/ACSMS-SCR-028/index.html に準拠。
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
@@ -14,13 +14,9 @@ import {
   type ZougenPreviewData,
   type ZougenAddressChangeRow,
 } from '@/api/report/report';
-import { getHanbaitenDropdown } from '@/api/hanbaiten/hanbaiten';
-import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
-
-interface SelectOption {
-  value: number;
-  label: string;
-}
+import BaseHanbaitenSelect from '@/components/common/BaseHanbaitenSelect.vue';
+import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
+import { nowTokyo } from '@/utils/datetime';
 
 const authStore = useAuthStore();
 const notify = useNotify();
@@ -29,6 +25,9 @@ const notify = useNotify();
 const canUse = computed(() =>
   authStore.hasPermission('report.export_zougen_hanbaiten'),
 );
+
+/** 管理支店プルダウンのスコープ元。JAアカウントのみ本画面に到達する。 */
+const jaId = computed(() => authStore.user?.ja_id ?? null);
 
 const formState = reactive<{
   tekiyo_date: string;
@@ -46,8 +45,14 @@ const previewData = ref<ZougenPreviewData | null>(null);
 /** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-028-002 を表示。 */
 const noDataMessage = ref(false);
 
-const hanbaitenOptions = ref<SelectOption[]>([]);
-const kanriShitenOptions = ref<SelectOption[]>([]);
+// ─── ページ送り（文書ページ。1ページ=A4 1枚に収まる目安15レコード。名簿と同方針）─
+const ZOUGEN_PER_PAGE = 15;
+const currentPage = ref(1);
+
+/** 発行日時（プレビュー押下時刻 JST。条件エリアのラベル＋帳票フッタに印字）。 */
+const issuedAt = ref('');
+/** 現在時刻（JST）を `YYYY/MM/DD HH:mm` で返す。 */
+const nowIssuedAt = (): string => nowTokyo().format('YYYY/MM/DD HH:mm');
 
 const hasReports = computed(
   () => previewData.value !== null && previewData.value.reports.length > 0,
@@ -86,22 +91,28 @@ function validate(): boolean {
   return !fieldErrors.tekiyo_date;
 }
 
-function buildQuery(): ZougenHanbaitenQuery {
+function buildQuery(page?: number): ZougenHanbaitenQuery {
   const q: ZougenHanbaitenQuery = { tekiyo_date: formState.tekiyo_date };
   // 未選択（空配列）は全件対象 → パラメータを送らない。
   if (formState.hanbaiten_id.length > 0) q.hanbaiten_id = formState.hanbaiten_id;
   if (formState.kanri_shiten_id.length > 0) {
     q.kanri_shiten_id = formState.kanri_shiten_id;
   }
+  // ページ送り（preview のみ。export では渡さず全件PDF出力）。
+  if (page != null) {
+    q.page = page;
+    q.per_page = ZOUGEN_PER_PAGE;
+  }
   return q;
 }
 
-async function onPreview(): Promise<void> {
-  if (!validate()) return;
+/** 指定ページのプレビューを取得（ページ送りで再利用）。 */
+async function fetchPage(page: number): Promise<void> {
   noDataMessage.value = false;
   try {
-    const resp = await previewZougenHanbaiten(buildQuery());
+    const resp = await previewZougenHanbaiten(buildQuery(page));
     previewData.value = resp.data;
+    currentPage.value = resp.data.page_no ?? page;
     // 対象0件は 200 + reports:[] で返る（業務エラーではない）→ 画面内テキスト。
     if (resp.data.reports.length === 0) noDataMessage.value = true;
   } catch {
@@ -110,10 +121,28 @@ async function onPreview(): Promise<void> {
   }
 }
 
+async function onPreview(): Promise<void> {
+  if (!validate()) return;
+  // 発行日時 = プレビュー押下時刻（JST）。条件ラベル＋帳票フッタに表示する。
+  issuedAt.value = nowIssuedAt();
+  currentPage.value = 1;
+  await fetchPage(1);
+}
+
+/** ページャ操作 — 当該ページを取得（ブラウザは1ページ分のみ描画）。 */
+async function onPageChange(page: number): Promise<void> {
+  await fetchPage(page);
+}
+
 async function onExport(): Promise<void> {
   if (!validate()) return;
+  // プレビュー未実行で直接出力した場合も発行日時を確定させる。
+  if (!issuedAt.value) issuedAt.value = nowIssuedAt();
   try {
-    const blob = await exportZougenHanbaiten(buildQuery());
+    const blob = await exportZougenHanbaiten({
+      ...buildQuery(),
+      issued_at: issuedAt.value,
+    });
     // 対象0件のとき BE は PDF ではなく application/json を返す。その場合は
     // ダウンロードせず画面内テキスト（対象のデータが存在しません。）を表示。
     if (blob.type.includes('application/json')) {
@@ -136,30 +165,8 @@ async function onExport(): Promise<void> {
   }
 }
 
-onMounted(async () => {
-  if (!canUse.value) return;
-  try {
-    const hb = await getHanbaitenDropdown();
-    hanbaitenOptions.value = hb.data.map((h) => ({
-      value: h.hanbaiten_id,
-      label: h.hanbaiten_name,
-    }));
-  } catch {
-    hanbaitenOptions.value = [];
-  }
-  const jaId = authStore.user?.ja_id;
-  if (jaId != null) {
-    try {
-      const ks = await getKanriShitenDropdown(jaId);
-      kanriShitenOptions.value = ks.data.map((k) => ({
-        value: k.kanri_shiten_id,
-        label: k.kanri_shiten_name,
-      }));
-    } catch {
-      kanriShitenOptions.value = [];
-    }
-  }
-});
+// 販売店・管理支店の選択肢ロードは BaseHanbaitenSelect / BaseKanriShitenSelect が
+// 自前で行う（コード/名称検索・50件ずつ無限スクロール）。
 
 defineExpose({ formState });
 </script>
@@ -199,30 +206,33 @@ defineExpose({ formState });
           </p>
         </div>
 
-        <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3） -->
+        <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3）
+             マルチセレクトのドロップダウン（コード・名称で検索、50件ずつ無限スクロール、
+             複数選択可・未選択＝全件）。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          <!-- 販売店（任意・複数選択可。廃店は除外済みの一覧）。件数が多いため
-               内側を複数列に折り返し、高さ上限＋スクロールで間延びを防ぐ。 -->
           <div class="md:col-span-2">
             <div class="text-sm font-medium text-text-main mb-2">販売店</div>
-            <a-checkbox-group
+            <BaseHanbaitenSelect
               v-model:value="formState.hanbaiten_id"
-              :options="hanbaitenOptions"
-              class="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
-              data-test="hanbaiten-checkbox"
+              data-test="hanbaiten-select"
             />
           </div>
 
-          <!-- 管理支店（任意・複数選択可） -->
           <div>
             <div class="text-sm font-medium text-text-main mb-2">管理支店</div>
-            <a-checkbox-group
+            <BaseKanriShitenSelect
+              v-if="jaId != null"
               v-model:value="formState.kanri_shiten_id"
-              :options="kanriShitenOptions"
-              class="flex flex-col gap-2 max-h-56 overflow-y-auto pr-2"
-              data-test="kanri-shiten-checkbox"
+              :ja-id="jaId"
+              data-test="kanri-shiten-select"
             />
           </div>
+        </div>
+
+        <!-- ④ 発行日時（ラベル）— プレビュー押下時に確定。押下前は非表示。帳票フッタにも印字。 -->
+        <div v-if="issuedAt" class="flex items-center gap-2">
+          <span class="text-sm font-medium whitespace-nowrap text-text-main">発行日時</span>
+          <span class="text-sm text-text-main" data-test="issued-at">{{ issuedAt }}</span>
         </div>
       </div>
 
@@ -263,7 +273,7 @@ defineExpose({ formState });
       <div class="p-6 space-y-8 overflow-x-auto">
         <!-- ＝＝ 1帳票（販売店＋管理支店） ＝＝ -->
         <div
-          v-for="(report, ri) in previewData?.reports ?? []"
+          v-for="report in previewData?.reports ?? []"
           :key="`${report.hanbaiten_id}-${report.kanri_shiten_id ?? 'none'}`"
           class="mx-auto border border-border-strong bg-surface-card font-display"
           style="max-width: 960px; padding: 40px 48px"
@@ -277,14 +287,14 @@ defineExpose({ formState });
               </h3>
             </div>
             <div class="text-xs text-right leading-relaxed text-text-description">
-              <div>Page：{{ ri + 1 }}/{{ previewData?.reports.length ?? 1 }}</div>
+              <div>ページ数：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}</div>
             </div>
           </div>
 
           <!-- 販売店情報 / 管理支店情報 -->
           <div class="flex justify-between items-start mb-1">
             <div class="text-base font-bold mt-4 text-text-main">
-              {{ report.hanbaiten_name }}　御中
+              {{ report.hanbaiten_name }}<span v-if="report.is_continued" class="font-normal text-xs">（続き）</span>　御中
               <span class="font-normal text-xs ml-2 text-text-description">
                 TEL：{{ report.kanri_shiten_tel || '-' }}　　FAX：{{ report.kanri_shiten_fax || '-' }}
               </span>
@@ -428,7 +438,33 @@ defineExpose({ formState });
               </tbody>
             </table>
           </div>
+
+          <!-- 発行日時（フッタ右寄せ） -->
+          <div
+            class="mt-3 text-right text-xs text-text-description"
+            data-test="issued-at-footer"
+          >
+            発行日時：{{ issuedAt }}
+          </div>
         </div>
+      </div>
+
+      <!-- ページャ — 文書ページ送り（15レコード/A4）。ブラウザは1ページ分のみ描画。 -->
+      <div
+        v-if="(previewData?.total_pages ?? 1) > 1"
+        class="px-6 py-3 border-t border-border flex items-center justify-between"
+        data-test="zougen-pager"
+      >
+        <span class="text-text-description text-sm">
+          全{{ previewData?.total_rows ?? 0 }}件・{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}ページ
+        </span>
+        <a-pagination
+          :current="currentPage"
+          :total="previewData?.total_rows ?? 0"
+          :page-size="previewData?.per_page ?? ZOUGEN_PER_PAGE"
+          :show-size-changer="false"
+          @change="onPageChange"
+        />
       </div>
     </div>
   </div>

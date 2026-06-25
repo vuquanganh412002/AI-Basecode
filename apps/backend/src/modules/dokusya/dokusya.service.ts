@@ -111,7 +111,6 @@ const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)'
 const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   'ID',
   '購読種別',
-  '手続種類',
   '管理支店',
   '支店',
   '組合員コード',
@@ -132,6 +131,7 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   'マンション・アパート名',
   '連絡先１',
   '連絡先２',
+  '購読者情報と同じ',
   '郵便番号(配達先)',
   '都道府県(配達先)',
   '市町村郡(配達先)',
@@ -158,6 +158,7 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   '購読中止日',
   '備考',
   '読者情報変更適用日',
+  '販売店適用日',
 ] as const;
 
 /**
@@ -174,7 +175,6 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
 const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '', // ID (UPDATE_* キー — 新規は空)
   1, // 購読種別 (1:紙版)
-  1, // 手続種類 (1:新規)
   '', // 管理支店 (FK code — 自組織の管理支店コードに書き換え)
   '', // 支店 (FK code — 自組織の支店コードに書き換え)
   'SAMPLE001', // 組合員コード (サンプル — 既存コードと衝突しない値)
@@ -195,6 +195,7 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '', // マンション・アパート名
   '0312345678', // 連絡先１ (半角数字)
   '', // 連絡先２
+  'TRUE', // 購読者情報と同じ (true: 配達先＝購読者住所。配達先列は空でよい)
   '', // 郵便番号(配達先)
   '', // 都道府県(配達先)
   '', // 市町村郡(配達先)
@@ -221,6 +222,7 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '', // 購読中止日
   'サンプル行です。管理支店・支店はID(数値)、新聞単価・販売店コードは自組織のコードに書き換えてからインポートしてください。', // 備考
   '', // 読者情報変更適用日
+  '', // 販売店適用日 (販売店変更時に入力)
 ] as const;
 
 /** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
@@ -232,7 +234,6 @@ const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレー�
  */
 const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
   'dokusya_shubetsu',
-  'tetsuzuki_shurui',
   'kanri_shiten_code',
   'shiten_code',
   'dokusya_busu',
@@ -274,7 +275,6 @@ const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
  */
 const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   dokusya_shubetsu: '購読種別',
-  tetsuzuki_shurui: '手続種類',
   kanri_shiten_code: '管理支店',
   shiten_code: '支店',
   dokusya_busu: '購読部数',
@@ -366,6 +366,8 @@ interface ImportRowLookups {
   kumiaiinCounts: Map<string, number>;
   tankaCodeSet: Set<string>;
   hanbaitenCodeSet: Set<string>;
+  /** 販売店コード → hanbaiten_id（取込時の販売店変更検知に使う）。 */
+  hanbaitenIdByCode: Map<string, number>;
   kanriShitenCodeSet: Set<string>;
   shitenCodeSet: Set<string>;
   /**
@@ -671,11 +673,26 @@ export class DokusyaService {
         '新規登録では手続種類に解約を指定できません。',
       );
     }
+    // 新規登録は購読部数 >0（上記で解約は弾き済みなので常に新規）。
+    if (Number(dto.dokusya_busu) <= 0) {
+      throw fieldValidationError(
+        'dokusya_busu',
+        '購読部数は1以上で入力してください。',
+      );
+    }
     this.assertDigitalPaymentMethod(dto);
     this.assertTekiyoDateNotPast(
       dto.joho_henko_tekiyo_date,
       'joho_henko_tekiyo_date',
       '情報変更適用日に過去日は指定できません。',
+    );
+    // 購読開始日は本日以降（過去日不可）。新規登録のみ対象 — 更新では before に
+    // pin され不変（既存の過去開始日を保持）。電子版+口座引落 はラジオで当日/
+    // 翌月1日に確定するため自然に通過。
+    this.assertTekiyoDateNotPast(
+      dto.dokusya_kaishi_date,
+      'dokusya_kaishi_date',
+      '購読開始日は本日以降の日付を入力してください。',
     );
     // 紙版→paper_flg / 電子版→denshi_flg required (account_concept.md §139-145).
     await this.assertShubetsuFlag(dto.dokusya_shubetsu, session);
@@ -817,6 +834,21 @@ export class DokusyaService {
     const before = await this.fetchInScope(id, session);
     const effectiveJaId = Number(before.jaId);
 
+    // 購読部数 >0（解約以外）。解約 (手続種類=0) は 0 を許容（バッチ処理前提）。
+    // 部分更新で省略された項目は既存値で補完して判定する。
+    const effectiveTetsuzuki =
+      dto.tetsuzuki_shurui ?? Number(before.tetsuzukiShurui);
+    const effectiveBusu = dto.dokusya_busu ?? Number(before.dokusyaBusu);
+    if (
+      effectiveTetsuzuki !== TetsuzukiShurui.KAIYAKU &&
+      Number(effectiveBusu) <= 0
+    ) {
+      throw fieldValidationError(
+        'dokusya_busu',
+        '購読部数は1以上で入力してください。',
+      );
+    }
+
     // [read-only guard] 併読(3) と 電子版クレカ決済者 は編集不可（どのアカウント
     // でも）。seeder.md §425 / api.md §is_read_only。VIEW（取得）は許可するが
     // 更新は 403 で弾く。delete と同じ境界。
@@ -947,33 +979,16 @@ export class DokusyaService {
           dokusyaId: id,
         };
 
-        // 変更項目の前回値を zenkai_* に退避する (rireki_no-1 = before):
-        // 住所5項目 / 購読部数 / 販売店。after = 実際に保存される値。
-        const zenkaiSnapshot = this.buildZenkaiSnapshot(before, after);
-        // 増減報告フラグ — dokusya_busu / hanbaiten_id / 住所5項目 のいずれかが
-        // 変わったときのみ true（口座情報のみ等の変更は false）。正準仕様は
-        // docs/requirement/change_notification_concept.md の例示テーブル。
-        // zenkai_* の保存有無とは独立に判定する（same_flg=true は住所無変更でも
-        // zenkai_* を退避するため、キー有無では増減報告を立てられない）。
-        const zougenHokokuFlg = this.hasZougenReportableChange(before, after);
-        await manager.save(
-          DokusyaRireki,
-          manager.create(DokusyaRireki, {
-            ...this.buildHistoryFromEntity(after, {
-              rirekiNo: newRirekiNo,
-              henkoRiyu: '',
-              saishinDataFlg: true,
-              shinkiFlg: false,
-              kaiyakuFlg: dto.tetsuzuki_shurui === TetsuzukiShurui.KAIYAKU,
-              zougenHokokuFlg,
-              createdBy: String(session.account_id),
-            }),
-            ...zenkaiSnapshot,
-            // 販売店変更時の適用日は履歴の販売店適用日に記録（マスタの
-            // joho_henko_tekiyo_date は触らない。bulk replace と同方針）。
-            hanbaitenTekiyoDate: dto.hanbaiten_tekiyo_date ?? null,
-          }),
-        );
+        // ── 履歴(t_dokusya_rireki)書き込み（顧客要件 2026-06）─────────────
+        // 情報変更と販売店変更が同時のときは適用日順に2件へ分割する。共通ヘルパー
+        // writeRirekiSplit に委譲し、UI 更新と Excel取込で履歴の作り方を同期する。
+        await this.writeRirekiSplit(manager, before, after, newRirekiNo, {
+          createdBy: String(session.account_id),
+          henkoRiyu: '',
+          shinkiFlg: false,
+          hanbaitenDate: dto.hanbaiten_tekiyo_date ?? null,
+          johoDate: after.johoHenkoTekiyoDate ?? null,
+        });
 
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
         return after;
@@ -1515,7 +1530,11 @@ export class DokusyaService {
 
   /**
    * Build the snake_case → camelCase INSERT payload for `t_dokusya`.
-   * `dokusya_busu` is forced to `0` when the request is a 解約.
+   *
+   * 解約による購読部数=0 への自動セットは行わない（顧客要件 2026-06）。
+   * 解約処理（部数0化・解約フラグ・ステータス遷移）は日次バッチが
+   * `dokusya_chushi_date`（解約予定日）に基づいて実行する。UPDATE API は
+   * 解約予定日を保存するだけで、部数はユーザー入力値をそのまま採用する。
    */
   private buildInsertPayload(
     dto: CreateDokusyaDto,
@@ -1523,8 +1542,7 @@ export class DokusyaService {
     bankBranch: { code: string; name: string },
     session: SessionPayload,
   ): Partial<Dokusya> {
-    const busu =
-      dto.tetsuzuki_shurui === TetsuzukiShurui.KAIYAKU ? 0 : Number(dto.dokusya_busu);
+    const busu = Number(dto.dokusya_busu);
     return {
       jaId,
       kanriShitenId: Number(dto.kanri_shiten_id ?? 0),
@@ -1811,6 +1829,166 @@ export class DokusyaService {
     }
 
     return snapshot;
+  }
+
+  /**
+   * 履歴(t_dokusya_rireki)を「変更イベント」単位で書き込む共通ヘルパー（顧客要件
+   * 2026-06）。UI 編集(update) と Excel取込(UPDATE_ALL/UPDATE_PARTIAL) の両方から
+   * 呼び、履歴の作り方を完全に同期させる。
+   *
+   * - `before=null`（NEW 取込）: 1件。販売店適用日なし、joho_henko=情報変更日。
+   * - 情報のみ変更        : 1件。hanbaiten_tekiyo=NULL, joho_henko=情報変更日。
+   * - 販売店のみ変更      : 1件。hanbaiten_tekiyo=joho_henko=販売店適用日。
+   * - 情報＋販売店 同時変更: **2件に分割**。適用日が早いイベントを先（rireki_no 小）、
+   *   遅い方を後＋saishin_data_flg=true。同日は 情報→販売店 の順。各レコードの
+   *   zenkai_* / 増減報告フラグは直前状態との差分で算出する。
+   *
+   * 戻り値 = 使用した最大 rireki_no（呼び出し側が master.rireki_no 同期に使う）。
+   */
+  private async writeRirekiSplit(
+    manager: EntityManager,
+    before: Dokusya | null,
+    after: Dokusya,
+    startRirekiNo: number,
+    opts: {
+      createdBy: string;
+      henkoRiyu: string;
+      shinkiFlg: boolean;
+      hanbaitenDate: string | null;
+      johoDate: string | null;
+      forceZougenHokoku?: boolean;
+    },
+  ): Promise<number> {
+    const saveOne = async (
+      prevState: Dokusya | null,
+      curState: Dokusya,
+      rirekiNo: number,
+      saishin: boolean,
+      hanbaitenTekiyoDate: string | null,
+      johoHenkoTekiyoDate: string | null,
+      shinkiFlg: boolean,
+    ): Promise<void> => {
+      const zougenHokokuFlg = prevState
+        ? this.hasZougenReportableChange(prevState, curState) ||
+          Boolean(opts.forceZougenHokoku)
+        : true;
+      await manager.save(
+        DokusyaRireki,
+        manager.create(DokusyaRireki, {
+          ...this.buildHistoryFromEntity(curState, {
+            rirekiNo,
+            henkoRiyu: opts.henkoRiyu,
+            saishinDataFlg: saishin,
+            shinkiFlg,
+            // 解約ステータスは取込/更新では立てない（顧客要件 2026-06。バッチ処理）。
+            kaiyakuFlg: false,
+            zougenHokokuFlg,
+            createdBy: opts.createdBy,
+          }),
+          ...(prevState ? this.buildZenkaiSnapshot(prevState, curState) : {}),
+          hanbaitenTekiyoDate,
+          johoHenkoTekiyoDate,
+        }),
+      );
+    };
+
+    // NEW（before 無し）— 1件。販売店イベントは無く、情報変更日のみ記録。
+    if (!before) {
+      await saveOne(
+        null,
+        after,
+        startRirekiNo,
+        true,
+        null,
+        opts.johoDate,
+        opts.shinkiFlg,
+      );
+      return startRirekiNo;
+    }
+
+    const storeChanged =
+      Number(after.hanbaitenId) !== Number(before.hanbaitenId);
+    const addressChanged = this.addressZenkaiPairs(before, after).some(
+      ([, oldVal, newVal]) => oldVal !== newVal,
+    );
+    const busuChanged =
+      Number(after.dokusyaBusu) !== Number(before.dokusyaBusu);
+    const infoChanged = addressChanged || busuChanged;
+
+    if (storeChanged && infoChanged) {
+      const afterInfoOnly: Dokusya = {
+        ...after,
+        hanbaitenId: Number(before.hanbaitenId),
+      };
+      const afterStoreOnly: Dokusya = {
+        ...before,
+        hanbaitenId: Number(after.hanbaitenId),
+      };
+      const storeFirst =
+        opts.hanbaitenDate != null &&
+        opts.johoDate != null &&
+        opts.hanbaitenDate < opts.johoDate;
+      if (storeFirst) {
+        // 販売店適用日 < 情報変更日: 販売店イベント → 情報イベント
+        await saveOne(
+          before,
+          afterStoreOnly,
+          startRirekiNo,
+          false,
+          opts.hanbaitenDate,
+          opts.hanbaitenDate,
+          false,
+        );
+        await saveOne(
+          afterStoreOnly,
+          after,
+          startRirekiNo + 1,
+          true,
+          null,
+          opts.johoDate,
+          false,
+        );
+      } else {
+        // 情報変更日 <= 販売店適用日（同日含む）: 情報イベント → 販売店イベント
+        await saveOne(
+          before,
+          afterInfoOnly,
+          startRirekiNo,
+          false,
+          null,
+          opts.johoDate,
+          false,
+        );
+        await saveOne(
+          afterInfoOnly,
+          after,
+          startRirekiNo + 1,
+          true,
+          opts.hanbaitenDate,
+          opts.hanbaitenDate,
+          false,
+        );
+      }
+      return startRirekiNo + 1;
+    }
+
+    if (storeChanged) {
+      // 販売店のみ変更: hanbaiten_tekiyo = joho_henko = 販売店適用日。
+      await saveOne(
+        before,
+        after,
+        startRirekiNo,
+        true,
+        opts.hanbaitenDate,
+        opts.hanbaitenDate,
+        false,
+      );
+      return startRirekiNo;
+    }
+
+    // 情報のみ変更（口座等のみ含む）: hanbaiten_tekiyo=NULL, joho_henko=情報変更日。
+    await saveOne(before, after, startRirekiNo, true, null, opts.johoDate, false);
+    return startRirekiNo;
   }
 
   /**
@@ -2671,18 +2849,24 @@ export class DokusyaService {
 
     try {
       const summary = await this.dataSource.transaction(async (manager) => {
-        // §4.5 — bulk UPDATE the master rows + bump rireki_no.
-        // 販売店適用日は履歴 (t_dokusya_rireki.hanbaiten_tekiyo_date) にのみ
-        // 記録する。マスタの joho_henko_tekiyo_date は販売店変更では触らない
-        // （別フィールド変更用・後日定義のため）。
+        // §4.5 — bulk UPDATE the master rows + bump rireki_no。
+        // 販売店のみ変更イベント（顧客要件 2026-06）: 販売店適用日を
+        // joho_henko_tekiyo_date にも設定し、最新履歴（saishin）と整合させる
+        // （hanbaiten_tekiyo_date は履歴専用カラムなのでマスタには無い）。
         const updated: Array<Record<string, unknown>> = await manager.query(
           `UPDATE t_dokusya
               SET hanbaiten_id = $1,
+                  joho_henko_tekiyo_date = $4,
                   rireki_no = rireki_no + 1,
                   updated_by = $2
             WHERE dokusya_id = ANY($3) AND deleted_at IS NULL
           RETURNING dokusya_id, hanbaiten_id, rireki_no`,
-          [dto.new_hanbaiten_id, String(session.account_id), ids],
+          [
+            dto.new_hanbaiten_id,
+            String(session.account_id),
+            ids,
+            dto.hanbaiten_tekiyo_date,
+          ],
         );
 
         // §4.5 — clear the previous 最新データ flag, then append a new
@@ -2712,8 +2896,10 @@ export class DokusyaService {
           const after: Dokusya = {
             ...before,
             hanbaitenId: Number(dto.new_hanbaiten_id),
-            // joho_henko_tekiyo_date は販売店変更では設定しない（後日定義）。
-            // 販売店適用日は下の hanbaitenTekiyoDate に記録する。
+            // 販売店のみ変更イベント（顧客要件 2026-06）: hanbaiten_tekiyo_date と
+            // joho_henko_tekiyo_date を同じ販売店適用日に揃える（UI 編集 Rule2 /
+            // SCR-011 §8.1・§14.3 と同一）。
+            johoHenkoTekiyoDate: dto.hanbaiten_tekiyo_date,
             rirekiNo: newRirekiNo,
           };
           return manager.create(DokusyaRireki, {
@@ -3055,7 +3241,7 @@ export class DokusyaService {
         ? []
         : await this.dataSource.query(
             `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id,
-                    dokusya_shubetsu, email
+                    dokusya_shubetsu, email, hanbaiten_id
                FROM t_dokusya
               WHERE ja_id = $1
                 AND (dokusya_id = ANY($2::bigint[])
@@ -3113,6 +3299,7 @@ export class DokusyaService {
       kumiaiinCounts,
       tankaCodeSet,
       hanbaitenCodeSet,
+      hanbaitenIdByCode,
       kanriShitenCodeSet,
       shitenCodeSet,
       existingDigitalEmailToIds,
@@ -3123,15 +3310,15 @@ export class DokusyaService {
 
     dto.rows.forEach((row, index) => {
       const rowNo = index + 1;
-      const isCancel = Number(row.tetsuzuki_shurui) === TetsuzukiShurui.KAIYAKU;
+      // 解約(手続種類=0)は取込で扱わない（顧客要件 2026-06）。NEW は手続種類=新規(1)
+      // 固定、UPDATE は手続種類を変更しない。
       this.validateImportRowRequired(row, rowNo, dto, errors);
-      this.validateImportRowRules(row, rowNo, isCancel, dto, errors);
+      this.validateImportRowRules(row, rowNo, dto, errors);
       this.validateImportRowRefs(row, rowNo, lookups, errors);
       this.validateImportRowEmail(row, rowNo, dto, lookups, batchDigitalEmail, errors);
       const category = this.classifyImportRow(
         row,
         rowNo,
-        isCancel,
         dto,
         lookups,
         session,
@@ -3139,7 +3326,6 @@ export class DokusyaService {
       );
       if (category === 'created') createdCount += 1;
       else if (category === 'updated') updatedCount += 1;
-      else if (category === 'cancelled') cancelledCount += 1;
     });
 
     if (errors.length > 0) {
@@ -3276,12 +3462,11 @@ export class DokusyaService {
 
   /**
    * §4.1 business rules — 併読 not importable, 電子版×クレカ forbidden,
-   * 購読部数 sign rules (新規 > 0 / 解約 = 0).
+   * 購読部数 > 0（解約は取込で扱わない）、UPDATE は読者情報変更適用日 必須。
    */
   private validateImportRowRules(
     row: ImportDokusyaRowDto,
     rowNo: number,
-    isCancel: boolean,
     dto: ImportDokusyaDto,
     errors: ImportRowError[],
   ): void {
@@ -3305,27 +3490,24 @@ export class DokusyaService {
         message: '電子版かつクレジットカード決済の組み合わせは取込みできません。',
       });
     }
-    if (row.dokusya_busu !== undefined) {
-      const busu = Number(row.dokusya_busu);
-      if (isCancel) {
-        if (busu !== 0) {
-          this.pushImportError(errors, {
-            row: rowNo,
-            field: 'dokusya_busu',
-            message: '解約の場合、購読部数は0を指定してください。',
-          });
-        }
-      } else if (
-        (dto.import_mode === 'NEW' ||
-          Number(row.tetsuzuki_shurui) === TetsuzukiShurui.SHINKI) &&
-        busu <= 0
-      ) {
-        this.pushImportError(errors, {
-          row: rowNo,
-          field: 'dokusya_busu',
-          message: '新規登録の場合、購読部数は0より大きい値を指定してください。',
-        });
-      }
+    // 購読部数は 1 以上（解約は取込対象外＝0 入力なし。顧客要件 2026-06）。
+    if (row.dokusya_busu !== undefined && Number(row.dokusya_busu) <= 0) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'dokusya_busu',
+        message: '購読部数は1以上で入力してください。',
+      });
+    }
+    // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
+    // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
+    const isUpdate =
+      dto.import_mode === 'UPDATE_ALL' || dto.import_mode === 'UPDATE_PARTIAL';
+    if (isUpdate && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'joho_henko_tekiyo_date',
+        message: '読者情報変更適用日を入力してください。',
+      });
     }
   }
 
@@ -3463,12 +3645,11 @@ export class DokusyaService {
   private classifyImportRow(
     row: ImportDokusyaRowDto,
     rowNo: number,
-    isCancel: boolean,
     dto: ImportDokusyaDto,
     lookups: ImportRowLookups,
     session: SessionPayload,
     errors: ImportRowError[],
-  ): 'created' | 'updated' | 'cancelled' | null {
+  ): 'created' | 'updated' | null {
     const needsExisting =
       dto.import_mode === 'UPDATE_ALL' ||
       dto.import_mode === 'UPDATE_PARTIAL';
@@ -3506,7 +3687,33 @@ export class DokusyaService {
             : Number(existing.kanri_shiten_id),
           session,
         );
-        return isCancel ? 'cancelled' : 'updated';
+        // 販売店が変わる行は販売店適用日 (hanbaiten_tekiyo_date) が必須（履歴の
+        // 販売店イベント日。顧客要件 2026-06）。UPDATE_PARTIAL は販売店コード列が
+        // selected_columns にあるときのみ「変更対象」とみなす。
+        const storeColumnActive =
+          dto.import_mode === 'UPDATE_ALL' ||
+          (dto.import_mode === 'UPDATE_PARTIAL' &&
+            dto.selected_columns.includes('hanbaiten_code'));
+        if (storeColumnActive && row.hanbaiten_code) {
+          const newHanbaitenId = lookups.hanbaitenIdByCode.get(
+            String(row.hanbaiten_code),
+          );
+          const storeChanged =
+            existing.hanbaiten_id != null &&
+            newHanbaitenId != null &&
+            newHanbaitenId !== Number(existing.hanbaiten_id);
+          if (
+            storeChanged &&
+            !String(row.hanbaiten_tekiyo_date ?? '').trim()
+          ) {
+            this.pushImportError(errors, {
+              row: rowNo,
+              field: 'hanbaiten_tekiyo_date',
+              message: '販売店適用日を入力してください。',
+            });
+          }
+        }
+        return 'updated';
       }
       this.pushImportError(errors, {
         row: rowNo,
@@ -3641,7 +3848,6 @@ export class DokusyaService {
     },
   ): Promise<void> {
     const updatedBy = String(session.account_id);
-    const isCancel = Number(row.tetsuzuki_shurui) === TetsuzukiShurui.KAIYAKU;
     const jaId = Number(session.ja_id ?? 0);
     // 配達先(delivery)7項目に入力があれば「別住所」扱い: haitatsu_same_flg を
     // false に下ろし、zougen_hokoku_flg を true に立てる（NEW / UPDATE_ALL は
@@ -3650,6 +3856,13 @@ export class DokusyaService {
       dto.import_mode === 'UPDATE_PARTIAL'
         ? this.hasHaitatsuDeliveryData(row, dto.selected_columns)
         : this.hasHaitatsuDeliveryData(row);
+    // 「購読者情報と同じ」(haitatsu_same_flg) は列で明示指定されたらそれを採用
+    // （顧客要件 2026-06 — BE は配達先データ有無から推論しない）。列が未指定
+    // （空欄）の行のみ、従来どおり配達先入力の有無から導出する。
+    const sameFlg =
+      row.haitatsu_same_flg !== undefined
+        ? Boolean(row.haitatsu_same_flg)
+        : !hasHaitatsuData;
     // 各書込みパス（NEW=INSERT / 解約 / UPDATE_ALL / UPDATE_PARTIAL）が影響した
     // dokusya_id を RETURNING から受け取り、履歴スナップショットはこの 1 件の
     // dokusya_id だけをキーに作成する（kumiaiin は重複可のため曖昧キーにしない）。
@@ -3703,12 +3916,12 @@ export class DokusyaService {
           fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null, // $3
           str(row.kumiaiin_code), // $4
           intOrNull(row.dokusya_shubetsu), // $5
-          intOrNull(row.tetsuzuki_shurui), // $6
+          TetsuzukiShurui.SHINKI, // $6 — NEW は手続種類=新規(1)固定（顧客要件 2026-06）
           str(row.shimei_sei), // $7
           str(row.shimei_mei), // $8
           str(row.shimei_kana_sei), // $9
           str(row.shimei_kana_mei), // $10
-          isCancel ? 0 : Number(row.dokusya_busu ?? 0), // $11
+          Number(row.dokusya_busu ?? 0), // $11（解約でも0強制しない。バッチが処理）
           str(row.yubin_no), // $12
           str(row.todofuken_code), // $13
           str(row.shikuchoson), // $14
@@ -3720,7 +3933,7 @@ export class DokusyaService {
           Number(row.mail_magazine_flg ?? 0), // $20
           intOrNull(row.birth_year), // $21
           this.toGenderCode(row.gender), // $22
-          !hasHaitatsuData, // $23 haitatsu_same_flg — 配達先入力ありなら別住所(false)、無ければ同じ(true)
+          sameFlg, // $23 haitatsu_same_flg — 列指定優先、未指定は配達先入力有無から導出
           str(row.haitatsu_yubin_no), // $24
           str(row.haitatsu_todofuken_code), // $25
           str(row.haitatsu_shikuchoson), // $26
@@ -3747,7 +3960,7 @@ export class DokusyaService {
           kaishiDate, // $47 shoki_dokusya_kaishi_date = kaishi
           kaishiDate, // $48 dokusya_kaishi_date
           normalizeDbDate(row.dokusya_chushi_date ?? null), // $49
-          normalizeDbDate(row.joho_henko_tekiyo_date ?? null), // $50
+          null, // $50 joho_henko_tekiyo_date — NEW は変更イベント日 対象外（顧客要件 2026-06）
           str(row.biko), // $51
           // 電子版(2)は承認済(1)で取込む（紙版は null）。create() の電子版は
           // 承認待ち(0) を立てるが、Excel一括取込は職員操作のため承認済で
@@ -3759,30 +3972,6 @@ export class DokusyaService {
         ],
       );
       affectedDokusyaId = this.extractReturnedDokusyaId(inserted);
-    } else if (isCancel) {
-      // 解約 — 解約状態 + 購読中止日。dokusya_id があれば優先、無ければ
-      // kumiaiin_code をキー（重複は classifyImportRow で 1 件に検証済み）。
-      const cancelled = await manager.query<Array<{ dokusya_id?: number }>>(
-        `UPDATE t_dokusya
-            SET tetsuzuki_shurui = 0,
-                dokusya_busu = 0,
-                dokusya_chushi_date = $1,
-                updated_by = $2,
-                updated_at = NOW()
-          WHERE ja_id = $5
-            AND (($3::bigint IS NOT NULL AND dokusya_id = $3)
-                 OR ($4 <> '' AND kumiaiin_code = $4))
-            AND deleted_at IS NULL
-        RETURNING dokusya_id`,
-        [
-          row.dokusya_chushi_date ?? todayIsoJst(),
-          updatedBy,
-          row.dokusya_id ?? null,
-          str(row.kumiaiin_code),
-          jaId,
-        ],
-      );
-      affectedDokusyaId = this.extractReturnedDokusyaId(cancelled);
     } else if (dto.import_mode === 'UPDATE_ALL') {
       // Full update (api.md §4.4.2) — 取込テンプレートの全項目を上書きする。
       // 未指定の項目は varchar→'' / nullable→null で上書き。NOT NULL の
@@ -3795,11 +3984,12 @@ export class DokusyaService {
             SET kanri_shiten_id = COALESCE($1, kanri_shiten_id),
                 shiten_id = COALESCE($2, shiten_id),
                 kumiaiin_code = $3,
-                -- 編集不可項目（購読種別 / 氏名4 / 購読開始日）は UPDATE_ALL でも
-                -- 既存値を維持する。NOT NULL 列なので COALESCE(列,$n) は常に既存値
-                -- を返す（$n は型推論のため参照のみ・実質未使用）。
+                -- 編集不可項目（購読種別 / 手続種類 / 氏名4 / 購読開始日）は
+                -- UPDATE_ALL でも既存値を維持する。NOT NULL 列なので
+                -- COALESCE(列,$n) は常に既存値を返す（$n は型推論のため参照のみ・
+                -- 実質未使用）。手続種類は取込で変更不可（顧客要件 2026-06）。
                 dokusya_shubetsu = COALESCE(dokusya_shubetsu, $4),
-                tetsuzuki_shurui = COALESCE($5, tetsuzuki_shurui),
+                tetsuzuki_shurui = COALESCE(tetsuzuki_shurui, $5),
                 shimei_sei = COALESCE(shimei_sei, $6),
                 shimei_mei = COALESCE(shimei_mei, $7),
                 shimei_kana_sei = COALESCE(shimei_kana_sei, $8),
@@ -3875,7 +4065,7 @@ export class DokusyaService {
           Number(row.mail_magazine_flg ?? 0), // $19
           intOrNull(row.birth_year), // $20
           this.toGenderCode(row.gender), // $21
-          !hasHaitatsuData, // $22 haitatsu_same_flg — 配達先入力ありなら別住所(false)、無ければ同じ(true)
+          sameFlg, // $22 haitatsu_same_flg — 列指定優先、未指定は配達先入力有無から導出
           str(row.haitatsu_yubin_no), // $23
           str(row.haitatsu_todofuken_code), // $24
           str(row.haitatsu_shikuchoson), // $25
@@ -3932,11 +4122,16 @@ export class DokusyaService {
     // 1 件作成する（共通関数）。affectedDokusyaId が取れない（=該当行なし）
     // 場合は履歴を作らない（classifyImportRow で検証済みのため通常発生しない）。
     if (affectedDokusyaId !== null) {
+      // NEW は変更イベント日（読者情報変更適用日 / 販売店適用日）対象外（顧客要件
+      // 2026-06）。UPDATE のみ行の入力値を採用する。
+      const isNewMode = dto.import_mode === 'NEW';
       await this.writeRirekiSnapshot(
         manager,
         affectedDokusyaId,
         updatedBy,
-        dto.import_mode === 'NEW',
+        isNewMode,
+        isNewMode ? null : dbDateOrNull(row.hanbaiten_tekiyo_date), // 販売店適用日
+        isNewMode ? null : dbDateOrNull(row.joho_henko_tekiyo_date), // 読者情報変更適用日
         hasHaitatsuData, // 配達先入力ありなら増減報告フラグを立てる
       );
     }
@@ -3960,6 +4155,8 @@ export class DokusyaService {
     dokusyaId: number,
     createdBy: string,
     isNew: boolean,
+    hanbaitenDate: string | null,
+    johoDate: string | null,
     forceZougenHokoku = false,
   ): Promise<void> {
     // [rireki-no-race] master 行を FOR UPDATE でロックしてから採番する。UI の
@@ -3990,40 +4187,32 @@ export class DokusyaService {
       { saishinDataFlg: false },
     );
 
-    // 2. 履歴メタを UI と同じルールで算出。
+    // 2. 履歴を UI 編集(update) と同じ共通ヘルパーで書き込む。情報＋販売店が同時に
+    //    変わった UPDATE は適用日順に2件へ分割される（顧客要件 2026-06）。NEW は
+    //    1件（手続種類=新規(1)固定 → shinki_flg=true）。
     const newRirekiNo = await this.nextRirekiNo(manager, dokusyaId);
-    const tetsuzuki = Number(after.tetsuzukiShurui);
-    // 新規フラグ: NEW 取込み かつ 手続種類=新規(1) のときのみ。
-    const shinkiFlg = isNew && tetsuzuki === TetsuzukiShurui.SHINKI;
-    // 解約フラグ: 手続種類=解約(0)。
-    const kaiyakuFlg = tetsuzuki === TetsuzukiShurui.KAIYAKU;
-    // 増減報告フラグ: NEW は常に true。UPDATE/解約 は before と比較して
-    // 購読部数/販売店/住所5項目 のいずれかが変わったときのみ true。
-    // forceZougenHokoku（配達先入力あり取込）のときは無条件で true にする。
-    const zougenHokokuFlg = before
-      ? this.hasZougenReportableChange(before, after) || forceZougenHokoku
-      : true;
-    // 前回値 (zenkai_*) も UI と同じく before↔after 比較で退避（NEW は無し）。
-    const zenkai = before ? this.buildZenkaiSnapshot(before, after) : {};
-
-    await manager.save(
-      DokusyaRireki,
-      manager.create(DokusyaRireki, {
-        ...this.buildHistoryFromEntity(after, {
-          rirekiNo: newRirekiNo,
-          henkoRiyu: 'Excel取込',
-          saishinDataFlg: true,
-          shinkiFlg,
-          kaiyakuFlg,
-          zougenHokokuFlg,
-          createdBy,
-        }),
-        ...zenkai,
-      }),
+    const shinkiFlg =
+      isNew && Number(after.tetsuzukiShurui) === TetsuzukiShurui.SHINKI;
+    const lastRirekiNo = await this.writeRirekiSplit(
+      manager,
+      // before(DokusyaRireki) は master 全カラムを持つ完全スナップショットなので
+      // writeRirekiSplit（Dokusya 期待）にそのまま渡せる。
+      before as unknown as Dokusya | null,
+      after,
+      newRirekiNo,
+      {
+        createdBy,
+        henkoRiyu: 'Excel取込',
+        shinkiFlg,
+        hanbaitenDate,
+        johoDate,
+        forceZougenHokoku,
+      },
     );
 
     // 3. t_dokusya.rireki_no を最新履歴番号に同期（次回編集の採番ずれ防止）。
-    await manager.update(Dokusya, { dokusyaId }, { rirekiNo: newRirekiNo });
+    //    分割時は後（遅い適用日）のレコード番号に合わせる。
+    await manager.update(Dokusya, { dokusyaId }, { rirekiNo: lastRirekiNo });
   }
 
   /**
@@ -4073,7 +4262,8 @@ export class DokusyaService {
       },
       kumiaiin_code: { col: 'kumiaiin_code', value: str_('kumiaiin_code') },
       dokusya_shubetsu: { col: 'dokusya_shubetsu', value: () => intOrNull(row.dokusya_shubetsu), coalesce: true },
-      tetsuzuki_shurui: { col: 'tetsuzuki_shurui', value: () => intOrNull(row.tetsuzuki_shurui), coalesce: true },
+      // 手続種類は取込で変更不可（顧客要件 2026-06）— マップから除外し、
+      // selected_columns に含まれても無視する。
       shimei_sei: { col: 'shimei_sei', value: str_('shimei_sei') },
       shimei_mei: { col: 'shimei_mei', value: str_('shimei_mei') },
       shimei_kana_sei: { col: 'shimei_kana_sei', value: str_('shimei_kana_sei') },
@@ -4146,9 +4336,16 @@ export class DokusyaService {
       params.push(entry.value());
       idx += 1;
     }
-    // 選択された配達先列に値があれば「別住所」として same_flg を下ろす
-    // （リテラル代入のためパラメータ番号 idx には影響しない）。
-    if (this.hasHaitatsuDeliveryData(row, selectedColumns)) {
+    // 「購読者情報と同じ」(haitatsu_same_flg) が選択列にあり明示指定されたら
+    // その値を採用（顧客要件 2026-06 — BE は推論しない）。未選択/未指定なら
+    // 従来どおり、選択された配達先列に値があれば「別住所」(false) に下ろす。
+    // （いずれもリテラル代入のためパラメータ番号 idx には影響しない）。
+    if (
+      selectedColumns.includes('haitatsu_same_flg') &&
+      row.haitatsu_same_flg !== undefined
+    ) {
+      setParts.push(`haitatsu_same_flg = ${Boolean(row.haitatsu_same_flg)}`);
+    } else if (this.hasHaitatsuDeliveryData(row, selectedColumns)) {
       setParts.push('haitatsu_same_flg = false');
     }
     // Always bump updated_by + updated_at.

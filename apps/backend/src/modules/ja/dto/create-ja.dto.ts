@@ -130,14 +130,16 @@ export class CreateJaDto {
   })
   jastem_itakusha_code?: string;
 
-  // 委託者名 — half-width characters (ASCII printable + half-width katakana).
+  // 委託者名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
+  // FE: utils/kana.ts JASTEM_NAME_RE と正規表現・メッセージを一致させること。
   @ApiPropertyOptional({ description: 'JASTEM_委託者名 ※空文字許容', maxLength: 40 })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '委託者名は文字列で入力してください。' })
   @MaxLength(40, { message: '委託者名は40文字以内で入力してください。' })
-  @Matches(/^[\x20-\x7E｡-ﾟ]+$/u, {
-    message: '委託者名は半角文字で入力してください。',
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+    message:
+      '委託者名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })
   jastem_itakusha_name?: string;
 
@@ -152,14 +154,16 @@ export class CreateJaDto {
   })
   jastem_ja_code?: string;
 
-  // 農協名 — half-width katakana + half-width digits.
+  // 農協名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
+  // FE: utils/kana.ts JASTEM_NAME_RE と一致。
   @ApiPropertyOptional({ description: 'JASTEM_農協名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '農協名は文字列で入力してください。' })
   @MaxLength(15, { message: '農協名は15文字以内で入力してください。' })
-  @Matches(/^[ｦ-ﾟ\s0-9]+$/u, {
-    message: '農協名は半角カタカナ・半角数字で入力してください。',
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+    message:
+      '農協名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })
   jastem_ja_name?: string;
 

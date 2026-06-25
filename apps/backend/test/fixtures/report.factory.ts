@@ -21,7 +21,7 @@ export function buildMeiboQuery(overrides: Record<string, unknown> = {}) {
     hanbaiten_ids: [1],
     kanri_shiten_ids: undefined,
     dokusya_shubetsu: undefined,
-    shiharai_cycle: undefined,
+    shiharai_hoho: undefined,
     ...overrides,
   } as any;
 }
@@ -59,12 +59,18 @@ export function buildMeiboRawRow(overrides: Record<string, unknown> = {}) {
     haitatsu_shimei_kana_sei: '',
     haitatsu_shimei_kana_mei: '',
     kumiaiin_code: 'K0001',
-    // 配達先住所 parts
+    // 配達先住所 parts (haitatsu_same_flg=false のとき使用)
     haitatsu_yubin_no: '1000001',
     haitatsu_shikuchoson: '東京都千代田区',
     haitatsu_chome_banchi: '千代田1-1',
     haitatsu_tatemono_mei: 'サンプルビル101',
     haitatsu_renrakusaki_1: '03-1234-5678',
+    // 購読者本人の住所・連絡先 (haitatsu_same_flg=true のとき配達先として使用)
+    yubin_no: '1000001',
+    shikuchoson: '東京都千代田区',
+    chome_banchi: '千代田1-1',
+    tatemono_mei: 'サンプルビル101',
+    renrakusaki_1: '03-1234-5678',
     dokusya_kaishi_date: '2025-04-01',
     dokusya_busu: 1,
     shiharai_hoho: 1,

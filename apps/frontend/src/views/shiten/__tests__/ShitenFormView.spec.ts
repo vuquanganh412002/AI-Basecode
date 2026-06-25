@@ -343,6 +343,65 @@ describe('ShitenFormView — required-field validation (§3.1)', () => {
     expect(createShiten).toHaveBeenCalled();
   });
 
+  it('should ACCEPT half-width katakana (no small kana) + A-Z0-9 in 店舗名 and call createShiten', async () => {
+    const { createShiten } = await import('@/api/shiten/shiten');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.form) {
+      Object.assign(vm.form, buildCreateShitenForm(), {
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: 'ﾎﾝﾃﾝ BR-1', // 半角カナ + A-Z + 0-9 + 記号 → 許可
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      });
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createShiten).toHaveBeenCalled();
+  });
+
+  it('should REJECT kanji/hiragana in 店舗名 (銀行charset 2026-06-25)', async () => {
+    const { createShiten } = await import('@/api/shiten/shiten');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.form) {
+      Object.assign(vm.form, buildCreateShitenForm(), {
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: '本店ほんてん', // 漢字+ひらがな → 不可
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      });
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createShiten).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('半角カタカナ・半角英大文字');
+  });
+
+  it('should REJECT full-width katakana in 店舗名 (半角で入力)', async () => {
+    const { createShiten } = await import('@/api/shiten/shiten');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.form) {
+      Object.assign(vm.form, buildCreateShitenForm(), {
+        kinyu_shiten_flg: true,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: 'ホンテン', // 全角カナ → 不可
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      });
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createShiten).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('半角カタカナ・半角英大文字');
+  });
+
   it('should NOT throw エラーが発生しました when 管理支店 is cleared via allow-clear (regression for ?.trim() vs .trim())', async () => {
     // COVERS: vue.md §Validation — required-string checks MUST use ?.trim()
     // because antd's <a-select allow-clear> sets the v-model to `undefined`

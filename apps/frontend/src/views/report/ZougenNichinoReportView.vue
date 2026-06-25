@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // 増減通知（日本農業新聞）出力画面 (ACSMS-SCR-029)
-// 出力条件 → レポートプレビュー / 電子帳票作成（PDF / 複数管理支店は ZIP）。
+// 出力条件 → レポートプレビュー（15販売店行/ページのページ送り。各ページを別API
+// で再取得）/ 電子帳票作成（全管理支店をプレビューと同じ改ページでまとめた1つのPDF）。
 // 管理支店単位で1帳票（委託 / 販売店コード / 販売店名 / 現在部数 / 増部数 /
 // 減部数 / 新部数 + 合計）。電子帳票作成は ACSMS-MSG-029-005 の確認ダイアログ
 // （日農担当者へメール送信）を挟む。帳票レイアウトは
 // docs/design/ACSMS-SCR-029/index.html に準拠。
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { Modal } from 'ant-design-vue';
 
 import { useAuthStore } from '@/stores/auth.store';
@@ -16,12 +17,7 @@ import {
   type ZougenNichinoQuery,
   type ZougenNichinoPreviewData,
 } from '@/api/report/report';
-import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
-
-interface SelectOption {
-  value: number;
-  label: string;
-}
+import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
 
 const authStore = useAuthStore();
 const notify = useNotify();
@@ -30,6 +26,9 @@ const notify = useNotify();
 const canUse = computed(() =>
   authStore.hasPermission('report.export_zougen_nichino'),
 );
+
+/** 管理支店プルダウンのスコープ元。JAアカウントのみ本画面に到達する。 */
+const jaId = computed(() => authStore.user?.ja_id ?? null);
 
 const formState = reactive<{
   tekiyo_date: string;
@@ -45,7 +44,9 @@ const previewData = ref<ZougenNichinoPreviewData | null>(null);
 /** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-029-002 を表示。 */
 const noDataMessage = ref(false);
 
-const kanriShitenOptions = ref<SelectOption[]>([]);
+/** 1ページ=A4 1枚＝15販売店行（SCR-028 と同方針。BEは購読者単位でSQLページング）。 */
+const ZOUGEN_NICHINO_PER_PAGE = 15;
+const currentPage = ref(1);
 
 /** プレビューで直接入力する管理支店ごとの備考（出力時 remarks に変換）。 */
 const remarks = reactive<Record<number, string>>({});
@@ -85,11 +86,16 @@ function validate(): boolean {
   return !fieldErrors.tekiyo_date;
 }
 
-function buildQuery(): ZougenNichinoQuery {
+function buildQuery(page?: number): ZougenNichinoQuery {
   const q: ZougenNichinoQuery = { tekiyo_date: formState.tekiyo_date };
   // 未選択（空配列）は全件対象 → パラメータを送らない。
   if (formState.kanri_shiten_id.length > 0) {
     q.kanri_shiten_id = formState.kanri_shiten_id;
+  }
+  // page 指定時のみページ送りパラメータを送る（export は全件のため付けない）。
+  if (page !== undefined) {
+    q.page = page;
+    q.per_page = ZOUGEN_NICHINO_PER_PAGE;
   }
   return q;
 }
@@ -110,18 +116,29 @@ function isNoDataBlob(blob: Blob): boolean {
   return blob.type.includes('application/json');
 }
 
-async function onPreview(): Promise<void> {
-  if (!validate()) return;
-  noDataMessage.value = false;
+async function fetchPage(page: number): Promise<void> {
   try {
-    const resp = await previewZougenNichino(buildQuery());
+    const resp = await previewZougenNichino(buildQuery(page));
     previewData.value = resp.data;
+    currentPage.value = resp.data.page_no ?? page;
     // 対象0件は 200 + reports:[] で返る（業務エラーではない）→ 画面内テキスト。
     if (resp.data.reports.length === 0) noDataMessage.value = true;
   } catch {
     // 403/500 は集約 axios インターセプタがトースト済み。ローカル状態のみ整理。
     previewData.value = null;
   }
+}
+
+async function onPreview(): Promise<void> {
+  if (!validate()) return;
+  noDataMessage.value = false;
+  currentPage.value = 1;
+  await fetchPage(1);
+}
+
+/** ページャでのページ移動：当該ページを別APIで再取得（BEは1ページ分のみロード）。 */
+async function onPageChange(page: number): Promise<void> {
+  await fetchPage(page);
 }
 
 /** 電子帳票作成 — ACSMS-MSG-029-005 の確認後に実行（はい押下時のみ）。 */
@@ -140,19 +157,19 @@ function onExport(): void {
 async function runExport(): Promise<void> {
   try {
     const blob = await exportZougenNichino(buildExportQuery());
-    // 対象0件のとき BE は PDF/ZIP ではなく application/json を返す。その場合は
+    // 対象0件のとき BE は PDF ではなく application/json を返す。その場合は
     // ダウンロードせず画面内テキスト（対象のデータが存在しません。）を表示。
     if (isNoDataBlob(blob)) {
       previewData.value = null;
       noDataMessage.value = true;
       return;
     }
+    // 全管理支店をプレビューと同じ改ページ（15行/ページ）でまとめた1つのPDF。
     const url = globalThis.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     const ymd = formState.tekiyo_date.replaceAll('-', '');
-    const ext = blob.type.includes('application/zip') ? 'zip' : 'pdf';
-    link.download = `増減通知_${ymd}.${ext}`;
+    link.download = `増減通知_${ymd}.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -163,21 +180,8 @@ async function runExport(): Promise<void> {
   }
 }
 
-onMounted(async () => {
-  if (!canUse.value) return;
-  const jaId = authStore.user?.ja_id;
-  if (jaId != null) {
-    try {
-      const ks = await getKanriShitenDropdown(jaId);
-      kanriShitenOptions.value = ks.data.map((k) => ({
-        value: k.kanri_shiten_id,
-        label: k.kanri_shiten_name,
-      }));
-    } catch {
-      kanriShitenOptions.value = [];
-    }
-  }
-});
+// 管理支店の選択肢ロードは BaseKanriShitenSelect が自前で行う
+// （コード/名称検索・50件ずつ無限スクロール）。
 
 defineExpose({ formState });
 </script>
@@ -216,14 +220,16 @@ defineExpose({ formState });
           </p>
         </div>
 
-        <!-- 管理支店（任意・複数選択可。未選択＝全件） -->
+        <!-- 管理支店（任意・複数選択可。未選択＝全件）— マルチセレクトのドロップダウン
+             （コード/名称検索、50件ずつ無限スクロール）。 -->
         <div>
           <div class="text-sm font-medium text-text-main mb-2">管理支店</div>
-          <a-checkbox-group
+          <BaseKanriShitenSelect
+            v-if="jaId != null"
             v-model:value="formState.kanri_shiten_id"
-            :options="kanriShitenOptions"
-            class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
-            data-test="kanri-shiten-checkbox"
+            :ja-id="jaId"
+            placeholder="管理支店を選択（未選択＝全件）"
+            data-test="kanri-shiten-select"
           />
         </div>
       </div>
@@ -265,7 +271,7 @@ defineExpose({ formState });
       <div class="p-6 space-y-8 overflow-x-auto">
         <!-- ＝＝ 1帳票（管理支店） ＝＝ -->
         <div
-          v-for="(report, ri) in previewData?.reports ?? []"
+          v-for="report in previewData?.reports ?? []"
           :key="report.kanri_shiten_id"
           class="mx-auto border border-border-strong bg-surface-card font-display"
           style="max-width: 1000px; padding: 32px 40px"
@@ -283,7 +289,7 @@ defineExpose({ formState });
               </h3>
             </div>
             <div class="text-xs text-right text-text-description">
-              Page：{{ ri + 1 }}/{{ previewData?.reports.length ?? 1 }}
+              Page：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}
             </div>
           </div>
 
@@ -349,6 +355,24 @@ defineExpose({ formState });
               placeholder="＜備考＞"
             />
           </div>
+        </div>
+
+        <!-- ページャ（1ページ=15販売店行。各ページを別APIで再取得） -->
+        <div
+          v-if="(previewData?.total_pages ?? 1) > 1"
+          class="flex items-center justify-center gap-3 pt-2"
+          data-test="zougen-nichino-pager"
+        >
+          <span class="text-text-description text-sm">
+            全{{ previewData?.total_rows ?? 0 }}件・{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}ページ
+          </span>
+          <a-pagination
+            :current="currentPage"
+            :total="previewData?.total_rows ?? 0"
+            :page-size="previewData?.per_page ?? ZOUGEN_NICHINO_PER_PAGE"
+            :show-size-changer="false"
+            @change="onPageChange"
+          />
         </div>
       </div>
     </div>

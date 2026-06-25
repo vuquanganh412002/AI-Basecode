@@ -44,11 +44,19 @@ export function buildZougenNichinoRawRow(overrides: Record<string, unknown> = {}
   const id = nextId();
   return {
     dokusya_rireki_id: 6000 + id,
+    // 既定は購読者ごとに一意（1行=1購読者）。同日累計テストでは同じ値を渡す。
+    dokusya_id: 8000 + id,
     hanbaiten_id: 200,
     hanbaiten_code: '12345678',
     hanbaiten_name: 'A販売店',
     itaku_kubun: 2, // 2:日農委託 → itaku_label '委託'
     torihikisaki_no: 'T1234567890123', // 非空 → 免税ではない
+    // 既定は前回販売店＝現販売店（販売店変更なし）。
+    zenkai_hanbaiten_id: 200,
+    zenkai_hanbaiten_code: '12345678',
+    zenkai_hanbaiten_name: 'A販売店',
+    zenkai_itaku_kubun: 2,
+    zenkai_torihikisaki_no: 'T1234567890123',
     kanri_shiten_id: 20,
     kanri_shiten_code: '1AA3300001', // 10桁（帳票で 3-4-3 ハイフン区切り表示）
     kanri_shiten_name: '本店管理支店',

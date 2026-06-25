@@ -363,3 +363,83 @@ describe('ZougenHanbaitenReportView — 電子帳票作成', () => {
     expect(exportZougenHanbaiten).toHaveBeenCalled();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// 4b. 発行日時（プレビュー押下時刻・JST。条件ラベル＋帳票フッタ）
+// ───────────────────────────────────────────────────────────────────────
+describe('ZougenHanbaitenReportView — 発行日時', () => {
+  it('should NOT show the 発行日時 label before preview is clicked', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('[data-test="issued-at"]').exists()).toBe(false);
+  });
+
+  it('should set 発行日時 (JST) on preview and print it in the report footer (right)', async () => {
+    vi.useFakeTimers();
+    // UTC 01:58 = JST 10:58 — JST固定で表示されること（TZずれ防止）。
+    vi.setSystemTime(new Date('2026-06-25T01:58:00Z'));
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="issued-at"]').text()).toBe('2026/06/25 10:58');
+    expect(wrapper.find('[data-test="issued-at-footer"]').text()).toContain(
+      '発行日時：2026/06/25 10:58',
+    );
+    vi.useRealTimers();
+  });
+
+  it('should pass issued_at to exportZougenHanbaiten', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-25T01:58:00Z'));
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaiten } = await import('@/api/report/report');
+    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+    await wrapper.find(exportBtn()).trigger('click');
+    await flushPromises();
+
+    const arg = vi.mocked(exportZougenHanbaiten).mock.calls.at(-1)?.[0];
+    expect(arg?.issued_at).toBe('2026/06/25 10:58');
+    vi.useRealTimers();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 5. ページ送り（文書ページ / 15レコード・名簿と同方針）
+// ───────────────────────────────────────────────────────────────────────
+describe('ZougenHanbaitenReportView — ページ送り', () => {
+  it('sends page/per_page on preview and re-fetches the chosen page', async () => {
+    const { wrapper } = await renderView();
+    const { previewZougenHanbaiten } = await import('@/api/report/report');
+    vi.mocked(previewZougenHanbaiten).mockResolvedValueOnce(
+      buildZougenPreviewResponse({
+        page_no: 1, per_page: 15, total_pages: 2, total_rows: 20, is_last_page: false,
+      }),
+    );
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(previewZougenHanbaiten).mock.calls[0]?.[0]).toMatchObject({
+      page: 1,
+      per_page: 15,
+    });
+    expect(wrapper.find('[data-test="zougen-pager"]').exists()).toBe(true);
+
+    vi.mocked(previewZougenHanbaiten).mockResolvedValueOnce(
+      buildZougenPreviewResponse({
+        page_no: 2, per_page: 15, total_pages: 2, total_rows: 20, is_last_page: true,
+      }),
+    );
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+
+    const lastArg = vi.mocked(previewZougenHanbaiten).mock.calls.at(-1)?.[0];
+    expect(lastArg).toMatchObject({ page: 2, per_page: 15 });
+  });
+});

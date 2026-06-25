@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 購読者名簿出力画面 (ACSMS-SCR-026)
 // 出力条件 → レポートプレビュー / Excel出力（販売店別・管理支店別）。
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
@@ -12,15 +12,11 @@ import {
   type MeiboReportQuery,
   type MeiboPreviewData,
 } from '@/api/report/report';
-import { getHanbaitenDropdown } from '@/api/hanbaiten/hanbaiten';
-import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
+import BaseHanbaitenSelect from '@/components/common/BaseHanbaitenSelect.vue';
+import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
 import { formatPostalCode, formatDate } from '@/utils/formatters';
 import { nowTokyo } from '@/utils/datetime';
-
-interface SelectOption {
-  value: number;
-  label: string;
-}
+import { meiboRowsPerA4 } from '@/utils/meibo-page';
 
 const authStore = useAuthStore();
 const codes = useCodesStore();
@@ -29,20 +25,23 @@ const notify = useNotify();
 /** report.export_meibo は JAアカウントのみ保持（§1.2）。 */
 const canUse = computed(() => authStore.hasPermission('report.export_meibo'));
 
+/** 管理支店プルダウンのスコープ元（NICHINO は ja_id=null → 管理支店別では未対応）。 */
+const jaId = computed(() => authStore.user?.ja_id ?? null);
+
 const formState = reactive<{
   tekiyo_date: string;
   report_type: 'hanbaiten' | 'kanri_shiten';
   hanbaiten_ids: number[];
   kanri_shiten_ids: number[];
   dokusya_shubetsu: number | undefined;
-  shiharai_cycle: number | undefined;
+  shiharai_hoho: number | undefined;
 }>({
   tekiyo_date: '',
   report_type: 'hanbaiten',
   hanbaiten_ids: [],
   kanri_shiten_ids: [],
   dokusya_shubetsu: undefined,
-  shiharai_cycle: undefined,
+  shiharai_hoho: undefined,
 });
 
 const fieldErrors = reactive<{
@@ -54,22 +53,20 @@ const fieldErrors = reactive<{
 const previewData = ref<MeiboPreviewData | null>(null);
 const hasSearched = ref(false);
 
-const hanbaitenOptions = ref<SelectOption[]>([]);
-const kanriShitenOptions = ref<SelectOption[]>([]);
+// ─── ページ送り（文書ページ。1ページ=A4 1枚に収まる明細行数を算出）──────
+// 帳票種別でヘッダ高が異なるため行数も変わる（meiboRowsPerA4 参照）。
+const perPage = computed(() => meiboRowsPerA4(formState.report_type));
+const currentPage = ref(1);
 
-// 帳票種別 / 支払区分 は m_code 非対象（固定UI選択肢）。
+// 帳票種別は m_code 非対象（固定UI選択肢）。
 const reportTypeOptions: { value: 'hanbaiten' | 'kanri_shiten'; label: string }[] = [
   { value: 'hanbaiten', label: '販売店別購読者名簿' },
   { value: 'kanri_shiten', label: '管理支店別購読者名簿' },
 ];
 
-const cycleOptions: SelectOption[] = [
-  { value: 1, label: '毎月' },
-  { value: 2, label: '隔月' },
-  { value: 3, label: '3ヶ月' },
-  { value: 6, label: '半年' },
-  { value: 12, label: '年払い' },
-];
+// 支払方法は m_code SHIHARAI_HOHO（口座引落 / 現金集金 / 振込集金 / JA施設等 /
+// 給与天引き / クレジットカード / その他）。旧「支払区分（支払サイクル固定UI）」から変更。
+const shiharaiHohoOptions = computed(() => codes.options('SHIHARAI_HOHO'));
 
 // 購読種別は m_code DOKUSYA_SHUBETSU。併読(3)は本帳票では除外（画面項目No.5）。
 const shubetsuOptions = computed(() =>
@@ -94,6 +91,7 @@ watch(
   () => {
     previewData.value = null;
     hasSearched.value = false;
+    currentPage.value = 1;
     fieldErrors.hanbaiten_ids = '';
     fieldErrors.kanri_shiten_ids = '';
   },
@@ -120,7 +118,7 @@ function validate(): boolean {
   );
 }
 
-function buildQuery(): MeiboReportQuery {
+function buildQuery(page?: number): MeiboReportQuery {
   const q: MeiboReportQuery = {
     tekiyo_date: formState.tekiyo_date,
     report_type: formState.report_type,
@@ -131,22 +129,39 @@ function buildQuery(): MeiboReportQuery {
     q.kanri_shiten_ids = formState.kanri_shiten_ids;
   }
   if (formState.dokusya_shubetsu != null) q.dokusya_shubetsu = formState.dokusya_shubetsu;
-  // 支払区分（購読料支払サイクル）は両帳票種別で有効。
-  if (formState.shiharai_cycle != null) q.shiharai_cycle = formState.shiharai_cycle;
+  // 支払方法（m_code SHIHARAI_HOHO）は両帳票種別で有効。
+  if (formState.shiharai_hoho != null) q.shiharai_hoho = formState.shiharai_hoho;
+  // ページ送り（preview のみ。export では渡さず全件出力）。
+  if (page != null) {
+    q.page = page;
+    q.per_page = perPage.value; // A4 1枚に収まる行数（帳票種別で算出）
+  }
   return q;
 }
 
-async function onPreview(): Promise<void> {
-  if (!validate()) return;
+/** 指定ページのプレビューを取得（フィルタ検証済み前提。ページ送りで再利用）。 */
+async function fetchPage(page: number): Promise<void> {
   try {
-    const resp = await previewMeibo(buildQuery());
+    const resp = await previewMeibo(buildQuery(page));
     previewData.value = resp.data;
+    currentPage.value = resp.data.page_no ?? page;
     hasSearched.value = true;
   } catch {
     // 集約 axios インターセプタが 403/500 をトースト済み。ローカル状態のみ整理。
     previewData.value = null;
     hasSearched.value = true;
   }
+}
+
+async function onPreview(): Promise<void> {
+  if (!validate()) return;
+  currentPage.value = 1;
+  await fetchPage(1);
+}
+
+/** ページャ操作 — 当該ページを取得して再描画（ブラウザは1ページ分のみ保持）。 */
+async function onPageChange(page: number): Promise<void> {
+  await fetchPage(page);
 }
 
 async function onExport(): Promise<void> {
@@ -168,30 +183,8 @@ async function onExport(): Promise<void> {
   }
 }
 
-onMounted(async () => {
-  if (!canUse.value) return;
-  try {
-    const hb = await getHanbaitenDropdown();
-    hanbaitenOptions.value = hb.data.map((h) => ({
-      value: h.hanbaiten_id,
-      label: h.hanbaiten_name,
-    }));
-  } catch {
-    hanbaitenOptions.value = [];
-  }
-  const jaId = authStore.user?.ja_id;
-  if (jaId != null) {
-    try {
-      const ks = await getKanriShitenDropdown(jaId);
-      kanriShitenOptions.value = ks.data.map((k) => ({
-        value: k.kanri_shiten_id,
-        label: k.kanri_shiten_name,
-      }));
-    } catch {
-      kanriShitenOptions.value = [];
-    }
-  }
-});
+// 販売店・管理支店の選択肢ロードは BaseHanbaitenSelect / BaseKanriShitenSelect が
+// 自前で行う（コード/名称検索・50件ずつ無限スクロール）。
 
 // ─── 帳票ヘッダ表示用 ───────────────────────────────────────────────
 /** 出力日（JST）— 帳票ヘッダの「出力日」。 */
@@ -325,13 +318,13 @@ defineExpose({ formState });
           />
         </div>
 
-        <!-- 支払区分（常時表示。販売店別・管理支店別とも購読料支払サイクルで絞込み可） -->
+        <!-- 支払い方法（常時表示。販売店別・管理支店別とも支払方法で絞込み可。m_code SHIHARAI_HOHO） -->
         <div class="flex items-center gap-2">
-          <label for="meibo-shiharai-cycle" class="text-sm font-medium whitespace-nowrap text-text-main">支払区分</label>
+          <label for="meibo-shiharai-hoho" class="text-sm font-medium whitespace-nowrap text-text-main">支払い方法</label>
           <a-select
-            id="meibo-shiharai-cycle"
-            v-model:value="formState.shiharai_cycle"
-            :options="cycleOptions"
+            id="meibo-shiharai-hoho"
+            v-model:value="formState.shiharai_hoho"
+            :options="shiharaiHohoOptions"
             allow-clear
             placeholder="選択してください"
             class="flex-1"
@@ -341,6 +334,8 @@ defineExpose({ formState });
 
       <!-- 販売店（販売店別のみ）— チェックボックスで複数選択。件数が多いため
            複数列に折り返し、高さ上限＋スクロールで間延びを防ぐ。 -->
+      <!-- 販売店（販売店別のみ）— マルチセレクトのドロップダウン
+           （コード/名称検索、50件ずつ無限スクロール、複数選択可・1件以上必須）。 -->
       <div v-if="formState.report_type === 'hanbaiten'" class="mt-4">
         <div class="text-sm font-medium text-text-main mb-1">
           販売店<span class="text-error ml-1">*</span>
@@ -349,15 +344,14 @@ defineExpose({ formState });
         <p v-if="fieldErrors.hanbaiten_ids" class="text-error text-sm mb-2">
           {{ fieldErrors.hanbaiten_ids }}
         </p>
-        <a-checkbox-group
+        <BaseHanbaitenSelect
           v-model:value="formState.hanbaiten_ids"
-          :options="hanbaitenOptions"
-          class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
-          data-test="hanbaiten-checkbox"
+          placeholder="販売店を選択（1件以上）"
+          data-test="hanbaiten-select"
         />
       </div>
 
-      <!-- 管理支店（管理支店別のみ）— チェックボックスで複数選択。 -->
+      <!-- 管理支店（管理支店別のみ）— マルチセレクトのドロップダウン。 -->
       <div v-else class="mt-4">
         <div class="text-sm font-medium text-text-main mb-1">
           管理支店<span class="text-error ml-1">*</span>
@@ -366,11 +360,12 @@ defineExpose({ formState });
         <p v-if="fieldErrors.kanri_shiten_ids" class="text-error text-sm mb-2">
           {{ fieldErrors.kanri_shiten_ids }}
         </p>
-        <a-checkbox-group
+        <BaseKanriShitenSelect
+          v-if="jaId != null"
           v-model:value="formState.kanri_shiten_ids"
-          :options="kanriShitenOptions"
-          class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 max-h-56 overflow-y-auto pr-2"
-          data-test="kanri-shiten-checkbox"
+          :ja-id="jaId"
+          placeholder="管理支店を選択（1件以上）"
+          data-test="kanri-shiten-select"
         />
       </div>
 
@@ -457,7 +452,7 @@ defineExpose({ formState });
                 </div>
                 <div class="text-xs pt-1">出力日：{{ outputDate }}</div>
                 <div class="text-xs">出力時間：{{ outputTime }}</div>
-                <div class="text-xs">ページ数：&nbsp;1/1</div>
+                <div class="text-xs">ページ数：&nbsp;{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}</div>
               </div>
             </div>
 
@@ -487,7 +482,7 @@ defineExpose({ formState });
                   <!-- 販売店 見出し帯 -->
                   <tr class="bg-surface-active font-bold">
                     <td class="border border-border-strong px-2 py-1.5" colspan="7">
-                      {{ hg.hanbaiten_name }}<span v-if="hg.hanbaiten_code">（{{ hg.hanbaiten_code }}）</span>
+                      {{ hg.hanbaiten_name }}<span v-if="hg.hanbaiten_code">（{{ hg.hanbaiten_code }}）</span><span v-if="hg.is_continued" class="font-normal">（続き）</span>
                     </td>
                   </tr>
                   <template
@@ -510,15 +505,15 @@ defineExpose({ formState });
                       <td class="border border-border-strong px-2 py-1.5 text-center">{{ row.dokusya_busu }}</td>
                     </tr>
                   </template>
-                  <!-- 販売店 小計（1販売店につき1行） -->
-                  <tr class="bg-surface-card-subtle font-bold">
+                  <!-- 販売店 小計 — グループがこのページで終わるときのみ表示。 -->
+                  <tr v-if="hg.show_total !== false" class="bg-surface-card-subtle font-bold">
                     <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">小計</td>
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ hg.total_busu }}件</td>
                   </tr>
                 </template>
-                <!-- 合計（複数販売店のときのみ） -->
+                <!-- 合計 — 複数販売店のとき、最終ページにのみ表示。 -->
                 <tr
-                  v-if="previewData.hanbaiten_groups.length > 1"
+                  v-if="previewData.is_last_page !== false && (previewData.group_count ?? previewData.hanbaiten_groups.length) > 1"
                   class="bg-surface-active font-bold"
                 >
                   <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
@@ -550,7 +545,7 @@ defineExpose({ formState });
             <div class="flex justify-between items-start mb-4 text-sm">
               <div><span class="font-semibold">管理支店：</span><span class="font-bold">{{ selectedKanriShitenNames }}</span></div>
               <div class="font-bold">{{ tekiyoLabel }} 現在</div>
-              <div class="text-xs">ページ数：&nbsp;1/1</div>
+              <div class="text-xs">ページ数：&nbsp;{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}</div>
             </div>
 
             <table class="w-full text-xs border-collapse" style="table-layout: fixed">
@@ -581,15 +576,15 @@ defineExpose({ formState });
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ codes.label('SHIHARAI_HOHO', row.shiharai_hoho) }}</td>
                     <td class="border border-border-strong px-2 py-1.5">{{ formatDate(row.dokusya_kaishi_date) }}<br /><span class="text-text-secondary">{{ row.hanbaiten_name }}</span></td>
                   </tr>
-                  <!-- 管理支店 小計（1管理支店につき1行） -->
-                  <tr class="bg-surface-card-subtle font-bold">
+                  <!-- 管理支店 小計 — グループがこのページで終わるときのみ表示。 -->
+                  <tr v-if="kg.show_subtotal !== false" class="bg-surface-card-subtle font-bold">
                     <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">小計</td>
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ kg.subtotal_busu }}件</td>
                   </tr>
                 </template>
-                <!-- 合計（複数管理支店のときのみ） -->
+                <!-- 合計 — 複数管理支店のとき、最終ページにのみ表示。 -->
                 <tr
-                  v-if="previewData.kanri_shiten_groups.length > 1"
+                  v-if="previewData.is_last_page !== false && (previewData.group_count ?? previewData.kanri_shiten_groups.length) > 1"
                   class="bg-surface-active font-bold"
                 >
                   <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
@@ -599,6 +594,24 @@ defineExpose({ formState });
             </table>
           </div>
         </template>
+      </div>
+
+      <!-- ページャ — 文書ページ送り。ブラウザは1ページ分の明細のみ描画する。 -->
+      <div
+        v-if="(previewData.total_pages ?? 1) > 1"
+        class="px-6 py-3 border-t border-border flex items-center justify-between"
+        data-test="meibo-pager"
+      >
+        <span class="text-text-description text-sm">
+          全{{ previewData.total_rows ?? 0 }}件・{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}ページ
+        </span>
+        <a-pagination
+          :current="currentPage"
+          :total="previewData.total_rows ?? 0"
+          :page-size="previewData.per_page ?? perPage"
+          :show-size-changer="false"
+          @change="onPageChange"
+        />
       </div>
     </div>
   </div>

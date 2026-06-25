@@ -69,8 +69,26 @@ export class KanriShitenController {
     @Query() query: KanriShitenDropdownQueryDto,
     @Req() req: Request & { user: SessionPayload },
   ) {
-    const data = await this.service.listDropdown(query.ja_id, req.user);
-    return { data };
+    const { data, has_more } = await this.service.listDropdown(
+      {
+        ja_id: query.ja_id,
+        q: query.q,
+        match_field: query.match_field ?? 'both',
+        page: query.page,
+        per_page: query.per_page,
+        include_id: query.include_id,
+      },
+      req.user,
+    );
+    return {
+      data,
+      meta: {
+        total: data.length,
+        page: query.page ?? 1,
+        per_page: query.per_page ?? data.length,
+        has_more,
+      },
+    };
   }
 
   @Get(':id')

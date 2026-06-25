@@ -341,6 +341,7 @@ export class CreateDokusyaDto {
   @MaxLength(50, {
     message: '配達先 氏名(姓)は最大50文字で指定してください。',
   })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   haitatsu_shimei_sei?: string;
 
   @ApiPropertyOptional({ description: '配達先 氏名 (名)', maxLength: 50 })
@@ -353,6 +354,7 @@ export class CreateDokusyaDto {
   @MaxLength(50, {
     message: '配達先 氏名(名)は最大50文字で指定してください。',
   })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   haitatsu_shimei_mei?: string;
 
   @ApiPropertyOptional({ description: '配達先 氏名カナ (姓)', maxLength: 100 })

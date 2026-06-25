@@ -107,6 +107,8 @@ FE が検出して画面内表示するメッセージである（エラーコ�
 | --- | --------------- | ------ | -------- | ---- | ------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | tekiyo_date     | String | -        | 〇   |        |        | 適用日（YYYY-MM-DD）。`t_dokusya_rireki.joho_henko_tekiyo_date` と一致するレコードを抽出。未入力時は `VALIDATION_ERROR`（ACSMS-MSG-029-004） |
 | 2   | kanri_shiten_id | Number | 〇       | -    |        |        | 管理支店ID（繰り返し指定可：`kanri_shiten_id=20&kanri_shiten_id=21`）。未指定の場合はスコープ内の全管理支店を対象とする                       |
+| 3   | page            | Number | -        | -    |        |        | ページ番号（1始まり）。未指定時は1。SQL OFFSET/LIMIT を購読者単位で適用（SCR-028 と同方針）          |
+| 4   | per_page        | Number | -        | -    |        |        | 1ページの販売店行数（1〜500。≒購読者数。大半1行/購読者）。未指定時は15                                |
 
 ## レスポンスデータ
 
@@ -114,7 +116,12 @@ FE が検出して画面内表示するメッセージである（エラーコ�
 | --- | ----------------------- | ------- | -------- | ------------ | -------- | ------------------------------------------------------------------------------------------------- |
 | 1   | data                    | Object  | -        |              | -        | プレビュー結果                                                                                    |
 | 2   | →tekiyo_date            | String  | -        | YYYY-MM-DD   | -        | 適用日（リクエストのエコーバック）                                                                |
-| 3   | →reports                | Array   | 〇       |              | -        | 管理支店ごとの帳票データ（管理支店コード昇順、各要素が1枚の帳票）                                  |
+| -   | →page_no                | Number  | -        |              | -        | 現在のページ番号                                                                                  |
+| -   | →per_page               | Number  | -        |              | -        | 1ページの販売店行数                                                                               |
+| -   | →total_pages            | Number  | -        |              | -        | 総ページ数                                                                                        |
+| -   | →total_rows             | Number  | -        |              | -        | 対象購読者数（`COUNT(DISTINCT dokusya_id)`。ページングの単位）                                     |
+| -   | →is_last_page           | Boolean | -        |              | -        | 最終ページか                                                                                      |
+| 3   | →reports                | Array   | 〇       |              | -        | このページの管理支店ごとの帳票データ（管理支店コード昇順）                                          |
 | 4   | →→kanri_shiten_id       | Number  | -        |              | -        | 管理支店ID                                                                                        |
 | 5   | →→kanri_shiten_code     | String  | -        |              | -        | 管理支店コード（帳票では10桁を3-4-3でハイフン区切り表示。例: 999-9999-999）                        |
 | 6   | →→kanri_shiten_name     | String  | -        |              | -        | 管理支店名称                                                                                      |
@@ -290,11 +297,13 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
 
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
 - 抽出条件を設定する：
-  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致）
+  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。**`<=` ではない**：その日の変動のみ）
   - `r.zougen_hokoku_flg = true`（増減報告対象の変更）
   - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
   - kanri_shiten_id 指定時：`r.kanri_shiten_id = ANY(:kanri_shiten_ids)`
   - DataScope条件（4.2 参照）を追加する。
+  - 並び順は **`r.dokusya_id`, `r.rireki_no` 昇順**（同一購読者の同日複数履歴を累計するため。
+    帳票の管理支店/販売店コード順はレスポンス生成側で再整列。SCR-028 と同方針）。
 
 ### 4.4 データ件数の取得
 
@@ -304,18 +313,26 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
 ### 4.5 データ取得
 
 ```sql
-SELECT r.dokusya_rireki_id,
+SELECT r.dokusya_rireki_id, r.dokusya_id,
        r.hanbaiten_id, r.kanri_shiten_id,
-       COALESCE(r.zenkai_dokusya_busu, 0) AS genzai_busu,
-       r.dokusya_busu,
+       r.zenkai_dokusya_busu, r.dokusya_busu,
        h.hanbaiten_code, h.hanbaiten_name, h.itaku_kubun, h.torihikisaki_no,
+       /* 前回販売店（販売店変更の旧店表示・減/増判定用） */
+       r.zenkai_hanbaiten_id,
+       zh.hanbaiten_code AS zenkai_hanbaiten_code,
+       zh.hanbaiten_name AS zenkai_hanbaiten_name,
+       zh.itaku_kubun    AS zenkai_itaku_kubun,
+       zh.torihikisaki_no AS zenkai_torihikisaki_no,
        ks.kanri_shiten_code, ks.kanri_shiten_name,
        ks.tel AS kanri_shiten_tel, ks.fax AS kanri_shiten_fax,
        td.todofuken_name,
        j.ja_name, j.tanto_busho, j.tanto_name
 FROM t_dokusya_rireki r
 INNER JOIN m_hanbaiten h
-        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL
+        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false
+/* 前回販売店（初回履歴は NULL のため LEFT JOIN） */
+LEFT JOIN m_hanbaiten zh
+        ON zh.hanbaiten_id = r.zenkai_hanbaiten_id AND zh.deleted_at IS NULL
 INNER JOIN m_kanri_shiten ks
         ON ks.kanri_shiten_id = r.kanri_shiten_id AND ks.deleted_at IS NULL
 INNER JOIN m_ja j
@@ -324,7 +341,6 @@ LEFT JOIN m_todofuken td
         ON td.todofuken_code = ks.todofuken_code
 WHERE r.joho_henko_tekiyo_date = :tekiyo_date
   AND r.zougen_hokoku_flg = true
-  AND h.haiten_flg = false
   /* 管理支店フィルタ（任意） */
   AND (:kanri_shiten_ids IS NULL OR r.kanri_shiten_id = ANY(:kanri_shiten_ids))
   /* 現在部数 = 0 かつ 新部数 = 0 のレコードは除外 */
@@ -332,22 +348,44 @@ WHERE r.joho_henko_tekiyo_date = :tekiyo_date
   /* DataScope: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN */
   AND r.ja_id = :user_ja_id
   AND (:user_kanri_shiten_id IS NULL OR r.kanri_shiten_id = :user_kanri_shiten_id)
-ORDER BY ks.kanri_shiten_code ASC, h.hanbaiten_code ASC
+/* 同一購読者の同日履歴を累計するため dokusya_id, rireki_no 昇順 */
+ORDER BY r.dokusya_id ASC, r.rireki_no ASC
 ```
 
 ### 4.6 レスポンス生成
 
-- 取得レコードを 管理支店ID でグループ化する（`reports` 配列。管理支店コード昇順。各要素＝1枚の帳票）。
-- 各明細行を以下の条件で整形する：
-  - **現在部数**（`genzai_busu`）：`COALESCE(zenkai_dokusya_busu, 0)`
-  - **増部数**（`zou_busu`）：`dokusya_busu > genzai_busu` の場合 `dokusya_busu - genzai_busu`、それ以外は 0
-  - **減部数**（`gen_busu`）：`dokusya_busu < genzai_busu` の場合 `genzai_busu - dokusya_busu`、それ以外は 0（帳票では「▲」を付与して表示）
-  - **新部数**（`shin_busu`）：`dokusya_busu`（＝現在部数 ＋ 増部数 － 減部数）
+- **同一購読者（`dokusya_id`）の同日複数履歴を累計する**（SCR-028 と同方針）：
+  - **現在部数 `genzai`** = その日の最小 `rireki_no` レコードの前回部数（日初）
+  - **新部数 `shin`** = その日の最大 `rireki_no` レコードの現在部数（日末）
+  - 例：同日 1→3→5 は 現在1 / 新5 / 増4 の **1行**、解約 …→0 は 現在n / 新0 / 減n。
+- 累計後、各購読者を以下で明細行へ整形し、**管理支店IDでグループ化**する
+  （`reports` 配列。管理支店コード昇順。行内は販売店コード昇順）：
+  - **販売店変更**（前回販売店 ≠ 現販売店）：旧店・新店の **2行**に分けて計上する。
+    - 旧販売店（`zenkai_hanbaiten_id`）：現在部数 = 現在(busuBefore) / 減部数 = busuBefore / 増 0 / 新 0
+    - 新販売店（`hanbaiten_id`）：現在部数 = 0 / 増部数 = busuAfter / 減 0 / 新部数 = busuAfter
+    - （旧店の管理支店は履歴に保持されないため、暫定的に当日最終レコードの管理支店に計上。SCR-028 と同前提）
+  - **同一販売店**：
+    - **現在部数**（`genzai_busu`）：日初の前回部数 busuBefore
+    - **増部数**（`zou_busu`）：`busuAfter > busuBefore` の場合 `busuAfter - busuBefore`、それ以外は 0
+    - **減部数**（`gen_busu`）：`busuAfter < busuBefore` の場合 `busuBefore - busuAfter`、それ以外は 0（帳票では「▲」付与）
+    - **新部数**（`shin_busu`）：日末の現在部数 busuAfter（＝現在部数 ＋ 増部数 － 減部数）
   - **委託欄**（`itaku_label`）：`itaku_kubun = 2`（日農委託）の場合「委託」、それ以外（1:振込 / 9:その他）は `""`
   - **販売店名**（`hanbaiten_name`）：適格請求書発行事業者番号（`torihikisaki_no`）が空文字の場合は免税販売店とみなし、先頭に「（免）」を付与する
   - **差異マーク**（`diff_mark`）：前回出力（直近の出力履歴の同一管理支店・同一販売店の値）との差がある行は `true`。前回出力が存在しない場合は `false`
 - 各管理支店の `total` に、当該管理支店内の `genzai_busu` / `zou_busu` / `gen_busu` / `shin_busu` の合計を設定する。
 - 帳票ヘッダ用に、管理支店コード（`kanri_shiten_code`）、JA名称（`ja_name`）、都道府県名（`todofuken_name`）、担当部署（`tanto_busho`）、担当者名（`tanto_name`）、TEL（管理支店）、FAX（管理支店）を返す。
+- **ページ送り（SQL OFFSET/LIMIT。購読者単位。SCR-028 と同方針）**：
+  - 累計は**同日履歴をまたいで分割できない**ため、`OFFSET/LIMIT` の最小単位は
+    **`dokusya_id`（購読者）**であり行/レコード単位ではない。`per_page`（既定15）は
+    「1ページの販売店行数（≒購読者数。大半1行/購読者。販売店変更=2行になり得る）」。
+  - 処理：① `COUNT(DISTINCT r.dokusya_id)` で対象購読者数 → `total_pages` 算出、②
+    `GROUP BY r.dokusya_id ORDER BY MIN(ks.kanri_shiten_code), MIN(h.hanbaiten_code),
+    r.dokusya_id OFFSET (page-1)*per_page LIMIT per_page` でページ対象の `dokusya_id` を
+    取得、③ その購読者の明細行のみ取得して管理支店ごとに集約。**BEは1ページ分の購読者の
+    明細だけをロードする**（メモリ内全件ロードではない）。
+  - メタ（`page_no` / `per_page` / `total_pages` / `total_rows`＝購読者数 / `is_last_page`）を返す。
+  - `total`（管理支店合計）はそのページの行から算出する（管理支店がページをまたぐ場合は
+    ページ内合計）。
 - data オブジェクトを含むJSONを返却する。HTTP 200。
 
 ### 4.7 例外処理
@@ -364,7 +402,7 @@ ORDER BY ks.kanri_shiten_code ASC, h.hanbaiten_code ASC
 | 項目                   | 内容                                                                                                                                                                                                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Export Zougen Nichino Report (PDF)                                                                                                                                                                                                                                  |
-| 概要                   | プレビューと同一条件で増減対象データを抽出し、管理支店ごとに1枚の電子帳票PDFを生成してS3に保存し、日農担当者へメール自動通知を行い、ダウンロードを返却する                                                                                                            |
+| 概要                   | プレビューと同一条件で増減対象データを抽出し、全管理支店をプレビューと同じ改ページ（15行/ページ）でまとめた1つの電子帳票PDFを生成してS3に保存し、日農担当者へメール自動通知を行い、ダウンロードを返却する                                                              |
 | URI                    | /api/v1/report/zougen-nichino/export                                                                                                                                                                                                                                |
 | メソッド               | POST                                                                                                                                                                                                                                                                |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                                |
@@ -384,21 +422,19 @@ ORDER BY ks.kanri_shiten_code ASC, h.hanbaiten_code ASC
 
 ## レスポンスデータ
 
-PDFファイル（`Content-Type: application/pdf`）。対象管理支店が複数の場合は各管理支店PDFをまとめたZIP（`Content-Type: application/zip`）。
+PDFファイル（`Content-Type: application/pdf`）。**全管理支店をプレビューと同じ改ページ
+（1ページ=15販売店行・同じ並び）でまとめた1つのPDF**（ZIPではない。SCR-028 と同方針）。
 
 ### レスポンスヘッダ
 
 ```
 Content-Type: application/pdf
-Content-Disposition: attachment; filename="zougen_nichino_KANRISHITENCODE_YYYYMMDD.pdf"
+Content-Disposition: attachment; filename="zougen_nichino_YYYYMMDD.pdf"
 ```
 
-※ ファイル名は管理支店コード・適用日に基づく（例：管理支店コード `1AA-3300-001`・適用日 2026-03-01 →
-  表示名 `増減通知_1AA-3300-001_20260301.pdf`）。
-  対象管理支店が1件の場合は当該PDFを返却し、複数件の場合は各PDFをまとめたZIP（表示名
-  `増減通知_20260301.zip`）を返却する。
-  `Content-Disposition` の `filename` には ASCII 別名、`filename*`（RFC 5987）には日本語名（実際は
-  管理支店コードを含むASCII名）を設定する。
+※ ファイル名は適用日に基づく（例：適用日 2026-03-01 → 表示名 `増減通知_20260301.pdf`、
+  ASCII別名 `zougen_nichino_20260301.pdf`）。
+  `Content-Disposition` の `filename` には ASCII 別名、`filename*`（RFC 5987）には日本語名を設定する。
 
 ### PDFレイアウト
 
@@ -413,7 +449,11 @@ Content-Disposition: attachment; filename="zougen_nichino_KANRISHITENCODE_YYYYMM
 | 備考         | 「＜備考＞」欄（リクエストの `remarks` を印字）                                                        |
 
 ※ 委託欄は「日農委託」の販売店のみ「委託」、振込・その他は空欄。免税販売店は販売店名の前に「（免）」。
-  減部数は「▲」付き、前回出力との差異がある行には「◆」を付与する。管理支店ごとに1枚（改ページ）。
+  減部数は「▲」付き、前回出力との差異がある行には「◆」を付与する。
+※ 改ページは**プレビューと同じ1ページ=15販売店行単位**（購読者を管理支店コード昇順・販売店
+  コード昇順・dokusya_id 昇順に並べ15行ずつ）。1ページに複数管理支店が載る場合は各管理支店
+  ブロックを続けて積み、ページ先頭でのみ改ページする。PDF の n ページ目 = プレビューの n
+  ページ目。Page表記は「ページ番号/総ページ数」。
 
 ## リクエスト例
 
@@ -530,12 +570,14 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
 ### 4.4 PDF生成・S3保存
 
 - 取得レコードを管理支店ID単位でグループ化する（管理支店コード昇順）。
-- 管理支店ごとに1枚の帳票（明細テーブル＋合計行＋備考）を描画する（PDFレイアウト参照）。
+- **プレビューと同じ改ページ**（1ページ=15販売店行・購読者単位。管理支店コード昇順→販売店
+  コード昇順→dokusya_id 昇順）で**全管理支店を1つのPDF**にまとめて描画する。1ページに複数
+  管理支店が載る場合は各管理支店ブロックを続けて積み、ページ先頭でのみ改ページする。各
+  管理支店ブロックは明細テーブル＋合計行＋備考（PDFレイアウト参照）。
 - 委託欄・免税（（免））・減部数（▲）・差異マーク（◆）の整形は `ACSMS-API-029-001` の 4.6 と同一とする。
 - ヘッダにページ数（`Page: 現在ページ/全体ページ数`）、組合名（管理支店コードを3-4-3でハイフン区切り＋JA名＋管理支店名）、都道府県名、担当部署 ／ 担当者、TEL / FAX を表示する。
 - 出力形式：PDF（A4）。テンプレート（Handlebars）→ HTML → Puppeteer で生成する。
-- 生成したPDFをS3に保存する。保存先パス：`s3://{bucket}/reports/zogen_notification/{YYYY}/{MM}/{DD}/`、ファイル名：`増減通知_{管理支店コード}_{適用日YYYYMMDD}.pdf`。
-- 対象管理支店が複数の場合は管理支店ごとにPDFを生成・保存する。
+- 生成した1つのPDFをS3に保存する。保存先パス：`s3://{bucket}/ja-{ja_id}/report/`、ファイル名：`zougen_nichino_{適用日YYYYMMDD}_{timestamp}.pdf`。
 
 ### 4.5 メール通知
 
@@ -599,13 +641,10 @@ VALUES (1, NOW(), :account_id, :ja_id,
 
 ### 4.8 レスポンス生成
 
-- 対象管理支店が1件の場合：生成したPDFファイルをレスポンスボディとして返却する。HTTP 200。
+- 全管理支店をまとめた**1つのPDF**をレスポンスボディとして返却する。HTTP 200。
   - `Content-Type: application/pdf`
-  - `Content-Disposition: attachment; filename="zougen_nichino_{管理支店コード}_{YYYYMMDD}.pdf"; filename*=UTF-8''{URLエンコードしたファイル名}`
-- 対象管理支店が複数件の場合：各PDFをまとめたZIPを返却する。HTTP 200。
-  - `Content-Type: application/zip`
-  - `Content-Disposition: attachment; filename="zougen_nichino_{YYYYMMDD}.zip"`
-- ダウンロード時の表示名はS3に保存されたファイル名をそのまま使用する。
+  - `Content-Disposition: attachment; filename="zougen_nichino_{YYYYMMDD}.pdf"; filename*=UTF-8''{URLエンコードしたファイル名}`
+- ダウンロード時の表示名は `増減通知_{YYYYMMDD}.pdf`。
 
 ### 4.9 例外処理
 

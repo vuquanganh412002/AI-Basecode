@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsNumber,
@@ -60,6 +61,21 @@ const blankOrNumber = ({ value }: { value: unknown }): unknown => {
     return Number.isFinite(n) ? n : trimmed;
   }
   return value;
+};
+
+/**
+ * Boolean variant — Excel の真偽セル（boolean / TRUE/FALSE / 1/0 / ○/× /
+ * はい/いいえ）を boolean へ。空欄は undefined（未指定＝BE 側で従来挙動に
+ * フォールバック）。
+ */
+const blankOrBool = ({ value }: { value: unknown }): unknown => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const s = String(value).trim();
+  if (s === '') return undefined;
+  if (/^(true|1|○|はい|yes|y)$/i.test(s)) return true;
+  if (/^(false|0|×|いいえ|no|n)$/i.test(s)) return false;
+  return undefined;
 };
 
 /**
@@ -228,6 +244,12 @@ export class ImportDokusyaRowDto {
   @IsString()
   @MaxLength(15, { message: '連絡先２は15文字以内で入力してください。' })
   renrakusaki_2?: string;
+
+  @ApiPropertyOptional({ description: '購読者情報と同じ（true: 配達先＝購読者住所）' })
+  @Transform(blankOrBool)
+  @IsOptional()
+  @IsBoolean({ message: '購読者情報と同じフラグはbool型で指定してください。' })
+  haitatsu_same_flg?: boolean;
 
   @ApiPropertyOptional({ description: '配達先郵便番号' })
   @Transform(blankToUndef)
@@ -405,6 +427,13 @@ export class ImportDokusyaRowDto {
   @IsString()
   @MaxLength(10, { message: '読者情報変更適用日は10文字以内で入力してください。' })
   joho_henko_tekiyo_date?: string;
+
+  @ApiPropertyOptional({ description: '販売店適用日（YYYY-MM-DD。販売店変更時に必須）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString()
+  @MaxLength(10, { message: '販売店適用日は10文字以内で入力してください。' })
+  hanbaiten_tekiyo_date?: string;
 }
 
 export class ImportDokusyaDto {
@@ -423,7 +452,7 @@ export class ImportDokusyaDto {
   })
   @IsArray({ message: '取込対象の列は配列で指定してください。' })
   @ArrayMinSize(1, { message: '取込対象の列は1件以上指定してください。' })
-  @ArrayMaxSize(49, { message: '取込対象の列は49件以内で指定してください。' })
+  @ArrayMaxSize(50, { message: '取込対象の列は50件以内で指定してください。' })
   @IsString({ each: true })
   selected_columns!: string[];
 

@@ -145,6 +145,39 @@ export default () => {
         (storageProvider === 's3' ? '' : DEV_FALLBACKS.STORAGE_SECRET_KEY),
       bucket: process.env.STORAGE_BUCKET || 'agrinews',
     },
+    /**
+     * 顧客システム「電子版」のDB（読み取り専用 / MySQL, port 3306）への副接続。
+     * メインの業務DB（PostgreSQL, `database` 上）とは別物で、電子版側が
+     * 保持する既存データを参照するための専用コネクション。`readerexample`
+     * のような読み取り専用ユーザーで接続する。
+     *
+     * `enabled=false` で接続を完全にスキップできる（接続情報が未確定の
+     * 環境ではアプリ本体を落とさず無効化する）。本番では DENSHIBAN_DB_*
+     * を ECS task definition / AWS Secrets Manager から注入する。
+     * まずは検証環境（verification: example.rds.amazonaws.com）で疎通を確認する。
+     */
+    denshiban: {
+      enabled: toBoolean(process.env.DENSHIBAN_DB_ENABLED ?? 'true'),
+      host: process.env.DENSHIBAN_DB_HOST || 'example.rds.amazonaws.com',
+      port: parseInt(process.env.DENSHIBAN_DB_PORT ?? '3306', 10),
+      username: process.env.DENSHIBAN_DB_USERNAME || 'readerexample',
+      // 接続情報が共有されていない環境では空のまま — enabled=false で無効化するか
+      // DENSHIBAN_DB_PASSWORD を env / Secrets Manager から注入する。
+      password: process.env.DENSHIBAN_DB_PASSWORD || '',
+      // 接続先データベース名。検証環境で未指定なら指定なしで接続を試みる。
+      database: process.env.DENSHIBAN_DB_NAME || '',
+      // 本番 RDS は TLS 必須。検証環境/ローカルでは false。
+      ssl: toBoolean(process.env.DENSHIBAN_DB_SSL),
+      // 電子版から共有された共通キー（common key: examplestring）。現状は接続確認の
+      // 対象外だが、今後この電子版DBのデータ取得時に利用するため設定として保持する。
+      commonKey: process.env.DENSHIBAN_DB_COMMON_KEY || 'examplestring',
+      // ⚠️ TEMPORARY — 起動時にテーブル一覧 + t_dokusya 先頭10件を「ログに出す」
+      // 診断フラグ。t_dokusya は購読者(PII)なので、これは CloudWatch に PII を
+      // 書き出す＝本来は禁止行為（.claude/rules/security.md / monitoring.md）。
+      // dump 許可を顧客に取りに行っている間の暫定確認用。dev/検証のみ true、
+      // 本番では必ず未設定(false)。許可が下りたら本フラグごと削除する。
+      debugSample: toBoolean(process.env.DENSHIBAN_DB_DEBUG_SAMPLE),
+    },
     mail: {
       // Optional explicit override. When unset, MailService selects the provider
       // from NODE_ENV (local → SMTP/Mailhog, otherwise → SES). docker-compose

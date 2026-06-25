@@ -418,33 +418,84 @@ export class HanbaitenService {
    * narrow. Soft-deleted rows excluded. `q` partial-matches on
    * hanbaiten_name (ILIKE).
    */
+  /**
+   * 販売店プルダウン。検索（q）/ ページング（page・per_page）/ 編集ピン（include_id）
+   * 対応。後方互換のためページングは **opt-in**：`page` 未指定なら全件返す（has_more=false）。
+   * 検索対象は match_field='name' で 販売店名のみ、既定（'both'）で **販売店コード OR 名称**。
+   */
   async listDropdown(
-    query: { ja_id?: number; q?: string },
+    query: {
+      ja_id?: number;
+      q?: string;
+      match_field?: 'both' | 'name';
+      page?: number;
+      per_page?: number;
+      include_id?: number;
+    },
     session: SessionPayload,
-  ): Promise<
-    Array<{
+  ): Promise<{
+    data: Array<{
       hanbaiten_id: number;
       hanbaiten_code: string;
       hanbaiten_name: string;
-    }>
-  > {
-    const qb = this.repo
-      .createQueryBuilder('m')
-      .where('m.deleted_at IS NULL');
-    applyJaScope(qb, 'm', 'jaId', session);
-    if (session.ja_id == null && query.ja_id !== undefined) {
-      qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
-    }
-    if (query.q) {
-      qb.andWhere('m.hanbaiten_name ILIKE :q', { q: `%${query.q}%` });
-    }
-    qb.orderBy('m.hanbaiten_code', 'ASC');
-    const rows = await qb.getMany();
-    return rows.map((r) => ({
+    }>;
+    has_more: boolean;
+  }> {
+    const toItem = (r: Hanbaiten) => ({
       hanbaiten_id: Number(r.hanbaitenId),
       hanbaiten_code: r.hanbaitenCode,
       hanbaiten_name: r.hanbaitenName,
-    }));
+    });
+
+    const buildScoped = () => {
+      const qb = this.repo.createQueryBuilder('m').where('m.deleted_at IS NULL');
+      applyJaScope(qb, 'm', 'jaId', session);
+      if (session.ja_id == null && query.ja_id !== undefined) {
+        qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+      }
+      return qb;
+    };
+
+    const qb = buildScoped();
+    if (query.q) {
+      const like = `%${query.q}%`;
+      if (query.match_field === 'name') {
+        qb.andWhere('m.hanbaiten_name ILIKE :q', { q: like });
+      } else {
+        qb.andWhere(
+          '(m.hanbaiten_code ILIKE :q OR m.hanbaiten_name ILIKE :q)',
+          { q: like },
+        );
+      }
+    }
+    qb.orderBy('m.hanbaiten_code', 'ASC');
+
+    const paginate = query.page !== undefined;
+    let hasMore = false;
+    let rows: Hanbaiten[];
+    if (paginate) {
+      const page = Math.max(query.page ?? 1, 1);
+      const perPage = Math.min(Math.max(query.per_page ?? 50, 1), 100);
+      // take(per_page + 1) で次ページ有無を1クエリで判定。
+      rows = await qb.skip((page - 1) * perPage).take(perPage + 1).getMany();
+      hasMore = rows.length > perPage;
+      if (hasMore) rows = rows.slice(0, perPage);
+
+      // 編集ピン：ページ1で選択中IDが範囲外なら先頭に差し込む（ラベル解決用）。
+      if (
+        page === 1 &&
+        query.include_id !== undefined &&
+        !rows.some((r) => Number(r.hanbaitenId) === query.include_id)
+      ) {
+        const pinned = await buildScoped()
+          .andWhere('m.hanbaiten_id = :pid', { pid: query.include_id })
+          .getOne();
+        if (pinned) return { data: [toItem(pinned), ...rows.map(toItem)], has_more: hasMore };
+      }
+    } else {
+      rows = await qb.getMany();
+    }
+    return { data: rows.map(toItem), has_more: hasMore };
   }
 
   // ─── API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id ────────────

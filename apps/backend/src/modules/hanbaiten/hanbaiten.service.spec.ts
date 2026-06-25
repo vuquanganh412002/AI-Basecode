@@ -2624,5 +2624,74 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       });
     });
   });
+
+  // ─── 販売店プルダウン（検索・ページング・編集ピン）─────────────────────
+  describe('listDropdown', () => {
+    const mk = (id: number) => ({
+      hanbaitenId: id,
+      hanbaitenCode: `H${id}`,
+      hanbaitenName: `販売店${id}`,
+    });
+
+    it('should search by code OR name by default (match_field both)', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown({ q: '中央' }, buildChuokaiSession({ ja_id: 1 }));
+      const search = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /hanbaiten_code ILIKE/i.test(sql) &&
+          /hanbaiten_name ILIKE/i.test(sql) &&
+          /\bOR\b/.test(sql),
+      );
+      expect(search).toBeDefined();
+      expect(search[1]).toMatchObject({ q: '%中央%' });
+    });
+
+    it('should search by name only when match_field=name', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown(
+        { q: 'x', match_field: 'name' },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const search = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /hanbaiten_name ILIKE/i.test(sql) &&
+          !/\bOR\b/.test(sql),
+      );
+      expect(search).toBeDefined();
+    });
+
+    it('should paginate with skip/take and report has_more', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2), mk(3)]); // take(3) → 3 rows
+      const res = await service.listDropdown(
+        { page: 1, per_page: 2 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(qbMock.skip).toHaveBeenCalledWith(0);
+      expect(qbMock.take).toHaveBeenCalledWith(3);
+      expect(res.has_more).toBe(true);
+      expect(res.data).toHaveLength(2);
+    });
+
+    it('should return all rows (no pagination) when page is absent', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2)]);
+      const res = await service.listDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+      expect(qbMock.take).not.toHaveBeenCalled();
+      expect(res.has_more).toBe(false);
+      expect(res.data).toHaveLength(2);
+    });
+
+    it('should pin include_id onto page 1 when not in the fetched page', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2)]);
+      qbMock.getOne.mockResolvedValueOnce(mk(99));
+      const res = await service.listDropdown(
+        { page: 1, per_page: 5, include_id: 99 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(res.data[0].hanbaiten_id).toBe(99);
+      expect(res.data).toHaveLength(3);
+    });
+  });
 });
 

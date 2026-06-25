@@ -3,7 +3,12 @@
 // 管理支店, 支店) and any future `*_name_kana` field stay in lock-step.
 
 import { describe, it, expect } from 'vitest';
-import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
+import {
+  HALF_WIDTH_KATAKANA_RE,
+  JASTEM_NAME_RE,
+  jastemNameFormatMessage,
+  kanaFormatMessage,
+} from '@/utils/kana';
 
 describe('HALF_WIDTH_KATAKANA_RE', () => {
   it.each([
@@ -32,6 +37,47 @@ describe('HALF_WIDTH_KATAKANA_RE', () => {
   ])('should reject %s (%s)', (value) => {
     expect(HALF_WIDTH_KATAKANA_RE.test(value)).toBe(false);
   });
+});
+
+// 顧客要件 2026-06-25: 委託者名・農協名・店舗名 は銀行charset限定。
+describe('JASTEM_NAME_RE (委託者名・農協名・店舗名 — 銀行charset)', () => {
+  it.each([
+    ['ﾎﾝﾃﾝ', 'half-width katakana (no small kana)'],
+    ['ﾐﾄﾞﾘ', 'with dakuten ﾞ'],
+    ['ﾊﾟﾝ', 'with handakuten ﾟ'],
+    ['JA123', 'uppercase A-Z + digits'],
+    ['A.B-C (1)', 'symbols . ( ) - and space'],
+    ['ﾆﾎﾝﾉｳｷﾞﾖｳ JA-1', 'mixed half-width katakana + A-Z + digit + space + hyphen'],
+  ])('should accept %s (%s)', (value) => {
+    expect(JASTEM_NAME_RE.test(value)).toBe(true);
+  });
+
+  it.each([
+    ['本店', 'kanji'],
+    ['ほんてん', 'hiragana'],
+    ['ホンテン', 'full-width katakana'],
+    ['ＪＡ１２３', 'full-width alnum'],
+    ['ja123', 'half-width lowercase'],
+    ['ｷｬｸ', 'small half-width kana ｬ'],
+    ['ﾄｳｷｮｳ', 'small half-width kana ｮ'],
+    ['ｾﾝﾀｰ', 'prolonged-sound-mark ｰ (out of range)'],
+    ['ｦ', 'ｦ U+FF66 (out of range)'],
+    ['A@B', 'disallowed symbol @'],
+    ['', 'empty string'],
+  ])('should reject %s (%s)', (value) => {
+    expect(JASTEM_NAME_RE.test(value)).toBe(false);
+  });
+});
+
+describe('jastemNameFormatMessage', () => {
+  it.each(['委託者名', '農協名', '店舗名'])(
+    'should produce the canonical bank-charset message for %s',
+    (label) => {
+      expect(jastemNameFormatMessage(label)).toBe(
+        `${label}は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。`,
+      );
+    },
+  );
 });
 
 describe('kanaFormatMessage', () => {

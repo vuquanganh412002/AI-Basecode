@@ -520,7 +520,30 @@ run_backend_db_tasks() {
 
 # Keys from apps/backend/.env.deploy that are deploy-script only — never injected
 # into the ECS container as plaintext environment variables.
-DEPLOY_MANAGED_KEYS_DEFAULT="AWS_REGION AWS_PROFILE AWS_ACCOUNT_ID IMAGE_TAG BACKEND_ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE ECS_TASK_DEFINITION BACKEND_CONTAINER_NAME BACKEND_ENV_FILE BACKEND_RUN_MIGRATIONS BACKEND_RUN_SEED_DEV BACKEND_SEED_DEV_MARKER_KEY BACKEND_SEED_DEV_S3_BUCKET FRONTEND_S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID VITE_API_BASE_URL VITE_APP_TITLE"
+DEPLOY_MANAGED_KEYS_DEFAULT=(
+  # AWS / deploy targeting
+  AWS_REGION
+  AWS_PROFILE
+  AWS_ACCOUNT_ID
+  IMAGE_TAG
+  BACKEND_ECR_REPOSITORY
+  ECS_CLUSTER
+  ECS_SERVICE
+  ECS_TASK_DEFINITION
+  BACKEND_CONTAINER_NAME
+  BACKEND_ENV_FILE
+  # Backend one-off task flags (migrations / seed)
+  BACKEND_RUN_MIGRATIONS
+  BACKEND_RUN_SEED_DEV
+  BACKEND_SEED_DEV_MARKER_KEY
+  BACKEND_SEED_DEV_S3_BUCKET
+  # Frontend deploy targets
+  FRONTEND_S3_BUCKET
+  CLOUDFRONT_DISTRIBUTION_ID
+  # Vite build-time args (baked at build, not container runtime)
+  VITE_API_BASE_URL
+  VITE_APP_TITLE
+)
 
 # Keys whose values are managed by AWS Secrets Manager via the task
 # definition "secrets" block. These are NEVER injected as plaintext
@@ -533,7 +556,21 @@ DEPLOY_MANAGED_KEYS_DEFAULT="AWS_REGION AWS_PROFILE AWS_ACCOUNT_ID IMAGE_TAG BAC
 # so this list is the belt-and-suspenders for keys that live under a
 # differently-named secret (e.g. REDIS_PASSWORD ↔ REDIS_AUTH_TOKEN) or
 # are placeholders in .env.deploy.
-SECRET_MANAGED_KEYS_DEFAULT="DB_PASSWORD DB_USERNAME REDIS_PASSWORD REDIS_AUTH_TOKEN SESSION_SECRET STORAGE_ACCESS_KEY STORAGE_SECRET_KEY MAIL_USER MAIL_PASS"
+SECRET_MANAGED_KEYS_DEFAULT=(
+  # Core app secrets (RDS / Redis / session / storage / mail)
+  DB_PASSWORD
+  DB_USERNAME
+  REDIS_PASSWORD
+  REDIS_AUTH_TOKEN
+  SESSION_SECRET
+  STORAGE_ACCESS_KEY
+  STORAGE_SECRET_KEY
+  MAIL_USER
+  MAIL_PASS
+  # 電子版 external read-only DB (customer-provided)
+  DENSHIBAN_DB_PASSWORD
+  DENSHIBAN_DB_COMMON_KEY
+)
 
 backend_env_json() {
   local env_file="${BACKEND_ENV_FILE:-$ROOT_DIR/apps/backend/.env.deploy}"
@@ -544,8 +581,8 @@ backend_env_json() {
   fi
 
   require_cmd python3
-  SECRET_MANAGED_KEYS="${SECRET_MANAGED_KEYS:-$SECRET_MANAGED_KEYS_DEFAULT}" \
-  DEPLOY_MANAGED_KEYS="${DEPLOY_MANAGED_KEYS:-$DEPLOY_MANAGED_KEYS_DEFAULT}" \
+  SECRET_MANAGED_KEYS="${SECRET_MANAGED_KEYS:-${SECRET_MANAGED_KEYS_DEFAULT[*]}}" \
+  DEPLOY_MANAGED_KEYS="${DEPLOY_MANAGED_KEYS:-${DEPLOY_MANAGED_KEYS_DEFAULT[*]}}" \
   python3 - "$env_file" <<'PY'
 import json
 import os
