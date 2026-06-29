@@ -54,9 +54,17 @@ DECLARE
   v_shiten_a BIGINT;
   v_shiten_b BIGINT;
   v_tanka    BIGINT;
+  v_tanka2   BIGINT;
+  v_tanka3   BIGINT;
+  v_tanka4   BIGINT;
   v_h1       BIGINT;
   v_h2       BIGINT;
   v_h3       BIGINT;
+  v_h4       BIGINT;
+  v_h5       BIGINT;
+  v_h6       BIGINT;
+  v_h7       BIGINT;
+  v_h8       BIGINT;
   v_pwd      VARCHAR(256);
 BEGIN
   SELECT password_hash INTO v_pwd
@@ -110,6 +118,21 @@ BEGIN
   VALUES (v_ja_id,'T001',1,'新聞購読料 月額',3500,3182,10.00,v_kaishi,true,'SEED_ZG','SEED_ZG')
   RETURNING tanka_id INTO v_tanka;
 
+  INSERT INTO m_tanka (ja_id,tanka_code,tanka_type,tanka_name,kingaku_zeikomi,kingaku_zeinuki,
+                       tax_rate,tekiyo_start_date,active_flg,created_by,updated_by)
+  VALUES (v_ja_id,'T002',1,'新聞購読料 月額(電子版)',2800,2546,10.00,v_kaishi,true,'SEED_ZG','SEED_ZG')
+  RETURNING tanka_id INTO v_tanka2;
+
+  INSERT INTO m_tanka (ja_id,tanka_code,tanka_type,tanka_name,kingaku_zeikomi,kingaku_zeinuki,
+                       tax_rate,tekiyo_start_date,active_flg,created_by,updated_by)
+  VALUES (v_ja_id,'T003',2,'配達手数料 月額',500,455,10.00,v_kaishi,true,'SEED_ZG','SEED_ZG')
+  RETURNING tanka_id INTO v_tanka3;
+
+  INSERT INTO m_tanka (ja_id,tanka_code,tanka_type,tanka_name,kingaku_zeikomi,kingaku_zeinuki,
+                       tax_rate,tekiyo_start_date,active_flg,created_by,updated_by)
+  VALUES (v_ja_id,'T004',2,'配達手数料 月額(遠隔地)',800,728,10.00,v_kaishi,true,'SEED_ZG','SEED_ZG')
+  RETURNING tanka_id INTO v_tanka4;
+
   INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
                            todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
                            bank_branch_name,haiten_flg,created_by,updated_by)
@@ -125,6 +148,31 @@ BEGIN
                            bank_branch_name,haiten_flg,created_by,updated_by)
   VALUES (v_ja_id,'HB003','増減販売店3(廃店)','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ3','','13',2,'0001','みずほ銀行','003','廃店',true,'SEED_ZG','SEED_ZG')
   RETURNING hanbaiten_id INTO v_h3;
+  INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
+                           todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
+                           bank_branch_name,haiten_flg,created_by,updated_by)
+  VALUES (v_ja_id,'HB004','増減販売店4','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ4','','13',2,'0005','三菱UFJ銀行','004','神田',false,'SEED_ZG','SEED_ZG')
+  RETURNING hanbaiten_id INTO v_h4;
+  INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
+                           todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
+                           bank_branch_name,haiten_flg,created_by,updated_by)
+  VALUES (v_ja_id,'HB005','増減販売店5','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ5','T2345678901234','13',1,'0005','三菱UFJ銀行','005','大手町',false,'SEED_ZG','SEED_ZG')
+  RETURNING hanbaiten_id INTO v_h5;
+  INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
+                           todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
+                           bank_branch_name,haiten_flg,created_by,updated_by)
+  VALUES (v_ja_id,'HB006','増減販売店6','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ6','','13',2,'0009','三井住友銀行','006','日本橋',false,'SEED_ZG','SEED_ZG')
+  RETURNING hanbaiten_id INTO v_h6;
+  INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
+                           todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
+                           bank_branch_name,haiten_flg,created_by,updated_by)
+  VALUES (v_ja_id,'HB007','増減販売店7','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ7','T3456789012345','13',1,'0009','三井住友銀行','007','京橋',false,'SEED_ZG','SEED_ZG')
+  RETURNING hanbaiten_id INTO v_h7;
+  INSERT INTO m_hanbaiten (ja_id,hanbaiten_code,hanbaiten_name,hanbaiten_name_kana,torihikisaki_no,
+                           todofuken_code,itaku_kubun,bank_code,bank_name,bank_branch_code,
+                           bank_branch_name,haiten_flg,created_by,updated_by)
+  VALUES (v_ja_id,'HB008','増減販売店8(廃店)','ｿﾞｳｹﾞﾝﾊﾝﾊﾞｲﾃﾝ8','','13',2,'0001','みずほ銀行','008','九段下',true,'SEED_ZG','SEED_ZG')
+  RETURNING hanbaiten_id INTO v_h8;
 
   INSERT INTO m_account (login_id,password_hash,account_name,role_id,ja_id,kanri_shiten_id,
                          todofuken_code,paper_flg,denshi_flg,email,created_by,updated_by)
@@ -294,4 +342,6 @@ BEGIN
 
   RAISE NOTICE '[seed-zougen v2] DONE. ja_id=%, account=chuokai_zg, KS-A=%, KS-B=%, H1=%, H2=%, H3(廃店)=%',
     v_ja_id, v_ks_a, v_ks_b, v_h1, v_h2, v_h3;
+  RAISE NOTICE '[seed-zougen v2] +hanbaiten H4=%, H5=%, H6=%, H7=%, H8(廃店)=% / +tanka T002=%, T003=%, T004=%',
+    v_h4, v_h5, v_h6, v_h7, v_h8, v_tanka2, v_tanka3, v_tanka4;
 END $$;

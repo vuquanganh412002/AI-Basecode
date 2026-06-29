@@ -172,7 +172,11 @@ async function onExport(): Promise<void> {
     const link = document.createElement('a');
     link.href = url;
     const [y, m] = formState.tekiyo_date.split('-');
-    link.download = `購読者名簿_${y}年${m}月.xlsx`;
+    // 帳票種別で接頭辞を切替（hanbaiten=販売店別 / kanri_shiten=管理支店別）。
+    // 例: 販売店別購読者名簿_2026年01月.xlsx
+    const prefix =
+      formState.report_type === 'hanbaiten' ? '販売店別' : '管理支店別';
+    link.download = `${prefix}購読者名簿_${y}年${m}月.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();

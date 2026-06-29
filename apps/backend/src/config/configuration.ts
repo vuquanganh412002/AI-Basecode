@@ -159,7 +159,7 @@ export default () => {
     denshiban: {
       enabled: toBoolean(process.env.DENSHIBAN_DB_ENABLED ?? 'true'),
       host: process.env.DENSHIBAN_DB_HOST || 'example.rds.amazonaws.com',
-      port: parseInt(process.env.DENSHIBAN_DB_PORT ?? '3306', 10),
+      port: Number.parseInt(process.env.DENSHIBAN_DB_PORT ?? '3306', 10),
       username: process.env.DENSHIBAN_DB_USERNAME || 'readerexample',
       // 接続情報が共有されていない環境では空のまま — enabled=false で無効化するか
       // DENSHIBAN_DB_PASSWORD を env / Secrets Manager から注入する。
@@ -177,6 +177,16 @@ export default () => {
       // dump 許可を顧客に取りに行っている間の暫定確認用。dev/検証のみ true、
       // 本番では必ず未設定(false)。許可が下りたら本フラグごと削除する。
       debugSample: toBoolean(process.env.DENSHIBAN_DB_DEBUG_SAMPLE),
+      // 電子版「会員情報更新」共通API (updateUserInfo)。顧客は ECS の NAT IP
+      // 2つだけを whitelist しているため、疎通確認はローカルからではなく
+      // ECS 起動時に行う（DenshibanApiService）。
+      apiUrl:
+        process.env.DENSHIBAN_API_URL || '',
+      // ⚠️ TEMPORARY 診断フラグ — true のとき、起動時に updateUserInfo へ
+      // 「データを書き込まない invalid probe」を1回 POST して response を
+      // ログに出す（NAT whitelist + TLS + 共通鍵での復号が通るか確認）。
+      // 既定 OFF。疎通確認が済んだら本フラグごと削除する。
+      apiPing: toBoolean(process.env.DENSHIBAN_API_PING),
     },
     mail: {
       // Optional explicit override. When unset, MailService selects the provider

@@ -115,9 +115,10 @@ beforeEach(async () => {
     '@/api/report/report'
   );
   vi.mocked(previewZougenHanbaiten).mockResolvedValue(buildZougenPreviewResponse());
-  vi.mocked(exportZougenHanbaiten).mockResolvedValue(
-    new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
-  );
+  vi.mocked(exportZougenHanbaiten).mockResolvedValue({
+    blob: new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    filename: '増減連絡票_JA001_2026年05月01日.pdf',
+  });
   const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
   vi.mocked(getHanbaitenDropdown).mockResolvedValue(buildHanbaitenDropdownResponse());
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
@@ -297,12 +298,14 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     (wrapper.vm as any).formState.hanbaiten_id = [200];
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
-    // 対象0件 → BE は PDF ではなく application/json の Blob を返す。
-    vi.mocked(exportZougenHanbaiten).mockResolvedValueOnce(
-      new Blob([JSON.stringify({ data: { reports: [] } })], {
+    // 対象0件 → BE は PDF ではなく application/json の Blob を返す
+    // （Content-Disposition なし → filename は null）。
+    vi.mocked(exportZougenHanbaiten).mockResolvedValueOnce({
+      blob: new Blob([JSON.stringify({ data: { reports: [] } })], {
         type: 'application/json',
       }),
-    );
+      filename: null,
+    });
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();

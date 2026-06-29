@@ -22,8 +22,10 @@ import { ApiProperty } from '@nestjs/swagger';
 export class DokusyaResponseDto {
   @ApiProperty() dokusya_id: number;
   @ApiProperty() ja_id: number;
-  @ApiProperty() kanri_shiten_id: number;
-  @ApiProperty() shiten_id: number;
+  // 任意 (購読者に管理支店/支店が未設定のことがある)。NULL を 0 に丸めない
+  // — FE が 0 を送り返すと更新で「管理支店IDが存在しません」400 になるため。
+  @ApiProperty({ nullable: true }) kanri_shiten_id: number | null;
+  @ApiProperty({ nullable: true }) shiten_id: number | null;
   @ApiProperty() kumiaiin_code: string;
   @ApiProperty() dokusya_shubetsu: number;
   @ApiProperty() tetsuzuki_shurui: number;

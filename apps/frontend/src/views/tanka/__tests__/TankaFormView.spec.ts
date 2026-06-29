@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-003 — 単価マスタ登録画面
 //
 // Drives src/views/tanka/TankaFormView.vue (one file shared between
@@ -52,7 +51,9 @@ interface RenderOptions {
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
-  wrapper: ReturnType<typeof mount>;
+  // `vm` widened to any so tests can call the view's internal submitWith
+  // helper without defineExpose (established convention — see clean specs).
+  wrapper: ReturnType<typeof mount> & { vm: any };
   router: Router;
 }> {
   const router = createRouter({

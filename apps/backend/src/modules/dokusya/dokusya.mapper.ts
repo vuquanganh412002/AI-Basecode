@@ -66,8 +66,12 @@ export function toDokusyaResponse(
   return {
     dokusya_id: coerceNumber(entity.dokusyaId),
     ja_id: coerceNumber(entity.jaId),
-    kanri_shiten_id: coerceNumber(entity.kanriShitenId),
-    shiten_id: coerceNumber(entity.shitenId),
+    // kanri_shiten_id / shiten_id は購読者に未設定のことがある (NULL)。0 へ
+    // 丸めると FE がそのまま 0 を送り返し、更新で assertFkScope が「id=0 の
+    // 管理支店」を探して 400 (管理支店IDが存在しません) になる。NULL を保って
+    // 一覧マッパー (coerceNullableNumber) と nullable 直列化規約に合わせる。
+    kanri_shiten_id: coerceNullableNumber(entity.kanriShitenId),
+    shiten_id: coerceNullableNumber(entity.shitenId),
     kumiaiin_code: entity.kumiaiinCode ?? '',
     dokusya_shubetsu: coerceNumber(entity.dokusyaShubetsu),
     tetsuzuki_shurui: coerceNumber(entity.tetsuzukiShurui),

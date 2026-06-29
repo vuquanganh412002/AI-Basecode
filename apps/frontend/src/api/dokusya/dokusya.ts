@@ -22,8 +22,9 @@ import axiosInstance from '@/api/axios-instance';
 export interface DokusyaDetail {
   dokusya_id: number;
   ja_id: number;
-  kanri_shiten_id: number;
-  shiten_id: number;
+  // 管理支店/支店は未設定のことがある (BE は NULL を返す。0 ではない)。
+  kanri_shiten_id: number | null;
+  shiten_id: number | null;
   kumiaiin_code: string;
   /** m_code.code_category='DOKUSYA_SHUBETSU' — 1=紙版, 2=電子版, 3=併読. */
   dokusya_shubetsu: number;

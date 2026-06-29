@@ -137,7 +137,7 @@ export class CreateJaDto {
   @IsOptional()
   @IsString({ message: '委託者名は文字列で入力してください。' })
   @MaxLength(40, { message: '委託者名は40文字以内で入力してください。' })
-  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()-]+$/, {
     message:
       '委託者名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })
@@ -161,7 +161,7 @@ export class CreateJaDto {
   @IsOptional()
   @IsString({ message: '農協名は文字列で入力してください。' })
   @MaxLength(15, { message: '農協名は15文字以内で入力してください。' })
-  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()-]+$/, {
     message:
       '農協名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })

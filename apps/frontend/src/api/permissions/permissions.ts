@@ -1,4 +1,4 @@
-// Hand-written wrapper around the Orval-generated /api/v1/permissions endpoint.
+// Hand-written axios wrapper for the /api/v1/permissions endpoint.
 // Consumed only by SCR-027 (RoleManagementView) for the permission checkbox
 // grid; mocked in unit specs via vi.mock('@/api/permissions/permissions').
 // Shape mirrors docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md §API-027-004.

@@ -1,15 +1,18 @@
 import { Global, Module } from '@nestjs/common';
+import { DenshibanApiService } from './denshiban-api.service';
 import { DenshibanDbService } from './denshiban-db.service';
 
 /**
- * 顧客システム「電子版」のDB（読み取り専用 / MySQL）への副接続モジュール。
+ * 顧客システム「電子版」への副接続モジュール。
  *
- * 横断的に参照されうるので `@Global()`。ECS BE 起動時に
- * `DenshibanDbService` が疎通確認のログを出す。
+ * 横断的に参照されうるので `@Global()`。ECS BE 起動時に:
+ *   - `DenshibanDbService` がDB(MySQL)の疎通確認ログを出す。
+ *   - `DenshibanApiService` が会員情報更新API(updateUserInfo)の疎通確認を行う
+ *     （フラグ DENSHIBAN_API_PING=true のときのみ・⚠️暫定診断）。
  */
 @Global()
 @Module({
-  providers: [DenshibanDbService],
-  exports: [DenshibanDbService],
+  providers: [DenshibanDbService, DenshibanApiService],
+  exports: [DenshibanDbService, DenshibanApiService],
 })
 export class DenshibanDbModule {}

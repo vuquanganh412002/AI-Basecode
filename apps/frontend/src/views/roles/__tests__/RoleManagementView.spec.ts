@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-027 — ロール管理画面
 //
 // Drives src/views/roles/RoleManagementView.vue. Every it() maps to a
@@ -23,24 +22,21 @@ import {
   buildRoleListResponse,
   buildRoleDetail,
   buildRoleDetailResponse,
-  buildPermissionList,
   buildPermissionListResponse,
-  buildUpdateRoleForm,
   buildAuthUser,
 } from '@test/fixtures/roles.fixture';
 
-// Mock the roles API wrapper. /gen-code-frontend will create
-// `src/api/roles/roles.ts` (Orval output) exporting these named functions
-// — runs `npm run api:generate` after the BE module is registered.
+// Mock the hand-written roles API wrapper (`src/api/roles/roles.ts`)
+// exporting these named functions.
 vi.mock('@/api/roles/roles', () => ({
   listRoles: vi.fn(),
   getRole: vi.fn(),
   updateRole: vi.fn(),
 }));
 
-// Permissions list comes from a sibling generated module
+// Permissions list comes from a sibling hand-written wrapper
 // `src/api/permissions/permissions.ts` (API-027-004). Kept separate from
-// roles per Orval's tag-per-controller output.
+// roles per the tag-per-controller wrapper convention.
 vi.mock('@/api/permissions/permissions', () => ({
   listPermissions: vi.fn(),
 }));
@@ -339,7 +335,7 @@ describe('RoleManagementView — permission checkboxes (機能定義 4.x)', () =
       (c) => (c.element as HTMLInputElement).checked,
     );
     expect(checkedBox).toBeDefined();
-    await checkedBox!.setChecked(false);
+    await checkedBox!.setValue(false);
     await flushPromises();
     expect((checkedBox!.element as HTMLInputElement).checked).toBe(false);
   });
@@ -352,7 +348,7 @@ describe('RoleManagementView — permission checkboxes (機能定義 4.x)', () =
       (c) => !(c.element as HTMLInputElement).checked,
     );
     expect(uncheckedBox).toBeDefined();
-    await uncheckedBox!.setChecked(true);
+    await uncheckedBox!.setValue(true);
     await flushPromises();
     expect((uncheckedBox!.element as HTMLInputElement).checked).toBe(true);
   });
@@ -378,13 +374,6 @@ describe('RoleManagementView — locked permissions', () => {
     await flushPromises();
 
     const boxes = wrapper.findAll('[data-test="permission-checkbox"]');
-    const byId = (id: number) =>
-      boxes.find((b) => {
-        const onChange = (b.attributes('onchange') ?? '').toString();
-        // Each checkbox lives inside a <label> whose key is perm.permission_id;
-        // easier: query by index after we know the permission order.
-        return onChange.includes(`${id},`);
-      });
     // Simpler: just count disabled state by position. Permissions are rendered in
     // index order from the mocked permissions list — assert via attribute scan.
     const disabledCount = boxes.filter((b) => b.attributes('disabled') !== undefined).length;
@@ -408,11 +397,11 @@ describe('RoleManagementView — locked permissions', () => {
     // Find the "全て選択" master checkbox in the table header and toggle OFF.
     const headerBoxes = wrapper.findAll('thead input[type="checkbox"], div input[type="checkbox"]');
     const master = headerBoxes[0];
-    await master.setChecked(false);
+    await master.setValue(false);
     await flushPromises();
 
     // formState.permission_ids must still contain id=1 (locked).
-    const vm = wrapper.vm as { formState: { permission_ids: number[] } };
+    const vm = wrapper.vm as unknown as { formState: { permission_ids: number[] } };
     expect(vm.formState.permission_ids).toContain(1);
   });
 });
@@ -580,7 +569,10 @@ describe('RoleManagementView — save success (機能定義 2.3)', () => {
     // First positional arg = role_id of the row we entered edit mode on (CHUOKAI = 3).
     expect(vi.mocked(updateRole).mock.calls[0]?.[0]).toBe(3);
     // Second arg = body with role_name / description / permission_ids.
-    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body).toMatchObject({
       role_name: '中央会',
       description: '中央会アカウント',
@@ -639,7 +631,10 @@ describe('RoleManagementView — save success (機能定義 2.3)', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = vi.mocked(updateRole).mock.calls[0]?.[1] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body).toBeDefined();
     expect('role_code' in body).toBe(false);
   });

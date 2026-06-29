@@ -14,6 +14,7 @@ import Antd, { message, Modal } from 'ant-design-vue';
 import ShitenListView from '@/views/shiten/ShitenListView.vue';
 import {
   buildShitenListResponse,
+  buildShitenListItem,
   buildAuthUser,
 } from '@test/fixtures/shiten.fixture';
 
@@ -411,6 +412,36 @@ describe('ShitenListView — delete (§5)', () => {
     if (deleteBtn) {
       expect(deleteBtn.attributes('disabled')).toBeDefined();
     }
+  });
+
+  it('should disable 削除 only for rows outside its kanri_shiten when caller is JA_KANRI_SHITEN (顧客要件 2026-06)', async () => {
+    // role 5 (kanri_shiten_id=1) can VIEW all branches in the JA but may
+    // delete only its own kanri_shiten's rows. Row 1 (own) → enabled;
+    // Row 2 (kanri_shiten_id=2) → disabled. BE also enforces 403.
+    const { listShiten } = await import('@/api/shiten/shiten');
+    vi.mocked(listShiten).mockResolvedValue(
+      buildShitenListResponse({
+        data: [
+          buildShitenListItem({ shiten_id: 1, shiten_code: 'OWN', kanri_shiten_id: 1 }),
+          buildShitenListItem({ shiten_id: 2, shiten_code: 'OTHER', kanri_shiten_id: 2 }),
+        ],
+      }),
+    );
+    const { wrapper } = await renderView({
+      user: buildAuthUser({
+        role_code: 'JA_KANRI_SHITEN',
+        ja_id: 1,
+        kanri_shiten_id: 1,
+        permissions: ['shiten.view', 'shiten.update', 'shiten.delete'],
+      }),
+    });
+    const deleteButtons = wrapper
+      .findAll('button')
+      .filter((b) => b.text().includes('削除'));
+    expect(deleteButtons.length).toBe(2);
+    // Row order mirrors the API order: [0]=own (enabled), [1]=other (disabled).
+    expect(deleteButtons[0].attributes('disabled')).toBeUndefined();
+    expect(deleteButtons[1].attributes('disabled')).toBeDefined();
   });
 });
 

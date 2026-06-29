@@ -167,3 +167,48 @@ export function isoDateToSlash(d: string): string {
 export function slashDateToIso(d: string): string {
   return d ? d.replaceAll('/', '-') : '';
 }
+
+/**
+ * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を Asia/Tokyo
+ * の `YYYY-MM-DD` へ変換する。シリアルの暦日 0:00(UTC) インスタントを JST に
+ * 投影しても +9h で同一暦日になるため `dateOnlyIsoJst` を通して JST 暦日を得る
+ * （FE `excelSerialToIsoDate` と同一セマンティクス・全時刻系を Asia/Tokyo に統一）。
+ */
+export function excelSerialToIsoJst(serial: number): string {
+  return dateOnlyIsoJst(
+    new Date(Math.round(serial) * 86_400_000 + Date.UTC(1899, 11, 30)),
+  );
+}
+
+/**
+ * 日付のみ文字列を varchar(10) 日付列向けにハイフン形へ正規化する。DTO は
+ * YYYY/MM/DD（picker 表示形式）と YYYY-MM-DD を受けるが、列は検索フィルタの
+ * 辞書順比較（`<=`）のためハイフン統一が必須（'/'=0x2F > '-'=0x2D）。空/null は
+ * そのまま。防御的に、区切りなしの純数字は Excel シリアルとみなし変換する
+ * （旧版 FE 等が生シリアルを送る場合がある）。
+ */
+export function normalizeDbDate<T extends string | null | undefined>(
+  value: T,
+): T {
+  if (typeof (value as unknown) === 'number') {
+    return excelSerialToIsoJst(value as unknown as number) as T;
+  }
+  if (typeof value !== 'string') return value;
+  if (/^\d{4,6}$/.test(value)) {
+    return excelSerialToIsoJst(Number(value)) as T;
+  }
+  return value.replaceAll('/', '-') as T;
+}
+
+/**
+ * 取込セルを DB `date` 値（または null）へ正規化する。空/未指定 → null
+ * （`date` 列が '' で "invalid input syntax for type date" にならないよう）。
+ * 非空 → ハイフン形日付（Excel シリアルは `normalizeDbDate` 経由で変換）。
+ * 物理的に `date` 型の列を持つ取込 UPDATE パスで使う。
+ */
+export function dbDateOrNull(value: unknown): string | null {
+  const raw =
+    typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  const normalized = normalizeDbDate(raw);
+  return normalized === '' ? null : normalized;
+}

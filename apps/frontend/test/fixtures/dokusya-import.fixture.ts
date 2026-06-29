@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-016 — 購読者Excelデータ取込画面
 //
 // Test fixtures for ACSMS-SCR-016 (購読者Excelデータ取込画面).

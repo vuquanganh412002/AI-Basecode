@@ -4,10 +4,11 @@
 // so it exercises SessionAuthGuard, PermissionsGuard, GlobalExceptionFilter
 // and the ValidationPipe for the report/meibo endpoints.
 //
-// IMPORTANT — ReportModule reads DokusyaRireki and writes FileDownload, both
-// already registered in `ALL_ENTITIES` (dokusya / file-upload modules). If a
-// future refactor removes them, append both entity classes back to
-// `test/utils/create-integration-app.ts`.
+// IMPORTANT — ReportModule reads DokusyaRireki, writes FileUpload (帳票の S3
+// アーカイブ via ReportArchiveService, which also reads Ja for ja_code), and
+// reads Account (SCR-029 出力時の日農 NICHINO_ADMIN/STAFF 通知先取得). All are
+// already registered in `ALL_ENTITIES`. If a future refactor removes any,
+// append the entity classes back to `test/utils/create-integration-app.ts`.
 //
 // The "latest snapshot" query uses a ROW_NUMBER() window over
 // t_dokusya_rireki, which pg-mem does not implement — the data-bearing
@@ -97,7 +98,7 @@ describe('ACSMS-SCR-026 integration — report/meibo endpoints', () => {
 
 // ══════════════════════════════════════════════════════════════════════
 // SCR-026 — real Postgres only (ROW_NUMBER() window over t_dokusya_rireki +
-// xlsx export writing t_file_download). Runs when REAL_PG=1.
+// xlsx export archiving to S3 + t_file_upload). Runs when REAL_PG=1.
 // ══════════════════════════════════════════════════════════════════════
 describeRealPg('ACSMS-SCR-026 integration — report/meibo (real postgres)', () => {
   let ctx: IntegrationTestContext;
@@ -106,8 +107,8 @@ describeRealPg('ACSMS-SCR-026 integration — report/meibo (real postgres)', () 
     ctx = await createRealPgIntegrationApp({
       modules: [ReportModule],
       seedSql: [
-        // m_account(1) so the export's t_file_download.account_id FK resolves
-        // (default seedSession uses account_id=1). role 1 must precede it.
+        // m_account(1) so a session for account_id=1 resolves (default
+        // seedSession uses account_id=1). role 1 must precede it.
         `INSERT INTO m_roles (role_id, role_code, role_name, created_by, updated_by)
          VALUES (1, 'NICHINO_ADMIN', '日農管理者', 'SYSTEM', 'SYSTEM'),
                 (3, 'CHUOKAI', '中央会', 'SYSTEM', 'SYSTEM')`,
@@ -271,8 +272,8 @@ describe('ACSMS-SCR-029 integration — report/zougen-nichino endpoints', () => 
     expect(res.body.error_code).toBe('VALIDATION_ERROR');
   });
 
-  // Data-bearing happy-path + ZIP/mail use real-PG SQL — nightly CI.
+  // Data-bearing happy-path + S3/mail use real-PG SQL — nightly CI.
   it.todo('should return 200 with empty reports when no record matches (requires real postgres)');
-  it.todo('should write t_file_download(download_type=4) + t_log in one tx on PDF export (real postgres)');
-  it.todo('should send a 日農 notification mail on successful export (real postgres + mail stub)');
+  it.todo('should archive the PDF to S3 (t_file_upload) + write t_log on export (real postgres)');
+  it.todo('should auto-send a 日農 (role 1/2) notification mail on successful export (real postgres + mail stub)');
 });

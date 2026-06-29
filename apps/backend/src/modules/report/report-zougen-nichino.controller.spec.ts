@@ -201,13 +201,12 @@ describe('ReportController (HTTP) — 増減通知（日本農業新聞） (SCR-
 
   // ─── POST /api/v1/report/zougen-nichino/export ────────────────────────
   describe('POST /api/v1/report/zougen-nichino/export', () => {
-    it('should return 200 with a pdf attachment when a single 管理支店 matches', async () => {
+    it('should return 200 application/json { file_name, recipient_count } (NO attachment) on success', async () => {
+      // PDFはブラウザへ返さず S3 保存 + メール通知。Content-Disposition は付与しない。
       service.exportZougenNichinoPdf.mockResolvedValue({
         empty: false,
-        buffer: Buffer.from('%PDF-1.4'),
-        filename: '増減通知_1AA-3300-001_20260301.pdf',
-        asciiFilename: 'zougen_nichino_1AA-3300-001_20260301.pdf',
-        contentType: 'application/pdf',
+        fileName: '増減通知_2026年03月01日_20260301120000.pdf',
+        recipientCount: 3,
       });
 
       const res = await http()
@@ -215,26 +214,12 @@ describe('ReportController (HTTP) — 増減通知（日本農業新聞） (SCR-
         .send({ tekiyo_date: '2026-03-01', kanri_shiten_id: [20] })
         .expect(200);
 
-      expect(res.headers['content-type']).toContain('application/pdf');
-      expect(res.headers['content-disposition']).toContain('attachment');
-    });
-
-    it('should return 200 with a zip attachment when multiple 管理支店 match', async () => {
-      service.exportZougenNichinoPdf.mockResolvedValue({
-        empty: false,
-        buffer: Buffer.from('PK'),
-        filename: '増減通知_20260301.zip',
-        asciiFilename: 'zougen_nichino_20260301.zip',
-        contentType: 'application/zip',
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.headers['content-disposition']).toBeUndefined();
+      expect(res.body.data).toEqual({
+        file_name: '増減通知_2026年03月01日_20260301120000.pdf',
+        recipient_count: 3,
       });
-
-      const res = await http()
-        .post(apiUrl('report/zougen-nichino/export'))
-        .send({ tekiyo_date: '2026-03-01', kanri_shiten_id: [20, 21] })
-        .expect(200);
-
-      expect(res.headers['content-type']).toContain('application/zip');
-      expect(res.headers['content-disposition']).toContain('attachment');
     });
 
     it('should return 400 VALIDATION_ERROR when tekiyo_date is missing', async () => {

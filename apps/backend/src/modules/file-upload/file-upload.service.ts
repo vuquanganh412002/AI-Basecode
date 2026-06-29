@@ -111,17 +111,12 @@ function parseScheduledDeleteDate(input: string | undefined): string | null {
 
 
 /**
- * Normalise a `date` column value to `YYYY-MM-DD`. TypeORM returns date
- * columns as strings; the raw-SQL / pg path may hand back a Date (UTC
- * midnight of the calendar date) — use UTC parts so no TZ shift occurs.
+ * Normalise a nullable `date` column value to `YYYY-MM-DD` (Asia/Tokyo) or
+ * null. 日付整形は集約ヘルパ `dateOnlyIsoJst`（`@/common/utils/datetime`）に
+ * 委譲し、ここでは nullable 列の null 契約（未設定は '' でなく null）だけ保つ。
  */
 function toDateOnly(v: DateOrString): string | null {
-  if (v == null) return null;
-  if (typeof v === 'string') return v.slice(0, 10);
-  const y = v.getUTCFullYear();
-  const mo = String(v.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(v.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${d}`;
+  return v == null ? null : dateOnlyIsoJst(v) || null;
 }
 
 /** Maps a saved FileUpload entity → SCR-023 POST response item. */

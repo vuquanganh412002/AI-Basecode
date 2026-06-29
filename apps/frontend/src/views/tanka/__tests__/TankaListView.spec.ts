@@ -19,8 +19,8 @@ import {
   TANKA_TYPE_OPTIONS,
 } from '@test/fixtures/tanka.fixture';
 
-// Mock the Tanka API client. /gen-code-frontend will add `listTanka` +
-// `removeTanka` to `src/api/tanka/tanka.ts` (Orval-generated then wrapped).
+// Mock the hand-written Tanka API wrapper (`src/api/tanka/tanka.ts`),
+// which exposes `listTanka` + `removeTanka` among others.
 vi.mock('@/api/tanka/tanka', () => ({
   getTanka: vi.fn(),
   listTanka: vi.fn(),

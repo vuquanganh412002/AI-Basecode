@@ -116,9 +116,11 @@ beforeEach(async () => {
     '@/api/report/report'
   );
   vi.mocked(previewZougenNichino).mockResolvedValue(buildNichinoPreviewResponse());
-  vi.mocked(exportZougenNichino).mockResolvedValue(
-    new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
-  );
+  // 出力成功 → JSON（PDFはブラウザへ返さず S3 保存 + メール通知）。
+  vi.mocked(exportZougenNichino).mockResolvedValue({
+    file_name: '増減通知_2026年03月01日_20260301120000.pdf',
+    recipient_count: 3,
+  });
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
   vi.mocked(getKanriShitenDropdown).mockResolvedValue(buildKanriShitenDropdownResponse());
   // Re-arm the Modal.confirm spy (cleared by vi.clearAllMocks()).
@@ -393,7 +395,7 @@ describe('ZougenNichinoReportView — 電子帳票作成', () => {
     );
   });
 
-  it('should call exportZougenNichino and create a Blob object URL when the confirm dialog is accepted (onOk)', async () => {
+  it('should call exportZougenNichino and show a success toast (NO download) when the confirm dialog is accepted (onOk)', async () => {
     const { wrapper } = await renderView();
     const { exportZougenNichino } = await import('@/api/report/report');
     await previewWithData(wrapper);
@@ -404,25 +406,24 @@ describe('ZougenNichinoReportView — 電子帳票作成', () => {
     expect(exportZougenNichino).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(exportZougenNichino).mock.calls[0]?.[0];
     expect(arg.tekiyo_date).toBe('2026-03-01');
-    expect(createObjectURL).toHaveBeenCalled();
+    // PDFはブラウザへダウンロードしない（S3 保存 + メール通知のみ）。
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(message.success).toHaveBeenCalledWith('出力しました。メールを送信しました。');
   });
 
-  it('should show 対象のデータが存在しません。 and NOT download when 電子帳票作成 returns an application/json (no-data) blob', async () => {
+  it('should show 対象のデータが存在しません。 and NOT toast/download when 電子帳票作成 returns reports:[] (no data)', async () => {
     const { wrapper } = await renderView();
     const { exportZougenNichino } = await import('@/api/report/report');
     await previewWithData(wrapper);
-    // 対象0件 → BE は PDF/ZIP ではなく application/json の Blob を返す。
-    vi.mocked(exportZougenNichino).mockResolvedValueOnce(
-      new Blob([JSON.stringify({ data: { reports: [] } })], {
-        type: 'application/json',
-      }),
-    );
+    // 対象0件 → BE は { reports: [] } を返す（JSON）。
+    vi.mocked(exportZougenNichino).mockResolvedValueOnce({ reports: [] });
 
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();
 
     expect(wrapper.text()).toContain('対象のデータが存在しません。');
     expect(createObjectURL).not.toHaveBeenCalled();
+    expect(message.success).not.toHaveBeenCalled();
   });
 
   it('should still call exportZougenNichino when it rejects with 500 (interceptor handles the toast)', async () => {

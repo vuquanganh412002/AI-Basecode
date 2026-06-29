@@ -145,7 +145,11 @@ export class AuthController {
       'Always 200 — account enumeration prevention; same response for known and unknown emails.',
   })
   async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
-    return this.authService.forgotPassword(dto.email, clientContext(req));
+    return this.authService.forgotPassword(
+      dto.login_id,
+      dto.email,
+      clientContext(req),
+    );
   }
 
   @Post('reset-password/verify')

@@ -120,14 +120,19 @@ export async function toggleMfa(enabled: boolean): Promise<ToggleMfaResponse['da
 /**
  * ACSMS-API-012-001 — request a password reset email.
  *
- * Always resolves with the same success message whether `email` exists
- * or not (server-side account enumeration prevention). Unwraps the BE
+ * Takes BOTH login_id and email — the service narrows by the pair so a
+ * non-unique email doesn't reset an arbitrary account. Always resolves
+ * with the same success message whether the pair matches an account or
+ * not (server-side account enumeration prevention). Unwraps the BE
  * envelope so the view sees `{ message }` directly.
  */
-export async function forgotPassword(email: string): Promise<{ message: string }> {
+export async function forgotPassword(
+  loginId: string,
+  email: string,
+): Promise<{ message: string }> {
   const res = await axiosInstance.post<{ message: string }>(
     '/api/v1/auth/forgot-password',
-    { email },
+    { login_id: loginId, email },
   );
   return { message: res.data.message };
 }

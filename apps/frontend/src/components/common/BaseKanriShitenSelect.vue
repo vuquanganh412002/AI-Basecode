@@ -108,7 +108,7 @@ defineExpose({ fetchPage, options, page, hasMore, q });
     :filter-option="false"
     :auto-clear-search-value="false"
     option-filter-prop="label"
-    style="width: 100%"
+    class="w-full"
     @search="onSearch"
     @popup-scroll="onPopupScroll"
     @change="onChange"

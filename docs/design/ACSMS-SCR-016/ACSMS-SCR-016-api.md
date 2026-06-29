@@ -861,12 +861,15 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    target_id, target_table, before_value, after_value,
                    ip_address, user_agent)
 VALUES (1, NOW(), :account_id, :ja_id,
-        '購読者Excelデータ取込画面 (ACSMS-SCR-016)', 'CREATE', 1,
+        '購読者Excelデータ取込画面 (ACSMS-SCR-016)', :operation, 1,
         NULL, 't_dokusya', :before_value_json, :after_value_json,
         :ip_address, :user_agent)
 ```
 
-- `operation`：取込モードに関わらず `'CREATE'`（一括バッチ処理として記録）
+- `operation`：取込モード別の prefixed ラベル（販売店取込 SCR-019 と統一・bare-verb ルールの例外）。
+  - `NEW` → `'IMPORT_NEW'`
+  - `UPDATE_ALL` → `'IMPORT_UPDATE_ALL'`
+  - `UPDATE_PARTIAL` → `'IMPORT_UPDATE_PARTIAL'`
 - `before_value`：
   - `NEW` モード：空文字列
   - `UPDATE_ALL` / `UPDATE_PARTIAL` / 一括中止：更新前データのサマリJSON `{ "rows": [{...}, ...] }`（各行の更新前状態を格納、最大100件まで）
@@ -906,7 +909,7 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    target_id, target_table, error_message, stack_trace,
                    ip_address, user_agent)
 VALUES (3, NOW(), :account_id, :ja_id,
-        '購読者Excelデータ取込画面 (ACSMS-SCR-016)', 'CREATE', 2,
+        '購読者Excelデータ取込画面 (ACSMS-SCR-016)', :operation, 2,
         NULL, 't_dokusya', :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```

@@ -173,12 +173,14 @@ export class ReportController {
   @Post('zougen-nichino/export')
   @HttpCode(HttpStatus.OK)
   @Permissions('report.export_zougen_nichino')
-  @ApiOperation({ summary: '増減通知（日本農業新聞）PDF出力 — ACSMS-API-029-002' })
+  @ApiOperation({ summary: '増減通知（日本農業新聞）出力 — ACSMS-API-029-002' })
   @ApiResponse({
     status: 200,
     description:
-      '全管理支店をプレビューと同じ改ページ（15行/ページ）でまとめた1つのPDF。対象0件のときは application/json で { data: { reports: [] } } を返す。',
-    content: { 'application/pdf': {}, 'application/json': {} },
+      'PDFはブラウザへ返さず S3 へ保存し日農担当者へメール通知する。' +
+      '成功時は { data: { file_name, recipient_count } }。' +
+      '対象0件のときは { data: { reports: [] } }。',
+    content: { 'application/json': {} },
   })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
@@ -198,11 +200,12 @@ export class ReportController {
       res.status(HttpStatus.OK).json({ data: { reports: [] } });
       return;
     }
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.asciiFilename}"; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
-    );
-    res.status(HttpStatus.OK).send(result.buffer);
+    // PDFは S3 保存 + メール通知のみ（ブラウザはダウンロードしない）。
+    res.status(HttpStatus.OK).json({
+      data: {
+        file_name: result.fileName,
+        recipient_count: result.recipientCount,
+      },
+    });
   }
 }

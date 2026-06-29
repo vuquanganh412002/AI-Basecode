@@ -78,7 +78,10 @@ async function setApiMocks() {
   vi.mocked(getKanriShitenDropdown).mockResolvedValue(buildKanriShitenDropdown());
   vi.mocked(getShitenDropdown).mockResolvedValue(buildShitenDropdown());
   vi.mocked(getKozaShitenDropdown).mockResolvedValue(buildKozaShitenDropdown());
-  vi.mocked(exportKozaFurikae).mockResolvedValue(new Blob(['1,21,0,...'], { type: 'text/csv' }));
+  vi.mocked(exportKozaFurikae).mockResolvedValue({
+    blob: new Blob(['1,21,0,...'], { type: 'text/csv' }),
+    filename: '口座振替データ_JA001_2026年05月27日.csv',
+  });
   return { getInitialKozaFurikae, exportKozaFurikae, getKanriShitenDropdown, getShitenDropdown, getKozaShitenDropdown };
 }
 

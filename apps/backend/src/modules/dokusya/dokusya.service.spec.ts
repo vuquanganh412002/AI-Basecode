@@ -18,6 +18,12 @@
 //   (dokusyaRepo, rirekiRepo, shitenRepo, dataSource, auditLog, codeService)
 
 import { DokusyaService } from '@/modules/dokusya/dokusya.service';
+import { DokusyaAccountFlagService } from '@/modules/dokusya/dokusya-account-flag.service';
+import { DokusyaImportService } from '@/modules/dokusya/dokusya-import.service';
+import { DokusyaImportValidator } from '@/modules/dokusya/dokusya-import-validator.service';
+import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
+import { DokusyaSearchService } from '@/modules/dokusya/dokusya-search.service';
+import { DokusyaReplaceService } from '@/modules/dokusya/dokusya-replace.service';
 import {
   NotFoundException,
   DataScopeViolationException,
@@ -200,6 +206,36 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       })),
     };
 
+    const accountFlags = new DokusyaAccountFlagService(accountRepo as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       rirekiRepo,
@@ -207,10 +243,14 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       kanriShitenRepo,
       hanbaitenRepo,
       tankaRepo,
-      accountRepo,
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -1009,6 +1049,47 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
+    it('should reject create when 電子版(2) and dokusya_busu != 1 (顧客要件 2026-06)', async () => {
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({
+            dokusya_shubetsu: 2,
+            shiharai_hoho: 1,
+            dokusya_busu: 2,
+            email: 'denshi@example.com',
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'dokusya_busu' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should accept create when 電子版(2) and dokusya_busu == 1', async () => {
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.create(
+          buildCreateDokusyaBody({
+            dokusya_shubetsu: 2,
+            shiharai_hoho: 1,
+            dokusya_busu: 1,
+            email: 'denshi-ok@example.com',
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).resolves.toBeDefined();
+    });
+
     it('should wrap INSERT t_dokusya + INSERT t_dokusya_rireki + audit log in a single transaction', async () => {
       // COVERS: ※トランザクション境界 — 4.4 + 4.5 atomic
       mockBankShitenLookup(true);
@@ -1166,6 +1247,27 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result.dokusya_id).toBe(100);
     });
 
+    it('should NOT FK-guard kanri_shiten_id / shiten_id when sent as 0 (= 未設定) on update', async () => {
+      // バグ: レスポンスが NULL の管理支店/支店を 0 に丸めて返し、FE が 0 を送り
+      // 返すと assertFkScope が「id=0 の管理支店」を探して 400 (管理支店IDが
+      // 存在しません) になっていた。0(以下) は未設定とみなしスキップする。
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      // 管理支店リポジトリは id=0 を返さない（存在しない）。スキップされれば
+      // 呼ばれず、400 にもならない。
+      kanriShitenRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.update(
+        100,
+        buildUpdateDokusyaBody({ kanri_shiten_id: 0, shiten_id: 0, dokusya_busu: 2 }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      expect(result.dokusya_id).toBe(100);
+    });
+
     it('should reject update when dokusya_busu <= 0 and 手続種類 != 解約', async () => {
       const before = buildDokusya({
         dokusyaId: 100,
@@ -1180,6 +1282,40 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         service.update(
           100,
           buildUpdateDokusyaBody({ tetsuzuki_shurui: 1, dokusya_busu: 0 }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'dokusya_busu' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject update when 電子版(2) and dokusya_busu != 1 (顧客要件 2026-06)', async () => {
+      // 購読種別は編集で不変 → before の版(電子版)で判定。busu=2 は不可。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        tetsuzukiShurui: 1,
+        dokusyaShubetsu: 2, // 電子版
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      accountRepo.findOne.mockResolvedValue({
+        accountId: 11,
+        paperFlg: true,
+        denshiFlg: true,
+      });
+
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({ dokusya_busu: 2, email: 'd@example.com' }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
@@ -1307,7 +1443,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       await service.update(
         100,
-        buildUpdateDokusyaBody({ dokusya_shubetsu: 2, shiharai_hoho: 1 }),
+        buildUpdateDokusyaBody({ dokusya_shubetsu: 2, shiharai_hoho: 1, dokusya_busu: 1 }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
       );
@@ -1430,7 +1566,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       await service.update(
         100,
-        buildUpdateDokusyaBody({ email: 'yamada@example.com' }),
+        buildUpdateDokusyaBody({ email: 'yamada@example.com', dokusya_busu: 1 }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
       );
@@ -1466,7 +1602,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       await expect(
         service.update(
           100,
-          buildUpdateDokusyaBody({ email: 'taken@example.com' }),
+          buildUpdateDokusyaBody({ email: 'taken@example.com', dokusya_busu: 1 }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
@@ -1985,6 +2121,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           shiharai_hoho: 1,
           bank_shiten_id: 50,
           email: 'denshi@example.com',
+          dokusya_busu: 1,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -2967,6 +3104,39 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       query: jest.fn(async (_sql: string) => [{ count: '0' }]),
     };
 
+    // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+    const accountFlags = new DokusyaAccountFlagService({
+      findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })),
+    } as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       rirekiRepo,
@@ -2975,11 +3145,14 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
-      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
-      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -4101,6 +4274,39 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       query: jest.fn(async () => [{ count: '0' }]),
     };
 
+    // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+    const accountFlags = new DokusyaAccountFlagService({
+      findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })),
+    } as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       rirekiRepo,
@@ -4109,11 +4315,14 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
-      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
-      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -4464,6 +4673,39 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       query: jest.fn(async () => []),
     };
 
+    // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+    const accountFlags = new DokusyaAccountFlagService({
+      findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })),
+    } as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       rirekiRepo,
@@ -4472,11 +4714,14 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
-      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
-      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -4599,6 +4844,30 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
         .join(' || ');
       expect(/tetsuzuki_shurui/i.test(sqlBlobs)).toBe(true);
+    });
+
+    it('should filter 購読開始日 range on shoki_dokusya_kaishi_date (NOT dokusya_kaishi_date)', async () => {
+      // Regression: 購読開始日 検索は初期購読開始日列を対象にする
+      // （dokusya_kaishi_date ではなく shoki_dokusya_kaishi_date）。
+      primeSearchRows([]);
+
+      await service.searchForReplace(
+        buildReplaceSearchQuery({
+          dokusya_kaishi_date_from: '2024-01-01',
+          dokusya_kaishi_date_to: '2024-12-31',
+        }),
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      const sqlBlobs = [
+        ...dokusyaQb.where.mock.calls,
+        ...dokusyaQb.andWhere.mock.calls,
+      ]
+        .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
+        .join(' || ');
+      expect(sqlBlobs).toContain('d.shoki_dokusya_kaishi_date');
+      // バグ列（接頭辞 shoki 無しの d.dokusya_kaishi_date）を使っていないこと。
+      expect(/d\.dokusya_kaishi_date\b/.test(sqlBlobs)).toBe(false);
     });
 
     it('should exclude soft-deleted rows when building the search query (deleted_at IS NULL)', async () => {
@@ -5432,6 +5701,39 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       query: jest.fn(async () => []),
     };
 
+    // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
+    const accountFlags = new DokusyaAccountFlagService({
+      findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })),
+    } as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       rirekiRepo,
@@ -5440,11 +5742,14 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       { findOne: jest.fn() },
       { findOne: jest.fn() },
       { findOne: jest.fn() },
-      // accountRepo — approve/reject hit the 購読種別-flag gate; grant both.
-      { findOne: jest.fn(async () => ({ accountId: 1, paperFlg: true, denshiFlg: true })) },
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -5512,8 +5817,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(dataSource.transaction).toHaveBeenCalled();
     });
 
-    it('should write ONE audit log with log_type=1 / operation="CREATE" / result_status=1 / target_table="t_dokusya" when the import succeeds', async () => {
-      // COVERS: §4.5 — bulk batch audit; operation is BARE 'CREATE' even for NEW
+    it('should write ONE audit log with log_type=1 / operation="IMPORT_NEW" / result_status=1 / target_table="t_dokusya" when the import succeeds', async () => {
+      // COVERS: §4.5 — bulk batch audit; operation はモード別 prefixed ラベル
+      // (NEW→IMPORT_NEW)。販売店取込 (SCR-019) と統一（bare-verb ルールの例外）。
       primeImport();
 
       await service.importExcel(
@@ -5541,7 +5847,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       );
       expect(tableOk).toBe(true);
 
-      // operation must be the BARE verb 'CREATE' — never prefixed / mode-tagged.
+      // operation はモード別 prefixed ラベル（NEW → IMPORT_NEW）。
       const opValues = [
         ...allCtx.map((c) => c?.operation),
         ...auditLog.logOperation.mock.calls.map(
@@ -5549,7 +5855,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
         ),
       ].filter(Boolean);
       for (const op of opValues) {
-        expect(op).toBe('CREATE');
+        expect(op).toBe('IMPORT_NEW');
       }
 
       for (const c of opCtx) {
@@ -6858,6 +7164,35 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
   beforeEach(() => {
     dokusyaQb = makeQbMock();
     dokusyaRepo = { createQueryBuilder: jest.fn(() => dokusyaQb) };
+    const accountFlags = new DokusyaAccountFlagService({} as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      {} as any,
+      {} as any,
+      {} as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export 経路はこの describe では未使用。dokusyaRepo（qb mock）のみ
+    // 実体を渡し、auditLog / codeService は最小 mock で型を満たす。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      {} as any,
+      {} as any,
+    );
+    // replace 経路はこの describe では未使用。dokusyaRepo（qb mock）のみ実体を
+    // 渡し、dataSource / auditLog は最小 mock で型を満たす（rireki / accountFlags
+    // は実体）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      {} as any,
+      {} as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       {},
@@ -6868,7 +7203,11 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       {},
       {},
       {},
-      {},
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 
@@ -7061,6 +7400,36 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       logError: jest.fn().mockResolvedValue(undefined),
     };
 
+    const accountFlags = new DokusyaAccountFlagService(accountRepo as any);
+    const rireki = new DokusyaRirekiService();
+    // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
+    // へ inject し、facade（DokusyaService）へも同一インスタンスを渡す。
+    const importService = new DokusyaImportService(
+      dataSource as any,
+      auditLog as any,
+      codeService as any,
+      accountFlags as any,
+      rireki as any,
+      new DokusyaImportValidator(),
+    );
+    // search/export concern は DokusyaSearchService（step D）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
+    // 渡す（検索・出力テストが組み立てる createQueryBuilder/getCount 形を共有）。
+    const searchService = new DokusyaSearchService(
+      dokusyaRepo as any,
+      auditLog as any,
+      codeService as any,
+    );
+    // replace concern は DokusyaReplaceService（step E）。facade
+    // （DokusyaService）へ同一の dokusyaRepo / dataSource / auditLog / rireki /
+    // accountFlags mock を渡す（置換テストが組み立てる find/transaction 形を共有）。
+    const replaceService = new DokusyaReplaceService(
+      dokusyaRepo as any,
+      dataSource as any,
+      auditLog as any,
+      rireki as any,
+      accountFlags as any,
+    );
     service = new (DokusyaService as any)(
       dokusyaRepo,
       { findOne: jest.fn(), createQueryBuilder: jest.fn(() => qb()) },
@@ -7068,10 +7437,14 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       fkRepo, // kanriShitenRepo
       fkRepo, // hanbaitenRepo
       fkRepo, // tankaRepo
-      accountRepo,
       dataSource,
       auditLog,
       codeService,
+      accountFlags,
+      importService,
+      rireki,
+      searchService,
+      replaceService,
     );
   });
 

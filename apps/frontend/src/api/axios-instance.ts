@@ -1,8 +1,4 @@
-import axios, {
-  type AxiosError,
-  type AxiosRequestConfig,
-  type AxiosResponse,
-} from 'axios';
+import axios, { type AxiosError } from 'axios';
 import { handleApiError } from './error-handler';
 import type { ApiErrorResponse } from '@/constants/error-codes';
 
@@ -33,11 +29,5 @@ instance.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorResponse>) => handleApiError(error),
 );
-
-export const customInstance = <T>(
-  config: AxiosRequestConfig,
-): Promise<AxiosResponse<T>> => {
-  return instance(config);
-};
 
 export default instance;

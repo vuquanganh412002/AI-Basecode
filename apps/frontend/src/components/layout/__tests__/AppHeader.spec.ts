@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: header self-service — MFA toggle in user dropdown
 //
 // Drives src/components/layout/AppHeader.vue. Covers:

@@ -60,20 +60,32 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       const res = exception.getResponse();
       if (typeof res === 'object' && res !== null) {
         const obj = res as Record<string, unknown>;
+        const projectCode =
+          (obj.code as string) ?? (obj.error_code as string);
         code =
-          (obj.code as string) ??
-          (obj.error_code as string) ??
+          projectCode ??
           GlobalExceptionFilter.STATUS_TO_CODE[status] ??
           `HTTP_${status}`;
-        message =
-          (obj.message as string) ??
-          ErrorMessage[code as ErrorCode] ??
-          exception.message;
+        // Project-thrown HttpExceptions (ValidationPipe factory etc.) carry
+        // a `code` + an intentional localized `message` → use it verbatim.
+        // Framework exceptions (ThrottlerException, raw Nest guard errors)
+        // have NO `code` and a default ENGLISH `message` (e.g.
+        // "ThrottlerException: Too Many Requests") → prefer the project's
+        // localized ErrorMessage[code] so users never see English.
+        message = projectCode
+          ? ((obj.message as string) ??
+            ErrorMessage[code as ErrorCode] ??
+            exception.message)
+          : (ErrorMessage[code as ErrorCode] ??
+            (obj.message as string) ??
+            exception.message);
         errors = obj.errors as ValidationErrorDetail[] | undefined;
       } else {
+        // String-response HttpException (framework default). Prefer the
+        // localized message for a mapped status, else fall back.
         code =
           GlobalExceptionFilter.STATUS_TO_CODE[status] ?? `HTTP_${status}`;
-        message = exception.message;
+        message = ErrorMessage[code as ErrorCode] ?? exception.message;
       }
     }
 

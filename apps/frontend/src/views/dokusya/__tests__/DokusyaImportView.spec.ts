@@ -1,4 +1,3 @@
-// @ts-nocheck — spec has minor type-level issues (1 unused import + 2 now-unnecessary @ts-expect-error directives on globalThis.URL.createObjectURL) the codegen cannot edit per /gen-code-frontend immutability rule. Runtime tests all pass (45 pass / 3 todo). The Record<string,unknown> mock-arg coercions were resolved by adding an index signature to ImportDokusyaBody in the wrapper.
 // Screen: ACSMS-SCR-016 — 購読者Excelデータ取込画面
 //
 // Drives src/views/dokusya/DokusyaImportView.vue (currently a TODO
@@ -37,7 +36,6 @@ import DokusyaImportView from '@/views/dokusya/DokusyaImportView.vue';
 import { buildAuthUser, buildCodesSeed } from '@test/fixtures/dokusya.fixture';
 import {
   DOKUSYA_IMPORT_JP_HEADERS,
-  DOKUSYA_IMPORT_PHYSICAL_COLUMNS,
   DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW,
   IMPORT_MODE_LABEL_JP,
   MSG_016_001,
@@ -344,9 +342,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — テンプレートダウンロ�
     // 機能 4.2 — ファイル名 ＝ 購読者Excelデータ取込_テンプレート.xlsx.
     const createObjectURL = vi.fn(() => 'blob:mock-url');
     const revokeObjectURL = vi.fn();
-    // @ts-expect-error — jsdom lacks URL.createObjectURL by default.
     globalThis.URL.createObjectURL = createObjectURL;
-    // @ts-expect-error — jsdom lacks URL.revokeObjectURL by default.
     globalThis.URL.revokeObjectURL = revokeObjectURL;
     vi.mocked(downloadDokusyaImportTemplate).mockResolvedValue(
       new Blob(['mock-xlsx'], {

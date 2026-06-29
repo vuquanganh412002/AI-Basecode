@@ -2,6 +2,7 @@ import { message } from 'ant-design-vue';
 import type { AxiosError } from 'axios';
 import router from '@/router';
 import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
+import { useAuthStore } from '@/stores/auth.store';
 
 /**
  * Custom screen-specific error_codes whose toast is rendered by the caller
@@ -122,7 +123,6 @@ export async function handleApiError(
       // swap in — retrying /auth/refresh would send the same dead cookie and
       // also 401. Drop client-side session state (user + codes cache) before
       // bouncing to /login so the next sign-in starts fresh.
-      const { useAuthStore } = await import('@/stores/auth.store');
       useAuthStore().clearSession();
       await router.push({
         name: 'Login',

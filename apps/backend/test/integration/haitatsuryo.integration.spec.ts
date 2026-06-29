@@ -73,6 +73,6 @@ describe('ACSMS-SCR-021 integration — haitatsuryo endpoints', () => {
   it.todo('should return 200 with empty data when the aggregation matches 0 rows (requires real postgres)');
   it.todo('should aggregate 当月部数/当月金額 per 販売店 using the latest snapshot (requires real postgres DISTINCT ON)');
   it.todo('should switch kingaku to zeinuki when m_ja.zei_kubun=2 (外税) (requires real postgres)');
-  it.todo('should write t_file_download(download_type=2) + t_log(log_type=4) in one tx on Excel export (requires real postgres)');
+  it.todo('should archive to S3 (haitatsuryo/{ja_code}/{YYYY}/) + register t_file_upload(scheduled_delete=+5y) + t_log(log_type=4) on Excel export (requires real postgres)');
   it.todo('should NOT generate Excel / upload to S3 when 0 rows match on export');
 });

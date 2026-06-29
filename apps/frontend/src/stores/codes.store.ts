@@ -11,7 +11,7 @@ import { getCodes, type CodeItem, type CodeMap } from '@/api/codes/codes';
  *
  * Lifecycle:
  *   - login / MFA verify success / app boot (refreshSession) → loadAll()
- *   - logout → $reset() clears cache so the next user refetches
+ *   - logout → reset() clears cache so the next user refetches
  *
  * m_code values rarely change at runtime; this store has no TTL. If an
  * admin screen mutates m_code later, call `reload()` to refetch.

@@ -21,6 +21,8 @@ import {
   todayIsoTokyo,
   isPastDayTokyo,
   timestampForFilenameTokyo,
+  excelSerialToIsoDate,
+  normalizeImportDate,
 } from '@/utils/datetime';
 
 dayjs.extend(utc);
@@ -141,5 +143,39 @@ describe('timestampForFilenameTokyo', () => {
     vi.setSystemTime(new Date('2026-05-27T22:00:42.500Z'));
     expect(timestampForFilenameTokyo()).toBe('20260528_070042');
     vi.useRealTimers();
+  });
+});
+
+describe('excelSerialToIsoDate', () => {
+  it('converts an Excel serial to YYYY-MM-DD (Asia/Tokyo, integer days)', () => {
+    // 45809 = 2025-06-01 (1899-12-30 origin, 1900 leap-bug included).
+    expect(excelSerialToIsoDate(45809)).toBe('2025-06-01');
+  });
+  it('is TZ-stable — same result regardless of the host timezone', () => {
+    // JST add-days on a date-only serial doesn't drift across TZ.
+    expect(excelSerialToIsoDate(45778)).toBe('2025-05-01');
+  });
+});
+
+describe('normalizeImportDate', () => {
+  it('numeric serial → ISO', () => {
+    expect(normalizeImportDate(45809)).toBe('2025-06-01');
+  });
+  it('string serial → ISO', () => {
+    expect(normalizeImportDate('45809')).toBe('2025-06-01');
+  });
+  it('YYYY/MM/DD → hyphen + zero-pad', () => {
+    expect(normalizeImportDate('2026/5/1')).toBe('2026-05-01');
+  });
+  it('already YYYY-MM-DD passes through (zero-padded)', () => {
+    expect(normalizeImportDate('2026-05-01')).toBe('2026-05-01');
+  });
+  it('D/M/YY: swaps to M/D when month > 12, expands 2-digit year', () => {
+    expect(normalizeImportDate('25/12/26')).toBe('2026-12-25');
+  });
+  it('blank / unparseable returned as-is', () => {
+    expect(normalizeImportDate('')).toBe('');
+    expect(normalizeImportDate('not-a-date')).toBe('not-a-date');
+    expect(normalizeImportDate(null)).toBeNull();
   });
 });

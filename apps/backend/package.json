@@ -22,7 +22,7 @@
     "seed:prod": "ts-node -r tsconfig-paths/register scripts/seed.ts",
     "seed:dev": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
     "seed:dev:prod": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
-    "dokusya:sync": "ts-node -r tsconfig-paths/register scripts/dokusya-sync.ts"
+    "dokusya:sync": "ts-node -r tsconfig-paths/register scripts/batch/dokusya-sync.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",

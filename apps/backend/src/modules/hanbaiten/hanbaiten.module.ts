@@ -6,6 +6,7 @@ import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { HanbaitenController } from './hanbaiten.controller';
 import { HanbaitenService } from './hanbaiten.service';
+import { HanbaitenImportService } from './hanbaiten-import.service';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 
@@ -26,7 +27,7 @@ import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
     AuditLogModule, // AuditLogService
   ],
   controllers: [HanbaitenController],
-  providers: [HanbaitenService],
+  providers: [HanbaitenService, HanbaitenImportService],
   exports: [HanbaitenService],
 })
 export class HanbaitenModule {}

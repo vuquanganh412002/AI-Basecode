@@ -27,6 +27,9 @@ import { message, type TableColumnsType } from 'ant-design-vue';
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
+import BaseKanriShitenDropdown from '@/components/common/BaseKanriShitenDropdown.vue';
+import BaseShitenDropdown from '@/components/common/BaseShitenDropdown.vue';
+import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
@@ -41,9 +44,6 @@ import {
   type DokusyaListItem,
   type DokusyaSearchParams,
 } from '@/api/dokusya/dokusya';
-import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
-import { getShitenDropdown } from '@/api/shiten/shiten';
-import { getHanbaitenDropdown } from '@/api/hanbaiten/hanbaiten';
 
 // ─── State ──────────────────────────────────────────────────────────
 
@@ -156,54 +156,9 @@ const denshiShoninOptions: DenshiShoninOption[] = [
 
 // ─── Dropdown lookups (mounted-once) ─────────────────────────────────
 
-interface KanriShitenOption {
-  kanri_shiten_id: number;
-  kanri_shiten_name: string;
-}
-interface ShitenOption {
-  shiten_id: number;
-  shiten_name: string;
-}
-interface HanbaitenOption {
-  hanbaiten_id: number;
-  hanbaiten_name: string;
-}
-
-const kanriShitenOptions = ref<KanriShitenOption[]>([]);
-const shitenOptions = ref<ShitenOption[]>([]);
-const hanbaitenOptions = ref<HanbaitenOption[]>([]);
-
-async function fetchDropdowns(): Promise<void> {
-  const jaId = authStore.user?.ja_id ?? 0;
-  try {
-    const res = await getKanriShitenDropdown(jaId);
-    kanriShitenOptions.value = res.data.map((r) => ({
-      kanri_shiten_id: r.kanri_shiten_id,
-      kanri_shiten_name: r.kanri_shiten_name,
-    }));
-  } catch {
-    // Non-critical — leave dropdown empty if lookup fails.
-    kanriShitenOptions.value = [];
-  }
-  try {
-    const res = await getShitenDropdown({});
-    shitenOptions.value = res.data.map((r) => ({
-      shiten_id: r.shiten_id,
-      shiten_name: r.shiten_name,
-    }));
-  } catch {
-    shitenOptions.value = [];
-  }
-  try {
-    const res = await getHanbaitenDropdown({});
-    hanbaitenOptions.value = res.data.map((r) => ({
-      hanbaiten_id: r.hanbaiten_id,
-      hanbaiten_name: r.hanbaiten_name,
-    }));
-  } catch {
-    hanbaitenOptions.value = [];
-  }
-}
+// 管理支店 / 支店 / 配達販売店 のフィルタは Base*Dropdown（サーバ
+// ページング + 検索 + 無限スクロール）に委譲。JA スコープは BE が適用。
+const filterJaId = computed(() => authStore.user?.ja_id ?? 0);
 
 // ─── Columns (12 + 操作 per index.html §検索結果テーブル) ───────────
 
@@ -376,9 +331,10 @@ function applyNumberFilters(
   params: DokusyaSearchParams,
   f: DokusyaFilters,
 ): void {
-  if (f.kanri_shiten_id !== undefined) params.kanri_shiten_id = f.kanri_shiten_id;
-  if (f.shiten_id !== undefined) params.shiten_id = f.shiten_id;
-  if (f.hanbaiten_id !== undefined) params.hanbaiten_id = f.hanbaiten_id;
+  // Base*Dropdown は未選択時 null を emit する（undefined 既定と両対応で != null）。
+  if (f.kanri_shiten_id != null) params.kanri_shiten_id = f.kanri_shiten_id;
+  if (f.shiten_id != null) params.shiten_id = f.shiten_id;
+  if (f.hanbaiten_id != null) params.hanbaiten_id = f.hanbaiten_id;
   if (f.tetsuzuki_shurui !== undefined)
     params.tetsuzuki_shurui = f.tetsuzuki_shurui;
   if (f.dokusya_shubetsu !== undefined)
@@ -485,7 +441,6 @@ onMounted(() => {
     }
   }
   void fetchList();
-  void fetchDropdowns();
 });
 
 // ─── Event handlers ─────────────────────────────────────────────────
@@ -635,39 +590,21 @@ defineExpose({ state });
       <!-- 1. 管理支店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
-        <a-select
+        <BaseKanriShitenDropdown
           v-model:value="state.filters.kanri_shiten_id"
-          placeholder="選択してください"
-          allow-clear
+          :ja-id="filterJaId"
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in kanriShitenOptions"
-            :key="opt.kanri_shiten_id"
-            :value="opt.kanri_shiten_id"
-          >
-            {{ opt.kanri_shiten_name }}
-          </a-select-option>
-        </a-select>
+        />
       </div>
 
       <!-- 2. 支店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">支店</span>
-        <a-select
+        <BaseShitenDropdown
           v-model:value="state.filters.shiten_id"
-          placeholder="選択してください"
-          allow-clear
+          :ja-id="filterJaId"
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in shitenOptions"
-            :key="opt.shiten_id"
-            :value="opt.shiten_id"
-          >
-            {{ opt.shiten_name }}
-          </a-select-option>
-        </a-select>
+        />
       </div>
 
       <!-- 3. 組合員コード -->
@@ -717,20 +654,11 @@ defineExpose({ state });
       <!-- 7. 配達販売店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
-        <a-select
+        <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
-          placeholder="選択してください"
-          allow-clear
+          :ja-id="filterJaId"
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in hanbaitenOptions"
-            :key="opt.hanbaiten_id"
-            :value="opt.hanbaiten_id"
-          >
-            {{ opt.hanbaiten_name }}
-          </a-select-option>
-        </a-select>
+        />
       </div>
 
       <!-- 8. 手続種類 (radio group, m_code TETSUZUKI_SHURUI) -->

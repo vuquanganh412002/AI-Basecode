@@ -151,3 +151,44 @@ export function nextMonthFirstIsoTokyo(): string {
 export function timestampForFilenameTokyo(): string {
   return nowTokyo().format('YYYYMMDD_HHmmss');
 }
+
+/**
+ * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を
+ * `YYYY-MM-DD` へ変換する。基準日 1899-12-30 を Asia/Tokyo として置き、
+ * シリアル日数を加算して暦日を得る（システムは JST 運用 — 時刻系は全て
+ * Asia/Tokyo に統一）。シリアルは整数日なので JST 加算でも暦日はずれない。
+ */
+export function excelSerialToIsoDate(serial: number): string {
+  return dayjs
+    .tz('1899-12-30', 'YYYY-MM-DD', APP_TIMEZONE)
+    .add(Math.round(serial), 'day')
+    .format('YYYY-MM-DD');
+}
+
+/**
+ * Excel の日付セルは様々な形で届く（数値シリアル 46188 / 文字列シリアル
+ * "46188" / "YYYY-MM-DD" / "YYYY/MM/DD" / "D/M/YY" 等）。すべて DB が受け取る
+ * `YYYY-MM-DD` へ正規化する。判別不能な値はそのまま返し、BE 側で再検証させる。
+ * 時刻系の集約方針（`.claude/rules/vue.md §Date/Time`）に従い datetime.ts に置く。
+ */
+export function normalizeImportDate(value: unknown): unknown {
+  if (typeof value === 'number') return excelSerialToIsoDate(value);
+  if (typeof value !== 'string') return value;
+  const s = value.trim();
+  if (s === '') return value;
+  // 文字列シリアル（区切り無しの純粋な数字）。
+  if (/^\d{4,6}$/.test(s)) return excelSerialToIsoDate(Number(s));
+  // 既に YYYY-MM-DD / YYYY/MM/DD → ハイフン + ゼロ埋め。
+  let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  // D/M/YY・D/M/YYYY（Excel "d/m/yy" 表示）。月>12 のときは M/D とみなし入替。
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s);
+  if (m) {
+    let day = Number(m[1]);
+    let mon = Number(m[2]);
+    if (mon > 12 && day <= 12) [day, mon] = [mon, day];
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return s;
+}

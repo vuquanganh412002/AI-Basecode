@@ -12,6 +12,7 @@
 import {
   BadRequestException,
   ConflictException,
+  DataScopeViolationException,
   DuplicateCodeException,
   NotFoundException,
 } from '@/common/exceptions/common.exceptions';
@@ -215,17 +216,22 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(scopedCall).toBeDefined();
     });
 
-    it('should apply branch DataScope (kanri_shiten_id = session.kanri_shiten_id) when caller is JA_KANRI_SHITEN', async () => {
-      // 顧客要件 2026-06 — JA_KANRI_SHITEN は自分の管理支店配下の支店のみ
-      // (kanri_shiten レベルまで絞り込む)。以前は JA 単位だった。
+    it('should apply JA-level DataScope (ja_id = session.ja_id) — NOT kanri_shiten — when caller is JA_KANRI_SHITEN', async () => {
+      // 顧客要件 2026-06 — JA_KANRI_SHITEN は **閲覧のみ** 同一 JA の全支店を
+      // 一覧できる（自管理支店配下に絞らない）。更新/削除は別途 kanri_shiten で制限。
       await service.findAll({}, buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }));
-      const scopedCall = qbMock.andWhere.mock.calls.find(
+      // Scoped by ja_id …
+      const jaScopedCall = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /ja_?id\s*=/i.test(sql),
+      );
+      expect(jaScopedCall).toBeDefined();
+      expect(jaScopedCall?.[1]).toMatchObject({ scopeJaId: 2 });
+      // … and NOT narrowed by kanri_shiten_id (viewable across the JA).
+      const ksScopedCall = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
           typeof sql === 'string' && /kanri_?shiten_?id\s*=/i.test(sql),
       );
-      expect(scopedCall).toBeDefined();
-      // bound to the caller's own kanri_shiten_id
-      expect(scopedCall?.[1]).toMatchObject({ scopeKsId: 1 });
+      expect(ksScopedCall).toBeUndefined();
     });
 
     it('should apply ILIKE filter when query.shiten_name is provided', async () => {
@@ -341,6 +347,28 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.remove(5, buildChuokaiSession({ ja_id: 99 }), baseReq))
         .rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw DataScopeViolation (403) when JA_KANRI_SHITEN deletes a same-JA row from another kanri_shiten', async () => {
+      // 顧客要件 2026-06 — role 5 can VIEW but NOT delete branches outside
+      // its own kanri_shiten. The row is viewable (same JA), so we surface
+      // an explicit 403 rather than masking as 404.
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 99 }));
+      await expect(
+        service.remove(5, buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }), baseReq),
+      ).rejects.toThrow(DataScopeViolationException);
+    });
+
+    it('should soft-delete when JA_KANRI_SHITEN deletes a row under its OWN kanri_shiten', async () => {
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 1 }));
+      dataSource.query.mockResolvedValue([{ count: '0' }]);
+      const result = await service.remove(
+        5,
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }),
+        baseReq,
+      );
+      expect(result).toEqual({ message: '削除しました。' });
+      expect(txManager.update).toHaveBeenCalled();
     });
 
     it('should throw ConflictException when t_dokusya has rows referencing the shiten', async () => {
@@ -577,10 +605,24 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
     });
 
     it('should mask out-of-scope row as NotFoundException when JA_KANRI_SHITEN requests row of another JA', async () => {
-      repo.findOne.mockResolvedValue(null);
+      // Cross-JA — assertJaScope masks existence as 404.
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 99, kanriShitenId: 7 }));
       await expect(
-        service.findById(5, buildJaKanriShitenSession({ ja_id: 99, kanri_shiten_id: 1 })),
+        service.findById(5, buildJaKanriShitenSession({ ja_id: 1, kanri_shiten_id: 1 })),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should RETURN a same-JA row from a DIFFERENT kanri_shiten for JA_KANRI_SHITEN (view-only expansion)', async () => {
+      // 顧客要件 2026-06 — role 5 can VIEW any shiten in its own JA, even
+      // ones not under its own kanri_shiten. The view succeeds; update /
+      // delete are blocked separately (403).
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 99 }));
+      const result = await service.findById(
+        5,
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }),
+      );
+      expect(result.shiten_id).toBe(5);
+      expect(result.kanri_shiten_id).toBe(99);
     });
   });
 
@@ -747,6 +789,20 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.update(5, validDto, buildChuokaiSession({ ja_id: 99 }), baseReq))
         .rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw DataScopeViolation (403) when JA_KANRI_SHITEN updates a same-JA row from another kanri_shiten', async () => {
+      // 顧客要件 2026-06 — role 5 can VIEW but NOT update branches outside
+      // its own kanri_shiten. Row is viewable (same JA) → explicit 403.
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 99 }));
+      await expect(
+        service.update(
+          5,
+          validDto,
+          buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toThrow(DataScopeViolationException);
     });
 
     it('should validate kanri_shiten_id exists in m_kanri_shiten when update is called', async () => {

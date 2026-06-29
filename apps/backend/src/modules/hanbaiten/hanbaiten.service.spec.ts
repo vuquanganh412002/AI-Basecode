@@ -19,6 +19,7 @@ import {
 } from '@/common/exceptions/common.exceptions';
 
 import { HanbaitenService } from '@/modules/hanbaiten/hanbaiten.service';
+import { HanbaitenImportService } from '@/modules/hanbaiten/hanbaiten-import.service';
 import { buildHanbaiten } from '@test/fixtures/hanbaiten.factory';
 import {
   buildCreateHanbaitenBody,
@@ -146,7 +147,17 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
     //     @InjectDataSource() dataSource,
     //     auditLog: AuditLogService,
     //   )
-    service = new HanbaitenService(repo, todofukenRepo, dataSource, auditLog);
+    // 取込 (SCR-019) を切り出した HanbaitenImportService は @Optional。
+    // SCR-018 の CRUD テストは取込を呼ばないので未配線（undefined）で構築。
+    service = new HanbaitenService(
+      repo,
+      todofukenRepo,
+      dataSource,
+      auditLog,
+      undefined,
+      undefined,
+      undefined,
+    );
   });
 
   // ═════════════════════════════════════════════════════════════════════
@@ -943,6 +954,7 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
 
     // Constructor signature MUST match the service after SCR-017 lands:
     //   (repo, todofukenRepo, dataSource, auditLog, codeService, tankaRepo)
+    // 取込 (SCR-019) は別 describe で検証するため、ここでは importService 未配線。
     service = new HanbaitenService(
       repo,
       todofukenRepo,
@@ -950,6 +962,7 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
       auditLog,
       codeService,
       tankaRepo,
+      undefined,
     );
   });
 
@@ -1802,6 +1815,15 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       query: jest.fn(async () => []),
     };
 
+    // SCR-019 取込テストは HanbaitenImportService 経由で実行される。
+    // facade である HanbaitenService が委譲できるよう、同一 mock から
+    // importService を構築して末尾に配線する（テスト本体は不変）。
+    const importService = new HanbaitenImportService(
+      dataSource,
+      auditLog,
+      codeService,
+      tankaRepo,
+    );
     service = new HanbaitenService(
       repo,
       todofukenRepo,
@@ -1809,6 +1831,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       auditLog,
       codeService,
       tankaRepo,
+      importService,
     );
   });
 
@@ -2001,37 +2024,29 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         expect(result.data.created_count).toBe(1);
       });
 
-      it('should call AuditLogService.logCreate with operation IMPORT_NEW when import succeeds', async () => {
-        // EXCEPTION to bare-verb rule: api.md §4.5 explicitly mandates
-        // the prefixed label `IMPORT_NEW` for batch operations so the
-        // audit row distinguishes a single INSERT from a 500-row bulk.
+      it('should write EXACTLY ONE audit row via logOperation with operation IMPORT_NEW (no duplicate CREATE row)', async () => {
+        // 取込はバッチ操作なので「1取込=監査ログ1行」。api.md §4.5 が IMPORT_NEW
+        // ラベルを要求する。以前は spec を通すために logCreate も併発しており
+        // t_log が1取込で2行 (CREATE + IMPORT_NEW) になっていた回帰防止。
         await service.importExcel(
           buildImportRequestNEW(),
           importerSession(),
           baseReq,
         );
-        expect(auditLog.logCreate).toHaveBeenCalled();
-        const ctx = auditLog.logCreate.mock.calls[0][0];
-        // The service forwards `operation` via the ctx OR via a direct
-        // logOperation argument. Both shapes are acceptable — the test
-        // walks both to stay robust to the implementation choice.
-        const operation =
-          ctx?.operation ??
-          auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation?.startsWith?.('IMPORT_'),
-          )?.[0]?.operation;
-        expect(operation).toBe('IMPORT_NEW');
+        expect(auditLog.logCreate).not.toHaveBeenCalled();
+        expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
+        expect(auditLog.logOperation.mock.calls[0][0]?.operation).toBe('IMPORT_NEW');
       });
 
-      it('should pass the transaction manager to logCreate so the audit row joins the tx (atomicity)', async () => {
+      it('should pass the transaction manager to logOperation so the audit row joins the tx (atomicity)', async () => {
         // COVERS: nestjs.md §audit log atomicity — manager MUST be passed.
         await service.importExcel(
           buildImportRequestNEW(),
           importerSession(),
           baseReq,
         );
-        const lastCall = auditLog.logCreate.mock.calls[0];
-        expect(lastCall[2]).toBe(txManager);
+        // logOperation signature: (payload, manager?). 2nd arg is the manager.
+        expect(auditLog.logOperation.mock.calls[0][1]).toBe(txManager);
       });
 
       it('should resolve haitatsuryo_tanka_code to haitatsuryo_tanka_id via m_tanka lookup before INSERT', async () => {
@@ -2262,9 +2277,8 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           importerSession(),
           baseReq,
         );
-        const call = auditLog.logCreate.mock.calls[0];
-        // Second arg holds the after-snapshot used by AuditLogService.
-        const after = call[1];
+        // 単一 logOperation 呼び出しの payload.afterValue に取込サマリが入る。
+        const after = auditLog.logOperation.mock.calls[0][0]?.afterValue;
         expect(after).toBeDefined();
         const serialized =
           typeof after === 'string' ? after : JSON.stringify(after);
@@ -2326,11 +2340,12 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           importerSession(),
           baseReq,
         );
-        const updateCall = auditLog.logUpdate.mock.calls[0];
-        expect(updateCall).toBeDefined();
-        // logUpdate signature: (ctx, before, after, manager?)
-        const before = updateCall[1];
-        expect(before).toBeDefined();
+        // 単一 logOperation 呼び出しの payload.beforeValue に更新前データが入る。
+        const opCall = auditLog.logOperation.mock.calls.find(
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+        );
+        expect(opCall).toBeDefined();
+        expect(opCall![0]?.beforeValue).toBeDefined();
       });
 
       it('should throw IMPORT_VALIDATION_ERROR when UPDATE_ALL targets a hanbaiten_code that does not exist', async () => {
@@ -2379,16 +2394,18 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         expect(mutated).toBeGreaterThan(0);
       });
 
-      it('should pass the transaction manager to logUpdate when calling audit log so the audit row joins the tx', async () => {
+      it('should pass the transaction manager to logOperation when calling audit log so the audit row joins the tx', async () => {
         await service.importExcel(
           buildImportRequestUpdateAll(),
           importerSession(),
           baseReq,
         );
-        const lastCall = auditLog.logUpdate.mock.calls[0];
-        expect(lastCall).toBeDefined();
-        // logUpdate signature: (ctx, before, after, manager?)
-        expect(lastCall[3]).toBe(txManager);
+        const opCall = auditLog.logOperation.mock.calls.find(
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+        );
+        expect(opCall).toBeDefined();
+        // logOperation signature: (payload, manager?). 2nd arg is the manager.
+        expect(opCall![1]).toBe(txManager);
       });
     });
 

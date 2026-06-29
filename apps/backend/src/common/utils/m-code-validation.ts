@@ -1,5 +1,5 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
 import type { CodeService } from '@/modules/code/code.service';
+import { ValidationException } from '@/common/exceptions/common.exceptions';
 
 /**
  * Mirror of `CodeService.normalizeValue`: integer-shaped strings ("0",
@@ -71,13 +71,8 @@ export function assertMCodeValues(
     }
   }
   if (errors.length === 0) return;
-  throw new HttpException(
-    {
-      code: 'VALIDATION_ERROR',
-      error_code: 'VALIDATION_ERROR',
-      message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
-      errors,
-    },
-    HttpStatus.BAD_REQUEST,
-  );
+  // プロジェクト標準の例外を使用（common.exceptions）。body 形状は従来の
+  // 手組み HttpException と同一（{ error_code, message, errors }）で、
+  // ValidationPipe ファクトリ + 他サービスの assertMCodeValues と揃う。
+  throw new ValidationException(errors);
 }

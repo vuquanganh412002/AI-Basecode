@@ -67,9 +67,10 @@ export class KozaFurikaeController {
     const session = req.user as SessionPayload;
     const result = await this.kozaFurikaeService.exportCsv(body, session, req);
     res.setHeader('Content-Type', 'text/csv; charset=Shift_JIS');
+    // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${result.filename}"`,
+      `attachment; filename="${result.asciiFilename}"; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
     );
     res.setHeader('Content-Length', String(result.buffer.length));
     res.setHeader('Cache-Control', 'no-store');

@@ -791,7 +791,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       accountRepo.findOne.mockResolvedValue(buildAccount({ accountId: 1, email: 'admin@nichino.co.jp' }));
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
 
-      const result = await service.forgotPassword('admin@nichino.co.jp', {
+      const result = await service.forgotPassword('admin01', 'admin@nichino.co.jp',{
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
       });
@@ -809,10 +809,14 @@ describe('AuthService — password reset (SCR-012)', () => {
       expect(typeof sendCall[3]).toBe('number');
     });
 
-    it('should query m_account by email AND deleted_at IS NULL when looking up the account', async () => {
+    it('should query m_account by login_id AND email AND deleted_at IS NULL when looking up the account', async () => {
       accountRepo.findOne.mockResolvedValue(null);
-      await service.forgotPassword('whoever@example.com', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('someuser', 'whoever@example.com', {
+        ipAddress: '',
+        userAgent: '',
+      });
       const where = accountRepo.findOne.mock.calls[0][0]?.where ?? {};
+      expect(where.loginId).toBe('someuser');
       expect(where.email).toBe('whoever@example.com');
       expect(where).toHaveProperty('deletedAt');
     });
@@ -821,7 +825,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       accountRepo.findOne.mockResolvedValue(buildAccount());
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
 
-      await service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' });
 
       expect(bcrypt.hash).toHaveBeenCalledTimes(1);
       expect((bcrypt.hash as jest.Mock).mock.calls[0][1]).toBe(10);
@@ -832,7 +836,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
       const before = Date.now();
 
-      await service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' });
 
       // Service may save via dataSource.transaction → txManager OR direct otpRepo.save.
       // Find whichever was called.
@@ -852,10 +856,10 @@ describe('AuthService — password reset (SCR-012)', () => {
       expect(expiresInMs).toBeLessThan(60 * 60 * 1000 + 5_000);
     });
 
-    it('should still return 200 success message when email is NOT found (account enumeration prevention)', async () => {
+    it('should still return 200 success message when the login_id/email pair is NOT found (account enumeration prevention)', async () => {
       accountRepo.findOne.mockResolvedValue(null);
 
-      const result = await service.forgotPassword('nobody@example.com', {
+      const result = await service.forgotPassword('ghost', 'nobody@example.com', {
         ipAddress: '',
         userAgent: '',
       });
@@ -870,7 +874,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       accountRepo.findOne.mockResolvedValue(buildAccount());
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
 
-      await service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' });
 
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     });
@@ -881,7 +885,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       dataSource.transaction.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
-        service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' }),
+        service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' }),
       ).rejects.toThrow();
       // Email is sent AFTER successful txn — rollback means it must NOT fire.
       expect(mailService.sendPasswordReset).not.toHaveBeenCalled();
@@ -893,7 +897,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       dataSource.transaction.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
-        service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' }),
+        service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' }),
       ).rejects.toThrow();
       expect(auditLog.logError).toHaveBeenCalled();
     });
@@ -904,7 +908,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
 
       const before = Date.now();
-      await service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' });
 
       expect(otpRepo.count).toHaveBeenCalledTimes(1);
       const where = otpRepo.count.mock.calls[0][0]?.where ?? {};
@@ -925,7 +929,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       otpRepo.count.mockResolvedValue(1); // one row already issued in cooldown — next is rejected
 
       const err = await service
-        .forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' })
+        .forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' })
         .catch((e) => e);
 
       expect(err).toBeInstanceOf(PasswordResetRateLimitException);
@@ -940,7 +944,10 @@ describe('AuthService — password reset (SCR-012)', () => {
     it('should NOT consult otpRepo.count when account does not exist (anti-enum bypass keeps preceding behavior)', async () => {
       accountRepo.findOne.mockResolvedValue(null);
 
-      await service.forgotPassword('nobody@example.com', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('ghost', 'nobody@example.com', {
+        ipAddress: '',
+        userAgent: '',
+      });
 
       expect(otpRepo.count).not.toHaveBeenCalled();
     });
@@ -950,7 +957,7 @@ describe('AuthService — password reset (SCR-012)', () => {
       accountRepo.findOne.mockResolvedValue(buildAccount({ accountId: 11 }));
       (bcrypt.hash as jest.Mock).mockResolvedValue(RESET_TOKEN_HASH);
 
-      await service.forgotPassword('admin@nichino.co.jp', { ipAddress: '', userAgent: '' });
+      await service.forgotPassword('admin01', 'admin@nichino.co.jp',{ ipAddress: '', userAgent: '' });
 
       // The bulk-update happens via txManager.update(MfaOtp, { match }, { usedFlg: true }).
       // It must run BEFORE the new save so a concurrent verify-token query

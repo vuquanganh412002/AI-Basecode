@@ -96,7 +96,7 @@ export class CreateShitenDto {
   @IsNotEmpty({ message: '必須項目です。' })
   @IsString({ message: '店舗名は文字列で入力してください。' })
   @MaxLength(15, { message: '店舗名は15文字以内で入力してください。' })
-  @Matches(/^[ｱ-ﾟ A-Z0-9.()\-]+$/, {
+  @Matches(/^[ｱ-ﾟ A-Z0-9.()-]+$/, {
     message:
       '店舗名は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。',
   })

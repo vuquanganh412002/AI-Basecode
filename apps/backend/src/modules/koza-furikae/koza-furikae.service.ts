@@ -6,24 +6,17 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import { Ja } from '@/database/entities/ja.entity';
 import { Shiten } from '@/database/entities/shiten.entity';
-import { FileDownload } from '@/database/entities/file-download.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
-import { StorageService } from '@/modules/storage/storage.service';
+import { ReportArchiveService } from '@/modules/report/report-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { timestampForFilenameJst } from '@/common/utils/datetime';
-import {
-  AuditOperation,
-  DownloadType,
-  LogType,
-  ResultStatus,
-} from '@/common/enums';
+import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { NoTargetDataException } from './exceptions/no-target-data.exception';
 
 const SCREEN_NAME = '口座振替データ出力画面 (ACSMS-SCR-020)';
-const TABLE_NAME = 't_file_download';
+const TABLE_NAME = 't_file_upload';
 const CSV_MIME = 'text/csv; charset=Shift_JIS';
 
 /** API-020-001 初期データ（m_ja JASTEM 委託者情報 + 最終使用 m_shiten 金融機関支店情報）。 */
@@ -62,7 +55,10 @@ interface KozaFurikaeAggRow {
 
 export interface ExportKozaFurikaeResult {
   buffer: Buffer;
+  /** ダウンロード用ファイル名（日本語名、タイムスタンプ無し）。 */
   filename: string;
+  /** Content-Disposition の filename 用 ASCII フォールバック名。 */
+  asciiFilename: string;
   recordCount: number;
 }
 
@@ -78,7 +74,8 @@ export class KozaFurikaeService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
-    private readonly storage: StorageService,
+    // 共通の S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
+    private readonly reportArchive: ReportArchiveService,
   ) {}
 
   // ─── ACSMS-API-020-001 — GET /api/v1/koza-furikae/initial ───────────
@@ -128,15 +125,39 @@ export class KozaFurikaeService {
       // 4.3 0件 → 404 (NO_TARGET_DATA)。CSV / S3 / DB は実行しない。
       if (rows.length === 0) throw new NoTargetDataException();
 
-      // 4.4 全銀フォーマット CSV を生成し、S3 にアップロードする（tx 外で先に実行）。
+      // 4.4 全銀フォーマット CSV（Shift_JIS）を生成する。
       const csv = this.buildZenginCsv(body, rows);
       const buffer = iconv.encode(csv, 'Shift_JIS');
-      const filename = `koza_furikae_${timestampForFilenameJst()}.csv`;
-      const key = `ja-${session.ja_id}/koza_furikae/${filename}`;
-      await this.storage.upload(key, buffer, CSV_MIME);
 
-      // 4.5〜4.8 m_ja / m_shiten 更新 + t_koza_furikae upsert + t_file_download
-      //          登録 + 操作ログ を単一トランザクションで実行する。
+      // ファイル名（引落日 hikiotoshi_date を YYYY/MM/DD で展開、ja_code を含める）。
+      const ja = await this.reportArchive.resolveJa(session.ja_id);
+      const [y, m, d] = body.hikiotoshi_date.split('-');
+      const baseName = `口座振替データ_${ja.code}_${y}年${m}月${d}日`;
+      // ダウンロード名はタイムスタンプ無し（従来どおり自動 DL を継続）。
+      const filename = `${baseName}.csv`;
+      const asciiFilename = `koza_furikae_${y}${m}${d}.csv`;
+
+      // 共通サービスで S3 保存 + t_file_upload 登録。
+      // S3 キー: koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.csv
+      //（rootPrefix='' で reports/ プレフィックスなし、subFolder なし）。
+      // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
+      // S3 保存（外部 I/O）はトランザクション外で先に完了させる（4.4）。
+      const archived = await this.reportArchive.archive({
+        buffer,
+        baseName,
+        category: 'koza-furikae',
+        rootPrefix: '',
+        year: y,
+        jaId: session.ja_id ?? null,
+        jaCode: ja.code,
+        session,
+        recordCount: rows.length,
+        contentType: CSV_MIME,
+        extension: '.csv',
+      });
+
+      // 4.5〜4.8 m_ja / m_shiten 更新 + t_koza_furikae upsert + 操作ログ を
+      //          単一トランザクションで実行する。
       await this.dataSource.transaction(async (manager) => {
         const updatedBy = String(session.account_id);
 
@@ -203,29 +224,14 @@ export class KozaFurikaeService {
           ]);
         }
 
-        // 4.7 t_file_download にダウンロード履歴を登録。
-        const saved = await manager.save(
-          FileDownload,
-          manager.create(FileDownload, {
-            jaId: session.ja_id ?? null,
-            downloadDatetime: new Date(),
-            downloadType: DownloadType.KOZA_FURIKAE,
-            fileName: filename,
-            filePath: key,
-            fileSize: buffer.length,
-            recordCount: rows.length,
-            targetMonth: targetMonthYm,
-            createdBy: updatedBy,
-          }),
-        );
-
-        // 4.8 操作ログ。機密情報（口座番号）はマスクして after_value に格納。
+        // 4.8 操作ログ。アーカイブ先テーブル(t_file_upload)を対象に記録する。
+        //     機密情報（口座番号）はマスクして after_value に格納。
         const ctx = buildAuditCtx(
           session,
           req,
           SCREEN_NAME,
           TABLE_NAME,
-          saved.fileDownloadId ?? null,
+          archived.fileUploadId,
         );
         const afterValue = JSON.stringify({
           target_month: body.target_month,
@@ -238,7 +244,8 @@ export class KozaFurikaeService {
           jastem_toriatsukai_tenpo_code: body.jastem_toriatsukai_tenpo_code,
           jastem_tyokin_shubetsu: body.jastem_tyokin_shubetsu,
           jastem_koza_no: '*'.repeat(body.jastem_koza_no.length),
-          file_name: filename,
+          file_name: archived.filename,
+          s3_file_path: archived.key,
           record_count: rows.length,
         });
         await this.auditLog.logOperation(
@@ -260,7 +267,7 @@ export class KozaFurikaeService {
         );
       });
 
-      return { buffer, filename, recordCount: rows.length };
+      return { buffer, filename, asciiFilename, recordCount: rows.length };
     } catch (err) {
       // 業務上の 0 件 (404) はエラーログ対象外。それ以外は log_type=3 を
       // トランザクション外で記録してから再スローする（4.10）。
@@ -339,8 +346,6 @@ export class KozaFurikaeService {
     const end = '9';
     return [header, ...data, trailer, end].join('\r\n') + '\r\n';
   }
-
-  /** S3 保存・ファイル名用タイムスタンプ（Asia/Tokyo, YYYYMMDD_HHmmss）。 */
 }
 
 /**

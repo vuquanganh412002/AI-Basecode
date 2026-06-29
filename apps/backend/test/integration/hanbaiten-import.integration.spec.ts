@@ -541,12 +541,19 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const after = await findHanbaiten(1, 'H001');
       expect(after.hanbaiten_name).toBe('販売店A改定');
 
-      // Audit row written inside the same transaction.
+      // 「1取込=監査ログ1行」。IMPORT_UPDATE_ALL がちょうど1行で、重複の
+      // 素の UPDATE 行が無いことを検証（NEW/UPDATE 両モードの重複回帰防止）。
       const logs = await ctx.dataSource.query(
-        `SELECT operation, target_table FROM t_log
-           WHERE target_table = 'm_hanbaiten' AND operation = 'IMPORT_UPDATE_ALL'`,
+        `SELECT operation FROM t_log WHERE target_table = 'm_hanbaiten'`,
       );
-      expect(logs.length).toBeGreaterThanOrEqual(1);
+      const importUpdateAll = logs.filter(
+        (l: { operation: string }) => l.operation === 'IMPORT_UPDATE_ALL',
+      );
+      const plainUpdate = logs.filter(
+        (l: { operation: string }) => l.operation === 'UPDATE',
+      );
+      expect(importUpdateAll.length).toBe(1);
+      expect(plainUpdate.length).toBe(0);
     });
   });
 
@@ -700,14 +707,22 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
         .send(buildImportRequestNEW())
         .expect(200);
 
+      // 取込は「1回の取込=監査ログ1行」。IMPORT_NEW がちょうど1行で、重複の
+      // CREATE 行が無いことを検証する（以前は logCreate も併発し CREATE +
+      // IMPORT_NEW の2行が書かれていた回帰の防止）。
       const logs = await ctx.dataSource.query(
-        `SELECT operation, result_status, target_table FROM t_log
-           WHERE target_table = 'm_hanbaiten' AND operation = 'IMPORT_NEW'`,
+        `SELECT operation, result_status FROM t_log
+           WHERE target_table = 'm_hanbaiten'`,
       );
-      // One audit row per imported hanbaiten OR one per import-call —
-      // either contract is acceptable for now; assert >= 1.
-      expect(logs.length).toBeGreaterThanOrEqual(1);
-      expect(logs[0].result_status).toBe(1);
+      const importNew = logs.filter(
+        (l: { operation: string }) => l.operation === 'IMPORT_NEW',
+      );
+      const create = logs.filter(
+        (l: { operation: string }) => l.operation === 'CREATE',
+      );
+      expect(importNew.length).toBe(1);
+      expect(importNew[0].result_status).toBe(1);
+      expect(create.length).toBe(0);
     });
 
     it('should NOT persist any m_hanbaiten row when a row error fires (full rollback inside the transaction)', async () => {

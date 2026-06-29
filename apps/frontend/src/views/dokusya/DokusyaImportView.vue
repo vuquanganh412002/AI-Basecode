@@ -17,6 +17,7 @@ import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
 import { useAuthStore } from '@/stores/auth.store';
+import { useNotify } from '@/composables/useNotify';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
 import {
   downloadDokusyaImportTemplate,
@@ -25,247 +26,22 @@ import {
   type ImportDokusyaRow,
 } from '@/api/dokusya/dokusya';
 
-/**
- * 49 physical column names — exact order per api.md §テンプレートファイル
- * 仕様. Index N maps to the index-N Japanese header below and to the
- * matching checkbox `value` attribute.
- */
-const PHYSICAL_COLUMNS = [
-  'dokusya_id',
-  'dokusya_shubetsu',
-  'kanri_shiten_code',
-  'shiten_code',
-  'kumiaiin_code',
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
-  'dokusya_busu',
-  'tanka_code',
-  'email',
-  'mail_magazine_flg',
-  'birth_year',
-  'gender',
-  'yubin_no',
-  'todofuken_code',
-  'shikuchoson',
-  'chome_banchi',
-  'tatemono_mei',
-  'renrakusaki_1',
-  'renrakusaki_2',
-  'haitatsu_same_flg',
-  'haitatsu_yubin_no',
-  'haitatsu_todofuken_code',
-  'haitatsu_shikuchoson',
-  'haitatsu_chome_banchi',
-  'haitatsu_tatemono_mei',
-  'haitatsu_renrakusaki_1',
-  'haitatsu_renrakusaki_2',
-  'haitatsu_shimei_sei',
-  'haitatsu_shimei_mei',
-  'haitatsu_shimei_kana_sei',
-  'haitatsu_shimei_kana_mei',
-  'hanbaiten_code',
-  'yubin_kubun',
-  'shiharai_hoho',
-  'dokusyaryo_shiharai_cycle',
-  'hikiotoshi_yokin_shubetsu',
-  'bank_branch_code',
-  'bank_branch_name',
-  'hikiotoshi_koza_no',
-  'hikiotoshi_koza_meigi',
-  'dokusyaso_bunrui',
-  'nogyosya_bunrui',
-  'dokusya_kaishi_date',
-  'dokusya_chushi_date',
-  'biko',
-  'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
-] as const;
-type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
-
-/** 日付列（XLSX のシリアル値を YYYY-MM-DD へ変換する対象）。 */
-const DATE_PHYSICAL_COLUMNS = new Set<string>([
-  'dokusya_kaishi_date',
-  'dokusya_chushi_date',
-  'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
-]);
-
-/** 真偽値列（Excel のチェック/文字列を boolean へ変換する対象）。 */
-const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
-
-/**
- * Excel の真偽セルを boolean へ正規化する。TRUE/1/○/はい/Y を true、
- * FALSE/0/×/いいえ/N を false とし、空欄は undefined（BE で未指定扱い）。
- */
-function normalizeImportBool(value: unknown): boolean | undefined {
-  if (typeof value === 'boolean') return value;
-  const s = String(value ?? '').trim();
-  if (s === '') return undefined;
-  if (/^(true|1|○|はい|yes|y)$/i.test(s)) return true;
-  if (/^(false|0|×|いいえ|no|n)$/i.test(s)) return false;
-  return undefined;
-}
-
-/**
- * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を
- * 'YYYY-MM-DD' へ変換する。TZ ずれを避けるため UTC で計算する。
- */
-function excelSerialToIsoDate(serial: number): string {
-  const ms = Math.round(serial) * 86_400_000 + Date.UTC(1899, 11, 30);
-  const d = new Date(ms);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${day}`;
-}
-
-/**
- * Excel の日付セルは様々な形で届く（数値シリアル 46188 / 文字列シリアル
- * "46188" / "YYYY-MM-DD" / "YYYY/MM/DD" / "D/M/YY" 等）。すべて DB が受け取る
- * 'YYYY-MM-DD' へ正規化する。判別不能な値はそのまま返し、BE 側で再検証させる。
- */
-function normalizeImportDate(value: unknown): unknown {
-  if (typeof value === 'number') return excelSerialToIsoDate(value);
-  if (typeof value !== 'string') return value;
-  const s = value.trim();
-  if (s === '') return value;
-  // 文字列シリアル（区切り無しの純粋な数字）。
-  if (/^\d{4,6}$/.test(s)) return excelSerialToIsoDate(Number(s));
-  // 既に YYYY-MM-DD / YYYY/MM/DD → ハイフン + ゼロ埋め。
-  let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-  // D/M/YY・D/M/YYYY（Excel "d/m/yy" 表示）。月>12 のときは M/D とみなし入替。
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s);
-  if (m) {
-    let day = Number(m[1]);
-    let mon = Number(m[2]);
-    if (mon > 12 && day <= 12) [day, mon] = [mon, day];
-    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
-    return `${year}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
-  return s;
-}
-
-/** Japanese display headers — must match BE template column order. */
-const JP_HEADERS: Record<PhysicalColumn, string> = {
-  dokusya_id: 'ID',
-  dokusya_shubetsu: '購読種別',
-  kanri_shiten_code: '管理支店',
-  shiten_code: '支店',
-  kumiaiin_code: '組合員コード',
-  shimei_sei: '購読者氏名_氏',
-  shimei_mei: '購読者氏名_名',
-  shimei_kana_sei: '購読者かな_氏',
-  shimei_kana_mei: '購読者かな_名',
-  dokusya_busu: '購読部数',
-  tanka_code: '新聞単価',
-  email: 'メールアドレス',
-  mail_magazine_flg: 'メールマガジン',
-  birth_year: '生年（西暦）',
-  gender: '性別',
-  yubin_no: '郵便番号',
-  todofuken_code: '都道府県',
-  shikuchoson: '市町村郡',
-  chome_banchi: '丁目番地',
-  tatemono_mei: 'マンション・アパート名',
-  renrakusaki_1: '連絡先１',
-  renrakusaki_2: '連絡先２',
-  haitatsu_same_flg: '購読者情報と同じ',
-  haitatsu_yubin_no: '郵便番号(配達先)',
-  haitatsu_todofuken_code: '都道府県(配達先)',
-  haitatsu_shikuchoson: '市町村郡(配達先)',
-  haitatsu_chome_banchi: '丁目番地(配達先)',
-  haitatsu_tatemono_mei: 'ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)',
-  haitatsu_renrakusaki_1: '連絡先１(配達先)',
-  haitatsu_renrakusaki_2: '連絡先２(配達先)',
-  haitatsu_shimei_sei: '配達先苗字（漢字）',
-  haitatsu_shimei_mei: '配達先名前（漢字）',
-  haitatsu_shimei_kana_sei: '配達先苗字（かな）',
-  haitatsu_shimei_kana_mei: '配達先名前（かな）',
-  hanbaiten_code: '販売店コード',
-  yubin_kubun: '郵送区分',
-  shiharai_hoho: '支払方法',
-  dokusyaryo_shiharai_cycle: '購読料支払サイクル（月数）',
-  hikiotoshi_yokin_shubetsu: '引落口座貯金種目',
-  bank_branch_code: '引落口座支店コード',
-  bank_branch_name: '引落口座支店名',
-  hikiotoshi_koza_no: '引落口座番号',
-  hikiotoshi_koza_meigi: '引落口座名義',
-  dokusyaso_bunrui: '購読者層分類',
-  nogyosya_bunrui: '農業者分類',
-  dokusya_kaishi_date: '購読開始日',
-  dokusya_chushi_date: '購読中止日',
-  biko: '備考',
-  joho_henko_tekiyo_date: '読者情報変更適用日',
-  hanbaiten_tekiyo_date: '販売店適用日',
-};
-
-/** Header (JP) → physical column. sheet_to_json keys are row-1 strings. */
-const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
-  const out: Record<string, PhysicalColumn> = {};
-  for (const col of PHYSICAL_COLUMNS) {
-    out[JP_HEADERS[col]] = col;
-  }
-  return out;
-})();
-
-/**
- * Physical columns required + always-checked + disabled when import
- * mode = 新規登録 (NEW). Mirrors api.md §4.1 NEW-mode required list.
- */
-const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
-  'dokusya_shubetsu',
-  'kanri_shiten_code',
-  'shiten_code',
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
-  'dokusya_busu',
-  'tanka_code',
-  'yubin_no',
-  'todofuken_code',
-  'shikuchoson',
-  'chome_banchi',
-  'renrakusaki_1',
-  'hanbaiten_code',
-  'shiharai_hoho',
-  'dokusya_kaishi_date',
-];
-const REQUIRED_SET = new Set<string>(REQUIRED_COLUMNS_NEW);
-
-/** UPDATE_* のキー列。常にチェック＋disable（更新対象の特定キー）。 */
-const KEY_COLUMN: PhysicalColumn = 'dokusya_id';
-
-/**
- * 入力箇所のみ更新（UPDATE_PARTIAL）で「編集不可」の項目。
- * 購読種別 / 氏名4項目 / 購読開始日 はフォーム編集でも不変のため、
- * 部分更新でも未チェック＋disable にして更新対象から外す。
- */
-const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
-  'dokusya_shubetsu',
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
-  'dokusya_kaishi_date',
-];
-const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);
-
-/**
- * 新規登録（NEW）で対象外の列。読者情報変更適用日 / 販売店適用日 は履歴の
- * 「変更イベント日」であり、新規登録には概念が無いため NEW では未チェック＋
- * disable にする（顧客要件 2026-06。UPDATE でのみ使用）。
- */
-const NEW_EXCLUDED_COLUMNS: readonly PhysicalColumn[] = [
-  'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
-];
-const NEW_EXCLUDED_SET = new Set<string>(NEW_EXCLUDED_COLUMNS);
-
-const MAX_ROWS = 30000;
+// 列モデル + Excel セル正規化は utils/dokusya-import.ts に分離（純粋ロジック）。
+import {
+  PHYSICAL_COLUMNS,
+  type PhysicalColumn,
+  JP_HEADERS,
+  HEADER_TO_PHYSICAL,
+  DATE_PHYSICAL_COLUMNS,
+  BOOLEAN_PHYSICAL_COLUMNS,
+  REQUIRED_SET,
+  KEY_COLUMN,
+  EDIT_IMMUTABLE_SET,
+  NEW_EXCLUDED_SET,
+  MAX_IMPORT_ROWS,
+  normalizeImportBool,
+} from '@/utils/dokusya-import';
+import { normalizeImportDate } from '@/utils/datetime';
 
 // FE radio display value → BE wire value.
 const MODE_TO_BE: Record<string, DokusyaImportMode> = {
@@ -294,6 +70,7 @@ const MSG_016_006 =
 // m_code values for the 電子版クレカ guard (seeder §5).
 
 const authStore = useAuthStore();
+const notify = useNotify();
 const canImport = computed(() => authStore.hasPermission('dokusya.import'));
 
 // ─── form state ──────────────────────────────────────────────────────
@@ -529,7 +306,7 @@ function isDigitalOrBoth(shubetsu: number): boolean {
  */
 function validateBeforeSubmit(): string | null {
   // no-file は onSubmit が warning で先に処理するためここには来ない。
-  if (parsedRows.value.length > MAX_ROWS) return MSG_016_006;
+  if (parsedRows.value.length > MAX_IMPORT_ROWS) return MSG_016_006;
 
   const errors: RowError[] = [];
   const isNew = importModeFe.value === 'new';
@@ -558,23 +335,23 @@ function validateBeforeSubmit(): string | null {
     // 新規取込は行の購読種別が確定値（更新は購読種別変更不可のためBEが既存値で
     // 判定）。新規モードでのみFE側でも検証し、即時フィードバックする。
     if (isNew && isDigitalOrBoth(shubetsu)) {
-      if (!email) {
-        errors.push({
-          row: rowNo,
-          field: 'email',
-          message: 'メールアドレスは電子版・併読の場合は必須です。',
-        });
-      } else {
+      if (email) {
         const first = batchDigitalEmail.get(email);
-        if (first !== undefined) {
+        if (first === undefined) {
+          batchDigitalEmail.set(email, rowNo);
+        } else {
           errors.push({
             row: rowNo,
             field: 'email',
             message: 'このメールアドレスは既に登録されています。',
           });
-        } else {
-          batchDigitalEmail.set(email, rowNo);
         }
+      } else {
+        errors.push({
+          row: rowNo,
+          field: 'email',
+          message: 'メールアドレスは電子版・併読の場合は必須です。',
+        });
       }
     }
     // 購読部数は 1 以上（解約は取込対象外。顧客要件 2026-06）。
@@ -658,7 +435,7 @@ async function runImport(): Promise<void> {
       rows,
     };
     const res = await importDokusyaExcel(body);
-    message.success(res.message || MSG_016_004);
+    notify.success(res.message || MSG_016_004);
     // 機能 8.4 — show counts, then reset for the next upload.
     importResult.value = {
       created_count: res.data?.created_count ?? 0,

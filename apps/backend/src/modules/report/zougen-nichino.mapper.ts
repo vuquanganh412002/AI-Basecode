@@ -11,6 +11,9 @@ import type {
 
 import { ItakuKubun } from '@/common/enums';
 
+/** getRawMany() の数値カラムは driver により number / 文字列で届くため両対応。 */
+type RawNullableNum = number | string | null;
+
 /** Flat row returned by the 増減通知 QueryBuilder `.getRawMany()` (api.md §4.5). */
 export interface ZougenNichinoRawRow {
   dokusya_rireki_id: number | string;
@@ -23,10 +26,10 @@ export interface ZougenNichinoRawRow {
   /** 適格請求書発行事業者番号。空文字なら免税販売店 → 「（免）」を付与。 */
   torihikisaki_no: string | null;
   // 前回販売店（販売店変更の旧店表示・減/増判定用。初回履歴は NULL）。
-  zenkai_hanbaiten_id: number | string | null;
+  zenkai_hanbaiten_id: RawNullableNum;
   zenkai_hanbaiten_code: string | null;
   zenkai_hanbaiten_name: string | null;
-  zenkai_itaku_kubun: number | string | null;
+  zenkai_itaku_kubun: RawNullableNum;
   zenkai_torihikisaki_no: string | null;
   kanri_shiten_id: number | string;
   kanri_shiten_code: string;
@@ -39,7 +42,7 @@ export interface ZougenNichinoRawRow {
   tanto_name: string | null;
   // 部数（増減判定）
   dokusya_busu: number | string;
-  zenkai_dokusya_busu: number | string | null;
+  zenkai_dokusya_busu: RawNullableNum;
 }
 
 // ─── response row shapes (api.md §レスポンスデータ) ─────────────────────
@@ -95,7 +98,7 @@ export interface ZougenNichinoPreviewData {
  */
 export const ZOUGEN_NICHINO_PER_PAGE = 15;
 
-const num = (v: number | string | null | undefined): number => Number(v ?? 0);
+const num = (v: RawNullableNum | undefined): number => Number(v ?? 0);
 const str = (v: string | null | undefined): string => v ?? '';
 
 /** 委託欄：日農委託(itaku_kubun=2) のみ「委託」、振込/その他は空文字。 */
@@ -118,7 +121,7 @@ interface NichinoRowInput {
   hanbaitenId: number | string;
   hanbaitenCode: string | null;
   hanbaitenName: string | null;
-  itakuKubun: number | string | null;
+  itakuKubun: RawNullableNum;
   torihikisakiNo: string | null;
   genzai: number;
   zou: number;

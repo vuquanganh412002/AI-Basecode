@@ -350,11 +350,16 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       expect(service.update).not.toHaveBeenCalled();
     });
 
-    it('should return 400 VALIDATION_ERROR when shimei_sei is missing in body', async () => {
+    it('should NOT validate shimei_sei on update (氏名は編集で不変・pin) — request reaches service', async () => {
+      // 顧客要件 2026-06 — 氏名(氏/名/かな) は編集で :disabled・サービスで before に
+      // pin。UpdateDokusyaDto で @ValidateIf(() => false) により検証無効化したので、
+      // body に shimei_sei が無く（または非準拠でも）400 にならずサービスへ届く。
+      service.update.mockResolvedValue(buildDokusyaDetailResponse({ dokusya_id: 100 }));
       await http()
         .put(apiUrl('dokusya/100'))
         .send(buildUpdateDokusyaBody({ shimei_sei: undefined }))
-        .expect(400);
+        .expect(200);
+      expect(service.update).toHaveBeenCalled();
     });
 
     it('should return 400 DUPLICATE_EMAIL when service throws', async () => {

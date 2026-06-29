@@ -15,7 +15,7 @@
 //   rejectDokusya      → API-011-005 (否認)
 //   getDokusyaHistory  → API-011-006 (履歴表示)
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
@@ -159,8 +159,17 @@ async function renderView(opts: RenderOptions = {}): Promise<{
     },
   });
   await flushPromises();
+  mountedWrappers.push(wrapper);
   return { wrapper, router };
 }
+
+// マウントしたラッパーは afterEach で必ず unmount する。unmount しないと
+// コンポーネントの watcher / 保留中の async (editGuard.capture の nextTick 等) が
+// 次のテストへ漏れ、無関係なテスト (支払方法オプション等) が間欠的に落ちる。
+const mountedWrappers: Array<ReturnType<typeof mount>> = [];
+afterEach(() => {
+  while (mountedWrappers.length > 0) mountedWrappers.pop()?.unmount();
+});
 
 /**
  * Bulk-apply a form payload while respecting cascade watchers (if any).
@@ -419,6 +428,102 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
 // ═══════════════════════════════════════════════════════════════════════
 // 2. 編集モード — form pre-fill (機能定義 15.1)
 // ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-06)', () => {
+  function busuInput(wrapper: VueWrapper) {
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'dokusya_busu');
+    return item!.find('input');
+  }
+
+  it('should disable 購読部数 input in create mode when 電子版(2) is selected', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const vm = wrapper.vm as unknown as { formState: { dokusya_shubetsu: number } };
+    vm.formState.dokusya_shubetsu = 2;
+    await flushPromises();
+    expect((busuInput(wrapper).element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('should force 購読部数 to 1 when switching to 電子版(2) in create mode', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const vm = wrapper.vm as unknown as {
+      formState: { dokusya_shubetsu: number; dokusya_busu: number };
+    };
+    vm.formState.dokusya_busu = 5; // 紙版で複数部を入力したと仮定
+    await flushPromises();
+    vm.formState.dokusya_shubetsu = 2; // 電子版へ切替
+    await flushPromises();
+    expect(Number(vm.formState.dokusya_busu)).toBe(1);
+  });
+
+  it('should disable 購読部数 input in edit mode for a 電子版(2) record', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      // 電子版 + 口座引落(1) は read-only 対象外（クレカではない）→ 編集可だが
+      // 購読部数だけ入力不可。
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        shiharai_hoho: 1,
+        dokusya_busu: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect((busuInput(wrapper).element as HTMLInputElement).disabled).toBe(true);
+  });
+});
+
+describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客要件 2026-06)', () => {
+  function johoItem(wrapper: VueWrapper) {
+    return wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'joho_henko_tekiyo_date');
+  }
+
+  it('should DISABLE 読者情報変更適用日 in edit mode when no other field has changed', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const item = johoItem(wrapper);
+    expect(item).toBeDefined();
+    expect(/ant-picker-disabled/.test(item!.html())).toBe(true);
+  });
+
+  it('should ENABLE 読者情報変更適用日 once another field is changed in edit mode', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as { formState: { biko: string } };
+    vm.formState.biko = '変更メモ';
+    await flushPromises();
+    expect(/ant-picker-disabled/.test(johoItem(wrapper)!.html())).toBe(false);
+  });
+
+  it('should reset 適用日 and skip update when the other change is reverted (no lone-date 履歴)', async () => {
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { biko: string; joho_henko_tekiyo_date: string | null };
+    };
+    const origBiko = vm.formState.biko;
+    const baseline = vm.formState.joho_henko_tekiyo_date;
+
+    // 他項目を変更 → 適用日が編集可になり、適用日を変更。
+    vm.formState.biko = '一時変更';
+    await flushPromises();
+    vm.formState.joho_henko_tekiyo_date = '2030-12-31';
+    await flushPromises();
+
+    // 他項目を元に戻す → 適用日も基準値へ戻り、フォームは pristine。
+    vm.formState.biko = origBiko;
+    await flushPromises();
+    expect(vm.formState.joho_henko_tekiyo_date).toBe(baseline);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(updateDokusya).not.toHaveBeenCalled();
+  });
+});
+
 describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
   it('should call getDokusya with the route id when mounted in edit mode', async () => {
     await renderView({ dokusyaId: 100 });
@@ -671,6 +776,32 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
 
     expect(wrapper.text()).toContain('購読部数は1以上で入力してください。');
     expect(createDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should NOT block update when the existing 氏名 is non-conforming (氏名は編集で不変) — 顧客要件 2026-06', async () => {
+    // 編集で氏名は :disabled。旧取込等で "太郎12"（数字混じり）やカタカナのかなが
+    // 残っていても、ユーザーが直せない項目の検証で更新がブロックされてはならない。
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        shimei_mei: '太郎12',
+        shimei_kana_sei: 'ゾウゲン',
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+
+    // 編集で何も変更しないと isPristine() で PUT がスキップされるため、
+    // 編集可能項目（備考）を変更して非 pristine にしてから送信する。
+    const vm = wrapper.vm as unknown as { formState: { biko: string } };
+    vm.formState.biko = '更新メモ';
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('漢字で入力してください。');
+    expect(wrapper.text()).not.toContain('ひらがなで入力してください。');
+    expect(updateDokusya).toHaveBeenCalled();
   });
 
   // Large CRUD form — pressing Enter inside a text input must NOT implicitly

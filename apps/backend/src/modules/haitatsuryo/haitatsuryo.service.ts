@@ -5,19 +5,12 @@ import * as ExcelJS from 'exceljs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { Ja } from '@/database/entities/ja.entity';
-import { FileDownload } from '@/database/entities/file-download.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
-import { StorageService } from '@/modules/storage/storage.service';
+import { ReportArchiveService } from '@/modules/report/report-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { timestampForFilenameJst } from '@/common/utils/datetime';
-import {
-  AuditOperation,
-  DownloadType,
-  LogType,
-  ResultStatus,
-} from '@/common/enums';
+import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
 
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
 import {
@@ -28,7 +21,7 @@ import {
 } from './haitatsuryo.mapper';
 
 const SCREEN_NAME = '配達手数料支払情報出力画面 (ACSMS-SCR-021)';
-const TABLE_NAME = 't_file_download';
+const TABLE_NAME = 't_file_upload';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '配達手数料支払情報';
@@ -57,7 +50,8 @@ export class HaitatsuryoService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
-    private readonly storage: StorageService,
+    // 共通の S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
+    private readonly reportArchive: ReportArchiveService,
     // CodeService (@Global) は Excel の貯金種目ラベル解決にのみ使用。spec が
     // 4 引数で `new` するため @Optional()（本番 DI では常に注入される）。
     @Optional()
@@ -99,67 +93,60 @@ export class HaitatsuryoService {
       const buffer = await this.buildExcelBuffer(preview);
 
       const [y, m] = body.target_month.split('-');
-      const ym = `${y}${m}`;
-      const s3FileName = `haitatsuryo_shiharai_${ym}_${timestampForFilenameJst()}.xlsx`;
-      const filename = `配達手数料支払情報出力_${y}年${m}月.xlsx`;
-      const asciiFilename = `haitatsuryo_shiharai_${ym}.xlsx`;
-      const key = `delivery_fee/${y}/${m}/${s3FileName}`;
+      const baseName = `配達手数料支払情報出力_${y}年${m}月`;
+      // ダウンロード名はタイムスタンプ無し（従来どおり）。
+      const filename = `${baseName}.xlsx`;
+      const asciiFilename = `haitatsuryo_shiharai_${y}${m}.xlsx`;
 
-      // S3 保存は外部I/Oのためトランザクション外で先に完了させる（4.4）。
-      await this.storage.upload(key, buffer, XLSX_MIME);
+      // 共通サービスで S3 保存 + t_file_upload 登録。
+      // S3 キー: haitatsuryo/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.xlsx
+      //（rootPrefix='' で reports/ プレフィックスなし、subFolder なし）。
+      // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
+      const archived = await this.reportArchive.archive({
+        buffer,
+        baseName,
+        category: 'haitatsuryo',
+        rootPrefix: '',
+        year: y,
+        jaId: session.ja_id ?? null,
+        session,
+        recordCount: preview.meta.total,
+        contentType: XLSX_MIME,
+        extension: '.xlsx',
+      });
 
-      // t_file_download 登録(4.5) + 操作ログ(4.6) を単一トランザクションで実行。
-      await this.dataSource.transaction(async (manager) => {
-        const saved = await manager.save(
-          FileDownload,
-          manager.create(FileDownload, {
-            jaId: session.ja_id ?? null,
-            downloadDatetime: new Date(),
-            downloadType: DownloadType.OTHER,
-            fileName: s3FileName,
-            filePath: key,
-            fileSize: buffer.length,
-            recordCount: preview.meta.total,
-            targetMonth: ym,
-            createdBy: String(session.account_id),
-          }),
-        );
-
-        const ctx = buildAuditCtx(
-          session,
-          req,
-          SCREEN_NAME,
-          TABLE_NAME,
-          saved.fileDownloadId ?? null,
-        );
-        // 個人情報は含めず、出力条件と件数のみを記録する（4.6）。
-        const afterValue = JSON.stringify({
-          target_month: body.target_month,
-          haitatsuryo_shiharai_cycle: body.haitatsuryo_shiharai_cycle ?? null,
-          zei_kubun: zeiKubun,
-          record_count: preview.meta.total,
-          grand_total_busu: preview.meta.grand_total_busu,
-          grand_total_kingaku: preview.meta.grand_total_kingaku,
-          file_name: s3FileName,
-          s3_file_path: key,
-        });
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.FILE_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.CREATE,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue,
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
-          manager,
-        );
+      // 操作ログ(4.6)。アーカイブ先テーブル(t_file_upload)を対象に記録する。
+      const ctx = buildAuditCtx(
+        session,
+        req,
+        SCREEN_NAME,
+        TABLE_NAME,
+        archived.fileUploadId,
+      );
+      // 個人情報は含めず、出力条件と件数のみを記録する（4.6）。
+      const afterValue = JSON.stringify({
+        target_month: body.target_month,
+        haitatsuryo_shiharai_cycle: body.haitatsuryo_shiharai_cycle ?? null,
+        zei_kubun: zeiKubun,
+        record_count: preview.meta.total,
+        grand_total_busu: preview.meta.grand_total_busu,
+        grand_total_kingaku: preview.meta.grand_total_kingaku,
+        file_name: archived.filename,
+        s3_file_path: archived.key,
+      });
+      await this.auditLog.logOperation({
+        logType: LogType.FILE_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: AuditOperation.CREATE,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
       });
 
       return { empty: false, buffer, filename, asciiFilename };

@@ -1,4 +1,4 @@
-// Hand-written wrapper around the Orval-generated /api/v1/roles endpoints.
+// Hand-written axios wrapper for the /api/v1/roles endpoints.
 // Functions here are what SCR-027 (RoleManagementView) imports and what its
 // unit spec mocks via vi.mock('@/api/roles/roles').
 // Shapes mirror docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md.

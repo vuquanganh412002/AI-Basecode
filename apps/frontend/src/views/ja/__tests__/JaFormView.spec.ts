@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-005 — JAマスタ登録画面
 //
 // Drives src/views/ja/JaFormView.vue. Every it() maps to a clause in
@@ -34,8 +33,12 @@ vi.mock('@/api/todofuken/todofuken', () => ({
 }));
 
 // Spy on antd's global toast so we can assert success / error copy.
-vi.spyOn(message, 'success').mockImplementation(() => undefined);
-vi.spyOn(message, 'error').mockImplementation(() => undefined);
+vi.spyOn(message, 'success').mockImplementation(
+  () => undefined as unknown as ReturnType<typeof message.success>,
+);
+vi.spyOn(message, 'error').mockImplementation(
+  () => undefined as unknown as ReturnType<typeof message.error>,
+);
 
 interface RenderOptions {
   /** Edit mode: pass a number → router pre-navigates to /ja/:id; create mode: undefined. */
@@ -45,7 +48,9 @@ interface RenderOptions {
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
-  wrapper: ReturnType<typeof mount>;
+  // `vm` widened to any so tests can call the view's internal submitWith
+  // helper without defineExpose (established convention — see clean specs).
+  wrapper: ReturnType<typeof mount> & { vm: any };
   router: Router;
 }> {
   const router = createRouter({

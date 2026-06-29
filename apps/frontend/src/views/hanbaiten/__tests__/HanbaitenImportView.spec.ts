@@ -1,4 +1,3 @@
-// @ts-nocheck — spec has minor type-level issues (unused imports + Record<string,unknown> coercion) the codegen cannot edit per /gen-code-frontend immutability rule. Runtime tests all pass (34/34, see HanbaitenImportView.spec.ts run output).
 // Screen: ACSMS-SCR-019 — 販売店Excelデータ取込画面
 //
 // Drives src/views/hanbaiten/HanbaitenImportView.vue. The view is a
@@ -26,10 +25,8 @@ import Antd, { message, Modal } from 'ant-design-vue';
 import HanbaitenImportView from '@/views/hanbaiten/HanbaitenImportView.vue';
 import {
   HANBAITEN_IMPORT_JP_HEADERS,
-  HANBAITEN_IMPORT_PHYSICAL_COLUMNS,
   IMPORT_MODE_LABEL_JP,
   buildAuthUser,
-  buildImportRequest,
   buildImportRow,
   buildImportSuccessResponse,
   buildImportValidationErrorBody,
@@ -144,7 +141,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 }
 
 /** Build a fake File object the view's `change` handler will receive. */
-function buildFakeFile(name = 'sample.xlsx', size = 1024): File {
+function buildFakeFile(name = 'sample.xlsx', _size = 1024): File {
   const blob = new Blob(['fake-xlsx-bytes'], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
@@ -471,7 +468,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
-    const body = vi.mocked(importHanbaitenExcel).mock.calls[0]?.[0] as Record<string, unknown>;
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0]?.[0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body).toBeDefined();
     expect(body.import_mode).toBe('UPDATE_ALL');
   });
@@ -487,7 +487,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
-    const body = vi.mocked(importHanbaitenExcel).mock.calls[0]?.[0] as Record<string, unknown>;
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0]?.[0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body.import_mode).toBe('UPDATE_PARTIAL');
   });
 
@@ -596,7 +599,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — submit + confirm modal', () =>
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     expect(vi.mocked(importHanbaitenExcel)).toHaveBeenCalledTimes(1);
-    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as Record<string, unknown>;
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body.import_mode).toBe('NEW');
     expect(Array.isArray(body.rows)).toBe(true);
     expect((body.rows as unknown[]).length).toBe(2);
@@ -633,7 +639,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — submit + confirm modal', () =>
     );
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
-    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as Record<string, unknown>;
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as unknown as Record<
+      string,
+      unknown
+    >;
     const cols = body.selected_columns as string[];
     expect(cols).toContain('hanbaiten_code'); // required, always
     expect(cols).not.toContain('biko');

@@ -26,7 +26,7 @@ describe('HaitatsuryoService', () => {
   let dataSource: any;
   let txManager: any;
   let auditLog: any;
-  let storage: any;
+  let reportArchive: any;
 
   const req = { ip: '192.0.2.60', headers: { 'user-agent': 'jest' } } as any;
 
@@ -57,10 +57,16 @@ describe('HaitatsuryoService', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
-    storage = { upload: jest.fn().mockResolvedValue(undefined) };
+    reportArchive = {
+      archive: jest.fn().mockResolvedValue({
+        key: 'haitatsuryo/JA001/2026/配達手数料支払情報出力_2026年04月_20260401120000.xlsx',
+        filename: '配達手数料支払情報出力_2026年04月_20260401120000.xlsx',
+        fileUploadId: 5,
+      }),
+    };
 
-    // constructor(jaRepo, dataSource, auditLog, storage)
-    service = new HaitatsuryoService(jaRepo, dataSource, auditLog, storage);
+    // constructor(jaRepo, dataSource, auditLog, reportArchive)
+    service = new HaitatsuryoService(jaRepo, dataSource, auditLog, reportArchive);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -263,33 +269,36 @@ describe('HaitatsuryoService', () => {
       );
     });
 
-    it('should upload the generated Excel to S3 when export succeeds', async () => {
-      // COVERS: 4.4 S3 保存
+    it('should archive the Excel to S3 + t_file_upload via the common ReportArchiveService when export succeeds', async () => {
+      // COVERS: 4.4/4.5 共通 ReportArchiveService で S3 保存 + t_file_upload 登録
       mockAgg([buildHaitatsuryoAggRow()]);
       await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req);
-      expect(storage.upload).toHaveBeenCalledTimes(1);
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
     });
 
-    it('should record a t_file_download row with download_type=2 when export succeeds', async () => {
-      // COVERS: 4.5 t_file_download 登録 — download_type=2
+    it('should archive with category=haitatsuryo, no reports/ prefix, tekiyo-year path', async () => {
+      // COVERS: パス haitatsuryo/{ja_code}/{YYYY}/（reports/ プレフィックスなし）・
+      //         category=haitatsuryo・YYYY=対象月の年・ベース名はタイムスタンプ無し。
       mockAgg([buildHaitatsuryoAggRow()]);
-      await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req);
-
-      const saved =
-        (txManager.create.mock.calls[0]?.[1] as any) ??
-        (txManager.save.mock.calls[0]?.[1] as any);
-      expect(saved.downloadType ?? saved.download_type).toBe(2);
+      await service.exportHaitatsuryoExcel(
+        buildHaitatsuryoQuery({ target_month: '2026-04' }),
+        hSession(),
+        req,
+      );
+      const params = reportArchive.archive.mock.calls[0][0];
+      expect(params).toEqual(
+        expect.objectContaining({
+          category: 'haitatsuryo',
+          rootPrefix: '',
+          year: '2026',
+          baseName: '配達手数料支払情報出力_2026年04月',
+          extension: '.xlsx',
+        }),
+      );
     });
 
-    it('should wrap t_file_download + operation log in a single dataSource.transaction', async () => {
-      // COVERS: 4.5/4.6 単一トランザクション
-      mockAgg([buildHaitatsuryoAggRow()]);
-      await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req);
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    });
-
-    it('should write an operation log with log_type=4 + CREATE + result_status success when export succeeds', async () => {
-      // COVERS: 4.6 操作ログ — log_type=4, operation 'CREATE', result_status 1
+    it('should write an operation log with log_type=4 + CREATE + result_status success + targetTable t_file_upload', async () => {
+      // COVERS: 4.6 操作ログ — log_type=4, operation 'CREATE', result_status 1, t_file_upload
       mockAgg([buildHaitatsuryoAggRow()]);
       await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession({ account_id: 11 }), req);
 
@@ -300,23 +309,24 @@ describe('HaitatsuryoService', () => {
           logType: 4,
           operation: 'CREATE',
           resultStatus: 1,
-          targetTable: 't_file_download',
+          targetTable: 't_file_upload',
         }),
       );
     });
 
-    it('should record the export conditions + counts (file_name) in the operation log after_value', async () => {
-      // COVERS: 4.6 after_value — 出力条件と件数の JSON
+    it('should record the export conditions + counts (s3 file_name / path) in the operation log after_value', async () => {
+      // COVERS: 4.6 after_value — 出力条件と件数の JSON（アーカイブ済みファイル名/パス）
       mockAgg([buildHaitatsuryoAggRow()]);
       await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req);
 
       const args = auditLog.logOperation.mock.calls[0][0];
       const after = String(args.afterValue ?? '');
       expect(after).toContain('record_count');
-      expect(after).toContain('haitatsuryo_shiharai');
+      expect(after).toContain('s3_file_path');
+      expect(after).toContain('haitatsuryo/');
     });
 
-    it('should return { empty: true } and NOT generate an Excel / upload when 0 rows match', async () => {
+    it('should return { empty: true } and NOT generate an Excel / archive when 0 rows match', async () => {
       // COVERS: 4.3 0件 → HTTP 200 + 空配列, Excel 出力 / S3 保存 / DB 登録は実行しない
       mockAgg([]);
 
@@ -326,13 +336,12 @@ describe('HaitatsuryoService', () => {
         req,
       );
       expect(result).toEqual({ empty: true });
-      expect(storage.upload).not.toHaveBeenCalled();
-      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(reportArchive.archive).not.toHaveBeenCalled();
       expect(auditLog.logOperation).not.toHaveBeenCalled();
     });
 
-    it('should rollback (t_file_download + operation log share the tx) when the audit log fails', async () => {
-      // COVERS: tx rollback — business write + audit log atomic
+    it('should throw when the audit log fails after a successful archive', async () => {
+      // COVERS: 監査ログ失敗時は例外を伝播（log_type=3 はサービスの catch で記録）。
       mockAgg([buildHaitatsuryoAggRow()]);
       auditLog.logOperation.mockRejectedValueOnce(new Error('audit-down'));
 

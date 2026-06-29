@@ -142,9 +142,8 @@ export class DenshibanDbService implements OnApplicationBootstrap {
     // ── 1. テーブル一覧（接続中DB = cmsDB）─────────────────────────────
     let tableNames: string[] = [];
     try {
-      const rows = (await ds.query('SHOW TABLES')) as Array<
-        Record<string, string>
-      >;
+      const rows =
+        await ds.query<Array<Record<string, string>>>('SHOW TABLES');
       // SHOW TABLES の列名は `Tables_in_<db>` と可変なので最初の値を取る。
       tableNames = rows.map((r) => Object.values(r)[0]).filter(Boolean);
       this.logger.log(
@@ -165,14 +164,15 @@ export class DenshibanDbService implements OnApplicationBootstrap {
     for (const table of tableNames) {
       try {
         // 列情報は SHOW COLUMNS から取得（0件のテーブルでも列が分かる）。
-        const columns = (await ds.query(
+        // SHOW COLUMNS の各列値は文字列なので Record<string, string> で受ける。
+        const columns = await ds.query<Array<Record<string, string>>>(
           `SHOW COLUMNS FROM \`${table}\``,
-        )) as Array<Record<string, unknown>>;
-        const colNames = columns.map((c) => String(c.Field ?? c.field ?? ''));
+        );
+        const colNames = columns.map((c) => c.Field ?? c.field ?? '');
 
-        const sample = (await ds.query(
+        const sample = await ds.query<Array<Record<string, unknown>>>(
           `SELECT * FROM \`${table}\` LIMIT ${SAMPLE_ROWS}`,
-        )) as Array<Record<string, unknown>>;
+        );
 
         const block = [
           `🔎 [TEMP/PII] テーブル: ${table}`,

@@ -209,7 +209,7 @@ describe('ReportController (HTTP)', () => {
     it('should return 200 with an xlsx attachment when data exists', async () => {
       service.exportMeiboExcel.mockResolvedValue({
         buffer: Buffer.from('xlsx-bytes'),
-        filename: '購読者名簿_2026年04月.xlsx',
+        filename: '販売店別購読者名簿_2026年04月.xlsx',
       });
 
       const res = await http()

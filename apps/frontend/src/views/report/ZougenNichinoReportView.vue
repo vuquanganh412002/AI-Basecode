@@ -112,10 +112,6 @@ function buildExportQuery(): ZougenNichinoQuery {
   return q;
 }
 
-function isNoDataBlob(blob: Blob): boolean {
-  return blob.type.includes('application/json');
-}
-
 async function fetchPage(page: number): Promise<void> {
   try {
     const resp = await previewZougenNichino(buildQuery(page));
@@ -156,25 +152,17 @@ function onExport(): void {
 
 async function runExport(): Promise<void> {
   try {
-    const blob = await exportZougenNichino(buildExportQuery());
-    // 対象0件のとき BE は PDF ではなく application/json を返す。その場合は
-    // ダウンロードせず画面内テキスト（対象のデータが存在しません。）を表示。
-    if (isNoDataBlob(blob)) {
+    const result = await exportZougenNichino(buildExportQuery());
+    // 対象0件のとき BE は reports:[] を返す。ダウンロードせず画面内テキスト
+    // （対象のデータが存在しません。）を表示する。
+    if (Array.isArray(result.reports) && result.reports.length === 0) {
       previewData.value = null;
       noDataMessage.value = true;
       return;
     }
-    // 全管理支店をプレビューと同じ改ページ（15行/ページ）でまとめた1つのPDF。
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const ymd = formState.tekiyo_date.replaceAll('-', '');
-    link.download = `増減通知_${ymd}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
-    notify.downloaded();
+    // PDFはブラウザへダウンロードしない。BE が S3 に保存し日農担当者へメール
+    // 通知済み。成功トーストのみ表示する。
+    notify.success('出力しました。メールを送信しました。');
   } catch {
     // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
   }

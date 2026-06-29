@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Job } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
 
+import { collectAccountEmails } from '@/common/utils/account-emails';
 import { Account } from '@/database/entities/account.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { Ja } from '@/database/entities/ja.entity';
@@ -122,19 +123,11 @@ export class FileUploadNotificationWorker extends WorkerHost {
     }
 
     // [recipients] Each m_account row contributes up to 4 emails —
-    // primary + 3 sub. Filter blanks, dedupe via Set.
+    // primary + 3 sub. Filter blanks, dedupe via the shared util.
     const accounts = await this.accountRepo.find({
       where: { jaId: ja_id, deletedAt: IsNull() },
     });
-    const allEmails = accounts.flatMap((a) => [
-      a.email,
-      a.subEmail1,
-      a.subEmail2,
-      a.subEmail3,
-    ]);
-    const recipients = Array.from(
-      new Set(allEmails.filter((e) => typeof e === 'string' && e.trim().length > 0)),
-    );
+    const recipients = collectAccountEmails(accounts);
 
     if (recipients.length === 0) {
       // [no-recipients] Defensive — a JA with zero subscribers

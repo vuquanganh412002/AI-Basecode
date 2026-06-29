@@ -162,7 +162,10 @@ function onMfaSwitchClick(): void {
           >
             <span class="material-icons text-icon">account_circle</span>
           </div>
-          <span class="hidden sm:inline truncate max-w-[160px] lg:max-w-none">
+          <!-- leading-normal + py-0.5: preflight を読み込まない構成では line-height
+               が詰まり、truncate(overflow:hidden) が "g/y/p" のディセンダを切る。
+               行高に余裕を持たせ下端のはみ出しを防ぐ。 -->
+          <span class="hidden sm:inline-block truncate max-w-[160px] lg:max-w-none leading-normal py-0.5">
             {{ displayName }}
           </span>
         </button>

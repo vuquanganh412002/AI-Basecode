@@ -206,16 +206,51 @@ export async function previewZougenHanbaiten(
   return res.data;
 }
 
-/** POST /api/v1/report/zougen-hanbaiten/export — ACSMS-API-028-002. Returns a Blob (PDF). */
+/** PDF出力レスポンス：Blob 本体 + サーバが付与したダウンロードファイル名。 */
+export interface ZougenHanbaitenExportResult {
+  blob: Blob;
+  /** Content-Disposition から復元した日本語ファイル名（取得不可なら null）。 */
+  filename: string | null;
+}
+
+/**
+ * Content-Disposition ヘッダからファイル名を取り出す。
+ * RFC 5987 の `filename*=UTF-8''…`（日本語名）を優先し、無ければ素の
+ * `filename="…"` を返す。どちらも無ければ null。
+ */
+function filenameFromDisposition(cd: string | undefined): string | null {
+  if (!cd) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      return null;
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(cd);
+  return plain ? plain[1] : null;
+}
+
+/**
+ * POST /api/v1/report/zougen-hanbaiten/export — ACSMS-API-028-002.
+ * ファイル名はログイン権限により BE 側で決まるため、FE は
+ * Content-Disposition から読み取る（FE は ja_code/ja_name を保持しない）。
+ * 対象0件のとき BE は application/json を返す（Content-Disposition なし）ので
+ * filename は null になり、呼び出し側は blob.type で no-data 判定する。
+ */
 export async function exportZougenHanbaiten(
   query: ZougenHanbaitenQuery,
-): Promise<Blob> {
+): Promise<ZougenHanbaitenExportResult> {
   const res = await axiosInstance.post<Blob>(
     '/api/v1/report/zougen-hanbaiten/export',
     query,
     { responseType: 'blob' },
   );
-  return res.data;
+  return {
+    blob: res.data,
+    filename: filenameFromDisposition(res.headers['content-disposition']),
+  };
 }
 
 // ─── ACSMS-SCR-029 — 増減通知（日本農業新聞）出力画面 ──────────────────
@@ -314,17 +349,28 @@ export async function previewZougenNichino(
 }
 
 /**
+ * 増減通知 出力レスポンス（unwrapped `data`）。
+ * - 成功時: `{ file_name, recipient_count }`（PDFは S3 保存 + メール通知のみ。
+ *   ブラウザはダウンロードしない）。
+ * - 対象0件時: `{ reports: [] }`。
+ */
+export interface ExportZougenNichinoResult {
+  reports?: unknown[];
+  file_name?: string;
+  recipient_count?: number;
+}
+
+/**
  * POST /api/v1/report/zougen-nichino/export — ACSMS-API-029-002.
- * Returns a Blob: application/pdf（1管理支店）/ application/zip（複数）/
- * application/json（対象0件 → ダウンロードせず画面内メッセージ）。
+ * PDFはブラウザへ返さず BE が S3 へ保存し日農担当者へメール通知する。
+ * 戻り値は JSON（成功 → file_name / recipient_count、対象0件 → reports:[]）。
  */
 export async function exportZougenNichino(
   query: ZougenNichinoQuery,
-): Promise<Blob> {
-  const res = await axiosInstance.post<Blob>(
+): Promise<ExportZougenNichinoResult> {
+  const res = await axiosInstance.post<{ data: ExportZougenNichinoResult }>(
     '/api/v1/report/zougen-nichino/export',
     query,
-    { responseType: 'blob' },
   );
-  return res.data;
+  return res.data.data;
 }

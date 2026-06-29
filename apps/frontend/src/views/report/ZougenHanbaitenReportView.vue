@@ -139,7 +139,7 @@ async function onExport(): Promise<void> {
   // プレビュー未実行で直接出力した場合も発行日時を確定させる。
   if (!issuedAt.value) issuedAt.value = nowIssuedAt();
   try {
-    const blob = await exportZougenHanbaiten({
+    const { blob, filename } = await exportZougenHanbaiten({
       ...buildQuery(),
       issued_at: issuedAt.value,
     });
@@ -153,8 +153,10 @@ async function onExport(): Promise<void> {
     const url = globalThis.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
+    // ファイル名はサーバ（権限別）が決めるため Content-Disposition から受け取る。
+    // 取得できないときのみ適用日ベースの既定名にフォールバックする。
     const [y, m, d] = formState.tekiyo_date.split('-');
-    link.download = `増減連絡票_販売店_${y}年${m}月${d}日.pdf`;
+    link.download = filename ?? `増減連絡票_${y}年${m}月${d}日.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();

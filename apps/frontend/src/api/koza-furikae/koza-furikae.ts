@@ -44,6 +44,32 @@ export interface KozaFurikaeError {
   error_code: string;
 }
 
+/** CSV出力レスポンス：Blob 本体 + サーバが付与したダウンロードファイル名。 */
+export interface ExportKozaFurikaeResult {
+  blob: Blob;
+  /** Content-Disposition から復元した日本語ファイル名（取得不可なら null）。 */
+  filename: string | null;
+}
+
+/**
+ * Content-Disposition ヘッダからファイル名を取り出す。
+ * RFC 5987 の `filename*=UTF-8''…`（日本語名）を優先し、無ければ素の
+ * `filename="…"` を返す。どちらも無ければ null。
+ */
+function filenameFromDisposition(cd: string | undefined): string | null {
+  if (!cd) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      return null;
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(cd);
+  return plain ? plain[1] : null;
+}
+
 /** GET /api/v1/koza-furikae/initial — ACSMS-API-020-001. */
 export async function getInitialKozaFurikae(): Promise<KozaFurikaeInitialEnvelope> {
   const res = await axiosInstance.get<KozaFurikaeInitialEnvelope>(
@@ -53,8 +79,11 @@ export async function getInitialKozaFurikae(): Promise<KozaFurikaeInitialEnvelop
 }
 
 /**
- * POST /api/v1/koza-furikae/export — ACSMS-API-020-002. Returns a Blob
- * (全銀フォーマット CSV, Shift_JIS).
+ * POST /api/v1/koza-furikae/export — ACSMS-API-020-002. Returns the Blob
+ * (全銀フォーマット CSV, Shift_JIS) + サーバ駆動のダウンロードファイル名。
+ *
+ * ファイル名は ja_code + 引落日 を含むため BE 側で決まる。FE は ja_code を
+ * 保持しないので Content-Disposition（RFC5987 filename* 優先）から読み取る。
  *
  * 対象0件のとき BE は 404 (NO_TARGET_DATA) を返す。responseType:'blob' のため
  * エラー body は Blob で届くが、axios インターセプタ（error-handler.ts）が
@@ -63,12 +92,15 @@ export async function getInitialKozaFurikae(): Promise<KozaFurikaeInitialEnvelop
  */
 export async function exportKozaFurikae(
   body: ExportKozaFurikaeBody,
-): Promise<Blob> {
+): Promise<ExportKozaFurikaeResult> {
   try {
     const res = await axiosInstance.post('/api/v1/koza-furikae/export', body, {
       responseType: 'blob',
     });
-    return res.data as Blob;
+    return {
+      blob: res.data as Blob,
+      filename: filenameFromDisposition(res.headers['content-disposition']),
+    };
   } catch (err) {
     const code = (err as AxiosError<{ error_code?: string }>).response?.data
       ?.error_code;

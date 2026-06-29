@@ -8,7 +8,7 @@ import { DenshibanDbService } from '@/modules/denshiban/denshiban-db.service';
  *
  * 電子版（顧客MySQL）の `users` テーブルから差分を取得し、自社の `t_dokusya`
  * に取り込む。10分間隔で EventBridge → ECS RunTask の command override で
- * 起動されるコマンド（scripts/dokusya-sync.ts）から `run()` が1回呼ばれる。
+ * 起動されるコマンド（scripts/batch/dokusya-sync.ts）から `run()` が1回呼ばれる。
  *
  * 常駐 cron ではなく単発実行なので `@nestjs/schedule` の @Cron は使わない
  * （スケジュールは agrinews-terraform 側の EventBridge ルールが持つ）。

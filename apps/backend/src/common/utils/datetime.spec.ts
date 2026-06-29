@@ -11,6 +11,9 @@ import {
   timestampForFilenameJst,
   compactTimestampJst,
   todayIsoJst,
+  excelSerialToIsoJst,
+  normalizeDbDate,
+  dbDateOrNull,
 } from './datetime';
 
 describe('todayIsoJst', () => {
@@ -145,5 +148,54 @@ describe('isoDateToSlash / slashDateToIso', () => {
   it('should pass blank through', () => {
     expect(isoDateToSlash('')).toBe('');
     expect(slashDateToIso('')).toBe('');
+  });
+});
+
+describe('excelSerialToIsoJst', () => {
+  it('should convert an Excel serial to the JST calendar date', () => {
+    // 45809 = 2025-06-01 (1899-12-30 origin, 1900 leap-bug included).
+    expect(excelSerialToIsoJst(45809)).toBe('2025-06-01');
+    expect(excelSerialToIsoJst(45778)).toBe('2025-05-01');
+  });
+
+  it('should be TZ-stable regardless of the host timezone', () => {
+    const prev = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      // Intl pins Asia/Tokyo, so the calendar date never drifts.
+      expect(excelSerialToIsoJst(45809)).toBe('2025-06-01');
+    } finally {
+      process.env.TZ = prev;
+    }
+  });
+});
+
+describe('normalizeDbDate', () => {
+  it('should keep YYYY-MM-DD as-is', () => {
+    expect(normalizeDbDate('2026-05-01')).toBe('2026-05-01');
+  });
+  it('should convert slash form to hyphen form', () => {
+    expect(normalizeDbDate('2026/05/01')).toBe('2026-05-01');
+  });
+  it('should convert a numeric / string Excel serial to ISO', () => {
+    expect(normalizeDbDate(45809 as unknown as string)).toBe('2025-06-01');
+    expect(normalizeDbDate('45809')).toBe('2025-06-01');
+  });
+  it('should pass blank / null / undefined through', () => {
+    expect(normalizeDbDate('')).toBe('');
+    expect(normalizeDbDate(null)).toBeNull();
+    expect(normalizeDbDate(undefined)).toBeUndefined();
+  });
+});
+
+describe('dbDateOrNull', () => {
+  it('should map blank / non-primitive to null', () => {
+    expect(dbDateOrNull('')).toBeNull();
+    expect(dbDateOrNull(null)).toBeNull();
+    expect(dbDateOrNull({})).toBeNull();
+  });
+  it('should normalize a date value to hyphen form', () => {
+    expect(dbDateOrNull('2026/05/01')).toBe('2026-05-01');
+    expect(dbDateOrNull(45809)).toBe('2025-06-01');
   });
 });

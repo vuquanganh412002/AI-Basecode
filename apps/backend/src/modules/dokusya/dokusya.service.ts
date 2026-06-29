@@ -1,8 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
-import * as ExcelJS from 'exceljs';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
@@ -10,7 +9,6 @@ import { Shiten } from '@/database/entities/shiten.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
-import { Account } from '@/database/entities/account.entity';
 import {
   ConflictException,
   NotFoundException,
@@ -18,15 +16,12 @@ import {
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import {
-  slashDateToIso,
-  timestampForFilenameJst,
   todayIsoJst,
+  normalizeDbDate,
 } from '@/common/utils/datetime';
 import {
   applyBranchScope,
   assertBranchScope,
-  assertBranchScopeViolation,
-  assertJaScopeViolation,
   fetchFkInJa,
 } from '@/common/utils/data-scope';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
@@ -35,8 +30,6 @@ import {
   AuditOperation,
   DenshiShoninStatus,
   DokusyaShubetsu,
-  LogType,
-  ResultStatus,
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/common/enums';
@@ -55,34 +48,23 @@ import {
   DokusyaHistoryResponseDto,
 } from './dto/dokusya-history-response.dto';
 import { DokusyaResponseDto } from './dto/dokusya-response.dto';
-import { ErrorMessage } from '@/common/constants/error-codes.constant';
 import { DuplicateEmailException } from './exceptions/duplicate-email.exception';
 import { InvalidDokusyaStatusException } from './exceptions/invalid-dokusya-status.exception';
 import { DokusyaReadOnlyException } from './exceptions/dokusya-read-only.exception';
-import { ShubetsuPermissionException } from './exceptions/shubetsu-permission.exception';
-import { ExportNoDataException } from './exceptions/export-no-data.exception';
-import { ExportLimitExceededException } from './exceptions/export-limit-exceeded.exception';
-import { SameHanbaitenException } from './exceptions/same-hanbaiten.exception';
-import { DateRangeInvalidException } from './exceptions/date-range-invalid.exception';
+import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
+import { DokusyaImportService } from './dokusya-import.service';
+import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
+import { DokusyaSearchService } from './dokusya-search.service';
+import { DokusyaReplaceService } from './dokusya-replace.service';
+import { ImportDokusyaDto } from './dto/import-dokusya.dto';
 import {
-  IneligibleDokusyaException,
-  type IneligibleDokusyaDetail,
-} from './exceptions/ineligible-dokusya.exception';
-import { ImportDokusyaDto, ImportDokusyaRowDto } from './dto/import-dokusya.dto';
-import { DokusyaImportValidationException } from './exceptions/import-validation.exception';
-import { DokusyaRowLimitExceededException } from './exceptions/row-limit-exceeded.exception';
-import {
-  DOKUSYA_EXPORT_HEADERS,
   DokusyaJoinFields,
   DokusyaListItem,
   DokusyaRirekiListItem,
   isDokusyaReadOnly,
-  toDokusyaExcelRow,
   toDokusyaHistoryItem,
-  toDokusyaListItem,
   toDokusyaRirekiListItem,
   toDokusyaResponse,
-  toReplaceSearchItem,
   type ReplaceSearchItem,
 } from './dokusya.mapper';
 
@@ -97,252 +79,9 @@ const TABLE_NAME = 't_dokusya';
  */
 const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
 
-/** SCR-015 — 購読者販売店一括置換画面 audit-context label. */
-const SCREEN_NAME_SCR015 = '購読者販売店一括置換画面 (ACSMS-SCR-015)';
-
-/** SCR-016 — 購読者Excelデータ取込画面 audit-context label. */
-const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)';
-
-/**
- * SCR-016 — 49-column import template header order (api.md §テンプレート
- * ファイル仕様). Each entry is the Japanese ヘッダー名 the FE / customer
- * sees in row 1 of the generated workbook.
- */
-const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
-  'ID',
-  '購読種別',
-  '管理支店',
-  '支店',
-  '組合員コード',
-  '購読者氏名_氏',
-  '購読者氏名_名',
-  '購読者かな_氏',
-  '購読者かな_名',
-  '購読部数',
-  '新聞単価',
-  'メールアドレス',
-  'メールマガジン',
-  '生年（西暦）',
-  '性別',
-  '郵便番号',
-  '都道府県',
-  '市町村郡',
-  '丁目番地',
-  'マンション・アパート名',
-  '連絡先１',
-  '連絡先２',
-  '購読者情報と同じ',
-  '郵便番号(配達先)',
-  '都道府県(配達先)',
-  '市町村郡(配達先)',
-  '丁目番地(配達先)',
-  'ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)',
-  '連絡先１(配達先)',
-  '連絡先２(配達先)',
-  '配達先苗字（漢字）',
-  '配達先名前（漢字）',
-  '配達先苗字（かな）',
-  '配達先名前（かな）',
-  '販売店コード',
-  '郵送区分',
-  '支払方法',
-  '購読料支払サイクル（月数）',
-  '引落口座貯金種目',
-  '引落口座支店コード',
-  '引落口座支店名',
-  '引落口座番号',
-  '引落口座名義',
-  '購読者層分類',
-  '農業者分類',
-  '購読開始日',
-  '購読中止日',
-  '備考',
-  '読者情報変更適用日',
-  '販売店適用日',
-] as const;
-
-/**
- * One illustrative sample row shipped in the template (row 2), in the
- * exact IMPORT_TEMPLATE_HEADERS order. It demonstrates the expected format
- * per column — 紙版(1) / 新規(1) so no 電子版×クレカ or 併読 block, dokusya_busu
- * > 0, gender 1, hiragana kana, 7-digit yubin, digits-only 連絡先, date as
- * YYYY-MM-DD, 現金集金(2) so no 引落口座 required. FK columns (管理支店 / 支店 /
- * 新聞単価 / 販売店コード) are left BLANK because their valid codes are
- * tenant-specific — the customer fills them with their own master codes.
- * The 備考 cell flags it as a placeholder. Length is asserted to equal the
- * header count in the spec so the two never drift.
- */
-const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
-  '', // ID (UPDATE_* キー — 新規は空)
-  1, // 購読種別 (1:紙版)
-  '', // 管理支店 (FK code — 自組織の管理支店コードに書き換え)
-  '', // 支店 (FK code — 自組織の支店コードに書き換え)
-  'SAMPLE001', // 組合員コード (サンプル — 既存コードと衝突しない値)
-  '農業', // 購読者氏名_氏
-  '太郎', // 購読者氏名_名
-  'のうぎょう', // 購読者かな_氏
-  'たろう', // 購読者かな_名
-  1, // 購読部数
-  '', // 新聞単価 (FK code — 自組織の値に書き換え)
-  '', // メールアドレス
-  0, // メールマガジン (0:配信しない)
-  1980, // 生年（西暦）
-  1, // 性別 (1:男性)
-  '1000001', // 郵便番号 (7桁)
-  '13', // 都道府県 (コード)
-  '千代田区', // 市町村郡
-  '千代田1-1', // 丁目番地
-  '', // マンション・アパート名
-  '0312345678', // 連絡先１ (半角数字)
-  '', // 連絡先２
-  'TRUE', // 購読者情報と同じ (true: 配達先＝購読者住所。配達先列は空でよい)
-  '', // 郵便番号(配達先)
-  '', // 都道府県(配達先)
-  '', // 市町村郡(配達先)
-  '', // 丁目番地(配達先)
-  '', // ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)
-  '', // 連絡先１(配達先)
-  '', // 連絡先２(配達先)
-  '', // 配達先苗字（漢字）
-  '', // 配達先名前（漢字）
-  '', // 配達先苗字（かな）
-  '', // 配達先名前（かな）
-  '', // 販売店コード (FK code — 自組織の値に書き換え)
-  '0', // 郵送区分
-  2, // 支払方法 (2:現金集金 — 引落口座不要)
-  1, // 購読料支払サイクル（月数）
-  '', // 引落口座貯金種目
-  '', // 引落口座支店コード
-  '', // 引落口座支店名
-  '', // 引落口座番号
-  '', // 引落口座名義
-  '', // 購読者層分類
-  '', // 農業者分類
-  '2026-04-01', // 購読開始日 (YYYY-MM-DD)
-  '', // 購読中止日
-  'サンプル行です。管理支店・支店はID(数値)、新聞単価・販売店コードは自組織のコードに書き換えてからインポートしてください。', // 備考
-  '', // 読者情報変更適用日
-  '', // 販売店適用日 (販売店変更時に入力)
-] as const;
-
-/** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
-const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレート.xlsx';
-
-/**
- * SCR-016 — the 13 physical columns NEW mode REQUIRES in
- * `selected_columns` (api.md §4.1).
- */
-const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
-  'dokusya_shubetsu',
-  'kanri_shiten_code',
-  'shiten_code',
-  'dokusya_busu',
-  'tanka_code',
-  'yubin_no',
-  'todofuken_code',
-  'shikuchoson',
-  'chome_banchi',
-  'renrakusaki_1',
-  'hanbaiten_code',
-  'shiharai_hoho',
-  'dokusya_kaishi_date',
-] as const;
-
-/**
- * SCR-016 — 更新（全項目更新 / 入力箇所のみ更新）で編集不可の物理カラム。
- * 購読種別・氏名（4 列）・購読開始日 は登録時のみ設定でき、更新では既存値を
- * 維持する（SCR-011 編集画面の pin と同じ業務ルール）。FE はこの列を更新モードで
- * 未チェック＋disable にし、BE は UPDATE_ALL で既存値を COALESCE 維持、
- * UPDATE_PARTIAL では selected_columns から除外する。
- */
-const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
-  'dokusya_shubetsu',
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
-  'dokusya_kaishi_date',
-]);
-
-/**
- * SCR-016 — Japanese labels for the NEW required columns, used to build a
- * per-row "{label}は必須です。" message when a selected required column
- * carries a BLANK value. The column-selection check above only verifies the
- * column is targeted; this value-presence check prevents a blank required
- * FK / field from slipping through to the INSERT (which would otherwise hit
- * a NOT NULL / FK constraint and surface as a 500 instead of a graceful
- * IMPORT_VALIDATION_ERROR).
- */
-const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
-  dokusya_shubetsu: '購読種別',
-  kanri_shiten_code: '管理支店',
-  shiten_code: '支店',
-  dokusya_busu: '購読部数',
-  tanka_code: '新聞単価',
-  yubin_no: '郵便番号',
-  todofuken_code: '都道府県',
-  shikuchoson: '市町村郡',
-  chome_banchi: '丁目番地',
-  renrakusaki_1: '連絡先１',
-  hanbaiten_code: '販売店コード',
-  shiharai_hoho: '支払方法',
-  dokusya_kaishi_date: '購読開始日',
-};
-
-/** SCR-016 — row-error cap returned to the client (api.md §4.1). */
-const IMPORT_ERROR_CAP = 10;
-
-/** SCR-016 — max import rows (api.md §4.1). */
-const IMPORT_MAX_ROWS = 30000;
-
-/**
- * Normalise a date-only string to the hyphen form before it lands in the
- * varchar(10) date columns. The DTO accepts both YYYY/MM/DD (picker display
- * format) and YYYY-MM-DD; the columns MUST stay hyphen-consistent because
- * the search filters compare them lexicographically (`<=`), and a mixed
- * slash/hyphen column would mis-order ('/'=0x2F > '-'=0x2D). Blank / null
- * pass through unchanged.
- */
-function normalizeDbDate<T extends string | null | undefined>(value: T): T {
-  // 防御的処理: Excel の日付セルを変換せずに送ってくるクライアント（旧版FE等）
-  // は生のシリアル値を送る場合がある（数値 46188、または文字列 "46188"）。
-  // 実日付文字列は必ず区切り文字（- か /）を含むため、純粋な数字は Excel
-  // シリアルとみなし YYYY-MM-DD へ変換する。
-  if (typeof (value as unknown) === 'number') {
-    return excelSerialToIsoDate(value as unknown as number) as T;
-  }
-  if (typeof value !== 'string') return value;
-  if (/^\d{4,6}$/.test(value)) {
-    return excelSerialToIsoDate(Number(value)) as T;
-  }
-  return value.replaceAll('/', '-') as T;
-}
-
-/**
- * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を
- * 'YYYY-MM-DD' へ変換する。TZ ずれを避けるため UTC で計算する。
- */
-function excelSerialToIsoDate(serial: number): string {
-  const ms = Math.round(serial) * 86_400_000 + Date.UTC(1899, 11, 30);
-  const d = new Date(ms);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${day}`;
-}
-
-/**
- * Normalise an import cell to a DB `date` value or null. Blank / absent →
- * null (so a `date` column accepts it instead of choking on '' →
- * "invalid input syntax for type date"). Non-blank → hyphen-form date
- * string (Excel serial handled by normalizeDbDate). Used by the import
- * UPDATE paths where date columns are physically `date`, not varchar.
- */
-function dbDateOrNull(value: unknown): string | null {
-  const raw = value === undefined || value === null ? '' : String(value);
-  const normalized = normalizeDbDate(raw);
-  return normalized === '' ? null : normalized;
-}
+// 日付正規化（normalizeDbDate / excelSerialToIsoJst / dbDateOrNull）は時刻系
+// 集約方針（`.claude/rules/nestjs.md §Timestamp policy`）に従い
+// `@/common/utils/datetime` に集約。本ファイルは import して利用する。
 
 /**
  * Narrow a raw `getRawMany()` column (always scalar at runtime) to a
@@ -353,84 +92,6 @@ function dbDateOrNull(value: unknown): string | null {
 function asScalar(value: unknown): string | number {
   return value as string | number;
 }
-
-/**
- * Pre-fetched lookup sets/maps shared by the per-row Excel-import
- * validators. Built once in `importExcel` before the row loop so each
- * row check is O(1) against in-memory structures, not a per-row query.
- */
-interface ImportRowLookups {
-  existingById: Map<number, Record<string, unknown>>;
-  existingByKumiaiin: Map<string, Record<string, unknown>>;
-  /** kumiaiin_code → 既存件数（2 以上なら kumiaiin キーでの更新/解約は曖昧）。 */
-  kumiaiinCounts: Map<string, number>;
-  tankaCodeSet: Set<string>;
-  hanbaitenCodeSet: Set<string>;
-  /** 販売店コード → hanbaiten_id（取込時の販売店変更検知に使う）。 */
-  hanbaitenIdByCode: Map<string, number>;
-  kanriShitenCodeSet: Set<string>;
-  shitenCodeSet: Set<string>;
-  /**
-   * 既存の電子版(2)・併読(3) レコードの email → dokusya_id 群（JA 全件）。
-   * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
-   */
-  existingDigitalEmailToIds: Map<string, Set<number>>;
-}
-
-/** Per-row import error accumulator entry. */
-type ImportRowError = { row: number; field: string; message: string };
-
-/**
- * 増減報告・前回値 (zenkai_*) 判定に必要な最小フィールド集合。Dokusya / DokusyaRireki
- * の両方が構造的に満たすため、UI 更新フロー（before/after = Dokusya）と
- * 取込フロー（before = DokusyaRireki, after = Dokusya）で同じ判定ロジックを共有できる。
- */
-interface ZougenComparable {
-  haitatsuSameFlg: boolean;
-  yubinNo: string | null;
-  todofukenCode: string | null;
-  shikuchoson: string | null;
-  chomeBanchi: string | null;
-  tatemonoMei: string | null;
-  haitatsuYubinNo: string | null;
-  haitatsuTodofukenCode: string | null;
-  haitatsuShikuchoson: string | null;
-  haitatsuChomeBanchi: string | null;
-  haitatsuTatemonoMei: string | null;
-  dokusyaBusu: number;
-  hanbaitenId: number;
-}
-
-/**
- * Sort-by allow-list for the SCR-015 replace search. Mirrors the
- * `SearchReplaceDokusyaDto` `@IsIn` allow-list — both sides MUST agree.
- * Maps the FE identifier → fully-qualified column on the joined query.
- */
-const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
-  kanri_shiten_name: 'ks.kanri_shiten_name',
-  shiten_name: 's.shiten_name',
-  kumiaiin_code: 'd.kumiaiin_code',
-  hanbaiten_code: 'h.hanbaiten_code',
-};
-
-/**
- * Sort-by allow-list for the search endpoint. Maps the FE-supplied
- * snake_case identifier → fully-qualified QB column. Mirror the
- * DTO's `@IsIn` allow-list — both sides MUST agree.
- *
- * `updated_at` is the default; the others mirror screen-design v1.2
- * 検索結果テーブル sortable columns.
- */
-const SORT_COLUMN_MAP: Record<string, string> = {
-  dokusya_id: 'd.dokusya_id',
-  kanri_shiten_id: 'd.kanri_shiten_id',
-  shiten_id: 'd.shiten_id',
-  kumiaiin_code: 'd.kumiaiin_code',
-  hanbaiten_id: 'd.hanbaiten_id',
-  shoki_dokusya_kaishi_date: 'd.shoki_dokusya_kaishi_date',
-  dokusya_chushi_date: 'd.dokusya_chushi_date',
-  updated_at: 'd.updated_at',
-};
 
 /**
  * SCR-013 履歴一覧 sort-by allow-list → fully-qualified column on the
@@ -456,9 +117,6 @@ const RIREKI_SORT_COLUMN_MAP: Record<string, string> = {
  */
 const RELATED_TABLES: readonly string[] = ['t_koza_furikae'] as const;
 
-/** Excel export hard cap (api.md §API-014-003 §4.3 30,000件上限). */
-const EXPORT_MAX_ROWS = 30000;
-
 // 購読種別 / 支払方法 / 手続種類 / 承認ステータス are Group A enums — use
 // DokusyaShubetsu / ShiharaiHoho / TetsuzukiShurui / DenshiShoninStatus from
 // '@/common/enums' inline (the first three mirrored to the FE; the enum-sync
@@ -477,6 +135,28 @@ function isDigitalOrBoth(shubetsu: number | null | undefined): boolean {
 /** 電子版・併読で email 未入力時のメッセージ（BE/FE/取込で共通文言）。 */
 const EMAIL_REQUIRED_DIGITAL_MSG =
   'メールアドレスは電子版・併読の場合は必須です。';
+
+/** 電子版で購読部数が1以外のときのメッセージ（BE/FE 共通文言）。 */
+const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
+
+/**
+ * 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規・更新とも、解約以外で
+ * busu≠1 を拒否する。FE は新規で1強制＋入力不可・編集で入力不可にするが、改竄
+ * リクエストはここで弾く。解約 (手続種類=0) は 0 を許容（既存ルール）。
+ */
+function assertDigitalBusu(
+  shubetsu: number,
+  busu: number,
+  tetsuzuki: number,
+): void {
+  if (
+    Number(shubetsu) === DokusyaShubetsu.DIGITAL &&
+    Number(tetsuzuki) !== TetsuzukiShurui.KAIYAKU &&
+    Number(busu) !== 1
+  ) {
+    throw fieldValidationError('dokusya_busu', DIGITAL_BUSU_MSG);
+  }
+}
 
 /**
  * Raise a single VALIDATION_ERROR with a one-field errors[] payload.
@@ -513,7 +193,6 @@ function fieldValidationError(
  */
 @Injectable()
 export class DokusyaService {
-  private readonly logger = new Logger(DokusyaService.name);
 
   constructor(
     @InjectRepository(Dokusya)
@@ -528,66 +207,16 @@ export class DokusyaService {
     private readonly hanbaitenRepo: Repository<Hanbaiten>,
     @InjectRepository(Tanka)
     private readonly tankaRepo: Repository<Tanka>,
-    @InjectRepository(Account)
-    private readonly accountRepo: Repository<Account>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
     private readonly codeService: CodeService,
+    private readonly accountFlags: DokusyaAccountFlagService,
+    private readonly importService: DokusyaImportService,
+    private readonly rireki: DokusyaRirekiService,
+    private readonly searchService: DokusyaSearchService,
+    private readonly replaceService: DokusyaReplaceService,
   ) {}
-
-  /**
-   * Account-level 購読種別 gate (account_concept.md §139-145, 紙版側は対称
-   * ルール). An ADDITIONAL check on top of the role permission — the
-   * account also needs the flag matching the row's 購読種別:
-   *   - 紙版 (1) → `paper_flg`
-   *   - 電子版 (2) → `denshi_flg`
-   *   - 併読 (3) は読み取り専用なのでこのゲートに到達しない。
-   *
-   * Re-queries `m_account` per call (create/update/approve/reject are
-   * low-frequency) so a flag change takes effect immediately without a
-   * re-login. Throws `ShubetsuPermissionException` (403) when the flag is
-   * missing — the FE also disables the matching UI, but the BE is the
-   * real boundary (security.md Layer 1/2 同様).
-   */
-  private async loadAccountFlags(
-    session: SessionPayload,
-  ): Promise<{ paperFlg: boolean; denshiFlg: boolean }> {
-    const account = await this.accountRepo.findOne({
-      where: { accountId: session.account_id },
-      select: ['accountId', 'paperFlg', 'denshiFlg'],
-    });
-    return {
-      paperFlg: account?.paperFlg ?? false,
-      denshiFlg: account?.denshiFlg ?? false,
-    };
-  }
-
-  private async assertShubetsuFlag(
-    shubetsu: number,
-    session: SessionPayload,
-  ): Promise<void> {
-    const { paperFlg, denshiFlg } = await this.loadAccountFlags(session);
-    if (Number(shubetsu) === DokusyaShubetsu.PAPER && !paperFlg) {
-      throw ShubetsuPermissionException.paper();
-    }
-    if (Number(shubetsu) === DokusyaShubetsu.DIGITAL && !denshiFlg) {
-      throw ShubetsuPermissionException.denshi();
-    }
-  }
-
-  /**
-   * Operations not tied to a single 購読種別 — 一括Excel取込 / 販売店一括置換 /
-   * 削除 — require the account to hold AT LEAST ONE 購読種別 flag. An account
-   * with neither paper_flg nor denshi_flg cannot manage any 購読者
-   * (account_concept.md §139-145). Re-queries m_account per call.
-   */
-  private async assertAnyDokusyaFlag(session: SessionPayload): Promise<void> {
-    const { paperFlg, denshiFlg } = await this.loadAccountFlags(session);
-    if (!paperFlg && !denshiFlg) {
-      throw ShubetsuPermissionException.noFlag();
-    }
-  }
 
   // ════════════════════════════════════════════════════════════════════
   // API-011-001 — GET /api/v1/dokusya/:dokusya_id
@@ -680,6 +309,12 @@ export class DokusyaService {
         '購読部数は1以上で入力してください。',
       );
     }
+    // 電子版は購読部数=1固定（新規）。
+    assertDigitalBusu(
+      Number(dto.dokusya_shubetsu),
+      Number(dto.dokusya_busu),
+      Number(dto.tetsuzuki_shurui),
+    );
     this.assertDigitalPaymentMethod(dto);
     this.assertTekiyoDateNotPast(
       dto.joho_henko_tekiyo_date,
@@ -695,7 +330,7 @@ export class DokusyaService {
       '購読開始日は本日以降の日付を入力してください。',
     );
     // 紙版→paper_flg / 電子版→denshi_flg required (account_concept.md §139-145).
-    await this.assertShubetsuFlag(dto.dokusya_shubetsu, session);
+    await this.accountFlags.assertShubetsuFlag(dto.dokusya_shubetsu, session);
 
     const effectiveJaId = Number(session.ja_id ?? 0);
     if (!effectiveJaId) {
@@ -756,7 +391,9 @@ export class DokusyaService {
           DokusyaRireki,
           manager.create(
             DokusyaRireki,
-            this.buildHistoryFromEntity(inserted, {
+            // create は常に1件（before 無し）。kaiyaku_flg は手続種類=解約で立てる
+            // （取込/更新の writeRirekiSplit は立てない — 顧客要件 2026-06）。
+            this.rireki.buildRirekiRow(inserted, null, {
               rirekiNo: 1,
               henkoRiyu: '',
               saishinDataFlg: true,
@@ -848,6 +485,12 @@ export class DokusyaService {
         '購読部数は1以上で入力してください。',
       );
     }
+    // 電子版は購読部数=1固定（編集）。購読種別は編集で不変なので before の版で判定。
+    assertDigitalBusu(
+      Number(before.dokusyaShubetsu),
+      Number(effectiveBusu),
+      Number(effectiveTetsuzuki),
+    );
 
     // [read-only guard] 併読(3) と 電子版クレカ決済者 は編集不可（どのアカウント
     // でも）。seeder.md §425 / api.md §is_read_only。VIEW（取得）は許可するが
@@ -874,7 +517,7 @@ export class DokusyaService {
     // 紙版→paper_flg / 電子版→denshi_flg required to edit (account_concept.md
     // §139-145). Pinned 購読種別 is the row's stored value; 併読 (3) is
     // read-only and never gated here.
-    await this.assertShubetsuFlag(Number(before.dokusyaShubetsu), session);
+    await this.accountFlags.assertShubetsuFlag(Number(before.dokusyaShubetsu), session);
 
     // [kaishi-date-immutable] 購読開始日 is set once at creation and never
     // changed — the FE disables the picker in edit mode, but the screen
@@ -922,7 +565,7 @@ export class DokusyaService {
         // [rireki-no-race] master 行を FOR UPDATE でロックしてから採番・更新する。
         // 同一購読者への同時更新が両方 MAX+1 を読み、同じ rireki_no を INSERT して
         // unique 制約違反(500)になるのを防ぐ（直列化する）。
-        await this.lockDokusyaRow(manager, id);
+        await this.rireki.lockDokusyaRow(manager, id);
 
         // ステップ1 — invalidate prior saishin flags.
         await manager.update(
@@ -932,7 +575,7 @@ export class DokusyaService {
         );
 
         // ステップ2 — figure out the next rireki_no (single QB row).
-        const newRirekiNo = await this.nextRirekiNo(manager, id);
+        const newRirekiNo = await this.rireki.nextRirekiNo(manager, id);
 
         // UPDATE the master row (column-by-column from dto).
         const updatePartial = this.buildUpdatePartial(
@@ -982,7 +625,7 @@ export class DokusyaService {
         // ── 履歴(t_dokusya_rireki)書き込み（顧客要件 2026-06）─────────────
         // 情報変更と販売店変更が同時のときは適用日順に2件へ分割する。共通ヘルパー
         // writeRirekiSplit に委譲し、UI 更新と Excel取込で履歴の作り方を同期する。
-        await this.writeRirekiSplit(manager, before, after, newRirekiNo, {
+        await this.rireki.writeRirekiSplit(manager, before, after, newRirekiNo, {
           createdBy: String(session.account_id),
           henkoRiyu: '',
           shinkiFlg: false,
@@ -1278,7 +921,10 @@ export class DokusyaService {
     dto: CreateDokusyaDto,
     effectiveJaId: number,
   ): Promise<void> {
-    if (dto.kanri_shiten_id != null) {
+    // kanri_shiten_id / shiten_id は任意。未設定は null だが、レスポンスが 0 に
+    // 丸めて返していた経緯があり FE が 0 を送り返すことがある。0(以下) は「未設定」
+    // とみなして FK 検証をスキップする（id=0 を実在 ID として探して 400 になるのを防ぐ）。
+    if (dto.kanri_shiten_id != null && Number(dto.kanri_shiten_id) > 0) {
       await fetchFkInJa(
         this.kanriShitenRepo,
         'kanriShitenId',
@@ -1287,7 +933,7 @@ export class DokusyaService {
         '管理支店',
       );
     }
-    if (dto.shiten_id != null) {
+    if (dto.shiten_id != null && Number(dto.shiten_id) > 0) {
       await fetchFkInJa(
         this.shitenRepo,
         'shitenId',
@@ -1489,46 +1135,6 @@ export class DokusyaService {
   }
 
   /**
-   * Acquire a `FOR UPDATE` row lock on the master `t_dokusya` row inside
-   * the open transaction. Serializes concurrent UPDATE / approve / reject
-   * of the SAME 購読者 so two callers can't both read `MAX(rireki_no)` and
-   * INSERT the same history `rireki_no` (which would hit the
-   * `(dokusya_id, rireki_no)` unique constraint and surface as a 500).
-   * The locked row itself isn't read back — only its lock matters.
-   */
-  private async lockDokusyaRow(
-    manager: EntityManager,
-    dokusyaId: number,
-  ): Promise<void> {
-    await manager.findOne(Dokusya, {
-      where: { dokusyaId },
-      lock: { mode: 'pessimistic_write' },
-    });
-  }
-
-  /**
-   * Compute the next `rireki_no` inside the open transaction so two
-   * concurrent UPDATEs can't end up with the same number. pg-mem +
-   * the integration spec build a single QB and read `new_rireki_no`.
-   */
-  private async nextRirekiNo(
-    manager: EntityManager,
-    dokusyaId: number,
-  ): Promise<number> {
-    // Use the `createQueryBuilder(entity, alias)` overload (skips the
-    // chained `.from()` call) so the unit-test mock for
-    // `txManager.createQueryBuilder` — a single `getRawOne` returning
-    // `{ new_rireki_no: 2 }` — receives the call without needing a
-    // `.from()` method on the qb shape.
-    const row = await manager
-      .createQueryBuilder(DokusyaRireki, 'r')
-      .select('COALESCE(MAX(rireki_no), 0) + 1', 'new_rireki_no')
-      .where('r.dokusya_id = :dokusya_id', { dokusya_id: dokusyaId })
-      .getRawOne<{ new_rireki_no: number | string }>();
-    return Number(row?.new_rireki_no ?? 1);
-  }
-
-  /**
    * Build the snake_case → camelCase INSERT payload for `t_dokusya`.
    *
    * 解約による購読部数=0 への自動セットは行わない（顧客要件 2026-06）。
@@ -1636,362 +1242,6 @@ export class DokusyaService {
   }
 
   /**
-   * Copy every column from the just-saved master row into a new
-   * `t_dokusya_rireki` row, then layer the history-only metadata
-   * (rireki_no, flags, henko_riyu) on top. Keeps the history a faithful
-   * snapshot without burning a roundtrip on a second SELECT.
-   *
-   * NOTE: the bulk `replaceHanbaiten` flow builds the SAME rireki snapshot
-   * via a raw `INSERT ... SELECT` (it processes many rows at once and can't
-   * pass one entity here). When `t_dokusya_rireki` gains/loses a column,
-   * update BOTH this mapper AND that INSERT column list — keep them in sync.
-   */
-  private buildHistoryFromEntity(
-    saved: Dokusya,
-    metadata: {
-      rirekiNo: number;
-      henkoRiyu: string;
-      saishinDataFlg: boolean;
-      shinkiFlg: boolean;
-      kaiyakuFlg: boolean;
-      /**
-       * 増減報告フラグ（正準仕様: docs/requirement/change_notification_concept.md
-       *「購読者登録のレコードの考え方」の例示テーブル）。UPDATE 時は
-       * dokusya_busu / hanbaiten_id / 住所5項目 (haitatsu_same_flg で
-       * 購読者住所⇔配達先住所を切替) のいずれかが変わったときのみ true。
-       * 口座情報のみ等それ以外の変更は false（同ドキュメント 口座情報変更例=0）。
-       * CREATE / 承認 / 一括置換は true。呼び出し側で算出して渡す。
-       */
-      zougenHokokuFlg: boolean;
-      createdBy: string;
-    },
-  ): Partial<DokusyaRireki> {
-    return {
-      dokusyaId: Number(saved.dokusyaId),
-      rirekiNo: metadata.rirekiNo,
-      jaId: Number(saved.jaId),
-      kanriShitenId: Number(saved.kanriShitenId),
-      shitenId: Number(saved.shitenId),
-      kumiaiinCode: saved.kumiaiinCode ?? '',
-      dokusyaShubetsu: Number(saved.dokusyaShubetsu),
-      tetsuzukiShurui: Number(saved.tetsuzukiShurui),
-      denshiDokusyaShubetsu: saved.denshiDokusyaShubetsu ?? null,
-      shimeiSei: saved.shimeiSei,
-      shimeiMei: saved.shimeiMei,
-      shimeiKanaSei: saved.shimeiKanaSei,
-      shimeiKanaMei: saved.shimeiKanaMei,
-      dokusyaBusu: Number(saved.dokusyaBusu),
-      yubinNo: saved.yubinNo,
-      todofukenCode: saved.todofukenCode,
-      shikuchoson: saved.shikuchoson,
-      chomeBanchi: saved.chomeBanchi,
-      tatemonoMei: saved.tatemonoMei ?? '',
-      renrakusaki1: saved.renrakusaki1,
-      renrakusaki2: saved.renrakusaki2 ?? '',
-      email: saved.email ?? '',
-      mailMagazineFlg: Number(saved.mailMagazineFlg ?? 0),
-      birthYear: saved.birthYear ?? null,
-      gender: saved.gender ?? null,
-      haitatsuSameFlg: Boolean(saved.haitatsuSameFlg),
-      haitatsuYubinNo: saved.haitatsuYubinNo ?? '',
-      haitatsuTodofukenCode: saved.haitatsuTodofukenCode ?? '',
-      haitatsuShikuchoson: saved.haitatsuShikuchoson ?? '',
-      haitatsuChomeBanchi: saved.haitatsuChomeBanchi ?? '',
-      haitatsuTatemonoMei: saved.haitatsuTatemonoMei ?? '',
-      haitatsuRenrakusaki1: saved.haitatsuRenrakusaki1 ?? '',
-      haitatsuRenrakusaki2: saved.haitatsuRenrakusaki2 ?? '',
-      haitatsuShimeiSei: saved.haitatsuShimeiSei ?? '',
-      haitatsuShimeiMei: saved.haitatsuShimeiMei ?? '',
-      haitatsuShimeiKanaSei: saved.haitatsuShimeiKanaSei ?? '',
-      haitatsuShimeiKanaMei: saved.haitatsuShimeiKanaMei ?? '',
-      hanbaitenId: Number(saved.hanbaitenId),
-      tankaId: Number(saved.tankaId),
-      yubinKubun: saved.yubinKubun ?? '0',
-      shiharaiHoho: Number(saved.shiharaiHoho),
-      dokusyaryoShiharaiCycle: saved.dokusyaryoShiharaiCycle ?? null,
-      bankBranchCode: saved.bankBranchCode ?? '',
-      bankBranchName: saved.bankBranchName ?? '',
-      hikiotoshiYokinShubetsu: saved.hikiotoshiYokinShubetsu ?? null,
-      hikiotoshiKozaNo: saved.hikiotoshiKozaNo ?? '',
-      hikiotoshiKozaMeigi: saved.hikiotoshiKozaMeigi ?? '',
-      dokusyasoBunrui: saved.dokusyasoBunrui ?? '',
-      nogyosyaBunrui: saved.nogyosyaBunrui ?? '',
-      shokiDokusyaKaishiDate: saved.shokiDokusyaKaishiDate ?? '',
-      dokusyaKaishiDate: saved.dokusyaKaishiDate,
-      dokusyaChushiDate: saved.dokusyaChushiDate ?? null,
-      johoHenkoTekiyoDate: saved.johoHenkoTekiyoDate ?? null,
-      seikyuKaishiMonth: saved.seikyuKaishiMonth ?? '',
-      biko: saved.biko ?? '',
-      henkoRiyu: metadata.henkoRiyu,
-      saishinDataFlg: metadata.saishinDataFlg,
-      shinkiFlg: metadata.shinkiFlg,
-      kaiyakuFlg: metadata.kaiyakuFlg,
-      zougenHokokuFlg: metadata.zougenHokokuFlg,
-      denshiShoninStatus: saved.denshiShoninStatus ?? null,
-      createdBy: metadata.createdBy,
-    };
-  }
-
-  /**
-   * 住所5項目の [zenkai 列, 前回値(old), 新値(new)] ペアを返す。
-   * `haitatsu_same_flg` で 購読者住所 / 配達先住所 を切替える。
-   *   true  → 購読者住所 (yubin_no / todofuken_code / shikuchoson /
-   *           chome_banchi / tatemono_mei)
-   *   false → 配達先住所 (haitatsu_yubin_no / … / haitatsu_tatemono_mei)
-   */
-  private addressZenkaiPairs(
-    before: ZougenComparable,
-    after: ZougenComparable,
-  ): Array<[keyof DokusyaRireki, string, string]> {
-    const str = (v: unknown): string => (v == null ? '' : String(asScalar(v)));
-    // 切替は after（保存後）の haitatsu_same_flg を基準にする。UI は after を
-    // before + dto から合成するため dto.haitatsu_same_flg と一致する。
-    return Boolean(after.haitatsuSameFlg)
-      ? [
-          ['zenkaiYubinNo', str(before.yubinNo), str(after.yubinNo)],
-          ['zenkaiTodofukenCode', str(before.todofukenCode), str(after.todofukenCode)],
-          ['zenkaiShikuchoson', str(before.shikuchoson), str(after.shikuchoson)],
-          ['zenkaiChomeBanchi', str(before.chomeBanchi), str(after.chomeBanchi)],
-          ['zenkaiTatemonoMei', str(before.tatemonoMei), str(after.tatemonoMei)],
-        ]
-      : [
-          ['zenkaiYubinNo', str(before.haitatsuYubinNo), str(after.haitatsuYubinNo)],
-          ['zenkaiTodofukenCode', str(before.haitatsuTodofukenCode), str(after.haitatsuTodofukenCode)],
-          ['zenkaiShikuchoson', str(before.haitatsuShikuchoson), str(after.haitatsuShikuchoson)],
-          ['zenkaiChomeBanchi', str(before.haitatsuChomeBanchi), str(after.haitatsuChomeBanchi)],
-          ['zenkaiTatemonoMei', str(before.haitatsuTatemonoMei), str(after.haitatsuTatemonoMei)],
-        ];
-  }
-
-  /**
-   * 増減報告フラグ判定 — 購読部数 / 販売店 / 住所5項目（same_flg 別）の
-   * いずれかが実際に変わったときのみ true（正準仕様:
-   * docs/requirement/change_notification_concept.md）。zenkai_* の保存有無
-   * とは独立に「変更が起きたか」だけを見る（同 flg=true で住所無変更でも
-   * zenkai_* は退避するが、その場合 増減報告は立てない）。
-   * 購読部数・販売店は 解約強制0 等の補正後の実保存値 (after) で比較する。
-   */
-  private hasZougenReportableChange(
-    before: ZougenComparable,
-    after: ZougenComparable,
-  ): boolean {
-    const addressChanged = this.addressZenkaiPairs(before, after).some(
-      ([, oldVal, newVal]) => oldVal !== newVal,
-    );
-    const busuChanged = Number(after.dokusyaBusu) !== Number(before.dokusyaBusu);
-    const hanbaitenChanged =
-      Number(after.hanbaitenId) !== Number(before.hanbaitenId);
-    return addressChanged || busuChanged || hanbaitenChanged;
-  }
-
-  /**
-   * 前回値スナップショット (UPDATE 時) — 新しい rireki 行の zenkai_* に
-   * 退避する値を組み立てる。各グループは独立:
-   *
-   *   1. 住所5項目 — `haitatsu_same_flg` で 購読者住所 / 配達先住所 を切替。
-   *      - same_flg=true  → 顧客要件 2026-06: 住所が変更されていなくても
-   *        購読者住所5項目（yubin_no / todofuken_code / shikuchoson /
-   *        chome_banchi / tatemono_mei）の値を常に zenkai_* に保存する。
-   *      - same_flg=false → 従来どおり、配達先住所が1項目でも変わったときのみ
-   *        5項目すべての前回値を退避する。
-   *   2. 購読部数 (dokusya_busu) — 変われば zenkai_dokusya_busu に前回値。
-   *   3. 販売店 (hanbaiten_id) — 変われば zenkai_hanbaiten_id に前回値。
-   *
-   * 退避値は「前回値 (before = rireki_no-1)」。同 flg=true で住所無変更なら
-   * before == after なので結果的に現在の購読者住所と一致する。
-   * 購読部数・販売店は 解約強制0 等の補正後の実保存値 (after) で比較する。
-   * 増減報告フラグは {@link hasZougenReportableChange} で別途判定する。
-   */
-  private buildZenkaiSnapshot(
-    before: ZougenComparable,
-    after: ZougenComparable,
-  ): Partial<DokusyaRireki> {
-    const sameFlg = Boolean(after.haitatsuSameFlg);
-    const pairs = this.addressZenkaiPairs(before, after);
-
-    const snapshot: Partial<DokusyaRireki> = {};
-
-    // same_flg=true は無変更でも常に退避（顧客要件）。same_flg=false は変更時のみ。
-    if (sameFlg || pairs.some(([, oldVal, newVal]) => oldVal !== newVal)) {
-      for (const [key, oldVal] of pairs) {
-        (snapshot as Record<string, unknown>)[key as string] = oldVal;
-      }
-    }
-
-    // ── 購読部数 ──
-    if (Number(after.dokusyaBusu) !== Number(before.dokusyaBusu)) {
-      snapshot.zenkaiDokusyaBusu = Number(before.dokusyaBusu);
-    }
-
-    // ── 販売店 ──
-    if (Number(after.hanbaitenId) !== Number(before.hanbaitenId)) {
-      snapshot.zenkaiHanbaitenId = Number(before.hanbaitenId);
-    }
-
-    return snapshot;
-  }
-
-  /**
-   * 履歴(t_dokusya_rireki)を「変更イベント」単位で書き込む共通ヘルパー（顧客要件
-   * 2026-06）。UI 編集(update) と Excel取込(UPDATE_ALL/UPDATE_PARTIAL) の両方から
-   * 呼び、履歴の作り方を完全に同期させる。
-   *
-   * - `before=null`（NEW 取込）: 1件。販売店適用日なし、joho_henko=情報変更日。
-   * - 情報のみ変更        : 1件。hanbaiten_tekiyo=NULL, joho_henko=情報変更日。
-   * - 販売店のみ変更      : 1件。hanbaiten_tekiyo=joho_henko=販売店適用日。
-   * - 情報＋販売店 同時変更: **2件に分割**。適用日が早いイベントを先（rireki_no 小）、
-   *   遅い方を後＋saishin_data_flg=true。同日は 情報→販売店 の順。各レコードの
-   *   zenkai_* / 増減報告フラグは直前状態との差分で算出する。
-   *
-   * 戻り値 = 使用した最大 rireki_no（呼び出し側が master.rireki_no 同期に使う）。
-   */
-  private async writeRirekiSplit(
-    manager: EntityManager,
-    before: Dokusya | null,
-    after: Dokusya,
-    startRirekiNo: number,
-    opts: {
-      createdBy: string;
-      henkoRiyu: string;
-      shinkiFlg: boolean;
-      hanbaitenDate: string | null;
-      johoDate: string | null;
-      forceZougenHokoku?: boolean;
-    },
-  ): Promise<number> {
-    const saveOne = async (
-      prevState: Dokusya | null,
-      curState: Dokusya,
-      rirekiNo: number,
-      saishin: boolean,
-      hanbaitenTekiyoDate: string | null,
-      johoHenkoTekiyoDate: string | null,
-      shinkiFlg: boolean,
-    ): Promise<void> => {
-      const zougenHokokuFlg = prevState
-        ? this.hasZougenReportableChange(prevState, curState) ||
-          Boolean(opts.forceZougenHokoku)
-        : true;
-      await manager.save(
-        DokusyaRireki,
-        manager.create(DokusyaRireki, {
-          ...this.buildHistoryFromEntity(curState, {
-            rirekiNo,
-            henkoRiyu: opts.henkoRiyu,
-            saishinDataFlg: saishin,
-            shinkiFlg,
-            // 解約ステータスは取込/更新では立てない（顧客要件 2026-06。バッチ処理）。
-            kaiyakuFlg: false,
-            zougenHokokuFlg,
-            createdBy: opts.createdBy,
-          }),
-          ...(prevState ? this.buildZenkaiSnapshot(prevState, curState) : {}),
-          hanbaitenTekiyoDate,
-          johoHenkoTekiyoDate,
-        }),
-      );
-    };
-
-    // NEW（before 無し）— 1件。販売店イベントは無く、情報変更日のみ記録。
-    if (!before) {
-      await saveOne(
-        null,
-        after,
-        startRirekiNo,
-        true,
-        null,
-        opts.johoDate,
-        opts.shinkiFlg,
-      );
-      return startRirekiNo;
-    }
-
-    const storeChanged =
-      Number(after.hanbaitenId) !== Number(before.hanbaitenId);
-    const addressChanged = this.addressZenkaiPairs(before, after).some(
-      ([, oldVal, newVal]) => oldVal !== newVal,
-    );
-    const busuChanged =
-      Number(after.dokusyaBusu) !== Number(before.dokusyaBusu);
-    const infoChanged = addressChanged || busuChanged;
-
-    if (storeChanged && infoChanged) {
-      const afterInfoOnly: Dokusya = {
-        ...after,
-        hanbaitenId: Number(before.hanbaitenId),
-      };
-      const afterStoreOnly: Dokusya = {
-        ...before,
-        hanbaitenId: Number(after.hanbaitenId),
-      };
-      const storeFirst =
-        opts.hanbaitenDate != null &&
-        opts.johoDate != null &&
-        opts.hanbaitenDate < opts.johoDate;
-      if (storeFirst) {
-        // 販売店適用日 < 情報変更日: 販売店イベント → 情報イベント
-        await saveOne(
-          before,
-          afterStoreOnly,
-          startRirekiNo,
-          false,
-          opts.hanbaitenDate,
-          opts.hanbaitenDate,
-          false,
-        );
-        await saveOne(
-          afterStoreOnly,
-          after,
-          startRirekiNo + 1,
-          true,
-          null,
-          opts.johoDate,
-          false,
-        );
-      } else {
-        // 情報変更日 <= 販売店適用日（同日含む）: 情報イベント → 販売店イベント
-        await saveOne(
-          before,
-          afterInfoOnly,
-          startRirekiNo,
-          false,
-          null,
-          opts.johoDate,
-          false,
-        );
-        await saveOne(
-          afterInfoOnly,
-          after,
-          startRirekiNo + 1,
-          true,
-          opts.hanbaitenDate,
-          opts.hanbaitenDate,
-          false,
-        );
-      }
-      return startRirekiNo + 1;
-    }
-
-    if (storeChanged) {
-      // 販売店のみ変更: hanbaiten_tekiyo = joho_henko = 販売店適用日。
-      await saveOne(
-        before,
-        after,
-        startRirekiNo,
-        true,
-        opts.hanbaitenDate,
-        opts.hanbaitenDate,
-        false,
-      );
-      return startRirekiNo;
-    }
-
-    // 情報のみ変更（口座等のみ含む）: hanbaiten_tekiyo=NULL, joho_henko=情報変更日。
-    await saveOne(before, after, startRirekiNo, true, null, opts.johoDate, false);
-    return startRirekiNo;
-  }
-
-  /**
    * Shared transaction-bounded update for approve/reject (api.md
    * §4.4 ステップ3). Status flips on the master, a new history row
    * captures the snapshot, audit row commits inside the same tx.
@@ -2006,7 +1256,7 @@ export class DokusyaService {
     // 承認/否認 is a 電子版 (dokusya_shubetsu=2) workflow → requires
     // denshi_flg (account_concept.md §143). Permission gate runs before the
     // status check so a flag-less account gets 403, not 400.
-    await this.assertShubetsuFlag(Number(before.dokusyaShubetsu), session);
+    await this.accountFlags.assertShubetsuFlag(Number(before.dokusyaShubetsu), session);
     if (Number(before.denshiShoninStatus) !== DenshiShoninStatus.PENDING) {
       throw new InvalidDokusyaStatusException();
     }
@@ -2018,7 +1268,7 @@ export class DokusyaService {
       refreshed = await this.dataSource.transaction(async (manager) => {
         // [rireki-no-race] update() と同様、採番前に master 行をロックして
         // 同時 approve/reject と直列化する。
-        await this.lockDokusyaRow(manager, id);
+        await this.rireki.lockDokusyaRow(manager, id);
         // Invalidate prior saishin flags + assign next rireki_no in
         // a single tx for atomicity with the master update.
         await manager.update(
@@ -2026,7 +1276,7 @@ export class DokusyaService {
           { dokusyaId: id, saishinDataFlg: true },
           { saishinDataFlg: false },
         );
-        const newRirekiNo = await this.nextRirekiNo(manager, id);
+        const newRirekiNo = await this.rireki.nextRirekiNo(manager, id);
 
         await manager.update(
           Dokusya,
@@ -2050,7 +1300,8 @@ export class DokusyaService {
           DokusyaRireki,
           manager.create(
             DokusyaRireki,
-            this.buildHistoryFromEntity(after, {
+            // 承認/否認も create/update/replace と同じ buildRirekiRow で1件生成。
+            this.rireki.buildRirekiRow(after, null, {
               rirekiNo: newRirekiNo,
               henkoRiyu: options.henkoRiyu,
               saishinDataFlg: true,
@@ -2103,36 +1354,11 @@ export class DokusyaService {
    *   - Either side present → INNER JOIN t_dokusya_rireki and filter
    *     the history's joho_henko_tekiyo_date column.
    */
-  async search(
+  search(
     query: SearchDokusyaDto,
     session: SessionPayload,
   ): Promise<PaginatedResponse<DokusyaListItem>> {
-    this.assertSearchMCodeValues(query);
-    const sortColumn = this.resolveSortColumn(query.sort_by);
-    const sortOrder: 'ASC' | 'DESC' =
-      (query.sort_order ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const page = Math.max(1, Number(query.page ?? 1));
-    const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
-
-    const qb = this.dokusyaRepo.createQueryBuilder('d');
-    this.buildSearchQuery(qb, query, session);
-
-    // ORDER BY + LIMIT + OFFSET only on the data query path.
-    qb.orderBy(sortColumn, sortOrder);
-    // Use limit/offset (NOT take/skip): take/skip only paginate getMany()
-    // entity results — they are IGNORED by getRawMany(), so per_page had no
-    // effect and every row was returned. getCount() ignores limit/offset,
-    // so total stays correct.
-    qb.limit(perPage);
-    qb.offset((page - 1) * perPage);
-
-    const [rows, total] = await Promise.all([
-      qb.getRawMany<Record<string, unknown>>(),
-      qb.getCount(),
-    ]);
-
-    const data = rows.map((row) => toDokusyaListItem(row));
-    return paginate(data, Number(total), page, perPage);
+    return this.searchService.search(query, session);
   }
 
   // ─── API-014-002 — DELETE /api/v1/dokusya/:dokusya_id ───────────────
@@ -2173,7 +1399,7 @@ export class DokusyaService {
 
     // 紙版→paper_flg / 電子版→denshi_flg required to delete (account_concept
     // §139-145). 併読 is already blocked by the read-only guard above.
-    await this.assertShubetsuFlag(Number(target.dokusyaShubetsu), session);
+    await this.accountFlags.assertShubetsuFlag(Number(target.dokusyaShubetsu), session);
 
     // FK conflict guard — emits 409 CONFLICT on first non-zero child
     // table count. NOTE: assertNoRelatedRows is shared; not used here
@@ -2226,2152 +1452,62 @@ export class DokusyaService {
 
   // ─── API-014-003 — GET /api/v1/dokusya/export ───────────────────────
   /**
-   * Export the filtered 購読者 list as an Excel workbook (xlsx).
-   *
-   * Flow (api.md §API-014-003):
-   *   §4.3 COUNT(*) under the same filter / DataScope.
-   *        - 0      → 404 EXPORT_NO_DATA
-   *        - >30000 → 409 EXPORT_LIMIT_EXCEEDED
-   *   §4.4 Fetch rows (no pagination — hard-capped at 30,000).
-   *   §4.5 14-column header mirroring the検索結果テーブル layout
-   *        (手続種類 / 購読種別 / 配達先氏名 / 支払方法 included;
-   *        支店 / 連絡先２ / かな氏名 excluded).
-   *   §4.6 Audit row (log_type=1, operation='EXPORT_EXCEL', after_value
-   *        with record_count).
-   *   §4.7 Filename `購読者一覧出力_YYYYMMDD_HHmmss.xlsx` (JST).
-   *   §4.8 Error log outside any tx — same pattern as remove().
+   * Excel出力（検索条件で絞り込んだ購読者一覧の xlsx 生成）。本体は
+   * DokusyaSearchService に分離。controller の呼び出し互換のため薄く委譲する。
    */
-  async exportExcel(
+  exportExcel(
     query: SearchDokusyaDto,
     session: SessionPayload,
     req: Request,
   ): Promise<{ buffer: Buffer; filename: string; headers: readonly string[] }> {
-    const auditCtx = buildAuditCtx(
-      session,
-      req,
-      SCREEN_NAME_SCR014,
-      TABLE_NAME,
-      null,
-    );
-
-    try {
-      this.assertSearchMCodeValues(query);
-
-      // [count-guard] — single QB used twice (getCount + getRawMany).
-      // The unit spec's dokusyaQb is a SINGLE shared mock so both
-      // calls land on the same chain.
-      const qb = this.dokusyaRepo.createQueryBuilder('d');
-      this.buildSearchQuery(qb, query, session);
-
-      const total = Number(await qb.getCount());
-      if (total === 0) {
-        throw new ExportNoDataException();
-      }
-      if (total > EXPORT_MAX_ROWS) {
-        throw new ExportLimitExceededException();
-      }
-
-      // No pagination — explicit LIMIT cap as defence-in-depth.
-      // limit (NOT take): take is ignored by getRawMany(), so the cap was
-      // never applied; limit() emits the real SQL LIMIT.
-      qb.orderBy('d.dokusya_id', 'ASC');
-      qb.limit(EXPORT_MAX_ROWS);
-      const rows = await qb.getRawMany<Record<string, unknown>>();
-      const items = rows.map((row) => toDokusyaListItem(row));
-
-      const filename = `購読者一覧出力_${timestampForFilenameJst()}.xlsx`;
-      const buffer = await this.buildExcelBuffer(items);
-
-      await this.auditLog.logOperation({
-        logType: LogType.USER_OPERATION,
-        accountId: session.account_id,
-        jaId: session.ja_id,
-        gamenName: SCREEN_NAME_SCR014,
-        operation: AuditOperation.EXPORT_EXCEL,
-        resultStatus: ResultStatus.SUCCESS,
-        targetId: null,
-        targetTable: TABLE_NAME,
-        afterValue: JSON.stringify({
-          kanri_shiten_id: query.kanri_shiten_id ?? null,
-          shiten_id: query.shiten_id ?? null,
-          hanbaiten_id: query.hanbaiten_id ?? null,
-          dokusya_shubetsu: query.dokusya_shubetsu ?? null,
-          shiharai_hoho: query.shiharai_hoho ?? null,
-          tetsuzuki_shurui: query.tetsuzuki_shurui ?? null,
-          denshi_shonin_status: query.denshi_shonin_status ?? null,
-          record_count: total,
-        }),
-        ipAddress: auditCtx.ipAddress,
-        userAgent: auditCtx.userAgent,
-      });
-
-      return { buffer, filename, headers: DOKUSYA_EXPORT_HEADERS };
-    } catch (err) {
-      if (
-        err instanceof ExportNoDataException ||
-        err instanceof ExportLimitExceededException
-      ) {
-        throw err;
-      }
-      await this.auditLog.logError(auditCtx, AuditOperation.EXPORT_EXCEL, err as Error);
-      throw err;
-    }
-  }
-
-  // ─── private helpers (SCR-014) ───────────────────────────────────────
-
-  /** Re-validate every m_code-bound search field against CodeService. */
-  private assertSearchMCodeValues(query: SearchDokusyaDto): void {
-    assertMCodeValues(this.codeService, [
-      {
-        field: 'dokusya_shubetsu',
-        value: query.dokusya_shubetsu,
-        category: 'DOKUSYA_SHUBETSU',
-        label: '購読種別',
-      },
-      {
-        field: 'shiharai_hoho',
-        value: query.shiharai_hoho,
-        category: 'SHIHARAI_HOHO',
-        label: '支払方法',
-      },
-      {
-        field: 'tetsuzuki_shurui',
-        value: query.tetsuzuki_shurui,
-        category: 'TETSUZUKI_SHURUI',
-        label: '手続種類',
-      },
-    ]);
-  }
-
-  /**
-   * Look up the QB column for a FE-supplied sort_by. Throws
-   * VALIDATION_ERROR when the field is not in the allow-list — the
-   * DTO already rejects unknown values, but this guard remains the
-   * authoritative check so a future DTO change (or a programmatic
-   * caller bypassing the pipe) cannot inject arbitrary SQL.
-   */
-  private resolveSortColumn(sortBy: string = 'updated_at'): string {
-    const column = SORT_COLUMN_MAP[sortBy];
-    if (!column) {
-      throw fieldValidationError('sort_by', 'ソートカラムの値が不正です。');
-    }
-    return column;
-  }
-
-  /**
-   * Common SELECT-list + JOIN + WHERE shared by search() (which
-   * adds ORDER BY + paging) and exportExcel() (no paging).
-   *
-   * SELECT shape matches api.md §4.5 — full_name / full_name_kana via
-   * shimei concat, haitatsu via address concat, is_read_only via
-   * boolean expression. The mapper relies on these aliases verbatim.
-   */
-  private buildSearchQuery(
-    qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
-    query: SearchDokusyaDto,
-    session: SessionPayload,
-  ): void {
-    qb
-      .leftJoin(
-        'm_kanri_shiten',
-        'ks',
-        'ks.kanri_shiten_id = d.kanri_shiten_id AND ks.deleted_at IS NULL',
-      )
-      .leftJoin(
-        'm_shiten',
-        's',
-        's.shiten_id = d.shiten_id AND s.deleted_at IS NULL',
-      )
-      .leftJoin(
-        'm_hanbaiten',
-        'h',
-        'h.hanbaiten_id = d.hanbaiten_id AND h.deleted_at IS NULL',
-      )
-      .leftJoin(
-        'm_todofuken',
-        't',
-        't.todofuken_code = d.haitatsu_todofuken_code',
-      )
-      .select([
-        'd.dokusya_id AS dokusya_id',
-        'd.ja_id AS ja_id',
-        'd.kanri_shiten_id AS kanri_shiten_id',
-        'ks.kanri_shiten_name AS kanri_shiten_name',
-        'd.shiten_id AS shiten_id',
-        's.shiten_name AS shiten_name',
-        'd.kumiaiin_code AS kumiaiin_code',
-        "(d.shimei_sei || ' ' || d.shimei_mei) AS full_name",
-        "(d.shimei_kana_sei || ' ' || d.shimei_kana_mei) AS full_name_kana",
-        'd.renrakusaki_1 AS renrakusaki_1',
-        'd.renrakusaki_2 AS renrakusaki_2',
-        "(d.haitatsu_shimei_sei || ' ' || d.haitatsu_shimei_mei) AS haitatsu_full_name",
-        'd.haitatsu_yubin_no AS haitatsu_yubin_no',
-        "(COALESCE(t.todofuken_name, '') || d.haitatsu_shikuchoson || d.haitatsu_chome_banchi || d.haitatsu_tatemono_mei) AS haitatsu",
-        'd.hanbaiten_id AS hanbaiten_id',
-        'h.hanbaiten_name AS hanbaiten_name',
-        'd.dokusya_shubetsu AS dokusya_shubetsu',
-        'd.tetsuzuki_shurui AS tetsuzuki_shurui',
-        'd.shiharai_hoho AS shiharai_hoho',
-        'd.denshi_shonin_status AS denshi_shonin_status',
-        'd.shoki_dokusya_kaishi_date AS shoki_dokusya_kaishi_date',
-        'd.dokusya_chushi_date AS dokusya_chushi_date',
-        '((d.dokusya_shubetsu = 2 AND d.shiharai_hoho = 6) OR d.dokusya_shubetsu = 3) AS is_read_only',
-      ])
-      .where('d.deleted_at IS NULL');
-
-    // Branch DataScope — NICHINO_* bypass; CHUOKAI/JA_HONTEN narrow by
-    // ja_id; JA_KANRI_SHITEN narrows by kanri_shiten_id.
-    applyBranchScope(
-      qb,
-      'd',
-      { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
-      session,
-    );
-
-    this.applySearchEqualityFilters(qb, query);
-    this.applySearchPartialFilters(qb, query);
-    this.applySearchDateFilters(qb, query);
-  }
-
-  /** Equality (`= :param`) filters — applied when the value is set. */
-  private applySearchEqualityFilters(
-    qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
-    query: SearchDokusyaDto,
-  ): void {
-    if (query.kanri_shiten_id !== undefined) {
-      qb.andWhere('d.kanri_shiten_id = :kanri_shiten_id', {
-        kanri_shiten_id: query.kanri_shiten_id,
-      });
-    }
-    if (query.shiten_id !== undefined) {
-      qb.andWhere('d.shiten_id = :shiten_id', { shiten_id: query.shiten_id });
-    }
-    if (query.hanbaiten_id !== undefined) {
-      qb.andWhere('d.hanbaiten_id = :hanbaiten_id', {
-        hanbaiten_id: query.hanbaiten_id,
-      });
-    }
-    if (query.dokusya_shubetsu !== undefined) {
-      qb.andWhere('d.dokusya_shubetsu = :dokusya_shubetsu', {
-        dokusya_shubetsu: query.dokusya_shubetsu,
-      });
-    }
-    if (query.shiharai_hoho !== undefined) {
-      qb.andWhere('d.shiharai_hoho = :shiharai_hoho', {
-        shiharai_hoho: query.shiharai_hoho,
-      });
-    }
-    if (query.tetsuzuki_shurui !== undefined) {
-      qb.andWhere('d.tetsuzuki_shurui = :tetsuzuki_shurui', {
-        tetsuzuki_shurui: query.tetsuzuki_shurui,
-      });
-    }
-    if (query.denshi_shonin_status !== undefined) {
-      qb.andWhere('d.denshi_shonin_status = :denshi_shonin_status', {
-        denshi_shonin_status: query.denshi_shonin_status,
-      });
-    }
-  }
-
-  /** Partial-match (`ILIKE %param%`) filters — applied when non-empty. */
-  private applySearchPartialFilters(
-    qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
-    query: SearchDokusyaDto,
-  ): void {
-    if (query.kumiaiin_code) {
-      qb.andWhere(
-        "d.kumiaiin_code ILIKE '%' || :kumiaiin_code || '%'",
-        { kumiaiin_code: query.kumiaiin_code },
-      );
-    }
-    if (query.jastem_toriatsukai_tenpo_code) {
-      qb.andWhere(
-        "d.bank_branch_code ILIKE '%' || :jastem_toriatsukai_tenpo_code || '%'",
-        {
-          jastem_toriatsukai_tenpo_code: query.jastem_toriatsukai_tenpo_code,
-        },
-      );
-    }
-    if (query.jastem_tenpo_name) {
-      qb.andWhere(
-        "d.bank_branch_name ILIKE '%' || :jastem_tenpo_name || '%'",
-        { jastem_tenpo_name: query.jastem_tenpo_name },
-      );
-    }
-    if (query.full_name) {
-      // 氏名: 購読者氏名 + 配達先氏名 の各カラムを部分一致 OR でまとめる。
-      // (shimei_sei / shimei_mei / haitatsu_shimei_sei / haitatsu_shimei_mei)
-      qb.andWhere(
-        "(d.shimei_sei ILIKE '%' || :full_name || '%' " +
-          "OR d.shimei_mei ILIKE '%' || :full_name || '%' " +
-          "OR d.haitatsu_shimei_sei ILIKE '%' || :full_name || '%' " +
-          "OR d.haitatsu_shimei_mei ILIKE '%' || :full_name || '%')",
-        { full_name: query.full_name },
-      );
-    }
-    if (query.full_name_kana) {
-      // かな氏名: 購読者かな氏名 + 配達先かな氏名 の各カラムを部分一致 OR。
-      qb.andWhere(
-        "(d.shimei_kana_sei ILIKE '%' || :full_name_kana || '%' " +
-          "OR d.shimei_kana_mei ILIKE '%' || :full_name_kana || '%' " +
-          "OR d.haitatsu_shimei_kana_sei ILIKE '%' || :full_name_kana || '%' " +
-          "OR d.haitatsu_shimei_kana_mei ILIKE '%' || :full_name_kana || '%')",
-        { full_name_kana: query.full_name_kana },
-      );
-    }
-    if (query.renrakusaki_1) {
-      // 連絡先１: 購読者連絡先１ + 配達先連絡先１ を部分一致 OR。
-      qb.andWhere(
-        "(d.renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%' " +
-          "OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%')",
-        { renrakusaki_1: query.renrakusaki_1 },
-      );
-    }
-    if (query.haitatsu) {
-      // 配達先住所: 配達先住所4項目 + 購読者住所4項目 をそれぞれ部分一致 OR。
-      qb.andWhere(
-        "(d.haitatsu_todofuken_code ILIKE '%' || :haitatsu || '%' " +
-          "OR d.haitatsu_shikuchoson ILIKE '%' || :haitatsu || '%' " +
-          "OR d.haitatsu_chome_banchi ILIKE '%' || :haitatsu || '%' " +
-          "OR d.haitatsu_tatemono_mei ILIKE '%' || :haitatsu || '%' " +
-          "OR d.todofuken_code ILIKE '%' || :haitatsu || '%' " +
-          "OR d.shikuchoson ILIKE '%' || :haitatsu || '%' " +
-          "OR d.chome_banchi ILIKE '%' || :haitatsu || '%' " +
-          "OR d.tatemono_mei ILIKE '%' || :haitatsu || '%')",
-        { haitatsu: query.haitatsu },
-      );
-    }
-    if (query.email) {
-      qb.andWhere("d.email ILIKE '%' || :email || '%'", { email: query.email });
-    }
-    if (query.seikyu_kaishi_month) {
-      qb.andWhere(
-        "d.seikyu_kaishi_month ILIKE '%' || :seikyu_kaishi_month || '%'",
-        { seikyu_kaishi_month: query.seikyu_kaishi_month },
-      );
-    }
-  }
-
-  /** Date-range + 適用日 (履歴) filters — applied when bounds are set. */
-  private applySearchDateFilters(
-    qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
-    query: SearchDokusyaDto,
-  ): void {
-    // Range filters — shoki_dokusya_kaishi_date.
-    if (query.shoki_dokusya_kaishi_date_from) {
-      qb.andWhere(
-        'd.shoki_dokusya_kaishi_date >= :shoki_dokusya_kaishi_date_from',
-        {
-          shoki_dokusya_kaishi_date_from:
-            slashDateToIso(query.shoki_dokusya_kaishi_date_from),
-        },
-      );
-    }
-    if (query.shoki_dokusya_kaishi_date_to) {
-      qb.andWhere(
-        'd.shoki_dokusya_kaishi_date <= :shoki_dokusya_kaishi_date_to',
-        {
-          shoki_dokusya_kaishi_date_to:
-            slashDateToIso(query.shoki_dokusya_kaishi_date_to),
-        },
-      );
-    }
-    if (query.dokusya_chushi_date_from) {
-      qb.andWhere('d.dokusya_chushi_date >= :dokusya_chushi_date_from', {
-        dokusya_chushi_date_from: slashDateToIso(query.dokusya_chushi_date_from),
-      });
-    }
-    if (query.dokusya_chushi_date_to) {
-      qb.andWhere('d.dokusya_chushi_date <= :dokusya_chushi_date_to', {
-        dokusya_chushi_date_to: slashDateToIso(query.dokusya_chushi_date_to),
-      });
-    }
-
-    // 適用日 (joho_henko_tekiyo_date) branch.
-    //
-    //   - Both empty → use the live master row. The master table already
-    //     reflects the current (saishin) state, so no extra predicate
-    //     is needed. The unit spec accepts EITHER a saishin_data_flg
-    //     predicate OR the absence of a t_dokusya_rireki JOIN — we
-    //     pick the latter for performance.
-    //
-    //   - Either side present → INNER JOIN t_dokusya_rireki and filter
-    //     the history rows.
-    if (
-      query.joho_henko_tekiyo_date_from ||
-      query.joho_henko_tekiyo_date_to
-    ) {
-      qb.innerJoin(
-        't_dokusya_rireki',
-        'rireki',
-        'rireki.dokusya_id = d.dokusya_id',
-      );
-      if (query.joho_henko_tekiyo_date_from) {
-        qb.andWhere(
-          'rireki.joho_henko_tekiyo_date >= :joho_henko_tekiyo_date_from',
-          {
-            joho_henko_tekiyo_date_from: slashDateToIso(
-              query.joho_henko_tekiyo_date_from,
-            ),
-          },
-        );
-      }
-      if (query.joho_henko_tekiyo_date_to) {
-        qb.andWhere(
-          'rireki.joho_henko_tekiyo_date <= :joho_henko_tekiyo_date_to',
-          {
-            joho_henko_tekiyo_date_to: slashDateToIso(
-              query.joho_henko_tekiyo_date_to,
-            ),
-          },
-        );
-      }
-    }
+    return this.searchService.exportExcel(query, session, req);
   }
 
   // ════════════════════════════════════════════════════════════════════════
   // SCR-015 — 購読者販売店一括置換画面
   // ════════════════════════════════════════════════════════════════════════
+  //
+  // 一括置換（候補検索 + 一括置換 + 候補事前検証）の本体は
+  // DokusyaReplaceService に分離。本サービスは facade として薄く委譲するのみ
+  // （controller の呼び出し互換を維持）。
 
   // ─── API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search ─────────
-  /**
-   * Search candidate 購読者 for the bulk-replace screen.
-   *
-   * Flow (api.md §API-015-001):
-   *   §4.1 date_from > date_to → DATE_RANGE_INVALID.
-   *   §4.2 DataScope: CHUOKAI/JA_HONTEN narrow by ja_id, JA_KANRI_SHITEN
-   *        narrows by kanri_shiten_id, NICHINO_* bypass.
-   *   §4.3 固定条件 — d.tetsuzuki_shurui = 1 AND d.deleted_at IS NULL.
-   *   §4.4/§4.5 joined SELECT (m_kanri_shiten, m_shiten, m_hanbaiten,
-   *        m_todofuken) with COUNT(*) via getCount().
-   *   §4.6 row mapping (shimei + haitatsu_address concat) + paginate().
-   */
-  async searchForReplace(
+  searchForReplace(
     query: SearchReplaceDokusyaDto,
     session: SessionPayload,
   ): Promise<PaginatedResponse<ReplaceSearchItem>> {
-    if (
-      query.dokusya_kaishi_date_from &&
-      query.dokusya_kaishi_date_to &&
-      query.dokusya_kaishi_date_from > query.dokusya_kaishi_date_to
-    ) {
-      throw new DateRangeInvalidException();
-    }
-
-    const page = Math.max(1, Number(query.page ?? 1));
-    const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
-    const sortColumn =
-      REPLACE_SORT_COLUMN_MAP[query.sort_by ?? 'kumiaiin_code'] ??
-      'd.kumiaiin_code';
-    const sortOrder: 'ASC' | 'DESC' =
-      (query.sort_order ?? 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-
-    const qb = this.dokusyaRepo.createQueryBuilder('d');
-    qb.leftJoin('m_kanri_shiten', 'ks', 'ks.kanri_shiten_id = d.kanri_shiten_id');
-    qb.leftJoin('m_shiten', 's', 's.shiten_id = d.shiten_id');
-    qb.leftJoin('m_hanbaiten', 'h', 'h.hanbaiten_id = d.hanbaiten_id');
-    qb.leftJoin('m_todofuken', 't', 't.todofuken_code = d.haitatsu_todofuken_code');
-
-    // §4.3 固定条件 — 購読中 only, exclude soft-deleted.
-    qb.where('d.tetsuzuki_shurui = 1');
-    qb.andWhere('d.deleted_at IS NULL');
-
-    // §4.2 DataScope.
-    applyBranchScope(
-      qb,
-      'd',
-      { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
-      session,
-    );
-
-    // §4.3 search filters.
-    if (query.kanri_shiten_id !== undefined) {
-      qb.andWhere('d.kanri_shiten_id = :rkKanriShitenId', {
-        rkKanriShitenId: query.kanri_shiten_id,
-      });
-    }
-    if (query.shiten_id !== undefined) {
-      qb.andWhere('d.shiten_id = :rkShitenId', { rkShitenId: query.shiten_id });
-    }
-    if (query.hanbaiten_id !== undefined) {
-      qb.andWhere('d.hanbaiten_id = :rkHanbaitenId', {
-        rkHanbaitenId: query.hanbaiten_id,
-      });
-    }
-    if (query.kumiaiin_code) {
-      qb.andWhere('d.kumiaiin_code ILIKE :rkKumiaiin', {
-        rkKumiaiin: `%${query.kumiaiin_code}%`,
-      });
-    }
-    if (query.shimei) {
-      qb.andWhere(
-        "CONCAT(d.shimei_sei, ' ', d.shimei_mei) ILIKE :rkShimei",
-        { rkShimei: `%${query.shimei}%` },
-      );
-    }
-    if (query.shimei_kana) {
-      qb.andWhere(
-        "CONCAT(d.shimei_kana_sei, ' ', d.shimei_kana_mei) ILIKE :rkShimeiKana",
-        { rkShimeiKana: `%${query.shimei_kana}%` },
-      );
-    }
-    if (query.haitatsu_address) {
-      qb.andWhere(
-        "CONCAT(t.todofuken_name, d.haitatsu_shikuchoson, d.haitatsu_chome_banchi, d.haitatsu_tatemono_mei) ILIKE :rkHaitatsu",
-        { rkHaitatsu: `%${query.haitatsu_address}%` },
-      );
-    }
-    if (query.dokusya_kaishi_date_from) {
-      qb.andWhere('d.dokusya_kaishi_date >= :rkKaishiFrom', {
-        rkKaishiFrom: query.dokusya_kaishi_date_from,
-      });
-    }
-    if (query.dokusya_kaishi_date_to) {
-      qb.andWhere('d.dokusya_kaishi_date <= :rkKaishiTo', {
-        rkKaishiTo: query.dokusya_kaishi_date_to,
-      });
-    }
-
-    qb.select([
-      'd.dokusya_id AS dokusya_id',
-      'd.kanri_shiten_id AS kanri_shiten_id',
-      'ks.kanri_shiten_name AS kanri_shiten_name',
-      'd.shiten_id AS shiten_id',
-      's.shiten_name AS shiten_name',
-      'd.kumiaiin_code AS kumiaiin_code',
-      'd.shimei_sei AS shimei_sei',
-      'd.shimei_mei AS shimei_mei',
-      'd.haitatsu_yubin_no AS haitatsu_yubin_no',
-      't.todofuken_name AS todofuken_name',
-      'd.haitatsu_shikuchoson AS haitatsu_shikuchoson',
-      'd.haitatsu_chome_banchi AS haitatsu_chome_banchi',
-      'd.haitatsu_tatemono_mei AS haitatsu_tatemono_mei',
-      'd.hanbaiten_id AS hanbaiten_id',
-      'h.hanbaiten_code AS hanbaiten_code',
-      'h.hanbaiten_name AS hanbaiten_name',
-      'd.dokusya_shubetsu AS dokusya_shubetsu',
-      'd.shiharai_hoho AS shiharai_hoho',
-    ]);
-
-    qb.orderBy(sortColumn, sortOrder);
-    qb.limit(perPage);
-    qb.offset((page - 1) * perPage);
-
-    const [rows, total] = await Promise.all([
-      qb.getRawMany<Record<string, unknown>>(),
-      qb.getCount(),
-    ]);
-
-    const data = rows.map((row) => toReplaceSearchItem(row));
-    return paginate(data, Number(total), page, perPage);
+    return this.replaceService.searchForReplace(query, session);
   }
 
   // ─── API-015-002 — POST /api/v1/dokusya/replace-hanbaiten ───────────────
-  /**
-   * Bulk-replace the 配達販売店 of many 購読者 in one transaction.
-   *
-   * Flow (api.md §API-015-002):
-   *   §4.1 tekiyo_date >= 当日 (JST) else reject.
-   *   §4.3 candidate fetch (raw SELECT) → NOT_FOUND for missing ids,
-   *        DATA_SCOPE_VIOLATION for out-of-scope rows, SAME_HANBAITEN
-   *        when already on the target, INELIGIBLE_DOKUSYA (errors[]) for
-   *        併読 / 電子版クレカ rows.
-   *   §4.4 new_hanbaiten validation → NOT_FOUND / DATA_SCOPE_VIOLATION.
-   *   §4.5/§4.6 single tx: bulk UPDATE t_dokusya, toggle rireki
-   *        saishin_data_flg + INSERT new rireki, audit row (logUpdate).
-   *   §4.8 error log written OUTSIDE the rolled-back tx (logError).
-   */
-  async replaceHanbaiten(
+  replaceHanbaiten(
     dto: ReplaceHanbaitenDto,
     session: SessionPayload,
     req: Request,
-  ): Promise<{
-    data: {
-      total_count: number;
-      replaced_count: number;
-      rireki_count: number;
-      new_hanbaiten_id: number;
-      applied_at: string;
-    };
-    message: string;
-  }> {
-    // 紙版・電子版いずれの取扱い権限も無いアカウントは一括置換不可
-    // (account_concept.md §139-145).
-    await this.assertAnyDokusyaFlag(session);
-
-    // §4.1 — tekiyo_date must be today or later (JST). 共通 todayIsoJst を使用
-    // （edit 単票の assertFutureTekiyoDate と同一基準・同じ「当日可」ルール）。
-    if (dto.hanbaiten_tekiyo_date < todayIsoJst()) {
-      throw new DateRangeInvalidException(
-        '販売店適用日は当日以降の日付を入力してください。',
-      );
-    }
-
-    const ids = dto.dokusya_ids;
-
-    // §4.3 — fetch candidate rows as FULL entities (not a partial raw
-    // SELECT) so the history snapshot can reuse the SAME
-    // `buildHistoryFromEntity` mapper as create/update — single source of
-    // truth for the t_dokusya_rireki row shape (no duplicated column list).
-    const candidates = await this.dokusyaRepo.find({
-      where: { dokusyaId: In(ids), deletedAt: IsNull() },
-    });
-
-    this.validateReplaceCandidates(candidates, ids, dto.new_hanbaiten_id, session);
-
-    // §4.4 — validate the replace target hanbaiten exists + is in scope.
-    const targetRows: Array<Record<string, unknown>> =
-      await this.dataSource.query(
-        `SELECT hanbaiten_id, ja_id FROM m_hanbaiten
-          WHERE hanbaiten_id = $1 AND deleted_at IS NULL`,
-        [dto.new_hanbaiten_id],
-      );
-    if (!targetRows[0]) {
-      throw new NotFoundException('販売店');
-    }
-    // §4.4 — the replace target is JA-level (m_hanbaiten has no
-    // kanri_shiten_id), so every restricted role is scoped by ja_id.
-    // Existence already confirmed above → 403, not 404.
-    assertJaScopeViolation(
-      targetRows[0].ja_id == null ? null : Number(targetRows[0].ja_id),
-      session,
-    );
-
-    const auditCtx = buildAuditCtx(
-      session,
-      req,
-      SCREEN_NAME_SCR015,
-      TABLE_NAME,
-      null,
-    );
-    const appliedAt = new Date().toISOString();
-
-    try {
-      const summary = await this.dataSource.transaction(async (manager) => {
-        // §4.5 — bulk UPDATE the master rows + bump rireki_no。
-        // 販売店のみ変更イベント（顧客要件 2026-06）: 販売店適用日を
-        // joho_henko_tekiyo_date にも設定し、最新履歴（saishin）と整合させる
-        // （hanbaiten_tekiyo_date は履歴専用カラムなのでマスタには無い）。
-        const updated: Array<Record<string, unknown>> = await manager.query(
-          `UPDATE t_dokusya
-              SET hanbaiten_id = $1,
-                  joho_henko_tekiyo_date = $4,
-                  rireki_no = rireki_no + 1,
-                  updated_by = $2
-            WHERE dokusya_id = ANY($3) AND deleted_at IS NULL
-          RETURNING dokusya_id, hanbaiten_id, rireki_no`,
-          [
-            dto.new_hanbaiten_id,
-            String(session.account_id),
-            ids,
-            dto.hanbaiten_tekiyo_date,
-          ],
-        );
-
-        // §4.5 — clear the previous 最新データ flag, then append a new
-        // history row per replaced 購読者.
-        await manager.query(
-          `UPDATE t_dokusya_rireki
-              SET saishin_data_flg = false
-            WHERE dokusya_id = ANY($1) AND saishin_data_flg = true`,
-          [ids],
-        );
-
-        // new rireki_no per dokusya from the bulk UPDATE RETURNING.
-        const newRirekiNoById = new Map(
-          updated.map((u) => [Number(u.dokusya_id), Number(u.rireki_no)]),
-        );
-
-        // Build each history row through the SAME `buildHistoryFromEntity`
-        // mapper as create/update — `after` = the pre-update entity
-        // (`before`) + the replace deltas (new 販売店 / 適用日 / rireki_no)。
-        // zenkai_hanbaiten_id は置換前の hanbaiten_id、hanbaiten_tekiyo_date は
-        // 適用日 (この置換固有のメタ) を上乗せする。複数行は 1 回の
-        // `manager.save(配列)` で batched INSERT される。
-        const rirekiRows = candidates.map((before) => {
-          const newRirekiNo =
-            newRirekiNoById.get(Number(before.dokusyaId)) ??
-            Number(before.rirekiNo) + 1;
-          const after: Dokusya = {
-            ...before,
-            hanbaitenId: Number(dto.new_hanbaiten_id),
-            // 販売店のみ変更イベント（顧客要件 2026-06）: hanbaiten_tekiyo_date と
-            // joho_henko_tekiyo_date を同じ販売店適用日に揃える（UI 編集 Rule2 /
-            // SCR-011 §8.1・§14.3 と同一）。
-            johoHenkoTekiyoDate: dto.hanbaiten_tekiyo_date,
-            rirekiNo: newRirekiNo,
-          };
-          return manager.create(DokusyaRireki, {
-            ...this.buildHistoryFromEntity(after, {
-              rirekiNo: newRirekiNo,
-              henkoRiyu: '販売店一括置換',
-              saishinDataFlg: true,
-              shinkiFlg: false,
-              kaiyakuFlg: false,
-              // 販売店(hanbaiten_id)変更なので増減報告対象。
-              zougenHokokuFlg: true,
-              createdBy: String(session.account_id),
-            }),
-            zenkaiHanbaitenId: Number(before.hanbaitenId),
-            hanbaitenTekiyoDate: dto.hanbaiten_tekiyo_date,
-          });
-        });
-        await manager.save(DokusyaRireki, rirekiRows);
-
-        await this.auditLog.logUpdate(
-          auditCtx,
-          { dokusya_ids: ids },
-          { dokusya_ids: ids, new_hanbaiten_id: dto.new_hanbaiten_id },
-          manager,
-        );
-
-        const replacedCount = updated.length || candidates.length;
-        return {
-          total_count: ids.length,
-          replaced_count: replacedCount,
-          rireki_count: replacedCount,
-          new_hanbaiten_id: dto.new_hanbaiten_id,
-          applied_at: appliedAt,
-        };
-      });
-
-      return { data: summary, message: '置換処理が完了しました。' };
-    } catch (err) {
-      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
-      throw err;
-    }
-  }
-
-  /**
-   * SCR-015 §4.3 pre-checks for the bulk-replace candidates:
-   *   - NOT_FOUND when any requested id is missing.
-   *   - DataScope: every candidate must be in scope. Unlike the
-   *     single-record URL lookup (404 mask), the candidates are an
-   *     explicit caller-supplied id array, so an out-of-scope hit is an
-   *     explicit DATA_SCOPE_VIOLATION (403) per api.md §4.3.
-   *   - SAME_HANBAITEN business rule.
-   *   - INELIGIBLE business rule (併読 / 電子版クレカ).
-   */
-  private validateReplaceCandidates(
-    candidates: Dokusya[],
-    ids: number[],
-    newHanbaitenId: number,
-    session: SessionPayload,
-  ): void {
-    const foundIds = new Set(candidates.map((c) => Number(c.dokusyaId)));
-    for (const id of ids) {
-      if (!foundIds.has(Number(id))) {
-        throw new NotFoundException('購読者');
-      }
-    }
-
-    for (const c of candidates) {
-      assertBranchScopeViolation(
-        Number(c.jaId),
-        c.kanriShitenId == null ? null : Number(c.kanriShitenId),
-        session,
-      );
-    }
-
-    if (candidates.some((c) => Number(c.hanbaitenId) === Number(newHanbaitenId))) {
-      throw new SameHanbaitenException();
-    }
-
-    const ineligible: IneligibleDokusyaDetail[] = [];
-    for (const c of candidates) {
-      const shubetsu = Number(c.dokusyaShubetsu);
-      const hoho = Number(c.shiharaiHoho);
-      if (shubetsu === DokusyaShubetsu.BOTH) {
-        ineligible.push({
-          dokusya_id: Number(c.dokusyaId),
-          reason: '併読者のため置換できません。',
-        });
-      } else if (
-        shubetsu === DokusyaShubetsu.DIGITAL &&
-        hoho === ShiharaiHoho.CREDIT_CARD
-      ) {
-        ineligible.push({
-          dokusya_id: Number(c.dokusyaId),
-          reason: '電子版クレカ決済者のため置換できません。',
-        });
-      }
-    }
-    if (ineligible.length > 0) {
-      throw new IneligibleDokusyaException(ineligible);
-    }
-  }
-
-
-
-  /**
-   * Build the Excel workbook buffer. One worksheet named '購読者一覧',
-   * 12-column header row (bold), then data rows mapped via
-   * `toDokusyaExcelRow`. Returns a Node Buffer (ExcelJS returns an
-   * ArrayBuffer on Node).
-   */
-  private async buildExcelBuffer(rows: DokusyaListItem[]): Promise<Buffer> {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'agrinews';
-    const sheet = workbook.addWorksheet('購読者一覧');
-    sheet.addRow([...DOKUSYA_EXPORT_HEADERS]);
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true };
-    // Reasonable defaults — 配達先住所 is the widest column at ~200
-    // chars, but Excel auto-fit is unreliable; leave at 18 chars so
-    // the user can widen interactively.
-    sheet.columns = DOKUSYA_EXPORT_HEADERS.map(() => ({ width: 18 }));
-    for (const row of rows) {
-      // 手続種類 / 購読種別 / 支払方法 は m_code 値。Excel には
-      // 顧客が見やすいラベルを出力する（CodeService は @Global で
-      // メモリキャッシュ済みなので行ごとのルックアップは実質ゼロコスト）。
-      sheet.addRow(
-        toDokusyaExcelRow(row, {
-          tetsuzuki_shurui: this.codeService.getLabel(
-            'TETSUZUKI_SHURUI',
-            row.tetsuzuki_shurui,
-          ),
-          dokusya_shubetsu: this.codeService.getLabel(
-            'DOKUSYA_SHUBETSU',
-            row.dokusya_shubetsu,
-          ),
-          shiharai_hoho: this.codeService.getLabel(
-            'SHIHARAI_HOHO',
-            row.shiharai_hoho,
-          ),
-        }),
-      );
-    }
-    const buf = await workbook.xlsx.writeBuffer();
-    return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  ): ReturnType<DokusyaReplaceService['replaceHanbaiten']> {
+    return this.replaceService.replaceHanbaiten(dto, session, req);
   }
 
   // ════════════════════════════════════════════════════════════════════════
   // SCR-016 — 購読者Excelデータ取込画面
   // ════════════════════════════════════════════════════════════════════════
+  //
+  // 取込（テンプレートDL + 一括取込）の本体は DokusyaImportService に分離。
+  // 本サービスは facade として薄く委譲するのみ（controller の呼び出し互換を維持）。
 
   // ─── API-016-001 — GET /api/v1/dokusya/import/template ──────────────────
-  /**
-   * Build the 49-column import template workbook (api.md §4.3). One
-   * worksheet '購読者', a bold 49-column header row in the documented
-   * order, plus one illustrative sample data row (row 2). Read-only
-   * discovery action — NO audit log.
-   *
-   * Returns `{ buffer, filename }` so the controller can stream the
-   * binary with a Content-Disposition filename (mirror exportExcel).
-   */
-  async downloadImportTemplate(
-    _session: SessionPayload,
+  downloadImportTemplate(
+    session: SessionPayload,
   ): Promise<{ buffer: Buffer; filename: string }> {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'agrinews';
-    const sheet = workbook.addWorksheet('購読者');
-    sheet.addRow([...IMPORT_TEMPLATE_HEADERS]);
-    // Row 2 — one illustrative sample row (customer edits before real use;
-    // FK code columns are blank since their valid values are tenant-specific).
-    sheet.addRow([...IMPORT_TEMPLATE_SAMPLE_ROW]);
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true };
-    sheet.columns = IMPORT_TEMPLATE_HEADERS.map(() => ({ width: 18 }));
-    const buf = await workbook.xlsx.writeBuffer();
-    const buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
-    return { buffer, filename: IMPORT_TEMPLATE_FILENAME };
+    return this.importService.downloadImportTemplate(session);
   }
 
   // ─── API-016-002 — POST /api/v1/dokusya/import ──────────────────────────
-  /**
-   * Bulk-import 購読者 rows in one transaction (api.md §4.4).
-   *
-   * Modes: NEW (INSERT each row), UPDATE_ALL (full update — null/'' the
-   * unselected columns), UPDATE_PARTIAL (only `selected_columns`), and
-   * 一括中止 (per-row tetsuzuki_shurui=0 + kumiaiin_code → 解約).
-   *
-   * Validation order (all PRE-transaction):
-   *   §4.1 top-level — import_mode / NEW required columns / row-limit.
-   *   §4.1 per-row — dokusya_shubetsu 1|2, 電子版×クレカ, dokusya_busu,
-   *        gender / yokin 文言→code.
-   *   §4.3 pre-checks via dataSource.query — tanka_code, hanbaiten_code,
-   *        kanri_shiten / shiten existence, existing dokusya for UPDATE_*
-   *        / 一括中止 (errors capped at 10 → IMPORT_VALIDATION_ERROR).
-   *   §4.2/§4.3 DataScope — out-of-scope existing record → 403.
-   *
-   * After pre-checks: one `dataSource.transaction(...)` wraps every
-   * INSERT/UPDATE + the rireki rows + a single audit row (bare 'CREATE'
-   * operation). Error log fires OUTSIDE the rolled-back tx.
-   */
-  async importExcel(
+  importExcel(
     dto: ImportDokusyaDto,
     session: SessionPayload,
     req: Request,
-  ): Promise<{
-    data: {
-      import_mode: string;
-      total_rows: number;
-      created_count: number;
-      updated_count: number;
-      cancelled_count: number;
-      skipped_count: number;
-      rireki_count: number;
-      imported_at: string;
-    };
-    message: string;
-  }> {
-    // 紙版・電子版いずれの取扱い権限も無いアカウントはExcel取込不可
-    // (account_concept.md §139-145).
-    await this.assertAnyDokusyaFlag(session);
-
-    // §4.1 — row-limit (defence-in-depth; DTO @ArrayMaxSize also guards).
-    if (dto.rows.length > IMPORT_MAX_ROWS) {
-      throw new DokusyaRowLimitExceededException();
-    }
-
-    // §4.1 — NEW mode must carry the 13 required columns.
-    if (dto.import_mode === 'NEW') {
-      const missing = IMPORT_NEW_REQUIRED_COLUMNS.filter(
-        (c) => !dto.selected_columns.includes(c),
-      );
-      if (missing.length > 0) {
-        // Expose `.code` as a top-level own property — service unit tests
-        // assert `err.code` directly, not `err.response.code`.
-        const exc = fieldValidationError(
-          'selected_columns',
-          `新規登録モードでは必須列（${missing.join(', ')}）を含めてください。`,
-        );
-        Object.defineProperty(exc, 'code', {
-          value: 'VALIDATION_ERROR',
-          enumerable: true,
-        });
-        throw exc;
-      }
-    }
-
-    const jaId = Number(session.ja_id ?? 0);
-    const errors: Array<{ row: number; field: string; message: string }> = [];
-
-    // §4.3 — resolve FK lookups in one batch each (scoped by ja_id).
-    const tankaCodes = this.uniqueStrings(dto.rows.map((r) => r.tanka_code));
-    const hanbaitenCodes = this.uniqueStrings(
-      dto.rows.map((r) => r.hanbaiten_code),
-    );
-    const kanriShitenCodes = this.uniqueStrings(
-      dto.rows.map((r) => r.kanri_shiten_code),
-    );
-    const shitenCodes = this.uniqueStrings(dto.rows.map((r) => r.shiten_code));
-    const dokusyaIds = this.uniqueNumbers(dto.rows.map((r) => r.dokusya_id));
-    const kumiaiinCodes = this.uniqueStrings(
-      dto.rows.map((r) => r.kumiaiin_code),
-    );
-
-    const tankaRows: Array<Record<string, unknown>> =
-      tankaCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            `SELECT tanka_id, tanka_code FROM m_tanka
-              WHERE ja_id = $1 AND tanka_code = ANY($2::text[])
-                AND tanka_type = 1 AND deleted_at IS NULL`,
-            [jaId, tankaCodes],
-          );
-    const tankaCodeSet = new Set(tankaRows.map((r) => String(r.tanka_code)));
-    // code → id maps so the NEW INSERT can persist the resolved FK ids
-    // (t_dokusya stores tanka_id / hanbaiten_id, not the codes).
-    const tankaIdByCode = new Map(
-      tankaRows.map((r) => [String(r.tanka_code), Number(r.tanka_id)]),
-    );
-
-    const hanbaitenRows: Array<Record<string, unknown>> =
-      hanbaitenCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            `SELECT hanbaiten_id, hanbaiten_code FROM m_hanbaiten
-              WHERE ja_id = $1 AND hanbaiten_code = ANY($2::text[])
-                AND deleted_at IS NULL`,
-            [jaId, hanbaitenCodes],
-          );
-    const hanbaitenCodeSet = new Set(
-      hanbaitenRows.map((r) => String(r.hanbaiten_code)),
-    );
-    const hanbaitenIdByCode = new Map(
-      hanbaitenRows.map((r) => [
-        String(r.hanbaiten_code),
-        Number(r.hanbaiten_id),
-      ]),
-    );
-
-    const kanriShitenRows: Array<Record<string, unknown>> =
-      kanriShitenCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            `SELECT kanri_shiten_id, kanri_shiten_code FROM m_kanri_shiten
-              WHERE ja_id = $1 AND kanri_shiten_code = ANY($2::text[])
-                AND deleted_at IS NULL`,
-            [jaId, kanriShitenCodes],
-          );
-    const kanriShitenCodeSet = new Set(
-      kanriShitenRows.map((r) => String(r.kanri_shiten_code)),
-    );
-    // code → id map so the INSERT/UPDATE can persist kanri_shiten_id
-    // (t_dokusya stores the id FK, the import carries the code).
-    const kanriShitenIdByCode = new Map(
-      kanriShitenRows.map((r) => [
-        String(r.kanri_shiten_code),
-        Number(r.kanri_shiten_id),
-      ]),
-    );
-
-    const shitenRows: Array<Record<string, unknown>> =
-      shitenCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            `SELECT shiten_id, shiten_code FROM m_shiten
-              WHERE ja_id = $1 AND shiten_code = ANY($2::text[])
-                AND deleted_at IS NULL`,
-            [jaId, shitenCodes],
-          );
-    const shitenCodeSet = new Set(
-      shitenRows.map((r) => String(r.shiten_code)),
-    );
-    const shitenIdByCode = new Map(
-      shitenRows.map((r) => [String(r.shiten_code), Number(r.shiten_id)]),
-    );
-
-    // §4.3.4 — existing dokusya (UPDATE_* / 一括中止). Keyed by
-    // dokusya_id OR kumiaiin_code, scoped by ja_id.
-    const existingRows: Array<Record<string, unknown>> =
-      dokusyaIds.length === 0 && kumiaiinCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id,
-                    dokusya_shubetsu, email, hanbaiten_id
-               FROM t_dokusya
-              WHERE ja_id = $1
-                AND (dokusya_id = ANY($2::bigint[])
-                     OR kumiaiin_code = ANY($3::text[]))
-                AND deleted_at IS NULL`,
-            [jaId, dokusyaIds, kumiaiinCodes],
-          );
-    // 顧客要件 — メール一意性は電子版(2)・併読(3) のレコード間でのみ担保する
-    // ため、JA 全件の電子版/併読 email を email → dokusya_id 群で引けるよう
-    // 事前ロードする（紙版は重複可なので対象外）。NEW 行が既存の電子版メール
-    // を再利用するケースも検知できるよう、取込対象行に限らず全件を読む。
-    const digitalEmailRows: Array<Record<string, unknown>> =
-      await this.dataSource.query(
-        `SELECT dokusya_id, email
-           FROM t_dokusya
-          WHERE ja_id = $1
-            AND dokusya_shubetsu = ANY($2::int[])
-            AND email <> ''
-            AND deleted_at IS NULL`,
-        [jaId, [DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH]],
-      );
-    const existingDigitalEmailToIds = new Map<string, Set<number>>();
-    for (const r of digitalEmailRows) {
-      const email = String(asScalar(r.email));
-      const id = Number(r.dokusya_id);
-      const set = existingDigitalEmailToIds.get(email);
-      if (set) set.add(id);
-      else existingDigitalEmailToIds.set(email, new Set([id]));
-    }
-
-    const existingById = new Map<number, Record<string, unknown>>();
-    const existingByKumiaiin = new Map<string, Record<string, unknown>>();
-    // 組合員コードは重複可。kumiaiin_code をキーに更新/解約する際、複数件
-    // ヒットすると一括で誤更新してしまうため、件数を数えて 2 件以上なら
-    // 行エラーにする（ID 指定を促す）。
-    const kumiaiinCounts = new Map<string, number>();
-    for (const row of existingRows) {
-      existingById.set(Number(row.dokusya_id), row);
-      if (row.kumiaiin_code != null) {
-        const code = String(asScalar(row.kumiaiin_code));
-        existingByKumiaiin.set(code, row);
-        kumiaiinCounts.set(code, (kumiaiinCounts.get(code) ?? 0) + 1);
-      }
-    }
-
-    // Per-row validation + pre-check accumulation. DataScope violations
-    // throw immediately (403); content errors accumulate (capped at 10).
-    let createdCount = 0;
-    let updatedCount = 0;
-    let cancelledCount = 0;
-
-    const lookups: ImportRowLookups = {
-      existingById,
-      existingByKumiaiin,
-      kumiaiinCounts,
-      tankaCodeSet,
-      hanbaitenCodeSet,
-      hanbaitenIdByCode,
-      kanriShitenCodeSet,
-      shitenCodeSet,
-      existingDigitalEmailToIds,
-    };
-
-    // 取込バッチ内の電子版/併読 email 重複検知用（email → 自己同定ID）。
-    const batchDigitalEmail = new Map<string, number>();
-
-    dto.rows.forEach((row, index) => {
-      const rowNo = index + 1;
-      // 解約(手続種類=0)は取込で扱わない（顧客要件 2026-06）。NEW は手続種類=新規(1)
-      // 固定、UPDATE は手続種類を変更しない。
-      this.validateImportRowRequired(row, rowNo, dto, errors);
-      this.validateImportRowRules(row, rowNo, dto, errors);
-      this.validateImportRowRefs(row, rowNo, lookups, errors);
-      this.validateImportRowEmail(row, rowNo, dto, lookups, batchDigitalEmail, errors);
-      const category = this.classifyImportRow(
-        row,
-        rowNo,
-        dto,
-        lookups,
-        session,
-        errors,
-      );
-      if (category === 'created') createdCount += 1;
-      else if (category === 'updated') updatedCount += 1;
-    });
-
-    if (errors.length > 0) {
-      // 取込バリデーション失敗の内訳をログに残す（どの行・項目で弾かれたか
-      // を運用ログから追えるようにする。errors[] はレスポンスにも返るが、
-      // 画面側で握りつぶされた場合の調査用）。
-      this.logger.warn({
-        event: 'import.validation_failed',
-        import_mode: dto.import_mode,
-        total_rows: dto.rows?.length ?? 0,
-        error_count: errors.length,
-        errors: errors.slice(0, IMPORT_ERROR_CAP),
-      });
-      throw new DokusyaImportValidationException(errors.slice(0, IMPORT_ERROR_CAP));
-    }
-
-    const auditCtx = buildAuditCtx(
-      session,
-      req,
-      SCREEN_NAME_SCR016,
-      TABLE_NAME,
-      null,
-    );
-    const importedAt = new Date().toISOString();
-
-    try {
-      await this.dataSource.transaction(async (manager) => {
-        for (const row of dto.rows) {
-          await this.applyImportRow(manager, dto, row, session, {
-            tankaIdByCode,
-            hanbaitenIdByCode,
-            kanriShitenIdByCode,
-            shitenIdByCode,
-          });
-        }
-
-        // §4.5 — one summary audit row. operation is the BARE verb
-        // 'CREATE' (per nestjs.md — never mode-tagged), log_type=1,
-        // result_status=1, joined to the import transaction.
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.USER_OPERATION,
-            accountId: auditCtx.accountId,
-            jaId: auditCtx.jaId,
-            gamenName: auditCtx.screen,
-            operation: AuditOperation.CREATE,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: null,
-            targetTable: auditCtx.table,
-            afterValue: JSON.stringify({
-              import_mode: dto.import_mode,
-              total_rows: dto.rows.length,
-              created_count: createdCount,
-              updated_count: updatedCount,
-              cancelled_count: cancelledCount,
-              imported_at: importedAt,
-            }),
-            ipAddress: auditCtx.ipAddress,
-            userAgent: auditCtx.userAgent,
-          },
-          manager,
-        );
-      });
-    } catch (err) {
-      // §4.7 — error log on the standalone connection (NO manager) so it
-      // survives the rollback.
-      await this.auditLog.logError(auditCtx, AuditOperation.CREATE, err as Error);
-      throw err;
-    }
-
-    return {
-      data: {
-        import_mode: dto.import_mode,
-        total_rows: dto.rows.length,
-        created_count: createdCount,
-        updated_count: updatedCount,
-        cancelled_count: cancelledCount,
-        skipped_count: 0,
-        rireki_count: dto.rows.length,
-        imported_at: importedAt,
-      },
-      message: '取り込みました。',
-    };
-  }
-
-  // ─── private helpers (SCR-016) ───────────────────────────────────────
-
-  /** Unique non-blank strings from a column projection. */
-  private uniqueStrings(values: Array<string | undefined>): string[] {
-    return Array.from(
-      new Set(values.filter((v): v is string => typeof v === 'string' && v !== '')),
-    );
-  }
-
-  /** Unique defined numbers from a column projection. */
-  private uniqueNumbers(values: Array<number | undefined>): number[] {
-    return Array.from(
-      new Set(
-        values
-          .filter((v): v is number => v !== undefined && v !== null)
-          .map(Number),
-      ),
-    );
-  }
-
-  /**
-   * §4.1/§4.3 — NEW-mode required-column + duplicate-kumiaiin checks.
-   * The column-selection guard only checks a column is targeted; a blank
-   * required FK/field would otherwise slip past the per-row FK checks and
-   * crash the INSERT (NOT NULL / FK) as a 500 — surface it gracefully.
-   */
-  private validateImportRowRequired(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    dto: ImportDokusyaDto,
-    errors: ImportRowError[],
-  ): void {
-    if (dto.import_mode === 'NEW') {
-      const rec = row as unknown as Record<string, unknown>;
-      for (const field of IMPORT_NEW_REQUIRED_COLUMNS) {
-        const v = rec[field];
-        if (v === undefined || v === null || v === '') {
-          this.pushImportError(errors, {
-            row: rowNo,
-            field,
-            message: `新規登録の場合、${NEW_REQUIRED_LABELS[field] ?? field}は必須です。`,
-          });
-        }
-      }
-      // 組合員コードは JA 内で重複を許容する（同一コードの世帯員など）。
-      // DB にも UNIQUE 制約は無いため、NEW 取込みで重複チェックは行わない。
-    }
-  }
-
-  /**
-   * §4.1 business rules — 併読 not importable, 電子版×クレカ forbidden,
-   * 購読部数 > 0（解約は取込で扱わない）、UPDATE は読者情報変更適用日 必須。
-   */
-  private validateImportRowRules(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    dto: ImportDokusyaDto,
-    errors: ImportRowError[],
-  ): void {
-    if (
-      row.dokusya_shubetsu !== undefined &&
-      Number(row.dokusya_shubetsu) === DokusyaShubetsu.BOTH
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'dokusya_shubetsu',
-        message: '購読種別が3:併読のためExcel取込みできません。',
-      });
-    }
-    if (
-      Number(row.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-      Number(row.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'shiharai_hoho',
-        message: '電子版かつクレジットカード決済の組み合わせは取込みできません。',
-      });
-    }
-    // 購読部数は 1 以上（解約は取込対象外＝0 入力なし。顧客要件 2026-06）。
-    if (row.dokusya_busu !== undefined && Number(row.dokusya_busu) <= 0) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'dokusya_busu',
-        message: '購読部数は1以上で入力してください。',
-      });
-    }
-    // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
-    // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
-    const isUpdate =
-      dto.import_mode === 'UPDATE_ALL' || dto.import_mode === 'UPDATE_PARTIAL';
-    if (isUpdate && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'joho_henko_tekiyo_date',
-        message: '読者情報変更適用日を入力してください。',
-      });
-    }
-  }
-
-  /** §4.3.1-§4.3.3 — tanka / hanbaiten / kanri_shiten / shiten existence. */
-  private validateImportRowRefs(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    lookups: ImportRowLookups,
-    errors: ImportRowError[],
-  ): void {
-    if (row.tanka_code && !lookups.tankaCodeSet.has(String(row.tanka_code))) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'tanka_code',
-        message: '指定された新聞単価コードが見つかりません。',
-      });
-    }
-    if (
-      row.hanbaiten_code &&
-      !lookups.hanbaitenCodeSet.has(String(row.hanbaiten_code))
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'hanbaiten_code',
-        message: '指定された販売店コードが見つかりません。',
-      });
-    }
-    if (
-      row.kanri_shiten_code &&
-      !lookups.kanriShitenCodeSet.has(String(row.kanri_shiten_code))
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'kanri_shiten_code',
-        message: '指定された管理支店が見つかりません。',
-      });
-    }
-    if (
-      row.shiten_code &&
-      !lookups.shitenCodeSet.has(String(row.shiten_code))
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'shiten_code',
-        message: '指定された支店が見つかりません。',
-      });
-    }
-  }
-
-  /**
-   * 顧客要件 — メールアドレスは電子版(2)・併読(3) で必須かつ電子版/併読の
-   * レコード間で一意（紙版(1) は任意・重複可）。
-   *
-   * - 実効購読種別: NEW は行の購読種別、UPDATE_* は既存レコードの購読種別
-   *   （購読種別は編集不可のため Excel 上の値ではなく DB の値で判定）。
-   * - UPDATE_PARTIAL で email 列が selected_columns に無い行は email 未変更
-   *   のため検証しない。
-   * - 一意性: DB 内の電子版/併読レコード（自身は除外）＋同一取込バッチ内の
-   *   電子版/併読行同士の双方で重複を検知する。
-   */
-  private validateImportRowEmail(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    dto: ImportDokusyaDto,
-    lookups: ImportRowLookups,
-    batchDigitalEmail: Map<string, number>,
-    errors: ImportRowError[],
-  ): void {
-    // email 列が対象でない UPDATE_PARTIAL は素通し（既存メールを維持）。
-    const emailTargeted =
-      dto.import_mode === 'NEW' ||
-      dto.import_mode === 'UPDATE_ALL' ||
-      (dto.import_mode === 'UPDATE_PARTIAL' &&
-        dto.selected_columns.includes('email'));
-    if (!emailTargeted) return;
-
-    // 実効購読種別 + 自己同定ID を求める。
-    let effectiveShubetsu: number;
-    let identity: number;
-    if (dto.import_mode === 'NEW') {
-      effectiveShubetsu = Number(row.dokusya_shubetsu);
-      // NEW 行は各行が別レコード。実 dokusya_id（正値）と衝突しない負値を使う。
-      identity = -rowNo;
-    } else {
-      const existing = this.resolveExistingRow(
-        row,
-        lookups.existingById,
-        lookups.existingByKumiaiin,
-      );
-      // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
-      if (!existing) return;
-      effectiveShubetsu = Number(existing.dokusya_shubetsu);
-      identity = Number(existing.dokusya_id);
-    }
-
-    // 紙版は必須でも一意でもない。
-    if (!isDigitalOrBoth(effectiveShubetsu)) return;
-
-    const email = typeof row.email === 'string' ? row.email.trim() : '';
-    if (!email) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'email',
-        message: EMAIL_REQUIRED_DIGITAL_MSG,
-      });
-      return;
-    }
-
-    // DB 内の電子版/併読レコードとの重複（自身は除外）。
-    const dbIds = lookups.existingDigitalEmailToIds.get(email);
-    const dbCollision =
-      dbIds !== undefined && Array.from(dbIds).some((id) => id !== identity);
-
-    // 同一取込バッチ内の電子版/併読行同士の重複。
-    const batchIdentity = batchDigitalEmail.get(email);
-    const batchCollision =
-      batchIdentity !== undefined && batchIdentity !== identity;
-    if (batchIdentity === undefined) batchDigitalEmail.set(email, identity);
-
-    if (dbCollision || batchCollision) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'email',
-        message: ErrorMessage.DUPLICATE_EMAIL,
-      });
-    }
-  }
-
-  /**
-   * §4.3.4 — classify a row as created / updated / cancelled for the
-   * summary counts. UPDATE_* / 一括中止 require an existing record
-   * (out-of-scope → 403; not found → row error, returns null). NEW rows
-   * are always 'created'.
-   */
-  private classifyImportRow(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    dto: ImportDokusyaDto,
-    lookups: ImportRowLookups,
-    session: SessionPayload,
-    errors: ImportRowError[],
-  ): 'created' | 'updated' | null {
-    const needsExisting =
-      dto.import_mode === 'UPDATE_ALL' ||
-      dto.import_mode === 'UPDATE_PARTIAL';
-    if (needsExisting) {
-      const hasDokusyaId =
-        row.dokusya_id !== undefined &&
-        row.dokusya_id !== null &&
-        String(row.dokusya_id) !== '';
-
-      // dokusya_id が無い行は kumiaiin_code をキーにする。組合員コードは重複可
-      // のため、同一コードが 2 件以上ある場合は一括誤更新を防ぐため行エラー。
-      if (!hasDokusyaId && row.kumiaiin_code) {
-        const count = lookups.kumiaiinCounts.get(String(row.kumiaiin_code)) ?? 0;
-        if (count > 1) {
-          this.pushImportError(errors, {
-            row: rowNo,
-            field: 'kumiaiin_code',
-            message: '組合員コードが重複しているため、IDを指定してください。',
-          });
-          return null;
-        }
-      }
-
-      const existing = this.resolveExistingRow(
-        row,
-        lookups.existingById,
-        lookups.existingByKumiaiin,
-      );
-      if (existing) {
-        // JA_KANRI_SHITEN out-of-scope existing record → 403.
-        assertBranchScopeViolation(
-          Number(existing.ja_id),
-          existing.kanri_shiten_id == null
-            ? null
-            : Number(existing.kanri_shiten_id),
-          session,
-        );
-        // 販売店が変わる行は販売店適用日 (hanbaiten_tekiyo_date) が必須（履歴の
-        // 販売店イベント日。顧客要件 2026-06）。UPDATE_PARTIAL は販売店コード列が
-        // selected_columns にあるときのみ「変更対象」とみなす。
-        const storeColumnActive =
-          dto.import_mode === 'UPDATE_ALL' ||
-          (dto.import_mode === 'UPDATE_PARTIAL' &&
-            dto.selected_columns.includes('hanbaiten_code'));
-        if (storeColumnActive && row.hanbaiten_code) {
-          const newHanbaitenId = lookups.hanbaitenIdByCode.get(
-            String(row.hanbaiten_code),
-          );
-          const storeChanged =
-            existing.hanbaiten_id != null &&
-            newHanbaitenId != null &&
-            newHanbaitenId !== Number(existing.hanbaiten_id);
-          if (
-            storeChanged &&
-            !String(row.hanbaiten_tekiyo_date ?? '').trim()
-          ) {
-            this.pushImportError(errors, {
-              row: rowNo,
-              field: 'hanbaiten_tekiyo_date',
-              message: '販売店適用日を入力してください。',
-            });
-          }
-        }
-        return 'updated';
-      }
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: hasDokusyaId ? 'dokusya_id' : 'kumiaiin_code',
-        message: '指定された購読者が見つかりません。',
-      });
-      return null;
-    }
-    return 'created';
-  }
-
-  /** Push a row error, never exceeding the 10-entry cap. */
-  private pushImportError(
-    errors: Array<{ row: number; field: string; message: string }>,
-    error: { row: number; field: string; message: string },
-  ): void {
-    if (errors.length < IMPORT_ERROR_CAP) errors.push(error);
-  }
-
-  /**
-   * Resolve the existing 購読者 for an UPDATE_* / 一括中止 row. dokusya_id
-   * があればそれを優先（解約も同じ — UPDATE 句の WHERE と一致させる）。無い
-   * 場合のみ kumiaiin_code にフォールバック（呼び出し側で重複件数を検証済み）。
-   */
-  private resolveExistingRow(
-    row: ImportDokusyaRowDto,
-    byId: Map<number, Record<string, unknown>>,
-    byKumiaiin: Map<string, Record<string, unknown>>,
-  ): Record<string, unknown> | undefined {
-    const hasDokusyaId =
-      row.dokusya_id !== undefined &&
-      row.dokusya_id !== null &&
-      String(row.dokusya_id) !== '';
-    if (hasDokusyaId) {
-      return byId.get(Number(row.dokusya_id));
-    }
-    return row.kumiaiin_code ? byKumiaiin.get(row.kumiaiin_code) : undefined;
-  }
-
-  /**
-   * Convert a row's m_code field (numeric code OR the customer-editable
-   * Japanese label) to the stored numeric code. Resolves the label via
-   * CodeService so a renamed `m_code.code_name` keeps importing without a
-   * code change — no hardcoded label→code map. Returns null when blank;
-   * falls back to Number(value) when the cell already holds the code.
-   */
-  private toMCodeValue(
-    category: string,
-    value: number | string | undefined,
-  ): number | null {
-    if (value === undefined || value === null || value === '') return null;
-    if (typeof value === 'number') return value;
-    const byLabel = this.codeService.getValueByLabel(category, value);
-    if (byLabel !== null) return Number(byLabel);
-    return Number(value);
-  }
-
-  private toGenderCode(value: number | string | undefined): number | null {
-    return this.toMCodeValue('GENDER', value);
-  }
-
-  private toYokinCode(value: number | string | undefined): number | null {
-    return this.toMCodeValue('YOKIN_SHUBETSU', value);
-  }
-
-  /**
-   * Extract `dokusya_id` from a raw `manager.query(… RETURNING dokusya_id)`
-   * result. TypeORM の `query()` は INSERT…RETURNING では行配列をそのまま
-   * 返すが、UPDATE/DELETE…RETURNING では `[行配列, 影響件数]` の2要素配列を
-   * 返す。そのため UPDATE_ALL / UPDATE_PARTIAL / 解約 では `result[0]` が
-   * 「行」ではなく「行配列」になり、`result[0].dokusya_id` が undefined →
-   * affectedDokusyaId が null → writeRirekiSnapshot がスキップされ、マスタは
-   * 更新されるのに履歴(t_dokusya_rireki)が作成されない不具合になっていた。
-   * 両方の戻り値形状を吸収し、UPDATE が1件でもヒットすれば必ず履歴を作る。
-   */
-  private extractReturnedDokusyaId(result: unknown): number | null {
-    if (!Array.isArray(result)) return null;
-    const head = result[0];
-    // UPDATE/DELETE…RETURNING: [rows, affectedCount] → head は行配列。
-    // INSERT…RETURNING: [row, …] → head は行オブジェクト。
-    const row = Array.isArray(head) ? head[0] : head;
-    const id = (row as { dokusya_id?: unknown } | undefined)?.dokusya_id;
-    return id === undefined || id === null ? null : Number(id) || null;
-  }
-
-  /**
-   * 配達先(delivery destination)7項目のいずれかに値があるかを判定する。
-   * 取込テンプレートに「配達先＝購読者住所と同じか」を表す per-row flag が
-   * 無いため、これらの配達先項目に入力があれば「別住所」とみなす:
-   *   - haitatsu_same_flg を false（配達先 ≠ 購読者住所）に下ろす
-   *   - zougen_hokoku_flg を true（配達先変更は増減報告対象）に立てる
-   * `selectedColumns` 指定時（UPDATE_PARTIAL）は選択された列のみを対象に
-   * 判定する — 未選択＝DBへ書き込まれない配達先列を誤検知しないため。
-   */
-  private hasHaitatsuDeliveryData(
-    row: ImportDokusyaRowDto,
-    selectedColumns?: string[],
-  ): boolean {
-    const HAITATSU_DELIVERY_FIELDS: Array<keyof ImportDokusyaRowDto> = [
-      'haitatsu_yubin_no',
-      'haitatsu_todofuken_code',
-      'haitatsu_shikuchoson',
-      'haitatsu_shimei_sei',
-      'haitatsu_shimei_mei',
-      'haitatsu_shimei_kana_sei',
-      'haitatsu_shimei_kana_mei',
-    ];
-    const selected = selectedColumns ? new Set(selectedColumns) : null;
-    return HAITATSU_DELIVERY_FIELDS.some((field) => {
-      if (selected && !selected.has(field)) return false;
-      const value = row[field];
-      return value !== undefined && value !== null && String(value).trim() !== '';
-    });
-  }
-
-  /**
-   * Apply one import row inside the open transaction. Dispatches by mode
-   * + 一括中止 to a raw INSERT / UPDATE on `t_dokusya`, then toggles the
-   * prior rireki saishin flag + INSERTs one `t_dokusya_rireki` row. SQL
-   * shapes match the unit spec's `manager.query` regex router.
-   */
-  private async applyImportRow(
-    manager: EntityManager,
-    dto: ImportDokusyaDto,
-    row: ImportDokusyaRowDto,
-    session: SessionPayload,
-    fkMaps: {
-      tankaIdByCode: Map<string, number>;
-      hanbaitenIdByCode: Map<string, number>;
-      kanriShitenIdByCode: Map<string, number>;
-      shitenIdByCode: Map<string, number>;
-    },
-  ): Promise<void> {
-    const updatedBy = String(session.account_id);
-    const jaId = Number(session.ja_id ?? 0);
-    // 配達先(delivery)7項目に入力があれば「別住所」扱い: haitatsu_same_flg を
-    // false に下ろし、zougen_hokoku_flg を true に立てる（NEW / UPDATE_ALL は
-    // 全配達先列を書込むため row 単位で判定。UPDATE_PARTIAL は選択列のみ）。
-    const hasHaitatsuData =
-      dto.import_mode === 'UPDATE_PARTIAL'
-        ? this.hasHaitatsuDeliveryData(row, dto.selected_columns)
-        : this.hasHaitatsuDeliveryData(row);
-    // 「購読者情報と同じ」(haitatsu_same_flg) は列で明示指定されたらそれを採用
-    // （顧客要件 2026-06 — BE は配達先データ有無から推論しない）。列が未指定
-    // （空欄）の行のみ、従来どおり配達先入力の有無から導出する。
-    const sameFlg =
-      row.haitatsu_same_flg !== undefined
-        ? Boolean(row.haitatsu_same_flg)
-        : !hasHaitatsuData;
-    // 各書込みパス（NEW=INSERT / 解約 / UPDATE_ALL / UPDATE_PARTIAL）が影響した
-    // dokusya_id を RETURNING から受け取り、履歴スナップショットはこの 1 件の
-    // dokusya_id だけをキーに作成する（kumiaiin は重複可のため曖昧キーにしない）。
-    // これにより NEW でも UPDATE でも「1 件の書込み → 1 件の履歴」が保証される。
-    let affectedDokusyaId: number | null = null;
-
-    // Value coercion helpers shared by the NEW INSERT and the UPDATE_ALL
-    // SET clause. `str` → '' for blank (NOT NULL varchar columns);
-    // `intOrNull` → null for blank (nullable ints / COALESCE-guarded FKs).
-    const str = (v: unknown): string =>
-      v === undefined || v === null ? '' : String(asScalar(v));
-    const intOrNull = (v: unknown): number | null =>
-      v === undefined || v === null || v === '' ? null : Number(v);
-
-    if (dto.import_mode === 'NEW') {
-      // Persist EVERY column t_dokusya needs. The previous INSERT wrote only
-      // 11 columns and crashed real Postgres on the NOT NULL columns it
-      // omitted (shimei_kana_sei, address, 連絡先, tanka_id, hanbaiten_id,
-      // dates, …). Mirror the create flow's column set. String NOT NULL
-      // columns default to '' when blank; tanka_id / hanbaiten_id are
-      // resolved from the FK code→id maps (both validated to exist above).
-      const kaishiDate = normalizeDbDate(str(row.dokusya_kaishi_date));
-      const inserted = await manager.query<Array<{ dokusya_id?: number }>>(
-        `INSERT INTO t_dokusya
-           (ja_id, kanri_shiten_id, shiten_id, kumiaiin_code, dokusya_shubetsu,
-            tetsuzuki_shurui, shimei_sei, shimei_mei, shimei_kana_sei,
-            shimei_kana_mei, dokusya_busu, yubin_no, todofuken_code,
-            shikuchoson, chome_banchi, tatemono_mei, renrakusaki_1,
-            renrakusaki_2, email, mail_magazine_flg, birth_year, gender,
-            haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code,
-            haitatsu_shikuchoson, haitatsu_chome_banchi, haitatsu_tatemono_mei,
-            haitatsu_renrakusaki_1, haitatsu_renrakusaki_2, haitatsu_shimei_sei,
-            haitatsu_shimei_mei, haitatsu_shimei_kana_sei,
-            haitatsu_shimei_kana_mei, hanbaiten_id, tanka_id, yubin_kubun,
-            shiharai_hoho, dokusyaryo_shiharai_cycle, bank_branch_code,
-            bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no,
-            hikiotoshi_koza_meigi, dokusyaso_bunrui, nogyosya_bunrui,
-            shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
-            joho_henko_tekiyo_date, biko, denshi_shonin_status, created_by,
-            updated_by)
-         VALUES
-           ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
-            $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41,
-            $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $53)
-         RETURNING dokusya_id`,
-        [
-          Number(session.ja_id ?? 0), // $1 ja_id
-          // 管理支店/支店 はコードで取込み、物理カラム *_id へ解決して書く。
-          fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null, // $2
-          fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null, // $3
-          str(row.kumiaiin_code), // $4
-          intOrNull(row.dokusya_shubetsu), // $5
-          TetsuzukiShurui.SHINKI, // $6 — NEW は手続種類=新規(1)固定（顧客要件 2026-06）
-          str(row.shimei_sei), // $7
-          str(row.shimei_mei), // $8
-          str(row.shimei_kana_sei), // $9
-          str(row.shimei_kana_mei), // $10
-          Number(row.dokusya_busu ?? 0), // $11（解約でも0強制しない。バッチが処理）
-          str(row.yubin_no), // $12
-          str(row.todofuken_code), // $13
-          str(row.shikuchoson), // $14
-          str(row.chome_banchi), // $15
-          str(row.tatemono_mei), // $16
-          str(row.renrakusaki_1), // $17
-          str(row.renrakusaki_2), // $18
-          str(row.email), // $19
-          Number(row.mail_magazine_flg ?? 0), // $20
-          intOrNull(row.birth_year), // $21
-          this.toGenderCode(row.gender), // $22
-          sameFlg, // $23 haitatsu_same_flg — 列指定優先、未指定は配達先入力有無から導出
-          str(row.haitatsu_yubin_no), // $24
-          str(row.haitatsu_todofuken_code), // $25
-          str(row.haitatsu_shikuchoson), // $26
-          str(row.haitatsu_chome_banchi), // $27
-          str(row.haitatsu_tatemono_mei), // $28
-          str(row.haitatsu_renrakusaki_1), // $29
-          str(row.haitatsu_renrakusaki_2), // $30
-          str(row.haitatsu_shimei_sei), // $31
-          str(row.haitatsu_shimei_mei), // $32
-          str(row.haitatsu_shimei_kana_sei), // $33
-          str(row.haitatsu_shimei_kana_mei), // $34
-          fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null, // $35
-          fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null, // $36
-          row.yubin_kubun ?? '0', // $37
-          intOrNull(row.shiharai_hoho), // $38
-          intOrNull(row.dokusyaryo_shiharai_cycle), // $39
-          str(row.bank_branch_code), // $40
-          str(row.bank_branch_name), // $41
-          this.toYokinCode(row.hikiotoshi_yokin_shubetsu), // $42
-          str(row.hikiotoshi_koza_no), // $43
-          str(row.hikiotoshi_koza_meigi), // $44
-          str(row.dokusyaso_bunrui), // $45
-          str(row.nogyosya_bunrui), // $46
-          kaishiDate, // $47 shoki_dokusya_kaishi_date = kaishi
-          kaishiDate, // $48 dokusya_kaishi_date
-          normalizeDbDate(row.dokusya_chushi_date ?? null), // $49
-          null, // $50 joho_henko_tekiyo_date — NEW は変更イベント日 対象外（顧客要件 2026-06）
-          str(row.biko), // $51
-          // 電子版(2)は承認済(1)で取込む（紙版は null）。create() の電子版は
-          // 承認待ち(0) を立てるが、Excel一括取込は職員操作のため承認済で
-          // 登録する（顧客要件 — フォーム作成と同様に status を埋める）。
-          Number(row.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL
-            ? DenshiShoninStatus.APPROVED
-            : null, // $52 denshi_shonin_status
-          updatedBy, // $53 created_by + updated_by
-        ],
-      );
-      affectedDokusyaId = this.extractReturnedDokusyaId(inserted);
-    } else if (dto.import_mode === 'UPDATE_ALL') {
-      // Full update (api.md §4.4.2) — 取込テンプレートの全項目を上書きする。
-      // 未指定の項目は varchar→'' / nullable→null で上書き。NOT NULL の
-      // FK・参照列（管理支店 / 支店 / 販売店 / 新聞単価 / 購読種別 / 手続種類 /
-      // 支払方法）は空欄だと制約違反になるため COALESCE(:値, 既存値) で
-      // 既存値を維持する（UPDATE モードでは FK コードは任意入力＝検証は
-      // 存在時のみ）。購読開始日 (購読開始の初回日 = 不変) は SET から除外。
-      const updatedAll = await manager.query<Array<{ dokusya_id?: number }>>(
-        `UPDATE t_dokusya
-            SET kanri_shiten_id = COALESCE($1, kanri_shiten_id),
-                shiten_id = COALESCE($2, shiten_id),
-                kumiaiin_code = $3,
-                -- 編集不可項目（購読種別 / 手続種類 / 氏名4 / 購読開始日）は
-                -- UPDATE_ALL でも既存値を維持する。NOT NULL 列なので
-                -- COALESCE(列,$n) は常に既存値を返す（$n は型推論のため参照のみ・
-                -- 実質未使用）。手続種類は取込で変更不可（顧客要件 2026-06）。
-                dokusya_shubetsu = COALESCE(dokusya_shubetsu, $4),
-                tetsuzuki_shurui = COALESCE(tetsuzuki_shurui, $5),
-                shimei_sei = COALESCE(shimei_sei, $6),
-                shimei_mei = COALESCE(shimei_mei, $7),
-                shimei_kana_sei = COALESCE(shimei_kana_sei, $8),
-                shimei_kana_mei = COALESCE(shimei_kana_mei, $9),
-                dokusya_busu = $10,
-                yubin_no = $11,
-                todofuken_code = $12,
-                shikuchoson = $13,
-                chome_banchi = $14,
-                tatemono_mei = $15,
-                renrakusaki_1 = $16,
-                renrakusaki_2 = $17,
-                email = $18,
-                mail_magazine_flg = $19,
-                birth_year = $20,
-                gender = $21,
-                haitatsu_same_flg = $22,
-                haitatsu_yubin_no = $23,
-                haitatsu_todofuken_code = $24,
-                haitatsu_shikuchoson = $25,
-                haitatsu_chome_banchi = $26,
-                haitatsu_tatemono_mei = $27,
-                haitatsu_renrakusaki_1 = $28,
-                haitatsu_renrakusaki_2 = $29,
-                haitatsu_shimei_sei = $30,
-                haitatsu_shimei_mei = $31,
-                haitatsu_shimei_kana_sei = $32,
-                haitatsu_shimei_kana_mei = $33,
-                hanbaiten_id = COALESCE($34, hanbaiten_id),
-                tanka_id = COALESCE($35, tanka_id),
-                yubin_kubun = $36,
-                shiharai_hoho = COALESCE($37, shiharai_hoho),
-                dokusyaryo_shiharai_cycle = $38,
-                bank_branch_code = $39,
-                bank_branch_name = $40,
-                hikiotoshi_yokin_shubetsu = $41,
-                hikiotoshi_koza_no = $42,
-                hikiotoshi_koza_meigi = $43,
-                dokusyaso_bunrui = $44,
-                nogyosya_bunrui = $45,
-                dokusya_kaishi_date = COALESCE(dokusya_kaishi_date, $46),
-                dokusya_chushi_date = $47,
-                joho_henko_tekiyo_date = $48,
-                biko = $49,
-                updated_by = $50,
-                updated_at = NOW()
-          WHERE ja_id = $52
-            AND (($51::bigint IS NOT NULL AND dokusya_id = $51)
-                 OR ($53 <> '' AND kumiaiin_code = $53))
-            AND deleted_at IS NULL
-        RETURNING dokusya_id, rireki_no`,
-        [
-          // 管理支店/支店 はコードで取込み、物理カラム *_id へ解決（未指定→
-          // null で COALESCE が既存値維持）。
-          fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null, // $1
-          fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null, // $2
-          str(row.kumiaiin_code), // $3
-          intOrNull(row.dokusya_shubetsu), // $4
-          intOrNull(row.tetsuzuki_shurui), // $5
-          str(row.shimei_sei), // $6
-          str(row.shimei_mei), // $7
-          str(row.shimei_kana_sei), // $8
-          str(row.shimei_kana_mei), // $9
-          Number(row.dokusya_busu ?? 0), // $10
-          str(row.yubin_no), // $11
-          str(row.todofuken_code), // $12
-          str(row.shikuchoson), // $13
-          str(row.chome_banchi), // $14
-          str(row.tatemono_mei), // $15
-          str(row.renrakusaki_1), // $16
-          str(row.renrakusaki_2), // $17
-          str(row.email), // $18
-          Number(row.mail_magazine_flg ?? 0), // $19
-          intOrNull(row.birth_year), // $20
-          this.toGenderCode(row.gender), // $21
-          sameFlg, // $22 haitatsu_same_flg — 列指定優先、未指定は配達先入力有無から導出
-          str(row.haitatsu_yubin_no), // $23
-          str(row.haitatsu_todofuken_code), // $24
-          str(row.haitatsu_shikuchoson), // $25
-          str(row.haitatsu_chome_banchi), // $26
-          str(row.haitatsu_tatemono_mei), // $27
-          str(row.haitatsu_renrakusaki_1), // $28
-          str(row.haitatsu_renrakusaki_2), // $29
-          str(row.haitatsu_shimei_sei), // $30
-          str(row.haitatsu_shimei_mei), // $31
-          str(row.haitatsu_shimei_kana_sei), // $32
-          str(row.haitatsu_shimei_kana_mei), // $33
-          fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null, // $34
-          fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null, // $35
-          row.yubin_kubun ?? '0', // $36
-          intOrNull(row.shiharai_hoho), // $37
-          intOrNull(row.dokusyaryo_shiharai_cycle), // $38
-          str(row.bank_branch_code), // $39
-          str(row.bank_branch_name), // $40
-          this.toYokinCode(row.hikiotoshi_yokin_shubetsu), // $41
-          str(row.hikiotoshi_koza_no), // $42
-          str(row.hikiotoshi_koza_meigi), // $43
-          str(row.dokusyaso_bunrui), // $44
-          str(row.nogyosya_bunrui), // $45
-          dbDateOrNull(row.dokusya_kaishi_date), // $46 (null→既存値 COALESCE)
-          dbDateOrNull(row.dokusya_chushi_date), // $47
-          dbDateOrNull(row.joho_henko_tekiyo_date), // $48
-          str(row.biko), // $49
-          updatedBy, // $50
-          row.dokusya_id ?? null, // $51
-          Number(session.ja_id ?? 0), // $52
-          str(row.kumiaiin_code), // $53 — dokusya_id 無しのとき kumiaiin_code をキーに
-        ],
-      );
-      affectedDokusyaId = this.extractReturnedDokusyaId(updatedAll);
-    } else {
-      // UPDATE_PARTIAL — only the columns in selected_columns appear in
-      // the SET clause. Build it dynamically so unselected columns
-      // (e.g. shimei_sei) are NOT mutated.
-      const { sql, params } = this.buildPartialUpdate(
-        dto.selected_columns,
-        row,
-        updatedBy,
-        jaId,
-        fkMaps,
-      );
-      const updatedPartial = await manager.query<Array<{ dokusya_id?: number }>>(
-        sql,
-        params,
-      );
-      affectedDokusyaId = this.extractReturnedDokusyaId(updatedPartial);
-    }
-
-    // NEW でも UPDATE/解約 でも、影響した 1 件の dokusya_id をキーに履歴を
-    // 1 件作成する（共通関数）。affectedDokusyaId が取れない（=該当行なし）
-    // 場合は履歴を作らない（classifyImportRow で検証済みのため通常発生しない）。
-    if (affectedDokusyaId !== null) {
-      // NEW は変更イベント日（読者情報変更適用日 / 販売店適用日）対象外（顧客要件
-      // 2026-06）。UPDATE のみ行の入力値を採用する。
-      const isNewMode = dto.import_mode === 'NEW';
-      await this.writeRirekiSnapshot(
-        manager,
-        affectedDokusyaId,
-        updatedBy,
-        isNewMode,
-        isNewMode ? null : dbDateOrNull(row.hanbaiten_tekiyo_date), // 販売店適用日
-        isNewMode ? null : dbDateOrNull(row.joho_henko_tekiyo_date), // 読者情報変更適用日
-        hasHaitatsuData, // 配達先入力ありなら増減報告フラグを立てる
-      );
-    }
-  }
-
-  /**
-   * NEW / UPDATE_ALL / UPDATE_PARTIAL / 解約 で共通の履歴スナップショット処理。
-   * UI の create()/update() と **同じヘルパー**（buildHistoryFromEntity /
-   * buildZenkaiSnapshot / hasZougenReportableChange / nextRirekiNo）を再利用し、
-   * 2 つの登録経路（UI と Excel取込）で rireki の作り方を完全に同期させる。
-   *
-   * 直前に書き込んだ t_dokusya の 1 行（dokusya_id で一意特定）に対して:
-   *   1. 既存「最新データ」フラグ (saishin_data_flg) を落とす
-   *   2. before（直前の最新履歴）と after（現在の master）から
-   *      shinki/kaiyaku/zougen/zenkai_* を算出して履歴を 1 件作成
-   *   3. t_dokusya.rireki_no を最新履歴番号に同期
-   * kumiaiin_code は重複可のためキーに使わず dokusya_id 単独でキーする。
-   */
-  private async writeRirekiSnapshot(
-    manager: EntityManager,
-    dokusyaId: number,
-    createdBy: string,
-    isNew: boolean,
-    hanbaitenDate: string | null,
-    johoDate: string | null,
-    forceZougenHokoku = false,
-  ): Promise<void> {
-    // [rireki-no-race] master 行を FOR UPDATE でロックしてから採番する。UI の
-    // update()/approve と同じ直列化。取込直前の UPDATE 文でも暗黙の行ロックは
-    // かかるが、UI と挙動を揃え、同一購読者への同時編集（UI×取込 / 取込×取込）で
-    // 両者が同じ MAX(rireki_no)+1 を読んで (dokusya_id, rireki_no) 一意制約を
-    // 衝突させないことを明示的に保証する。
-    await this.lockDokusyaRow(manager, dokusyaId);
-
-    // after = 現在の master 行（INSERT/UPDATE 後）。
-    const after = await manager.findOne(Dokusya, {
-      where: { dokusyaId, deletedAt: IsNull() },
-    });
-    if (!after) return;
-
-    // before = 直前の最新履歴（フラグを落とす前に取得）。NEW は履歴なし。
-    const before = isNew
-      ? null
-      : await manager.findOne(DokusyaRireki, {
-          where: { dokusyaId, saishinDataFlg: true },
-          order: { rirekiNo: 'DESC' },
-        });
-
-    // 1. 旧「最新データ」フラグを落とす。
-    await manager.update(
-      DokusyaRireki,
-      { dokusyaId, saishinDataFlg: true },
-      { saishinDataFlg: false },
-    );
-
-    // 2. 履歴を UI 編集(update) と同じ共通ヘルパーで書き込む。情報＋販売店が同時に
-    //    変わった UPDATE は適用日順に2件へ分割される（顧客要件 2026-06）。NEW は
-    //    1件（手続種類=新規(1)固定 → shinki_flg=true）。
-    const newRirekiNo = await this.nextRirekiNo(manager, dokusyaId);
-    const shinkiFlg =
-      isNew && Number(after.tetsuzukiShurui) === TetsuzukiShurui.SHINKI;
-    const lastRirekiNo = await this.writeRirekiSplit(
-      manager,
-      // before(DokusyaRireki) は master 全カラムを持つ完全スナップショットなので
-      // writeRirekiSplit（Dokusya 期待）にそのまま渡せる。
-      before as unknown as Dokusya | null,
-      after,
-      newRirekiNo,
-      {
-        createdBy,
-        henkoRiyu: 'Excel取込',
-        shinkiFlg,
-        hanbaitenDate,
-        johoDate,
-        forceZougenHokoku,
-      },
-    );
-
-    // 3. t_dokusya.rireki_no を最新履歴番号に同期（次回編集の採番ずれ防止）。
-    //    分割時は後（遅い適用日）のレコード番号に合わせる。
-    await manager.update(Dokusya, { dokusyaId }, { rirekiNo: lastRirekiNo });
-  }
-
-  /**
-   * Build a dynamic `UPDATE t_dokusya SET <selected> WHERE …` for
-   * UPDATE_PARTIAL (api.md §4.4.3). Only columns present in
-   * `selectedColumns` (and that map to a writable physical column) appear
-   * in the SET clause; `dokusya_id` is the key — never written.
-   *
-   * The writable allow-list covers EVERY importable column (旧版は13列のみで
-   * email / 住所 / 配達先 / 口座 / 単価・販売店 等が更新されない不具合があった)。
-   * FK コード列（hanbaiten_code / tanka_code）は物理カラム hanbaiten_id /
-   * tanka_id へ解決して書く。NOT NULL の FK・参照列は空欄上書きで制約違反に
-   * ならないよう `COALESCE(:値, 既存値)` で既存値を維持する。
-   */
-  private buildPartialUpdate(
-    selectedColumns: string[],
-    row: ImportDokusyaRowDto,
-    updatedBy: string,
-    jaId: number,
-    fkMaps: {
-      tankaIdByCode: Map<string, number>;
-      hanbaitenIdByCode: Map<string, number>;
-      kanriShitenIdByCode: Map<string, number>;
-      shitenIdByCode: Map<string, number>;
-    },
-  ): { sql: string; params: unknown[] } {
-    const str = (v: unknown): string =>
-      v === undefined || v === null ? '' : String(asScalar(v));
-    const intOrNull = (v: unknown): number | null =>
-      v === undefined || v === null || v === '' ? null : Number(v);
-    // selectable 列名 → { 物理カラム, 値, NOT NULL なら coalesce }。
-    const str_ = (k: keyof ImportDokusyaRowDto) => () => str(row[k]);
-    const WRITABLE: Record<
-      string,
-      { col: string; value: () => unknown; coalesce?: boolean }
-    > = {
-      kanri_shiten_code: {
-        col: 'kanri_shiten_id',
-        value: () =>
-          fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null,
-        coalesce: true,
-      },
-      shiten_code: {
-        col: 'shiten_id',
-        value: () => fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null,
-        coalesce: true,
-      },
-      kumiaiin_code: { col: 'kumiaiin_code', value: str_('kumiaiin_code') },
-      dokusya_shubetsu: { col: 'dokusya_shubetsu', value: () => intOrNull(row.dokusya_shubetsu), coalesce: true },
-      // 手続種類は取込で変更不可（顧客要件 2026-06）— マップから除外し、
-      // selected_columns に含まれても無視する。
-      shimei_sei: { col: 'shimei_sei', value: str_('shimei_sei') },
-      shimei_mei: { col: 'shimei_mei', value: str_('shimei_mei') },
-      shimei_kana_sei: { col: 'shimei_kana_sei', value: str_('shimei_kana_sei') },
-      shimei_kana_mei: { col: 'shimei_kana_mei', value: str_('shimei_kana_mei') },
-      dokusya_busu: { col: 'dokusya_busu', value: () => Number(row.dokusya_busu ?? 0) },
-      yubin_no: { col: 'yubin_no', value: str_('yubin_no') },
-      todofuken_code: { col: 'todofuken_code', value: str_('todofuken_code') },
-      shikuchoson: { col: 'shikuchoson', value: str_('shikuchoson') },
-      chome_banchi: { col: 'chome_banchi', value: str_('chome_banchi') },
-      tatemono_mei: { col: 'tatemono_mei', value: str_('tatemono_mei') },
-      renrakusaki_1: { col: 'renrakusaki_1', value: str_('renrakusaki_1') },
-      renrakusaki_2: { col: 'renrakusaki_2', value: str_('renrakusaki_2') },
-      email: { col: 'email', value: str_('email') },
-      mail_magazine_flg: { col: 'mail_magazine_flg', value: () => Number(row.mail_magazine_flg ?? 0) },
-      birth_year: { col: 'birth_year', value: () => intOrNull(row.birth_year) },
-      gender: { col: 'gender', value: () => this.toGenderCode(row.gender) },
-      haitatsu_yubin_no: { col: 'haitatsu_yubin_no', value: str_('haitatsu_yubin_no') },
-      haitatsu_todofuken_code: { col: 'haitatsu_todofuken_code', value: str_('haitatsu_todofuken_code') },
-      haitatsu_shikuchoson: { col: 'haitatsu_shikuchoson', value: str_('haitatsu_shikuchoson') },
-      haitatsu_chome_banchi: { col: 'haitatsu_chome_banchi', value: str_('haitatsu_chome_banchi') },
-      haitatsu_tatemono_mei: { col: 'haitatsu_tatemono_mei', value: str_('haitatsu_tatemono_mei') },
-      haitatsu_renrakusaki_1: { col: 'haitatsu_renrakusaki_1', value: str_('haitatsu_renrakusaki_1') },
-      haitatsu_renrakusaki_2: { col: 'haitatsu_renrakusaki_2', value: str_('haitatsu_renrakusaki_2') },
-      haitatsu_shimei_sei: { col: 'haitatsu_shimei_sei', value: str_('haitatsu_shimei_sei') },
-      haitatsu_shimei_mei: { col: 'haitatsu_shimei_mei', value: str_('haitatsu_shimei_mei') },
-      haitatsu_shimei_kana_sei: { col: 'haitatsu_shimei_kana_sei', value: str_('haitatsu_shimei_kana_sei') },
-      haitatsu_shimei_kana_mei: { col: 'haitatsu_shimei_kana_mei', value: str_('haitatsu_shimei_kana_mei') },
-      hanbaiten_code: {
-        col: 'hanbaiten_id',
-        value: () => fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null,
-        coalesce: true,
-      },
-      tanka_code: {
-        col: 'tanka_id',
-        value: () => fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
-        coalesce: true,
-      },
-      yubin_kubun: { col: 'yubin_kubun', value: () => row.yubin_kubun ?? '0' },
-      shiharai_hoho: { col: 'shiharai_hoho', value: () => intOrNull(row.shiharai_hoho), coalesce: true },
-      dokusyaryo_shiharai_cycle: { col: 'dokusyaryo_shiharai_cycle', value: () => intOrNull(row.dokusyaryo_shiharai_cycle) },
-      bank_branch_code: { col: 'bank_branch_code', value: str_('bank_branch_code') },
-      bank_branch_name: { col: 'bank_branch_name', value: str_('bank_branch_name') },
-      hikiotoshi_yokin_shubetsu: { col: 'hikiotoshi_yokin_shubetsu', value: () => this.toYokinCode(row.hikiotoshi_yokin_shubetsu) },
-      hikiotoshi_koza_no: { col: 'hikiotoshi_koza_no', value: str_('hikiotoshi_koza_no') },
-      hikiotoshi_koza_meigi: { col: 'hikiotoshi_koza_meigi', value: str_('hikiotoshi_koza_meigi') },
-      dokusyaso_bunrui: { col: 'dokusyaso_bunrui', value: str_('dokusyaso_bunrui') },
-      nogyosya_bunrui: { col: 'nogyosya_bunrui', value: str_('nogyosya_bunrui') },
-      // 物理カラムは date 型。空欄は null（kaishi は NOT NULL のため COALESCE で既存値維持）。
-      dokusya_kaishi_date: { col: 'dokusya_kaishi_date', value: () => dbDateOrNull(row.dokusya_kaishi_date), coalesce: true },
-      dokusya_chushi_date: { col: 'dokusya_chushi_date', value: () => dbDateOrNull(row.dokusya_chushi_date) },
-      joho_henko_tekiyo_date: { col: 'joho_henko_tekiyo_date', value: () => dbDateOrNull(row.joho_henko_tekiyo_date) },
-      biko: { col: 'biko', value: str_('biko') },
-    };
-
-    const setParts: string[] = [];
-    const params: unknown[] = [];
-    let idx = 1;
-    for (const col of selectedColumns) {
-      if (col === 'dokusya_id') continue; // key, not written
-      // 編集不可項目（購読種別 / 氏名4 / 購読開始日）は更新対象外。
-      // FE では未チェック＋disable だが、改ざんで送られても無視する。
-      if (IMPORT_EDIT_IMMUTABLE_COLUMNS.has(col)) continue;
-      const entry = WRITABLE[col];
-      if (!entry) continue;
-      setParts.push(
-        entry.coalesce
-          ? `${entry.col} = COALESCE($${idx}, ${entry.col})`
-          : `${entry.col} = $${idx}`,
-      );
-      params.push(entry.value());
-      idx += 1;
-    }
-    // 「購読者情報と同じ」(haitatsu_same_flg) が選択列にあり明示指定されたら
-    // その値を採用（顧客要件 2026-06 — BE は推論しない）。未選択/未指定なら
-    // 従来どおり、選択された配達先列に値があれば「別住所」(false) に下ろす。
-    // （いずれもリテラル代入のためパラメータ番号 idx には影響しない）。
-    if (
-      selectedColumns.includes('haitatsu_same_flg') &&
-      row.haitatsu_same_flg !== undefined
-    ) {
-      setParts.push(`haitatsu_same_flg = ${Boolean(row.haitatsu_same_flg)}`);
-    } else if (this.hasHaitatsuDeliveryData(row, selectedColumns)) {
-      setParts.push('haitatsu_same_flg = false');
-    }
-    // Always bump updated_by + updated_at.
-    setParts.push(`updated_by = $${idx}`);
-    params.push(updatedBy);
-    idx += 1;
-    setParts.push('updated_at = NOW()');
-
-    const keyIdx = idx;
-    params.push(row.dokusya_id ?? null);
-    idx += 1;
-    const jaIdx = idx;
-    params.push(jaId);
-    idx += 1;
-    const kumiIdx = idx;
-    params.push(str(row.kumiaiin_code));
-
-    // dokusya_id 無しのときは kumiaiin_code をキーに更新する
-    // （resolveExistingRow と同じキー解決にそろえる）。
-    const sql = `UPDATE t_dokusya
-        SET ${setParts.join(', ')}
-      WHERE ja_id = $${jaIdx}
-        AND (($${keyIdx}::bigint IS NOT NULL AND dokusya_id = $${keyIdx})
-             OR ($${kumiIdx} <> '' AND kumiaiin_code = $${kumiIdx}))
-        AND deleted_at IS NULL
-    RETURNING dokusya_id, rireki_no`;
-    return { sql, params };
+  ): ReturnType<DokusyaImportService['importExcel']> {
+    return this.importService.importExcel(dto, session, req);
   }
 }

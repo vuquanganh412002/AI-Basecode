@@ -10,6 +10,9 @@ import type {
   TDocumentDefinitions,
 } from 'pdfmake/interfaces';
 
+/** getRawMany() の数値カラムは driver により number / 文字列で届くため両対応。 */
+type RawNullableNum = number | string | null;
+
 /** Flat row returned by the 増減連絡票 QueryBuilder `.getRawMany()`. */
 export interface ZougenRawRow {
   dokusya_rireki_id: number | string;
@@ -19,16 +22,16 @@ export interface ZougenRawRow {
   hanbaiten_code: string;
   hanbaiten_name: string;
   // 前回販売店（販売店変更の 1減/1増 判定用。初回履歴は NULL）。
-  zenkai_hanbaiten_id: number | string | null;
+  zenkai_hanbaiten_id: RawNullableNum;
   zenkai_hanbaiten_code: string | null;
   zenkai_hanbaiten_name: string | null;
-  kanri_shiten_id: number | string | null;
+  kanri_shiten_id: RawNullableNum;
   kanri_shiten_name: string | null;
   kanri_shiten_tel: string | null;
   kanri_shiten_fax: string | null;
   // 部数（増減判定）
   dokusya_busu: number | string;
-  zenkai_dokusya_busu: number | string | null;
+  zenkai_dokusya_busu: RawNullableNum;
   // 氏名 / 配達先氏名
   shimei_sei: string;
   shimei_mei: string;
@@ -94,7 +97,7 @@ export interface ZougenPreviewData {
   is_last_page?: boolean;
 }
 
-const num = (v: number | string | null | undefined): number => Number(v ?? 0);
+const num = (v: RawNullableNum | undefined): number => Number(v ?? 0);
 const str = (v: string | null | undefined): string => v ?? '';
 
 /** `{都道府県名}{市町村郡}{丁目番地}{ 建物名}` を連結する（建物名は空なら省略）。 */

@@ -70,7 +70,7 @@ describe('Password reset (SCR-012) — integration (pg-mem + ioredis-mock)', () 
     it('should insert t_mfa_otp row with otp_type=2 and call MailService when email exists', async () => {
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(200);
 
       const rows = await ctx.dataSource.query(
@@ -93,7 +93,7 @@ describe('Password reset (SCR-012) — integration (pg-mem + ioredis-mock)', () 
     it('should return 200 success without inserting any OTP when email does NOT exist', async () => {
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'nobody@example.com' })
+        .send({ login_id: 'admin01', email: 'nobody@example.com' })
         .expect(200);
 
       const rows = await ctx.dataSource.query(
@@ -105,10 +105,35 @@ describe('Password reset (SCR-012) — integration (pg-mem + ioredis-mock)', () 
       expect(mail.sendPasswordReset).not.toHaveBeenCalled();
     });
 
+    it('should return 200 success without inserting any OTP when login_id and email do not match the same account', async () => {
+      // login_id exists (admin01) but the email belongs to no account →
+      // the (login_id AND email) pair matches nothing → silent success,
+      // identical to an unknown email (anti-enumeration).
+      await http()
+        .post('/api/v1/auth/forgot-password')
+        .send({ login_id: 'admin01', email: 'someone-else@example.com' })
+        .expect(200);
+
+      const rows = await ctx.dataSource.query(
+        `SELECT count(*) AS c FROM t_mfa_otp WHERE otp_type = 2`,
+      );
+      expect(Number(rows[0].c)).toBe(0);
+      const mail = ctx.app.get(MailService);
+      expect(mail.sendPasswordReset).not.toHaveBeenCalled();
+    });
+
     it('should return 400 VALIDATION_ERROR when email format is invalid', async () => {
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'not-an-email' })
+        .send({ login_id: 'admin01', email: 'not-an-email' })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 400 VALIDATION_ERROR when login_id is missing', async () => {
+      const res = await http()
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'admin@nichino.co.jp' })
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
     });
@@ -129,7 +154,7 @@ describe('Password reset (SCR-012) — integration (pg-mem + ioredis-mock)', () 
 
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(200);
 
       const token = new URL(capturedUrl).searchParams.get('token')!;
@@ -163,7 +188,7 @@ describe('Password reset (SCR-012) — integration (pg-mem + ioredis-mock)', () 
       );
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(200);
       return new URL(capturedUrl).searchParams.get('token')!;
     }

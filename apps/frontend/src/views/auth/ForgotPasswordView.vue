@@ -9,12 +9,13 @@ import { forgotPassword } from '@/api/auth/auth';
 const router = useRouter();
 const { fieldErrors, submitting, submit } = useApiForm();
 
-const form = reactive({ email: '' });
+const form = reactive({ login_id: '', email: '' });
 
 /** Toggled to true once the BE returns success — hides the form per §3.3 */
 const sent = ref(false);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LOGIN_ID_REQUIRED_MSG = 'ユーザーIDを入力してください。'; // ACSMS-MSG-001-001
 const REQUIRED_MSG = 'メールアドレスを入力してください。'; // ACSMS-SCR-012-001
 const FORMAT_MSG = '有効なメールアドレスを入力してください。'; // ACSMS-SCR-012-002
 const SUCCESS_MSG =
@@ -33,6 +34,9 @@ const SUCCESS_MSG =
  */
 function validateClient(): Record<string, string> {
   const errs: Record<string, string> = {};
+  // login_id — required only (mirrors LoginView; BE checks 半角/長さ format
+  // and returns the field error which useApiForm maps back to fieldErrors).
+  if (!form.login_id?.trim()) errs.login_id = LOGIN_ID_REQUIRED_MSG;
   if (!form.email?.trim()) errs.email = REQUIRED_MSG;
   if (!errs.email && form.email && !EMAIL_RE.test(form.email)) {
     errs.email = FORMAT_MSG;
@@ -48,7 +52,7 @@ async function onSubmit(): Promise<void> {
   }
 
   await submit(async () => {
-    await forgotPassword(form.email);
+    await forgotPassword(form.login_id, form.email);
     // screen-design SCR-012 §3.3 — hide the form. §3.4 — show ACSMS-SCR-012-003.
     // Same message regardless of whether the email exists (BE handles
     // account-enumeration prevention; FE just renders what comes back).
@@ -58,6 +62,7 @@ async function onSubmit(): Promise<void> {
 
 function goLogin(): void {
   // screen-design SCR-012 §4.2 — clear input data on navigate-back.
+  form.login_id = '';
   form.email = '';
   router.push({ name: 'Login' });
 }
@@ -105,11 +110,29 @@ function goLogin(): void {
           <!-- Not yet sent — show the form. -->
           <template v-else>
             <p class="text-sm text-text-description leading-relaxed text-center mb-6">
-              登録済みのメールアドレスを入力してください。<br>
+              ユーザーIDと登録済みのメールアドレスを入力してください。<br>
               パスワード再設定用のリンクをメールで送信します。
             </p>
 
             <a-form layout="vertical" :model="form" @finish="onSubmit">
+              <a-form-item
+                name="login_id"
+                :validate-status="fieldErrors.login_id ? 'error' : ''"
+                :help="fieldErrors.login_id"
+              >
+                <template #label>
+                  <span>ユーザーID</span>
+                  <span class="text-error ml-1">*</span>
+                </template>
+                <a-input
+                  v-model:value="form.login_id"
+                  size="large"
+                  placeholder="IDを入力してください"
+                  autocomplete="username"
+                  :maxlength="20"
+                />
+              </a-form-item>
+
               <a-form-item
                 name="email"
                 :validate-status="fieldErrors.email ? 'error' : ''"

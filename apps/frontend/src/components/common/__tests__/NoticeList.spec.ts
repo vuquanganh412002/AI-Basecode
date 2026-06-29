@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-001 — ログイン画面 (お知らせエリア §15)
 //
 // Drives src/components/common/NoticeList.vue. Component renders a card

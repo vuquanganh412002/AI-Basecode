@@ -17,6 +17,10 @@ export interface JaResponse {
   tanto_busho: string;
   tanto_name: string;
   zei_kubun: string;
+  jastem_itakusha_code: string;
+  jastem_itakusha_name: string;
+  jastem_ja_code: string;
+  jastem_ja_name: string;
   biko: string;
   created_at: string;
   updated_at: string | null;
@@ -45,6 +49,10 @@ export function buildJa(overrides: Partial<JaResponse> = {}): JaResponse {
     tanto_busho: '総務部',
     tanto_name: '田中太郎',
     zei_kubun: '1',
+    jastem_itakusha_code: '',
+    jastem_itakusha_name: '',
+    jastem_ja_code: '',
+    jastem_ja_name: '',
     biko: '',
     created_at: '2026-01-15T10:00:00Z',
     updated_at: '2026-03-10T14:30:00Z',

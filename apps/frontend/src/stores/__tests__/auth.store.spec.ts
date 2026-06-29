@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-001 — ログイン画面
 //
 // Drives src/stores/auth.store.ts. Each describe block maps to one of the

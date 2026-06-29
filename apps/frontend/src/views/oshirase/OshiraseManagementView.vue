@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { Modal, message, type TableColumnsType } from 'ant-design-vue';
+import { Modal, type TableColumnsType } from 'ant-design-vue';
 import type { AxiosError } from 'axios';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
+import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import {
   listOshirase,
@@ -35,6 +36,7 @@ import { OshiraseStatus, OshiraseType, PublishLocation } from '@/constants/enums
 // 値で分岐するロジックは Group A の TS 定数（PublishLocation /
 // OshiraseType / OshiraseStatus）で表現する — マジックナンバーは置かない。
 const codes = useCodesStore();
+const notify = useNotify();
 
 // 締め切り時間 (OshiraseType.DEADLINE) is the special slot that drives
 // the 1:1 pairing with PublishLocation.MENU_DEADLINE + system-wide
@@ -431,7 +433,7 @@ function applyServerErrors(err: unknown): boolean {
   // (see api/error-handler.ts) and skips its default toast so this view
   // is the single source of the user-visible banner — no duplicate toasts.
   if (data.error_code === 'DEADLINE_NOTICE_DUPLICATE' && data.message) {
-    message.error(data.message);
+    notify.error(data.message);
     return true;
   }
   if (data.error_code === 'VALIDATION_ERROR' && Array.isArray(data.errors)) {
@@ -453,11 +455,11 @@ async function onSubmit(): Promise<void> {
   try {
     if (isEdit.value && editingId.value !== null) {
       await updateOshirase(editingId.value, body);
-      message.success('更新しました。');
+      notify.updated();
     } else {
       const created = await createOshirase(body);
       editingId.value = created.data.oshirase_id;
-      message.success('登録しました。');
+      notify.created();
     }
     await fetchList();
     // 保存後はサーバの保存済みデータでフォームを再表示する（新規作成時の
@@ -633,7 +635,7 @@ function askDelete(row: OshiraseListItem): void {
   confirmDelete(DELETE_CONFIRM_CONTENT, async () => {
     try {
       await removeOshirase(row.oshirase_id);
-      message.success('削除しました。');
+      notify.deleted();
       // If we were editing the deleted row, return to create mode.
       if (editingId.value === row.oshirase_id) onClear();
       await fetchList();

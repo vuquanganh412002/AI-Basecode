@@ -69,15 +69,22 @@ describe('Auth throttle — integration (ThrottlerGuard wired)', () => {
       for (let i = 0; i < 10; i++) {
         await http()
           .post('/api/v1/auth/login')
+          .set('Connection', 'close')
           .send({ login_id: 'admin01', password: 'P@ssw0rd123' })
           .expect(200);
       }
 
-      // 11th MUST be 429.
+      // 11th MUST be 429 — with the project's localized (Japanese) body,
+      // NOT the ThrottlerException default English "Too Many Requests".
       await http()
         .post('/api/v1/auth/login')
+        .set('Connection', 'close')
         .send({ login_id: 'admin01', password: 'P@ssw0rd123' })
-        .expect(429);
+        .expect(429)
+        .expect((res) => {
+          expect(res.body.error_code).toBe('TOO_MANY_REQUESTS');
+          expect(res.body.message).toContain('リクエスト回数が上限を超えました');
+        });
     });
 
     it('should still rate-limit when credentials are invalid (prevents brute-force)', async () => {
@@ -87,12 +94,14 @@ describe('Auth throttle — integration (ThrottlerGuard wired)', () => {
       for (let i = 0; i < 10; i++) {
         await http()
           .post('/api/v1/auth/login')
+          .set('Connection', 'close')
           .send({ login_id: 'admin01', password: 'WrongPass99' })
           .expect(401);
       }
 
       await http()
         .post('/api/v1/auth/login')
+        .set('Connection', 'close')
         .send({ login_id: 'admin01', password: 'WrongPass99' })
         .expect(429);
     });
@@ -105,12 +114,14 @@ describe('Auth throttle — integration (ThrottlerGuard wired)', () => {
       for (let i = 0; i < 10; i++) {
         await http()
           .post('/api/v1/auth/login')
+          .set('Connection', 'close')
           .send({ login_id: '', password: 'short' })
           .expect(400);
       }
 
       await http()
         .post('/api/v1/auth/login')
+        .set('Connection', 'close')
         .send({ login_id: '', password: 'short' })
         .expect(429);
     });
@@ -120,41 +131,55 @@ describe('Auth throttle — integration (ThrottlerGuard wired)', () => {
   describe('POST /api/v1/auth/forgot-password (limit: 3 req/hour)', () => {
     it('should return 429 TOO_MANY_REQUESTS on the 4th forgot-password call within an hour', async () => {
       // 3 valid forgot-password calls succeed (always 200 — anti-enum).
-      // Each uses a DIFFERENT email so the BE's 5-minute DB-cooldown
-      // (per-account, see auth.service.ts forgotPassword) doesn't kick
-      // in and confuse the throttle assertion.
+      // The body needs BOTH login_id + email (the pair targets one account,
+      // see ForgotPasswordDto). Each uses a NON-EXISTENT login_id/email pair
+      // so (a) nothing matches → always 200 anti-enum, and (b) the BE's
+      // 5-minute per-account DB-cooldown never fires (it only triggers for
+      // EXISTING accounts), keeping the throttle assertion clean.
       for (let i = 0; i < 3; i++) {
         await http()
           .post('/api/v1/auth/forgot-password')
-          .send({ email: `unknown${i}@example.com` })
+          .set('Connection', 'close')
+          .send({ login_id: `nouser${i}`, email: `unknown${i}@example.com` })
           .expect(200);
       }
 
-      // 4th call MUST be 429 from the Throttler.
+      // 4th call MUST be 429 from the Throttler — localized Japanese body.
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'another@example.com' })
-        .expect(429);
+        .set('Connection', 'close')
+        .send({ login_id: 'another', email: 'another@example.com' })
+        .expect(429)
+        .expect((res) => {
+          expect(res.body.error_code).toBe('TOO_MANY_REQUESTS');
+          expect(res.body.message).toContain('リクエスト回数が上限を超えました');
+        });
     });
 
     it('should rate-limit regardless of whether the email belongs to a real account', async () => {
-      // Mix of known + unknown emails — Throttler doesn't differentiate.
+      // Mix of a real account (admin01/admin@nichino.co.jp, called once so
+      // no 5-min cooldown) + unknown pairs — Throttler runs before the
+      // service so it doesn't differentiate. All valid bodies → 200.
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .set('Connection', 'close')
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(200);
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'ghost@example.com' })
+        .set('Connection', 'close')
+        .send({ login_id: 'ghost', email: 'ghost@example.com' })
         .expect(200);
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'another@example.com' })
+        .set('Connection', 'close')
+        .send({ login_id: 'another', email: 'another@example.com' })
         .expect(200);
 
       await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'fourth@example.com' })
+        .set('Connection', 'close')
+        .send({ login_id: 'fourth', email: 'fourth@example.com' })
         .expect(429);
     });
   });

@@ -1,15 +1,12 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
-import { FileDownload } from '@/database/entities/file-download.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
-import { MailService } from '@/modules/mail/mail.service';
 import { StorageService } from '@/modules/storage/storage.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
@@ -23,7 +20,6 @@ import { ValidationException } from '@/common/exceptions/common.exceptions';
 import {
   AuditOperation,
   DokusyaShubetsu,
-  DownloadType,
   LogType,
   ResultStatus,
   TetsuzukiShurui,
@@ -34,6 +30,8 @@ import { ZougenHanbaitenQueryDto } from './dto/zougen-hanbaiten-query.dto';
 import { ZougenNichinoQueryDto } from './dto/zougen-nichino-query.dto';
 import { ReportNoDataException } from './exceptions/report-no-data.exception';
 import { PdfExportService } from './pdf-export.service';
+import { ReportArchiveService } from './report-archive.service';
+import { ReportNotificationService } from './report-notification.service';
 import {
   buildMeiboPreview,
   groupByHanbaiten,
@@ -55,12 +53,10 @@ import {
 } from './zougen.mapper';
 import {
   buildZougenNichinoDocDefinition,
-  formatKanriShitenCode,
   groupZougenNichinoReports,
   ZOUGEN_NICHINO_PER_PAGE,
   type ZougenNichinoPreviewData,
   type ZougenNichinoRawRow,
-  type ZougenNichinoReport,
 } from './zougen-nichino.mapper';
 
 const SCREEN_NAME = '購読者名簿出力画面 (ACSMS-SCR-026)';
@@ -83,13 +79,18 @@ const EXCEL_ROWS_PER_PAGE: Record<'hanbaiten' | 'kanri_shiten', number> = {
 
 // ─── ACSMS-SCR-028 — 増減連絡票（販売店） ─────────────────────────────
 const ZOUGEN_SCREEN_NAME = '増減連絡票（販売店）出力画面 (ACSMS-SCR-028)';
-const ZOUGEN_TARGET_TABLE = 't_file_download';
+// SCR-028 は共通の ReportArchiveService 経由で S3 + t_file_upload に保存する
+// ため、操作ログの対象テーブルは t_file_upload。
+const ZOUGEN_TARGET_TABLE = 't_file_upload';
 const PDF_MIME = 'application/pdf';
+// SCR-029 も共通の ReportArchiveService 経由で S3 + t_file_upload に保存する
+// ようになったため、操作ログの対象テーブルは t_file_upload。
+const NICHINO_TARGET_TABLE = 't_file_upload';
 
 // ─── ACSMS-SCR-029 — 増減通知（日本農業新聞） ─────────────────────────
 const NICHINO_SCREEN_NAME = '増減通知（日本農業新聞）出力画面 (ACSMS-SCR-029)';
-/** 日農担当者向け通知メールの宛先（未設定時のフォールバック）。 */
-const NICHINO_NOTIFY_FALLBACK = 'nichino-gyomu@agrinews.jp';
+// 通知先ロール: NICHINO_ADMIN(1) / NICHINO_STAFF(2)（m_roles SERIAL 順）。
+const NICHINO_NOTIFY_ROLE_IDS = [1, 2];
 
 export interface ExportMeiboResult {
   buffer: Buffer;
@@ -111,17 +112,18 @@ export type ExportZougenResult =
     };
 
 /**
- * SCR-029 出力結果。対象0件は `{ empty: true }`。それ以外は全管理支店を
- * プレビューと同じ改ページ（15行/ページ）でまとめた**1つのPDF**。
+ * SCR-029 出力結果。対象0件は `{ empty: true }`。
+ * それ以外はブラウザへ PDF を返さず、S3 アーカイブ（t_file_upload）+
+ * 日農担当者へのメール通知のみを行い、保存ファイル名と通知宛先数を返す。
  */
 export type ExportZougenNichinoResult =
   | { empty: true }
   | {
       empty: false;
-      buffer: Buffer;
-      filename: string;
-      asciiFilename: string;
-      contentType: 'application/pdf';
+      /** S3 に保存したファイル名（タイムスタンプ付き）。 */
+      fileName: string;
+      /** 通知メールを送信した宛先数。 */
+      recipientCount: number;
     };
 
 @Injectable()
@@ -131,25 +133,25 @@ export class ReportService {
   constructor(
     @InjectRepository(DokusyaRireki)
     private readonly rirekiRepo: Repository<DokusyaRireki>,
-    @InjectRepository(FileDownload)
-    private readonly fileDownloadRepo: Repository<FileDownload>,
     private readonly auditLog: AuditLogService,
     // CodeService (@Global) — reserved for future m_code label resolution.
     private readonly codeService: CodeService,
+    // storage は SCR-026/028 の名残で保持する（現状の出力は全て
+    // ReportArchiveService 経由のため未使用だが、constructor 位置を維持して
+    // 既存 spec の `new ReportService(...)` を壊さない）。
     private readonly storage: StorageService,
-    // SCR-028 appends these so SCR-026-only specs (5-arg `new`) keep
-    // type-checking. Production DI always injects the real instances.
+    private readonly reportArchive: ReportArchiveService,
+    // SCR-028 appends these so SCR-026-only specs keep type-checking.
+    // Production DI always injects the real instances.
     @Optional()
     @InjectDataSource()
     private readonly dataSource?: DataSource,
     @Optional()
     private readonly pdfService?: PdfExportService,
-    // SCR-029 appends these (mail通知 + 通知先アドレス取得). @Optional() so the
+    // SCR-029 appends this（日農担当者へのメール通知）. @Optional() so the
     // SCR-026/028 specs that `new` with fewer args keep type-checking.
     @Optional()
-    private readonly mailService?: MailService,
-    @Optional()
-    private readonly configService?: ConfigService,
+    private readonly reportNotification?: ReportNotificationService,
   ) {}
 
   // ─── ACSMS-API-026-001 — GET /api/v1/report/meibo/preview ────────
@@ -182,26 +184,23 @@ export class ReportService {
 
       const preview = this.buildPreview(query, rows);
       const buffer = await this.buildExcelBuffer(preview);
-      const filename = this.buildFilename(query.tekiyo_date);
+      // ダウンロード用ファイル名（タイムスタンプ無し）。
+      const filename = this.buildFilename(query.tekiyo_date, query.report_type);
 
-      // S3保存（パス: ja-{ja_id}/report/meibo/{filename}）。
-      const key = `ja-${session.ja_id ?? 0}/report/meibo/${filename}`;
-      await this.storage.upload(key, buffer, XLSX_MIME);
-
-      // ファイルダウンロード履歴の記録（download_type=5: 購読者名簿）。
-      await this.fileDownloadRepo.save(
-        this.fileDownloadRepo.create({
-          jaId: session.ja_id ?? null,
-          downloadDatetime: new Date(),
-          downloadType: DownloadType.MEIBO,
-          fileName: filename,
-          filePath: key,
-          fileSize: buffer.length,
-          recordCount: rows.length,
-          targetMonth: this.targetMonth(query.tekiyo_date),
-          createdBy: String(session.account_id),
-        }),
-      );
+      // S3 アーカイブ（タイムスタンプ付きファイル名）+ t_file_upload 登録は
+      // 共通の ReportArchiveService に委譲する。S3 パスの年は適用日の年。
+      const [year] = query.tekiyo_date.split('-');
+      await this.reportArchive.archive({
+        buffer,
+        baseName: this.buildBaseName(query.tekiyo_date, query.report_type),
+        category: 'meibo',
+        subFolder: query.report_type,
+        year,
+        jaId: session.ja_id ?? null,
+        session,
+        recordCount: rows.length,
+        contentType: XLSX_MIME,
+      });
 
       return { buffer, filename };
     } catch (err) {
@@ -253,11 +252,8 @@ export class ReportService {
     session: SessionPayload,
     req: Request,
   ): Promise<ExportZougenResult> {
-    if (!this.dataSource) {
-      throw new Error(
-        'ReportService.dataSource is undefined — SCR-028 export requires it.',
-      );
-    }
+    // SCR-028 は ReportArchiveService 経由で S3 + t_file_upload に保存するため
+    // dataSource トランザクションは使わない。PDF 生成のみ必須。
     if (!this.pdfService) {
       throw new Error(
         'ReportService.pdfService is undefined — SCR-028 export requires it.',
@@ -266,7 +262,7 @@ export class ReportService {
 
     try {
       const rows = await this.fetchZougenRows(query, session);
-      // 対象0件 → PDFは生成せず、ダウンロード履歴・操作ログも残さない。
+      // 対象0件 → PDFは生成せず、アーカイブ・操作ログも残さない。
       // controller が 200 + 空配列で応答する（preview と同じ no-data 方針）。
       if (rows.length === 0) return { empty: true };
 
@@ -280,64 +276,66 @@ export class ReportService {
       );
       const buffer = await this.pdfService.generatePdf(docDefinition);
 
-      const filename = this.buildZougenFilename(query.tekiyo_date);
+      // ファイル名はログイン権限で分岐する（JA_KANRI_SHITEN は ja_name を含める）。
+      // ダウンロード名はタイムスタンプ無し、S3 名のみ ReportArchiveService が
+      // 14桁の JST タイムスタンプを付与する。
+      const ja = await this.reportArchive.resolveJa(session.ja_id ?? null);
+      const baseName = this.buildZougenBaseName(
+        query.tekiyo_date,
+        session.role_code,
+        ja.code,
+        ja.name,
+      );
+      const filename = `${baseName}.pdf`;
       const asciiFilename = this.buildZougenAsciiFilename(query.tekiyo_date);
 
-      // S3保存は外部I/Oのためトランザクション外で先に完了させる（4.4）。
-      const ymd = query.tekiyo_date.replaceAll('-', '');
-      const key = `ja-${session.ja_id ?? 0}/report/zougen_hanbaiten_${ymd}_${Date.now()}.pdf`;
-      await this.storage.upload(key, buffer, PDF_MIME);
+      // S3 保存 + t_file_upload 登録は共通の ReportArchiveService に委譲する。
+      // S3 パス: reports/zougen-hanbaiten/{ja_code}/{year}/（subFolder なし）。
+      const [year] = query.tekiyo_date.split('-');
+      const archived = await this.reportArchive.archive({
+        buffer,
+        baseName,
+        category: 'zougen-hanbaiten',
+        year,
+        jaId: session.ja_id ?? null,
+        jaCode: ja.code,
+        session,
+        recordCount: rows.length,
+        contentType: PDF_MIME,
+        extension: '.pdf',
+      });
 
-      // ダウンロード履歴登録(4.5) + 操作ログ(4.6) を単一トランザクションで実行。
-      await this.dataSource.transaction(async (manager) => {
-        const saved = await manager.save(
-          FileDownload,
-          manager.create(FileDownload, {
-            jaId: session.ja_id ?? null,
-            downloadDatetime: new Date(),
-            downloadType: DownloadType.ZOUGEN,
-            fileName: filename,
-            filePath: key,
-            fileSize: buffer.length,
-            recordCount: rows.length,
-            targetMonth: this.zougenTargetMonth(query.tekiyo_date),
-            createdBy: String(session.account_id),
-          }),
-        );
-
-        const ctx = buildAuditCtx(
-          session,
-          req,
-          ZOUGEN_SCREEN_NAME,
-          ZOUGEN_TARGET_TABLE,
-          saved.fileDownloadId ?? null,
-        );
-        // 個人情報（氏名・住所）は含めず、出力条件と件数のみを記録する（4.6）。
-        const afterValue = JSON.stringify({
-          tekiyo_date: query.tekiyo_date,
-          hanbaiten_id: query.hanbaiten_id ?? null,
-          kanri_shiten_id: query.kanri_shiten_id ?? null,
-          report_count: reports.length,
-          record_count: rows.length,
-          file_name: filename,
-        });
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.USER_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.EXPORT_PDF,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue,
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
-          manager,
-        );
+      // 操作ログ（4.6）— アーカイブと原子的に対にすべき DML がないため
+      // 単一トランザクションは組まず、標準コネクションで記録する。
+      const ctx = buildAuditCtx(
+        session,
+        req,
+        ZOUGEN_SCREEN_NAME,
+        ZOUGEN_TARGET_TABLE,
+        archived.fileUploadId,
+      );
+      // 個人情報（氏名・住所）は含めず、出力条件と件数のみを記録する（4.6）。
+      const afterValue = JSON.stringify({
+        tekiyo_date: query.tekiyo_date,
+        hanbaiten_id: query.hanbaiten_id ?? null,
+        kanri_shiten_id: query.kanri_shiten_id ?? null,
+        report_count: reports.length,
+        record_count: rows.length,
+        file_name: filename,
+      });
+      await this.auditLog.logOperation({
+        logType: LogType.USER_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: AuditOperation.EXPORT_PDF,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
       });
 
       return { empty: false, buffer, filename, asciiFilename };
@@ -388,11 +386,6 @@ export class ReportService {
     session: SessionPayload,
     req: Request,
   ): Promise<ExportZougenNichinoResult> {
-    if (!this.dataSource) {
-      throw new Error(
-        'ReportService.dataSource is undefined — SCR-029 export requires it.',
-      );
-    }
     if (!this.pdfService) {
       throw new Error(
         'ReportService.pdfService is undefined — SCR-029 export requires it.',
@@ -408,10 +401,9 @@ export class ReportService {
       const bikoByKs = new Map<number, string>(
         (query.remarks ?? []).map((r) => [Number(r.kanri_shiten_id), r.biko ?? '']),
       );
-      const ymd = query.tekiyo_date.replaceAll('-', '');
 
       // プレビューと同じ改ページ（15行/ページ・管理支店コード順）で**1つのPDF**に
-      // まとめて出力する。S3保存は外部I/OのためDB登録前にトランザクション外で完了。
+      // まとめて出力する。ブラウザへは返さず、S3 アーカイブ + メール通知のみ行う。
       const doc = buildZougenNichinoDocDefinition(
         rows,
         query.tekiyo_date,
@@ -419,78 +411,80 @@ export class ReportService {
         ZOUGEN_NICHINO_PER_PAGE,
       );
       const buffer = await this.pdfService.generatePdf(doc);
-      const filename = `増減通知_${ymd}.pdf`;
-      const asciiFilename = `zougen_nichino_${ymd}.pdf`;
-      const key = `ja-${session.ja_id ?? 0}/report/zougen_nichino_${ymd}_${Date.now()}.pdf`;
-      await this.storage.upload(key, buffer, PDF_MIME);
 
-      // 日農担当者へメール自動通知（4.5）。失敗してもPDF出力は成功扱いとし、
-      // 警告ログ（log_type=2）を残す（トランザクション外）。
-      await this.notifyNichino(query, reports, session, req);
+      // 基底ファイル名: 増減通知_{YYYY年MM月DD日}（年月日表記）。
+      const [year, month, day] = query.tekiyo_date.split('-');
+      const baseName = `増減通知_${year}年${month}月${day}日`;
 
-      // ダウンロード履歴登録（4.6）+ 操作ログ（4.7）を単一トランザクションで実行。
-      await this.dataSource.transaction(async (manager) => {
-        const saved = await manager.save(
-          FileDownload,
-          manager.create(FileDownload, {
-            jaId: session.ja_id ?? null,
-            downloadDatetime: new Date(),
-            downloadType: DownloadType.ZOUGEN_NICHINO,
-            fileName: filename,
-            filePath: key,
-            fileSize: buffer.length,
-            recordCount: rows.length,
-            targetMonth: this.zougenTargetMonth(query.tekiyo_date),
-            createdBy: String(session.account_id),
-          }),
-        );
-
-        const ctx = buildAuditCtx(
-          session,
-          req,
-          NICHINO_SCREEN_NAME,
-          ZOUGEN_TARGET_TABLE,
-          saved.fileDownloadId ?? null,
-        );
-        // 個人情報（氏名・住所）は含めず、出力条件と件数のみを記録する（4.7）。
-        const afterValue = JSON.stringify({
-          tekiyo_date: query.tekiyo_date,
-          kanri_shiten_id: query.kanri_shiten_id ?? null,
-          report_count: reports.length,
-          record_count: rows.length,
-          file_name: filename,
-        });
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.USER_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.EXPORT_PDF,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue,
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
-          manager,
-        );
+      // S3 保存 + t_file_upload 登録は共通の ReportArchiveService に委譲する。
+      // S3 パス: reports/zougen_nichino/{ja_code}/{YYYY}/（subFolder なし、
+      // YYYY=適用日の年）。ReportArchiveService が 14桁(JST)のタイムスタンプを
+      // ファイル名に付与する。
+      const archived = await this.reportArchive.archive({
+        buffer,
+        baseName,
+        category: 'zougen_nichino',
+        year,
+        jaId: session.ja_id ?? null,
+        session,
+        recordCount: rows.length,
+        contentType: PDF_MIME,
+        extension: '.pdf',
       });
 
-      // プレビューと同じ1つのPDF（全管理支店・15行/ページ）を返す（4.8）。
-      return {
-        empty: false,
-        buffer,
-        filename,
-        asciiFilename,
-        contentType: PDF_MIME,
-      };
+      // 日農担当者（NICHINO_ADMIN/STAFF）へメール自動通知（4.5）。
+      // fire-and-forget / non-fatal: notifyRoles は throw しないため await して
+      // recipient_count を得る（メール失敗時も S3保存・監査ログは成功扱い）。
+      const recipientCount =
+        (await this.reportNotification?.notifyRoles(NICHINO_NOTIFY_ROLE_IDS, {
+          subject: '増減通知（日本農業新聞）を出力しました',
+          body:
+            `<p>増減通知（日本農業新聞）を出力しました。</p>` +
+            `<p>対象月：${query.tekiyo_date}<br>` +
+            `ファイル名：${archived.filename}<br>` +
+            `件数：${rows.length}件</p>` +
+            `<p>ファイル管理画面からダウンロードできます。</p>`,
+        })) ?? 0;
+
+      // 操作ログ（4.7）— アーカイブと原子的に対にすべき DML がないため
+      // 単一トランザクションは組まず、標準コネクションで記録する。
+      const ctx = buildAuditCtx(
+        session,
+        req,
+        NICHINO_SCREEN_NAME,
+        NICHINO_TARGET_TABLE,
+        archived.fileUploadId,
+      );
+      // 個人情報（氏名・住所）は含めず、出力条件と件数のみを記録する（4.7）。
+      const afterValue = JSON.stringify({
+        tekiyo_date: query.tekiyo_date,
+        kanri_shiten_id: query.kanri_shiten_id ?? null,
+        report_count: reports.length,
+        record_count: rows.length,
+        file_name: archived.filename,
+        recipient_count: recipientCount,
+      });
+      await this.auditLog.logOperation({
+        logType: LogType.USER_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: AuditOperation.EXPORT_PDF,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+
+      // ブラウザへは返さず、保存ファイル名と通知宛先数のみ返す（4.8）。
+      return { empty: false, fileName: archived.filename, recipientCount };
     } catch (err) {
       // DB/S3/PDF障害等は log_type=3 をトランザクション外で記録する（4.9）。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, NICHINO_SCREEN_NAME, ZOUGEN_TARGET_TABLE, null),
+        buildAuditCtx(session, req, NICHINO_SCREEN_NAME, NICHINO_TARGET_TABLE, null),
         AuditOperation.EXPORT_PDF,
         err as Error,
       );
@@ -924,18 +918,7 @@ export class ReportService {
     const outTime = nowTimeJst(); // 全ページ同一時刻（ページ毎の再評価でズレない）
 
     // 明細行を描画順にフラット化 + グループの先頭/最終インデックス。
-    const flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[] = [];
-    for (const hg of data.hanbaiten_groups) {
-      for (const sg of hg.kanri_shiten_groups) {
-        for (const row of sg.rows) flat.push({ hg, row });
-      }
-    }
-    const lastIdx = new Map<number, number>();
-    const firstIdx = new Map<number, number>();
-    flat.forEach((f, i) => {
-      if (!firstIdx.has(f.hg.hanbaiten_id)) firstIdx.set(f.hg.hanbaiten_id, i);
-      lastIdx.set(f.hg.hanbaiten_id, i);
-    });
+    const { flat, firstIdx, lastIdx } = this.flattenHanbaitenRows(data);
 
     const N = EXCEL_ROWS_PER_PAGE.hanbaiten;
     const totalPages = Math.max(1, Math.ceil(flat.length / N));
@@ -943,24 +926,13 @@ export class ReportService {
     for (let page = 1; page <= totalPages; page++) {
       const pageStart = idx;
       this.writeHanbaitenPageHeader(sheet, data, COLS, page, totalPages, outDate, outTime);
-      let curHg: number | null = null;
-      const pageEnd = Math.min(idx + N, flat.length);
-      while (idx < pageEnd) {
-        const { hg, row } = flat[idx];
-        if (hg.hanbaiten_id !== curHg) {
-          this.writeHanbaitenBand(sheet, hg, COLS, lastCol, firstIdx.get(hg.hanbaiten_id)! < pageStart);
-          curHg = hg.hanbaiten_id;
-        }
-        this.writeHanbaitenDetail(sheet, row, COLS);
-        if (idx === lastIdx.get(hg.hanbaiten_id)) {
-          this.styleRow(
-            sheet.addRow(['', '', '', '', '', '小計', `${hg.total_busu}件`]),
-            COLS,
-            { fill: true, bold: true, center: true },
-          );
-        }
-        idx++;
-      }
+      idx = this.writeHanbaitenPageDetails(
+        sheet,
+        flat,
+        { start: idx, end: Math.min(idx + N, flat.length), pageStart },
+        { firstIdx, lastIdx },
+        { cols: COLS, lastCol },
+      );
       // 合計は最終ページにのみ（複数販売店のとき）。
       if (page === totalPages && data.hanbaiten_groups.length > 1) {
         this.styleRow(
@@ -974,6 +946,66 @@ export class ReportService {
     }
 
     this.applyA4PageSetup(sheet);
+  }
+
+  /** 明細行を描画順にフラット化し、販売店ごとの先頭/最終インデックスを得る。 */
+  private flattenHanbaitenRows(data: MeiboPreviewData): {
+    flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[];
+    firstIdx: Map<number, number>;
+    lastIdx: Map<number, number>;
+  } {
+    const flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[] = [];
+    for (const hg of data.hanbaiten_groups) {
+      for (const sg of hg.kanri_shiten_groups) {
+        for (const row of sg.rows) flat.push({ hg, row });
+      }
+    }
+    const firstIdx = new Map<number, number>();
+    const lastIdx = new Map<number, number>();
+    flat.forEach((f, i) => {
+      if (!firstIdx.has(f.hg.hanbaiten_id)) firstIdx.set(f.hg.hanbaiten_id, i);
+      lastIdx.set(f.hg.hanbaiten_id, i);
+    });
+    return { flat, firstIdx, lastIdx };
+  }
+
+  /**
+   * 1 文書ページ分の明細（販売店見出し帯 + 明細行 + グループ小計）を書き、
+   * 次ページ開始の flat インデックスを返す。
+   */
+  private writeHanbaitenPageDetails(
+    sheet: ExcelJS.Worksheet,
+    flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[],
+    range: { start: number; end: number; pageStart: number },
+    idxMaps: { firstIdx: Map<number, number>; lastIdx: Map<number, number> },
+    layout: { cols: number; lastCol: string },
+  ): number {
+    const { cols, lastCol } = layout;
+    let idx = range.start;
+    let curHg: number | null = null;
+    while (idx < range.end) {
+      const { hg, row } = flat[idx];
+      if (hg.hanbaiten_id !== curHg) {
+        this.writeHanbaitenBand(
+          sheet,
+          hg,
+          cols,
+          lastCol,
+          idxMaps.firstIdx.get(hg.hanbaiten_id)! < range.pageStart,
+        );
+        curHg = hg.hanbaiten_id;
+      }
+      this.writeHanbaitenDetail(sheet, row, cols);
+      if (idx === idxMaps.lastIdx.get(hg.hanbaiten_id)) {
+        this.styleRow(
+          sheet.addRow(['', '', '', '', '', '小計', `${hg.total_busu}件`]),
+          cols,
+          { fill: true, bold: true, center: true },
+        );
+      }
+      idx++;
+    }
+    return idx;
   }
 
   /** 販売店別: 1ページ分の帳票ヘッダ + 表頭（ページ数 k/M をセルに直接）。 */
@@ -1169,16 +1201,30 @@ export class ReportService {
     return `〒${m[1].slice(0, 3)}-${m[1].slice(3)}\n${m[2]}`;
   }
 
-  /** 購読者名簿_{YYYY年MM月}.xlsx（適用日 tekiyo_date=YYYY-MM-DD に基づく）。 */
-  private buildFilename(tekiyoDate: string): string {
-    const [y, m] = tekiyoDate.split('-');
-    return `${SHEET_NAME}_${y}年${m}月.xlsx`;
+  /**
+   * {販売店別|管理支店別}購読者名簿_{YYYY年MM月}.xlsx（適用日
+   * tekiyo_date=YYYY-MM-DD に基づく）。prefix は帳票種別で切替
+   * （hanbaiten=販売店別 / kanri_shiten=管理支店別）。
+   * 例: 販売店別購読者名簿_2026年01月.xlsx
+   */
+  private buildFilename(
+    tekiyoDate: string,
+    reportType: 'hanbaiten' | 'kanri_shiten',
+  ): string {
+    return `${this.buildBaseName(tekiyoDate, reportType)}.xlsx`;
   }
 
-  /** target_month: YYYYMM（適用日に基づく）。 */
-  private targetMonth(tekiyoDate: string): string {
+  /**
+   * 拡張子を除いたファイル名の基底（例: 販売店別購読者名簿_2026年01月）。
+   * ダウンロード名・S3 アーカイブ名の両方の土台にする。
+   */
+  private buildBaseName(
+    tekiyoDate: string,
+    reportType: 'hanbaiten' | 'kanri_shiten',
+  ): string {
     const [y, m] = tekiyoDate.split('-');
-    return `${y}${m}`;
+    const prefix = reportType === 'hanbaiten' ? '販売店別' : '管理支店別';
+    return `${prefix}${SHEET_NAME}_${y}年${m}月`;
   }
 
   // ─── ACSMS-SCR-028 private helpers ─────────────────────────────────
@@ -1346,21 +1392,30 @@ export class ReportService {
     return qb.getRawMany<ZougenRawRow>();
   }
 
-  /** 表示名：増減連絡票_販売店_{YYYY年MM月DD日}.pdf（適用日に基づく）。 */
-  private buildZougenFilename(tekiyoDate: string): string {
+  /**
+   * 増減連絡票（販売店）のファイル名基底（拡張子・タイムスタンプ無し）。
+   * ログイン権限で分岐する：
+   * - JA_KANRI_SHITEN → `増減連絡票_{ja_code}_{ja_name}_{YYYY年MM月DD日}`
+   * - それ以外（CHUOKAI / JA_HONTEN など）→ `増減連絡票_{ja_code}_{YYYY年MM月DD日}`
+   * 日付は適用日（tekiyo_date）に基づく。
+   */
+  private buildZougenBaseName(
+    tekiyoDate: string,
+    roleCode: string,
+    jaCode: string,
+    jaName: string,
+  ): string {
     const [y, m, d] = tekiyoDate.split('-');
-    return `増減連絡票_販売店_${y}年${m}月${d}日.pdf`;
+    const date = `${y}年${m}月${d}日`;
+    if (roleCode === 'JA_KANRI_SHITEN') {
+      return `増減連絡票_${jaCode}_${jaName}_${date}`;
+    }
+    return `増減連絡票_${jaCode}_${date}`;
   }
 
   /** ASCII別名：zougen_hanbaiten_{YYYYMMDD}.pdf（Content-Disposition filename用）。 */
   private buildZougenAsciiFilename(tekiyoDate: string): string {
     return `zougen_hanbaiten_${tekiyoDate.replaceAll('-', '')}.pdf`;
-  }
-
-  /** target_month: YYYYMM（適用日に基づく）。 */
-  private zougenTargetMonth(tekiyoDate: string): string {
-    const [y, m] = tekiyoDate.split('-');
-    return `${y}${m}`;
   }
 
   // ─── ACSMS-SCR-029 private helpers ─────────────────────────────────
@@ -1518,56 +1573,4 @@ export class ReportService {
       .addOrderBy('r.rireki_no', 'ASC');
     return qb.getRawMany<ZougenNichinoRawRow>();
   }
-
-  /**
-   * 日農担当者へ増減通知の作成完了をメールで通知する（4.5）。宛先は
-   * `mail.nichinoNotifyAddress`（未設定時はフォールバック）。本文は適用日・
-   * 対象管理支店・件数のみ（個人情報は含めない）。送信失敗時はPDF出力を成功扱い
-   * とし、警告ログ（log_type=2）を残してフローを継続する。
-   */
-  private async notifyNichino(
-    query: ZougenNichinoQueryDto,
-    reports: ZougenNichinoReport[],
-    session: SessionPayload,
-    req: Request,
-  ): Promise<void> {
-    if (!this.mailService) return;
-    const to =
-      this.configService?.get<string>('mail.nichinoNotifyAddress') ??
-      NICHINO_NOTIFY_FALLBACK;
-    const recordCount = reports.reduce((sum, r) => sum + r.rows.length, 0);
-    const targets = reports
-      .map((r) => `${formatKanriShitenCode(r.kanri_shiten_code)} ${r.kanri_shiten_name}`)
-      .join('、');
-    const content =
-      `増減通知を作成しました。\n` +
-      `適用日：${query.tekiyo_date}\n` +
-      `対象管理支店：${targets}\n` +
-      `件数：${recordCount}件`;
-    try {
-      await this.mailService.sendNotification(to, '増減通知 作成完了', content);
-    } catch (err) {
-      // メール失敗はPDF出力の成否に影響させない（4.5）。警告ログのみ。
-      this.logger.warn({
-        event: 'report.nichino.mail_failed',
-        accountId: session.account_id,
-        message: (err as Error).message,
-      });
-      await this.auditLog.logOperation({
-        logType: LogType.SYSTEM,
-        accountId: session.account_id,
-        jaId: session.ja_id ?? null,
-        gamenName: NICHINO_SCREEN_NAME,
-        operation: AuditOperation.EXPORT_PDF,
-        resultStatus: ResultStatus.WARNING,
-        targetTable: ZOUGEN_TARGET_TABLE,
-        beforeValue: '',
-        afterValue: '',
-        errorMessage: `mail notify failed: ${(err as Error).message}`,
-        ipAddress: String(req?.ip ?? ''),
-        userAgent: String(req?.headers?.['user-agent'] ?? ''),
-      });
-    }
-  }
-
 }

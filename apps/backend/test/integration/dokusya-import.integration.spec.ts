@@ -260,10 +260,14 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
 
       const header = (sheet.getRow(1).values as unknown[]).slice(1);
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
-      expect(header.length).toBe(49);
+      // v1.2（顧客要件 2026-06）: 手続種類を削除し、購読者情報と同じ / 販売店適用日 を
+      // 追加（49 → 50 列）。
+      expect(header.length).toBe(50);
       // Sample demonstrates a valid 紙版 / 新規 format example.
       expect(Number(sample[header.indexOf('購読種別')])).toBe(1);
-      expect(Number(sample[header.indexOf('手続種類')])).toBe(1);
+      expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）
+      expect(header).toContain('購読者情報と同じ'); // 追加
+      expect(header).toContain('販売店適用日'); // 追加
       expect(String(sample[header.indexOf('備考')])).toContain('書き換えて');
     });
   });

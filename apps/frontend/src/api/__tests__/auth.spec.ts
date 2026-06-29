@@ -97,8 +97,11 @@ describe('auth API wrapper', () => {
   it('forgotPassword() posts /api/v1/auth/forgot-password and returns { message }', async () => {
     const { forgotPassword } = await import('@/api/auth/auth');
     post.mockResolvedValue({ data: { message: 'メールを送信しました。' } });
-    const out = await forgotPassword('x@example.com');
-    expect(post).toHaveBeenCalledWith('/api/v1/auth/forgot-password', { email: 'x@example.com' });
+    const out = await forgotPassword('admin01', 'x@example.com');
+    expect(post).toHaveBeenCalledWith('/api/v1/auth/forgot-password', {
+      login_id: 'admin01',
+      email: 'x@example.com',
+    });
     expect(out).toEqual({ message: 'メールを送信しました。' });
   });
 

@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-025 — アカウントマスタ登録画面
 //
 // Drives src/views/account/AccountFormView.vue (rewrites the SCR-024-era
@@ -17,8 +16,8 @@ import AccountFormView from '@/views/account/AccountFormView.vue';
 import {
   buildAccountDetail,
   buildCreateAccountForm,
-  buildUpdateAccountForm,
   buildTodofukenList,
+  type CreateAccountForm,
 } from '@test/fixtures/account-form.fixture';
 import {
   buildAuthUser,
@@ -120,7 +119,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
  */
 async function fillForm(
   vm: { formState: Record<string, unknown> },
-  form: Record<string, unknown>,
+  form: CreateAccountForm,
 ): Promise<void> {
   Object.assign(vm.formState, form);
   await flushPromises();
@@ -636,7 +635,10 @@ describe('AccountFormView — create success (機能定義 2.3 / 2.4)', () => {
     await flushPromises();
 
     expect(createAccount).toHaveBeenCalledTimes(1);
-    const body = vi.mocked(createAccount).mock.calls[0]?.[0] as Record<string, unknown>;
+    const body = vi.mocked(createAccount).mock.calls[0]?.[0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body).toMatchObject({
       login_id: 'ja_honten_new',
       role_id: 4,
@@ -755,7 +757,10 @@ describe('AccountFormView — update flow (edit mode)', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    const body = vi.mocked(updateAccount).mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = vi.mocked(updateAccount).mock.calls[0]?.[1] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(body.password === '' || body.password === undefined).toBe(true);
   });
 

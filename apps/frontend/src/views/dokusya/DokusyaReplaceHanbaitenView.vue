@@ -35,6 +35,8 @@ import { Modal, message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
+import BaseKanriShitenDropdown from '@/components/common/BaseKanriShitenDropdown.vue';
+import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useAuthStore } from '@/stores/auth.store';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
@@ -44,9 +46,9 @@ import {
   type ReplaceSearchItem,
   type ReplaceSearchParams,
 } from '@/api/dokusya/dokusya';
-import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
+// 支店 だけは「管理支店選択まで読込まない」遅延カスケード（機能定義 1.3）のため
+// 専用の getShitenDropdown を直接使う。管理支店 / 販売店 は Base*Dropdown に委譲。
 import { getShitenDropdown } from '@/api/shiten/shiten';
-import { getHanbaitenDropdown } from '@/api/hanbaiten/hanbaiten';
 
 // ─── Filter state ─────────────────────────────────────────────────────
 
@@ -107,22 +109,17 @@ const replaceError = ref<string>('');
 
 // ─── Dropdown lookups ────────────────────────────────────────────────
 
-interface KanriShitenOption {
-  kanri_shiten_id: number;
-  kanri_shiten_name: string;
-}
 interface ShitenOption {
   shiten_id: number;
   shiten_name: string;
 }
-interface HanbaitenOption {
-  hanbaiten_id: number;
-  hanbaiten_name: string;
-}
 
-const kanriShitenOptions = ref<KanriShitenOption[]>([]);
+// 支店 だけ専用 state を持つ（遅延カスケード）。管理支店 / 販売店 は
+// Base*Dropdown が内部で候補を保持する。
 const shitenOptions = ref<ShitenOption[]>([]);
-const hanbaitenOptions = ref<HanbaitenOption[]>([]);
+
+/** Base*Dropdown の JA スコープ（セッションの JA）。 */
+const filterJaId = computed(() => authStore.user?.ja_id ?? 0);
 
 /** 機能定義 1.1 — 支店 is disabled until a 管理支店 is chosen. */
 const isShitenDisabled = computed(
@@ -132,31 +129,6 @@ const isShitenDisabled = computed(
 
 /** ≥1 row checked reveals 適用日 / 置換先 + enables 置換処理実行. */
 const hasSelection = computed(() => selectedRowKeys.value.length > 0);
-
-async function fetchKanriShitenDropdown(): Promise<void> {
-  const jaId = authStore.user?.ja_id ?? 0;
-  try {
-    const res = await getKanriShitenDropdown(jaId);
-    kanriShitenOptions.value = res.data.map((r) => ({
-      kanri_shiten_id: r.kanri_shiten_id,
-      kanri_shiten_name: r.kanri_shiten_name,
-    }));
-  } catch {
-    kanriShitenOptions.value = [];
-  }
-}
-
-async function fetchHanbaitenDropdown(): Promise<void> {
-  try {
-    const res = await getHanbaitenDropdown({});
-    hanbaitenOptions.value = res.data.map((r) => ({
-      hanbaiten_id: r.hanbaiten_id,
-      hanbaiten_name: r.hanbaiten_name,
-    }));
-  } catch {
-    hanbaitenOptions.value = [];
-  }
-}
 
 /** 機能定義 7.x — load 支店 list scoped to the chosen 管理支店. */
 async function fetchShitenDropdown(kanriShitenId: number): Promise<void> {
@@ -171,23 +143,9 @@ async function fetchShitenDropdown(kanriShitenId: number): Promise<void> {
   }
 }
 
-/**
- * 機能定義 7.x — when 管理支店 changes: reset the 支店 selection, then
- * (if a value was chosen) reload the 支店 dropdown scoped to it; when
- * cleared, empty/disable the 支店 dropdown.
- */
-function onKanriShitenChange(value: number | undefined): void {
-  state.filters.kanri_shiten_id = value;
-  state.filters.shiten_id = undefined;
-  if (value === undefined || value === null) {
-    shitenOptions.value = [];
-    return;
-  }
-  void fetchShitenDropdown(value);
-}
-
-// Mirror the handler when the spec mutates the filter directly (no
-// @change event in jsdom): watch the bound value so 支店 still reloads.
+// 機能定義 7.x — 管理支店（BaseKanriShitenDropdown の v-model）が変わったら
+// 支店選択をリセットし、値があれば 支店 候補をスコープして再読込、クリア時は
+// 支店候補を空にする（遅延読込）。spec が filter を直接書換えるケースも拾う。
 watch(
   () => state.filters.kanri_shiten_id,
   (next, prev) => {
@@ -271,13 +229,14 @@ function buildSearchParams(): ReplaceSearchParams {
     sort_by: state.sort_by as ReplaceSearchParams['sort_by'],
     sort_order: state.sort_order,
   };
-  if (f.kanri_shiten_id !== undefined) params.kanri_shiten_id = f.kanri_shiten_id;
+  // 管理支店 / 販売店 は Base*Dropdown が未選択時 null を emit（!= null で両対応）。
+  if (f.kanri_shiten_id != null) params.kanri_shiten_id = f.kanri_shiten_id;
   if (f.shiten_id !== undefined) params.shiten_id = f.shiten_id;
   if (f.kumiaiin_code) params.kumiaiin_code = f.kumiaiin_code;
   if (f.shimei) params.shimei = f.shimei;
   if (f.shimei_kana) params.shimei_kana = f.shimei_kana;
   if (f.haitatsu_address) params.haitatsu_address = f.haitatsu_address;
-  if (f.hanbaiten_id !== undefined) params.hanbaiten_id = f.hanbaiten_id;
+  if (f.hanbaiten_id != null) params.hanbaiten_id = f.hanbaiten_id;
   if (f.dokusya_kaishi_date_from)
     params.dokusya_kaishi_date_from = f.dokusya_kaishi_date_from;
   if (f.dokusya_kaishi_date_to)
@@ -304,8 +263,7 @@ async function fetchList(): Promise<void> {
 }
 
 onMounted(() => {
-  void fetchKanriShitenDropdown();
-  void fetchHanbaitenDropdown();
+  // 管理支店 / 販売店 候補は Base*Dropdown が onMounted で自前読込する。
   // 初期表示でフィルタ未指定のまま検索を実行し、購読中の購読者一覧を
   // デフォルト表示する（検索ボタンを押さなくてもデータを表示）。
   void fetchList();
@@ -445,7 +403,6 @@ defineExpose({
   submitting,
   isShitenDisabled,
   shitenOptions,
-  onKanriShitenChange,
 });
 </script>
 
@@ -462,21 +419,11 @@ defineExpose({
       <!-- 管理支店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
-        <a-select
-          :value="state.filters.kanri_shiten_id"
-          placeholder="選択してください"
-          allow-clear
+        <BaseKanriShitenDropdown
+          v-model:value="state.filters.kanri_shiten_id"
+          :ja-id="filterJaId"
           class="flex-1"
-          @change="onKanriShitenChange"
-        >
-          <a-select-option
-            v-for="opt in kanriShitenOptions"
-            :key="opt.kanri_shiten_id"
-            :value="opt.kanri_shiten_id"
-          >
-            {{ opt.kanri_shiten_name }}
-          </a-select-option>
-        </a-select>
+        />
       </div>
 
       <!-- 支店 (disabled until 管理支店 chosen) -->
@@ -546,20 +493,11 @@ defineExpose({
       <!-- 配達販売店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
-        <a-select
+        <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
-          placeholder="選択してください"
-          allow-clear
+          :ja-id="filterJaId"
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in hanbaitenOptions"
-            :key="opt.hanbaiten_id"
-            :value="opt.hanbaiten_id"
-          >
-            {{ opt.hanbaiten_name }}
-          </a-select-option>
-        </a-select>
+        />
       </div>
 
       <!-- 購読開始日 (date range) -->
@@ -609,20 +547,11 @@ defineExpose({
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">置換先配達販売店</span>
           <span class="text-error">*</span>
-          <a-select
+          <BaseHanbaitenDropdown
             v-model:value="replaceForm.new_hanbaiten_id"
-            placeholder="選択してください"
-            allow-clear
+            :ja-id="filterJaId"
             class="flex-1"
-          >
-            <a-select-option
-              v-for="opt in hanbaitenOptions"
-              :key="opt.hanbaiten_id"
-              :value="opt.hanbaiten_id"
-            >
-              {{ opt.hanbaiten_name }}
-            </a-select-option>
-          </a-select>
+          />
         </div>
       </div>
 

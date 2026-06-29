@@ -15,7 +15,9 @@ import {
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import {
   applyBranchScope,
-  assertBranchScope,
+  applyJaScope,
+  assertJaScope,
+  assertBranchScopeViolation,
   fetchFkInJa,
 } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
@@ -119,12 +121,15 @@ export class ShitenService {
 
   // ─── API-006-001 — GET /api/v1/shiten ────────────────────────────────
   /**
-   * Paginated search across `m_shiten`. Applies §4.3 DataScope:
-   * NICHINO_* unrestricted (handled at guard layer in practice — not
-   * granted `shiten.view`), CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
-   * scoped by `ja_id = session.ja_id` per 画面定義§1.1
-   * (JA_KANRI_SHITEN does NOT scope down to kanri_shiten_id here —
-   * branch users see all branches inside their own JA).
+   * Paginated search across `m_shiten`. Applies §4.3 DataScope at JA
+   * level for EVERY restricted role: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
+   * all scoped by `ja_id = session.ja_id`; NICHINO_* unrestricted
+   * (handled at guard layer in practice — not granted `shiten.view`).
+   *
+   * 顧客要件 2026-06: JA_KANRI_SHITEN は **閲覧のみ** 自管理支店配下に
+   * 限定せず同一 JA の全支店を一覧できる（kanri_shiten_id で絞らない）。
+   * 更新/削除は従来どおり自管理支店配下のみ（update/remove の
+   * assertBranchScopeViolation で担保）。
    */
   async findAll(
     query: SearchShitenDto,
@@ -145,17 +150,12 @@ export class ShitenService {
     // [soft-delete-filter]
     qb.where('m.deleted_at IS NULL');
 
-    // [data-scope] per role:
-    //   NICHINO_*          → no filter
-    //   CHUOKAI / JA_HONTEN → ja_id = session.ja_id
-    //   JA_KANRI_SHITEN    → kanri_shiten_id = session.kanri_shiten_id
-    //                        (自分の管理支店配下の支店のみ)
-    applyBranchScope(
-      qb,
-      'm',
-      { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' },
-      session,
-    );
+    // [data-scope] 閲覧スコープは全制限ロール JA レベル:
+    //   NICHINO_*                          → no filter
+    //   CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN → ja_id = session.ja_id
+    // （JA_KANRI_SHITEN も kanri_shiten_id で絞らない — 顧客要件 2026-06。
+    //   更新/削除の権限境界は update/remove 側で kanri_shiten_id 判定）。
+    applyJaScope(qb, 'm', 'jaId', session);
 
     // [filter-conditions] — partial-match (ILIKE) for text inputs, exact
     // for kanri_shiten_id / kinyu_shiten_flg. kinyu_shiten_flg=undefined
@@ -245,12 +245,17 @@ export class ShitenService {
     req: Request,
   ): Promise<{ message: string }> {
     // [fetch-target] — also serves as before_value in audit log.
-    // [data-scope] fetch unscoped, then assert (out-of-JA masks as 404).
     const before = await this.repo.findOne({
       where: { shitenId: id, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('支店');
-    assertBranchScope(before.jaId, before.kanriShitenId, session, '支店');
+    // [data-scope] 顧客要件 2026-06 — 2段階:
+    //   1) 別 JA は 404（存在を秘匿）。
+    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行を削除しよう
+    //      とした場合は 403（一覧で閲覧可能な行なので 404 で隠さず明示拒否）。
+    //      CHUOKAI / JA_HONTEN は ja_id 判定なので同一 JA 内は素通り。
+    assertJaScope(before.jaId, session, '支店');
+    assertBranchScopeViolation(before.jaId, before.kanriShitenId, session);
 
     // [fk-conflict-check] — conflict check on t_dokusya. Thrown ConflictException
     // bypasses the try/catch below by design — it's a user-fixable
@@ -398,8 +403,11 @@ export class ShitenService {
    * existence + scope SELECT — out-of-scope rows return null which the
    * caller masks as NotFound, preventing existence leaks).
    *
-   * §1.2 (screen-design): JA_KANRI_SHITEN sees own-JA shiten, not
-   * own-kanri-shiten — scope is ja_id only.
+   * §1.2 (screen-design) + 顧客要件 2026-06: JA_KANRI_SHITEN sees any
+   * own-JA shiten (閲覧のみ — not narrowed to own-kanri-shiten). Scope is
+   * ja_id only; out-of-JA masks as 404. The edit form opened from a
+   * non-own branch is read-only on the FE, and update/remove reject it
+   * with 403 server-side (assertBranchScopeViolation).
    */
   async findById(
     id: number,
@@ -411,7 +419,7 @@ export class ShitenService {
       where: { shitenId: id, deletedAt: IsNull() },
     });
     if (!row) throw new NotFoundException('支店');
-    assertBranchScope(row.jaId, row.kanriShitenId, session, '支店');
+    assertJaScope(row.jaId, session, '支店');
 
     return toShitenDetail(row);
   }
@@ -542,12 +550,17 @@ export class ShitenService {
     req: Request,
   ): Promise<ShitenDetailDto & { message: string }> {
     // [fetch-target] existence + [data-scope] — fetch unscoped, then
-    // assert by ja_id (out-of-JA masks as 404).
+    // assert. 顧客要件 2026-06 — 2段階:
+    //   1) 別 JA は 404（存在を秘匿）。
+    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行を更新しよう
+    //      とした場合は 403（一覧で閲覧可能な行なので明示拒否）。CHUOKAI /
+    //      JA_HONTEN は ja_id 判定なので同一 JA 内は素通り。
     const before = await this.repo.findOne({
       where: { shitenId: id, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('支店');
-    assertBranchScope(before.jaId, before.kanriShitenId, session, '支店');
+    assertJaScope(before.jaId, session, '支店');
+    assertBranchScopeViolation(before.jaId, before.kanriShitenId, session);
 
     // FK guard + Layer 4 DataScope — new kanri_shiten must exist AND
     // belong to the SAME JA as the existing shiten (before.jaId). For

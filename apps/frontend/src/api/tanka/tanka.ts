@@ -1,13 +1,11 @@
 import axiosInstance from '@/api/axios-instance';
 
 // Hand-written API wrapper for the 単価マスタ (m_tanka) endpoints.
-// Mirrors `apps/frontend/src/api/ja/ja.ts` — the project keeps a thin
-// layer on top of Orval so the response envelope is unwrapped at this
-// boundary and the views consume clean shapes. The Orval-generated
-// stubs at `@/api/generated/tanka/tanka.ts` return `void` because the
-// backend Swagger doesn't declare a response schema for the list /
-// delete endpoints; the types below are the single source of truth on
-// the FE side (matches docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md).
+// Mirrors `apps/frontend/src/api/ja/ja.ts` — a thin layer over the shared
+// axiosInstance that unwraps the response envelope at this boundary so the
+// views consume clean shapes. The interfaces below are the single source of
+// truth for these shapes on the FE side (matches
+// docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md).
 //
 // SCR-002 ships listTanka + removeTanka. SCR-003 (create / update /
 // detail) will extend this file with getTanka / createTanka /

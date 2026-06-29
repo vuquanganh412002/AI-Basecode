@@ -11,7 +11,6 @@ import { message } from 'ant-design-vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
-import { timestampForFilenameTokyo } from '@/utils/datetime';
 import {
   getInitialKozaFurikae,
   exportKozaFurikae,
@@ -200,11 +199,14 @@ async function onCreate(): Promise<void> {
   if (submitting.value) return;
   submitting.value = true;
   try {
-    const blob = await exportKozaFurikae(buildBody());
+    const { blob, filename } = await exportKozaFurikae(buildBody());
     const url = globalThis.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `koza_furikae_${timestampForFilenameTokyo()}.csv`;
+    // ファイル名はサーバ（ja_code + 引落日）が決めるため Content-Disposition から
+    // 受け取る。取得できないときのみ引落日ベースの既定名にフォールバックする。
+    const [y, m, d] = (formState.hikiotoshi_date as string).split('-');
+    link.download = filename ?? `口座振替データ_${y}年${m}月${d}日.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();

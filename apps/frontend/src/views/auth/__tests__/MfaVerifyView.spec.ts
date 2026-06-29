@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-001 — ログイン画面 (Step 2 — 2段階認証)
 //
 // Drives src/views/auth/MfaVerifyView.vue. Each it() maps to a clause in
@@ -170,8 +169,6 @@ describe('MfaVerifyView', () => {
       await flushPromises();
       // Click handler bails when otp.length !== 6 (component logic).
       // The button is also `:disabled="otp.length !== 6"`. Locate it.
-      const buttons = wrapper.findAll('button');
-      const verifyBtn = buttons.find((b) => b.attributes('type') !== 'button' || b.text().includes('認'));
       // The primary button has disabled when otp empty.
       const disabledBtn = wrapper.find('button[disabled]');
       expect(disabledBtn.exists()).toBe(true);

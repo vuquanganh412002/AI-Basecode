@@ -1,8 +1,7 @@
 // Drives src/api/axios-instance.ts. The instance is the project's
 // single HTTP client — assert (a) it carries withCredentials so the
-// session cookie is attached on every request, (b) the response
-// interceptor delegates rejections to handleApiError, and (c) the
-// `customInstance` helper that Orval expects forwards configs.
+// session cookie is attached on every request and (b) the response
+// interceptor delegates rejections to handleApiError.
 
 import { describe, it, expect, vi } from 'vitest';
 
@@ -37,10 +36,5 @@ describe('axios-instance', () => {
     const err = { isAxiosError: true, response: { status: 500 } };
     await expect(rejected!.rejected(err)).rejects.toThrow('forwarded');
     expect(handleApiError).toHaveBeenCalledWith(err);
-  });
-
-  it('should export customInstance as a callable function for Orval to use', async () => {
-    const { customInstance } = await import('@/api/axios-instance');
-    expect(typeof customInstance).toBe('function');
   });
 });

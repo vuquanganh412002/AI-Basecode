@@ -920,11 +920,12 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
 
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(200);
 
       expect(res.body.message).toContain('パスワード再設定用のメールを送信しました');
       expect(service.forgotPassword).toHaveBeenCalledWith(
+        'admin01',
         'admin@nichino.co.jp',
         expect.objectContaining({ ipAddress: expect.any(String) }),
       );
@@ -933,7 +934,7 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
     it('should return 400 VALIDATION_ERROR when email format is invalid', async () => {
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'not-an-email' })
+        .send({ login_id: 'admin01', email: 'not-an-email' })
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
       expect(res.body.errors).toEqual(
@@ -946,9 +947,22 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
     it('should return 400 VALIDATION_ERROR when email is missing', async () => {
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({})
+        .send({ login_id: 'admin01' })
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 400 VALIDATION_ERROR when login_id is missing', async () => {
+      const res = await http()
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'admin@nichino.co.jp' })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ field: 'login_id' }),
+        ]),
+      );
     });
 
     it('should return 200 with same message when email is NOT registered (account enumeration prevention)', async () => {
@@ -958,7 +972,7 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
 
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'nobody@example.com' })
+        .send({ login_id: 'admin01', email: 'nobody@example.com' })
         .expect(200);
 
       expect(res.body.message).toContain('パスワード再設定用のメールを送信しました');
@@ -968,7 +982,7 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
       service.forgotPassword.mockRejectedValue(new Error('db down'));
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
@@ -978,7 +992,7 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
 
       const res = await http()
         .post('/api/v1/auth/forgot-password')
-        .send({ email: 'admin@nichino.co.jp' })
+        .send({ login_id: 'admin01', email: 'admin@nichino.co.jp' })
         .expect(429);
 
       expect(res.body.error_code).toBe('PASSWORD_RESET_RATE_LIMIT');

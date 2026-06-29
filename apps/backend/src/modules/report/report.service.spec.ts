@@ -31,11 +31,11 @@ import {
 describe('ReportService', () => {
   let service: ReportService;
   let rirekiRepo: any;
-  let fileDownloadRepo: any;
   let qbMock: any;
   let auditLog: any;
   let codeService: any;
   let storage: any;
+  let reportArchive: any;
 
   const req = { ip: '192.168.1.50', headers: { 'user-agent': 'jest' } } as any;
 
@@ -64,10 +64,6 @@ describe('ReportService', () => {
       getMany: jest.fn().mockResolvedValue([]),
     };
     rirekiRepo = { createQueryBuilder: jest.fn(() => qbMock) };
-    fileDownloadRepo = {
-      create: jest.fn((v: any) => v),
-      save: jest.fn(async (v: any) => ({ fileDownloadId: 1, ...v })),
-    };
     auditLog = {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
@@ -77,21 +73,26 @@ describe('ReportService', () => {
       getLabel: jest.fn().mockReturnValue(''),
     };
     storage = { upload: jest.fn().mockResolvedValue(undefined) };
+    reportArchive = {
+      archive: jest
+        .fn()
+        .mockResolvedValue({ key: 'reports/meibo/x/y/2026/f.xlsx', filename: 'f.xlsx' }),
+    };
 
     // Constructor order MUST match the service:
     //   constructor(
     //     @InjectRepository(DokusyaRireki) rirekiRepo,
-    //     @InjectRepository(FileDownload) fileDownloadRepo,
     //     auditLog: AuditLogService,
     //     codeService: CodeService,
     //     storage: StorageService,
+    //     reportArchive: ReportArchiveService,
     //   )
     service = new ReportService(
       rirekiRepo,
-      fileDownloadRepo,
       auditLog,
       codeService,
       storage,
+      reportArchive,
     );
   });
 
@@ -469,7 +470,7 @@ describe('ReportService', () => {
   // API-026-002 — GET /api/v1/report/meibo/export (Excel)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportMeiboExcel', () => {
-    it('should return an Excel buffer + 購読者名簿_{YYYY年MM月}.xlsx filename when data exists', async () => {
+    it('should return an Excel buffer + 販売店別購読者名簿_{YYYY年MM月}.xlsx filename (report_type=hanbaiten) when data exists', async () => {
       // COVERS: 4.4 / 4.6
       qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow()]);
 
@@ -482,10 +483,22 @@ describe('ReportService', () => {
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
-          filename: expect.stringMatching(/^購読者名簿_\d{4}年\d{2}月\.xlsx$/),
+          filename: expect.stringMatching(/^販売店別購読者名簿_\d{4}年\d{2}月\.xlsx$/),
         }),
       );
-      expect(result.filename).toBe('購読者名簿_2026年04月.xlsx');
+      expect(result.filename).toBe('販売店別購読者名簿_2026年04月.xlsx');
+    });
+
+    it('should prefix the filename with 管理支店別 when report_type=kanri_shiten', async () => {
+      qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow()]);
+
+      const result = await service.exportMeiboExcel(
+        buildKanriShitenMeiboQuery({ tekiyo_date: '2026-04-01' }),
+        jaSession(),
+        req,
+      );
+
+      expect(result.filename).toBe('管理支店別購読者名簿_2026年04月.xlsx');
     });
 
     it('exports ONE A4-formatted sheet (fit-to-width A4) so 印刷 prints all pages', async () => {
@@ -531,24 +544,28 @@ describe('ReportService', () => {
       expect(joined).toContain('ページ数：3/3');
     });
 
-    it('should upload the generated Excel to S3 when export succeeds', async () => {
-      // COVERS: 4.4 — 生成した Excel を S3 に保存
-      qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow()]);
-
-      await service.exportMeiboExcel(buildMeiboQuery(), jaSession(), req);
-
-      expect(storage.upload).toHaveBeenCalledTimes(1);
-    });
-
-    it('should record a t_file_download row with download_type=5 (購読者名簿) when export succeeds', async () => {
-      // COVERS: 4.5 — ファイルダウンロード履歴の記録
+    it('should archive the generated Excel via ReportArchiveService when export succeeds', async () => {
+      // COVERS: 4.4 / 4.5 — S3 保存 + t_file_upload 登録を共通サービスへ委譲
       qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow(), buildMeiboRawRow()]);
 
-      await service.exportMeiboExcel(buildMeiboQuery(), jaSession(), req);
+      await service.exportMeiboExcel(
+        buildMeiboQuery({ tekiyo_date: '2026-04-01' }),
+        jaSession(),
+        req,
+      );
 
-      expect(fileDownloadRepo.save).toHaveBeenCalledTimes(1);
-      const saved = fileDownloadRepo.save.mock.calls[0][0];
-      expect(saved.downloadType ?? saved.download_type).toBe(5);
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg).toEqual(
+        expect.objectContaining({
+          category: 'meibo',
+          subFolder: 'hanbaiten',
+          year: '2026',
+          baseName: '販売店別購読者名簿_2026年04月',
+          recordCount: 2,
+          buffer: expect.any(Buffer),
+        }),
+      );
     });
 
     it('should throw REPORT_NO_DATA (HTTP 404) when no rows match (Excel not generated)', async () => {
@@ -560,8 +577,7 @@ describe('ReportService', () => {
       ).rejects.toMatchObject({
         response: expect.objectContaining({ error_code: 'REPORT_NO_DATA' }),
       });
-      expect(storage.upload).not.toHaveBeenCalled();
-      expect(fileDownloadRepo.save).not.toHaveBeenCalled();
+      expect(reportArchive.archive).not.toHaveBeenCalled();
     });
 
     it('should emit an error log (log_type=3) OUTSIDE any transaction when export fails', async () => {
@@ -605,6 +621,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
   let auditLog: any;
   let codeService: any;
   let storage: any;
+  let reportArchive: any;
   let dataSource: any;
   let txManager: any;
   let pdfService: any;
@@ -666,17 +683,25 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
     };
     dataSource = { transaction: jest.fn(async (cb: any) => cb(txManager)) };
     pdfService = { generatePdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 test')) };
+    reportArchive = {
+      archive: jest
+        .fn()
+        .mockResolvedValue({ key: 'k', filename: 'f.pdf', fileUploadId: 1 }),
+      resolveJa: jest
+        .fn()
+        .mockResolvedValue({ code: 'JA001', name: 'テストJA' }),
+    };
 
     // Constructor: SCR-028 appends @Optional() dataSource + pdfService
     // after the SCR-026 deps.
-    //   constructor(rirekiRepo, fileDownloadRepo, auditLog, codeService,
-    //               storage, @Optional() dataSource?, @Optional() pdfService?)
+    //   constructor(rirekiRepo, auditLog, codeService, storage,
+    //               reportArchive, @Optional() dataSource?, @Optional() pdfService?)
     service = new ReportService(
       rirekiRepo,
-      fileDownloadRepo,
       auditLog,
       codeService,
       storage,
+      reportArchive,
       dataSource,
       pdfService,
     );
@@ -978,7 +1003,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
   // API-028-002 — POST /api/v1/report/zougen-hanbaiten/export (PDF)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportZougenHanbaitenPdf', () => {
-    it('should return a PDF buffer + 増減連絡票_販売店_{YYYY年MM月DD日}.pdf filename when data exists', async () => {
+    it('should return a PDF buffer + role-aware filename (CHUOKAI → no ja_name) when data exists', async () => {
+      // COVERS: ファイル名 (CHUOKAI/JA_HONTEN) = 増減連絡票_{ja_code}_{YYYY年MM月DD日}.pdf
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
 
       const result = await service.exportZougenHanbaitenPdf(
@@ -990,39 +1016,61 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
-          filename: '増減連絡票_販売店_2026年05月01日.pdf',
+          filename: '増減連絡票_JA001_2026年05月01日.pdf',
         }),
       );
       expect(pdfService.generatePdf).toHaveBeenCalledTimes(1);
     });
 
-    it('should upload the generated PDF to S3 when export succeeds', async () => {
+    it('should include ja_name in the filename when the role is JA_KANRI_SHITEN', async () => {
+      // COVERS: ファイル名 (JA_KANRI_SHITEN) = 増減連絡票_{ja_code}_{ja_name}_{YYYY年MM月DD日}.pdf
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
-      await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);
-      expect(storage.upload).toHaveBeenCalledTimes(1);
+
+      const result = await service.exportZougenHanbaitenPdf(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        buildJaKanriShitenSession({
+          ja_id: 1,
+          permissions: ['report.export_zougen_hanbaiten'],
+        }),
+        req,
+      );
+
+      expect(result).toMatchObject({
+        filename: '増減連絡票_JA001_テストJA_2026年05月01日.pdf',
+      });
     });
 
-    it('should record a t_file_download row with download_type=3 (増減連絡票) when export succeeds', async () => {
-      // COVERS: 4.5 download_type=3
+    it('should archive the PDF via ReportArchiveService (category=zougen-hanbaiten, subFolder-less path, year from tekiyo_date)', async () => {
+      // COVERS: 共通 S3 アーカイブ + t_file_upload。subFolder なし・年=適用日年。
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
-      await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);
+      await service.exportZougenHanbaitenPdf(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
 
-      const saved =
-        (fileDownloadRepo.create.mock.calls[0]?.[0] as any) ??
-        (txManager.create.mock.calls[0]?.[1] as any) ??
-        (txManager.save.mock.calls[0]?.[1] as any);
-      expect(saved.downloadType ?? saved.download_type).toBe(3);
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg).toEqual(
+        expect.objectContaining({
+          category: 'zougen-hanbaiten',
+          year: '2026',
+          jaCode: 'JA001',
+          baseName: '増減連絡票_JA001_2026年05月01日',
+          contentType: 'application/pdf',
+          extension: '.pdf',
+          recordCount: 1,
+        }),
+      );
+      // subFolder は付けない（meibo と異なる）。
+      expect(arg.subFolder).toBeUndefined();
+      // 旧 S3 直 upload / t_file_download 保存は行わない。
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(fileDownloadRepo.save).not.toHaveBeenCalled();
     });
 
-    it('should wrap t_file_download + operation log in a single dataSource.transaction', async () => {
-      // COVERS: 4.5/4.6 単一トランザクション
-      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
-      await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);
-      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-    });
-
-    it('should write an operation log with EXPORT_PDF + result_status success when export succeeds', async () => {
-      // COVERS: 4.6 操作ログ — operation 'EXPORT_PDF'
+    it('should write an operation log with EXPORT_PDF + result_status success + targetTable t_file_upload', async () => {
+      // COVERS: 操作ログ — operation 'EXPORT_PDF' / target = t_file_upload
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
       await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession({ account_id: 11 }), req);
 
@@ -1033,13 +1081,28 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
           logType: 1,
           operation: 'EXPORT_PDF',
           resultStatus: 1,
-          targetTable: 't_file_download',
+          targetTable: 't_file_upload',
         }),
       );
+      // 単一 t_file_upload なので原子化すべき DML が無く、トランザクションは使わない。
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should record the archived t_file_upload id as the audit targetId', async () => {
+      reportArchive.archive.mockResolvedValueOnce({
+        key: 'k',
+        filename: 'f.pdf',
+        fileUploadId: 55,
+      });
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+      await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);
+
+      const args = auditLog.logOperation.mock.calls[0][0];
+      expect(args.targetId).toBe(55);
     });
 
     it('should NOT log personal data (氏名/住所) in the operation log after_value', async () => {
-      // COVERS: 4.6 個人情報は含めない
+      // COVERS: 個人情報は含めない
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
       await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);
 
@@ -1049,18 +1112,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(after).not.toContain('神田');
     });
 
-    it('should rollback (operation log + t_file_download share the tx) when the audit log fails', async () => {
-      // COVERS: tx rollback
-      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
-      auditLog.logOperation.mockRejectedValueOnce(new Error('audit-down'));
-
-      await expect(
-        service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req),
-      ).rejects.toBeDefined();
-    });
-
-    it('should emit an error log (log_type=3) OUTSIDE the transaction when export fails', async () => {
-      // COVERS: 4.8 エラーログはトランザクション外
+    it('should emit an error log (log_type=3) when export fails', async () => {
+      // COVERS: エラーログ
       qbMock.getRawMany.mockRejectedValueOnce(new Error('db-down'));
 
       await expect(
@@ -1070,7 +1123,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
     });
 
     it('should return { empty: true } and NOT generate a PDF when no record matches', async () => {
-      // COVERS: 4.3 0件 → HTTP 200 + 空配列, ファイル生成しない
+      // COVERS: 0件 → HTTP 200 + 空配列, ファイル生成しない
       qbMock.getRawMany.mockResolvedValue([]);
 
       const result = await service.exportZougenHanbaitenPdf(
@@ -1080,8 +1133,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       );
       expect(result).toEqual({ empty: true });
       expect(pdfService.generatePdf).not.toHaveBeenCalled();
-      expect(storage.upload).not.toHaveBeenCalled();
-      // 0件は履歴・操作ログも残さない。
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      // 0件はアーカイブ・操作ログも残さない。
       expect(auditLog.logOperation).not.toHaveBeenCalled();
     });
 

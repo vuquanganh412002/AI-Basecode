@@ -6,9 +6,10 @@
 //
 // Pattern: plain `new KozaFurikaeService(...)` with mocked deps (mirrors
 // HaitatsuryoService). The export 集計 is a raw aggregation via
-// dataSource.query(); S3 upload runs BEFORE a single transaction that updates
-// m_ja / m_shiten, snapshots t_koza_furikae, registers t_file_download and writes
-// the audit log. Error log (log_type=3) is emitted OUTSIDE the rolled-back tx.
+// dataSource.query(); the common ReportArchiveService stores the CSV to S3 and
+// registers t_file_upload BEFORE a single transaction that updates m_ja /
+// m_shiten, snapshots t_koza_furikae and writes the audit log. Error log
+// (log_type=3) is emitted OUTSIDE the rolled-back tx.
 // Each it() maps back to a clause in docs/design/ACSMS-SCR-020/ACSMS-SCR-020-api.md.
 
 import { KozaFurikaeService } from '@/modules/koza-furikae/koza-furikae.service';
@@ -31,7 +32,7 @@ describe('KozaFurikaeService', () => {
   let dataSource: any;
   let txManager: any;
   let auditLog: any;
-  let storage: any;
+  let reportArchive: any;
 
   const req = { ip: '192.0.2.70', headers: { 'user-agent': 'jest' } } as any;
 
@@ -68,10 +69,18 @@ describe('KozaFurikaeService', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
-    storage = { upload: jest.fn().mockResolvedValue(undefined) };
+    // 共通 S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
+    reportArchive = {
+      resolveJa: jest.fn().mockResolvedValue({ code: 'JA001', name: '' }),
+      archive: jest.fn().mockResolvedValue({
+        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.csv',
+        filename: '口座振替データ_JA001_2026年05月27日_20260522103000.csv',
+        fileUploadId: 7,
+      }),
+    };
 
-    // constructor(jaRepo, shitenRepo, dataSource, auditLog, storage)
-    service = new KozaFurikaeService(jaRepo, shitenRepo, dataSource, auditLog, storage);
+    // constructor(jaRepo, shitenRepo, dataSource, auditLog, reportArchive)
+    service = new KozaFurikaeService(jaRepo, shitenRepo, dataSource, auditLog, reportArchive);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -135,14 +144,34 @@ describe('KozaFurikaeService', () => {
   // API-020-002 — POST /api/v1/koza-furikae/export
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportCsv', () => {
-    it('should return a Buffer + koza_furikae_*.csv filename + record count when データ exists', async () => {
-      // COVERS: 4.4 CSV生成 + 4.9 レスポンス生成
+    it('should return a Buffer + 口座振替データ_{ja_code}_{YYYY年MM月DD日}.csv filename + ASCII fallback + record count when データ exists', async () => {
+      // COVERS: 4.4 CSV生成 + 4.9 レスポンス生成（ファイル名は ja_code + 引落日）
       const result = await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
-          filename: expect.stringMatching(/^koza_furikae_\d{8}_\d{6}\.csv$/),
+          // ダウンロード名はタイムスタンプ無し（hikiotoshi_date=2026-05-27）。
+          filename: '口座振替データ_JA001_2026年05月27日.csv',
+          asciiFilename: 'koza_furikae_20260527.csv',
+          recordCount: 2,
+        }),
+      );
+    });
+
+    it('should archive the CSV via ReportArchiveService with category koza-furikae, empty rootPrefix and .csv extension', async () => {
+      // COVERS: 4.4 共通S3アーカイブ（reports/ なし）+ t_file_upload 登録
+      await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      expect(reportArchive.archive).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'koza-furikae',
+          rootPrefix: '',
+          year: '2026',
+          baseName: '口座振替データ_JA001_2026年05月27日',
+          extension: '.csv',
+          contentType: 'text/csv; charset=Shift_JIS',
           recordCount: 2,
         }),
       );
@@ -157,7 +186,7 @@ describe('KozaFurikaeService', () => {
       ).rejects.toMatchObject({ response: { error_code: 'NO_TARGET_DATA' } });
     });
 
-    it('should NOT upload to S3 nor open a transaction when 0 rows are aggregated', async () => {
+    it('should NOT archive to S3 nor open a transaction when 0 rows are aggregated', async () => {
       // COVERS: 4.3 0件は CSV生成 / S3 / DB を行わない
       dataSource.query.mockResolvedValue([]);
 
@@ -165,15 +194,20 @@ describe('KozaFurikaeService', () => {
         service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req),
       ).rejects.toBeDefined();
 
-      expect(storage.upload).not.toHaveBeenCalled();
+      expect(reportArchive.archive).not.toHaveBeenCalled();
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('should upload the generated CSV to S3 before opening the DB transaction', async () => {
+    it('should archive the generated CSV to S3 before opening the DB transaction', async () => {
       // COVERS: 4.4 S3保存はトランザクション外で先に実行する
       const order: string[] = [];
-      storage.upload.mockImplementation(async () => {
+      reportArchive.archive.mockImplementation(async () => {
         order.push('s3');
+        return {
+          key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.csv',
+          filename: '口座振替データ_JA001_2026年05月27日_20260522103000.csv',
+          fileUploadId: 7,
+        };
       });
       dataSource.transaction.mockImplementation(async (cb: any) => {
         order.push('tx');
@@ -182,13 +216,13 @@ describe('KozaFurikaeService', () => {
 
       await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
-      expect(storage.upload).toHaveBeenCalledTimes(1);
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
       expect(order).toEqual(['s3', 'tx']);
     });
 
-    it('should return HTTP 500 path (rethrow) and NOT open a transaction when the S3 upload fails', async () => {
+    it('should return HTTP 500 path (rethrow) and NOT open a transaction when the S3 archive fails', async () => {
       // COVERS: 4.4 S3アップロード失敗時はDB処理を行わない → 500
-      storage.upload.mockRejectedValue(new Error('s3-down'));
+      reportArchive.archive.mockRejectedValue(new Error('s3-down'));
 
       await expect(
         service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req),
@@ -197,7 +231,7 @@ describe('KozaFurikaeService', () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('should perform the m_ja / m_shiten update + t_koza_furikae + t_file_download + 操作ログ inside a single transaction', async () => {
+    it('should perform the m_ja / m_shiten update + t_koza_furikae + 操作ログ inside a single transaction', async () => {
       // COVERS: 4.5〜4.8 単一トランザクション
       await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
@@ -216,7 +250,7 @@ describe('KozaFurikaeService', () => {
       expect(params.logType).toBe(1);
       expect(params.operation).toBe('CREATE');
       expect(params.resultStatus).toBe(1);
-      expect(params.targetTable).toBe('t_file_download');
+      expect(params.targetTable).toBe('t_file_upload');
     });
 
     it('should mask jastem_koza_no in the audit after_value when recording the 操作ログ', async () => {

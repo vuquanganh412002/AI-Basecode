@@ -565,6 +565,23 @@ watch(
 // （顧客要件 2026-06。バッチ未実装。UPDATE API は日付を保存するのみ）。
 const isCancelTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === 0);
 
+// 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規は1強制＋入力不可、
+// 編集は不変なので入力不可。紙版(1)・併読(3) は従来どおり編集可。
+const isDigital = computed(
+  () => Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
+);
+// 新規で版を電子版へ切替えたら購読部数を1へ強制（解約時は0のまま）。編集では
+// 購読種別は不変なので発火しない。
+watch(
+  () => formState.dokusya_shubetsu,
+  (next) => {
+    if (isHydrating.value) return;
+    if (Number(next) === DokusyaShubetsu.DIGITAL && !isCancelTetsuzuki.value) {
+      formState.dokusya_busu = 1;
+    }
+  },
+);
+
 // 再加入可否（顧客要件 2026-06）: 解約済みの購読者を編集する際、購読開始日と
 // 手続種類を再度入力可にする条件。判定は読込時スナップショット（手続種類は
 // 編集で可変になるため循環回避）。dokusya_shubetsu は編集で不変。
@@ -598,6 +615,33 @@ watch(hanbaitenChanged, (changed) => {
     }
   } else {
     formState.hanbaiten_tekiyo_date = null;
+  }
+});
+
+// ── 読者情報変更適用日 (joho_henko_tekiyo_date) の編集可否 (顧客要件 2026-06) ──
+// 適用日「以外」の項目に変更があるときだけ編集可。適用日だけ単独で変更して
+// 履歴 (t_dokusya_rireki) を作るのを防ぐ。比較は適用日自体を除外したスナップ
+// ショットで行う（NAME_FIELDS は trim 済みで比較、editGuard と同条件）。
+const infoChangeGuard = useEditGuard(() => {
+  const snap: Record<string, unknown> = { ...formState };
+  for (const f of NAME_FIELDS) {
+    if (typeof snap[f] === 'string') snap[f] = (snap[f] as string).trim();
+  }
+  delete snap.joho_henko_tekiyo_date;
+  return snap;
+});
+/** 適用日以外の項目に変更があるか（編集モードのみ・基準値確定後）。 */
+const otherInfoChanged = computed(
+  () => isEdit.value && !infoChangeGuard.isPristine(),
+);
+/** ロード時点の適用日（他項目が未変更へ戻ったとき復元する基準値）。 */
+const johoHenkoBaseline = ref<string | null>(null);
+// 他項目が未変更（に戻った）ら適用日を基準値へ戻す → editGuard も pristine と
+// なり PUT・履歴が発生しない。入力欄も :disabled にする（テンプレート側）。
+watch(otherInfoChanged, (changed) => {
+  if (isHydrating.value) return;
+  if (!changed) {
+    formState.joho_henko_tekiyo_date = johoHenkoBaseline.value;
   }
 });
 
@@ -790,6 +834,7 @@ const BIKO_MAX = 500;
 const BIKO_MSG = '備考は500文字以内で入力してください。';
 const KAISHI_DATE_NOT_PAST_MSG = '購読開始日は本日以降の日付を入力してください。';
 const BUSU_MIN_MSG = '購読部数は1以上で入力してください。';
+const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
 
 function isBlank(value: unknown): boolean {
   if (value === null || value === undefined) return true;
@@ -799,6 +844,10 @@ function isBlank(value: unknown): boolean {
 
 /** Required base 氏名 cluster — 氏/名 は漢字、かな は全角ひらがな (画面項目定義 No.9-13). */
 function validateNameCluster(errs: Record<string, string>): void {
+  // 氏名(氏/名/かな) は作成時のみ入力可（編集では :disabled で変更不可）。編集では
+  // 不変なので検証しない — 旧取込等で非準拠の既存データがあっても、ユーザーが
+  // 直せない項目で更新がブロックされるのを防ぐ。新規作成では従来どおり検証する。
+  if (isEdit.value) return;
   if (!formState.shimei_sei?.trim()) errs.shimei_sei = REQUIRED_MSG;
   if (!formState.shimei_mei?.trim()) errs.shimei_mei = REQUIRED_MSG;
   if (!formState.shimei_kana_sei?.trim()) errs.shimei_kana_sei = REQUIRED_MSG;
@@ -944,6 +993,15 @@ function validateMisc(errs: Record<string, string>): void {
   // 購読部数: 解約以外は 1 以上（解約 (手続種類=0) は §8 で 0 固定・readonly）。
   if (!isCancelTetsuzuki.value && Number(formState.dokusya_busu) <= 0) {
     errs.dokusya_busu = BUSU_MIN_MSG;
+  }
+  // 電子版は購読部数=1固定（解約以外）。入力欄は disabled だが、改竄や将来の
+  // disable 漏れに備え BE と同じ検証を行う。
+  if (
+    isDigital.value &&
+    !isCancelTetsuzuki.value &&
+    Number(formState.dokusya_busu) !== 1
+  ) {
+    errs.dokusya_busu = DIGITAL_BUSU_MSG;
   }
   // 解約 (手続種類=0) のとき購読中止日は必須。新規 (=1) は入力不可なので対象外。
   if (isCancelTetsuzuki.value && !formState.dokusya_chushi_date?.trim()) {
@@ -1281,6 +1339,12 @@ async function applyRouteMode(): Promise<void> {
     await loadDetail(dokusyaId.value);
     // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
     await editGuard.capture();
+    // 読者情報変更適用日の編集可否判定用に、適用日を除いた基準も控える。
+    // 基準値(適用日)は infoChangeGuard.capture より先に確定させる — capture で
+    // otherInfoChanged が true→false に変わり watcher が発火するため、その時点で
+    // johoHenkoBaseline が null だと適用日が null に戻ってしまう。
+    johoHenkoBaseline.value = formState.joho_henko_tekiyo_date;
+    await infoChangeGuard.capture();
   } else if (!canPaper.value && canDenshi.value) {
     // Create — preselect the only 購読種別 this account may use so the
     // default radio isn't a disabled option. paper-only / both keep the
@@ -1582,10 +1646,13 @@ defineExpose({ formState, fieldErrors });
                 <span>購読部数</span>
                 <span class="text-error ml-1">*</span>
               </template>
+              <!-- 電子版は購読部数=1固定 → 入力不可（新規=1強制 / 編集=不変）。
+                   解約は readonly（0固定）。紙版・併読は編集可。 -->
               <a-input-number
                 v-model:value="formState.dokusya_busu"
                 :min="isCancelTetsuzuki ? 0 : 1"
-                :readonly="Number(formState.tetsuzuki_shurui) === 0"
+                :readonly="isCancelTetsuzuki"
+                :disabled="isDigital"
                 class="w-full"
               />
             </a-form-item>
@@ -2302,12 +2369,15 @@ defineExpose({ formState, fieldErrors });
                 <span>読者情報変更適用日</span>
                 <span class="text-error ml-1">*</span>
               </template>
+              <!-- 適用日以外の項目に変更があるときだけ編集可（顧客要件 2026-06）。
+                   単独変更で履歴を作らせない。 -->
               <a-date-picker
                 v-model:value="formState.joho_henko_tekiyo_date"
                 format="YYYY/MM/DD"
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
+                :disabled="!otherInfoChanged"
                 :disabled-date="isPastDayTokyo"
               />
             </a-form-item>

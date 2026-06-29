@@ -17,6 +17,7 @@ import {
   formatDateTime as formatDateTimeTokyo,
 } from '@/utils/formatters';
 import { confirmDelete } from '@/utils/confirm';
+import { isPastDayTokyo } from '@/utils/datetime';
 import { useCodesStore } from '@/stores/codes.store';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
 
@@ -544,8 +545,7 @@ defineExpose({
             value-format="YYYY/MM/DD"
             placeholder="yyyy/mm/dd"
             :status="dateError ? 'error' : ''"
-            :disabled-date="(current: { valueOf: () => number } | null) =>
-              !!current && current.valueOf() < Date.now() - 24 * 60 * 60 * 1000"
+            :disabled-date="isPastDayTokyo"
             class="flex-1"
           />
         </label>

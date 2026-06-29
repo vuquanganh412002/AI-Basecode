@@ -69,6 +69,21 @@ async function renderView(): Promise<{
   return { wrapper, router, pushSpy };
 }
 
+/**
+ * The form has two inputs in DOM order: [0] = ユーザーID (login_id),
+ * [1] = メールアドレス (email). Fill both unless a test intentionally
+ * leaves one blank.
+ */
+async function fillForm(
+  wrapper: ReturnType<typeof mount>,
+  loginId: string,
+  email: string,
+): Promise<void> {
+  const inputs = wrapper.findAll('input');
+  await inputs[0].setValue(loginId);
+  await inputs[1].setValue(email);
+}
+
 describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -80,6 +95,12 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
       const { wrapper } = await renderView();
       await flushPromises();
       expect(wrapper.text()).toContain('パスワードの再設定');
+    });
+
+    it('should render the ユーザーID label when mounted', async () => {
+      const { wrapper } = await renderView();
+      const labels = wrapper.findAll('label').map((l) => l.text());
+      expect(labels.some((t) => t.includes('ユーザーID'))).toBe(true);
     });
 
     it('should render the メールアドレス label when mounted', async () => {
@@ -110,8 +131,20 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
 
   // ─── §2.1 / §3.2 — required validation ───────────────────────────────
   describe('email validation (§2 / §3.2)', () => {
+    it('should show ユーザーID required message when login_id is blank on submit', async () => {
+      const { wrapper } = await renderView();
+      // Fill email only, leave login_id blank.
+      await wrapper.findAll('input')[1].setValue('user@example.com');
+      await wrapper.find('form').trigger('submit');
+      await flushPromises();
+      expect(wrapper.text()).toContain('ユーザーIDを入力してください。');
+      expect(authApi.forgotPassword).not.toHaveBeenCalled();
+    });
+
     it('should show ACSMS-SCR-012-001 when email is blank on submit', async () => {
       const { wrapper } = await renderView();
+      // Fill login_id only, leave email blank.
+      await wrapper.findAll('input')[0].setValue('admin01');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
       expect(wrapper.text()).toContain('メールアドレスを入力してください。');
@@ -120,17 +153,11 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
 
     it('should show ACSMS-SCR-012-002 when email format is invalid on submit', async () => {
       const { wrapper } = await renderView();
-      const input = wrapper.find('input[type="text"], input[type="email"]').element as HTMLInputElement;
-      // The view should render an `<input>` whose type is NOT `email` (per
-      // vue.md §"NEVER use HTML5 native input types for validation"). The
-      // selector matches either to avoid coupling to `type=` attribute.
-      await wrapper.find('input').setValue('not-an-email');
+      await fillForm(wrapper, 'admin01', 'not-an-email');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
       expect(wrapper.text()).toContain('有効なメールアドレスを入力してください。');
       expect(authApi.forgotPassword).not.toHaveBeenCalled();
-      // Touch the unused locator so eslint doesn't strip it.
-      expect(input).toBeDefined();
     });
 
     it('should NOT use HTML5 type="email" on the input when mounted', async () => {
@@ -138,7 +165,7 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
       // vue.md §"NEVER use HTML5 native input types for validation" —
       // antd modeless validation expects `type="text"` so error display
       // is governed by `<a-form-item :help>`, not the browser bubble.
-      const emailInput = wrapper.find('input');
+      const emailInput = wrapper.findAll('input')[1]; // [1] = メールアドレス
       expect(['email', 'tel', 'number', 'url', 'date'])
         .not.toContain(emailInput.attributes('type'));
     });
@@ -146,23 +173,23 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
 
   // ─── §3.3 / §3.4 — happy path submit ─────────────────────────────────
   describe('submit (§3.3 / §3.4)', () => {
-    it('should call forgotPassword with email value when form is submitted with valid email', async () => {
+    it('should call forgotPassword with login_id + email when form is submitted with valid input', async () => {
       vi.mocked(authApi.forgotPassword).mockResolvedValue(buildForgotPasswordSuccess());
       const { wrapper } = await renderView();
 
-      await wrapper.find('input').setValue('user@example.com');
+      await fillForm(wrapper, 'admin01', 'user@example.com');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
 
       expect(authApi.forgotPassword).toHaveBeenCalledTimes(1);
-      expect(authApi.forgotPassword).toHaveBeenCalledWith('user@example.com');
+      expect(authApi.forgotPassword).toHaveBeenCalledWith('admin01', 'user@example.com');
     });
 
     it('should hide the form and show ACSMS-SCR-012-003 when forgotPassword resolves', async () => {
       vi.mocked(authApi.forgotPassword).mockResolvedValue(buildForgotPasswordSuccess());
       const { wrapper } = await renderView();
 
-      await wrapper.find('input').setValue('user@example.com');
+      await fillForm(wrapper, 'admin01', 'user@example.com');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
 
@@ -179,7 +206,7 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
       vi.mocked(authApi.forgotPassword).mockResolvedValue(buildForgotPasswordSuccess());
       const { wrapper } = await renderView();
 
-      await wrapper.find('input').setValue('nobody@example.com');
+      await fillForm(wrapper, 'admin01', 'nobody@example.com');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
 
@@ -197,7 +224,7 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
       );
       const { wrapper } = await renderView();
 
-      await wrapper.find('input').setValue('user@example.com');
+      await fillForm(wrapper, 'admin01', 'user@example.com');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
 
@@ -218,7 +245,7 @@ describe('ForgotPasswordView (SCR-012 — Request Reset Email)', () => {
       );
       const { wrapper } = await renderView();
 
-      await wrapper.find('input').setValue('user@example.com');
+      await fillForm(wrapper, 'admin01', 'user@example.com');
       await wrapper.find('form').trigger('submit');
       await flushPromises();
 

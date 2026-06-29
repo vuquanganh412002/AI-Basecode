@@ -1,4 +1,3 @@
-// @ts-nocheck — spec mocks ja.fixture's buildTodofukenList() as plain
 // array, but real API returns { data }. View accepts both; banner kept
 // rather than retyping the fixture across SCRs.
 // Screen: ACSMS-SCR-008 — 管理支店マスタ明細検索画面
@@ -16,11 +15,12 @@ import Antd, { message, Modal } from 'ant-design-vue';
 
 import KanriShitenListView from '@/views/kanri-shiten/KanriShitenListView.vue';
 import {
-  buildKanriShitenListItem,
   buildKanriShitenListResponse,
   buildAuthUser,
 } from '@test/fixtures/kanri-shiten.fixture';
 import { buildTodofukenList } from '@test/fixtures/ja.fixture';
+import type { KanriShitenListResponse } from '@/api/kanri-shiten/kanri-shiten';
+import type { TodofukenListEnvelope } from '@/api/todofuken/todofuken';
 
 // Mock the kanri-shiten API client — /gen-code-frontend will create it
 // alongside the existing JA / Tanka API wrappers.
@@ -95,11 +95,17 @@ beforeEach(async () => {
   const { listKanriShiten, removeKanriShiten } = await import(
     '@/api/kanri-shiten/kanri-shiten'
   );
-  vi.mocked(listKanriShiten).mockResolvedValue(buildKanriShitenListResponse());
+  vi.mocked(listKanriShiten).mockResolvedValue(
+    buildKanriShitenListResponse() as unknown as KanriShitenListResponse,
+  );
   vi.mocked(removeKanriShiten).mockResolvedValue({ message: '削除しました。' });
 
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
-  vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenList());
+  // View accepts a bare array OR an envelope (Array.isArray(resp) ? resp : resp.data),
+  // so the runtime value stays the array; only the declared type is widened.
+  vi.mocked(getTodofukenList).mockResolvedValue(
+    buildTodofukenList() as unknown as TodofukenListEnvelope,
+  );
 });
 
 // ═════════════════════════════════════════════════════════════════════
@@ -397,7 +403,7 @@ describe('KanriShitenListView — delete (§7)', () => {
   });
 
   it('should open a confirmation dialog (ACSMS-MSG-008-005) when 削除 is clicked', async () => {
-    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((_opts: any) => {
       return { destroy: () => undefined, update: () => undefined } as any;
     });
 

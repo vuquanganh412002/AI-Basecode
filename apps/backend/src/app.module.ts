@@ -14,7 +14,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CodeModule } from './modules/code/code.module';
 import { DenshibanDbModule } from './modules/denshiban/denshiban-db.module';
-import { DokusyaSyncModule } from './modules/dokusya-sync/dokusya-sync.module';
+import { DokusyaSyncModule } from './modules/batch/dokusya-sync/dokusya-sync.module';
 import { DokusyaModule } from './modules/dokusya/dokusya.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { HanbaitenModule } from './modules/hanbaiten/hanbaiten.module';

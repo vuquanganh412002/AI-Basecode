@@ -403,18 +403,26 @@ export class AuthService {
    * leaks a working reset link to the user.
    */
   async forgotPassword(
+    loginId: string,
     email: string,
     ctx: LoginContext,
   ): Promise<{ message: string }> {
     const successMessage =
       'パスワード再設定用のメールを送信しました。メールを確認してください。';
 
+    // Narrow by (login_id AND email). `email` is not unique in m_account
+    // (通知先メールアドレス, ※空文字許容), so matching by email alone would
+    // pick an arbitrary account among duplicates and leave the others
+    // unable to reset. `login_id` is the unique key, so the pair targets
+    // exactly one account.
     const account = await this.accountRepo.findOne({
-      where: { email, deletedAt: IsNull() },
+      where: { loginId, email, deletedAt: IsNull() },
     });
     if (!account) {
-      // §セキュリティ #1 — same response for unknown emails.
-      this.logger.log({ event: 'auth.forgot_password.unknown_email' });
+      // §セキュリティ #1 — same response when the login_id/email pair
+      // matches no account (unknown OR mismatched), identical to a wrong
+      // email. No enumeration signal either way.
+      this.logger.log({ event: 'auth.forgot_password.unknown_account' });
       return { message: successMessage };
     }
 

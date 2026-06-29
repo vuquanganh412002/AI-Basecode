@@ -14,6 +14,12 @@ import { CodeModule } from '@/modules/code/code.module';
 
 import { DokusyaController } from './dokusya.controller';
 import { DokusyaService } from './dokusya.service';
+import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
+import { DokusyaImportService } from './dokusya-import.service';
+import { DokusyaImportValidator } from './dokusya-import-validator.service';
+import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
+import { DokusyaSearchService } from './dokusya-search.service';
+import { DokusyaReplaceService } from './dokusya-replace.service';
 
 /**
  * SCR-011 — 購読者情報登録画面.
@@ -44,7 +50,15 @@ import { DokusyaService } from './dokusya.service';
     CodeModule,
   ],
   controllers: [DokusyaController],
-  providers: [DokusyaService],
+  providers: [
+    DokusyaService,
+    DokusyaAccountFlagService,
+    DokusyaImportService,
+    DokusyaImportValidator,
+    DokusyaRirekiService,
+    DokusyaSearchService,
+    DokusyaReplaceService,
+  ],
   exports: [DokusyaService],
 })
 export class DokusyaModule {}

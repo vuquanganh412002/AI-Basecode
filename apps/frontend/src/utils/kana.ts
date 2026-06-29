@@ -49,7 +49,7 @@ export function kanaFormatMessage(fieldLabel: string): string {
  * BE の create-ja / update-ja / create-shiten / update-shiten DTO の @Matches と
  * 正規表現・メッセージを一致させること。
  */
-export const JASTEM_NAME_RE = /^[ｱ-ﾟ A-Z0-9.()\-]+$/;
+export const JASTEM_NAME_RE = /^[ｱ-ﾟ A-Z0-9.()-]+$/;
 
 export function jastemNameFormatMessage(fieldLabel: string): string {
   return `${fieldLabel}は半角カタカナ・半角英大文字（A-Z）・半角数字・記号（. ( ) -）のみ入力できます。`;

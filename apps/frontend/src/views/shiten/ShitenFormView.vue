@@ -82,6 +82,20 @@ const isRole5LockedFields = computed(
     ROLE5_LOCKED_FIELDS_ROLES.has(authStore.user?.role_code ?? ''),
 );
 
+// [role5-view-only] 顧客要件 2026-06 — JA_KANRI_SHITEN は同一 JA の全支店を
+// 閲覧できるが、自管理支店配下でない行は更新できない（BE は update を 403 で
+// 拒否）。編集画面を開いた支店が自管理支店配下でない場合、全項目を読み取り
+// 専用にし 更新ボタンを無効化する（読み取り専用ビュー）。loadedKanriShitenId
+// は編集プリロード時にだけ確定するので、それまでは false（作成モードは対象外）。
+const loadedKanriShitenId = ref<number | null>(null);
+const isViewOnly = computed(
+  () =>
+    isEdit.value &&
+    authStore.user?.role_code === RoleCode.JA_KANRI_SHITEN &&
+    loadedKanriShitenId.value !== null &&
+    loadedKanriShitenId.value !== (authStore.user?.kanri_shiten_id ?? null),
+);
+
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 
 // Form state — kanri_shiten_id stays undefined until the user picks one
@@ -132,6 +146,9 @@ onMounted(async () => {
   if (shitenIdParam.value !== undefined) {
     try {
       const resp = await getShiten(shitenIdParam.value);
+      // Capture the loaded branch's parent kanri_shiten for the
+      // role-5 view-only check ([role5-view-only]).
+      loadedKanriShitenId.value = resp.data.kanri_shiten_id ?? null;
       Object.assign(formState, {
         shiten_code: resp.data.shiten_code,
         shiten_name: resp.data.shiten_name,
@@ -447,12 +464,15 @@ defineExpose({ submitWith, form: formState });
                 }))
               "
               allow-clear
-              :disabled="isRole5LockedFields"
+              :disabled="isRole5LockedFields || isViewOnly"
             />
           </a-form-item>
 
           <a-form-item name="kinyu_shiten_flg" label=" ">
-            <a-checkbox v-model:checked="formState.kinyu_shiten_flg">
+            <a-checkbox
+              v-model:checked="formState.kinyu_shiten_flg"
+              :disabled="isViewOnly"
+            >
               金融機関支店フラグ
             </a-checkbox>
           </a-form-item>
@@ -490,6 +510,7 @@ defineExpose({ submitWith, form: formState });
               v-model:value="formState.shiten_name"
               :maxlength="100"
               placeholder="支店名を入力してください"
+              :disabled="isViewOnly"
             />
           </a-form-item>
 
@@ -502,6 +523,7 @@ defineExpose({ submitWith, form: formState });
             <a-input
               v-model:value="formState.shiten_name_kana"
               :maxlength="100"
+              :disabled="isViewOnly"
             />
           </a-form-item>
         </div>
@@ -523,6 +545,7 @@ defineExpose({ submitWith, form: formState });
             <a-input
               v-model:value="formState.jastem_toriatsukai_tenpo_code"
               :maxlength="3"
+              :disabled="isViewOnly"
             />
           </a-form-item>
 
@@ -538,6 +561,7 @@ defineExpose({ submitWith, form: formState });
             <a-input
               v-model:value="formState.jastem_tenpo_name"
               :maxlength="15"
+              :disabled="isViewOnly"
             />
           </a-form-item>
 
@@ -555,6 +579,7 @@ defineExpose({ submitWith, form: formState });
               placeholder="選択してください"
               :options="TYOKIN_SHUBETSU_OPTIONS"
               allow-clear
+              :disabled="isViewOnly"
             />
           </a-form-item>
 
@@ -567,7 +592,11 @@ defineExpose({ submitWith, form: formState });
               <span>口座番号</span>
               <span v-if="formState.kinyu_shiten_flg" class="text-error ml-1">*</span>
             </template>
-            <a-input v-model:value="formState.jastem_koza_no" :maxlength="7" />
+            <a-input
+              v-model:value="formState.jastem_koza_no"
+              :maxlength="7"
+              :disabled="isViewOnly"
+            />
           </a-form-item>
         </div>
 
@@ -582,12 +611,14 @@ defineExpose({ submitWith, form: formState });
             v-model:value="formState.biko"
             :rows="4"
             :maxlength="500"
+            :disabled="isViewOnly"
           />
         </a-form-item>
 
         <BaseFormFooter
           :is-edit="isEdit"
           :submitting="submitting"
+          :disabled="isViewOnly"
           @cancel="onBack"
         />
       </a-form>

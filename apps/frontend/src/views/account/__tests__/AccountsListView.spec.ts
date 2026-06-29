@@ -1,4 +1,3 @@
-// @ts-nocheck — TDD red phase (/gen-ut-frontend, source not yet implemented by /gen-code)
 // Screen: ACSMS-SCR-024 — アカウントマスタ明細検索画面
 //
 // Drives src/views/account/AccountsListView.vue. Every it() maps to a clause
@@ -15,7 +14,6 @@ import Antd, { message, Modal } from 'ant-design-vue';
 
 import AccountsListView from '@/views/account/AccountsListView.vue';
 import {
-  buildAccountListItem,
   buildAccountListResponse,
   buildRoleDropdownList,
   buildJaDropdownResponse,

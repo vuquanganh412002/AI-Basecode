@@ -163,10 +163,11 @@ describe('KozaFurikaeController (HTTP)', () => {
 
   // ─── POST /api/v1/koza-furikae/export ─────────────────────────────────
   describe('POST /api/v1/koza-furikae/export', () => {
-    it('should return 200 with a text/csv attachment when データ exists', async () => {
+    it('should return 200 with a text/csv attachment carrying the ASCII filename + RFC5987 filename* when データ exists', async () => {
       service.exportCsv.mockResolvedValue({
         buffer: Buffer.from('1,21,0,...'),
-        filename: 'koza_furikae_20260522_103000.csv',
+        filename: '口座振替データ_JA001_2026年05月27日.csv',
+        asciiFilename: 'koza_furikae_20260527.csv',
         recordCount: 2,
       });
 
@@ -176,7 +177,11 @@ describe('KozaFurikaeController (HTTP)', () => {
         .expect(200);
 
       expect(res.headers['content-type']).toContain('text/csv');
-      expect(res.headers['content-disposition']).toContain('koza_furikae_20260522_103000.csv');
+      const cd = res.headers['content-disposition'];
+      // ASCII別名は filename、日本語名は RFC 5987 の filename* に載る。
+      expect(cd).toContain('filename="koza_furikae_20260527.csv"');
+      expect(cd).toContain("filename*=UTF-8''");
+      expect(cd).toContain(encodeURIComponent('口座振替データ_JA001_2026年05月27日.csv'));
     });
 
     it('should return 400 VALIDATION_ERROR when target_month is missing', async () => {

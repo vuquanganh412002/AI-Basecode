@@ -10,6 +10,7 @@ import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
+import { RoleCode } from '@/constants/enums';
 import {
   listShiten,
   removeShiten,
@@ -46,6 +47,15 @@ const authStore = useAuthStore();
 const canCreate = computed(() => authStore.hasPermission('shiten.create'));
 const canUpdate = computed(() => authStore.hasPermission('shiten.update'));
 const canDelete = computed(() => authStore.hasPermission('shiten.delete'));
+
+// [role5-branch-mutate] 顧客要件 2026-06 — JA_KANRI_SHITEN は同一 JA の全支店を
+// 閲覧できるが、更新/削除は自管理支店配下のみ。自管理支店配下でない行は削除
+// ボタンを無効化する（BE も update/remove を 403 で拒否 = 二重防御）。他ロールや
+// 自管理支店配下の行は制限なし。
+function canMutateRow(row: ShitenListItem): boolean {
+  if (authStore.user?.role_code !== RoleCode.JA_KANRI_SHITEN) return true;
+  return row.kanri_shiten_id === (authStore.user?.kanri_shiten_id ?? null);
+}
 
 const DEFAULT_FILTERS: ShitenFilters = {
   shiten_name: '',
@@ -352,7 +362,7 @@ function askDelete(row: ShitenListItem): void {
         <template v-else-if="column.key === 'actions'">
           <BaseActionColumn
             :can-edit="false"
-            :disable-delete="!canDelete"
+            :disable-delete="!canDelete || !canMutateRow(record as ShitenListItem)"
             @delete="askDelete(record as ShitenListItem)"
           />
         </template>

@@ -257,7 +257,7 @@ export function useTableQuery<F extends object>(
     function onSearch(): void {
       if (cfg.beforeSearch?.() === false) return;
       if (!filtersChangedSinceApplied()) return;
-      applyFilters({ ...(state.filters as object) } as Partial<F>);
+      applyFilters({ ...(state.filters as object) });
       void cfg.fetchList();
     }
     function onClear(): void {
