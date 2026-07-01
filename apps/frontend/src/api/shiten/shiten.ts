@@ -154,6 +154,11 @@ export interface KozaShitenDropdownItem {
   shiten_code: string;
   shiten_name: string;
   kanri_shiten_id: number;
+  // SCR-020: 選択した口座支店ごとに JASTEM 金融機関支店情報を表示する。
+  jastem_toriatsukai_tenpo_code: string;
+  jastem_tenpo_name: string;
+  jastem_tyokin_shubetsu: string;
+  jastem_koza_no: string;
 }
 
 export interface KozaShitenDropdownEnvelope {

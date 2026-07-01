@@ -14,16 +14,17 @@ import { createTestingPinia } from '@pinia/testing';
 import Antd, { message } from 'ant-design-vue';
 
 import FileDownloadView from '@/views/file-download/FileDownloadView.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import {
-  buildFileUploadListResponse,
-  buildFileUploadItem,
+  buildFileDownloadListResponse,
+  buildFileDownloadItem,
   buildFilePreviewResponse,
   buildTodofukenResponse,
   buildFileDownloadUser,
 } from '@test/fixtures/file-download.fixture';
 
 // API wrappers — /gen-code-frontend will create these.
-vi.mock('@/api/file-upload/file-upload', () => ({
+vi.mock('@/api/file-download/file-download', () => ({
   listFiles: vi.fn(),
   getFilePreview: vi.fn(),
   downloadFile: vi.fn(),
@@ -32,6 +33,11 @@ vi.mock('@/api/file-upload/file-upload', () => ({
 
 vi.mock('@/api/todofuken/todofuken', () => ({
   getTodofukenList: vi.fn(),
+}));
+
+// JA 絞り込み用 <BaseJaDropdown> が onMounted で叩く /ja/dropdown をモック。
+vi.mock('@/api/ja/ja', () => ({
+  getJaDropdown: vi.fn(),
 }));
 
 // Spy on antd toasts. Antd's `MessageType` is callable PromiseLike — cast
@@ -100,8 +106,8 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 beforeEach(async () => {
   vi.clearAllMocks();
   const { listFiles, getFilePreview, downloadFile, downloadFilesAsZip } =
-    await import('@/api/file-upload/file-upload');
-  vi.mocked(listFiles).mockResolvedValue(buildFileUploadListResponse());
+    await import('@/api/file-download/file-download');
+  vi.mocked(listFiles).mockResolvedValue(buildFileDownloadListResponse());
   vi.mocked(getFilePreview).mockResolvedValue(buildFilePreviewResponse());
   vi.mocked(downloadFile).mockResolvedValue(
     new Blob(['%PDF-mock-bytes'], { type: 'application/pdf' }),
@@ -113,6 +119,12 @@ beforeEach(async () => {
 
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse());
+
+  const { getJaDropdown } = await import('@/api/ja/ja');
+  vi.mocked(getJaDropdown).mockResolvedValue({
+    data: [],
+    meta: { total: 0, page: 1, per_page: 50, has_more: false },
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -126,7 +138,7 @@ describe('FileDownloadView — initial render (機能定義 1.x)', () => {
 
   it('should fetch the file list once when mounted (機能定義 1.1)', async () => {
     await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     expect(listFiles).toHaveBeenCalledTimes(1);
   });
 
@@ -176,9 +188,13 @@ describe('FileDownloadView — initial render (機能定義 1.x)', () => {
   it('should render the canonical table column headers when mounted', async () => {
     const { wrapper } = await renderView();
     const text = wrapper.text();
-    expect(text).toContain('アップロード日時');
+    expect(text).toContain('ダウンロード日時');
     expect(text).toContain('作成者');
+    expect(text).toContain('JA名');
+    expect(text).toContain('ダウンロード種別');
     expect(text).toContain('ファイル名');
+    // 対象年月 列は削除済み。
+    expect(text).not.toContain('対象年月');
   });
 
   it('should render rows from the API response when list resolves', async () => {
@@ -200,7 +216,7 @@ describe('FileDownloadView — initial render (機能定義 1.x)', () => {
 describe('FileDownloadView — search (機能定義 2.x)', () => {
   it('should call listFiles with file_name filter when ファイル名 input is filled', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear();
 
     const vm = wrapper.vm as any;
@@ -216,7 +232,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
 
   it('should call listFiles with todofuken_code filter when 都道府県 dropdown is selected', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear();
 
     const vm = wrapper.vm as any;
@@ -230,12 +246,48 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
     );
   });
 
+  it('should call listFiles with ja_id filter when a JA is selected in <BaseJaDropdown>', async () => {
+    const { wrapper } = await renderView();
+    const { listFiles } = await import('@/api/file-download/file-download');
+    vi.mocked(listFiles).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.ja_id = 10;
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(listFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ ja_id: 10 }),
+    );
+  });
+
+  it('should pre-select own JA and disable the JA dropdown for JA-scoped roles (CHUOKAI)', async () => {
+    const { wrapper } = await renderView({
+      user: buildFileDownloadUser({ role_code: 'CHUOKAI', ja_id: 5 }),
+    });
+    const vm = wrapper.vm as any;
+    // 自JA がプリセットされる（情報提供のみ）。
+    expect(vm.state.filters.ja_id).toBe(5);
+    // BaseJaDropdown は disabled。
+    expect(wrapper.findComponent(BaseJaDropdown).props('disabled')).toBe(true);
+  });
+
+  it('should keep the JA dropdown editable and NOT pre-select for NICHINO roles', async () => {
+    const { wrapper } = await renderView({
+      user: buildFileDownloadUser({ role_code: 'NICHINO_ADMIN', ja_id: null }),
+    });
+    const vm = wrapper.vm as any;
+    expect(vm.state.filters.ja_id).toBe(null);
+    expect(wrapper.findComponent(BaseJaDropdown).props('disabled')).toBe(false);
+  });
+
   it('should not throw when 都道府県 is cleared (undefined) and 検索 is clicked (allow-clear → undefined)', async () => {
     // Reported bug: selecting a 都道府県, searching, then clearing it (×)
     // sets the a-select v-model to `undefined`; onSearch called
     // `todofuken_code.trim()` → TypeError → generic error toast.
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     const vm = wrapper.vm as any;
 
     // Select prefecture #2, search.
@@ -266,7 +318,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
   });
 
   it('should NOT include file_name in listFiles params when blank (initial fetch)', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     await renderView();
     const initialCall = vi.mocked(listFiles).mock.calls[0]?.[0] as
       | Record<string, unknown>
@@ -275,7 +327,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
   });
 
   it('should NOT include todofuken_code in listFiles params when unset (initial fetch)', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     await renderView();
     const initialCall = vi.mocked(listFiles).mock.calls[0]?.[0] as
       | Record<string, unknown>
@@ -285,7 +337,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
 
   it('should trim file_name whitespace before calling listFiles', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear();
 
     const vm = wrapper.vm as any;
@@ -300,9 +352,9 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
   });
 
   it('should display ACSMS-MSG-022-001 「検索結果が見つかりませんでした。」 when search returns zero rows (機能定義 2.3)', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadListResponse({
+      buildFileDownloadListResponse({
         data: [],
         meta: { total: 0, page: 1, per_page: 20, total_pages: 0 },
       }),
@@ -313,7 +365,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
   });
 
   it('should still call listFiles when listFiles rejects with 500 (interceptor handles toast)', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockRejectedValueOnce({
       response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
     });
@@ -327,21 +379,21 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
 // 2b. 論理削除済みファイルの無効化 (deleted_at)
 // ───────────────────────────────────────────────────────────────────────
 describe('FileDownloadView — soft-deleted files disabled (deleted_at)', () => {
-  const deletedRow = buildFileUploadItem({
-    file_upload_id: 999,
+  const deletedRow = buildFileDownloadItem({
+    file_download_id: 999,
     file_name: 'old_report.pdf',
     deleted_at: '2026-06-01T10:00:00+09:00',
   });
-  const liveRow = buildFileUploadItem({
-    file_upload_id: 101,
+  const liveRow = buildFileDownloadItem({
+    file_download_id: 101,
     file_name: 'live_report.pdf',
     deleted_at: null,
   });
 
   async function renderWithRows() {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadListResponse({
+      buildFileDownloadListResponse({
         data: [liveRow, deletedRow],
         meta: { total: 2, page: 1, per_page: 20, total_pages: 1 },
       }),
@@ -368,12 +420,68 @@ describe('FileDownloadView — soft-deleted files disabled (deleted_at)', () => 
 });
 
 // ───────────────────────────────────────────────────────────────────────
+// 2c. 日農ダウンロード許可フラグ (nichino_download_allowed_flg) による無効化
+// ───────────────────────────────────────────────────────────────────────
+describe('FileDownloadView — nichino download permission (role 1/2)', () => {
+  const blockedRow = buildFileDownloadItem({
+    file_download_id: 201,
+    file_name: 'blocked_report.pdf',
+    nichino_download_allowed_flg: false,
+  });
+  const allowedRow = buildFileDownloadItem({
+    file_download_id: 202,
+    file_name: 'allowed_report.pdf',
+    nichino_download_allowed_flg: true,
+  });
+
+  async function renderAs(roleCode: string) {
+    const { listFiles } = await import('@/api/file-download/file-download');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileDownloadListResponse({
+        data: [allowedRow, blockedRow],
+        meta: { total: 2, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    return renderView({
+      user: buildFileDownloadUser({ role_code: roleCode }),
+    });
+  }
+
+  it('disables a flag=false row for NICHINO_ADMIN (role 1)', async () => {
+    const { wrapper } = await renderAs('NICHINO_ADMIN');
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
+    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
+  });
+
+  it('disables a flag=false row for NICHINO_STAFF (role 2)', async () => {
+    const { wrapper } = await renderAs('NICHINO_STAFF');
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
+  });
+
+  it('does NOT disable a flag=false row for non-nichino roles (e.g. JA_HONTEN)', async () => {
+    const { wrapper } = await renderAs('JA_HONTEN');
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(false);
+    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
+  });
+
+  it('renders a nichino-blocked filename as plain text (no preview link) for role 1/2', async () => {
+    const { wrapper } = await renderAs('NICHINO_ADMIN');
+    const linkTexts = wrapper.findAll('a').map((a) => a.text());
+    expect(linkTexts.some((t) => t.includes('blocked_report.pdf'))).toBe(false);
+    expect(linkTexts.some((t) => t.includes('allowed_report.pdf'))).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
 // 3. 検索条件クリア (機能定義 3.x)
 // ───────────────────────────────────────────────────────────────────────
 describe('FileDownloadView — clear search (機能定義 3.x)', () => {
   it('should refetch the default file list when クリア is clicked', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear();
 
     // Make the screen non-pristine so 検索クリア resets+refetches (a pristine
@@ -405,7 +513,7 @@ describe('FileDownloadView — clear search (機能定義 3.x)', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
 
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     const lastCall = vi.mocked(listFiles).mock.calls.at(-1)?.[0] as
       | Record<string, unknown>
       | undefined;
@@ -424,7 +532,7 @@ describe('FileDownloadView — preview (機能定義 4.x)', () => {
     // also has a `message.warning('ファイルを選択してください。')` early-
     // return as defense-in-depth — call it directly to exercise that
     // path too.
-    const { getFilePreview } = await import('@/api/file-upload/file-upload');
+    const { getFilePreview } = await import('@/api/file-download/file-download');
     const { wrapper } = await renderView();
     vi.mocked(getFilePreview).mockClear();
 
@@ -445,9 +553,9 @@ describe('FileDownloadView — preview (機能定義 4.x)', () => {
     expect(getFilePreview).not.toHaveBeenCalled();
   });
 
-  it('should call getFilePreview with selected file_upload_id when プレビュー clicked', async () => {
+  it('should call getFilePreview with selected file_download_id when プレビュー clicked', async () => {
     const { wrapper } = await renderView();
-    const { getFilePreview } = await import('@/api/file-upload/file-upload');
+    const { getFilePreview } = await import('@/api/file-download/file-download');
     vi.mocked(getFilePreview).mockClear();
 
     const vm = wrapper.vm as any;
@@ -481,7 +589,7 @@ describe('FileDownloadView — preview (機能定義 4.x)', () => {
   });
 
   it('should display ACSMS-MSG-022-003 「ファイルが存在していません。」 when getFilePreview rejects with NOT_FOUND', async () => {
-    const { getFilePreview } = await import('@/api/file-upload/file-upload');
+    const { getFilePreview } = await import('@/api/file-download/file-download');
     vi.mocked(getFilePreview).mockRejectedValueOnce({
       response: {
         status: 404,
@@ -513,7 +621,7 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
     // so click never fires the handler. The handler has the same
     // `message.warning('ファイルを選択してください。')` early-return as
     // defense-in-depth — call it directly to exercise the guard.
-    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { downloadFile } = await import('@/api/file-download/file-download');
     const { wrapper } = await renderView();
     vi.mocked(downloadFile).mockClear();
 
@@ -531,9 +639,9 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
     expect(downloadFile).not.toHaveBeenCalled();
   });
 
-  it('should call downloadFile with selected file_upload_id when ダウンロード実行 clicked', async () => {
+  it('should call downloadFile with selected file_download_id when ダウンロード実行 clicked', async () => {
     const { wrapper } = await renderView();
-    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { downloadFile } = await import('@/api/file-download/file-download');
     vi.mocked(downloadFile).mockClear();
 
     const vm = wrapper.vm as any;
@@ -552,7 +660,7 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
   it('should bundle into ONE ZIP via downloadFilesAsZip (not per-file downloadFile) when multiple files are selected (機能定義 8.x)', async () => {
     const { wrapper } = await renderView();
     const { downloadFile, downloadFilesAsZip } = await import(
-      '@/api/file-upload/file-upload'
+      '@/api/file-download/file-download'
     );
     vi.mocked(downloadFile).mockClear();
     vi.mocked(downloadFilesAsZip).mockClear();
@@ -576,7 +684,7 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
   it('should download the raw file via downloadFile (NOT zip) when exactly one file is selected', async () => {
     const { wrapper } = await renderView();
     const { downloadFile, downloadFilesAsZip } = await import(
-      '@/api/file-upload/file-upload'
+      '@/api/file-download/file-download'
     );
     vi.mocked(downloadFile).mockClear();
     vi.mocked(downloadFilesAsZip).mockClear();
@@ -626,7 +734,7 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
   });
 
   it('should display ACSMS-MSG-022-003 「ファイルが存在していません。」 when downloadFile rejects with NOT_FOUND', async () => {
-    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { downloadFile } = await import('@/api/file-download/file-download');
     vi.mocked(downloadFile).mockRejectedValueOnce({
       response: {
         status: 404,
@@ -649,7 +757,7 @@ describe('FileDownloadView — download (機能定義 5.x)', () => {
   });
 
   it('should still call downloadFile when it rejects with 500 (interceptor handles toast)', async () => {
-    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { downloadFile } = await import('@/api/file-download/file-download');
     vi.mocked(downloadFile).mockRejectedValueOnce({
       response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
     });
@@ -709,7 +817,7 @@ describe('FileDownloadView — clear selection (機能定義 6.x)', () => {
 describe('FileDownloadView — pagination (機能定義 7.x)', () => {
   it('should call listFiles with page=2 when the table emits a change to page 2', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear();
 
     const vm = wrapper.vm as any;
@@ -723,7 +831,7 @@ describe('FileDownloadView — pagination (機能定義 7.x)', () => {
   });
 
   it('should default to per_page=20 when listFiles is called on mount (機能定義 7.x)', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     await renderView();
     const firstCall = vi.mocked(listFiles).mock.calls[0]?.[0] as
       | Record<string, unknown>
@@ -733,7 +841,7 @@ describe('FileDownloadView — pagination (機能定義 7.x)', () => {
 
   it('should preserve search filters across pagination when 検索 + page change occurs', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
 
     // First apply a search filter
     const vm = wrapper.vm as any;
@@ -774,7 +882,7 @@ describe('FileDownloadView — multi-selection (機能定義 8.x)', () => {
 describe('FileDownloadView — empty 検索 is a no-op', () => {
   it('should NOT call listFiles when 検索 is submitted with all filters empty', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear(); // drop the onMounted fetch
     await wrapper.find('form').trigger('submit');
     await flushPromises();
@@ -783,7 +891,7 @@ describe('FileDownloadView — empty 検索 is a no-op', () => {
 
   it('should NOT call listFiles when 検索クリア is clicked on a pristine screen', async () => {
     const { wrapper } = await renderView();
-    const { listFiles } = await import('@/api/file-upload/file-upload');
+    const { listFiles } = await import('@/api/file-download/file-download');
     vi.mocked(listFiles).mockClear(); // drop the onMounted fetch
     const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));
     await clearBtn!.trigger('click');

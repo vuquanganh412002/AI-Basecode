@@ -62,8 +62,26 @@ export function buildShitenDropdown() {
 export function buildKozaShitenDropdown() {
   return {
     data: [
-      { shiten_id: 10, shiten_code: '001', shiten_name: '本店', kanri_shiten_id: 1 },
-      { shiten_id: 11, shiten_code: '002', shiten_name: '北支店', kanri_shiten_id: 1 },
+      {
+        shiten_id: 10,
+        shiten_code: '001',
+        shiten_name: '本店',
+        kanri_shiten_id: 1,
+        jastem_toriatsukai_tenpo_code: '001',
+        jastem_tenpo_name: 'ホンテン',
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '1234567',
+      },
+      {
+        shiten_id: 11,
+        shiten_code: '002',
+        shiten_name: '北支店',
+        kanri_shiten_id: 1,
+        jastem_toriatsukai_tenpo_code: '002',
+        jastem_tenpo_name: 'キタシテン',
+        jastem_tyokin_shubetsu: '1',
+        jastem_koza_no: '7654321',
+      },
     ],
   };
 }
@@ -75,7 +93,8 @@ export function buildKozaFurikaeForm(overrides: Record<string, unknown> = {}) {
     hikiotoshi_date: '2026-05-27',
     kanri_shiten_ids: [],
     shiten_ids: [],
-    koza_shiten_ids: [],
+    // 口座支店を選択 → Part B 店舗情報が選択した shiten から自動補完される。
+    koza_shiten_ids: [10],
     jastem_itakusha_code: '1234567890',
     jastem_itakusha_name: 'ニホンノウギョウシンブン',
     jastem_ja_code: '1234',

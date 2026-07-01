@@ -366,6 +366,11 @@ export class ShitenService {
       shiten_code: string;
       shiten_name: string;
       kanri_shiten_id: number;
+      // SCR-020: 選択した口座支店ごとに JASTEM 金融機関支店情報を表で表示する。
+      jastem_toriatsukai_tenpo_code: string;
+      jastem_tenpo_name: string;
+      jastem_tyokin_shubetsu: string;
+      jastem_koza_no: string;
     }>;
   }> {
     const qb = this.repo
@@ -393,6 +398,10 @@ export class ShitenService {
         shiten_code: r.shitenCode,
         shiten_name: r.shitenName,
         kanri_shiten_id: Number(r.kanriShitenId),
+        jastem_toriatsukai_tenpo_code: r.jastemToriatsukaiTenpoCode ?? '',
+        jastem_tenpo_name: r.jastemTenpoName ?? '',
+        jastem_tyokin_shubetsu: r.jastemTyokinShubetsu || '1',
+        jastem_koza_no: r.jastemKozaNo ?? '',
       })),
     };
   }

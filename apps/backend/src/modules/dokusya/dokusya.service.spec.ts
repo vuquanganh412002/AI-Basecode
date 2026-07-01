@@ -1010,6 +1010,37 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(shinki).toBe(true);
     });
 
+    it('should set joho_henko_tekiyo_date = dokusya_kaishi_date on create (t_dokusya + rireki) — Excel取込 NEW と同方針', async () => {
+      // COVERS: 新規登録は読者情報変更適用日を購読開始日に揃える（顧客要件）。
+      mockBankShitenLookup(true);
+      const saved: any[] = [];
+      txManager.save.mockImplementation(async (_entity: any, value: any) => {
+        saved.push(value);
+        return value && 'dokusyaId' in value
+          ? value
+          : { ...value, dokusyaId: 100, dokusyaRirekiId: 200 };
+      });
+
+      await service.create(
+        buildCreateDokusyaBody({
+          tetsuzuki_shurui: 1,
+          dokusya_kaishi_date: futureDate(30),
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const masterRow = saved.find(
+        (row) => row && !('rirekiNo' in row) && 'dokusyaKaishiDate' in row,
+      );
+      const rirekiRow = saved.find((row) => row && 'rirekiNo' in row);
+      expect(masterRow).toBeDefined();
+      expect(rirekiRow).toBeDefined();
+      // master / rireki ともに joho を購読開始日に揃える。
+      expect(masterRow.johoHenkoTekiyoDate).toBe(masterRow.dokusyaKaishiDate);
+      expect(rirekiRow.johoHenkoTekiyoDate).toBe(masterRow.dokusyaKaishiDate);
+    });
+
     it('should reject create when tetsuzuki_shurui=0 (解約) — 新規登録では解約不可', async () => {
       // COVERS: 新規登録は解約(0)を選択不可（解約は既存購読者の更新操作）。
       mockBankShitenLookup(true);
@@ -1737,9 +1768,15 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
     // 顧客要件 2026-06: 販売店変更と情報変更が同時のとき履歴は2件に分割される。
     // 販売店イベントの履歴行（zenkai_hanbaiten_id がセットされる方）を取り出す。
     function findStoreRirekiRow(saved: any[]): any {
+      // 販売店イベント行は「販売店が実際に変わった行」＝ hanbaiten_id と
+      // zenkai_hanbaiten_id が異なる行で識別する（zenkai_* は全行で無条件に
+      // 退避されるため、その有無では判別できない）。
       return saved.find(
         (r) =>
-          r && ('rirekiNo' in r || 'rireki_no' in r) && r.zenkaiHanbaitenId != null,
+          r &&
+          ('rirekiNo' in r || 'rireki_no' in r) &&
+          r.zenkaiHanbaitenId != null &&
+          Number(r.hanbaitenId) !== Number(r.zenkaiHanbaitenId),
       );
     }
 
@@ -2154,7 +2191,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(rirekiRow.dokusyaBusu).toBe(5); // 新値
     });
 
-    it('should NOT set zenkai_dokusya_busu when dokusya_busu unchanged', async () => {
+    it('should always snapshot zenkai_dokusya_busu = rd.dokusya_busu even when unchanged', async () => {
+      // 顧客要件: zenkai_* は変更有無に関わらず更新前(rd)の値を常に退避する。
       const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1, dokusyaBusu: 3 });
       dokusyaRepo.findOne.mockResolvedValue(before);
       mockBankShitenLookup(true);
@@ -2168,7 +2206,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       );
 
       const rirekiRow = findRirekiRow(saved);
-      expect(rirekiRow.zenkaiDokusyaBusu == null).toBe(true);
+      expect(rirekiRow.zenkaiDokusyaBusu).toBe(3); // rd.dokusya_busu（無変更でも退避）
     });
 
     it('should snapshot previous 販売店 into zenkai_hanbaiten_id when hanbaiten_id changed', async () => {
@@ -2196,7 +2234,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(rirekiRow.hanbaitenId).toBe(9); // 新値
     });
 
-    it('should NOT set zenkai_hanbaiten_id when hanbaiten_id unchanged', async () => {
+    it('should always snapshot zenkai_hanbaiten_id = rd.hanbaiten_id even when unchanged', async () => {
+      // 顧客要件: zenkai_* は変更有無に関わらず更新前(rd)の値を常に退避する。
       const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1, hanbaitenId: 5 });
       dokusyaRepo.findOne.mockResolvedValue(before);
       mockBankShitenLookup(true);
@@ -2210,7 +2249,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       );
 
       const rirekiRow = findRirekiRow(saved);
-      expect(rirekiRow.zenkaiHanbaitenId == null).toBe(true);
+      expect(rirekiRow.zenkaiHanbaitenId).toBe(5); // rd.hanbaiten_id（無変更でも退避）
     });
 
     // ── 顧客要件 2026-06: 情報変更＋販売店変更 同時 → 履歴2件分割 ──────────

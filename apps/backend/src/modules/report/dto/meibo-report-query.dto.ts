@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -120,4 +121,16 @@ export class MeiboReportQueryDto {
   @Min(1, { message: '1ページの行数は1以上で指定してください。' })
   @Max(500, { message: '1ページの行数は500以下で指定してください。' })
   per_page?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '日農ダウンロード許可フラグ（export のみ・既定 false）。true のとき日農担当者がダウンロード可。',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean({
+    message: '日農ダウンロード許可フラグは true / false で指定してください。',
+  })
+  nichino_download_allowed_flg?: boolean;
 }

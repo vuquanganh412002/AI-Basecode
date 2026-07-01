@@ -5,7 +5,7 @@
 // 生成・ダウンロードする。対象0件は BE が 404 (NO_TARGET_DATA) を返すため、wrapper が
 // `{ error_code }` に正規化し、ここで MSG-020-002（対象データがありません。）を画面内表示。
 // アクセス制御は route guard（meta.permission: 'koza_furikae.export'）が担う。
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { message } from 'ant-design-vue';
 
 import { useAuthStore } from '@/stores/auth.store';
@@ -17,7 +17,11 @@ import {
   type ExportKozaFurikaeBody,
 } from '@/api/koza-furikae/koza-furikae';
 import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
-import { getShitenDropdown, getKozaShitenDropdown } from '@/api/shiten/shiten';
+import {
+  getShitenDropdown,
+  getKozaShitenDropdown,
+  type KozaShitenDropdownItem,
+} from '@/api/shiten/shiten';
 
 const authStore = useAuthStore();
 const notify = useNotify();
@@ -78,6 +82,25 @@ const kanriShitenOptions = ref<Array<{ value: number; label: string }>>([]);
 const shitenOptions = ref<Array<{ value: number; label: string }>>([]);
 const kozaShitenOptions = ref<Array<{ value: number; label: string }>>([]);
 
+// 選択した口座支店の JASTEM 金融機関支店情報（全フィールド）。Part B の表に
+// 1行ずつ表示する。
+const kozaShitenData = ref<KozaShitenDropdownItem[]>([]);
+// 選択順に並べた表示用の行（未選択時は空 → 表は空欄）。
+const selectedKozaRows = computed(() =>
+  formState.koza_shiten_ids
+    .map((id) => kozaShitenData.value.find((k) => k.shiten_id === id))
+    .filter((k): k is KozaShitenDropdownItem => k != null),
+);
+// CSV(全銀フォーマット)の受取口座は1件のため、CSV 用の JASTEM 店舗情報は
+// 先頭の選択口座支店を採用する。未選択時は空（必須バリデーションで作成不可）。
+watch(selectedKozaRows, (rows) => {
+  const first = rows[0];
+  formState.jastem_toriatsukai_tenpo_code = first?.jastem_toriatsukai_tenpo_code ?? '';
+  formState.jastem_tenpo_name = first?.jastem_tenpo_name ?? '';
+  formState.jastem_tyokin_shubetsu = first?.jastem_tyokin_shubetsu ?? '1';
+  formState.jastem_koza_no = first?.jastem_koza_no ?? '';
+});
+
 // 貯金種目は JASTEM 固定値（m_code ではない — api.md に m_code 参照記載なし）。
 const TYOKIN_SHUBETSU_OPTIONS = [
   { value: '1', label: '普通貯金' },
@@ -108,14 +131,13 @@ async function loadInitial(): Promise<void> {
   try {
     const resp = await getInitialKozaFurikae();
     const d = resp.data;
+    // Part A（委託者・農協）は m_ja 由来。常に表示する。
     formState.jastem_itakusha_code = d.jastem_itakusha_code ?? '';
     formState.jastem_itakusha_name = d.jastem_itakusha_name ?? '';
     formState.jastem_ja_code = d.jastem_ja_code ?? '';
     formState.jastem_ja_name = d.jastem_ja_name ?? '';
-    formState.jastem_toriatsukai_tenpo_code = d.jastem_toriatsukai_tenpo_code ?? '';
-    formState.jastem_tenpo_name = d.jastem_tenpo_name ?? '';
-    formState.jastem_tyokin_shubetsu = d.jastem_tyokin_shubetsu || '1';
-    formState.jastem_koza_no = d.jastem_koza_no ?? '';
+    // Part B（金融機関支店）は選択した口座支店由来のため初期データでは設定しない
+    //（未選択時は空 → 表は空欄、CSV 用フィールドも空でバリデーション不可）。
   } catch {
     // 403/500 は集約 axios インターセプタがトースト済み。初期値のまま継続。
   }
@@ -126,7 +148,9 @@ async function loadDropdowns(): Promise<void> {
   try {
     const [kanri, shiten, koza] = await Promise.all([
       getKanriShitenDropdown(jaId),
-      getShitenDropdown({ kinyu_shiten_flg: undefined }),
+      // 支店絞込は金融機関支店以外（kinyu_shiten_flg=false）のみ。
+      // 口座支店ピッカー(kinyu_shiten_flg=true)と相補的に分ける。
+      getShitenDropdown({ kinyu_shiten_flg: false }),
       getKozaShitenDropdown(),
     ]);
     kanriShitenOptions.value = kanri.data.map((r) => ({
@@ -137,6 +161,7 @@ async function loadDropdowns(): Promise<void> {
       value: r.shiten_id,
       label: `${r.shiten_code} - ${r.shiten_name}`,
     }));
+    kozaShitenData.value = koza.data;
     kozaShitenOptions.value = koza.data.map((r) => ({
       value: r.shiten_id,
       label: `${r.shiten_code} - ${r.shiten_name}`,
@@ -320,107 +345,81 @@ defineExpose({ formState });
         JASTEM委託者コード情報
       </h3>
 
-      <div class="space-y-2">
-        <!-- 委託者コード / 委託者名 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <a-form-item
-            name="jastem_itakusha_code"
-            :validate-status="fieldErrors.jastem_itakusha_code ? 'error' : ''"
-            :help="fieldErrors.jastem_itakusha_code"
+      <!--
+        顧客要件: JASTEM 情報は readonly 表示のみ（m_ja + 口座支店 m_shiten 由来）。
+        値は formState に保持され、作成開始 時に CSV 用にそのまま送信する。
+        Part A: 委託者/農協（m_ja）。Part B: 口座支店情報（m_shiten）を表で表示。
+      -->
+      <!-- Part A: 委託者コード/名・農協番号/名（m_ja） -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+        <div class="flex items-center gap-3">
+          <span class="w-28 shrink-0 text-right text-sm text-text-description">委託者コード</span>
+          <div
+            class="flex-1 bg-surface-disabled border border-border rounded-ant px-3 py-1.5 text-sm text-text-main"
+            data-test="jastem-itakusha-code"
           >
-            <template #label>
-              <span>委託者コード</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_itakusha_code" maxlength="10" />
-          </a-form-item>
-
-          <a-form-item
-            name="jastem_itakusha_name"
-            :validate-status="fieldErrors.jastem_itakusha_name ? 'error' : ''"
-            :help="fieldErrors.jastem_itakusha_name"
-          >
-            <template #label>
-              <span>委託者名</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_itakusha_name" maxlength="40" />
-          </a-form-item>
+            {{ formState.jastem_itakusha_code || '—' }}
+          </div>
         </div>
-
-        <!-- 農協番号 / 農協名 / データ送信取扱店舗コード -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <a-form-item
-            name="jastem_ja_code"
-            :validate-status="fieldErrors.jastem_ja_code ? 'error' : ''"
-            :help="fieldErrors.jastem_ja_code"
-          >
-            <template #label>
-              <span>農協番号</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_ja_code" maxlength="4" />
-          </a-form-item>
-
-          <a-form-item
-            name="jastem_ja_name"
-            :validate-status="fieldErrors.jastem_ja_name ? 'error' : ''"
-            :help="fieldErrors.jastem_ja_name"
-          >
-            <template #label>
-              <span>農協名</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_ja_name" maxlength="15" />
-          </a-form-item>
-
-          <a-form-item
-            name="jastem_toriatsukai_tenpo_code"
-            :validate-status="fieldErrors.jastem_toriatsukai_tenpo_code ? 'error' : ''"
-            :help="fieldErrors.jastem_toriatsukai_tenpo_code"
-          >
-            <template #label>
-              <span>データ送信取扱店舗コード</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_toriatsukai_tenpo_code" maxlength="3" />
-          </a-form-item>
+        <div class="flex items-center gap-3">
+          <span class="w-28 shrink-0 text-right text-sm text-text-description">委託者名</span>
+          <div class="flex-1 bg-surface-disabled border border-border rounded-ant px-3 py-1.5 text-sm text-text-main">
+            {{ formState.jastem_itakusha_name || '—' }}
+          </div>
         </div>
-
-        <!-- 貯金種目 / 口座番号 / 店舗名 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <a-form-item
-            name="jastem_tyokin_shubetsu"
-            :validate-status="fieldErrors.jastem_tyokin_shubetsu ? 'error' : ''"
-            :help="fieldErrors.jastem_tyokin_shubetsu"
-          >
-            <template #label>
-              <span>貯金種目</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-select
-              v-model:value="formState.jastem_tyokin_shubetsu"
-              :options="TYOKIN_SHUBETSU_OPTIONS"
-              class="w-full"
-            />
-          </a-form-item>
-
-          <a-form-item
-            name="jastem_koza_no"
-            :validate-status="fieldErrors.jastem_koza_no ? 'error' : ''"
-            :help="fieldErrors.jastem_koza_no"
-          >
-            <template #label>
-              <span>口座番号</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_koza_no" maxlength="7" />
-          </a-form-item>
-
-          <a-form-item
-            name="jastem_tenpo_name"
-            :validate-status="fieldErrors.jastem_tenpo_name ? 'error' : ''"
-            :help="fieldErrors.jastem_tenpo_name"
-          >
-            <template #label>
-              <span>店舗名</span><span class="text-error ml-1">*</span>
-            </template>
-            <a-input v-model:value="formState.jastem_tenpo_name" maxlength="15" />
-          </a-form-item>
+        <div class="flex items-center gap-3">
+          <span class="w-28 shrink-0 text-right text-sm text-text-description">農協番号</span>
+          <div class="flex-1 bg-surface-disabled border border-border rounded-ant px-3 py-1.5 text-sm text-text-main">
+            {{ formState.jastem_ja_code || '—' }}
+          </div>
         </div>
+        <div class="flex items-center gap-3">
+          <span class="w-28 shrink-0 text-right text-sm text-text-description">農協名</span>
+          <div class="flex-1 bg-surface-disabled border border-border rounded-ant px-3 py-1.5 text-sm text-text-main">
+            {{ formState.jastem_ja_name || '—' }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Part B: 口座支店情報（m_shiten）を表で表示 -->
+      <div class="mt-5 pt-5 border-t border-border overflow-x-auto">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="bg-surface-card-subtle">
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">データ送信取扱店舗コード</th>
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">店舗名</th>
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">貯金種目</th>
+              <th class="border border-border px-3 py-2 text-right font-medium text-text-main">口座番号</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 口座支店 未選択 → 空欄（行なし）。 -->
+            <tr v-if="selectedKozaRows.length === 0">
+              <td
+                colspan="4"
+                class="border border-border px-3 py-4 text-center text-text-secondary"
+                data-test="koza-empty"
+              >
+                口座支店を選択してください。
+              </td>
+            </tr>
+            <!-- 選択した口座支店ごとに1行（m_shiten 由来）。 -->
+            <tr v-for="row in selectedKozaRows" :key="row.shiten_id">
+              <td class="border border-border px-3 py-2 font-medium text-text-main">
+                {{ row.jastem_toriatsukai_tenpo_code || '—' }}
+              </td>
+              <td class="border border-border px-3 py-2 text-text-main">
+                {{ row.jastem_tenpo_name || '—' }}
+              </td>
+              <td class="border border-border px-3 py-2 text-text-main">
+                {{ TYOKIN_SHUBETSU_OPTIONS.find((o) => o.value === row.jastem_tyokin_shubetsu)?.label || '—' }}
+              </td>
+              <td class="border border-border px-3 py-2 text-right text-text-main">
+                {{ row.jastem_koza_no || '—' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 

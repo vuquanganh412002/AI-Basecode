@@ -12,12 +12,12 @@ import {
 export const MAX_ZIP_FILES = 50;
 
 /**
- * Request body for POST /api/v1/file-upload/download-zip — the list of
- * file_upload_id to bundle into one ZIP (一括ダウンロード, SCR-022 §8).
+ * Request body for POST /api/v1/file-download/download-zip — the list of
+ * file_download_id to bundle into one ZIP (一括ダウンロード, SCR-022 §8).
  */
 export class DownloadZipDto {
   @ApiProperty({
-    description: '一括ダウンロード対象の file_upload_id 配列（1〜50件・重複不可）',
+    description: '一括ダウンロード対象の file_download_id 配列（1〜50件・重複不可）',
     type: [Number],
     example: [101, 102, 103],
   })
@@ -29,5 +29,5 @@ export class DownloadZipDto {
   @ArrayUnique({ message: 'ファイルIDが重複しています。' })
   @Type(() => Number)
   @IsInt({ each: true, message: 'ファイルIDは整数で指定してください。' })
-  file_upload_ids!: number[];
+  file_download_ids!: number[];
 }

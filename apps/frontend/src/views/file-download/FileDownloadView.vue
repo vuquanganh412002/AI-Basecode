@@ -8,6 +8,9 @@ import { message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
+import { useAuthStore } from '@/stores/auth.store';
+import { useCodesStore } from '@/stores/codes.store';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { formatDateTime } from '@/utils/formatters';
 import {
@@ -16,8 +19,8 @@ import {
   downloadFile,
   downloadFilesAsZip,
   type ListFilesQuery,
-  type FileUploadListItem,
-} from '@/api/file-upload/file-upload';
+  type FileDownloadListItem,
+} from '@/api/file-download/file-download';
 import {
   getTodofukenList,
   type TodofukenItem,
@@ -26,21 +29,35 @@ import {
 interface FileFilters {
   file_name: string;
   todofuken_code: string;
+  ja_id: number | null;
 }
+
+const authStore = useAuthStore();
+const codes = useCodesStore();
+// JA スコープロール（CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）は自JA 1件のみ。
+// JA 絞り込みは自JAで固定（プリセット＋disable）＝情報提供のみの意味合い。
+// NICHINO_ADMIN/STAFF は全JAを自由に絞り込める。
+const isJaScopedRole = computed(() =>
+  ['CHUOKAI', 'JA_HONTEN', 'JA_KANRI_SHITEN'].includes(
+    authStore.user?.role_code ?? '',
+  ),
+);
+// defaultFilters に自JAを入れることで、初期表示・検索クリア後も自JAが残る。
+const scopedJaId = isJaScopedRole.value ? (authStore.user?.ja_id ?? null) : null;
 
 const {
   state, loading, total, onChange, searchActions,
 } =
   useTableQuery<FileFilters>({
-    defaultFilters: { file_name: '', todofuken_code: '' },
-    defaultSortBy: 'upload_datetime',
+    defaultFilters: { file_name: '', todofuken_code: '', ja_id: scopedJaId },
+    defaultSortBy: 'download_datetime',
     defaultSortOrder: 'desc',
   });
 
-const rows = ref<FileUploadListItem[]>([]);
+const rows = ref<FileDownloadListItem[]>([]);
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-/** Selected file_upload_id list. Bound to the table's row-selection. */
+/** Selected file_download_id list. Bound to the table's row-selection. */
 const selectedIds = ref<number[]>([]);
 
 /** Preview modal state. `previewUrl` is the S3 presigned URL the iframe loads. */
@@ -52,8 +69,24 @@ const previewContentType = ref('');
 // [deleted-row] 論理削除済み (deleted_at が立っている) ファイルはダウンロード／
 // プレビュー対象外。一覧には表示するが、選択チェックボックスを disabled にし、
 // ファイル名はリンクではなくグレーの取り消し線テキストにする。
-function isDeleted(row: FileUploadListItem): boolean {
+function isDeleted(row: FileDownloadListItem): boolean {
   return !!row.deleted_at;
+}
+
+// [nichino-permission] 日農（NICHINO_ADMIN=role 1 / NICHINO_STAFF=role 2）は
+// nichino_download_allowed_flg=false の行をダウンロードできない。該当ロールの
+// ときだけ、フラグ false の行を選択不可（チェックボックス disabled + ファイル名
+// はプレーンテキスト）にする。他ロールはフラグに関わらず操作可能。
+const isNichinoRole = computed(() =>
+  ['NICHINO_ADMIN', 'NICHINO_STAFF'].includes(authStore.user?.role_code ?? ''),
+);
+function isNichinoBlocked(row: FileDownloadListItem): boolean {
+  return isNichinoRole.value && row.nichino_download_allowed_flg === false;
+}
+
+/** 削除済み or 日農DL不可 → 選択・プレビュー・DL 対象外。 */
+function isRowDisabled(row: FileDownloadListItem): boolean {
+  return isDeleted(row) || isNichinoBlocked(row);
 }
 
 // [row-selection] Bind a stable computed config object so the inline
@@ -64,9 +97,9 @@ const rowSelectionConfig = computed(() => ({
   onChange: (keys: (string | number)[]) => {
     selectedIds.value = keys.map(Number);
   },
-  // 削除済みファイルは選択不可（チェックボックス disabled）。
-  getCheckboxProps: (record: FileUploadListItem) => ({
-    disabled: isDeleted(record),
+  // 削除済み or 日農DL不可 のファイルは選択不可（チェックボックス disabled）。
+  getCheckboxProps: (record: FileDownloadListItem) => ({
+    disabled: isRowDisabled(record),
   }),
 }));
 
@@ -86,8 +119,8 @@ function isPreviewable(fileName: string): boolean {
 // path mirrors the same gate (non-previewable names are plain text).
 const canPreviewSelected = computed(() => {
   if (selectedIds.value.length !== 1) return false;
-  const row = rows.value.find((r) => r.file_upload_id === selectedIds.value[0]);
-  return !!row && !isDeleted(row) && isPreviewable(row.file_name);
+  const row = rows.value.find((r) => r.file_download_id === selectedIds.value[0]);
+  return !!row && !isRowDisabled(row) && isPreviewable(row.file_name);
 });
 
 // [image-preview] Render <img> instead of <iframe> when the file is
@@ -104,9 +137,9 @@ const isImagePreview = computed(() => {
 
 const columns: TableColumnsType = [
   {
-    title: 'アップロード日時',
-    dataIndex: 'upload_datetime',
-    key: 'upload_datetime',
+    title: 'ダウンロード日時',
+    dataIndex: 'download_datetime',
+    key: 'download_datetime',
     sorter: true,
     width: 200,
   },
@@ -115,7 +148,17 @@ const columns: TableColumnsType = [
     dataIndex: 'created_by_name',
     key: 'created_by_name',
     sorter: true,
-    width: 180,
+    width: 160,
+  },
+  {
+    title: 'JA名',
+    key: 'ja_name',
+    width: 220,
+  },
+  {
+    title: 'ダウンロード種別',
+    key: 'download_type',
+    width: 160,
   },
   {
     title: 'ファイル名',
@@ -134,6 +177,7 @@ function buildQuery(): ListFilesQuery {
   return {
     file_name: state.filters.file_name || undefined,
     todofuken_code: state.filters.todofuken_code || undefined,
+    ja_id: state.filters.ja_id ?? undefined,
     page: state.page,
     per_page: state.per_page,
     sort_by: state.sort_by as ListFilesQuery['sort_by'],
@@ -206,7 +250,7 @@ async function openPreviewById(id: number): Promise<void> {
     const resp = await getFilePreview(id);
     previewUrl.value = resp.data.preview_url;
     previewFileName.value = resp.data.file_name;
-    previewContentType.value = resp.data.content_type;
+    previewContentType.value = '';
     previewOpen.value = true;
   } catch (err: unknown) {
     if (handleFileError(err)) return;
@@ -229,9 +273,9 @@ async function onPreview(): Promise<void> {
 /** Direct preview from a filename click — bypasses row selection.
  *  Only previewable types reach here (the template renders other
  *  filenames as plain text), but guard defensively. */
-async function onPreviewRow(row: FileUploadListItem): Promise<void> {
-  if (isDeleted(row) || !isPreviewable(row.file_name)) return;
-  await openPreviewById(row.file_upload_id);
+async function onPreviewRow(row: FileDownloadListItem): Promise<void> {
+  if (isRowDisabled(row) || !isPreviewable(row.file_name)) return;
+  await openPreviewById(row.file_download_id);
 }
 
 // ──────────────── 機能定義 5.x — ダウンロード実行 ────────────────
@@ -272,7 +316,7 @@ async function onDownload(): Promise<void> {
 
   // 単一選択時は元ファイルをそのままダウンロードする（ZIP 化しない）。
   const id = selectedIds.value[0];
-  const row = rows.value.find((r) => r.file_upload_id === id);
+  const row = rows.value.find((r) => r.file_download_id === id);
   const fallbackName = row?.file_name ?? `file_${id}`;
   try {
     const blob = await downloadFile(id);
@@ -353,6 +397,19 @@ defineExpose({
           </a-select-option>
         </a-select>
       </label>
+      <!-- JA 絞り込み — 共通 <BaseJaDropdown>（サーバ側ページング・JAコード/JA名
+           検索・単一選択）。/ja/dropdown が DataScope を適用するため、JA ロール
+           （CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）は自JAのみが候補に出る。 -->
+      <label for="file-download-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">JA名</span>
+        <BaseJaDropdown
+          id="file-download-filter-3"
+          v-model:value="state.filters.ja_id"
+          placeholder="JAコード・JA名で検索"
+          :disabled="isJaScopedRole"
+          class="flex-1"
+        />
+      </label>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-022-001 — 0-row search result. Rendered outside the
@@ -374,7 +431,7 @@ defineExpose({
       :page="state.page"
       :per-page="state.per_page"
       :total="total"
-      row-key="file_upload_id"
+      row-key="file_download_id"
       :row-selection="rowSelectionConfig"
       @change="onPageChange"
     >
@@ -398,13 +455,25 @@ defineExpose({
       </template>
 
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'upload_datetime'">
+        <template v-if="column.key === 'download_datetime'">
           <!-- BE returns an ISO timestamp with `+09:00` offset
                (TIMESTAMPTZ); `formatDateTime` (formatters.ts) pins
                rendering to Asia/Tokyo via dayjs.tz.setDefault so the
                raw `2026-05-25T04:36:29.203Z` becomes the JST wall
                clock `2026/05/25 13:36`. -->
-          {{ formatDateTime((record as FileUploadListItem).upload_datetime) }}
+          {{ formatDateTime((record as FileDownloadListItem).download_datetime) }}
+        </template>
+        <template v-else-if="column.key === 'ja_name'">
+          <!-- JA名: m_ja.ja_code + ja_name。全JA向け(ja_id=null)は「全JA向け」。 -->
+          <span v-if="(record as FileDownloadListItem).ja_name">
+            {{ (record as FileDownloadListItem).ja_code }}
+            {{ (record as FileDownloadListItem).ja_name }}
+          </span>
+          <span v-else class="text-text-secondary">全JA向け</span>
+        </template>
+        <template v-else-if="column.key === 'download_type'">
+          <!-- ダウンロード種別は m_code (DOWNLOAD_TYPE) のラベルで表示する。 -->
+          {{ codes.label('DOWNLOAD_TYPE', (record as FileDownloadListItem).download_type) }}
         </template>
         <template v-else-if="column.key === 'file_name'">
           <!-- [filename-as-link] Per index.html mockup the file_name
@@ -415,26 +484,35 @@ defineExpose({
                is no inline viewer for them. -->
           <!-- 削除済み: グレー＋取り消し線のプレーンテキスト（リンク化しない）。 -->
           <span
-            v-if="isDeleted(record as FileUploadListItem)"
+            v-if="isDeleted(record as FileDownloadListItem)"
             class="text-text-disabled line-through"
             title="削除済みファイル"
           >
-            {{ (record as FileUploadListItem).file_name }}（削除済み）
+            {{ (record as FileDownloadListItem).file_name }}（削除済み）
+          </span>
+          <!-- 日農DL不可 (nichino_download_allowed_flg=false かつ role 1/2):
+               グレーのプレーンテキスト。リンク化せず選択・DL 不可。 -->
+          <span
+            v-else-if="isNichinoBlocked(record as FileDownloadListItem)"
+            class="text-text-disabled"
+            title="日農ダウンロード不可"
+          >
+            {{ (record as FileDownloadListItem).file_name }}
           </span>
           <a
-            v-else-if="isPreviewable((record as FileUploadListItem).file_name)"
+            v-else-if="isPreviewable((record as FileDownloadListItem).file_name)"
             href="#"
             class="text-primary hover:underline cursor-pointer"
-            @click.prevent="onPreviewRow(record as FileUploadListItem)"
+            @click.prevent="onPreviewRow(record as FileDownloadListItem)"
           >
-            {{ (record as FileUploadListItem).file_name }}
+            {{ (record as FileDownloadListItem).file_name }}
           </a>
           <span v-else class="text-text-main">
-            {{ (record as FileUploadListItem).file_name }}
+            {{ (record as FileDownloadListItem).file_name }}
           </span>
         </template>
         <template v-else-if="column.key === 'file_size'">
-          {{ formatBytes((record as FileUploadListItem).file_size) }}
+          {{ formatBytes((record as FileDownloadListItem).file_size) }}
         </template>
       </template>
     </BaseDataTable>

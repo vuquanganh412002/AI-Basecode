@@ -1,14 +1,16 @@
-// Unit spec for ReportArchiveService — plain `new` with mocked deps.
+// Unit spec for FileArchiveService — plain `new` with mocked deps.
 // Verifies the S3 key layout, the timestamped filename, ja_code resolution,
-// and the t_file_upload record shape (status=2 完了, scheduled delete +5y).
+// and the t_file_download record shape (download_type / nichino flag /
+// scheduled delete +5y).
 
-import { ReportArchiveService } from '@/modules/report/report-archive.service';
+import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
+import { DownloadType } from '@/common/enums';
 import { todayIsoJst } from '@/common/utils/datetime';
 
-describe('ReportArchiveService', () => {
-  let service: ReportArchiveService;
-  let fileUploadRepo: any;
+describe('FileArchiveService', () => {
+  let service: FileArchiveService;
+  let fileDownloadRepo: any;
   let jaRepo: any;
   let storage: any;
 
@@ -25,18 +27,19 @@ describe('ReportArchiveService', () => {
     recordCount: 3,
     contentType:
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    downloadType: DownloadType.MEIBO,
   });
 
   beforeEach(() => {
-    fileUploadRepo = {
+    fileDownloadRepo = {
       create: jest.fn((v: any) => v),
-      save: jest.fn(async (v: any) => ({ fileUploadId: 1, ...v })),
+      save: jest.fn(async (v: any) => ({ fileDownloadId: 1, ...v })),
     };
     jaRepo = {
       findOne: jest.fn().mockResolvedValue({ jaCode: 'JA001', jaName: 'テストJA' }),
     };
     storage = { upload: jest.fn().mockResolvedValue('JA001/...') };
-    service = new ReportArchiveService(fileUploadRepo, jaRepo, storage);
+    service = new FileArchiveService(fileDownloadRepo, jaRepo, storage);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -82,10 +85,10 @@ describe('ReportArchiveService', () => {
     );
   });
 
-  it('returns the saved t_file_upload id', async () => {
-    fileUploadRepo.save.mockResolvedValueOnce({ fileUploadId: 99 });
-    const { fileUploadId } = await service.archive(baseParams());
-    expect(fileUploadId).toBe(99);
+  it('returns the saved t_file_download id', async () => {
+    fileDownloadRepo.save.mockResolvedValueOnce({ fileDownloadId: 99 });
+    const { fileDownloadId } = await service.archive(baseParams());
+    expect(fileDownloadId).toBe(99);
   });
 
   describe('resolveJa', () => {
@@ -119,39 +122,53 @@ describe('ReportArchiveService', () => {
     expect(key).toMatch(/^reports\/meibo\/7\/hanbaiten\/2026\//);
   });
 
-  it('saves a t_file_upload record with status=2 (完了) and the S3 metadata', async () => {
+  it('saves a t_file_download record with download_type + S3 metadata', async () => {
     const { key, filename } = await service.archive(baseParams());
 
-    expect(fileUploadRepo.save).toHaveBeenCalledTimes(1);
-    const saved = fileUploadRepo.create.mock.calls[0][0];
+    expect(fileDownloadRepo.save).toHaveBeenCalledTimes(1);
+    const saved = fileDownloadRepo.create.mock.calls[0][0];
     expect(saved).toEqual(
       expect.objectContaining({
         jaId: 1,
+        downloadType: DownloadType.MEIBO,
+        nichinoDownloadAllowedFlg: false, // 既定
         fileName: filename,
         filePath: key,
         fileSize: Buffer.from('xlsx-bytes').length,
         recordCount: 3,
-        status: 2, // FILE_UPLOAD_STATUS=2 完了
         createdBy: '42',
       }),
     );
-    expect(saved.uploadDatetime).toBeInstanceOf(Date);
+    expect(saved.downloadDatetime).toBeInstanceOf(Date);
+    // t_file_download には status 列は無い。
+    expect(saved).not.toHaveProperty('status');
+  });
+
+  it('passes through nichinoDownloadAllowedFlg=true and targetMonth', async () => {
+    await service.archive({
+      ...baseParams(),
+      nichinoDownloadAllowedFlg: true,
+      targetMonth: '202601',
+    });
+    const saved = fileDownloadRepo.create.mock.calls[0][0];
+    expect(saved.nichinoDownloadAllowedFlg).toBe(true);
+    expect(saved.targetMonth).toBe('202601');
   });
 
   it('sets scheduled_delete_date to today(JST) + 5 years (date-only)', async () => {
     await service.archive(baseParams());
-    const saved = fileUploadRepo.create.mock.calls[0][0];
+    const saved = fileDownloadRepo.create.mock.calls[0][0];
 
     const [y, m, d] = todayIsoJst().split('-');
     const expected = `${Number(y) + 5}-${m}-${d}`;
     expect(saved.scheduledDeleteDate).toBe(expected);
   });
 
-  it('defaults recordCount to null when omitted', async () => {
+  it('defaults recordCount to 0 when omitted', async () => {
     const params = baseParams();
     delete (params as { recordCount?: number }).recordCount;
     await service.archive(params);
-    const saved = fileUploadRepo.create.mock.calls[0][0];
-    expect(saved.recordCount).toBeNull();
+    const saved = fileDownloadRepo.create.mock.calls[0][0];
+    expect(saved.recordCount).toBe(0);
   });
 });

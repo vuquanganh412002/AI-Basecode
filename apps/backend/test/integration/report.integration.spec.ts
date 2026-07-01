@@ -5,7 +5,7 @@
 // and the ValidationPipe for the report/meibo endpoints.
 //
 // IMPORTANT — ReportModule reads DokusyaRireki, writes FileUpload (帳票の S3
-// アーカイブ via ReportArchiveService, which also reads Ja for ja_code), and
+// アーカイブ via FileArchiveService, which also reads Ja for ja_code), and
 // reads Account (SCR-029 出力時の日農 NICHINO_ADMIN/STAFF 通知先取得). All are
 // already registered in `ALL_ENTITIES`. If a future refactor removes any,
 // append the entity classes back to `test/utils/create-integration-app.ts`.

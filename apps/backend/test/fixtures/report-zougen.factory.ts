@@ -47,17 +47,39 @@ export function buildZougenRawRow(overrides: Record<string, unknown> = {}) {
     // 部数（増減判定）
     dokusya_busu: 2,
     zenkai_dokusya_busu: 1,
+    // 購読種別（既定=紙版1。電子版2は住所変更セクション対象外）
+    dokusya_shubetsu: 1,
     // 氏名 / 配達先氏名
     shimei_sei: '農業',
     shimei_mei: '太郎',
     haitatsu_shimei_sei: '農業',
     haitatsu_shimei_mei: '太郎',
+    // 電話番号列: haitatsu_same_flg=true → renrakusaki_1、false → haitatsu_renrakusaki_1。
+    // 既定は配達先＝購読者本人なので両者同値。
+    renrakusaki_1: '03-1111-2222',
     haitatsu_renrakusaki_1: '03-1111-2222',
-    // 現配達先住所（td_now + haitatsu_*）
-    now_todofuken_name: '東京都',
+    // 既定は配達先＝購読者本人（haitatsu_same_flg=true）→ 現住所は購読者住所を採用。
+    haitatsu_same_flg: true,
+    // 購読者住所（生）— now_* と整合（同日マージ + フィールド単位比較で参照）
+    yubin_no: '1000001',
+    todofuken_code: '13',
+    shikuchoson: '千代田区',
+    chome_banchi: '神田1-1-1',
+    tatemono_mei: '神田ビル101',
+    // 配達先住所（生）— 既定は購読者本人と同一（haitatsu_same_flg=true のため）
+    haitatsu_yubin_no: '1000001',
+    haitatsu_todofuken_code: '13',
     haitatsu_shikuchoson: '千代田区',
     haitatsu_chome_banchi: '神田1-1-1',
     haitatsu_tatemono_mei: '神田ビル101',
+    // 前回住所（生）— 既定は現住所と同一（住所変更なし）
+    zenkai_yubin_no: '1000001',
+    zenkai_todofuken_code: '13',
+    // 現住所（haitatsu_same_flg で 購読者/配達先 を選択。SQL 側で解決済みの値）
+    now_todofuken_name: '東京都',
+    now_shikuchoson: '千代田区',
+    now_chome_banchi: '神田1-1-1',
+    now_tatemono_mei: '神田ビル101',
     // 前回配達先住所（td_zen + zenkai_*）— デフォルトは現住所と同一（住所変更なし）
     zen_todofuken_name: '東京都',
     zenkai_shikuchoson: '千代田区',

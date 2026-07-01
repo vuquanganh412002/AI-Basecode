@@ -1,107 +1,94 @@
 // Test fixtures for ACSMS-SCR-022 (ファイルダウンロード画面).
-// Shapes mirror docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md レスポンスデータ.
-//
-// [scr-023-contract-evolution] SCR-023 extended the shared GET
-// /api/v1/file-upload endpoint with ja_code, ja_name, success_count,
-// error_count, notification_status, scheduled_delete_date,
-// error_file_path. This fixture's `FileUploadListItem` matches the
-// canonical type in `@/api/file-upload/file-upload` so SCR-022 specs
-// still type-check against the evolved API client. SCR-022 tests assert
-// only the SCR-022 subset, so adding fields is backward-compatible.
+// Data source = t_file_download. Shapes mirror
+// docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md レスポンスデータ and the
+// canonical type in `@/api/file-download/file-download`.
 
-export interface FileUploadListItem {
-  file_upload_id: number;
+export interface FileDownloadListItem {
+  file_download_id: number;
   ja_id: number | null;
   ja_code: string | null;
   ja_name: string | null;
-  upload_datetime: string;
+  download_datetime: string;
+  download_type: number;
   file_name: string;
-  file_size: number | null;
-  record_count: number | null;
-  success_count: number | null;
-  error_count: number | null;
-  status: number;
-  notification_status: number;
-  notified_at: string | null;
+  file_size: number;
+  record_count: number;
+  target_month: string | null;
   scheduled_delete_date: string | null;
-  error_file_path: string;
+  nichino_download_allowed_flg: boolean;
+  deleted_at: string | null;
   created_by: string;
-  created_by_name: string;
-  created_at: string;
-  deleted_at?: string | null;
+  created_by_name: string | null;
+  created_at: string | null;
 }
 
-export interface FileUploadListMeta {
+export interface FileDownloadListMeta {
   total: number;
   page: number;
   per_page: number;
   total_pages: number;
 }
 
-export interface FileUploadListResponse {
-  data: FileUploadListItem[];
-  meta: FileUploadListMeta;
+export interface FileDownloadListResponse {
+  data: FileDownloadListItem[];
+  meta: FileDownloadListMeta;
 }
 
 export interface FilePreviewResponse {
   data: {
-    file_upload_id: number;
-    file_name: string;
-    file_size: number | null;
-    content_type: string;
     preview_url: string;
-    expires_at: string;
+    file_name: string;
   };
 }
 
 /** Single list row builder. */
-export function buildFileUploadItem(
-  overrides: Partial<FileUploadListItem> = {},
-): FileUploadListItem {
+export function buildFileDownloadItem(
+  overrides: Partial<FileDownloadListItem> = {},
+): FileDownloadListItem {
   return {
-    file_upload_id: 101,
+    file_download_id: 101,
     ja_id: 1,
     ja_code: '00001',
     ja_name: 'JA農業中央',
-    upload_datetime: '2026-05-07T10:30:00+09:00',
+    download_datetime: '2026-05-07T10:30:00+09:00',
+    download_type: 4,
     file_name: 'zougen_tsuchi_202604.pdf',
     file_size: 524288,
     record_count: 250,
-    success_count: 250,
-    error_count: 0,
-    status: 2,
-    notification_status: 3,
-    notified_at: '2026-05-07T10:35:00+09:00',
+    target_month: '202604',
     scheduled_delete_date: '2026-11-03T10:30:00+09:00',
-    error_file_path: '',
+    nichino_download_allowed_flg: true,
+    deleted_at: null,
     created_by: 'nichino_admin01',
     created_by_name: '日農 管理者',
     created_at: '2026-05-07T10:30:00+09:00',
-    deleted_at: null,
     ...overrides,
   };
 }
 
-/** Default 2-row paginated response (matches api.md §レスポンス成功例). */
-export function buildFileUploadListResponse(
-  overrides: Partial<FileUploadListResponse> = {},
-): FileUploadListResponse {
+/** Default 2-row paginated response（api.md §レスポンス成功例）。 */
+export function buildFileDownloadListResponse(
+  overrides: Partial<FileDownloadListResponse> = {},
+): FileDownloadListResponse {
   const rows = overrides.data ?? [
-    buildFileUploadItem({
-      file_upload_id: 101,
+    buildFileDownloadItem({
+      file_download_id: 101,
       ja_id: 1,
+      download_type: 4,
       file_name: 'zougen_tsuchi_202604.pdf',
       file_size: 524288,
       created_by: 'nichino_admin01',
       created_by_name: '日農 管理者',
     }),
-    buildFileUploadItem({
-      file_upload_id: 102,
+    buildFileDownloadItem({
+      file_download_id: 102,
       ja_id: null,
-      upload_datetime: '2026-05-06T15:00:00+09:00',
+      download_datetime: '2026-05-06T15:00:00+09:00',
+      download_type: 1,
       file_name: 'kouza_furikae_20260506.csv',
       file_size: 102400,
       record_count: 80,
+      target_month: '202605',
       created_by: 'nichino_staff02',
       created_by_name: '日農 担当者',
       created_at: '2026-05-06T15:00:00+09:00',
@@ -124,13 +111,9 @@ export function buildFilePreviewResponse(
 ): FilePreviewResponse {
   return {
     data: {
-      file_upload_id: 101,
-      file_name: 'zougen_tsuchi_202604.pdf',
-      file_size: 524288,
-      content_type: 'application/pdf',
       preview_url:
         'https://s3.ap-northeast-1.amazonaws.com/agrinews-prod-files/ja-1/zougen_tsuchi_202604.pdf?X-Amz-Signature=mocked',
-      expires_at: '2026-05-07T11:30:00+09:00',
+      file_name: 'zougen_tsuchi_202604.pdf',
       ...overrides,
     },
   };

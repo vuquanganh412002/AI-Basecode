@@ -128,6 +128,8 @@ export interface HanbaitenDropdownQuery {
   per_page?: number;
   /** Edit-mode pin — force the selected id onto page 1 so its label resolves. */
   include_id?: number;
+  /** true → 営業中(haiten_flg=false)のみ。購読者の販売店選択（登録/編集）用。 */
+  active_only?: boolean;
 }
 
 /**

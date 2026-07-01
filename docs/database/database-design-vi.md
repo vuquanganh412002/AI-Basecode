@@ -466,13 +466,16 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 2 | ja_id |  | BIGINT |  |  |  | JA ID (FK: m_ja) |
 | 3 | download_datetime |  | TIMESTAMPTZ |  |  |  | Ngày giờ tải xuống |
 | 4 | download_type |  | INTEGER |  |  |  | Loại tải xuống (1: Chuyển khoản ngân hàng, 2: Khác, 3: Phiếu liên lạc tăng giảm, 4: Thông báo tăng giảm, 5: Danh sách người đăng ký) |
-| 5 | file_name |  | VARCHAR | 255 |  |  | Tên tệp |
-| 6 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
-| 7 | file_size |  | INTEGER |  |  |  | Kích thước tệp (byte) |
-| 8 | record_count |  | INTEGER |  |  |  | Số lượng bản ghi |
-| 9 | target_month |  | VARCHAR | 6 |  | 〇 | Tháng đối tượng (YYYYMM) ※Cho phép chuỗi rỗng |
-| 10 | created_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ tạo |
-| 11 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 5 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | Ngày dự kiến xóa |
+| 6 | nichino_download_allowed_flg |  | BOOLEAN |  |  |  | Cờ cho phép Nichino tải xuống (TRUE: Cho phép, FALSE: Không cho phép, DEFAULT FALSE, NOT NULL) |
+| 7 | file_name |  | VARCHAR | 255 |  |  | Tên tệp |
+| 8 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
+| 9 | file_size |  | INTEGER |  |  |  | Kích thước tệp (byte) |
+| 10 | record_count |  | INTEGER |  |  |  | Số lượng bản ghi |
+| 11 | target_month |  | VARCHAR | 6 |  | 〇 | Tháng đối tượng (YYYYMM) ※Cho phép chuỗi rỗng |
+| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 13 | created_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ tạo |
+| 14 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
 
 ## Chỉ mục
 

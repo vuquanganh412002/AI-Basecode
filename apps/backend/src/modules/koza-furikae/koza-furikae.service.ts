@@ -2,22 +2,30 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import * as iconv from 'iconv-lite';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { Ja } from '@/database/entities/ja.entity';
 import { Shiten } from '@/database/entities/shiten.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
-import { ReportArchiveService } from '@/modules/report/report-archive.service';
+import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
+import { AuditOperation, DownloadType } from '@/common/enums';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { NoTargetDataException } from './exceptions/no-target-data.exception';
+import {
+  buildRecord,
+  padCharSpace,
+  padNumSpaceRight,
+  padNumZero,
+  spaces,
+} from './zengin-format';
 
 const SCREEN_NAME = '口座振替データ出力画面 (ACSMS-SCR-020)';
-const TABLE_NAME = 't_file_upload';
-const CSV_MIME = 'text/csv; charset=Shift_JIS';
+const TABLE_NAME = 't_file_download';
+// 全銀フォーマットは固定長テキスト（CSV ではない）。Shift_JIS 固定。
+const ZENGIN_MIME = 'text/plain; charset=Shift_JIS';
 
 /** API-020-001 初期データ（m_ja JASTEM 委託者情報 + 最終使用 m_shiten 金融機関支店情報）。 */
 export interface KozaFurikaeInitialData {
@@ -41,6 +49,7 @@ interface KozaFurikaeAggRow {
   koza_meigi: string | null;
   bank_branch_code: string | null;
   bank_branch_name: string | null;
+  bank_branch_name_kana: string | null;
   hikiotoshi_yokin_shubetsu: number | null;
   hikiotoshi_koza_no: string | null;
   hikiotoshi_koza_meigi: string | null;
@@ -75,7 +84,7 @@ export class KozaFurikaeService {
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
     // 共通の S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
-    private readonly reportArchive: ReportArchiveService,
+    private readonly fileArchive: FileArchiveService,
   ) {}
 
   // ─── ACSMS-API-020-001 — GET /api/v1/koza-furikae/initial ───────────
@@ -125,24 +134,26 @@ export class KozaFurikaeService {
       // 4.3 0件 → 404 (NO_TARGET_DATA)。CSV / S3 / DB は実行しない。
       if (rows.length === 0) throw new NoTargetDataException();
 
-      // 4.4 全銀フォーマット CSV（Shift_JIS）を生成する。
-      const csv = this.buildZenginCsv(body, rows);
-      const buffer = iconv.encode(csv, 'Shift_JIS');
+      // 4.4 全銀フォーマット（固定長120バイト・種別91）を生成し Shift_JIS へ変換する。
+      const zengin = this.buildZenginFixed(body, rows);
+      const buffer = iconv.encode(zengin, 'Shift_JIS');
 
-      // ファイル名（引落日 hikiotoshi_date を YYYY/MM/DD で展開、ja_code を含める）。
-      const ja = await this.reportArchive.resolveJa(session.ja_id);
+      // ダウンロード名は全銀の慣例に合わせ固定名 `ZENOUTFD`（拡張子なし）とする。
+      // 顧客提供サンプル `ZENOUTFD_口座振替データサンプル` に準拠。銀行の全銀メディア
+      // 受入名がこの固定名のため、ユーザーはそのまま媒体へ書き出せる。
+      const ja = await this.fileArchive.resolveJa(session.ja_id);
       const [y, m, d] = body.hikiotoshi_date.split('-');
+      // S3 アーカイブ名は検索性のため日本語の説明的名称を維持する（内部保管用）。
       const baseName = `口座振替データ_${ja.code}_${y}年${m}月${d}日`;
-      // ダウンロード名はタイムスタンプ無し（従来どおり自動 DL を継続）。
-      const filename = `${baseName}.csv`;
-      const asciiFilename = `koza_furikae_${y}${m}${d}.csv`;
+      const filename = 'ZENOUTFD';
+      const asciiFilename = 'ZENOUTFD';
 
       // 共通サービスで S3 保存 + t_file_upload 登録。
       // S3 キー: koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.csv
       //（rootPrefix='' で reports/ プレフィックスなし、subFolder なし）。
       // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
       // S3 保存（外部 I/O）はトランザクション外で先に完了させる（4.4）。
-      const archived = await this.reportArchive.archive({
+      const archived = await this.fileArchive.archive({
         buffer,
         baseName,
         category: 'koza-furikae',
@@ -152,57 +163,21 @@ export class KozaFurikaeService {
         jaCode: ja.code,
         session,
         recordCount: rows.length,
-        contentType: CSV_MIME,
-        extension: '.csv',
+        contentType: ZENGIN_MIME,
+        extension: '.txt',
+        // 口座振替データ (SCR-020)：日農担当者DL不可。
+        downloadType: DownloadType.KOZA_FURIKAE,
+        nichinoDownloadAllowedFlg: false,
+        targetMonth: body.target_month.slice(0, 7).replace('-', ''),
       });
 
-      // 4.5〜4.8 m_ja / m_shiten 更新 + t_koza_furikae upsert + 操作ログ を
-      //          単一トランザクションで実行する。
+      // 4.6〜4.8 t_koza_furikae upsert + 操作ログ を単一トランザクションで実行する。
+      // 顧客要件: JASTEM 委託者情報(m_ja) / 金融機関支店情報(m_shiten) は **readonly**
+      // 表示のみで、出力時に m_ja / m_shiten へは更新しない（旧版の書き戻しを撤廃）。
+      // CSV ヘッダの JASTEM 値は m_ja + 選択した口座支店(m_shiten) 由来の表示値を
+      // そのまま使う（body 経由・readonly）。
       await this.dataSource.transaction(async (manager) => {
         const updatedBy = String(session.account_id);
-
-        // 4.5 m_ja JASTEM 委託者情報を更新。
-        await manager.update(
-          Ja,
-          { jaId: session.ja_id as number },
-          {
-            jastemItakushaCode: body.jastem_itakusha_code,
-            jastemItakushaName: body.jastem_itakusha_name,
-            jastemJaCode: body.jastem_ja_code,
-            jastemJaName: body.jastem_ja_name,
-            updatedBy,
-          },
-        );
-
-        // 4.5 対象 m_shiten の JASTEM 金融機関支店情報を更新。koza_shiten_ids が
-        //     空のときは集計に登場した全 m_shiten を対象とする。
-        const targetShitenIds =
-          body.koza_shiten_ids && body.koza_shiten_ids.length > 0
-            ? body.koza_shiten_ids
-            : [
-                ...new Set(
-                  rows
-                    .map((r) => (r.koza_shiten_id == null ? null : Number(r.koza_shiten_id)))
-                    .filter((v): v is number => v != null),
-                ),
-              ];
-        if (targetShitenIds.length > 0) {
-          await manager.update(
-            Shiten,
-            {
-              shitenId: In(targetShitenIds),
-              jaId: session.ja_id as number,
-              kinyuShitenFlg: true,
-            },
-            {
-              jastemToriatsukaiTenpoCode: body.jastem_toriatsukai_tenpo_code,
-              jastemTenpoName: body.jastem_tenpo_name,
-              jastemTyokinShubetsu: body.jastem_tyokin_shubetsu,
-              jastemKozaNo: body.jastem_koza_no,
-              updatedBy,
-            },
-          );
-        }
 
         // 4.6 t_koza_furikae にスナップショットを upsert（dokusya_id, target_month）。
         const targetMonthYm = body.target_month.slice(0, 7).replace('-', '');
@@ -231,7 +206,7 @@ export class KozaFurikaeService {
           req,
           SCREEN_NAME,
           TABLE_NAME,
-          archived.fileUploadId,
+          archived.fileDownloadId,
         );
         const afterValue = JSON.stringify({
           target_month: body.target_month,
@@ -248,23 +223,11 @@ export class KozaFurikaeService {
           s3_file_path: archived.key,
           record_count: rows.length,
         });
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.USER_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.CREATE,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue,
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
+        await this.auditLog.logExport(ctx, {
+          operation: AuditOperation.CREATE,
+          afterValue,
           manager,
-        );
+        });
       });
 
       return { buffer, filename, asciiFilename, recordCount: rows.length };
@@ -304,46 +267,84 @@ export class KozaFurikaeService {
   }
 
   /** 全銀フォーマット CSV（ヘッダ/データ/トレーラ/エンド）を組み立てる（4.4）。 */
-  private buildZenginCsv(
+  /**
+   * 全銀フォーマット（種別91・預金口座振替）固定長テキストを生成する（4.4）。
+   * 1レコード=120バイト、順序 1:ヘッダ→2:データ×N→8:トレーラ→9:エンド、末尾CRLF。
+   * Shift_JIS 変換は呼び出し側（exportCsv）で行う。
+   * docs/demo/全銀フォーマット_91_口座振替データについて.xlsx「レコード定義」準拠。
+   * NOTE: 取引/引落銀行番号は暫定的に jastem_ja_code を使用する
+   *       （統一金融機関番号の正式ソース確定までのつなぎ・顧客合意 2026-07）。
+   */
+  private buildZenginFixed(
     body: ExportKozaFurikaeDto,
     rows: KozaFurikaeAggRow[],
   ): string {
     const hikiotoshiMmdd = body.hikiotoshi_date.replaceAll('-', '').slice(4); // MMDD
-    const header = [
-      '1',
-      '21',
-      '0',
-      body.jastem_itakusha_code,
-      body.jastem_itakusha_name,
-      hikiotoshiMmdd,
-      body.jastem_ja_code,
-      body.jastem_ja_name,
-      body.jastem_toriatsukai_tenpo_code,
-      body.jastem_tenpo_name,
-      body.jastem_tyokin_shubetsu,
-      body.jastem_koza_no,
-    ].join(',');
 
+    // ── 1:ヘッダ（入金先=選択した口座支店 + 委託者=JA）──
+    const header = buildRecord(
+      [
+        '1', // データ区分
+        '91', // 種別コード（預金口座振替）
+        '0', // コード区分（JIS系）
+        padNumZero(body.jastem_itakusha_code, 10), // 委託者コード
+        padCharSpace(body.jastem_itakusha_name, 40), // 委託者名
+        padNumZero(hikiotoshiMmdd, 4), // 引落日 MMDD
+        padNumZero(body.jastem_ja_code, 4), // 取引銀行番号（暫定=JA番号）
+        padCharSpace(body.jastem_ja_name, 15), // 取引銀行名（カナ）
+        padNumZero(body.jastem_toriatsukai_tenpo_code, 3), // 取引支店番号
+        padCharSpace(body.jastem_tenpo_name, 15), // 取引支店名（カナ）
+        padNumZero(body.jastem_tyokin_shubetsu, 1), // 預金種目
+        padNumZero(body.jastem_koza_no, 7), // 口座番号
+        spaces(17), // ダミー
+      ],
+      'ヘッダ',
+    );
+
+    // ── 2:データ×N（請求先=購読者の引落口座）──
     let total = 0;
     const data = rows.map((r) => {
       const kingaku = r.furikae_kingaku == null ? 0 : Number(r.furikae_kingaku);
       total += kingaku;
-      return [
-        '2',
-        body.jastem_ja_code,
-        body.jastem_tenpo_name,
-        r.bank_branch_code ?? '',
-        r.bank_branch_name ?? '',
-        String(r.hikiotoshi_yokin_shubetsu ?? ''),
-        r.hikiotoshi_koza_no ?? '',
-        r.hikiotoshi_koza_meigi ?? r.koza_meigi ?? '',
-        String(kingaku),
-        String(r.dokusya_id),
-      ].join(',');
+      return buildRecord(
+        [
+          '2', // データ区分
+          padNumZero(body.jastem_ja_code, 4), // 引落銀行番号（暫定=JA番号）
+          padCharSpace(body.jastem_ja_name, 15), // 引落銀行名（カナ）
+          padNumZero(r.bank_branch_code, 3), // 引落支店番号
+          padCharSpace(r.bank_branch_name_kana ?? r.bank_branch_name, 15), // 引落支店名（カナ）
+          spaces(4), // ダミー
+          padNumZero(r.hikiotoshi_yokin_shubetsu ?? '', 1), // 預金種目
+          padNumZero(r.hikiotoshi_koza_no, 7), // 口座番号
+          padCharSpace(r.hikiotoshi_koza_meigi ?? r.koza_meigi, 30), // 預金者名（カナ）
+          padNumZero(kingaku, 10), // 引落金額
+          '0', // 新規コード（0=その他）
+          padNumSpaceRight(r.dokusya_id, 20), // 顧客番号（購読者ID・右詰めスペース埋め）
+          '0', // 振替結果コード（請求時は0）
+          spaces(8), // ダミー
+        ],
+        'データ',
+      );
     });
 
-    const trailer = ['8', String(rows.length), String(total)].join(',');
-    const end = '9';
+    // ── 8:トレーラ（請求時は振替済/不能をゼロ）──
+    const trailer = buildRecord(
+      [
+        '8', // データ区分
+        padNumZero(rows.length, 6), // 合計件数
+        padNumZero(total, 12), // 合計金額
+        padNumZero(0, 6), // 振替済件数
+        padNumZero(0, 12), // 振替済金額
+        padNumZero(0, 6), // 振替不能件数
+        padNumZero(0, 12), // 振替不能金額
+        spaces(65), // ダミー
+      ],
+      'トレーラ',
+    );
+
+    // ── 9:エンド ──
+    const end = buildRecord(['9', spaces(119)], 'エンド');
+
     return [header, ...data, trailer, end].join('\r\n') + '\r\n';
   }
 }
@@ -368,7 +369,8 @@ const KOZA_FURIKAE_AGG_SQL = `
          t.kingaku_zeikomi AS furikae_kingaku,
          s.shiten_id       AS koza_shiten_id,
          s.shiten_code     AS bank_branch_code_master,
-         s.shiten_name     AS bank_branch_name_master
+         s.shiten_name     AS bank_branch_name_master,
+         s.shiten_name_kana AS bank_branch_name_kana
     FROM t_dokusya d
     INNER JOIN m_hanbaiten h
       ON h.hanbaiten_id = d.hanbaiten_id

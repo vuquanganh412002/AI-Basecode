@@ -17,6 +17,8 @@ export interface MeiboReportQuery {
   page?: number;
   /** 1ページの明細行数。preview のみ。未指定時は50。 */
   per_page?: number;
+  /** 日農ダウンロード許可フラグ（export のみ・既定 false）。true で日農DL可。 */
+  nichino_download_allowed_flg?: boolean;
 }
 
 // ─── 販売店別購読者名簿 (report_type=hanbaiten) ─────────────────────────

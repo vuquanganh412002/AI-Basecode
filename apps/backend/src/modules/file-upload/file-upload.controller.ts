@@ -11,7 +11,6 @@ import {
   Post,
   Query,
   Req,
-  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -27,7 +26,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
@@ -37,12 +36,9 @@ import type { PaginatedResponse } from '@/common/utils/paginate';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { SuccessMessageDto } from '@/common/dto/responses.dto';
-import { DownloadZipDto } from './dto/download-zip.dto';
 import { SearchFileUploadDto } from './dto/search-file-upload.dto';
 import { UploadFileUploadDto } from './dto/upload-file-upload.dto';
 import {
-  FilePreviewEnvelopeDto,
-  FilePreviewResponseDto,
   FileUploadCreatedItemDto,
   FileUploadCreatedResponseDto,
   FileUploadListItemDto,
@@ -74,103 +70,6 @@ export class FileUploadController {
     @Req() req: Request & { user?: SessionPayload },
   ): Promise<PaginatedResponse<FileUploadListItemDto>> {
     return this.service.findAll(query, req.user as SessionPayload, req);
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // ACSMS-API-022-002
-  // ──────────────────────────────────────────────────────────────
-  @Get(':file_upload_id/preview')
-  @Permissions('file.download')
-  @ApiOperation({ summary: 'プレビュー用署名付き URL を取得する' })
-  @ApiResponse({ status: 200, type: FilePreviewEnvelopeDto })
-  async getPreview(
-    @Param('file_upload_id', new ParseIntPipe()) fileUploadId: number,
-    @Req() req: Request & { user?: SessionPayload },
-  ): Promise<{ data: FilePreviewResponseDto }> {
-    return this.service.getPreview(fileUploadId, req.user as SessionPayload, req);
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // ACSMS-API-022-003
-  // ──────────────────────────────────────────────────────────────
-  @Get(':file_upload_id/download')
-  @Permissions('file.download')
-  @ApiOperation({ summary: 'ファイルバイナリをダウンロードする' })
-  // Binary file download — no typed JSON body. Orval emits `void`;
-  // FE consumes as Blob and triggers attachment save.
-  @ApiResponse({
-    status: 200,
-    description: 'File binary (content-type derived from extension) as attachment.',
-    content: { 'application/octet-stream': {} },
-  })
-  async download(
-    @Param('file_upload_id', new ParseIntPipe()) fileUploadId: number,
-    @Req() req: Request & { user?: SessionPayload },
-    @Res() res: Response,
-  ): Promise<void> {
-    const result = await this.service.download(
-      fileUploadId,
-      req.user as SessionPayload,
-      req,
-    );
-    // RFC 5987 / 6266 — `filename*=UTF-8''<URL-encoded>` carries the
-    // real name; modern browsers prefer it. The bare `filename="..."`
-    // is a legacy-client fallback and MUST stay ASCII — Node's HTTP
-    // layer (RFC 7230) refuses to send multibyte bytes in a header
-    // value and throws "Invalid character in header content", which
-    // bubbles up as a 500. Drop any non-ASCII characters for the
-    // fallback; the UTF-8 form preserves the full name for new
-    // clients.
-    const encodedName = encodeURIComponent(result.fileName);
-    const asciiFallback = result.fileName.replaceAll(/[^\x20-\x7e]/g, '_');
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`,
-    );
-    res.setHeader('Content-Length', String(result.contentLength));
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).send(result.body);
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // ACSMS-API-022-004 — 一括ダウンロード (複数ファイル → 1 ZIP)
-  // ──────────────────────────────────────────────────────────────
-  @Post('download-zip')
-  @HttpCode(HttpStatus.OK)
-  @Permissions('file.download')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @ApiOperation({
-    summary: '選択した複数ファイルを ZIP に1つにまとめてダウンロードする',
-  })
-  @ApiResponse({
-    status: 200,
-    description:
-      'ZIP (application/zip) を attachment で返す（一括ダウンロード_yyyyMMddHHmmss.zip）。',
-    content: { 'application/zip': {} },
-  })
-  async downloadZip(
-    @Body() dto: DownloadZipDto,
-    @Req() req: Request & { user?: SessionPayload },
-    @Res() res: Response,
-  ): Promise<void> {
-    const result = await this.service.downloadZip(
-      dto.file_upload_ids,
-      req.user as SessionPayload,
-      req,
-    );
-    // Japanese ZIP name → RFC 5987 filename* (ASCII fallback strips multibyte),
-    // identical to the single-file download header handling above.
-    const encodedName = encodeURIComponent(result.fileName);
-    const asciiFallback = result.fileName.replaceAll(/[^\x20-\x7e]/g, '_');
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`,
-    );
-    res.setHeader('Content-Length', String(result.contentLength));
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).send(result.body);
   }
 
   // ══════════════════════════════════════════════════════════════

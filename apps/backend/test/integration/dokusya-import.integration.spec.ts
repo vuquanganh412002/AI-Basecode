@@ -512,5 +512,36 @@ describeRealPg(
       expect(Number(latest[0].rireki_no)).toBe(3);
       expect(Number(latest[0].dokusya_busu)).toBe(9);
     });
+
+    it('should set joho_henko_tekiyo_date = dokusya_kaishi_date on NEW import (t_dokusya + rireki #1)', async () => {
+      // 顧客要件: 取込 NEW は読者情報変更適用日を購読開始日に揃える（UI create と
+      // 同方針）。販売店適用日は NEW では対象外（NULL のまま）。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KJOHO1' })] }))
+        .expect(200);
+
+      const [master] = await ctx.dataSource.query(
+        `SELECT dokusya_id, dokusya_kaishi_date, joho_henko_tekiyo_date
+           FROM t_dokusya
+           WHERE ja_id = 1 AND kumiaiin_code = 'KJOHO1' AND deleted_at IS NULL`,
+      );
+      // master: joho = 購読開始日
+      expect(master.joho_henko_tekiyo_date).toEqual(master.dokusya_kaishi_date);
+
+      const [rireki] = await ctx.dataSource.query(
+        `SELECT joho_henko_tekiyo_date, hanbaiten_tekiyo_date
+           FROM t_dokusya_rireki
+           WHERE dokusya_id = $1 AND rireki_no = 1`,
+        [master.dokusya_id],
+      );
+      // rireki #1: joho = 購読開始日、販売店適用日は NULL のまま
+      expect(rireki.joho_henko_tekiyo_date).toEqual(master.dokusya_kaishi_date);
+      expect(rireki.hanbaiten_tekiyo_date).toBeNull();
+    });
   },
 );

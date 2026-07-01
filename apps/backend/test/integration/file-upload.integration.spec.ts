@@ -180,105 +180,6 @@ describe('SCR-022 — file download integration', () => {
     });
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // API-022-002 — GET /api/v1/file-upload/:id/preview
-  // ──────────────────────────────────────────────────────────────
-  describe('GET /api/v1/file-upload/:id/preview', () => {
-    it('should return 401 when no session cookie is sent', async () => {
-      const res = await request(ctx.app.getHttpServer()).get(
-        apiUrl('file-upload/101/preview'),
-      );
-      expect(res.status).toBe(401);
-    });
-
-    it('should return 200 with presigned URL when NICHINO_ADMIN previews any file', async () => {
-      const cookie = await loginAs(ctx, { role_code: 'NICHINO_ADMIN' });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/101/preview'))
-        .set('Cookie', cookie);
-      expect(res.status).toBe(200);
-      expect(res.body.data.preview_url).toBeDefined();
-      expect(res.body.data.expires_at).toBeDefined();
-    });
-
-    it('should return 404 NOT_FOUND when file_upload_id does not exist', async () => {
-      const cookie = await loginAs(ctx, { role_code: 'NICHINO_ADMIN' });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/9999/preview'))
-        .set('Cookie', cookie);
-      expect(res.status).toBe(404);
-      expect(res.body.error_code).toBe('NOT_FOUND');
-    });
-
-    it('should return 404 NOT_FOUND (existence-hiding) when JA_HONTEN previews another JA file', async () => {
-      const cookie = await loginAs(ctx, {
-        role_code: 'JA_HONTEN',
-        ja_id: 1,
-      });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/103/preview')) // belongs to ja_id=2
-        .set('Cookie', cookie);
-      expect(res.status).toBe(404);
-      expect(res.body.error_code).toBe('NOT_FOUND');
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-003 — GET /api/v1/file-upload/:id/download
-  // ──────────────────────────────────────────────────────────────
-  describe('GET /api/v1/file-upload/:id/download', () => {
-    it('should return 401 when no session cookie is sent', async () => {
-      const res = await request(ctx.app.getHttpServer()).get(
-        apiUrl('file-upload/101/download'),
-      );
-      expect(res.status).toBe(401);
-    });
-
-    it('should return 200 + binary headers when NICHINO_ADMIN downloads', async () => {
-      const cookie = await loginAs(ctx, { role_code: 'NICHINO_ADMIN' });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/101/download'))
-        .set('Cookie', cookie);
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toBeDefined();
-      expect(res.headers['content-disposition']).toMatch(/attachment/);
-      expect(res.headers['cache-control']).toBe('no-store');
-    });
-
-    it('should INSERT a t_file_download row + a t_log row when download succeeds', async () => {
-      const cookie = await loginAs(ctx, { role_code: 'NICHINO_ADMIN' });
-      const before = await ctx.dataSource.query(`SELECT COUNT(*) AS c FROM t_file_download`);
-      await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/101/download'))
-        .set('Cookie', cookie);
-      const after = await ctx.dataSource.query(`SELECT COUNT(*) AS c FROM t_file_download`);
-      expect(Number(after[0].c)).toBe(Number(before[0].c) + 1);
-      const logs = await ctx.dataSource.query(
-        `SELECT log_type, operation FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' ORDER BY log_id DESC LIMIT 1`,
-      );
-      expect(logs.length).toBe(1);
-    });
-
-    it('should return 404 NOT_FOUND when file_upload_id does not exist', async () => {
-      const cookie = await loginAs(ctx, { role_code: 'NICHINO_ADMIN' });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/9999/download'))
-        .set('Cookie', cookie);
-      expect(res.status).toBe(404);
-      expect(res.body.error_code).toBe('NOT_FOUND');
-    });
-
-    it('should return 404 (existence-hiding) when CHUOKAI downloads a file outside managed JAs', async () => {
-      const cookie = await loginAs(ctx, {
-        role_code: 'CHUOKAI',
-        ja_id: 1, // assume managed JA list does not include ja_id=2
-      });
-      const res = await request(ctx.app.getHttpServer())
-        .get(apiUrl('file-upload/103/download')) // belongs to ja_id=2
-        .set('Cookie', cookie);
-      expect(res.status).toBe(404);
-    });
-  });
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -376,11 +277,12 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
         .post(apiUrl('file-upload'))
         .set('Cookie', cookie)
         .field('ja_ids[]', '1')
-        .field('scheduled_delete_date', '2026/06/30')
+        .field('scheduled_delete_date', '2099/12/31')
         .attach('files', Buffer.from('login_id,name\n1,A\n'), 'list.csv');
       expect(res.status).toBe(202);
-      // Pure calendar date — 2026-06-30 everywhere, no TZ shift.
-      expect(res.body.data[0].scheduled_delete_date).toBe('2026-06-30');
+      // Pure calendar date — 2099-12-31 everywhere, no TZ shift. Far-future
+      // fixed date so the `本日以降` guard never trips as real time advances.
+      expect(res.body.data[0].scheduled_delete_date).toBe('2099-12-31');
 
       const row = await ctx.dataSource.query(
         `SELECT scheduled_delete_date FROM t_file_upload
@@ -393,7 +295,7 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
         typeof stored === 'string'
           ? stored.slice(0, 10)
           : new Date(stored).toISOString().slice(0, 10);
-      expect(storedDate).toBe('2026-06-30');
+      expect(storedDate).toBe('2099-12-31');
     });
 
     it('should return 400 VALIDATION_ERROR when 削除予定日 is a past date', async () => {

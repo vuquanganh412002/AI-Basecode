@@ -27,7 +27,15 @@ export class MailService implements OnModuleInit {
       ? explicitProvider === 'ses'
       : nodeEnv.trim().toLowerCase() !== 'local';
 
-    this.mailFrom = this.configService.get<string>('mail.from') ?? 'noreply@agrinews.jp';
+    // 受信トレイに表示される送信者名。MAIL_FROM はアドレスのみを保持し、
+    // 表示名は MAIL_FROM_NAME（既定 'AGRINEWS'）で付与する。既に MAIL_FROM が
+    // "Name <addr>" 形式（'<' を含む）の場合はそのまま尊重する。
+    const fromAddress = this.configService.get<string>('mail.from') ?? 'noreply@agrinews.jp';
+    const fromName = this.configService.get<string>('mail.fromName') ?? 'AGRINEWS';
+    this.mailFrom =
+      fromName && !fromAddress.includes('<')
+        ? `"${fromName}" <${fromAddress}>`
+        : fromAddress;
 
     if (useSes) {
       this.provider = new SesMailProvider({

@@ -76,6 +76,9 @@ export const designTokens = {
       cardSubtle: '#f8fafc', // slate-50
       hover: '#f1f5f9', // slate-100
       active: 'rgba(22, 119, 255, 0.1)', // primary/10
+      // disabled / readonly な入力欄・表示欄の統一背景（AntD colorBgContainerDisabled
+      // + カスタム readonly div の両方が参照する）。
+      disabled: '#f5f5f5', // slate-100 相当（AntD 既定の無効背景に近い）
     },
     dark: {
       layout: '#020617', // slate-950
@@ -83,6 +86,7 @@ export const designTokens = {
       cardSubtle: 'rgba(30, 41, 59, 0.3)', // slate-800/30
       hover: '#1e293b', // slate-800
       active: 'rgba(22, 119, 255, 0.15)',
+      disabled: '#1e293b', // slate-800（履歴No 等の無効入力と同色に統一）
     },
   },
 

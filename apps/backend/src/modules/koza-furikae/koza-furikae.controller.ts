@@ -49,11 +49,12 @@ export class KozaFurikaeController {
   @Post('export')
   @HttpCode(HttpStatus.OK)
   @Permissions('koza_furikae.export')
-  @ApiOperation({ summary: '口座振替データ（全銀フォーマットCSV）出力 — ACSMS-API-020-002' })
+  @ApiOperation({ summary: '口座振替データ（全銀フォーマット固定長）出力 — ACSMS-API-020-002' })
   @ApiResponse({
     status: 200,
-    description: 'CSV ファイル（Shift_JIS, 全銀フォーマット）を attachment で返却。',
-    content: { 'text/csv': {} },
+    description:
+      '全銀フォーマット固定長テキスト（Shift_JIS, 1レコード120バイト）を attachment（ファイル名 ZENOUTFD）で返却。',
+    content: { 'text/plain': {} },
   })
   @ApiResponse({ status: 400, description: '入力値が不正です。' })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
@@ -66,7 +67,7 @@ export class KozaFurikaeController {
   ): Promise<void> {
     const session = req.user as SessionPayload;
     const result = await this.kozaFurikaeService.exportCsv(body, session, req);
-    res.setHeader('Content-Type', 'text/csv; charset=Shift_JIS');
+    res.setHeader('Content-Type', 'text/plain; charset=Shift_JIS');
     // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
     res.setHeader(
       'Content-Disposition',

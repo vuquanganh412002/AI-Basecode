@@ -242,50 +242,45 @@ export class DokusyaRirekiService {
   }
 
   /**
-   * 前回値スナップショット (UPDATE 時) — 新しい rireki 行の zenkai_* に
-   * 退避する値を組み立てる。各グループは独立:
+   * 前回値スナップショット (UPDATE 時) — 新しい rireki 行(rg)の zenkai_* に、
+   * 更新前の t_dokusya レコード(rd = before)の値を **変更有無に関わらず常に**
+   * 退避する（顧客要件）。
    *
-   *   1. 住所5項目 — `haitatsu_same_flg` で 購読者住所 / 配達先住所 を切替。
-   *      - same_flg=true  → 顧客要件 2026-06: 住所が変更されていなくても
-   *        購読者住所5項目（yubin_no / todofuken_code / shikuchoson /
-   *        chome_banchi / tatemono_mei）の値を常に zenkai_* に保存する。
-   *      - same_flg=false → 従来どおり、配達先住所が1項目でも変わったときのみ
-   *        5項目すべての前回値を退避する。
-   *   2. 購読部数 (dokusya_busu) — 変われば zenkai_dokusya_busu に前回値。
-   *   3. 販売店 (hanbaiten_id) — 変われば zenkai_hanbaiten_id に前回値。
+   *   rg.zenkai_dokusya_busu = rd.dokusya_busu
+   *   rg.zenkai_hanbaiten_id = rd.hanbaiten_id
+   *   rg.zenkai_yubin_no       = rd.haitatsu_same_flg ? rd.yubin_no       : rd.haitatsu_yubin_no
+   *   rg.zenkai_todofuken_code = rd.haitatsu_same_flg ? rd.todofuken_code : rd.haitatsu_todofuken_code
+   *   rg.zenkai_shikuchoson    = rd.haitatsu_same_flg ? rd.shikuchoson    : rd.haitatsu_shikuchoson
+   *   rg.zenkai_chome_banchi   = rd.haitatsu_same_flg ? rd.chome_banchi   : rd.haitatsu_chome_banchi
+   *   rg.zenkai_tatemono_mei   = rd.haitatsu_same_flg ? rd.tatemono_mei   : rd.haitatsu_tatemono_mei
    *
-   * 退避値は「前回値 (before = rireki_no-1)」。同 flg=true で住所無変更なら
-   * before == after なので結果的に現在の購読者住所と一致する。
-   * 購読部数・販売店は 解約強制0 等の補正後の実保存値 (after) で比較する。
-   * 増減報告フラグは {@link hasZougenReportableChange} で別途判定する。
+   * 住所5項目の退避元グループは **rd（更新前レコード）の haitatsu_same_flg** で
+   * 選択する（after ではない）。増減報告フラグは {@link hasZougenReportableChange}
+   * で別途判定する（zenkai の退避とは独立）。
    */
-  private buildZenkaiSnapshot(
-    before: ZougenComparable,
-    after: ZougenComparable,
-  ): Partial<DokusyaRireki> {
-    const sameFlg = Boolean(after.haitatsuSameFlg);
-    const pairs = this.addressZenkaiPairs(before, after);
-
-    const snapshot: Partial<DokusyaRireki> = {};
-
-    // same_flg=true は無変更でも常に退避（顧客要件）。same_flg=false は変更時のみ。
-    if (sameFlg || pairs.some(([, oldVal, newVal]) => oldVal !== newVal)) {
-      for (const [key, oldVal] of pairs) {
-        (snapshot as Record<string, unknown>)[key as string] = oldVal;
-      }
-    }
-
-    // ── 購読部数 ──
-    if (Number(after.dokusyaBusu) !== Number(before.dokusyaBusu)) {
-      snapshot.zenkaiDokusyaBusu = Number(before.dokusyaBusu);
-    }
-
-    // ── 販売店 ──
-    if (Number(after.hanbaitenId) !== Number(before.hanbaitenId)) {
-      snapshot.zenkaiHanbaitenId = Number(before.hanbaitenId);
-    }
-
-    return snapshot;
+  private buildZenkaiSnapshot(before: ZougenComparable): Partial<DokusyaRireki> {
+    const str = (v: unknown): string => (v == null ? '' : String(asScalar(v)));
+    // 退避先住所は更新前レコード(rd)の haitatsu_same_flg で選択する。
+    const useSubscriberAddr = Boolean(before.haitatsuSameFlg);
+    return {
+      zenkaiDokusyaBusu: Number(before.dokusyaBusu),
+      zenkaiHanbaitenId: Number(before.hanbaitenId),
+      zenkaiYubinNo: useSubscriberAddr
+        ? str(before.yubinNo)
+        : str(before.haitatsuYubinNo),
+      zenkaiTodofukenCode: useSubscriberAddr
+        ? str(before.todofukenCode)
+        : str(before.haitatsuTodofukenCode),
+      zenkaiShikuchoson: useSubscriberAddr
+        ? str(before.shikuchoson)
+        : str(before.haitatsuShikuchoson),
+      zenkaiChomeBanchi: useSubscriberAddr
+        ? str(before.chomeBanchi)
+        : str(before.haitatsuChomeBanchi),
+      zenkaiTatemonoMei: useSubscriberAddr
+        ? str(before.tatemonoMei)
+        : str(before.haitatsuTatemonoMei),
+    };
   }
 
   /**
@@ -324,16 +319,16 @@ export class DokusyaRirekiService {
   ): Partial<DokusyaRireki> {
     return {
       ...this.buildHistoryFromEntity(curState, metadata),
-      ...(prevState ? this.buildZenkaiSnapshot(prevState, curState) : {}),
-      ...(extra.zenkaiHanbaitenId !== undefined
-        ? { zenkaiHanbaitenId: extra.zenkaiHanbaitenId }
-        : {}),
-      ...(extra.hanbaitenTekiyoDate !== undefined
-        ? { hanbaitenTekiyoDate: extra.hanbaitenTekiyoDate }
-        : {}),
-      ...(extra.johoHenkoTekiyoDate !== undefined
-        ? { johoHenkoTekiyoDate: extra.johoHenkoTekiyoDate }
-        : {}),
+      ...(prevState ? this.buildZenkaiSnapshot(prevState) : {}),
+      ...(extra.zenkaiHanbaitenId === undefined
+        ? {}
+        : { zenkaiHanbaitenId: extra.zenkaiHanbaitenId }),
+      ...(extra.hanbaitenTekiyoDate === undefined
+        ? {}
+        : { hanbaitenTekiyoDate: extra.hanbaitenTekiyoDate }),
+      ...(extra.johoHenkoTekiyoDate === undefined
+        ? {}
+        : { johoHenkoTekiyoDate: extra.johoHenkoTekiyoDate }),
     };
   }
 

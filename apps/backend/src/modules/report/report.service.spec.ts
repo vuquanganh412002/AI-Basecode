@@ -11,7 +11,10 @@
 
 import * as ExcelJS from 'exceljs';
 
+import { attachLogExport } from '@test/utils/audit-log-mock';
 import { ReportService } from '@/modules/report/report.service';
+import { MeiboReportService } from '@/modules/report/meibo-report.service';
+import { ZougenReportService } from '@/modules/report/zougen-report.service';
 import {
   buildSession,
   buildChuokaiSession,
@@ -68,6 +71,8 @@ describe('ReportService', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
+    // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
+    attachLogExport(auditLog);
     codeService = {
       has: jest.fn().mockReturnValue(true),
       getLabel: jest.fn().mockReturnValue(''),
@@ -79,21 +84,17 @@ describe('ReportService', () => {
         .mockResolvedValue({ key: 'reports/meibo/x/y/2026/f.xlsx', filename: 'f.xlsx' }),
     };
 
-    // Constructor order MUST match the service:
-    //   constructor(
-    //     @InjectRepository(DokusyaRireki) rirekiRepo,
-    //     auditLog: AuditLogService,
-    //     codeService: CodeService,
-    //     storage: StorageService,
-    //     reportArchive: ReportArchiveService,
-    //   )
-    service = new ReportService(
+    // Facade wiring: ReportService delegates to MeiboReportService +
+    // ZougenReportService. Both sub-services are built from the SAME in-scope
+    // mocks so every existing fileArchive/auditLog/codeService assertion holds.
+    const meibo = new MeiboReportService(
       rirekiRepo,
       auditLog,
       codeService,
-      storage,
       reportArchive,
     );
+    const zougen = new ZougenReportService(rirekiRepo, auditLog, reportArchive);
+    service = new ReportService(meibo, zougen);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -333,6 +334,21 @@ describe('ReportService', () => {
       expect(snapCall).toBeDefined();
     });
 
+    it('should count only 承認済 electronic subscribers (電子版=2 → denshi_shonin_status=1)', async () => {
+      // COVERS: 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(1)のみ集計対象。
+      // 承認待ち(0)/否認(2)の電子版は名簿から除外する。
+      await service.previewMeibo(buildKanriShitenMeiboQuery(), jaSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /dokusya_shubetsu\s*<>/.test(sql) &&
+          /denshi_shonin_status\s*=/.test(sql),
+      );
+      expect(call).toBeDefined();
+      expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
+    });
+
     it('should restrict to tetsuzuki_shurui = 1 (新規 only, 解約除外)', async () => {
       // COVERS: 4.3 — 解約(tetsuzuki_shurui=0)は除外
       await service.previewMeibo(buildKanriShitenMeiboQuery(), jaSession());
@@ -544,8 +560,8 @@ describe('ReportService', () => {
       expect(joined).toContain('ページ数：3/3');
     });
 
-    it('should archive the generated Excel via ReportArchiveService when export succeeds', async () => {
-      // COVERS: 4.4 / 4.5 — S3 保存 + t_file_upload 登録を共通サービスへ委譲
+    it('should archive the generated Excel via FileArchiveService when export succeeds', async () => {
+      // COVERS: 4.4 / 4.5 — S3 保存 + t_file_download 登録を共通サービスへ委譲
       qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow(), buildMeiboRawRow()]);
 
       await service.exportMeiboExcel(
@@ -675,6 +691,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
+    // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
+    attachLogExport(auditLog);
     codeService = { has: jest.fn().mockReturnValue(true), getLabel: jest.fn().mockReturnValue('') };
     storage = { upload: jest.fn().mockResolvedValue(undefined) };
     txManager = {
@@ -686,25 +704,29 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
     reportArchive = {
       archive: jest
         .fn()
-        .mockResolvedValue({ key: 'k', filename: 'f.pdf', fileUploadId: 1 }),
+        .mockResolvedValue({ key: 'k', filename: 'f.pdf', fileDownloadId: 1 }),
       resolveJa: jest
         .fn()
         .mockResolvedValue({ code: 'JA001', name: 'テストJA' }),
     };
 
-    // Constructor: SCR-028 appends @Optional() dataSource + pdfService
-    // after the SCR-026 deps.
-    //   constructor(rirekiRepo, auditLog, codeService, storage,
-    //               reportArchive, @Optional() dataSource?, @Optional() pdfService?)
-    service = new ReportService(
+    // Facade wiring: SCR-028 export needs pdfService on the ZougenReportService.
+    // dataSource is no longer used by either sub-service (kept in scope for the
+    // tests that still reference it as a mock).
+    void dataSource;
+    const meibo = new MeiboReportService(
       rirekiRepo,
       auditLog,
       codeService,
-      storage,
       reportArchive,
-      dataSource,
+    );
+    const zougen = new ZougenReportService(
+      rirekiRepo,
+      auditLog,
+      reportArchive,
       pdfService,
     );
+    service = new ReportService(meibo, zougen);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -746,6 +768,55 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(rpt.zoubu[0].phone).toBe('03-1111-2222');
     });
 
+    it('should use 購読者(shimei / renrakusaki_1) for 配達先読者名・電話番号 when haitatsu_same_flg=true', async () => {
+      // COVERS: 4.5 配達先読者名列/電話番号列 — haitatsu_same_flg=true → 購読者本人
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: 1,
+          haitatsu_same_flg: true,
+          shimei_sei: '農業',
+          shimei_mei: '太郎',
+          renrakusaki_1: '03-1111-2222',
+          // 配達先側は別値でも haitatsu_same_flg=true なら採用されない。
+          haitatsu_shimei_sei: '配達',
+          haitatsu_shimei_mei: '花子',
+          haitatsu_renrakusaki_1: '099-888-7777',
+        }),
+      ]);
+
+      const rpt = (
+        await service.previewZougenHanbaiten(buildZougenQuery(), zSession())
+      ).reports[0];
+      expect(rpt.zoubu[0].delivery_name).toBe('農業 太郎');
+      expect(rpt.zoubu[0].phone).toBe('03-1111-2222');
+    });
+
+    it('should use 配達先(haitatsu_shimei / haitatsu_renrakusaki_1) for 配達先読者名・電話番号 when haitatsu_same_flg=false', async () => {
+      // COVERS: 4.5 配達先読者名列/電話番号列 — haitatsu_same_flg=false → 配達先
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: 1,
+          haitatsu_same_flg: false,
+          shimei_sei: '農業',
+          shimei_mei: '太郎',
+          renrakusaki_1: '03-1111-2222',
+          haitatsu_shimei_sei: '配達',
+          haitatsu_shimei_mei: '花子',
+          haitatsu_renrakusaki_1: '099-888-7777',
+        }),
+      ]);
+
+      const rpt = (
+        await service.previewZougenHanbaiten(buildZougenQuery(), zSession())
+      ).reports[0];
+      // 氏名列は常に購読者本人、配達先読者名列は配達先氏名。
+      expect(rpt.zoubu[0].name).toBe('農業 太郎');
+      expect(rpt.zoubu[0].delivery_name).toBe('配達 花子');
+      expect(rpt.zoubu[0].phone).toBe('099-888-7777');
+    });
+
     it('should classify a record into genbu when dokusya_busu < zenkai_dokusya_busu', async () => {
       // COVERS: 4.5 減部
       mockZougenPage([
@@ -781,6 +852,43 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(rpt.address_change[1].label).toBe('変更後');
       expect(rpt.address_change[0].address).toContain('銀座3-3-3'); // 前回住所
       expect(rpt.address_change[1].address).toContain('神田1-1-1'); // 現住所
+    });
+
+    it('should NOT list electronic subscribers (電子版=2) in address_change even if the address changed', async () => {
+      // COVERS: 電子版は配達先住所を持たないため、住所が変わっても住所変更
+      // セクションには載せない（増部/減部の判定には影響しない）。
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_shubetsu: 2, // 電子版
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2, // 部数同じ → 増減ではない
+          zen_todofuken_name: '東京都',
+          zenkai_shikuchoson: '中央区',
+          zenkai_chome_banchi: '銀座3-3-3',
+          zenkai_tatemono_mei: '',
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const total = result.reports.reduce((n, r) => n + r.address_change.length, 0);
+      expect(total).toBe(0);
+    });
+
+    it('should still count electronic subscribers (電子版=2) in zoubu when 部数 increases', async () => {
+      // 住所変更のみ除外。部数増減は電子版でも従来どおり計上する。
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_shubetsu: 2,
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: 1,
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const zoubuTotal = result.reports.reduce((n, r) => n + r.zoubu.length, 0);
+      expect(zoubuTotal).toBe(1);
     });
 
     it('累計: 同一購読者の同日複数履歴 (1→3→5) を 1→5 の1件に集約する', async () => {
@@ -856,6 +964,33 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(rpt.address_change).toHaveLength(0); // 前回住所空 → 出さない
     });
 
+    it('新規(CREATE, zenkai_dokusya_busu=null): 前回部数を0扱いで増部に出す (顧客確認)', async () => {
+      // zenkai_* が NULL の CREATE 行でも、前回部数は 0 として 0→現部数 の増部に
+      // 出す（rmin の現部数へフォールバックすると新規が増部から消えるため不可）。
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_id: 9005,
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: null, // CREATE: 前回部数なし
+          zenkai_hanbaiten_id: null,
+          zenkai_yubin_no: null,
+          zenkai_todofuken_code: null,
+          zen_todofuken_name: null,
+          zenkai_shikuchoson: null,
+          zenkai_chome_banchi: null,
+          zenkai_tatemono_mei: null,
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const rpt = result.reports[0];
+      expect(rpt.zoubu).toHaveLength(1); // 0→3 = 増（新規は増部に出す）
+      expect(rpt.zoubu[0].busu).toBe('0 → 3');
+      // zenkai null → fallback で前回住所 = 現住所 → 住所変更なし。
+      expect(rpt.address_change).toHaveLength(0);
+    });
+
     it('ページ送り: SQL OFFSET/LIMIT で購読者単位に分割 (per_page=15, 全20件→2ページ)', async () => {
       // 全20購読者(全て増, 同一販売店)。SQL は count(distinct) + dokusya_id の
       // OFFSET/LIMIT で1ページ分の購読者だけをロードする（メモリ内ではない）。
@@ -925,6 +1060,22 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
         ([sql]: any[]) => typeof sql === 'string' && /zougen_hokoku_flg/.test(sql),
       );
       expect(call).toBeDefined();
+    });
+
+    it('should count only 承認済 electronic subscribers (電子版=2 → denshi_shonin_status=1)', async () => {
+      // COVERS: 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(1)のみ集計対象。
+      // 承認待ち(0)/否認(2)の電子版は増減連絡票から除外する。
+      mockZougenPage([buildZougenRawRow()]);
+      await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /dokusya_shubetsu\s*<>/.test(sql) &&
+          /denshi_shonin_status\s*=/.test(sql),
+      );
+      expect(call).toBeDefined();
+      expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
     });
 
     it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {
@@ -1040,8 +1191,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       });
     });
 
-    it('should archive the PDF via ReportArchiveService (category=zougen-hanbaiten, subFolder-less path, year from tekiyo_date)', async () => {
-      // COVERS: 共通 S3 アーカイブ + t_file_upload。subFolder なし・年=適用日年。
+    it('should archive the PDF via FileArchiveService (category=zougen-hanbaiten, subFolder-less path, year from tekiyo_date)', async () => {
+      // COVERS: 共通 S3 アーカイブ + t_file_download。subFolder なし・年=適用日年。
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
       await service.exportZougenHanbaitenPdf(
         buildZougenQuery({ tekiyo_date: '2026-05-01' }),
@@ -1069,8 +1220,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(fileDownloadRepo.save).not.toHaveBeenCalled();
     });
 
-    it('should write an operation log with EXPORT_PDF + result_status success + targetTable t_file_upload', async () => {
-      // COVERS: 操作ログ — operation 'EXPORT_PDF' / target = t_file_upload
+    it('should write an operation log with EXPORT_PDF + result_status success + targetTable t_file_download', async () => {
+      // COVERS: 操作ログ — operation 'EXPORT_PDF' / target = t_file_download
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
       await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession({ account_id: 11 }), req);
 
@@ -1081,18 +1232,18 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
           logType: 1,
           operation: 'EXPORT_PDF',
           resultStatus: 1,
-          targetTable: 't_file_upload',
+          targetTable: 't_file_download',
         }),
       );
-      // 単一 t_file_upload なので原子化すべき DML が無く、トランザクションは使わない。
+      // 単一 t_file_download なので原子化すべき DML が無く、トランザクションは使わない。
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('should record the archived t_file_upload id as the audit targetId', async () => {
+    it('should record the archived t_file_download id as the audit targetId', async () => {
       reportArchive.archive.mockResolvedValueOnce({
         key: 'k',
         filename: 'f.pdf',
-        fileUploadId: 55,
+        fileDownloadId: 55,
       });
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
       await service.exportZougenHanbaitenPdf(buildZougenQuery(), zSession(), req);

@@ -100,6 +100,7 @@ export class HanbaitenController {
       page?: string;
       per_page?: string;
       include_id?: string;
+      active_only?: string;
     },
     @Req() req: Request & { user: SessionPayload },
   ) {
@@ -114,6 +115,7 @@ export class HanbaitenController {
         page,
         per_page: perPage,
         include_id: num(query.include_id),
+        active_only: query.active_only === 'true',
       },
       req.user,
     );

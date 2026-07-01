@@ -219,6 +219,19 @@ const IMPORT_ERROR_CAP = 10;
 /** SCR-016 — max import rows (api.md §4.1). */
 const IMPORT_MAX_ROWS = 30000;
 
+/**
+ * 取込モード → 監査ログ operation ラベル（api.md §4.5）。バッチ操作なので
+ * bare-verb ルールの例外。販売店取込 (SCR-019) と同一ラベルで統一。
+ */
+const IMPORT_OPERATION_BY_MODE: Record<
+  'NEW' | 'UPDATE_ALL' | 'UPDATE_PARTIAL',
+  AuditOperation
+> = {
+  NEW: AuditOperation.IMPORT_NEW,
+  UPDATE_ALL: AuditOperation.IMPORT_UPDATE_ALL,
+  UPDATE_PARTIAL: AuditOperation.IMPORT_UPDATE_PARTIAL,
+};
+
 
 /**
  * SCR-016 — 購読者Excelデータ取込（テンプレートDL + 一括取込）を担うサービス。
@@ -359,12 +372,7 @@ export class DokusyaImportService {
     // (IMPORT_NEW / IMPORT_UPDATE_ALL / IMPORT_UPDATE_PARTIAL) を使う。
     // bare-verb ルールの例外（api.md §4.5。単一 INSERT と一括取込を t_log で
     // 区別するため）。販売店取込 (SCR-019) と同一ラベルで統一。
-    const importOperation =
-      dto.import_mode === 'NEW'
-        ? AuditOperation.IMPORT_NEW
-        : dto.import_mode === 'UPDATE_ALL'
-          ? AuditOperation.IMPORT_UPDATE_ALL
-          : AuditOperation.IMPORT_UPDATE_PARTIAL;
+    const importOperation = IMPORT_OPERATION_BY_MODE[dto.import_mode];
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -824,7 +832,7 @@ export class DokusyaImportService {
           kaishiDate, // $47 shoki_dokusya_kaishi_date = kaishi
           kaishiDate, // $48 dokusya_kaishi_date
           normalizeDbDate(row.dokusya_chushi_date ?? null), // $49
-          null, // $50 joho_henko_tekiyo_date — NEW は変更イベント日 対象外（顧客要件 2026-06）
+          kaishiDate, // $50 joho_henko_tekiyo_date — NEW は購読開始日に揃える（顧客要件）
           str(row.biko), // $51
           // 電子版(2)は承認済(1)で取込む（紙版は null）。create() の電子版は
           // 承認待ち(0) を立てるが、Excel一括取込は職員操作のため承認済で
@@ -986,8 +994,8 @@ export class DokusyaImportService {
     // 1 件作成する（共通関数）。affectedDokusyaId が取れない（=該当行なし）
     // 場合は履歴を作らない（classifyImportRow で検証済みのため通常発生しない）。
     if (affectedDokusyaId !== null) {
-      // NEW は変更イベント日（読者情報変更適用日 / 販売店適用日）対象外（顧客要件
-      // 2026-06）。UPDATE のみ行の入力値を採用する。
+      // NEW: 販売店適用日は対象外(null)。読者情報変更適用日は購読開始日に揃える
+      // （顧客要件 — UI create (SCR-011) と同方針）。UPDATE のみ行の入力値を採用。
       const isNewMode = dto.import_mode === 'NEW';
       await this.writeRirekiSnapshot(
         manager,
@@ -995,7 +1003,9 @@ export class DokusyaImportService {
         updatedBy,
         isNewMode,
         isNewMode ? null : dbDateOrNull(row.hanbaiten_tekiyo_date), // 販売店適用日
-        isNewMode ? null : dbDateOrNull(row.joho_henko_tekiyo_date), // 読者情報変更適用日
+        isNewMode
+          ? dbDateOrNull(row.dokusya_kaishi_date) // NEW は購読開始日
+          : dbDateOrNull(row.joho_henko_tekiyo_date), // 読者情報変更適用日
         hasHaitatsuData, // 配達先入力ありなら増減報告フラグを立てる
       );
     }

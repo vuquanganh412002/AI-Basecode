@@ -73,18 +73,16 @@ export class ReportController {
     @Res() res: Response,
   ): Promise<void> {
     const session = req.user as SessionPayload;
-    const { buffer, filename } = await this.reportService.exportMeiboExcel(
-      query,
-      session,
-      req,
-    );
+    const { buffer, filename, asciiFilename } =
+      await this.reportService.exportMeiboExcel(query, session, req);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
+    // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(filename)}"`,
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     );
     res.status(HttpStatus.OK).send(buffer);
   }

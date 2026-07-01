@@ -371,6 +371,11 @@ export class DokusyaService {
           bankBranch,
           session,
         );
+        // 新規登録は読者情報変更適用日を購読開始日に揃える（NEW は変更イベント
+        // ではなく登録時の基準日。Excel取込 NEW (SCR-016) と同方針 — 顧客要件）。
+        // t_dokusya と t_dokusya_rireki(rireki #1 は master からコピー)の双方に
+        // 反映される。
+        payload.johoHenkoTekiyoDate = payload.dokusyaKaishiDate;
         // 紙版 (dokusya_shubetsu=1) is not part of the web-application
         // 承認/否認 workflow → denshi_shonin_status は null (非電子版)。
         // 電子版 / 併読 を画面から新規登録するのは職員操作のため、承認待ち(0)

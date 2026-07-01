@@ -60,6 +60,11 @@ const antTheme = computed(() => {
       // wrapper, distinguished by borders. Light mode is unchanged
       // (surfaces.card.light === #ffffff === AntD default).
       colorBgContainer: surfaces.card,
+      // disabled / readonly な入力欄の背景を統一トークンに固定する。AntD 既定の
+      // 半透明フィルは <BaseCard>(surfaces.card) 上で明るい箱に見え、カスタムの
+      // readonly 表示欄(bg-surface-disabled)と色がズレていた。両者を surfaces.disabled
+      // に揃える（履歴No 等の無効入力＝カスタム readonly 欄 が同色になる）。
+      colorBgContainerDisabled: surfaces.disabled,
       // Floating overlays (Select / DatePicker dropdown panels, Dropdown
       // menus, Modal, Drawer, Popover) use the SAME card surface instead of
       // AntD's default elevated grey (#1f1f1f in dark), which reads as a

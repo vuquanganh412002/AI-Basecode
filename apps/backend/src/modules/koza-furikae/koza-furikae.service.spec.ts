@@ -6,12 +6,15 @@
 //
 // Pattern: plain `new KozaFurikaeService(...)` with mocked deps (mirrors
 // HaitatsuryoService). The export 集計 is a raw aggregation via
-// dataSource.query(); the common ReportArchiveService stores the CSV to S3 and
-// registers t_file_upload BEFORE a single transaction that updates m_ja /
+// dataSource.query(); the common FileArchiveService stores the CSV to S3 and
+// registers t_file_download BEFORE a single transaction that updates m_ja /
 // m_shiten, snapshots t_koza_furikae and writes the audit log. Error log
 // (log_type=3) is emitted OUTSIDE the rolled-back tx.
 // Each it() maps back to a clause in docs/design/ACSMS-SCR-020/ACSMS-SCR-020-api.md.
 
+import * as iconv from 'iconv-lite';
+
+import { attachLogExport } from '@test/utils/audit-log-mock';
 import { KozaFurikaeService } from '@/modules/koza-furikae/koza-furikae.service';
 import {
   buildChuokaiSession,
@@ -69,13 +72,16 @@ describe('KozaFurikaeService', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
-    // 共通 S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
+    // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
+    // 既存の logOperation 期待値をそのまま検証できるようにモックでも委譲する。
+    attachLogExport(auditLog);
+    // 共通 S3 アーカイブ + t_file_download 登録（ReportModule から再利用）。
     reportArchive = {
       resolveJa: jest.fn().mockResolvedValue({ code: 'JA001', name: '' }),
       archive: jest.fn().mockResolvedValue({
-        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.csv',
-        filename: '口座振替データ_JA001_2026年05月27日_20260522103000.csv',
-        fileUploadId: 7,
+        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+        filename: '口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+        fileDownloadId: 7,
       }),
     };
 
@@ -144,7 +150,7 @@ describe('KozaFurikaeService', () => {
   // API-020-002 — POST /api/v1/koza-furikae/export
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportCsv', () => {
-    it('should return a Buffer + 口座振替データ_{ja_code}_{YYYY年MM月DD日}.csv filename + ASCII fallback + record count when データ exists', async () => {
+    it('should return a Buffer + ZENOUTFD filename + ASCII fallback + record count when データ exists', async () => {
       // COVERS: 4.4 CSV生成 + 4.9 レスポンス生成（ファイル名は ja_code + 引落日）
       const result = await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
@@ -152,15 +158,43 @@ describe('KozaFurikaeService', () => {
         expect.objectContaining({
           buffer: expect.any(Buffer),
           // ダウンロード名はタイムスタンプ無し（hikiotoshi_date=2026-05-27）。
-          filename: '口座振替データ_JA001_2026年05月27日.csv',
-          asciiFilename: 'koza_furikae_20260527.csv',
+          filename: 'ZENOUTFD',
+          asciiFilename: 'ZENOUTFD',
           recordCount: 2,
         }),
       );
     });
 
-    it('should archive the CSV via ReportArchiveService with category koza-furikae, empty rootPrefix and .csv extension', async () => {
-      // COVERS: 4.4 共通S3アーカイブ（reports/ なし）+ t_file_upload 登録
+    it('should output fixed-length 120-byte 全銀 records (header 91 / data / trailer zeros / end), not CSV', async () => {
+      // COVERS: 4.4 全銀フォーマット固定長。docs/demo/ZENOUTFD サンプル準拠。
+      const result = await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
+      const text = iconv.decode(result.buffer, 'Shift_JIS');
+      const records = text.split('\r\n').filter((r) => r.length > 0);
+      // 1:ヘッダ + 2:データ×2 + 8:トレーラ + 9:エンド = 5 レコード。
+      expect(records).toHaveLength(5);
+      // 各レコードは Shift_JIS で 120 バイト固定長（受入条件#8）。
+      for (const rec of records) {
+        expect(iconv.encode(rec, 'Shift_JIS').length).toBe(120);
+      }
+      const [header, d1, , trailer, end] = records;
+      // ヘッダ: データ区分1 / 種別コード91 / コード区分0。
+      expect(header.slice(0, 4)).toBe('1910');
+      // データ: 区分2 / 引落金額(81-90)=4900 / 顧客番号(92-111)=購読者ID / 振替結果(112)=0。
+      expect(d1[0]).toBe('2');
+      expect(d1.slice(80, 90)).toBe('0000004900');
+      expect(d1.slice(91, 111).trim()).toBe('1');
+      expect(d1[111]).toBe('0');
+      // トレーラ: 区分8 / 合計件数2 / 合計金額9800 / 振替済・不能はゼロ。
+      expect(trailer[0]).toBe('8');
+      expect(trailer.slice(1, 7)).toBe('000002');
+      expect(trailer.slice(7, 19)).toBe('000000009800');
+      expect(trailer.slice(19, 55)).toBe('0'.repeat(36));
+      // エンド: 区分9。
+      expect(end[0]).toBe('9');
+    });
+
+    it('should archive the CSV via FileArchiveService with category koza-furikae, empty rootPrefix and .txt extension', async () => {
+      // COVERS: 4.4 共通S3アーカイブ（reports/ なし）+ t_file_download 登録
       await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
       expect(reportArchive.archive).toHaveBeenCalledTimes(1);
@@ -170,8 +204,8 @@ describe('KozaFurikaeService', () => {
           rootPrefix: '',
           year: '2026',
           baseName: '口座振替データ_JA001_2026年05月27日',
-          extension: '.csv',
-          contentType: 'text/csv; charset=Shift_JIS',
+          extension: '.txt',
+          contentType: 'text/plain; charset=Shift_JIS',
           recordCount: 2,
         }),
       );
@@ -204,9 +238,9 @@ describe('KozaFurikaeService', () => {
       reportArchive.archive.mockImplementation(async () => {
         order.push('s3');
         return {
-          key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.csv',
-          filename: '口座振替データ_JA001_2026年05月27日_20260522103000.csv',
-          fileUploadId: 7,
+          key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+          filename: '口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+          fileDownloadId: 7,
         };
       });
       dataSource.transaction.mockImplementation(async (cb: any) => {
@@ -231,11 +265,15 @@ describe('KozaFurikaeService', () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('should perform the m_ja / m_shiten update + t_koza_furikae + 操作ログ inside a single transaction', async () => {
-      // COVERS: 4.5〜4.8 単一トランザクション
+    it('should snapshot t_koza_furikae + 操作ログ inside a single transaction WITHOUT updating m_ja / m_shiten', async () => {
+      // COVERS: 4.6〜4.8 単一トランザクション。顧客要件: JASTEM 情報は readonly 表示
+      // のみで、出力時に m_ja / m_shiten へは書き戻さない。
       await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      // m_ja / m_shiten への更新は行わない（readonly）。t_koza_furikae は
+      // manager.query で upsert するため manager.update は一切呼ばれない。
+      expect(txManager.update).not.toHaveBeenCalled();
       // 監査ログはトランザクションの manager を受け取る（最終引数）。
       expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
       const managerArg = auditLog.logOperation.mock.calls[0][1];
@@ -250,7 +288,7 @@ describe('KozaFurikaeService', () => {
       expect(params.logType).toBe(1);
       expect(params.operation).toBe('CREATE');
       expect(params.resultStatus).toBe(1);
-      expect(params.targetTable).toBe('t_file_upload');
+      expect(params.targetTable).toBe('t_file_download');
     });
 
     it('should mask jastem_koza_no in the audit after_value when recording the 操作ログ', async () => {

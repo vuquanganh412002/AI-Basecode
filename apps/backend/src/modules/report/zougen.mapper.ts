@@ -10,6 +10,8 @@ import type {
   TDocumentDefinitions,
 } from 'pdfmake/interfaces';
 
+import { DokusyaShubetsu } from '@/common/enums';
+
 /** getRawMany() の数値カラムは driver により number / 文字列で届くため両対応。 */
 type RawNullableNum = number | string | null;
 
@@ -32,17 +34,39 @@ export interface ZougenRawRow {
   // 部数（増減判定）
   dokusya_busu: number | string;
   zenkai_dokusya_busu: RawNullableNum;
+  // 購読種別（電子版=2 は住所変更セクションから除外する）
+  dokusya_shubetsu: number;
   // 氏名 / 配達先氏名
   shimei_sei: string;
   shimei_mei: string;
   haitatsu_shimei_sei: string;
   haitatsu_shimei_mei: string;
+  // 電話番号列: haitatsu_same_flg=true → 購読者(renrakusaki_1)、false → 配達先。
+  renrakusaki_1: string;
   haitatsu_renrakusaki_1: string;
-  // 現配達先住所（td_now + haitatsu_*）
-  now_todofuken_name: string | null;
+  // 同日複数履歴のマージ + フィールド単位の住所変更判定に使う生カラム。
+  // haitatsu_same_flg=true → 購読者住所(yubin_no等)、false → 配達先住所(haitatsu_*)。
+  haitatsu_same_flg: boolean;
+  // 購読者住所（生）
+  yubin_no: string;
+  todofuken_code: string;
+  shikuchoson: string;
+  chome_banchi: string;
+  tatemono_mei: string;
+  // 配達先住所（生）
+  haitatsu_yubin_no: string;
+  haitatsu_todofuken_code: string;
   haitatsu_shikuchoson: string;
   haitatsu_chome_banchi: string;
   haitatsu_tatemono_mei: string;
+  // 前回住所（生。zenkai_shikuchoson/chome/tatemono は表示用に下でも使う）
+  zenkai_yubin_no: string | null;
+  zenkai_todofuken_code: string | null;
+  // 現住所（haitatsu_same_flg で 購読者住所/配達先住所 を選択。SQL 側で解決済み）
+  now_todofuken_name: string | null;
+  now_shikuchoson: string;
+  now_chome_banchi: string;
+  now_tatemono_mei: string;
   // 前回配達先住所（td_zen + zenkai_*）
   zen_todofuken_name: string | null;
   zenkai_shikuchoson: string | null;
@@ -115,9 +139,9 @@ function joinAddress(
 const nowAddress = (r: ZougenRawRow): string =>
   joinAddress(
     r.now_todofuken_name,
-    r.haitatsu_shikuchoson,
-    r.haitatsu_chome_banchi,
-    r.haitatsu_tatemono_mei,
+    r.now_shikuchoson,
+    r.now_chome_banchi,
+    r.now_tatemono_mei,
   );
 
 const zenAddress = (r: ZougenRawRow): string =>
@@ -129,8 +153,22 @@ const zenAddress = (r: ZougenRawRow): string =>
   );
 
 const fullName = (r: ZougenRawRow): string => `${str(r.shimei_sei)} ${str(r.shimei_mei)}`;
+/**
+ * 配達先読者名列の値。
+ * haitatsu_same_flg=true（配達先＝購読者本人）→ 購読者氏名(shimei_*)、
+ * false → 配達先氏名(haitatsu_shimei_*) を採用する。
+ */
 const deliveryName = (r: ZougenRawRow): string =>
-  `${str(r.haitatsu_shimei_sei)} ${str(r.haitatsu_shimei_mei)}`;
+  r.haitatsu_same_flg
+    ? `${str(r.shimei_sei)} ${str(r.shimei_mei)}`
+    : `${str(r.haitatsu_shimei_sei)} ${str(r.haitatsu_shimei_mei)}`;
+/**
+ * 電話番号列の値。
+ * haitatsu_same_flg=true → 購読者連絡先(renrakusaki_1)、
+ * false → 配達先連絡先(haitatsu_renrakusaki_1) を採用する。
+ */
+const deliveryPhone = (r: ZougenRawRow): string =>
+  str(r.haitatsu_same_flg ? r.renrakusaki_1 : r.haitatsu_renrakusaki_1);
 
 /** 1購読者の同日変動を表す entry を、表示は last 行（その日の最終状態）から作る。 */
 function entryFrom(last: ZougenRawRow, busuLabel: string): ZougenEntry {
@@ -139,7 +177,7 @@ function entryFrom(last: ZougenRawRow, busuLabel: string): ZougenEntry {
     address: nowAddress(last),
     name: fullName(last),
     delivery_name: deliveryName(last),
-    phone: str(last.haitatsu_renrakusaki_1),
+    phone: deliveryPhone(last),
     biko: str(last.biko),
   };
 }
@@ -151,49 +189,192 @@ type GetReport = (
   sample: ZougenRawRow,
 ) => ZougenReport;
 
-/** 1購読者の同日履歴（first→last）を累計し、増部/減部/住所変更へ振り分ける。 */
-function classifyDayChange(records: ZougenRawRow[], getReport: GetReport): void {
-  const first = records[0];
-  const last = records.at(-1) as ZougenRawRow;
+/**
+ * 同一適用日・同一購読者の複数履歴（rmin=rireki_no最小 / rmax=最大）を 1件の
+ * マージレコード `rc` に畳み込んだ結果。
+ *   - 非 zenkai フィールド（現状態・表示用）は rmax から。
+ *   - zenkai_*（日初の前回状態）は rmin から。null のときは rmin の現在値へ
+ *     フォールバックする（要件: 1履歴の新規購読者を増・住所変更として誤検知しない）。
+ *
+ * 住所フィールドのフォールバックは haitatsu_same_flg を見て
+ * 購読者住所(rmin.X) / 配達先住所(rmin.haitatsu_X) を選ぶ。
+ * `zenkaiAddrPresent`=false のとき 変更前住所は rmin の現住所文字列を使う。
+ */
+interface MergedRecord {
+  rc: ZougenRawRow; // 表示・現状態は rmax ベース
+  busuBefore: number;
+  storeBefore: number | null;
+  storeBeforeCode: string | null;
+  storeBeforeName: string | null;
+  /** 前回住所がフィールド由来（true）か、フォールバック（false=日初の現住所）か。 */
+  zenkaiAddrPresent: boolean;
+  /** 変更前住所の文字列（フォールバック時は rmin の現住所）。 */
+  addrBefore: string;
+}
 
-  const busuBefore = num(first.zenkai_dokusya_busu);
-  const busuAfter = num(last.dokusya_busu);
-  const storeBefore = first.zenkai_hanbaiten_id == null ? null : num(first.zenkai_hanbaiten_id);
-  const storeAfter = num(last.hanbaiten_id);
+/** rmin/rmax から rc とマージ済みの前回値を組み立てる。 */
+function mergeSameDay(records: ZougenRawRow[]): MergedRecord {
+  const rmin = records[0];
+  const rmax = records.at(-1) as ZougenRawRow;
+
+  // 部数の前回値: zenkai があればそれ、なければ 0（新規＝0→現部数 の増として扱う）。
+  // 顧客確認: zenkai=null(新規/CREATE) の前回部数は 0 とし、増減連絡票の増部に
+  // 0→現部数 で出力する（rmin の現部数へフォールバックすると新規が増部から消える）。
+  const busuBefore =
+    rmin.zenkai_dokusya_busu != null ? num(rmin.zenkai_dokusya_busu) : 0;
+
+  // 前回販売店: zenkai があればそれ、なければ rmin の現販売店（販売店変更なし扱い）。
+  const storeBefore =
+    rmin.zenkai_hanbaiten_id != null ? num(rmin.zenkai_hanbaiten_id) : num(rmin.hanbaiten_id);
+  const storeBeforeCode =
+    rmin.zenkai_hanbaiten_id != null ? rmin.zenkai_hanbaiten_code : rmin.hanbaiten_code;
+  const storeBeforeName =
+    rmin.zenkai_hanbaiten_id != null ? rmin.zenkai_hanbaiten_name : rmin.hanbaiten_name;
+
+  // 前回住所がフィールド由来か（zenkai_shikuchoson を代表に判定）。
+  const zenkaiAddrPresent = rmin.zenkai_shikuchoson != null;
+  // 変更前住所の文字列: zenkai があれば前回都道府県名(zen_todofuken_name)+zenkai_*、
+  // なければ rmin の現住所文字列（フォールバック）。
+  const addrBefore = zenkaiAddrPresent ? zenAddress(rmin) : nowAddress(rmin);
+
+  return {
+    rc: rmax,
+    busuBefore,
+    storeBefore,
+    storeBeforeCode,
+    storeBeforeName,
+    zenkaiAddrPresent,
+    addrBefore,
+  };
+}
+
+/**
+ * 住所フィールド X の前回値を rmin から解決する（フィールド単位）。
+ *   zenkai_X があればそれ、なければ haitatsu_same_flg=true→購読者値 / false→配達先値。
+ */
+function zenkaiAddrField(
+  rmin: ZougenRawRow,
+  zenkaiVal: string | null,
+  subscriberVal: string,
+  deliveryVal: string,
+): string {
+  if (zenkaiVal != null) return zenkaiVal;
+  return rmin.haitatsu_same_flg ? subscriberVal : deliveryVal;
+}
+
+/** 現住所フィールド X（haitatsu_same_flg=true→購読者値 / false→配達先値）。 */
+function nowAddrField(rc: ZougenRawRow, subscriberVal: string, deliveryVal: string): string {
+  return rc.haitatsu_same_flg ? subscriberVal : deliveryVal;
+}
+
+/**
+ * 同日複数履歴をマージした rc から、フィールド単位で住所変更を検知する。
+ * 検知は郵便番号を含む全フィールドの比較（表示文字列には郵便番号は含めない）。
+ */
+function addressChangedFromRc(merged: MergedRecord, records: ZougenRawRow[]): boolean {
+  const rmin = records[0];
+  const { rc } = merged;
+
+  // 各フィールドの「前回値」と「現在値」を同じ系（購読者/配達先）で比較する。
+  const fields: Array<{
+    zenkai: string | null;
+    sub: string;
+    del: string;
+    nowSub: string;
+    nowDel: string;
+  }> = [
+    {
+      zenkai: rmin.zenkai_yubin_no,
+      sub: str(rmin.yubin_no),
+      del: str(rmin.haitatsu_yubin_no),
+      nowSub: str(rc.yubin_no),
+      nowDel: str(rc.haitatsu_yubin_no),
+    },
+    {
+      zenkai: rmin.zenkai_todofuken_code,
+      sub: str(rmin.todofuken_code),
+      del: str(rmin.haitatsu_todofuken_code),
+      nowSub: str(rc.todofuken_code),
+      nowDel: str(rc.haitatsu_todofuken_code),
+    },
+    {
+      zenkai: rmin.zenkai_shikuchoson,
+      sub: str(rmin.shikuchoson),
+      del: str(rmin.haitatsu_shikuchoson),
+      nowSub: str(rc.shikuchoson),
+      nowDel: str(rc.haitatsu_shikuchoson),
+    },
+    {
+      zenkai: rmin.zenkai_chome_banchi,
+      sub: str(rmin.chome_banchi),
+      del: str(rmin.haitatsu_chome_banchi),
+      nowSub: str(rc.chome_banchi),
+      nowDel: str(rc.haitatsu_chome_banchi),
+    },
+    {
+      zenkai: rmin.zenkai_tatemono_mei,
+      sub: str(rmin.tatemono_mei),
+      del: str(rmin.haitatsu_tatemono_mei),
+      nowSub: str(rc.tatemono_mei),
+      nowDel: str(rc.haitatsu_tatemono_mei),
+    },
+  ];
+
+  return fields.some((f) => {
+    const before = zenkaiAddrField(rmin, f.zenkai, f.sub, f.del);
+    const after = nowAddrField(rc, f.nowSub, f.nowDel);
+    return before !== after;
+  });
+}
+
+/**
+ * 1購読者の同日履歴を rmin/rmax でマージし、増部/減部/住所変更へ振り分ける。
+ * 増減・販売店変更・住所変更すべてマージ済み rc を基準にする。
+ */
+function classifyDayChange(records: ZougenRawRow[], getReport: GetReport): void {
+  const merged = mergeSameDay(records);
+  const { rc } = merged;
+
+  const busuBefore = merged.busuBefore;
+  const busuAfter = num(rc.dokusya_busu);
+  const storeBefore = merged.storeBefore;
+  const storeAfter = num(rc.hanbaiten_id);
 
   if (storeBefore != null && storeBefore !== storeAfter) {
     // ── 販売店変更: 旧店 減 busuBefore / 新店 増 busuAfter ──
-    getReport(
-      first.zenkai_hanbaiten_id as number,
-      first.zenkai_hanbaiten_code,
-      first.zenkai_hanbaiten_name,
-      last,
-    ).genbu.push(entryFrom(last, `${busuBefore} → 0`));
-    getReport(last.hanbaiten_id, last.hanbaiten_code, last.hanbaiten_name, last).zoubu.push(
-      entryFrom(last, `0 → ${busuAfter}`),
+    getReport(storeBefore, merged.storeBeforeCode, merged.storeBeforeName, rc).genbu.push(
+      entryFrom(rc, `${busuBefore} → 0`),
+    );
+    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
+      entryFrom(rc, `0 → ${busuAfter}`),
     );
   } else if (busuAfter > busuBefore) {
-    getReport(last.hanbaiten_id, last.hanbaiten_code, last.hanbaiten_name, last).zoubu.push(
-      entryFrom(last, `${busuBefore} → ${busuAfter}`),
+    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
+      entryFrom(rc, `${busuBefore} → ${busuAfter}`),
     );
   } else if (busuAfter < busuBefore) {
-    getReport(last.hanbaiten_id, last.hanbaiten_code, last.hanbaiten_name, last).genbu.push(
-      entryFrom(last, `${busuBefore} → ${busuAfter}`),
+    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).genbu.push(
+      entryFrom(rc, `${busuBefore} → ${busuAfter}`),
     );
   }
 
-  // ── 住所変更（前回住所が空＝初回のときは出さない）──
-  const addrBefore = zenAddress(first);
-  const addrAfter = nowAddress(last);
-  if (addrBefore !== '' && addrBefore !== addrAfter) {
+  // ── 住所変更（フィールド単位で比較。前回がフォールバック=実質「無し」のときは
+  //    新住所と一致するので検知されない＝新規購読者ではノイズを出さない）──
+  // 電子版(DokusyaShubetsu.DIGITAL=2)は配達先住所を持たないため、住所が変わっても
+  // 住所変更セクションには載せない（増部/減部には従来どおり計上する）。
+  if (
+    Number(rc.dokusya_shubetsu) !== DokusyaShubetsu.DIGITAL &&
+    addressChangedFromRc(merged, records)
+  ) {
+    const addrAfter = nowAddress(rc);
     const common = {
-      name: fullName(last),
-      delivery_name: deliveryName(last),
-      phone: str(last.haitatsu_renrakusaki_1),
-      biko: str(last.biko),
+      name: fullName(rc),
+      delivery_name: deliveryName(rc),
+      phone: deliveryPhone(rc),
+      biko: str(rc.biko),
     };
-    getReport(last.hanbaiten_id, last.hanbaiten_code, last.hanbaiten_name, last).address_change.push(
-      { label: '変更前', address: addrBefore, ...common },
+    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).address_change.push(
+      { label: '変更前', address: merged.addrBefore, ...common },
       { label: '変更後', address: addrAfter, ...common },
     );
   }

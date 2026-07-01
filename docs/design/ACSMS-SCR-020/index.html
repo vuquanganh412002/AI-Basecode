@@ -1,47 +1,42 @@
 <!doctype html>
 <html class="light" lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>購読者管理システム - 口座振替データ出力画面</title>
-    <link href="https://fonts.googleapis.com" rel="preconnect" />
-    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/icon?family=Material+Icons"
-      rel="stylesheet"
-    />
-    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
-    <script>
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            colors: {
-              primary: "#1677ff",
-              "primary-hover": "#4096ff",
-              "background-light": "#f5f5f5",
-              "background-dark": "#0f172a",
-            },
-            fontFamily: {
-              display: ["'Noto Sans JP'", "'Public Sans'", "sans-serif"],
-              body: ["'Noto Sans JP'", "sans-serif"],
-            },
-            borderRadius: {
-              DEFAULT: "6px",
-              lg: "8px",
-              xl: "12px",
-              full: "9999px",
-            },
+
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>購読者管理システム - 口座振替データ出力</title>
+  <link href="https://fonts.googleapis.com" rel="preconnect" />
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#1677ff",
+            "primary-hover": "#4096ff",
+            "background-light": "#f5f5f5",
+            "background-dark": "#0f172a",
+          },
+          fontFamily: {
+            display: ["'Noto Sans JP'", "'Public Sans'", "sans-serif"],
+            body: ["'Noto Sans JP'", "sans-serif"],
+          },
+          borderRadius: {
+            DEFAULT: "6px",
+            lg: "8px",
+            xl: "12px",
+            full: "9999px",
           },
         },
-      };
-    </script>
-    <style type="text/tailwindcss">
-      body {
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    body {
         font-family: "Noto Sans JP", sans-serif;
       }
       .sidebar-scroll::-webkit-scrollbar {
@@ -60,549 +55,425 @@
       .ant-input {
         @apply w-full border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm;
       }
+      table {
+        @apply w-full border-collapse;
+      }
+      th {
+        @apply bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2 text-left text-sm font-medium;
+      }
+      td {
+        @apply border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm;
+      }
     </style>
-  </head>
-  <body
-    class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex"
-  >
-    <!-- Sidebar -->
-    <aside
-      class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0"
-    >
-      <div
-        class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3"
-      >
-        <div
-          class="w-8 h-8 bg-primary rounded flex items-center justify-center"
-        >
-          <span class="material-icons text-white text-sm">auto_stories</span>
-        </div>
-        <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
+</head>
+
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex">
+  <!-- Sidebar -->
+  <aside
+    class="w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 flex-shrink-0">
+    <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3">
+      <div class="w-8 h-8 bg-primary rounded flex items-center justify-center">
+        <span class="material-icons text-white text-sm">auto_stories</span>
       </div>
-      <nav
-        class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6"
-      >
+      <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
+    </div>
+    <nav class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6">
+      <div class="space-y-1">
+        <a class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+          href="#">
+          <span class="material-icons text-[18px]">home</span>
+          <span>メニュー画面</span>
+        </a>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          購読者管理
+        </h3>
         <div class="space-y-1">
-          <a
-            class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-            href="#"
-          >
-            <span class="material-icons text-[18px]">home</span>
-            <span>メニュー画面</span>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">person_add</span>
+            <span>購読者情報登録</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload_file</span>
+            <span>購読者Excelデータ取込</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">search</span>
+            <span>購読者明細検索</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">published_with_changes</span>
+            <span>購読者販売店一括置換</span>
           </a>
         </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            購読者管理
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">person_add</span>
-              <span>購読者情報登録</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">upload_file</span>
-              <span>購読者Excelデータ取込</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">search</span>
-              <span>購読者明細検索</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]"
-                >published_with_changes</span
-              >
-              <span>購読者販売店一括置換</span>
-            </a>
-          </div>
-        </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            販売店管理
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">store</span>
-              <span>販売店情報登録</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">sim_card_download</span>
-              <span>販売店Excelデータ取込</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">find_in_page</span>
-              <span>販売店明細検索</span>
-            </a>
-          </div>
-        </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            データ作成
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">account_balance</span>
-              <span>口座振替データ出力</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">payments</span>
-              <span>支払情報出力</span>
-            </a>
-          </div>
-        </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            レポート作成
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">assignment</span>
-              <span>購読者名簿</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">trending_up</span>
-              <span>増減連絡票（販売店）</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">newspaper</span>
-              <span>増減通知（日本農業新聞）</span>
-            </a>
-          </div>
-        </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            マスタ管理
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">settings_suggest</span>
-              <span>単価マスタ明細検索画面</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">domain</span>
-              <span>JAマスタ登録</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">apartment</span>
-              <span>支店マスタ登録</span>
-            </a>
-          </div>
-        </div>
-        <div>
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            その他
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">upload</span>
-              <span>ファイルアップロード</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">download</span>
-              <span>ファイルダウンロード</span>
-            </a>
-          </div>
-        </div>
-        <div class="pb-10">
-          <h3
-            class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2"
-          >
-            管理者機能
-          </h3>
-          <div class="space-y-1">
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">history</span>
-              <span>ログ参照</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">manage_accounts</span>
-              <span>アカウント管理</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">campaign</span>
-              <span>お知らせ一覧</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]">upload</span>
-              <span>販売店代行入力</span>
-            </a>
-            <a
-              class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-              href="#"
-            >
-              <span class="material-icons text-[18px]"
-                >admin_panel_settings</span
-              >
-              <span>管理支店マスタ登録</span>
-            </a>
-          </div>
-        </div>
-      </nav>
-      <div
-        class="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-center"
-      >
-        <button
-          class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
-          onclick="document.documentElement.classList.toggle('dark')"
-        >
-          <span class="material-icons block dark:hidden">dark_mode</span>
-          <span class="material-icons hidden dark:block">light_mode</span>
-        </button>
       </div>
-    </aside>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          販売店管理
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">store</span>
+            <span>販売店情報登録</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">sim_card_download</span>
+            <span>販売店Excelデータ取込</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">find_in_page</span>
+            <span>販売店明細検索</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          データ作成
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded bg-primary/10 text-primary dark:text-blue-400 font-medium"
+            href="#">
+            <span class="material-icons text-[18px]">account_balance</span>
+            <span>口座振替データ出力</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">payments</span>
+            <span>支払情報出力</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          レポート作成
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">assignment</span>
+            <span>購読者名簿</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">trending_up</span>
+            <span>増減連絡票（販売店）</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">newspaper</span>
+            <span>増減通知（日本農業新聞）</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          マスタ管理
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">settings_suggest</span>
+            <span>単価マスタ明細検索画面</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">domain</span>
+            <span>JAマスタ登録</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">apartment</span>
+            <span>支店マスタ登録</span>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          その他
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload</span>
+            <span>ファイルアップロード</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">download</span>
+            <span>ファイルダウンロード</span>
+          </a>
+        </div>
+      </div>
+      <div class="pb-10">
+        <h3 class="px-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+          管理者機能
+        </h3>
+        <div class="space-y-1">
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">history</span>
+            <span>ログ参照</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">manage_accounts</span>
+            <span>アカウント管理</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">campaign</span>
+            <span>お知らせ一覧</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">upload</span>
+            <span>販売店代行入力</span>
+          </a>
+          <a class="flex items-center gap-3 px-3 py-2 text-sm rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
+            href="#">
+            <span class="material-icons text-[18px]">admin_panel_settings</span>
+            <span>管理支店マスタ登録</span>
+          </a>
+        </div>
+      </div>
+    </nav>
+    <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-center">
+      <button class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+        onclick="document.documentElement.classList.toggle('dark')">
+        <span class="material-icons block dark:hidden">dark_mode</span>
+        <span class="material-icons hidden dark:block">light_mode</span>
+      </button>
+    </div>
+  </aside>
 
-    <!-- Main Content -->
-    <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
-      <div class="p-8 pt-4 overflow-y-auto w-full">
-        <!-- Header -->
-        <header class="flex justify-between items-center">
-          <div>
-            <h2 class="text-2xl font-bold">口座振替データ出力画面</h2>
-            <nav
-              aria-label="Breadcrumb"
-              class="flex text-xs text-slate-400 mt-1"
-            >
-              <ol class="inline-flex items-center space-x-1">
-                <li>ホーム</li>
-                <li class="flex items-center">
-                  <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span>データ作成</span>
-                </li>
-                <li class="flex items-center">
-                  <span class="material-icons text-xs mx-1">chevron_right</span>
-                  <span class="text-slate-600 dark:text-slate-300"
-                    >口座振替データ出力画面</span
-                  >
-                </li>
-              </ol>
-            </nav>
-          </div>
-          <div class="flex items-center gap-4 flex-shrink-0">
-            <div class="flex items-center gap-3">
-              <button
-                class="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative"
-              >
-                <span class="material-icons">notifications</span>
-                <span
-                  class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"
-                ></span>
-              </button>
+  <!-- Main Content -->
+  <main class="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
+    <div class="p-8 pt-4 overflow-y-auto w-full">
+      <!-- Header -->
+      <header class="flex justify-between items-center">
+        <div>
+          <h2 class="text-2xl font-bold">口座振替データ出力</h2>
+          <nav aria-label="Breadcrumb" class="flex text-xs text-slate-400 mt-1">
+            <ol class="inline-flex items-center space-x-1">
+              <li>ホーム</li>
+              <li class="flex items-center">
+                <span class="material-icons text-xs mx-1">chevron_right</span>
+                <span>データ作成</span>
+              </li>
+              <li class="flex items-center">
+                <span class="material-icons text-xs mx-1">chevron_right</span>
+                <span class="text-slate-600 dark:text-slate-300">口座振替データ出力</span>
+              </li>
+            </ol>
+          </nav>
+        </div>
+        <div class="flex items-center gap-4 flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <button
+              class="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative">
+              <span class="material-icons">notifications</span>
+              <span
+                class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"></span>
+            </button>
+            <div class="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700">
               <div
-                class="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-700"
-              >
-                <div
-                  class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden"
-                >
-                  <span class="material-icons text-slate-500"
-                    >account_circle</span
-                  >
-                </div>
-                <span>admin:日農（管理者）</span>
+                class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+                <span class="material-icons text-slate-500">account_circle</span>
               </div>
+              <span>admin:日農（管理者）</span>
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <!-- Form Container -->
-        <div
-          class="mt-4 bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800"
-        >
-          <div
-            class="px-4 py-4 border-b border-slate-100 dark:border-slate-800"
-          >
-            <h3 class="text-lg font-medium text-slate-800 dark:text-slate-200">
-              出力設定
-            </h3>
-          </div>
-          <div class="p-4">
-            <form class="space-y-5">
-              <!-- Main Form Border -->
-              <div
-                class="border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5"
-              >
-                <!-- 年月日 & 引落日 -->
-                <div class="grid grid-cols-2 gap-4 items-center">
-                  <div class="flex items-center gap-4">
-                    <label
-                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                      >年月日<span class="text-red-500">*</span></label
-                    >
-                    <input type="date" class="ant-input flex-1" />
-                  </div>
-                  <div class="flex items-center gap-4">
-                    <label
-                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                      >引落日<span class="text-red-500">*</span></label
-                    >
-                    <input type="date" class="ant-input flex-1" />
-                  </div>
-                </div>
-
-                <!-- 管理支店 & 支店 -->
-                <div class="grid grid-cols-2 gap-4 items-center">
-                  <div class="flex items-center gap-4">
-                    <label
-                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                      >管理支店</label
-                    >
-                    <select class="ant-input flex-1" name="kanriShitenIds">
-                      <option value="">選択してください</option>
-                      <option value="all">（全選択）</option>
-                      <option value="1">管理支店A</option>
-                      <option value="2">管理支店B</option>
-                      <option value="3">管理支店C</option>
-                    </select>
-                  </div>
-                  <div class="flex items-center gap-4">
-                    <label
-                      class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                      >支店</label
-                    >
-                    <select class="ant-input flex-1" name="shitenIds">
-                      <option value="">選択してください</option>
-                      <option value="all">（全選択）</option>
-                      <option value="1">001 - 本店</option>
-                      <option value="2">002 - 北支店</option>
-                      <option value="3">003 - 南支店</option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- 口座支店 (金融支店フラグ=true の支店一覧) -->
+      <!-- Form Container -->
+      <div class="mt-4 bg-white dark:bg-slate-900 rounded shadow-sm border border-slate-200 dark:border-slate-800">
+        <div class="px-4 py-4 border-b border-slate-100 dark:border-slate-800">
+          <h3 class="text-lg font-medium text-slate-800 dark:text-slate-200">
+            出力設定
+          </h3>
+        </div>
+        <div class="p-4">
+          <form class="space-y-5">
+            <!-- Main Form Border -->
+            <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5">
+              <!-- 年月日 + 引落日 -->
+              <div class="grid grid-cols-2 gap-4 items-center">
                 <div class="flex items-center gap-4">
                   <label
-                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right"
-                    >口座支店</label
-                  >
-                  <select class="ant-input flex-1" name="shitenName">
-                    <option value="">選択してください</option>
-                    <option value="all">（全選択）</option>
-                    <option value="001">001 - 本店</option>
-                    <option value="002">002 - 北支店</option>
-                    <option value="003">003 - 南支店</option>
-                  </select>
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right">年月日<span
+                      class="text-red-500">*</span></label>
+                  <input type="date" class="ant-input flex-1" />
                 </div>
+                <div class="flex items-center gap-4">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right">引落日<span
+                      class="text-red-500">*</span></label>
+                  <input type="date" class="ant-input flex-1" />
+                </div>
+              </div>
 
-                <!-- JASTEM委託者コード情報 -->
-                <div
-                  class="border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5"
-                >
-                  <h4
-                    class="text-sm font-medium text-slate-800 dark:text-slate-200 -mt-1"
-                  >
+              <!-- 管理支店（複数選択可：実装時は <a-select mode="multiple"> を使用） -->
+              <div class="space-y-1">
+                <div class="flex items-start gap-4">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right pt-1.5">管理支店</label>
+                  <div class="flex-1">
+                    <select class="ant-input" name="kanriShitenIds">
+                      <option value="">選択してください</option>
+                      <option value="1" selected>東京管理支店</option>
+                      <option value="2">大阪管理支店</option>
+                      <option value="3">福岡管理支店</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 支店（複数選択可：実装時は <a-select mode="multiple"> を使用） -->
+              <div class="space-y-1">
+                <div class="flex items-start gap-4">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right pt-1.5">支店</label>
+                  <div class="flex-1">
+                    <select class="ant-input" name="shitenIds">
+                      <option value="">選択してください</option>
+                      <option value="101" selected>本店（東京）</option>
+                      <option value="102">北支店</option>
+                      <option value="103">南支店</option>
+                      <option value="104">東支店</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 口座支店（複数選択可：kinyu_shiten_flg=true の支店のみ表示・実装時は <a-select mode="multiple"> を使用） -->
+              <div class="space-y-1">
+                <div class="flex items-start gap-4">
+                  <label
+                    class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[110px] flex-shrink-0 text-right pt-1.5">口座支店<span
+                      class="text-red-500">*</span></label>
+                  <div class="flex-1">
+                    <select class="ant-input" name="shitenCode">
+                      <option value="">選択してください</option>
+                      <option value="001" selected>001 - 本店</option>
+                      <option value="003">003 - 南支店</option>
+                      <option value="005">005 - 西支店</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== JASTEM委託者コード情報 ===== -->
+              <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-5 space-y-5">
+                <div class="flex items-center justify-between -mt-1">
+                  <h4 class="text-sm font-medium text-slate-800 dark:text-slate-200">
                     JASTEM委託者コード情報
                   </h4>
+                </div>
 
-                  <!-- 委託者コード & 委託者名 -->
-                  <div class="flex items-start gap-6 grid-cols-6 flex-wrap">
-                    <div class="flex-1  grid-cols-6">
-                      <div class="flex items-center gap-3">
-                        <label
-                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                          >委託者コード<span class="text-red-500"
-                            >*</span
-                          ></label
-                        >
-                        <input
-                          type="text"
-                          class="ant-input flex-1"
-                          maxlength="10"
-                        />
-                      </div>
-                    </div>
-                    <div class="flex-1 grid-cols-6">
-                      <div class="flex items-center gap-3">
-                        <label
-                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                          >委託者名<span class="text-red-500">*</span></label
-                        >
-                        <input
-                          type="text"
-                          class="ant-input flex-1"
-                          maxlength="40"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- 農協番号 & 農協名 & データ送信取扱店舗コード -->
+                <!-- Part A: No.6〜9 JA情報（m_ja から取得・常に同じ） -->
+                <div>
                   <div class="flex items-start gap-6 flex-wrap">
-                    <div class="flex-1 min-w-[200px]">
+                    <div class="flex-1 min-w-[240px]">
                       <div class="flex items-center gap-3">
                         <label
-                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                          >農協番号<span class="text-red-500">*</span></label
-                        >
-                        <input
-                          type="text"
-                          class="ant-input flex-1"
-                          maxlength="4"
-                        />
+                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right">委託者コード</label>
+                        <div
+                          class="flex-1 px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-700 dark:text-slate-300">
+                          0123456789
+                        </div>
                       </div>
                     </div>
-                    <div class="flex-1 min-w-[200px]">
+                    <div class="flex-1 min-w-[240px]">
                       <div class="flex items-center gap-3">
                         <label
-                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                          >農協名<span class="text-red-500">*</span></label
-                        >
-                        <input
-                          type="text"
-                          class="ant-input flex-1"
-                          maxlength="15"
-                        />
-                      </div>
-                    </div>
-                    <div class="flex-1 min-w-[200px]">
-                      <div class="flex items-center gap-3">
-                        <label
-                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[165px] flex-shrink-0 text-right"
-                          >データ送信取扱店舗コード<span class="text-red-500"
-                            >*</span
-                          ></label
-                        >
-                        <input
-                          type="text"
-                          class="ant-input flex-1"
-                          maxlength="3"
-                        />
+                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right">委託者名</label>
+                        <div
+                          class="flex-1 px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-700 dark:text-slate-300">
+                          ニホンノウギョウシンブン
+                        </div>
                       </div>
                     </div>
                   </div>
-
-                  <!-- 貯金種目 & 口座番号 & 店舗名 -->
-                  <div class="flex items-center gap-6">
-                    <div class="flex-1 min-w-[200px] flex items-center gap-3">
-                      <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                        >貯金種目<span class="text-red-500">*</span></label
-                      >
-                      <select
-                        name="deposit_type"
-                        class="border border-slate-300 dark:border-slate-700 rounded px-3 py-1.5 focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all dark:bg-slate-800 text-sm flex-1"
-                      >
-                        <option value="1">普通貯金</option>
-                        <option value="2">当座貯金</option>
-                        <option value="9">その他</option>
-                      </select>
+                  <div class="flex items-start gap-6 flex-wrap mt-4">
+                    <div class="flex-1 min-w-[200px]">
+                      <div class="flex items-center gap-3">
+                        <label
+                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right">農協番号</label>
+                        <div
+                          class="flex-1 px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-700 dark:text-slate-300">
+                          1234
+                        </div>
+                      </div>
                     </div>
-                    <div class="flex-1 min-w-[200px] flex items-center gap-3">
-                      <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                        >口座番号<span class="text-red-500">*</span></label
-                      >
-                      <input
-                        type="text"
-                        class="ant-input flex-1"
-                        maxlength="7"
-                      />
-                    </div>
-                    <div class="flex-1 min-w-[200px] flex items-center gap-3">
-                      <label
-                        class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right"
-                        >店舗名<span class="text-red-500">*</span></label
-                      >
-                      <input
-                        type="text"
-                        class="ant-input flex-1"
-                        maxlength="15"
-                      />
+                    <div class="flex-1 min-w-[200px]">
+                      <div class="flex items-center gap-3">
+                        <label
+                          class="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap w-[90px] flex-shrink-0 text-right">農協名</label>
+                        <div
+                          class="flex-1 px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-700 dark:text-slate-300">
+                          東京中央農協
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              <!-- End Main Form Border -->
 
-              <!-- Footer Buttons -->
-              <div
-                class="pt-6 flex flex-col sm:flex-row gap-3 border-t border-slate-100 dark:border-slate-800"
-              >
-                <button
-                  class="px-10 py-2 bg-primary hover:bg-primary-hover text-white rounded font-medium transition-colors shadow-sm text-sm"
-                  type="submit"
-                >
-                  作成開始
-                </button>
+                <!-- Part B: No.10〜13 口座支店ごとの情報（m_shiten から取得・選択した口座支店数分の行） -->
+                <div class="border-t border-slate-200 dark:border-slate-700 pt-4">
+                  <div class="overflow-x-auto">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>データ送信取扱店舗コード</th>
+                          <th>店舗名</th>
+                          <th>貯金種目</th>
+                          <th class="text-right">口座番号</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- 口座支店を選択するたびに行が動的に追加／削除される -->
+                        <tr>
+                          <td class="font-medium">001</td>
+                          <td>本店</td>
+                          <td>普通貯金</td>
+                          <td class="text-right">1234567</td>
+                        </tr>
+                        <tr>
+                          <td class="font-medium">003</td>
+                          <td>南支店</td>
+                          <td>普通貯金</td>
+                          <td class="text-right">2345678</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </form>
-          </div>
+            </div>
+            <!-- End Main Form Border -->
+
+            <!-- Footer Buttons -->
+            <div class="pt-6 flex flex-col sm:flex-row gap-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                class="px-10 py-2 bg-primary hover:bg-primary-hover text-white rounded font-medium transition-colors shadow-sm text-sm"
+                type="submit">
+                作成開始
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-    </main>
-  </body>
+    </div>
+  </main>
+</body>
+
 </html>

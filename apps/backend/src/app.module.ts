@@ -16,6 +16,7 @@ import { CodeModule } from './modules/code/code.module';
 import { DenshibanDbModule } from './modules/denshiban/denshiban-db.module';
 import { DokusyaSyncModule } from './modules/batch/dokusya-sync/dokusya-sync.module';
 import { DokusyaModule } from './modules/dokusya/dokusya.module';
+import { FileDownloadModule } from './modules/file-download/file-download.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
 import { HanbaitenModule } from './modules/hanbaiten/hanbaiten.module';
 import { JaModule } from './modules/ja/ja.module';
@@ -58,6 +59,7 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     OshiraseModule,
     DokusyaModule,
     FileUploadModule,
+    FileDownloadModule,
     HanbaitenModule,
     JaModule,
     KanriShitenModule,

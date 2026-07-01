@@ -107,6 +107,43 @@ export class AuditLogService {
     );
   }
 
+  /**
+   * Audit a successful export/output operation (帳票・ファイル出力).
+   * The before-state is irrelevant for an export, so only `afterValue`
+   * (JSON of the output conditions + counts, never PII) is recorded.
+   * `operation` / `logType` vary by screen (EXPORT_PDF for PDF reports,
+   * CREATE + FILE_OPERATION for Excel/CSV file outputs), so both are
+   * passed by the caller. `manager` joins the audit INSERT to the
+   * caller's transaction when the export writes inside one.
+   */
+  async logExport(
+    ctx: AuditOperationContext,
+    opts: {
+      operation: string;
+      afterValue: string;
+      logType?: LogType;
+      manager?: EntityManager;
+    },
+  ): Promise<void> {
+    await this.logOperation(
+      {
+        logType: opts.logType ?? LogType.USER_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: opts.operation,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue: opts.afterValue,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      },
+      opts.manager,
+    );
+  }
+
   /** Audit a successful DELETE — captures the row state before deletion. */
   async logDelete(
     ctx: AuditOperationContext,

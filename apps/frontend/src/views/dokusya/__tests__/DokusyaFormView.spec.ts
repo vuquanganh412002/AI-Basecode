@@ -498,6 +498,28 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
     expect(/ant-picker-disabled/.test(johoItem(wrapper)!.html())).toBe(false);
   });
 
+  it('should keep 読者情報変更適用日 disabled and auto-fill = 販売店適用日 when only 販売店 changed', async () => {
+    // 顧客要件: 販売店のみ変更したときは joho を編集不可のままにし、値は
+    // 販売店適用日(hanbaiten_tekiyo_date)へ自動追随させる。
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: {
+        hanbaiten_id: number | null;
+        hanbaiten_tekiyo_date: string | null;
+        joho_henko_tekiyo_date: string | null;
+      };
+    };
+    // 販売店のみ変更（他項目は変えない）。
+    vm.formState.hanbaiten_id = Number(vm.formState.hanbaiten_id) + 1;
+    await flushPromises();
+    // joho は編集不可のまま（販売店は otherInfoChanged に含めない）。
+    expect(/ant-picker-disabled/.test(johoItem(wrapper)!.html())).toBe(true);
+    // 販売店適用日を設定 → joho が同じ日付へ自動追随する。
+    vm.formState.hanbaiten_tekiyo_date = '2030-07-01';
+    await flushPromises();
+    expect(vm.formState.joho_henko_tekiyo_date).toBe('2030-07-01');
+  });
+
   it('should reset 適用日 and skip update when the other change is reverted (no lone-date 履歴)', async () => {
     const { updateDokusya } = await import('@/api/dokusya/dokusya');
     const { wrapper } = await renderView({ dokusyaId: 100 });
@@ -2016,6 +2038,15 @@ describe('DokusyaFormView — hanbaiten auto-fill (機能定義 6.x)', () => {
     await renderView();
     const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
     expect(getHanbaitenDropdown).toHaveBeenCalled();
+  });
+
+  it('should request only 営業中 stores (active_only=true) so 廃店 are excluded from the picker', async () => {
+    // 廃店(haiten_flg=true)は購読者の販売店選択から除外する。
+    await renderView();
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    expect(getHanbaitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ active_only: true }),
+    );
   });
 
   it('should auto-fill hanbaiten_name when hanbaiten_id is selected', async () => {

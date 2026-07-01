@@ -467,13 +467,16 @@ updated_by: Tran Duc Tuyen
 | 2 | ja_id |  | BIGINT |  |  |  | JA ID（FK:m_ja） |
 | 3 | download_datetime |  | TIMESTAMPTZ |  |  |  | ダウンロード日時 |
 | 4 | download_type |  | INTEGER |  |  |  | ダウンロード種別（1:口座振替, 2:その他, 3:増減連絡票, 4:増減通知書, 5:購読者名簿） |
-| 5 | file_name |  | VARCHAR | 255 |  |  | ファイル名 |
-| 6 | file_path |  | VARCHAR | 500 |  |  | ファイルパス |
-| 7 | file_size |  | INTEGER |  |  |  | ファイルサイズ（バイト） |
-| 8 | record_count |  | INTEGER |  |  |  | レコード件数 |
-| 9 | target_month |  | VARCHAR | 6 |  | 〇 | 対象年月（YYYYMM）※空文字許容 |
-| 10 | created_at |  | TIMESTAMPTZ |  |  | 〇 | 作成日時 |
-| 11 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 5 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | 削除予定日 |
+| 6 | nichino_download_allowed_flg |  | BOOLEAN |  |  |  | 日農ダウンロード許可フラグ（TRUE:許可する, FALSE:許可しない、DEFAULT FALSE、NOT NULL） |
+| 7 | file_name |  | VARCHAR | 255 |  |  | ファイル名 |
+| 8 | file_path |  | VARCHAR | 500 |  |  | ファイルパス |
+| 9 | file_size |  | INTEGER |  |  |  | ファイルサイズ（バイト） |
+| 10 | record_count |  | INTEGER |  |  |  | レコード件数 |
+| 11 | target_month |  | VARCHAR | 6 |  | 〇 | 対象年月（YYYYMM）※空文字許容 |
+| 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL） |
+| 13 | created_at |  | TIMESTAMPTZ |  |  | 〇 | 作成日時 |
+| 14 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
 
 ## インデックス
 

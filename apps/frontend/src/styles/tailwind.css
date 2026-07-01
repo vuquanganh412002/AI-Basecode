@@ -112,6 +112,9 @@
   --color-surface-card-subtle: var(--surface-card-subtle); /* card header bar */
   --color-surface-hover: var(--surface-hover); /* row hover state */
   --color-surface-active: var(--surface-active); /* selected row tint */
+  --color-surface-disabled: var(
+    --surface-disabled
+  ); /* disabled/readonly input bg */
 
   /* Borders / dividers. */
   --color-border: var(--border-default); /* card, page-section borders */
@@ -142,6 +145,7 @@
     --surface-card-subtle: #f8fafc;
     --surface-hover: #f1f5f9;
     --surface-active: rgba(22, 119, 255, 0.1);
+    --surface-disabled: #f5f5f5;
 
     --border-default: #e2e8f0;
     --border-strong: #cbd5e1;
@@ -167,6 +171,7 @@
     --surface-card-subtle: rgba(30, 41, 59, 0.3);
     --surface-hover: #1e293b;
     --surface-active: rgba(22, 119, 255, 0.15);
+    --surface-disabled: #1e293b;
 
     --border-default: #1e293b;
     --border-strong: #334155;

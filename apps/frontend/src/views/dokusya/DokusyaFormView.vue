@@ -52,6 +52,7 @@ import {
 import {
   getHanbaitenDropdown,
   type HanbaitenDropdownItem,
+  type HanbaitenDropdownQuery,
 } from '@/api/hanbaiten/hanbaiten';
 import {
   getTankaDropdown,
@@ -407,10 +408,15 @@ async function fetchShitenOptions(): Promise<void> {
   }
 }
 
-async function fetchHanbaitenOptions(): Promise<void> {
+async function fetchHanbaitenOptions(includeId?: number): Promise<void> {
   try {
+    // active_only=true → 営業中(haiten_flg=false)のみ。廃店は購読者の販売店
+    // 選択から除外する。編集で既存の選択が廃店の場合は include_id で現在の
+    // 販売店を先頭にピンし、ラベルが解決できるようにする。
+    const base: HanbaitenDropdownQuery = { active_only: true };
+    if (sessionJaId.value !== null) base.ja_id = sessionJaId.value;
     const resp = await getHanbaitenDropdown(
-      sessionJaId.value === null ? {} : { ja_id: sessionJaId.value },
+      includeId != null ? { ...base, include_id: includeId } : base,
     );
     hanbaitenOptions.value = resp.data;
   } catch {
@@ -619,31 +625,46 @@ watch(hanbaitenChanged, (changed) => {
 });
 
 // ── 読者情報変更適用日 (joho_henko_tekiyo_date) の編集可否 (顧客要件 2026-06) ──
-// 適用日「以外」の項目に変更があるときだけ編集可。適用日だけ単独で変更して
-// 履歴 (t_dokusya_rireki) を作るのを防ぐ。比較は適用日自体を除外したスナップ
-// ショットで行う（NAME_FIELDS は trim 済みで比較、editGuard と同条件）。
+// 「販売店」と「適用日(joho)」**以外**の項目に変更があるときだけ joho を編集可。
+// 比較スナップショットから joho 自体と **販売店(hanbaiten_id / 販売店適用日)** を
+// 除外する。これにより「販売店のみ変更」では joho を編集不可（disabled）にし、
+// 値は販売店適用日へ自動追随させる（顧客要件: 販売店のみ変更は joho=販売店適用日）。
+// 適用日だけ単独で変更して履歴 (t_dokusya_rireki) を作るのも防ぐ。
 const infoChangeGuard = useEditGuard(() => {
   const snap: Record<string, unknown> = { ...formState };
   for (const f of NAME_FIELDS) {
     if (typeof snap[f] === 'string') snap[f] = (snap[f] as string).trim();
   }
   delete snap.joho_henko_tekiyo_date;
+  delete snap.hanbaiten_id;
+  delete snap.hanbaiten_tekiyo_date;
   return snap;
 });
-/** 適用日以外の項目に変更があるか（編集モードのみ・基準値確定後）。 */
+/** 販売店・適用日(joho)以外の項目に変更があるか（編集モードのみ・基準値確定後）。 */
 const otherInfoChanged = computed(
   () => isEdit.value && !infoChangeGuard.isPristine(),
 );
 /** ロード時点の適用日（他項目が未変更へ戻ったとき復元する基準値）。 */
 const johoHenkoBaseline = ref<string | null>(null);
-// 他項目が未変更（に戻った）ら適用日を基準値へ戻す → editGuard も pristine と
-// なり PUT・履歴が発生しない。入力欄も :disabled にする（テンプレート側）。
-watch(otherInfoChanged, (changed) => {
-  if (isHydrating.value) return;
-  if (!changed) {
-    formState.joho_henko_tekiyo_date = johoHenkoBaseline.value;
-  }
-});
+// joho が編集不可（他項目未変更）のときの自動値:
+//  - 販売店を変更 → 販売店適用日(hanbaiten_tekiyo_date)へ追随。
+//  - それ以外 → ロード時の基準値へ戻す（→ editGuard も pristine、PUT/履歴なし）。
+// 入力欄の :disabled は !otherInfoChanged（テンプレート側）。
+watch(
+  [
+    otherInfoChanged,
+    hanbaitenChanged,
+    () => formState.hanbaiten_tekiyo_date,
+  ],
+  ([other, hanbaiten, hanbaitenDate]) => {
+    if (isHydrating.value) return;
+    if (other) return; // 他項目変更あり → ユーザー入力（編集可）
+    formState.joho_henko_tekiyo_date =
+      hanbaiten && hanbaitenDate
+        ? (hanbaitenDate as string)
+        : johoHenkoBaseline.value;
+  },
+);
 
 // 適用日カレンダー: 過去日を選択不可にする (当日は可・即日適用)。
 // 共通ヘルパー isPastDayTokyo を使用 (JST 当日基準・TZ 安全)。
@@ -1007,11 +1028,19 @@ function validateMisc(errs: Record<string, string>): void {
   if (isCancelTetsuzuki.value && !formState.dokusya_chushi_date?.trim()) {
     errs.dokusya_chushi_date = REQUIRED_MSG;
   }
+  validateTekiyoDates(errs);
+}
+
+/**
+ * 適用日 (hanbaiten_tekiyo_date / joho_henko_tekiyo_date) の必須・過去日検証。
+ * いずれも当日は可・過去日不可。
+ */
+function validateTekiyoDates(errs: Record<string, string>): void {
+  const todayIso = todayIsoTokyo();
   // 販売店適用日 (hanbaiten_tekiyo_date):
   //  - 編集で販売店を変更した場合は必須 (初期値は当日)。
   //  - 値があるときは過去日不可。当日は可 (即日適用)。
   //  - BE は rireki.hanbaiten_tekiyo_date に記録する。
-  const todayIso = todayIsoTokyo();
   if (hanbaitenChanged.value && !formState.hanbaiten_tekiyo_date?.trim()) {
     errs.hanbaiten_tekiyo_date = REQUIRED_MSG;
   } else if (
@@ -1337,6 +1366,8 @@ async function applyRouteMode(): Promise<void> {
   resetFormState();
   if (isEdit.value && dokusyaId.value !== null) {
     await loadDetail(dokusyaId.value);
+    // 現在紐づく販売店（既に廃店でも）を include_id でピンして取得する。
+    await fetchHanbaitenOptions(formState.hanbaiten_id ?? undefined);
     // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
     await editGuard.capture();
     // 読者情報変更適用日の編集可否判定用に、適用日を除いた基準も控える。
@@ -1345,12 +1376,16 @@ async function applyRouteMode(): Promise<void> {
     // johoHenkoBaseline が null だと適用日が null に戻ってしまう。
     johoHenkoBaseline.value = formState.joho_henko_tekiyo_date;
     await infoChangeGuard.capture();
-  } else if (!canPaper.value && canDenshi.value) {
-    // Create — preselect the only 購読種別 this account may use so the
-    // default radio isn't a disabled option. paper-only / both keep the
-    // default 紙版(1); denshi-only switches to 電子版(2); no-flag keeps the
-    // default and the submit button stays disabled (account_concept §139-145).
-    formState.dokusya_shubetsu = DokusyaShubetsu.DIGITAL;
+  } else {
+    // 新規: 営業中(haiten_flg=false)の販売店のみ取得する。
+    await fetchHanbaitenOptions();
+    if (!canPaper.value && canDenshi.value) {
+      // Create — preselect the only 購読種別 this account may use so the
+      // default radio isn't a disabled option. paper-only / both keep the
+      // default 紙版(1); denshi-only switches to 電子版(2); no-flag keeps the
+      // default and the submit button stays disabled (account_concept §139-145).
+      formState.dokusya_shubetsu = DokusyaShubetsu.DIGITAL;
+    }
   }
 }
 
@@ -1360,8 +1395,9 @@ onMounted(() => {
   void fetchTodofukenOptions();
   void fetchKanriShitenOptions();
   void fetchShitenOptions();
-  void fetchHanbaitenOptions();
   void fetchTankaOptions();
+  // 販売店ドロップダウンは applyRouteMode 内で取得する（編集時は loadDetail で
+  // 確定した hanbaiten_id を include_id ピンに渡すため順序依存）。
   void applyRouteMode();
 });
 
@@ -2035,7 +2071,7 @@ defineExpose({ formState, fieldErrors });
               の一部として可視化する。
             -->
             <span
-              class="block py-1 px-2 text-text-main bg-bg-layout rounded-ant border border-border"
+              class="block py-1 px-2 text-text-main bg-surface-disabled rounded-ant border border-border"
               data-test="hanbaiten-name"
             >
               {{ hanbaitenName || '—' }}

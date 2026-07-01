@@ -7,10 +7,10 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 import { Ja } from '@/database/entities/ja.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
-import { ReportArchiveService } from '@/modules/report/report-archive.service';
+import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
+import { AuditOperation, DownloadType, LogType } from '@/common/enums';
 
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
 import {
@@ -21,7 +21,7 @@ import {
 } from './haitatsuryo.mapper';
 
 const SCREEN_NAME = '配達手数料支払情報出力画面 (ACSMS-SCR-021)';
-const TABLE_NAME = 't_file_upload';
+const TABLE_NAME = 't_file_download';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '配達手数料支払情報';
@@ -51,7 +51,7 @@ export class HaitatsuryoService {
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
     // 共通の S3 アーカイブ + t_file_upload 登録（ReportModule から再利用）。
-    private readonly reportArchive: ReportArchiveService,
+    private readonly fileArchive: FileArchiveService,
     // CodeService (@Global) は Excel の貯金種目ラベル解決にのみ使用。spec が
     // 4 引数で `new` するため @Optional()（本番 DI では常に注入される）。
     @Optional()
@@ -102,7 +102,7 @@ export class HaitatsuryoService {
       // S3 キー: haitatsuryo/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.xlsx
       //（rootPrefix='' で reports/ プレフィックスなし、subFolder なし）。
       // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
-      const archived = await this.reportArchive.archive({
+      const archived = await this.fileArchive.archive({
         buffer,
         baseName,
         category: 'haitatsuryo',
@@ -113,15 +113,18 @@ export class HaitatsuryoService {
         recordCount: preview.meta.total,
         contentType: XLSX_MIME,
         extension: '.xlsx',
+        // 配達手数料支払情報 (SCR-021)：その他扱い・日農担当者DL不可。
+        downloadType: DownloadType.OTHER,
+        nichinoDownloadAllowedFlg: false,
       });
 
-      // 操作ログ(4.6)。アーカイブ先テーブル(t_file_upload)を対象に記録する。
+      // 操作ログ(4.6)。アーカイブ先テーブル(t_file_download)を対象に記録する。
       const ctx = buildAuditCtx(
         session,
         req,
         SCREEN_NAME,
         TABLE_NAME,
-        archived.fileUploadId,
+        archived.fileDownloadId,
       );
       // 個人情報は含めず、出力条件と件数のみを記録する（4.6）。
       const afterValue = JSON.stringify({
@@ -134,19 +137,10 @@ export class HaitatsuryoService {
         file_name: archived.filename,
         s3_file_path: archived.key,
       });
-      await this.auditLog.logOperation({
-        logType: LogType.FILE_OPERATION,
-        accountId: ctx.accountId,
-        jaId: ctx.jaId,
-        gamenName: ctx.screen,
+      await this.auditLog.logExport(ctx, {
         operation: AuditOperation.CREATE,
-        resultStatus: ResultStatus.SUCCESS,
-        targetId: ctx.targetId,
-        targetTable: ctx.table,
-        beforeValue: '',
+        logType: LogType.FILE_OPERATION,
         afterValue,
-        ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent,
       });
 
       return { empty: false, buffer, filename, asciiFilename };
@@ -253,6 +247,4 @@ export class HaitatsuryoService {
     const buf = await workbook.xlsx.writeBuffer();
     return Buffer.from(buf);
   }
-
-  /** S3 保存ファイル名用タイムスタンプ（Asia/Tokyo, YYYYMMDDHHmmss）。 */
 }

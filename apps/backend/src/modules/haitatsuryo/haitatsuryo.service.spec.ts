@@ -9,6 +9,7 @@
 // 税区分 (m_ja.zei_kubun) is fetched via jaRepo.findOne. Each it() maps back to a
 // clause in docs/design/ACSMS-SCR-021/ACSMS-SCR-021-api.md.
 
+import { attachLogExport } from '@test/utils/audit-log-mock';
 import { HaitatsuryoService } from '@/modules/haitatsuryo/haitatsuryo.service';
 import {
   buildChuokaiSession,
@@ -57,11 +58,13 @@ describe('HaitatsuryoService', () => {
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
+    // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
+    attachLogExport(auditLog);
     reportArchive = {
       archive: jest.fn().mockResolvedValue({
         key: 'haitatsuryo/JA001/2026/配達手数料支払情報出力_2026年04月_20260401120000.xlsx',
         filename: '配達手数料支払情報出力_2026年04月_20260401120000.xlsx',
-        fileUploadId: 5,
+        fileDownloadId: 5,
       }),
     };
 
@@ -269,8 +272,8 @@ describe('HaitatsuryoService', () => {
       );
     });
 
-    it('should archive the Excel to S3 + t_file_upload via the common ReportArchiveService when export succeeds', async () => {
-      // COVERS: 4.4/4.5 共通 ReportArchiveService で S3 保存 + t_file_upload 登録
+    it('should archive the Excel to S3 + t_file_download via the common FileArchiveService when export succeeds', async () => {
+      // COVERS: 4.4/4.5 共通 FileArchiveService で S3 保存 + t_file_download 登録
       mockAgg([buildHaitatsuryoAggRow()]);
       await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req);
       expect(reportArchive.archive).toHaveBeenCalledTimes(1);
@@ -297,8 +300,8 @@ describe('HaitatsuryoService', () => {
       );
     });
 
-    it('should write an operation log with log_type=4 + CREATE + result_status success + targetTable t_file_upload', async () => {
-      // COVERS: 4.6 操作ログ — log_type=4, operation 'CREATE', result_status 1, t_file_upload
+    it('should write an operation log with log_type=4 + CREATE + result_status success + targetTable t_file_download', async () => {
+      // COVERS: 4.6 操作ログ — log_type=4, operation 'CREATE', result_status 1, t_file_download
       mockAgg([buildHaitatsuryoAggRow()]);
       await service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession({ account_id: 11 }), req);
 
@@ -309,7 +312,7 @@ describe('HaitatsuryoService', () => {
           logType: 4,
           operation: 'CREATE',
           resultStatus: 1,
-          targetTable: 't_file_upload',
+          targetTable: 't_file_download',
         }),
       );
     });

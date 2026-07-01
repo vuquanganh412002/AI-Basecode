@@ -2709,6 +2709,46 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       expect(res.data[0].hanbaiten_id).toBe(99);
       expect(res.data).toHaveLength(3);
     });
+
+    it('should restrict options to 営業中 (bind haiten_flg = false) when active_only=true', async () => {
+      // COVERS: 購読者の販売店選択（登録/編集）は廃店(haiten_flg=true)を除外する。
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown(
+        { active_only: true },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const flt = qbMock.andWhere.mock.calls.find(
+        ([sql]: unknown[]) =>
+          typeof sql === 'string' && /m\.haiten_flg\s*=\s*false/i.test(sql),
+      );
+      expect(flt).toBeDefined();
+    });
+
+    it('should NOT bind haiten_flg by default (一覧検索・販売店入替は廃店も対象)', async () => {
+      // COVERS: 既定は全件。廃店の販売店に紐づく購読者を検索/入替できるよう
+      // active_only 未指定なら営業中フィルタを掛けない。
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+      const flt = qbMock.andWhere.mock.calls.find(
+        ([sql]: unknown[]) =>
+          typeof sql === 'string' && /haiten_flg/i.test(sql),
+      );
+      expect(flt).toBeUndefined();
+    });
+
+    it('should pin include_id in non-paginate mode even when the store is 廃店 (filtered out)', async () => {
+      // COVERS: 編集で既に廃店の販売店へ紐づく購読者は、営業中フィルタ
+      // (active_only) で除外されても include_id で現在の選択を先頭に復元する
+      // （ページング無し）。
+      qbMock.getMany.mockResolvedValueOnce([mk(1), mk(2)]); // 営業中のみ（廃店除外）
+      qbMock.getOne.mockResolvedValueOnce(mk(77)); // ピン対象＝廃店の既存選択
+      const res = await service.listDropdown(
+        { active_only: true, include_id: 77 }, // page 無し → 非ページング
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(res.data[0].hanbaiten_id).toBe(77);
+      expect(res.data).toHaveLength(3);
+    });
   });
 });
 

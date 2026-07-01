@@ -79,8 +79,8 @@ async function setApiMocks() {
   vi.mocked(getShitenDropdown).mockResolvedValue(buildShitenDropdown());
   vi.mocked(getKozaShitenDropdown).mockResolvedValue(buildKozaShitenDropdown());
   vi.mocked(exportKozaFurikae).mockResolvedValue({
-    blob: new Blob(['1,21,0,...'], { type: 'text/csv' }),
-    filename: '口座振替データ_JA001_2026年05月27日.csv',
+    blob: new Blob(['ZENOUTFD'], { type: 'text/plain' }),
+    filename: 'ZENOUTFD',
   });
   return { getInitialKozaFurikae, exportKozaFurikae, getKanriShitenDropdown, getShitenDropdown, getKozaShitenDropdown };
 }
@@ -162,7 +162,8 @@ describe('KozaFurikaeExportView — 画面表示', () => {
     const { getShitenDropdown, getKozaShitenDropdown } = await import('@/api/shiten/shiten');
     await renderView();
     expect(getKanriShitenDropdown).toHaveBeenCalled();
-    expect(getShitenDropdown).toHaveBeenCalled();
+    // 支店絞込は金融機関支店以外（kinyu_shiten_flg=false）のみ取得する。
+    expect(getShitenDropdown).toHaveBeenCalledWith({ kinyu_shiten_flg: false });
     expect(getKozaShitenDropdown).toHaveBeenCalled();
   });
 
@@ -186,7 +187,21 @@ describe('KozaFurikaeExportView — 画面表示', () => {
     const labels = wrapper.findAll('label').map((l) => l.text());
     expect(labels.some((t) => t.includes('年月日'))).toBe(true);
     expect(labels.some((t) => t.includes('引落日'))).toBe(true);
-    expect(labels.some((t) => t.includes('委託者コード'))).toBe(true);
+    // 委託者コード は readonly 表示（<span>）になったため描画テキストで確認する。
+    expect(wrapper.text()).toContain('委託者コード');
+  });
+
+  it('should show an empty 口座支店 table when none is selected, and one row per selected 口座支店', async () => {
+    const { wrapper } = await renderView();
+    await flushPromises();
+    // 未選択 → プレースホルダ（行なし）。
+    expect(wrapper.find('[data-test="koza-empty"]').exists()).toBe(true);
+    // 口座支店を選択 → 選択した shiten ごとに JASTEM 店舗情報の行が出る。
+    Object.assign((wrapper.vm as any).formState, { koza_shiten_ids: [10, 11] });
+    await flushPromises();
+    expect(wrapper.find('[data-test="koza-empty"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('ホンテン');
+    expect(wrapper.text()).toContain('キタシテン');
   });
 
   it('should render the 作成開始 button when the form is displayed', async () => {

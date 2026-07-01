@@ -367,7 +367,41 @@ describe('MeiboReportView — Excel出力', () => {
     await flushPromises();
 
     expect(exportMeibo).toHaveBeenCalledTimes(1);
+    // 日農DL許可フラグは既定 false で送信される。
+    expect(exportMeibo).toHaveBeenCalledWith(
+      expect.objectContaining({ nichino_download_allowed_flg: false }),
+    );
     expect(createObjectURL).toHaveBeenCalled();
+  });
+
+  it('should hide the 日農DL許可 radio until preview returns data, then show it', async () => {
+    const { wrapper } = await renderView();
+
+    // プレビュー前は非表示（出力対象データが無いため）。
+    expect(wrapper.find('[data-test="nichino-flg-row"]').exists()).toBe(false);
+
+    await previewWithData(wrapper);
+
+    // プレビューで出力対象データが得られたら表示される。
+    expect(wrapper.find('[data-test="nichino-flg-row"]').exists()).toBe(true);
+  });
+
+  it('should send nichino_download_allowed_flg=true when 許可する is selected', async () => {
+    const { wrapper } = await renderView();
+    const { exportMeibo } = await import('@/api/report/report');
+    await previewWithData(wrapper);
+
+    // 「許可する」ラジオ（value=true）を選択する。
+    const radios = wrapper
+      .find('[data-test="nichino-flg"]')
+      .findAll('input[type="radio"]');
+    await radios[0].setValue();
+    await wrapper.find(exportBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportMeibo).toHaveBeenCalledWith(
+      expect.objectContaining({ nichino_download_allowed_flg: true }),
+    );
   });
 
   it('should still call exportMeibo when it rejects with 500 (interceptor handles the toast)', async () => {

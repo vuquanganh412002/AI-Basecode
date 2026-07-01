@@ -20,7 +20,10 @@
 // exportZougenNichinoPdf there would break the existing SCR-026/028 suite.
 // Merge back into the root spec after /gen-code-backend turns this green.
 
+import { attachLogExport } from '@test/utils/audit-log-mock';
 import { ReportService } from '@/modules/report/report.service';
+import { MeiboReportService } from '@/modules/report/meibo-report.service';
+import { ZougenReportService } from '@/modules/report/zougen-report.service';
 import {
   buildChuokaiSession,
   buildJaHontenSession,
@@ -38,7 +41,6 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
   let qbMock: any;
   let auditLog: any;
   let codeService: any;
-  let storage: any;
   let reportArchive: any;
   let dataSource: any;
   let pdfService: any;
@@ -91,8 +93,9 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       logOperation: jest.fn().mockResolvedValue(undefined),
       logError: jest.fn().mockResolvedValue(undefined),
     };
+    // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
+    attachLogExport(auditLog);
     codeService = { has: jest.fn().mockReturnValue(true), getLabel: jest.fn().mockReturnValue('') };
-    storage = { upload: jest.fn().mockResolvedValue(undefined) };
     // SCR-029 はもうトランザクションを組まないが、constructor 位置維持のため
     // dataSource は引き続き渡す（実装では未使用）。
     dataSource = { transaction: jest.fn(async (cb: any) => cb({})) };
@@ -104,27 +107,29 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     };
     reportArchive = {
       archive: jest.fn().mockResolvedValue({
-        key: 'reports/zougen_nichino/1301002001/2026/増減通知_2026年03月01日_20260301120000.pdf',
+        key: 'reports/zougen-nichino/1301002001/2026/増減通知_2026年03月01日_20260301120000.pdf',
         filename: '増減通知_2026年03月01日_20260301120000.pdf',
-        fileUploadId: 77,
+        fileDownloadId: 77,
       }),
     };
 
-    // Constructor: SCR-029 appends @Optional() reportNotification after the
-    // SCR-028 deps (dataSource + pdfService).
-    //   constructor(rirekiRepo, auditLog, codeService, storage, reportArchive,
-    //               @Optional() dataSource?, @Optional() pdfService?,
-    //               @Optional() reportNotification?)
-    service = new ReportService(
+    // Facade wiring: SCR-029 export needs pdfService + reportNotification on the
+    // ZougenReportService. dataSource is no longer used (kept in scope as a mock).
+    void dataSource;
+    const meibo = new MeiboReportService(
       rirekiRepo,
       auditLog,
       codeService,
-      storage,
       reportArchive,
-      dataSource,
+    );
+    const zougen = new ZougenReportService(
+      rirekiRepo,
+      auditLog,
+      reportArchive,
       pdfService,
       reportNotification,
     );
+    service = new ReportService(meibo, zougen);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -374,6 +379,22 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(call).toBeDefined();
     });
 
+    it('should count only 承認済 electronic subscribers (電子版=2 → denshi_shonin_status=1)', async () => {
+      // COVERS: 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(1)のみ集計対象。
+      // 承認待ち(0)/否認(2)の電子版は増減通知から除外する。
+      mockNichinoPage([buildZougenNichinoRawRow()]);
+      await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /dokusya_shubetsu\s*<>/.test(sql) &&
+          /denshi_shonin_status\s*=/.test(sql),
+      );
+      expect(call).toBeDefined();
+      expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
+    });
+
     it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {
       // COVERS: 4.3/4.5 廃店・電子版ダミー販売店を除外
       mockNichinoPage([buildZougenNichinoRawRow()]);
@@ -468,7 +489,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
   // ═══════════════════════════════════════════════════════════════════════
   // API-029-002 — POST /api/v1/report/zougen-nichino/export
-  // S3 アーカイブ（t_file_upload）+ 日農担当者へのメール通知のみ。
+  // S3 アーカイブ（t_file_download）+ 日農担当者へのメール通知のみ。
   // ブラウザへPDFは返さず { empty:false, fileName, recipientCount } を返す。
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportZougenNichinoPdf', () => {
@@ -509,8 +530,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(result.empty).toBe(false);
     });
 
-    it('should archive the PDF to S3 via ReportArchiveService with category=zougen_nichino (no subFolder)', async () => {
-      // COVERS: 4.4 S3保存（共通 ReportArchiveService）
+    it('should archive the PDF to S3 via FileArchiveService with category=zougen-nichino (no subFolder)', async () => {
+      // COVERS: 4.4 S3保存（共通 FileArchiveService）
       qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
@@ -521,7 +542,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       const arg = reportArchive.archive.mock.calls[0][0];
       expect(arg).toEqual(
         expect.objectContaining({
-          category: 'zougen_nichino',
+          category: 'zougen-nichino',
           year: '2026',
           baseName: '増減通知_2026年03月01日',
           contentType: 'application/pdf',
@@ -546,16 +567,20 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should still succeed (S3 + audit) when no ReportNotificationService is injected — recipientCount=0', async () => {
       // COVERS: 4.5 通知サービス未注入でも出力自体は成功（fire-and-forget）
-      const svc = new ReportService(
+      const meiboNoNotify = new MeiboReportService(
         rirekiRepo,
         auditLog,
         codeService,
-        storage,
         reportArchive,
-        dataSource,
+      );
+      const zougenNoNotify = new ZougenReportService(
+        rirekiRepo,
+        auditLog,
+        reportArchive,
         pdfService,
         // reportNotification omitted
       );
+      const svc = new ReportService(meiboNoNotify, zougenNoNotify);
       qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
 
       const result = await svc.exportZougenNichinoPdf(
@@ -568,8 +593,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(reportArchive.archive).toHaveBeenCalledTimes(1);
     });
 
-    it('should write an operation log with EXPORT_PDF + result_status success, targetTable t_file_upload', async () => {
-      // COVERS: 4.7 操作ログ — operation 'EXPORT_PDF', result_status 1, t_file_upload
+    it('should write an operation log with EXPORT_PDF + result_status success, targetTable t_file_download', async () => {
+      // COVERS: 4.7 操作ログ — operation 'EXPORT_PDF', result_status 1, t_file_download
       qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
       await service.exportZougenNichinoPdf(buildZougenNichinoQuery(), nSession({ account_id: 12 }), req);
 
@@ -582,8 +607,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
           logType: 1,
           operation: 'EXPORT_PDF',
           resultStatus: 1,
-          targetTable: 't_file_upload',
-          targetId: 77, // archived.fileUploadId
+          targetTable: 't_file_download',
+          targetId: 77, // archived.fileDownloadId
         }),
       );
     });

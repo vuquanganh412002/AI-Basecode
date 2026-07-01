@@ -43,6 +43,7 @@ export function buildKozaFurikaeAggRow(overrides: Record<string, unknown> = {}) 
     koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',
     bank_branch_code: '001',
     bank_branch_name: 'ﾎﾝﾃﾝ',
+    bank_branch_name_kana: 'ﾎﾝﾃﾝ',
     hikiotoshi_yokin_shubetsu: 1,
     hikiotoshi_koza_no: '1234567',
     hikiotoshi_koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',

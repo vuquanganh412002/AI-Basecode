@@ -2,11 +2,10 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import {
   AuditOperation,
-  DownloadType,
   LogType,
   ResultStatus,
   RoleCode,
@@ -22,12 +21,9 @@ import {
 } from '@/common/utils/audit-context';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
-  compactTimestampJst,
   dateOnlyIsoJst,
   todayIsoJst,
 } from '@/common/utils/datetime';
-import { buildZipArchive } from '@/common/utils/zip';
-import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -37,7 +33,6 @@ import { SearchFileUploadDto } from './dto/search-file-upload.dto';
 import {
   type FileUploadCreatedItemDto,
   type FileUploadListItemDto,
-  type FilePreviewResponseDto,
 } from './dto/file-upload-response.dto';
 import { FileUploadFormatException } from './exceptions/file-format-error.exception';
 import { FileSizeExceededException } from './exceptions/file-size-exceeded.exception';
@@ -199,49 +194,12 @@ interface JoinedRow {
 }
 
 /**
- * `download_type` classifier per api.md §4.5. Priority-ordered — first
- * match wins; default = OTHER (その他). Maps filename patterns to the
- * centralised `DownloadType` enum (`m_code.code_category='DOWNLOAD_TYPE'`,
- * seeder.md §5.19).
- */
-function classifyDownloadType(fileName: string): number {
-  if (fileName.includes('kouza_furikae')) return DownloadType.KOZA_FURIKAE;
-  if (fileName.includes('zougen_renraku')) return DownloadType.ZOUGEN;
-  if (fileName.includes('zougen_tsuchi')) return DownloadType.ZOUGEN_NICHINO;
-  if (fileName.includes('meibo')) return DownloadType.MEIBO;
-  return DownloadType.OTHER;
-}
-
-/**
- * MIME type by extension — kept narrow on purpose (api.md §4.4
- * enumerates only PDF / CSV / XLSX). Everything else falls back to
- * `application/octet-stream` which makes browsers force a download
- * rather than guess.
- */
-function contentTypeFor(fileName: string): string {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.csv')) return 'text/csv';
-  if (lower.endsWith('.xlsx')) {
-    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  }
-  return 'application/octet-stream';
-}
-
-/**
  * Convert a Date / pg-mem string to ISO 8601 with `+09:00` offset.
  * pg-mem returns Date objects; real Postgres returns ISO strings.
  * Both flow through `new Date(v).toISOString()` cleanly.
  */
 function toIso(v: Date | string): string {
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
-}
-
-interface DownloadResult {
-  body: Buffer;
-  contentType: string;
-  contentLength: number;
-  fileName: string;
 }
 
 @Injectable()
@@ -442,228 +400,6 @@ export class FileUploadService {
     }));
 
     return paginate(data, total, page, per_page);
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-002 — GET /api/v1/file-upload/:id/preview
-  // ──────────────────────────────────────────────────────────────
-  async getPreview(
-    fileUploadId: number,
-    session: SessionPayload,
-    _req: Request,
-  ): Promise<{ data: FilePreviewResponseDto }> {
-    const row = await this.repo.findOne({
-      where: { fileUploadId, deletedAt: IsNull() },
-    });
-    if (!row) {
-      throw new NotFoundException('ファイル');
-    }
-    this.assertScope(row, session);
-
-    const preview_url = await this.storage.getSignedUrl(
-      row.filePath,
-      PREVIEW_TTL_SECONDS,
-    );
-    const expires_at = new Date(Date.now() + PREVIEW_TTL_SECONDS * 1000).toISOString();
-
-    return {
-      data: {
-        file_upload_id: Number(row.fileUploadId),
-        file_name: row.fileName,
-        file_size: row.fileSize == null ? null : Number(row.fileSize),
-        content_type: contentTypeFor(row.fileName),
-        preview_url,
-        expires_at,
-      },
-    };
-  }
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-003 — GET /api/v1/file-upload/:id/download
-  // ──────────────────────────────────────────────────────────────
-  async download(
-    fileUploadId: number,
-    session: SessionPayload,
-    req: Request,
-  ): Promise<DownloadResult> {
-    const row = await this.repo.findOne({
-      where: { fileUploadId, deletedAt: IsNull() },
-    });
-    if (!row) {
-      throw new NotFoundException('ファイル');
-    }
-    this.assertScope(row, session);
-
-    // Stream from object storage BEFORE opening the transaction. If the
-    // S3 fetch fails we want a clean HTTP 500 with no DB side-effects
-    // (no t_file_download row, no t_log row).
-    const body = await this.storage.download(row.filePath);
-    const contentType = contentTypeFor(row.fileName);
-    const fileSize = row.fileSize == null ? Buffer.byteLength(body) : Number(row.fileSize);
-
-    const ctx = buildAuditCtx(
-      session,
-      req,
-      SCREEN_NAME,
-      TABLE_NAME,
-      Number(row.fileUploadId),
-    );
-
-    try {
-      await this.dataSource.transaction(async (manager) => {
-        // §4.5 — t_file_download history
-        const downloadType = classifyDownloadType(row.fileName);
-        const targetMonth = extractTargetMonth(row.fileName);
-        const fileDownload = manager.create(FileDownload, {
-          jaId: session.ja_id ?? null,
-          downloadDatetime: new Date(),
-          downloadType,
-          fileName: row.fileName,
-          filePath: row.filePath,
-          fileSize,
-          recordCount: row.recordCount == null ? 0 : Number(row.recordCount),
-          targetMonth,
-          createdBy: String(session.account_id),
-        });
-        const savedDownload = await manager.save(FileDownload, fileDownload);
-
-        // §4.6 — operation log (log_type=4, operation='DOWNLOAD'). We
-        // use logOperation directly because logCreate hard-codes
-        // log_type=1 / operation='CREATE'.
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.FILE_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.DOWNLOAD,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue: JSON.stringify({
-              file_upload_id: Number(row.fileUploadId),
-              file_download_id: Number(savedDownload.fileDownloadId),
-              file_name: row.fileName,
-              file_size: fileSize,
-              ja_id: row.jaId,
-            }),
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
-          manager,
-        );
-      });
-    } catch (err) {
-      // Error log lives OUTSIDE the rolled-back transaction so the
-      // failure trace persists. Never pass `manager` here.
-      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
-      throw err;
-    }
-
-    return { body, contentType, contentLength: fileSize, fileName: row.fileName };
-  }
-
-  /**
-   * 一括ダウンロード (SCR-022 §8) — bundle the selected files into one ZIP
-   * named `一括ダウンロード_yyyyMMddHHmmss.zip`. Strict: every requested id
-   * must exist AND be in DataScope (mirrors single-file download → 404 on a
-   * missing/out-of-scope id). One `t_file_download` row per bundled file
-   * (per-file history preserved) + one batch `t_log` entry, atomic.
-   */
-  async downloadZip(
-    fileUploadIds: number[],
-    session: SessionPayload,
-    req: Request,
-  ): Promise<DownloadResult> {
-    const rows = await this.repo.find({
-      where: { fileUploadId: In(fileUploadIds), deletedAt: IsNull() },
-    });
-    const byId = new Map(rows.map((r) => [Number(r.fileUploadId), r]));
-    // Resolve in the caller's selection order; reject the whole batch if any
-    // id is missing or out of scope (consistent + secure).
-    const ordered: FileUpload[] = [];
-    for (const id of fileUploadIds) {
-      const row = byId.get(id);
-      if (!row) throw new NotFoundException('ファイル');
-      this.assertScope(row, session);
-      ordered.push(row);
-    }
-
-    // Fetch every object from storage BEFORE the transaction — an S3 failure
-    // must leave no t_file_download / t_log side-effects (mirrors download()).
-    const fetched = await Promise.all(
-      ordered.map(async (row) => ({
-        row,
-        body: await this.storage.download(row.filePath),
-      })),
-    );
-
-    const zipBuffer = await buildZipArchive(
-      fetched.map((f) => ({ name: f.row.fileName, body: f.body })),
-    );
-    const fileName = `一括ダウンロード_${compactTimestampJst()}.zip`;
-
-    const ctx = buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null);
-    try {
-      await this.dataSource.transaction(async (manager) => {
-        // One t_file_download row per bundled file (keep per-file history).
-        for (const f of fetched) {
-          const size =
-            f.row.fileSize == null
-              ? Buffer.byteLength(f.body)
-              : Number(f.row.fileSize);
-          await manager.save(
-            FileDownload,
-            manager.create(FileDownload, {
-              jaId: session.ja_id ?? null,
-              downloadDatetime: new Date(),
-              downloadType: classifyDownloadType(f.row.fileName),
-              fileName: f.row.fileName,
-              filePath: f.row.filePath,
-              fileSize: size,
-              recordCount:
-                f.row.recordCount == null ? 0 : Number(f.row.recordCount),
-              targetMonth: extractTargetMonth(f.row.fileName),
-              createdBy: String(session.account_id),
-            }),
-          );
-        }
-        // One batch operation log (log_type=4, operation='DOWNLOAD').
-        await this.auditLog.logOperation(
-          {
-            logType: LogType.FILE_OPERATION,
-            accountId: ctx.accountId,
-            jaId: ctx.jaId,
-            gamenName: ctx.screen,
-            operation: AuditOperation.DOWNLOAD,
-            resultStatus: ResultStatus.SUCCESS,
-            targetId: ctx.targetId,
-            targetTable: ctx.table,
-            beforeValue: '',
-            afterValue: JSON.stringify({
-              bulk: true,
-              zip_file_name: fileName,
-              file_count: fetched.length,
-              file_upload_ids: ordered.map((r) => Number(r.fileUploadId)),
-            }),
-            ipAddress: ctx.ipAddress,
-            userAgent: ctx.userAgent,
-          },
-          manager,
-        );
-      });
-    } catch (err) {
-      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
-      throw err;
-    }
-
-    return {
-      body: zipBuffer,
-      contentType: 'application/zip',
-      contentLength: Buffer.byteLength(zipBuffer),
-      fileName,
-    };
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1122,12 +858,3 @@ export class FileUploadService {
   }
 }
 
-/**
- * Best-effort YYYYMM extraction from the file name. Returns empty
- * string when no 6-digit run is found (`t_file_download.target_month`
- * is nullable + DEFAULT '').
- */
-function extractTargetMonth(fileName: string): string {
-  const m = /(20\d{2})(0[1-9]|1[0-2])/.exec(fileName);
-  return m ? `${m[1]}${m[2]}` : '';
-}

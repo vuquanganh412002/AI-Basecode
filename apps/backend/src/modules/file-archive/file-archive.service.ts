@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { FileUpload } from '@/database/entities/file-upload.entity';
+import { FileDownload } from '@/database/entities/file-download.entity';
 import { Ja } from '@/database/entities/ja.entity';
 import { StorageService } from '@/modules/storage/storage.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -10,12 +10,10 @@ import { compactTimestampJst, todayIsoJst } from '@/common/utils/datetime';
 
 /** ja_id から ja_code を解決できないときの S3 パス用フォールバック。 */
 const JA_CODE_FALLBACK = 'unknown';
-/** t_file_upload.status — FILE_UPLOAD_STATUS m_code: 1=処理中 / 2=完了 / 3=エラー。 */
-const FILE_UPLOAD_STATUS_DONE = 2; // 完了
 /** 帳票アーカイブの保管年数（scheduled_delete_date = 今日 + 5年）。 */
 const RETENTION_YEARS = 5;
 
-export interface ReportArchiveParams {
+export interface FileArchiveParams {
   /** 生成済みファイルのバイト列（Excel/PDF など）。 */
   buffer: Buffer;
   /** タイムスタンプ・拡張子を除いたファイル名の基底（例: `販売店別購読者名簿_2026年01月`）。 */
@@ -50,6 +48,15 @@ export interface ReportArchiveParams {
   contentType: string;
   /** ファイル名の拡張子（先頭ドット込み。既定 `.xlsx`）。 */
   extension?: string;
+  /** ダウンロード種別（m_code DOWNLOAD_TYPE。画面ごとに固定）。 */
+  downloadType: number;
+  /**
+   * 日農ダウンロード許可フラグ（既定 false）。日農担当者(role1/2)がこの
+   * ファイルをダウンロードできるか。画面ごとに固定 or 画面で選択。
+   */
+  nichinoDownloadAllowedFlg?: boolean;
+  /** 対象年月（YYYYMM）。無ければ null。 */
+  targetMonth?: string | null;
 }
 
 /**
@@ -65,24 +72,25 @@ export interface ReportArchiveParams {
  * 本サービスは S3 保管用にタイムスタンプを付与する。
  */
 @Injectable()
-export class ReportArchiveService {
-  private readonly logger = new Logger(ReportArchiveService.name);
+export class FileArchiveService {
+  private readonly logger = new Logger(FileArchiveService.name);
 
   constructor(
-    @InjectRepository(FileUpload)
-    private readonly fileUploadRepo: Repository<FileUpload>,
+    @InjectRepository(FileDownload)
+    private readonly fileDownloadRepo: Repository<FileDownload>,
     @InjectRepository(Ja)
     private readonly jaRepo: Repository<Ja>,
     private readonly storage: StorageService,
   ) {}
 
   /**
-   * 帳票バッファを S3 へ保存し、`t_file_upload` に完了レコードを登録する。
+   * 帳票バッファを S3 へ保存し、`t_file_download` に登録する。ダウンロード画面
+   * (SCR-022) はこのレコードを一覧・DL 対象とする。
    * @returns 保存した S3 キーと付与したファイル名。
    */
   async archive(
-    params: ReportArchiveParams,
-  ): Promise<{ key: string; filename: string; fileUploadId: number }> {
+    params: FileArchiveParams,
+  ): Promise<{ key: string; filename: string; fileDownloadId: number }> {
     const now = new Date();
     const extension = params.extension ?? '.xlsx';
     const filename = `${params.baseName}_${compactTimestampJst(now)}${extension}`;
@@ -98,16 +106,18 @@ export class ReportArchiveService {
     // S3 保存（外部 I/O）を先に完了させてから DB 登録する。
     await this.storage.upload(key, params.buffer, params.contentType);
 
-    const saved = await this.fileUploadRepo.save(
-      this.fileUploadRepo.create({
+    const saved = await this.fileDownloadRepo.save(
+      this.fileDownloadRepo.create({
         jaId: params.jaId,
-        uploadDatetime: now,
+        downloadDatetime: now,
+        downloadType: params.downloadType,
         scheduledDeleteDate: this.scheduledDeleteDate(),
+        nichinoDownloadAllowedFlg: params.nichinoDownloadAllowedFlg ?? false,
         fileName: filename,
         filePath: key,
         fileSize: params.buffer.length,
-        recordCount: params.recordCount ?? null,
-        status: FILE_UPLOAD_STATUS_DONE, // FILE_UPLOAD_STATUS=2 完了
+        recordCount: params.recordCount ?? 0,
+        targetMonth: params.targetMonth ?? null,
         createdBy: String(params.session.account_id),
       }),
     );
@@ -117,9 +127,11 @@ export class ReportArchiveService {
       key,
       fileSize: params.buffer.length,
       recordCount: params.recordCount ?? null,
+      downloadType: params.downloadType,
+      nichinoDownloadAllowedFlg: params.nichinoDownloadAllowedFlg ?? false,
     });
 
-    return { key, filename, fileUploadId: saved.fileUploadId };
+    return { key, filename, fileDownloadId: saved.fileDownloadId };
   }
 
   /**

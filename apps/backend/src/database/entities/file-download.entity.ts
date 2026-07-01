@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   PrimaryGeneratedColumn,
@@ -13,9 +14,12 @@ import {
  * atomically.
  *
  * Nullability per `docs/database/database-design.md`:
- *   - ja_id          NOT NULL (NICHINO_* downloading global file writes NULL)
- *   - target_month   nullable
- *   - created_at     nullable
+ *   - ja_id                        NOT NULL (NICHINO_* + global file writes NULL)
+ *   - target_month                 nullable
+ *   - created_at                   nullable
+ *   - scheduled_delete_date        nullable（削除予定日）
+ *   - nichino_download_allowed_flg NOT NULL / DEFAULT FALSE（日農DL許可）
+ *   - deleted_at                   nullable（論理削除）
  */
 @Entity('t_file_download')
 @Index('IX_t_file_download_ja_datetime', ['jaId', 'downloadDatetime'])
@@ -35,6 +39,13 @@ export class FileDownload {
   @Column({ name: 'download_type', type: 'int' })
   downloadType: number;
 
+  @Column({ name: 'scheduled_delete_date', type: 'timestamptz', nullable: true })
+  scheduledDeleteDate: Date | null;
+
+  // 日農（NICHINO_*）にダウンロードを許可するか。NOT NULL / DEFAULT FALSE。
+  @Column({ name: 'nichino_download_allowed_flg', type: 'boolean', default: false })
+  nichinoDownloadAllowedFlg: boolean;
+
   @Column({ name: 'file_name', type: 'varchar', length: 255 })
   fileName: string;
 
@@ -49,6 +60,9 @@ export class FileDownload {
 
   @Column({ name: 'target_month', type: 'varchar', length: 6, nullable: true, default: '' })
   targetMonth: string | null;
+
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz', nullable: true })
   createdAt: Date;

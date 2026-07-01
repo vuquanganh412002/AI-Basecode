@@ -52,19 +52,6 @@ export interface FileUploadListResponse {
   meta: FileUploadListMeta;
 }
 
-export interface FilePreviewData {
-  file_upload_id: number;
-  file_name: string;
-  file_size: number | null;
-  content_type: string;
-  preview_url: string;
-  expires_at: string;
-}
-
-export interface FilePreviewResponse {
-  data: FilePreviewData;
-}
-
 /** Query DTO for `GET /api/v1/file-upload` (ACSMS-API-022-001 / 023-001). */
 export interface ListFilesQuery {
   file_name?: string;
@@ -87,65 +74,6 @@ export async function listFiles(
     { params: query },
   );
   return res.data;
-}
-
-/** GET /api/v1/file-upload/{id}/preview — ACSMS-API-022-002. */
-export async function getFilePreview(
-  fileUploadId: number,
-): Promise<FilePreviewResponse> {
-  const res = await axiosInstance.get<FilePreviewResponse>(
-    `/api/v1/file-upload/${fileUploadId}/preview`,
-  );
-  return res.data;
-}
-
-/** GET /api/v1/file-upload/{id}/download — ACSMS-API-022-003.
- *  Returns a Blob (binary stream) so the caller can build an object URL
- *  + anchor click for the browser save dialog. */
-export async function downloadFile(fileUploadId: number): Promise<Blob> {
-  const res = await axiosInstance.get<Blob>(
-    `/api/v1/file-upload/${fileUploadId}/download`,
-    { responseType: 'blob' },
-  );
-  return res.data;
-}
-
-/** POST /api/v1/file-upload/download-zip — ACSMS-API-022-004.
- *  Bundles the selected files server-side into one ZIP. Returns the Blob
- *  plus the server-provided filename (一括ダウンロード_yyyyMMddHHmmss.zip),
- *  parsed from the Content-Disposition `filename*` (UTF-8). */
-export async function downloadFilesAsZip(
-  fileUploadIds: number[],
-): Promise<{ blob: Blob; filename: string }> {
-  const res = await axiosInstance.post<Blob>(
-    '/api/v1/file-upload/download-zip',
-    { file_upload_ids: fileUploadIds },
-    { responseType: 'blob' },
-  );
-  const disposition = String(res.headers['content-disposition'] ?? '');
-  return {
-    blob: res.data,
-    filename: parseContentDispositionFilename(disposition),
-  };
-}
-
-/**
- * Extract the download filename from a `Content-Disposition` header. Prefers
- * RFC 5987 `filename*=UTF-8''<pct-encoded>` (carries the Japanese name),
- * falls back to the bare `filename="..."`, then a generic default.
- */
-function parseContentDispositionFilename(disposition: string): string {
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-  if (star?.[1]) {
-    try {
-      return decodeURIComponent(star[1].trim());
-    } catch {
-      // Malformed percent-encoding — fall through to the ASCII form.
-    }
-  }
-  const plain = /filename="?([^";]+)"?/i.exec(disposition);
-  if (plain?.[1]) return plain[1].trim();
-  return 'download.zip';
 }
 
 // ─── SCR-023 — POST + DELETE ──────────────────────────────────────────

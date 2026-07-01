@@ -26,7 +26,6 @@ import {
 vi.mock('@/api/file-upload/file-upload', () => ({
   listFiles: vi.fn(),
   uploadFiles: vi.fn(),
-  downloadFile: vi.fn(),
   deleteFile: vi.fn(),
 }));
 
@@ -121,14 +120,11 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  const { listFiles, uploadFiles, downloadFile, deleteFile } = await import(
+  const { listFiles, uploadFiles, deleteFile } = await import(
     '@/api/file-upload/file-upload'
   );
   vi.mocked(listFiles).mockResolvedValue(buildFileUploadHistoryResponse() as any);
   vi.mocked(uploadFiles).mockResolvedValue(buildUploadFilesResponse() as any);
-  vi.mocked(downloadFile).mockResolvedValue(
-    new Blob(['mock-bytes'], { type: 'application/pdf' }),
-  );
   vi.mocked(deleteFile).mockResolvedValue({ message: '削除しました。' } as any);
 
   const { getJaDropdown } = await import('@/api/ja/ja');

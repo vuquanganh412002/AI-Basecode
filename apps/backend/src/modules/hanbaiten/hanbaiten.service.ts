@@ -391,6 +391,8 @@ export class HanbaitenService {
       page?: number;
       per_page?: number;
       include_id?: number;
+      /** true のとき営業中(haiten_flg=false)のみに絞る（購読者の販売店選択用）。 */
+      active_only?: boolean;
     },
     session: SessionPayload,
   ): Promise<{
@@ -417,6 +419,14 @@ export class HanbaitenService {
     };
 
     const qb = buildScoped();
+    // active_only=true（購読者の販売店選択：登録/編集）のときだけ営業中に絞る。
+    // 廃店(haiten_flg=true)は新規選択から除外する。既に廃店の販売店へ紐づく
+    // 購読者を編集する場合は、下の include_id ピンで現在の選択を復元する
+    // （ピンのクエリは buildScoped 由来で haiten_flg を掛けない）。
+    // 既定（一覧検索・販売店入替の検索）は廃店も対象にする。
+    if (query.active_only) {
+      qb.andWhere('m.haiten_flg = false');
+    }
     if (query.q) {
       const like = `%${query.q}%`;
       if (query.match_field === 'name') {
@@ -431,29 +441,33 @@ export class HanbaitenService {
     qb.orderBy('m.hanbaiten_code', 'ASC');
 
     const paginate = query.page !== undefined;
+    const page = Math.max(query.page ?? 1, 1);
     let hasMore = false;
     let rows: Hanbaiten[];
     if (paginate) {
-      const page = Math.max(query.page ?? 1, 1);
       const perPage = Math.min(Math.max(query.per_page ?? 50, 1), 100);
       // take(per_page + 1) で次ページ有無を1クエリで判定。
       rows = await qb.skip((page - 1) * perPage).take(perPage + 1).getMany();
       hasMore = rows.length > perPage;
       if (hasMore) rows = rows.slice(0, perPage);
-
-      // 編集ピン：ページ1で選択中IDが範囲外なら先頭に差し込む（ラベル解決用）。
-      if (
-        page === 1 &&
-        query.include_id !== undefined &&
-        !rows.some((r) => Number(r.hanbaitenId) === query.include_id)
-      ) {
-        const pinned = await buildScoped()
-          .andWhere('m.hanbaiten_id = :pid', { pid: query.include_id })
-          .getOne();
-        if (pinned) return { data: [toItem(pinned), ...rows.map(toItem)], has_more: hasMore };
-      }
     } else {
       rows = await qb.getMany();
+    }
+
+    // 編集ピン：選択中IDが結果に無ければ先頭に差し込む（ラベル解決用）。
+    // ページング時は1ページ目のみ。廃店フィルタで除外された既存の選択も
+    // ここで復元する（ピンのクエリは haiten_flg を掛けない）。
+    if (
+      query.include_id !== undefined &&
+      (!paginate || page === 1) &&
+      !rows.some((r) => Number(r.hanbaitenId) === query.include_id)
+    ) {
+      const pinned = await buildScoped()
+        .andWhere('m.hanbaiten_id = :pid', { pid: query.include_id })
+        .getOne();
+      if (pinned) {
+        return { data: [toItem(pinned), ...rows.map(toItem)], has_more: hasMore };
+      }
     }
     return { data: rows.map(toItem), has_more: hasMore };
   }

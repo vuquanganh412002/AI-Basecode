@@ -27,7 +27,7 @@ import {
   buildUploadedFile,
 } from '@test/fixtures/file-upload.factory';
 
-describe('FileUploadService — SCR-022 (list / preview / download)', () => {
+describe('FileUploadService — SCR-022 (list)', () => {
   let service: FileUploadService;
   let repo: any;
   let qbMock: any;
@@ -391,272 +391,6 @@ describe('FileUploadService — SCR-022 (list / preview / download)', () => {
     });
   });
 
-  // ──────────────────────────────────────────────────────────────
-  // API-022-002 — GET /api/v1/file-upload/:id/preview
-  // ──────────────────────────────────────────────────────────────
-  describe('getPreview', () => {
-    it('should return preview metadata + S3 presigned URL when file exists', async () => {
-      // COVERS: §4.3 + §4.4 happy path
-      const row = buildFileUpload();
-      repo.findOne.mockResolvedValue(row);
-      const result = await service.getPreview(101, buildSession(), baseReq);
-      expect(result.data).toMatchObject({
-        file_upload_id: 101,
-        file_name: row.fileName,
-        file_size: row.fileSize,
-        preview_url: expect.stringContaining('s3.example.com'),
-        expires_at: expect.any(String),
-      });
-    });
-
-    it('should call StorageService.getSignedUrl with file_path and 1h expiry', async () => {
-      // COVERS: §4.4 — presigned URL with 3600s TTL
-      const row = buildFileUpload({ filePath: 'ja-1/2026/05/sample.pdf' });
-      repo.findOne.mockResolvedValue(row);
-      await service.getPreview(101, buildSession(), baseReq);
-      expect(storage.getSignedUrl).toHaveBeenCalledWith('ja-1/2026/05/sample.pdf', 3600);
-    });
-
-    it('should derive content_type=application/pdf from .pdf extension', async () => {
-      // COVERS: §4.4 — content_type mapping
-      repo.findOne.mockResolvedValue(buildFileUpload({ fileName: 'report.pdf' }));
-      const result = await service.getPreview(101, buildSession(), baseReq);
-      expect(result.data.content_type).toBe('application/pdf');
-    });
-
-    it('should derive content_type=text/csv from .csv extension', async () => {
-      // COVERS: §4.4 — content_type mapping
-      repo.findOne.mockResolvedValue(buildFileUpload({ fileName: 'data.csv' }));
-      const result = await service.getPreview(101, buildSession(), baseReq);
-      expect(result.data.content_type).toBe('text/csv');
-    });
-
-    it('should derive xlsx content_type from .xlsx extension', async () => {
-      // COVERS: §4.4 — content_type mapping
-      repo.findOne.mockResolvedValue(buildFileUpload({ fileName: 'sheet.xlsx' }));
-      const result = await service.getPreview(101, buildSession(), baseReq);
-      expect(result.data.content_type).toBe(
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-    });
-
-    it('should throw NotFoundException when file does not exist', async () => {
-      // COVERS: §4.3 — レコードが存在しない場合
-      repo.findOne.mockResolvedValue(null);
-      await expect(
-        service.getPreview(999, buildSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException when file is soft-deleted (deleted_at IS NOT NULL)', async () => {
-      // COVERS: §4.3 — deleted_at IS NULL filter
-      repo.findOne.mockResolvedValue(null); // repo applies deleted_at filter
-      await expect(
-        service.getPreview(101, buildSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException (existence-hiding) when JA_HONTEN tries to preview a different JA file', async () => {
-      // COVERS: §4.2 + §4.3 — DataScope violation masks as 404 (security.md assertJaScope)
-      const otherJaFile = buildFileUpload({ jaId: 999 });
-      repo.findOne.mockResolvedValue(otherJaFile);
-      await expect(
-        service.getPreview(101, buildJaHontenSession({ ja_id: 1 }), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should NOT throw when JA_HONTEN previews a file with ja_id IS NULL (global file)', async () => {
-      // COVERS: §4.2 — global files (ja_id NULL) visible to all roles
-      const globalFile = buildFileUpload({ jaId: null });
-      repo.findOne.mockResolvedValue(globalFile);
-      await expect(
-        service.getPreview(101, buildJaHontenSession({ ja_id: 1 }), baseReq),
-      ).resolves.toBeDefined();
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-003 — GET /api/v1/file-upload/:id/download
-  // ──────────────────────────────────────────────────────────────
-  describe('download', () => {
-    beforeEach(() => {
-      repo.findOne.mockResolvedValue(buildFileUpload());
-    });
-
-    it('should return file binary buffer + content metadata when file exists', async () => {
-      // COVERS: §4.4 + §4.7 happy path
-      const result = await service.download(101, buildSession(), baseReq);
-      expect(result).toMatchObject({
-        body: expect.any(Buffer),
-        contentType: expect.any(String),
-        contentLength: expect.any(Number),
-        fileName: expect.any(String),
-      });
-    });
-
-    it('should call StorageService.download with the file_path', async () => {
-      // COVERS: §4.4 — S3 SDK getObject call
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ filePath: 'ja-1/2026/05/sample.pdf' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(storage.download).toHaveBeenCalledWith('ja-1/2026/05/sample.pdf');
-    });
-
-    it('should throw NotFoundException when file does not exist', async () => {
-      // COVERS: §4.3 — レコードが存在しない場合
-      repo.findOne.mockResolvedValue(null);
-      await expect(
-        service.download(999, buildSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException (existence-hiding) when CHUOKAI downloads a file outside managed JAs', async () => {
-      // COVERS: §4.2 — DataScope masks as 404
-      repo.findOne.mockResolvedValue(buildFileUpload({ jaId: 999 }));
-      dataSource.query = jest.fn(async () => []); // CHUOKAI manages no JAs that include 999
-      await expect(
-        service.download(101, buildChuokaiSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should wrap t_file_download INSERT + t_log INSERT in dataSource.transaction', async () => {
-      // COVERS: §4.8 ※ — single transaction across §4.5 + §4.6
-      await service.download(101, buildSession(), baseReq);
-      expect(dataSource.transaction).toHaveBeenCalled();
-    });
-
-    it('should INSERT a t_file_download row recording the download', async () => {
-      // COVERS: §4.5 — t_file_download history
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalled();
-    });
-
-    it('should call AuditLogService.logOperation with log_type=4 and operation="DOWNLOAD" (bare verb)', async () => {
-      // COVERS: §4.6 — t_log row, operation must be bare 'DOWNLOAD' (no entity prefix)
-      await service.download(101, buildSession(), baseReq);
-      expect(auditLog.logOperation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          logType: 4,
-          operation: 'DOWNLOAD',
-          resultStatus: 1,
-          targetTable: 't_file_upload',
-        }),
-        expect.anything(), // EntityManager when inside transaction
-      );
-    });
-
-    it('should set download_type=4 (増減通知書) when file_name contains "zougen_tsuchi"', async () => {
-      // COVERS: §4.5 — download_type 判定優先順位
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ fileName: 'zougen_tsuchi_202604.pdf' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ downloadType: 4 }),
-      );
-    });
-
-    it('should set download_type=3 (増減連絡票) when file_name contains "zougen_renraku"', async () => {
-      // COVERS: §4.5 — download_type 判定優先順位
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ fileName: 'zougen_renraku_202604.pdf' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ downloadType: 3 }),
-      );
-    });
-
-    it('should set download_type=1 (口座振替) when file_name contains "kouza_furikae"', async () => {
-      // COVERS: §4.5 — download_type 判定優先順位
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ fileName: 'kouza_furikae_20260506.csv' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ downloadType: 1 }),
-      );
-    });
-
-    it('should set download_type=5 (購読者名簿) when file_name contains "meibo"', async () => {
-      // COVERS: §4.5 — download_type 判定優先順位
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ fileName: 'dokusya_meibo_202604.pdf' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ downloadType: 5 }),
-      );
-    });
-
-    it('should set download_type=2 (その他) when file_name matches no known pattern', async () => {
-      // COVERS: §4.5 — fallback default
-      repo.findOne.mockResolvedValue(
-        buildFileUpload({ fileName: 'random_export.pdf' }),
-      );
-      await service.download(101, buildSession(), baseReq);
-      expect(txManager.save).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ downloadType: 2 }),
-      );
-    });
-
-    it('should rollback and NOT persist when AuditLogService.logOperation throws inside the transaction', async () => {
-      // COVERS: §4.8 — transaction rollback when audit log fails
-      auditLog.logOperation.mockRejectedValueOnce(new Error('audit log write failed'));
-      dataSource.transaction = jest.fn(async (cb: any) => {
-        try {
-          return await cb(txManager);
-        } catch (e) {
-          throw e;
-        }
-      });
-      await expect(
-        service.download(101, buildSession(), baseReq),
-      ).rejects.toThrow();
-      // The INSERT into t_file_download (via txManager.save) was attempted, but
-      // the transaction rolled back as a whole — TypeORM unwinds on throw.
-    });
-
-    it('should emit log_type=3 error audit log OUTSIDE the rolled-back transaction when the tx fails', async () => {
-      // COVERS: §4.8 — error log lives outside tx
-      auditLog.logOperation.mockRejectedValueOnce(new Error('tx failed'));
-      try {
-        await service.download(101, buildSession(), baseReq);
-      } catch {
-        /* expected */
-      }
-      // Either logOperation called again with log_type=3, or logError called.
-      const errorCalls = auditLog.logOperation.mock.calls.filter(
-        ([params]: any[]) => params?.logType === 3,
-      );
-      expect(errorCalls.length + auditLog.logError.mock.calls.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should NOT throw when JA_HONTEN downloads a global file (ja_id IS NULL)', async () => {
-      // COVERS: §4.2 — global files visible to all roles
-      repo.findOne.mockResolvedValue(buildFileUpload({ jaId: null }));
-      await expect(
-        service.download(101, buildJaHontenSession({ ja_id: 1 }), baseReq),
-      ).resolves.toBeDefined();
-    });
-
-    it('should accept NICHINO_ADMIN download even when t_file_download.ja_id will be NULL', async () => {
-      // COVERS: §4.5 footnote — NICHINO_* downloading global files keeps ja_id NULL
-      repo.findOne.mockResolvedValue(buildFileUpload({ jaId: null }));
-      await service.download(
-        101,
-        buildSession({ role_code: 'NICHINO_ADMIN', ja_id: null }),
-        baseReq,
-      );
-      expect(txManager.save).toHaveBeenCalled();
-    });
-  });
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -745,67 +479,6 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
       storage,
       notificationQueue,
     );
-  });
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-004 — downloadZip (一括ダウンロード → 1 ZIP)
-  // ──────────────────────────────────────────────────────────────
-  describe('downloadZip', () => {
-    it('should bundle selected files into one application/zip named 一括ダウンロード_yyyyMMddHHmmss.zip', async () => {
-      repo.find.mockResolvedValue([
-        buildFileUpload({ fileUploadId: 101, fileName: 'a.pdf', filePath: 'p/a.pdf' }),
-        buildFileUpload({ fileUploadId: 102, fileName: 'b.csv', filePath: 'p/b.csv' }),
-      ]);
-      const result = await service.downloadZip([101, 102], buildSession(), baseReq);
-      expect(result.contentType).toBe('application/zip');
-      expect(result.fileName).toMatch(/^一括ダウンロード_\d{14}\.zip$/);
-      expect(result.body).toBeInstanceOf(Buffer);
-      expect(result.contentLength).toBe(result.body.length);
-    });
-
-    it('should fetch every selected file from storage by its file_path', async () => {
-      repo.find.mockResolvedValue([
-        buildFileUpload({ fileUploadId: 101, filePath: 'p/a.pdf' }),
-        buildFileUpload({ fileUploadId: 102, filePath: 'p/b.csv' }),
-      ]);
-      await service.downloadZip([101, 102], buildSession(), baseReq);
-      expect(storage.download).toHaveBeenCalledWith('p/a.pdf');
-      expect(storage.download).toHaveBeenCalledWith('p/b.csv');
-    });
-
-    it('should throw NotFoundException when any requested id is missing (all-or-nothing)', async () => {
-      // 102 absent from the result set.
-      repo.find.mockResolvedValue([buildFileUpload({ fileUploadId: 101 })]);
-      await expect(
-        service.downloadZip([101, 102], buildSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException (existence-hiding) when a CHUOKAI selects a file outside managed JAs', async () => {
-      repo.find.mockResolvedValue([
-        buildFileUpload({ fileUploadId: 101, jaId: 999 }),
-        buildFileUpload({ fileUploadId: 102, jaId: 999 }),
-      ]);
-      dataSource.query = jest.fn(async () => []); // manages no JA incl. 999
-      await expect(
-        service.downloadZip([101, 102], buildChuokaiSession(), baseReq),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should INSERT one t_file_download per file + one batch t_log (log_type=4, DOWNLOAD) in a transaction', async () => {
-      repo.find.mockResolvedValue([
-        buildFileUpload({ fileUploadId: 101 }),
-        buildFileUpload({ fileUploadId: 102 }),
-      ]);
-      await service.downloadZip([101, 102], buildSession(), baseReq);
-      expect(dataSource.transaction).toHaveBeenCalled();
-      expect(txManager.save).toHaveBeenCalledTimes(2); // one FileDownload per file
-      expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
-      expect(auditLog.logOperation).toHaveBeenCalledWith(
-        expect.objectContaining({ logType: 4, operation: 'DOWNLOAD' }),
-        expect.anything(),
-      );
-    });
   });
 
   // ──────────────────────────────────────────────────────────────
@@ -1036,19 +709,20 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
     it('should save the user-selected 削除予定日 as a plain calendar date (YYYY-MM-DD)', async () => {
       // Reported bug: the user's picked date was discarded in favour of
       // NOW()+180days. Stored as a `date` (no TZ) so it reads identically
-      // everywhere — 2026-06-30, never 2026-06-29.
+      // everywhere — 2099-12-31, never 2099-12-30. A far-future fixed date
+      // keeps this date-agnostic (`本日以降` guard never trips as time passes).
       await service.upload(
         [12345],
         [buildUploadedFile()],
         buildSession(),
         baseReq,
-        '2026/06/30',
+        '2099/12/31',
       );
       const savedCall = txManager.save.mock.calls.find(
         ([_e, v]: any[]) => v?.scheduledDeleteDate != null,
       );
       expect(savedCall).toBeDefined();
-      expect(savedCall![1].scheduledDeleteDate).toBe('2026-06-30');
+      expect(savedCall![1].scheduledDeleteDate).toBe('2099-12-31');
     });
 
     it('should reject a past 削除予定日 with VALIDATION_ERROR and not upload anything', async () => {

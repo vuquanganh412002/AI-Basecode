@@ -90,31 +90,6 @@ export class FileUploadListItemDto {
 }
 
 /**
- * Response shape for `GET /api/v1/file-upload/:id/preview`
- * (ACSMS-API-022-002). Service derives `content_type` from extension
- * and issues a 1-hour S3 presigned URL.
- */
-export class FilePreviewResponseDto {
-  @ApiProperty({ description: 'ファイルアップロード ID' })
-  file_upload_id: number;
-
-  @ApiProperty({ description: 'ファイル名' })
-  file_name: string;
-
-  @ApiPropertyOptional({ description: 'ファイルサイズ (バイト)' })
-  file_size: number | null;
-
-  @ApiProperty({ description: 'MIME タイプ' })
-  content_type: string;
-
-  @ApiProperty({ description: 'S3 presigned URL (1 時間有効)' })
-  preview_url: string;
-
-  @ApiProperty({ description: '署名付き URL の有効期限 (ISO 8601)' })
-  expires_at: string;
-}
-
-/**
  * Row shape returned by `POST /api/v1/file-upload` (SCR-023 upload).
  * One row per (ja_id × file) combination — see api.md §4.5.
  */
@@ -157,12 +132,6 @@ export class FileUploadListResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;
-}
-
-/** GET /api/v1/file-upload/:id/preview — single-resource envelope. */
-export class FilePreviewEnvelopeDto {
-  @ApiProperty({ type: FilePreviewResponseDto })
-  data: FilePreviewResponseDto;
 }
 
 /** POST /api/v1/file-upload — array of created rows + verb-only message. */

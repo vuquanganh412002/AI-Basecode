@@ -188,131 +188,6 @@ describe('FileUploadController — SCR-022', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-022-002 — GET /api/v1/file-upload/:id/preview
-  // ──────────────────────────────────────────────────────────────
-  describe('GET /api/v1/file-upload/:id/preview', () => {
-    it('should return 200 with preview data including preview_url and expires_at when file exists', async () => {
-      service.getPreview.mockResolvedValue({
-        data: {
-          file_upload_id: 101,
-          file_name: 'zougen_tsuchi_202604.pdf',
-          file_size: 524288,
-          content_type: 'application/pdf',
-          preview_url: 'https://s3.example.com/signed',
-          expires_at: '2026-05-07T11:30:00+09:00',
-        },
-      });
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/101/preview'),
-      );
-      expect(res.status).toBe(200);
-      expect(res.body.data).toMatchObject({
-        file_upload_id: 101,
-        content_type: 'application/pdf',
-        preview_url: expect.stringContaining('s3'),
-        expires_at: expect.any(String),
-      });
-    });
-
-    it('should return 400 with VALIDATION_ERROR when file_upload_id is not a positive integer', async () => {
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/abc/preview'),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it('should return 404 with error_code=NOT_FOUND when service throws NotFoundException', async () => {
-      const { NotFoundException } = await import('@nestjs/common');
-      service.getPreview.mockRejectedValue(
-        new NotFoundException({
-          code: 'NOT_FOUND',
-          error_code: 'NOT_FOUND',
-          message: '指定されたファイルが見つかりません。',
-        }),
-      );
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/999/preview'),
-      );
-      expect(res.status).toBe(404);
-      expect(res.body.error_code).toBe('NOT_FOUND');
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────
-  // API-022-003 — GET /api/v1/file-upload/:id/download
-  // ──────────────────────────────────────────────────────────────
-  describe('GET /api/v1/file-upload/:id/download', () => {
-    it('should return 200 with binary body + Content-Type + Content-Disposition headers when file exists', async () => {
-      service.download.mockResolvedValue({
-        body: Buffer.from('PDF-binary-content'),
-        contentType: 'application/pdf',
-        contentLength: 18,
-        fileName: 'zougen_tsuchi_202604.pdf',
-      });
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/101/download'),
-      );
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toMatch(/application\/pdf/);
-      expect(res.headers['content-disposition']).toMatch(/attachment/);
-      expect(res.headers['content-disposition']).toMatch(/zougen_tsuchi_202604\.pdf/);
-    });
-
-    it('should set Cache-Control: no-store on the download response', async () => {
-      // COVERS: api.md §レスポンスヘッダ — Cache-Control: no-store
-      service.download.mockResolvedValue({
-        body: Buffer.from('content'),
-        contentType: 'application/pdf',
-        contentLength: 7,
-        fileName: 'test.pdf',
-      });
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/101/download'),
-      );
-      expect(res.headers['cache-control']).toBe('no-store');
-    });
-
-    it('should set Content-Disposition with UTF-8-encoded filename for non-ASCII names', async () => {
-      // COVERS: api.md §レスポンスヘッダ — filename*=UTF-8''<URL-encoded>
-      service.download.mockResolvedValue({
-        body: Buffer.from('content'),
-        contentType: 'application/pdf',
-        contentLength: 7,
-        fileName: '購読者名簿.pdf',
-      });
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/101/download'),
-      );
-      expect(res.headers['content-disposition']).toMatch(/filename\*=UTF-8''/);
-    });
-
-    it('should return 404 with error_code=NOT_FOUND when service throws NotFoundException', async () => {
-      const { NotFoundException } = await import('@nestjs/common');
-      service.download.mockRejectedValue(
-        new NotFoundException({
-          code: 'NOT_FOUND',
-          error_code: 'NOT_FOUND',
-          message: '指定されたファイルが見つかりません。',
-        }),
-      );
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/999/download'),
-      );
-      expect(res.status).toBe(404);
-      expect(res.body.error_code).toBe('NOT_FOUND');
-    });
-
-    it('should return 500 with error_code=INTERNAL_SERVER_ERROR when service throws unexpectedly', async () => {
-      service.download.mockRejectedValue(new Error('s3 down'));
-      const res = await request(app.getHttpServer()).get(
-        apiUrl('file-upload/101/download'),
-      );
-      expect(res.status).toBe(500);
-      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────
   // Common — auth + permission cases
   // ──────────────────────────────────────────────────────────────
   describe('auth and permission gates', () => {
@@ -332,18 +207,12 @@ describe('FileUploadController — SCR-022', () => {
     // endpoint declares @Permissions('file.download') via the decorator
     // metadata (key 'permissions'); the end-to-end 403 path lives in the
     // integration spec.
-    it('should declare @Permissions("file.download") on every GET endpoint', () => {
-      const handlers = [
+    it('should declare @Permissions("file.download") on the list endpoint', () => {
+      const perms = Reflect.getMetadata(
+        'permissions',
         FileUploadController.prototype.findAll,
-        FileUploadController.prototype.getPreview,
-        FileUploadController.prototype.download,
-      ];
-      for (const handler of handlers) {
-        const perms = Reflect.getMetadata('permissions', handler) as
-          | string[]
-          | undefined;
-        expect(perms).toEqual(['file.download']);
-      }
+      ) as string[] | undefined;
+      expect(perms).toEqual(['file.download']);
     });
 
   });

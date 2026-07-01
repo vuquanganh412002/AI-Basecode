@@ -198,6 +198,9 @@ export default () => {
       user: process.env.MAIL_USER || '',
       pass: process.env.MAIL_PASS || '',
       from: process.env.MAIL_FROM || 'noreply@agrinews.jp',
+      // 受信トレイに表示する送信者名（差出人の表示名）。MAIL_FROM はアドレスのみ、
+      // 表示名はこちらで付与する（例: "AGRINEWS" <noreply@agrinews.jp>）。
+      fromName: process.env.MAIL_FROM_NAME || 'AGRINEWS',
       region: process.env.MAIL_REGION || 'ap-northeast-1',
       // SES configuration set (provider=ses only). Attributes outbound mail to
       // the set so its CloudWatch metrics + SNS bounce/complaint events fire.

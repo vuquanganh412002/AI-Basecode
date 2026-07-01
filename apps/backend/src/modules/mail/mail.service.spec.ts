@@ -52,7 +52,7 @@ describe('MailService', () => {
 
       expect(sesCtor).toHaveBeenCalledWith({
         region: 'us-east-1',
-        from: 'noreply@example.com',
+        from: '"AGRINEWS" <noreply@example.com>',
         configurationSet: undefined,
       });
       expect(smtpCtor).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe('MailService', () => {
 
       expect(sesCtor).toHaveBeenCalledWith({
         region: 'ap-northeast-1',
-        from: 'noreply@example.com',
+        from: '"AGRINEWS" <noreply@example.com>',
         configurationSet: 'agn-dev-ses-config',
       });
     });
@@ -96,7 +96,7 @@ describe('MailService', () => {
         port: 1025,
         user: '',
         pass: '',
-        from: 'noreply@example.com',
+        from: '"AGRINEWS" <noreply@example.com>',
       });
       expect(sesCtor).not.toHaveBeenCalled();
     });
@@ -115,7 +115,7 @@ describe('MailService', () => {
 
       expect(sesCtor).toHaveBeenCalledWith({
         region: 'ap-northeast-1',
-        from: 'noreply@example.com',
+        from: '"AGRINEWS" <noreply@example.com>',
         configurationSet: 'agn-prod-ses-config',
       });
       expect(smtpCtor).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe('MailService', () => {
         port: 587,
         user: 'noreply',
         pass: 'secret',
-        from: 'noreply@example.com',
+        from: '"AGRINEWS" <noreply@example.com>',
       });
     });
 
@@ -168,7 +168,7 @@ describe('MailService', () => {
       service.onModuleInit();
       expect(sesCtor).toHaveBeenCalledWith({
         region: 'ap-northeast-1',
-        from: 'noreply@agrinews.jp',
+        from: '"AGRINEWS" <noreply@agrinews.jp>',
       });
 
       sesCtor.mockClear();
@@ -181,8 +181,50 @@ describe('MailService', () => {
         port: 1025,
         user: '',
         pass: '',
-        from: 'noreply@agrinews.jp',
+        from: '"AGRINEWS" <noreply@agrinews.jp>',
       });
+    });
+
+    it('should wrap MAIL_FROM with a custom MAIL_FROM_NAME as the display name', () => {
+      const service = new MailService(
+        buildConfig({
+          'mail.provider': 'ses',
+          'mail.from': 'noreply@example.com',
+          'mail.fromName': '日本農業新聞',
+        }),
+      );
+      service.onModuleInit();
+      expect(sesCtor).toHaveBeenCalledWith(
+        expect.objectContaining({ from: '"日本農業新聞" <noreply@example.com>' }),
+      );
+    });
+
+    it('should send with the address only (no display name) when MAIL_FROM_NAME is empty', () => {
+      const service = new MailService(
+        buildConfig({
+          'mail.provider': 'ses',
+          'mail.from': 'noreply@example.com',
+          'mail.fromName': '',
+        }),
+      );
+      service.onModuleInit();
+      expect(sesCtor).toHaveBeenCalledWith(
+        expect.objectContaining({ from: 'noreply@example.com' }),
+      );
+    });
+
+    it('should respect MAIL_FROM already in "Name <addr>" form and not double-wrap', () => {
+      const service = new MailService(
+        buildConfig({
+          'mail.provider': 'ses',
+          'mail.from': 'Custom <custom@example.com>',
+          'mail.fromName': 'AGRINEWS',
+        }),
+      );
+      service.onModuleInit();
+      expect(sesCtor).toHaveBeenCalledWith(
+        expect.objectContaining({ from: 'Custom <custom@example.com>' }),
+      );
     });
   });
 
