@@ -15,6 +15,9 @@ interface ScopeSession {
   kanri_shiten_id: number | null;
 }
 
+/** driver により number / 文字列 / null で届く集計カラムの共通型。 */
+type Numericish = number | string | null;
+
 /** One aggregated row returned by the raw `dataSource.query(...)`. */
 export interface HaitatsuryoAggRow {
   target_month: string;
@@ -25,14 +28,16 @@ export interface HaitatsuryoAggRow {
   total_kingaku: number | string;
   /** 配達手数料単価（1部あたり、税区分で税込/税抜を切替）。 */
   tesuryo: number | string;
-  haitatsuryo_shiharai_cycle: number | string | null;
+  haitatsuryo_shiharai_cycle: Numericish;
   bank_code: string | null;
   bank_name: string | null;
   bank_branch_code: string | null;
   bank_branch_name: string | null;
-  yokin_shubetsu: number | string | null;
+  yokin_shubetsu: Numericish;
   koza_no: string | null;
   koza_meigi: string | null;
+  /** 振込手数料負担区分（m_code TESURYO_KUBUN: 1:JA, 2:販売店）。 */
+  furikomi_tesuryo_futan_kubun: Numericish;
   biko: string | null;
 }
 
@@ -52,8 +57,10 @@ export interface HaitatsuryoRow {
   yokin_shubetsu: number | null;
   koza_no: string;
   koza_meigi: string;
-  /** 手数料（配達手数料単価、1部あたり）。画面イメージ §出力項目。 */
+  /** 手数料（配達手数料単価、1部あたり）。当月金額の算出に使用。 */
   tesuryo: number;
+  /** 振込手数料負担区分（m_code TESURYO_KUBUN: 1:JA, 2:販売店）。「手数料」列に表示。 */
+  furikomi_tesuryo_futan_kubun: number | null;
   biko: string;
 }
 
@@ -140,6 +147,7 @@ export function buildHaitatsuryoSql(
            h.yokin_shubetsu,
            h.koza_no,
            h.koza_meigi,
+           h.furikomi_tesuryo_futan_kubun,
            h.biko
       FROM latest_dokusya ld
       INNER JOIN m_hanbaiten h
@@ -156,7 +164,8 @@ export function buildHaitatsuryoSql(
               h.haitatsuryo_shiharai_cycle,
               h.bank_code, h.bank_name,
               h.bank_branch_code, h.bank_branch_name,
-              h.yokin_shubetsu, h.koza_no, h.koza_meigi, h.biko
+              h.yokin_shubetsu, h.koza_no, h.koza_meigi,
+              h.furikomi_tesuryo_futan_kubun, h.biko
      ORDER BY h.hanbaiten_code
   `;
   const params: unknown[] = [
@@ -198,6 +207,7 @@ export function mapHaitatsuryoRows(
     koza_no: str(r.koza_no),
     koza_meigi: str(r.koza_meigi),
     tesuryo: num(r.tesuryo),
+    furikomi_tesuryo_futan_kubun: numOrNull(r.furikomi_tesuryo_futan_kubun),
     biko: str(r.biko),
   }));
 

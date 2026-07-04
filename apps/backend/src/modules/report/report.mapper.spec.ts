@@ -189,12 +189,12 @@ describe('paginateNichinoSubscribers / buildZougenNichinoDocDefinition — PDF�
     expect(pages[1].reduce((n, r) => n + r.rows.length, 0)).toBe(5);
   });
 
-  it('ページ先頭でのみ改ページし、Page表記は ページ番号/総ページ数', () => {
+  it('ページ先頭でのみ改ページし、ページ数表記は ページ番号/総ページ数', () => {
     const doc = buildZougenNichinoDocDefinition(rows, '2026-03-01', new Map(), 15);
     const json = JSON.stringify(doc.content);
     expect((json.match(/"pageBreak":"before"/g) ?? []).length).toBe(1);
-    expect(json).toContain('Page：1/2');
-    expect(json).toContain('Page：2/2');
+    expect(json).toContain('ページ数：1/2');
+    expect(json).toContain('ページ数：2/2');
   });
 
   it('管理支店ごとの＜備考＞を bikoByKs から差し込む', () => {

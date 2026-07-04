@@ -200,6 +200,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(row.zou_busu).toBe(2);
       expect(row.gen_busu).toBe(0);
       expect(row.shin_busu).toBe(12);
+      // 前回値(10)と現在値(12)に差があるため差異マーク◆が付く。
+      expect(row.diff_mark).toBe(true);
     });
 
     it('should compute gen_busu when dokusya_busu < genzai_busu', async () => {
@@ -213,6 +215,20 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(row.gen_busu).toBe(3);
       expect(row.zou_busu).toBe(0);
       expect(row.shin_busu).toBe(7);
+      expect(row.diff_mark).toBe(true);
+    });
+
+    it('should set diff_mark=false when dokusya_busu equals zenkai_dokusya_busu (増減なし)', async () => {
+      // COVERS: 4.6 差異マーク — 前回値と現在値が同じ行は◆を付けない。
+      mockNichinoPage([
+        buildZougenNichinoRawRow({ dokusya_busu: 10, zenkai_dokusya_busu: 10 }),
+      ]);
+
+      const row = (await service.previewZougenNichino(buildZougenNichinoQuery(), nSession()))
+        .reports[0].rows[0];
+      expect(row.zou_busu).toBe(0);
+      expect(row.gen_busu).toBe(0);
+      expect(row.diff_mark).toBe(false);
     });
 
     it('累計: 同一購読者の同日複数履歴 (1→3→5) を現在1/新5/増4の1行に集約', async () => {

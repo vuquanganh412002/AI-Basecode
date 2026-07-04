@@ -43,6 +43,7 @@ export function buildHaitatsuryoPreviewResponse(overrides: Record<string, unknow
         koza_no: '1234567',
         koza_meigi: 'ﾄｳｷｮｳﾁｭｳｵｳﾊﾝﾊﾞｲﾃﾝ',
         tesuryo: 4900,
+        furikomi_tesuryo_futan_kubun: 1,
         biko: '',
       },
       {
@@ -61,6 +62,7 @@ export function buildHaitatsuryoPreviewResponse(overrides: Record<string, unknow
         koza_no: '7654321',
         koza_meigi: 'ｷﾀｼﾃﾝﾊﾝﾊﾞｲﾃﾝ',
         tesuryo: 4900,
+        furikomi_tesuryo_futan_kubun: 2,
         biko: '月末締め',
       },
     ],

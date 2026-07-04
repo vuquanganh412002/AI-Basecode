@@ -32,8 +32,10 @@ export interface HaitatsuryoRow {
   yokin_shubetsu: number | null;
   koza_no: string;
   koza_meigi: string;
-  /** 手数料（配達手数料単価、1部あたり）。画面イメージ §出力項目。 */
+  /** 手数料（配達手数料単価、1部あたり）。当月金額の算出に使用。 */
   tesuryo: number;
+  /** 振込手数料負担区分（m_code TESURYO_KUBUN: 1:JA, 2:販売店）。「手数料」列に表示。 */
+  furikomi_tesuryo_futan_kubun: number | null;
   biko: string;
 }
 

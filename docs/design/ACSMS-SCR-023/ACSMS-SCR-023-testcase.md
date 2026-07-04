@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-27 | 1.0 | Kieu Thi Diem | 新規作成 | Nguyen Huy Dat |  |
+| 2 | 2026-07-02 | 1.1 | Tran Duc Tuyen | ダウンロード・プレビューのテストケースを削除（ファイルダウンロード画面 SCR-022 へ移行）。本画面は一覧／アップロード／削除専用。 |  |  |
 
 
 ## システム概要
@@ -53,14 +54,16 @@ reviewer: Nguyen Huy Dat
 
 | # | カテゴリ | テストケース数 |
 | --- | --- | --- |
-| 1 | アクセス権限制御（Access Control） | 7 |
+| 1 | アクセス権限制御（Access Control） | 6 |
 | 2 | 画面表示・レスポンシブ（Layout & Responsive） | 7 |
 | 3 | ヘッダー・パンくず（Header & Breadcrumb） | 4 |
 | 4 | 入力バリデーション（Input Validation） | 12 |
 | 5 | 業務ロジック — アップロード（Function — Upload） | 9 |
-| 6 | 業務ロジック — ダウンロード・削除（Function — Download & Delete） | 6 |
+| 6 | 業務ロジック — 削除（Function — Delete） | 4 |
 | 7 | 共通エラーハンドリング（Common Error Handling） | 7 |
-|  | 合計 | 52 |
+|  | 合計 | 49 |
+
+※ ダウンロード・プレビュー機能は本画面から「ファイルダウンロード画面（ACSMS-SCR-022）」へ移行したため、それらのテストケースは SCR-022 のテスト仕様書で検証する。
 
 ---
 
@@ -344,60 +347,7 @@ HTTPステータスコード200が返却されること、かつ自JAのファ�
 
 (なし)
 
-## ACSMS-TC-023-006 — DataScope違反: JA_HONTEN が他JAのファイルをダウンロード
-
-- 観点ID: VP-A-02
-- 種類: Abnormal (異常)
-- 前提条件:
-  - ・role: JA_HONTEN（ja_id = 12345）
-  - ・ログイン済 + MFA認証済
-  - ・他JA（ja_id = 67890）のファイル（`file_upload_id = 202`）が存在
-
-### 手順
-
-ステップ1：
-DevToolsで GET `/api/v1/file-upload/202/download` を直接送信（自JAスコープ外のファイル）
-
-ステップ2：
-DB確認: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 't_file_upload' ORDER BY log_datetime DESC LIMIT 1`
-
-### 期待結果
-
-ステップ1：
-HTTPステータスコード403が返却されること（`error_code: DATA_SCOPE_VIOLATION`、メッセージ `このデータへのアクセス権限がありません。`）
-
-ステップ2：
-・エラーログが1件以上記録されること
-・ファイルのバイナリがレスポンスされないこと
-
-補足：
-・スコープ外データへのアクセスがBE APIガードで遮断されること
-
-### テスト結果（1回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### テスト結果（2回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### 備考
-
-クリティカル — 失敗時は他JAデータ漏洩を意味し、セキュリティインシデントとして扱う。
-
-## ACSMS-TC-023-007 — URL直接攻撃: JA_HONTEN が他JAのIDを指定してアップロード
+## ACSMS-TC-023-006 — URL直接攻撃: JA_HONTEN が他JAのIDを指定してアップロード
 
 - 観点ID: VP-A-04
 - 種類: Abnormal (異常)
@@ -453,7 +403,7 @@ HTTPステータスコード403が返却されること（`error_code: DATA_SCOP
 
 # カテゴリ 2: 画面表示・レスポンシブ（Layout & Responsive）
 
-## ACSMS-TC-023-008 — 画面初期表示（全項目空白）
+## ACSMS-TC-023-007 — 画面初期表示（全項目空白）
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -497,7 +447,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-009 — 対象JA選択エリアの表示
+## ACSMS-TC-023-008 — 対象JA選択エリアの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -547,7 +497,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-010 — ファイル選択エリアの表示
+## ACSMS-TC-023-009 — ファイル選択エリアの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -596,7 +546,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-011 — アクションボタンの表示
+## ACSMS-TC-023-010 — アクションボタンの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -638,7 +588,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-012 — アップロード済みファイル一覧テーブルの表示
+## ACSMS-TC-023-011 — アップロード済みファイル一覧テーブルの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -690,7 +640,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-013 — レスポンシブ表示（画面崩れなし）
+## ACSMS-TC-023-012 — レスポンシブ表示（画面崩れなし）
 
 - 観点ID: VP-E-02
 - 種類: Normal (正常)
@@ -733,7 +683,7 @@ URL `/file-upload` へ遷移し、画面を表示
 
 (なし)
 
-## ACSMS-TC-023-014 — キーボード操作（Tab順）
+## ACSMS-TC-023-013 — キーボード操作（Tab順）
 
 - 観点ID: VP-E-03
 - 種類: Normal (正常)
@@ -785,7 +735,7 @@ Tab キーで各入力項目・ボタンを順に移動
 
 # カテゴリ 3: ヘッダー・パンくず（Header & Breadcrumb）
 
-## ACSMS-TC-023-015 — パンくずリストの表示
+## ACSMS-TC-023-014 — パンくずリストの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -827,7 +777,7 @@ URL `/file-upload` へ遷移し、画面上部のパンくずリストを確認
 
 (なし)
 
-## ACSMS-TC-023-016 — パンくず「ホーム」クリックでダッシュボードへ遷移
+## ACSMS-TC-023-015 — パンくず「ホーム」クリックでダッシュボードへ遷移
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -869,7 +819,7 @@ URL `/file-upload` へ遷移し、画面上部のパンくずリストを確認
 
 (なし)
 
-## ACSMS-TC-023-017 — ページタイトルの表示
+## ACSMS-TC-023-016 — ページタイトルの表示
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -911,7 +861,7 @@ URL `/file-upload` へ遷移し、ページタイトルを確認
 
 (なし)
 
-## ACSMS-TC-023-018 — ヘッダーにログインユーザー名が表示される
+## ACSMS-TC-023-017 — ヘッダーにログインユーザー名が表示される
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -957,7 +907,7 @@ URL `/file-upload` へ遷移し、ページタイトルを確認
 
 # カテゴリ 4: 入力バリデーション（Input Validation）
 
-## ACSMS-TC-023-019 — 対象JA未選択での必須チェック
+## ACSMS-TC-023-018 — 対象JA未選択での必須チェック
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1005,7 +955,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 (なし)
 
-## ACSMS-TC-023-020 — 同一JAの重複追加チェック
+## ACSMS-TC-023-019 — 同一JAの重複追加チェック
 
 - 観点ID: VP-B-08
 - 種類: Abnormal (異常)
@@ -1054,7 +1004,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 (なし)
 
-## ACSMS-TC-023-021 — ファイル未選択での必須チェック
+## ACSMS-TC-023-020 — ファイル未選択での必須チェック
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1097,7 +1047,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 (なし)
 
-## ACSMS-TC-023-022 — 削除予定日未入力での必須チェック
+## ACSMS-TC-023-021 — 削除予定日未入力での必須チェック
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1140,7 +1090,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 (なし)
 
-## ACSMS-TC-023-023 — 削除予定日に過去日を選択（不可）
+## ACSMS-TC-023-022 — 削除予定日に過去日を選択（不可）
 
 - 観点ID: VP-B-05
 - 種類: Abnormal (異常)
@@ -1182,7 +1132,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 (なし)
 
-## ACSMS-TC-023-024 — 削除予定日に当日を選択（境界値・許可）
+## ACSMS-TC-023-023 — 削除予定日に当日を選択（境界値・許可）
 
 - 観点ID: VP-B-05
 - 種類: Boundary (境界)
@@ -1224,7 +1174,7 @@ HTTPステータスコード400が返却されること（`error_code: TARGET_JA
 
 過去日不可の境界（当日は許可）。仕様上の境界確認のため当日扱いを顧客と確認すること。
 
-## ACSMS-TC-023-025 — ファイルサイズ30MB超過
+## ACSMS-TC-023-024 — ファイルサイズ30MB超過
 
 - 観点ID: VP-D-05
 - 種類: Abnormal (異常)
@@ -1274,7 +1224,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_SIZE
 
 (なし)
 
-## ACSMS-TC-023-026 — ファイルサイズ30MBちょうど（境界値・許可）
+## ACSMS-TC-023-025 — ファイルサイズ30MBちょうど（境界値・許可）
 
 - 観点ID: VP-D-05
 - 種類: Boundary (境界)
@@ -1317,7 +1267,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_SIZE
 
 (なし)
 
-## ACSMS-TC-023-027 — 許可形式ファイルの受理
+## ACSMS-TC-023-026 — 許可形式ファイルの受理
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
@@ -1360,7 +1310,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_SIZE
 
 (なし)
 
-## ACSMS-TC-023-028 — 非許可形式ファイルの拒否
+## ACSMS-TC-023-027 — 非許可形式ファイルの拒否
 
 - 観点ID: VP-D-05
 - 種類: Abnormal (異常)
@@ -1410,7 +1360,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_FORM
 
 (なし)
 
-## ACSMS-TC-023-029 — 大文字拡張子の受理（小文字化判定）
+## ACSMS-TC-023-028 — 大文字拡張子の受理（小文字化判定）
 
 - 観点ID: VP-D-05
 - 種類: Boundary (境界)
@@ -1453,7 +1403,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_FORM
 
 (なし)
 
-## ACSMS-TC-023-030 — 複数ファイル選択とファイル名形式の表示
+## ACSMS-TC-023-029 — 複数ファイル選択とファイル名形式の表示
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
@@ -1505,7 +1455,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_FORM
 
 # カテゴリ 5: 業務ロジック — アップロード（Function — Upload）
 
-## ACSMS-TC-023-031 — アップロード正常系（単一JA×単一ファイル）
+## ACSMS-TC-023-030 — アップロード正常系（単一JA×単一ファイル）
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1565,7 +1515,7 @@ HTTPステータスコード400が返却されること（`error_code: FILE_FORM
 
 (なし)
 
-## ACSMS-TC-023-032 — N×M レコード生成（複数JA×複数ファイル）
+## ACSMS-TC-023-031 — N×M レコード生成（複数JA×複数ファイル）
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1614,7 +1564,7 @@ DB確認: `SELECT ja_id, file_name FROM t_file_upload WHERE created_by = :accoun
 
 (なし)
 
-## ACSMS-TC-023-033 — 全JA選択（ja_id=NULL のレコード）
+## ACSMS-TC-023-032 — 全JA選択（ja_id=NULL のレコード）
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1662,7 +1612,7 @@ DB確認: `SELECT ja_id FROM t_file_upload WHERE created_by = :account_id ORDER 
 
 (なし)
 
-## ACSMS-TC-023-034 — DB永続化と初期ステータスの確認
+## ACSMS-TC-023-033 — DB永続化と初期ステータスの確認
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1711,7 +1661,7 @@ DB確認: `SELECT status, notification_status, scheduled_delete_date, error_file
 
 (なし)
 
-## ACSMS-TC-023-035 — 監査ログの記録（アップロード）
+## ACSMS-TC-023-034 — 監査ログの記録（アップロード）
 
 - 観点ID: VP-D-04
 - 種類: Normal (正常)
@@ -1760,7 +1710,7 @@ DB確認: `SELECT log_type, operation, result_status, target_table, account_id F
 
 (なし)
 
-## ACSMS-TC-023-036 — 通知ステータスバッジの遷移（非同期）
+## ACSMS-TC-023-035 — 通知ステータスバッジの遷移（非同期）
 
 - 観点ID: VP-D-06
 - 種類: Normal (正常)
@@ -1812,7 +1762,7 @@ DB確認: `SELECT log_type, operation, result_status, target_table, account_id F
 
 (なし)
 
-## ACSMS-TC-023-037 — 一部のJAへの通知メール送信失敗
+## ACSMS-TC-023-036 — 一部のJAへの通知メール送信失敗
 
 - 観点ID: VP-D-06
 - 種類: Abnormal (異常)
@@ -1863,7 +1813,7 @@ DB確認: `SELECT log_type, operation, result_status, target_table, account_id F
 
 (なし)
 
-## ACSMS-TC-023-038 — 確認ダイアログのキャンセル
+## ACSMS-TC-023-037 — 確認ダイアログのキャンセル
 
 - 観点ID: VP-C-01
 - 種類: Abnormal (異常)
@@ -1917,7 +1867,7 @@ DB確認: `SELECT COUNT(*) FROM t_file_upload WHERE created_by = :account_id`（
 
 (なし)
 
-## ACSMS-TC-023-039 — クリアボタンによる選択解除
+## ACSMS-TC-023-038 — クリアボタンによる選択解除
 
 - 観点ID: VP-E-07
 - 種類: Normal (正常)
@@ -1967,59 +1917,11 @@ DB確認: `SELECT COUNT(*) FROM t_file_upload WHERE created_by = :account_id`（
 
 ---
 
-# カテゴリ 6: 業務ロジック — ダウンロード・削除（Function — Download & Delete）
+# カテゴリ 6: 業務ロジック — 削除（Function — Delete）
 
-## ACSMS-TC-023-040 — ファイルダウンロード正常系
+> ダウンロード・プレビュー機能は「ファイルダウンロード画面（ACSMS-SCR-022）」へ移行したため、それらのテストケースは SCR-022 のテスト仕様書で検証する。
 
-- 観点ID: VP-D-05
-- 種類: Normal (正常)
-- 前提条件:
-  - ・role: NICHINO_ADMIN
-  - ・ログイン済 + MFA認証済
-  - ・ダウンロード対象ファイル（`file_upload_id = 201`）が存在
-
-### 手順
-
-ステップ1：
-「アップロードされたファイルリスト」で対象ファイルのダウンロード操作を実行
-
-ステップ2：
-DB確認: `SELECT download_type FROM t_file_download ORDER BY created_at DESC LIMIT 1` および `SELECT operation FROM t_log WHERE target_table = 't_file_upload' AND operation = 'DOWNLOAD' ORDER BY log_datetime DESC LIMIT 1`
-
-### 期待結果
-
-ステップ1：
-・HTTPステータスコード200が返却されること（Content-Disposition: `attachment; filename="..."`、ファイルのバイナリがダウンロードされること）
-
-ステップ2：
-・`t_file_download` にダウンロード履歴が記録されること（`download_type = 2`）
-・監査ログが記録されること（`operation = 'DOWNLOAD'`、`log_type = 4`）
-
-### テスト結果（1回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### テスト結果（2回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### 備考
-
-(なし)
-
-## ACSMS-TC-023-041 — ファイル削除正常系（論理削除＋物理削除）
+## ACSMS-TC-023-039 — ファイル削除正常系（論理削除＋物理削除）
 
 - 観点ID: VP-C-03
 - 種類: Normal (正常)
@@ -2075,7 +1977,7 @@ DB確認: `SELECT deleted_at FROM t_file_upload WHERE file_upload_id = :id`
 
 (なし)
 
-## ACSMS-TC-023-042 — 監査ログの記録（削除）
+## ACSMS-TC-023-040 — 監査ログの記録（削除）
 
 - 観点ID: VP-D-04
 - 種類: Normal (正常)
@@ -2125,7 +2027,7 @@ DB確認: `SELECT log_type, operation, result_status, before_value FROM t_log WH
 
 (なし)
 
-## ACSMS-TC-023-043 — 削除ボタンの活性／非活性制御
+## ACSMS-TC-023-041 — 削除ボタンの活性／非活性制御
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -2169,7 +2071,7 @@ DB確認: `SELECT log_type, operation, result_status, before_value FROM t_log WH
 
 (なし)
 
-## ACSMS-TC-023-044 — 削除確認ダイアログのキャンセル
+## ACSMS-TC-023-042 — 削除確認ダイアログのキャンセル
 
 - 観点ID: VP-C-03
 - 種類: Abnormal (異常)
@@ -2224,57 +2126,11 @@ DB確認: `SELECT deleted_at FROM t_file_upload WHERE file_upload_id = :id`
 
 (なし)
 
-## ACSMS-TC-023-045 — 削除済ファイルのダウンロード（NOT_FOUND）
-
-- 観点ID: VP-C-03
-- 種類: Abnormal (異常)
-- 前提条件:
-  - ・role: NICHINO_ADMIN
-  - ・ログイン済 + MFA認証済
-  - ・論理削除済（`deleted_at IS NOT NULL`）のファイル（`file_upload_id = 301`）が存在
-
-### 手順
-
-ステップ1：
-DevToolsで GET `/api/v1/file-upload/301/download` を直接送信
-
-### 期待結果
-
-ステップ1：
-HTTPステータスコード404が返却されること（`error_code: NOT_FOUND`、メッセージ `指定されたファイルが見つかりません。`）
-
-補足：
-・論理削除済みのレコードはダウンロード対象外であること（`deleted_at IS NULL` 条件で除外されること）
-
-### テスト結果（1回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### テスト結果（2回目）
-
-| 項目 | 値 |
-| --- | --- |
-| 結果 | - |
-| 実績／アウトプット | - |
-| 担当者 | - |
-| 確認日付 | - |
-| バグID | - |
-
-### 備考
-
-(なし)
-
 ---
 
 # カテゴリ 7: 共通エラーハンドリング（Common Error Handling）
 
-## ACSMS-TC-023-046 — セッション失効時の401ハンドリング
+## ACSMS-TC-023-043 — セッション失効時の401ハンドリング
 
 - 観点ID: VP-A-05
 - 種類: Abnormal (異常)
@@ -2318,7 +2174,7 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 
 (なし)
 
-## ACSMS-TC-023-047 — 不正なリクエストパラメータ送信（BAD_REQUEST）
+## ACSMS-TC-023-044 — 不正なリクエストパラメータ送信（BAD_REQUEST）
 
 - 観点ID: VP-A-04
 - 種類: Abnormal (異常)
@@ -2360,7 +2216,7 @@ HTTPステータスコード400が返却されること（`error_code: BAD_REQUE
 
 (なし)
 
-## ACSMS-TC-023-048 — バリデーションエラー（errors配列形状）
+## ACSMS-TC-023-045 — バリデーションエラー（errors配列形状）
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -2403,7 +2259,7 @@ HTTPステータスコード400が返却されること（`error_code: VALIDATIO
 
 (なし)
 
-## ACSMS-TC-023-049 — レート制限超過（TOO_MANY_REQUESTS）
+## ACSMS-TC-023-046 — レート制限超過（TOO_MANY_REQUESTS）
 
 - 観点ID: VP-A-08
 - 種類: Abnormal (異常)
@@ -2445,7 +2301,7 @@ HTTPステータスコード429が返却されること（`error_code: TOO_MANY_
 
 (なし)
 
-## ACSMS-TC-023-050 — サーバーエラー（INTERNAL_SERVER_ERROR）
+## ACSMS-TC-023-047 — サーバーエラー（INTERNAL_SERVER_ERROR）
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)
@@ -2496,7 +2352,7 @@ HTTPステータスコード500が返却されること（`error_code: INTERNAL_
 
 (なし)
 
-## ACSMS-TC-023-051 — 削除済リソースの取得（NOT_FOUND）
+## ACSMS-TC-023-048 — 削除済リソースの取得（NOT_FOUND）
 
 - 観点ID: VP-C-03
 - 種類: Abnormal (異常)
@@ -2539,7 +2395,7 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 
 (なし)
 
-## ACSMS-TC-023-052 — ネットワーク切断時のハンドリング
+## ACSMS-TC-023-049 — ネットワーク切断時のハンドリング
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)

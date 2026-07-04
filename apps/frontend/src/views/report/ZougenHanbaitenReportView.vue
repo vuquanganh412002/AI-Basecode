@@ -295,14 +295,20 @@ defineExpose({ formState });
 
           <!-- 販売店情報 / 管理支店情報 -->
           <div class="flex justify-between items-start mb-1">
-            <div class="text-base font-bold mt-4 text-text-main">
-              {{ report.hanbaiten_name }}<span v-if="report.is_continued" class="font-normal text-xs">（続き）</span>　御中
-              <span class="font-normal text-xs ml-2 text-text-description">
-                TEL：{{ report.kanri_shiten_tel || '-' }}　　FAX：{{ report.kanri_shiten_fax || '-' }}
-              </span>
+            <div>
+              <div class="text-base font-bold text-text-main">
+                {{ report.hanbaiten_name }}<span v-if="report.is_continued" class="font-normal text-xs">（続き）</span>　御中
+              </div>
+              <!-- TEL/FAX は販売店名の下に、それぞれ別行で表示する。 -->
+              <div class="font-normal text-xs mt-0.5 text-text-description">
+                <div>TEL：{{ report.kanri_shiten_tel || '-' }}</div>
+                <div>FAX：{{ report.kanri_shiten_fax || '-' }}</div>
+              </div>
             </div>
-            <div class="text-xs text-right leading-relaxed text-text-description">
+            <div class="text-xs text-left leading-relaxed text-text-description">
               <div>{{ report.kanri_shiten_name || '（管理支店）' }}</div>
+              <!-- 部署／担当者は帳票上で手書き記入する空欄（下線）。 -->
+              <div>＿＿＿＿＿＿ 部／ 担当：＿＿＿＿＿＿</div>
               <div>TEL：{{ report.kanri_shiten_tel || '-' }}</div>
               <div>FAX：{{ report.kanri_shiten_fax || '-' }}</div>
             </div>
@@ -310,7 +316,7 @@ defineExpose({ formState });
 
           <!-- 適用日 + 定型文 -->
           <div class="text-sm mb-5 text-text-main">
-            <span class="mr-4">{{ formatJpDate(previewData?.tekiyo_date ?? '') }}</span>
+            <span class="mr-4">適用日：{{ formatJpDate(previewData?.tekiyo_date ?? '') }}</span>
             <span>下記の通り購読者が変更になりますのでお知らせします</span>
           </div>
 

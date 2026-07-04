@@ -86,7 +86,7 @@ export class SearchFileDownloadDto {
   @ApiPropertyOptional({ description: '並び替え項目', enum: SORT_KEYS })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsIn(SORT_KEYS as unknown as string[], {
+  @IsIn([...SORT_KEYS], {
     message: '並び替え項目が不正です。',
   })
   sort_by?: string;

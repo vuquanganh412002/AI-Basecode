@@ -23,6 +23,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 1.0 | 2026/03/31 | 1.0 | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |  |  |  |  |
 | 2.0 | 2026/04/17 | 1.1 | Nguyen Duyen Manh | 指摘対応<br>※修正箇所：<br>1.「画面項目定義」シート：No.1、2、9～16<br>2.「機能定義」シート：No.4 | Nguyen Huy Dat | Nguyen Huy Dat |  |  |  |  |
+| 3.0 | 2026/07/02 | 1.2 | Tran Duc Tuyen | 「手数料」列を配達手数料単価から振込手数料負担区分（TESURYO_KUBUN ラベル）表示に変更 | Nguyen Huy Dat | Nguyen Huy Dat |  |  |  |  |
 
 ---
 
@@ -105,13 +106,14 @@ ACSMS-SCR-021_配達手数料支払情報出力画面_画面イメージ
 | 13.0 | 貯金種目 | yokin_shubetsu | Text | 出 | INTEGER | — | — | 左 | — | t_dokusya（購読者）・m_hanbaiten（販売店マスタ）・m_tanka（単価マスタ） | t_dokusya + m_hanbaiten + m_tanka | 貯金種目 | yokin_shubetsu | — | — | 預金種別（1:普通, 2:当座）※出力時点のスナップショット |
 | 14.0 | 口座番号 | koza_no | Text | 出 | INTEGER | — | — | 左 | — | t_dokusya（購読者）・m_hanbaiten（販売店マスタ）・m_tanka（単価マスタ） | t_dokusya + m_hanbaiten + m_tanka | 口座番号 | koza_no | — | — |  |
 | 15.0 | 口座名義 | koza_meigi | Text | 出 | VARCHAR | — | — | 左 | — | t_dokusya（購読者）・m_hanbaiten（販売店マスタ）・m_tanka（単価マスタ） | t_dokusya + m_hanbaiten + m_tanka | 口座名義 | koza_meigi | — | — |  |
-| 16.0 | 備考 | m_hanbaiten.biko | Text | 出 | VARCHAR | — | — | 左 | — | 販売店マスタ | m_hanbaiten | 備考 | biko | — | — |  |
+| 16.0 | 手数料 | furikomi_tesuryo_futan_kubun | Text | 出 | INTEGER | — | — | 左 | — | 販売店マスタ | m_hanbaiten | 振込手数料負担区分 | furikomi_tesuryo_futan_kubun | — | — | 振込手数料負担区分を m_code TESURYO_KUBUN のラベル（1:JA, 2:販売店）で表示 |
+| 17.0 | 備考 | m_hanbaiten.biko | Text | 出 | VARCHAR | — | — | 左 | — | 販売店マスタ | m_hanbaiten | 備考 | biko | — | — |  |
 
 ### アクションボタン
 
 | No. | 項目名 | 項目ID | 項目タイプ | 入力/出力 | 必須 | 入力データ型 | 最小桁数 | 最大桁数 | 文字揃え | フォーマット | テーブル名（論理名） | テーブル名（物理名） | カラム名（論理名） | カラム名（物理名） | 表示条件 | デフォルト値 | 備考 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 17.0 | Excel出力 | btn_export | ボタン | — | — | — | — | — | — | — | — | — | — | — | — | — | データファイルをExcelに出力 |
+| 18.0 | Excel出力 | btn_export | ボタン | — | — | — | — | — | — | — | — | — | — | — | — | — | データファイルをExcelに出力 |
 
 
 ---

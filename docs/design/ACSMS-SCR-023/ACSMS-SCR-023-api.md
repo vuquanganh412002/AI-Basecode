@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | ファイルのダウンロード・プレビュー機能を本画面から削除し、ファイルダウンロード画面（SCR-022）へ移行。本画面は一覧／アップロード／削除専用とする（通知メールはバックグラウンドワーカーで非同期送信）。ダウンロードAPI（旧 ACSMS-API-023-003）を削除し、削除APIを ACSMS-API-023-003 に採番変更。 | Tran Duc Tuyen | Tran Duc Tuyen |
 
 ## システム概要
 
@@ -43,6 +44,8 @@ updated_by: Tran Duc Tuyen
 | 2   | ACSMS-API-COMMON-003 | Get JA Dropdown（`GET /api/v1/ja/dropdown`） — 定義元: ACSMS-SCR-024（カスケード絞込み: `todofuken_code` パラメータ使用） |
 
 ※ 本画面の都道府県コード→都道府県名 自動表示および JAコードドロップダウン（都道府県カスケード絞込み）は上記の共用APIを使用する。本画面では新規APIを定義しない。
+
+※ アップロード済みファイルのダウンロード・プレビューは「ファイルダウンロード画面（ACSMS-SCR-022）」で提供する（本画面では提供しない）。
 
 ## エラー一覧
 
@@ -238,7 +241,7 @@ GET /api/v1/file-upload?page=1&per_page=20&sort_by=upload_datetime&sort_order=de
 
 - ログインユーザーのスコープを取得する。
 - 検索条件、ソート条件をクエリビルダーに設定する。
-- 共通条件：DataScope 条件のみ。**一覧は論理削除済みの行も返す**（画面項目定義 No.17/18: 削除日カラムに `deleted_at` を表示し、削除済み行は削除ボタンを無効化するため）。したがって `f.deleted_at IS NULL` は付与しない（preview / download / delete は引き続き削除済み行を除外する）。
+- 共通条件：DataScope 条件のみ。**一覧は論理削除済みの行も返す**（画面項目定義 No.17/18: 削除日カラムに `deleted_at` を表示し、削除済み行は削除ボタンを無効化するため）。したがって `f.deleted_at IS NULL` は付与しない（削除処理は引き続き削除済み行を除外する）。
 
 ### 4.4 データ件数の取得
 
@@ -485,7 +488,7 @@ Content-Type: text/csv
     - CSV: `.csv`
     - テキスト: `.txt`
     - 圧縮: `.zip`
-  - プレビュー対応（GET /:id/preview）は別仕様で PDF と画像（.jpg/.jpeg/.png）のみインライン表示。その他形式はダウンロード後の確認となる。
+  - アップロード済みファイルのプレビュー・ダウンロードは本画面（ファイルアップロード画面）では提供しない。ファイルダウンロード画面（SCR-022）で行う。
 - ja_ids が空配列の場合：HTTP 400 (`TARGET_JA_REQUIRED`)
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
@@ -634,196 +637,6 @@ VALUES (3, NOW(), :account_id, :ja_id,
 ---
 
 # API ACSMS-API-023-003
-
-## 概要
-
-| 項目                   | 内容                                                                                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| API名                  | Download Uploaded File                                                                                                                                                                     |
-| 概要                   | 指定したアップロード済みファイルをダウンロードする（画面下部「アップロードされたファイルリスト」の操作列ダウンロードボタン）。                                                            |
-| URI                    | /api/v1/file-upload/{file_upload_id}/download                                                                                                                                              |
-| メソッド               | GET                                                                                                                                                                                        |
-| リクエストボディー     | なし                                                                                                                                                                                       |
-| リクエストパラメーター | file_upload_id（パスパラメータ）                                                                                                                                                           |
-| ヘッダ                 | ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                       |
-| HTTPレスポンスコード   | 200:正常にファイルを取得しました（バイナリレスポンス）, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたファイルが見つかりません, 500:システムエラーが発生しました |
-
-## リクエストパラメータ
-
-| #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                              |
-| --- | -------------- | ------ | -------- | ---- | ------ | ------ | ------------------------------------------------- |
-| 1   | file_upload_id | Number | -        | 〇   |        |        | 取得対象の file_upload_id（パスパラメータ）       |
-
-## レスポンスデータ
-
-成功時はファイルのバイナリストリームを返却する。
-
-| #   | 項目                   | 内容                                                                                  |
-| --- | ---------------------- | ------------------------------------------------------------------------------------- |
-| 1   | Content-Type           | ファイルの MIME 種別（例: `text/csv`, `application/pdf`）                              |
-| 2   | Content-Disposition    | `attachment; filename="{file_name}"`                                                  |
-| 3   | Content-Length         | ファイルサイズ（バイト）                                                              |
-| 4   | Body                   | ファイルのバイナリストリーム                                                          |
-
-## リクエスト例
-
-```
-GET /api/v1/file-upload/201/download
-```
-
-## レスポンス成功例
-
-```
-HTTP/1.1 200 OK
-Content-Type: text/csv
-Content-Disposition: attachment; filename="令和5年度_購読者リスト.csv"
-Content-Length: 2831155
-
-<file binary>
-```
-
-## レスポンス失敗例
-
-### 401 Unauthorized
-
-```json
-{
-  "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください。"
-}
-```
-
-### 403 Forbidden
-
-```json
-{
-  "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません。"
-}
-```
-
-### 404 Not Found
-
-```json
-{
-  "error_code": "NOT_FOUND",
-  "message": "指定されたファイルが見つかりません。"
-}
-```
-
-### 500 Internal Server Error
-
-```json
-{
-  "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
-}
-```
-
-## 処理手順
-
-### 4.1 リクエストのバリデーション
-
-- パスパラメータの検証：
-  - file_upload_id：数値型チェック、必須チェック
-- 不正なパラメータが存在する場合：HTTP 400 (`BAD_REQUEST`)
-
-### 4.2 認証・認可チェック
-
-- 認証情報を検証する（HTTP-only Cookieセッション）。
-- 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
-- 必要権限: `file.download`
-- 該当権限保持ロール: NICHINO_ADMIN / NICHINO_STAFF / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
-- 権限不足の場合：HTTP 403 (`FORBIDDEN`)
-- DataScope:
-  - NICHINO_ADMIN / NICHINO_STAFF：全件参照可
-  - CHUOKAI：自中央会＋管轄JAのファイルのみ
-  - JA_HONTEN / JA_KANRI_SHITEN：自JAのファイルのみ
-- DataScope違反の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
-
-### 4.3 データ取得
-
-```sql
-SELECT f.file_upload_id, f.ja_id, f.file_name, f.file_path, f.file_size
-FROM t_file_upload f
-WHERE f.file_upload_id = :file_upload_id
-  AND f.deleted_at IS NULL
-  AND (
-    :role_code IN ('NICHINO_ADMIN', 'NICHINO_STAFF')
-    OR f.ja_id = :user_ja_id
-    OR (:role_code = 'CHUOKAI' AND f.ja_id IN (SELECT ja_id FROM m_ja WHERE chuokai_ja_id = :user_ja_id))
-  )
-```
-
-- レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- DataScope に合致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
-
-### 4.4 物理ファイルの取得
-
-- S3（または S3 互換ストレージ）から `file_path` のオブジェクトを取得する。
-- 物理ファイルが存在しない場合：HTTP 404 (`NOT_FOUND`)
-
-### 4.5 ダウンロード履歴の記録
-
-- 以下のSQLを実行してダウンロード履歴を記録する。
-
-```sql
-INSERT INTO t_file_download (ja_id, download_datetime, download_type,
-                             file_name, file_path, file_size,
-                             record_count, target_month,
-                             created_at, created_by)
-VALUES (:ja_id, NOW(), 2,
-        :file_name, :file_path, :file_size,
-        0, '',
-        NOW(), :user_account_id)
-```
-
-※ `download_type=2`（その他）を使用する（`m_code.code_category='DOWNLOAD_TYPE'`、code_value=2 は「その他」）。
-
-### 4.6 操作ログ記録
-
-```sql
-INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
-                   gamen_name, operation, result_status,
-                   target_id, target_table,
-                   before_value, after_value,
-                   error_message, stack_trace,
-                   ip_address, user_agent)
-VALUES (4, NOW(), :account_id, :ja_id,
-        'ファイルアップロード画面 (ACSMS-SCR-023)', 'DOWNLOAD', 1,
-        :file_upload_id, 't_file_upload',
-        '', '',
-        '', '',
-        :ip_address, :user_agent)
-```
-
-### 4.7 レスポンス生成
-
-- Content-Type、Content-Disposition、Content-Length ヘッダを設定し、バイナリストリームを返却する。HTTP 200。
-
-### 4.8 例外処理
-
-- DB接続エラー、ストレージ取得失敗等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
-- エラー発生時も操作ログを記録する（`log_type = 3`）。トランザクション外で記録すること。
-
-```sql
-INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
-                   gamen_name, operation, result_status,
-                   target_id, target_table,
-                   before_value, after_value,
-                   error_message, stack_trace,
-                   ip_address, user_agent)
-VALUES (3, NOW(), :account_id, :ja_id,
-        'ファイルアップロード画面 (ACSMS-SCR-023)', 'DOWNLOAD', 2,
-        :file_upload_id, 't_file_upload',
-        '', '',
-        :error_message, :stack_trace,
-        :ip_address, :user_agent)
-```
-
----
-
-# API ACSMS-API-023-004
 
 ## 概要
 

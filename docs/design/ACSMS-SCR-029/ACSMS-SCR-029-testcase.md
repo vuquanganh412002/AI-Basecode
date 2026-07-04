@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/07/02 | 1.1 | Tran Duc Tuyen | 減部数を「▲」なしの数値表示に変更（顧客要望）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -1130,7 +1131,7 @@ HTTPステータスコード400が返却されること（`error_code: VALIDATIO
 ステップ2：
 ・現在部数が `COALESCE(zenkai_dokusya_busu, 0)` で表示されること
 ・増部数が `dokusya_busu > 現在部数` のとき `dokusya_busu - 現在部数`、それ以外は0で表示されること
-・減部数が `dokusya_busu < 現在部数` のとき `現在部数 - dokusya_busu`、それ以外は0で、帳票では「▲」付きで表示されること
+・減部数が `dokusya_busu < 現在部数` のとき `現在部数 - dokusya_busu`、それ以外は0で、帳票では数値のまま（マイナス符号「▲」なし）で表示されること
 ・新部数が `現在部数 ＋ 増部数 － 減部数`（＝`dokusya_busu`）で表示されること
 
 ### テスト結果（1回目）

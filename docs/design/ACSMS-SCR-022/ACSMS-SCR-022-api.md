@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | -------------- |
 | 1   | 2026/05/07 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                                                       | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/08 | 1.1  | Tran Duc Tuyen | データソースを `t_file_upload` に変更（ファイルはアップロード時に S3 + DB に登録、本画面では検索 / プレビュー / ダウンロードのみ）。都道府県プルダウンは既存の共用 API `ACSMS-API-COMMON-001`（`GET /api/v1/todofuken`、定義元: SCR-009）を使用し、全 47 都道府県を返却する。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/02 | 1.2  | Tran Duc Tuyen | データソースを t_file_download に変更（各帳票出力画面が生成したファイルを参照）。ダウンロード種別(download_type)・日農ダウンロード許可フラグ(nichino_download_allowed_flg)・作成者(created_by/created_by_name)を追加。ダウンロード実行時は t_file_download へINSERTせず t_log(log_type=4/DOWNLOAD)のみ記録。複数ファイル一括ダウンロード(ZIP)API ACSMS-API-022-004 を追加。 | Tran Duc Tuyen | Tran Duc Tuyen |
 
 ## システム概要
 
@@ -43,7 +44,7 @@ updated_by: Tran Duc Tuyen
 | 1   | ACSMS-SCR-022          | ファイルダウンロード画面 設計書                                                       |
 | 2   | ACSMS-API-COMMON-001   | Get Prefecture List（`GET /api/v1/todofuken`）— 都道府県プルダウン用。定義元: SCR-009 |
 
-※ 本画面はアップロード済みファイル（`t_file_upload` テーブル + S3）の参照／プレビュー／ダウンロードのみを提供する。新規アップロードは別画面（SCR-021 等）で実施される。
+※ 本画面は各帳票出力画面が生成し `t_file_download` テーブル（+ S3）に登録したファイルの参照／プレビュー／ダウンロード（単体・一括 ZIP）のみを提供する。`t_file_download` のレコードは各帳票出力画面（SCR-020 口座振替 / SCR-021 配達手数料 / SCR-026 購読者名簿 / SCR-028 増減連絡票 / SCR-029 増減通知）が共通の FileArchiveService を介して登録する。本画面自身は行を INSERT しない。
 ※ 都道府県プルダウンは `ACSMS-API-COMMON-001` を使用し、全 47 都道府県を返却する（役割別の絞り込みは行わない）。FE 側で `todofuken_code` を選択して検索条件に渡す運用とする。
 
 ## エラー一覧
@@ -58,6 +59,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定されたファイルが見つかりません。                                   | HTTP 404 |
+| 9   | 画面固有     | FORBIDDEN             | このファイルは日農のダウンロードが許可されていません。                 | HTTP 403 |
 
 ---
 
@@ -68,8 +70,8 @@ updated_by: Tran Duc Tuyen
 | 項目                   | 内容                                                                                                                                                                                                            |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Get File List                                                                                                                                                                                                   |
-| 概要                   | アップロード済みファイル一覧を取得する（検索 + ページネーション対応）。データソースは `t_file_upload` テーブル。ログインユーザーの DataScope に従い参照可能なファイルのみ返却する。                              |
-| URI                    | /api/v1/file-upload                                                                                                                                                                                           |
+| 概要                   | 各帳票出力画面が生成し `t_file_download` に登録したファイルの一覧を取得する（検索 + ページネーション対応）。データソースは `t_file_download` テーブル。ログインユーザーの DataScope に従い参照可能なファイルのみ返却する。 |
+| URI                    | /api/v1/file-download                                                                                                                                                                                         |
 | メソッド               | GET                                                                                                                                                                                                             |
 | リクエストボディー     | なし                                                                                                                                                                                                            |
 | リクエストパラメーター | クエリパラメーター（後述）                                                                                                                                                                                       |
@@ -78,40 +80,48 @@ updated_by: Tran Duc Tuyen
 
 ## リクエストパラメータ
 
-| #   | パラメーターID  | タイプ  | 必須 | 最小長 | 最大長 | 説明                                                                                                |
-| --- | --------------- | ------- | ---- | ------ | ------ | --------------------------------------------------------------------------------------------------- |
-| 1   | file_name       | String  |      | 1      | 255    | ファイル名（部分一致／LIKE 検索）                                                                   |
-| 2   | todofuken_code  | String  |      | 2      | 2      | 都道府県コード（半角数字 2 桁、例: "13"）                                                           |
-| 3   | page            | Integer |      | -      | -      | ページ番号（1-indexed、デフォルト 1、最小 1）                                                       |
-| 4   | per_page        | Integer |      | -      | -      | 1ページあたりの件数（デフォルト 20、最小 1、最大 100）                                              |
-| 5   | sort_by         | String  |      | -      | -      | ソート対象カラム（許容: `upload_datetime`, `file_name`, `created_by`／デフォルト `upload_datetime`） |
-| 6   | sort_order      | String  |      | -      | -      | ソート順（`asc`/`desc`／デフォルト `desc`）                                                         |
+| #   | パラメーターID  | タイプ  | 必須 | 最小長 | 最大長 | 説明                                                                                                                                              |
+| --- | --------------- | ------- | ---- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | file_name       | String  |      | 1      | 255    | ファイル名（部分一致／LIKE 検索）                                                                                                                 |
+| 2   | todofuken_code  | String  |      | 2      | 2      | 都道府県コード（半角数字 2 桁、例: "13"）。ファイル所属 JA（`t_file_download.ja_id` → `m_ja.todofuken_code`）で絞り込む                            |
+| 3   | ja_id           | Integer |      | -      | -      | JA ID（最小 1）。NICHINO_ADMIN / NICHINO_STAFF のみ指定可。指定なしは全 JA が対象                                                                 |
+| 4   | download_type   | Integer |      | -      | -      | ダウンロード種別（1:口座振替, 2:その他, 3:増減連絡票, 4:増減通知書, 5:購読者名簿／m_code DOWNLOAD_TYPE）。1〜5 以外は HTTP 400                     |
+| 5   | page            | Integer |      | -      | -      | ページ番号（1-indexed、デフォルト 1、最小 1）                                                                                                     |
+| 6   | per_page        | Integer |      | -      | -      | 1ページあたりの件数（デフォルト 20、最小 1、最大 100）                                                                                            |
+| 7   | sort_by         | String  |      | -      | -      | ソート対象カラム（許容: `download_datetime`, `file_name`, `file_size`, `created_by`, `created_by_name`／デフォルト `download_datetime`）           |
+| 8   | sort_order      | String  |      | -      | -      | ソート順（`asc`/`desc`／デフォルト `desc`）                                                                                                       |
 
 ## レスポンスデータ
 
-| #   | 項目ID                | タイプ        | フォーマット         | Nullable | 説明                                                                                              |
-| --- | --------------------- | ------------- | -------------------- | -------- | ------------------------------------------------------------------------------------------------- |
-| 1   | data                  | Array<Object> | -                    |          | ファイル一覧の配列（0 件時は空配列）                                                              |
-| 2   | →file_upload_id       | Integer       | -                    |          | ファイルアップロード ID（PK）                                                                     |
-| 3   | →ja_id                | Integer       | -                    | 〇       | JA ID（FK: m_ja.ja_id）。NULL の場合は全 JA 向けファイル                                          |
-| 4   | →upload_datetime      | String        | YYYY/MM/DD HH:mm:ss  |          | アップロード日時（ISO 8601 形式、例: `2026-05-07T10:30:00+09:00`）                                |
-| 5   | →file_name            | String        | -                    |          | ファイル名                                                                                        |
-| 6   | →file_size            | Integer       | -                    | 〇       | ファイルサイズ（バイト）                                                                          |
-| 7   | →record_count         | Integer       | -                    | 〇       | レコード件数                                                                                      |
-| 8   | →status               | Integer       | -                    |          | 処理ステータス（1:処理中, 2:完了, 3:エラー）                                                      |
-| 9   | →created_by           | String        | -                    |          | 作成者ログイン ID（m_account.login_id）                                                           |
-| 10  | →created_by_name      | String        | -                    |          | 作成者氏名（m_account.account_name から JOIN）                                                    |
-| 11  | →created_at           | String        | YYYY/MM/DD HH:mm:ss  |          | 作成日時（ISO 8601 形式）                                                                         |
-| 12  | meta                  | Object        | -                    |          | ページネーション情報                                                                              |
-| 13  | →total                | Integer       | -                    |          | 検索結果の総件数                                                                                  |
-| 14  | →page                 | Integer       | -                    |          | 現在のページ番号                                                                                  |
-| 15  | →per_page             | Integer       | -                    |          | 1ページあたりの件数                                                                               |
-| 16  | →total_pages          | Integer       | -                    |          | 総ページ数                                                                                        |
+| #   | 項目ID                        | タイプ        | フォーマット         | Nullable | 説明                                                                                              |
+| --- | ----------------------------- | ------------- | -------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| 1   | data                          | Array<Object> | -                    |          | ファイル一覧の配列（0 件時は空配列）                                                              |
+| 2   | →file_download_id             | Integer       | -                    |          | ファイルダウンロード ID（PK）                                                                     |
+| 3   | →ja_id                        | Integer       | -                    | 〇       | JA ID（FK: m_ja.ja_id）。NULL の場合は全 JA 向けファイル                                          |
+| 4   | →ja_code                      | String        | -                    | 〇       | JA コード（`m_ja.ja_id` で JOIN、`ja_id` が NULL の場合は null）                                  |
+| 5   | →ja_name                      | String        | -                    | 〇       | JA 名（`m_ja.ja_id` で JOIN、`ja_id` が NULL の場合は null）                                      |
+| 6   | →download_datetime            | String        | YYYY/MM/DD HH:mm:ss  |          | ダウンロード（生成）日時（ISO 8601 形式、例: `2026-05-07T10:30:00+09:00`）                        |
+| 7   | →download_type                | Integer       | -                    |          | ダウンロード種別（1:口座振替, 2:その他, 3:増減連絡票, 4:増減通知書, 5:購読者名簿）                |
+| 8   | →file_name                    | String        | -                    |          | ファイル名                                                                                        |
+| 9   | →file_size                    | Integer       | -                    |          | ファイルサイズ（バイト）                                                                          |
+| 10  | →record_count                 | Integer       | -                    |          | レコード件数                                                                                      |
+| 11  | →target_month                 | String        | YYYYMM               | 〇       | 対象年月（DB カラムは NOT NULL DEFAULT '' のため未設定時は空文字。レスポンス型は nullable string）|
+| 12  | →scheduled_delete_date        | String        | YYYY/MM/DD HH:mm:ss  | 〇       | 削除予定日（ISO 8601 形式。NULL は期限なし）                                                      |
+| 13  | →nichino_download_allowed_flg | Boolean       | -                    |          | 日農ダウンロード許可フラグ（TRUE:許可する / FALSE:許可しない）                                    |
+| 14  | →deleted_at                   | String        | YYYY/MM/DD HH:mm:ss  | 〇       | 論理削除日時（ISO 8601 形式。未削除は null）                                                      |
+| 15  | →created_by                   | String        | -                    |          | 作成者アカウント ID（m_account.account_id）                                                       |
+| 16  | →created_by_name              | String        | -                    | 〇       | 作成者氏名（m_account から JOIN）                                                                 |
+| 17  | →created_at                   | String        | YYYY/MM/DD HH:mm:ss  | 〇       | 作成日時（ISO 8601 形式）                                                                         |
+| 18  | meta                          | Object        | -                    |          | ページネーション情報                                                                              |
+| 19  | →total                        | Integer       | -                    |          | 検索結果の総件数                                                                                  |
+| 20  | →page                         | Integer       | -                    |          | 現在のページ番号                                                                                  |
+| 21  | →per_page                     | Integer       | -                    |          | 1ページあたりの件数                                                                               |
+| 22  | →total_pages                  | Integer       | -                    |          | 総ページ数                                                                                        |
 
 ## リクエスト例
 
 ```
-GET /api/v1/file-upload?file_name=zougen&todofuken_code=13&page=1&per_page=20&sort_by=upload_datetime&sort_order=desc
+GET /api/v1/file-download?file_name=zougen&todofuken_code=13&download_type=4&page=1&per_page=20&sort_by=download_datetime&sort_order=desc
 ```
 
 ## レスポンス成功例
@@ -120,26 +130,38 @@ GET /api/v1/file-upload?file_name=zougen&todofuken_code=13&page=1&per_page=20&so
 {
   "data": [
     {
-      "file_upload_id": 101,
+      "file_download_id": 101,
       "ja_id": 1,
-      "upload_datetime": "2026-05-07T10:30:00+09:00",
+      "ja_code": "1301002001",
+      "ja_name": "JA東京中央",
+      "download_datetime": "2026-05-07T10:30:00+09:00",
+      "download_type": 4,
       "file_name": "zougen_tsuchi_202604.pdf",
       "file_size": 524288,
       "record_count": 250,
-      "status": 2,
-      "created_by": "nichino_admin01",
+      "target_month": "202604",
+      "scheduled_delete_date": "2026-11-07T10:30:00+09:00",
+      "nichino_download_allowed_flg": true,
+      "deleted_at": null,
+      "created_by": "1",
       "created_by_name": "日農 管理者",
       "created_at": "2026-05-07T10:30:00+09:00"
     },
     {
-      "file_upload_id": 102,
+      "file_download_id": 102,
       "ja_id": null,
-      "upload_datetime": "2026-05-06T15:00:00+09:00",
+      "ja_code": null,
+      "ja_name": null,
+      "download_datetime": "2026-05-06T15:00:00+09:00",
+      "download_type": 1,
       "file_name": "kouza_furikae_20260506.csv",
       "file_size": 102400,
       "record_count": 80,
-      "status": 2,
-      "created_by": "nichino_staff02",
+      "target_month": "",
+      "scheduled_delete_date": null,
+      "nichino_download_allowed_flg": false,
+      "deleted_at": null,
+      "created_by": "2",
       "created_by_name": "日農 担当者",
       "created_at": "2026-05-06T15:00:00+09:00"
     }
@@ -163,6 +185,7 @@ GET /api/v1/file-upload?file_name=zougen&todofuken_code=13&page=1&per_page=20&so
   "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
     { "field": "todofuken_code", "message": "都道府県コードは半角数字2桁で入力してください。" },
+    { "field": "download_type", "message": "ダウンロード種別は1〜5で指定してください。" },
     { "field": "per_page", "message": "1ページあたりの件数は1〜100の範囲で指定してください。" }
   ]
 }
@@ -199,11 +222,13 @@ GET /api/v1/file-upload?file_name=zougen&todofuken_code=13&page=1&per_page=20&so
 
 ### 4.1 リクエストのバリデーション
 
-- `file_name`: 任意。最大 255 文字。前後空白は自動 trim。
+- `file_name`: 任意。最大 255 文字（`ファイル名は最大255文字で指定してください。`）。前後空白は自動 trim。
 - `todofuken_code`: 任意。半角数字 2 桁（`^\d{2}$`）。
+- `ja_id`: 任意。整数、最小 1。NICHINO_ADMIN / NICHINO_STAFF のみ指定可。指定なしは全 JA が対象。
+- `download_type`: 任意。整数、1〜5 のいずれか（`ダウンロード種別は1〜5で指定してください。`）。
 - `page`: 任意（デフォルト 1）。整数、最小 1。
 - `per_page`: 任意（デフォルト 20）。整数、1〜100。
-- `sort_by`: 任意（デフォルト `upload_datetime`）。許容値: `upload_datetime`, `file_name`, `created_by`。それ以外は HTTP 400 (`VALIDATION_ERROR`)。
+- `sort_by`: 任意（デフォルト `download_datetime`）。許容値: `download_datetime`, `file_name`, `file_size`, `created_by`, `created_by_name`。それ以外は HTTP 400 (`VALIDATION_ERROR`)。
 - `sort_order`: 任意（デフォルト `desc`）。許容値: `asc`, `desc`。
 
 ### 4.2 認証・認可チェック
@@ -213,35 +238,39 @@ GET /api/v1/file-upload?file_name=zougen&todofuken_code=13&page=1&per_page=20&so
 - 必要権限: `file.download`
 - 該当権限保持ロール: NICHINO_ADMIN / NICHINO_STAFF / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN（全 5 ロール）
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
-- DataScope（`t_file_upload.ja_id` ベース）:
+- DataScope（`t_file_download.ja_id` ベース）:
   - `NICHINO_ADMIN` / `NICHINO_STAFF`: 全件参照可能（フィルタなし）
-  - `CHUOKAI`: 自中央会 + 管轄 JA のファイル + 全 JA 向けファイル（`fu.ja_id IN (:managed_ja_ids) OR fu.ja_id IS NULL`）
-  - `JA_HONTEN`: 自 JA のファイル + 全 JA 向けファイル（`fu.ja_id = :user_ja_id OR fu.ja_id IS NULL`）
-  - `JA_KANRI_SHITEN`: 自 JA のファイル + 全 JA 向けファイル（`fu.ja_id = :user_ja_id OR fu.ja_id IS NULL`）※管理支店単位の絞り込みは行わない
+  - `CHUOKAI`: 自中央会 + 管轄 JA のファイル + 全 JA 向けファイル（`fd.ja_id IN (:managed_ja_ids) OR fd.ja_id IS NULL`）
+  - `JA_HONTEN`: 自 JA のファイル + 全 JA 向けファイル（`fd.ja_id = :user_ja_id OR fd.ja_id IS NULL`）
+  - `JA_KANRI_SHITEN`: 自 JA のファイル + 全 JA 向けファイル（`fd.ja_id = :user_ja_id OR fd.ja_id IS NULL`）※管理支店単位の絞り込みは行わない
 
 ### 4.3 データ取得条件の設定
 
 - 検索条件 WHERE 句:
-  - `t_file_upload.deleted_at IS NULL`（論理削除済は除外）
+  - `t_file_download.deleted_at IS NULL`（論理削除済は除外）
   - `file_name ILIKE '%' || :file_name || '%'`（指定時のみ）
-  - 都道府県コード絞り込みは **ファイル所属 JA の都道府県** で適用する：`t_file_upload.ja_id` → `m_ja.ja_id` → `m_ja.todofuken_code` の JOIN チェーンを使う。作成者の `m_account.todofuken_code` ではない（管理者作成ファイルは作成者の都道府県が NULL のため除外されてしまう）。
+  - 都道府県コード絞り込みは **ファイル所属 JA の都道府県** で適用する：`t_file_download.ja_id` → `m_ja.ja_id` → `m_ja.todofuken_code` の JOIN チェーンを使う。作成者の `m_account.todofuken_code` ではない（管理者作成ファイルは作成者の都道府県が NULL のため除外されてしまう）。
   - `:todofuken_code` 指定時、`ja_id IS NULL`（全 JA 向け）ファイルは結果に含めない（LEFT JOIN により `j.todofuken_code IS NULL` となり、`NULL = :code` は FALSE）。全 JA 向けファイルは都道府県絞り込みなしのデフォルト一覧でのみ表示される。
+  - `download_type` 指定時：`fd.download_type = :download_type`（指定時のみ）
+  - `ja_id` 指定時（NICHINO_* のみ）：`fd.ja_id = :ja_id`
 - DataScope WHERE 句（4.2 のロール別ルールを適用）
 
 ### 4.4 データ件数の取得
 
 ```sql
 SELECT COUNT(*) AS total
-  FROM t_file_upload fu
-  LEFT JOIN m_ja j      ON j.ja_id    = fu.ja_id      AND j.deleted_at IS NULL
-  LEFT JOIN m_account a ON a.login_id = fu.created_by AND a.deleted_at IS NULL
- WHERE fu.deleted_at IS NULL
-   AND (:file_name IS NULL OR fu.file_name ILIKE '%' || :file_name || '%')
+  FROM t_file_download fd
+  LEFT JOIN m_ja j      ON j.ja_id      = fd.ja_id      AND j.deleted_at IS NULL
+  LEFT JOIN m_account a ON a.account_id = fd.created_by AND a.deleted_at IS NULL
+ WHERE fd.deleted_at IS NULL
+   AND (:file_name IS NULL OR fd.file_name ILIKE '%' || :file_name || '%')
    AND (:todofuken_code IS NULL OR j.todofuken_code = :todofuken_code)
+   AND (:download_type IS NULL OR fd.download_type = :download_type)
+   AND (:ja_id IS NULL OR fd.ja_id = :ja_id)
    AND (
      :role_code IN ('NICHINO_ADMIN', 'NICHINO_STAFF')
-     OR fu.ja_id IS NULL
-     OR fu.ja_id IN (:managed_ja_ids)
+     OR fd.ja_id IS NULL
+     OR fd.ja_id IN (:managed_ja_ids)
    )
 ```
 
@@ -249,26 +278,34 @@ SELECT COUNT(*) AS total
 
 ```sql
 SELECT
-    fu.file_upload_id,
-    fu.ja_id,
-    fu.upload_datetime,
-    fu.file_name,
-    fu.file_size,
-    fu.record_count,
-    fu.status,
-    fu.created_by,
-    a.account_name AS created_by_name,
-    fu.created_at
-  FROM t_file_upload fu
-  LEFT JOIN m_ja j      ON j.ja_id    = fu.ja_id      AND j.deleted_at IS NULL
-  LEFT JOIN m_account a ON a.login_id = fu.created_by AND a.deleted_at IS NULL
- WHERE fu.deleted_at IS NULL
-   AND (:file_name IS NULL OR fu.file_name ILIKE '%' || :file_name || '%')
+    fd.file_download_id,
+    fd.ja_id,
+    j.ja_code            AS ja_code,
+    j.ja_name            AS ja_name,
+    fd.download_datetime,
+    fd.download_type,
+    fd.file_name,
+    fd.file_size,
+    fd.record_count,
+    fd.target_month,
+    fd.scheduled_delete_date,
+    fd.nichino_download_allowed_flg,
+    fd.deleted_at,
+    fd.created_by,
+    a.account_name       AS created_by_name,
+    fd.created_at
+  FROM t_file_download fd
+  LEFT JOIN m_ja j      ON j.ja_id      = fd.ja_id      AND j.deleted_at IS NULL
+  LEFT JOIN m_account a ON a.account_id = fd.created_by AND a.deleted_at IS NULL
+ WHERE fd.deleted_at IS NULL
+   AND (:file_name IS NULL OR fd.file_name ILIKE '%' || :file_name || '%')
    AND (:todofuken_code IS NULL OR j.todofuken_code = :todofuken_code)
+   AND (:download_type IS NULL OR fd.download_type = :download_type)
+   AND (:ja_id IS NULL OR fd.ja_id = :ja_id)
    AND (
      :role_code IN ('NICHINO_ADMIN', 'NICHINO_STAFF')
-     OR fu.ja_id IS NULL
-     OR fu.ja_id IN (:managed_ja_ids)
+     OR fd.ja_id IS NULL
+     OR fd.ja_id IN (:managed_ja_ids)
    )
  ORDER BY :sort_by :sort_order
  LIMIT :per_page OFFSET (:page - 1) * :per_page
@@ -298,11 +335,11 @@ SELECT
 | 項目                   | 内容                                                                                                                                                            |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Get File Preview                                                                                                                                                |
-| 概要                   | 指定したファイルのプレビュー用署名付き URL（S3 short-lived presigned URL）+ メタ情報を取得する。FE 側でモーダルにて表示する。データソースは `t_file_upload`。      |
-| URI                    | /api/v1/file-upload/{file_upload_id}/preview                                                                                                                  |
+| 概要                   | 指定したファイルのプレビュー用署名付き URL（S3 short-lived presigned URL）+ メタ情報を取得する。FE 側でモーダルにて表示する。データソースは `t_file_download`。DataScope チェックに加え、日農（NICHINO_ADMIN / NICHINO_STAFF）が `nichino_download_allowed_flg=false` のファイルをプレビューしようとした場合は HTTP 403 を返却する。 |
+| URI                    | /api/v1/file-download/{file_download_id}/preview                                                                                                              |
 | メソッド               | GET                                                                                                                                                             |
 | リクエストボディー     | なし                                                                                                                                                            |
-| リクエストパラメーター | file_upload_id（パスパラメータ）                                                                                                                                |
+| リクエストパラメーター | file_download_id（パスパラメータ）                                                                                                                             |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                            |
 | HTTPレスポンスコード   | 200:正常にプレビュー情報を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたファイルが見つかりません, 500:システムエラーが発生しました |
 
@@ -310,14 +347,14 @@ SELECT
 
 | #   | パラメーターID  | タイプ  | 必須 | 最小長 | 最大長 | 説明                                                          |
 | --- | --------------- | ------- | ---- | ------ | ------ | ------------------------------------------------------------- |
-| 1   | file_upload_id  | Integer | ○    | -      | -      | ファイルアップロード ID（パスパラメータ、最小 1）              |
+| 1   | file_download_id | Integer | ○    | -      | -      | ファイルダウンロード ID（パスパラメータ、最小 1）              |
 
 ## レスポンスデータ
 
 | #   | 項目ID            | タイプ | フォーマット         | Nullable | 説明                                                                  |
 | --- | ----------------- | ------ | -------------------- | -------- | --------------------------------------------------------------------- |
 | 1   | data              | Object | -                    |          | プレビュー情報                                                        |
-| 2   | →file_upload_id   | Integer | -                   |          | ファイルアップロード ID                                               |
+| 2   | →file_download_id | Integer | -                   |          | ファイルダウンロード ID                                               |
 | 3   | →file_name        | String  | -                   |          | ファイル名（オリジナル名）                                            |
 | 4   | →file_size        | Integer | -                   | 〇       | ファイルサイズ（バイト）                                              |
 | 5   | →content_type     | String  | -                   |          | コンテンツ MIME タイプ（例: `application/pdf`, `text/csv`）           |
@@ -327,7 +364,7 @@ SELECT
 ## リクエスト例
 
 ```
-GET /api/v1/file-upload/101/preview
+GET /api/v1/file-download/101/preview
 ```
 
 ## レスポンス成功例
@@ -335,7 +372,7 @@ GET /api/v1/file-upload/101/preview
 ```json
 {
   "data": {
-    "file_upload_id": 101,
+    "file_download_id": 101,
     "file_name": "zougen_tsuchi_202604.pdf",
     "file_size": 524288,
     "content_type": "application/pdf",
@@ -387,7 +424,7 @@ GET /api/v1/file-upload/101/preview
 
 ### 4.1 リクエストのバリデーション
 
-- `file_upload_id`: 必須、整数、最小 1。
+- `file_download_id`: 必須、整数、最小 1。
 
 ### 4.2 認証・認可チェック
 
@@ -402,29 +439,36 @@ GET /api/v1/file-upload/101/preview
 
 ```sql
 SELECT
-    fu.file_upload_id,
-    fu.ja_id,
-    fu.file_name,
-    fu.file_path,
-    fu.file_size
-  FROM t_file_upload fu
- WHERE fu.file_upload_id = :file_upload_id
-   AND fu.deleted_at IS NULL
+    fd.file_download_id,
+    fd.ja_id,
+    fd.file_name,
+    fd.file_path,
+    fd.file_size,
+    fd.nichino_download_allowed_flg
+  FROM t_file_download fd
+ WHERE fd.file_download_id = :file_download_id
+   AND fd.deleted_at IS NULL
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
 - DataScope に違反する場合：HTTP 404 (`NOT_FOUND`)（存在隠蔽）
 
-### 4.4 レスポンス生成
+### 4.4 日農ダウンロード許可チェック
+
+- ログインユーザが日農（NICHINO_ADMIN / NICHINO_STAFF）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。
+- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA 系ロールは本フラグの影響を受けない。
+
+### 4.5 レスポンス生成
 
 - ファイル拡張子から `content_type` を判定（`.pdf` → `application/pdf`, `.csv` → `text/csv`, `.xlsx` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`）。
 - AWS S3 SDK で `file_path` に対する presigned URL を発行（有効期限 3600 秒 / 1 時間）。
 - レスポンスに `preview_url` + `expires_at` を含めて返却。
 
-### 4.5 例外処理
+### 4.6 例外処理
 
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
+- 日農が `nichino_download_allowed_flg=false` のファイルをプレビューしようとした場合：HTTP 403 (`FORBIDDEN`)
 - レコードが存在しない、または DataScope 違反の場合：HTTP 404 (`NOT_FOUND`)
 - S3 / DB 接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
 - レート制限超過の場合：HTTP 429 (`TOO_MANY_REQUESTS`)
@@ -438,11 +482,11 @@ SELECT
 | 項目                   | 内容                                                                                                                                                                                       |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | API名                  | Download File                                                                                                                                                                              |
-| 概要                   | 指定したファイルをバイナリストリームで返却する。レスポンスヘッダ `Content-Disposition: attachment; filename="..."` によりブラウザで保存ダイアログを表示。同時にダウンロード履歴 (`t_file_download`) と操作ログ (`t_log`, log_type=4) を 1 件ずつ記録する。データソースは `t_file_upload`。 |
-| URI                    | /api/v1/file-upload/{file_upload_id}/download                                                                                                                                            |
+| 概要                   | 指定したファイルをバイナリストリームで返却する。レスポンスヘッダ `Content-Disposition: attachment; filename="..."` によりブラウザで保存ダイアログを表示。データソースは `t_file_download`。**`t_file_download` への新規 INSERT は行わず**、操作ログ (`t_log`, log_type=4 / operation=DOWNLOAD) を 1 件のみ記録する（`t_file_download` の行は各帳票出力画面が生成する）。DataScope チェックに加え、日農が `nichino_download_allowed_flg=false` のファイルをダウンロードしようとした場合は HTTP 403 を返却する。 |
+| URI                    | /api/v1/file-download/{file_download_id}/download                                                                                                                                        |
 | メソッド               | GET                                                                                                                                                                                        |
 | リクエストボディー     | なし                                                                                                                                                                                       |
-| リクエストパラメーター | file_upload_id（パスパラメータ）                                                                                                                                                           |
+| リクエストパラメーター | file_download_id（パスパラメータ）                                                                                                                                                         |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                       |
 | HTTPレスポンスコード   | 200:正常にファイルをダウンロードしました（バイナリ応答）, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたファイルが見つかりません, 500:システムエラーが発生しました |
 
@@ -450,7 +494,7 @@ SELECT
 
 | #   | パラメーターID  | タイプ  | 必須 | 最小長 | 最大長 | 説明                                                          |
 | --- | --------------- | ------- | ---- | ------ | ------ | ------------------------------------------------------------- |
-| 1   | file_upload_id  | Integer | ○    | -      | -      | ファイルアップロード ID（パスパラメータ、最小 1）              |
+| 1   | file_download_id | Integer | ○    | -      | -      | ファイルダウンロード ID（パスパラメータ、最小 1）              |
 
 ## レスポンスデータ
 
@@ -466,7 +510,7 @@ SELECT
 ## リクエスト例
 
 ```
-GET /api/v1/file-upload/101/download
+GET /api/v1/file-download/101/download
 ```
 
 ## レスポンス成功例
@@ -521,13 +565,14 @@ Cache-Control: no-store
 
 ## 処理手順
 
-※ 4.4 ファイル取得 / 4.5 ダウンロード履歴記録 / 4.6 操作ログ記録 は単一トランザクション内で実行する。
-  いずれかが失敗した場合は全てロールバックすること。
-  例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+※ 本 API はファイルを返却するのみで `t_file_download` への新規 INSERT は行わない。
+  ストレージ取得（S3）はトランザクション外で先に完了させ、成功後に操作ログ（`t_log`,
+  log_type=4）を 1 件記録する。取得・ログのいずれかで失敗した場合はエラーログ
+  （log_type=3）をトランザクション外で別途記録する。
 
 ### 4.1 リクエストのバリデーション
 
-- `file_upload_id`: 必須、整数、最小 1。
+- `file_download_id`: 必須、整数、最小 1。
 
 ### 4.2 認証・認可チェック
 
@@ -542,70 +587,40 @@ Cache-Control: no-store
 
 ```sql
 SELECT
-    fu.file_upload_id,
-    fu.ja_id,
-    fu.file_name,
-    fu.file_path,
-    fu.file_size,
-    fu.record_count
-  FROM t_file_upload fu
- WHERE fu.file_upload_id = :file_upload_id
-   AND fu.deleted_at IS NULL
+    fd.file_download_id,
+    fd.ja_id,
+    fd.file_name,
+    fd.file_path,
+    fd.file_size,
+    fd.record_count,
+    fd.nichino_download_allowed_flg
+  FROM t_file_download fd
+ WHERE fd.file_download_id = :file_download_id
+   AND fd.deleted_at IS NULL
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
 - DataScope に違反する場合：HTTP 404 (`NOT_FOUND`)（存在隠蔽）
 
-### 4.4 ファイル取得
+### 4.4 日農ダウンロード許可チェック
+
+- ログインユーザが日農（NICHINO_ADMIN / NICHINO_STAFF）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。
+- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA 系ロールは本フラグの影響を受けない。
+
+### 4.5 ファイル取得
 
 - AWS S3 SDK で `file_path` のオブジェクトを取得し、レスポンスストリームへパイプ。
+- ストレージ取得はトランザクション外で先に行う（失敗時に `t_log` を残さないため）。
 - レスポンスヘッダ:
   - `Content-Type`: ファイル拡張子から判定（API-022-002 と同じロジック）
   - `Content-Disposition`: `attachment; filename="<file_name>"; filename*=UTF-8''<URL-encoded file_name>`
-  - `Content-Length`: `fu.file_size`
+  - `Content-Length`: `fd.file_size`
   - `Cache-Control`: `no-store`
 
-### 4.5 ダウンロード履歴の記録（`t_file_download`）
-
-- ボタン押下のたびに `t_file_download` テーブルに 1 レコードを INSERT する（ダウンロード履歴）。
-
-```sql
-INSERT INTO t_file_download (
-    ja_id,
-    download_datetime,
-    download_type,
-    file_name,
-    file_path,
-    file_size,
-    record_count,
-    target_month,
-    created_at,
-    created_by
-) VALUES (
-    :user_ja_id,            -- ダウンロード実行者の所属 JA。NICHINO_* は NULL を許容
-    NOW(),                  -- ダウンロード実行日時
-    :download_type,         -- ファイル拡張子／命名規則から判定（1:口座振替, 2:その他, 3:増減連絡票, 4:増減通知書, 5:購読者名簿）
-    :file_name,             -- 元ファイル名（`fu.file_name`）
-    :file_path,             -- S3 パス（`fu.file_path`）
-    :file_size,             -- ファイルサイズ（`fu.file_size`）
-    :record_count,          -- レコード件数（`fu.record_count`、NULL の場合は 0）
-    :target_month,          -- 対象年月（YYYYMM、ファイル名から導出。判定不可は空文字）
-    NOW(),
-    :user_login_id          -- ダウンロード実行者のログイン ID（`m_account.login_id`）
-)
-RETURNING file_download_id
-```
-
-- `download_type` は以下の優先順で判定する：
-  - ファイル名に `kouza_furikae` を含む → 1（口座振替）
-  - ファイル名に `zougen_renraku` を含む → 3（増減連絡票）
-  - ファイル名に `zougen_tsuchi` を含む → 4（増減通知書）
-  - ファイル名に `meibo` または `dokusya_meibo` を含む → 5（購読者名簿）
-  - 上記いずれにも該当しない → 2（その他）
-- `t_file_download` の `ja_id` はダウンロード実行者の JA。NICHINO_ADMIN / NICHINO_STAFF が全 JA 向けファイル（`fu.ja_id IS NULL`）をダウンロードする場合は `t_file_download.ja_id = NULL` を許容する。
-- 同一ファイルを複数回ダウンロードすると、その都度 `t_file_download` に行が増える（履歴として全件保持）。
-
 ### 4.6 操作ログ記録（`t_log`）
+
+- ダウンロード実行の証跡は `t_log`（log_type=4 / operation=DOWNLOAD）のみ。`t_file_download`
+  への INSERT は行わない（`t_file_download` の行は各帳票出力画面が生成する）。
 
 ```sql
 INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
@@ -614,7 +629,7 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    ip_address, user_agent)
 VALUES (4, NOW(), :account_id, :user_ja_id,
         'ファイルダウンロード画面', 'DOWNLOAD', 1,
-        :file_upload_id, 't_file_upload',
+        :file_download_id, 't_file_download',
         '',
         :downloaded_file_metadata_json,
         :ip_address, :user_agent)
@@ -623,7 +638,7 @@ VALUES (4, NOW(), :account_id, :user_ja_id,
 - `log_type = 4`（ファイル操作）。
 - `operation = 'DOWNLOAD'`（ダウンロード操作）。
 - `before_value`: 空文字（取得時の状態変化はないため）。
-- `after_value`: ダウンロードしたファイルのメタ情報 JSON（`file_upload_id`, `file_download_id`（4.5 の RETURNING 値）, `file_name`, `file_size`, `ja_id`）。
+- `after_value`: ダウンロードしたファイルのメタ情報 JSON（`file_download_id`, `file_name`, `file_size`, `ja_id`）。
 
 ### 4.7 レスポンス生成
 
@@ -635,12 +650,10 @@ VALUES (4, NOW(), :account_id, :user_ja_id,
 
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
+- 日農が `nichino_download_allowed_flg=false` のファイルをダウンロードしようとした場合：HTTP 403 (`FORBIDDEN`)
 - レコードが存在しない、または DataScope 違反の場合：HTTP 404 (`NOT_FOUND`)
 - S3 / DB 接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
 - レート制限超過の場合：HTTP 429 (`TOO_MANY_REQUESTS`)
-- トランザクションロールバック方針:
-  - `t_file_download` INSERT または `t_log` INSERT のいずれかが失敗した場合、トランザクション全体をロールバックし、ダウンロード自体も失敗扱い（HTTP 500）とする。
-  - ※ S3 ストリームは BE 側で先頭バイトを送出する前にトランザクションをコミットする運用（コミット失敗時はクライアントに 500 を返却し、HTTP ボディ送出を中止する）。
 - エラーログ記録（トランザクション外で別途記録）:
 
 ```sql
@@ -650,8 +663,158 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    ip_address, user_agent)
 VALUES (3, NOW(), :account_id, :user_ja_id,
         'ファイルダウンロード画面', 'DOWNLOAD', 2,
-        :file_upload_id, 't_file_upload',
+        :file_download_id, 't_file_download',
         :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```
+
+---
+
+# API ACSMS-API-022-004
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | Download Files (ZIP)                                                                                                                                                                                                                                    |
+| 概要                   | 一覧で複数選択したファイルを 1 つの ZIP アーカイブにまとめてストリーム返却する。各ファイルは API-022-003 と同じ DataScope / 日農ダウンロード許可チェックを通過する必要がある。`t_file_download` への新規 INSERT は行わず、操作ログ (`t_log`, log_type=4 / operation=DOWNLOAD) を **1 件のみ**（バッチ単位で）記録する。データソースは `t_file_download`。 |
+| URI                    | /api/v1/file-download/download-zip                                                                                                                                                                                                                     |
+| メソッド               | POST                                                                                                                                                                                                                                                    |
+| リクエストボディー     | `{ "file_download_ids": number[] }`（1〜50 件・重複不可）                                                                                                                                                                                              |
+| リクエストパラメーター | なし（パスパラメータなし）                                                                                                                                                                                                                             |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                   |
+| HTTPレスポンスコード   | 200:正常にファイルをダウンロードしました（ZIP バイナリ応答）, 400:リクエストが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたファイルが見つかりません, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| #   | パラメーターID     | タイプ    | 必須 | 最小長 | 最大長 | 説明                                                                    |
+| --- | ------------------ | --------- | ---- | ------ | ------ | ----------------------------------------------------------------------- |
+| 1   | file_download_ids  | Integer[] | ○    | 1 件   | 50 件  | 一括ダウンロード対象の `file_download_id` 配列（1〜50 件・重複不可）     |
+
+## リクエスト例
+
+```json
+POST /api/v1/file-download/download-zip
+{
+  "file_download_ids": [101, 102, 103]
+}
+```
+
+## レスポンスデータ
+
+正常時は ZIP バイナリストリームを返却する。JSON ボディは存在しない。レスポンスヘッダで以下を返却する。
+
+| ヘッダ                | 説明                                                                     |
+| --------------------- | ------------------------------------------------------------------------ |
+| Content-Type          | `application/zip`                                                         |
+| Content-Disposition   | `attachment; filename="files_<yyyyMMdd_HHmmss>.zip"`                      |
+| Cache-Control         | `no-store`                                                               |
+
+## レスポンス成功例
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/zip
+Content-Disposition: attachment; filename="files_20260702_101530.zip"
+Cache-Control: no-store
+
+<binary ZIP stream>
+```
+
+## レスポンス失敗例
+
+### HTTP 400 — VALIDATION_ERROR
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が正しくありません。",
+  "errors": [
+    { "field": "file_download_ids", "message": "ファイルを選択してください。" }
+  ]
+}
+```
+
+- 0 件（空配列）: `ファイルを選択してください。`
+- 51 件以上: `一括ダウンロードは最大50件までです。`
+- ID 重複: `ファイルIDが重複しています。`
+- 非整数: `ファイルIDは整数で指定してください。`
+
+### HTTP 401 — UNAUTHORIZED
+
+```json
+{
+  "error_code": "UNAUTHORIZED",
+  "message": "セッションが切れました。再度ログインしてください。"
+}
+```
+
+### HTTP 403 — FORBIDDEN
+
+```json
+{
+  "error_code": "FORBIDDEN",
+  "message": "このファイルは日農のダウンロードが許可されていません。"
+}
+```
+
+### HTTP 404 — NOT_FOUND
+
+```json
+{
+  "error_code": "NOT_FOUND",
+  "message": "指定されたファイルが見つかりません。"
+}
+```
+
+### HTTP 500 — INTERNAL_SERVER_ERROR
+
+```json
+{
+  "error_code": "INTERNAL_SERVER_ERROR",
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
+}
+```
+
+## 処理手順
+
+### 4.1 リクエストのバリデーション
+
+- `file_download_ids`: 必須、配列、1〜50 件、要素は整数、重複不可。
+  - 空配列: `ファイルを選択してください。`
+  - 51 件以上: `一括ダウンロードは最大50件までです。`
+  - 重複: `ファイルIDが重複しています。`
+  - 非整数: `ファイルIDは整数で指定してください。`
+
+### 4.2 認証・認可チェック
+
+- 認証情報を検証する（HTTP-only Cookieセッション）。未認証: HTTP 401。
+- 必要権限: `file.download`。権限不足: HTTP 403。
+
+### 4.3 データ取得・各ファイルのチェック
+
+- `file_download_ids` の各 ID について `t_file_download`（`deleted_at IS NULL`）を取得する。
+- 各行に対し以下を実施する:
+  - DataScope チェック（API-022-001 と同一）。スコープ外は HTTP 404（存在隠蔽）。
+  - 日農ダウンロード許可チェック（API-022-003 4.4 と同一）。日農かつ `nichino_download_allowed_flg=false` は HTTP 403。
+
+### 4.4 ZIP 生成・返却
+
+- 各ファイルを S3 から取得し、1 つの ZIP アーカイブに追加してストリーム返却する。
+- レスポンスヘッダ: `Content-Type: application/zip`, `Content-Disposition: attachment; filename="files_<yyyyMMdd_HHmmss>.zip"`, `Cache-Control: no-store`。
+
+### 4.5 操作ログ記録（`t_log`）
+
+- バッチ全体で `t_log`（log_type=4 / operation=DOWNLOAD）を **1 件のみ** 記録する。`t_file_download` への INSERT は行わない。
+- `after_value`: 一括ダウンロードしたファイルのメタ情報 JSON（対象 `file_download_id` 配列・件数）。
+
+### 4.6 例外処理
+
+- 認証失敗: HTTP 401 (`UNAUTHORIZED`)
+- 権限がない: HTTP 403 (`FORBIDDEN`)
+- 日農が `nichino_download_allowed_flg=false` のファイルを含めて要求した場合: HTTP 403 (`FORBIDDEN`)
+- いずれかのファイルが存在しない、または DataScope 違反: HTTP 404 (`NOT_FOUND`)
+- バリデーションエラー: HTTP 400 (`VALIDATION_ERROR`)
+- S3 / DB 接続エラー等: HTTP 500 (`INTERNAL_SERVER_ERROR`)
+- エラーログ（log_type=3）はトランザクション外で別途記録する。
 

@@ -55,11 +55,11 @@ const hasReports = computed(
   () => previewData.value !== null && previewData.value.reports.length > 0,
 );
 
-/** 適用日 YYYY-MM-DD → 「YYYY年M月D日より」（帳票の見出し表記）。 */
+/** 適用日 YYYY-MM-DD → 「YYYY年M月D日」（帳票の見出し表記）。 */
 function formatJpDate(iso: string): string {
   const [y, m, d] = (iso ?? '').split('-');
   if (!y || !m || !d) return iso ?? '';
-  return `${y}年${Number(m)}月${Number(d)}日より`;
+  return `${y}年${Number(m)}月${Number(d)}日`;
 }
 
 /** 管理支店コード10桁を 3-4-3 のハイフン区切りに整形（例: 1AA3300001 → 1AA-3300-001）。 */
@@ -70,11 +70,6 @@ function formatKanriShitenCode(code = ''): string {
 /** 組合名：管理支店コード(3-4-3): JA名 + 管理支店名（帳票ヘッダ §2.3）。 */
 function kumiaiName(report: ZougenNichinoPreviewData['reports'][number]): string {
   return `${formatKanriShitenCode(report.kanri_shiten_code)}: ${report.ja_name} ${report.kanri_shiten_name}`;
-}
-
-/** 減部数は「▲」付きで表示（例: 2部減 → ▲2）。0は「0」。 */
-function genDisplay(gen: number): string {
-  return gen > 0 ? `▲${gen}` : '0';
 }
 
 function validate(): boolean {
@@ -277,29 +272,44 @@ defineExpose({ formState });
               </h3>
             </div>
             <div class="text-xs text-right text-text-description">
-              Page：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}
+              ページ数：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}
             </div>
           </div>
 
-          <!-- 見出し：適用日 / 都道府県 / 組合名 / 担当 -->
-          <div class="text-sm mb-4 space-y-0.5 text-text-main">
+          <!-- 発行元ヘッダと見出しの区切り線（index.html 準拠）。 -->
+          <div class="border-t border-border my-3"></div>
+
+          <!-- 見出し：適用日（左） / 都道府県名（右）。index.html 準拠。 -->
+          <div class="grid grid-cols-2 gap-12 text-sm text-text-main mb-1">
             <div>適用日：{{ formatJpDate(previewData?.tekiyo_date ?? '') }}</div>
             <div>都道府県名：{{ report.todofuken_name }}</div>
-            <div>組合名：{{ kumiaiName(report) }}</div>
-            <div>
-              担当部署：{{ report.tanto_busho || '-' }}　担当者：{{ report.tanto_name || '-' }}
-              　TEL：{{ report.tel || '-' }}　FAX：{{ report.fax || '-' }}
+          </div>
+          <!-- 組合名 + 担当情報（右カラムのみ）。 -->
+          <div class="grid grid-cols-2 gap-12 mb-4 text-text-main">
+            <div class="col-start-2">
+              <div class="text-sm mb-1 font-bold">組合名：{{ kumiaiName(report) }}</div>
+              <!-- 部署／担当者は帳票上で手書き記入する空欄（下線）。「____ 部／ ____」形式。
+                   固定幅の下線で左寄せし、組合名・TEL・FAX と行頭を揃える。 -->
+              <div class="text-sm mb-1 whitespace-nowrap">
+                <span class="inline-block w-24 border-b border-border-strong align-bottom">&nbsp;</span>
+                <span class="px-1">部／ 担当：</span>
+                <span class="inline-block w-24 border-b border-border-strong align-bottom">&nbsp;</span>
+              </div>
+              <div class="text-xs">TEL：{{ report.tel || '-' }}</div>
+              <div class="text-xs">FAX：{{ report.fax || '-' }}</div>
             </div>
           </div>
 
           <!-- 明細テーブル -->
           <table class="w-full text-xs border-collapse" style="table-layout: fixed">
             <colgroup>
-              <col style="width: 8%" /><col style="width: 18%" /><col style="width: 34%" />
+              <col style="width: 4%" /><col style="width: 8%" /><col style="width: 16%" /><col style="width: 32%" />
               <col style="width: 10%" /><col style="width: 10%" /><col style="width: 10%" /><col style="width: 10%" />
             </colgroup>
             <thead>
               <tr class="bg-surface-card-subtle">
+                <!-- 増減マーカー（◆）用の先頭列（他列と同じ枠線）。 -->
+                <th class="border border-border-strong px-2 py-1.5"></th>
                 <th class="border border-border-strong px-2 py-1.5 text-center font-medium">委託</th>
                 <th class="border border-border-strong px-2 py-1.5 text-center font-medium">販売店コード</th>
                 <th class="border border-border-strong px-2 py-1.5 text-center font-medium">販売店名</th>
@@ -311,22 +321,25 @@ defineExpose({ formState });
             </thead>
             <tbody>
               <tr v-for="row in report.rows" :key="row.hanbaiten_id">
+                <!-- 増減マーカー（◆）は行頭のセルに表示する（他列と同じ枠線）。 -->
+                <td class="border border-border-strong px-2 py-1.5 text-center font-bold">
+                  <span v-if="row.diff_mark">◆</span>
+                </td>
                 <td class="border border-border-strong px-2 py-1.5 text-center">{{ row.itaku_label }}</td>
                 <td class="border border-border-strong px-2 py-1.5">{{ row.hanbaiten_code }}</td>
-                <td class="border border-border-strong px-2 py-1.5">
-                  <span v-if="row.diff_mark" class="text-error mr-1">◆</span>{{ row.hanbaiten_name }}
-                </td>
+                <td class="border border-border-strong px-2 py-1.5">{{ row.hanbaiten_name }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.genzai_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.zou_busu }}</td>
-                <td class="border border-border-strong px-2 py-1.5 text-right">{{ genDisplay(row.gen_busu) }}</td>
+                <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.gen_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.shin_busu }}</td>
               </tr>
               <!-- 合計行 -->
               <tr class="bg-surface-card-subtle font-semibold">
+                <td class="border border-border-strong px-2 py-1.5"></td>
                 <td class="border border-border-strong px-2 py-1.5 text-center" colspan="3">合計</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.genzai_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.zou_busu }}</td>
-                <td class="border border-border-strong px-2 py-1.5 text-right">{{ genDisplay(report.total.gen_busu) }}</td>
+                <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.gen_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.shin_busu }}</td>
               </tr>
             </tbody>

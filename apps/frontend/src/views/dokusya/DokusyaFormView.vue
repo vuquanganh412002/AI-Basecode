@@ -416,7 +416,7 @@ async function fetchHanbaitenOptions(includeId?: number): Promise<void> {
     const base: HanbaitenDropdownQuery = { active_only: true };
     if (sessionJaId.value !== null) base.ja_id = sessionJaId.value;
     const resp = await getHanbaitenDropdown(
-      includeId != null ? { ...base, include_id: includeId } : base,
+      includeId == null ? base : { ...base, include_id: includeId },
     );
     hanbaitenOptions.value = resp.data;
   } catch {

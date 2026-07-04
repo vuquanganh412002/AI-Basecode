@@ -29,6 +29,7 @@ const SCREEN_NAME = 'ファイルダウンロード画面 (ACSMS-SCR-022)';
 const TABLE_NAME = 't_file_download';
 
 type Numericish = number | string | null;
+type Dateish = Date | string | null;
 
 interface JoinedRow {
   file_download_id: Numericish;
@@ -41,12 +42,12 @@ interface JoinedRow {
   file_size: Numericish;
   record_count: Numericish;
   target_month: string | null;
-  scheduled_delete_date: Date | string | null;
+  scheduled_delete_date: Dateish;
   nichino_download_allowed_flg: boolean;
-  deleted_at: Date | string | null;
+  deleted_at: Dateish;
   created_by: string;
   created_by_name: string | null;
-  created_at: Date | string | null;
+  created_at: Dateish;
 }
 
 interface DownloadResult {
@@ -69,7 +70,7 @@ function contentTypeFor(fileName: string): string {
 }
 
 /** Date / pg-mem 文字列 → ISO 8601（+09:00）。null は null のまま。 */
-function toIso(v: Date | string | null): string | null {
+function toIso(v: Dateish): string | null {
   if (v == null) return null;
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
 }
@@ -151,8 +152,7 @@ export class FileDownloadService {
       wheres.push(`fd.download_type = $${queryParams.length}`);
     }
     // 論理削除された行はダウンロードできないため一覧から除外する。
-    wheres.push('fd.deleted_at IS NULL');
-    wheres.push(scopeClause);
+    wheres.push('fd.deleted_at IS NULL', scopeClause);
     const whereSql = wheres.join(' AND ');
 
     const countSql = `

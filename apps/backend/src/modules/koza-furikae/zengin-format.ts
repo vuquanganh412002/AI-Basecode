@@ -54,7 +54,7 @@ export function toHankaku(input: string | null | undefined): string {
     const code = ch.codePointAt(0) as number;
     // 全角英数記号 ！(FF01)〜～(FF5E) → 半角 !(21)〜~(7E)
     if (code >= 0xff01 && code <= 0xff5e) {
-      out += String.fromCharCode(code - 0xfee0);
+      out += String.fromCodePoint(code - 0xfee0);
       continue;
     }
     if (code === 0x3000) {

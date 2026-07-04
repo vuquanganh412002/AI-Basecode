@@ -5,11 +5,11 @@ document_name: テスト仕様書
 screen_id: ACSMS-SCR-022
 screen_name: ファイルダウンロード画面
 format_code: 16-BM/PM/VTI
-format_version: "1.0"
-issue_date: 2026-05-27
+format_version: "1.1"
+issue_date: 2026-07-02
 test_level: 結合テスト
 test_environment: Windows 10/11, Chrome, Edge
-author: Kieu Thi Diem
+author: Tran Duc Tuyen
 reviewer: Nguyen Huy Dat
 ---
 
@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-27 | 1.0 | Kieu Thi Diem | 新規作成 | Nguyen Huy Dat |  |
+| 2 | 2026-07-02 | 1.1 | Tran Duc Tuyen | データソースを t_file_download に変更。一覧列を再構成(対象年月列削除、ダウンロード種別追加)。ダウンロード実行はt_file_download未INSERT・t_log(log_type=4)のみ。日農ダウンロード許可フラグ(403制御)と複数ファイル一括ダウンロード(ZIP)のテストケースを追加。 |  |  |
 
 
 ## システム概要
@@ -53,15 +54,15 @@ reviewer: Nguyen Huy Dat
 
 | # | カテゴリ | テストケース数 |
 | --- | --- | --- |
-| 1 | アクセス権限制御（Access Control） | 6 |
+| 1 | アクセス権限制御（Access Control） | 9 |
 | 2 | 画面表示・レスポンシブ（Layout & Responsive） | 6 |
 | 3 | ヘッダー・パンくず（Header & Breadcrumb） | 3 |
-| 4 | 入力バリデーション — 検索条件 | 8 |
-| 5 | 業務ロジック — 検索・一覧（Function — Search） | 8 |
+| 4 | 入力バリデーション — 検索条件 | 9 |
+| 5 | 業務ロジック — 検索・一覧（Function — Search） | 9 |
 | 6 | 業務ロジック — プレビュー（Function — Preview） | 4 |
-| 7 | 業務ロジック — ダウンロード（Function — Download） | 6 |
+| 7 | 業務ロジック — ダウンロード（Function — Download） | 10 |
 | 8 | 共通エラーハンドリング（Common Error Handling） | 8 |
-|  | 合計 | 49 |
+|  | 合計 | 58 |
 
 ---
 
@@ -82,13 +83,13 @@ reviewer: Nguyen Huy Dat
 ダッシュボードを開き、サイドバーまたはメニューから「ファイルダウンロード」へ遷移
 
 ステップ2：
-URL `/file-upload` に直接アクセス
+URL `/file-download` に直接アクセス
 
 ステップ3：
-DevTools の Network タブで GET `/api/v1/file-upload` のレスポンスを確認
+DevTools の Network タブで GET `/api/v1/file-download` のレスポンスを確認
 
 ステップ4：
-DB で `SELECT COUNT(*) FROM t_file_upload WHERE deleted_at IS NULL` を実行し、返却件数と一致するか確認
+DB で `SELECT COUNT(*) FROM t_file_download WHERE deleted_at IS NULL` を実行し、返却件数と一致するか確認
 
 ### 期待結果
 
@@ -105,7 +106,7 @@ HTTPステータスコード200が返却されること、`data` 配列に複数
 DB 全件数とレスポンス `meta.total` が一致すること（NICHINO_ADMIN は DataScope フィルタなしで全件参照可能）
 
 補足：
-・NICHINO_ADMIN は `t_file_upload` 全件を参照できる役割であり、`ja_id IS NULL`（全 JA 向け）ファイルおよび他 JA のファイルも見えること
+・NICHINO_ADMIN は `t_file_download` 全件を参照できる役割であり、`ja_id IS NULL`（全 JA 向け）ファイルおよび他 JA のファイルも見えること
 ・サイドバーにメニュー項目が表示され、誤って非表示にならないこと
 
 ### テスト結果（1回目）
@@ -144,10 +145,10 @@ DB 全件数とレスポンス `meta.total` が一致すること（NICHINO_ADMI
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセス
+URL `/file-download` にアクセス
 
 ステップ2：
-GET `/api/v1/file-upload` を呼び出し、レスポンス `data[].ja_id` の分布を確認
+GET `/api/v1/file-download` を呼び出し、レスポンス `data[].ja_id` の分布を確認
 
 ### 期待結果
 
@@ -197,13 +198,13 @@ HTTPステータスコード200が返却されること、複数 JA のファイ
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセス
+URL `/file-download` にアクセス
 
 ステップ2：
-GET `/api/v1/file-upload?per_page=100` を呼び出し、`data[].ja_id` の値を確認
+GET `/api/v1/file-download?per_page=100` を呼び出し、`data[].ja_id` の値を確認
 
 ステップ3：
-管轄外 JA のファイル（`ja_id` がスコープ外）を直接ダウンロード API GET `/api/v1/file-upload/{file_upload_id}/download` で呼び出し
+管轄外 JA のファイル（`ja_id` がスコープ外）を直接ダウンロード API GET `/api/v1/file-download/{file_download_id}/download` で呼び出し
 
 ### 期待結果
 
@@ -256,10 +257,10 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセスし、一覧を確認
+URL `/file-download` にアクセスし、一覧を確認
 
 ステップ2：
-他 JA のファイル ID を DevTools から GET `/api/v1/file-upload/{file_upload_id}/preview` に渡して直接呼び出し
+他 JA のファイル ID を DevTools から GET `/api/v1/file-download/{file_download_id}/preview` に渡して直接呼び出し
 
 ### 期待結果
 
@@ -308,10 +309,10 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセスし、一覧を確認
+URL `/file-download` にアクセスし、一覧を確認
 
 ステップ2：
-他 JA のファイル ID を直接 GET `/api/v1/file-upload/{file_upload_id}/download` に渡して呼び出し
+他 JA のファイル ID を直接 GET `/api/v1/file-download/{file_download_id}/download` に渡して呼び出し
 
 ### 期待結果
 
@@ -359,21 +360,191 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 ### 手順
 
 ステップ1：
-ブラウザのアドレスバーに直接 `/file-upload` を入力してアクセス
+ブラウザのアドレスバーに直接 `/file-download` を入力してアクセス
 
 ステップ2：
-DevTools から GET `/api/v1/file-upload` を呼び出し
+DevTools から GET `/api/v1/file-download` を呼び出し
 
 ### 期待結果
 
 ステップ1：
-ログイン画面 `/login` へ遷移すること、URL クエリパラメータに `redirect=/file-upload` が付与されること
+ログイン画面 `/login` へ遷移すること、URL クエリパラメータに `redirect=/file-download` が付与されること
 
 ステップ2：
 HTTPステータスコード401が返却されること（`error_code: UNAUTHORIZED`、メッセージ `セッションが切れました。再度ログインしてください。`）
 
 補足：
 ・ルーターガードでセッション未保有を検知し、ログイン後の遷移先を URL クエリに保持すること
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-050 — 日農ロール × nichino_download_allowed_flg=false のダウンロード禁止（403 + 行 disabled）
+
+- 観点ID: VP-A-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN（役割 ID = 1）
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：`t_file_download` に `nichino_download_allowed_flg = false`（日農ダウンロード不許可）のファイル 1 件（S3 上に実体存在）
+
+### 手順
+
+ステップ1：
+URL `/file-download` にアクセスし、該当ファイルが一覧に表示されるか確認
+
+ステップ2：
+該当ファイル行のチェックボックスおよび操作ボタン（プレビュー / ダウンロード）の状態を確認
+
+ステップ3：
+DevTools から GET `/api/v1/file-download/{file_download_id}/download` を直接送信
+
+ステップ4：
+DevTools から GET `/api/v1/file-download/{file_download_id}/preview` を直接送信
+
+### 期待結果
+
+ステップ1：
+該当ファイルが一覧に表示されること（行自体は非表示にならないこと）
+
+ステップ2：
+該当行のチェックボックス・操作が無効（disabled）状態であること（`nichino_download_allowed_flg = false` の日農ロールは操作不可）
+
+ステップ3：
+HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `このファイルは日農のダウンロードが許可されていません。`）、ダウンロード処理が実行されないこと
+
+ステップ4：
+HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `このファイルは日農のダウンロードが許可されていません。`）、プレビューが実行されないこと
+
+補足：
+・日農ロール（NICHINO_ADMIN 役割1 / NICHINO_STAFF 役割2）は `nichino_download_allowed_flg = false` のファイルをダウンロード / プレビュー不可
+・行は一覧に表示されるが、操作は無効（disabled）となること
+・行 disabled 条件：(a) 論理削除済（`deleted_at ≠ NULL`）OR (b) 日農ロール かつ `nichino_download_allowed_flg = false`
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-051 — 日農ロール × nichino_download_allowed_flg=true のダウンロード許可
+
+- 観点ID: VP-A-03
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_STAFF（役割 ID = 2）
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：`t_file_download` に `nichino_download_allowed_flg = true`（日農ダウンロード許可）のファイル 1 件（S3 上に実体存在）
+
+### 手順
+
+ステップ1：
+URL `/file-download` にアクセスし、該当ファイル行のチェックボックス・操作の状態を確認
+
+ステップ2：
+該当ファイルのチェックボックスをオンにし、ダウンロード実行ボタンを押下、GET `/api/v1/file-download/{file_download_id}/download` のレスポンスを確認
+
+### 期待結果
+
+ステップ1：
+該当行のチェックボックス・操作が有効（disabled でない）状態であること
+
+ステップ2：
+HTTPステータスコード200が返却されること、ファイルがダウンロードされ、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること
+
+補足：
+・`nichino_download_allowed_flg = true` のファイルは日農ロールでも通常どおりダウンロード可能であること
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-052 — JA系ロールは nichino_download_allowed_flg の影響を受けない
+
+- 観点ID: VP-A-03
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：自 JA に紐づく `nichino_download_allowed_flg = false` のファイル 1 件（S3 上に実体存在、DataScope 内）
+
+### 手順
+
+ステップ1：
+URL `/file-download` にアクセスし、該当ファイル行のチェックボックス・操作の状態を確認
+
+ステップ2：
+該当ファイルのチェックボックスをオンにし、ダウンロード実行ボタンを押下、GET `/api/v1/file-download/{file_download_id}/download` のレスポンスを確認
+
+### 期待結果
+
+ステップ1：
+該当行のチェックボックス・操作が有効（disabled でない）状態であること（JA系ロールは日農ダウンロード許可フラグの影響を受けない）
+
+ステップ2：
+HTTPステータスコード200が返却されること、ファイルがダウンロードされ、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること
+
+補足：
+・`nichino_download_allowed_flg` は日農ロール（役割1 / 役割2）のみに作用する制御であり、JA系ロール（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）は自身の DataScope 範囲内であればフラグ値に関わらずダウンロード / プレビュー可能であること
 
 ### テスト結果（1回目）
 
@@ -414,7 +585,7 @@ HTTPステータスコード401が返却されること（`error_code: UNAUTHORI
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセス
+URL `/file-download` にアクセス
 
 ステップ2：
 画面構成（タイトル、検索エリア、結果一覧、ページネーション）を視覚確認
@@ -479,6 +650,8 @@ URL `/file-upload` にアクセス
 ステップ1：
 ・ファイル名テキストボックスが表示されること（プレースホルダー：任意）
 ・都道府県プルダウンが表示されること（全 47 都道府県の選択肢を保持）
+・ダウンロード種別プルダウンが表示されること（m_code `DOWNLOAD_TYPE` の 5 選択肢：口座振替 / その他 / 増減連絡票 / 増減通知書 / 購読者名簿）
+・JA プルダウンが表示されること（NICHINO_ADMIN / NICHINO_STAFF のみ。JA系ロールでは非表示）
 
 ステップ2：
 ・主ボタン `検索` が表示されること
@@ -520,7 +693,7 @@ URL `/file-upload` にアクセス
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：`t_file_upload` に 5 件以上のファイルが存在
+  - ・テストデータ：`t_file_download` に 5 件以上のファイルが存在
 
 ### 手順
 
@@ -533,16 +706,20 @@ URL `/file-upload` にアクセス
 ### 期待結果
 
 ステップ1：
-カラムが左から `選択（チェックボックス） / アップロード日時 / 作成者 / ファイル名 / サイズ` の順序で表示されること
+カラムが左から `選択（チェックボックス） / ダウンロード日時 / 作成者 / JA名 / ダウンロード種別 / ファイル名 / サイズ / 操作` の順序で表示されること（旧「対象年月」カラムは廃止され、「JA名」「ダウンロード種別」カラムが追加されていること）
 
 ステップ2：
-・アップロード日時カラムに `YYYY/MM/DD HH:mm:ss` 形式の値が表示されること
-・作成者カラムに `m_account.account_name` の JOIN 結果が表示されること
+・ダウンロード日時カラムに `YYYY/MM/DD HH:mm:ss` 形式の値（`download_datetime`）が表示されること
+・作成者カラムに `created_by_name` の値が表示されること
+・JA名カラムに `ja_code` + `ja_name` の結合表示（`ja_id IS NULL` の全 JA 向けファイルは空欄）が表示されること
+・ダウンロード種別カラムに m_code `DOWNLOAD_TYPE`（1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿）のラベルが表示されること
 ・ファイル名カラムが強調色のリンク表示であること
 ・サイズカラムに人間可読のサイズ（例: `1.2 MB`）が表示されること
 
 補足：
-・JOIN 元データが存在しない場合、作成者は空欄表示されること
+・結果一覧は各帳票出力画面（SCR-020/021/026/028/029）が `t_file_download` に登録したファイルを表示すること
+・作成者名（`created_by_name`）の元データが存在しない場合、作成者は空欄表示されること
+・旧実装にあった「対象年月」カラムは現行仕様では存在しないこと
 
 ### テスト結果（1回目）
 
@@ -575,7 +752,7 @@ URL `/file-upload` にアクセス
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：`t_file_upload` に 100 件以上のファイルが存在
+  - ・テストデータ：`t_file_download` に 100 件以上のファイルが存在
 
 ### 手順
 
@@ -918,7 +1095,7 @@ Tab キーを順次押下し、フォーカス順序を確認
 ファイル名テキストボックスに `zougen` を入力
 
 ステップ2：
-検索ボタンを押下し、GET `/api/v1/file-upload?file_name=zougen` を確認
+検索ボタンを押下し、GET `/api/v1/file-download?file_name=zougen` を確認
 
 ### 期待結果
 
@@ -1020,7 +1197,7 @@ HTTPステータスコード200が返却されること、`data` に `zougen_tsu
 ファイル名テキストボックスに 255 文字の半角英数字を入力し、検索ボタンを押下
 
 ステップ2：
-DevTools 経由で GET `/api/v1/file-upload?file_name={256文字}` を直接送信
+DevTools 経由で GET `/api/v1/file-download?file_name={256文字}` を直接送信
 
 ### 期待結果
 
@@ -1126,13 +1303,13 @@ HTTPステータスコード200が返却されること、レスポンスに 47 
 ### 手順
 
 ステップ1：
-DevTools から GET `/api/v1/file-upload?todofuken_code=AB` を直接送信
+DevTools から GET `/api/v1/file-download?todofuken_code=AB` を直接送信
 
 ステップ2：
-GET `/api/v1/file-upload?todofuken_code=1` を直接送信
+GET `/api/v1/file-download?todofuken_code=1` を直接送信
 
 ステップ3：
-GET `/api/v1/file-upload?todofuken_code=999` を直接送信
+GET `/api/v1/file-download?todofuken_code=999` を直接送信
 
 ### 期待結果
 
@@ -1183,16 +1360,16 @@ HTTPステータスコード400が返却されること（桁数超過、形式�
 ### 手順
 
 ステップ1：
-GET `/api/v1/file-upload?per_page=1` を送信
+GET `/api/v1/file-download?per_page=1` を送信
 
 ステップ2：
-GET `/api/v1/file-upload?per_page=100` を送信
+GET `/api/v1/file-download?per_page=100` を送信
 
 ステップ3：
-GET `/api/v1/file-upload?per_page=101` を送信
+GET `/api/v1/file-download?per_page=101` を送信
 
 ステップ4：
-GET `/api/v1/file-upload?per_page=0` を送信
+GET `/api/v1/file-download?per_page=0` を送信
 
 ### 期待結果
 
@@ -1246,15 +1423,15 @@ HTTPステータスコード400が返却されること（最小 1 を下回る�
 ### 手順
 
 ステップ1：
-DevTools から GET `/api/v1/file-upload?sort_by=password` を送信
+DevTools から GET `/api/v1/file-download?sort_by=password` を送信
 
 ステップ2：
-GET `/api/v1/file-upload?sort_by=DROP TABLE` を送信
+GET `/api/v1/file-download?sort_by=DROP TABLE` を送信
 
 ### 期待結果
 
 ステップ1：
-HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`）— 許容値は `upload_datetime / file_name / created_by` のみ
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`）— 許容値は `download_datetime / file_name / file_size / created_by / created_by_name` のみ
 
 ステップ2：
 HTTPステータスコード400が返却されること、SQL インジェクションとして実行されないこと（パラメータ化クエリにより遮断）
@@ -1300,10 +1477,10 @@ HTTPステータスコード400が返却されること、SQL インジェクシ
 ファイル名テキストボックスに `' OR '1'='1` を入力し、検索ボタンを押下
 
 ステップ2：
-ファイル名テキストボックスに `'; DROP TABLE t_file_upload; --` を入力し、検索ボタンを押下
+ファイル名テキストボックスに `'; DROP TABLE t_file_download; --` を入力し、検索ボタンを押下
 
 ステップ3：
-DB で `SELECT COUNT(*) FROM t_file_upload` を実行し、テーブルが存在することを確認
+DB で `SELECT COUNT(*) FROM t_file_download` を実行し、テーブルが存在することを確認
 
 ### 期待結果
 
@@ -1314,10 +1491,67 @@ HTTPステータスコード200が返却されること、入力値が ILIKE パ
 HTTPステータスコード200が返却されること、テーブルへの破壊操作が実行されないこと
 
 ステップ3：
-`t_file_upload` テーブルが存在すること（破壊されていないこと）、データ不整合が発生しないこと
+`t_file_download` テーブルが存在すること（破壊されていないこと）、データ不整合が発生しないこと
 
 補足：
 ・パラメータ化クエリ（`ILIKE '%' || :file_name || '%'`）により SQL インジェクションが遮断されること
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-053 — ダウンロード種別（download_type）許容外値 直接送信
+
+- 観点ID: VP-B-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+
+### 手順
+
+ステップ1：
+DevTools から GET `/api/v1/file-download?download_type=1` を直接送信（有効値）
+
+ステップ2：
+GET `/api/v1/file-download?download_type=9` を直接送信（m_code DOWNLOAD_TYPE に存在しない値）
+
+ステップ3：
+GET `/api/v1/file-download?download_type=ABC` を直接送信（数値以外）
+
+### 期待結果
+
+ステップ1：
+HTTPステータスコード200が返却されること、`download_type = 1`（口座振替）のファイルのみに絞り込まれること
+
+ステップ2：
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、`errors` に `field: download_type` の値不正エラーが含まれること）— 許容値は m_code `DOWNLOAD_TYPE`（1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿）のみ
+
+ステップ3：
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、形式エラー）
+
+補足：
+・ダウンロード種別は m_code `DOWNLOAD_TYPE` の 5 種類のいずれかのみ許容すること
 
 ### テスト結果（1回目）
 
@@ -1347,25 +1581,25 @@ HTTPステータスコード200が返却されること、テーブルへの破�
 
 # カテゴリ 5: 業務ロジック — 検索・一覧（Function — Search）
 
-## ACSMS-TC-022-024 — 初期表示 — デフォルトソート（upload_datetime DESC）
+## ACSMS-TC-022-024 — 初期表示 — デフォルトソート（download_datetime DESC）
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：`t_file_upload` に異なるアップロード日時のレコードが 5 件以上存在
+  - ・テストデータ：`t_file_download` に異なるダウンロード日時のレコードが 5 件以上存在
 
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセス
+URL `/file-download` にアクセス
 
 ステップ2：
-結果一覧のアップロード日時カラムの並び順を確認
+結果一覧のダウンロード日時カラムの並び順を確認
 
 ステップ3：
-GET `/api/v1/file-upload` のレスポンスを確認
+GET `/api/v1/file-download` のレスポンスを確認
 
 ### 期待結果
 
@@ -1373,13 +1607,13 @@ GET `/api/v1/file-upload` のレスポンスを確認
 画面が表示されること
 
 ステップ2：
-アップロード日時が新しい順（DESC）に並んでいること
+ダウンロード日時が新しい順（DESC）に並んでいること
 
 ステップ3：
-レスポンスの `data` 配列が `upload_datetime` DESC で返却されること、`meta.page = 1`、`meta.per_page = 20` であること
+レスポンスの `data` 配列が `download_datetime` DESC で返却されること、`meta.page = 1`、`meta.per_page = 20` であること
 
 補足：
-・デフォルト ソート順は `upload_datetime DESC`（api.md §4.1）
+・デフォルト ソート順は `download_datetime DESC`（api.md §4.1）
 
 ### テスト結果（1回目）
 
@@ -1431,7 +1665,7 @@ GET `/api/v1/file-upload` のレスポンスを確認
 HTTPステータスコード200が返却されること、リクエスト `?file_name=meibo&todofuken_code=13` で送信されること、東京都の JA に紐づく 3 件のみ表示されること（全 JA 向けファイルは都道府県絞り込み時は除外）
 
 補足：
-・JOIN チェーン `t_file_upload.ja_id → m_ja.ja_id → m_ja.todofuken_code` を経由
+・JOIN チェーン `t_file_download.ja_id → m_ja.ja_id → m_ja.todofuken_code` を経由
 ・`ja_id IS NULL` のファイルは LEFT JOIN により `j.todofuken_code IS NULL` となり、`NULL = 13` は FALSE となるため除外（api.md §4.3）
 
 ### テスト結果（1回目）
@@ -1517,7 +1751,7 @@ HTTPステータスコード200が返却されること、リクエスト `?file
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：`t_file_upload` 内に `'XYZNOTFOUND'` を含むファイル名が存在しない
+  - ・テストデータ：`t_file_download` 内に `'XYZNOTFOUND'` を含むファイル名が存在しない
 
 ### 手順
 
@@ -1580,7 +1814,7 @@ HTTPステータスコード200が返却されること、`data: []` + `meta.tot
 ステップ2：
 ・ファイル名テキストボックスが空になること
 ・都道府県プルダウンが未選択状態になること
-・結果一覧がデフォルト一覧（全件、`upload_datetime DESC`）として再表示されること
+・結果一覧がデフォルト一覧（全件、`download_datetime DESC`）として再表示されること
 ・検索条件がクリアされること
 
 補足：
@@ -1639,7 +1873,7 @@ DevTools で送信される GET リクエストのパラメータを確認
 2 ページ目のファイル一覧に切り替わること、検索条件 `zougen` がテキストボックスに保持されること
 
 ステップ3：
-リクエストが `?file_name=zougen&page=2&per_page=20&sort_by=upload_datetime&sort_order=desc` で送信されること、検索条件が保持されること
+リクエストが `?file_name=zougen&page=2&per_page=20&sort_by=download_datetime&sort_order=desc` で送信されること、検索条件が保持されること
 
 補足：
 ・ページ番号変更時もユーザーが入力した検索条件が維持されること
@@ -1697,10 +1931,10 @@ DevTools で送信される GET リクエストのパラメータを確認
 ファイル名 DESC で並び替えられること、リクエストが `?sort_by=file_name&sort_order=desc` で送信されること
 
 ステップ3：
-ソート解除またはデフォルト（`upload_datetime DESC`）に戻ること（FE 実装ポリシーに依存、ソート順が正しいこと）
+ソート解除またはデフォルト（`download_datetime DESC`）に戻ること（FE 実装ポリシーに依存、ソート順が正しいこと）
 
 補足：
-・ソート対象カラムは `upload_datetime / file_name / created_by` の 3 種類（api.md §4.1）
+・ソート対象カラムは `download_datetime / file_name / file_size / created_by / created_by_name` の 5 種類（api.md §4.1）
 
 ### テスト結果（1回目）
 
@@ -1738,10 +1972,10 @@ DevTools で送信される GET リクエストのパラメータを確認
 ### 手順
 
 ステップ1：
-URL `/file-upload` にアクセスし、結果一覧の件数を確認
+URL `/file-download` にアクセスし、結果一覧の件数を確認
 
 ステップ2：
-DB で `SELECT COUNT(*) FROM t_file_upload WHERE deleted_at IS NULL` を実行
+DB で `SELECT COUNT(*) FROM t_file_download WHERE deleted_at IS NULL` を実行
 
 ### 期待結果
 
@@ -1753,6 +1987,65 @@ DB の有効件数が 3 件であること、画面表示件数と一致する�
 
 補足：
 ・WHERE 句に `fu.deleted_at IS NULL` を必ず含めること（api.md §4.3）
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-054 — ダウンロード種別による絞り込み検索
+
+- 観点ID: VP-C-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：`t_file_download` に `download_type = 1`（口座振替）2 件、`download_type = 4`（増減通知書）2 件、`download_type = 5`（購読者名簿）1 件
+
+### 手順
+
+ステップ1：
+ダウンロード種別プルダウンで「増減通知書」を選択し、検索ボタンを押下
+
+ステップ2：
+GET リクエストパラメータおよび結果一覧を確認
+
+ステップ3：
+ダウンロード種別プルダウンを未選択に戻し、検索ボタンを押下
+
+### 期待結果
+
+ステップ1：
+入力値が画面に反映されること
+
+ステップ2：
+HTTPステータスコード200が返却されること、リクエストが `?download_type=4` で送信されること、`download_type = 4`（増減通知書）の 2 件のみ表示されること
+
+ステップ3：
+ダウンロード種別の絞り込みが解除され、全 5 件が表示されること
+
+補足：
+・ダウンロード種別はプルダウンで m_code `DOWNLOAD_TYPE`（1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿）から選択すること
+・他の検索条件（ファイル名・都道府県・JA）と AND 条件で組み合わせ可能であること
 
 ### テスト結果（1回目）
 
@@ -1797,7 +2090,7 @@ DB の有効件数が 3 件であること、画面表示件数と一致する�
 結果一覧から PDF ファイル 1 件のチェックボックスをオンにする
 
 ステップ2：
-プレビューボタンを押下し、GET `/api/v1/file-upload/{file_upload_id}/preview` のレスポンスを確認
+プレビューボタンを押下し、GET `/api/v1/file-download/{file_download_id}/preview` のレスポンスを確認
 
 ステップ3：
 プレビューモーダル内に PDF が描画されることを確認
@@ -1907,7 +2200,7 @@ HTTPステータスコード200が返却されること、レスポンス `data.
 該当ファイルのチェックボックスをオンにし、プレビューボタンを押下
 
 ステップ2：
-GET `/api/v1/file-upload/{file_upload_id}/preview` のレスポンスを確認
+GET `/api/v1/file-download/{file_download_id}/preview` のレスポンスを確認
 
 ### 期待結果
 
@@ -1999,31 +2292,34 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 
 # カテゴリ 7: 業務ロジック — ダウンロード（Function — Download）
 
-## ACSMS-TC-022-036 — 単一ファイルダウンロード成功 + 履歴 + 監査ログ記録
+## ACSMS-TC-022-036 — 単一ファイルダウンロード成功 + t_file_download 未INSERT + 監査ログ記録
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: JA_HONTEN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：自 JA に紐づく PDF ファイル 1 件（S3 上に実体存在、ファイル名 `zougen_tsuchi_202604.pdf`）
+  - ・テストデータ：各帳票出力画面が `t_file_download` に登録した、自 JA に紐づく PDF ファイル 1 件（S3 上に実体存在、ファイル名 `zougen_tsuchi_202604.pdf`、`download_type = 4`）
 
 ### 手順
+
+ステップ0（事前計測）：
+DB で `SELECT COUNT(*) FROM t_file_download` を実行し、テスト前の総件数を記録
 
 ステップ1：
 結果一覧から該当ファイルのチェックボックスをオンにし、ダウンロード実行ボタンを押下
 
 ステップ2：
-GET `/api/v1/file-upload/{file_upload_id}/download` のレスポンスを確認
+GET `/api/v1/file-download/{file_download_id}/download` のレスポンスを確認
 
 ステップ3：
 ブラウザの保存ダイアログでファイルを保存し、内容が正しいことを確認
 
 ステップ4：
-DB で `SELECT * FROM t_file_download WHERE created_by = :login_id ORDER BY download_datetime DESC LIMIT 1` を実行
+DB で `SELECT COUNT(*) FROM t_file_download` を再実行し、ステップ0 の件数と比較
 
 ステップ5：
-DB で `SELECT * FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND target_id = :file_upload_id ORDER BY log_datetime DESC LIMIT 1` を実行
+DB で `SELECT * FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND target_id = :file_download_id ORDER BY log_datetime DESC LIMIT 1` を実行
 
 ### 期待結果
 
@@ -2037,14 +2333,14 @@ HTTPステータスコード200が返却されること、レスポンスヘッ�
 ブラウザでダウンロードが完了すること、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること、保存されたファイルが S3 上の実体と一致すること
 
 ステップ4：
-ダウンロード履歴が 1 件登録されること、`download_type = 4`（増減通知書、`zougen_tsuchi` から判定）、`ja_id = :user_ja_id`、`file_name = 'zougen_tsuchi_202604.pdf'` の値で記録されること
+`t_file_download` の総件数がステップ0 から増加していないこと（ダウンロード実行時に `t_file_download` への新規 INSERT は行わない仕様であること）
 
 ステップ5：
-監査ログが 1 件記録されること、`log_type = 4`（ファイル操作）、`operation = 'DOWNLOAD'`、`result_status = 1`、`after_value` にファイルメタ情報 JSON が含まれること
+監査ログが 1 件だけ記録されること、`log_type = 4`（ファイル操作）、`operation = 'DOWNLOAD'`、`result_status = 1`、`after_value` にファイルメタ情報 JSON が含まれること
 
 補足：
-・履歴 INSERT + 監査ログ INSERT は同一トランザクション内で実行されること（api.md §4 トランザクション方針）
-・`download_type` は ファイル名から自動判定（4：増減通知書）
+・`t_file_download` の行は各帳票出力画面（SCR-020/021/026/028/029）が登録するものであり、SCR-022 のダウンロード実行では INSERT しないこと
+・ダウンロード実行で記録されるのは操作ログ `t_log`（`log_type = 4` / `operation = 'DOWNLOAD'`）の 1 件のみであること
 
 ### テスト結果（1回目）
 
@@ -2070,39 +2366,56 @@ HTTPステータスコード200が返却されること、レスポンスヘッ�
 
 (なし)
 
-## ACSMS-TC-022-037 — 複数ファイル選択時のダウンロード実行
+## ACSMS-TC-022-037 — 複数ファイル選択時のダウンロード実行（ZIP 一括ダウンロード）
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: JA_HONTEN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：自 JA に紐づくファイル 3 件（PDF / CSV / Excel）
+  - ・テストデータ：各帳票出力画面が `t_file_download` に登録した、自 JA に紐づくファイル 3 件（PDF / CSV / Excel、S3 上に実体存在）
 
 ### 手順
+
+ステップ0（事前計測）：
+DB で `SELECT COUNT(*) FROM t_file_download` を実行し、テスト前の総件数を記録
 
 ステップ1：
 3 件のチェックボックスをオンにし、ダウンロード実行ボタンを押下
 
 ステップ2：
-ブラウザでダウンロードファイルを確認
+POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [id1, id2, id3] }`）のレスポンスを確認
 
 ステップ3：
-DB で `SELECT COUNT(*) FROM t_file_download WHERE created_by = :login_id AND download_datetime >= :test_start_time` を実行
+ブラウザでダウンロードされた ZIP ファイルを解凍し、3 ファイルが含まれることを確認
+
+ステップ4：
+DB で `SELECT COUNT(*) FROM t_file_download` を再実行し、ステップ0 の件数と比較
+
+ステップ5：
+DB で `SELECT COUNT(*) FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND account_id = :account_id AND log_datetime >= :test_start_time` を実行
 
 ### 期待結果
 
 ステップ1：
-ダウンロード処理が開始されること
+一括ダウンロード処理が開始されること
 
 ステップ2：
-3 ファイルすべてがダウンロードされること、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること
+HTTPステータスコード200が返却されること、レスポンスが ZIP 形式（`Content-Type: application/zip`）で返却されること、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること
 
 ステップ3：
-ダウンロード履歴に 3 行のレコードが記録されること、`t_log` にも 3 件の `log_type=4` レコードが記録されること
+ZIP を解凍すると 3 ファイルすべてが含まれること、各ファイルが S3 上の実体と一致すること
+
+ステップ4：
+`t_file_download` の総件数がステップ0 から増加していないこと（ZIP 一括ダウンロードでも `t_file_download` への新規 INSERT は行わないこと）
+
+ステップ5：
+操作ログ `t_log`（`log_type = 4` / `operation = 'DOWNLOAD'`）が 1 件だけ記録されること（複数ファイルでも一括ダウンロードにつき 1 件）
 
 補足：
-・複数選択時は各ファイルに対して個別の API リクエストを発行し、各々で履歴 + ログを記録すること
+・複数ファイル選択時は POST `/api/v1/file-download/download-zip` で ZIP 一括ダウンロードを行うこと
+・`file_download_ids` は 1〜50 件・重複不可（詳細は ACSMS-TC-022-055〜058 参照）
+・ZIP 一括ダウンロードでも `t_file_download` 未 INSERT、`t_log` は 1 件のみ記録すること
 
 ### テスト結果（1回目）
 
@@ -2186,15 +2499,15 @@ DB で `SELECT COUNT(*) FROM t_file_download WHERE created_by = :login_id AND do
 - 前提条件:
   - ・role: JA_HONTEN（自 JA の ja_id = 5）
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：他 JA（ja_id = 10）に紐づくファイル file_upload_id = 999 が存在
+  - ・テストデータ：他 JA（ja_id = 10）に紐づくファイル file_download_id = 999 が存在
 
 ### 手順
 
 ステップ1：
-ログインユーザに見えない他 JA のファイル ID（999）を DevTools 経由で GET `/api/v1/file-upload/999/download` に渡して呼び出し
+ログインユーザに見えない他 JA のファイル ID（999）を DevTools 経由で GET `/api/v1/file-download/999/download` に渡して呼び出し
 
 ステップ2：
-DB で `SELECT * FROM t_file_download WHERE file_path LIKE '%999%' AND created_by = :login_id` を実行
+DB で `SELECT * FROM t_log WHERE target_id = 999 AND account_id = :account_id AND log_type = 4 AND operation = 'DOWNLOAD' AND result_status = 1` を実行
 
 ステップ3：
 DB で `SELECT * FROM t_log WHERE target_id = 999 AND account_id = :account_id AND log_type = 3` を実行
@@ -2205,7 +2518,7 @@ DB で `SELECT * FROM t_log WHERE target_id = 999 AND account_id = :account_id A
 HTTPステータスコード404が返却されること（`error_code: NOT_FOUND`、メッセージ `指定されたファイルが見つかりません。`）— DataScope 違反は存在隠蔽として 404 を返す
 
 ステップ2：
-ダウンロード履歴が記録されないこと（業務書き込みが発生していないこと）
+成功扱いのダウンロード操作ログ（`log_type = 4` / `operation = 'DOWNLOAD'` / `result_status = 1`）が記録されないこと（ダウンロードが実行されていないこと）
 
 ステップ3：
 エラーログが記録されること（`log_type = 3`、`result_status = 2`、URL 直接攻撃の追跡用）
@@ -2245,18 +2558,21 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：通常ダウンロード可能なファイル 1 件、`t_log` テーブルに対する INSERT 権限を一時的に剥奪（テスト用）
+  - ・テストデータ：通常ダウンロード可能なファイル 1 件、ダウンロード操作ログ（`t_log`、`log_type = 4`）の INSERT が失敗するよう一時的に細工（テスト用）
 
 ### 手順
+
+ステップ0（事前計測）：
+DB で `SELECT COUNT(*) FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD'` を実行し、テスト前の件数を記録
 
 ステップ1：
 ファイルを選択し、ダウンロード実行ボタンを押下
 
 ステップ2：
-DB で `SELECT * FROM t_file_download WHERE created_by = :login_id ORDER BY download_datetime DESC LIMIT 1` を実行
+DB で `SELECT COUNT(*) FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND result_status = 1` を再実行し、ステップ0 の件数と比較
 
 ステップ3：
-`t_log` テーブル INSERT 権限を復元し、テスト終了
+細工を解除し、テスト終了
 
 ### 期待結果
 
@@ -2264,14 +2580,15 @@ DB で `SELECT * FROM t_file_download WHERE created_by = :login_id ORDER BY down
 HTTPステータスコード500が返却されること（`error_code: INTERNAL_SERVER_ERROR`、メッセージ `システムエラーが発生しました。しばらくしてから再度お試しください。`）、ファイルダウンロードが行われないこと
 
 ステップ2：
-履歴 INSERT がロールバックされ、レコードが存在しないこと（データ整合性が保たれること、トランザクションがロールバックされること）
+成功扱いのダウンロード操作ログ（`log_type = 4` / `result_status = 1`）が増加していないこと（操作ログ INSERT がロールバックされ、トランザクションが正しく巻き戻ること）
 
 ステップ3：
-権限復元後は通常通り動作すること
+細工解除後は通常どおり動作すること
 
 補足：
-・履歴 INSERT + 監査ログ INSERT は同一トランザクション、いずれか失敗時は全体ロールバック（api.md §4.8）
-・例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録される
+・ダウンロード実行では `t_file_download` への INSERT は行わず、記録されるのは操作ログ `t_log`（`log_type = 4`）1 件のみであること
+・その 1 件の操作ログ INSERT が失敗した場合はトランザクションがロールバックされ、成功扱いの中途半端なログが残らないこと（api.md §4.8）
+・例外処理中のエラーログ（`log_type = 3`）はトランザクション外で別途記録されること
 
 ### テスト結果（1回目）
 
@@ -2297,43 +2614,267 @@ HTTPステータスコード500が返却されること（`error_code: INTERNAL_
 
 (なし)
 
-## ACSMS-TC-022-041 — download_type 自動判定（口座振替 / 増減連絡票 / 増減通知書 / 購読者名簿 / その他）
+## ACSMS-TC-022-041 — ダウンロード種別カラムの m_code ラベル表示（口座振替 / 増減連絡票 / 増減通知書 / 購読者名簿 / その他）
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：以下 5 ファイル
-    - `kouza_furikae_202604.csv`（口座振替）
-    - `zougen_renraku_202604.csv`（増減連絡票）
-    - `zougen_tsuchi_202604.pdf`（増減通知書）
-    - `meibo_202604.pdf`（購読者名簿）
-    - `report_misc_202604.pdf`（その他）
+  - ・テストデータ：各帳票出力画面が `t_file_download` に登録した以下 5 ファイル（`download_type` は登録時に各画面が設定済み）
+    - `kouza_furikae_202604.csv`（`download_type = 1`：口座振替）
+    - `zougen_renraku_202604.csv`（`download_type = 3`：増減連絡票）
+    - `zougen_tsuchi_202604.pdf`（`download_type = 4`：増減通知書）
+    - `meibo_202604.pdf`（`download_type = 5`：購読者名簿）
+    - `report_misc_202604.pdf`（`download_type = 2`：その他）
 
 ### 手順
 
 ステップ1：
-上記 5 ファイルを順次ダウンロード
+URL `/file-download` にアクセスし、上記 5 ファイルの「ダウンロード種別」カラムの表示を確認
 
 ステップ2：
-DB で `SELECT file_name, download_type FROM t_file_download WHERE created_by = :login_id ORDER BY download_datetime DESC LIMIT 5` を実行
+DB で `SELECT file_name, download_type FROM t_file_download WHERE file_name IN (...)` を実行し、画面表示のラベルと DB 値の対応を確認
 
 ### 期待結果
 
 ステップ1：
-全 5 ファイルのダウンロードが成功すること
+「ダウンロード種別」カラムに m_code `DOWNLOAD_TYPE` のラベルが表示されること
+・`kouza_furikae_202604.csv` → `口座振替`
+・`zougen_renraku_202604.csv` → `増減連絡票`
+・`zougen_tsuchi_202604.pdf` → `増減通知書`
+・`meibo_202604.pdf` → `購読者名簿`
+・`report_misc_202604.pdf` → `その他`
 
 ステップ2：
-・`kouza_furikae_202604.csv` → `download_type = 1`
-・`zougen_renraku_202604.csv` → `download_type = 3`
-・`zougen_tsuchi_202604.pdf` → `download_type = 4`
-・`meibo_202604.pdf` → `download_type = 5`
-・`report_misc_202604.pdf` → `download_type = 2`（その他）
-が記録されていること
+DB 値と表示ラベルが対応していること（`1`→口座振替 / `2`→その他 / `3`→増減連絡票 / `4`→増減通知書 / `5`→購読者名簿）
 
 補足：
-・判定優先順は kouza_furikae → zougen_renraku → zougen_tsuchi → meibo / dokusya_meibo → その他（api.md §4.5）
+・`download_type` は SCR-022 のダウンロード実行時に判定するものではなく、各帳票出力画面（SCR-020/021/026/028/029）が `t_file_download` 登録時に設定する値であること
+・画面のラベルは m_code `DOWNLOAD_TYPE` を参照して表示すること（値そのものは表示しない）
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-055 — 複数ファイル一括ダウンロード（ZIP）正常
+
+- 観点ID: VP-D-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：各帳票出力画面が `t_file_download` に登録したダウンロード可能ファイル 5 件（S3 上に実体存在）
+
+### 手順
+
+ステップ0（事前計測）：
+DB で `SELECT COUNT(*) FROM t_file_download` を実行し、テスト前の総件数を記録
+
+ステップ1：
+結果一覧から 5 件のチェックボックスをオンにし、ダウンロード実行ボタンを押下
+
+ステップ2：
+POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [id1, id2, id3, id4, id5] }`）のレスポンスを確認
+
+ステップ3：
+ダウンロードされた ZIP を解凍して内容を確認
+
+ステップ4：
+DB で `SELECT COUNT(*) FROM t_file_download` を再実行し、ステップ0 と比較
+
+ステップ5：
+DB で `SELECT COUNT(*) FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND account_id = :account_id AND log_datetime >= :test_start_time` を実行
+
+### 期待結果
+
+ステップ1：
+一括ダウンロード処理が開始されること
+
+ステップ2：
+HTTPステータスコード200が返却されること、`Content-Type: application/zip` の ZIP が返却されること、成功メッセージ `ダウンロードが完了しました。`（ACSMS-MSG-022-005）が表示されること
+
+ステップ3：
+ZIP を解凍すると選択した 5 ファイルすべてが含まれること
+
+ステップ4：
+`t_file_download` の総件数がステップ0 から増加していないこと（ZIP 一括ダウンロードでも新規 INSERT を行わないこと）
+
+ステップ5：
+操作ログ `t_log`（`log_type = 4` / `operation = 'DOWNLOAD'`）が 1 件だけ記録されること
+
+補足：
+・`file_download_ids` は 1〜50 件・重複不可
+・ZIP 一括ダウンロードでも `t_file_download` 未 INSERT、`t_log` は 1 件のみ
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-056 — ZIP 一括ダウンロード — 0 件選択（ファイル未選択）
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+
+### 手順
+
+ステップ1：
+全チェックボックスを未選択の状態でダウンロード実行ボタンを押下
+
+ステップ2：
+（BE 直接検証）DevTools から POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [] }`）を送信
+
+### 期待結果
+
+ステップ1：
+警告メッセージ `ファイルを選択してください。`（ACSMS-MSG-022-002）が表示されること、ZIP ダウンロード API が呼び出されないこと（FE 側で選択件数 0 を検知）
+
+ステップ2：
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、メッセージ `ファイルを選択してください。`）
+
+補足：
+・`file_download_ids` は最低 1 件必須であること
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-057 — ZIP 一括ダウンロード — 51 件選択（上限超過）
+
+- 観点ID: VP-B-02
+- 種類: Boundary (境界)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：ダウンロード可能ファイル 51 件以上が存在
+
+### 手順
+
+ステップ1：
+（BE 直接検証）DevTools から POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [51 件の一意な ID] }`）を送信
+
+ステップ2：
+POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [50 件の一意な ID] }`）を送信（境界値：上限ちょうど）
+
+### 期待結果
+
+ステップ1：
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、メッセージ `一括ダウンロードは最大50件までです。`）
+
+ステップ2：
+HTTPステータスコード200が返却されること、ZIP が正常に返却されること（50 件は許容範囲内）
+
+補足：
+・`file_download_ids` の上限は 50 件（1〜50 件）
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-022-058 — ZIP 一括ダウンロード — 重複 ID 指定
+
+- 観点ID: VP-B-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・ログイン済 + MFA認証済
+  - ・テストデータ：ダウンロード可能ファイル 2 件以上が存在
+
+### 手順
+
+ステップ1：
+（BE 直接検証）DevTools から POST `/api/v1/file-download/download-zip`（body `{ "file_download_ids": [id1, id1, id2] }`：`id1` が重複）を送信
+
+### 期待結果
+
+ステップ1：
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、メッセージ `ファイルIDが重複しています。`）、ZIP が生成されないこと
+
+補足：
+・`file_download_ids` は重複不可であること
 
 ### テスト結果（1回目）
 
@@ -2380,7 +2921,7 @@ DB で `SELECT file_name, download_type FROM t_file_download WHERE created_by = 
 画面で検索ボタンを押下
 
 ステップ3：
-DevTools で GET `/api/v1/file-upload` のレスポンスを確認
+DevTools で GET `/api/v1/file-download` のレスポンスを確認
 
 ### 期待結果
 
@@ -2388,7 +2929,7 @@ DevTools で GET `/api/v1/file-upload` のレスポンスを確認
 セッションが無効化されたこと
 
 ステップ2：
-ログイン画面 `/login` へ遷移すること、URL クエリパラメータに `redirect=/file-upload` が付与されること
+ログイン画面 `/login` へ遷移すること、URL クエリパラメータに `redirect=/file-download` が付与されること
 
 ステップ3：
 HTTPステータスコード401が返却されること（`error_code: UNAUTHORIZED`、メッセージ `セッションが切れました。再度ログインしてください。`）
@@ -2431,10 +2972,10 @@ HTTPステータスコード401が返却されること（`error_code: UNAUTHORI
 ### 手順
 
 ステップ1：
-DevTools から GET `/api/v1/file-upload?page=abc` を送信（page は整数のはず）
+DevTools から GET `/api/v1/file-download?page=abc` を送信（page は整数のはず）
 
 ステップ2：
-GET `/api/v1/file-upload?per_page=-1` を送信
+GET `/api/v1/file-download?per_page=-1` を送信
 
 ### 期待結果
 
@@ -2482,7 +3023,7 @@ HTTPステータスコード400が返却されること（最小 1 を下回る�
 ### 手順
 
 ステップ1：
-DevTools から GET `/api/v1/file-upload?todofuken_code=AB&per_page=999&sort_by=password` を送信（3 項目を同時に不正値で送信）
+DevTools から GET `/api/v1/file-download?todofuken_code=AB&per_page=999&sort_by=password` を送信（3 項目を同時に不正値で送信）
 
 ステップ2：
 レスポンス JSON の構造を確認
@@ -2534,7 +3075,7 @@ HTTPステータスコード400が返却されること（`error_code: VALIDATIO
 ### 手順
 
 ステップ1：
-スクリプトで GET `/api/v1/file-upload` を 60 秒以内に 101 回連続実行
+スクリプトで GET `/api/v1/file-download` を 60 秒以内に 101 回連続実行
 
 ステップ2：
 101 回目のレスポンスを確認
@@ -2586,7 +3127,7 @@ HTTPステータスコード429が返却されること（`error_code: TOO_MANY_
 ### 手順
 
 ステップ1：
-DB 接続を切断（または BE プロセスから `t_file_upload` テーブルアクセスを拒否）
+DB 接続を切断（または BE プロセスから `t_file_download` テーブルアクセスを拒否）
 
 ステップ2：
 画面で検索ボタンを押下
@@ -2632,7 +3173,7 @@ HTTPステータスコード500が返却されること（`error_code: INTERNAL_
 
 (なし)
 
-## ACSMS-TC-022-047 — NOT_FOUND — 存在しない file_upload_id の指定
+## ACSMS-TC-022-047 — NOT_FOUND — 存在しない file_download_id の指定
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)
@@ -2643,10 +3184,10 @@ HTTPステータスコード500が返却されること（`error_code: INTERNAL_
 ### 手順
 
 ステップ1：
-DevTools から GET `/api/v1/file-upload/9999999/preview` を送信（DB に存在しない ID）
+DevTools から GET `/api/v1/file-download/9999999/preview` を送信（DB に存在しない ID）
 
 ステップ2：
-GET `/api/v1/file-upload/9999999/download` を送信
+GET `/api/v1/file-download/9999999/download` を送信
 
 ### 期待結果
 
@@ -2690,7 +3231,7 @@ HTTPステータスコード404が返却されること（`error_code: NOT_FOUND
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・テストデータ：直前まで存在していたファイル ID = 500 を `UPDATE t_file_upload SET deleted_at = NOW() WHERE file_upload_id = 500` で論理削除
+  - ・テストデータ：直前まで存在していたファイル ID = 500 を `UPDATE t_file_download SET deleted_at = NOW() WHERE file_download_id = 500` で論理削除
 
 ### 手順
 

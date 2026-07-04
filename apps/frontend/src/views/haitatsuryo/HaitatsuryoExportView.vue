@@ -5,12 +5,10 @@
 // no-data は業務エラーではなく画面内に ACSMS-MSG-021-003 を表示する。アクセス制御は
 // route guard（meta.permission: 'haitatsuryo.export'）が担い、view 内に権限ガードはない。
 import { computed, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue';
 
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import { useCodesStore } from '@/stores/codes.store';
-import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import {
   previewHaitatsuryo,
@@ -23,22 +21,7 @@ import { formatYen, formatNumber } from '@/utils/formatters';
 
 const codes = useCodesStore();
 const notify = useNotify();
-const router = useRouter();
-const authStore = useAuthStore();
-
-// 販売店コードのリンク可否：販売店編集画面（HanbaitenEdit）は
-// hanbaiten.update / hanbaiten.daiko_input で保護される。権限が無い場合は
-// リンクにせずプレーンテキストで表示する（HanbaitenListView と同じ方針）。
-const canEditHanbaiten = computed(
-  () =>
-    authStore.hasPermission('hanbaiten.update') ||
-    authStore.hasPermission('hanbaiten.daiko_input'),
-);
-
-/** 販売店コード押下 → 該当販売店の編集画面へ遷移。 */
-function goHanbaiten(row: HaitatsuryoRow): void {
-  void router.push({ name: 'HanbaitenEdit', params: { id: row.hanbaiten_id } });
-}
+// 販売店コードはリンクにせずプレーンテキストで表示する（画面遷移なし）。
 
 const formState = reactive<{
   target_month: string;
@@ -75,7 +58,7 @@ const columns: TableColumnsType = [
   { title: '貯金種目', dataIndex: 'yokin_shubetsu', key: 'yokin_shubetsu', width: 100 },
   { title: '口座番号', dataIndex: 'koza_no', key: 'koza_no', width: 120 },
   { title: '口座名義', dataIndex: 'koza_meigi', key: 'koza_meigi', width: 160 },
-  { title: '手数料', dataIndex: 'tesuryo', key: 'tesuryo', align: 'right', width: 100 },
+  { title: '手数料', key: 'furikomi_tesuryo_futan_kubun', align: 'center', width: 100 },
   { title: '備考', dataIndex: 'biko', key: 'biko', width: 140 },
 ];
 
@@ -273,14 +256,7 @@ defineExpose({ formState, page, perPage, onPageChange });
 
       <template #bodyCell="{ column, record, text }">
         <template v-if="column.key === 'hanbaiten_code'">
-          <a
-            v-if="canEditHanbaiten"
-            class="text-primary hover:underline"
-            @click.prevent="goHanbaiten(record as HaitatsuryoRow)"
-          >
-            {{ (record as HaitatsuryoRow).hanbaiten_code }}
-          </a>
-          <span v-else>{{ (record as HaitatsuryoRow).hanbaiten_code }}</span>
+          {{ (record as HaitatsuryoRow).hanbaiten_code }}
         </template>
         <template v-else-if="column.key === 'total_busu'">
           {{ formatNumber((record as HaitatsuryoRow).total_busu) }}
@@ -288,8 +264,15 @@ defineExpose({ formState, page, perPage, onPageChange });
         <template v-else-if="column.key === 'total_kingaku'">
           {{ formatYen((record as HaitatsuryoRow).total_kingaku) }}
         </template>
-        <template v-else-if="column.key === 'tesuryo'">
-          {{ formatYen((record as HaitatsuryoRow).tesuryo) }}
+        <template v-else-if="column.key === 'furikomi_tesuryo_futan_kubun'">
+          {{
+            (record as HaitatsuryoRow).furikomi_tesuryo_futan_kubun == null
+              ? ''
+              : codes.label(
+                  'TESURYO_KUBUN',
+                  (record as HaitatsuryoRow).furikomi_tesuryo_futan_kubun as number,
+                )
+          }}
         </template>
         <template v-else-if="column.key === 'haitatsuryo_shiharai_cycle'">
           {{ (record as HaitatsuryoRow).haitatsuryo_shiharai_cycle ?? '' }}

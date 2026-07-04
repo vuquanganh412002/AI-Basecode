@@ -229,7 +229,13 @@ export class HaitatsuryoService {
             String(row.yokin_shubetsu)),
         row.koza_no,
         row.koza_meigi,
-        row.tesuryo,
+        // 「手数料」列は振込手数料負担区分の m_code ラベル（TESURYO_KUBUN）を表示する。
+        row.furikomi_tesuryo_futan_kubun == null
+          ? ''
+          : (this.codeService?.getLabel(
+              'TESURYO_KUBUN',
+              row.furikomi_tesuryo_futan_kubun,
+            ) ?? String(row.furikomi_tesuryo_futan_kubun)),
         row.biko,
       ]);
     }

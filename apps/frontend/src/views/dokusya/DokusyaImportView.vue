@@ -522,17 +522,32 @@ function renderCell(value: unknown): string {
               <span class="text-error ml-1">*</span>
             </label>
             <!--
-              @click clears the value BEFORE the OS picker opens, so
-              re-selecting the SAME filename (after editing the Excel) still
-              fires `change` and re-parses. Resetting on @change instead would
-              wipe the native "filename" display right after selecting.
+              ネイティブのファイル選択欄はボタン文言と未選択メッセージを
+              ブラウザのロケールで表示し日本語に固定できないため、非表示にして
+              日本語のカスタムボタン＋ファイル名表示に置き換える（機能は不変）。
+              クリック時はピッカーを開く前に選択値をクリアし、同一ファイルの
+              再選択でも再取り込みされるようにする。
             -->
+            <div
+              class="flex items-center gap-3 w-full border border-border-strong rounded bg-surface-card px-3 py-1"
+            >
+              <button
+                type="button"
+                class="shrink-0 rounded border-0 bg-primary/10 px-3 py-1 text-sm font-medium text-primary hover:bg-primary/20 cursor-pointer"
+                @click="fileInputEl?.click()"
+              >
+                ファイルを選択
+              </button>
+              <span class="text-sm text-text-description truncate">
+                {{ fileName || 'ファイルが選択されていません。' }}
+              </span>
+            </div>
             <input
               id="file-input"
               ref="fileInputEl"
               type="file"
               accept=".xlsx,.xls"
-              class="w-full border border-border-strong rounded px-3 py-1 text-sm text-text-main bg-surface-card file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+              class="hidden"
               @click="resetFileInput"
               @change="onFileChange"
             />

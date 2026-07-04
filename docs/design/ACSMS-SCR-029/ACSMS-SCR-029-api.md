@@ -18,6 +18,7 @@ updated_by: Nguyen Truong An
 | No  | 発行日     | 版数 | 担当者           | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | ---------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/05 | 1.0  | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 減部数のマイナス符号「▲」表示を廃止し数値のまま表示（顧客要望）。差異マーク「◆」を行頭列に表示し、履歴の前回値（zenkai_*）と現在値の差（増減あり・販売店変更）で `diff_mark` を判定するよう実装。 | Tran Duc Tuyen | Tran Duc Tuyen |
 
 ## システム概要
 
@@ -138,9 +139,9 @@ FE が検出して画面内表示するメッセージである（エラーコ�
 | 17  | →→→hanbaiten_name       | String  | -        |              | -        | 販売店名（免税販売店＝適格請求書発行事業者番号が空の場合は先頭に「（免）」を付与）                 |
 | 18  | →→→genzai_busu          | Number  | -        |              | -        | 現在部数（前回購読部数 `zenkai_dokusya_busu`。NULLは0として扱う）                                  |
 | 19  | →→→zou_busu             | Number  | -        |              | -        | 増部数（`dokusya_busu > 現在部数` の場合に `dokusya_busu - 現在部数`、それ以外は0）                |
-| 20  | →→→gen_busu             | Number  | -        |              | -        | 減部数（`dokusya_busu < 現在部数` の場合に `現在部数 - dokusya_busu`、それ以外は0）。帳票では「▲」を付与して表示（例: 2部減 → ▲2） |
+| 20  | →→→gen_busu             | Number  | -        |              | -        | 減部数（`dokusya_busu < 現在部数` の場合に `現在部数 - dokusya_busu`、それ以外は0）。帳票では数値のまま表示する（マイナス符号「▲」は付与しない） |
 | 21  | →→→shin_busu            | Number  | -        |              | -        | 新部数（購読部数 `dokusya_busu`。＝現在部数 ＋ 増部数 － 減部数）                                  |
-| 22  | →→→diff_mark            | Boolean | -        |              | -        | 前回出力との差異マーク。前回出力時点の値と差がある行は `true`（帳票では「◆」を付与）              |
+| 22  | →→→diff_mark            | Boolean | -        |              | -        | 差異マーク。履歴の前回値（`zenkai_dokusya_busu` / `zenkai_hanbaiten_id`）と現在値に差がある行（増減あり・販売店変更）は `true`（帳票では行頭に「◆」を付与）              |
 | 23  | →→total                 | Object  | -        |              | -        | 合計行（当該管理支店内の全販売店合計）                                                             |
 | 24  | →→→genzai_busu          | Number  | -        |              | -        | 現在部数の合計                                                                                    |
 | 25  | →→→zou_busu             | Number  | -        |              | -        | 増部数の合計                                                                                      |
@@ -367,11 +368,11 @@ ORDER BY r.dokusya_id ASC, r.rireki_no ASC
   - **同一販売店**：
     - **現在部数**（`genzai_busu`）：日初の前回部数 busuBefore
     - **増部数**（`zou_busu`）：`busuAfter > busuBefore` の場合 `busuAfter - busuBefore`、それ以外は 0
-    - **減部数**（`gen_busu`）：`busuAfter < busuBefore` の場合 `busuBefore - busuAfter`、それ以外は 0（帳票では「▲」付与）
+    - **減部数**（`gen_busu`）：`busuAfter < busuBefore` の場合 `busuBefore - busuAfter`、それ以外は 0（帳票では数値のまま。「▲」は付与しない）
     - **新部数**（`shin_busu`）：日末の現在部数 busuAfter（＝現在部数 ＋ 増部数 － 減部数）
   - **委託欄**（`itaku_label`）：`itaku_kubun = 2`（日農委託）の場合「委託」、それ以外（1:振込 / 9:その他）は `""`
   - **販売店名**（`hanbaiten_name`）：適格請求書発行事業者番号（`torihikisaki_no`）が空文字の場合は免税販売店とみなし、先頭に「（免）」を付与する
-  - **差異マーク**（`diff_mark`）：前回出力（直近の出力履歴の同一管理支店・同一販売店の値）との差がある行は `true`。前回出力が存在しない場合は `false`
+  - **差異マーク**（`diff_mark`）：履歴の前回値（`zenkai_dokusya_busu` / `zenkai_hanbaiten_id`）と現在値に差がある行は `true`。具体的には増減あり（`dokusya_busu ≠ zenkai_dokusya_busu`）または販売店変更（旧店・新店の2行）を `true` とし、増減が無い行は `false`
 - 各管理支店の `total` に、当該管理支店内の `genzai_busu` / `zou_busu` / `gen_busu` / `shin_busu` の合計を設定する。
 - 帳票ヘッダ用に、管理支店コード（`kanri_shiten_code`）、JA名称（`ja_name`）、都道府県名（`todofuken_name`）、担当部署（`tanto_busho`）、担当者名（`tanto_name`）、TEL（管理支店）、FAX（管理支店）を返す。
 - **ページ送り（SQL OFFSET/LIMIT。購読者単位。SCR-028 と同方針）**：
@@ -449,7 +450,7 @@ Content-Disposition: attachment; filename="zougen_nichino_YYYYMMDD.pdf"
 | 備考         | 「＜備考＞」欄（リクエストの `remarks` を印字）                                                        |
 
 ※ 委託欄は「日農委託」の販売店のみ「委託」、振込・その他は空欄。免税販売店は販売店名の前に「（免）」。
-  減部数は「▲」付き、前回出力との差異がある行には「◆」を付与する。
+  減部数は数値のまま表示する（「▲」は付与しない）。前回出力との差異がある行には「◆」を付与する。
 ※ 改ページは**プレビューと同じ1ページ=15販売店行単位**（購読者を管理支店コード昇順・販売店
   コード昇順・dokusya_id 昇順に並べ15行ずつ）。1ページに複数管理支店が載る場合は各管理支店
   ブロックを続けて積み、ページ先頭でのみ改ページする。PDF の n ページ目 = プレビューの n
@@ -574,7 +575,7 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
   コード昇順→dokusya_id 昇順）で**全管理支店を1つのPDF**にまとめて描画する。1ページに複数
   管理支店が載る場合は各管理支店ブロックを続けて積み、ページ先頭でのみ改ページする。各
   管理支店ブロックは明細テーブル＋合計行＋備考（PDFレイアウト参照）。
-- 委託欄・免税（（免））・減部数（▲）・差異マーク（◆）の整形は `ACSMS-API-029-001` の 4.6 と同一とする。
+- 委託欄・免税（（免））・差異マーク（◆）の整形は `ACSMS-API-029-001` の 4.6 と同一とする（減部数は数値のまま。「▲」は付与しない）。
 - ヘッダにページ数（`Page: 現在ページ/全体ページ数`）、組合名（管理支店コードを3-4-3でハイフン区切り＋JA名＋管理支店名）、都道府県名、担当部署 ／ 担当者、TEL / FAX を表示する。
 - 出力形式：PDF（A4）。テンプレート（Handlebars）→ HTML → Puppeteer で生成する。
 - 生成した1つのPDFをS3に保存する。保存先パス：`s3://{bucket}/ja-{ja_id}/report/`、ファイル名：`zougen_nichino_{適用日YYYYMMDD}_{timestamp}.pdf`。

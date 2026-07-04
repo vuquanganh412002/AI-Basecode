@@ -23,6 +23,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 1.0 | 2026/04/03 | 1.0 | Nguyen Truong An | 新規作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2.0 | 2026/04/23 | 1.1 | Nguyen Truong An | 指摘対応<br>※修正箇所：<br>1.「画面イメージ」シート<br>2.「画面項目定義」シート：No. 1、5、8~11、13<br>3.「機能定義」シート：3.1、3.2<br>4.「メッセージ情報」シート：メッセージNo. 5 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3.0 | 2026/07/02 | 1.2 | Tran Duc Tuyen | 減部数のマイナス符号「▲」表示を廃止し、数値のまま表示するよう変更（顧客要望）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ---
 
@@ -100,7 +101,7 @@ ACSMS-SCR-029_増減通知（日本農業新聞）出力画面_画面イメー�
 | 7.0 | 販売店名 | colStoreName | ラベル | 出 |  | 文字列 |  |  | 左寄せ |  | 販売店マスタ | m_hanbaiten | 販売店名 | hanbaiten_mei | データあり |  |  |
 | 8.0 | 現在部数 | colGenzaiBusu | ラベル | 出 |  | 数値 |  |  | 右寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 現在部数 | zenkai_dokusya_busu | データあり |  |  |
 | 9.0 | 増部数 | colZouBusu | ラベル | 出 |  | 数値 |  |  | 右寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 増部数 | zougen_bukoku_zoubu | データあり |  | dokusya_busu > zenkai_dokusya_busu の場合に dokusya_busu - zenkai_dokusya_busu で算出 |
-| 10.0 | 減部数 | colGenBusu | ラベル | 出 |  | 数値 |  |  | 右寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 減部数 | zougen_bukoku_genbu | データあり |  | dokusya_busu < zenkai_dokusya_busu の場合に dokusya_busu - zenkai_dokusya_busu で算出し、マイナス符号は「▲」で表示（例: 2部減の場合 ▲2） |
+| 10.0 | 減部数 | colGenBusu | ラベル | 出 |  | 数値 |  |  | 右寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 減部数 | zougen_bukoku_genbu | データあり |  | dokusya_busu < zenkai_dokusya_busu の場合に dokusya_busu - zenkai_dokusya_busu で算出し、数値のまま表示する（マイナス符号「▲」は付与しない） |
 | 11.0 | 新部数 | colShinBusu | ラベル | 出 |  | 数値 |  |  | 右寄せ |  | 読者履歴テーブル | t_dokusya_rireki | 購読部数 | dokusya_busu | データあり |  | 計算：現在部数 ＋ 増部数 ー 減部数 |
 | 12.0 | 合計行 | colTotal | ラベル | 出 |  | 文字列 |  |  | 中央 |  | — | — | — | — | データあり |  | 全販売店の合計 |
 | 13.0 | 備考 | colBiko | テキストボックス | 入 |  | 文字列 |  |  | 左寄せ |  | — | — | — | — | データあり |  | プレビューで直接入力可能 |

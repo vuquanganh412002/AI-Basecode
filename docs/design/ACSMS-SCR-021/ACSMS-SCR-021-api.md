@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/22 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 『手数料』列の表示を配達手数料単価から振込手数料負担区分（m_hanbaiten.furikomi_tesuryo_futan_kubun、m_code TESURYO_KUBUN ラベル）に変更。レスポンスに furikomi_tesuryo_futan_kubun を追加。tesuryo は当月金額算出用に継続保持（非表示）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -106,16 +107,17 @@ SCR-026 / SCR-028 と方針統一。
 | 13  | →yokin_shubetsu               | Integer       | -            | 〇       | 預金種別 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                              |
 | 14  | →koza_no                      | String        | -            |          | 口座番号（`m_hanbaiten.koza_no`、半角数字最大 10 桁）※空文字許容                                      |
 | 15  | →koza_meigi                   | String        | -            |          | 口座名義（`m_hanbaiten.koza_meigi`、半角カナ最大 50 桁）※空文字許容                                   |
-| 16  | →tesuryo                      | Integer       | -            |          | 手数料（配達手数料単価、1部あたり）。税区分で `m_tanka.kingaku_zeikomi`（内税）/`kingaku_zeinuki`（外税）を切替。`当月金額 = 当月部数 × 手数料` |
-| 17  | →biko                         | String        | -            |          | 備考（`m_hanbaiten.biko`）※空文字許容                                                                 |
-| 18  | meta                          | Object        | -            |          | 集計サマリ＋ページ情報                                                                                |
-| 19  | →total                        | Integer       | -            |          | 集計対象の販売店総数（全ページ通算）                                                                  |
-| 20  | →page                         | Integer       | -            |          | 現在ページ（1始まり）                                                                                 |
-| 21  | →per_page                     | Integer       | -            |          | 1ページ件数                                                                                           |
-| 22  | →total_pages                  | Integer       | -            |          | 総ページ数（`ceil(total / per_page)`）                                                                |
-| 23  | →grand_total_busu             | Integer       | -            |          | 全販売店合計部数（`Σ total_busu`、全件通算でページ非依存）                                            |
-| 24  | →grand_total_kingaku          | Integer       | -            |          | 全販売店合計金額（`Σ total_kingaku`、全件通算でページ非依存）                                         |
-| 25  | →zei_kubun                    | Integer       | -            |          | 適用税区分（`m_ja.zei_kubun`、1:内税, 2:外税）— 金額計算に使用した区分                                |
+| 16  | →tesuryo                      | Integer       | -            |          | 配達手数料単価（1部あたり）。`当月金額 = 当月部数 × 単価` の算出に使用。画面/Excelの『手数料』列には表示しない（表示は furikomi_tesuryo_futan_kubun のラベル） |
+| 17  | →furikomi_tesuryo_futan_kubun | Integer       | -            | 〇       | 振込手数料負担区分 ※m_code.code_category='TESURYO_KUBUN'を参照（1:JA, 2:販売店）。画面/Excelの『手数料』列に本区分のラベルを表示 |
+| 18  | →biko                         | String        | -            |          | 備考（`m_hanbaiten.biko`）※空文字許容                                                                 |
+| 19  | meta                          | Object        | -            |          | 集計サマリ＋ページ情報                                                                                |
+| 20  | →total                        | Integer       | -            |          | 集計対象の販売店総数（全ページ通算）                                                                  |
+| 21  | →page                         | Integer       | -            |          | 現在ページ（1始まり）                                                                                 |
+| 22  | →per_page                     | Integer       | -            |          | 1ページ件数                                                                                           |
+| 23  | →total_pages                  | Integer       | -            |          | 総ページ数（`ceil(total / per_page)`）                                                                |
+| 24  | →grand_total_busu             | Integer       | -            |          | 全販売店合計部数（`Σ total_busu`、全件通算でページ非依存）                                            |
+| 25  | →grand_total_kingaku          | Integer       | -            |          | 全販売店合計金額（`Σ total_kingaku`、全件通算でページ非依存）                                         |
+| 26  | →zei_kubun                    | Integer       | -            |          | 適用税区分（`m_ja.zei_kubun`、1:内税, 2:外税）— 金額計算に使用した区分                                |
 
 ## リクエスト例
 
@@ -143,6 +145,7 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
       "yokin_shubetsu": 1,
       "koza_no": "1234567",
       "koza_meigi": "ﾄｳｷｮｳﾁｭｳｵｳﾊﾝﾊﾞｲﾃﾝ",
+      "furikomi_tesuryo_futan_kubun": 1,
       "biko": ""
     },
     {
@@ -160,6 +163,7 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
       "yokin_shubetsu": 2,
       "koza_no": "7654321",
       "koza_meigi": "ｷﾀｼﾃﾝﾊﾝﾊﾞｲﾃﾝ",
+      "furikomi_tesuryo_futan_kubun": 2,
       "biko": "月末締め"
     }
   ],
@@ -308,6 +312,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
        h.yokin_shubetsu,
        h.koza_no,
        h.koza_meigi,
+       h.furikomi_tesuryo_futan_kubun,
        h.biko
   FROM latest_dokusya ld
   INNER JOIN m_hanbaiten h
@@ -325,7 +330,8 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
           h.haitatsuryo_shiharai_cycle,
           h.bank_code, h.bank_name,
           h.bank_branch_code, h.bank_branch_name,
-          h.yokin_shubetsu, h.koza_no, h.koza_meigi, h.biko
+          h.yokin_shubetsu, h.koza_no, h.koza_meigi,
+          h.furikomi_tesuryo_futan_kubun, h.biko
  ORDER BY h.hanbaiten_code
 ```
 

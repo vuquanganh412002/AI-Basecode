@@ -91,7 +91,14 @@ async function renderView(opts: RenderOptions = {}): Promise<{
           stubActions: false,
           initialState: {
             auth: { user: opts.user ?? buildHaitatsuryoUser() },
-            codes: { all: {} },
+            codes: {
+              all: {
+                TESURYO_KUBUN: [
+                  { value: 1, label: 'JA', label_short: 'JA' },
+                  { value: 2, label: '販売店', label_short: '販売店' },
+                ],
+              },
+            },
           },
         }),
         Antd,
@@ -230,8 +237,9 @@ describe('HaitatsuryoExportView — 検索・集計', () => {
     expect(text).toContain('H001');
     expect(text).toContain('東京中央販売店');
     expect(text).toContain('120');
-    // 手数料 cell — 配達手数料単価 588000 ÷ 120 = ¥4,900（この列に固有の値）。
-    expect(text).toContain('¥4,900');
+    // 手数料 cell — 振込手数料負担区分（m_code TESURYO_KUBUN）のラベル。
+    // 先頭行 furikomi_tesuryo_futan_kubun=1 → 'JA'。
+    expect(text).toContain('JA');
   });
 
   it('should render the 合計 total row when previewHaitatsuryo resolves data', async () => {
@@ -258,29 +266,11 @@ describe('HaitatsuryoExportView — 検索・集計', () => {
     expect(wrapper.text()).toContain('該当する支払い情報が存在しません。');
   });
 
-  it('should navigate to HanbaitenEdit with the row hanbaiten_id when 販売店コード is clicked (has hanbaiten.update)', async () => {
-    const { wrapper, router } = await renderView({
+  it('should always render 販売店コード as plain text (no link), even with hanbaiten.update', async () => {
+    // 権限有無に関わらずリンク化せずプレーンテキストで表示する（画面遷移なし）。
+    const { wrapper } = await renderView({
       user: buildHaitatsuryoUser({ permissions: ['haitatsuryo.export', 'hanbaiten.update'] }),
     });
-    const pushSpy = vi.spyOn(router, 'push');
-    (wrapper.vm as any).formState.target_month = '2026-04-01';
-
-    await wrapper.find(previewBtn()).trigger('click');
-    await flushPromises();
-
-    // 先頭行(hanbaiten_id=101)の 販売店コード リンクをクリック。
-    const codeLink = wrapper.findAll('tbody a').find((a) => a.text().includes('H001'));
-    expect(codeLink?.exists()).toBe(true);
-    await codeLink!.trigger('click');
-
-    const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
-    expect(pushed).toContain('HanbaitenEdit');
-    expect(pushed).toContain('101');
-  });
-
-  it('should render 販売店コード as plain text (no link) when the user lacks hanbaiten.update / daiko_input', async () => {
-    // 既定ユーザーは haitatsuryo.export のみ → リンク化しない。
-    const { wrapper } = await renderView();
     (wrapper.vm as any).formState.target_month = '2026-04-01';
 
     await wrapper.find(previewBtn()).trigger('click');

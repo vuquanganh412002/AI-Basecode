@@ -127,6 +127,8 @@ interface NichinoRowInput {
   zou: number;
   gen: number;
   shin: number;
+  /** 前回値（履歴の zenkai_*）と差がある行か。true で帳票行頭に「◆」を付与。 */
+  diff: boolean;
 }
 
 /** 1購読者の同日履歴（first→last）を累計し、該当販売店の行を生成する。 */
@@ -143,7 +145,7 @@ function classifyNichino(
   const storeAfter = num(last.hanbaiten_id);
 
   if (storeBefore != null && storeBefore !== storeAfter) {
-    // 販売店変更: 旧店 減 busuBefore / 新店 増 busuAfter。
+    // 販売店変更: 旧店 減 busuBefore / 新店 増 busuAfter。両行とも前回値との差異あり。
     addRow(last, {
       hanbaitenId: first.zenkai_hanbaiten_id as number,
       hanbaitenCode: first.zenkai_hanbaiten_code,
@@ -154,6 +156,7 @@ function classifyNichino(
       zou: 0,
       gen: busuBefore,
       shin: 0,
+      diff: true,
     });
     addRow(last, {
       hanbaitenId: last.hanbaiten_id,
@@ -165,11 +168,13 @@ function classifyNichino(
       zou: busuAfter,
       gen: 0,
       shin: busuAfter,
+      diff: true,
     });
     return;
   }
 
   // 同一販売店: 現在部数=busuBefore / 新部数=busuAfter / net で増減（解約 …→0 含む）。
+  // 前回値（zenkai_dokusya_busu）と現在値（dokusya_busu）に差がある行に「◆」を付与。
   addRow(last, {
     hanbaitenId: last.hanbaiten_id,
     hanbaitenCode: last.hanbaiten_code,
@@ -180,6 +185,7 @@ function classifyNichino(
     zou: busuAfter > busuBefore ? busuAfter - busuBefore : 0,
     gen: busuAfter < busuBefore ? busuBefore - busuAfter : 0,
     shin: busuAfter,
+    diff: busuAfter !== busuBefore,
   });
 }
 
@@ -192,7 +198,9 @@ function classifyNichino(
  *   - 販売店変更: 旧店に 減 busuBefore（現在 busuBefore/新 0）、新店に 増 busuAfter
  *     （現在 0/新 busuAfter）。旧店の管理支店は履歴に無いため当日最終レコードの
  *     管理支店に計上する（暫定。SCR-028 と同じ前提）。
- * rows は dokusya_id, rireki_no 昇順で届く前提。`diff_mark` は常に false。
+ * rows は dokusya_id, rireki_no 昇順で届く前提。`diff_mark` は履歴の前回値
+ * （zenkai_dokusya_busu / zenkai_hanbaiten_id）と現在値に差がある行（増減あり・
+ * 販売店変更）に true を設定する（帳票行頭に「◆」）。
  */
 export function groupZougenNichinoReports(
   rows: ZougenNichinoRawRow[],
@@ -243,7 +251,7 @@ export function groupZougenNichinoReports(
       zou_busu: input.zou,
       gen_busu: input.gen,
       shin_busu: input.shin,
-      diff_mark: false,
+      diff_mark: input.diff,
     });
     report.total.genzai_busu += input.genzai;
     report.total.zou_busu += input.zou;
@@ -317,11 +325,12 @@ export function paginateNichinoSubscribers(
 // ─── PDF (pdfmake) document definition — ACSMS-SCR-029 §4.4 帳票レイアウト ──
 // 管理支店ごとに1枚。発行元（日農）ヘッダ + タイトル + 見出し（適用日/都道府県/
 // 組合名/担当）+ 明細テーブル（委託/販売店コード/販売店名/現在/増/減/新）+
-// 合計行 + ＜備考＞欄。減部数は「▲」、差異マークは「◆」を付与する。
+// 合計行 + ＜備考＞欄。差異マーク行に「◆」を付与する（減部数は数値のまま。マイナス符号「▲」なし）。
 
 const HEADER_FILL = '#f1f5f9';
 const BORDER_COLOR = '#94a3b8';
-const COL_WIDTHS = ['8%', '18%', '34%', '10%', '10%', '10%', '10%'];
+// 先頭は増減マーク（◆）用の枠線なし列。以降が 委託/販売店コード/販売店名/現在/増/減/新。
+const COL_WIDTHS = ['4%', '8%', '16%', '32%', '10%', '10%', '10%', '10%'];
 
 const mg = (a: number, b: number, c: number, d: number): Margins => [a, b, c, d];
 
@@ -336,10 +345,10 @@ const tableLayout = {
   paddingRight: () => 4,
 };
 
-/** 適用日 YYYY-MM-DD → 「YYYY年M月D日より」。 */
-function jpDateYori(iso: string): string {
+/** 適用日 YYYY-MM-DD → 「YYYY年M月D日」。 */
+function jpDate(iso: string): string {
   const [y, mo, d] = str(iso).split('-');
-  return y && mo && d ? `${y}年${Number(mo)}月${Number(d)}日より` : str(iso);
+  return y && mo && d ? `${y}年${Number(mo)}月${Number(d)}日` : str(iso);
 }
 
 function hd(text: string): TableCell {
@@ -349,13 +358,11 @@ function cell(text: string, align: 'left' | 'center' | 'right' = 'left'): TableC
   return { text: text ?? '', alignment: align, fontSize: 8 };
 }
 
-/** 減部数は「▲」付き、差異マーク行は「◆」を付与した表示文字列を返す。 */
-function genDisplay(gen: number): string {
-  return gen > 0 ? `▲${gen}` : '0';
-}
-
+// 減部数は数値そのまま表示する（顧客要望によりマイナス符号「▲」は付与しない）。
 function detailTable(report: ZougenNichinoReport): TableCell[][] {
   const header: TableCell[] = [
+    // 増減マーク（◆）用の先頭列。見出しは空（枠線・背景は他の見出しと同じ）。
+    hd(''),
     hd('委託'),
     hd('販売店コード'),
     hd('販売店名'),
@@ -366,25 +373,27 @@ function detailTable(report: ZougenNichinoReport): TableCell[][] {
   ];
   const body: TableCell[][] = [header];
   for (const row of report.rows) {
-    const mark = row.diff_mark ? '◆' : '';
+    // 差異マーク◆は行頭のセルに表示する（販売店名の前には付けない）。
     body.push([
+      { text: row.diff_mark ? '◆' : '', alignment: 'center', fontSize: 9, bold: true },
       cell(row.itaku_label, 'center'),
       cell(row.hanbaiten_code),
-      cell(`${mark}${row.hanbaiten_name}`),
+      cell(row.hanbaiten_name),
       cell(String(row.genzai_busu), 'right'),
       cell(String(row.zou_busu), 'right'),
-      cell(genDisplay(row.gen_busu), 'right'),
+      cell(String(row.gen_busu), 'right'),
       cell(String(row.shin_busu), 'right'),
     ]);
   }
-  // 合計行
+  // 合計行（先頭のマーカー列は空。背景は他の合計セルと同じ）
   body.push([
+    { text: '', fillColor: HEADER_FILL },
     { text: '合計', colSpan: 3, bold: true, fillColor: HEADER_FILL, alignment: 'center', fontSize: 8 },
     {},
     {},
     { text: String(report.total.genzai_busu), bold: true, alignment: 'right', fontSize: 8 },
     { text: String(report.total.zou_busu), bold: true, alignment: 'right', fontSize: 8 },
-    { text: genDisplay(report.total.gen_busu), bold: true, alignment: 'right', fontSize: 8 },
+    { text: String(report.total.gen_busu), bold: true, alignment: 'right', fontSize: 8 },
     { text: String(report.total.shin_busu), bold: true, alignment: 'right', fontSize: 8 },
   ]);
   return body;
@@ -424,21 +433,38 @@ function nichinoReportBlock(
           width: '*',
           fontSize: 8,
           alignment: 'right',
-          text: `Page：${pageNo}/${totalPages}`,
+          text: `ページ数：${pageNo}/${totalPages}`,
         },
       ],
       margin: mg(0, 0, 0, 8),
       ...(pageBreakBefore ? { pageBreak: 'before' as const } : {}),
     },
     {
-      fontSize: 9,
+      // 発行元ヘッダと見出しの区切り線（index.html 準拠）。A4 コンテンツ幅=515pt。
+      canvas: [
+        { type: 'line' as const, x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: BORDER_COLOR },
+      ],
       margin: mg(0, 0, 0, 8),
-      stack: [
-        `適用日：${jpDateYori(tekiyo)}`,
-        `都道府県名：${report.todofuken_name}`,
-        `組合名：${kumiaiName}`,
-        `担当部署：${report.tanto_busho}　担当者：${report.tanto_name}`,
-        `TEL：${report.tel || '-'}　FAX：${report.fax || '-'}`,
+    },
+    {
+      // 適用日（左）／ 都道府県名・組合名・担当（右）。index.html 準拠の2カラム。
+      margin: mg(0, 0, 0, 8),
+      columns: [
+        { width: '50%', fontSize: 9, text: `適用日：${jpDate(tekiyo)}` },
+        {
+          width: '50%',
+          fontSize: 9,
+          stack: [
+            `都道府県名：${report.todofuken_name}`,
+            { text: `組合名：${kumiaiName}`, bold: true, margin: mg(0, 2, 0, 0) },
+            // 部署／担当者は帳票上で手書き記入する空欄（下線）。「____ 部／ ____」形式。
+            // decoration:'underline'＋空白は入れ子 columns 内で位置ずれするため、
+            // 全角アンダースコア（＿）のグリフで下線を表現しテキスト位置に揃える。
+            { text: '＿＿＿＿＿＿ 部／ 担当：＿＿＿＿＿＿', margin: mg(0, 2, 0, 2) },
+            `TEL：${report.tel || '-'}`,
+            `FAX：${report.fax || '-'}`,
+          ],
+        },
       ],
     },
     {

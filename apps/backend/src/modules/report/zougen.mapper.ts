@@ -221,15 +221,15 @@ function mergeSameDay(records: ZougenRawRow[]): MergedRecord {
   // 顧客確認: zenkai=null(新規/CREATE) の前回部数は 0 とし、増減連絡票の増部に
   // 0→現部数 で出力する（rmin の現部数へフォールバックすると新規が増部から消える）。
   const busuBefore =
-    rmin.zenkai_dokusya_busu != null ? num(rmin.zenkai_dokusya_busu) : 0;
+    rmin.zenkai_dokusya_busu == null ? 0 : num(rmin.zenkai_dokusya_busu);
 
   // 前回販売店: zenkai があればそれ、なければ rmin の現販売店（販売店変更なし扱い）。
   const storeBefore =
-    rmin.zenkai_hanbaiten_id != null ? num(rmin.zenkai_hanbaiten_id) : num(rmin.hanbaiten_id);
+    rmin.zenkai_hanbaiten_id == null ? num(rmin.hanbaiten_id) : num(rmin.zenkai_hanbaiten_id);
   const storeBeforeCode =
-    rmin.zenkai_hanbaiten_id != null ? rmin.zenkai_hanbaiten_code : rmin.hanbaiten_code;
+    rmin.zenkai_hanbaiten_id == null ? rmin.hanbaiten_code : rmin.zenkai_hanbaiten_code;
   const storeBeforeName =
-    rmin.zenkai_hanbaiten_id != null ? rmin.zenkai_hanbaiten_name : rmin.hanbaiten_name;
+    rmin.zenkai_hanbaiten_id == null ? rmin.hanbaiten_name : rmin.zenkai_hanbaiten_name;
 
   // 前回住所がフィールド由来か（zenkai_shikuchoson を代表に判定）。
   const zenkaiAddrPresent = rmin.zenkai_shikuchoson != null;
@@ -627,21 +627,22 @@ function reportContent(
   const sellerRow: ContentColumns = {
     columns: [
       {
+        // 販売店名＋御中を1行目、TEL・FAX をそれぞれ別行で表示する。
         width: '*',
-        text: [
-          { text: `${r.hanbaiten_name}　御中　`, bold: true, fontSize: 11 },
-          {
-            text: `TEL：${r.kanri_shiten_tel || '-'}　FAX：${r.kanri_shiten_fax || '-'}`,
-            fontSize: 8,
-          },
+        stack: [
+          { text: `${r.hanbaiten_name}　御中`, bold: true, fontSize: 11 },
+          { text: `TEL：${r.kanri_shiten_tel || '-'}`, fontSize: 8, margin: m(0, 2, 0, 0) },
+          { text: `FAX：${r.kanri_shiten_fax || '-'}`, fontSize: 8 },
         ],
       },
       {
         width: 'auto',
-        alignment: 'right',
+        alignment: 'left',
         fontSize: 8,
         stack: [
           r.kanri_shiten_name || '（管理支店）',
+          // 部署／担当者は帳票上で手書き記入する空欄（下線）。
+          '＿＿＿＿＿＿ 部／ 担当：＿＿＿＿＿＿',
           `TEL：${r.kanri_shiten_tel || '-'}`,
           `FAX：${r.kanri_shiten_fax || '-'}`,
         ],
@@ -654,7 +655,7 @@ function reportContent(
     titleRow,
     sellerRow,
     {
-      text: `${jpDate(tekiyo)}　下記の通り購読者が変更になりますのでお知らせします`,
+      text: `適用日：${jpDate(tekiyo)}　下記の通り購読者が変更になりますのでお知らせします`,
       fontSize: 9,
       margin: m(0, 2, 0, 8),
     },
