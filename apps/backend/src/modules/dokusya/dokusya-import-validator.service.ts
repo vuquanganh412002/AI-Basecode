@@ -6,7 +6,17 @@ import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
+import {
+  normalizeDbDate,
+  dbDateOrNull,
+  todayIsoJst,
+} from '@/common/utils/datetime';
 import { ImportDokusyaDto, ImportDokusyaRowDto } from './dto/import-dokusya.dto';
+import {
+  collectTekiyoDateViolations,
+  collectChushiViolations,
+  tekiyoViolationField,
+} from './dokusya-tekiyo-date.rules';
 
 /**
  * Pre-fetched lookup sets/maps shared by the per-row Excel-import
@@ -162,6 +172,7 @@ export class DokusyaImportValidator {
       const rowNo = index + 1;
       this.validateImportRowRequired(row, rowNo, dto, errors);
       this.validateImportRowRules(row, rowNo, dto, errors);
+      this.validateImportRowTekiyoDates(row, rowNo, dto, lookups, errors);
       this.validateImportRowRefs(row, rowNo, lookups, errors);
       this.validateImportRowEmail(
         row,
@@ -262,6 +273,93 @@ export class DokusyaImportValidator {
         row: rowNo,
         field: 'joho_henko_tekiyo_date',
         message: '読者情報変更適用日を入力してください。',
+      });
+    }
+  }
+
+  /**
+   * §4.1 適用日の整合性（顧客要件 2026-07）。UI 単票と同じルールを取込にも適用。
+   *   [解約予定日] NEW / UPDATE 両方・入力時のみ:
+   *     - 解約予定日 >= 購読開始日（当日可）
+   *     - 解約予定日 >= 本日（過去日不可・当日可）
+   *     参照の購読開始日は UPDATE=既存レコード（開始日は編集不可）、NEW=行の入力値。
+   *   [読者情報変更適用日 / 販売店適用日] UPDATE行のみ（NEW は joho=購読開始日で自明）:
+   *     - today <= 各適用日（過去日不可）
+   *     - 読者情報変更適用日 >= 購読開始日 / 販売店適用日 < 解約予定日（既存レコード基準）
+   * 既存行が見つからないケースは classifyImportRow が別途「購読者が見つかりません」を出す。
+   */
+  private validateImportRowTekiyoDates(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    dto: ImportDokusyaDto,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    const isUpdate =
+      dto.import_mode === 'UPDATE_ALL' || dto.import_mode === 'UPDATE_PARTIAL';
+    const joho = dbDateOrNull(row.joho_henko_tekiyo_date);
+    const hanbaiten = dbDateOrNull(row.hanbaiten_tekiyo_date);
+    const chushi = dbDateOrNull(row.dokusya_chushi_date);
+    const today = todayIsoJst();
+
+    // 参照レコード（UPDATE時の既存行）。購読開始日/解約予定日の相対チェックに使う。
+    const existing = isUpdate
+      ? this.resolveExistingRow(
+          row,
+          lookups.existingById,
+          lookups.existingByKumiaiin,
+        )
+      : undefined;
+
+    // ── 解約予定日の整合性（NEW / UPDATE 両方・入力時のみ）───────────────
+    if (chushi) {
+      const kaishiRef = isUpdate
+        ? (existing?.dokusya_kaishi_date as string | null | undefined)
+        : dbDateOrNull(row.dokusya_kaishi_date);
+      for (const v of collectChushiViolations({
+        chushiDate: chushi,
+        kaishiDate: kaishiRef,
+        today,
+      })) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        });
+      }
+    }
+
+    // 以降の joho/hanbaiten 相対＋過去日チェックは UPDATE 行のみ対象。
+    if (!isUpdate) return;
+
+    // 過去日チェック（today基準）。
+    if (joho && normalizeDbDate(joho) < today) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'joho_henko_tekiyo_date',
+        message: '読者情報変更適用日に過去日は指定できません。',
+      });
+    }
+    if (hanbaiten && normalizeDbDate(hanbaiten) < today) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'hanbaiten_tekiyo_date',
+        message: '販売店適用日に過去日は指定できません。',
+      });
+    }
+
+    // 相対チェック（既存レコード基準）— 共通ルールを collectTekiyoDateViolations に集約。
+    if (!existing) return;
+    for (const v of collectTekiyoDateViolations({
+      johoDate: joho,
+      hanbaitenDate: hanbaiten,
+      kaishiDate: existing.dokusya_kaishi_date as string | null | undefined,
+      chushiDate: existing.dokusya_chushi_date as string | null | undefined,
+    })) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: tekiyoViolationField(v.kind),
+        message: v.message,
       });
     }
   }

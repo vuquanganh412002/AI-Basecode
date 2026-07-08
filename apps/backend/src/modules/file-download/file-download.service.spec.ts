@@ -214,8 +214,21 @@ describe('FileDownloadService', () => {
       expect(storage.download).not.toHaveBeenCalled();
     });
 
-    it('should ALLOW non-nichino roles to download a flag=false row', async () => {
-      // フラグは日農専用の制限。JA系ロールはフラグに関わらずDL可能。
+    it('should FORBID CHUOKAI (role3) from downloading a nichino_download_allowed_flg=false row', async () => {
+      // 顧客要件: 日農(role1/2) に加え 中央会(CHUOKAI=role3) も flag=false のファイルを DL 不可。
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false }),
+      );
+      await expect(
+        service.download(100, jaSession({ role_code: 'CHUOKAI', ja_id: 5 }), req),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
+      });
+      expect(storage.download).not.toHaveBeenCalled();
+    });
+
+    it('should ALLOW JA_HONTEN / JA_KANRI_SHITEN to download a flag=false row', async () => {
+      // フラグ制限は日農(1/2)+中央会(3)のみ。それ以外の JA系ロールはDL可能。
       (repo.findOne as jest.Mock).mockResolvedValue(
         buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false }),
       );

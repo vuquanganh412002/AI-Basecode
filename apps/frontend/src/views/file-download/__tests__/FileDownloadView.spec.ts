@@ -422,7 +422,7 @@ describe('FileDownloadView — soft-deleted files disabled (deleted_at)', () => 
 // ───────────────────────────────────────────────────────────────────────
 // 2c. 日農ダウンロード許可フラグ (nichino_download_allowed_flg) による無効化
 // ───────────────────────────────────────────────────────────────────────
-describe('FileDownloadView — nichino download permission (role 1/2)', () => {
+describe('FileDownloadView — nichino download permission (role 1/2/3)', () => {
   const blockedRow = buildFileDownloadItem({
     file_download_id: 201,
     file_name: 'blocked_report.pdf',
@@ -460,7 +460,14 @@ describe('FileDownloadView — nichino download permission (role 1/2)', () => {
     expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
   });
 
-  it('does NOT disable a flag=false row for non-nichino roles (e.g. JA_HONTEN)', async () => {
+  it('disables a flag=false row for CHUOKAI (role 3) — 顧客要件', async () => {
+    const { wrapper } = await renderAs('CHUOKAI');
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
+    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
+  });
+
+  it('does NOT disable a flag=false row for other JA roles (e.g. JA_HONTEN)', async () => {
     const { wrapper } = await renderAs('JA_HONTEN');
     const cfg = (wrapper.vm as any).rowSelectionConfig;
     expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(false);

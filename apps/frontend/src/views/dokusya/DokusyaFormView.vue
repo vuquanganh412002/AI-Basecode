@@ -505,6 +505,10 @@ async function loadDetail(id: number): Promise<void> {
     });
     // 元の販売店を控えておき、編集中の変更検知 (hanbaitenChanged) に使う。
     originalHanbaitenId.value = resp.data.hanbaiten_id ?? null;
+    // 編集前の解約予定日を控える（販売店適用日 < 解約予定日 の相対チェック用。
+    // 参照は「直前の有効レコード」= ロード値。フォームで chushi を同時編集しても
+    // 判定はこの旧値を使う。顧客要件 2026-07）。
+    originalChushiDate.value = resp.data.dokusya_chushi_date ?? null;
     // DB 登録時の部数を控える（解約→新規 と切替えたとき復元する）。
     originalDokusyaBusu.value = resp.data.dokusya_busu;
     // 読込時の手続種類・支払方法を控える（canResubscribe 判定用スナップショット）。
@@ -606,6 +610,8 @@ const canResubscribe = computed(
 // 必須化し、初期値を当日にする。元の販売店に戻したら非表示にして値も
 // クリアする (変更していない販売店に適用日を送らない)。
 const originalHanbaitenId = ref<number | null>(null);
+// 編集前の解約予定日（相対チェックの参照値。loadDetail で設定）。
+const originalChushiDate = ref<string | null>(null);
 const hanbaitenChanged = computed(
   () =>
     isEdit.value &&
@@ -643,6 +649,14 @@ const infoChangeGuard = useEditGuard(() => {
 /** 販売店・適用日(joho)以外の項目に変更があるか（編集モードのみ・基準値確定後）。 */
 const otherInfoChanged = computed(
   () => isEdit.value && !infoChangeGuard.isPristine(),
+);
+/**
+ * joho が販売店適用日へ自動追随する状態（＝「販売店のみ変更」）。この状態では
+ * joho 入力は disabled で値は hanbaiten_tekiyo_date に等しいため、joho 系の
+ * バリデーションエラーは利用者が実際に編集する販売店適用日フィールドに表示する。
+ */
+const johoFollowsHanbaiten = computed(
+  () => hanbaitenChanged.value && !otherInfoChanged.value,
 );
 /** ロード時点の適用日（他項目が未変更へ戻ったとき復元する基準値）。 */
 const johoHenkoBaseline = ref<string | null>(null);
@@ -1051,11 +1065,62 @@ function validateTekiyoDates(errs: Record<string, string>): void {
   }
   // 情報変更適用日 (joho_henko_tekiyo_date): 編集時はユーザー入力で必須
   // (既定は当日)。過去日不可・当日は可。新規登録では非表示なので対象外。
-  if (isEdit.value) {
+  // 「販売店のみ変更」で joho が販売店適用日へ自動追随する場合は joho 入力が
+  // disabled なので、必須・過去日チェックは販売店適用日側 (上のブロック) に委ねる。
+  if (isEdit.value && !johoFollowsHanbaiten.value) {
     if (!formState.joho_henko_tekiyo_date?.trim()) {
       errs.joho_henko_tekiyo_date = REQUIRED_MSG;
     } else if (formState.joho_henko_tekiyo_date < todayIso) {
       errs.joho_henko_tekiyo_date = '過去日は指定できません。';
+    }
+  }
+
+  // 相対チェック (顧客要件 2026-07) — 参照は編集前の有効レコード。
+  // BE(collectTekiyoDateViolations / 取込 / 置換)と同一ルールをFEでも即時表示する。
+  //  - 情報変更適用日 >= 購読開始日（購読開始日は編集不可＝ロード値）
+  //  - 「販売店のみ変更」では joho=販売店適用日 なので、エラーは利用者が実際に
+  //    編集する販売店適用日フィールドに (販売店適用日 の文言で) 表示する。
+  if (
+    isEdit.value &&
+    formState.joho_henko_tekiyo_date &&
+    formState.dokusya_kaishi_date &&
+    formState.joho_henko_tekiyo_date < formState.dokusya_kaishi_date
+  ) {
+    const kaishi = formState.dokusya_kaishi_date.replaceAll('-', '/');
+    if (johoFollowsHanbaiten.value) {
+      if (!errs.hanbaiten_tekiyo_date) {
+        errs.hanbaiten_tekiyo_date = `販売店適用日は購読開始日（${kaishi}）以降の日付を指定してください。`;
+      }
+    } else if (!errs.joho_henko_tekiyo_date) {
+      errs.joho_henko_tekiyo_date = `情報変更適用日は購読開始日（${kaishi}）以降の日付を指定してください。`;
+    }
+  }
+  //  - 販売店適用日 < 解約予定日（解約予定日が設定済みの場合のみ・編集前の値を参照）
+  if (
+    !errs.hanbaiten_tekiyo_date &&
+    formState.hanbaiten_tekiyo_date &&
+    originalChushiDate.value &&
+    formState.hanbaiten_tekiyo_date >= originalChushiDate.value
+  ) {
+    errs.hanbaiten_tekiyo_date = `販売店適用日は解約予定日（${originalChushiDate.value.replaceAll(
+      '-',
+      '/',
+    )}）より前の日付を指定してください。`;
+  }
+
+  // 解約予定日 (dokusya_chushi_date): 入力時のみ — 購読開始日以降(当日可) かつ
+  // 過去日不可(当日可)。顧客要件 2026-07。BE(collectChushiViolations)と同一ルール。
+  if (formState.dokusya_chushi_date) {
+    if (
+      formState.dokusya_kaishi_date &&
+      formState.dokusya_chushi_date < formState.dokusya_kaishi_date
+    ) {
+      errs.dokusya_chushi_date = `解約予定日は購読開始日（${formState.dokusya_kaishi_date.replaceAll(
+        '-',
+        '/',
+      )}）以降の日付を指定してください。`;
+    } else if (formState.dokusya_chushi_date < todayIso) {
+      errs.dokusya_chushi_date = '解約予定日に過去日は指定できません。';
     }
   }
 }
@@ -1497,16 +1562,11 @@ defineExpose({ formState, fieldErrors });
                 <span class="text-error ml-1">*</span>
               </template>
               <!--
-                編集画面では原則 手続種類を変更不可（作成時に確定。顧客要件）。
-                例外: 再加入可（canResubscribe = 解約済みの 紙版 / 電子版(非クレカ)）
-                のときのみ編集可にする。
+                編集画面でも手続種類は変更可（グループ disable 撤廃）。
                 新規作成では解約(0)を選択不可（解約は既存購読者に対する更新操作。
                 BE も create() で同値を VALIDATION_ERROR で弾く）。
               -->
-              <a-radio-group
-                v-model:value="formState.tetsuzuki_shurui"
-                :disabled="isEdit && !canResubscribe"
-              >
+              <a-radio-group v-model:value="formState.tetsuzuki_shurui">
                 <a-radio
                   v-for="opt in tetsuzukiShuruiOptions"
                   :key="opt.value"

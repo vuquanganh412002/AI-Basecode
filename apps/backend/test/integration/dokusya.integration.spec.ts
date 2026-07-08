@@ -91,10 +91,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
             kanri_shiten_id, biko,
             created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'SH001', '千代田支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '201', '千代田支店', 'ﾁﾖﾀﾞ',
             TRUE, '001', '本店', '1', '1234567', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (50, 1, 'SH050', '銀行支店50', 'ｷﾞﾝｺｳ',
+           (50, 1, '250', '銀行支店50', 'ｷﾞﾝｺｳ',
             TRUE, '050', '支店50', '1', '5000000', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
            (100, 1, 'SH100', '購読支店100', 'ｼﾃﾝﾋｬｸ',
@@ -344,7 +344,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(leaked).toHaveLength(0);
     });
 
-    it('should reverse-lookup m_shiten and persist bank_branch_code from jastem_toriatsukai_tenpo_code', async () => {
+    it('should reverse-lookup m_shiten and persist bank_branch_code from shiten_code (not jastem_toriatsukai_tenpo_code)', async () => {
+      // 顧客要件 2026-07 — bank_branch_code は shiten_code を保存する。
+      // seed shiten_id=1: shiten_code='201', jastem_toriatsukai_tenpo_code='001'
+      // → 保存値が '201' であることで shiten_code 由来を証明する。
       const sid = await asChuokai(1);
       await http()
         .post(apiUrl('dokusya'))
@@ -359,7 +362,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       const [persisted] = await ctx.dataSource.query(
         `SELECT bank_branch_code, bank_branch_name FROM t_dokusya WHERE kumiaiin_code = 'INT-BANK'`,
       );
-      expect(persisted.bank_branch_code).toBe('001');
+      expect(persisted.bank_branch_code).toBe('201');
       expect(persisted.bank_branch_name).toBe('本店');
     });
 
@@ -1043,10 +1046,10 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
             kanri_shiten_id, biko,
             created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'SH001', '千代田支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '201', '千代田支店', 'ﾁﾖﾀﾞ',
             TRUE, '001', '本店', '1', '1234567', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (50, 1, 'SH050', '銀行支店50', 'ｷﾞﾝｺｳ',
+           (50, 1, '250', '銀行支店50', 'ｷﾞﾝｺｳ',
             TRUE, '050', '支店50', '1', '5000000', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
            (100, 1, 'SH100', '購読支店100', 'ｼﾃﾝﾋｬｸ',
@@ -1606,10 +1609,10 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
             kanri_shiten_id, biko,
             created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'SH001', '千代田支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '201', '千代田支店', 'ﾁﾖﾀﾞ',
             TRUE, '001', '本店', '1', '1234567', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (50, 1, 'SH050', '銀行支店50', 'ｷﾞﾝｺｳ',
+           (50, 1, '250', '銀行支店50', 'ｷﾞﾝｺｳ',
             TRUE, '050', '支店50', '1', '5000000', 1, '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
            (100, 1, 'SH100', '購読支店100', 'ｼﾃﾝﾋｬｸ',
@@ -1782,6 +1785,142 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
     it('should return 401 when the session cookie is missing', async () => {
       // COVERS: err:UNAUTHORIZED
       await http().get(apiUrl('dokusya/1/rireki')).expect(401);
+    });
+
+    it('should flag can_torikeshi=true only on the chain tail (非新規) row', async () => {
+      // COVERS: API-013-002 can_torikeshi — tail(更新, rireki #2) は取消可、
+      // 先頭(新規, rireki #1) は shinki_flg で取消不可。
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+
+      // data[0] = rireki #2 (tail, 更新) → 取消可 ; data[1] = rireki #1 (新規) → 取消不可。
+      expect(res.body.data[0].can_torikeshi).toBe(true);
+      expect(res.body.data[0].torikeshi_flg).toBe(false);
+      expect(res.body.data[1].can_torikeshi).toBe(false);
+      expect(res.body.data[1].shinki_flg).toBe(true);
+    });
+  });
+
+  describe('POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi', () => {
+    /** rireki #2 (tail, 更新行) の dokusya_rireki_id を取得する。*/
+    async function tailRirekiId(sid: string, dokusyaId: number): Promise<number> {
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+      return Number(res.body.data[0].dokusya_rireki_id); // rireki_no=2 が先頭
+    }
+
+    it('should 取消 the tail row: flag it + insert a reversing row + record reason in both biko + t_log', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      const targetId = await tailRirekiId(sid, dokusyaId);
+
+      const res = await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/${targetId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: '誤入力のため取消' })
+        .expect(200);
+      expect(res.body.message).toBe('取消しました。');
+
+      // 対象行: torikeshi_flg=true + biko=理由。
+      const [target] = await ctx.dataSource.query(
+        `SELECT torikeshi_flg, biko FROM t_dokusya_rireki WHERE dokusya_rireki_id = $1`,
+        [targetId],
+      );
+      expect(target.torikeshi_flg).toBe(true);
+      expect(target.biko).toBe('誤入力のため取消');
+
+      // 打ち消し行(新規 rireki): torikeshi_flg=true + biko=理由 + henko_riyu='取消'。
+      const counters = await ctx.dataSource.query(
+        `SELECT torikeshi_flg, biko, henko_riyu FROM t_dokusya_rireki
+           WHERE dokusya_id = $1 AND torikeshi_flg = true AND dokusya_rireki_id <> $2`,
+        [dokusyaId, targetId],
+      );
+      expect(counters).toHaveLength(1);
+      expect(counters[0].biko).toBe('誤入力のため取消');
+      expect(counters[0].henko_riyu).toBe('取消');
+
+      // t_log に取消理由が記録される（afterValue の torikeshi_reason）。
+      const logs = await ctx.dataSource.query(
+        `SELECT after_value FROM t_log
+           WHERE target_table = 't_dokusya_rireki' AND operation = 'UPDATE'
+           ORDER BY log_id DESC LIMIT 1`,
+      );
+      expect(logs).toHaveLength(1);
+      expect(String(logs[0].after_value)).toContain('誤入力のため取消');
+    });
+
+    it('should recompute the master back to rireki #1 after the tail is 取消', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      const targetId = await tailRirekiId(sid, dokusyaId);
+
+      await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/${targetId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: 'r' })
+        .expect(200);
+
+      // 更新(#2)を取消 → 有効レコードは #1 に戻り、master は #1 の住所へ。
+      const [master] = await ctx.dataSource.query(
+        `SELECT chome_banchi FROM t_dokusya WHERE dokusya_id = $1`,
+        [dokusyaId],
+      );
+      expect(master.chome_banchi).toBe('千代田1-1'); // create 時の住所（更新前）
+    });
+
+    it('should return 400 TORIKESHI_NOT_ALLOWED for a 新規(先頭) row', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      // rireki #1 (新規) の dokusya_rireki_id。
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+      const shinkiId = Number(res.body.data[1].dokusya_rireki_id); // rireki_no=1
+
+      const r = await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/${shinkiId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: 'x' })
+        .expect(400);
+      expect(r.body.error_code).toBe('TORIKESHI_NOT_ALLOWED');
+    });
+
+    it('should return 400 VALIDATION_ERROR when reason is empty', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      const targetId = await tailRirekiId(sid, dokusyaId);
+
+      await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/${targetId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: '' })
+        .expect(400);
+    });
+
+    it('should return 404 when the rireki does not belong to the dokusya', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+
+      await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/999999/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: 'r' })
+        .expect(404);
+    });
+
+    it('should return 401 when the session cookie is missing', async () => {
+      await http()
+        .post(apiUrl('dokusya/1/rireki/1/torikeshi'))
+        .send({ reason: 'r' })
+        .expect(401);
     });
   });
 });

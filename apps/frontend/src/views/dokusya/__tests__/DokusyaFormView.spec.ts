@@ -688,8 +688,8 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((shinki.element as HTMLInputElement).disabled).toBe(false);
   });
 
-  it('should DISABLE the whole 手続種類 field in edit mode for an active 新規 record', async () => {
-    // 既定 detail は 新規(1) → 変更不可（再加入対象外）。
+  it('should KEEP the whole 手続種類 field editable in edit mode for an active 新規 record', async () => {
+    // グループ disable 撤廃 — 編集モードでも常に選択可。
     const { wrapper } = await renderView({ dokusyaId: 100 });
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
@@ -698,8 +698,8 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     const kaiyaku = item!.find('input[type="radio"][value="0"]');
     const shinki = item!.find('input[type="radio"][value="1"]');
     expect(kaiyaku.exists()).toBe(true);
-    expect((kaiyaku.element as HTMLInputElement).disabled).toBe(true);
-    expect((shinki.element as HTMLInputElement).disabled).toBe(true);
+    expect((kaiyaku.element as HTMLInputElement).disabled).toBe(false);
+    expect((shinki.element as HTMLInputElement).disabled).toBe(false);
   });
 
   // 顧客要件 2026-06 — 再加入（canResubscribe）: 解約済みの 紙版 / 電子版(非クレカ)
@@ -720,7 +720,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((kaishi!.find('input').element as HTMLInputElement).disabled).toBe(false);
   });
 
-  it('should KEEP 手続種類 + 購読開始日 disabled for a 解約 電子版+クレカ record (excluded from re-subscribe)', async () => {
+  it('should KEEP 購読開始日 disabled (手続種類 stays editable) for a 解約 電子版+クレカ record (excluded from re-subscribe)', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
       data: buildDokusyaDetail({ dokusya_shubetsu: 2, shiharai_hoho: 6, tetsuzuki_shurui: 0 }),
@@ -729,7 +729,11 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     const tetsuzuki = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === 'tetsuzuki_shurui');
-    expect((tetsuzuki!.find('input[type="radio"][value="1"]').element as HTMLInputElement).disabled).toBe(true);
+    const kaishi = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'dokusya_kaishi_date');
+    expect((tetsuzuki!.find('input[type="radio"][value="1"]').element as HTMLInputElement).disabled).toBe(false);
+    expect((kaishi!.find('input').element as HTMLInputElement).disabled).toBe(true);
   });
 
   it('should render the 履歴No label when mounted in edit mode', async () => {
@@ -959,6 +963,95 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
 
     expect(wrapper.text()).toContain('必須項目です。');
     expect(createDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should block update + show 購読開始日 message when joho < 購読開始日 (顧客要件 2026-07)', async () => {
+    // 参照は編集前レコード。購読開始日を未来にすると既定の joho(=当日) が
+    // 開始日未満になり、情報変更適用日エラーで update を止める。
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_kaishi_date: '2030-01-01' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    // 何か変更して pristine ガード（変更なし→更新スキップ）を解除する。
+    vm.formState.biko = '変更メモ';
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('購読開始日（2030/01/01）');
+    expect(updateDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should block update + show 解約予定日 message when 販売店適用日 >= 解約予定日', async () => {
+    // 参照は編集前の解約予定日。販売店を変更してそれ以降の販売店適用日を入れると
+    // 販売店適用日エラーで update を止める。
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_chushi_date: '2026-08-01' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    // 販売店を変更 → hanbaiten_tekiyo_date が有効化。解約予定日以降を入力。
+    vm.formState.hanbaiten_id = Number(vm.formState.hanbaiten_id) + 1;
+    await flushPromises();
+    vm.formState.hanbaiten_tekiyo_date = '2026-09-01';
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('解約予定日（2026/08/01）');
+    expect(updateDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should block update + show 購読開始日 message when 解約予定日 < 購読開始日 (顧客要件 2026-07)', async () => {
+    // 入力された解約予定日は購読開始日以降であること（既定 detail の開始日=2026-04-01）。
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    vm.formState.dokusya_chushi_date = '2026-03-01';
+    vm.formState.biko = '変更メモ'; // pristine ガード解除
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('解約予定日は購読開始日（2026/04/01）');
+    expect(updateDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should show the joho<kaishi error on 販売店適用日 (not joho) when 販売店のみ変更', async () => {
+    // 販売店のみ変更 → joho は販売店適用日へ自動追随(disabled)。joho<購読開始日の
+    // エラーは利用者が実際に編集する販売店適用日フィールドに、販売店適用日の文言で出す。
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_kaishi_date: '2030-01-01' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    // 販売店のみ変更（他項目は触らない）→ joho は販売店適用日に追随。
+    vm.formState.hanbaiten_id = Number(vm.formState.hanbaiten_id) + 1;
+    await flushPromises();
+    vm.formState.hanbaiten_tekiyo_date = '2026-09-01'; // >= 当日 だが < 購読開始日(2030)
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // メッセージは「販売店適用日は購読開始日…」で表示され、joho 文言は出ない。
+    expect(wrapper.text()).toContain('販売店適用日は購読開始日（2030/01/01）');
+    expect(wrapper.text()).not.toContain('情報変更適用日は購読開始日');
+    // エラーは販売店適用日フォーム項目に紐づく。
+    const hanbaitenItem = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'hanbaiten_tekiyo_date');
+    expect(hanbaitenItem?.text()).toContain('販売店適用日は購読開始日（2030/01/01）');
+    expect(updateDokusya).not.toHaveBeenCalled();
   });
 
   it('should keep 購読開始日 editable in create mode', async () => {

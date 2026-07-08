@@ -35,7 +35,6 @@ const formState = reactive<{
   kanri_shiten_ids: number[];
   dokusya_shubetsu: number | undefined;
   shiharai_hoho: number | undefined;
-  nichino_download_allowed_flg: boolean;
 }>({
   tekiyo_date: '',
   report_type: 'hanbaiten',
@@ -43,8 +42,6 @@ const formState = reactive<{
   kanri_shiten_ids: [],
   dokusya_shubetsu: undefined,
   shiharai_hoho: undefined,
-  // 日農ダウンロード許可フラグ — 既定 false（日農担当者DL不可）。
-  nichino_download_allowed_flg: false,
 });
 
 const fieldErrors = reactive<{
@@ -134,8 +131,8 @@ function buildQuery(page?: number): MeiboReportQuery {
   if (formState.dokusya_shubetsu != null) q.dokusya_shubetsu = formState.dokusya_shubetsu;
   // 支払方法（m_code SHIHARAI_HOHO）は両帳票種別で有効。
   if (formState.shiharai_hoho != null) q.shiharai_hoho = formState.shiharai_hoho;
-  // 日農ダウンロード許可フラグ（export のみ有効。preview では BE 無視）。
-  q.nichino_download_allowed_flg = formState.nichino_download_allowed_flg;
+  // 日農ダウンロード許可フラグは画面から選択させない（顧客要件）。FE は送らず、
+  // BE 側で未指定→false に既定化する（service: `?? false`）。
   // ページ送り（preview のみ。export では渡さず全件出力）。
   if (page != null) {
     q.page = page;
@@ -378,24 +375,8 @@ defineExpose({ formState });
         />
       </div>
 
-      <!-- 日農ダウンロード許可フラグ — 出力ファイルを日農担当者がDLできるか。
-           プレビューで出力対象データがある場合のみ表示し、Excel出力ボタンと
-           同じ行群に置く（出力時に選択する。既定 不可）。 -->
-      <div
-        v-if="hasReportData"
-        class="mt-4 flex items-center gap-2"
-        data-test="nichino-flg-row"
-      >
-        <label for="meibo-nichino-flg" class="text-sm font-medium whitespace-nowrap text-text-main">日農DL許可</label>
-        <a-radio-group
-          id="meibo-nichino-flg"
-          v-model:value="formState.nichino_download_allowed_flg"
-          data-test="nichino-flg"
-        >
-          <a-radio :value="true">許可する</a-radio>
-          <a-radio :value="false">許可しない</a-radio>
-        </a-radio-group>
-      </div>
+      <!-- 日農ダウンロード許可フラグは画面から選択させず常に false（許可しない）で
+           出力する（顧客要件）。ラジオは廃止し、export クエリで固定値を送る。 -->
 
       <div class="pt-4 mt-3 flex items-center justify-start gap-2">
         <a-button

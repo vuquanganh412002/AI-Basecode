@@ -370,19 +370,24 @@ export class FileDownloadService {
   }
 
   /**
-   * 日農DL許可チェック。日農（NICHINO_ADMIN=role1 / NICHINO_STAFF=role2）は
-   * nichino_download_allowed_flg=false のファイルをダウンロード／プレビュー
-   * できない（FE の行無効化と対になるサーバ側強制＝実際のアクセス境界）。
-   * 一覧には表示される行なので、存在を隠す 404 ではなく 403 を返す。
+   * 日農DL許可チェック。対象ロールは nichino_download_allowed_flg=false の
+   * ファイルをダウンロード／プレビューできない（FE の行無効化と対になるサーバ側
+   * 強制＝実際のアクセス境界）。一覧には表示される行なので、存在を隠す 404 では
+   * なく 403 を返す。
+   *
+   * 対象ロール（顧客要件）: 日農（NICHINO_ADMIN=role1 / NICHINO_STAFF=role2）に
+   * 加え、中央会（CHUOKAI=role3）も追加する。
    */
   private assertNichinoDownloadAllowed(
     row: FileDownload,
     session: SessionPayload,
   ): void {
     const role = session.role_code;
-    const isNichino =
-      role === RoleCode.NICHINO_ADMIN || role === RoleCode.NICHINO_STAFF;
-    if (isNichino && row.nichinoDownloadAllowedFlg === false) {
+    const isDlRestrictedRole =
+      role === RoleCode.NICHINO_ADMIN ||
+      role === RoleCode.NICHINO_STAFF ||
+      role === RoleCode.CHUOKAI;
+    if (isDlRestrictedRole && row.nichinoDownloadAllowedFlg === false) {
       throw new ForbiddenException(
         'このファイルは日農のダウンロードが許可されていません。',
       );

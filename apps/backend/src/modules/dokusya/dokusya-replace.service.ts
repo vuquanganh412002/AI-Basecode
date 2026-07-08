@@ -4,10 +4,9 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
-import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import { NotFoundException } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { todayIsoJst } from '@/common/utils/datetime';
+import { todayIsoJst, normalizeDbDate } from '@/common/utils/datetime';
 import {
   applyBranchScope,
   assertBranchScopeViolation,
@@ -22,6 +21,7 @@ import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
 import { ReplaceHanbaitenDto } from './dto/replace-hanbaiten.dto';
 import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
 import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
+import { applyChange } from './dokusya-history.writer';
 import { SameHanbaitenException } from './exceptions/same-hanbaiten.exception';
 import { DateRangeInvalidException } from './exceptions/date-range-invalid.exception';
 import {
@@ -264,6 +264,12 @@ export class DokusyaReplaceService {
 
     this.validateReplaceCandidates(candidates, ids, dto.new_hanbaiten_id, session);
 
+    // §4.1 — 販売店適用日の整合性（顧客要件 2026-07）。単一の適用日を全候補へ
+    // 適用するため「候補全体で最も遅い購読開始日以降 かつ 最も早い解約予定日
+    // より前」であること。参照は各候補の現行有効レコード(before)。UI/取込の
+    // 単票チェックと同じルールだが、置換は複数候補の境界を集約して判定する。
+    this.assertReplaceTekiyoDate(candidates, dto.hanbaiten_tekiyo_date);
+
     // §4.4 — validate the replace target hanbaiten exists + is in scope.
     const targetRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
@@ -293,85 +299,38 @@ export class DokusyaReplaceService {
 
     try {
       const summary = await this.dataSource.transaction(async (manager) => {
-        // §4.5 — bulk UPDATE the master rows + bump rireki_no。
-        // 販売店のみ変更イベント（顧客要件 2026-06）: 販売店適用日を
-        // joho_henko_tekiyo_date にも設定し、最新履歴（saishin）と整合させる
-        // （hanbaiten_tekiyo_date は履歴専用カラムなのでマスタには無い）。
-        const updated: Array<Record<string, unknown>> = await manager.query(
-          `UPDATE t_dokusya
-              SET hanbaiten_id = $1,
-                  joho_henko_tekiyo_date = $4,
-                  rireki_no = rireki_no + 1,
-                  updated_by = $2
-            WHERE dokusya_id = ANY($3) AND deleted_at IS NULL
-          RETURNING dokusya_id, hanbaiten_id, rireki_no`,
-          [
-            dto.new_hanbaiten_id,
-            String(session.account_id),
-            ids,
-            dto.hanbaiten_tekiyo_date,
-          ],
-        );
+        // §4.5 — 各購読者を共通ライタ applyChange(UPDATE) で置換 (Pha3)。販売店
+        // (hanbaiten_id) のみ変更する UPDATE イベントなので、johoDate と
+        // hanbaitenDate を同じ販売店適用日に揃える（＝UI 編集 Rule2「販売店のみ
+        // 変更」と同一）。applyChange が差分→履歴INSERT→recomputeMaster まで担い、
+        // saishin_data_flg 無効化・rireki_no 採番・zenkai_hanbaiten_id 退避・
+        // 増減報告フラグ(hanbaiten はトリガ)を一元的に処理する。
+        let rirekiCount = 0;
+        for (const before of candidates) {
+          const dokusyaId = Number(before.dokusyaId);
+          // [rireki-no-race] 採番前に master 行をロック（UI/取込 UPDATE と同じ直列化）。
+          await this.rireki.lockDokusyaRow(manager, dokusyaId);
+          const result = await applyChange(manager, {
+            mode: 'UPDATE',
+            dokusyaId,
+            values: { hanbaitenId: Number(dto.new_hanbaiten_id) },
+            johoDate: dto.hanbaiten_tekiyo_date,
+            hanbaitenDate: dto.hanbaiten_tekiyo_date,
+            source: 'REPLACE_HANBAITEN',
+            actor: String(session.account_id),
+            reason: '販売店一括置換',
+          });
+          rirekiCount += result.insertedRirekiIds.length;
+        }
 
-        // §4.5 — clear the previous 最新データ flag, then append a new
-        // history row per replaced 購読者.
-        await manager.query(
-          `UPDATE t_dokusya_rireki
-              SET saishin_data_flg = false
-            WHERE dokusya_id = ANY($1) AND saishin_data_flg = true`,
-          [ids],
-        );
-
-        // new rireki_no per dokusya from the bulk UPDATE RETURNING.
-        const newRirekiNoById = new Map(
-          updated.map((u) => [Number(u.dokusya_id), Number(u.rireki_no)]),
-        );
-
-        // Build each history row through the SAME `buildHistoryFromEntity`
-        // mapper as create/update — `after` = the pre-update entity
-        // (`before`) + the replace deltas (new 販売店 / 適用日 / rireki_no)。
-        // zenkai_hanbaiten_id は置換前の hanbaiten_id、hanbaiten_tekiyo_date は
-        // 適用日 (この置換固有のメタ) を上乗せする。複数行は 1 回の
-        // `manager.save(配列)` で batched INSERT される。
-        const rirekiRows = candidates.map((before) => {
-          const newRirekiNo =
-            newRirekiNoById.get(Number(before.dokusyaId)) ??
-            Number(before.rirekiNo) + 1;
-          const after: Dokusya = {
-            ...before,
-            hanbaitenId: Number(dto.new_hanbaiten_id),
-            // 販売店のみ変更イベント（顧客要件 2026-06）: hanbaiten_tekiyo_date と
-            // joho_henko_tekiyo_date を同じ販売店適用日に揃える（UI 編集 Rule2 /
-            // SCR-011 §8.1・§14.3 と同一）。
-            johoHenkoTekiyoDate: dto.hanbaiten_tekiyo_date,
-            rirekiNo: newRirekiNo,
-          };
-          // create/update と同じ buildRirekiRow で行を生成（列の作り方を一元化）。
-          // before=null（zenkai_* スナップショットは差分ではなく置換前 hanbaiten_id を
-          // 明示上乗せ）、batched INSERT のため manager.create のみ。
-          return manager.create(
-            DokusyaRireki,
-            this.rireki.buildRirekiRow(
-              after,
-              null,
-              {
-                rirekiNo: newRirekiNo,
-                henkoRiyu: '販売店一括置換',
-                saishinDataFlg: true,
-                shinkiFlg: false,
-                kaiyakuFlg: false,
-                // 販売店(hanbaiten_id)変更なので増減報告対象。
-                zougenHokokuFlg: true,
-                createdBy: String(session.account_id),
-              },
-              {
-                zenkaiHanbaitenId: Number(before.hanbaitenId),
-                hanbaitenTekiyoDate: dto.hanbaiten_tekiyo_date,
-              },
-            ),
+        // updated_by は rireki に無い列で recompute 対象外 → master へ一括スタンプ。
+        if (ids.length > 0) {
+          await manager.query(
+            `UPDATE t_dokusya SET updated_by = $1
+              WHERE dokusya_id = ANY($2) AND deleted_at IS NULL`,
+            [String(session.account_id), ids],
           );
-        });
-        await manager.save(DokusyaRireki, rirekiRows);
+        }
 
         await this.auditLog.logUpdate(
           auditCtx,
@@ -380,11 +339,10 @@ export class DokusyaReplaceService {
           manager,
         );
 
-        const replacedCount = updated.length || candidates.length;
         return {
           total_count: ids.length,
-          replaced_count: replacedCount,
-          rireki_count: replacedCount,
+          replaced_count: candidates.length,
+          rireki_count: rirekiCount,
           new_hanbaiten_id: dto.new_hanbaiten_id,
           applied_at: appliedAt,
         };
@@ -453,6 +411,39 @@ export class DokusyaReplaceService {
     }
     if (ineligible.length > 0) {
       throw new IneligibleDokusyaException(ineligible);
+    }
+  }
+
+  /**
+   * §4.1 販売店適用日の整合性（一括置換）。単一の適用日を全候補へ適用するので、
+   * 候補全体で「最も遅い購読開始日(maxKaishi)以降」かつ「最も早い解約予定日
+   * (minChushi)より前」であること（解約予定日が設定済みの候補がある場合のみ）。
+   * 参照は各候補の現行有効レコード(before)。過去日(today基準)は呼び出し側で確認済み。
+   * メッセージは違反の境界日を提示し、顧客が有効な日付を選べるようにする。
+   */
+  private assertReplaceTekiyoDate(candidates: Dokusya[], date: string): void {
+    const applied = normalizeDbDate(date);
+    let maxKaishi: string | null = null;
+    let minChushi: string | null = null;
+    for (const c of candidates) {
+      if (c.dokusyaKaishiDate) {
+        const k = normalizeDbDate(c.dokusyaKaishiDate);
+        if (maxKaishi === null || k > maxKaishi) maxKaishi = k;
+      }
+      if (c.dokusyaChushiDate) {
+        const ch = normalizeDbDate(c.dokusyaChushiDate);
+        if (minChushi === null || ch < minChushi) minChushi = ch;
+      }
+    }
+    if (maxKaishi && applied < maxKaishi) {
+      throw new DateRangeInvalidException(
+        `販売店適用日は購読開始日（${maxKaishi.replaceAll('-', '/')}）以降の日付を指定してください。`,
+      );
+    }
+    if (minChushi && applied >= minChushi) {
+      throw new DateRangeInvalidException(
+        `販売店適用日は解約予定日（${minChushi.replaceAll('-', '/')}）より前の日付を指定してください。`,
+      );
     }
   }
 }

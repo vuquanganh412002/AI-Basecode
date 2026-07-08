@@ -757,11 +757,13 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
     };
 
     beforeEach(() => {
-      // Existing row found.
+      // Existing row found. kinyuShitenFlg=true matches validDto so the
+      // [kinyu-immutable] guard passes (unchanged flag); tests that need a
+      // mismatch override repo.findOne locally.
       repo.findOne.mockResolvedValue(buildShiten({
         shitenId: 1, jaId: 1,
         shitenCode: '001', shitenName: '本店営業部',
-        kinyuShitenFlg: false, kanriShitenId: 1,
+        kinyuShitenFlg: true, kanriShitenId: 1,
         biko: '',
       }));
     });
@@ -809,6 +811,44 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
       kanriShitenRepo.findOne.mockResolvedValue(null);
       await expect(service.update(1, validDto, buildChuokaiSession({ ja_id: 1 }), baseReq))
         .rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject changing kinyu_shiten_flg (immutable after create) with 400 VALIDATION_ERROR', async () => {
+      // [kinyu-immutable] before=false, DTO sends true → reject.
+      repo.findOne.mockResolvedValue(buildShiten({
+        shitenId: 1, jaId: 1, shitenCode: '001',
+        kinyuShitenFlg: false, kanriShitenId: 1,
+      }));
+      await expect(
+        service.update(
+          1,
+          { ...validDto, kinyu_shiten_flg: true },
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      // No write when the guard trips.
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should reject clearing kinyu_shiten_flg (true→false) as immutable', async () => {
+      // beforeEach mock has kinyuShitenFlg=true; DTO sends false → reject.
+      await expect(
+        service.update(
+          1,
+          { ...validDto, kinyu_shiten_flg: false },
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('should allow update when kinyu_shiten_flg is omitted (undefined) — flag preserved', async () => {
+      // [kinyu-immutable] omitting the flag must NOT trip the guard; the
+      // existing value is preserved by the service.
+      const { kinyu_shiten_flg: _drop, ...noFlag } = validDto;
+      const result = await service.update(1, noFlag, buildChuokaiSession({ ja_id: 1 }), baseReq);
+      expect(result).toMatchObject({ shiten_id: 1, message: '更新しました。' });
     });
 
     it('should NOT change shiten_code (immutable per api.md 注記)', async () => {

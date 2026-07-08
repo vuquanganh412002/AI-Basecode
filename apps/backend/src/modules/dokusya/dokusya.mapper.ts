@@ -383,6 +383,16 @@ export interface DokusyaRirekiListItem {
   zougen_hokoku_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
+  /** 取消(赤伝)済みフラグ。対象行・打ち消し行の両方で true。*/
+  torikeshi_flg: boolean;
+  /** 備考。取消時は取消理由が記録される（顧客要件）。*/
+  biko: string;
+  /**
+   * この行を 取消 できるか（BE の {@link canTorikeshi} と同一条件）: 新規でない
+   * かつ取消済でないかつチェーン末尾(有効レコード)であること。FE のボタン
+   * disable 判定に使う（実際の可否は BE エンドポイントが再検証する）。
+   */
+  can_torikeshi: boolean;
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;
   bank_branch_name: string;
@@ -423,7 +433,18 @@ function stringOrEmpty(value: unknown): string {
  */
 export function toDokusyaRirekiListItem(
   row: Record<string, unknown>,
+  /**
+   * `dokusya_rireki_id` of the chain tail (greatest (joho, rireki_no) among
+   * `torikeshi_flg=false` rows). When this row IS the tail and is neither
+   * 新規 nor 取消済, `can_torikeshi` is true. `null` → no cancellable tail.
+   */
+  tailRirekiId: number | null = null,
 ): DokusyaRirekiListItem {
+  const shinki = Boolean(row.shinki_flg);
+  const torikeshi = Boolean(row.torikeshi_flg);
+  const isTail =
+    tailRirekiId != null &&
+    coerceNumber(row.dokusya_rireki_id as number | string) === tailRirekiId;
   return {
     dokusya_rireki_id: coerceNumber(row.dokusya_rireki_id as number | string),
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
@@ -482,8 +503,11 @@ export function toDokusyaRirekiListItem(
     joho_henko_tekiyo_date: nullableString(row.joho_henko_tekiyo_date),
     saishin_data_flg: Boolean(row.saishin_data_flg),
     zougen_hokoku_flg: Boolean(row.zougen_hokoku_flg),
-    shinki_flg: Boolean(row.shinki_flg),
+    shinki_flg: shinki,
     kaiyaku_flg: Boolean(row.kaiyaku_flg),
+    torikeshi_flg: torikeshi,
+    biko: stringOrEmpty(row.biko),
+    can_torikeshi: !shinki && !torikeshi && isTail,
     hikiotoshi_yokin_shubetsu: coerceNullableNumber(
       row.hikiotoshi_yokin_shubetsu as RawScalarNullable,
     ),

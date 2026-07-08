@@ -367,41 +367,26 @@ describe('MeiboReportView — Excel出力', () => {
     await flushPromises();
 
     expect(exportMeibo).toHaveBeenCalledTimes(1);
-    // 日農DL許可フラグは既定 false で送信される。
-    expect(exportMeibo).toHaveBeenCalledWith(
-      expect.objectContaining({ nichino_download_allowed_flg: false }),
-    );
+    // 日農DL許可フラグは FE から送らない（BE が未指定→false に既定化する）。
+    const sentQuery = vi.mocked(exportMeibo).mock.calls[0]?.[0];
+    expect(sentQuery?.nichino_download_allowed_flg).toBeUndefined();
     expect(createObjectURL).toHaveBeenCalled();
   });
 
-  it('should hide the 日農DL許可 radio until preview returns data, then show it', async () => {
+  it('should NEVER render the 日農DL許可 radio + NOT send the flag (BE defaults false)', async () => {
+    // 顧客要件: 日農DL許可 は画面から選択させない。プレビュー後もラジオは表示せず、
+    // export クエリにもフラグを含めない（BE が未指定→false 化）。
     const { wrapper } = await renderView();
-
-    // プレビュー前は非表示（出力対象データが無いため）。
     expect(wrapper.find('[data-test="nichino-flg-row"]').exists()).toBe(false);
 
     await previewWithData(wrapper);
+    expect(wrapper.find('[data-test="nichino-flg-row"]').exists()).toBe(false);
 
-    // プレビューで出力対象データが得られたら表示される。
-    expect(wrapper.find('[data-test="nichino-flg-row"]').exists()).toBe(true);
-  });
-
-  it('should send nichino_download_allowed_flg=true when 許可する is selected', async () => {
-    const { wrapper } = await renderView();
     const { exportMeibo } = await import('@/api/report/report');
-    await previewWithData(wrapper);
-
-    // 「許可する」ラジオ（value=true）を選択する。
-    const radios = wrapper
-      .find('[data-test="nichino-flg"]')
-      .findAll('input[type="radio"]');
-    await radios[0].setValue();
     await wrapper.find(exportBtn()).trigger('click');
     await flushPromises();
-
-    expect(exportMeibo).toHaveBeenCalledWith(
-      expect.objectContaining({ nichino_download_allowed_flg: true }),
-    );
+    const sentQuery = vi.mocked(exportMeibo).mock.calls[0]?.[0];
+    expect(sentQuery?.nichino_download_allowed_flg).toBeUndefined();
   });
 
   it('should still call exportMeibo when it rejects with 500 (interceptor handles the toast)', async () => {

@@ -513,6 +513,102 @@ describeRealPg(
       expect(Number(latest[0].dokusya_busu)).toBe(9);
     });
 
+    it('should return 400 IMPORT_VALIDATION_ERROR (joho < 購読開始日) on UPDATE import (顧客要件 2026-07)', async () => {
+      // §4.1 適用日整合性 — 読者情報変更適用日 >= 購読開始日(before)。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KDATE1' })] }))
+        .expect(200);
+      // master の購読開始日を未来へ → joho=当日 が kaishi 未満になる。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_kaishi_date = '2030-01-01'
+           WHERE ja_id = 1 AND kumiaiin_code = 'KDATE1'`,
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE_ALL',
+            selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            rows: [buildImportRow({ kumiaiin_code: 'KDATE1', dokusya_busu: 5 })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('joho_henko_tekiyo_date');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (販売店適用日 >= 解約予定日) on UPDATE import', async () => {
+      // §4.1 適用日整合性 — 販売店適用日 < 解約予定日(before)。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KDATE2' })] }))
+        .expect(200);
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_chushi_date = '2026-08-01'
+           WHERE ja_id = 1 AND kumiaiin_code = 'KDATE2'`,
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE_ALL',
+            selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KDATE2',
+                dokusya_busu: 5,
+                hanbaiten_tekiyo_date: '2026-09-01', // >= chushi & >= today
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('hanbaiten_tekiyo_date');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (解約予定日 過去日) on UPDATE import (顧客要件 2026-07)', async () => {
+      // §4.1 適用日整合性 — 入力された解約予定日は本日以降（過去日不可）。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KDATE3' })] }))
+        .expect(200);
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE_ALL',
+            selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KDATE3',
+                dokusya_busu: 5,
+                dokusya_chushi_date: '2020-01-01', // 過去日
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('dokusya_chushi_date');
+    });
+
     it('should set joho_henko_tekiyo_date = dokusya_kaishi_date on NEW import (t_dokusya + rireki #1)', async () => {
       // 顧客要件: 取込 NEW は読者情報変更適用日を購読開始日に揃える（UI create と
       // 同方針）。販売店適用日は NEW では対象外（NULL のまま）。

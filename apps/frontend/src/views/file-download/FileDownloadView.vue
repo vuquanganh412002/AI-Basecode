@@ -73,12 +73,15 @@ function isDeleted(row: FileDownloadListItem): boolean {
   return !!row.deleted_at;
 }
 
-// [nichino-permission] 日農（NICHINO_ADMIN=role 1 / NICHINO_STAFF=role 2）は
-// nichino_download_allowed_flg=false の行をダウンロードできない。該当ロールの
-// ときだけ、フラグ false の行を選択不可（チェックボックス disabled + ファイル名
-// はプレーンテキスト）にする。他ロールはフラグに関わらず操作可能。
+// [nichino-permission] nichino_download_allowed_flg=false の行をダウンロード
+// できないロール（顧客要件）: 日農（NICHINO_ADMIN=role 1 / NICHINO_STAFF=role 2）
+// に加え、中央会（CHUOKAI=role 3）も対象。該当ロールのときだけ、フラグ false の
+// 行を選択不可（チェックボックス disabled + ファイル名はプレーンテキスト）にする。
+// 他ロールはフラグに関わらず操作可能。BE の assertNichinoDownloadAllowed と対。
 const isNichinoRole = computed(() =>
-  ['NICHINO_ADMIN', 'NICHINO_STAFF'].includes(authStore.user?.role_code ?? ''),
+  ['NICHINO_ADMIN', 'NICHINO_STAFF', 'CHUOKAI'].includes(
+    authStore.user?.role_code ?? '',
+  ),
 );
 function isNichinoBlocked(row: FileDownloadListItem): boolean {
   return isNichinoRole.value && row.nichino_download_allowed_flg === false;
@@ -490,7 +493,7 @@ defineExpose({
           >
             {{ (record as FileDownloadListItem).file_name }}（削除済み）
           </span>
-          <!-- 日農DL不可 (nichino_download_allowed_flg=false かつ role 1/2):
+          <!-- 日農DL不可 (nichino_download_allowed_flg=false かつ role 1/2/3):
                グレーのプレーンテキスト。リンク化せず選択・DL 不可。 -->
           <span
             v-else-if="isNichinoBlocked(record as FileDownloadListItem)"

@@ -243,10 +243,18 @@ export class MeiboReportService {
       .andWhere('r.joho_henko_tekiyo_date <= :tekiyo_date', {
         tekiyo_date: query.tekiyo_date,
       })
+      // 取消(赤伝)済みの行は名簿の現在行として選ばない（履歴刷新 Pha5）。
+      .andWhere('r.torikeshi_flg = false')
       .andWhere(
-        'r.rireki_no = (SELECT MAX(r2.rireki_no) FROM t_dokusya_rireki r2 ' +
+        // as-of-date の現在行は (joho, rireki_no) 最大の行で選ぶ。MAX(rireki_no)
+        // 単独ではバックデート時に joho の小さい行を誤選択するため不可。取消済
+        // (torikeshi_flg=true) はスナップショット候補から除外する。
+        '(r.joho_henko_tekiyo_date, r.rireki_no) = (' +
+          'SELECT r2.joho_henko_tekiyo_date, r2.rireki_no FROM t_dokusya_rireki r2 ' +
           'WHERE r2.dokusya_id = r.dokusya_id ' +
-          'AND r2.joho_henko_tekiyo_date <= :tekiyo_date)',
+          'AND r2.joho_henko_tekiyo_date <= :tekiyo_date ' +
+          'AND r2.torikeshi_flg = false ' +
+          'ORDER BY r2.joho_henko_tekiyo_date DESC, r2.rireki_no DESC LIMIT 1)',
       )
       .andWhere('r.tetsuzuki_shurui = :tetsuzuki', {
         tetsuzuki: TetsuzukiShurui.SHINKI,

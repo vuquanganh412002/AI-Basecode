@@ -469,6 +469,15 @@ export interface DokusyaRirekiItem {
   zougen_hokoku_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
+  /** 取消(赤伝)済みフラグ。対象行・打ち消し行の両方で true。*/
+  torikeshi_flg: boolean;
+  /** 備考。取消時は取消理由が記録される。*/
+  biko: string;
+  /**
+   * この行を 取消 できるか（BE 判定）: 新規でない・取消済でない・チェーン末尾
+   * (有効レコード)であること。FE の取消ボタン disable 判定に使う。
+   */
+  can_torikeshi: boolean;
   /** m_code.code_category='YOKIN_SHUBETSU'. */
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;
@@ -505,6 +514,23 @@ export async function getDokusyaRirekiList(
   const res = await axiosInstance.get<DokusyaRirekiListResponse>(
     `/api/v1/dokusya/${dokusyaId}/rireki`,
     { params },
+  );
+  return res.data;
+}
+
+/**
+ * POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi —
+ * ACSMS-API-013-002. 履歴の取消(赤伝)。`reason` は取消理由（必須）で、対象行と
+ * 打ち消し行の備考、および t_log に記録される。
+ */
+export async function torikeshiDokusyaRireki(
+  dokusyaId: number,
+  rirekiId: number,
+  reason: string,
+): Promise<{ message: string }> {
+  const res = await axiosInstance.post<{ message: string }>(
+    `/api/v1/dokusya/${dokusyaId}/rireki/${rirekiId}/torikeshi`,
+    { reason },
   );
   return res.data;
 }

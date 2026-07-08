@@ -50,7 +50,11 @@ export class UpdateShitenDto {
   @IsInt({ message: '管理支店を選択してください。' })
   kanri_shiten_id!: number;
 
-  @ApiPropertyOptional({ description: '金融機関支店フラグ', default: false })
+  // 作成後は変更不可（顧客要件 2026-07）。JASTEM 4項目の必須判定
+  // (isJastemRequired) に既存値が必要なため受け取りは残すが、既存値と
+  // 異なる値が来た場合は ShitenService.update が 400 VALIDATION_ERROR
+  // (field=kinyu_shiten_flg) で拒否し、永続化は常に既存値を維持する。
+  @ApiPropertyOptional({ description: '金融機関支店フラグ（作成後変更不可）', default: false })
   @IsOptional()
   @IsBoolean({ message: '金融機関支店フラグはブール値で指定してください。' })
   kinyu_shiten_flg?: boolean;

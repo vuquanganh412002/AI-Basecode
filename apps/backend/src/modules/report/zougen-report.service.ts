@@ -442,7 +442,11 @@ export class ZougenReportService {
       .andWhere('r.joho_henko_tekiyo_date = :tekiyo_date', {
         tekiyo_date: query.tekiyo_date,
       })
-      .andWhere('r.zougen_hokoku_flg = :zougenFlg', { zougenFlg: true });
+      .andWhere('r.zougen_hokoku_flg = :zougenFlg', { zougenFlg: true })
+      // 取消(赤伝)行（誤入力行 + 対応する打ち消し行、いずれも zougen=true・同 joho）
+      // を増減報告から除外する（履歴刷新 Pha5）。zougenBaseQuery は preview /
+      // export / 同日履歴取得 で共用のため、この1箇所で 028・029 双方に効く。
+      .andWhere('r.torikeshi_flg = false');
 
     // 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(denshi_shonin_status=1)のみ
     // 集計対象とする。承認待ち(0)/否認(2)の電子版は増減連絡票から除外する。
@@ -649,6 +653,9 @@ export class ZougenReportService {
         tekiyo_date: query.tekiyo_date,
       })
       .andWhere('r.zougen_hokoku_flg = :zougenFlg', { zougenFlg: true })
+      // 取消(赤伝)行を増減通知から除外する（履歴刷新 Pha5）。SCR-029 は 028 と別の
+      // 土台(nichinoBaseQuery)を使うため、ここにも同じ条件を追加する。
+      .andWhere('r.torikeshi_flg = false')
       // 現在部数=0 かつ 新部数=0 のレコードは除外（api.md §4.5）。
       .andWhere(
         'NOT (COALESCE(r.zenkai_dokusya_busu, 0) = 0 AND r.dokusya_busu = 0)',

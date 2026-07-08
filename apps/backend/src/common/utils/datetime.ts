@@ -52,6 +52,17 @@ export function todayIsoJst(): string {
 }
 
 /**
+ * `YYYY-MM-DD` の日付に `days` を加算した `YYYY-MM-DD` を返す（暦日計算、
+ * タイムゾーン非依存）。UTC 正午基準で計算し、DST や TZ 早朝ずれの影響を受けない。
+ * 解約バッチの適用日（電子版 = 購読中止日 + 1日）等で使用。
+ */
+export function addDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * DATE 列（または日時値）を Asia/Tokyo の `YYYY-MM-DD` で返す。空/無効は `''`
  * （文字列入力ならそのまま）。`(d as Date).toISOString().slice(0, 10)` は UTC
  * 日付になり JST 早朝に1日ずれるため、その代替として使う。

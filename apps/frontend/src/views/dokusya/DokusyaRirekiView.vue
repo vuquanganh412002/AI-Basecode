@@ -18,15 +18,24 @@ import type { TableColumnsType } from 'ant-design-vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useCodesStore } from '@/stores/codes.store';
+import { useAuthStore } from '@/stores/auth.store';
+import { useNotify } from '@/composables/useNotify';
 import { formatDate } from '@/utils/formatters';
 import {
   getDokusyaRirekiList,
+  torikeshiDokusyaRireki,
   type DokusyaRirekiItem,
 } from '@/api/dokusya/dokusya';
 
 const route = useRoute();
 const router = useRouter();
 const codes = useCodesStore();
+const authStore = useAuthStore();
+const notify = useNotify();
+
+// 取消(赤伝)は購読者編集操作 → dokusya.update 権限が必要。無い場合はボタンを
+// disable する（BE も PermissionsGuard で再検証）。
+const canUpdate = computed(() => authStore.hasPermission('dokusya.update'));
 
 /** dokusya_id from the route path param `:id`. */
 const dokusyaId = computed(() => Number(route.params.id));
@@ -77,11 +86,14 @@ const columns: TableColumnsType = [
   { title: '増減報告フラグ', key: 'zougen_hokoku_flg', width: 130 },
   { title: '新規フラグ', key: 'shinki_flg', width: 110 },
   { title: '解約フラグ', key: 'kaiyaku_flg', width: 110 },
+  { title: '取消フラグ', key: 'torikeshi_flg', width: 110 },
   { title: '引落口座貯金種目', key: 'hikiotoshi_yokin_shubetsu', width: 140 },
   { title: '引落元口座店舗コード', dataIndex: 'bank_branch_code', key: 'bank_branch_code', width: 170 },
   { title: '引落元口座店舗名', dataIndex: 'bank_branch_name', key: 'bank_branch_name', width: 160 },
   { title: '引落口座番号', dataIndex: 'hikiotoshi_koza_no', key: 'hikiotoshi_koza_no', width: 130 },
   { title: '引落口座名義', dataIndex: 'hikiotoshi_koza_meigi', key: 'hikiotoshi_koza_meigi', width: 150 },
+  // 操作列は右端に固定(fixed:'right')— 横スクロールしても常に表示される。
+  { title: '操作', key: 'torikeshi_action', width: 100, fixed: 'right', align: 'center' },
 ];
 
 // ─── Cell formatting helpers ─────────────────────────────────────────
@@ -145,6 +157,77 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
 
 function goBack(): void {
   router.back();
+}
+
+// ─── 取消(赤伝) ───────────────────────────────────────────────────────
+// 対象行を取消できるのは can_torikeshi=true（BE 判定: 非新規・非取消済・
+// チェーン末尾）かつ dokusya.update 権限あり のときのみ。ボタンは常に表示し、
+// 条件を満たさない行では disable する（機能を隠さず、権限/状態を明示）。
+
+const REASON_REQUIRED_MSG = '取消理由を入力してください。';
+const REASON_MAX = 500;
+const REASON_MAX_MSG = '取消理由は500文字以内で入力してください。';
+
+const torikeshiTarget = ref<DokusyaRirekiItem | null>(null);
+const torikeshiReason = ref('');
+const torikeshiError = ref('');
+const torikeshiSubmitting = ref(false);
+const torikeshiOpen = computed(() => torikeshiTarget.value !== null);
+
+/** この行を取消できるか（BE の can_torikeshi + FE 権限チェック）。*/
+function canCancel(r: DokusyaRirekiItem): boolean {
+  return r.can_torikeshi && canUpdate.value;
+}
+
+/** 取消ボタン押下 → 確認ダイアログを開き、取消理由の入力を促す。*/
+function askTorikeshi(r: DokusyaRirekiItem): void {
+  if (!canCancel(r)) return;
+  torikeshiTarget.value = r;
+  torikeshiReason.value = '';
+  torikeshiError.value = '';
+}
+
+function closeTorikeshi(): void {
+  torikeshiTarget.value = null;
+  torikeshiReason.value = '';
+  torikeshiError.value = '';
+}
+
+/** 取消理由の FE 検証（BE の DTO と同一ルール）。*/
+function validateReason(): boolean {
+  const reason = torikeshiReason.value.trim();
+  if (!reason) {
+    torikeshiError.value = REASON_REQUIRED_MSG;
+    return false;
+  }
+  if (reason.length > REASON_MAX) {
+    torikeshiError.value = REASON_MAX_MSG;
+    return false;
+  }
+  torikeshiError.value = '';
+  return true;
+}
+
+async function confirmTorikeshi(): Promise<void> {
+  const target = torikeshiTarget.value;
+  if (!target || !validateReason()) return;
+  torikeshiSubmitting.value = true;
+  try {
+    const res = await torikeshiDokusyaRireki(
+      dokusyaId.value,
+      target.dokusya_rireki_id,
+      torikeshiReason.value.trim(),
+    );
+    notify.success(res.message ?? '取消しました。');
+    closeTorikeshi();
+    await fetchList();
+  } catch {
+    // TORIKESHI_NOT_ALLOWED / 404 / 500 は axios インターセプタが既にトースト
+    // 済み（.claude/rules/vue.md §Error Handling）。モーダルは開いたままにして
+    // ユーザーが理由を修正・再試行できるようにする。
+  } finally {
+    torikeshiSubmitting.value = false;
+  }
 }
 </script>
 
@@ -233,6 +316,23 @@ function goBack(): void {
         <template v-else-if="column.key === 'kaiyaku_flg'">
           {{ flagLabel((record as DokusyaRirekiItem).kaiyaku_flg) }}
         </template>
+        <template v-else-if="column.key === 'torikeshi_flg'">
+          {{ flagLabel((record as DokusyaRirekiItem).torikeshi_flg) }}
+        </template>
+        <template v-else-if="column.key === 'torikeshi_action'">
+          <!-- 取消ボタンは常に表示。can_torikeshi(BE) + dokusya.update 権限を
+               満たさない行では disable する（機能を隠さず状態を明示）。 -->
+          <a-button
+            type="link"
+            danger
+            size="small"
+            :disabled="!canCancel(record as DokusyaRirekiItem)"
+            data-test="torikeshi-btn"
+            @click="askTorikeshi(record as DokusyaRirekiItem)"
+          >
+            取消
+          </a-button>
+        </template>
         <template v-else-if="column.key === 'shoki_dokusya_kaishi_date'">
           {{ formatDate((record as DokusyaRirekiItem).shoki_dokusya_kaishi_date) }}
         </template>
@@ -244,6 +344,37 @@ function goBack(): void {
         </template>
       </template>
     </BaseDataTable>
+
+    <!-- 取消(赤伝)確認ダイアログ — 取消理由(必須)を入力して実行する。 -->
+    <a-modal
+      :open="torikeshiOpen"
+      title="履歴の取消（赤伝）"
+      ok-text="取消する"
+      ok-type="danger"
+      cancel-text="キャンセル"
+      :confirm-loading="torikeshiSubmitting"
+      :mask-closable="false"
+      @ok="confirmTorikeshi"
+      @cancel="closeTorikeshi"
+    >
+      <p class="text-text-main mb-2">
+        履歴番号
+        <span class="font-bold">{{ torikeshiTarget?.rireki_no }}</span>
+        を取消します。取消理由を入力してください。
+      </p>
+      <a-form-item
+        :validate-status="torikeshiError ? 'error' : ''"
+        :help="torikeshiError"
+      >
+        <a-textarea
+          v-model:value="torikeshiReason"
+          :rows="3"
+          :maxlength="REASON_MAX"
+          placeholder="取消理由を入力してください"
+          data-test="torikeshi-reason"
+        />
+      </a-form-item>
+    </a-modal>
 
     <!-- 機能定義 2.1 — 確認ダイアログ無しで前の画面に戻る。 -->
     <div class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2">

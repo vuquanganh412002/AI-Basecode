@@ -11,6 +11,7 @@ import {
   BadRequestException,
   DuplicateCodeException,
   NotFoundException,
+  ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import {
@@ -27,7 +28,7 @@ import {
   type FieldRestrictionTable,
 } from '@/common/utils/field-restrictions';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
-import { pickString, pickBool, pickNumber } from '@/common/utils/pick';
+import { pickString, pickNumber } from '@/common/utils/pick';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { CreateShitenDto } from './dto/create-shiten.dto';
@@ -571,6 +572,23 @@ export class ShitenService {
     assertJaScope(before.jaId, session, '支店');
     assertBranchScopeViolation(before.jaId, before.kanriShitenId, session);
 
+    // [kinyu-immutable] 金融機関支店フラグは作成後に変更不可（顧客要件 2026-07）。
+    // 引落口座支店として t_dokusya.bank_branch_code から参照される shiten の
+    // 種別を後から変えると、既存購読者との紐付け（引落口座）が壊れるため固定する。
+    // FE も編集画面で当該チェックボックスを disabled にする（二重防御）。DTO では
+    // JASTEM 必須判定に kinyu_shiten_flg を使うため受け取りは残し、値の変更のみ拒否。
+    if (
+      dto.kinyu_shiten_flg !== undefined &&
+      dto.kinyu_shiten_flg !== before.kinyuShitenFlg
+    ) {
+      throw new ValidationException([
+        {
+          field: 'kinyu_shiten_flg',
+          message: '金融機関支店フラグは変更できません。',
+        },
+      ]);
+    }
+
     // FK guard + Layer 4 DataScope — new kanri_shiten must exist AND
     // belong to the SAME JA as the existing shiten (before.jaId). For
     // restricted roles this equals session.ja_id; for NICHINO_*
@@ -605,7 +623,9 @@ export class ShitenService {
         const updatePayload = {
           shitenName: pickString(filtered, 'shiten_name', before.shitenName),
           shitenNameKana: pickString(filtered, 'shiten_name_kana', before.shitenNameKana),
-          kinyuShitenFlg: pickBool(filtered, 'kinyu_shiten_flg', before.kinyuShitenFlg),
+          // [kinyu-immutable] 作成後は変更不可のため常に既存値を維持する
+          // （上の guard で変更要求は 400 で弾かれる）。
+          kinyuShitenFlg: before.kinyuShitenFlg,
           // JASTEM 店舗単位 4 列 — pickString falls back to the existing
           // value when DTO key is missing, so partial PATCH-style PUTs
           // keep prior JASTEM data intact.

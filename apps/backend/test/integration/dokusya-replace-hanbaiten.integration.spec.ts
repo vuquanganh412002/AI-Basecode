@@ -219,7 +219,48 @@ function makeHelpers(getCtx: () => IntegrationTestContext) {
       `SELECT dokusya_id FROM t_dokusya WHERE kumiaiin_code = $1 ORDER BY dokusya_id DESC LIMIT 1`,
       [kumiaiin],
     );
-    return Number(row.dokusya_id);
+    const dokusyaId = Number(row.dokusya_id);
+    // Seed the matching rireki #1 (現行データ). Production の購読者は必ず
+    // 新規登録/取込で rireki #1 を持つ。一括置換は applyChange(UPDATE) 経由に
+    // なったので「適用日時点の有効レコード」= この rireki を predecessor として
+    // 読む。master 行をそのまま複製し、履歴専用列は shinki=saishin=true 等を付与。
+    await getCtx().dataSource.query(
+      `INSERT INTO t_dokusya_rireki (
+         dokusya_id, rireki_no, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
+         dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
+         shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+         dokusya_busu, yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+         renrakusaki_1, renrakusaki_2, email, mail_magazine_flg, birth_year, gender,
+         haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+         haitatsu_chome_banchi, haitatsu_tatemono_mei, haitatsu_renrakusaki_1, haitatsu_renrakusaki_2,
+         haitatsu_shimei_sei, haitatsu_shimei_mei, haitatsu_shimei_kana_sei, haitatsu_shimei_kana_mei,
+         hanbaiten_id, tanka_id, yubin_kubun, shiharai_hoho, dokusyaryo_shiharai_cycle,
+         bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
+         dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
+         joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
+         henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
+         hanbaiten_tekiyo_date, created_at, created_by)
+       SELECT
+         dokusya_id, 1, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
+         dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
+         shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+         dokusya_busu, yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+         renrakusaki_1, renrakusaki_2, email, mail_magazine_flg, birth_year, gender,
+         haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+         haitatsu_chome_banchi, haitatsu_tatemono_mei, haitatsu_renrakusaki_1, haitatsu_renrakusaki_2,
+         haitatsu_shimei_sei, haitatsu_shimei_mei, haitatsu_shimei_kana_sei, haitatsu_shimei_kana_mei,
+         hanbaiten_id, tanka_id, yubin_kubun, shiharai_hoho, dokusyaryo_shiharai_cycle,
+         bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
+         dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
+         -- 現行 rireki の適用日は購読開始日に揃える（master seed は joho 未設定=NULL の
+         -- ため、loadEffectiveRow の joho<=asOf 条件で除外されないよう有効日を入れる）。
+         COALESCE(joho_henko_tekiyo_date, dokusya_kaishi_date), seikyu_kaishi_month, biko, denshi_shonin_status,
+         '', true, true, true, false, false,
+         NULL, created_at, created_by
+       FROM t_dokusya WHERE dokusya_id = $1`,
+      [dokusyaId],
+    );
+    return dokusyaId;
   }
 
   return { asChuokai, asNichinoAdmin, seedEligibleDokusya };
@@ -363,6 +404,108 @@ describeRealPg(
         [id],
       );
       expect(Number(persisted.hanbaiten_id)).toBe(201);
+    });
+
+    it('should IGNORE a torikeshi_flg=true history row (取消済) when validating 適用日 (顧客要件)', async () => {
+      // 取消済みの履歴行が早い解約予定日(2026-08-01)を持っていても、それを参照して
+      // 弾いてはならない。参照は torikeshi_flg=false の有効レコード = master のみ
+      // （master の chushi は null のまま）。→ 販売店適用日 2026-09-01 は成功すべき。
+      const sid = await asChuokai(1);
+      const id = await seedEligibleDokusya('RPL-TORIKESHI', { hanbaiten_id: 200 });
+      // 取消済み rireki #2 を追加（早い chushi 付き）。master(chushi=null) は変えない。
+      // #1 は有効(torikeshi_flg=false)のまま残すので applyChange の predecessor も健在。
+      await ctx.dataSource.query(
+        `INSERT INTO t_dokusya_rireki (
+           dokusya_id, rireki_no, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
+           dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
+           shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+           dokusya_busu, yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+           renrakusaki_1, renrakusaki_2, email, mail_magazine_flg, birth_year, gender,
+           haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+           haitatsu_chome_banchi, haitatsu_tatemono_mei, haitatsu_renrakusaki_1, haitatsu_renrakusaki_2,
+           haitatsu_shimei_sei, haitatsu_shimei_mei, haitatsu_shimei_kana_sei, haitatsu_shimei_kana_mei,
+           hanbaiten_id, tanka_id, yubin_kubun, shiharai_hoho, dokusyaryo_shiharai_cycle,
+           bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
+           dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
+           joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
+           henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
+           hanbaiten_tekiyo_date, created_at, created_by)
+         SELECT
+           dokusya_id, 2, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
+           dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
+           shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+           dokusya_busu, yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+           renrakusaki_1, renrakusaki_2, email, mail_magazine_flg, birth_year, gender,
+           haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+           haitatsu_chome_banchi, haitatsu_tatemono_mei, haitatsu_renrakusaki_1, haitatsu_renrakusaki_2,
+           haitatsu_shimei_sei, haitatsu_shimei_mei, haitatsu_shimei_kana_sei, haitatsu_shimei_kana_mei,
+           hanbaiten_id, tanka_id, yubin_kubun, shiharai_hoho, dokusyaryo_shiharai_cycle,
+           bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
+           dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, '2026-08-01',
+           '2026-06-01', seikyu_kaishi_month, biko, denshi_shonin_status,
+           '取消', false, false, false, false, true,
+           NULL, created_at, created_by
+         FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/replace-hanbaiten'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildReplaceBody({
+            dokusya_ids: [id],
+            new_hanbaiten_id: 201,
+            hanbaiten_tekiyo_date: '2026-09-01', // 取消行の chushi(2026-08-01)より後
+          }),
+        )
+        .expect(200);
+      expect(res.body.data).toMatchObject({ new_hanbaiten_id: 201 });
+    });
+
+    it('should return 400 DATE_RANGE_INVALID when 販売店適用日 >= 解約予定日 (顧客要件 2026-07)', async () => {
+      // COVERS: §4.1 適用日整合性 — 販売店適用日 < 解約予定日(before)。
+      const sid = await asChuokai(1);
+      const id = await seedEligibleDokusya('RPL-CHUSHI', { hanbaiten_id: 200 });
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_chushi_date = '2026-08-01' WHERE dokusya_id = $1`,
+        [id],
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/replace-hanbaiten'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildReplaceBody({
+            dokusya_ids: [id],
+            new_hanbaiten_id: 201,
+            hanbaiten_tekiyo_date: '2026-09-01', // >= chushi & >= today
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
+      expect(res.body.message).toContain('解約予定日');
+    });
+
+    it('should return 400 DATE_RANGE_INVALID when 販売店適用日 < 購読開始日 (未来開始)', async () => {
+      // COVERS: §4.1 適用日整合性 — 販売店適用日 >= 購読開始日(before)。
+      const sid = await asChuokai(1);
+      const id = await seedEligibleDokusya('RPL-KAISHI', { hanbaiten_id: 200 });
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_kaishi_date = '2030-01-01' WHERE dokusya_id = $1`,
+        [id],
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/replace-hanbaiten'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildReplaceBody({
+            dokusya_ids: [id],
+            new_hanbaiten_id: 201,
+            hanbaiten_tekiyo_date: '2026-09-01', // >= today but < kaishi(2030)
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
+      expect(res.body.message).toContain('購読開始日');
     });
 
     it('should return 400 SAME_HANBAITEN when a candidate already has new_hanbaiten_id', async () => {

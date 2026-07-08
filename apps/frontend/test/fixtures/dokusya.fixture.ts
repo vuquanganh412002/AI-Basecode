@@ -423,6 +423,9 @@ export interface DokusyaRirekiRow {
   zougen_hokoku_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
+  torikeshi_flg: boolean;
+  biko: string;
+  can_torikeshi: boolean;
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;
   bank_branch_name: string;
@@ -494,6 +497,9 @@ export function buildDokusyaRirekiRow(
     zougen_hokoku_flg: true,
     shinki_flg: false,
     kaiyaku_flg: false,
+    torikeshi_flg: false,
+    biko: '',
+    can_torikeshi: true,
     hikiotoshi_yokin_shubetsu: 1,
     bank_branch_code: '001',
     bank_branch_name: '本店',

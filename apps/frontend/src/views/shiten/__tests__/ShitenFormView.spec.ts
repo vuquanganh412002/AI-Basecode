@@ -216,8 +216,10 @@ describe('ShitenFormView — edit-mode preload (§2)', () => {
     // (JA_KANRI_SHITEN) can edit a shiten UNDER ITS OWN kanri_shiten BUT
     // 管理支店 (kanri_shiten_id) is read-only because reassigning a branch
     // to a different kanri-shiten is reserved for higher roles.
-    // 金融機関支店フラグ + 支店名 + JASTEM + 備考 + submit all stay
-    // editable for role 5. The loaded shiten (buildShitenDetail) has
+    // 支店名 + JASTEM + 備考 + submit all stay editable for role 5.
+    // 金融機関支店フラグ is IMMUTABLE after create ([kinyu-immutable]) so it
+    // is disabled in edit mode for every role. The loaded shiten
+    // (buildShitenDetail) has
     // kanri_shiten_id=1, so the user's kanri_shiten_id must also be 1 —
     // otherwise this is a different-branch row → read-only ([role5-view-only]).
     const { wrapper } = await renderView({
@@ -241,12 +243,15 @@ describe('ShitenFormView — edit-mode preload (§2)', () => {
       /ant-select-disabled|disabled/.test(kanriItem!.html()),
     ).toBe(true);
 
-    // (b) Editable: 金融機関支店フラグ + 支店名 + 備考 stay unrestricted
+    // (b) 金融機関支店フラグ is immutable after create → disabled in edit
+    //     mode ([kinyu-immutable]), independent of role.
     const flgItem = findItem('金融機関支店フラグ');
     expect(flgItem).toBeDefined();
     expect(
       /ant-checkbox-disabled/.test(flgItem!.html()),
-    ).toBe(false);
+    ).toBe(true);
+
+    // (b2) Editable: 支店名 + 備考 stay unrestricted for role 5.
 
     const nameItem = findItem('支店名');
     expect(nameItem).toBeDefined();

@@ -731,6 +731,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng đại lý bán hàng  |
 | 71 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
 | 72 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
+| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
 
 ## Chỉ mục
 
@@ -744,6 +745,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 6 | IX_t_dokusya_rireki_kanri_shiten_id | kanri_shiten_id |  |  | Tìm kiếm theo chi nhánh quản lý |
 | 7 | IX_t_dokusya_rireki_shiten_id | shiten_id |  |  | Tìm kiếm theo chi nhánh bán hàng |
 | 8 | IX_t_dokusya_rireki_hanbaiten_id | hanbaiten_id |  |  | Tìm kiếm theo cửa hàng |
+| 9 | IX_t_dokusya_rireki_chain | dokusya_id, joho_henko_tekiyo_date, rireki_no |  |  | Tìm chuỗi bitemporal (findBefore/findNext/xác định bản ghi hữu hiệu theo thứ tự ngày áp dụng) |
 
 ---
 

@@ -23,6 +23,7 @@ import Antd, { message } from 'ant-design-vue';
 import DokusyaRirekiView from '@/views/dokusya/DokusyaRirekiView.vue';
 import {
   buildDokusyaRirekiListResponse,
+  buildDokusyaRirekiRow,
   buildCodesSeed,
   buildAuthUser,
 } from '@test/fixtures/dokusya.fixture';
@@ -43,6 +44,7 @@ vi.mock('@/api/dokusya/dokusya', () => ({
   removeDokusya: vi.fn(),
   exportDokusyaExcel: vi.fn(),
   getDokusyaRirekiList: vi.fn(),
+  torikeshiDokusyaRireki: vi.fn(),
 }));
 
 // Antd global toasts — return undefined via cast so the spy compiles
@@ -311,5 +313,85 @@ describe('DokusyaRirekiView — back navigation (機能定義 2)', () => {
     await backBtn!.trigger('click');
 
     expect(backSpy).toHaveBeenCalled();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// 取消(赤伝) — API-013-002 (履歴の取消)
+// ════════════════════════════════════════════════════════════════════════
+describe('DokusyaRirekiView — 取消(赤伝)', () => {
+  it('should render a 取消 button per row, enabled only when can_torikeshi=true', async () => {
+    // data[0].can_torikeshi=true (tail), data[1].can_torikeshi=false.
+    vi.mocked(
+      (await import('@/api/dokusya/dokusya')).getDokusyaRirekiList,
+    ).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({ dokusya_rireki_id: 42, rireki_no: 3, can_torikeshi: true }),
+          buildDokusyaRirekiRow({ dokusya_rireki_id: 41, rireki_no: 2, can_torikeshi: false }),
+        ],
+      } as never),
+    );
+    const { wrapper } = await renderView();
+
+    const btns = wrapper.findAll('[data-test="torikeshi-btn"]');
+    expect(btns).toHaveLength(2);
+    expect(btns[0].attributes('disabled')).toBeUndefined(); // can_torikeshi=true → enabled
+    expect(btns[1].attributes('disabled')).toBeDefined(); // can_torikeshi=false → disabled
+  });
+
+  it('should DISABLE every 取消 button when the user lacks dokusya.update', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ permissions: ['dokusya.view'] }),
+    });
+    const btns = wrapper.findAll('[data-test="torikeshi-btn"]');
+    expect(btns.length).toBeGreaterThan(0);
+    btns.forEach((b) => expect(b.attributes('disabled')).toBeDefined());
+  });
+
+  it('should open the reason dialog when an enabled 取消 button is clicked', async () => {
+    const { wrapper } = await renderView();
+    const modal = wrapper.findComponent({ name: 'AModal' });
+    expect(modal.props('open')).toBe(false);
+
+    await wrapper.find('[data-test="torikeshi-btn"]').trigger('click');
+    await flushPromises();
+    expect(modal.props('open')).toBe(true);
+  });
+
+  it('should NOT call the API when the reason is empty (FE validation)', async () => {
+    const { torikeshiDokusyaRireki } = await import('@/api/dokusya/dokusya');
+    const { wrapper } = await renderView();
+
+    await wrapper.find('[data-test="torikeshi-btn"]').trigger('click');
+    await flushPromises();
+    // Confirm with empty reason → blocked by validateReason.
+    await wrapper.findComponent({ name: 'AModal' }).vm.$emit('ok');
+    await flushPromises();
+
+    expect(vi.mocked(torikeshiDokusyaRireki)).not.toHaveBeenCalled();
+  });
+
+  it('should call torikeshiDokusyaRireki with (dokusyaId, rireki_id, reason) then refetch on confirm', async () => {
+    const api = await import('@/api/dokusya/dokusya');
+    vi.mocked(api.torikeshiDokusyaRireki).mockResolvedValue({ message: '取消しました。' });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+
+    // data[0] = dokusya_rireki_id 42, rireki_no 3 (tail, can_torikeshi=true).
+    await wrapper.find('[data-test="torikeshi-btn"]').trigger('click');
+    await flushPromises();
+    await wrapper
+      .findComponent({ name: 'ATextarea' })
+      .vm.$emit('update:value', '誤入力のため取消');
+    await wrapper.findComponent({ name: 'AModal' }).vm.$emit('ok');
+    await flushPromises();
+
+    expect(vi.mocked(api.torikeshiDokusyaRireki)).toHaveBeenCalledWith(
+      100,
+      42,
+      '誤入力のため取消',
+    );
+    // List is refetched after a successful 取消 (initial mount + after confirm).
+    expect(vi.mocked(api.getDokusyaRirekiList).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

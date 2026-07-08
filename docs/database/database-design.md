@@ -732,6 +732,7 @@ updated_by: Tran Duc Tuyen
 | 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | 販売店適用日 |
 | 71 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
 | 72 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
+| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
 
 ## インデックス
 
@@ -745,6 +746,7 @@ updated_by: Tran Duc Tuyen
 | 6 | IX_t_dokusya_rireki_kanri_shiten_id | kanri_shiten_id |  |  | 管理支店別検索 |
 | 7 | IX_t_dokusya_rireki_shiten_id | shiten_id |  |  | 販売支店別検索 |
 | 8 | IX_t_dokusya_rireki_hanbaiten_id | hanbaiten_id |  |  | 販売店別検索 |
+| 9 | IX_t_dokusya_rireki_chain | dokusya_id, joho_henko_tekiyo_date, rireki_no |  |  | 双時制チェーン探索（findBefore/findNext/有効レコード判定を適用日順で行う） |
 
 ---
 

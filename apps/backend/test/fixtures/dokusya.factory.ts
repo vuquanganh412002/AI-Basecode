@@ -17,6 +17,7 @@
 // Used in: dokusya.service.spec, dokusya.controller.spec,
 // dokusya.integration.spec, search-dokusya.dto.spec.
 
+import { todayIsoJst } from '@/common/utils/datetime';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 import type { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
@@ -265,8 +266,10 @@ export function buildUpdateDokusyaBody(
     dokusya_busu: 2,
     chome_banchi: '千代田1-2',
     // 編集時の 情報変更適用日 はユーザー入力で必須・過去日不可（既定は当日）。
-    // happy-path update が通るよう未来日を入れる。
-    joho_henko_tekiyo_date: futureDate(7),
+    // 既定を「当日」にすることで、happy-path update は即日有効化され master に
+    // 反映される（joho <= 当日 → 有効レコード）。未来日での chèn-giữa（挿入）は
+    // 各テストが joho_henko_tekiyo_date を明示上書きして検証する。
+    joho_henko_tekiyo_date: todayIsoJst(),
     ...overrides,
   };
 }
@@ -620,7 +623,9 @@ export function buildReplaceBody(
   return {
     dokusya_ids: [5001, 5002],
     new_hanbaiten_id: 201,
-    hanbaiten_tekiyo_date: futureDate(7),
+    // 既定を「当日」に（happy-path 置換は即日有効化され master に反映される。
+    // joho=販売店適用日 <= 当日 → 有効レコード）。未来日での chèn-giữa は明示上書き。
+    hanbaiten_tekiyo_date: todayIsoJst(),
     ...overrides,
   };
 }
@@ -730,11 +735,12 @@ export function buildImportRow(
     hikiotoshi_koza_meigi: 'ﾔﾏﾀﾞﾀﾛｳ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲',
-    dokusya_kaishi_date: new Date().toISOString().slice(0, 10),
+    dokusya_kaishi_date: todayIsoJst(),
     biko: '',
-    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。NEW では任意だが
-    // 既定で未来日を入れておき、UPDATE_* テストがバリデーションを通るようにする。
-    joho_henko_tekiyo_date: futureDate(7),
+    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。既定を「当日」にして
+    // happy-path の UPDATE 取込が即日有効化され master に反映されるようにする
+    // （joho <= 当日 → 有効レコード）。未来日での chèn-giữa は各テストが明示上書き。
+    joho_henko_tekiyo_date: todayIsoJst(),
     ...overrides,
   };
 }

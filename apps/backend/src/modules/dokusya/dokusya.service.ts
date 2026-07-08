@@ -51,9 +51,27 @@ import { DokusyaResponseDto } from './dto/dokusya-response.dto';
 import { DuplicateEmailException } from './exceptions/duplicate-email.exception';
 import { InvalidDokusyaStatusException } from './exceptions/invalid-dokusya-status.exception';
 import { DokusyaReadOnlyException } from './exceptions/dokusya-read-only.exception';
+import { TorikeshiNotAllowedException } from './exceptions/torikeshi-not-allowed.exception';
 import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
 import { DokusyaImportService } from './dokusya-import.service';
 import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
+import {
+  applyChange,
+  applyTorikeshi,
+  canTorikeshi,
+} from './dokusya-history.writer';
+import { DokusyaFields } from './dokusya-history.types';
+import {
+  collectTekiyoDateViolations,
+  collectChushiViolations,
+  tekiyoViolationField,
+} from './dokusya-tekiyo-date.rules';
+
+/**
+ * 遠未来 asOf — チェーン末尾(有効レコード)を取消可否判定のために取得する際に
+ * 使う（canTorikeshi と同一値）。joho が未来でも末尾を拾う。
+ */
+const TORIKESHI_TAIL_ASOF = '9999-12-31';
 import { DokusyaSearchService } from './dokusya-search.service';
 import { DokusyaReplaceService } from './dokusya-replace.service';
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
@@ -78,6 +96,11 @@ const TABLE_NAME = 't_dokusya';
  * triggered the operation (search, delete, Excel export).
  */
 const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
+
+/** SCR-013 — 購読者履歴情報画面. 履歴の取消(赤伝)はこの画面から実行する。*/
+const SCREEN_NAME_SCR013 = '購読者履歴情報画面 (ACSMS-SCR-013)';
+/** 取消は t_dokusya_rireki に対する操作なので target_table を分ける。*/
+const TABLE_NAME_RIREKI = 't_dokusya_rireki';
 
 // 日付正規化（normalizeDbDate / excelSerialToIsoJst / dbDateOrNull）は時刻系
 // 集約方針（`.claude/rules/nestjs.md §Timestamp policy`）に従い
@@ -329,6 +352,22 @@ export class DokusyaService {
       'dokusya_kaishi_date',
       '購読開始日は本日以降の日付を入力してください。',
     );
+    // 入力された解約予定日の整合性（購読開始日以降・過去日不可。顧客要件 2026-07）。
+    // 新規で解約予定日を入力した場合のみ発火（未入力ならスキップ）。参照の
+    // 購読開始日は入力値(dto.dokusya_kaishi_date)。
+    const createChushiViolations = collectChushiViolations({
+      chushiDate: dto.dokusya_chushi_date,
+      kaishiDate: dto.dokusya_kaishi_date,
+      today: todayIsoJst(),
+    });
+    if (createChushiViolations.length > 0) {
+      throw new ValidationException(
+        createChushiViolations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
     // 紙版→paper_flg / 電子版→denshi_flg required (account_concept.md §139-145).
     await this.accountFlags.assertShubetsuFlag(dto.dokusya_shubetsu, session);
 
@@ -371,53 +410,40 @@ export class DokusyaService {
           bankBranch,
           session,
         );
-        // 新規登録は読者情報変更適用日を購読開始日に揃える（NEW は変更イベント
-        // ではなく登録時の基準日。Excel取込 NEW (SCR-016) と同方針 — 顧客要件）。
-        // t_dokusya と t_dokusya_rireki(rireki #1 は master からコピー)の双方に
-        // 反映される。
-        payload.johoHenkoTekiyoDate = payload.dokusyaKaishiDate;
-        // 紙版 (dokusya_shubetsu=1) is not part of the web-application
-        // 承認/否認 workflow → denshi_shonin_status は null (非電子版)。
-        // 電子版 / 併読 を画面から新規登録するのは職員操作のため、承認待ち(0)
-        // ではなく承認済(1)で登録する（Excel一括取込と同方針 — 顧客要件）。
+        // 新規登録の情報変更適用日(joho)は購読開始日(dokusya_kaishi_date)と同一に
+        // する（顧客要件 2026-07 改訂：以前は「CREATE joho=当日」固定だった）。
+        // 購読開始日が当日なら即 t_dokusya へ反映され、未来なら joho も未来となり
+        // 有効レコードは開始日から。recomputeMaster(当日)は未来行を有効化しないため、
+        // saishin_data_flg は夜間バッチが開始日到来時に立てる（マスタ本体は
+        // ensureMaster が全項目を書き込むので一覧には即表示される）。
+        const johoDate = normalizeDbDate(dto.dokusya_kaishi_date);
+        payload.johoHenkoTekiyoDate = johoDate;
+        // 紙版は承認ワークフロー外 (null)。電子版/併読 の画面登録は職員操作の
+        // ため承認済(1)で登録する（Excel一括取込と同方針 — 顧客要件）。
         payload.denshiShoninStatus =
           Number(dto.dokusya_shubetsu) === DokusyaShubetsu.PAPER
             ? null
             : DenshiShoninStatus.APPROVED;
-        const inserted = await manager.save(
-          Dokusya,
-          manager.create(Dokusya, payload),
-        );
-        const insertedId = Number(inserted.dokusyaId);
 
-        // History row — rireki_no=1, saishin_data_flg=true,
-        // shinki_flg = (tetsuzuki_shurui === 1).
-        await manager.save(
-          DokusyaRireki,
-          manager.create(
-            DokusyaRireki,
-            // create は常に1件（before 無し）。kaiyaku_flg は手続種類=解約で立てる
-            // （取込/更新の writeRirekiSplit は立てない — 顧客要件 2026-06）。
-            this.rireki.buildRirekiRow(inserted, null, {
-              rirekiNo: 1,
-              henkoRiyu: '',
-              saishinDataFlg: true,
-              shinkiFlg: dto.tetsuzuki_shurui === TetsuzukiShurui.SHINKI,
-              kaiyakuFlg: dto.tetsuzuki_shurui === TetsuzukiShurui.KAIYAKU,
-              // 新規登録は増（新規購読者）なので増減報告対象。
-              zougenHokokuFlg: true,
-              createdBy: String(session.account_id),
-            }),
-          ),
-        );
+        // 履歴書き込みは共通ライタ (applyChange) に集約 (Pha3)。CREATE =
+        // ensureMaster + rireki #1 (shinki) + recomputeMaster(当日) を1トランザク
+        // ションで実行。t_dokusya は有効レコードから再計算で確定する。
+        const result = await applyChange(manager, {
+          mode: 'CREATE',
+          values: payload as unknown as DokusyaFields,
+          johoDate,
+          source: 'UI',
+          actor: String(session.account_id),
+          reason: '',
+        });
 
         await this.auditLog.logCreate(
-          auditCtxFactory(insertedId),
-          inserted,
+          auditCtxFactory(result.dokusyaId),
+          result.after,
           manager,
         );
 
-        return inserted;
+        return result.after;
       });
     } catch (err) {
       await this.auditLog.logError(auditCtxFactory(null), AuditOperation.CREATE, err as Error);
@@ -509,6 +535,35 @@ export class DokusyaService {
       throw new DokusyaReadOnlyException();
     }
 
+    // [tekiyo-date-consistency] 直前の有効レコード(before)基準で適用日の整合性を
+    // 検証する（顧客要件 2026-07）。read-only(403) より後に置き、編集不可レコードは
+    // 先に 403 で弾く。過去日(today基準)は上の assertTekiyoDateNotPast、ここは相対
+    // チェック — 情報変更適用日 >= 購読開始日 / 販売店適用日 < 解約予定日(解約予定日
+    // が設定済みの場合のみ)。chushi は before の値（更新前）を使う。
+    const dateViolations = [
+      ...collectTekiyoDateViolations({
+        johoDate: dto.joho_henko_tekiyo_date,
+        hanbaitenDate: dto.hanbaiten_tekiyo_date,
+        kaishiDate: before.dokusyaKaishiDate,
+        chushiDate: before.dokusyaChushiDate,
+      }),
+      // 入力された解約予定日の整合性（購読開始日以降・過去日不可）。購読開始日は
+      // 編集不可＝before の値を参照する。
+      ...collectChushiViolations({
+        chushiDate: dto.dokusya_chushi_date,
+        kaishiDate: before.dokusyaKaishiDate,
+        today: todayIsoJst(),
+      }),
+    ];
+    if (dateViolations.length > 0) {
+      throw new ValidationException(
+        dateViolations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
+
     // [shubetsu-immutable] 購読種別 (dokusya_shubetsu) is read-only in edit
     // mode — the FE radio group is disabled, but the screen submits the full
     // form so the field still arrives in the body. Pin it to the stored
@@ -569,77 +624,65 @@ export class DokusyaService {
       refreshed = await this.dataSource.transaction(async (manager) => {
         // [rireki-no-race] master 行を FOR UPDATE でロックしてから採番・更新する。
         // 同一購読者への同時更新が両方 MAX+1 を読み、同じ rireki_no を INSERT して
-        // unique 制約違反(500)になるのを防ぐ（直列化する）。
+        // unique 制約違反(500)になるのを防ぐ（直列化する）。applyChange 内部の
+        // nextRirekiNo/recomputeMaster もこのロックの下で直列化される。
         await this.rireki.lockDokusyaRow(manager, id);
 
-        // ステップ1 — invalidate prior saishin flags.
-        await manager.update(
-          DokusyaRireki,
-          { dokusyaId: id, saishinDataFlg: true },
-          { saishinDataFlg: false },
-        );
-
-        // ステップ2 — figure out the next rireki_no (single QB row).
-        const newRirekiNo = await this.rireki.nextRirekiNo(manager, id);
-
-        // UPDATE the master row (column-by-column from dto).
+        // 業務項目の新値を組み立てる。master 固有項目のピン止め（初回購読開始日・
+        // 電子版読者種別・承認状態）は従来どおり before の値に固定する。newRirekiNo
+        // は applyChange が採番するのでここでは 0 を渡して後で rireki_no を除外。
         const updatePartial = this.buildUpdatePartial(
           dto,
           effectiveJaId,
           bankBranch,
           session,
-          newRirekiNo,
+          0,
         );
-
-        // 情報変更適用日 — 顧客要件 2026-06 更新によりユーザー入力値を採用。
-        // buildUpdatePartial（→ buildInsertPayload）が dto.joho_henko_tekiyo_date
-        // を正規化して既にセット済みなので、ここでは上書きしない（必須・過去日
-        // 不可は update() 冒頭で検証済み）。after 経由で履歴にも反映される。
-
-        // [shoki-immutable] 初回購読開始日 は不変。buildUpdatePartial は
-        // dto.dokusya_kaishi_date（= before に pin 済み）から shoki も上書き
-        // してしまうため、明示的に既存の初回日へ戻す（将来 購読開始日 が
-        // 可変になっても初回購読開始日を失わない）。
+        // [shoki-immutable] 初回購読開始日 は不変。dto.dokusya_kaishi_date
+        // （before に pin 済み）から shoki も上書きされるため、既存の初回日へ戻す。
         updatePartial.shokiDokusyaKaishiDate = before.shokiDokusyaKaishiDate;
-
-        // [denshi-subtype-preserve] 電子版読者種別 は編集対象外。
-        // buildInsertPayload が常に null にするため、update では既存値を維持
-        // する（電子版読者の denshi_dokusya_shubetsu が編集のたびに消えるのを
-        // 防ぐ）。denshi_shonin_status と同じ「編集で触らない」扱い。
+        // [denshi-subtype-preserve] 電子版読者種別 は編集対象外 — 既存値を維持。
         updatePartial.denshiDokusyaShubetsu = before.denshiDokusyaShubetsu;
-
-        // 紙版 (dokusya_shubetsu=1) は Web 承認/否認ワークフロー対象外なので
-        // denshi_shonin_status は常に null に揃える (create と同じルール)。
-        // 購読種別は edit で不変 (before に pin 済み) なので before を見る。
-        // 電子版/併読は buildUpdatePartial が key を落として既存値を維持する
-        // ため、ここでは触らない (承認済み→編集で 承認待ち に戻さない)。
+        // 紙版 は Web 承認ワークフロー対象外 → denshi_shonin_status を null に揃える
+        // (電子版/併読は buildUpdatePartial が key を落として既存値を維持)。
         if (Number(before.dokusyaShubetsu) === DokusyaShubetsu.PAPER) {
           updatePartial.denshiShoninStatus = null;
         }
-        await manager.update(Dokusya, { dokusyaId: id }, updatePartial);
 
-        // Compose the post-update entity locally (no extra SELECT —
-        // unit tests don't mock manager.findOne and the round-trip
-        // adds no value beyond the merged-in-memory shape).
-        const after: Dokusya = {
-          ...before,
-          ...updatePartial,
+        // applyChange の values は履歴業務項目の新値。predecessor（適用日時点の
+        // 有効レコード）と差分をとって変更項目のみ履歴イベント化するため、
+        // ピン止め済みの不変項目（購読種別・氏名・購読開始日等）は predecessor と
+        // 一致し差分に出ない。identity/監査専用列（rireki_no・updatedBy）は除外。
+        const values = { ...updatePartial } as Record<string, unknown>;
+        delete values.rirekiNo;
+        delete (values as { updatedBy?: string }).updatedBy;
+
+        // ── 履歴書き込み + master 再計算を共通ライタへ集約 (Pha3)。─────────────
+        // 情報変更と販売店変更が同時なら applyChange が適用日順に2件へ分割する。
+        // recomputeMaster が有効レコードから t_dokusya を確定するため、master の
+        // 明示 UPDATE は不要（未来日 joho の場合は当日時点で未反映＝正しい挙動）。
+        const result = await applyChange(manager, {
+          mode: 'UPDATE',
           dokusyaId: id,
-        };
-
-        // ── 履歴(t_dokusya_rireki)書き込み（顧客要件 2026-06）─────────────
-        // 情報変更と販売店変更が同時のときは適用日順に2件へ分割する。共通ヘルパー
-        // writeRirekiSplit に委譲し、UI 更新と Excel取込で履歴の作り方を同期する。
-        await this.rireki.writeRirekiSplit(manager, before, after, newRirekiNo, {
-          createdBy: String(session.account_id),
-          henkoRiyu: '',
-          shinkiFlg: false,
-          hanbaitenDate: dto.hanbaiten_tekiyo_date ?? null,
-          johoDate: after.johoHenkoTekiyoDate ?? null,
+          values: values as DokusyaFields,
+          johoDate: updatePartial.johoHenkoTekiyoDate as string,
+          hanbaitenDate:
+            normalizeDbDate(dto.hanbaiten_tekiyo_date ?? null) ?? undefined,
+          source: 'UI',
+          actor: String(session.account_id),
+          reason: '',
         });
 
-        await this.auditLog.logUpdate(auditCtx, before, after, manager);
-        return after;
+        // updatedBy は rireki に無い列で recompute 対象外。master へ明示スタンプ
+        // （updatedAt は @UpdateDateColumn が recompute の UPDATE 時に自動更新）。
+        await manager.update(
+          Dokusya,
+          { dokusyaId: id },
+          { updatedBy: String(session.account_id) },
+        );
+
+        await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
+        return result.after;
       });
     } catch (err) {
       await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
@@ -818,6 +861,8 @@ export class DokusyaService {
         'r.zougen_hokoku_flg AS zougen_hokoku_flg',
         'r.shinki_flg AS shinki_flg',
         'r.kaiyaku_flg AS kaiyaku_flg',
+        'r.torikeshi_flg AS torikeshi_flg',
+        'r.biko AS biko',
         'r.hikiotoshi_yokin_shubetsu AS hikiotoshi_yokin_shubetsu',
         'r.bank_branch_code AS bank_branch_code',
         'r.bank_branch_name AS bank_branch_name',
@@ -836,13 +881,91 @@ export class DokusyaService {
     qb.limit(perPage);
     qb.offset((page - 1) * perPage);
 
+    // 取消可否(can_torikeshi)判定用にチェーン末尾(有効レコード)の rireki_id を
+    // 取得する。writer の canTorikeshi/loadEffectiveRow と同一条件:
+    // torikeshi_flg=false かつ joho<=遠未来 の行のうち (joho, rireki_no) 最大の行。
+    const tailRow = await this.rirekiRepo
+      .createQueryBuilder('r')
+      .select('r.dokusya_rireki_id', 'id')
+      .where('r.dokusya_id = :id', { id })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.joho_henko_tekiyo_date <= :tailAsOf', {
+        tailAsOf: TORIKESHI_TAIL_ASOF,
+      })
+      .orderBy('r.joho_henko_tekiyo_date', 'DESC')
+      .addOrderBy('r.rireki_no', 'DESC')
+      .limit(1)
+      .getRawOne<{ id: number | string }>();
+    const tailRirekiId = tailRow ? Number(tailRow.id) : null;
+
     const [rows, total] = await Promise.all([
       qb.getRawMany<Record<string, unknown>>(),
       qb.getCount(),
     ]);
 
-    const data = rows.map((row) => toDokusyaRirekiListItem(row));
+    const data = rows.map((row) => toDokusyaRirekiListItem(row, tailRirekiId));
     return paginate(data, Number(total), page, perPage);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // API-013-002 — POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi
+  // 履歴の取消(赤伝): 対象行を torikeshi_flg + 打ち消し行を追加し、master を再計算。
+  // ════════════════════════════════════════════════════════════════════
+  async torikeshiRireki(
+    dokusyaId: number,
+    rirekiId: number,
+    reason: string,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<{ message: string }> {
+    // 存在 + DataScope チェック（購読者が見えなければ 404 マスク）。
+    await this.fetchInScope(dokusyaId, session);
+
+    // 対象履歴が当該購読者に属するか + 取消可否を事前検証する。approve/reject と
+    // 同方針でトランザクション前に弾き、期待される検証失敗(400)を error-log
+    // (log_type=3) に残さない。canTorikeshi はエンドポイント境界の再検証も兼ね、
+    // applyTorikeshi 内部でもう一度ガードされる。
+    const target = await this.rirekiRepo.findOne({
+      where: { dokusyaRirekiId: rirekiId, dokusyaId },
+    });
+    if (!target) {
+      throw new NotFoundException('履歴');
+    }
+    if (!(await canTorikeshi(this.rirekiRepo.manager, dokusyaId, target))) {
+      throw new TorikeshiNotAllowedException();
+    }
+
+    const auditCtx = buildAuditCtx(
+      session,
+      req,
+      SCREEN_NAME_SCR013,
+      TABLE_NAME_RIREKI,
+      rirekiId,
+    );
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        // [rireki-no-race] 打ち消し行の採番前に master 行をロック（他 UPDATE 経路と直列化）。
+        await this.rireki.lockDokusyaRow(manager, dokusyaId);
+        await applyTorikeshi(
+          manager,
+          dokusyaId,
+          rirekiId,
+          reason,
+          String(session.account_id),
+        );
+        // 取消理由を t_log に記録（afterValue）。取消理由は備考にも記録済み。
+        await this.auditLog.logUpdate(
+          auditCtx,
+          { dokusya_rireki_id: rirekiId },
+          { dokusya_rireki_id: rirekiId, torikeshi_reason: reason },
+          manager,
+        );
+      });
+    } catch (err) {
+      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
+      throw err;
+    }
+    return { message: '取消しました。' };
   }
 
   // ─── private helpers ────────────────────────────────────────────────
@@ -879,7 +1002,11 @@ export class DokusyaService {
       .leftJoin(
         'm_shiten',
         'bs',
-        'bs.ja_id = d.ja_id AND bs.jastem_toriatsukai_tenpo_code = d.bank_branch_code AND bs.kinyu_shiten_flg = TRUE AND bs.deleted_at IS NULL',
+        // CAST(... AS text) は pg-mem 対策。shiten_code(varchar10) と
+        // bank_branch_code(varchar3) を直接比較すると pg-mem が varchar(3)
+        // 側へ coerce し、3桁超の shiten_code で "value too long" になる。
+        // text 比較に統一すれば実 Postgres・pg-mem 双方で正しく一致する。
+        'bs.ja_id = d.ja_id AND bs.shiten_code = CAST(d.bank_branch_code AS text) AND bs.kinyu_shiten_flg = TRUE AND bs.deleted_at IS NULL',
       )
       .select([
         'h.hanbaiten_name AS hanbaiten_name',
@@ -1005,8 +1132,15 @@ export class DokusyaService {
         '指定された銀行支店が見つかりません。',
       );
     }
+    // 顧客要件 2026-07: bank_branch_code は m_shiten.shiten_code を保存する。
+    // SCR-020 口座振替の `s.shiten_code = d.bank_branch_code` JOIN と整合させ、
+    // 引落口座支店の絞込・集計が正しく一致するようにするため。金融機関支店の
+    // shiten_code は半角数字3桁固定（create-shiten DTO で検証済み）かつ作成後
+    // 変更不可（kinyu_shiten_flg 同様）なので varchar(3) の bank_branch_code に
+    // 収まる。bank_branch_name は全銀ファイルのカナ表記フォールバック用途で
+    // jastem_tenpo_name（半角カナ）を維持する。
     return {
-      code: row.jastemToriatsukaiTenpoCode ?? '',
+      code: row.shitenCode ?? '',
       name: row.jastemTenpoName ?? '',
     };
   }
@@ -1271,56 +1405,34 @@ export class DokusyaService {
     let refreshed: Dokusya;
     try {
       refreshed = await this.dataSource.transaction(async (manager) => {
-        // [rireki-no-race] update() と同様、採番前に master 行をロックして
-        // 同時 approve/reject と直列化する。
+        // [rireki-no-race] 採番前に master 行をロック（他の UPDATE 経路と同じ直列化）。
         await this.rireki.lockDokusyaRow(manager, id);
-        // Invalidate prior saishin flags + assign next rireki_no in
-        // a single tx for atomicity with the master update.
-        await manager.update(
-          DokusyaRireki,
-          { dokusyaId: id, saishinDataFlg: true },
-          { saishinDataFlg: false },
-        );
-        const newRirekiNo = await this.rireki.nextRirekiNo(manager, id);
 
+        // 承認/否認も共通ライタ applyChange(UPDATE) に集約 (Pha3)。承認状態
+        // (denshi_shonin_status) のみ変更するイベント。承認/否認は電子版読者の
+        // 確定（増）なので forceZougen で増減報告対象にする。johoDate=当日で即日反映。
+        const result = await applyChange(manager, {
+          mode: 'UPDATE',
+          dokusyaId: id,
+          values: {
+            denshiShoninStatus: options.newStatus,
+          } as unknown as DokusyaFields,
+          johoDate: todayIsoJst(),
+          source: 'UI',
+          actor: String(session.account_id),
+          reason: options.henkoRiyu,
+          forceZougen: true,
+        });
+
+        // updated_by は rireki に無い列で recompute 対象外 → master へ明示スタンプ。
         await manager.update(
           Dokusya,
           { dokusyaId: id },
-          {
-            denshiShoninStatus: options.newStatus,
-            rirekiNo: newRirekiNo,
-            updatedBy: String(session.account_id),
-          },
+          { updatedBy: String(session.account_id) },
         );
 
-        // Compose the post-update entity locally — see update() for
-        // the rationale.
-        const after: Dokusya = {
-          ...before,
-          denshiShoninStatus: options.newStatus,
-          rirekiNo: newRirekiNo,
-        };
-
-        await manager.save(
-          DokusyaRireki,
-          manager.create(
-            DokusyaRireki,
-            // 承認/否認も create/update/replace と同じ buildRirekiRow で1件生成。
-            this.rireki.buildRirekiRow(after, null, {
-              rirekiNo: newRirekiNo,
-              henkoRiyu: options.henkoRiyu,
-              saishinDataFlg: true,
-              shinkiFlg: false,
-              kaiyakuFlg: false,
-              // 承認/否認は電子版読者の確定（増）なので増減報告対象。
-              zougenHokokuFlg: true,
-              createdBy: String(session.account_id),
-            }),
-          ),
-        );
-
-        await this.auditLog.logUpdate(auditCtx, before, after, manager);
-        return after;
+        await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
+        return result.after;
       });
     } catch (err) {
       await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);

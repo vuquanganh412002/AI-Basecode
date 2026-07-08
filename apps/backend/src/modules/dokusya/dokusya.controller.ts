@@ -36,6 +36,7 @@ import { ReplaceHanbaitenDto } from './dto/replace-hanbaiten.dto';
 import { UpdateDokusyaDto } from './dto/update-dokusya.dto';
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
 import { DokusyaRirekiQueryDto } from './dto/dokusya-rireki-query.dto';
+import { TorikeshiRirekiDto } from './dto/torikeshi-rireki.dto';
 import {
   DokusyaHistoryResponseDto,
 } from './dto/dokusya-history-response.dto';
@@ -367,5 +368,31 @@ export class DokusyaController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     return this.service.getRirekiList(dokusyaId, query, req.user);
+  }
+
+  // ─── API-013-002 ────────────────────────────────────────────────────
+  // SCR-013 — 履歴の取消(赤伝): 対象行を torikeshi_flg + 打ち消し行を追加。
+  @Post(':dokusya_id/rireki/:dokusya_rireki_id/torikeshi')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('dokusya.update')
+  @ApiOperation({ summary: '購読者履歴情報画面 — 履歴の取消（赤伝）' })
+  @ApiResponse({ status: 200, description: '取消完了メッセージ' })
+  @ApiResponse({ status: 400, description: 'TORIKESHI_NOT_ALLOWED / バリデーションエラー' })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  @ApiResponse({ status: 404, description: '指定された購読者/履歴が見つかりません。' })
+  async torikeshiRireki(
+    @Param('dokusya_id', ParseIntPipe) dokusyaId: number,
+    @Param('dokusya_rireki_id', ParseIntPipe) rirekiId: number,
+    @Body() dto: TorikeshiRirekiDto,
+    @Req() req: Request & { user: SessionPayload },
+  ) {
+    return this.service.torikeshiRireki(
+      dokusyaId,
+      rirekiId,
+      dto.reason,
+      req.user,
+      req,
+    );
   }
 }
