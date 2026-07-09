@@ -40,6 +40,7 @@ import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useAuthStore } from '@/stores/auth.store';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
+import { isTodayOrPastDayTokyo } from '@/utils/datetime';
 import {
   searchDokusyaForReplace,
   replaceDokusyaHanbaiten,
@@ -533,12 +534,14 @@ defineExpose({
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">適用日</span>
           <span class="text-error">*</span>
+          <!-- 一括置換の適用日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。 -->
           <a-date-picker
             v-model:value="replaceForm.hanbaiten_tekiyo_date"
             value-format="YYYY-MM-DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
+            :disabled-date="isTodayOrPastDayTokyo"
             class="flex-1"
           />
         </div>

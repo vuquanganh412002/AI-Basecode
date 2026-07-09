@@ -9,6 +9,7 @@ import { TorikeshiNotAllowedException } from './exceptions/torikeshi-not-allowed
 import {
   buildCounterRow,
   buildKaiyakuRow,
+  buildResubscribeRow,
   buildRirekiRow,
   computeZougen,
   diffChangedFields,
@@ -21,6 +22,8 @@ import {
   findBefore,
   findNext,
   insertRow,
+  loadCurrentLifecycleEffectiveRow,
+  loadEarliestRow,
   loadEffectiveRow,
   loadMaster,
   loadRireki,
@@ -32,6 +35,7 @@ import {
   ApplyChangeInput,
   ApplyChangeResult,
   DateOnly,
+  DokusyaFields,
 } from './dokusya-history.types';
 
 // Digital subscriber types (紙版=1, 電子版=2, 併読=3) — sync 電子版 on 2/3.
@@ -98,6 +102,10 @@ export async function applyChange(
     await recomputeAfterChain(m, dokusyaId, saved, before, Object.keys(e.values));
   }
 
+  // 再計算基準日は常に当日。未来日レコードは当日時点では有効化されない（夜間バッチ
+  // が到来日に有効化）。ただし全行が未来（未来 購読開始日 の新規）の場合、
+  // recomputeMaster が最早行へ fallback して saishin=true を保証する（顧客要件
+  // 2026-07: 新規は saishin=true・バッチで後日変わる）。
   await recomputeMaster(m, dokusyaId, todayIsoJst());
   const after = await loadMaster(m, dokusyaId);
 
@@ -111,15 +119,19 @@ export async function applyChange(
 }
 
 /**
- * Recompute `t_dokusya` and `saishin_data_flg` for one dokusya as of
- * `asOf`. The effective row is the greatest `(joho, rireki_no)` with
- * `joho <= asOf` and `torikeshi_flg = false`.
+ * Recompute `t_dokusya` and `saishin_data_flg` for one dokusya as of `asOf`,
+ * scoped to the CURRENT lifecycle (rows from the latest 新規行 onward — see
+ * {@link loadCurrentLifecycleEffectiveRow}).
  *
- * Enforces the invariant `t_dokusya ⇔ the row with saishin_data_flg=TRUE`:
- * - effective row exists → it gets `saishin=TRUE` (others FALSE) and
- *   `t_dokusya` is overwritten from it;
- * - no effective row (only future rows) → every `saishin=FALSE` and
- *   `t_dokusya` is left untouched (activated later by the nightly batch).
+ * Enforces the invariant `t_dokusya ⇔ 常に 1 行 saishin_data_flg=TRUE`（履歴が
+ * 1 行以上あれば）:
+ * - 現ライフサイクル内で `joho <= asOf` の最大 `(joho, rireki_no)` が有効行；
+ * - 無ければ（現ライフサイクルが全て未来 = 未来 購読開始日 の新規/再購読）**最新の
+ *   新規行**へ fallback し、master を即その内容にする（新規作成の即時反映と同じ）。
+ *
+ * これにより 再購読 は初回新規作成と同じく即 購読中 になり（joho=新開始日でも）、
+ * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=asOf まで有効化され
+ * ず到来日バッチ任せのまま。単一ライフサイクル（再購読なし）は従来と同一挙動。
  *
  * Idempotent: full recompute, safe to run repeatedly (save / batch).
  */
@@ -128,7 +140,11 @@ export async function recomputeMaster(
   dokusyaId: number,
   asOf: DateOnly,
 ): Promise<void> {
-  const effectiveRow = await loadEffectiveRow(m, dokusyaId, asOf);
+  const effectiveRow = await loadCurrentLifecycleEffectiveRow(
+    m,
+    dokusyaId,
+    asOf,
+  );
   await setSaishinFlags(m, dokusyaId, effectiveRow?.dokusyaRirekiId ?? null);
   if (effectiveRow) {
     await m.update(Dokusya, { dokusyaId }, mapRirekiToMaster(effectiveRow));
@@ -163,9 +179,122 @@ export async function insertKaiyaku(
   if (!before) return;
 
   const no = await nextRirekiNo(m, dokusyaId);
-  const row = buildKaiyakuRow(before, { dokusyaId, rirekiNo: no, kaiyakuJoho });
+  const row = buildKaiyakuRow(before, {
+    dokusyaId,
+    rirekiNo: no,
+    kaiyakuJoho,
+    chushiDate: ref.dokusyaChushiDate,
+  });
   await insertRow(m, row);
   await recomputeMaster(m, dokusyaId, asOf);
+}
+
+/**
+ * UI 解約予約: append a real 解約 (cancellation) row when the user schedules a
+ * 購読中止日 from the edit screen — instead of a 継続 info row. The row is
+ * future-dated (`saishin_data_flg=false`); the 到来日バッチ later just runs
+ * `recomputeMaster` to reflect it into `t_dokusya`. Row shape (`部数=0`,
+ * `tetsuzuki=0`, `kaiyaku_flg=true`, `zougen=true`) is built by
+ * `buildKaiyakuRow`. Applied date = 中止日 (紙版) or +1 (電子版), matching the
+ * batch `insertKaiyaku`. Returns the same `ApplyChangeResult` shape as
+ * `applyChange` so the caller writes audit + 電子版 sync uniformly.
+ */
+export async function insertScheduledKaiyaku(
+  m: EntityManager,
+  input: {
+    dokusyaId: number;
+    chushiDate: DateOnly;
+    shubetsu: number;
+    actor: string;
+  },
+): Promise<ApplyChangeResult> {
+  const { dokusyaId, chushiDate, shubetsu, actor } = input;
+  const beforeMaster = await loadMaster(m, dokusyaId);
+
+  const isDenshi = shubetsu === 2; // 電子版 → +1 day
+  const kaiyakuJoho = isDenshi ? addDaysIso(chushiDate, 1) : chushiDate;
+
+  // predecessor = 適用日(kaiyakuJoho)時点の有効行。zenkai_* と継承業務項目の基準。
+  const before = await findBefore(m, dokusyaId, kaiyakuJoho);
+  if (!before) {
+    throw new Error('insertScheduledKaiyaku: predecessor row not found');
+  }
+
+  const no = await nextRirekiNo(m, dokusyaId);
+  const row = buildKaiyakuRow(before, {
+    dokusyaId,
+    rirekiNo: no,
+    kaiyakuJoho,
+    chushiDate,
+    createdBy: actor,
+  });
+  const saved = await insertRow(m, row);
+
+  // 再計算基準日は当日。未来予約は当日時点で未反映（saishin=false のまま）。
+  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  const after = await loadMaster(m, dokusyaId);
+
+  return {
+    dokusyaId,
+    insertedRirekiIds: [saved.dokusyaRirekiId],
+    before: beforeMaster,
+    after,
+    denshiSync: DENSHI_SHUBETSU.has(after.dokusyaShubetsu),
+  };
+}
+
+/**
+ * 再購読 (resubscribe): a 解約済み subscriber re-registers with a new 購読開始日
+ * from the edit screen (手続種類=新規). Appends a 新規(再購読) row — `shinki_flg=true`,
+ * `tetsuzuki=1`, `kaiyaku_flg=false`, new `dokusya_kaishi_date`, `chushi=null` —
+ * carried forward from the tail (解約行). `values` is the new business state.
+ *
+ * 適用日(joho) = 新 購読開始日（新規作成と同じ＝初回作成行と同じ形）。即時反映は
+ * `recomputeMaster` が「現ライフサイクル(最新の新規行以降)」で有効行を選ぶことで
+ * 担保する: 新開始日が未来でも現ライフサイクルの有効行が無ければ最新の新規(=この
+ * 再購読)行へ fallback し master が即 購読中 になる（新規作成の未来開始日と同じ挙動）。
+ * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=当日 まで有効化され
+ * ないので従来どおり到来日バッチ任せ。Returns the same `ApplyChangeResult` shape.
+ */
+export async function insertResubscribe(
+  m: EntityManager,
+  input: {
+    dokusyaId: number;
+    kaishiDate: DateOnly;
+    values: DokusyaFields;
+    actor: string;
+  },
+): Promise<ApplyChangeResult> {
+  const { dokusyaId, kaishiDate, values, actor } = input;
+  const beforeMaster = await loadMaster(m, dokusyaId);
+
+  // predecessor は新開始日時点の有効行（＝解約行）から状態継承。無ければ最早行。
+  const before =
+    (await findBefore(m, dokusyaId, kaishiDate)) ??
+    (await loadEarliestRow(m, dokusyaId));
+  if (!before) {
+    throw new Error('insertResubscribe: no history row to carry forward');
+  }
+
+  const no = await nextRirekiNo(m, dokusyaId);
+  const row = buildResubscribeRow(
+    before,
+    values,
+    { dokusyaId, rirekiNo: no, actor, reason: '再購読' },
+    kaishiDate, // joho = 新 購読開始日（初回作成と同じ）
+  );
+  const saved = await insertRow(m, row);
+
+  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  const after = await loadMaster(m, dokusyaId);
+
+  return {
+    dokusyaId,
+    insertedRirekiIds: [saved.dokusyaRirekiId],
+    before: beforeMaster,
+    after,
+    denshiSync: DENSHI_SHUBETSU.has(after.dokusyaShubetsu),
+  };
 }
 
 // Far-future sentinel to fetch the chain tail regardless of today/future.

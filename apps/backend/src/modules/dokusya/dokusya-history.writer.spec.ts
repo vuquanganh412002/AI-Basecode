@@ -41,11 +41,15 @@ describe('recomputeMaster', () => {
       dokusyaBusu: 8,
       hanbaitenId: 460,
     });
-    q.loadEffectiveRow.mockResolvedValue(eff);
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(eff);
 
     await recomputeMaster(m, 1001, '2026-07-01');
 
-    expect(q.loadEffectiveRow).toHaveBeenCalledWith(m, 1001, '2026-07-01');
+    expect(q.loadCurrentLifecycleEffectiveRow).toHaveBeenCalledWith(
+      m,
+      1001,
+      '2026-07-01',
+    );
     // invariant: saishin flag targets the effective row's rireki id
     expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 1001, 3);
     expect(update).toHaveBeenCalledTimes(1);
@@ -56,13 +60,26 @@ describe('recomputeMaster', () => {
     expect(partial).not.toHaveProperty('dokusyaRirekiId'); // rireki-only, excluded
   });
 
-  it('no effective row (future only) → all saishin false, t_dokusya untouched', async () => {
-    q.loadEffectiveRow.mockResolvedValue(null);
+  it('no row at all → all saishin false, t_dokusya untouched', async () => {
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(null);
 
     await recomputeMaster(m, 1001, '2026-07-01');
 
     expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 1001, null);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('current-lifecycle effective row absent → loadCurrentLifecycleEffectiveRow returns the latest 新規行 (fallback): saishin on it + t_dokusya overwritten (顧客要件 2026-07)', async () => {
+    // 未来 購読開始日 の新規/再購読。asOf 時点で現ライフサイクルの有効行は無いが、
+    // loadCurrentLifecycleEffectiveRow が最新の新規行を返す → 即 saishin=true。
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+      rireki({ dokusyaRirekiId: 7, dokusyaId: 1001, dokusyaBusu: 2 }),
+    );
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 1001, 7);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -168,7 +185,8 @@ describe('applyChange', () => {
     q.nextRirekiNo.mockResolvedValue(1);
     q.setSaishinFlags.mockResolvedValue(undefined);
     q.findNext.mockResolvedValue(null); // no successors in orchestration tests
-    q.loadEffectiveRow.mockResolvedValue(
+    // recomputeMaster の有効行選択（現ライフサイクル）を既定でモック。
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
       rireki({ dokusyaRirekiId: 10, dokusyaShubetsu: 1 }),
     );
   });
@@ -195,7 +213,7 @@ describe('applyChange', () => {
     const inserted = q.insertRow.mock.calls[0][1] as DokusyaRireki;
     expect(inserted.shinkiFlg).toBe(true);
     // recomputeMaster ran
-    expect(q.loadEffectiveRow).toHaveBeenCalled();
+    expect(q.loadCurrentLifecycleEffectiveRow).toHaveBeenCalled();
     expect(q.setSaishinFlags).toHaveBeenCalled();
     expect(m.update).toHaveBeenCalled();
     // result
@@ -203,6 +221,31 @@ describe('applyChange', () => {
     expect(res.before).toBeNull();
     expect(res.insertedRirekiIds).toEqual([10]);
     expect(res.denshiSync).toBe(false);
+  });
+
+  it('CREATE with a FUTURE joho → recomputeMaster reflects the latest 新規行 (saishin=true)', async () => {
+    // 顧客要件 2026-07: 新規は未来日のみだが、作成時点の唯一のレコードは saishin=true。
+    // applyChange は当日基準で recomputeMaster を呼ぶが、現ライフサイクルの有効行が
+    // 無ければ loadCurrentLifecycleEffectiveRow が最新の新規行を返す → saishin=true。
+    q.ensureMaster.mockResolvedValue(2002);
+    q.findBefore.mockResolvedValue(null);
+    q.loadMaster.mockResolvedValue(
+      master({ dokusyaId: 2002, dokusyaShubetsu: 1 }),
+    );
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+      rireki({ dokusyaRirekiId: 10, dokusyaShubetsu: 1 }),
+    );
+
+    await applyChange(m, {
+      mode: 'CREATE',
+      values: { dokusyaBusu: 1, dokusyaShubetsu: 1 },
+      johoDate: '2099-12-31', // 未来
+      source: 'UI',
+      actor: 'admin',
+      reason: '',
+    });
+
+    expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 2002, 10);
   });
 
   it('UPDATE single info → one insert, before = master snapshot', async () => {
@@ -344,9 +387,10 @@ describe('insertKaiyaku', () => {
       dokusyaBusu: 6,
       hanbaitenId: 459,
     });
-    q.loadEffectiveRow
-      .mockResolvedValueOnce(ref) // ref read
-      .mockResolvedValueOnce(rireki({ dokusyaRirekiId: 99, tetsuzukiShurui: 0 })); // recompute
+    q.loadEffectiveRow.mockResolvedValueOnce(ref); // ref read (chushi source)
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+      rireki({ dokusyaRirekiId: 99, tetsuzukiShurui: 0 }),
+    ); // recompute
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(3);
 
@@ -369,7 +413,8 @@ describe('insertKaiyaku', () => {
       dokusyaShubetsu: 2,
       kaiyakuFlg: false,
     });
-    q.loadEffectiveRow.mockResolvedValueOnce(ref).mockResolvedValueOnce(ref);
+    q.loadEffectiveRow.mockResolvedValueOnce(ref);
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(ref);
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(2);
 
@@ -388,7 +433,8 @@ describe('insertKaiyaku', () => {
       hanbaitenId: 459,
     });
     const activated = rireki({ hanbaitenId: 460, dokusyaChushiDate: '2026-07-15' });
-    q.loadEffectiveRow.mockResolvedValueOnce(ref).mockResolvedValueOnce(activated);
+    q.loadEffectiveRow.mockResolvedValueOnce(ref);
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(activated);
     q.findBefore.mockResolvedValue(activated); // as-of chushi → the 販売店 change
     q.nextRirekiNo.mockResolvedValue(4);
 
@@ -483,9 +529,10 @@ describe('applyTorikeshi', () => {
       torikeshiFlg: false,
     });
     q.loadRireki.mockResolvedValue(target);
-    q.loadEffectiveRow
-      .mockResolvedValueOnce(target) // canTorikeshi tail = target
-      .mockResolvedValueOnce(rireki({ dokusyaRirekiId: 1 })); // recompute
+    q.loadEffectiveRow.mockResolvedValueOnce(target); // canTorikeshi tail = target
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+      rireki({ dokusyaRirekiId: 1 }),
+    ); // recompute
     q.nextRirekiNo.mockResolvedValue(4);
 
     await applyTorikeshi(m, 1001, 3, '誤入力', 'u1');
@@ -522,7 +569,8 @@ describe('applyTorikeshi', () => {
       torikeshiFlg: false,
     });
     q.loadRireki.mockResolvedValue(target);
-    q.loadEffectiveRow.mockResolvedValueOnce(target).mockResolvedValueOnce(target);
+    q.loadEffectiveRow.mockResolvedValueOnce(target); // canTorikeshi tail
+    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(target); // recompute
     q.nextRirekiNo.mockResolvedValue(5);
 
     await applyTorikeshi(m, 1001, 4, '取消', 'u');

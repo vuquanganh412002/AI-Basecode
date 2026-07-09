@@ -627,7 +627,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       return { id, sid };
     }
 
-    it('should update t_dokusya and append a 2nd t_dokusya_rireki row (rireki_no=2)', async () => {
+    it('should append a 2nd (future) t_dokusya_rireki row WITHOUT changing t_dokusya immediately (顧客要件 2026-07 未来日のみ)', async () => {
+      // 情報変更適用日は未来日のみ（当日不可）。よって更新は未来行を追加するだけで、
+      // t_dokusya の業務項目は当日時点では変わらない（夜間バッチが到来日に反映）。
+      // 有効行が無い（全行未来）間は最早行=作成行が saishin=true（不変維持）。
       const { id, sid } = await seed();
       const res = await http()
         .put(apiUrl(`dokusya/${id}`))
@@ -641,11 +644,11 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(res.body.message).toBe('更新しました。');
 
       const [updated] = await ctx.dataSource.query(
-        `SELECT chome_banchi, rireki_no FROM t_dokusya WHERE dokusya_id = $1`,
+        `SELECT chome_banchi FROM t_dokusya WHERE dokusya_id = $1`,
         [id],
       );
-      expect(updated.chome_banchi).toBe('千代田1-2-update');
-      expect(Number(updated.rireki_no)).toBe(2);
+      // 未来更新なので t_dokusya は作成時の住所を保持（バッチ未実行）。
+      expect(updated.chome_banchi).toBe('千代田1-1');
 
       const rireki = await ctx.dataSource.query(
         `SELECT rireki_no, saishin_data_flg FROM t_dokusya_rireki
@@ -653,8 +656,229 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         [id],
       );
       expect(rireki).toHaveLength(2);
-      expect(rireki[0].saishin_data_flg).toBe(false);
-      expect(rireki[1].saishin_data_flg).toBe(true);
+      // 全行未来 → 最早行（作成行 rireki_no=1）が saishin=true。
+      expect(rireki[0].saishin_data_flg).toBe(true);
+      expect(rireki[1].saishin_data_flg).toBe(false);
+    });
+
+    it('should insert a real 解約(kaiyaku) row (部数0・tetsuzuki0・kaiyaku_flg・zougen・saishin=false) when 購読中止日 is set — 顧客決定 2026-07', async () => {
+      // 解約予定日(購読中止日) 入力＝解約予約。継続情報変更ではなく解約履歴を
+      // 1件挿入する。到来日バッチが recomputeMaster で t_dokusya へ反映するのみ。
+      const { id, sid } = await seed();
+      const chushi = '2027-12-01'; // 未来・購読開始日以降
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_chushi_date: chushi,
+            joho_henko_tekiyo_date: chushi, // FE: joho 解約予定日へ追随
+          }),
+        )
+        .expect(200);
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT tetsuzuki_shurui, dokusya_busu, kaiyaku_flg, zougen_hokoku_flg,
+                saishin_data_flg, torikeshi_flg, dokusya_chushi_date
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(row.tetsuzuki_shurui)).toBe(0); // 解約
+      expect(Number(row.dokusya_busu)).toBe(0); // 解約=部数なし
+      expect(row.kaiyaku_flg).toBe(true);
+      expect(row.zougen_hokoku_flg).toBe(true); // 解約は増減報告対象
+      expect(row.saishin_data_flg).toBe(false); // 未来予約 — 当日未反映
+      expect(row.torikeshi_flg).toBe(false);
+      expect(String(row.dokusya_chushi_date).slice(0, 10)).toBe(chushi);
+
+      // t_dokusya はまだ解約反映されない（未来予約・バッチ未実行）。
+      const [master] = await ctx.dataSource.query(
+        `SELECT tetsuzuki_shurui FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(Number(master.tetsuzuki_shurui)).not.toBe(0);
+    });
+
+    it('(A) should reject a 解約予定日 earlier than the latest 変更適用日 (MAX joho) — 顧客要件 2026-07', async () => {
+      const { id, sid } = await seed();
+      // 先に未来の情報変更を1件（joho=2029-01-01）。→ MAX joho = 2029-01-01。
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_busu: 2,
+            joho_henko_tekiyo_date: '2029-01-01',
+          }),
+        )
+        .expect(200);
+      // 解約予定日=2028-01-01 は MAX joho(2029-01-01) より前 → 400。
+      const res = await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_chushi_date: '2028-01-01',
+            joho_henko_tekiyo_date: '2028-01-01',
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(
+        res.body.errors.some(
+          (e: { field: string }) => e.field === 'dokusya_chushi_date',
+        ),
+      ).toBe(true);
+    });
+
+    it('(B) should block a 2nd 解約予約 while one is already active — 顧客要件 2026-07', async () => {
+      const { id, sid } = await seed();
+      // 1回目の解約予約。
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_chushi_date: '2027-06-01',
+            joho_henko_tekiyo_date: '2027-06-01',
+          }),
+        )
+        .expect(200);
+      // 2回目 → 既に解約予約あり → 400。
+      const res = await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_chushi_date: '2027-08-01',
+            joho_henko_tekiyo_date: '2027-08-01',
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.message ?? '').not.toContain('既に解約'); // message は errors 側
+      expect(
+        res.body.errors.some(
+          (e: { field: string; message: string }) =>
+            e.field === 'dokusya_chushi_date' &&
+            e.message.includes('既に解約予約'),
+        ),
+      ).toBe(true);
+    });
+
+    it('(C) should insert a 再購読(shinki) row when 解約済み + 手続種類=新規 + new 購読開始日 — 顧客要件 2026-07', async () => {
+      const { id, sid } = await seed();
+      // 到来日バッチが解約を反映した状態を模擬（master を解約状態へ）。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET tetsuzuki_shurui = 0 WHERE dokusya_id = $1`,
+        [id],
+      );
+      // 編集画面で 手続種類=新規 + 新しい購読開始日で再加入。
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            tetsuzuki_shurui: 1, // 新規（再購読）
+            dokusya_busu: 2,
+            dokusya_kaishi_date: '2027-01-01',
+            joho_henko_tekiyo_date: '2027-01-01',
+          }),
+        )
+        .expect(200);
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT tetsuzuki_shurui, kaiyaku_flg, shinki_flg, dokusya_chushi_date, dokusya_kaishi_date
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(row.tetsuzuki_shurui)).toBe(1); // 購読中へ復帰
+      expect(row.kaiyaku_flg).toBe(false);
+      expect(row.shinki_flg).toBe(true); // 解約→再購読 は新規フラグ
+      expect(row.dokusya_chushi_date).toBeNull();
+      expect(String(row.dokusya_kaishi_date).slice(0, 10)).toBe('2027-01-01');
+    });
+
+    it('(C) 再購読: 旧解約日で弾かれず + t_dokusya へ即時反映(購読中) even over an effective 解約 row (joho<=today) — 顧客要件 2026-07', async () => {
+      // 実シナリオ(id=8): 解約が到来済み(有効な解約行 joho<=当日)で master 解約。編集で
+      // 新規 + 新開始日(未来)を指定。旧解約日を上限参照にすると誤って弾かれる不具合 +
+      // 新規作成同様に t_dokusya を即時 購読中 にする（到来日を待たない・顧客要件 2026-07）。
+      const { id, sid } = await seed();
+      // 解約予約（履歴に解約行）。
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_chushi_date: '2027-06-01',
+            joho_henko_tekiyo_date: '2027-06-01',
+          }),
+        )
+        .expect(200);
+      // 到来日バッチ相当: 解約行の適用日を過去日にして「有効な解約(joho<=当日)」に
+      // し、master も解約状態へ。これで recomputeMaster は解約行を有効行に選ぶ。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya_rireki
+            SET joho_henko_tekiyo_date = '2026-06-01', dokusya_chushi_date = '2026-06-01'
+          WHERE dokusya_id = $1 AND kaiyaku_flg = true`,
+        [id],
+      );
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET tetsuzuki_shurui = 0 WHERE dokusya_id = $1`,
+        [id],
+      );
+      // 再購読: 新開始日 2027-12-01（旧解約日 2027-06-01/実質2026-06-01 より後）でも通る。
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            tetsuzuki_shurui: 1,
+            dokusya_busu: 2,
+            dokusya_kaishi_date: '2027-12-01',
+            joho_henko_tekiyo_date: '2027-12-01',
+          }),
+        )
+        .expect(200);
+
+      // 履歴: 新規(再購読)行は「初回新規作成と同じ形」。適用日(joho)=購読開始日、
+      // hanbaiten_tekiyo_date・zenkai_* は null。
+      const [row] = await ctx.dataSource.query(
+        `SELECT tetsuzuki_shurui, shinki_flg, kaiyaku_flg, dokusya_kaishi_date,
+                joho_henko_tekiyo_date, hanbaiten_tekiyo_date,
+                zenkai_hanbaiten_id, zenkai_dokusya_busu
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(row.tetsuzuki_shurui)).toBe(1);
+      expect(row.shinki_flg).toBe(true);
+      expect(row.kaiyaku_flg).toBe(false);
+      expect(String(row.dokusya_kaishi_date).slice(0, 10)).toBe('2027-12-01');
+      // joho = 購読開始日（初回新規作成と同じ）。
+      expect(String(row.joho_henko_tekiyo_date).slice(0, 10)).toBe('2027-12-01');
+      expect(row.hanbaiten_tekiyo_date).toBeNull(); // 販売店適用日なし（新規作成同様）
+      expect(row.zenkai_hanbaiten_id).toBeNull(); // zenkai は継承しない
+      expect(row.zenkai_dokusya_busu).toBeNull();
+
+      // t_dokusya は即時 購読中(tetsuzuki=1)。有効な解約行があっても再購読が勝つ。
+      const [master] = await ctx.dataSource.query(
+        `SELECT tetsuzuki_shurui, dokusya_kaishi_date
+           FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(Number(master.tetsuzuki_shurui)).toBe(1);
+      expect(String(master.dokusya_kaishi_date).slice(0, 10)).toBe('2027-12-01');
     });
 
     it('should return 403 DOKUSYA_READ_ONLY when updating a 併読(3) record (any account)', async () => {
@@ -683,9 +907,11 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         // buildUpdateDokusyaBody default busu=2 → 1→2 変更。
         .send(buildUpdateDokusyaBody({ kumiaiin_code: 'INT-UPD' }))
         .expect(200);
+      // 未来更新なので saishin は作成行に残る。増減フラグは「今回追加した行」
+      // （最大 rireki_no）で検証する。
       const [row] = await ctx.dataSource.query(
         `SELECT zougen_hokoku_flg FROM t_dokusya_rireki
-          WHERE dokusya_id = $1 AND saishin_data_flg = true`,
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
         [id],
       );
       expect(row.zougen_hokoku_flg).toBe(true);
@@ -708,9 +934,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
           }),
         )
         .expect(200);
+      // 今回追加した行（最大 rireki_no）で増減フラグを検証する。
       const [row] = await ctx.dataSource.query(
         `SELECT zougen_hokoku_flg FROM t_dokusya_rireki
-          WHERE dokusya_id = $1 AND saishin_data_flg = true`,
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
         [id],
       );
       expect(row.zougen_hokoku_flg).toBe(false);
@@ -780,7 +1007,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       return { id, sid };
     }
 
-    it('should set denshi_shonin_status=1 + append history row + return 承認 message', async () => {
+    it('should set denshi_shonin_status=1 immediately (no future history row) + return 承認 message', async () => {
       const { id, sid } = await seedPending();
       const res = await http()
         .put(apiUrl(`dokusya/${id}/approve`))
@@ -854,7 +1081,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       return { id, sid };
     }
 
-    it('should set denshi_shonin_status=2 + append history row + return 否認 message', async () => {
+    it('should set denshi_shonin_status=2 immediately (no future history row) + return 否認 message', async () => {
       const { id, sid } = await seedPending();
       const res = await http()
         .put(apiUrl(`dokusya/${id}/reject`))

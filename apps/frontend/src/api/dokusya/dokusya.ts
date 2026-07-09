@@ -103,6 +103,17 @@ export interface DokusyaDetail {
   denshi_kaiin_id: number | null;
   created_at: string;
   updated_at: string;
+  /**
+   * 有効な解約予約(kaiyaku_flg=true, 取消除外)が存在するか（顧客要件 2026-07）。
+   * true の間は追加の解約予約を禁止（購読中止日 disabled）。変更は履歴画面で当該
+   * 解約を取消してから。
+   */
+  has_active_kaiyaku: boolean;
+  /**
+   * 履歴の最終変更適用日(MAX joho・取消除外)。解約予定日はこの日以降のみ指定可
+   * （購読中止日 picker の disabled-date 基準）。履歴なしは null。
+   */
+  max_joho_date: string | null;
 }
 
 /**

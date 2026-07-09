@@ -13,7 +13,7 @@
 // SHIHARAI_HOHO / YUBIN_KUBUN / GENDER / MAIL_MAGAZINE_FLG /
 // YOKIN_SHUBETSU) come from docs/database/seeder.md §5.
 
-import { todayIsoTokyo } from '@/utils/datetime';
+import { tomorrowIsoTokyo } from '@/utils/datetime';
 
 export interface DokusyaDetail {
   dokusya_id: number;
@@ -80,6 +80,8 @@ export interface DokusyaDetail {
   denshi_kaiin_id: number | null;
   created_at: string;
   updated_at: string;
+  has_active_kaiyaku: boolean;
+  max_joho_date: string | null;
 }
 
 export interface DokusyaHistoryItem {
@@ -231,6 +233,8 @@ export function buildDokusyaDetail(
     denshi_kaiin_id: null,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
+    has_active_kaiyaku: false,
+    max_joho_date: null,
     ...overrides,
   };
 }
@@ -288,9 +292,10 @@ export function buildCreateDokusyaForm(
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲,野菜',
-    // 購読開始日は本日以降（過去日不可）。当日を既定にして create happy-path が
-    // 通るようにする（固定日だと時間経過で過去日になり検証に弾かれるため動的）。
-    dokusya_kaishi_date: todayIsoTokyo(),
+    // 購読開始日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。翌日を
+    // 既定にして create happy-path が通るようにする（固定日だと時間経過で過去日に
+    // なり検証に弾かれるため動的）。
+    dokusya_kaishi_date: tomorrowIsoTokyo(),
     dokusya_chushi_date: null,
     joho_henko_tekiyo_date: null,
     seikyu_kaishi_month: '',
@@ -308,9 +313,9 @@ export function buildUpdateDokusyaForm(
     ...buildCreateDokusyaForm(),
     dokusya_busu: 2,
     chome_banchi: '千代田1-2',
-    // 編集時の 読者情報変更適用日 はユーザー入力で必須（既定は当日・過去日不可）。
-    // 当日を入れて update happy-path が通るようにする。
-    joho_henko_tekiyo_date: todayIsoTokyo(),
+    // 編集時の 読者情報変更適用日 はユーザー入力で必須（未来日のみ・当日/過去日
+    // 不可・顧客要件 2026-07 改訂）。翌日を入れて update happy-path が通るようにする。
+    joho_henko_tekiyo_date: tomorrowIsoTokyo(),
     ...overrides,
   };
 }

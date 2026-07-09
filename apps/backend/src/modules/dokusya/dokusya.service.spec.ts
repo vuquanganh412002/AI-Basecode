@@ -55,6 +55,7 @@ import {
   futureDate,
   pastDate,
 } from '@test/fixtures/dokusya.factory';
+import { todayIsoJst } from '@/common/utils/datetime';
 
 describe('DokusyaService — SCR-011 (create + update + approve/reject + history + detail)', () => {
   let service: any;
@@ -293,6 +294,41 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         dokusya_id: 1,
         ja_id: 1,
       });
+    });
+
+    it('should expose has_active_kaiyaku + max_joho_date computed from history (解約予約ガード — 顧客要件 2026-07)', async () => {
+      dokusyaQb.getRawOne.mockResolvedValue({
+        ...buildDokusya({ dokusyaId: 1, jaId: 1 }),
+        hanbaiten_name: '山田販売店',
+        tanka_name: '基本購読料（月額）',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(buildDokusya({ dokusyaId: 1, jaId: 1 }));
+      // 有効な解約予約あり + 最終変更適用日 = 2027-03-01。
+      rirekiRepo.findOne.mockImplementation((opts: any) =>
+        Promise.resolve(
+          opts?.where?.kaiyakuFlg === true
+            ? { dokusyaRirekiId: 5 }
+            : { johoHenkoTekiyoDate: '2027-03-01' },
+        ),
+      );
+
+      const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
+      expect(result.has_active_kaiyaku).toBe(true);
+      expect(result.max_joho_date).toBe('2027-03-01');
+    });
+
+    it('should default has_active_kaiyaku=false + max_joho_date=null when no history rows match', async () => {
+      dokusyaQb.getRawOne.mockResolvedValue({
+        ...buildDokusya({ dokusyaId: 1, jaId: 1 }),
+        hanbaiten_name: '山田販売店',
+        tanka_name: '基本購読料（月額）',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(buildDokusya({ dokusyaId: 1, jaId: 1 }));
+      rirekiRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getDetail(1, buildChuokaiSession({ ja_id: 1 }));
+      expect(result.has_active_kaiyaku).toBe(false);
+      expect(result.max_joho_date).toBeNull();
     });
 
     it('should map denshi_kaiin_id (電子版会員ID) from the entity into the detail response', async () => {
@@ -671,6 +707,41 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           ]),
         }),
       });
+    });
+
+    it('should reject create when dokusya_kaishi_date is TODAY (未来日のみ・当日不可 — 顧客要件 2026-07)', async () => {
+      mockBankShitenLookup(true);
+      await expect(
+        service.create(
+          // 紙版(1) → date-picker 経路。未来日のみ許可なので当日は弾かれる。
+          buildCreateDokusyaBody({ dokusya_kaishi_date: todayIsoJst() }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'dokusya_kaishi_date' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should ALLOW create with dokusya_kaishi_date=TODAY for 電子版+口座引落 (ラジオ今日/翌月1日の特例)', async () => {
+      mockBankShitenLookup(true);
+      // 電子版(2)+口座引落(1) は購読開始日ラジオ「今日/翌月1日」の特例で当日可。
+      const res = await service.create(
+        buildCreateDokusyaBody({
+          dokusya_shubetsu: 2,
+          shiharai_hoho: 1,
+          dokusya_busu: 1,
+          email: 'digi@example.com',
+          dokusya_kaishi_date: todayIsoJst(),
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(res).toBeDefined();
     });
 
     it('should throw VALIDATION_ERROR (field=bank_shiten_id) when m_shiten lookup returns null (口座引落)', async () => {
@@ -1394,8 +1465,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
     });
 
     it('should throw VALIDATION_ERROR (field=hanbaiten_tekiyo_date) when 販売店適用日 >= 解約予定日', async () => {
-      // 顧客要件 2026-07 — 販売店適用日は解約予定日より前。before の解約予定日
-      // (旧値)を設定し、それ以降の販売店適用日を送ると弾かれる。
+      // 顧客要件 2026-07 — 販売店適用日は解約予定日より前。上限参照は履歴末尾行の
+      // 予定解約日 (未来日運用で master には入らないため)。それ以降の販売店適用日を送ると弾かれる。
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -1404,6 +1475,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         dokusyaChushiDate: '2026-08-01',
       });
       dokusyaRepo.findOne.mockResolvedValue(before);
+      // 変更適用日以前で最も近い履歴行の予定解約日。
+      rirekiRepo.findOne.mockResolvedValue({ dokusyaChushiDate: '2026-08-01' });
       mockBankShitenLookup(true);
       await expect(
         service.update(
@@ -1420,6 +1493,41 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           error_code: 'VALIDATION_ERROR',
           errors: expect.arrayContaining([
             expect.objectContaining({ field: 'hanbaiten_tekiyo_date' }),
+          ]),
+        }),
+      });
+      expect(applyChangeSpy).not.toHaveBeenCalled();
+    });
+
+    it('should block joho AFTER the scheduled 解約予定日 even when master.chushi is NULL (未来予定解約を直前履歴行から参照 — 顧客要件 2026-07)', async () => {
+      // 未来日運用では master(t_dokusya) は作成時点(最早行)を保持し、未来予定の
+      // 解約日は入らない (NULL)。履歴末尾に予定解約日 2026-11-06 がある状態で
+      // joho=2027-01-09 を送ると joho>解約予定日 で弾く（解約後に情報変更を挿入させない）。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaKaishiDate: '2026-07-31',
+        dokusyaChushiDate: null, // master は NULL（未来予定は未反映）
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      rirekiRepo.findOne.mockResolvedValue({ dokusyaChushiDate: '2026-11-06' });
+      mockBankShitenLookup(true);
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({
+            dokusya_busu: 2,
+            joho_henko_tekiyo_date: '2027-01-09', // > 予定解約日(2026-11-06)
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'joho_henko_tekiyo_date' }),
           ]),
         }),
       });
@@ -1446,6 +1554,59 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
       expect(result.dokusya_id).toBe(100);
+    });
+
+    it('should insert a real 解約(kaiyaku) row via insertScheduledKaiyaku when 購読中止日 is set — NOT a 継続 info row (顧客決定 2026-07)', async () => {
+      // 顧客決定: 解約予定日(購読中止日) 入力＝解約予約。継続情報変更(applyChange)
+      // ではなく解約履歴を1件だけ挿入する（部数0・tetsuzuki=0・kaiyaku_flg=true・
+      // 未来 saishin=false）。到来日バッチは recomputeMaster で t_dokusya へ反映のみ。
+      const scheduledKaiyakuSpy = jest
+        .spyOn(historyWriter, 'insertScheduledKaiyaku')
+        .mockResolvedValue({
+          dokusyaId: 100,
+          insertedRirekiIds: [2],
+          before: null as any,
+          after: { dokusyaId: 100 } as any,
+          denshiSync: false,
+        });
+      try {
+        const before = buildDokusya({
+          dokusyaId: 100,
+          jaId: 1,
+          rirekiNo: 1,
+          dokusyaShubetsu: 1, // 紙版
+          dokusyaKaishiDate: '2026-04-01',
+        });
+        dokusyaRepo.findOne.mockResolvedValue(before);
+        mockBankShitenLookup(true);
+        const chushi = futureDate(30);
+
+        const result = await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            dokusya_chushi_date: chushi,
+            joho_henko_tekiyo_date: chushi, // FE: joho 解約予定日へ追随
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+
+        expect(result.dokusya_id).toBe(100);
+        // 解約経路: insertScheduledKaiyaku を chushi/shubetsu/actor で呼ぶ。
+        expect(scheduledKaiyakuSpy).toHaveBeenCalledTimes(1);
+        expect(scheduledKaiyakuSpy.mock.calls[0][1]).toEqual(
+          expect.objectContaining({
+            dokusyaId: 100,
+            chushiDate: chushi,
+            shubetsu: 1,
+            actor: '11',
+          }),
+        );
+        // 継続情報変更(applyChange)は呼ばれない。
+        expect(applyChangeSpy).not.toHaveBeenCalled();
+      } finally {
+        scheduledKaiyakuSpy.mockRestore();
+      }
     });
 
     it('should throw VALIDATION_ERROR (field=dokusya_chushi_date) when 解約予定日 < 購読開始日', async () => {
@@ -1477,6 +1638,184 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         }),
       });
       expect(applyChangeSpy).not.toHaveBeenCalled();
+    });
+
+    it('(B) should block a 2nd 解約予約 (VALIDATION_ERROR) when an active kaiyaku row already exists — 顧客要件 2026-07', async () => {
+      // 既に有効な解約予約あり → 二重解約を拒否。変更は履歴画面で当該解約を取消してから。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaShubetsu: 1,
+        dokusyaKaishiDate: '2026-04-01',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      // hasActiveKaiyaku(where.kaiyakuFlg=true) → 行あり。他 findOne は null。
+      rirekiRepo.findOne.mockImplementation((opts: any) =>
+        Promise.resolve(
+          opts?.where?.kaiyakuFlg === true ? { dokusyaRirekiId: 9 } : null,
+        ),
+      );
+      const chushi = futureDate(30);
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({
+            dokusya_chushi_date: chushi,
+            joho_henko_tekiyo_date: chushi,
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'dokusya_chushi_date',
+              message: expect.stringContaining('既に解約予約'),
+            }),
+          ]),
+        }),
+      });
+      expect(applyChangeSpy).not.toHaveBeenCalled();
+    });
+
+    it('(A) should block 解約予定日 earlier than the last 変更適用日 (MAX joho) — 顧客要件 2026-07', async () => {
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        dokusyaShubetsu: 1,
+        dokusyaKaishiDate: '2026-04-01',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      // hasActiveKaiyaku → null; loadScheduledChushiAsOf(where.johoHenkoTekiyoDate=LTE) → null;
+      // loadMaxJoho(where は torikeshiFlg のみ) → 最終変更適用日 = 2099-01-01(> chushi)。
+      rirekiRepo.findOne.mockImplementation((opts: any) => {
+        const w = opts?.where ?? {};
+        if (w.kaiyakuFlg === true) return Promise.resolve(null);
+        if (w.johoHenkoTekiyoDate) return Promise.resolve(null); // scheduledChushiAsOf
+        return Promise.resolve({ johoHenkoTekiyoDate: '2099-01-01' }); // maxJoho
+      });
+      const chushi = futureDate(30); // < 2099-01-01
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({
+            dokusya_chushi_date: chushi,
+            joho_henko_tekiyo_date: chushi,
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'dokusya_chushi_date',
+              message: expect.stringContaining('最終変更適用日'),
+            }),
+          ]),
+        }),
+      });
+      expect(applyChangeSpy).not.toHaveBeenCalled();
+    });
+
+    it('(C) should insert a 再購読(shinki) row via insertResubscribe when 解約済み + 手続種類=新規 + new 購読開始日 — 顧客要件 2026-07', async () => {
+      const resubSpy = jest
+        .spyOn(historyWriter, 'insertResubscribe')
+        .mockResolvedValue({
+          dokusyaId: 100,
+          insertedRirekiIds: [3],
+          before: null as any,
+          after: { dokusyaId: 100 } as any,
+          denshiSync: false,
+        });
+      try {
+        // master が解約状態 (tetsuzuki=0)。
+        const before = buildDokusya({
+          dokusyaId: 100,
+          jaId: 1,
+          rirekiNo: 2,
+          dokusyaShubetsu: 1,
+          tetsuzukiShurui: 0,
+          dokusyaKaishiDate: '2026-04-01',
+        });
+        dokusyaRepo.findOne.mockResolvedValue(before);
+        // 履歴に旧解約予定日(futureDate(5))あり。再購読では旧解約予定日を上限参照に
+        // してはいけない（joho=新購読開始日 futureDate(20) が旧解約日より後でも通す）。
+        // isResubscribe で解約予定日参照を無効化する回帰ガード（この mock を参照する
+        // loadScheduledChushiAsOf は再購読時に呼ばれない）。
+        rirekiRepo.findOne.mockResolvedValue({
+          dokusyaChushiDate: futureDate(5),
+          johoHenkoTekiyoDate: futureDate(5),
+        });
+        mockBankShitenLookup(true);
+        const newKaishi = futureDate(20);
+
+        const result = await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            tetsuzuki_shurui: 1, // 新規（再購読）
+            dokusya_busu: 2,
+            dokusya_kaishi_date: newKaishi,
+            joho_henko_tekiyo_date: newKaishi,
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+
+        expect(result.dokusya_id).toBe(100);
+        expect(resubSpy).toHaveBeenCalledTimes(1);
+        expect(resubSpy.mock.calls[0][1]).toEqual(
+          expect.objectContaining({
+            dokusyaId: 100,
+            kaishiDate: newKaishi,
+            actor: '11',
+          }),
+        );
+        // 継続情報変更(applyChange)は呼ばれない。
+        expect(applyChangeSpy).not.toHaveBeenCalled();
+      } finally {
+        resubSpy.mockRestore();
+      }
+    });
+
+    it('(C) should reject 再購読 with a past/today 購読開始日 (未来日のみ)', async () => {
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 2,
+        dokusyaShubetsu: 1,
+        tetsuzukiShurui: 0,
+        dokusyaKaishiDate: '2026-04-01',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({
+            tetsuzuki_shurui: 1,
+            dokusya_busu: 2,
+            dokusya_kaishi_date: pastDate(1),
+            joho_henko_tekiyo_date: futureDate(20),
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'dokusya_kaishi_date' }),
+          ]),
+        }),
+      });
     });
 
     it('should NOT FK-guard kanri_shiten_id / shiten_id when sent as 0 (= 未設定) on update', async () => {
@@ -2063,6 +2402,27 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         service.update(
           100,
           buildUpdateDokusyaBody({ joho_henko_tekiyo_date: pastDate(7) }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'joho_henko_tekiyo_date' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject update when joho_henko_tekiyo_date is TODAY (未来日のみ・当日不可 — 顧客要件 2026-07)', async () => {
+      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await expect(
+        service.update(
+          100,
+          buildUpdateDokusyaBody({ joho_henko_tekiyo_date: todayIsoJst() }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
@@ -2758,9 +3118,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
-    it('should invoke applyChange(UPDATE) with denshi_shonin_status=1 and reason="電子版承認"', async () => {
-      // COVERS: §4.4 ステップ3 — 承認は applyChange(UPDATE) で承認状態のみ変更。
-      // 履歴行の中身は writer.spec が網羅。service 契約として values/reason/forceZougen を検証。
+    it('should set denshi_shonin_status=1 directly on t_dokusya + saishin row (no future history row — 顧客要件 2026-07)', async () => {
+      // 承認/否認は即時ワークフロー。未来日の履歴行は追加せず、t_dokusya と現行行を直接更新。
       const before = buildDokusya({
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
@@ -2772,13 +3131,20 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
 
-      const input = applyChangeSpy.mock.calls.at(-1)?.[1] as any;
-      expect(input.mode).toBe('UPDATE');
-      expect(input.dokusyaId).toBe(100);
-      expect(input.values.denshiShoninStatus).toBe(1);
-      expect(input.reason).toBe('電子版承認');
-      // 承認/否認は電子版確定（増）→ 増減報告対象。
-      expect(input.forceZougen).toBe(true);
+      // applyChange は呼ばれない（未来日の履歴行を作らない）。
+      expect(applyChangeSpy).not.toHaveBeenCalled();
+      // t_dokusya を denshi_shonin_status=1 で直接更新。
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2].denshiShoninStatus).toBe(1);
+      // 現行 (saishin=true) 履歴行も同ステータスへ。
+      const rirekiUpdate = txManager.update.mock.calls.find(
+        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
+      );
+      expect(rirekiUpdate?.[2].denshiShoninStatus).toBe(1);
     });
 
     it('should wrap status update + audit log in a single transaction', async () => {
@@ -2847,8 +3213,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
       dokusyaRepo.findOne.mockResolvedValue(before);
-      // 承認は applyChange(UPDATE) 経由になったので、そこで失敗させる。
-      applyChangeSpy.mockRejectedValueOnce(new Error('db down'));
+      // 承認/否認は manager.update 直接更新なので、そこで失敗させる。
+      txManager.update.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
         service.approve(
@@ -2951,8 +3317,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
-    it('should invoke applyChange(UPDATE) with denshi_shonin_status=2 and reason="電子版否認"', async () => {
-      // COVERS: §4.4 ステップ3 — 否認は applyChange(UPDATE) で承認状態のみ変更。
+    it('should set denshi_shonin_status=2 directly on t_dokusya + saishin row (no future history row — 顧客要件 2026-07)', async () => {
       const before = buildDokusya({
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
@@ -2964,12 +3329,17 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
 
-      const input = applyChangeSpy.mock.calls.at(-1)?.[1] as any;
-      expect(input.mode).toBe('UPDATE');
-      expect(input.dokusyaId).toBe(100);
-      expect(input.values.denshiShoninStatus).toBe(2);
-      expect(input.reason).toBe('電子版否認');
-      expect(input.forceZougen).toBe(true);
+      expect(applyChangeSpy).not.toHaveBeenCalled();
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2].denshiShoninStatus).toBe(2);
+      const rirekiUpdate = txManager.update.mock.calls.find(
+        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
+      );
+      expect(rirekiUpdate?.[2].denshiShoninStatus).toBe(2);
     });
 
     it('should wrap status update + audit log in a single transaction', async () => {
@@ -3031,8 +3401,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
       dokusyaRepo.findOne.mockResolvedValue(before);
-      // 否認も applyChange(UPDATE) 経由なので、そこで失敗させる。
-      applyChangeSpy.mockRejectedValueOnce(new Error('db down'));
+      // 否認も manager.update 直接更新なので、そこで失敗させる。
+      txManager.update.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
         service.reject(
@@ -5530,17 +5900,30 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
-    it('should reject the request when hanbaiten_tekiyo_date is in the past (当日以降の日付のみ可)', async () => {
-      // COVERS: §4.1 — tekiyo_date >= CURRENT_DATE
+    it('should reject the request when hanbaiten_tekiyo_date is past/today (未来日のみ・顧客要件 2026-07)', async () => {
+      // COVERS: §4.1 — 一括置換=販売店のみ変更=情報変更適用日 → tekiyo_date > today。
       const rows = [buildReplaceCandidateRow({ dokusya_id: 5001, hanbaiten_id: 200 })];
       primeReplace(rows);
-
       await expect(
         service.replaceHanbaiten(
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
             hanbaiten_tekiyo_date: pastDate(7),
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toBeDefined();
+
+      // 当日も未来日のみ許可なので弾かれる。
+      primeReplace(rows);
+      await expect(
+        service.replaceHanbaiten(
+          buildReplaceBody({
+            dokusya_ids: [5001],
+            new_hanbaiten_id: 201,
+            hanbaiten_tekiyo_date: todayIsoJst(),
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,

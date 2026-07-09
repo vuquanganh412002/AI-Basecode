@@ -329,24 +329,12 @@ export class DokusyaImportValidator {
       }
     }
 
-    // 以降の joho/hanbaiten 相対＋過去日チェックは UPDATE 行のみ対象。
-    if (!isUpdate) return;
+    // 適用日の単項目（未来日/過去日）チェック。NEW は購読開始日、UPDATE は
+    // joho(未来日のみ) + hanbaiten(過去日のみ不可) を検証する（顧客要件 2026-07 改訂）。
+    this.checkImportRowDateBounds(row, rowNo, isUpdate, joho, hanbaiten, today, errors);
 
-    // 過去日チェック（today基準）。
-    if (joho && normalizeDbDate(joho) < today) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'joho_henko_tekiyo_date',
-        message: '読者情報変更適用日に過去日は指定できません。',
-      });
-    }
-    if (hanbaiten && normalizeDbDate(hanbaiten) < today) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'hanbaiten_tekiyo_date',
-        message: '販売店適用日に過去日は指定できません。',
-      });
-    }
+    // NEW 行は相対チェック対象外（joho=購読開始日で自明）。
+    if (!isUpdate) return;
 
     // 相対チェック（既存レコード基準）— 共通ルールを collectTekiyoDateViolations に集約。
     if (!existing) return;
@@ -360,6 +348,49 @@ export class DokusyaImportValidator {
         row: rowNo,
         field: tekiyoViolationField(v.kind),
         message: v.message,
+      });
+    }
+  }
+
+  /**
+   * 適用日の単項目境界チェック（顧客要件 2026-07 改訂）。
+   *   NEW    : 購読開始日(=情報変更適用日) は未来日のみ（当日・過去日 不可）。取込は
+   *            UI のラジオ特例（電子版+口座引落 当日可）が無いため一律で未来日を要求。
+   *   UPDATE : 読者情報変更適用日・販売店適用日 とも未来日のみ（当日・過去日 不可）。
+   */
+  private checkImportRowDateBounds(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    isUpdate: boolean,
+    joho: string | null,
+    hanbaiten: string | null,
+    today: string,
+    errors: ImportRowError[],
+  ): void {
+    if (!isUpdate) {
+      const kaishi = dbDateOrNull(row.dokusya_kaishi_date);
+      if (kaishi && normalizeDbDate(kaishi) <= today) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: 'dokusya_kaishi_date',
+          message: '購読開始日は本日より後の日付を入力してください。',
+        });
+      }
+      return;
+    }
+    if (joho && normalizeDbDate(joho) <= today) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'joho_henko_tekiyo_date',
+        message: '読者情報変更適用日は本日より後の日付を指定してください。',
+      });
+    }
+    // 販売店適用日も未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。
+    if (hanbaiten && normalizeDbDate(hanbaiten) <= today) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'hanbaiten_tekiyo_date',
+        message: '販売店適用日は本日より後の日付を指定してください。',
       });
     }
   }

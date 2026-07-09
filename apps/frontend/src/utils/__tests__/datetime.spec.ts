@@ -20,6 +20,8 @@ import {
   parseDatetimeWithSecondsTokyo,
   todayIsoTokyo,
   isPastDayTokyo,
+  isTodayOrPastDayTokyo,
+  tomorrowIsoTokyo,
   timestampForFilenameTokyo,
   excelSerialToIsoDate,
   normalizeImportDate,
@@ -134,6 +136,60 @@ describe('isPastDayTokyo', () => {
 
   it('returns false for a future day', () => {
     expect(isPastDayTokyo(dayjs('2026-05-29'))).toBe(false);
+  });
+});
+
+describe('isTodayOrPastDayTokyo', () => {
+  // 2026-05-27 22:00 UTC = 2026-05-28 07:00 JST → JST 当日は 2026-05-28。
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns false when current is null', () => {
+    expect(isTodayOrPastDayTokyo(null)).toBe(false);
+  });
+
+  it('returns true for the day before JST today', () => {
+    expect(isTodayOrPastDayTokyo(dayjs('2026-05-27'))).toBe(true);
+  });
+
+  it('returns true for JST today (当日は選択不可＝未来日のみ)', () => {
+    expect(isTodayOrPastDayTokyo(dayjs('2026-05-28'))).toBe(true);
+  });
+
+  it('returns false for a future day (翌日以降のみ選択可)', () => {
+    expect(isTodayOrPastDayTokyo(dayjs('2026-05-29'))).toBe(false);
+  });
+
+  it('uses the same JST-today basis as todayIsoTokyo() — picker と validation がズレない', () => {
+    // 検証は `date <= todayIsoTokyo()`。picker も同じ暦日文字列で判定するので、
+    // ブラウザ TZ が JST より遅れていても JST 当日セルは必ず無効になる。
+    const today = todayIsoTokyo(); // '2026-05-28' (JST)
+    expect(isTodayOrPastDayTokyo(dayjs(today))).toBe(true); // JST 当日=無効
+    expect(isTodayOrPastDayTokyo(dayjs(today).add(1, 'day'))).toBe(false); // 翌日=有効
+  });
+
+  it('disables the JST-today cell even when the cell is a browser-local (UTC+7) Dayjs (TZ ズレ回帰防止)', () => {
+    // JST 当日 (2026-05-28) を UTC+7 フレームの Dayjs として渡しても、暦日文字列
+    // 比較なので無効判定になる（instant 比較だと 1 日ズレる恐れがあった）。
+    const jstTodayInVn = dayjs.tz('2026-05-28', 'Asia/Ho_Chi_Minh');
+    expect(isTodayOrPastDayTokyo(jstTodayInVn)).toBe(true);
+    const jstTomorrowInVn = dayjs.tz('2026-05-29', 'Asia/Ho_Chi_Minh');
+    expect(isTodayOrPastDayTokyo(jstTomorrowInVn)).toBe(false);
+  });
+});
+
+describe('tomorrowIsoTokyo', () => {
+  it('returns the JST next calendar day even across the UTC/JST boundary', () => {
+    vi.useFakeTimers();
+    // 2026-05-27 22:00 UTC = 2026-05-28 07:00 JST → 翌日 = 2026-05-29。
+    vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
+    expect(tomorrowIsoTokyo()).toBe('2026-05-29');
+    vi.useRealTimers();
   });
 });
 

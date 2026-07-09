@@ -17,7 +17,6 @@
 // Used in: dokusya.service.spec, dokusya.controller.spec,
 // dokusya.integration.spec, search-dokusya.dto.spec.
 
-import { todayIsoJst } from '@/common/utils/datetime';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 import type { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
@@ -243,9 +242,10 @@ export function buildCreateDokusyaBody(
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲,野菜',
-    // 購読開始日は本日以降（過去日不可）。固定日は時間経過で過去日になり検証で
-    // 弾かれるため、未来日（明日）を既定にして create happy-path を通す。
-    dokusya_kaishi_date: futureDate(1),
+    // 購読開始日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。
+    // futureDate は UTC 基準、service は JST 基準のため futureDate(1) は JST 早朝に
+    // 「JST 当日」へずれて弾かれ得る。UTC/JST の 1 日ズレを吸収するため +2 日にする。
+    dokusya_kaishi_date: futureDate(2),
     joho_henko_tekiyo_date: null,
     seikyu_kaishi_month: '',
     biko: '',
@@ -265,11 +265,10 @@ export function buildUpdateDokusyaBody(
     ...buildCreateDokusyaBody(),
     dokusya_busu: 2,
     chome_banchi: '千代田1-2',
-    // 編集時の 情報変更適用日 はユーザー入力で必須・過去日不可（既定は当日）。
-    // 既定を「当日」にすることで、happy-path update は即日有効化され master に
-    // 反映される（joho <= 当日 → 有効レコード）。未来日での chèn-giữa（挿入）は
-    // 各テストが joho_henko_tekiyo_date を明示上書きして検証する。
-    joho_henko_tekiyo_date: todayIsoJst(),
+    // 編集時の 情報変更適用日 はユーザー入力で必須・未来日のみ（当日・過去日 不可・
+    // 顧客要件 2026-07 改訂）。既定を未来日にして happy-path update を通す。UTC 基準の
+    // futureDate と JST 基準 service のズレ吸収で +2 日（当日/過去日検証は各テストが上書き）。
+    joho_henko_tekiyo_date: futureDate(2),
     ...overrides,
   };
 }
@@ -623,9 +622,10 @@ export function buildReplaceBody(
   return {
     dokusya_ids: [5001, 5002],
     new_hanbaiten_id: 201,
-    // 既定を「当日」に（happy-path 置換は即日有効化され master に反映される。
-    // joho=販売店適用日 <= 当日 → 有効レコード）。未来日での chèn-giữa は明示上書き。
-    hanbaiten_tekiyo_date: todayIsoJst(),
+    // 一括置換は 販売店のみ変更 = 情報変更適用日 を兼ねるため未来日のみ（顧客要件
+    // 2026-07 改訂）。既定を未来日にして happy-path 置換を通す（UTC 基準 futureDate と
+    // JST 基準 service のズレ吸収で +2 日）。未来日での chèn-giữa は明示上書き。
+    hanbaiten_tekiyo_date: futureDate(2),
     ...overrides,
   };
 }
@@ -735,12 +735,14 @@ export function buildImportRow(
     hikiotoshi_koza_meigi: 'ﾔﾏﾀﾞﾀﾛｳ',
     dokusyaso_bunrui: '農業者',
     nogyosya_bunrui: '水稲',
-    dokusya_kaishi_date: todayIsoJst(),
+    // NEW取込の購読開始日(=情報変更適用日)は未来日のみ（顧客要件 2026-07 改訂）。
+    // UTC 基準 futureDate と JST 基準 service のズレ吸収で +2 日。
+    dokusya_kaishi_date: futureDate(2),
     biko: '',
-    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。既定を「当日」にして
-    // happy-path の UPDATE 取込が即日有効化され master に反映されるようにする
-    // （joho <= 当日 → 有効レコード）。未来日での chèn-giữa は各テストが明示上書き。
-    joho_henko_tekiyo_date: todayIsoJst(),
+    // UPDATE は読者情報変更適用日が必須・未来日のみ（当日・過去日 不可・顧客要件
+    // 2026-07 改訂）。既定を未来日にして happy-path の UPDATE 取込を通す。当日/過去日
+    // 検証は各テストが明示上書き。
+    joho_henko_tekiyo_date: futureDate(2),
     ...overrides,
   };
 }

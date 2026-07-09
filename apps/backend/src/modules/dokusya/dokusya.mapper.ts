@@ -59,9 +59,20 @@ function isoOrEmpty(value: Date | string | null | undefined): string {
  * See `apps/backend/src/modules/ja/ja.mapper.ts` for the canonical
  * pattern referenced by `.claude/rules/nestjs.md §mapper`.
  */
+/**
+ * 履歴メタ（解約予約ガード）。master は未来解約を反映しないため getDetail が
+ * 履歴から算出して渡す。省略時は解約予約なし・履歴なし相当（作成/更新レスポンス
+ * では未使用）。
+ */
+export interface DokusyaHistoryMeta {
+  has_active_kaiyaku?: boolean;
+  max_joho_date?: string | null;
+}
+
 export function toDokusyaResponse(
   entity: Dokusya,
   joins: DokusyaJoinFields,
+  meta: DokusyaHistoryMeta = {},
 ): DokusyaResponseDto {
   return {
     dokusya_id: coerceNumber(entity.dokusyaId),
@@ -136,6 +147,8 @@ export function toDokusyaResponse(
     denshi_kaiin_id: coerceNullableNumber(entity.denshiKaiinId),
     created_at: isoOrEmpty(entity.createdAt),
     updated_at: isoOrEmpty(entity.updatedAt),
+    has_active_kaiyaku: meta.has_active_kaiyaku ?? false,
+    max_joho_date: meta.max_joho_date ?? null,
   };
 }
 

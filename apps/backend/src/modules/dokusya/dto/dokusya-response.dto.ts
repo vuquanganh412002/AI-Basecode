@@ -91,6 +91,22 @@ export class DokusyaResponseDto {
   denshi_kaiin_id: number | null;
   @ApiProperty() created_at: string;
   @ApiProperty() updated_at: string;
+
+  // ── 履歴メタ（顧客要件 2026-07 — 解約予約ガード用。master は未来解約を反映しない
+  //    ため履歴から算出して返す）─────────────────────────────────────────────
+  @ApiProperty({
+    description:
+      '有効な解約予約(kaiyaku_flg=true, 取消除外)が存在するか。true の間は追加の' +
+      '解約予約を禁止（変更は履歴画面で当該解約を取消）。編集画面は購読中止日を disabled。',
+  })
+  has_active_kaiyaku: boolean;
+  @ApiProperty({
+    nullable: true,
+    description:
+      '履歴の最終変更適用日(MAX joho・取消除外)。解約予定日はこの日以降のみ指定可' +
+      '（編集画面の購読中止日 disabled-date 基準）。履歴なしは null。',
+  })
+  max_joho_date: string | null;
 }
 
 /**

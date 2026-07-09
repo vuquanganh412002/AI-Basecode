@@ -6,9 +6,9 @@
 // リクエストパラメータ + §4.1 リクエストのバリデーション.
 //
 // The DTO binds the JSON body of `POST /api/v1/dokusya/replace-hanbaiten`.
-// NOTE: the "当日以降の日付のみ可" (>= today) check on
+// NOTE: the "未来日のみ可" (> today・当日不可・顧客要件 2026-07 改訂) check on
 // hanbaiten_tekiyo_date is a SERVICE-level business rule (api.md §4.1)
-// and is asserted in dokusya.service.spec — this DTO only enforces
+// and is asserted in the replace service — this DTO only enforces
 // required + YYYY-MM-DD format.
 
 import { validate } from 'class-validator';

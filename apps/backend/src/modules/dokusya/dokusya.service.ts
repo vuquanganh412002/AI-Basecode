@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
@@ -59,11 +59,14 @@ import {
   applyChange,
   applyTorikeshi,
   canTorikeshi,
+  insertResubscribe,
+  insertScheduledKaiyaku,
 } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
 import {
   collectTekiyoDateViolations,
   collectChushiViolations,
+  collectChushiVsMaxJoho,
   tekiyoViolationField,
 } from './dokusya-tekiyo-date.rules';
 
@@ -264,7 +267,15 @@ export class DokusyaService {
   ): Promise<DokusyaResponseDto> {
     const entity = await this.fetchInScope(id, session);
     const joins = await this.fetchJoinFieldsViaQB(id);
-    return toDokusyaResponse(entity, joins);
+    // 履歴メタ（解約予約ガード用）。master は未来解約を反映しないため履歴から算出。
+    const [activeKaiyaku, maxJoho] = await Promise.all([
+      this.hasActiveKaiyaku(id),
+      this.loadMaxJoho(id),
+    ]);
+    return toDokusyaResponse(entity, joins, {
+      has_active_kaiyaku: activeKaiyaku,
+      max_joho_date: maxJoho,
+    });
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -344,14 +355,26 @@ export class DokusyaService {
       'joho_henko_tekiyo_date',
       '情報変更適用日に過去日は指定できません。',
     );
-    // 購読開始日は本日以降（過去日不可）。新規登録のみ対象 — 更新では before に
-    // pin され不変（既存の過去開始日を保持）。電子版+口座引落 はラジオで当日/
-    // 翌月1日に確定するため自然に通過。
-    this.assertTekiyoDateNotPast(
-      dto.dokusya_kaishi_date,
-      'dokusya_kaishi_date',
-      '購読開始日は本日以降の日付を入力してください。',
-    );
+    // 購読開始日は新規登録のみ対象（更新では before に pin され不変）。顧客要件
+    // 2026-07 改訂: 新規登録の適用日(=購読開始日)は未来日のみ許可（当日・過去日
+    // 不可）。ただし 電子版+口座引落 はラジオ「今日/翌月1日」で確定する特例のため
+    // 当日を許容（過去日のみ不可）＝従来どおり。
+    const isDigitalKozaCreate =
+      Number(dto.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+      Number(dto.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI;
+    if (isDigitalKozaCreate) {
+      this.assertTekiyoDateNotPast(
+        dto.dokusya_kaishi_date,
+        'dokusya_kaishi_date',
+        '購読開始日は本日以降の日付を入力してください。',
+      );
+    } else {
+      this.assertTekiyoDateFuture(
+        dto.dokusya_kaishi_date,
+        'dokusya_kaishi_date',
+        '購読開始日は本日より後の日付を入力してください。',
+      );
+    }
     // 入力された解約予定日の整合性（購読開始日以降・過去日不可。顧客要件 2026-07）。
     // 新規で解約予定日を入力した場合のみ発火（未入力ならスキップ）。参照の
     // 購読開始日は入力値(dto.dokusya_kaishi_date)。
@@ -477,30 +500,54 @@ export class DokusyaService {
     req: Request,
   ): Promise<DokusyaResponseDto> {
     this.assertCodeMasterValues(dto);
-    // 販売店適用日 (販売店変更時に入力) は当日以降。
-    this.assertTekiyoDateNotPast(
+    // 販売店適用日 (販売店変更時に入力) は未来日のみ（当日・過去日 不可・顧客要件
+    // 2026-07 改訂）。情報変更適用日(joho) と同一の未来日基準。
+    this.assertTekiyoDateFuture(
       dto.hanbaiten_tekiyo_date,
       'hanbaiten_tekiyo_date',
-      '販売店適用日に過去日は指定できません。',
+      '販売店適用日は本日より後の日付を指定してください。',
     );
-    // 情報変更適用日 (joho_henko_tekiyo_date) はユーザー入力（顧客要件 2026-06
-    // 更新: 既定は当日だが利用者が変更可）。編集時は必須・当日以降（過去日
-    // 不可・当日は即日適用）。値は buildUpdatePartial（→ buildInsertPayload）
-    // 経由で master / 履歴へ反映される。
+    // 情報変更適用日 (joho_henko_tekiyo_date) はユーザー入力・編集時は必須。
+    // 顧客要件 2026-07 改訂: 未来日のみ許可（当日・過去日 不可）。販売店のみ変更で
+    // joho が販売店適用日へ追随する場合も dto.joho_henko_tekiyo_date に同値が
+    // 入るため、本チェックがそのまま効く。値は buildUpdatePartial 経由で master /
+    // 履歴へ反映される。
     if (!dto.joho_henko_tekiyo_date?.trim()) {
       throw fieldValidationError(
         'joho_henko_tekiyo_date',
         '情報変更適用日を入力してください。',
       );
     }
-    this.assertTekiyoDateNotPast(
+    this.assertTekiyoDateFuture(
       dto.joho_henko_tekiyo_date,
       'joho_henko_tekiyo_date',
-      '情報変更適用日に過去日は指定できません。',
+      '情報変更適用日は本日より後の日付を指定してください。',
     );
 
     const before = await this.fetchInScope(id, session);
     const effectiveJaId = Number(before.jaId);
+
+    // [resubscribe] 再購読（顧客要件 2026-07）: 解約済み(master が解約状態)の購読者を
+    // 編集画面で 手続種類=新規 に切替えた場合、新しい購読開始日で再加入する。この場合
+    // のみ購読開始日を編集可（＝ dto の値を採用）にし、新規(再購読)履歴行を挿入する。
+    // それ以外は購読開始日を before へ pin（不変）。
+    const isResubscribe =
+      Number(before.tetsuzukiShurui) === TetsuzukiShurui.KAIYAKU &&
+      Number(dto.tetsuzuki_shurui) === TetsuzukiShurui.SHINKI;
+    if (isResubscribe) {
+      // 再購読の購読開始日は新規登録同様 未来日のみ（当日・過去日 不可）。
+      if (!dto.dokusya_kaishi_date?.trim()) {
+        throw fieldValidationError(
+          'dokusya_kaishi_date',
+          '購読開始日を入力してください。',
+        );
+      }
+      this.assertTekiyoDateFuture(
+        dto.dokusya_kaishi_date,
+        'dokusya_kaishi_date',
+        '購読開始日は本日より後の日付を指定してください。',
+      );
+    }
 
     // 購読部数 >0（解約以外）。解約 (手続種類=0) は 0 を許容（バッチ処理前提）。
     // 部分更新で省略された項目は既存値で補完して判定する。
@@ -535,19 +582,34 @@ export class DokusyaService {
       throw new DokusyaReadOnlyException();
     }
 
-    // [tekiyo-date-consistency] 直前の有効レコード(before)基準で適用日の整合性を
-    // 検証する（顧客要件 2026-07）。read-only(403) より後に置き、編集不可レコードは
-    // 先に 403 で弾く。過去日(today基準)は上の assertTekiyoDateNotPast、ここは相対
-    // チェック — 情報変更適用日 >= 購読開始日 / 販売店適用日 < 解約予定日(解約予定日
-    // が設定済みの場合のみ)。chushi は before の値（更新前）を使う。
+    // [tekiyo-date-consistency] 適用日の範囲整合性（顧客要件 2026-07 改訂）。read-only
+    // (403) より後に置き、編集不可レコードは先に 403 で弾く。未来日(> today)は上の
+    // assertTekiyoDateFuture、ここは範囲チェック:
+    //   - 購読開始日(kaishi) <= joho/hanbaiten <= 解約予定日(chushi・両端 等号可)
+    //   - 解約予定日(chushi) >= 購読開始日 かつ chushi > today
+    // 購読開始日は編集不可＝before の値。解約予定日(chushi)の上限参照は「変更適用日
+    // (joho)時点で有効な解約予定日」= その日以前で joho が最も近い履歴行(writer の
+    // findBefore と同基準)の解約日を使う。未来日のみ運用では master(t_dokusya) は作成
+    // 時点を保持し未来予定の解約日が入らないため、master 由来だと NULL になり
+    // joho<=解約予定日 チェックが素通りする（解約予定後に情報変更を挿入できてしまう
+    // 不具合）。本編集で解約日を入力/変更した場合はその値を優先する。
+    // 再購読(解約済み→新規)は新しい購読で旧解約予定日は無関係。joho=新購読開始日
+    // なので旧解約日を上限参照にすると「joho <= 旧解約予定日」で誤って弾かれる。
+    // よって再購読時は解約予定日参照を無効化する（chushi=null）。
+    const scheduledChushi = isResubscribe
+      ? null
+      : await this.loadScheduledChushiAsOf(id, dto.joho_henko_tekiyo_date);
+    const effectiveChushi = isResubscribe
+      ? null
+      : (dto.dokusya_chushi_date ?? scheduledChushi);
     const dateViolations = [
       ...collectTekiyoDateViolations({
         johoDate: dto.joho_henko_tekiyo_date,
         hanbaitenDate: dto.hanbaiten_tekiyo_date,
         kaishiDate: before.dokusyaKaishiDate,
-        chushiDate: before.dokusyaChushiDate,
+        chushiDate: effectiveChushi,
       }),
-      // 入力された解約予定日の整合性（購読開始日以降・過去日不可）。購読開始日は
+      // 入力された解約予定日の整合性（購読開始日以降・未来日のみ）。購読開始日は
       // 編集不可＝before の値を参照する。
       ...collectChushiViolations({
         chushiDate: dto.dokusya_chushi_date,
@@ -562,6 +624,32 @@ export class DokusyaService {
           message: v.message,
         })),
       );
+    }
+
+    // [cancel-guards] 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）:
+    //   (B) 既に有効な解約予約がある → 二重解約を拒否（変更は履歴画面で当該解約を
+    //       取消してから）。master は未来解約を反映しないため履歴を直接参照する。
+    //   (A) 解約予定日 >= 最終変更適用日(履歴 MAX joho) — 最終変更より前の解約は不整合。
+    if (dto.dokusya_chushi_date) {
+      if (await this.hasActiveKaiyaku(id)) {
+        throw fieldValidationError(
+          'dokusya_chushi_date',
+          '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
+        );
+      }
+      const maxJoho = await this.loadMaxJoho(id);
+      const maxJohoViolations = collectChushiVsMaxJoho({
+        chushiDate: dto.dokusya_chushi_date,
+        maxJoho,
+      });
+      if (maxJohoViolations.length > 0) {
+        throw new ValidationException(
+          maxJohoViolations.map((v) => ({
+            field: tekiyoViolationField(v.kind),
+            message: v.message,
+          })),
+        );
+      }
     }
 
     // [shubetsu-immutable] 購読種別 (dokusya_shubetsu) is read-only in edit
@@ -584,7 +672,11 @@ export class DokusyaService {
     // submits the full form so dokusya_kaishi_date still arrives. Pin it to
     // the stored value so a client cannot alter it (FE disable is UX, this
     // is the boundary). 購読中止日 stays editable.
-    dto.dokusya_kaishi_date = before.dokusyaKaishiDate;
+    // 例外: 再購読(isResubscribe)は新しい購読開始日で再加入するため pin しない
+    // （上で未来日検証済み）。
+    if (!isResubscribe) {
+      dto.dokusya_kaishi_date = before.dokusyaKaishiDate;
+    }
 
     // [name-immutable] 購読者氏名 (氏/名) と 購読者かな (氏/名) は作成時に
     // 確定し、編集では変更不可。FE は4項目を disabled にするが、画面は
@@ -627,6 +719,62 @@ export class DokusyaService {
         // unique 制約違反(500)になるのを防ぐ（直列化する）。applyChange 内部の
         // nextRirekiNo/recomputeMaster もこのロックの下で直列化される。
         await this.rireki.lockDokusyaRow(manager, id);
+
+        // [cancel-scheduling] 購読中止日(解約予定日)を入力＝解約予約（顧客決定
+        // 2026-07）。継続情報変更ではなく解約(kaiyaku)履歴を1件だけ挿入する:
+        // 部数0・tetsuzuki=0・kaiyaku_flg=true・zougen=true・saishin=false(未来
+        // 予約)。到来日バッチは recomputeMaster で t_dokusya へ反映するのみ。他項目
+        // の同時変更は無視し、行は predecessor から継承する（顧客決定: 解約時は
+        // 「登録終了」なので他変更は取り込まない）。
+        const chushi = normalizeDbDate(dto.dokusya_chushi_date ?? null);
+        if (chushi) {
+          const result = await insertScheduledKaiyaku(manager, {
+            dokusyaId: id,
+            chushiDate: chushi,
+            shubetsu: Number(before.dokusyaShubetsu),
+            actor: String(session.account_id),
+          });
+          await manager.update(
+            Dokusya,
+            { dokusyaId: id },
+            { updatedBy: String(session.account_id) },
+          );
+          await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
+          return result.after;
+        }
+
+        // [resubscribe] 再購読（解約済み → 手続種類=新規 + 新しい購読開始日）。
+        // 継続情報変更ではなく「新規(再購読)」履歴行を挿入する: shinki_flg=true・
+        // tetsuzuki=1・kaiyaku_flg=false・chushi=null・新 購読開始日。初回購読開始日
+        // (shoki)は不変。recomputeMaster が新開始日到来時に t_dokusya へ反映する。
+        if (isResubscribe) {
+          const reValues = this.buildUpdatePartial(
+            dto,
+            effectiveJaId,
+            bankBranch,
+            session,
+            0,
+          );
+          reValues.shokiDokusyaKaishiDate = before.shokiDokusyaKaishiDate;
+          reValues.denshiDokusyaShubetsu = before.denshiDokusyaShubetsu;
+          const rv = { ...reValues } as Record<string, unknown>;
+          delete rv.rirekiNo;
+          delete (rv as { updatedBy?: string }).updatedBy;
+
+          const result = await insertResubscribe(manager, {
+            dokusyaId: id,
+            kaishiDate: normalizeDbDate(dto.dokusya_kaishi_date) as string,
+            values: rv as DokusyaFields,
+            actor: String(session.account_id),
+          });
+          await manager.update(
+            Dokusya,
+            { dokusyaId: id },
+            { updatedBy: String(session.account_id) },
+          );
+          await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
+          return result.after;
+        }
 
         // 業務項目の新値を組み立てる。master 固有項目のピン止め（初回購読開始日・
         // 電子版読者種別・承認状態）は従来どおり before の値に固定する。newRirekiNo
@@ -1224,6 +1372,22 @@ export class DokusyaService {
   }
 
   /**
+   * 情報変更適用日 (joho_henko_tekiyo_date) 等「未来日のみ許可」フィールド用。
+   * 当日・過去日は不可（顧客要件 2026-07 改訂: 情報変更適用日は未来日のみ）。
+   * assertTekiyoDateNotPast（当日可）と使い分ける。本日基準は JST 暦日。
+   */
+  private assertTekiyoDateFuture(
+    value: string | null | undefined,
+    field: string,
+    message: string,
+  ): void {
+    if (!value) return;
+    if (normalizeDbDate(value) <= todayIsoJst()) {
+      throw fieldValidationError(field, message);
+    }
+  }
+
+  /**
    * 電子版(2)・併読(3) は email 必須。紙版(1) は任意。
    * 顧客要件: メールは電子版/併読でのみ必須・一意。
    */
@@ -1381,6 +1545,55 @@ export class DokusyaService {
   }
 
   /**
+   * 変更適用日(asOfJoho)時点で有効な解約予定日 = その日以前で joho が最も近い履歴行
+   * （取消除外・`joho <= asOfJoho` の中で `(joho, rireki_no)` 最大 = writer の findBefore と
+   * 同基準）の `dokusya_chushi_date`。未来日のみ運用では master(t_dokusya) は最早行
+   * (作成時点)を保持し未来予定の解約日が入らないため、joho<=解約予定日 の上限参照には
+   * 「変更適用日の直前行」を使う。該当行が無ければ null。
+   */
+  private async loadScheduledChushiAsOf(
+    dokusyaId: number,
+    asOfJoho: string | null | undefined,
+  ): Promise<string | null> {
+    if (!asOfJoho) return null;
+    const row = await this.rirekiRepo.findOne({
+      where: {
+        dokusyaId,
+        torikeshiFlg: false,
+        johoHenkoTekiyoDate: LessThanOrEqual(normalizeDbDate(asOfJoho)),
+      },
+      order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
+    });
+    return row?.dokusyaChushiDate ?? null;
+  }
+
+  /**
+   * 履歴の最終変更適用日 = MAX(joho_henko_tekiyo_date)（取消除外）。解約予定日は
+   * この日以降のみ許可（顧客要件 2026-07）。履歴なしは null。
+   */
+  private async loadMaxJoho(dokusyaId: number): Promise<string | null> {
+    const row = await this.rirekiRepo.findOne({
+      where: { dokusyaId, torikeshiFlg: false },
+      order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
+    });
+    return row?.johoHenkoTekiyoDate
+      ? normalizeDbDate(row.johoHenkoTekiyoDate)
+      : null;
+  }
+
+  /**
+   * 有効な解約予約（kaiyaku_flg=true・取消除外）が存在するか。存在する間は追加の
+   * 解約予約を禁止（変更は履歴画面で当該解約を取消してから・顧客要件 2026-07）。
+   */
+  private async hasActiveKaiyaku(dokusyaId: number): Promise<boolean> {
+    const row = await this.rirekiRepo.findOne({
+      where: { dokusyaId, torikeshiFlg: false, kaiyakuFlg: true },
+      order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
+    });
+    return row != null;
+  }
+
+  /**
    * Shared transaction-bounded update for approve/reject (api.md
    * §4.4 ステップ3). Status flips on the master, a new history row
    * captures the snapshot, audit row commits inside the same tx.
@@ -1405,34 +1618,32 @@ export class DokusyaService {
     let refreshed: Dokusya;
     try {
       refreshed = await this.dataSource.transaction(async (manager) => {
-        // [rireki-no-race] 採番前に master 行をロック（他の UPDATE 経路と同じ直列化）。
-        await this.rireki.lockDokusyaRow(manager, id);
-
-        // 承認/否認も共通ライタ applyChange(UPDATE) に集約 (Pha3)。承認状態
-        // (denshi_shonin_status) のみ変更するイベント。承認/否認は電子版読者の
-        // 確定（増）なので forceZougen で増減報告対象にする。johoDate=当日で即日反映。
-        const result = await applyChange(manager, {
-          mode: 'UPDATE',
-          dokusyaId: id,
-          values: {
-            denshiShoninStatus: options.newStatus,
-          } as unknown as DokusyaFields,
-          johoDate: todayIsoJst(),
-          source: 'UI',
-          actor: String(session.account_id),
-          reason: options.henkoRiyu,
-          forceZougen: true,
-        });
-
-        // updated_by は rireki に無い列で recompute 対象外 → master へ明示スタンプ。
+        // 承認/否認 は即時のワークフロー状態変更。顧客要件 2026-07 の「情報変更適用日は
+        // 未来日のみ」は情報変更に対する制約であり、承認状態には適用しない。よって未来日の
+        // 履歴行は追加せず、t_dokusya と現行 (saishin_data_flg=true) 履歴行の
+        // denshi_shonin_status を直接更新して即時確定する（未来 購読開始日 の独者でも可）。
         await manager.update(
           Dokusya,
           { dokusyaId: id },
-          { updatedBy: String(session.account_id) },
+          {
+            denshiShoninStatus: options.newStatus,
+            updatedBy: String(session.account_id),
+          },
+        );
+        await manager.update(
+          DokusyaRireki,
+          { dokusyaId: id, saishinDataFlg: true },
+          { denshiShoninStatus: options.newStatus },
         );
 
-        await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
-        return result.after;
+        // 変更後スナップショット = before に新ステータスを重ねたもの（再取得不要）。
+        const after = {
+          ...before,
+          denshiShoninStatus: options.newStatus,
+          updatedBy: String(session.account_id),
+        } as Dokusya;
+        await this.auditLog.logUpdate(auditCtx, before, after, manager);
+        return after;
       });
     } catch (err) {
       await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);

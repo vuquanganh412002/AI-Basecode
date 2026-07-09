@@ -39,6 +39,7 @@ import {
 } from '@test/utils/create-integration-app';
 import { apiUrl } from '@test/utils/api-url';
 import { buildImportBody, buildImportRow } from '@test/fixtures/dokusya.factory';
+import { todayIsoJst } from '@/common/utils/datetime';
 
 // Shared seed + session helpers (module scope so the pg-mem gate suite and
 // the real-PG write-path suite reuse them). FK dependency order matters on
@@ -541,6 +542,59 @@ describeRealPg(
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
       expect(fields).toContain('joho_henko_tekiyo_date');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (joho=当日) on UPDATE import — 未来日のみ (顧客要件 2026-07)', async () => {
+      // §4.1 適用日整合性 — 読者情報変更適用日は未来日のみ（当日・過去日 不可）。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KDATE0' })] }))
+        .expect(200);
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE_ALL',
+            selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KDATE0',
+                dokusya_busu: 5,
+                joho_henko_tekiyo_date: todayIsoJst(),
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('joho_henko_tekiyo_date');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (購読開始日=当日) on NEW import — 未来日のみ (顧客要件 2026-07)', async () => {
+      // §4.1 — NEW取込の購読開始日(=情報変更適用日)は未来日のみ（当日・過去日 不可）。
+      const sid = await asJaHonten(1);
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildImportBody({
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KDATE9',
+                dokusya_kaishi_date: todayIsoJst(),
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('dokusya_kaishi_date');
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (販売店適用日 >= 解約予定日) on UPDATE import', async () => {

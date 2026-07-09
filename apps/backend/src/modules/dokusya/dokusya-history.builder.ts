@@ -227,19 +227,25 @@ export function mapRirekiToMaster(rireki: DokusyaRireki): Partial<Dokusya> {
   return out as Partial<Dokusya>;
 }
 
-/** Metadata for a batch 解約 row. */
+/** Metadata for a 解約 row (batch 到来日 or UI 解約予約). */
 export interface KaiyakuRowContext {
   dokusyaId: number;
   rirekiNo: number;
   /** Applied date: 紙版 = 中止日, 電子版 = 中止日 + 1 (computed by caller). */
   kaiyakuJoho: DateOnly;
+  /** 解約予定日(購読中止日) recorded on the row (may differ from joho for 電子版). */
+  chushiDate: DateOnly;
+  /** Row author. UI 解約予約 = account_id; 到来日バッチ = 'batch' (default). */
+  createdBy?: string;
 }
 
 /**
- * Build a 解約 (cancellation) row from the tail effective row `before`.
- * Inherits all business state (incl. `dokusya_chushi_date`) from `before`,
- * sets `tetsuzuki_shurui=0` + `kaiyaku_flg=true`, fills `zenkai_*` from
- * `before`, and stamps `created_by='batch'`. See §4.3 / §5.2.
+ * Build a 解約 (cancellation) row from the predecessor effective row `before`.
+ * Inherits business state from `before` but forces the cancellation shape:
+ * `tetsuzuki_shurui=0` + `kaiyaku_flg=true` + `dokusya_busu=0`（解約は部数なし）
+ * + `zougen_hokoku_flg=true`（解約は必ず減の増減報告対象）+ `saishin_data_flg=false`
+ * （未来予約 — 到来日バッチが recomputeMaster で t_dokusya へ反映）. Records the
+ * cancel date in `dokusya_chushi_date`, fills `zenkai_*` from `before`. See §4.3.
  */
 export function buildKaiyakuRow(
   before: DokusyaRireki,
@@ -252,9 +258,11 @@ export function buildKaiyakuRow(
   row.dokusyaId = ctx.dokusyaId;
   row.rirekiNo = ctx.rirekiNo;
   row.tetsuzukiShurui = 0;
+  row.dokusyaBusu = 0; // 解約 = 部数なし
+  row.dokusyaChushiDate = ctx.chushiDate;
   row.johoHenkoTekiyoDate = ctx.kaiyakuJoho;
   row.hanbaitenTekiyoDate = null;
-  row.createdBy = 'batch';
+  row.createdBy = ctx.createdBy ?? 'batch';
   row.henkoRiyu = '';
 
   const built = row as unknown as DokusyaRireki;
@@ -262,10 +270,47 @@ export function buildKaiyakuRow(
 
   row.kaiyakuFlg = true;
   row.shinkiFlg = false;
-  row.zougenHokokuFlg = computeZougen(built, before);
+  row.zougenHokokuFlg = true; // 解約は常に減の増減報告対象
   row.torikeshiFlg = false;
   row.saishinDataFlg = false;
 
+  return built;
+}
+
+/**
+ * Build a 再購読 (resubscribe) row for a 解約済み subscriber whose 解約 has
+ * taken effect (master が 解約状態)。編集画面で 手続種類=新規 + 新しい購読開始日を
+ * 指定した再加入。`before` = tail (解約行) から状態を継承しつつ再購読の形へ:
+ * `tetsuzuki_shurui=1` + `kaiyaku_flg=false` + `shinki_flg=true`（DB設計: 解約→
+ * 再購読も新規フラグ）+ `dokusya_chushi_date=null` + `zougen=true`（再加入=増）。
+ * 初回購読開始日(shoki) は不変（`before` の値を維持）。`values` は再購読後の業務新値
+ * （新 購読開始日・部数など）。
+ *
+ * 履歴行は「初回新規作成と同じ形」にする（顧客要件 2026-07）: zenkai_* は全て null
+ * （前回値を継承しない＝新規作成 before=null 相当）、hanbaiten_tekiyo_date は null
+ * （販売店適用日は編集時の変更概念で再購読では持たない）。See §5.2.
+ */
+export function buildResubscribeRow(
+  before: DokusyaRireki,
+  values: DokusyaFields,
+  ctx: BuildRowContext,
+  kaishiJoho: DateOnly,
+): DokusyaRireki {
+  const built = buildRirekiRow(
+    before,
+    { joho: kaishiJoho, values, isHanbaiten: false },
+    ctx,
+  );
+  const r = built as unknown as Record<string, unknown>;
+  r.tetsuzukiShurui = 1; // 購読中へ復帰
+  r.kaiyakuFlg = false;
+  r.shinkiFlg = true; // 解約→再購読 は新規フラグ (DB設計)
+  r.dokusyaChushiDate = null;
+  r.hanbaitenTekiyoDate = null; // 再購読は販売店適用日を持たない（新規作成同様）
+  r.zougenHokokuFlg = true; // 再加入 = 増の増減報告対象
+  r.shokiDokusyaKaishiDate = before.shokiDokusyaKaishiDate; // 初回は不変
+  // zenkai_* は初回新規作成と同じく全て null にする（前回値を継承しない）。
+  fillZenkai(built, null);
   return built;
 }
 

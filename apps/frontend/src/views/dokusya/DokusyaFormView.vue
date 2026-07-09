@@ -66,7 +66,13 @@ import { useCodesStore } from '@/stores/codes.store';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import type { Dayjs } from 'dayjs';
-import { todayIsoTokyo, isPastDayTokyo, nextMonthFirstIsoTokyo } from '@/utils/datetime';
+import {
+  todayIsoTokyo,
+  isPastDayTokyo,
+  isTodayOrPastDayTokyo,
+  tomorrowIsoTokyo,
+  nextMonthFirstIsoTokyo,
+} from '@/utils/datetime';
 import { formatYearMonth } from '@/utils/formatters';
 
 // ─── Form state ────────────────────────────────────────────────────
@@ -497,9 +503,10 @@ async function loadDetail(id: number): Promise<void> {
       nogyosya_bunrui: resp.data.nogyosya_bunrui,
       dokusya_kaishi_date: resp.data.dokusya_kaishi_date,
       dokusya_chushi_date: resp.data.dokusya_chushi_date,
-      // 情報変更適用日はこの編集での「変更適用日」。顧客要件によりユーザー
-      // 入力（既定は当日・過去日不可）。ロード済みの過去値ではなく当日を既定値に。
-      joho_henko_tekiyo_date: todayIsoTokyo(),
+      // 情報変更適用日はこの編集での「変更適用日」。顧客要件 2026-07 改訂により
+      // 未来日のみ許可（当日・過去日 不可）。既定値は翌日にする（ロード済みの
+      // 過去値も使わない）。
+      joho_henko_tekiyo_date: tomorrowIsoTokyo(),
       seikyu_kaishi_month: resp.data.seikyu_kaishi_month,
       biko: resp.data.biko,
     });
@@ -514,6 +521,10 @@ async function loadDetail(id: number): Promise<void> {
     // 読込時の手続種類・支払方法を控える（canResubscribe 判定用スナップショット）。
     originalTetsuzukiShurui.value = resp.data.tetsuzuki_shurui;
     originalShiharaiHoho.value = resp.data.shiharai_hoho;
+    // 解約予約ガード（顧客要件 2026-07）: 有効な解約予約があれば購読中止日を disabled、
+    // 解約予定日は最終変更適用日(max_joho_date)以降のみ選択可。
+    hasActiveKaiyaku.value = resp.data.has_active_kaiyaku ?? false;
+    maxJohoDate.value = resp.data.max_joho_date ?? null;
     detailRireki.value = resp.data.rireki_no;
     detailDenshiShoninStatus.value = resp.data.denshi_shonin_status;
     detailDenshiDokusyaShubetsu.value = resp.data.denshi_dokusya_shubetsu;
@@ -553,10 +564,11 @@ watch(
   (next) => {
     if (isHydrating.value) return;
     if (Number(next) === 0) {
-      // 解約: 部数=0。購読中止日は必須なので空なら当日を初期値に。
+      // 解約: 部数=0。購読中止日は必須・未来日のみ（顧客要件 2026-07 改訂）なので
+      // 空なら翌日を初期値にする。
       formState.dokusya_busu = 0;
       if (!formState.dokusya_chushi_date) {
-        formState.dokusya_chushi_date = todayIsoTokyo();
+        formState.dokusya_chushi_date = tomorrowIsoTokyo();
       }
     } else {
       // 新規:
@@ -566,13 +578,36 @@ watch(
       formState.dokusya_busu = isEdit.value ? originalDokusyaBusu.value : 1;
       // 新規は購読中止日を持たない → クリア（入力不可）。
       formState.dokusya_chushi_date = null;
+      // 再購読（解約済み→新規）は購読開始日を翌日(未来日のみ)へリセットする。
+      // 旧開始日は過去日で未来日検証に通らないため、そのまま残さず翌日を初期値に。
+      if (isEdit.value && Number(originalTetsuzukiShurui.value) === 0) {
+        formState.dokusya_kaishi_date = tomorrowIsoTokyo();
+      }
     }
   },
 );
 
-// 購読中止日（解約予定日）: 編集画面では任意入力可（手続種類は変更不可）。
-// 新規作成画面では入力不可。解約処理自体は日次バッチが本日付で実行する
-// （顧客要件 2026-06。バッチ未実装。UPDATE API は日付を保存するのみ）。
+// [cancel-scheduling] 編集画面で購読中止日(解約予定日)を入力＝解約予約（顧客決定
+// 2026-07）。手続種類は編集で disabled だが、中止日を入れたら手続種類を解約(0)へ
+// 寄せ（既存 watch が部数を0にする）、フォーム表示を保存結果（BE が解約履歴行を
+// 作る）と一致させる。中止日をクリアしたら元の手続種類へ戻す（→ 部数も復元）。
+watch(
+  () => formState.dokusya_chushi_date,
+  (chushi) => {
+    if (isHydrating.value || !isEdit.value) return;
+    if (chushi) {
+      if (Number(formState.tetsuzuki_shurui) !== 0) {
+        formState.tetsuzuki_shurui = 0;
+      }
+    } else if (Number(formState.tetsuzuki_shurui) === 0) {
+      formState.tetsuzuki_shurui = Number(originalTetsuzukiShurui.value ?? 1);
+    }
+  },
+);
+
+// 購読中止日（解約予定日）: 編集画面では任意入力可。中止日入力で解約予約になる
+// （上の watch が手続種類=解約へ寄せる）。新規作成画面では入力不可。実際の解約
+// 反映（t_dokusya 更新）は日次バッチが到来日に行う（BE は未来日の解約履歴を挿入）。
 const isCancelTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === 0);
 
 // 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規は1強制＋入力不可、
@@ -605,16 +640,46 @@ const canResubscribe = computed(
         Number(originalShiharaiHoho.value) !== ShiharaiHoho.CREDIT_CARD)),
 );
 
+// 解約済み(master が解約状態)を編集で開いた直後 — まだ 手続種類=新規 へ切替えて
+// いない状態。フォーム全体を read-only にして 手続種類ラジオだけで 解約→新規 の
+// 切替を許可する（顧客要件 2026-07）。手続種類ラジオは子 <a-radio> に defined な
+// :disabled があり form-level disabled をバイパスするので、ここでロックしても
+// canResubscribe の間は操作可能なまま。
+const isCancelledLocked = computed(
+  () =>
+    isEdit.value &&
+    Number(originalTetsuzukiShurui.value) === 0 && // 読込時=解約
+    Number(formState.tetsuzuki_shurui) === 0, // まだ新規へ切替えていない
+);
+// 再購読中 — 解約済み → 手続種類=新規 を選択。フォームが編集可になり、購読開始日を
+// 再入力できる。情報変更適用日(joho)は購読開始日へ追随して disabled。
+const isResubscribing = computed(
+  () =>
+    isEdit.value &&
+    Number(originalTetsuzukiShurui.value) === 0 && // 読込時=解約
+    Number(formState.tetsuzuki_shurui) === 1, // 新規へ切替
+);
+
 // ── 販売店変更時の情報変更適用日 (画面項目定義 No.54) ─────────────────
 // 編集モードで販売店 (hanbaiten_id) を変更した場合のみ「適用日」を表示・
-// 必須化し、初期値を当日にする。元の販売店に戻したら非表示にして値も
-// クリアする (変更していない販売店に適用日を送らない)。
+// 必須化し、初期値を翌日 (未来日のみ・当日不可・顧客要件 2026-07 改訂) にする。
+// 元の販売店に戻したら非表示にして値もクリアする (変更していない販売店に
+// 適用日を送らない)。
 const originalHanbaitenId = ref<number | null>(null);
 // 編集前の解約予定日（相対チェックの参照値。loadDetail で設定）。
 const originalChushiDate = ref<string | null>(null);
+// 解約予約ガード（顧客要件 2026-07。loadDetail で設定）:
+//  - hasActiveKaiyaku: 有効な解約予約あり → 購読中止日を disabled（履歴画面で取消要）。
+//  - maxJohoDate: 履歴の最終変更適用日。解約予定日はこの日以降のみ選択可。
+const hasActiveKaiyaku = ref(false);
+const maxJohoDate = ref<string | null>(null);
+// 販売店を「変更」したか（＝適用日を表示・送信する編集操作）。再購読は新規作成と
+// 同様に「変更」概念を持たない（顧客要件 2026-07）ので常に false にし、適用日を
+// 表示・送信しない（履歴行は初回新規作成と同じ形 = hanbaiten_tekiyo_date null）。
 const hanbaitenChanged = computed(
   () =>
     isEdit.value &&
+    !isResubscribing.value &&
     formState.hanbaiten_id != null &&
     originalHanbaitenId.value != null &&
     Number(formState.hanbaiten_id) !== Number(originalHanbaitenId.value),
@@ -623,19 +688,27 @@ watch(hanbaitenChanged, (changed) => {
   if (isHydrating.value) return;
   if (changed) {
     if (!formState.hanbaiten_tekiyo_date) {
-      formState.hanbaiten_tekiyo_date = todayIsoTokyo();
+      formState.hanbaiten_tekiyo_date = tomorrowIsoTokyo();
     }
   } else {
     formState.hanbaiten_tekiyo_date = null;
   }
 });
 
-// ── 読者情報変更適用日 (joho_henko_tekiyo_date) の編集可否 (顧客要件 2026-06) ──
-// 「販売店」と「適用日(joho)」**以外**の項目に変更があるときだけ joho を編集可。
-// 比較スナップショットから joho 自体と **販売店(hanbaiten_id / 販売店適用日)** を
-// 除外する。これにより「販売店のみ変更」では joho を編集不可（disabled）にし、
-// 値は販売店適用日へ自動追随させる（顧客要件: 販売店のみ変更は joho=販売店適用日）。
-// 適用日だけ単独で変更して履歴 (t_dokusya_rireki) を作るのも防ぐ。
+/** 解約予定日(購読中止日)がロード値から変わったか（編集モードのみ）。 */
+const chushiChanged = computed(
+  () =>
+    isEdit.value &&
+    (formState.dokusya_chushi_date || null) !==
+      (originalChushiDate.value || null),
+);
+
+// ── 読者情報変更適用日 (joho_henko_tekiyo_date) の編集可否 (顧客要件 2026-06/07) ──
+// 「販売店 / 解約予定日 / 適用日(joho)」**以外**の項目に変更があるときだけ joho を
+// 編集可。比較スナップショットから joho 自体と 販売店(hanbaiten_id / 販売店適用日) と
+// 解約予定日(dokusya_chushi_date) を除外する。これにより「販売店のみ変更」「解約予定日
+// のみ変更」では joho を編集不可（disabled）にし、値をその適用日へ自動追随させる
+// （顧客要件: 販売店のみ変更は joho=販売店適用日、解約予定日のみ変更は joho=解約予定日）。
 const infoChangeGuard = useEditGuard(() => {
   const snap: Record<string, unknown> = { ...formState };
   for (const f of NAME_FIELDS) {
@@ -644,24 +717,49 @@ const infoChangeGuard = useEditGuard(() => {
   delete snap.joho_henko_tekiyo_date;
   delete snap.hanbaiten_id;
   delete snap.hanbaiten_tekiyo_date;
+  delete snap.dokusya_chushi_date;
+  // 解約予約中（中止日入力）は 手続種類/部数 が中止日に連動する派生値であり
+  // 独立編集ではない。「他項目変更」に数えないよう baseline（＝ロード時の元値）へ
+  // 正規化して比較する。delete するとキー欠落で baseline とズレて誤検知するため、
+  // 元値へ揃える（joho は解約予定日へ追随したまま）。
+  if (formState.dokusya_chushi_date) {
+    snap.tetsuzuki_shurui = originalTetsuzukiShurui.value ?? snap.tetsuzuki_shurui;
+    snap.dokusya_busu = originalDokusyaBusu.value ?? snap.dokusya_busu;
+  }
   return snap;
 });
-/** 販売店・適用日(joho)以外の項目に変更があるか（編集モードのみ・基準値確定後）。 */
+/** 販売店・解約予定日・適用日(joho)以外の項目に変更があるか（編集モードのみ）。 */
 const otherInfoChanged = computed(
   () => isEdit.value && !infoChangeGuard.isPristine(),
 );
 /**
- * joho が販売店適用日へ自動追随する状態（＝「販売店のみ変更」）。この状態では
- * joho 入力は disabled で値は hanbaiten_tekiyo_date に等しいため、joho 系の
- * バリデーションエラーは利用者が実際に編集する販売店適用日フィールドに表示する。
+ * joho が販売店適用日へ自動追随する状態（＝「販売店のみ変更」）。joho 入力は
+ * disabled で値は hanbaiten_tekiyo_date に等しいため、joho 系のバリデーションは
+ * 販売店適用日フィールド側に表示する。
  */
 const johoFollowsHanbaiten = computed(
   () => hanbaitenChanged.value && !otherInfoChanged.value,
 );
+/**
+ * joho が解約予定日へ自動追随する状態（＝「解約予定日のみ変更」）。joho=解約予定日。
+ * 解約予定日は自身のバリデーション（> today / >= 購読開始日）を持ち、joho=解約予定日
+ * なら joho 制約も自動的に満たされるため joho 側の追加チェックは不要。
+ */
+const johoFollowsChushi = computed(
+  () =>
+    chushiChanged.value &&
+    !hanbaitenChanged.value &&
+    !otherInfoChanged.value,
+);
+/** joho が別項目へ自動追随中（編集 disabled）。 */
+const johoFollows = computed(
+  () => johoFollowsHanbaiten.value || johoFollowsChushi.value,
+);
 /** ロード時点の適用日（他項目が未変更へ戻ったとき復元する基準値）。 */
 const johoHenkoBaseline = ref<string | null>(null);
-// joho が編集不可（他項目未変更）のときの自動値:
+// joho が編集不可（追随中）のときの自動値:
 //  - 販売店を変更 → 販売店適用日(hanbaiten_tekiyo_date)へ追随。
+//  - 解約予定日のみ変更 → 解約予定日(dokusya_chushi_date)へ追随。
 //  - それ以外 → ロード時の基準値へ戻す（→ editGuard も pristine、PUT/履歴なし）。
 // 入力欄の :disabled は !otherInfoChanged（テンプレート側）。
 watch(
@@ -669,21 +767,58 @@ watch(
     otherInfoChanged,
     hanbaitenChanged,
     () => formState.hanbaiten_tekiyo_date,
+    chushiChanged,
+    () => formState.dokusya_chushi_date,
   ],
-  ([other, hanbaiten, hanbaitenDate]) => {
+  ([other, hanbaiten, hanbaitenDate, chushi, chushiDate]) => {
     if (isHydrating.value) return;
     if (other) return; // 他項目変更あり → ユーザー入力（編集可）
-    formState.joho_henko_tekiyo_date =
-      hanbaiten && hanbaitenDate
-        ? (hanbaitenDate as string)
-        : johoHenkoBaseline.value;
+    if (hanbaiten && hanbaitenDate) {
+      formState.joho_henko_tekiyo_date = hanbaitenDate as string;
+    } else if (chushi && chushiDate) {
+      formState.joho_henko_tekiyo_date = chushiDate as string;
+    } else {
+      formState.joho_henko_tekiyo_date = johoHenkoBaseline.value;
+    }
   },
 );
 
-// 適用日カレンダー: 過去日を選択不可にする (当日は可・即日適用)。
-// 共通ヘルパー isPastDayTokyo を使用 (JST 当日基準・TZ 安全)。
+// 再購読中は情報変更適用日(joho)を購読開始日へ追随させる（新規登録と同じく joho=
+// 購読開始日。入力は disabled・顧客要件 2026-07）。手続種類 0→1 で otherInfoChanged
+// が true になり上の watch は早期 return するため、ここで joho を確定する。
+watch(
+  [isResubscribing, () => formState.dokusya_kaishi_date],
+  ([resub, kaishi]) => {
+    if (isHydrating.value) return;
+    if (resub && kaishi) {
+      formState.joho_henko_tekiyo_date = kaishi as string;
+    }
+  },
+);
+
+// 販売店適用日カレンダー。未来日のみ (当日・過去日 不可・顧客要件 2026-07 改訂)。
 function disabledTekiyoDate(current: Dayjs | null): boolean {
-  return isPastDayTokyo(current);
+  return isTodayOrPastDayTokyo(current);
+}
+
+// 購読中止日カレンダー（顧客要件 2026-07）。未来日のみ + 最終変更適用日(maxJohoDate)
+// 以降のみ選択可（解約は最終変更以降）。max_joho_date は API 由来の YYYY-MM-DD。
+function disabledChushiDate(current: Dayjs | null): boolean {
+  if (isTodayOrPastDayTokyo(current)) return true;
+  if (maxJohoDate.value && current) {
+    return current.format('YYYY-MM-DD') < maxJohoDate.value;
+  }
+  return false;
+}
+
+// 購読開始日カレンダー。新規登録・再購読は未来日のみ (当日・過去日 不可・顧客要件
+// 2026-07。BE も assertTekiyoDateFuture で当日を弾く)。それ以外(通常編集)は購読開始日
+// 自体が disabled だが従来どおり過去日のみ不可。電子版+口座引落 の新規はラジオ
+// 「今日/翌月1日」なので本カレンダー自体を表示しない (特例・当日可)。
+function disabledKaishiDate(current: Dayjs | null): boolean {
+  return !isEdit.value || isResubscribing.value
+    ? isTodayOrPastDayTokyo(current)
+    : isPastDayTokyo(current);
 }
 
 // §9 — When haitatsu_same_flg flips to true, clear every haitatsu_* field.
@@ -867,7 +1002,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
 const BIKO_MAX = 500;
 const BIKO_MSG = '備考は500文字以内で入力してください。';
-const KAISHI_DATE_NOT_PAST_MSG = '購読開始日は本日以降の日付を入力してください。';
+const KAISHI_DATE_FUTURE_MSG = '購読開始日は本日より後の日付を入力してください。';
 const BUSU_MIN_MSG = '購読部数は1以上で入力してください。';
 const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
 
@@ -947,17 +1082,18 @@ function validateKaishiAndEmail(errs: Record<string, string>): void {
   if (!isDigitalKozaCreate.value && !formState.dokusya_kaishi_date) {
     errs.dokusya_kaishi_date = REQUIRED_MSG;
   }
-  // 購読開始日は本日以降（過去日不可）。編集モードは読取専用で既存の過去日を
-  // そのまま保持するため対象外。電子版+口座引落 create はラジオ(今日/翌月1日)で
-  // 確定するので date-picker 経路（!isDigitalKozaCreate）のみチェック。
+  // 購読開始日は新規登録のみ未来日チェック（顧客要件 2026-07 改訂: 当日・過去日
+  // 不可）。編集モードは読取専用で既存日を保持するため対象外。電子版+口座引落
+  // create はラジオ(今日/翌月1日)で確定する特例なので date-picker 経路
+  // （!isDigitalKozaCreate）のみチェックし、当日は許容する。
   if (
     !isEdit.value &&
     !isDigitalKozaCreate.value &&
     !errs.dokusya_kaishi_date &&
     formState.dokusya_kaishi_date &&
-    formState.dokusya_kaishi_date < todayIsoTokyo()
+    formState.dokusya_kaishi_date <= todayIsoTokyo()
   ) {
-    errs.dokusya_kaishi_date = KAISHI_DATE_NOT_PAST_MSG;
+    errs.dokusya_kaishi_date = KAISHI_DATE_FUTURE_MSG;
   }
   if (isDigitalOrBoth.value && !formState.email?.trim()) {
     errs.email = REQUIRED_MSG;
@@ -1050,77 +1186,69 @@ function validateMisc(errs: Record<string, string>): void {
  * いずれも当日は可・過去日不可。
  */
 function validateTekiyoDates(errs: Record<string, string>): void {
+  // BE(collectTekiyoDateViolations / collectChushiViolations / 取込 / 置換)と同一
+  // ルールを FE でも即時表示する（顧客要件 2026-07 改訂）:
+  //   - 情報変更適用日 / 販売店適用日: 未来日のみ(> today) かつ 購読開始日 <= 値 <= 解約予定日
+  //   - 解約予定日: 購読開始日 <= 解約予定日 かつ 解約予定日 > today
+  // 「販売店のみ変更」では販売店適用日が情報変更適用日を兼ねるため、joho の全チェックを
+  // 販売店適用日フィールドに集約表示する（joho 入力は disabled）。上限の解約予定日は
+  // 本編集で変更可のため実効値 (入力値 || ロード値) を参照する。
   const todayIso = todayIsoTokyo();
-  // 販売店適用日 (hanbaiten_tekiyo_date):
-  //  - 編集で販売店を変更した場合は必須 (初期値は当日)。
-  //  - 値があるときは過去日不可。当日は可 (即日適用)。
-  //  - BE は rireki.hanbaiten_tekiyo_date に記録する。
+  const slash = (d: string) => d.replaceAll('-', '/');
+  const kaishi = formState.dokusya_kaishi_date;
+  // 再購読(解約済み→新規)は新しい購読で旧解約予定日は無関係 → 上限参照を無効化。
+  // それ以外は実効値(入力値 || ロード値)を参照する。
+  const effChushi = isResubscribing.value
+    ? null
+    : formState.dokusya_chushi_date || originalChushiDate.value;
+  const follows = johoFollowsHanbaiten.value;
+
+  // 販売店適用日 (hanbaiten_tekiyo_date) — 販売店変更時に入力。
   if (hanbaitenChanged.value && !formState.hanbaiten_tekiyo_date?.trim()) {
     errs.hanbaiten_tekiyo_date = REQUIRED_MSG;
-  } else if (
-    formState.hanbaiten_tekiyo_date &&
-    formState.hanbaiten_tekiyo_date < todayIso
-  ) {
-    errs.hanbaiten_tekiyo_date = '過去日は指定できません。';
+  } else if (formState.hanbaiten_tekiyo_date) {
+    const h = formState.hanbaiten_tekiyo_date;
+    if (h <= todayIso) {
+      errs.hanbaiten_tekiyo_date = follows
+        ? '情報変更適用日は本日より後の日付を指定してください。'
+        : '販売店適用日は本日より後の日付を指定してください。';
+    } else if (kaishi && h < kaishi) {
+      errs.hanbaiten_tekiyo_date = `販売店適用日は購読開始日（${slash(kaishi)}）以降の日付を指定してください。`;
+    } else if (effChushi && h > effChushi) {
+      errs.hanbaiten_tekiyo_date = `販売店適用日は解約予定日（${slash(effChushi)}）以前の日付を指定してください。`;
+    }
   }
-  // 情報変更適用日 (joho_henko_tekiyo_date): 編集時はユーザー入力で必須
-  // (既定は当日)。過去日不可・当日は可。新規登録では非表示なので対象外。
-  // 「販売店のみ変更」で joho が販売店適用日へ自動追随する場合は joho 入力が
-  // disabled なので、必須・過去日チェックは販売店適用日側 (上のブロック) に委ねる。
-  if (isEdit.value && !johoFollowsHanbaiten.value) {
-    if (!formState.joho_henko_tekiyo_date?.trim()) {
+
+  // 情報変更適用日 (joho_henko_tekiyo_date) — 編集時必須。販売店のみ変更は上へ委譲、
+  // 解約予定日のみ変更は joho=解約予定日 で自動的に妥当（解約予定日側で検証）なので
+  // どちらの追随中も joho の個別チェックはスキップする。
+  if (isEdit.value && !johoFollows.value) {
+    const j = formState.joho_henko_tekiyo_date;
+    if (!j?.trim()) {
       errs.joho_henko_tekiyo_date = REQUIRED_MSG;
-    } else if (formState.joho_henko_tekiyo_date < todayIso) {
-      errs.joho_henko_tekiyo_date = '過去日は指定できません。';
+    } else if (j <= todayIso) {
+      errs.joho_henko_tekiyo_date = '情報変更適用日は本日より後の日付を指定してください。';
+    } else if (kaishi && j < kaishi) {
+      errs.joho_henko_tekiyo_date = `情報変更適用日は購読開始日（${slash(kaishi)}）以降の日付を指定してください。`;
+    } else if (effChushi && j > effChushi) {
+      errs.joho_henko_tekiyo_date = `情報変更適用日は解約予定日（${slash(effChushi)}）以前の日付を指定してください。`;
     }
   }
 
-  // 相対チェック (顧客要件 2026-07) — 参照は編集前の有効レコード。
-  // BE(collectTekiyoDateViolations / 取込 / 置換)と同一ルールをFEでも即時表示する。
-  //  - 情報変更適用日 >= 購読開始日（購読開始日は編集不可＝ロード値）
-  //  - 「販売店のみ変更」では joho=販売店適用日 なので、エラーは利用者が実際に
-  //    編集する販売店適用日フィールドに (販売店適用日 の文言で) 表示する。
-  if (
-    isEdit.value &&
-    formState.joho_henko_tekiyo_date &&
-    formState.dokusya_kaishi_date &&
-    formState.joho_henko_tekiyo_date < formState.dokusya_kaishi_date
-  ) {
-    const kaishi = formState.dokusya_kaishi_date.replaceAll('-', '/');
-    if (johoFollowsHanbaiten.value) {
-      if (!errs.hanbaiten_tekiyo_date) {
-        errs.hanbaiten_tekiyo_date = `販売店適用日は購読開始日（${kaishi}）以降の日付を指定してください。`;
-      }
-    } else if (!errs.joho_henko_tekiyo_date) {
-      errs.joho_henko_tekiyo_date = `情報変更適用日は購読開始日（${kaishi}）以降の日付を指定してください。`;
-    }
-  }
-  //  - 販売店適用日 < 解約予定日（解約予定日が設定済みの場合のみ・編集前の値を参照）
-  if (
-    !errs.hanbaiten_tekiyo_date &&
-    formState.hanbaiten_tekiyo_date &&
-    originalChushiDate.value &&
-    formState.hanbaiten_tekiyo_date >= originalChushiDate.value
-  ) {
-    errs.hanbaiten_tekiyo_date = `販売店適用日は解約予定日（${originalChushiDate.value.replaceAll(
-      '-',
-      '/',
-    )}）より前の日付を指定してください。`;
-  }
-
-  // 解約予定日 (dokusya_chushi_date): 入力時のみ — 購読開始日以降(当日可) かつ
-  // 過去日不可(当日可)。顧客要件 2026-07。BE(collectChushiViolations)と同一ルール。
+  // 解約予定日 (dokusya_chushi_date) — 入力時のみ。購読開始日以降 かつ 未来日のみ。
   if (formState.dokusya_chushi_date) {
-    if (
-      formState.dokusya_kaishi_date &&
-      formState.dokusya_chushi_date < formState.dokusya_kaishi_date
-    ) {
-      errs.dokusya_chushi_date = `解約予定日は購読開始日（${formState.dokusya_kaishi_date.replaceAll(
-        '-',
-        '/',
-      )}）以降の日付を指定してください。`;
-    } else if (formState.dokusya_chushi_date < todayIso) {
-      errs.dokusya_chushi_date = '解約予定日に過去日は指定できません。';
+    const c = formState.dokusya_chushi_date;
+    if (hasActiveKaiyaku.value) {
+      // 既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要・顧客要件 2026-07）。
+      errs.dokusya_chushi_date =
+        '既に解約予約されています。変更するには履歴画面で解約を取消してください。';
+    } else if (kaishi && c < kaishi) {
+      errs.dokusya_chushi_date = `解約予定日は購読開始日（${slash(kaishi)}）以降の日付を指定してください。`;
+    } else if (c <= todayIso) {
+      errs.dokusya_chushi_date = '解約予定日は本日より後の日付を指定してください。';
+    } else if (maxJohoDate.value && c < maxJohoDate.value) {
+      // 解約予定日は最終変更適用日以降（顧客要件 2026-07）。
+      errs.dokusya_chushi_date = `解約予定日は最終変更適用日（${slash(maxJohoDate.value)}）以降の日付を指定してください。`;
     }
   }
 }
@@ -1494,7 +1622,7 @@ defineExpose({ formState, fieldErrors });
     <a-form
       layout="vertical"
       :model="formState"
-      :disabled="isRecordReadOnly"
+      :disabled="isRecordReadOnly || isCancelledLocked"
       class="space-y-6"
       @keydown="preventEnterImplicitSubmit"
       @finish="onSubmit"
@@ -1562,11 +1690,16 @@ defineExpose({ formState, fieldErrors });
                 <span class="text-error ml-1">*</span>
               </template>
               <!--
-                編集画面でも手続種類は変更可（グループ disable 撤廃）。
+                編集画面では原則 手続種類を変更不可（作成時に確定。顧客要件）。
+                例外: 再加入可（canResubscribe = 解約済みの 紙版 / 電子版(非クレカ)）
+                のときのみ編集可にする。
                 新規作成では解約(0)を選択不可（解約は既存購読者に対する更新操作。
                 BE も create() で同値を VALIDATION_ERROR で弾く）。
               -->
-              <a-radio-group v-model:value="formState.tetsuzuki_shurui">
+              <a-radio-group
+                v-model:value="formState.tetsuzuki_shurui"
+                :disabled="isEdit && !canResubscribe"
+              >
                 <a-radio
                   v-for="opt in tetsuzukiShuruiOptions"
                   :key="opt.value"
@@ -1640,7 +1773,7 @@ defineExpose({ formState, fieldErrors });
               <a-select
                 v-model:value="formState.shiten_id"
                 :options="filteredShitenOptions.map((s) => ({ value: s.shiten_id, label: s.shiten_name }))"
-                :disabled="formState.kanri_shiten_id == null"
+                :disabled="formState.kanri_shiten_id == null || isCancelledLocked"
                 :placeholder="formState.kanri_shiten_id == null ? '管理支店を先に選択してください' : '選択してください'"
                 allow-clear
               />
@@ -1748,7 +1881,7 @@ defineExpose({ formState, fieldErrors });
                 v-model:value="formState.dokusya_busu"
                 :min="isCancelTetsuzuki ? 0 : 1"
                 :readonly="isCancelTetsuzuki"
-                :disabled="isDigital"
+                :disabled="isDigital || isCancelledLocked"
                 class="w-full"
               />
             </a-form-item>
@@ -1945,10 +2078,20 @@ defineExpose({ formState, fieldErrors });
       >
         <div class="flex justify-between items-start pb-4 mb-6 border-b border-border">
           <h3 class="text-lg font-bold">配達先情報</h3>
-          <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <!-- ネイティブ checkbox は form-level :disabled の対象外なので明示的に
+               ロックする（解約ロック中 / 読取専用レコード）。 -->
+          <label
+            class="flex items-center gap-2 text-sm"
+            :class="
+              isRecordReadOnly || isCancelledLocked
+                ? 'cursor-not-allowed opacity-60'
+                : 'cursor-pointer'
+            "
+          >
             <input
               type="checkbox"
               v-model="formState.haitatsu_same_flg"
+              :disabled="isRecordReadOnly || isCancelledLocked"
               class="rounded accent-primary"
             />
             <span class="text-primary">購読者情報と同じ</span>
@@ -2141,7 +2284,7 @@ defineExpose({ formState, fieldErrors });
           <!--
             販売店適用日 (適用日) — hanbaiten_tekiyo_date。
             編集モードで販売店を変更したときのみ、この行の末尾に表示・必須。
-            初期値は当日 (watch hanbaitenChanged)。過去日不可・当日は可。
+            初期値は翌日 (watch hanbaitenChanged)。未来日のみ・当日/過去日不可。
             販売店を変更しない / 新規作成では非表示 (3列目は空欄)。
             BE は rireki.hanbaiten_tekiyo_date に記録（マスタには列が無い）。
           -->
@@ -2375,8 +2518,8 @@ defineExpose({ formState, fieldErrors });
                 format="YYYY/MM/DD"
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
-                :disabled="isEdit && !canResubscribe"
-                :disabled-date="isPastDayTokyo"
+                :disabled="isEdit && !isResubscribing"
+                :disabled-date="disabledKaishiDate"
                 class="w-full"
               />
             </a-form-item>
@@ -2411,6 +2554,8 @@ defineExpose({ formState, fieldErrors });
                 <a-input :value="chushiMonthDisplay" readonly class="flex-1" />
                 <span class="text-text-description text-sm whitespace-nowrap">月末で終了</span>
               </div>
+              <!-- 解約予定日は未来日のみ + 最終変更適用日以降（顧客要件 2026-07）。
+                   既に有効な解約予約がある間は disabled（履歴画面で取消要）。 -->
               <a-date-picker
                 v-else
                 v-model:value="formState.dokusya_chushi_date"
@@ -2418,9 +2563,16 @@ defineExpose({ formState, fieldErrors });
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
-                :disabled="!isEdit"
-                :disabled-date="isPastDayTokyo"
+                :disabled="!isEdit || hasActiveKaiyaku || isCancelledLocked"
+                :disabled-date="disabledChushiDate"
               />
+              <p
+                v-if="hasActiveKaiyaku"
+                class="text-text-description text-xs mt-1"
+                data-test="active-kaiyaku-hint"
+              >
+                既に解約予約されています。変更するには履歴画面で解約を取消してください。
+              </p>
             </a-form-item>
           </div>
 
@@ -2466,15 +2618,16 @@ defineExpose({ formState, fieldErrors });
                 <span class="text-error ml-1">*</span>
               </template>
               <!-- 適用日以外の項目に変更があるときだけ編集可（顧客要件 2026-06）。
-                   単独変更で履歴を作らせない。 -->
+                   単独変更で履歴を作らせない。再購読中は購読開始日へ追随して disabled
+                   （顧客要件 2026-07）。 -->
               <a-date-picker
                 v-model:value="formState.joho_henko_tekiyo_date"
                 format="YYYY/MM/DD"
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
-                :disabled="!otherInfoChanged"
-                :disabled-date="isPastDayTokyo"
+                :disabled="isResubscribing || !otherInfoChanged"
+                :disabled-date="isTodayOrPastDayTokyo"
               />
             </a-form-item>
           </div>
@@ -2523,7 +2676,7 @@ defineExpose({ formState, fieldErrors });
             type="primary"
             html-type="submit"
             :loading="submitting"
-            :disabled="!shubetsuPermitted || isRecordReadOnly"
+            :disabled="!shubetsuPermitted || isRecordReadOnly || isCancelledLocked"
           >
             {{ isEdit ? '更新' : '登録' }}
           </a-button>

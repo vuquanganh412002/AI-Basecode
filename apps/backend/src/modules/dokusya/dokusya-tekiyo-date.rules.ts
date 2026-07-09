@@ -1,12 +1,14 @@
 // 適用日の整合性チェック（購読者更新の共通ルール）。
 //   UI更新 / Excel取込UPDATE / 販売店一括置換 の3経路が同じルールを共有する。
 //
-// 参照は「直前の（＝現行有効な）履歴行」= 更新前レコード（顧客要件 2026-07）:
-//   - 情報変更適用日(joho)      >= 購読開始日(kaishi)
-//   - 販売店適用日(hanbaiten)   <  解約予定日(chushi)   ※chushi が非null時のみ
+// 参照は購読開始日(kaishi)/解約予定日(chushi)。範囲（顧客要件 2026-07 改訂）:
+//   - 購読開始日(kaishi) <= 情報変更適用日(joho)   <= 解約予定日(chushi)
+//   - 購読開始日(kaishi) <= 販売店適用日(hanbaiten) <= 解約予定日(chushi)
+//   ※ chushi が null（解約予定なし）の場合は上限チェックをスキップ。
+//   ※ 境界は両端とも「等号可」（==kaishi / ==chushi は許容）。
 //
-// today <= joho / hanbaiten の過去日チェックは呼び出し側（assertTekiyoDateNotPast /
-// 取込 classifyImportRow / 置換の過去日ガード）が担う。本関数は「参照行に対する
+// 未来日チェック（joho/hanbaiten > today）は呼び出し側（assertTekiyoDateFuture /
+// 取込 checkImportRowDateBounds / 置換ガード）が担う。本関数は「参照値に対する
 // 相対チェック」だけを行い、違反を kind 付きで返す。各経路が kind → 自画面の
 // フィールド名（UI: joho/hanbaiten 別、置換: 単一 hanbaiten_tekiyo_date、
 // 取込: row/column）へマッピングして例外/行エラーを組み立てる。
@@ -15,12 +17,18 @@ import { normalizeDbDate } from '@/common/utils/datetime';
 export const TEKIYO_VIOLATION = {
   /** joho_henko_tekiyo_date < 購読開始日 */
   JOHO_BEFORE_KAISHI: 'JOHO_BEFORE_KAISHI',
-  /** hanbaiten_tekiyo_date >= 解約予定日 */
+  /** joho_henko_tekiyo_date > 解約予定日（chushi 非null時のみ） */
+  JOHO_AFTER_CHUSHI: 'JOHO_AFTER_CHUSHI',
+  /** hanbaiten_tekiyo_date < 購読開始日 */
+  HANBAITEN_BEFORE_KAISHI: 'HANBAITEN_BEFORE_KAISHI',
+  /** hanbaiten_tekiyo_date > 解約予定日（chushi 非null時のみ） */
   HANBAITEN_AFTER_CHUSHI: 'HANBAITEN_AFTER_CHUSHI',
   /** 入力された 解約予定日 < 購読開始日（開始日以降であること・当日可） */
   CHUSHI_BEFORE_KAISHI: 'CHUSHI_BEFORE_KAISHI',
-  /** 入力された 解約予定日 < 本日（過去日不可・当日可） */
-  CHUSHI_PAST: 'CHUSHI_PAST',
+  /** 入力された 解約予定日 <= 本日（未来日のみ・当日不可） */
+  CHUSHI_NOT_FUTURE: 'CHUSHI_NOT_FUTURE',
+  /** 入力された 解約予定日 < 最終変更適用日（履歴 MAX joho・解約は最終変更以降） */
+  CHUSHI_BEFORE_MAX_JOHO: 'CHUSHI_BEFORE_MAX_JOHO',
 } as const;
 export type TekiyoViolationKind =
   (typeof TEKIYO_VIOLATION)[keyof typeof TEKIYO_VIOLATION];
@@ -43,13 +51,39 @@ function fmt(iso: string): string {
 export function tekiyoViolationField(kind: TekiyoViolationKind): string {
   switch (kind) {
     case TEKIYO_VIOLATION.JOHO_BEFORE_KAISHI:
+    case TEKIYO_VIOLATION.JOHO_AFTER_CHUSHI:
       return 'joho_henko_tekiyo_date';
+    case TEKIYO_VIOLATION.HANBAITEN_BEFORE_KAISHI:
     case TEKIYO_VIOLATION.HANBAITEN_AFTER_CHUSHI:
       return 'hanbaiten_tekiyo_date';
     case TEKIYO_VIOLATION.CHUSHI_BEFORE_KAISHI:
-    case TEKIYO_VIOLATION.CHUSHI_PAST:
+    case TEKIYO_VIOLATION.CHUSHI_NOT_FUTURE:
+    case TEKIYO_VIOLATION.CHUSHI_BEFORE_MAX_JOHO:
       return 'dokusya_chushi_date';
   }
+}
+
+/**
+ * 入力された 解約予定日(chushi) が 最終変更適用日(maxJoho) 以降かを検証する
+ * （顧客要件 2026-07 — 最終の変更より前に解約を予約させない）。maxJoho は履歴の
+ * MAX joho（取消除外）。どちらか null/空はスキップ。日付は正規化して比較する。
+ */
+export function collectChushiVsMaxJoho(input: {
+  chushiDate?: string | null;
+  maxJoho?: string | null;
+}): TekiyoDateViolation[] {
+  if (!input.chushiDate || !input.maxJoho) return [];
+  const chushi = normalizeDbDate(input.chushiDate);
+  const maxJoho = normalizeDbDate(input.maxJoho);
+  if (chushi < maxJoho) {
+    return [
+      {
+        kind: TEKIYO_VIOLATION.CHUSHI_BEFORE_MAX_JOHO,
+        message: `解約予定日は最終変更適用日（${fmt(maxJoho)}）以降の日付を指定してください。`,
+      },
+    ];
+  }
+  return [];
 }
 
 /**
@@ -71,18 +105,30 @@ export function collectTekiyoDateViolations(input: {
   const kaishi = input.kaishiDate ? normalizeDbDate(input.kaishiDate) : null;
   const chushi = input.chushiDate ? normalizeDbDate(input.chushiDate) : null;
 
-  // 情報変更適用日 >= 購読開始日
+  // 情報変更適用日: 購読開始日 <= joho <= 解約予定日
   if (joho && kaishi && joho < kaishi) {
     out.push({
       kind: TEKIYO_VIOLATION.JOHO_BEFORE_KAISHI,
       message: `情報変更適用日は購読開始日（${fmt(kaishi)}）以降の日付を指定してください。`,
     });
   }
-  // 販売店適用日 < 解約予定日（解約予定日が設定済みの場合のみ）
-  if (hanbaiten && chushi && hanbaiten >= chushi) {
+  if (joho && chushi && joho > chushi) {
+    out.push({
+      kind: TEKIYO_VIOLATION.JOHO_AFTER_CHUSHI,
+      message: `情報変更適用日は解約予定日（${fmt(chushi)}）以前の日付を指定してください。`,
+    });
+  }
+  // 販売店適用日: 購読開始日 <= hanbaiten <= 解約予定日
+  if (hanbaiten && kaishi && hanbaiten < kaishi) {
+    out.push({
+      kind: TEKIYO_VIOLATION.HANBAITEN_BEFORE_KAISHI,
+      message: `販売店適用日は購読開始日（${fmt(kaishi)}）以降の日付を指定してください。`,
+    });
+  }
+  if (hanbaiten && chushi && hanbaiten > chushi) {
     out.push({
       kind: TEKIYO_VIOLATION.HANBAITEN_AFTER_CHUSHI,
-      message: `販売店適用日は解約予定日（${fmt(chushi)}）より前の日付を指定してください。`,
+      message: `販売店適用日は解約予定日（${fmt(chushi)}）以前の日付を指定してください。`,
     });
   }
   return out;
@@ -90,9 +136,9 @@ export function collectTekiyoDateViolations(input: {
 
 /**
  * 入力された 解約予定日(chushi) の整合性を検証し、違反を配列で返す（空配列＝OK）。
- * 顧客要件 2026-07:
+ * 顧客要件 2026-07 改訂:
  *   - 解約予定日 >= 購読開始日（開始日以降。当日=開始日 も可）
- *   - 解約予定日 >= 本日（過去日不可・当日可）
+ *   - 解約予定日 >  本日（未来日のみ・当日不可）
  * chushi 未入力(null/空)は全チェックをスキップ。日付は正規化してから比較する。
  */
 export function collectChushiViolations(input: {
@@ -113,11 +159,11 @@ export function collectChushiViolations(input: {
       message: `解約予定日は購読開始日（${fmt(kaishi)}）以降の日付を指定してください。`,
     });
   }
-  // 本日 <= 解約予定日（過去日不可）
-  if (chushi < today) {
+  // 本日 < 解約予定日（未来日のみ・当日不可）
+  if (chushi <= today) {
     out.push({
-      kind: TEKIYO_VIOLATION.CHUSHI_PAST,
-      message: '解約予定日に過去日は指定できません。',
+      kind: TEKIYO_VIOLATION.CHUSHI_NOT_FUTURE,
+      message: '解約予定日は本日より後の日付を指定してください。',
     });
   }
   return out;

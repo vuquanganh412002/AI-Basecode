@@ -52,6 +52,77 @@ export function loadEffectiveRow(
 }
 
 /**
+ * Earliest row in the chain (MIN `(joho, rireki_no)`, `torikeshi_flg = false`).
+ * Used by `recomputeMaster` as the master-effective fallback when NO row is
+ * `joho <= asOf` (i.e. every row is future — a subscriber created with a
+ * future 購読開始日). Keeps the invariant `t_dokusya ⇔ 1 行 saishin=true` even
+ * before the start date arrives（バッチが到来日に有効行を進める）。NOT used by
+ * findBefore（挿入時の直前行は「今日より前」しか見ない）。
+ */
+export function loadEarliestRow(
+  m: EntityManager,
+  dokusyaId: number,
+): Promise<DokusyaRireki | null> {
+  return applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false'),
+    SORT_CHAIN_ASC,
+  )
+    .limit(1)
+    .getOne();
+}
+
+/**
+ * Effective row for `t_dokusya` scoped to the CURRENT lifecycle — the rows
+ * from the latest 新規(`shinki_flg=true`, 取消除外) onward. This makes 再購読
+ * behave like a fresh 新規作成: even when the new 購読開始日 is in the future,
+ * the current-lifecycle effective row is absent so we fall back to the latest
+ * 新規(=再購読)行 → master が即 購読中 になる（初回作成の未来開始日と同じ）。
+ *
+ * - `latestShinki` = greatest `(joho, rireki_no)` with `shinki_flg = true`,
+ *   `torikeshi_flg = false`（作成行 or 再購読行）。全購読者に最低1つ存在（作成行）。
+ * - effective = greatest `(joho, rireki_no)` with `torikeshi_flg = false`,
+ *   `rireki_no >= latestShinki.rireki_no`, `joho <= asOf`。無ければ latestShinki。
+ *
+ * 単一ライフサイクル（再購読なし）では latestShinki=作成行(最小 rireki_no) なので
+ * 従来の「loadEffectiveRow(asOf) ?? loadEarliestRow」と同一挙動（後方互換）。
+ * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=asOf まで有効化され
+ * ないので到来日バッチ任せのまま。
+ */
+export async function loadCurrentLifecycleEffectiveRow(
+  m: EntityManager,
+  dokusyaId: number,
+  asOf: DateOnly,
+): Promise<DokusyaRireki | null> {
+  const latestShinki = await applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.shinki_flg = true'),
+    SORT_CHAIN_DESC,
+  )
+    .limit(1)
+    .getOne();
+  if (!latestShinki) return null; // 履歴なし
+
+  const effective = await applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.rireki_no >= :minNo', { minNo: latestShinki.rirekiNo })
+      .andWhere('r.joho_henko_tekiyo_date <= :asOf', { asOf }),
+    SORT_CHAIN_DESC,
+  )
+    .limit(1)
+    .getOne();
+  return effective ?? latestShinki;
+}
+
+/**
  * Immediate predecessor (by date) of a row about to be inserted at
  * `joho`. Same query as {@link loadEffectiveRow} — the predecessor is
  * the effective row as of `joho` (the new row is not yet persisted).

@@ -3,6 +3,7 @@ import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import {
   buildCounterRow,
   buildKaiyakuRow,
+  buildResubscribeRow,
   buildRirekiRow,
   computeZougen,
   diffChangedFields,
@@ -393,31 +394,46 @@ describe('mapRirekiToMaster', () => {
 });
 
 describe('buildKaiyakuRow', () => {
-  it('inherits state, sets tetsuzuki=0 + kaiyaku_flg, created_by=batch, drops PK', () => {
+  it('forces cancel shape: tetsuzuki=0, kaiyaku_flg, busu=0, zougen=true, created_by=actor, drops PK', () => {
     const before = row({
       dokusyaRirekiId: 4,
       dokusyaId: 1001,
       dokusyaBusu: 6,
       hanbaitenId: 459,
-      dokusyaChushiDate: '2026-07-15',
+      dokusyaChushiDate: null,
       tetsuzukiShurui: 1,
     });
     const r = buildKaiyakuRow(before, {
       dokusyaId: 1001,
       rirekiNo: 5,
       kaiyakuJoho: '2026-07-15',
+      chushiDate: '2026-07-15',
+      createdBy: '42',
     });
     expect(r.tetsuzukiShurui).toBe(0);
     expect(r.kaiyakuFlg).toBe(true);
     expect(r.johoHenkoTekiyoDate).toBe('2026-07-15');
-    expect(r.createdBy).toBe('batch');
+    expect(r.createdBy).toBe('42'); // actor override (UI 解約予約)
     expect(r.hanbaitenTekiyoDate).toBeNull();
-    expect(r.dokusyaChushiDate).toBe('2026-07-15'); // inherited
-    expect(r.dokusyaBusu).toBe(6); // inherited
+    expect(r.dokusyaChushiDate).toBe('2026-07-15'); // from ctx.chushiDate
+    expect(r.dokusyaBusu).toBe(0); // 解約 = 部数なし (forced)
+    expect(r.zougenHokokuFlg).toBe(true); // 解約は常に増減報告対象 (forced)
     expect(r.zenkaiDokusyaBusu).toBe(6); // zenkai from before
     expect(r.shinkiFlg).toBe(false);
     expect(r.saishinDataFlg).toBe(false);
+    expect(r.torikeshiFlg).toBe(false);
     expect(r.dokusyaRirekiId).toBeUndefined(); // PK dropped → INSERTs
+  });
+
+  it("created_by defaults to 'batch' when actor is omitted (到来日バッチ)", () => {
+    const before = row({ dokusyaBusu: 6, dokusyaChushiDate: '2026-07-15' });
+    const r = buildKaiyakuRow(before, {
+      dokusyaId: 1001,
+      rirekiNo: 5,
+      kaiyakuJoho: '2026-07-15',
+      chushiDate: '2026-07-15',
+    });
+    expect(r.createdBy).toBe('batch');
   });
 
   it('case D: inherits the new hanbaiten from the (future-activated) before row', () => {
@@ -430,9 +446,56 @@ describe('buildKaiyakuRow', () => {
       dokusyaId: 1001,
       rirekiNo: 3,
       kaiyakuJoho: '2026-07-15',
+      chushiDate: '2026-07-15',
     });
     expect(r.hanbaitenId).toBe(460);
     expect(r.zenkaiHanbaitenId).toBe(460);
+  });
+});
+
+describe('buildResubscribeRow', () => {
+  it('mirrors a first 新規作成 row: shinki, tetsuzuki=1, chushi/zenkai/hanbaiten適用日 all null (顧客要件 2026-07)', () => {
+    const before = row({
+      dokusyaRirekiId: 7,
+      dokusyaId: 1001,
+      tetsuzukiShurui: 0, // 解約行
+      kaiyakuFlg: true,
+      dokusyaBusu: 0,
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 458,
+      zenkaiDokusyaBusu: 6,
+      shokiDokusyaKaishiDate: '2025-01-01',
+      dokusyaChushiDate: '2026-06-01',
+    });
+    const values: DokusyaFields = {
+      dokusyaKaishiDate: '2027-12-01',
+      dokusyaBusu: 2,
+      hanbaitenId: 460,
+    };
+    const r = buildResubscribeRow(
+      before,
+      values,
+      { dokusyaId: 1001, rirekiNo: 8, actor: '42', reason: '再購読' },
+      '2026-07-09', // joho=当日（即時反映）
+    );
+    // 新規(再購読)の形。
+    expect(r.shinkiFlg).toBe(true);
+    expect(r.kaiyakuFlg).toBe(false);
+    expect(Number(r.tetsuzukiShurui)).toBe(1);
+    expect(r.zougenHokokuFlg).toBe(true);
+    expect(r.dokusyaChushiDate).toBeNull();
+    expect(r.hanbaitenTekiyoDate).toBeNull(); // 販売店適用日 なし
+    // 業務新値は values 由来。
+    expect(r.hanbaitenId).toBe(460);
+    expect(Number(r.dokusyaBusu)).toBe(2);
+    expect(String(r.dokusyaKaishiDate).slice(0, 10)).toBe('2027-12-01');
+    // 初回購読開始日は不変。
+    expect(String(r.shokiDokusyaKaishiDate).slice(0, 10)).toBe('2025-01-01');
+    // zenkai_* は初回新規作成同様に全て null（前回値を継承しない）。
+    expect(r.zenkaiHanbaitenId).toBeNull();
+    expect(r.zenkaiDokusyaBusu).toBeNull();
+    // 識別列はクリア（INSERT 用）。
+    expect(r.dokusyaRirekiId).toBeUndefined();
   });
 });
 

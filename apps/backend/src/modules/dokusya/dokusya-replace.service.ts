@@ -244,11 +244,11 @@ export class DokusyaReplaceService {
     // (account_concept.md §139-145).
     await this.accountFlags.assertAnyDokusyaFlag(session);
 
-    // §4.1 — tekiyo_date must be today or later (JST). 共通 todayIsoJst を使用
-    // （edit 単票の assertFutureTekiyoDate と同一基準・同じ「当日可」ルール）。
-    if (dto.hanbaiten_tekiyo_date < todayIsoJst()) {
+    // §4.1 — 一括置換は 販売店のみ変更 = 情報変更適用日 を兼ねるため、tekiyo_date は
+    // 未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。UI 単票の joho と同一基準。
+    if (dto.hanbaiten_tekiyo_date <= todayIsoJst()) {
       throw new DateRangeInvalidException(
-        '販売店適用日は当日以降の日付を入力してください。',
+        '販売店適用日は本日より後の日付を入力してください。',
       );
     }
 
