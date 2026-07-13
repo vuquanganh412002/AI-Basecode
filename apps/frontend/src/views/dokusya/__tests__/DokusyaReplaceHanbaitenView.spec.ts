@@ -74,6 +74,8 @@ vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
 interface RenderOptions {
   /** Override default CHUOKAI session (for permission-gating paths). */
   user?: ReturnType<typeof buildAuthUser>;
+  /** false = leave 適用日 empty (to test the required-before-search guard). */
+  seedTekiyo?: boolean;
 }
 
 /** Default session: CHUOKAI holding dokusya.replace_hanbaiten. */
@@ -120,6 +122,12 @@ async function renderView(opts: RenderOptions = {}): Promise<{
     },
   });
   await flushPromises();
+  // 販売店適用日は検索の必須条件（顧客要件 2026-07）。既定で遠未来日を入れて
+  // 検索が通る状態にする（未入力時のバリデーションは opts.seedTekiyo=false で検証）。
+  if (opts.seedTekiyo !== false) {
+    (wrapper.vm as any).state.filters.hanbaiten_tekiyo_date = '2099-12-31';
+    await flushPromises();
+  }
   return { wrapper, router };
 }
 
@@ -222,22 +230,19 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     expect(getHanbaitenDropdown).toHaveBeenCalled();
   });
 
-  it('should call searchDokusyaForReplace on mount so the 購読者一覧 is shown by default (no 検索 click)', async () => {
+  it('should NOT call searchDokusyaForReplace on mount (顧客要件 2026-07 — no auto-load; requires 適用日 + 検索)', async () => {
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
     vi.mocked(searchDokusyaForReplace).mockClear();
-    const { wrapper } = await renderView();
-    expect(searchDokusyaForReplace).toHaveBeenCalledTimes(1);
-    // Default search runs with no filters but with the default paging/sort.
-    const arg = vi.mocked(searchDokusyaForReplace).mock.calls[0]?.[0] as
-      | Record<string, unknown>
-      | undefined;
-    expect(arg).toMatchObject({
-      page: 1,
-      per_page: 20,
-      sort_by: 'kumiaiin_code',
-      sort_order: 'asc',
-    });
-    expect(wrapper.text()).toContain('山田 太郎');
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+    // 初期表示は購読者を出さない（未検索なので空文言も出さない）。
+    expect(wrapper.text()).not.toContain('山田 太郎');
+  });
+
+  it('should render the required 適用日 field in the search area on mount', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
+    expect(labels.some((t) => t.includes('適用日'))).toBe(true);
   });
 
   it('should NOT call getShitenDropdown when mounted before 管理支店 is chosen (支店 stays empty)', async () => {
@@ -271,12 +276,13 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     expect(execBtn!.attributes('disabled')).toBeDefined();
   });
 
-  it('should NOT show the 適用日 / 置換先配達販売店 fields when no row is selected on mount', async () => {
+  it('should NOT show the 置換先配達販売店 field until a row is selected (適用日 is now a search filter, always visible)', async () => {
     const { wrapper } = await renderView();
-    // 機能定義 1.1 — 置換先配達販売店 is hidden until ≥1 row selected.
+    // 置換先配達販売店 is hidden until ≥1 row selected. 適用日 は検索条件へ移動し
+    // 常時表示（顧客要件 2026-07）。
     const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('置換先配達販売店'))).toBe(false);
-    expect(labels.some((t) => t.includes('適用日'))).toBe(false);
+    expect(labels.some((t) => t.includes('適用日'))).toBe(true);
   });
 
   it('should render the 検索 submit button when mounted', async () => {
@@ -315,18 +321,17 @@ describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
   });
 
   it('should NOT call searchDokusyaForReplace again when 検索 is pressed with no filter change (avoids continuous API calls)', async () => {
-    const { wrapper } = await renderView();
+    const { wrapper } = await renderView(); // seeds 適用日
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
-    // Initial mount fetch already loaded the default list.
     vi.mocked(searchDokusyaForReplace).mockClear();
 
-    // Press 検索 twice with the form still at its defaults — both no-ops.
+    // 1回目の 検索 は実行、同条件の2回目は no-op（dedup guard）。
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+    expect(searchDokusyaForReplace).toHaveBeenCalledTimes(1);
   });
 
   it('should pass the kumiaiin_code filter to searchDokusyaForReplace when set + submitted', async () => {
@@ -340,7 +345,7 @@ describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    const arg = vi.mocked(searchDokusyaForReplace).mock.calls[0]?.[0] as
+    const arg = vi.mocked(searchDokusyaForReplace).mock.calls[0]?.[0] as unknown as
       | Record<string, unknown>
       | undefined;
     expect(arg).toMatchObject({ kumiaiin_code: '10001' });
@@ -389,7 +394,9 @@ describe('DokusyaReplaceHanbaitenView — search (機能定義 2.x)', () => {
 
   it('should re-render the table with new rows when a changed search returns a different response', async () => {
     const { wrapper } = await renderView();
-    // The mount fetch already shows the default list.
+    // 初回検索で既定リストを表示（自動ロードは無いので明示的に 検索 する）。
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
     expect(wrapper.text()).toContain('山田 太郎');
 
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
@@ -616,29 +623,6 @@ describe('DokusyaReplaceHanbaitenView — replace validation (機能定義 4.1)'
     // 適用日 filled, 置換先 left blank.
     if (vm.replaceForm) {
       vm.replaceForm.new_hanbaiten_id = undefined;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
-    }
-    await flushPromises();
-
-    const execBtn = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('置換処理実行'));
-    await execBtn!.trigger('click');
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('必須項目です。');
-    expect(replaceDokusyaHanbaiten).not.toHaveBeenCalled();
-  });
-
-  it('should show ACSMS-MSG-015-004 「必須項目です。」 + NOT call replaceDokusyaHanbaiten when 適用日 is empty', async () => {
-    const { wrapper } = await renderView();
-    const { replaceDokusyaHanbaiten } = await import('@/api/dokusya/dokusya');
-    await setupSelectedRow(wrapper);
-
-    const vm = wrapper.vm as any;
-    if (vm.replaceForm) {
-      vm.replaceForm.new_hanbaiten_id = 201;
-      vm.replaceForm.hanbaiten_tekiyo_date = '';
     }
     await flushPromises();
 
@@ -661,7 +645,6 @@ describe('DokusyaReplaceHanbaitenView — replace validation (機能定義 4.1)'
     if (vm.replaceForm) {
       // Selected row 5001 currently belongs to hanbaiten_id 200.
       vm.replaceForm.new_hanbaiten_id = 200;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
     }
     await flushPromises();
 
@@ -698,7 +681,6 @@ describe('DokusyaReplaceHanbaitenView — replace validation (機能定義 4.1)'
     const vm = wrapper.vm as any;
     if (vm.replaceForm) {
       vm.replaceForm.new_hanbaiten_id = 201;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
     }
     await flushPromises();
 
@@ -736,7 +718,6 @@ describe('DokusyaReplaceHanbaitenView — replace validation (機能定義 4.1)'
     const vm = wrapper.vm as any;
     if (vm.replaceForm) {
       vm.replaceForm.new_hanbaiten_id = 201;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
     }
     await flushPromises();
 
@@ -762,7 +743,6 @@ describe('DokusyaReplaceHanbaitenView — replace confirm + execute (機能定�
     const vm = wrapper.vm as any;
     if (vm.replaceForm) {
       vm.replaceForm.new_hanbaiten_id = 201;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
     }
     await flushPromises();
   }
@@ -808,7 +788,7 @@ describe('DokusyaReplaceHanbaitenView — replace confirm + execute (機能定�
       | undefined;
     expect(body).toMatchObject({
       new_hanbaiten_id: 201,
-      hanbaiten_tekiyo_date: '2026-06-30',
+      hanbaiten_tekiyo_date: '2099-12-31',
     });
     expect(Array.isArray(body?.dokusya_ids)).toBe(true);
     expect(body?.dokusya_ids).toContain(5001);
@@ -945,7 +925,7 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     }
   });
 
-  it('should reset filters + clear selection + re-fetch the default list when 検索クリア is clicked after a search', async () => {
+  it('should reset filters (incl. 適用日) + clear selection + empty the list on 検索クリア (顧客要件 — no auto-load)', async () => {
     const { wrapper } = await renderView();
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
 
@@ -965,15 +945,26 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
 
-    // 検索クリア resets the filters and re-fetches the default list (not emptied).
-    expect(searchDokusyaForReplace).toHaveBeenCalledTimes(1);
-    if (vm.state?.filters) expect(vm.state.filters.kumiaiin_code).toBe('');
-    if (typeof vm.rows !== 'undefined') {
-      expect(vm.rows.length).toBeGreaterThan(0);
+    // 検索クリア は適用日を含む全フィルタをリセットし、一覧を空にする（自動再検索しない）。
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+    if (vm.state?.filters) {
+      expect(vm.state.filters.kumiaiin_code).toBe('');
+      expect(vm.state.filters.hanbaiten_tekiyo_date).toBe('');
     }
-    if (typeof vm.selectedRowKeys !== 'undefined') {
-      expect(vm.selectedRowKeys.length).toBe(0);
-    }
+    expect(vm.rows.length).toBe(0);
+    expect(vm.selectedRowKeys.length).toBe(0);
+  });
+
+  it('should block search + show an error when 検索 is pressed without 適用日 (required)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-test="replace-search-error"]').exists()).toBe(true);
   });
 
   it('should NOT re-fetch on 検索クリア when the screen is already pristine, but still clear the selection (avoids continuous API calls)', async () => {
@@ -1045,7 +1036,6 @@ describe('DokusyaReplaceHanbaitenView — server-side error handling', () => {
     const vm = wrapper.vm as any;
     if (vm.replaceForm) {
       vm.replaceForm.new_hanbaiten_id = 201;
-      vm.replaceForm.hanbaiten_tekiyo_date = '2026-06-30';
     }
     await flushPromises();
   }

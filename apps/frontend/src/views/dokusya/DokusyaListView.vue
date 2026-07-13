@@ -37,6 +37,7 @@ import { useCodesStore } from '@/stores/codes.store';
 import { formatDate } from '@/utils/formatters';
 import { timestampForFilenameTokyo } from '@/utils/datetime';
 import { confirmDelete } from '@/utils/confirm';
+import { downloadBlob } from '@/utils/download';
 import {
   listDokusya,
   removeDokusya,
@@ -509,24 +510,6 @@ function askDelete(row: DokusyaListItem): void {
 }
 
 // ─── Excel export ──────────────────────────────────────────────────
-
-function downloadBlob(blob: Blob, filename: string): void {
-  // Skip in jsdom (test env) — `URL.createObjectURL` may be undefined.
-  if (
-    globalThis.window === undefined ||
-    typeof globalThis.URL?.createObjectURL !== 'function'
-  ) {
-    return;
-  }
-  const url = globalThis.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  globalThis.URL.revokeObjectURL(url);
-}
 
 function buildExportFilename(): string {
   // YYYYMMDD_HHmmss in JST — always via the shared helper (browser-local

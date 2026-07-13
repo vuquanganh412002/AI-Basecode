@@ -77,6 +77,9 @@ export interface ZougenNichinoReport {
   fax: string;
   rows: ZougenNichinoReportRow[];
   total: ZougenNichinoTotal;
+  /** グループ単位ページング（顧客要件 2026-07）: この管理支店内でのページ番号 / 総数。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 export interface ZougenNichinoPreviewData {
@@ -89,14 +92,20 @@ export interface ZougenNichinoPreviewData {
   /** 対象購読者数（COUNT(DISTINCT dokusya_id)。ページングの単位）。 */
   total_rows?: number;
   is_last_page?: boolean;
+  /** 全体の管理支店グループ数。 */
+  group_count?: number;
+  /** 当該ページの管理支店内ページ番号 / 総数（帳票ヘッダのページ数表記）。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 /**
- * preview の既定ページ件数。SCR-028 と同じく SQLページングは **購読者(dokusya_id)
- * 単位**のため、これは「1ページの販売店行数（≒購読者数。大半1行/購読者）」。15。
- * ページングは report.service 側で SQL OFFSET/LIMIT により行う。
+ * 1管理支店あたり1ページに載せる販売店行の上限。行は単一行（fontSize 8）で高さが
+ * 均一なため、A4縦の印刷可能高からヘッダ・合計・備考欄を差し引いた枠に収まる概算行数
+ * （見積り約33行）に対し安全側で 28 とする。旧値 15 は下方に空白が目立ったため引上げ。
+ * これを超える管理支店は自グループ内で複数ページに続く（他管理支店とは同居しない）。
  */
-export const ZOUGEN_NICHINO_PER_PAGE = 15;
+export const ZOUGEN_NICHINO_PER_PAGE = 28;
 
 const num = (v: RawNullableNum | undefined): number => Number(v ?? 0);
 const str = (v: string | null | undefined): string => v ?? '';
@@ -273,51 +282,39 @@ export function groupZougenNichinoReports(
 }
 
 /**
- * 全件 rows を **preview と同じ「1ページ=perPage 購読者」単位**でページに分割する
- * （PDF出力をプレビューと同じ改ページにするため。SCR-028 と同方針）。
- *
- * 購読者の並びは preview の SQL（`ORDER BY MIN(ks.kanri_shiten_code),
- * MIN(h.hanbaiten_code), r.dokusya_id`）と一致させる：① 購読者ごとに（管理支店コード,
- * 販売店コード）の最小値を算出 → ②昇順で整列 → ③perPage ずつに分割 → ④各チャンクの
- * 行を groupZougenNichinoReports で管理支店ブロックに集約。これで PDF の n ページ目 =
- * preview の n ページ目になる。合計は各ページの行から算出する（管理支店がページを
- * またぐ場合はページ内合計）。
+ * 全件 rows を **管理支店ごとに独立したページ**へ分割する（顧客要件 2026-07・
+ * SCR-026 と同方針）。1ページ＝1管理支店。各管理支店の販売店行を perPage 行ずつに
+ * 分割し、行数が多い管理支店は自グループ内で複数ページに続く（他管理支店とは決して
+ * 同居しない）。ページ番号は管理支店ごとに 1..N（group_page_no/group_total_pages）。
+ * 合計はグループ全体の合計を各ページに表示する（分割されても総数が分かる）。
+ * preview と PDF が本関数を共有するのでページ構成は必ず一致する。
  */
 export function paginateNichinoSubscribers(
   rows: ZougenNichinoRawRow[],
   perPage: number,
 ): ZougenNichinoReport[][] {
   const size = perPage > 0 ? perPage : ZOUGEN_NICHINO_PER_PAGE;
-
-  const byDok = new Map<number, ZougenNichinoRawRow[]>();
-  for (const r of rows) {
-    const id = num(r.dokusya_id);
-    const g = byDok.get(id);
-    if (g) g.push(r);
-    else byDok.set(id, [r]);
-  }
-
-  const subs = [...byDok.entries()].map(([id, rs]) => {
-    const ksCodes = rs.map((r) => str(r.kanri_shiten_code)).filter((c) => c !== '');
-    const hCodes = rs.map((r) => str(r.hanbaiten_code)).filter((c) => c !== '');
-    return {
-      id,
-      ksCode: [...ksCodes].sort((a, b) => a.localeCompare(b))[0] ?? '',
-      hCode: [...hCodes].sort((a, b) => a.localeCompare(b))[0] ?? '',
-    };
-  });
-  subs.sort(
-    (a, b) =>
-      a.ksCode.localeCompare(b.ksCode) ||
-      a.hCode.localeCompare(b.hCode) ||
-      a.id - b.id,
-  );
-
+  // 管理支店ブロック（管理支店コード昇順・行内は販売店コード昇順）に集約してから、
+  // 各ブロックの行を size 行ずつのページに割る。
+  const reports = groupZougenNichinoReports(rows);
   const pages: ZougenNichinoReport[][] = [];
-  for (let i = 0; i < subs.length; i += size) {
-    const ids = new Set(subs.slice(i, i + size).map((s) => s.id));
-    const chunkRows = rows.filter((r) => ids.has(num(r.dokusya_id)));
-    pages.push(groupZougenNichinoReports(chunkRows));
+  for (const report of reports) {
+    const chunks: ZougenNichinoReportRow[][] = [];
+    for (let i = 0; i < report.rows.length; i += size) {
+      chunks.push(report.rows.slice(i, i + size));
+    }
+    if (chunks.length === 0) chunks.push([]); // 念のため（通常は1行以上）
+    chunks.forEach((chunk, idx) => {
+      // 合計はグループ全体（report.total）を各ページで表示。1ページ=1管理支店。
+      pages.push([
+        {
+          ...report,
+          rows: chunk,
+          group_page_no: idx + 1,
+          group_total_pages: chunks.length,
+        },
+      ]);
+    });
   }
   return pages;
 }
@@ -481,10 +478,10 @@ function nichinoReportBlock(
 
 /**
  * Build the pdfmake document definition for the 増減通知 PDF — **プレビューと同じ
- * 改ページ**：全件 rows を `perPage`（既定15）購読者単位でページに分割（販売店行が
- * 1ページに収まる目安。SCR-028 と同方針）。各ページ先頭で改ページし、同一ページ内の
- * 複数管理支店ブロックは続けて積む。`bikoByKs` は管理支店IDごとの「＜備考＞」欄。
- * Page表記は ページ番号/総ページ数。PDF の n ページ目 = preview の n ページ目。
+ * 改ページ**：管理支店ごとに独立ページ（顧客要件 2026-07・SCR-026 と同方針）。行数の
+ * 多い管理支店は自グループ内で `perPage`（既定15）行ずつ複数ページに続く（他管理支店
+ * とは同居しない）。各ページ先頭で改ページ。`bikoByKs` は管理支店IDごとの「＜備考＞」欄。
+ * ページ数表記は管理支店ごとに 1..N。PDF の n ページ目 = preview の n ページ目。
  * `PdfExportService.generatePdf(...)` に渡す。
  */
 export function buildZougenNichinoDocDefinition(
@@ -498,14 +495,15 @@ export function buildZougenNichinoDocDefinition(
     pageSize: 'A4',
     pageMargins: mg(40, 36, 40, 40),
     content: pages.flatMap((pageReports, pi) =>
-      pageReports.flatMap((report, ri) =>
+      pageReports.flatMap((report) =>
         nichinoReportBlock(
           report,
           tekiyo,
           bikoByKs.get(report.kanri_shiten_id) ?? '',
-          pi + 1,
-          pages.length,
-          pi > 0 && ri === 0,
+          // ページ数は管理支店ごとに 1..N（顧客要件 2026-07）。1ページ=1管理支店。
+          report.group_page_no ?? 1,
+          report.group_total_pages ?? 1,
+          pi > 0, // 先頭ページ以外はページ先頭で改ページ（各管理支店が独立ページ）。
         ),
       ),
     ),

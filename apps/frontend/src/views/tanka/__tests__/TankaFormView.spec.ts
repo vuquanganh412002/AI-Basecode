@@ -13,6 +13,7 @@ import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
 import Antd, { message } from 'ant-design-vue';
 import dayjs from 'dayjs';
+import { nowTokyo } from '@/utils/datetime';
 
 import TankaFormView from '@/views/tanka/TankaFormView.vue';
 import {
@@ -523,15 +524,15 @@ describe('TankaFormView — 適用開始日 / 適用終了日 disabled-date', ()
   it('should disable past dates on 適用開始日 picker in create mode', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
-    const yesterday = dayjs().subtract(1, 'day');
+    const yesterday = nowTokyo().subtract(1, 'day');
     expect(vm.disableStartDate(yesterday)).toBe(true);
   });
 
   it('should allow today and future dates on 適用開始日 picker in create mode', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
-    expect(vm.disableStartDate(dayjs())).toBe(false);
-    expect(vm.disableStartDate(dayjs().add(7, 'day'))).toBe(false);
+    expect(vm.disableStartDate(nowTokyo())).toBe(false);
+    expect(vm.disableStartDate(nowTokyo().add(7, 'day'))).toBe(false);
   });
 
   it('should still disable past dates on 適用開始日 picker in edit mode (271bc40 / SCR-003)', async () => {
@@ -541,7 +542,7 @@ describe('TankaFormView — 適用開始日 / 適用終了日 disabled-date', ()
     // `isStartDateReadOnly` in that case (no opening the calendar at all).
     const { wrapper } = await renderView({ tankaId: 1 });
     const vm = wrapper.vm as any;
-    const yesterday = dayjs().subtract(1, 'day');
+    const yesterday = nowTokyo().subtract(1, 'day');
     const farPast = dayjs('2024-01-15');
     expect(vm.disableStartDate(yesterday)).toBe(true);
     expect(vm.disableStartDate(farPast)).toBe(true);
@@ -566,7 +567,7 @@ describe('TankaFormView — 適用開始日 / 適用終了日 disabled-date', ()
     vi.mocked(getTanka).mockResolvedValue({
       data: buildTanka({
         tanka_id: 1,
-        tekiyo_start_date: dayjs().add(7, 'day').format('YYYY-MM-DD'),
+        tekiyo_start_date: nowTokyo().add(7, 'day').format('YYYY-MM-DD'),
         tekiyo_end_date: '2099-12-31',
       }),
     });
@@ -584,7 +585,7 @@ describe('TankaFormView — 適用開始日 / 適用終了日 disabled-date', ()
   it('should disable end-date selections earlier than the chosen 適用開始日', async () => {
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
-    const start = dayjs().add(10, 'day');
+    const start = nowTokyo().add(10, 'day');
     vm.form.tekiyo_start_date = start.format('YYYY-MM-DD');
     await flushPromises();
     // 1 day before start → blocked

@@ -267,7 +267,7 @@ export class DokusyaImportValidator {
     // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
     // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
     const isUpdate =
-      dto.import_mode === 'UPDATE_ALL' || dto.import_mode === 'UPDATE_PARTIAL';
+      dto.import_mode === 'UPDATE';
     if (isUpdate && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
       this.pushImportError(errors, {
         row: rowNo,
@@ -296,7 +296,7 @@ export class DokusyaImportValidator {
     errors: ImportRowError[],
   ): void {
     const isUpdate =
-      dto.import_mode === 'UPDATE_ALL' || dto.import_mode === 'UPDATE_PARTIAL';
+      dto.import_mode === 'UPDATE';
     const joho = dbDateOrNull(row.joho_henko_tekiyo_date);
     const hanbaiten = dbDateOrNull(row.hanbaiten_tekiyo_date);
     const chushi = dbDateOrNull(row.dokusya_chushi_date);
@@ -447,7 +447,7 @@ export class DokusyaImportValidator {
    *
    * - 実効購読種別: NEW は行の購読種別、UPDATE_* は既存レコードの購読種別
    *   （購読種別は編集不可のため Excel 上の値ではなく DB の値で判定）。
-   * - UPDATE_PARTIAL で email 列が selected_columns に無い行は email 未変更
+   * - UPDATE で email 列が selected_columns に無い行は email 未変更
    *   のため検証しない。
    * - 一意性: DB 内の電子版/併読レコード（自身は除外）＋同一取込バッチ内の
    *   電子版/併読行同士の双方で重複を検知する。
@@ -460,11 +460,10 @@ export class DokusyaImportValidator {
     batchDigitalEmail: Map<string, number>,
     errors: ImportRowError[],
   ): void {
-    // email 列が対象でない UPDATE_PARTIAL は素通し（既存メールを維持）。
+    // email 列が対象でない UPDATE は素通し（既存メールを維持）。
     const emailTargeted =
       dto.import_mode === 'NEW' ||
-      dto.import_mode === 'UPDATE_ALL' ||
-      (dto.import_mode === 'UPDATE_PARTIAL' &&
+      (dto.import_mode === 'UPDATE' &&
         dto.selected_columns.includes('email'));
     if (!emailTargeted) return;
 
@@ -534,9 +533,7 @@ export class DokusyaImportValidator {
     session: SessionPayload,
     errors: ImportRowError[],
   ): 'created' | 'updated' | null {
-    const needsExisting =
-      dto.import_mode === 'UPDATE_ALL' ||
-      dto.import_mode === 'UPDATE_PARTIAL';
+    const needsExisting = dto.import_mode === 'UPDATE';
     if (!needsExisting) return 'created';
 
     const hasDokusyaId =
@@ -601,7 +598,7 @@ export class DokusyaImportValidator {
 
   /**
    * 販売店が変わる UPDATE 行は販売店適用日 (hanbaiten_tekiyo_date) が必須
-   * （履歴の販売店イベント日。顧客要件 2026-06）。UPDATE_PARTIAL は販売店コード列が
+   * （履歴の販売店イベント日。顧客要件 2026-06）。UPDATE は販売店コード列が
    * selected_columns にあるときのみ「変更対象」とみなす。
    */
   private assertHanbaitenTekiyoForStoreChange(
@@ -613,9 +610,8 @@ export class DokusyaImportValidator {
     errors: ImportRowError[],
   ): void {
     const storeColumnActive =
-      dto.import_mode === 'UPDATE_ALL' ||
-      (dto.import_mode === 'UPDATE_PARTIAL' &&
-        dto.selected_columns.includes('hanbaiten_code'));
+      dto.import_mode === 'UPDATE' &&
+      dto.selected_columns.includes('hanbaiten_code');
     if (!storeColumnActive || !row.hanbaiten_code) return;
 
     const newHanbaitenId = lookups.hanbaitenIdByCode.get(

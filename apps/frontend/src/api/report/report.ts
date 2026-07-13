@@ -15,8 +15,8 @@ export interface MeiboReportQuery {
   shiharai_hoho?: number;
   /** 文書ページ番号（1始まり）。preview のみ。未指定時は1。 */
   page?: number;
-  /** 1ページの明細行数。preview のみ。未指定時は50。 */
-  per_page?: number;
+  // per_page は無い ―― 名簿は A4 高さ基準の動的ページングで、1ページの
+  // 行数は指定できない（BE DTO 非対象・送ると VALIDATION_ERROR）。
   /** 日農ダウンロード許可フラグ（export のみ・既定 false）。true で日農DL可。 */
   nichino_download_allowed_flg?: boolean;
 }
@@ -99,6 +99,13 @@ export interface MeiboPreviewData {
   is_last_page?: boolean;
   /** 全ページ通算のトップレベルグループ数（合計行の表示要否判定用）。 */
   group_count?: number;
+  /**
+   * 当該ページが属するグループ内でのページ番号 / グループ総ページ数（顧客要件
+   * 2026-07: 帳票ヘッダの「ページ数」は販売店/管理支店ごとに 1..N で採番する）。
+   * ページャ(ナビゲーション)は total_pages（全体通算）を使う。
+   */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */
@@ -184,12 +191,17 @@ export interface ZougenReport {
 export interface ZougenPreviewData {
   tekiyo_date: string;
   reports: ZougenReport[];
-  /** ページ送りメタ（preview のみ）。 */
+  /** ページ送りメタ（preview のみ）。総ページ数はページャに使う。 */
   page_no?: number;
   per_page?: number;
   total_pages?: number;
   total_rows?: number;
   is_last_page?: boolean;
+  /** 全体の販売店グループ数。 */
+  group_count?: number;
+  /** 当該ページの販売店内ページ番号 / 総数（帳票ヘッダのページ数表記・販売店単位）。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */
@@ -319,12 +331,17 @@ export interface ZougenNichinoReport {
 export interface ZougenNichinoPreviewData {
   tekiyo_date: string;
   reports: ZougenNichinoReport[];
-  /** ページ送りメタ（preview のみ）。 */
+  /** ページ送りメタ（preview のみ）。総ページ数はページャ(ナビゲーション)に使う。 */
   page_no?: number;
   per_page?: number;
   total_pages?: number;
   total_rows?: number;
   is_last_page?: boolean;
+  /** 全体の管理支店グループ数。 */
+  group_count?: number;
+  /** 当該ページの管理支店内ページ番号 / 総数（帳票ヘッダのページ数表記・グループ単位）。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 /** Single-object envelope `{ data: … }` from the BE controller. */

@@ -224,7 +224,7 @@ export function mapRirekiToMaster(rireki: DokusyaRireki): Partial<Dokusya> {
   for (const [k, v] of Object.entries(src)) {
     if (!MASTER_EXCLUDE.has(k)) out[k] = v;
   }
-  return out as Partial<Dokusya>;
+  return out;
 }
 
 /** Metadata for a 解約 row (batch 到来日 or UI 解約予約). */

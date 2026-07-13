@@ -12,6 +12,8 @@ import 'dayjs/locale/ja';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 
+import { APP_TIMEZONE } from './datetime';
+
 // JST 運用 — every backend timestamp is TIMESTAMPTZ stored as UTC and
 // returned as ISO with `+09:00` offset; the FE pins the rendering tz to
 // Asia/Tokyo so display is consistent regardless of the browser's
@@ -21,7 +23,9 @@ dayjs.extend(timezone);
 dayjs.locale('ja');
 dayjs.tz.setDefault('Asia/Tokyo');
 
-export const APP_TIMEZONE = 'Asia/Tokyo';
+// Single source of truth is datetime.ts — re-exported here so existing
+// `import { APP_TIMEZONE } from '@/utils/formatters'` call sites keep working.
+export { APP_TIMEZONE };
 
 /* ─────────────────────────── currency ─────────────────────────────── */
 
@@ -86,6 +90,17 @@ export function formatYearMonth(
 ): string {
   if (!value) return '';
   return dayjs(value).tz(APP_TIMEZONE).format('YYYY/MM');
+}
+
+/**
+ * 和暦風の日付表記 — `YYYY-MM-DD` → 「YYYY年M月D日」（月日はゼロ埋めなし）。
+ * 帳票の見出し(増減連絡票 / 増減通知)で使用。パースできなければ入力をそのまま返す。
+ *   formatJpDate('2026-07-05') -> "2026年7月5日"
+ */
+export function formatJpDate(iso: string | null | undefined): string {
+  const [y, m, d] = (iso ?? '').split('-');
+  if (!y || !m || !d) return iso ?? '';
+  return `${y}年${Number(m)}月${Number(d)}日`;
 }
 
 /* ─────────────────────── 郵便番号 / 電話番号 ──────────────────────── */

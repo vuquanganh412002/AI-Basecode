@@ -21,6 +21,10 @@ import {
   type HanbaitenDropdownQuery,
 } from '@/api/hanbaiten/hanbaiten';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import {
+  useSelectAllSentinel,
+  withAllOption,
+} from '@/composables/useSelectAllSentinel';
 
 interface Props {
   /** Selected hanbaiten_id list (v-model:value). */
@@ -31,6 +35,8 @@ interface Props {
   placeholder?: string;
   /** Override page size. Default 50. */
   perPage?: number;
+  /** Add a 「全て」 option at the top of the list (選択すると入力欄に「全て」タグ=全件選択)。 */
+  allowSelectAll?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -39,6 +45,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '販売店を選択（未選択＝全件）',
   perPage: 50,
+  allowSelectAll: false,
 });
 
 const emit = defineEmits<{ 'update:value': [v: number[]] }>();
@@ -51,6 +58,7 @@ const {
   options,
   loading,
   fetchPage,
+  loadAll,
   page,
   hasMore,
   q,
@@ -69,24 +77,30 @@ const {
   },
 });
 
+// 「全て」= 全件を選択肢1つ(sentinel)として扱う共通ロジック（BaseKanriShitenSelect と共有）。
+const { innerValue, onChange } = useSelectAllSentinel({
+  value: () => props.value,
+  emit: (v) => emit('update:value', v),
+  loadAll,
+});
+
 const selectOptions = computed(() =>
-  options.value.map((o) => ({
-    value: o.hanbaiten_id,
-    label: `${o.hanbaiten_code} ${o.hanbaiten_name}`,
-  })),
+  withAllOption(
+    options.value.map((o) => ({
+      value: o.hanbaiten_id,
+      label: `${o.hanbaiten_code} ${o.hanbaiten_name}`,
+    })),
+    props.allowSelectAll,
+  ),
 );
 
-function onChange(v: number[]): void {
-  emit('update:value', v ?? []);
-}
-
-defineExpose({ fetchPage, options, page, hasMore, q });
+defineExpose({ fetchPage, loadAll, options, page, hasMore, q });
 </script>
 
 <template>
   <a-select
     mode="multiple"
-    :value="props.value"
+    :value="innerValue"
     :options="selectOptions"
     :disabled="props.disabled"
     :placeholder="props.placeholder"

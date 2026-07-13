@@ -199,11 +199,10 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
 const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレート.xlsx';
 
 /**
- * SCR-016 — 更新（全項目更新 / 入力箇所のみ更新）で編集不可の物理カラム。
+ * SCR-016 — 更新モードで編集不可の物理カラム。
  * 購読種別・氏名（4 列）・購読開始日 は登録時のみ設定でき、更新では既存値を
  * 維持する（SCR-011 編集画面の pin と同じ業務ルール）。FE はこの列を更新モードで
- * 未チェック＋disable にし、BE は UPDATE_ALL で既存値を COALESCE 維持、
- * UPDATE_PARTIAL では selected_columns から除外する。
+ * 未チェック＋disable にし、BE は selected_columns から除外する。
  */
 const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_shubetsu',
@@ -224,13 +223,11 @@ const IMPORT_MAX_ROWS = 30000;
  * 取込モード → 監査ログ operation ラベル（api.md §4.5）。バッチ操作なので
  * bare-verb ルールの例外。販売店取込 (SCR-019) と同一ラベルで統一。
  */
-const IMPORT_OPERATION_BY_MODE: Record<
-  'NEW' | 'UPDATE_ALL' | 'UPDATE_PARTIAL',
-  AuditOperation
-> = {
+const IMPORT_OPERATION_BY_MODE: Record<'NEW' | 'UPDATE', AuditOperation> = {
   NEW: AuditOperation.IMPORT_NEW,
-  UPDATE_ALL: AuditOperation.IMPORT_UPDATE_ALL,
-  UPDATE_PARTIAL: AuditOperation.IMPORT_UPDATE_PARTIAL,
+  // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存の
+  // IMPORT_UPDATE_PARTIAL を再利用する（過去ログとの互換のため enum は変えない）。
+  UPDATE: AuditOperation.IMPORT_UPDATE_PARTIAL,
 };
 
 
@@ -284,8 +281,8 @@ export class DokusyaImportService {
   /**
    * Bulk-import 購読者 rows in one transaction (api.md §4.4).
    *
-   * Modes: NEW (INSERT each row), UPDATE_ALL (full update — null/'' the
-   * unselected columns), UPDATE_PARTIAL (only `selected_columns`), and
+   * Modes: NEW (INSERT each row), UPDATE (only `selected_columns` — blank
+   * cells are skipped; select all columns to update everything), and
    * 一括中止 (per-row tetsuzuki_shurui=0 + kumiaiin_code → 解約).
    *
    * Validation order (all PRE-transaction):
@@ -370,9 +367,9 @@ export class DokusyaImportService {
     const importedAt = new Date().toISOString();
 
     // 取込はバッチ操作 — 操作種別はモード別の prefixed ラベル
-    // (IMPORT_NEW / IMPORT_UPDATE_ALL / IMPORT_UPDATE_PARTIAL) を使う。
-    // bare-verb ルールの例外（api.md §4.5。単一 INSERT と一括取込を t_log で
-    // 区別するため）。販売店取込 (SCR-019) と同一ラベルで統一。
+    // (IMPORT_NEW / IMPORT_UPDATE_PARTIAL) を使う。bare-verb ルールの例外
+    // （api.md §4.5。単一 INSERT と一括取込を t_log で区別するため）。UPDATE は
+    // partial 相当のため既存 IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換）。
     const importOperation = IMPORT_OPERATION_BY_MODE[dto.import_mode];
 
     try {
@@ -657,7 +654,7 @@ export class DokusyaImportService {
    * Extract `dokusya_id` from a raw `manager.query(… RETURNING dokusya_id)`
    * result. TypeORM の `query()` は INSERT…RETURNING では行配列をそのまま
    * 返すが、UPDATE/DELETE…RETURNING では `[行配列, 影響件数]` の2要素配列を
-   * 返す。そのため UPDATE_ALL / UPDATE_PARTIAL / 解約 では `result[0]` が
+   * 返す。そのため UPDATE / 解約 では `result[0]` が
    * 「行」ではなく「行配列」になり、`result[0].dokusya_id` が undefined →
    * affectedDokusyaId が null → writeRirekiSnapshot がスキップされ、マスタは
    * 更新されるのに履歴(t_dokusya_rireki)が作成されない不具合になっていた。
@@ -679,7 +676,7 @@ export class DokusyaImportService {
    * 無いため、これらの配達先項目に入力があれば「別住所」とみなす:
    *   - haitatsu_same_flg を false（配達先 ≠ 購読者住所）に下ろす
    *   - zougen_hokoku_flg を true（配達先変更は増減報告対象）に立てる
-   * `selectedColumns` 指定時（UPDATE_PARTIAL）は選択された列のみを対象に
+   * `selectedColumns` 指定時（UPDATE）は選択された列のみを対象に
    * 判定する — 未選択＝DBへ書き込まれない配達先列を誤検知しないため。
    */
   private hasHaitatsuDeliveryData(
@@ -825,85 +822,7 @@ export class DokusyaImportService {
   }
 
   /**
-   * Build the UPDATE `values` for an UPDATE_ALL import row (api.md §4.4.2):
-   * overwrite every editable column, KEEP the edit-immutable columns
-   * (購読種別 / 手続種類 / 氏名4 / 購読開始日 / 初回購読開始日) by OMITTING
-   * them (applyChange carries them forward from the predecessor), and treat
-   * FK code columns as optional — set the resolved *_id only when present so
-   * a blank code preserves the existing FK (raw SQL の COALESCE と同義)。
-   */
-  private buildUpdateAllValues(
-    row: ImportDokusyaRowDto,
-    fkMaps: {
-      tankaIdByCode: Map<string, number>;
-      hanbaitenIdByCode: Map<string, number>;
-      kanriShitenIdByCode: Map<string, number>;
-      shitenIdByCode: Map<string, number>;
-    },
-    sameFlg: boolean,
-  ): DokusyaFields {
-    const str = (v: unknown): string =>
-      v === undefined || v === null ? '' : String(asScalar(v));
-    const intOrNull = (v: unknown): number | null =>
-      v === undefined || v === null || v === '' ? null : Number(v);
-    // 直接上書き列（空欄は '' / null で上書き）。編集不可列（購読種別 / 手続種類 /
-    // 氏名4 / 購読開始日 / 初回購読開始日）と情報変更適用日(joho)は含めない
-    // （joho は applyChange の johoDate パラメータで扱う）。
-    const values: DokusyaFields = {
-      kumiaiinCode: str(row.kumiaiin_code),
-      dokusyaBusu: Number(row.dokusya_busu ?? 0),
-      yubinNo: str(row.yubin_no),
-      todofukenCode: str(row.todofuken_code),
-      shikuchoson: str(row.shikuchoson),
-      chomeBanchi: str(row.chome_banchi),
-      tatemonoMei: str(row.tatemono_mei),
-      renrakusaki1: str(row.renrakusaki_1),
-      renrakusaki2: str(row.renrakusaki_2),
-      email: str(row.email),
-      mailMagazineFlg: Number(row.mail_magazine_flg ?? 0),
-      birthYear: intOrNull(row.birth_year),
-      gender: this.toGenderCode(row.gender),
-      haitatsuSameFlg: sameFlg,
-      haitatsuYubinNo: str(row.haitatsu_yubin_no),
-      haitatsuTodofukenCode: str(row.haitatsu_todofuken_code),
-      haitatsuShikuchoson: str(row.haitatsu_shikuchoson),
-      haitatsuChomeBanchi: str(row.haitatsu_chome_banchi),
-      haitatsuTatemonoMei: str(row.haitatsu_tatemono_mei),
-      haitatsuRenrakusaki1: str(row.haitatsu_renrakusaki_1),
-      haitatsuRenrakusaki2: str(row.haitatsu_renrakusaki_2),
-      haitatsuShimeiSei: str(row.haitatsu_shimei_sei),
-      haitatsuShimeiMei: str(row.haitatsu_shimei_mei),
-      haitatsuShimeiKanaSei: str(row.haitatsu_shimei_kana_sei),
-      haitatsuShimeiKanaMei: str(row.haitatsu_shimei_kana_mei),
-      yubinKubun: row.yubin_kubun ?? '0',
-      dokusyaryoShiharaiCycle: intOrNull(row.dokusyaryo_shiharai_cycle),
-      bankBranchCode: str(row.bank_branch_code),
-      bankBranchName: str(row.bank_branch_name),
-      hikiotoshiYokinShubetsu: this.toYokinCode(row.hikiotoshi_yokin_shubetsu),
-      hikiotoshiKozaNo: str(row.hikiotoshi_koza_no),
-      hikiotoshiKozaMeigi: str(row.hikiotoshi_koza_meigi),
-      dokusyasoBunrui: str(row.dokusyaso_bunrui),
-      nogyosyaBunrui: str(row.nogyosya_bunrui),
-      dokusyaChushiDate: dbDateOrNull(row.dokusya_chushi_date),
-      biko: str(row.biko),
-    };
-    // 任意 FK — コードが解決できたときのみ値を載せ、空欄は既存値を維持する
-    // （キーを含めなければ applyChange が predecessor 値を引き継ぐ）。
-    const kanri = fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code));
-    if (kanri != null) values.kanriShitenId = kanri;
-    const shiten = fkMaps.shitenIdByCode.get(str(row.shiten_code));
-    if (shiten != null) values.shitenId = shiten;
-    const hanbaiten = fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code));
-    if (hanbaiten != null) values.hanbaitenId = hanbaiten;
-    const tanka = fkMaps.tankaIdByCode.get(str(row.tanka_code));
-    if (tanka != null) values.tankaId = tanka;
-    const shiharai = intOrNull(row.shiharai_hoho);
-    if (shiharai != null) values.shiharaiHoho = shiharai;
-    return values;
-  }
-
-  /**
-   * Build the UPDATE `values` for an UPDATE_PARTIAL import row (api.md
+   * Build the UPDATE `values` for an UPDATE import row (api.md
    * §4.4.3): ONLY the columns in `selected_columns` (that map to a writable
    * physical column) appear — unselected columns are omitted and carried
    * forward by applyChange. Edit-immutable columns
@@ -1036,10 +955,10 @@ export class DokusyaImportService {
     const updatedBy = String(session.account_id);
     const jaId = Number(session.ja_id ?? 0);
     // 配達先(delivery)7項目に入力があれば「別住所」扱い: haitatsu_same_flg を
-    // false に下ろし、zougen_hokoku_flg を true に立てる（NEW / UPDATE_ALL は
-    // 全配達先列を書込むため row 単位で判定。UPDATE_PARTIAL は選択列のみ）。
+    // false に下ろし、zougen_hokoku_flg を true に立てる（NEW は全配達先列を
+    // 書込むため row 単位で判定。UPDATE は選択列のみ）。
     const hasHaitatsuData =
-      dto.import_mode === 'UPDATE_PARTIAL'
+      dto.import_mode === 'UPDATE'
         ? this.hasHaitatsuDeliveryData(row, dto.selected_columns)
         : this.hasHaitatsuDeliveryData(row);
     // 「購読者情報と同じ」(haitatsu_same_flg) は列で明示指定されたらそれを採用
@@ -1049,10 +968,9 @@ export class DokusyaImportService {
       row.haitatsu_same_flg === undefined
         ? !hasHaitatsuData
         : Boolean(row.haitatsu_same_flg);
-    // UPDATE 系（UPDATE_ALL / UPDATE_PARTIAL）が影響した dokusya_id を RETURNING
-    // から受け取り、履歴スナップショットはこの 1 件の dokusya_id だけをキーに作成
-    // する（kumiaiin は重複可のため曖昧キーにしない）。NEW / UPDATE_ALL は下の
-    // 各分岐で applyChange を呼んで return 済み。ここに残るのは UPDATE_PARTIAL のみ。
+    // UPDATE が影響した dokusya_id を RETURNING から受け取り、履歴スナップショットは
+    // この 1 件の dokusya_id だけをキーに作成する（kumiaiin は重複可のため曖昧キーに
+    // しない）。NEW は下の分岐で applyChange を呼んで return 済み。
 
     if (dto.import_mode === 'NEW') {
       // NEW は共通ライタ applyChange(CREATE) に集約 (S3.2)。master 作成 +
@@ -1079,39 +997,11 @@ export class DokusyaImportService {
       return;
     }
 
-    if (dto.import_mode === 'UPDATE_ALL') {
-      // UPDATE_ALL は共通ライタ applyChange(UPDATE) に集約 (S3.2b)。対象 dokusya_id
-      // を解決し、編集可能列を values に載せて（編集不可列＝購読種別/手続種類/氏名4/
-      // 購読開始日 は省略し predecessor 値を維持）差分から履歴を作成する。情報+販売店
-      // 同時変更は適用日順に分割され、配達先データあり(hasHaitatsuData)は forceZougen
-      // で増減報告対象にする（従来 writeRirekiSnapshot の forceZougenHokoku と同義）。
-      const dokusyaId = await this.resolveImportTargetId(manager, jaId, row);
-      if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
-      // [rireki-no-race] master 行を FOR UPDATE でロックしてから採番する（UI
-      // update と同じ直列化）。同一購読者への同時編集で (dokusya_id, rireki_no)
-      // 一意制約が衝突しないことを保証する。
-      await this.rireki.lockDokusyaRow(manager, dokusyaId);
-      await applyChange(manager, {
-        mode: 'UPDATE',
-        dokusyaId,
-        values: this.buildUpdateAllValues(row, fkMaps, sameFlg),
-        johoDate: dbDateOrNull(row.joho_henko_tekiyo_date) ?? todayIsoJst(),
-        hanbaitenDate: dbDateOrNull(row.hanbaiten_tekiyo_date) ?? undefined,
-        source: 'IMPORT',
-        actor: updatedBy,
-        reason: 'Excel取込',
-        forceZougen: hasHaitatsuData,
-      });
-      // updated_by は rireki に無い列で recompute 対象外 → master へ明示スタンプ。
-      await manager.update(Dokusya, { dokusyaId }, { updatedBy });
-      return;
-    }
-
-    // UPDATE_PARTIAL — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象
-    // dokusya_id を解決し、選択された編集可能列だけを values に載せる（未選択列は
-    // 省略＝predecessor 値を維持）。情報+販売店 同時変更は適用日順に分割され、
-    // 配達先データあり(hasHaitatsuData)は forceZougen で増減報告対象にする。
-    // NEW / UPDATE_ALL は上で applyChange 済み・return 済み。
+    // UPDATE — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象 dokusya_id を
+    // 解決し、選択された編集可能列だけを values に載せる（未選択列は省略＝
+    // predecessor 値を維持、空欄はスキップ）。全列更新は FE が全列を selected_columns
+    // に含めることで実現する。情報+販売店 同時変更は適用日順に分割され、配達先データ
+    // あり(hasHaitatsuData)は forceZougen で増減報告対象にする。NEW は上で return 済み。
     const dokusyaId = await this.resolveImportTargetId(manager, jaId, row);
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。

@@ -16,10 +16,27 @@ import { buildReplaceSearchQuery } from '@test/fixtures/dokusya.factory';
 
 describe('SearchReplaceDokusyaDto', () => {
   // ─── Happy path ─────────────────────────────────────────────────────────
-  it('should pass validation when no query params are supplied (all optional w/ defaults)', async () => {
-    const dto = plainToInstance(SearchReplaceDokusyaDto, {});
+  it('should pass validation when only the required 適用日 is supplied (other filters optional)', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {
+      hanbaiten_tekiyo_date: '2099-12-31',
+    });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  // ─── hanbaiten_tekiyo_date (required, YYYY-MM-DD) — 顧客要件 2026-07 ────────
+  it('should FAIL when hanbaiten_tekiyo_date is missing (now required)', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {});
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(true);
+  });
+
+  it('should FAIL when hanbaiten_tekiyo_date is not YYYY-MM-DD', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {
+      hanbaiten_tekiyo_date: '2099/12/31',
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(true);
   });
 
   it('should pass validation when every documented field has a valid value', async () => {

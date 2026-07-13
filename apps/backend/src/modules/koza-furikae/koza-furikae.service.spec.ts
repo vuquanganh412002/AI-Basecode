@@ -23,6 +23,7 @@ import {
 } from '@test/fixtures/session.factory';
 import {
   buildExportKozaFurikaeQuery,
+  buildPreviewKozaFurikaeQuery,
   buildKozaFurikaeAggRow,
   buildJaJastemRow,
   buildShitenJastemRow,
@@ -79,8 +80,8 @@ describe('KozaFurikaeService', () => {
     reportArchive = {
       resolveJa: jest.fn().mockResolvedValue({ code: 'JA001', name: '' }),
       archive: jest.fn().mockResolvedValue({
-        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.txt',
-        filename: '口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000',
+        filename: '口座振替データ_JA001_2026年05月27日_20260522103000',
         fileDownloadId: 7,
       }),
     };
@@ -147,6 +148,55 @@ describe('KozaFurikaeService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // API-020-003 — POST /api/v1/koza-furikae/preview (v1.1)
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('previewData', () => {
+    it('should aggregate and return the preview rows with meta.total when データ exists', async () => {
+      // COVERS: v1.1 作成開始 = プレビュー表示（集計→一覧）
+      const result = await service.previewData(buildPreviewKozaFurikaeQuery(), kSession());
+
+      expect(result.meta.total).toBe(2);
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]).toEqual(
+        expect.objectContaining({ dokusya_id: 1, furikae_kingaku: 4900 }),
+      );
+      // koza_meigi は 預金者名（hikiotoshi_koza_meigi 優先・Zengin と同ロジック）。
+      expect(result.data[1]).toEqual(
+        expect.objectContaining({ dokusya_id: 2, furikae_kingaku: 4900 }),
+      );
+    });
+
+    it('should throw NO_TARGET_DATA when the preview aggregation returns 0 rows', async () => {
+      // COVERS: v1.1 プレビュー段で0件 → 404 (MSG-020-002)
+      dataSource.query.mockResolvedValue([]);
+
+      await expect(
+        service.previewData(buildPreviewKozaFurikaeQuery(), kSession()),
+      ).rejects.toMatchObject({ response: { error_code: 'NO_TARGET_DATA' } });
+    });
+
+    it('should NOT archive to S3, open a transaction, nor write an audit log when previewing', async () => {
+      // COVERS: v1.1 プレビューは閲覧のみ（DB/S3/監査 書込なし）
+      await service.previewData(buildPreviewKozaFurikaeQuery(), kSession());
+
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(auditLog.logOperation).not.toHaveBeenCalled();
+    });
+
+    it('should bind the session ja_id into the preview aggregation params', async () => {
+      // COVERS: 4.2 DataScope ja_id = user.ja_id（preview も同一集計）
+      await service.previewData(buildPreviewKozaFurikaeQuery(), kSession({ ja_id: 8 }));
+
+      const aggCall = dataSource.query.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /t_dokusya/i.test(sql),
+      );
+      expect(aggCall).toBeDefined();
+      expect(aggCall[1]).toContain(8);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // API-020-002 — POST /api/v1/koza-furikae/export
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportCsv', () => {
@@ -193,8 +243,9 @@ describe('KozaFurikaeService', () => {
       expect(end[0]).toBe('9');
     });
 
-    it('should archive the CSV via FileArchiveService with category koza-furikae, empty rootPrefix and .txt extension', async () => {
-      // COVERS: 4.4 共通S3アーカイブ（reports/ なし）+ t_file_download 登録
+    it('should archive the CSV via FileArchiveService with category koza-furikae, empty rootPrefix and NO extension (全銀メディアは拡張子なし)', async () => {
+      // COVERS: 4.4 共通S3アーカイブ（reports/ なし）+ t_file_download 登録。
+      // 銀行提出ファイルに .txt は不要 → extension は空文字。
       await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
       expect(reportArchive.archive).toHaveBeenCalledTimes(1);
@@ -204,7 +255,7 @@ describe('KozaFurikaeService', () => {
           rootPrefix: '',
           year: '2026',
           baseName: '口座振替データ_JA001_2026年05月27日',
-          extension: '.txt',
+          extension: '',
           contentType: 'text/plain; charset=Shift_JIS',
           recordCount: 2,
         }),
@@ -238,8 +289,8 @@ describe('KozaFurikaeService', () => {
       reportArchive.archive.mockImplementation(async () => {
         order.push('s3');
         return {
-          key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.txt',
-          filename: '口座振替データ_JA001_2026年05月27日_20260522103000.txt',
+          key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000',
+          filename: '口座振替データ_JA001_2026年05月27日_20260522103000',
           fileDownloadId: 7,
         };
       });
@@ -370,6 +421,69 @@ describe('KozaFurikaeService', () => {
       );
 
       expect(result.recordCount).toBe(2);
+    });
+
+    // ─── v1.1: プレビューで編集した金額の反映 ─────────────────────────────
+    it('should apply the edited 金額 from rows into the 全銀 CSV and t_koza_furikae, matched by dokusya_id', async () => {
+      // COVERS: v1.1 金額編集 → dokusya_id 突合で上書き（Zengin & upsert に反映）
+      const body = buildExportKozaFurikaeQuery({
+        rows: [
+          { dokusya_id: 1, furikae_kingaku: 8000 }, // 編集
+          { dokusya_id: 2, furikae_kingaku: 4900 }, // 据え置き
+        ],
+      });
+
+      const result = await service.exportCsv(body, kSession(), req);
+      const text = iconv.decode(result.buffer, 'Shift_JIS');
+      const records = text.split('\r\n').filter((r) => r.length > 0);
+      const [, d1, d2, trailer] = records;
+      // データ1の引落金額(81-90)=8000、合計金額(7-19)=12900。
+      expect(d1.slice(80, 90)).toBe('0000008000');
+      expect(d2.slice(80, 90)).toBe('0000004900');
+      expect(trailer.slice(7, 19)).toBe('000000012900');
+      // upsert にも編集金額（8000）が渡る（$5 = furikae_kingaku）。
+      const upsertCall = txManager.query.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /INSERT INTO t_koza_furikae/i.test(sql),
+      );
+      expect(upsertCall[1][4]).toBe(8000);
+    });
+
+    it('should IGNORE rows whose dokusya_id is not in the scoped aggregation (no cross-tenant / fake-id injection)', async () => {
+      // COVERS: security.md Layer2/4 — client の dokusya_id は信用せず再集計と突合。
+      // スコープに無い偽ID(999)は出力・upsert されず、実在行は DB 金額のまま。
+      const body = buildExportKozaFurikaeQuery({
+        rows: [
+          { dokusya_id: 999, furikae_kingaku: 999_999 }, // 別テナント/偽ID
+          { dokusya_id: 1, furikae_kingaku: 7000 }, // 実在行のみ上書きされる
+        ],
+      });
+
+      const result = await service.exportCsv(body, kSession(), req);
+      const text = iconv.decode(result.buffer, 'Shift_JIS');
+      const records = text.split('\r\n').filter((r) => r.length > 0);
+      // データ行は集計の2件のみ（偽ID行は追加されない）。
+      const dataRecords = records.filter((r) => r[0] === '2');
+      expect(dataRecords).toHaveLength(2);
+      // 999999 は一切出現しない。
+      expect(text).not.toContain('0000999999');
+      // dokusya_id=1 は 7000 に上書き、dokusya_id=2 は据え置き 4900。
+      expect(dataRecords[0].slice(80, 90)).toBe('0000007000');
+      expect(dataRecords[1].slice(80, 90)).toBe('0000004900');
+    });
+
+    it('should keep the DB aggregation 金額 for rows not present in the edited rows[]', async () => {
+      // COVERS: v1.1 未編集行は集計の DB 金額を採用（rows に無い行はそのまま）
+      const body = buildExportKozaFurikaeQuery({
+        rows: [{ dokusya_id: 1, furikae_kingaku: 5500 }], // dokusya_id=2 は編集していない
+      });
+
+      const result = await service.exportCsv(body, kSession(), req);
+      const text = iconv.decode(result.buffer, 'Shift_JIS');
+      const dataRecords = text
+        .split('\r\n')
+        .filter((r) => r.length > 0 && r[0] === '2');
+      expect(dataRecords[0].slice(80, 90)).toBe('0000005500'); // 編集
+      expect(dataRecords[1].slice(80, 90)).toBe('0000004900'); // DB金額
     });
   });
 });

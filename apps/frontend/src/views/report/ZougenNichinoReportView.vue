@@ -18,6 +18,8 @@ import {
   type ZougenNichinoPreviewData,
 } from '@/api/report/report';
 import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
+import BaseReportPager from '@/components/common/BaseReportPager.vue';
+import { formatJpDate } from '@/utils/formatters';
 
 const authStore = useAuthStore();
 const notify = useNotify();
@@ -38,14 +40,19 @@ const formState = reactive<{
   kanri_shiten_id: [],
 });
 
-const fieldErrors = reactive<{ tekiyo_date: string }>({ tekiyo_date: '' });
+const fieldErrors = reactive<{ tekiyo_date: string; kanri_shiten_id: string }>({
+  tekiyo_date: '',
+  kanri_shiten_id: '',
+});
 
 const previewData = ref<ZougenNichinoPreviewData | null>(null);
 /** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-029-002 を表示。 */
 const noDataMessage = ref(false);
 
 /** 1ページ=A4 1枚＝15販売店行（SCR-028 と同方針。BEは購読者単位でSQLページング）。 */
-const ZOUGEN_NICHINO_PER_PAGE = 15;
+// 1管理支店あたり1ページの販売店行上限（BE の ZOUGEN_NICHINO_PER_PAGE と一致させる）。
+// 行は単一行で均一のため A4 に収まる概算(~33)に対し安全側で 28。
+const ZOUGEN_NICHINO_PER_PAGE = 28;
 const currentPage = ref(1);
 
 /** プレビューで直接入力する管理支店ごとの備考（出力時 remarks に変換）。 */
@@ -55,35 +62,38 @@ const hasReports = computed(
   () => previewData.value !== null && previewData.value.reports.length > 0,
 );
 
-/** 適用日 YYYY-MM-DD → 「YYYY年M月D日」（帳票の見出し表記）。 */
-function formatJpDate(iso: string): string {
-  const [y, m, d] = (iso ?? '').split('-');
-  if (!y || !m || !d) return iso ?? '';
-  return `${y}年${Number(m)}月${Number(d)}日`;
-}
-
-/** 管理支店コード10桁を 3-4-3 のハイフン区切りに整形（例: 1AA3300001 → 1AA-3300-001）。 */
-function formatKanriShitenCode(code = ''): string {
+/**
+ * 管理支店コード10桁を 3-4-3 のハイフン区切りに整形（例: 1AA3300001 → 1AA-3300-001）。
+ * 本帳票のコードは英数字混在のため任意10文字を分割する。数字専用の
+ * `formatters.formatKanriShitenCode`（`/^\d{10}$/` 限定）とは意図的に別物なので
+ * 名前を分けて誤importを防ぐ。
+ */
+function groupKanriShitenCode(code = ''): string {
   return /^.{10}$/.test(code) ? `${code.slice(0, 3)}-${code.slice(3, 7)}-${code.slice(7)}` : code;
 }
 
 /** 組合名：管理支店コード(3-4-3): JA名 + 管理支店名（帳票ヘッダ §2.3）。 */
 function kumiaiName(report: ZougenNichinoPreviewData['reports'][number]): string {
-  return `${formatKanriShitenCode(report.kanri_shiten_code)}: ${report.ja_name} ${report.kanri_shiten_name}`;
+  return `${groupKanriShitenCode(report.kanri_shiten_code)}: ${report.ja_name} ${report.kanri_shiten_name}`;
 }
 
 function validate(): boolean {
   fieldErrors.tekiyo_date = '';
+  fieldErrors.kanri_shiten_id = '';
   // ?.trim() — <a-date-picker> の × クリアで undefined になるため。
   if (!formState.tekiyo_date?.trim()) {
     fieldErrors.tekiyo_date = '必須項目です。'; // ACSMS-MSG-029-004
   }
-  return !fieldErrors.tekiyo_date;
+  // 管理支店は必須入力（顧客要件 2026-07）。「全て」選択でスコープ内全件を選べる。
+  if (formState.kanri_shiten_id.length === 0) {
+    fieldErrors.kanri_shiten_id = '管理支店を1件以上選択してください。';
+  }
+  return !fieldErrors.tekiyo_date && !fieldErrors.kanri_shiten_id;
 }
 
 function buildQuery(page?: number): ZougenNichinoQuery {
   const q: ZougenNichinoQuery = { tekiyo_date: formState.tekiyo_date };
-  // 未選択（空配列）は全件対象 → パラメータを送らない。
+  // 管理支店は必須（validate 済）。「全て選択」時は全 ID が入るため常に送る。
   if (formState.kanri_shiten_id.length > 0) {
     q.kanri_shiten_id = formState.kanri_shiten_id;
   }
@@ -108,6 +118,9 @@ function buildExportQuery(): ZougenNichinoQuery {
 }
 
 async function fetchPage(page: number): Promise<void> {
+  // 先頭でリセット（ページ移動・再取得時に前回の「対象なし」表示が残らないよう、
+  // ZougenHanbaiten と同じく fetchPage 側で必ずクリアする）。
+  noDataMessage.value = false;
   try {
     const resp = await previewZougenNichino(buildQuery(page));
     previewData.value = resp.data;
@@ -122,7 +135,6 @@ async function fetchPage(page: number): Promise<void> {
 
 async function onPreview(): Promise<void> {
   if (!validate()) return;
-  noDataMessage.value = false;
   currentPage.value = 1;
   await fetchPage(1);
 }
@@ -203,15 +215,22 @@ defineExpose({ formState });
           </p>
         </div>
 
-        <!-- 管理支店（任意・複数選択可。未選択＝全件）— マルチセレクトのドロップダウン
-             （コード/名称検索、50件ずつ無限スクロール）。 -->
+        <!-- 管理支店（必須・複数選択可）— マルチセレクトのドロップダウン
+             （コード/名称検索、50件ずつ無限スクロール）。ドロップダウン内の
+             「全て選択」でスコープ内の全管理支店を一括選択＝全件出力（顧客要件 2026-07）。 -->
         <div>
-          <div class="text-sm font-medium text-text-main mb-2">管理支店</div>
+          <div class="text-sm font-medium text-text-main mb-2">
+            管理支店<span class="text-error ml-1">*</span>
+          </div>
+          <p v-if="fieldErrors.kanri_shiten_id" class="text-error text-sm mb-2">
+            {{ fieldErrors.kanri_shiten_id }}
+          </p>
           <BaseKanriShitenSelect
             v-if="jaId != null"
             v-model:value="formState.kanri_shiten_id"
             :ja-id="jaId"
-            placeholder="管理支店を選択（未選択＝全件）"
+            placeholder="管理支店を選択（「全て選択」で全件）"
+            allow-select-all
             data-test="kanri-shiten-select"
           />
         </div>
@@ -272,7 +291,8 @@ defineExpose({ formState });
               </h3>
             </div>
             <div class="text-xs text-right text-text-description">
-              ページ数：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}
+              <!-- ページ数は管理支店ごとに採番（1ページ=1管理支店・顧客要件 2026-07）。 -->
+              ページ数：{{ previewData?.group_page_no ?? 1 }}/{{ previewData?.group_total_pages ?? 1 }}
             </div>
           </div>
 
@@ -358,23 +378,17 @@ defineExpose({ formState });
           </div>
         </div>
 
-        <!-- ページャ（1ページ=15販売店行。各ページを別APIで再取得） -->
-        <div
-          v-if="(previewData?.total_pages ?? 1) > 1"
-          class="flex items-center justify-center gap-3 pt-2"
+        <!-- ページャ（1ページ=1管理支店。各ページを別APIで再取得）— 共通 BaseReportPager
+             で SCR-026 と統一。 -->
+        <BaseReportPager
+          :current="currentPage"
+          :page-no="previewData?.page_no ?? 1"
+          :total-pages="previewData?.total_pages ?? 1"
+          :per-page="previewData?.per_page ?? ZOUGEN_NICHINO_PER_PAGE"
+          :total-rows="previewData?.total_rows ?? 0"
           data-test="zougen-nichino-pager"
-        >
-          <span class="text-text-description text-sm">
-            全{{ previewData?.total_rows ?? 0 }}件・{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}ページ
-          </span>
-          <a-pagination
-            :current="currentPage"
-            :total="previewData?.total_rows ?? 0"
-            :page-size="previewData?.per_page ?? ZOUGEN_NICHINO_PER_PAGE"
-            :show-size-changer="false"
-            @change="onPageChange"
-          />
-        </div>
+          @change="onPageChange"
+        />
       </div>
     </div>
   </div>

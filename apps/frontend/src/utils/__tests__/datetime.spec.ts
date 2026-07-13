@@ -22,6 +22,7 @@ import {
   isPastDayTokyo,
   isTodayOrPastDayTokyo,
   tomorrowIsoTokyo,
+  endOfMonthIsoTokyo,
   timestampForFilenameTokyo,
   excelSerialToIsoDate,
   normalizeImportDate,
@@ -189,6 +190,23 @@ describe('tomorrowIsoTokyo', () => {
     // 2026-05-27 22:00 UTC = 2026-05-28 07:00 JST → 翌日 = 2026-05-29。
     vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
     expect(tomorrowIsoTokyo()).toBe('2026-05-29');
+    vi.useRealTimers();
+  });
+});
+
+describe('endOfMonthIsoTokyo', () => {
+  it('returns the last day of the current JST month', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-10T12:00:00.000Z')); // 2026-07-10 21:00 JST
+    expect(endOfMonthIsoTokyo()).toBe('2026-07-31');
+    vi.useRealTimers();
+  });
+
+  it('uses the JST month across the UTC/JST boundary (UTC=2月末, JST=3月)', () => {
+    vi.useFakeTimers();
+    // 2026-02-28 22:00 UTC = 2026-03-01 07:00 JST → 当月(JST)は3月 → 末日 2026-03-31。
+    vi.setSystemTime(new Date('2026-02-28T22:00:00.000Z'));
+    expect(endOfMonthIsoTokyo()).toBe('2026-03-31');
     vi.useRealTimers();
   });
 });

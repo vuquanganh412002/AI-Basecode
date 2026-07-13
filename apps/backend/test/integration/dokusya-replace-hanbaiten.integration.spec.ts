@@ -378,15 +378,57 @@ describeRealPg(
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ page: 1, per_page: 20 })
+        // 販売店適用日は必須（顧客要件 2026-07）。遠未来日で eligible 判定を通す。
+        .query({ page: 1, per_page: 20, hanbaiten_tekiyo_date: '2099-12-31' })
         .expect(200);
 
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta).toMatchObject({ page: 1, per_page: 20 });
     });
 
-    it('should return 200 + persist hanbaiten_id + append rireki when the replace succeeds', async () => {
-      // COVERS: §4.5/§4.7 happy path — `= ANY($1)` + `RETURNING` bulk UPDATE.
+    it('should return 400 DATE_RANGE_INVALID when hanbaiten_tekiyo_date is past (未来日のみ)', async () => {
+      const sid = await asChuokai(1);
+      const res = await http()
+        .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ hanbaiten_tekiyo_date: '2000-01-01' })
+        .expect(400);
+      expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
+    });
+
+    it('should EXCLUDE a 購読者 whose 解約予定日 is on/before the 適用日, and INCLUDE when 適用日 is earlier', async () => {
+      // §4.3 置換可能条件 — (chushi IS NULL OR chushi > 適用日)。適用日が解約予定日
+      // 以降 → 除外、解約予定日より前 → 含む。両ケースとも適用日は未来日。
+      const sid = await asChuokai(1);
+      await seedEligibleDokusya('RPL-CHUSHI');
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_chushi_date = '2099-06-01'
+           WHERE kumiaiin_code = 'RPL-CHUSHI' AND deleted_at IS NULL`,
+      );
+
+      // 適用日 = 2099-12-31 (>= 解約予定日) → 除外。
+      const excluded = await http()
+        .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ kumiaiin_code: 'RPL-CHUSHI', hanbaiten_tekiyo_date: '2099-12-31' })
+        .expect(200);
+      expect(excluded.body.data).toHaveLength(0);
+
+      // 適用日 = 2099-01-01 (< 解約予定日) → 含む。
+      const included = await http()
+        .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ kumiaiin_code: 'RPL-CHUSHI', hanbaiten_tekiyo_date: '2099-01-01' })
+        .expect(200);
+      expect(included.body.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should return 200 + append a future-dated rireki row with the new 販売店 when the replace succeeds', async () => {
+      // COVERS: §4.5/§4.7 happy path — applyChange(UPDATE) で未来適用日の履歴行を
+      // 追加する。適用日は未来（futureDate(2)）なので recomputeMaster(asOf=当日) は
+      // 到来前の変更を master へ反映しない（到来日バッチの担当）。したがって:
+      //   - master t_dokusya.hanbaiten_id は旧販売店(200)のまま（未来分は未反映）
+      //   - 追加された最新 rireki 行が新販売店(201)を持つ
       const sid = await asChuokai(1);
       const id = await seedEligibleDokusya('RPL-OK', { hanbaiten_id: 200 });
 
@@ -399,11 +441,22 @@ describeRealPg(
       expect(res.body.message).toBe('置換処理が完了しました。');
       expect(res.body.data).toMatchObject({ new_hanbaiten_id: 201 });
 
+      // master は当日時点の有効販売店（旧=200）のまま。未来適用日の変更は到来日
+      // バッチで反映される（現状バッチ未実装のため反映されないのが正しい挙動）。
       const [persisted] = await ctx.dataSource.query(
         `SELECT hanbaiten_id FROM t_dokusya WHERE dokusya_id = $1`,
         [id],
       );
-      expect(Number(persisted.hanbaiten_id)).toBe(201);
+      expect(Number(persisted.hanbaiten_id)).toBe(200);
+
+      // 追加された最新の履歴行（最大 rireki_no）が新販売店(201)を持つ。
+      const [latestRireki] = await ctx.dataSource.query(
+        `SELECT hanbaiten_id FROM t_dokusya_rireki
+           WHERE dokusya_id = $1
+           ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(latestRireki.hanbaiten_id)).toBe(201);
     });
 
     it('should IGNORE a torikeshi_flg=true history row (取消済) when validating 適用日 (顧客要件)', async () => {

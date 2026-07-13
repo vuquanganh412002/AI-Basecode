@@ -13,7 +13,10 @@ import { buildAuditCtx } from '@/common/utils/audit-context';
 import { AuditOperation, DownloadType } from '@/common/enums';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
+import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
 import { NoTargetDataException } from './exceptions/no-target-data.exception';
+import { toKozaPreviewRow, type KozaPreviewRow } from './koza-furikae.mapper';
+import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
   buildRecord,
   padCharSpace,
@@ -43,8 +46,16 @@ export interface KozaFurikaeInitialData {
 /** raw SQL 由来の数値列（pg ドライバが string で返す場合あり、NULL 許容）。 */
 type NullableNumeric = number | string | null;
 
+/** preview / export が共有する集計フィルタ（target_month + 絞込ID群）。 */
+export interface KozaFurikaeAggFilter {
+  target_month: string;
+  kanri_shiten_ids?: number[];
+  shiten_ids?: number[];
+  koza_shiten_ids?: number[];
+}
+
 /** 集計1行（購読者×引落口座）。raw `dataSource.query(...)` の SQL 別名。 */
-interface KozaFurikaeAggRow {
+export interface KozaFurikaeAggRow {
   dokusya_id: number | string;
   koza_meigi: string | null;
   bank_branch_code: string | null;
@@ -122,6 +133,24 @@ export class KozaFurikaeService {
     };
   }
 
+  // ─── ACSMS-API-020-003 — POST /api/v1/koza-furikae/preview ──────────
+  /**
+   * 「作成開始」= 集計してプレビュー一覧を返す（v1.1）。DB / S3 / 監査ログは
+   * 書き込まない（閲覧のみ）。0 件は 404 (NO_TARGET_DATA) で MSG-020-002 を
+   * プレビュー段に表示させる。金額は集計初期値で、FE で編集される。
+   */
+  async previewData(
+    body: PreviewKozaFurikaeDto,
+    session: SessionPayload,
+  ): Promise<PaginatedResponse<KozaPreviewRow>> {
+    const rows = await this.fetchAggRows(body, session);
+    if (rows.length === 0) throw new NoTargetDataException();
+    // 全件を1ページで返す（D4）。FE はクライアントページングで表示、meta.total を
+    // 件数表示に使う。合計金額は FE 側で行金額を合算する（編集で変動するため）。
+    const data = rows.map(toKozaPreviewRow);
+    return paginate(data, data.length, 1, data.length);
+  }
+
   // ─── ACSMS-API-020-002 — POST /api/v1/koza-furikae/export ───────────
   async exportCsv(
     body: ExportKozaFurikaeDto,
@@ -129,10 +158,23 @@ export class KozaFurikaeService {
     req: Request,
   ): Promise<ExportKozaFurikaeResult> {
     try {
-      // 4.3 集計対象の購読者（口座引落・継続）を取得する。
+      // 4.3 集計対象の購読者（口座引落・継続）を取得する。スコープ（ja_id /
+      // kanri_shiten_id）は params に内包されるため、これが信頼できる行集合。
       const rows: KozaFurikaeAggRow[] = await this.fetchAggRows(body, session);
       // 4.3 0件 → 404 (NO_TARGET_DATA)。CSV / S3 / DB は実行しない。
       if (rows.length === 0) throw new NoTargetDataException();
+
+      // v1.1: プレビューで編集した金額を dokusya_id で突合し、スコープ内の行だけ
+      // 上書きする。client が送った dokusya_id は信用しない — 再集計した rows を
+      // 基準にループするので、スコープ外/偽の dokusya_id は自然に無視される
+      // （security.md Layer2/4）。未編集行は集計の DB 金額をそのまま使う。
+      const override = new Map<number, number>(
+        (body.rows ?? []).map((r) => [Number(r.dokusya_id), r.furikae_kingaku]),
+      );
+      for (const r of rows) {
+        const edited = override.get(Number(r.dokusya_id));
+        if (edited != null) r.furikae_kingaku = edited;
+      }
 
       // 4.4 全銀フォーマット（固定長120バイト・種別91）を生成し Shift_JIS へ変換する。
       const zengin = this.buildZenginFixed(body, rows);
@@ -164,7 +206,10 @@ export class KozaFurikaeService {
         session,
         recordCount: rows.length,
         contentType: ZENGIN_MIME,
-        extension: '.txt',
+        // 全銀メディアの受入名は拡張子なし（固定名 ZENOUTFD）。銀行提出ファイルに
+        // .txt は不要なため、S3 保存名 / t_file_download / 履歴からの再DL とも
+        // 拡張子を付けない。
+        extension: '',
         // 口座振替データ (SCR-020)：日農担当者DL不可。
         downloadType: DownloadType.KOZA_FURIKAE,
         nichinoDownloadAllowedFlg: false,
@@ -246,9 +291,12 @@ export class KozaFurikaeService {
 
   // ─── private ─────────────────────────────────────────────────────
 
-  /** 4.3 対象購読者の集計（DataScope は params に内包）。 */
+  /**
+   * 4.3 対象購読者の集計（DataScope は params に内包）。preview / export で共用する
+   * 唯一の集計ロジック。フィルタ項目だけを持つ構造型を受け取り、両 DTO で使える。
+   */
   private async fetchAggRows(
-    body: ExportKozaFurikaeDto,
+    body: KozaFurikaeAggFilter,
     session: SessionPayload,
   ): Promise<KozaFurikaeAggRow[]> {
     const params: unknown[] = [

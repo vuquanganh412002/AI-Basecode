@@ -98,7 +98,9 @@ const excelToBool = ({ value }: { value: unknown }) => {
  * Body of POST /api/v1/hanbaiten/import (ACSMS-API-019-002).
  *
  * Validation rules per docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md §4.1.
- * - `import_mode` ∈ { NEW, UPDATE_ALL, UPDATE_PARTIAL }
+ * - `import_mode` ∈ { NEW, UPDATE }（顧客要件 2026-07：全項目更新を廃止し
+ *   更新1本に統合。UPDATE は selected_columns の列のみ更新、全列更新は全列を
+ *   selected_columns に含める）
  * - `selected_columns` carries 1..23 physical column names; the service
  *   layer re-asserts the `hanbaiten_code` membership for defence-in-depth
  *   (no DTO-level cross-field check is necessary since the rule
@@ -112,7 +114,7 @@ const excelToBool = ({ value }: { value: unknown }) => {
  * `class-validator` runs before Nest DI is wired.
  */
 
-const IMPORT_MODES = ['NEW', 'UPDATE_ALL', 'UPDATE_PARTIAL'] as const;
+const IMPORT_MODES = ['NEW', 'UPDATE'] as const;
 
 export class ImportHanbaitenRowDto {
   @ApiProperty({ description: '販売店コード', maxLength: 10 })
@@ -296,8 +298,7 @@ export class ImportHanbaitenDto {
   @IsString({ message: '取込モードは文字列で指定してください。' })
   @IsNotEmpty({ message: '取込モードは必須です。' })
   @IsIn(IMPORT_MODES, {
-    message:
-      '取込モードは NEW / UPDATE_ALL / UPDATE_PARTIAL のいずれかを指定してください。',
+    message: '取込モードは NEW / UPDATE のいずれかを指定してください。',
   })
   import_mode!: (typeof IMPORT_MODES)[number];
 

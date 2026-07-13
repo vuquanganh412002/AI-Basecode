@@ -102,10 +102,18 @@ describe('ReportService', () => {
   // ═══════════════════════════════════════════════════════════════════
   // API-026-001 — GET /api/v1/report/meibo/preview
   // ═══════════════════════════════════════════════════════════════════
+  // 動的ページング（顧客要件 2026-07）: previewMeibo は fetchRows で全件を1回
+  // getRawMany し、mapper の buildMeiboDocPages で A4 高さ基準に文書ページ化する。
+  // よってモックは全件を返す単一の getRawMany で足りる（stats/2クエリは廃止）。
+  function mockMeiboPreview(allRows: any[]): void {
+    qbMock.getRawMany.mockReset();
+    qbMock.getRawMany.mockResolvedValue(allRows);
+  }
+
   describe('previewMeibo', () => {
     it('should return a 販売店別 grouped structure when report_type is hanbaiten', async () => {
       // COVERS: 4.5 レスポンス生成 — 販売店 → 管理支店 → 購読者 のネスト
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({ hanbaiten_id: 1, kanri_shiten_id: 10, dokusya_busu: 3 }),
         buildMeiboRawRow({ hanbaiten_id: 1, kanri_shiten_id: 10, dokusya_busu: 2 }),
       ]);
@@ -126,7 +134,7 @@ describe('ReportService', () => {
 
     it('should return a 管理支店別 grouped structure when report_type is kanri_shiten', async () => {
       // COVERS: 4.5 レスポンス生成 — 管理支店 → 購読者 のネスト
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({ kanri_shiten_id: 10, dokusya_busu: 2 }),
       ]);
 
@@ -149,7 +157,7 @@ describe('ReportService', () => {
 
     it('should use 購読者名 for shimei when haitatsu_same_flg is true', async () => {
       // COVERS: 4.5 — 配達先情報指定がFalseのとき購読者名を使用
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({
           haitatsu_same_flg: true,
           shimei_sei: '農業',
@@ -164,7 +172,7 @@ describe('ReportService', () => {
 
     it('should use 配達先氏名 for shimei when haitatsu_same_flg is false', async () => {
       // COVERS: 4.5 — 配達先情報指定がTrueのとき配達先氏名を使用
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({
           haitatsu_same_flg: false,
           shimei_sei: '農業',
@@ -181,7 +189,7 @@ describe('ReportService', () => {
 
     it('should concatenate the 配達先住所 as 〒+郵便番号+市町村郡+丁目番地+建物名', async () => {
       // COVERS: 4.5 — haitatsu_address の連結
-      qbMock.getRawMany.mockResolvedValue([buildMeiboRawRow()]);
+      mockMeiboPreview([buildMeiboRawRow()]);
 
       const result = await service.previewMeibo(buildKanriShitenMeiboQuery(), jaSession());
 
@@ -192,7 +200,7 @@ describe('ReportService', () => {
     });
 
     it('should map haitatsu_renrakusaki_1 to the haitatsu_tel output field', async () => {
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({ haitatsu_renrakusaki_1: '03-1234-5678' }),
       ]);
 
@@ -204,7 +212,7 @@ describe('ReportService', () => {
     it('should fall back to 購読者本人の住所・連絡先 when haitatsu_same_flg=true (haitatsu_* are blank)', async () => {
       // Regression: same_flg=TRUE のとき haitatsu_* は空欄で保存されるため、
       // 配達先住所/電話番号は購読者本人の住所・連絡先から取得する。
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({
           haitatsu_same_flg: true,
           yubin_no: '5000001',
@@ -228,7 +236,7 @@ describe('ReportService', () => {
     });
 
     it('should use 配達先住所・連絡先 when haitatsu_same_flg=false (distinct from 本人)', async () => {
-      qbMock.getRawMany.mockResolvedValue([
+      mockMeiboPreview([
         buildMeiboRawRow({
           haitatsu_same_flg: false,
           yubin_no: '5000001',
@@ -248,38 +256,100 @@ describe('ReportService', () => {
       expect(row.haitatsu_tel).toBe('099-888-7777');
     });
 
-    it('paginates via SQL OFFSET/LIMIT + window aggregates (loads only the page)', async () => {
-      // 管理支店10 に全5件。DBはページ分(rn 3,4)だけ返し、各行に全件ウィンドウ
-      // 集計列を載せる（COUNT/SUM OVER）。BEは5件をメモリに抱えない。
-      const win = (rn: number) =>
-        buildMeiboRawRow({
-          dokusya_id: 300 + rn,
-          kanri_shiten_id: 10,
-          kanri_shiten_name: '支所A',
-          dokusya_busu: 1,
-          _total_rows: 5,
-          _grand_busu: 5,
-          _kg_busu: 5,
-          _kg_rn: rn,
-          _kg_count: 5,
-        });
-      qbMock.getRawMany.mockResolvedValue([win(3), win(4)]);
+    // 全ページを順に取得して連結（動的ページングの不変条件検証に使う）。
+    // getRawMany は毎回同じ全件を返すモックなので何度呼んでも安全。
+    async function collectAllPages(query: any): Promise<any[]> {
+      const first = await service.previewMeibo({ ...query, page: 1 }, jaSession());
+      const pages = [first];
+      for (let p = 2; p <= (first.total_pages ?? 1); p++) {
+        pages.push(
+          await service.previewMeibo({ ...query, page: p }, jaSession()),
+        );
+      }
+      return pages;
+    }
 
-      const res = await service.previewMeibo(
-        buildKanriShitenMeiboQuery({ page: 2, per_page: 2 }),
-        jaSession(),
+    it('全件を1クエリで取得し SQL OFFSET/LIMIT を使わず A4 高さで改ページする（動的ページング 2026-07）', async () => {
+      // 管理支店10 に 30件。行の高さを積算して A4 1ページ分ずつに割る（固定行数ではない）。
+      mockMeiboPreview(
+        Array.from({ length: 30 }, (_, i) =>
+          buildMeiboRawRow({ kanri_shiten_id: 10, dokusya_busu: 1, dokusya_id: 500 + i }),
+        ),
       );
 
-      expect(res.total_rows).toBe(5);
-      expect(res.total_pages).toBe(3);
-      expect(res.page_no).toBe(2);
-      expect(res.is_last_page).toBe(false);
-      expect(res.kanri_shiten_groups[0].rows).toHaveLength(2); // ページ分のみ
-      expect(res.kanri_shiten_groups[0].is_continued).toBe(true); // 前ページから継続
-      expect(res.grand_total_busu).toBe(5); // 全件合計（部分ページでも全件値）
-      // SQL側でページングしていることを保証（OFFSET=(2-1)*2, LIMIT=2）。
-      expect(qbMock.offset).toHaveBeenCalledWith(2);
-      expect(qbMock.limit).toHaveBeenCalledWith(2);
+      const pages = await collectAllPages(buildKanriShitenMeiboQuery());
+
+      // SQL ページングは廃止（全件を1回で取得）。
+      expect(qbMock.offset).not.toHaveBeenCalled();
+      expect(qbMock.limit).not.toHaveBeenCalled();
+      // 30件は1ページに収まらない（高さ基準で複数ページ）。
+      expect(pages[0].total_pages).toBeGreaterThan(1);
+      expect(pages[0].total_rows).toBe(30);
+      expect(pages[0].grand_total_busu).toBe(30);
+      // 全ページの明細を連結すると 30件（過不足なし・グループを跨がない）。
+      const allRows = pages.flatMap((p) => p.kanri_shiten_groups[0].rows);
+      expect(allRows).toHaveLength(30);
+      // 先頭ページは継続でない、以降のページは継続。
+      expect(pages[0].kanri_shiten_groups[0].is_continued).toBe(false);
+      expect(pages[1].kanri_shiten_groups[0].is_continued).toBe(true);
+      // 小計はグループ最終ページのみ。
+      expect(pages[pages.length - 1].kanri_shiten_groups[0].show_subtotal).toBe(true);
+      expect(pages[0].kanri_shiten_groups[0].show_subtotal).toBe(false);
+      // 小計値は部分ページでも常にグループ全体の合計。
+      expect(pages[0].kanri_shiten_groups[0].subtotal_busu).toBe(30);
+    });
+
+    it('group-based: 各販売店は独立A4ページ（グループを跨がず、大きいグループのみ複数ページ）', async () => {
+      // 3販売店 A=2件 / B=20件 / C=1件。B は1ページに収まらず複数ページに分かれるが、
+      // A・C とは決して同居しない。
+      mockMeiboPreview([
+        ...Array.from({ length: 2 }, () => buildMeiboRawRow({ hanbaiten_id: 1, dokusya_busu: 1 })),
+        ...Array.from({ length: 20 }, () => buildMeiboRawRow({ hanbaiten_id: 2, dokusya_busu: 1 })),
+        buildMeiboRawRow({ hanbaiten_id: 3, dokusya_busu: 1 }),
+      ]);
+
+      const pages = await collectAllPages(buildMeiboQuery());
+
+      expect(pages[0].total_rows).toBe(23);
+      expect(qbMock.offset).not.toHaveBeenCalled();
+      // どのページも販売店グループは1つだけ（他店と混ざらない）。
+      for (const pg of pages) expect(pg.hanbaiten_groups).toHaveLength(1);
+      // グループ id ごとのページ集合。
+      const idOf = (pg: any) => pg.hanbaiten_groups[0].hanbaiten_id;
+      const pagesOfB = pages.filter((pg) => idOf(pg) === 2);
+      expect(pages.filter((pg) => idOf(pg) === 1)).toHaveLength(1); // A: 1ページ
+      expect(pagesOfB.length).toBeGreaterThan(1); // B: 複数ページ
+      expect(pages.filter((pg) => idOf(pg) === 3)).toHaveLength(1); // C: 1ページ
+      // グループ id は昇順に連続（ページ順で 1..,2..,3..）。
+      const ids = pages.map(idOf);
+      expect(ids).toEqual([...ids].sort((a, b) => a - b));
+      // B の各ページを連結すると 20件、ヘッダのページ数は B 内で 1..N。
+      expect(pagesOfB.flatMap((pg) => pg.hanbaiten_groups[0].kanri_shiten_groups.flatMap((s: any) => s.rows))).toHaveLength(20);
+      expect(pagesOfB.map((pg) => pg.group_page_no)).toEqual(
+        pagesOfB.map((_, i) => i + 1),
+      );
+      expect(new Set(pagesOfB.map((pg) => pg.group_total_pages))).toEqual(
+        new Set([pagesOfB.length]),
+      );
+    });
+
+    it('group-based: 小計は各グループ最終ページに出す・group_count は全体グループ数', async () => {
+      // 2販売店(A=3部, B=4部) → 各1ページ・計2ページ。
+      mockMeiboPreview([
+        buildMeiboRawRow({ hanbaiten_id: 1, dokusya_busu: 3 }),
+        buildMeiboRawRow({ hanbaiten_id: 2, dokusya_busu: 4 }),
+      ]);
+
+      const pages = await collectAllPages(buildMeiboQuery());
+
+      expect(pages[0].total_pages).toBe(2);
+      expect(pages[0].group_count).toBe(2); // 全体の販売店数
+      expect(pages[pages.length - 1].is_last_page).toBe(true);
+      expect(pages[0].grand_total_busu).toBe(7);
+      // 各グループ単一ページ → いずれも小計表示（show_total）。
+      for (const pg of pages) {
+        expect(pg.hanbaiten_groups[0].show_total).toBe(true);
+      }
     });
 
     // ─── validation (conditional-required) ───────────────────────────────
@@ -532,8 +602,37 @@ describe('ReportService', () => {
       expect(ws.pageSetup.fitToHeight).toBe(0); // 行は縦に連続して複数A4に流す
     });
 
+    it('auto-fits detail row height so multi-line text is not clipped (顧客要件 2026-07)', async () => {
+      // 折返しの多い長い住所を持つ明細 → 行高が内容に合わせて拡張される（切れない）。
+      qbMock.getRawMany.mockResolvedValue([
+        buildMeiboRawRow({
+          hanbaiten_id: 1,
+          kanri_shiten_id: 10,
+          haitatsu_same_flg: false,
+          haitatsu_yubin_no: '2222222',
+          haitatsu_shikuchoson: '神奈川県横浜市港北区新横浜',
+          haitatsu_chome_banchi: '一丁目二番三号',
+          haitatsu_tatemono_mei: 'サンプルタワーマンション1508号室ずっと長い建物名',
+        }),
+      ]);
+
+      const result = await service.exportMeiboExcel(buildMeiboQuery(), jaSession(), req);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+
+      // 明細行（チェックボックス列に □ を持つ行）の高さを取得。
+      let detailHeight = 0;
+      ws.eachRow((r) => {
+        if (r.getCell(1).value === '□') detailHeight = Number(r.height ?? 0);
+      });
+      // 高さが計算・設定され、住所の折返し分だけチェックボックス最低(44)より高い。
+      expect(detailHeight).toBeGreaterThan(44);
+    });
+
     it('repeats the report header per document page with distinct ページ数 k/M in cells', async () => {
-      // 35件 → 15行/ページ → 3ページに分割（各ページにヘッダ+ページ数）。
+      // 35件（単一販売店）→ A4 高さ基準で複数ページに分割（各ページにヘッダ+ページ数）。
+      // 動的ページングなので総ページ数 M は行の高さで決まる（固定行数ではない）。
       const rows = Array.from({ length: 35 }, (_, i) =>
         buildMeiboRawRow({ dokusya_id: 500 + i, hanbaiten_id: 1, kanri_shiten_id: 10 }),
       );
@@ -551,13 +650,18 @@ describe('ReportService', () => {
         }),
       );
       const joined = texts.join('|');
-      // ヘッダが各ページに繰り返される（タイトルが3ページ分。merge セルで複数
-      // 計上されるため >= 3 で判定）。
-      expect(texts.filter((t) => t === '販売店別購読者名簿').length).toBeGreaterThanOrEqual(3);
-      // 各ページのページ数がセルに直接入る（Excel を開いた時点で見える）。
-      expect(joined).toContain('ページ数：1/3');
-      expect(joined).toContain('ページ数：2/3');
-      expect(joined).toContain('ページ数：3/3');
+      // ページ数セルから総ページ数 M と採番 1..M を抽出（merge セルで重複計上あり）。
+      const pageNos = [...joined.matchAll(/ページ数：(\d+)\/(\d+)/g)];
+      expect(pageNos.length).toBeGreaterThan(0);
+      const totals = new Set(pageNos.map((m) => m[2]));
+      expect(totals.size).toBe(1); // 全ページで M が一致
+      const M = Number([...totals][0]);
+      expect(M).toBeGreaterThan(1); // 35件は1ページに収まらない
+      // 採番 1..M が全て出現する（各ページにヘッダ+ページ数が入る）。
+      const seen = new Set(pageNos.map((m) => Number(m[1])));
+      for (let k = 1; k <= M; k++) expect(seen.has(k)).toBe(true);
+      // ヘッダが各ページに繰り返される（タイトルが M ページ分。merge で複数計上）。
+      expect(texts.filter((t) => t === '販売店別購読者名簿').length).toBeGreaterThanOrEqual(M);
     });
 
     it('should archive the generated Excel via FileArchiveService when export succeeds', async () => {
@@ -652,18 +756,13 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       ...overrides,
     });
 
-  // 増減連絡票プレビューは SQLページング（購読者単位）：
-  //   ① count(distinct dokusya_id) → getRawOne
-  //   ② ページ対象の dokusya_id → getRawMany (1回目)
-  //   ③ その購読者の明細行 → getRawMany (2回目)
-  // テストでは「このページに載る全行」を渡せば、count/ids/rows をまとめて仕込む。
+  // 増減連絡票プレビューはグループ単位ページング（販売店+管理支店 combo ごとに独立
+  // ページ・顧客要件 2026-07・SCR-026/029 と同方針）：全件を1回 getRawMany で取得し、
+  // mapper の paginateZougenSubscribers で combo ページに分割する。よってモックは全件を
+  // 返す単一の getRawMany で足りる（count/ids の2クエリは廃止）。
   const mockZougenPage = (rows: ReturnType<typeof buildZougenRawRow>[]): void => {
-    const ids = [...new Set(rows.map((r) => Number(r.dokusya_id)))];
-    qbMock.getRawOne.mockResolvedValue({ cnt: String(ids.length) });
-    qbMock.getRawMany
-      .mockReset()
-      .mockResolvedValueOnce(ids.map((id) => ({ dokusya_id: id })))
-      .mockResolvedValueOnce(rows);
+    qbMock.getRawMany.mockReset();
+    qbMock.getRawMany.mockResolvedValue(rows);
   };
 
   beforeEach(() => {
@@ -932,10 +1031,19 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
         }),
       ]);
 
-      const result = await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
-
-      const oldStore = result.reports.find((r) => r.hanbaiten_code === 'H001');
-      const newStore = result.reports.find((r) => r.hanbaiten_code === 'H002');
+      // 旧店(H001)と新店(H002)は別 combo → 別ページ（顧客要件 2026-07）。両ページを集約。
+      const p1 = await service.previewZougenHanbaiten(
+        buildZougenQuery({ page: 1 }),
+        zSession(),
+      );
+      const p2 = await service.previewZougenHanbaiten(
+        buildZougenQuery({ page: 2 }),
+        zSession(),
+      );
+      expect(p1.total_pages).toBe(2);
+      const all = [...p1.reports, ...p2.reports];
+      const oldStore = all.find((r) => r.hanbaiten_code === 'H001');
+      const newStore = all.find((r) => r.hanbaiten_code === 'H002');
       expect(oldStore?.genbu).toHaveLength(1);
       expect(oldStore?.genbu[0].busu).toBe('1 → 0'); // 旧店: 減 1
       expect(newStore?.zoubu).toHaveLength(1);
@@ -991,18 +1099,20 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(rpt.address_change).toHaveLength(0);
     });
 
-    it('ページ送り: SQL OFFSET/LIMIT で購読者単位に分割 (per_page=15, 全20件→2ページ)', async () => {
-      // 全20購読者(全て増, 同一販売店)。SQL は count(distinct) + dokusya_id の
-      // OFFSET/LIMIT で1ページ分の購読者だけをロードする（メモリ内ではない）。
-      const page1Rows = Array.from({ length: 15 }, (_, i) =>
-        buildZougenRawRow({ dokusya_id: 9300 + i, dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
+    it('ページ送り: 販売店内で combo を perPage レコードずつに分割 (per_page=15, 20レコード→2ページ・顧客要件 2026-07)', async () => {
+      // 20購読者(全て増・同一販売店+管理支店=1 combo)。全件取得 → combo を 15+5 の2ページ
+      // に分割。ページ数は販売店ごとに 1/2, 2/2。SQL OFFSET/LIMIT は使わない。
+      const rows = Array.from({ length: 20 }, (_, i) =>
+        buildZougenRawRow({
+          dokusya_id: 9300 + i,
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: 1,
+          hanbaiten_id: 200,
+          hanbaiten_code: 'H001',
+          kanri_shiten_id: 30,
+        }),
       );
-      // page1: count=20 → ページIDクエリ(15) → 明細行(15)
-      qbMock.getRawOne.mockResolvedValue({ cnt: '20' });
-      qbMock.getRawMany
-        .mockReset()
-        .mockResolvedValueOnce(page1Rows.map((r) => ({ dokusya_id: r.dokusya_id })))
-        .mockResolvedValueOnce(page1Rows);
+      mockZougenPage(rows);
 
       const p1 = await service.previewZougenHanbaiten(
         buildZougenQuery({ page: 1, per_page: 15 }),
@@ -1012,20 +1122,12 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(p1.total_pages).toBe(2);
       expect(p1.page_no).toBe(1);
       expect(p1.is_last_page).toBe(false);
-      expect(p1.reports[0].zoubu).toHaveLength(15); // 1ページ目=15購読者
-      // SQL の OFFSET/LIMIT がページIDクエリに渡ること（メモリ内スライスではない）。
-      expect(qbMock.offset).toHaveBeenCalledWith(0);
-      expect(qbMock.limit).toHaveBeenCalledWith(15);
-
-      // page2: count=20 → ページIDクエリ(残り5) → 明細行(5)
-      const page2Rows = Array.from({ length: 5 }, (_, i) =>
-        buildZougenRawRow({ dokusya_id: 9400 + i, dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
-      );
-      qbMock.getRawOne.mockResolvedValue({ cnt: '20' });
-      qbMock.getRawMany
-        .mockReset()
-        .mockResolvedValueOnce(page2Rows.map((r) => ({ dokusya_id: r.dokusya_id })))
-        .mockResolvedValueOnce(page2Rows);
+      expect(p1.reports[0].zoubu).toHaveLength(15); // 1ページ目=15レコード
+      expect(p1.group_page_no).toBe(1);
+      expect(p1.group_total_pages).toBe(2);
+      // SQL OFFSET/LIMIT は使わない（全件取得してメモリ内で combo 分割）。
+      expect(qbMock.offset).not.toHaveBeenCalled();
+      expect(qbMock.limit).not.toHaveBeenCalled();
 
       const p2 = await service.previewZougenHanbaiten(
         buildZougenQuery({ page: 2, per_page: 15 }),
@@ -1033,8 +1135,9 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       );
       expect(p2.page_no).toBe(2);
       expect(p2.is_last_page).toBe(true);
-      expect(p2.reports[0].zoubu).toHaveLength(5); // 2ページ目=残り5購読者
-      expect(qbMock.offset).toHaveBeenCalledWith(15); // OFFSET = (2-1)*15
+      expect(p2.reports[0].zoubu).toHaveLength(5); // 2ページ目=残り5レコード
+      expect(p2.group_page_no).toBe(2);
+      expect(p2.group_total_pages).toBe(2);
     });
 
     it('should bind the joho_henko_tekiyo_date = tekiyo_date predicate', async () => {

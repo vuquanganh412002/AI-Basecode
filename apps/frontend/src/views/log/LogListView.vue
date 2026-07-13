@@ -19,6 +19,7 @@ import {
   parseDatetimeWithSecondsTokyo,
   timestampForFilenameTokyo,
 } from '@/utils/datetime';
+import { downloadBlob } from '@/utils/download';
 
 const codes = useCodesStore();
 
@@ -158,14 +159,7 @@ async function onCsvExport(): Promise<void> {
       sort_order: state.sort_order,
     };
     const blob = await exportLogCsv(params);
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `log_export_${timestampForFilenameTokyo()}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
+    downloadBlob(blob, `log_export_${timestampForFilenameTokyo()}.csv`);
     message.success('CSVファイルをダウンロードしました。');
   } catch {
     // Export mirrors the on-screen page (bounded by per_page), so there is

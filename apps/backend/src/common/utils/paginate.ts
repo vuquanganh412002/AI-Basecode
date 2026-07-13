@@ -41,3 +41,46 @@ export function paginate<T>(
     },
   };
 }
+
+/**
+ * Cursor-style meta for infinite-scroll dropdown endpoints. Instead of
+ * `total_pages` it exposes `has_more` (is there a next page to fetch?),
+ * which the FE `useEntityDropdown` composable reads to decide whether to
+ * keep paging on scroll.
+ */
+export interface CursorPageMeta {
+  total: number;
+  page: number;
+  per_page: number;
+  has_more: boolean;
+}
+
+export interface CursorPaginatedResponse<T> {
+  data: T[];
+  meta: CursorPageMeta;
+}
+
+/**
+ * Build the `{ data, meta }` response for cursor/infinite-scroll dropdown
+ * endpoints (JA / account / tanka `*Dropdown`). Centralizes the
+ * `has_more = page * per_page < total` computation so all dropdown
+ * endpoints stay structurally identical.
+ *
+ *   return paginateCursor(rows, total, page, per_page);
+ */
+export function paginateCursor<T>(
+  data: T[],
+  total: number,
+  page: number,
+  per_page: number,
+): CursorPaginatedResponse<T> {
+  return {
+    data,
+    meta: {
+      total,
+      page,
+      per_page,
+      has_more: page * per_page < total,
+    },
+  };
+}

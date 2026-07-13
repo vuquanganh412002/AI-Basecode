@@ -49,7 +49,7 @@ describe('ImportHanbaitenDto', () => {
   });
 
   // ─── import_mode ─────────────────────────────────────────────────────
-  describe('import_mode (required, enum NEW / UPDATE_ALL / UPDATE_PARTIAL)', () => {
+  describe('import_mode (required, enum NEW / UPDATE)', () => {
     it('should reject when import_mode is missing', async () => {
       const errs = await check({ ...VALID, import_mode: undefined });
       expect(errs.some((e) => e.property === 'import_mode')).toBe(true);
@@ -60,9 +60,16 @@ describe('ImportHanbaitenDto', () => {
       expect(errs.some((e) => e.property === 'import_mode')).toBe(true);
     });
 
-    it('should reject when import_mode is not one of NEW / UPDATE_ALL / UPDATE_PARTIAL', async () => {
+    it('should reject when import_mode is not one of NEW / UPDATE', async () => {
       const errs = await check({ ...VALID, import_mode: 'DELETE' });
       expect(errs.some((e) => e.property === 'import_mode')).toBe(true);
+    });
+
+    it('should reject the retired UPDATE_ALL / UPDATE_PARTIAL modes (統合済み)', async () => {
+      for (const mode of ['UPDATE_ALL', 'UPDATE_PARTIAL']) {
+        const errs = await check({ ...VALID, import_mode: mode });
+        expect(errs.some((e) => e.property === 'import_mode')).toBe(true);
+      }
     });
 
     it('should accept when import_mode is NEW', async () => {
@@ -70,13 +77,8 @@ describe('ImportHanbaitenDto', () => {
       expect(errs.some((e) => e.property === 'import_mode')).toBe(false);
     });
 
-    it('should accept when import_mode is UPDATE_ALL', async () => {
-      const errs = await check({ ...VALID, import_mode: 'UPDATE_ALL' });
-      expect(errs.some((e) => e.property === 'import_mode')).toBe(false);
-    });
-
-    it('should accept when import_mode is UPDATE_PARTIAL', async () => {
-      const errs = await check({ ...VALID, import_mode: 'UPDATE_PARTIAL' });
+    it('should accept when import_mode is UPDATE', async () => {
+      const errs = await check({ ...VALID, import_mode: 'UPDATE' });
       expect(errs.some((e) => e.property === 'import_mode')).toBe(false);
     });
   });

@@ -1,8 +1,9 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
@@ -108,6 +109,15 @@ export class SearchReplaceDokusyaDto {
   @IsString({ message: '購読開始日（TO）は文字列で指定してください。' })
   @Matches(DATE_FORMAT_RE, { message: DATE_FORMAT_MSG })
   dokusya_kaishi_date_to?: string;
+
+  // ─── 販売店適用日（必須・未来日のみ／顧客要件 2026-07）────────────────────
+  // この日付で「置換可能」な購読者のみ返す（dokusya_kaishi_date ≦ 適用日 かつ
+  // dokusya_chushi_date が null または 適用日より後）。未来日チェックはサービス層。
+  @ApiProperty({ description: '販売店適用日（YYYY-MM-DD、必須・未来日のみ）' })
+  @IsNotEmpty({ message: '適用日を入力してください。' })
+  @IsString({ message: '適用日は文字列で指定してください。' })
+  @Matches(DATE_FORMAT_RE, { message: DATE_FORMAT_MSG })
+  hanbaiten_tekiyo_date!: string;
 
   // ─── Pagination + sort ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })

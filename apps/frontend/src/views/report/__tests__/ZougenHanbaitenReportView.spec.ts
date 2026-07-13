@@ -187,6 +187,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     const { previewZougenHanbaiten } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -211,6 +212,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     const { previewZougenHanbaiten } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -221,7 +223,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     expect(arg.hanbaiten_id).toEqual([200]);
   });
 
-  it('should call previewZougenHanbaiten even when no 販売店 / 管理支店 are selected (optional filters)', async () => {
+  it('should show 販売店/管理支店を1件以上選択してください。 and NOT call previewZougenHanbaiten when either is empty (必須・顧客要件 2026-07)', async () => {
     const { wrapper } = await renderView();
     const { previewZougenHanbaiten } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
@@ -231,13 +233,16 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 
-    expect(previewZougenHanbaiten).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('販売店を1件以上選択してください。');
+    expect(wrapper.text()).toContain('管理支店を1件以上選択してください。');
+    expect(previewZougenHanbaiten).not.toHaveBeenCalled();
   });
 
   it('should render the 増部 / 減部 / 住所変更 section titles when previewZougenHanbaiten resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -252,6 +257,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -266,6 +272,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -283,6 +290,8 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
       buildEmptyZougenPreviewResponse(),
     );
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -296,6 +305,7 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     // プレビューでデータを取得して 電子帳票作成 を活性化する。
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
     // 対象0件 → BE は PDF ではなく application/json の Blob を返す
@@ -324,6 +334,7 @@ describe('ZougenHanbaitenReportView — 電子帳票作成', () => {
   async function previewWithData(wrapper: any): Promise<void> {
     wrapper.vm.formState.tekiyo_date = '2026-05-01';
     wrapper.vm.formState.hanbaiten_id = [200];
+    wrapper.vm.formState.kanri_shiten_id = [30];
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
   }
@@ -382,6 +393,8 @@ describe('ZougenHanbaitenReportView — 発行日時', () => {
     vi.setSystemTime(new Date('2026-06-25T01:58:00Z'));
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -399,6 +412,8 @@ describe('ZougenHanbaitenReportView — 発行日時', () => {
     const { wrapper } = await renderView();
     const { exportZougenHanbaiten } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -425,6 +440,8 @@ describe('ZougenHanbaitenReportView — ページ送り', () => {
     );
 
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
+    (wrapper.vm as any).formState.hanbaiten_id = [200];
+    (wrapper.vm as any).formState.kanri_shiten_id = [30];
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 

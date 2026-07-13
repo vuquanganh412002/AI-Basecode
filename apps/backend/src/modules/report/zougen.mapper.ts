@@ -107,6 +107,9 @@ export interface ZougenReport {
   address_change: AddressChangeRow[];
   /** ページ送り: この販売店が前ページから継続（見出しに「(続き)」）。 */
   is_continued?: boolean;
+  /** グループ単位ページング（顧客要件 2026-07）: この販売店内でのページ番号 / 総数。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 export interface ZougenPreviewData {
@@ -119,6 +122,11 @@ export interface ZougenPreviewData {
   /** 全レコード数（増部+減部の各1件、住所変更は1購読者=1件として数える）。 */
   total_rows?: number;
   is_last_page?: boolean;
+  /** 全体の販売店グループ数。 */
+  group_count?: number;
+  /** 当該ページの販売店内ページ番号 / 総数（帳票ヘッダのページ数表記・販売店単位）。 */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 const num = (v: RawNullableNum | undefined): number => Number(v ?? 0);
@@ -468,40 +476,72 @@ export function groupZougenReports(rows: ZougenRawRow[]): ZougenReport[] {
 export const ZOUGEN_PER_PAGE = 15;
 
 /**
- * 全件 rows を **preview と同じ「1ページ=perPage 購読者」単位**でページに分割する
- * （PDF出力をプレビューと同じ改ページにするため）。
- *
- * 購読者の並びは preview の SQL（`ORDER BY MIN(h.hanbaiten_code), r.dokusya_id`）と
- * 一致させる：① 購読者ごとに現販売店コードの最小値を算出 → ②（販売店コード, dokusya_id）
- * 昇順で整列 → ③ perPage ずつに分割 → ④ 各チャンクの行を groupZougenReports で
- * 販売店ブロックに集約。これで PDF の n ページ目 = preview の n ページ目になる。
+ * 1つの帳票(販売店+管理支店の combo)を perPage レコードずつのページに分割する。
+ * レコード= 増部 + 減部 + 住所変更の各行。増部→減部→住所変更 の順に詰める
+ * （大半の combo は size 以下で1ページ。大きい combo のみ複数ページに続く）。
+ */
+function splitReport(r: ZougenReport, size: number): ZougenReport[] {
+  const total = r.zoubu.length + r.genbu.length + r.address_change.length;
+  if (total <= size) return [{ ...r }];
+  const pages: ZougenReport[] = [];
+  let zi = 0;
+  let gi = 0;
+  let ai = 0;
+  while (zi < r.zoubu.length || gi < r.genbu.length || ai < r.address_change.length) {
+    let budget = size;
+    const zoubu = r.zoubu.slice(zi, zi + Math.min(budget, r.zoubu.length - zi));
+    zi += zoubu.length;
+    budget -= zoubu.length;
+    const genbu = r.genbu.slice(gi, gi + Math.min(budget, r.genbu.length - gi));
+    gi += genbu.length;
+    budget -= genbu.length;
+    const address_change = r.address_change.slice(
+      ai,
+      ai + Math.min(budget, r.address_change.length - ai),
+    );
+    ai += address_change.length;
+    pages.push({ ...r, zoubu, genbu, address_change });
+  }
+  return pages;
+}
+
+/**
+ * 全件 rows を **販売店+管理支店(combo)ごとに独立したページ**へ分割する（顧客要件
+ * 2026-07・SCR-026/029 と同方針）。1ページ=1 combo。1販売店が複数の管理支店を持つ
+ * ので combo は「販売店+管理支店」単位＝各 combo は最低1ページ。ページ番号 k/N は
+ * **販売店(hanbaiten_id)ごと**に採番する（例: 販売店A×管理支店a→1/2, 販売店A×管理支店b
+ * →2/2）。combo が大きい場合は自 combo 内で perPage レコードずつ複数ページに続く。
+ * preview と PDF が本関数を共有するのでページ構成は必ず一致する。
  */
 export function paginateZougenSubscribers(
   rows: ZougenRawRow[],
   perPage: number,
 ): ZougenReport[][] {
   const size = perPage > 0 ? perPage : ZOUGEN_PER_PAGE;
-
-  const byDok = new Map<number, ZougenRawRow[]>();
-  for (const r of rows) {
-    const id = num(r.dokusya_id);
-    const g = byDok.get(id);
-    if (g) g.push(r);
-    else byDok.set(id, [r]);
+  // combo(=各 report)は販売店コード昇順→管理支店ID昇順。販売店ごとにページ列をまとめる。
+  const reports = groupZougenReports(rows);
+  const storeOrder: number[] = [];
+  const storePages = new Map<number, ZougenReport[]>();
+  for (const r of reports) {
+    if (!storePages.has(r.hanbaiten_id)) {
+      storePages.set(r.hanbaiten_id, []);
+      storeOrder.push(r.hanbaiten_id);
+    }
+    storePages.get(r.hanbaiten_id)!.push(...splitReport(r, size));
   }
-
-  const subs = [...byDok.entries()].map(([id, rs]) => {
-    const codes = rs.map((r) => str(r.hanbaiten_code)).filter((c) => c !== '');
-    const storeCode = [...codes].sort((a, b) => a.localeCompare(b))[0] ?? '';
-    return { id, storeCode };
-  });
-  subs.sort((a, b) => a.storeCode.localeCompare(b.storeCode) || a.id - b.id);
-
   const pages: ZougenReport[][] = [];
-  for (let i = 0; i < subs.length; i += size) {
-    const ids = new Set(subs.slice(i, i + size).map((s) => s.id));
-    const chunkRows = rows.filter((r) => ids.has(num(r.dokusya_id)));
-    pages.push(groupZougenReports(chunkRows));
+  for (const storeId of storeOrder) {
+    const list = storePages.get(storeId)!;
+    list.forEach((rp, i) => {
+      pages.push([
+        {
+          ...rp,
+          group_page_no: i + 1,
+          group_total_pages: list.length,
+          is_continued: i > 0, // 販売店の2ページ目以降は「(続き)」。
+        },
+      ]);
+    });
   }
   return pages;
 }
@@ -668,11 +708,11 @@ function reportContent(
 /**
  * Build the pdfmake document definition for the 増減連絡票（販売店）PDF.
  *
- * **プレビューと同じ改ページ**：1ページ＝`perPage`（既定15）購読者単位で区切る
- * （`paginateZougenSubscribers`）。各ページ先頭で改ページ（`pageBreak: 'before'`）し、
- * 同一ページ内の複数販売店ブロックは続けて積む。Page表記は `ページ番号/総ページ数`。
- * これで PDF の n ページ目 = preview の n ページ目になる。
- * `PdfExportService.generatePdf(...)` に渡す。
+ * **プレビューと同じ改ページ**：販売店+管理支店(combo)ごとに独立ページ（顧客要件
+ * 2026-07・SCR-026/029 と同方針）。各ページ先頭で改ページ（`pageBreak: 'before'`）。
+ * ページ数表記は販売店ごとに 1..N（`paginateZougenSubscribers`）。combo が大きい場合は
+ * 自 combo 内で perPage レコードずつ複数ページに続く。PDF の n ページ目 = preview の n
+ * ページ目。`PdfExportService.generatePdf(...)` に渡す。
  */
 export function buildZougenDocDefinition(
   rows: ZougenRawRow[],
@@ -685,8 +725,9 @@ export function buildZougenDocDefinition(
     pageSize: 'A4',
     pageMargins: m(40, 36, 40, 36),
     content: pages.flatMap((pageReports, pi) =>
-      pageReports.flatMap((r, ri) =>
-        reportContent(r, pi + 1, pages.length, tekiyo, pi > 0 && ri === 0),
+      pageReports.flatMap((r) =>
+        // ページ数は販売店ごとに 1..N（顧客要件 2026-07）。1ページ=1 combo。
+        reportContent(r, r.group_page_no ?? 1, r.group_total_pages ?? 1, tekiyo, pi > 0),
       ),
     ),
     // 発行日時を全ページのフッタ右寄せに印字する（プレビュー押下時刻）。

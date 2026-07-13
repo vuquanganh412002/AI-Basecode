@@ -970,10 +970,10 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
       });
     });
 
-    it('should return 200 when UPDATE_ALL mode succeeds', async () => {
+    it('should return 200 when UPDATE mode (all columns) succeeds', async () => {
       service.importExcel.mockResolvedValue({
         data: {
-          import_mode: 'UPDATE_ALL',
+          import_mode: 'UPDATE',
           total_rows: 1,
           created_count: 0,
           updated_count: 1,
@@ -988,14 +988,14 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
         .send(buildImportRequestUpdateAll())
         .expect(200);
 
-      expect(res.body.data.import_mode).toBe('UPDATE_ALL');
+      expect(res.body.data.import_mode).toBe('UPDATE');
       expect(res.body.data.updated_count).toBe(1);
     });
 
-    it('should return 200 when UPDATE_PARTIAL mode succeeds', async () => {
+    it('should return 200 when UPDATE mode (subset) succeeds', async () => {
       service.importExcel.mockResolvedValue({
         data: {
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           total_rows: 1,
           created_count: 0,
           updated_count: 1,
@@ -1010,7 +1010,7 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
         .send(buildImportRequestUpdatePartial())
         .expect(200);
 
-      expect(res.body.data.import_mode).toBe('UPDATE_PARTIAL');
+      expect(res.body.data.import_mode).toBe('UPDATE');
     });
 
     it('should return 400 VALIDATION_ERROR when import_mode is missing from the body', async () => {
@@ -1020,7 +1020,7 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
     });
 
-    it('should return 400 VALIDATION_ERROR when import_mode is not one of NEW / UPDATE_ALL / UPDATE_PARTIAL', async () => {
+    it('should return 400 VALIDATION_ERROR when import_mode is not one of NEW / UPDATE', async () => {
       const res = await http()
         .post(apiUrl('hanbaiten/import'))
         .send(buildImportRequestNEW({ import_mode: 'DELETE_ALL' }))
@@ -1116,7 +1116,7 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
       expect(res.body.error_code).toBe('DUPLICATE_CODE');
     });
 
-    it('should return 404 NOT_FOUND when service raises NOT_FOUND on UPDATE_ALL / UPDATE_PARTIAL missing row', async () => {
+    it('should return 404 NOT_FOUND when service raises NOT_FOUND on UPDATE missing row', async () => {
       service.importExcel.mockRejectedValue(
         new HttpException(
           {

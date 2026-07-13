@@ -23,6 +23,7 @@ import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
+import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
 import { KozaFurikaeService } from './koza-furikae.service';
 
 @ApiTags('koza-furikae')
@@ -43,6 +44,27 @@ export class KozaFurikaeController {
   async getInitial(@Req() req: Request & { user?: SessionPayload }) {
     const session = req.user as SessionPayload;
     return this.kozaFurikaeService.getInitialData(session);
+  }
+
+  // ─── ACSMS-API-020-003 — POST /api/v1/koza-furikae/preview ──────────
+  @Post('preview')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('koza_furikae.export')
+  @ApiOperation({ summary: '口座振替データ プレビュー一覧取得 — ACSMS-API-020-003' })
+  @ApiResponse({
+    status: 200,
+    description: '集計した振替対象の一覧（{ data, meta }）。編集用に金額を含む。',
+  })
+  @ApiResponse({ status: 400, description: '入力値が不正です。' })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  @ApiResponse({ status: 404, description: '対象データがありません。' })
+  async preview(
+    @Body() body: PreviewKozaFurikaeDto,
+    @Req() req: Request & { user?: SessionPayload },
+  ) {
+    const session = req.user as SessionPayload;
+    return this.kozaFurikaeService.previewData(body, session);
   }
 
   // ─── ACSMS-API-020-002 — POST /api/v1/koza-furikae/export ───────────

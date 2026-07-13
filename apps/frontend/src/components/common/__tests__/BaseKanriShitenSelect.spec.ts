@@ -125,4 +125,94 @@ describe('BaseKanriShitenSelect', () => {
     await flushPromises();
     expect(wrapper.emitted('update:value')?.at(-1)).toEqual([[20, 21]]);
   });
+
+  it('loadAll (全て選択) fetches every page with a large per_page and returns all ids', async () => {
+    const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
+    const wrapper = await mountDropdown({ allowSelectAll: true });
+    await flushPromises(); // onMounted page-1 fetch (beforeEach default)
+
+    vi.mocked(getKanriShitenDropdown).mockReset();
+    vi.mocked(getKanriShitenDropdown)
+      .mockResolvedValueOnce(
+        buildResponse(
+          [
+            { kanri_shiten_id: 30, kanri_shiten_code: 'KS30', kanri_shiten_name: 'A' },
+            { kanri_shiten_id: 31, kanri_shiten_code: 'KS31', kanri_shiten_name: 'B' },
+          ],
+          { has_more: true },
+        ),
+      )
+      .mockResolvedValueOnce(
+        buildResponse(
+          [{ kanri_shiten_id: 32, kanri_shiten_code: 'KS32', kanri_shiten_name: 'C' }],
+          { page: 2, has_more: false },
+        ),
+      );
+
+    const ids = await (wrapper.vm as any).loadAll();
+
+    expect(ids).toEqual([30, 31, 32]);
+    expect(getKanriShitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, per_page: 100, ja_id: 13 }),
+    );
+    expect(getKanriShitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, per_page: 100, ja_id: 13 }),
+    );
+  });
+
+  it('選択肢「全て」(sentinel -1) を選ぶと全 ID を emit し、入力欄は「全て」で表示する', async () => {
+    const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
+    const wrapper = await mountDropdown({ allowSelectAll: true });
+    await flushPromises();
+
+    // dropdownRender ではなく、選択肢の1つとして「全て」(value -1) を提供する。
+    const opts = wrapper.findComponent({ name: 'ASelect' }).props('options') as Array<{
+      value: number;
+      label: string;
+    }>;
+    expect(opts[0]).toEqual({ value: -1, label: '全て' });
+
+    // 「全て」選択 → loadAll でスコープ内全 ID を取得し、実 ID を親へ emit。
+    vi.mocked(getKanriShitenDropdown).mockReset();
+    vi.mocked(getKanriShitenDropdown).mockResolvedValueOnce(
+      buildResponse(
+        [
+          { kanri_shiten_id: 40, kanri_shiten_code: 'KS40', kanri_shiten_name: 'A' },
+          { kanri_shiten_id: 41, kanri_shiten_code: 'KS41', kanri_shiten_name: 'B' },
+        ],
+        { has_more: false },
+      ),
+    );
+    wrapper.findComponent({ name: 'ASelect' }).vm.$emit('change', [-1]);
+    await flushPromises();
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([[40, 41]]);
+
+    // 親が全 ID を渡し直すと、入力欄の表示 value は「全て」(-1) 1件に畳まれる。
+    await wrapper.setProps({ value: [40, 41] });
+    await flushPromises();
+    expect(wrapper.findComponent({ name: 'ASelect' }).props('value')).toEqual([-1]);
+  });
+
+  it('全件表示中に個別を選ぶと「全て」から抜けてその個別だけを emit する', async () => {
+    const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
+    const wrapper = await mountDropdown({ allowSelectAll: true, value: [] });
+    await flushPromises();
+    vi.mocked(getKanriShitenDropdown).mockResolvedValue(
+      buildResponse(
+        [
+          { kanri_shiten_id: 40, kanri_shiten_code: 'KS40', kanri_shiten_name: 'A' },
+          { kanri_shiten_id: 41, kanri_shiten_code: 'KS41', kanri_shiten_name: 'B' },
+        ],
+        { has_more: false },
+      ),
+    );
+    // まず「全て」→ 全件。
+    wrapper.findComponent({ name: 'ASelect' }).vm.$emit('change', [-1]);
+    await flushPromises();
+    await wrapper.setProps({ value: [40, 41] });
+    // 全件表示中(innerValue=[-1])に個別 41 を追加 → a-select は [-1, 41] を change。
+    wrapper.findComponent({ name: 'ASelect' }).vm.$emit('change', [-1, 41]);
+    await flushPromises();
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([[41]]);
+  });
 });

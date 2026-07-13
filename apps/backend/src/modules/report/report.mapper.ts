@@ -42,23 +42,7 @@ export interface MeiboRawRow {
   hanbaiten_fax: string | null;
   ja_name: string | null;
   ja_tel: string | null;
-  // ─── ウィンドウ集計列（SQLページングの明細クエリが付与。preview のみ）──────
-  // 全件を読まずに小計/合計/ページ境界を決めるための per-row 集計。export では未付与。
-  _total_rows?: RawAgg; // COUNT(*) OVER () — 全明細行数
-  _grand_busu?: RawAgg; // SUM(busu) OVER () — 総部数
-  _hg_busu?: RawAgg; // SUM OVER (PARTITION BY hanbaiten)
-  _hg_rn?: RawAgg; // ROW_NUMBER OVER (PARTITION BY hanbaiten)
-  _hg_count?: RawAgg; // COUNT OVER (PARTITION BY hanbaiten)
-  _sg_busu?: RawAgg; // 〃 (PARTITION BY hanbaiten, kanri_shiten)
-  _sg_rn?: RawAgg;
-  _sg_count?: RawAgg;
-  _kg_busu?: RawAgg; // 管理支店別: (PARTITION BY kanri_shiten)
-  _kg_rn?: RawAgg;
-  _kg_count?: RawAgg;
 }
-
-/** SQL の集計列（COUNT/SUM/ROW_NUMBER）は pg ドライバが文字列で返すことがある。 */
-type RawAgg = number | string | null;
 
 // ─── response row shapes (api.md §レスポンスデータ) ─────────────────────
 export interface HanbaitenReportRow {
@@ -140,6 +124,13 @@ export interface MeiboPreviewData {
   is_last_page?: boolean;
   /** 全ページ通算のトップレベルグループ数（合計行の表示要否判定用）。 */
   group_count?: number;
+  /**
+   * 当該ページが属するグループ内でのページ番号 / グループ総ページ数（顧客要件
+   * 2026-07: 帳票ヘッダの「ページ数」は販売店/管理支店ごとに 1..N で採番する）。
+   * ページャ(ナビゲーション)は従来どおり全体通算 (total_pages) を使う。
+   */
+  group_page_no?: number;
+  group_total_pages?: number;
 }
 
 // ─── shared field helpers ──────────────────────────────────────────────
@@ -305,250 +296,220 @@ export function groupByKanriShiten(rows: MeiboRawRow[]): {
  */
 export const MEIBO_PREVIEW_PER_PAGE = 15;
 
+// ─── 動的ページング（A4 高さ基準・顧客要件 2026-07）──────────────────────────
+// 明細行の高さ(可変=氏名/住所の折返し)を積算し、A4 の1ページ分に収まる範囲で改ページ
+// する。preview と Excel が同じ関数(buildMeiboDocPages)を使うので必ず一致する。
+// 見積りは安全側（等倍・ヘッダ分と安全余白を差し引く）で、実印刷でのはみ出しを防ぐ。
+const MEIBO_LINE_PT = 14; // font10 の1行あたり高さ(pt)
 /**
- * SQLページングで取得した「1ページ分の明細行」から帳票のページ構造を組み立てる。
- *
- * 各行には明細クエリが付与したウィンドウ集計列が載っている：
- *   `_total_rows`(全明細行数) / `_grand_busu`(総部数) / `_hg_*`(販売店単位) /
- *   `_sg_*`(販売店×管理支店単位) / `_kg_*`(管理支店単位)。
- * これらから全件の小計・合計・ページ数・グループ境界を決めるので、**明細行は
- * 1ページ分しかロードしない**（＝BEが大量データを抱えない）。
- *
- * グループ境界（画面項目）:
- *   - `is_continued`：このページのグループ先頭行が全体先頭でない（_rn>1）→「(続き)」。
- *   - `show_subtotal`/`show_total`：このページにグループ全体の最終行が含まれる
- *     （_rn==_count）→ 小計／合計を表示。
- * 小計/合計/grand は全件のウィンドウ集計値（部分ページでも常に正しい）。
- *
- * ウィンドウ列が無い場合（export 経由ではなく、旧来の単体テスト等で素の行を
- * 渡したとき）は、与えられた行のみから単一ページとして集計する（フォールバック）。
- * 純関数（DI・I/O なし）。
+ * 明細行(販売店別)の最低高(pt) — チェックボックス(font36)ぶん。ページ高さの見積り
+ * (splitByHeight)と Excel の実行高(autoFitRowHeight)で同じ値を使わないと改ページ位置が
+ * ずれるため、meibo-report.service から import して共有する。
  */
-export function buildMeiboPreview(
-  reportType: 'hanbaiten' | 'kanri_shiten',
-  tekiyoDate: string,
-  rows: MeiboRawRow[],
-  page: number,
-  perPage: number,
-): MeiboPreviewData {
-  const size = perPage > 0 ? perPage : MEIBO_PREVIEW_PER_PAGE;
-  const hasWindow = rows.length > 0 && rows[0]._total_rows != null;
-  const total = hasWindow
-    ? num(rows[0]._total_rows)
-    : rows.reduce((a) => a + 1, 0);
-  const grand = hasWindow
-    ? num(rows[0]._grand_busu)
-    : rows.reduce((a, r) => a + num(r.dokusya_busu), 0);
-  const totalPages = Math.max(1, Math.ceil((total || 0) / size));
-  const p = total > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
-  const base = {
-    report_type: reportType,
-    tekiyo_date: tekiyoDate,
-    ja_name: rows[0]?.ja_name ?? '',
-    ja_tel: rows[0]?.ja_tel ?? '',
-    grand_total_busu: grand,
-  };
-
-  if (reportType === 'hanbaiten') {
-    const { list, count } = groupHanbaitenPage(rows, hasWindow);
-    return {
-      ...base,
-      hanbaiten_groups: list,
-      kanri_shiten_groups: [],
-      ...pageMeta(total, size, p, totalPages, count),
-    };
-  }
-  const { list, count } = groupKanriPage(rows, hasWindow);
-  return {
-    ...base,
-    hanbaiten_groups: [],
-    kanri_shiten_groups: list,
-    ...pageMeta(total, size, p, totalPages, count),
-  };
-}
-
-/** グループ単位のウィンドウ集計（行ごとの _rn/_count/_busu を集約）。 */
-interface WinAgg {
-  min: number;
-  max: number;
-  count: number;
-  busu: number;
-}
-function accWin<K>(map: Map<K, WinAgg>, key: K, rn: number, count: number, busu: number): void {
-  const w = map.get(key);
-  if (w) {
-    if (rn < w.min) w.min = rn;
-    if (rn > w.max) w.max = rn;
-  } else {
-    map.set(key, { min: rn, max: rn, count, busu });
-  }
-}
-
-/** 販売店別: ページ行 → 販売店→管理支店→購読者 構造 + ウィンドウ集計でフラグ付与。 */
-function groupHanbaitenPage(
-  rows: MeiboRawRow[],
-  hasWindow: boolean,
-): { list: HanbaitenGroup[]; count: number } {
-  const hgMap = new Map<number, HanbaitenGroup>();
-  const sgMap = new Map<string, KanriShitenSubGroup>();
-  const hgWin = new Map<number, WinAgg>();
-  const sgWin = new Map<string, WinAgg>();
-
-  for (const row of rows) {
-    const hid = num(row.hanbaiten_id);
-    const ksId = row.kanri_shiten_id == null ? null : num(row.kanri_shiten_id);
-    const busu = num(row.dokusya_busu);
-    const sgKey = `${hid}::${ksId ?? 'none'}`;
-
-    let hg = hgMap.get(hid);
-    if (!hg) {
-      hg = {
-        hanbaiten_id: hid,
-        hanbaiten_name: row.hanbaiten_name ?? '',
-        hanbaiten_code: row.hanbaiten_code ?? '',
-        hanbaiten_tel: row.hanbaiten_tel ?? '',
-        hanbaiten_fax: row.hanbaiten_fax ?? '',
-        total_busu: 0,
-        kanri_shiten_groups: [],
-      };
-      hgMap.set(hid, hg);
-    }
-    let sg = sgMap.get(sgKey);
-    if (!sg) {
-      sg = { kanri_shiten_id: ksId, kanri_shiten_name: row.kanri_shiten_name ?? '', subtotal_busu: 0, rows: [] };
-      sgMap.set(sgKey, sg);
-      hg.kanri_shiten_groups.push(sg);
-    }
-    const { shimei, shimei_kana } = resolveShimei(row);
-    sg.rows.push({
-      dokusya_id: num(row.dokusya_id),
-      shimei,
-      shimei_kana,
-      haitatsu_address: resolveAddress(row),
-      kanri_shiten_name: row.kanri_shiten_name ?? '',
-      haitatsu_tel: resolveTel(row),
-      dokusya_kaishi_date: row.dokusya_kaishi_date,
-      dokusya_busu: busu,
-    });
-    sg.subtotal_busu += busu;
-    hg.total_busu += busu;
-    if (hasWindow) {
-      accWin(hgWin, hid, num(row._hg_rn), num(row._hg_count), num(row._hg_busu));
-      accWin(sgWin, sgKey, num(row._sg_rn), num(row._sg_count), num(row._sg_busu));
-    }
-  }
-
-  if (hasWindow) applyHanbaitenWindow(hgMap, hgWin, sgWin);
-  return { list: [...hgMap.values()], count: hgMap.size };
-}
-
-/** 全件ウィンドウ集計を販売店/管理支店グループに反映（小計・合計・境界フラグ）。 */
-function applyHanbaitenWindow(
-  hgMap: Map<number, HanbaitenGroup>,
-  hgWin: Map<number, WinAgg>,
-  sgWin: Map<string, WinAgg>,
-): void {
-  for (const [hid, hg] of hgMap) {
-    const w = hgWin.get(hid);
-    if (w) {
-      hg.total_busu = w.busu;
-      hg.is_continued = w.min > 1;
-      hg.show_total = w.max === w.count;
-    }
-    for (const sg of hg.kanri_shiten_groups) {
-      const sw = sgWin.get(`${hid}::${sg.kanri_shiten_id ?? 'none'}`);
-      if (sw) {
-        sg.subtotal_busu = sw.busu;
-        sg.is_continued = sw.min > 1;
-        sg.show_subtotal = sw.max === sw.count;
-      }
-    }
-  }
-}
-
-/** 管理支店別: ページ行 → 管理支店→購読者 構造 + ウィンドウ集計でフラグ付与。 */
-function groupKanriPage(
-  rows: MeiboRawRow[],
-  hasWindow: boolean,
-): { list: KanriShitenGroup[]; count: number } {
-  const kgMap = new Map<string, KanriShitenGroup>();
-  const kgWin = new Map<string, WinAgg>();
-
-  for (const row of rows) {
-    const ksId = row.kanri_shiten_id == null ? null : num(row.kanri_shiten_id);
-    const busu = num(row.dokusya_busu);
-    const key = ksId == null ? 'none' : String(ksId);
-
-    let kg = kgMap.get(key);
-    if (!kg) {
-      kg = {
-        kanri_shiten_id: ksId,
-        kanri_shiten_name: row.kanri_shiten_name ?? '',
-        subtotal_busu: 0,
-        total_busu: 0,
-        rows: [],
-      };
-      kgMap.set(key, kg);
-    }
-    const { shimei, shimei_kana } = resolveShimei(row);
-    kg.rows.push({
-      dokusya_id: num(row.dokusya_id),
-      dokusya_shubetsu: row.dokusya_shubetsu,
-      shimei,
-      shimei_kana,
-      kumiaiin_code: row.kumiaiin_code ?? '',
-      haitatsu_tel: resolveTel(row),
-      shiten_name: row.shiten_name ?? '',
-      haitatsu_address: resolveAddress(row),
-      dokusya_busu: busu,
-      shiharai_hoho: row.shiharai_hoho,
-      dokusya_kaishi_date: row.dokusya_kaishi_date,
-      hanbaiten_name: row.hanbaiten_name ?? '',
-    });
-    kg.subtotal_busu += busu;
-    kg.total_busu += busu;
-    if (hasWindow) accWin(kgWin, key, num(row._kg_rn), num(row._kg_count), num(row._kg_busu));
-  }
-
-  if (hasWindow) {
-    for (const [key, kg] of kgMap) {
-      const w = kgWin.get(key);
-      if (w) {
-        const ends = w.max === w.count;
-        kg.subtotal_busu = w.busu;
-        kg.total_busu = w.busu;
-        kg.is_continued = w.min > 1;
-        kg.show_subtotal = ends;
-        kg.show_total = ends;
-      }
-    }
-  }
-  return { list: [...kgMap.values()], count: kgMap.size };
-}
-
-type PageMeta = {
-  page_no: number;
-  per_page: number;
-  total_pages: number;
-  total_rows: number;
-  is_last_page: boolean;
-  group_count: number;
+export const MEIBO_HANBAITEN_MIN_ROW_PT = 44;
+/**
+ * 各 report_type の列幅(Excel width単位)。ページ高さの見積り(estimateMeiboRowHeightPt)と
+ * Excel シートの実列幅(fillHanbaiten/KanriSheet の sheet.columns)は必ず一致させる必要が
+ * あるため、meibo-report.service はこの配列から sheet.columns を組み立てる（唯一の真実源）。
+ */
+export const MEIBO_COL_WIDTHS: Record<'hanbaiten' | 'kanri_shiten', number[]> = {
+  hanbaiten: [9, 24, 32, 16, 18, 14, 11],
+  kanri_shiten: [22, 18, 30, 9, 12, 12, 28],
+};
+// 明細に使えるページ高さ(pt)。A4縦 印刷可能高(~755pt)から 繰り返しヘッダ(≈130pt) +
+// 小計行 + 安全余白を差し引いた値。見積り(MEIBO_LINE_PT=14pt/行)は実印刷(font10≈13pt)
+// より大きめ＝安全側なので、物理的に1枚に収まる行を無駄に分割しないよう budget は
+// 実印刷可能高に近づける（旧値 520/590 は保守的すぎて空白が目立ったため引上げ）。
+const MEIBO_DETAIL_BUDGET_PT: Record<'hanbaiten' | 'kanri_shiten', number> = {
+  hanbaiten: 650,
+  kanri_shiten: 650,
 };
 
-function pageMeta(
-  total: number,
-  size: number,
-  p: number,
-  totalPages: number,
-  groupCount: number,
-): PageMeta {
-  return {
-    page_no: p,
-    per_page: size,
-    total_pages: totalPages,
-    total_rows: total,
-    is_last_page: p >= totalPages,
-    group_count: groupCount,
-  };
+/** 全角=2 / 半角=1 の表示幅。 */
+function displayWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) w += (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  return w;
 }
 
+/** セルの折返しを考慮した行数（明示\n + 列幅からの折返し）。 */
+function cellLineCount(text: string, colWidthUnits: number): number {
+  // Excel の wrapText は概ね「列幅(=半角0の幅)ぶん」で折返す。全角=2幅換算(displayWidth)
+  // なので capacity=列幅そのもの(×1.0)が実折返しに一致する。0.92 は折返しを過剰計上して
+  // 行を無駄に分割していたため 1.0 に補正。
+  const capacity = Math.max(1, colWidthUnits);
+  let lines = 0;
+  for (const line of text.split('\n')) {
+    lines += Math.max(1, Math.ceil(displayWidth(line) / capacity));
+  }
+  return lines;
+}
+
+/** 明細1行の見積り高さ(pt)。各セルの最大行数 × 1行高、最低高で下限。 */
+export function estimateMeiboRowHeightPt(
+  cellTexts: string[],
+  colWidths: number[],
+  minHeightPt = 0,
+): number {
+  let maxLines = 1;
+  cellTexts.forEach((t, i) => {
+    const lines = cellLineCount(t, colWidths[i] ?? 10);
+    if (lines > maxLines) maxLines = lines;
+  });
+  return Math.max(maxLines * MEIBO_LINE_PT, minHeightPt);
+}
+
+/** `〒{7桁}{住所}` → `〒XXX-XXXX\n{住所}`（高さ見積り・Excel表示と同一整形）。 */
+function addrMultiline(addr: string): string {
+  const m = /^〒(\d{7})(.*)$/.exec(addr ?? '');
+  if (!m) return addr ?? '';
+  return `〒${m[1].slice(0, 3)}-${m[1].slice(3)}\n${m[2]}`;
+}
+
+/** 販売店別 明細行の表示セル文字列（高さ見積り用・Excel と一致）。 */
+function hanbaitenCellTexts(r: HanbaitenReportRow): string[] {
+  return [
+    '□',
+    `${r.shimei}\n${r.shimei_kana}`,
+    addrMultiline(r.haitatsu_address),
+    r.kanri_shiten_name,
+    r.haitatsu_tel,
+    r.dokusya_kaishi_date ?? '',
+    String(r.dokusya_busu),
+  ];
+}
+
+/** 管理支店別 明細行の表示セル文字列（高さ見積り用・Excel と一致）。 */
+function kanriCellTexts(r: KanriShitenReportRow): string[] {
+  return [
+    `${r.shimei}\n${r.shimei_kana}`,
+    `${r.kumiaiin_code || '-'}\n${r.haitatsu_tel}`,
+    `${r.shiten_name}\n${addrMultiline(r.haitatsu_address)}`,
+    String(r.dokusya_busu),
+    '', // 購読種別ラベル（短いので高さに寄与しない）
+    '',
+    `${r.dokusya_kaishi_date ?? ''}\n${r.hanbaiten_name}`,
+  ];
+}
+
+/** 高さ予算に収まるよう行を分割（各ページ最低1行）。 */
+function splitByHeight<T>(
+  rows: T[],
+  heightOf: (r: T) => number,
+  budget: number,
+): T[][] {
+  const pages: T[][] = [];
+  let cur: T[] = [];
+  let acc = 0;
+  for (const r of rows) {
+    const h = heightOf(r);
+    if (cur.length > 0 && acc + h > budget) {
+      pages.push(cur);
+      cur = [];
+      acc = 0;
+    }
+    cur.push(r);
+    acc += h;
+  }
+  if (cur.length > 0) pages.push(cur);
+  return pages;
+}
+
+/**
+ * 全件のグループ済みデータから「文書ページ」の配列を作る（動的ページング・顧客要件
+ * 2026-07）。各ページ = 1グループのスライス（グループを跨がない）で、行の見積り高さを
+ * 積算し A4 1ページ分に収める。preview と Excel が本関数を共有するのでページ構成は必ず
+ * 一致する。各ページは単一グループの {@link MeiboPreviewData}（group_page_no /
+ * group_total_pages / is_continued / show_total 付き）。
+ */
+export function buildMeiboDocPages(full: MeiboPreviewData): MeiboPreviewData[] {
+  const pages: MeiboPreviewData[] = [];
+  const base = {
+    report_type: full.report_type,
+    tekiyo_date: full.tekiyo_date,
+    ja_name: full.ja_name,
+    ja_tel: full.ja_tel,
+    grand_total_busu: full.grand_total_busu,
+  };
+
+  if (full.report_type === 'hanbaiten') {
+    const widths = MEIBO_COL_WIDTHS.hanbaiten;
+    const budget = MEIBO_DETAIL_BUDGET_PT.hanbaiten;
+    for (const hg of full.hanbaiten_groups) {
+      const flat = hg.kanri_shiten_groups.flatMap((sg) => sg.rows);
+      const slices = splitByHeight(
+        flat,
+        (r) =>
+          estimateMeiboRowHeightPt(
+            hanbaitenCellTexts(r),
+            widths,
+            MEIBO_HANBAITEN_MIN_ROW_PT,
+          ),
+        budget,
+      );
+      slices.forEach((slice, i) => {
+        // スライス行を管理支店(表示順維持)で再グループ化。
+        const subMap = new Map<string, KanriShitenSubGroup>();
+        for (const row of slice) {
+          const key = String(row.kanri_shiten_name ?? '');
+          let sg = subMap.get(key);
+          if (!sg) {
+            sg = {
+              kanri_shiten_id: null,
+              kanri_shiten_name: row.kanri_shiten_name ?? '',
+              subtotal_busu: 0,
+              rows: [],
+            };
+            subMap.set(key, sg);
+          }
+          sg.subtotal_busu += row.dokusya_busu;
+          sg.rows.push(row);
+        }
+        pages.push({
+          ...base,
+          hanbaiten_groups: [
+            {
+              ...hg,
+              total_busu: hg.total_busu, // 小計は常にグループ全体の合計
+              kanri_shiten_groups: [...subMap.values()],
+              is_continued: i > 0,
+              show_total: i === slices.length - 1,
+            },
+          ],
+          kanri_shiten_groups: [],
+          group_page_no: i + 1,
+          group_total_pages: slices.length,
+        });
+      });
+    }
+    return pages;
+  }
+
+  const widths = MEIBO_COL_WIDTHS.kanri_shiten;
+  const budget = MEIBO_DETAIL_BUDGET_PT.kanri_shiten;
+  for (const kg of full.kanri_shiten_groups) {
+    const slices = splitByHeight(
+      kg.rows,
+      (r) => estimateMeiboRowHeightPt(kanriCellTexts(r), widths),
+      budget,
+    );
+    slices.forEach((slice, i) => {
+      pages.push({
+        ...base,
+        hanbaiten_groups: [],
+        kanri_shiten_groups: [
+          {
+            ...kg,
+            subtotal_busu: kg.subtotal_busu, // 小計はグループ全体の合計
+            rows: slice,
+            is_continued: i > 0,
+            show_subtotal: i === slices.length - 1,
+          },
+        ],
+        group_page_no: i + 1,
+        group_total_pages: slices.length,
+      });
+    });
+  }
+  return pages;
+}

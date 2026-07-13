@@ -27,7 +27,10 @@ import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { API_PREFIX } from '@/common/constants/api.constants';
 import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
 import { buildChuokaiSession } from '@test/fixtures/session.factory';
-import { buildExportKozaFurikaeQuery } from '@test/fixtures/koza-furikae.factory';
+import {
+  buildExportKozaFurikaeQuery,
+  buildPreviewKozaFurikaeQuery,
+} from '@test/fixtures/koza-furikae.factory';
 import { apiUrl } from '@test/utils/api-url';
 
 describe('KozaFurikaeController (HTTP)', () => {
@@ -65,6 +68,7 @@ describe('KozaFurikaeController (HTTP)', () => {
   beforeEach(async () => {
     service = {
       getInitialData: jest.fn(),
+      previewData: jest.fn(),
       exportCsv: jest.fn(),
     };
     currentSession = buildChuokaiSession({ ja_id: 1, permissions: ['koza_furikae.export'] });
@@ -158,6 +162,57 @@ describe('KozaFurikaeController (HTTP)', () => {
       service.getInitialData.mockRejectedValue(new Error('boom'));
       const res = await http().get(apiUrl('koza-furikae/initial')).expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ─── POST /api/v1/koza-furikae/preview (v1.1) ─────────────────────────
+  describe('POST /api/v1/koza-furikae/preview', () => {
+    it('should return 200 with the { data, meta } preview list when データ exists', async () => {
+      service.previewData.mockResolvedValue({
+        data: [{ dokusya_id: 1, koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ', furikae_kingaku: 4900 }],
+        meta: { total: 1, page: 1, per_page: 1, total_pages: 1 },
+      });
+
+      const res = await http()
+        .post(apiUrl('koza-furikae/preview'))
+        .send(buildPreviewKozaFurikaeQuery())
+        .expect(200);
+
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ dokusya_id: 1, furikae_kingaku: 4900 });
+      expect(res.body.meta.total).toBe(1);
+    });
+
+    it('should return 400 VALIDATION_ERROR when target_month is missing', async () => {
+      const res = await http()
+        .post(apiUrl('koza-furikae/preview'))
+        .send(buildPreviewKozaFurikaeQuery({ target_month: undefined }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors.some((e: any) => e.field === 'target_month')).toBe(true);
+    });
+
+    it('should return 404 NO_TARGET_DATA when the preview aggregation is empty', async () => {
+      service.previewData.mockRejectedValue(
+        new HttpException(
+          { code: 'NO_TARGET_DATA', error_code: 'NO_TARGET_DATA', message: '対象データがありません。' },
+          HttpStatus.NOT_FOUND,
+        ),
+      );
+      const res = await http()
+        .post(apiUrl('koza-furikae/preview'))
+        .send(buildPreviewKozaFurikaeQuery())
+        .expect(404);
+      expect(res.body.error_code).toBe('NO_TARGET_DATA');
+    });
+
+    it('should return 403 FORBIDDEN when user lacks koza_furikae.export', async () => {
+      currentPermissions = [];
+      const res = await http()
+        .post(apiUrl('koza-furikae/preview'))
+        .send(buildPreviewKozaFurikaeQuery())
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
     });
   });
 

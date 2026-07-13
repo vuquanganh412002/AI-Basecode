@@ -9,7 +9,6 @@ import {
   IsOptional,
   IsString,
   Matches,
-  Max,
   Min,
 } from 'class-validator';
 
@@ -109,18 +108,9 @@ export class MeiboReportQueryDto {
   @IsInt({ message: 'ページ番号は整数で指定してください。' })
   @Min(1, { message: 'ページ番号は1以上で指定してください。' })
   page?: number;
-
-  @ApiPropertyOptional({
-    description: '1ページの明細行数。preview のみ。未指定時は50',
-    example: 50,
-    default: 50,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: '1ページの行数は整数で指定してください。' })
-  @Min(1, { message: '1ページの行数は1以上で指定してください。' })
-  @Max(500, { message: '1ページの行数は500以下で指定してください。' })
-  per_page?: number;
+  // per_page はここには無い。名簿は A4 高さ基準の動的ページング（BE が
+  // buildMeiboDocPages で改ページ）のため 1ページの行数は指定不可・可変。
+  // preview/export とも per_page は名目値(MEIBO_PREVIEW_PER_PAGE)を返す。
 
   @ApiPropertyOptional({
     description:

@@ -42,18 +42,25 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
       expect(modeErr).toBeUndefined();
     });
 
-    it('should pass when import_mode is UPDATE_ALL', async () => {
+    it('should pass when import_mode is UPDATE', async () => {
       const errors = await validateBody(
-        buildImportBody({ import_mode: 'UPDATE_ALL' }),
+        buildImportBody({ import_mode: 'UPDATE' }),
       );
       expect(errors.find((e) => e.property === 'import_mode')).toBeUndefined();
     });
 
-    it('should pass when import_mode is UPDATE_PARTIAL', async () => {
+    it('should fail when import_mode is UPDATE_ALL (廃止・顧客要件 2026-07)', async () => {
       const errors = await validateBody(
-        buildImportBody({ import_mode: 'UPDATE_PARTIAL' }),
+        buildImportBody({ import_mode: 'UPDATE_ALL' as never }),
       );
-      expect(errors.find((e) => e.property === 'import_mode')).toBeUndefined();
+      expect(errors.some((e) => e.property === 'import_mode')).toBe(true);
+    });
+
+    it('should fail when import_mode is UPDATE_PARTIAL (UPDATE に統合)', async () => {
+      const errors = await validateBody(
+        buildImportBody({ import_mode: 'UPDATE_PARTIAL' as never }),
+      );
+      expect(errors.some((e) => e.property === 'import_mode')).toBe(true);
     });
 
     it('should fail when import_mode is missing', async () => {

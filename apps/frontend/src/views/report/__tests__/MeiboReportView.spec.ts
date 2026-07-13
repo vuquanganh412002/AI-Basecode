@@ -16,7 +16,6 @@ import { createTestingPinia } from '@pinia/testing';
 import Antd, { message } from 'ant-design-vue';
 
 import MeiboReportView from '@/views/report/MeiboReportView.vue';
-import { meiboRowsPerA4 } from '@/utils/meibo-page';
 import {
   buildReportUser,
   buildNichinoUser,
@@ -425,8 +424,8 @@ describe('MeiboReportView — 権限', () => {
 // 6. ページ送り（文書ページ / SCR-026）
 // ───────────────────────────────────────────────────────────────────────
 describe('MeiboReportView — ページ送り', () => {
-  // A4 1枚に収まる行数（販売店別 = 15）。FE はこの値を per_page として送る。
-  const HB_PER = meiboRowsPerA4('hanbaiten');
+  // per_page の名目値（15）。BE は動的高さで分割するがページャ表示に使う。
+  const HB_PER = 15;
   const paged = (page_no: number) =>
     buildHanbaitenPreviewResponse({
       page_no,
@@ -435,9 +434,12 @@ describe('MeiboReportView — ページ送り', () => {
       total_rows: HB_PER * 3,
       is_last_page: page_no >= 3,
       group_count: 1,
+      // 単一販売店が3ページに跨る → ヘッダのページ数は 1..3（グループ内採番）。
+      group_page_no: page_no,
+      group_total_pages: 3,
     });
 
-  it('sends page/per_page on preview and renders the pager + ページ数', async () => {
+  it('sends page (not per_page) on preview and renders the pager + ページ数', async () => {
     const { wrapper } = await renderView();
     const { previewMeibo } = await import('@/api/report/report');
     vi.mocked(previewMeibo).mockResolvedValueOnce(paged(1));
@@ -447,10 +449,10 @@ describe('MeiboReportView — ページ送り', () => {
     await wrapper.find(preview()).trigger('click');
     await flushPromises();
 
-    expect(vi.mocked(previewMeibo).mock.calls[0]?.[0]).toMatchObject({
-      page: 1,
-      per_page: HB_PER,
-    });
+    // per_page は送らない（BE は動的高さで分割・DTO 非対象で送ると 400）。
+    const firstArg = vi.mocked(previewMeibo).mock.calls[0]?.[0];
+    expect(firstArg).toMatchObject({ page: 1 });
+    expect(firstArg).not.toHaveProperty('per_page');
     expect(wrapper.find('[data-test="meibo-pager"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('1/3');
   });
@@ -470,8 +472,64 @@ describe('MeiboReportView — ページ送り', () => {
     await flushPromises();
 
     const lastArg = vi.mocked(previewMeibo).mock.calls.at(-1)?.[0];
-    expect(lastArg).toMatchObject({ page: 2, per_page: HB_PER });
+    expect(lastArg).toMatchObject({ page: 2 });
+    expect(lastArg).not.toHaveProperty('per_page');
     expect(wrapper.text()).toContain('2/3');
+  });
+
+  it('renders total_pages pages even when total_rows < total_pages*per_page (group-based) — 顧客要件 2026-07', async () => {
+    // グループ単位ページング: 4販売店が各1件でも各独立ページ → total_pages=4 /
+    // total_rows=4。ページャは行数ベース(ceil(4/15)=1)ではなく total_pages=4 を出す。
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockResolvedValueOnce(
+      buildHanbaitenPreviewResponse({
+        page_no: 1,
+        per_page: HB_PER,
+        total_pages: 4,
+        total_rows: 4,
+        is_last_page: false,
+        group_count: 4,
+      }),
+    );
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1, 2, 3, 4];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="meibo-pager"]').exists()).toBe(true);
+    expect(wrapper.find('.ant-pagination-item-4').exists()).toBe(true);
+    expect(wrapper.text()).toContain('1/4');
+  });
+
+  it('shows per-group page number in the header and NO 合計 row (顧客要件 2026-07)', async () => {
+    // 2販売店・各1件 → 全体2ページ。ページ1=販売店Aの 1/1（グループ内採番）。
+    // 各販売店が独立ページのため全体合計(合計)行は表示しない。
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockResolvedValueOnce(
+      buildHanbaitenPreviewResponse({
+        page_no: 1,
+        per_page: HB_PER,
+        total_pages: 2,
+        total_rows: 2,
+        is_last_page: false,
+        group_count: 2,
+        group_page_no: 1,
+        group_total_pages: 1,
+      }),
+    );
+
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1, 2];
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    // ヘッダのページ数はグループ内採番（1/1）。ページャは全体2ページ。
+    expect(wrapper.text()).toContain('1/1');
+    // 全体合計(合計)行は廃止。
+    expect(wrapper.text()).not.toContain('合計');
   });
 
   it('does NOT render the pager when there is a single page', async () => {

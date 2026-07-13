@@ -588,6 +588,8 @@ export interface ReplaceSearchParams {
   hanbaiten_id?: number;
   dokusya_kaishi_date_from?: string;
   dokusya_kaishi_date_to?: string;
+  /** 販売店適用日（必須・未来日のみ）。この日付で置換可能な購読者のみ返る。 */
+  hanbaiten_tekiyo_date: string;
   page?: number;
   per_page?: number;
   sort_by?: 'kanri_shiten_name' | 'shiten_name' | 'kumiaiin_code' | 'hanbaiten_code';
@@ -635,7 +637,7 @@ export interface ReplaceHanbaitenResult {
 
 /** GET /api/v1/dokusya/replace-hanbaiten/search — ACSMS-API-015-001. */
 export async function searchDokusyaForReplace(
-  params: ReplaceSearchParams = {},
+  params: ReplaceSearchParams,
 ): Promise<ReplaceSearchResponse> {
   const res = await axiosInstance.get<ReplaceSearchResponse>(
     '/api/v1/dokusya/replace-hanbaiten/search',
@@ -665,8 +667,12 @@ export async function replaceDokusyaHanbaiten(
 // parses the .xlsx client-side, lets the user pick a column subset, and
 // posts the parsed rows + the chosen import mode.
 
-/** Import mode wire values — FE radios (new/update/cancel) map to these. */
-export type DokusyaImportMode = 'NEW' | 'UPDATE_ALL' | 'UPDATE_PARTIAL';
+/**
+ * Import mode wire values — FE radios (new/update) map to these.
+ * UPDATE は選択列のみ更新（空欄はスキップ）。全列更新したい時は「すべて選択」で
+ * 全列をチェックする。旧 UPDATE_ALL（空欄→NULL）は廃止（顧客要件 2026-07）。
+ */
+export type DokusyaImportMode = 'NEW' | 'UPDATE';
 
 /**
  * One parsed Excel row sent to the BE. Keys are the 49 physical column

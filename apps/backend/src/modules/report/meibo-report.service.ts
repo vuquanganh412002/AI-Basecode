@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
@@ -28,9 +28,12 @@ import { MeiboReportQueryDto } from './dto/meibo-report-query.dto';
 import { ReportNoDataException } from './exceptions/report-no-data.exception';
 import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import {
-  buildMeiboPreview,
+  buildMeiboDocPages,
+  estimateMeiboRowHeightPt,
   groupByHanbaiten,
   groupByKanriShiten,
+  MEIBO_COL_WIDTHS,
+  MEIBO_HANBAITEN_MIN_ROW_PT,
   MEIBO_PREVIEW_PER_PAGE,
   type HanbaitenGroup,
   type HanbaitenReportRow,
@@ -46,14 +49,6 @@ const TABLE_NAME = 't_dokusya_rireki';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '購読者名簿';
-// Excel の「1文書ページ = A4 1枚」に収める明細行数（手動改ページの間隔）。
-// preview（Web）とページ数を一致させるため、FE の meiboRowsPerA4
-// （= MEIBO_PREVIEW_PER_PAGE）と必ず同じ値にする。販売店別・管理支店別とも 15 行。
-// 実際の印刷結果に合わせて FE/BE 両側を揃えて調整する。
-const EXCEL_ROWS_PER_PAGE: Record<'hanbaiten' | 'kanri_shiten', number> = {
-  hanbaiten: 15,
-  kanri_shiten: 15,
-};
 // 出力種別は DownloadType enum を直接使用（MEIBO=5 / ZOUGEN=3 /
 // ZOUGEN_NICHINO=4）。併読(DokusyaShubetsu.BOTH)は本帳票では常に除外
 // （画面項目No.5）、新規(TetsuzukiShurui.SHINKI)のみ対象（解約=0は除外）。
@@ -66,15 +61,22 @@ export interface ExportMeiboResult {
   asciiFilename: string;
 }
 
+/** Excel 出力の1文書ページ共通コンテキスト（列数・ページ番号・出力日時）。 */
+interface MeiboPageCtx {
+  cols: number;
+  pageNo: number;
+  totalPages: number;
+  outDate: string;
+  outTime: string;
+}
+
 @Injectable()
 export class MeiboReportService {
-  private readonly logger = new Logger(MeiboReportService.name);
-
   constructor(
     @InjectRepository(DokusyaRireki)
     private readonly rirekiRepo: Repository<DokusyaRireki>,
     private readonly auditLog: AuditLogService,
-    // CodeService (@Global) — reserved for future m_code label resolution.
+    // CodeService (@Global) — 管理支店別Excel の 種別/支払方法ラベル解決に使用。
     private readonly codeService: CodeService,
     private readonly fileArchive: FileArchiveService,
   ) {}
@@ -85,14 +87,54 @@ export class MeiboReportService {
     session: SessionPayload,
   ): Promise<MeiboPreviewData> {
     this.assertConditionalRequired(query);
-    // SQLページング: 1ページ分の明細のみ OFFSET/LIMIT で取得し、各行に付与した
-    // ウィンドウ集計列（全件の小計/合計/件数）からページ構造を組み立てる。
-    // → BE は全件をメモリに抱えない。export は別途 fetchRows で全件を使う。
-    const perPage = query.per_page ?? MEIBO_PREVIEW_PER_PAGE;
-    const page = Math.max(query.page ?? 1, 1);
-    const offset = (page - 1) * perPage;
-    const rows = await this.fetchMeiboPage(query, session, offset, perPage);
-    return buildMeiboPreview(query.report_type, query.tekiyo_date, rows, page, perPage);
+    // 動的ページング（顧客要件 2026-07）: 販売店/管理支店ごとに独立A4ページ + 明細の
+    // 高さ(氏名/住所の折返しで可変)を積算して A4 1ページに収まる範囲で改ページする。
+    // 全件取得 → グループ化 → buildMeiboDocPages で文書ページ化。preview と Excel が
+    // 同じ関数を共有するのでページ構成は必ず一致する（BE が唯一の真実源）。
+    const rows = await this.fetchRows(query, session);
+    const full = this.buildPreview(query, rows);
+    const pages = buildMeiboDocPages(full);
+
+    const totalRows =
+      full.report_type === 'hanbaiten'
+        ? full.hanbaiten_groups.reduce(
+            (a, g) =>
+              a + g.kanri_shiten_groups.reduce((b, s) => b + s.rows.length, 0),
+            0,
+          )
+        : full.kanri_shiten_groups.reduce((a, g) => a + g.rows.length, 0);
+    const groupCount =
+      full.report_type === 'hanbaiten'
+        ? full.hanbaiten_groups.length
+        : full.kanri_shiten_groups.length;
+
+    // データなし → 空プレビュー（FE は grand_total_busu=0 で「対象なし」表示）。
+    if (pages.length === 0) {
+      return {
+        ...full,
+        page_no: 1,
+        per_page: MEIBO_PREVIEW_PER_PAGE,
+        total_pages: 1,
+        total_rows: 0,
+        is_last_page: true,
+        group_count: 0,
+        group_page_no: 1,
+        group_total_pages: 1,
+      };
+    }
+
+    const page = Math.min(Math.max(query.page ?? 1, 1), pages.length);
+    const p = pages[page - 1];
+    return {
+      ...p, // group_page_no / group_total_pages は p に設定済み
+      page_no: page,
+      // 動的ページのため per_page は名目値。FE のページャは total_pages を使う。
+      per_page: MEIBO_PREVIEW_PER_PAGE,
+      total_pages: pages.length,
+      total_rows: totalRows,
+      is_last_page: page >= pages.length,
+      group_count: groupCount,
+    };
   }
 
   // ─── ACSMS-API-026-002 — GET /api/v1/report/meibo/export ─────────
@@ -346,50 +388,6 @@ export class MeiboReportService {
     return qb.getRawMany<MeiboRawRow>();
   }
 
-  /**
-   * 1ページ分の明細のみ取得（preview 用。OFFSET/LIMIT）。各行に全件のウィンドウ
-   * 集計列を付与する（COUNT/SUM OVER / ROW_NUMBER OVER）。ウィンドウ関数は
-   * LIMIT/OFFSET の前に全件に対して評価されるため、ページ行だけ取得しても
-   * 全件の小計・合計・件数・グループ境界を再現できる（BEは全件を抱えない）。
-   */
-  private async fetchMeiboPage(
-    query: MeiboReportQueryDto,
-    session: SessionPayload,
-    offset: number,
-    limit: number,
-  ): Promise<MeiboRawRow[]> {
-    const qb = this.meiboDetailSelect(this.meiboBaseQuery(query, session))
-      .addSelect('COUNT(*) OVER ()', '_total_rows')
-      .addSelect('COALESCE(SUM(r.dokusya_busu) OVER (), 0)', '_grand_busu');
-    if (query.report_type === 'hanbaiten') {
-      qb.addSelect('COALESCE(SUM(r.dokusya_busu) OVER (PARTITION BY r.hanbaiten_id), 0)', '_hg_busu')
-        .addSelect(
-          'ROW_NUMBER() OVER (PARTITION BY r.hanbaiten_id ORDER BY r.kanri_shiten_id, r.dokusya_id)',
-          '_hg_rn',
-        )
-        .addSelect('COUNT(*) OVER (PARTITION BY r.hanbaiten_id)', '_hg_count')
-        .addSelect(
-          'COALESCE(SUM(r.dokusya_busu) OVER (PARTITION BY r.hanbaiten_id, r.kanri_shiten_id), 0)',
-          '_sg_busu',
-        )
-        .addSelect(
-          'ROW_NUMBER() OVER (PARTITION BY r.hanbaiten_id, r.kanri_shiten_id ORDER BY r.dokusya_id)',
-          '_sg_rn',
-        )
-        .addSelect('COUNT(*) OVER (PARTITION BY r.hanbaiten_id, r.kanri_shiten_id)', '_sg_count');
-    } else {
-      qb.addSelect('COALESCE(SUM(r.dokusya_busu) OVER (PARTITION BY r.kanri_shiten_id), 0)', '_kg_busu')
-        .addSelect(
-          'ROW_NUMBER() OVER (PARTITION BY r.kanri_shiten_id ORDER BY r.dokusya_id)',
-          '_kg_rn',
-        )
-        .addSelect('COUNT(*) OVER (PARTITION BY r.kanri_shiten_id)', '_kg_count');
-    }
-    this.applyMeiboOrder(qb, query.report_type);
-    qb.offset(offset).limit(limit);
-    return qb.getRawMany<MeiboRawRow>();
-  }
-
   private buildPreview(
     query: MeiboReportQueryDto,
     rows: MeiboRawRow[],
@@ -468,6 +466,34 @@ export class MeiboReportService {
         horizontal: opts.center ? 'center' : 'left',
       };
     }
+  }
+
+  /**
+   * 明細行の高さを内容に合わせて自動調整する（Excel は生成ファイルの折返し行を
+   * 自動フィットしないため、明示的に高さを計算して切れないようにする・顧客要件
+   * 2026-07）。各セルの明示改行(\n)に加え、列幅からの折返し行数も概算し、最大行数
+   * ×1行高で設定する。全角(日本語)は幅2、半角は幅1として概算。
+   */
+  private autoFitRowHeight(
+    sheet: ExcelJS.Worksheet,
+    row: ExcelJS.Row,
+    cols: number,
+    minHeightPt = 0,
+  ): void {
+    // 動的ページングの分割見積り(estimateMeiboRowHeightPt)と同一ロジックで行高を
+    // 決める。両者が一致することで「preview/Excel のページ構成」と「実際の行高」が
+    // 整合し、A4 からのはみ出しを防ぐ。
+    const texts: string[] = [];
+    const widths: number[] = [];
+    for (let c = 1; c <= cols; c++) {
+      const v = row.getCell(c).value;
+      let text = '';
+      if (typeof v === 'string') text = v;
+      else if (typeof v === 'number') text = String(v);
+      texts.push(text);
+      widths.push(Number(sheet.getColumn(c).width ?? 10));
+    }
+    row.height = estimateMeiboRowHeightPt(texts, widths, minHeightPt);
   }
 
   /**
@@ -584,158 +610,81 @@ export class MeiboReportService {
     data: MeiboPreviewData,
   ): void {
     const COLS = 7;
-    sheet.columns = [
-      { width: 9 }, { width: 24 }, { width: 32 }, { width: 16 },
-      { width: 18 }, { width: 14 }, { width: 11 },
-    ];
-    const lastCol = String.fromCodePoint(64 + COLS); // 'G'
+    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有 — 改ページ位置一致のため。
+    sheet.columns = MEIBO_COL_WIDTHS.hanbaiten.map((width) => ({ width }));
     const outDate = nowDateJst();
     const outTime = nowTimeJst(); // 全ページ同一時刻（ページ毎の再評価でズレない）
 
-    // 明細行を描画順にフラット化 + グループの先頭/最終インデックス。
-    const { flat, firstIdx, lastIdx } = this.flattenHanbaitenRows(data);
-
-    const N = EXCEL_ROWS_PER_PAGE.hanbaiten;
-    const totalPages = Math.max(1, Math.ceil(flat.length / N));
-    let idx = 0;
-    for (let page = 1; page <= totalPages; page++) {
-      const pageStart = idx;
-      this.writeHanbaitenPageHeader(sheet, data, COLS, page, totalPages, outDate, outTime);
-      idx = this.writeHanbaitenPageDetails(
-        sheet,
-        flat,
-        { start: idx, end: Math.min(idx + N, flat.length), pageStart },
-        { firstIdx, lastIdx },
-        { cols: COLS, lastCol },
-      );
-      // 合計は最終ページにのみ（複数販売店のとき）。
-      if (page === totalPages && data.hanbaiten_groups.length > 1) {
-        this.styleRow(
-          sheet.addRow(['', '', '', '', '', '合計', `${data.grand_total_busu}件`]),
-          COLS,
-          { fill: true, bold: true, center: true },
-        );
+    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書
+    // ページ化（各販売店 独立A4ページ + 明細高さ積算で A4 に収める）。ページ数は
+    // 販売店ごとに 1..N（ヘッダ）。見出し帯・全体合計は廃止（小計のみ）。
+    const pages = buildMeiboDocPages(data);
+    pages.forEach((page, idx) => {
+      const hg = page.hanbaiten_groups[0];
+      const ctx: MeiboPageCtx = {
+        cols: COLS,
+        pageNo: page.group_page_no ?? 1,
+        totalPages: page.group_total_pages ?? 1,
+        outDate,
+        outTime,
+      };
+      this.writeHanbaitenPageHeader(sheet, data, hg, ctx);
+      for (const sg of hg.kanri_shiten_groups) {
+        for (const row of sg.rows) this.writeHanbaitenDetail(sheet, row, COLS);
       }
-      // ページ間に手動改ページ（最終ページの後ろには入れない）。
-      if (page < totalPages && sheet.lastRow) sheet.lastRow.addPageBreak();
-    }
+      if (hg.show_total !== false) this.writeSubtotalRow(sheet, COLS, hg.total_busu);
+      // ページ間に手動改ページ（全体の最終ページの後ろには入れない）。
+      if (idx < pages.length - 1 && sheet.lastRow) sheet.lastRow.addPageBreak();
+    });
 
     this.applyA4PageSetup(sheet);
   }
 
-  /** 明細行を描画順にフラット化し、販売店ごとの先頭/最終インデックスを得る。 */
-  private flattenHanbaitenRows(data: MeiboPreviewData): {
-    flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[];
-    firstIdx: Map<number, number>;
-    lastIdx: Map<number, number>;
-  } {
-    const flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[] = [];
-    for (const hg of data.hanbaiten_groups) {
-      for (const sg of hg.kanri_shiten_groups) {
-        for (const row of sg.rows) flat.push({ hg, row });
-      }
-    }
-    const firstIdx = new Map<number, number>();
-    const lastIdx = new Map<number, number>();
-    flat.forEach((f, i) => {
-      if (!firstIdx.has(f.hg.hanbaiten_id)) firstIdx.set(f.hg.hanbaiten_id, i);
-      lastIdx.set(f.hg.hanbaiten_id, i);
-    });
-    return { flat, firstIdx, lastIdx };
-  }
-
-  /**
-   * 1 文書ページ分の明細（販売店見出し帯 + 明細行 + グループ小計）を書き、
-   * 次ページ開始の flat インデックスを返す。
-   */
-  private writeHanbaitenPageDetails(
+  /** 小計行を出力（グループ最終ページ）。販売店別・管理支店別 共通。合計行は廃止。 */
+  private writeSubtotalRow(
     sheet: ExcelJS.Worksheet,
-    flat: { hg: HanbaitenGroup; row: HanbaitenReportRow }[],
-    range: { start: number; end: number; pageStart: number },
-    idxMaps: { firstIdx: Map<number, number>; lastIdx: Map<number, number> },
-    layout: { cols: number; lastCol: string },
-  ): number {
-    const { cols, lastCol } = layout;
-    let idx = range.start;
-    let curHg: number | null = null;
-    while (idx < range.end) {
-      const { hg, row } = flat[idx];
-      if (hg.hanbaiten_id !== curHg) {
-        this.writeHanbaitenBand(
-          sheet,
-          hg,
-          cols,
-          lastCol,
-          idxMaps.firstIdx.get(hg.hanbaiten_id)! < range.pageStart,
-        );
-        curHg = hg.hanbaiten_id;
-      }
-      this.writeHanbaitenDetail(sheet, row, cols);
-      if (idx === idxMaps.lastIdx.get(hg.hanbaiten_id)) {
-        this.styleRow(
-          sheet.addRow(['', '', '', '', '', '小計', `${hg.total_busu}件`]),
-          cols,
-          { fill: true, bold: true, center: true },
-        );
-      }
-      idx++;
-    }
-    return idx;
+    cols: number,
+    busu: number,
+  ): void {
+    this.styleRow(sheet.addRow(['', '', '', '', '', '小計', `${busu}件`]), cols, {
+      fill: true,
+      bold: true,
+      center: true,
+    });
   }
 
-  /** 販売店別: 1ページ分の帳票ヘッダ + 表頭（ページ数 k/M をセルに直接）。 */
+  /** 販売店別: 1ページ分の帳票ヘッダ + 表頭（当該ページの販売店を表示）。 */
   private writeHanbaitenPageHeader(
     sheet: ExcelJS.Worksheet,
     data: MeiboPreviewData,
-    cols: number,
-    pageNo: number,
-    totalPages: number,
-    outDate: string,
-    outTime: string,
+    hg: HanbaitenGroup,
+    ctx: MeiboPageCtx,
   ): void {
-    const head = data.hanbaiten_groups[0];
-    const names = data.hanbaiten_groups.map((g) => g.hanbaiten_name).join('、');
-    const shisho = data.hanbaiten_groups[0]?.kanri_shiten_groups[0]?.kanri_shiten_name ?? '';
+    // 販売店別は1ページに複数の管理支店(支所)が載りうるため、代表1件をヘッダに出すのは
+    // 誤解を招く → 支所行は表示しない（顧客要件 2026-07・preview と同一）。
     this.writeReportHeader(
       sheet,
-      cols,
+      ctx.cols,
       '販売店別購読者名簿',
       [
-        `販売店コード：${head?.hanbaiten_code ?? ''}`,
-        `${names}　御中`,
-        `TEL：${head?.hanbaiten_tel || '-'}`,
-        `FAX：${head?.hanbaiten_fax || '-'}`,
+        `販売店コード：${hg.hanbaiten_code ?? ''}`,
+        `${hg.hanbaiten_name}　御中`,
+        `TEL：${hg.hanbaiten_tel || '-'}`,
+        `FAX：${hg.hanbaiten_fax || '-'}`,
         `${data.tekiyo_date} 現在`,
       ],
       [
         `${data.ja_name}　TEL：${data.ja_tel || '-'}`,
-        `${shisho || '（未割当）支所'}　TEL：-`,
-        `出力日：${outDate}`,
-        `出力時間：${outTime}`,
-        `ページ数：${pageNo}/${totalPages}`,
+        `出力日：${ctx.outDate}`,
+        `出力時間：${ctx.outTime}`,
+        `ページ数：${ctx.pageNo}/${ctx.totalPages}`,
       ],
     );
     const th = sheet.addRow([
       'チェック欄', '配達先氏名\n配達先氏名かな', '配達先住所', '管理支店',
       '配達先電話番号', '購読開始日', '購読部数',
     ]);
-    this.styleRow(th, cols, { fill: true, bold: true, center: true });
-  }
-
-  /** 販売店 見出し帯（続きのときは「（続き）」を付す）。 */
-  private writeHanbaitenBand(
-    sheet: ExcelJS.Worksheet,
-    hg: HanbaitenGroup,
-    cols: number,
-    lastCol: string,
-    continued: boolean,
-  ): void {
-    const codeSuffix = hg.hanbaiten_code ? `（${hg.hanbaiten_code}）` : '';
-    const cont = continued ? '（続き）' : '';
-    const bandRow = sheet.addRow([`${hg.hanbaiten_name}${codeSuffix}${cont}`]);
-    this.styleRow(bandRow, cols, { fill: true, bold: true });
-    sheet.mergeCells(`A${bandRow.number}:${lastCol}${bandRow.number}`);
-    bandRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', wrapText: false };
+    this.styleRow(th, ctx.cols, { fill: true, bold: true, center: true });
   }
 
   /** 販売店別: 購読者1行（チェックボックス付き）。 */
@@ -756,7 +705,8 @@ export class MeiboReportService {
     this.styleRow(detailRow, cols);
     detailRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
     detailRow.getCell(1).font = { size: 36 };
-    detailRow.height = 48;
+    // 内容に合わせて高さを自動調整（チェックボックス font36 のため最低 44pt）。
+    this.autoFitRowHeight(sheet, detailRow, cols, MEIBO_HANBAITEN_MIN_ROW_PT);
   }
 
   /**
@@ -768,92 +718,70 @@ export class MeiboReportService {
     data: MeiboPreviewData,
   ): void {
     const COLS = 7;
-    sheet.columns = [
-      { width: 22 }, { width: 18 }, { width: 30 }, { width: 9 },
-      { width: 12 }, { width: 12 }, { width: 28 },
-    ];
+    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有 — 改ページ位置一致のため。
+    sheet.columns = MEIBO_COL_WIDTHS.kanri_shiten.map((width) => ({ width }));
     const outDate = nowDateJst();
     const outTime = nowTimeJst();
 
-    const flat: { kg: KanriShitenGroup; row: KanriShitenReportRow }[] = [];
-    for (const kg of data.kanri_shiten_groups) {
-      for (const row of kg.rows) flat.push({ kg, row });
-    }
-    const firstIdx = new Map<string, number>();
-    const lastIdx = new Map<string, number>();
-    const keyOf = (kg: KanriShitenGroup) =>
-      kg.kanri_shiten_id == null ? 'none' : String(kg.kanri_shiten_id);
-    flat.forEach((f, i) => {
-      const k = keyOf(f.kg);
-      if (!firstIdx.has(k)) firstIdx.set(k, i);
-      lastIdx.set(k, i);
+    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書
+    // ページ化（管理支店ごと独立A4ページ + 明細高さ積算で A4 に収める）。合計行は廃止。
+    const pages = buildMeiboDocPages(data);
+    pages.forEach((page, idx) => {
+      const kg = page.kanri_shiten_groups[0];
+      const ctx: MeiboPageCtx = {
+        cols: COLS,
+        pageNo: page.group_page_no ?? 1,
+        totalPages: page.group_total_pages ?? 1,
+        outDate,
+        outTime,
+      };
+      this.writeKanriPageHeader(sheet, data, kg, ctx);
+      for (const row of kg.rows) this.writeKanriDetailRow(sheet, row, COLS);
+      if (kg.show_subtotal !== false) this.writeSubtotalRow(sheet, COLS, kg.subtotal_busu);
+      if (idx < pages.length - 1 && sheet.lastRow) sheet.lastRow.addPageBreak();
     });
-
-    const N = EXCEL_ROWS_PER_PAGE.kanri_shiten;
-    const totalPages = Math.max(1, Math.ceil(flat.length / N));
-    let idx = 0;
-    for (let page = 1; page <= totalPages; page++) {
-      this.writeKanriPageHeader(sheet, data, COLS, page, totalPages, outDate, outTime);
-      const pageEnd = Math.min(idx + N, flat.length);
-      while (idx < pageEnd) {
-        const { kg, row } = flat[idx];
-        this.styleRow(
-          sheet.addRow([
-            `${row.shimei}\n${row.shimei_kana}`,
-            `${row.kumiaiin_code || '-'}\n${row.haitatsu_tel}`,
-            `${row.shiten_name}\n${this.formatAddressMultiline(row.haitatsu_address)}`,
-            row.dokusya_busu,
-            this.codeService.getLabel('DOKUSYA_SHUBETSU', row.dokusya_shubetsu),
-            this.codeService.getLabel('SHIHARAI_HOHO', row.shiharai_hoho),
-            `${isoDateToSlash(row.dokusya_kaishi_date)}\n${row.hanbaiten_name}`,
-          ]),
-          COLS,
-        );
-        if (idx === lastIdx.get(keyOf(kg))) {
-          this.styleRow(
-            sheet.addRow(['', '', '', '', '', '小計', `${kg.subtotal_busu}件`]),
-            COLS,
-            { fill: true, bold: true, center: true },
-          );
-        }
-        idx++;
-      }
-      if (page === totalPages && data.kanri_shiten_groups.length > 1) {
-        this.styleRow(
-          sheet.addRow(['', '', '', '', '', '合計', `${data.grand_total_busu}件`]),
-          COLS,
-          { fill: true, bold: true, center: true },
-        );
-      }
-      if (page < totalPages && sheet.lastRow) sheet.lastRow.addPageBreak();
-    }
 
     this.applyA4PageSetup(sheet);
   }
 
-  /** 管理支店別: 1ページ分の帳票ヘッダ + 表頭（ページ数 k/M をセルに直接）。 */
+  /** 管理支店別: 購読者1行。 */
+  private writeKanriDetailRow(
+    sheet: ExcelJS.Worksheet,
+    row: KanriShitenReportRow,
+    cols: number,
+  ): void {
+    const detailRow = sheet.addRow([
+      `${row.shimei}\n${row.shimei_kana}`,
+      `${row.kumiaiin_code || '-'}\n${row.haitatsu_tel}`,
+      `${row.shiten_name}\n${this.formatAddressMultiline(row.haitatsu_address)}`,
+      row.dokusya_busu,
+      this.codeService.getLabel('DOKUSYA_SHUBETSU', row.dokusya_shubetsu),
+      this.codeService.getLabel('SHIHARAI_HOHO', row.shiharai_hoho),
+      `${isoDateToSlash(row.dokusya_kaishi_date)}\n${row.hanbaiten_name}`,
+    ]);
+    this.styleRow(detailRow, cols);
+    // 内容に合わせて高さを自動調整（住所などの折返しで切れないように）。
+    this.autoFitRowHeight(sheet, detailRow, cols);
+  }
+
+  /** 管理支店別: 1ページ分の帳票ヘッダ + 表頭（当該ページの管理支店名を表示）。 */
   private writeKanriPageHeader(
     sheet: ExcelJS.Worksheet,
     data: MeiboPreviewData,
-    cols: number,
-    pageNo: number,
-    totalPages: number,
-    outDate: string,
-    outTime: string,
+    kg: KanriShitenGroup,
+    ctx: MeiboPageCtx,
   ): void {
-    const names = data.kanri_shiten_groups
-      .map((g) => g.kanri_shiten_name || '（未割当）')
-      .join('、');
+    const names = kg.kanri_shiten_name || '（未割当）';
     this.writeReportHeader(
       sheet,
-      cols,
+      ctx.cols,
       '管理支店別購読者名簿',
       [`管理支店：${names}`, `${data.tekiyo_date} 現在`],
       [
         `${data.ja_name}　TEL：${data.ja_tel || '-'}`,
-        `出力日：${outDate}`,
-        `出力時間：${outTime}`,
-        `ページ数：${pageNo}/${totalPages}`,
+        `出力日：${ctx.outDate}`,
+        `出力時間：${ctx.outTime}`,
+        `ページ数：${ctx.pageNo}/${ctx.totalPages}`,
       ],
       false, // 管理支店別は手書きチェック欄なし
     );
@@ -866,7 +794,7 @@ export class MeiboReportService {
       '支払方法',
       '購読開始日\n配達担当販売店',
     ]);
-    this.styleRow(th, cols, { fill: true, bold: true, center: true });
+    this.styleRow(th, ctx.cols, { fill: true, bold: true, center: true });
   }
 
   /** `〒{7桁}{住所}` を `〒XXX-XXXX\n{住所}` の2行表記に整形。 */

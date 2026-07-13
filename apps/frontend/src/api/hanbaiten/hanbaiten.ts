@@ -264,7 +264,11 @@ export async function updateHanbaiten(
 
 // ─── ACSMS-SCR-019 — 販売店Excelデータ取込画面 ────────────────────────
 
-export type ImportMode = 'NEW' | 'UPDATE_ALL' | 'UPDATE_PARTIAL';
+/**
+ * 取込モード（顧客要件 2026-07：全項目更新を廃止し 新規登録/更新 の2択に統合）。
+ * UPDATE は selected_columns の列のみ更新。全列更新は「すべて選択」で全列を含める。
+ */
+export type ImportMode = 'NEW' | 'UPDATE';
 
 export interface ImportHanbaitenRow {
   hanbaiten_code: string;

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
   IsArray,
   IsIn,
   IsInt,
@@ -9,7 +10,10 @@ import {
   IsString,
   Matches,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+
+import { ExportRowDto } from './export-row.dto';
 
 /** `YYYY-MM-DD` 日付フォーマット。 */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -103,4 +107,16 @@ export class ExportKozaFurikaeDto {
   @MaxLength(7, { message: '口座番号は7桁以内で入力してください。' })
   @Matches(/^\d+$/, { message: '口座番号は半角数字で入力してください。' })
   jastem_koza_no!: string;
+
+  @ApiProperty({
+    description:
+      'プレビューで確認・編集した振替対象行（v1.1）。dokusya_id で突合し、' +
+      'サーバはスコープ再集計した集合にある行だけ金額を上書きする。',
+    type: [ExportRowDto],
+  })
+  @IsArray({ message: '対象データがありません。' })
+  @ArrayNotEmpty({ message: '対象データがありません。' })
+  @ValidateNested({ each: true })
+  @Type(() => ExportRowDto)
+  rows!: ExportRowDto[];
 }

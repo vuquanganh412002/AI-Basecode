@@ -20,46 +20,49 @@ describe('UpdateDokusyaDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  // ─── 氏名(氏/名/かな) は編集で不変 → 検証しない (顧客要件 2026-06) ──────────
-  // 作成時に確定し、編集では FE で disabled・サービスで before に pin される。
-  // 親 CreateDokusyaDto の必須/漢字/ひらがな検証は UpdateDokusyaDto で
-  // `@ValidateIf(() => false)` により無効化される（旧取込等の非準拠データを持つ
-  // 購読者でも、ユーザーが直せない項目で更新がブロックされないように）。
-  it('should NOT validate shimei_sei on update even when blank (immutable, pinned)', async () => {
+  // ─── 氏名(氏/名/かな) は編集でも検証する (顧客要件 2026-07：氏名編集可) ────────
+  // 親 CreateDokusyaDto の必須/漢字/ひらがな検証をそのまま継承する。サービスの
+  // name-pin も撤廃され、送信値がそのまま保存・履歴化されるため、作成と同じ
+  // フォーマット検証を編集でも適用する。
+  it('should validate shimei_sei on update when blank (required)', async () => {
     const dto = plainToInstance(
       UpdateDokusyaDto,
       buildUpdateDokusyaBody({ shimei_sei: '' }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'shimei_sei')).toBe(false);
+    expect(errors.some((e) => e.property === 'shimei_sei')).toBe(true);
   });
 
-  it('should NOT validate shimei_mei on update even when it contains digits (non-漢字)', async () => {
-    // 旧取込で "太郎12" のような非準拠データが残っていても更新可能。
+  it('should validate shimei_mei on update when it contains digits (non-漢字)', async () => {
     const dto = plainToInstance(
       UpdateDokusyaDto,
       buildUpdateDokusyaBody({ shimei_mei: '太郎12' }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'shimei_mei')).toBe(false);
+    expect(errors.some((e) => e.property === 'shimei_mei')).toBe(true);
   });
 
-  it('should NOT validate shimei_kana_sei on update even when katakana (non-ひらがな)', async () => {
+  it('should validate shimei_kana_sei on update when blank (required)', async () => {
+    // BE の氏名カナは必須＋最大100文字を検証する（ひらがな限定は FE 側のみ）。
     const dto = plainToInstance(
       UpdateDokusyaDto,
-      buildUpdateDokusyaBody({ shimei_kana_sei: 'ゾウゲン' }),
+      buildUpdateDokusyaBody({ shimei_kana_sei: '' }),
     );
     const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'shimei_kana_sei')).toBe(true);
+  });
+
+  it('should accept a conforming shimei on update (氏=漢字 / かな)', async () => {
+    const dto = plainToInstance(
+      UpdateDokusyaDto,
+      buildUpdateDokusyaBody({
+        shimei_sei: '田中',
+        shimei_kana_sei: 'たなか',
+      }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'shimei_sei')).toBe(false);
     expect(errors.some((e) => e.property === 'shimei_kana_sei')).toBe(false);
-  });
-
-  it('should NOT validate shimei_kana_mei on update even when over 100 chars', async () => {
-    const dto = plainToInstance(
-      UpdateDokusyaDto,
-      buildUpdateDokusyaBody({ shimei_kana_mei: 'ア'.repeat(101) }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'shimei_kana_mei')).toBe(false);
   });
 
   // ─── dokusya_shubetsu (Number, required) ────────────────────────────────

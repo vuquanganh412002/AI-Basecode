@@ -221,6 +221,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
     const { previewZougenNichino } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
     (wrapper.vm as any).formState.kanri_shiten_id = [20];
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -231,7 +232,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
     expect(arg.kanri_shiten_id).toEqual([20]);
   });
 
-  it('should call previewZougenNichino even when no 管理支店 is selected (optional filter)', async () => {
+  it('should show 管理支店を1件以上選択してください。 and NOT call previewZougenNichino when 管理支店 is empty (必須・顧客要件 2026-07)', async () => {
     const { wrapper } = await renderView();
     const { previewZougenNichino } = await import('@/api/report/report');
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
@@ -240,12 +241,14 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 
-    expect(previewZougenNichino).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('管理支店を1件以上選択してください。');
+    expect(previewZougenNichino).not.toHaveBeenCalled();
   });
 
   it('should render the 委託 / 販売店コード / 現在部数 / 増部数 / 減部数 / 新部数 column titles when previewZougenNichino resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -262,6 +265,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
   it('should render the 販売店コード + 販売店名 detail row when previewZougenNichino resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -274,6 +278,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
   it('should render the 合計 row when previewZougenNichino resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -284,6 +289,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
   it('should render the 管理支店コード as 3-4-3 (1AA-3300-001) in the 帳票ヘッダ when previewZougenNichino resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -298,6 +304,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
       buildEmptyNichinoPreviewResponse(),
     );
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
@@ -307,7 +314,7 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// 3b. ページ送り（15販売店行/ページ・別API再取得。SCR-028 と同方針）
+// 3b. ページ送り（1管理支店=1ページ・別API再取得。顧客要件 2026-07）
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenNichinoReportView — ページ送り', () => {
   const pagedResponse = (pageNo: number) => ({
@@ -321,18 +328,19 @@ describe('ZougenNichinoReportView — ページ送り', () => {
     },
   });
 
-  it('should send page=1 + per_page=15 on レポートプレビュー', async () => {
+  it('should send page=1 + per_page=28 on レポートプレビュー', async () => {
     const { wrapper } = await renderView();
     const { previewZougenNichino } = await import('@/api/report/report');
     vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(1) as any);
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
 
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 
     const arg = vi.mocked(previewZougenNichino).mock.calls.at(-1)?.[0];
     expect(arg?.page).toBe(1);
-    expect(arg?.per_page).toBe(15);
+    expect(arg?.per_page).toBe(28);
     expect(wrapper.find('[data-test="zougen-nichino-pager"]').exists()).toBe(true);
   });
 
@@ -341,6 +349,7 @@ describe('ZougenNichinoReportView — ページ送り', () => {
     const { previewZougenNichino } = await import('@/api/report/report');
     vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(1) as any);
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
     await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 

@@ -456,14 +456,22 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
 });
 
 describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () => {
-  it('should update the form state when the user picks 全項目更新 radio', async () => {
+  it('should render only the 新規登録 / 更新 radios (全項目更新 removed)', async () => {
     const { wrapper } = await renderView();
-    const radio = wrapper.find('[data-test="import-mode-update"]');
-    await radio.setValue(true);
+    expect(wrapper.find('[data-test="import-mode-new"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="import-mode-update"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="import-mode-cancel"]').exists()).toBe(false);
+  });
+
+  it('should send import_mode=UPDATE when the user picks 更新 radio', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
-    // Submit and verify the BE wire value flips to UPDATE_ALL.
+    // 更新は既定で列未チェック → 送信のため「すべて選択」で全列をチェックする。
+    await wrapper.find('[data-test="select-all-checkbox"]').setValue(true);
+    await flushPromises();
     vi.mocked(importHanbaitenExcel).mockResolvedValue(
-      buildImportSuccessResponse({ data: { import_mode: 'UPDATE_ALL' } }) as any,
+      buildImportSuccessResponse({ data: { import_mode: 'UPDATE' } }) as any,
     );
     await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
@@ -473,28 +481,10 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
       unknown
     >;
     expect(body).toBeDefined();
-    expect(body.import_mode).toBe('UPDATE_ALL');
+    expect(body.import_mode).toBe('UPDATE');
   });
 
-  it('should update the form state when the user picks 入力箇所のみ更新 radio', async () => {
-    const { wrapper } = await renderView();
-    const radio = wrapper.find('[data-test="import-mode-cancel"]');
-    await radio.setValue(true);
-    await flushPromises();
-    vi.mocked(importHanbaitenExcel).mockResolvedValue(
-      buildImportSuccessResponse({ data: { import_mode: 'UPDATE_PARTIAL' } }) as any,
-    );
-    await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
-    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
-    await flushPromises();
-    const body = vi.mocked(importHanbaitenExcel).mock.calls[0]?.[0] as unknown as Record<
-      string,
-      unknown
-    >;
-    expect(body.import_mode).toBe('UPDATE_PARTIAL');
-  });
-
-  // ─── 取込列 lock-by-mode (bug fix: selector was inert in NEW/UPDATE_ALL) ─
+  // ─── 取込列 lock-by-mode ─────────────────────────────────────────────
 
   it('should lock (checked + disabled) hanbaiten_name in 新規登録 since it is a required insert column', async () => {
     const { wrapper } = await renderView(); // default = 新規登録
@@ -503,35 +493,32 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     expect((name.element as HTMLInputElement).disabled).toBe(true);
   });
 
-  it('should check AND disable every column AND the すべて選択 toggle when 全項目更新 is picked', async () => {
+  it('should default every non-key column UNCHECKED in 更新 (only hanbaiten_code locked); すべて選択 ticks them all', async () => {
+    // 顧客要件 2026-07: 更新は既定で列を選択しない。全列更新は「すべて選択」で行う。
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
 
+    const code = wrapper.find('input[type="checkbox"][value="hanbaiten_code"]');
+    const name = wrapper.find('input[type="checkbox"][value="hanbaiten_name"]');
+    // キー列はチェック+disable、他は既定で未チェック+編集可。
+    expect((code.element as HTMLInputElement).checked).toBe(true);
+    expect((code.element as HTMLInputElement).disabled).toBe(true);
+    expect((name.element as HTMLInputElement).checked).toBe(false);
+    expect((name.element as HTMLInputElement).disabled).toBe(false);
+
+    // すべて選択 は無効化されない（更新でも列選択できる）。
+    const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
+    expect((selectAll.element as HTMLInputElement).disabled).toBe(false);
+
+    // すべて選択 ON → 全23列がチェックされる（＝全列更新）。
+    await selectAll.setValue(true);
+    await flushPromises();
     const allCols = wrapper.findAll('input[type="checkbox"][name="col"]');
     expect(allCols.length).toBe(23);
     for (const cb of allCols) {
       expect((cb.element as HTMLInputElement).checked).toBe(true);
-      expect((cb.element as HTMLInputElement).disabled).toBe(true);
     }
-    const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
-    expect((selectAll.element as HTMLInputElement).disabled).toBe(true);
-  });
-
-  it('should keep hanbaiten_name editable (only hanbaiten_code locked) in 入力箇所のみ更新', async () => {
-    const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
-    await flushPromises();
-
-    const code = wrapper.find('input[type="checkbox"][value="hanbaiten_code"]');
-    const name = wrapper.find('input[type="checkbox"][value="hanbaiten_name"]');
-    expect((code.element as HTMLInputElement).disabled).toBe(true);
-    expect((code.element as HTMLInputElement).checked).toBe(true);
-    expect((name.element as HTMLInputElement).disabled).toBe(false);
-    // …and an optional column can now be unchecked.
-    await name.setValue(false);
-    await flushPromises();
-    expect((name.element as HTMLInputElement).checked).toBe(false);
   });
 });
 

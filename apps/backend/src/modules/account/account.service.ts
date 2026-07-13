@@ -18,7 +18,11 @@ import {
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { applyBranchScope, fetchFkInJa } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
-import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import {
+  paginate,
+  paginateCursor,
+  type PaginatedResponse,
+} from '@/common/utils/paginate';
 import {
   AuditLogService,
   type AuditOperationContext,
@@ -382,7 +386,6 @@ export class AccountService {
     ]);
 
     const pageIds = new Set(raw.map((r) => Number(r.account_id)));
-    const has_more = page * per_page < total;
 
     // [include-id] Prepend the pre-selected account_id when it survives
     // DataScope but lives outside the current page slice — mirrors the
@@ -409,16 +412,18 @@ export class AccountService {
     }
 
     const rows = [...(pinned ? [pinned] : []), ...raw];
-    return {
-      data: rows.map((r) => ({
+    return paginateCursor(
+      rows.map((r) => ({
         account_id: Number(r.account_id),
         login_id: r.login_id,
         account_name: r.account_name,
         role_code: r.role_code,
         ja_id: r.ja_id == null ? null : Number(r.ja_id),
       })),
-      meta: { total, page, per_page, has_more },
-    };
+      total,
+      page,
+      per_page,
+    );
   }
 
   // ─── ACSMS-API-024-002 — DELETE /api/v1/accounts/:account_id ─────────

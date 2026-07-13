@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | -------------- |
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                                                                | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/02 | 1.1  | Tran Duc Tuyen | 共用ドロップダウンAPIを実装済みの共通エンドポイント仕様に整合：COMMON-007 検索パラメータ `search`→`q`・`ja_id`/`page`/`per_page`・`meta` 追加・レスポンスから `ja_id` 削除、COMMON-006 に `q`/`ja_id`/`page`/`per_page`・`meta` 追加 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/13 | 1.2  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API に `hanbaiten_tekiyo_date`（販売店適用日）を**必須・未来日のみ**で追加。指定適用日時点で置換可能な購読者のみ返す置換可能条件（`購読開始日 <= 適用日` かつ `解約予定日が無い/適用日より後`）を §4.3・§4.4・§4.5 に追記。初期表示は購読者を自動読込しない運用に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -72,7 +73,7 @@ updated_by: Tran Duc Tuyen
 | 項目                   | 内容                                                                                                                                                                                                                  |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Search Dokusya for Hanbaiten Replacement                                                                                                                                                                              |
-| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`tetsuzuki_shurui=1`（購読中）のみ返却。                                                                                          |
+| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`tetsuzuki_shurui=1`（購読中）のみ返却。`hanbaiten_tekiyo_date`（販売店適用日）は**必須**で、その適用日時点で置換可能な購読者のみ返却する（顧客要件 2026-07：画面初期表示では検索しない・適用日を入力して検索する運用）。 |
 | URI                    | /api/v1/dokusya/replace-hanbaiten/search                                                                                                                                                                              |
 | メソッド               | GET                                                                                                                                                                                                                   |
 | リクエストボディー     | なし                                                                                                                                                                                                                  |
@@ -93,10 +94,11 @@ updated_by: Tran Duc Tuyen
 | 7   | hanbaiten_id              | Number  | -    | -      | -      | 配達販売店ID（完全一致）                                                                            |
 | 8   | dokusya_kaishi_date_from  | String  | -    | -      | 10     | 購読開始日（開始）YYYY-MM-DD。`shoki_dokusya_kaishi_date >= :date_from` で範囲検索                  |
 | 9   | dokusya_kaishi_date_to    | String  | -    | -      | 10     | 購読開始日（終了）YYYY-MM-DD。`shoki_dokusya_kaishi_date <= :date_to` で範囲検索                    |
-| 10  | page                      | Number  | -    | -      | -      | ページ番号（デフォルト: 1）                                                                         |
-| 11  | per_page                  | Number  | -    | -      | -      | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
-| 12  | sort_by                   | String  | -    | -      | -      | ソートカラム（許可: `kanri_shiten_name` / `shiten_name` / `kumiaiin_code` / `hanbaiten_code`。デフォルト: `kumiaiin_code`） |
-| 13  | sort_order                | String  | -    | -      | -      | ソート順（asc / desc、デフォルト: asc）                                                             |
+| 10  | hanbaiten_tekiyo_date     | String  | ○    | -      | 10     | 販売店適用日 YYYY-MM-DD。**必須・未来日のみ（`> CURRENT_DATE`、当日・過去日不可）**。この適用日時点で置換可能な購読者のみ返却する（後述 §置換可能条件）。置換実行 API の適用日と同一基準 |
+| 11  | page                      | Number  | -    | -      | -      | ページ番号（デフォルト: 1）                                                                         |
+| 12  | per_page                  | Number  | -    | -      | -      | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
+| 13  | sort_by                   | String  | -    | -      | -      | ソートカラム（許可: `kanri_shiten_name` / `shiten_name` / `kumiaiin_code` / `hanbaiten_code`。デフォルト: `kumiaiin_code`） |
+| 14  | sort_order                | String  | -    | -      | -      | ソート順（asc / desc、デフォルト: asc）                                                             |
 
 ## レスポンスデータ
 
@@ -128,7 +130,7 @@ updated_by: Tran Duc Tuyen
 ## リクエスト例
 
 ```
-GET /api/v1/dokusya/replace-hanbaiten/search?kanri_shiten_id=10&kumiaiin_code=10001&page=1&per_page=20&sort_by=kumiaiin_code&sort_order=asc
+GET /api/v1/dokusya/replace-hanbaiten/search?hanbaiten_tekiyo_date=2026-08-01&kanri_shiten_id=10&kumiaiin_code=10001&page=1&per_page=20&sort_by=kumiaiin_code&sort_order=asc
 ```
 
 ## レスポンス成功例
@@ -261,8 +263,12 @@ GET /api/v1/dokusya/replace-hanbaiten/search?kanri_shiten_id=10&kumiaiin_code=10
 
 ### 4.3 データ取得条件の設定
 
+- **入力チェック（必須・未来日）**：`hanbaiten_tekiyo_date` は必須。未入力の場合 HTTP 400 (`VALIDATION_ERROR`, `{ field: "hanbaiten_tekiyo_date", message: "適用日を入力してください。" }`)。形式（YYYY-MM-DD）不正も 400。値が**当日以下**（`hanbaiten_tekiyo_date <= 当日(JST)`）の場合 HTTP 400 (`DATE_RANGE_INVALID`, message `販売店適用日は本日より後の日付を入力してください。`)。当日判定は `todayIsoJst()`（Asia/Tokyo）で行い、置換実行 API の適用日チェックと同一基準。
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
 - DataScope を role_code により適用する（4.2 参照）。
+- **置換可能条件（顧客要件 2026-07）**：指定した `hanbaiten_tekiyo_date`（販売店適用日）時点で置換可能な購読者のみに絞り込む。置換実行 API の集約チェック（`assertReplaceTekiyoDate`）と同一境界を per-row で適用するため、返却された任意の部分集合を選択しても実行時チェックが必ず通る：
+  - `d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date`（購読開始日が適用日以前）
+  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)`（解約予定日が無い、または適用日より後）
 - 検索条件を追加する：
   - kanri_shiten_id 指定時：`d.kanri_shiten_id = :kanri_shiten_id`
   - shiten_id 指定時：`d.shiten_id = :shiten_id`
@@ -276,6 +282,8 @@ GET /api/v1/dokusya/replace-hanbaiten/search?kanri_shiten_id=10&kumiaiin_code=10
 - 固定条件：
   - `d.tetsuzuki_shurui = 1`（購読中の購読者のみ）
   - `d.deleted_at IS NULL`（論理削除除外）
+  - `d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date`（置換可能条件）
+  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)`（置換可能条件）
 
 ### 4.4 データ件数の取得
 
@@ -285,6 +293,9 @@ FROM t_dokusya d
 LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
 WHERE d.tetsuzuki_shurui = 1
   AND d.deleted_at IS NULL
+  /* 置換可能条件（適用日時点で置換可能な購読者のみ） */
+  AND d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date
+  AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)
   /* DataScope: JA_KANRI_SHITEN */
   AND d.kanri_shiten_id = :user_kanri_shiten_id
   /* DataScope: JA_HONTEN / CHUOKAI */
@@ -319,7 +330,7 @@ LEFT JOIN m_hanbaiten h ON h.hanbaiten_id = d.hanbaiten_id AND h.deleted_at IS N
 LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
 WHERE d.tetsuzuki_shurui = 1
   AND d.deleted_at IS NULL
-  /* DataScope + 検索条件: 4.4と同じ */
+  /* 置換可能条件 + DataScope + 検索条件: 4.4と同じ */
 ORDER BY :sort_by :sort_order
 LIMIT :per_page OFFSET (:page - 1) * :per_page
 ```

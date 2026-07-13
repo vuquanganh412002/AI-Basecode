@@ -27,6 +27,7 @@ import {
   type ImportMode,
   type ImportHanbaitenRow,
 } from '@/api/hanbaiten/hanbaiten';
+import { downloadBlob } from '@/utils/download';
 
 /**
  * 23-column physical-name list — exact order per api.md §テンプレート
@@ -108,10 +109,11 @@ const MAX_ROWS = 500;
 
 // FE display value → BE wire value. Shorter IDs match screen-design.md
 // mockup and the radio v-model; translated to wire codes at submit.
+// 取込モードは 新規登録 / 更新 の2択（顧客要件 2026-07：全項目更新を廃止）。
+// 更新は選択列のみ更新。全列更新は「すべて選択」でチェックする。
 const MODE_TO_BE: Record<string, ImportMode> = {
   new: 'NEW',
-  update: 'UPDATE_ALL',
-  cancel: 'UPDATE_PARTIAL',
+  update: 'UPDATE',
 };
 
 const IMPORT_MODE_OPTIONS: ReadonlyArray<{
@@ -119,8 +121,7 @@ const IMPORT_MODE_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { value: 'new', label: '新規登録' },
-  { value: 'update', label: '全項目更新' },
-  { value: 'cancel', label: '入力箇所のみ更新' },
+  { value: 'update', label: '更新' },
 ];
 
 const authStore = useAuthStore();
@@ -146,16 +147,13 @@ const selected = reactive<Record<PhysicalColumn, boolean>>(
  * Columns force-checked + disabled per mode (the "取込列" lock set).
  * A locked column cannot be unchecked; entering a mode re-checks its set.
  *
- *   new    (新規登録)        — hanbaiten_code + hanbaiten_name: both are
- *                             NOT NULL with no 空文字許容 on the m_hanbaiten
- *                             schema, so a new row MUST carry them.
- *   cancel (入力箇所のみ更新)  — hanbaiten_code only: the anchor key. Every
- *                             other column is free to tick/untick (only the
- *                             ticked ones are written; the rest keep their
- *                             existing DB value).
- *   update (全項目更新)       — all 23: 全項目更新 means every column is the
- *                             target. To pick a subset, switch to
- *                             入力箇所のみ更新.
+ *   new    (新規登録) — hanbaiten_code + hanbaiten_name: both are NOT NULL
+ *                     with no 空文字許容 on the m_hanbaiten schema, so a new
+ *                     row MUST carry them.
+ *   update (更新)     — hanbaiten_code only: the anchor key. Every other
+ *                     column is free to tick/untick (only ticked columns are
+ *                     written; the rest keep their existing DB value). 全列
+ *                     更新は「すべて選択」で全列をチェックする。
  *
  * (The bank cluster's conditional-required rule — required iff
  * itaku_kubun=1 — is per-row and validated by the BE, not a column lock.)
@@ -165,8 +163,7 @@ const REQUIRED_BY_MODE: Record<
   readonly PhysicalColumn[]
 > = {
   new: ['hanbaiten_code', 'hanbaiten_name'],
-  update: PHYSICAL_COLUMNS,
-  cancel: ['hanbaiten_code'],
+  update: ['hanbaiten_code'],
 };
 
 /** Set of columns locked (checked + disabled) for the current mode. */
@@ -178,20 +175,17 @@ function isLocked(col: PhysicalColumn): boolean {
   return lockedCols.value.has(col);
 }
 
-/**
- * 全項目更新 locks every column, so the すべて選択／解除 toggle has nothing
- * to operate on — disable it there. Editable in NEW / UPDATE_PARTIAL.
- */
-const selectAllDisabled = computed(() => importModeFe.value === 'update');
-
-// Re-check every locked column whenever the mode changes (and on mount).
-// Switching INTO 全項目更新 ticks all 23; switching INTO 新規登録 re-ticks
-// code + name. Columns already unticked in a looser mode keep their state
-// when moving to a mode that doesn't lock them.
+// モード切替（＋マウント immediate）で各列の初期チェック状態を設定する:
+//   - locked 列  → チェック（新規: code+name / 更新: code）
+//   - それ以外   → 新規登録は既定チェック / **更新は既定で未チェック**（顧客要件
+//                  2026-07：更新は既定で列を選択しない。全列更新は「すべて選択」で
+//                  チェックする）。
 watch(
-  lockedCols,
-  (cols) => {
-    for (const col of cols) selected[col] = true;
+  importModeFe,
+  () => {
+    for (const col of PHYSICAL_COLUMNS) {
+      selected[col] = isLocked(col) || importModeFe.value === 'new';
+    }
   },
   { immediate: true },
 );
@@ -353,21 +347,7 @@ async function onFileChange(event: Event): Promise<void> {
 async function onTemplateDownload(): Promise<void> {
   try {
     const blob = await downloadHanbaitenImportTemplate();
-    // Trigger browser download. Skip in jsdom (test env) — `URL.createObjectURL`
-    // may be undefined.
-    if (
-      globalThis.window !== undefined &&
-      typeof globalThis.URL?.createObjectURL === 'function'
-    ) {
-      const url = globalThis.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '販売店Excelデータ取込_テンプレート.xlsx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      globalThis.URL.revokeObjectURL(url);
-    }
+    downloadBlob(blob, '販売店Excelデータ取込_テンプレート.xlsx');
   } catch {
     // Global axios interceptor already toasted — swallow silently here.
   }
@@ -642,10 +622,10 @@ function renderCell(value: unknown): string {
                 取込列
               </button>
               <span
-                v-if="selectAllDisabled"
+                v-if="importModeFe === 'update'"
                 class="ml-2 text-xs font-normal text-text-secondary"
               >
-                全項目更新では全列が対象です。列を選択する場合は「入力箇所のみ更新」を選択してください。
+                更新は選択した列のみ対象です。全列を更新する場合は「すべて選択」にチェックしてください。
               </span>
             </div>
             <label
@@ -655,7 +635,6 @@ function renderCell(value: unknown): string {
                 v-model="allChecked"
                 data-test="select-all-checkbox"
                 type="checkbox"
-                :disabled="selectAllDisabled"
                 class="w-3.5 h-3.5 rounded border-border-strong accent-primary focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
               />
               すべて選択／解除

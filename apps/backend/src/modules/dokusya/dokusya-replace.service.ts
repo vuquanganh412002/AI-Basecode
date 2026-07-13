@@ -101,6 +101,14 @@ export class DokusyaReplaceService {
       throw new DateRangeInvalidException();
     }
 
+    // §4.1 販売店適用日は未来日のみ（当日・過去日不可・顧客要件 2026-07）。置換の
+    // 実行時チェック(assertReplaceTekiyoDate)と同一基準を検索段でも適用する。
+    if (query.hanbaiten_tekiyo_date <= todayIsoJst()) {
+      throw new DateRangeInvalidException(
+        '販売店適用日は本日より後の日付を入力してください。',
+      );
+    }
+
     const page = Math.max(1, Number(query.page ?? 1));
     const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
     const sortColumn =
@@ -118,6 +126,19 @@ export class DokusyaReplaceService {
     // §4.3 固定条件 — 購読中 only, exclude soft-deleted.
     qb.where('d.tetsuzuki_shurui = 1');
     qb.andWhere('d.deleted_at IS NULL');
+
+    // §4.3 販売店適用日で「置換可能」な購読者のみに絞る（顧客要件 2026-07）。
+    // 置換の実行時チェック(assertReplaceTekiyoDate)と同一の境界を per-row で適用:
+    //   購読開始日 <= 適用日  かつ  (解約予定日が無い OR 解約予定日 > 適用日)。
+    // これで返る各行は個別に適用日で置換可能 → 任意の部分集合を選択しても実行時の
+    // 集約チェックが必ず通る。
+    qb.andWhere('d.dokusya_kaishi_date <= :rkApplied', {
+      rkApplied: query.hanbaiten_tekiyo_date,
+    });
+    qb.andWhere(
+      '(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :rkApplied)',
+      { rkApplied: query.hanbaiten_tekiyo_date },
+    );
 
     // §4.2 DataScope.
     applyBranchScope(

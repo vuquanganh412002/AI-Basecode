@@ -87,12 +87,12 @@ export function buildImportRequestNEW(
   };
 }
 
-/** Canonical valid UPDATE_ALL-mode request body. */
+/** UPDATE request with ALL columns selected（＝旧全項目更新相当。全列を selected_columns に含める）。 */
 export function buildImportRequestUpdateAll(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    import_mode: 'UPDATE_ALL',
+    import_mode: 'UPDATE',
     selected_columns: [...HANBAITEN_IMPORT_COLUMNS],
     rows: [
       buildImportRow({ hanbaiten_code: 'H001', hanbaiten_name: '販売店A改定' }),
@@ -102,7 +102,7 @@ export function buildImportRequestUpdateAll(
 }
 
 /**
- * Canonical valid UPDATE_PARTIAL-mode request body — selected_columns is
+ * UPDATE request with a SUBSET of columns selected — selected_columns is
  * the small subset of fields the caller wants to overwrite. Unselected
  * columns must retain their existing DB values.
  */
@@ -110,7 +110,7 @@ export function buildImportRequestUpdatePartial(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    import_mode: 'UPDATE_PARTIAL',
+    import_mode: 'UPDATE',
     selected_columns: ['hanbaiten_code', 'hanbaiten_name', 'tel'],
     rows: [
       {

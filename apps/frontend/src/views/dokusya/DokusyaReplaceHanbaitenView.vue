@@ -7,13 +7,15 @@
 // POST /api/v1/dokusya/replace-hanbaiten.
 //
 // 機能定義 (screen-design.md §機能定義):
-//   1.x  initial render — 支店 disabled until 管理支店 chosen; 適用日 /
-//        置換先配達販売店 hidden until ≥1 row selected; 置換処理実行 disabled.
-//   2.x  search — filters → searchDokusyaForReplace; empty → MSG-015-001.
-//   3.x  検索クリア — reset filters + result list + selection + hide
-//        適用日 / 置換先.
-//   4.1  validation — 置換先 / 適用日 required (MSG-015-004); 置換先 ≠
-//        現在の販売店 (MSG-015-005); 併読 (dokusya_shubetsu=3) or 電子版
+//   1.x  initial render — 支店 disabled until 管理支店 chosen; 適用日 は検索
+//        エリアの必須項目（常時表示）; 置換先配達販売店 hidden until ≥1 row
+//        selected; 置換処理実行 disabled; 購読者一覧は自動読込しない（顧客要件）.
+//   2.x  search — 適用日(必須・未来日) + filters → searchDokusyaForReplace;
+//        その適用日で置換可能な購読者のみ返る; empty → MSG-015-001.
+//   3.x  検索クリア — reset filters(適用日含む) + result list + selection +
+//        hide 置換先.
+//   4.1  validation — 置換先 required (MSG-015-004; 適用日は検索で入力・検証
+//        済み); 置換先 ≠ 現在の販売店 (MSG-015-005); 併読 (dokusya_shubetsu=3) or 電子版
 //        クレカ (dokusya_shubetsu=2 && shiharai_hoho=6) ineligible
 //        (MSG-015-006). On failure: surface message + do NOT call API.
 //   4.2/4.3 confirm (MSG-015-007) → replaceDokusyaHanbaiten → success
@@ -30,7 +32,7 @@
 // view pre-flights them client-side (§4.1) and, on a server reject,
 // only resets local submitting state (no re-toast).
 
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Modal, message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
@@ -40,7 +42,7 @@ import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useAuthStore } from '@/stores/auth.store';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
-import { isTodayOrPastDayTokyo } from '@/utils/datetime';
+import { isTodayOrPastDayTokyo, todayIsoTokyo } from '@/utils/datetime';
 import {
   searchDokusyaForReplace,
   replaceDokusyaHanbaiten,
@@ -63,6 +65,8 @@ interface ReplaceFilters {
   hanbaiten_id: number | undefined;
   dokusya_kaishi_date_from: string;
   dokusya_kaishi_date_to: string;
+  /** 販売店適用日（必須・未来日のみ）。この日付で置換可能な購読者のみ検索する。 */
+  hanbaiten_tekiyo_date: string;
 }
 
 const DEFAULT_FILTERS: ReplaceFilters = {
@@ -75,6 +79,7 @@ const DEFAULT_FILTERS: ReplaceFilters = {
   hanbaiten_id: undefined,
   dokusya_kaishi_date_from: '',
   dokusya_kaishi_date_to: '',
+  hanbaiten_tekiyo_date: '',
 };
 
 const authStore = useAuthStore();
@@ -94,14 +99,16 @@ const {
 const rows = ref<ReplaceSearchItem[]>([]);
 const selectedRowKeys = ref<number[]>([]);
 
-/** Staged replace form — revealed once ≥1 row is checked. */
+/** Staged replace form — revealed once ≥1 row is checked. 適用日 は検索条件へ
+ * 移動したため（顧客要件）、post-selection では 置換先(new_hanbaiten_id) のみ選ぶ。 */
 const replaceForm = ref<{
   new_hanbaiten_id: number | undefined;
-  hanbaiten_tekiyo_date: string;
 }>({
   new_hanbaiten_id: undefined,
-  hanbaiten_tekiyo_date: '',
 });
+
+/** 検索を1回でも実行したか（初期表示は自動検索しない → 未検索時は空文言を出さない）。 */
+const searched = ref(false);
 
 const submitting = ref(false);
 
@@ -128,7 +135,7 @@ const isShitenDisabled = computed(
     state.filters.kanri_shiten_id === null,
 );
 
-/** ≥1 row checked reveals 適用日 / 置換先 + enables 置換処理実行. */
+/** ≥1 row checked reveals 置換先 + enables 置換処理実行（適用日は検索条件で常時表示）. */
 const hasSelection = computed(() => selectedRowKeys.value.length > 0);
 
 /** 機能定義 7.x — load 支店 list scoped to the chosen 管理支店. */
@@ -229,6 +236,8 @@ function buildSearchParams(): ReplaceSearchParams {
     per_page: state.per_page,
     sort_by: state.sort_by as ReplaceSearchParams['sort_by'],
     sort_order: state.sort_order,
+    // 販売店適用日は必須（検索前に validateSearch で担保）。
+    hanbaiten_tekiyo_date: f.hanbaiten_tekiyo_date,
   };
   // 管理支店 / 販売店 は Base*Dropdown が未選択時 null を emit（!= null で両対応）。
   if (f.kanri_shiten_id != null) params.kanri_shiten_id = f.kanri_shiten_id;
@@ -246,29 +255,34 @@ function buildSearchParams(): ReplaceSearchParams {
 }
 
 async function fetchList(): Promise<void> {
+  // 適用日（必須）が無ければ検索しない — 未入力/クリア直後は空状態に戻す。
+  // onSearch で必須検証済みのため、通常はここに空で来るのはクリア/初期のみ。
+  if (!state.filters.hanbaiten_tekiyo_date?.trim()) {
+    rows.value = [];
+    total.value = 0;
+    searched.value = false;
+    return;
+  }
   loading.value = true;
   try {
     const res = await searchDokusyaForReplace(buildSearchParams());
     rows.value = res.data;
     total.value = res.meta.total;
+    searched.value = true;
   } catch {
     // Expected & ignored: the global axios interceptor already toasted
-    // FORBIDDEN / 500. Re-throwing would surface an unhandled rejection
-    // in onMounted's fire-and-forget call (.claude/rules/vue.md §List
-    // view rule 5).
+    // FORBIDDEN / 500 (.claude/rules/vue.md §List view rule 5).
     rows.value = [];
     total.value = 0;
+    searched.value = true;
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(() => {
-  // 管理支店 / 販売店 候補は Base*Dropdown が onMounted で自前読込する。
-  // 初期表示でフィルタ未指定のまま検索を実行し、購読中の購読者一覧を
-  // デフォルト表示する（検索ボタンを押さなくてもデータを表示）。
-  void fetchList();
-});
+// 顧客要件: 初期表示では購読者を自動読込しない。適用日(必須)を入力して「検索」
+// を押して初めて、その適用日で置換可能な購読者を一覧表示する。
+// 管理支店 / 販売店 候補は Base*Dropdown が onMounted で自前読込する。
 
 // ─── Event handlers ───────────────────────────────────────────────────
 
@@ -284,19 +298,66 @@ function trimTextFilters(): void {
 // 表示中の一覧と同じ条件での 検索 連打、デフォルト状態での クリア 連打は API を
 // 呼ばない（重複呼び出し防止）。クリアは選択行・置換フォーム等のローカル状態を
 // 常にクリアしてから、絞り込み中なら条件をリセットして一覧を再取得する。
-const { onSearch, onClear } = searchActions({
+const { onSearch: runSearch, onClear: runClear } = searchActions({
   fetchList,
   beforeSearch: trimTextFilters,
   beforeClear() {
     selectedRowKeys.value = [];
     shitenOptions.value = [];
-    replaceForm.value = {
-      new_hanbaiten_id: undefined,
-      hanbaiten_tekiyo_date: '',
-    };
+    replaceForm.value = { new_hanbaiten_id: undefined };
     replaceError.value = '';
   },
 });
+
+/** 検索エリアの適用日バリデーションメッセージ。 */
+const searchError = ref<string>('');
+
+/** 検索前チェック — 適用日は必須 + 未来日のみ（BE と同一基準）。 */
+function validateSearch(): boolean {
+  searchError.value = '';
+  const d = state.filters.hanbaiten_tekiyo_date;
+  if (!d?.trim()) {
+    searchError.value = '適用日を入力してください。'; // ACSMS-MSG-015-004
+    return false;
+  }
+  if (d <= todayIsoTokyo()) {
+    searchError.value = '適用日は本日より後の日付を入力してください。';
+    return false;
+  }
+  return true;
+}
+
+/** 検索 — 適用日を検証してから searchActions.onSearch を実行する。 */
+function onSearch(): void {
+  if (!validateSearch()) return;
+  runSearch();
+}
+
+/** 検索クリア — 適用日を含む全フィルタ・検索結果・選択・置換フォームをリセット。
+ * 適用日が空になるため runClear 内の fetchList は空ガードで API を呼ばず空状態に戻る。 */
+function onClear(): void {
+  searchError.value = '';
+  runClear();
+  rows.value = [];
+  total.value = 0;
+  searched.value = false;
+}
+
+// 適用日を変更したら、既存の検索結果は別の適用日で置換可能な集合になり得るため
+// 破棄して再検索を促す（古い結果で置換実行しないため）。
+watch(
+  () => state.filters.hanbaiten_tekiyo_date,
+  () => {
+    if (searched.value) {
+      rows.value = [];
+      total.value = 0;
+      searched.value = false;
+      selectedRowKeys.value = [];
+      replaceForm.value = { new_hanbaiten_id: undefined };
+      replaceError.value = '';
+    }
+  },
+);
 
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
@@ -324,13 +385,8 @@ const selectedRows = computed(() =>
 function validateReplace(): boolean {
   replaceError.value = '';
   const form = replaceForm.value;
-  // 置換先 required.
+  // 置換先 required.（適用日は検索条件で入力済み・検証済みのためここでは不要）
   if (form.new_hanbaiten_id === undefined || form.new_hanbaiten_id === null) {
-    replaceError.value = MSG_REQUIRED;
-    return false;
-  }
-  // 適用日 required.
-  if (!form.hanbaiten_tekiyo_date) {
     replaceError.value = MSG_REQUIRED;
     return false;
   }
@@ -361,15 +417,13 @@ async function runReplace(): Promise<void> {
     await replaceDokusyaHanbaiten({
       dokusya_ids: [...selectedRowKeys.value],
       new_hanbaiten_id: form.new_hanbaiten_id,
-      hanbaiten_tekiyo_date: form.hanbaiten_tekiyo_date,
+      // 適用日は検索条件の値をそのまま使う（検索で入力・検証済み）。
+      hanbaiten_tekiyo_date: state.filters.hanbaiten_tekiyo_date,
     });
     // Custom copy (subject-bearing) — verb-only notify helpers don't fit.
     message.success(MSG_SUCCESS);
     selectedRowKeys.value = [];
-    replaceForm.value = {
-      new_hanbaiten_id: undefined,
-      hanbaiten_tekiyo_date: '',
-    };
+    replaceForm.value = { new_hanbaiten_id: undefined };
     replaceError.value = '';
     await fetchList();
   } catch {
@@ -523,39 +577,47 @@ defineExpose({
         />
       </div>
 
-      <!-- 適用日 / 置換先配達販売店 — revealed once ≥1 row selected
-           (機能定義 1.1 / 5.x). Wrapped col-span-full so the two
-           required fields drop onto their own row beneath the filters. -->
-      <div
-        v-if="hasSelection"
-        class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center"
-      >
-        <!-- 適用日 -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <!-- 適用日 (必須・未来日のみ) — 検索条件。この日付で置換可能な購読者のみ
+           検索する（顧客要件 2026-07）。検索前に validateSearch で必須+未来日を担保。
+           必須/未来日エラーはこの項目の直下に表示する。 -->
+      <div class="text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2">
           <span class="whitespace-nowrap">適用日</span>
           <span class="text-error">*</span>
-          <!-- 一括置換の適用日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。 -->
           <a-date-picker
-            v-model:value="replaceForm.hanbaiten_tekiyo_date"
+            v-model:value="state.filters.hanbaiten_tekiyo_date"
             value-format="YYYY-MM-DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
             :disabled-date="isTodayOrPastDayTokyo"
+            data-test="replace-tekiyo-date"
             class="flex-1"
           />
         </div>
+        <p
+          v-if="searchError"
+          class="text-error text-sm font-normal mt-1"
+          data-test="replace-search-error"
+        >
+          {{ searchError }}
+        </p>
+      </div>
 
-        <!-- 置換先配達販売店 -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">置換先配達販売店</span>
-          <span class="text-error">*</span>
-          <BaseHanbaitenDropdown
-            v-model:value="replaceForm.new_hanbaiten_id"
-            :ja-id="filterJaId"
-            class="flex-1"
-          />
-        </div>
+      <!-- 置換先配達販売店 — revealed once ≥1 row selected (機能定義 5.x)。
+           適用日は上の検索条件で入力済みのため、ここでは置換先のみ選ぶ。
+           適用日と同じ 1 セル幅で並べてレイアウトを揃える。 -->
+      <div
+        v-if="hasSelection"
+        class="flex items-center gap-2 text-sm font-medium text-text-main"
+      >
+        <span class="whitespace-nowrap">置換先配達販売店</span>
+        <span class="text-error">*</span>
+        <BaseHanbaitenDropdown
+          v-model:value="replaceForm.new_hanbaiten_id"
+          :ja-id="filterJaId"
+          class="flex-1"
+        />
       </div>
 
       <!-- 置換処理実行 — enabled once ≥1 row selected. -->
@@ -581,11 +643,10 @@ defineExpose({
       {{ replaceError }}
     </p>
 
-    <!-- ACSMS-MSG-015-001 — empty-result message rendered separately
-         (BaseDataTable's dynamic slot loop can't forward a-table's
-         #emptyText slot safely). -->
+    <!-- ACSMS-MSG-015-001 — empty-result message。検索を実行した後のみ表示する
+         （初期表示は自動検索しないため、未検索時は空文言を出さない）。 -->
     <p
-      v-if="!loading && total === 0"
+      v-if="searched && !loading && total === 0"
       class="text-text-description text-sm"
       data-test="replace-empty-message"
     >

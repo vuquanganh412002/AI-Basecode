@@ -3,9 +3,8 @@
 // Integration tests for the Excel import flow over a real Nest + pg-mem
 // stack — exercise guards, ValidationPipe, m_code + m_tanka FK lookups,
 // duplicate-code detection, DataScope (each JA's caller sees only its
-// own rows after import), 3-mode behaviour (NEW / UPDATE_ALL /
-// UPDATE_PARTIAL), and audit log atomicity (one t_log row per row +
-// IMPORT_NEW / IMPORT_UPDATE_ALL / IMPORT_UPDATE_PARTIAL operation tag
+// own rows after import), 2-mode behaviour (NEW / UPDATE), and audit log
+// atomicity (one t_log row per row + IMPORT_NEW / IMPORT_UPDATE_PARTIAL tag
 // written inside the same transaction as the m_hanbaiten INSERT/UPDATE).
 //
 // Endpoints covered (both ship with /gen-code-backend ACSMS-SCR-019):
@@ -515,8 +514,8 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
     });
   });
 
-  describe('POST /api/v1/hanbaiten/import — UPDATE_ALL mode', () => {
-    it('should overwrite ALL fields of an existing row and emit IMPORT_UPDATE_ALL audit log', async () => {
+  describe('POST /api/v1/hanbaiten/import — UPDATE mode — all columns selected', () => {
+    it('should overwrite ALL fields of an existing row and emit IMPORT_UPDATE_PARTIAL audit log', async () => {
       const cookie = await jaHontenCookie(1);
       // Pre-seed via NEW import so we have an existing row to update.
       await http()
@@ -533,7 +532,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
 
       expect(res.body.data).toEqual(
         expect.objectContaining({
-          import_mode: 'UPDATE_ALL',
+          import_mode: 'UPDATE',
           updated_count: 1,
         }),
       );
@@ -541,13 +540,13 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const after = await findHanbaiten(1, 'H001');
       expect(after.hanbaiten_name).toBe('販売店A改定');
 
-      // 「1取込=監査ログ1行」。IMPORT_UPDATE_ALL がちょうど1行で、重複の
+      // 「1取込=監査ログ1行」。IMPORT_UPDATE_PARTIAL がちょうど1行で、重複の
       // 素の UPDATE 行が無いことを検証（NEW/UPDATE 両モードの重複回帰防止）。
       const logs = await ctx.dataSource.query(
         `SELECT operation FROM t_log WHERE target_table = 'm_hanbaiten'`,
       );
       const importUpdateAll = logs.filter(
-        (l: { operation: string }) => l.operation === 'IMPORT_UPDATE_ALL',
+        (l: { operation: string }) => l.operation === 'IMPORT_UPDATE_PARTIAL',
       );
       const plainUpdate = logs.filter(
         (l: { operation: string }) => l.operation === 'UPDATE',
@@ -557,7 +556,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
     });
   });
 
-  describe('POST /api/v1/hanbaiten/import — UPDATE_PARTIAL mode', () => {
+  describe('POST /api/v1/hanbaiten/import — UPDATE mode — subset', () => {
     it('should overwrite ONLY selected_columns and leave other fields untouched', async () => {
       const cookie = await jaHontenCookie(1);
       // Seed an existing row with full data.
@@ -578,14 +577,14 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
         )
         .expect(200);
 
-      // UPDATE_PARTIAL overwriting only hanbaiten_name + tel.
+      // UPDATE overwriting only hanbaiten_name + tel.
       const res = await http()
         .post(apiUrl('hanbaiten/import'))
         .set('Cookie', cookie)
         .send(buildImportRequestUpdatePartial())
         .expect(200);
 
-      expect(res.body.data.import_mode).toBe('UPDATE_PARTIAL');
+      expect(res.body.data.import_mode).toBe('UPDATE');
 
       const after = await findHanbaiten(1, 'H001');
       expect(after.hanbaiten_name).toBe('販売店A_新名');
@@ -627,7 +626,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       expect(await countHanbaiten(1)).toBe(0); // nothing committed
     });
 
-    it('should return 400 when UPDATE_PARTIAL changes itaku_kubun to 1 while existing bank fields are blank + unselected (TC-019-040)', async () => {
+    it('should return 400 when UPDATE changes itaku_kubun to 1 while existing bank fields are blank + unselected (TC-019-040)', async () => {
       const cookie = await jaHontenCookie(1);
       // Seed H001 as 日農委託 (itaku_kubun=2) with blank bank — allowed.
       await http()
@@ -656,7 +655,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
         .post(apiUrl('hanbaiten/import'))
         .set('Cookie', cookie)
         .send({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['hanbaiten_code', 'itaku_kubun'],
           rows: [{ hanbaiten_code: 'H001', itaku_kubun: 1 }],
         })

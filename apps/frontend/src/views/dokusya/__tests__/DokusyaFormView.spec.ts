@@ -600,6 +600,28 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
     expect(vi.mocked(updateDokusya)).not.toHaveBeenCalled();
   });
 
+  it('(A2) should reject 解約予定日 equal to max_joho_date on submit — 同日不可・顧客要件 2026-07', async () => {
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ max_joho_date: '2030-01-01' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { dokusya_chushi_date: string | null };
+    };
+    // 最終変更適用日(2030-01-01) と同日 → 同日不可なので弾く。
+    vm.formState.dokusya_chushi_date = '2030-01-01';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const chushiItem = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'dokusya_chushi_date');
+    expect(chushiItem!.html()).toContain('より後');
+    expect(vi.mocked(updateDokusya)).not.toHaveBeenCalled();
+  });
+
   it('should reset 適用日 and skip update when the other change is reverted (no lone-date 履歴)', async () => {
     const { updateDokusya } = await import('@/api/dokusya/dokusya');
     const { wrapper } = await renderView({ dokusyaId: 100 });
@@ -685,7 +707,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     'shimei_mei',
     'shimei_kana_sei',
     'shimei_kana_mei',
-  ])('should disable %s in edit mode (set once at creation, read-only after)', async (field) => {
+  ])('should keep %s editable in edit mode (顧客要件 2026-07: 氏名変更可)', async (field) => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
@@ -693,7 +715,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect(item).toBeDefined();
     const input = item!.find('input');
     expect(input.exists()).toBe(true);
-    expect((input.element as HTMLInputElement).disabled).toBe(true);
+    expect((input.element as HTMLInputElement).disabled).toBe(false);
   });
 
   it.each([
@@ -1057,9 +1079,10 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should NOT block update when the existing 氏名 is non-conforming (氏名は編集で不変) — 顧客要件 2026-06', async () => {
-    // 編集で氏名は :disabled。旧取込等で "太郎12"（数字混じり）やカタカナのかなが
-    // 残っていても、ユーザーが直せない項目の検証で更新がブロックされてはならない。
+  it('should VALIDATE 氏名 on edit and block update when non-conforming — 顧客要件 2026-07 (氏名編集可)', async () => {
+    // 氏名は編集で変更可（顧客要件 2026-07）。作成と同じく 氏/名は漢字・かなは
+    // 全角ひらがなを検証するため、旧取込等で "太郎12"（数字混じり）やカタカナの
+    // かなが残っている場合は、修正するまで更新できない。
     const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
       data: buildDokusyaDetail({
@@ -1069,7 +1092,6 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
 
-    // 編集で何も変更しないと isPristine() で PUT がスキップされるため、
     // 編集可能項目（備考）を変更して非 pristine にしてから送信する。
     const vm = wrapper.vm as unknown as { formState: { biko: string } };
     vm.formState.biko = '更新メモ';
@@ -1078,9 +1100,9 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.text()).not.toContain('漢字で入力してください。');
-    expect(wrapper.text()).not.toContain('ひらがなで入力してください。');
-    expect(updateDokusya).toHaveBeenCalled();
+    expect(wrapper.text()).toContain('漢字で入力してください。');
+    expect(wrapper.text()).toContain('ひらがなで入力してください');
+    expect(updateDokusya).not.toHaveBeenCalled();
   });
 
   // Large CRUD form — pressing Enter inside a text input must NOT implicitly
@@ -2455,13 +2477,33 @@ describe('DokusyaFormView — 引落口座支店 dropdown (機能定義 10.1)', 
     expect(opts.some((o) => o.value === 50)).toBe(false);
   });
 
-  it('should mark 支店 as required (asterisk shown)', async () => {
+  it('should NOT mark 支店 as required (任意・顧客要件 2026-07: no asterisk)', async () => {
     const { wrapper } = await renderView();
     const shitenItem = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === 'shiten_id');
     expect(shitenItem).toBeDefined();
-    expect(shitenItem!.text()).toContain('*');
+    // ラベルに必須マーカー「*」が付かないこと（他項目の * を拾わないよう
+    // ラベルテキストのみを確認）。
+    const label = shitenItem!.find('.ant-form-item-label');
+    expect(label.text()).not.toContain('*');
+  });
+
+  it('should NOT show a required error for 支店 when left blank on submit (任意)', async () => {
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.shiten_id = null;
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    const shitenItem = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'shiten_id');
+    expect(shitenItem!.text()).not.toContain('必須');
+    // createDokusya 呼び出しの成否は他要因に依存するため、ここでは
+    // 支店の必須エラーが出ないことのみを確認する。
+    void createDokusya;
   });
 });
 

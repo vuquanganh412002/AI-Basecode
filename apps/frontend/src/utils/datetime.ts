@@ -164,6 +164,15 @@ export function nextMonthFirstIsoTokyo(): string {
 }
 
 /**
+ * `YYYY-MM-DD` 形式の当月末日（Asia/Tokyo）。帳票出力画面の「適用日」など
+ * 複数画面で既定値に使う共通ヘルパ（顧客要件: 適用日の既定は当月末日）。
+ * 例: 2026-07-10 (JST) → '2026-07-31'。
+ */
+export function endOfMonthIsoTokyo(): string {
+  return nowTokyo().endOf('month').format('YYYY-MM-DD');
+}
+
+/**
  * ファイルダウンロード名向けの timestamp 文字列（`YYYYMMDD_HHmmss`）。
  * ログ CSV エクスポートなどから呼ばれる。常に Asia/Tokyo。
  */

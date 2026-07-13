@@ -127,4 +127,75 @@ describe('BaseHanbaitenSelect', () => {
     await flushPromises();
     expect(wrapper.emitted('update:value')?.at(-1)).toEqual([[1, 2]]);
   });
+
+  it('loadAll (全て選択) fetches every page with a large per_page and returns all ids', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    const wrapper = await mountDropdown({ allowSelectAll: true });
+    await flushPromises(); // onMounted page-1 fetch (beforeEach default)
+
+    vi.mocked(getHanbaitenDropdown).mockReset();
+    vi.mocked(getHanbaitenDropdown)
+      .mockResolvedValueOnce(
+        buildResponse(
+          [
+            { hanbaiten_id: 10, hanbaiten_code: 'H010', hanbaiten_name: 'A' },
+            { hanbaiten_id: 11, hanbaiten_code: 'H011', hanbaiten_name: 'B' },
+          ],
+          { has_more: true },
+        ),
+      )
+      .mockResolvedValueOnce(
+        buildResponse(
+          [{ hanbaiten_id: 12, hanbaiten_code: 'H012', hanbaiten_name: 'C' }],
+          { page: 2, has_more: false },
+        ),
+      );
+
+    const ids = await (wrapper.vm as any).loadAll();
+
+    expect(ids).toEqual([10, 11, 12]);
+    // 全ページを大きめ per_page で走査。
+    expect(getHanbaitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, per_page: 100 }),
+    );
+    expect(getHanbaitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, per_page: 100 }),
+    );
+    // ラベル表示のため取得行は options へマージされる。
+    expect((wrapper.vm as any).options.map((o: { hanbaiten_id: number }) => o.hanbaiten_id))
+      .toEqual(expect.arrayContaining([10, 11, 12]));
+  });
+
+  it('loadAll keeps paging across MANY pages (has_more) until the last, collecting every store', async () => {
+    // 複数ページ（3ページ）でも has_more=false になるまで全走査し、全件を取りこぼさない。
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    const wrapper = await mountDropdown({ allowSelectAll: true });
+    await flushPromises(); // onMounted page-1 fetch
+
+    const mkRow = (id: number) => ({
+      hanbaiten_id: id,
+      hanbaiten_code: `H${String(id).padStart(3, '0')}`,
+      hanbaiten_name: `店${id}`,
+    });
+    vi.mocked(getHanbaitenDropdown).mockReset();
+    vi.mocked(getHanbaitenDropdown)
+      .mockResolvedValueOnce(
+        buildResponse([mkRow(1), mkRow(2)], { page: 1, has_more: true }),
+      )
+      .mockResolvedValueOnce(
+        buildResponse([mkRow(3), mkRow(4)], { page: 2, has_more: true }),
+      )
+      .mockResolvedValueOnce(
+        buildResponse([mkRow(5)], { page: 3, has_more: false }),
+      );
+
+    const ids = await (wrapper.vm as any).loadAll();
+
+    // 3ページ分の全店舗が漏れなく返る（最終ページ含む）。
+    expect(ids).toEqual([1, 2, 3, 4, 5]);
+    // ちょうど3回（page 1..3）呼ばれ、4ページ目は叩かない。
+    expect(getHanbaitenDropdown).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(getHanbaitenDropdown).mock.calls.map((c) => (c[0] as { page: number }).page))
+      .toEqual([1, 2, 3]);
+  });
 });

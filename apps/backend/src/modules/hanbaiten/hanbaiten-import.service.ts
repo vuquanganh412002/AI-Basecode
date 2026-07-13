@@ -74,7 +74,7 @@ const IMPORT_FURIKOMI_REQUIRED_FIELDS: ReadonlyArray<{
 /**
  * Existing-row shape fetched in the import existence pre-check — carries
  * the columns the conditional-required guard needs to compute the
- * EFFECTIVE post-import value of a row in UPDATE_PARTIAL mode (TC-019-040:
+ * EFFECTIVE post-import value of a row in UPDATE mode (TC-019-040:
  * an unselected bank field that is already blank in the DB must still
  * trip the 振込 check).
  */
@@ -156,18 +156,17 @@ export class HanbaitenImportService {
 
   // ─── ACSMS-API-019-002 — POST /api/v1/hanbaiten/import ────────────────
   /**
-   * Bulk-import 販売店 rows. Three modes (api.md §4.4):
-   *   NEW            — INSERT each row; rejects on existing
-   *                    hanbaiten_code within the caller's JA.
-   *   UPDATE_ALL     — UPDATE every column on each row; rejects on
-   *                    missing hanbaiten_code.
-   *   UPDATE_PARTIAL — UPDATE only `selected_columns`; rejects on
-   *                    missing hanbaiten_code.
+   * Bulk-import 販売店 rows. Two modes (api.md §4.4, 顧客要件 2026-07):
+   *   NEW    — INSERT each row; rejects on existing hanbaiten_code within
+   *            the caller's JA.
+   *   UPDATE — UPDATE only `selected_columns` (unselected columns keep their
+   *            existing DB value); rejects on missing hanbaiten_code. 全列
+   *            更新は全列を selected_columns に含める。旧 UPDATE_ALL は廃止。
    *
    * Validation order (all PRE-transaction so a single failed row
    * short-circuits before any DB write):
    *   1. [row-limit-guard]        — 501+ rows → ROW_LIMIT_EXCEEDED.
-   *   2. [partial-key-guard]      — UPDATE_PARTIAL must include
+   *   2. [partial-key-guard]      — UPDATE must include
    *                                  hanbaiten_code in selected_columns.
    *   3. [data-scope]             — session.ja_id is authoritative;
    *                                  null (NICHINO_STAFF) rejected.
@@ -177,14 +176,14 @@ export class HanbaitenImportService {
    *   6. [type-guard]             — furikomi_tesuryo-style fields that
    *                                  survived DTO as non-numeric strings
    *                                  (FILE_FORMAT-shaped).
-   *   7. [existence-precheck]     — NEW: must NOT exist; UPDATE_*: MUST
+   *   7. [existence-precheck]     — NEW: must NOT exist; UPDATE: MUST
    *                                  exist. Single SELECT via ANY().
    *   8. [tanka-fk-resolution]    — haitatsuryo_tanka_code → tanka_id,
    *                                  filtered by ja_id (Layer 4 guard).
    *
    * After all pre-checks pass: one `dataSource.transaction(...)` wraps
    * every INSERT/UPDATE + a single audit-log row (`IMPORT_NEW` /
-   * `IMPORT_UPDATE_ALL` / `IMPORT_UPDATE_PARTIAL`). Mid-batch failures
+   * `IMPORT_UPDATE_PARTIAL`). Mid-batch failures
    * roll back atomically; the error-log row is written AFTER the
    * rollback on the standalone connection so the failure trace
    * survives.
@@ -210,12 +209,12 @@ export class HanbaitenImportService {
       throw new RowLimitExceededException();
     }
 
-    // [partial-key-guard] — UPDATE_PARTIAL must carry hanbaiten_code
-    // in selected_columns; without it the SET clause has nothing to
-    // anchor on. Surface as VALIDATION_ERROR (not IMPORT_VALIDATION_ERROR)
-    // because the failure is on the top-level array, not a row.
+    // [partial-key-guard] — UPDATE must carry hanbaiten_code in
+    // selected_columns; without it the SET clause has nothing to anchor on.
+    // Surface as VALIDATION_ERROR (not IMPORT_VALIDATION_ERROR) because the
+    // failure is on the top-level array, not a row.
     if (
-      body.import_mode === 'UPDATE_PARTIAL' &&
+      body.import_mode === 'UPDATE' &&
       !body.selected_columns.includes('hanbaiten_code')
     ) {
       throw new ValidationException([
@@ -265,7 +264,7 @@ export class HanbaitenImportService {
       existingRows.map((r) => [r.hanbaiten_code, Number(r.hanbaiten_id)]),
     );
     // Full-row map keyed by code — the conditional-required guard merges
-    // these existing values with the Excel cells for UPDATE_PARTIAL.
+    // these existing values with the Excel cells for UPDATE.
     const existingDataMap = new Map(
       existingRows.map((r) => [r.hanbaiten_code, r]),
     );
@@ -314,14 +313,10 @@ export class HanbaitenImportService {
     let updatedCount = 0;
     const createdIds: number[] = [];
 
-    let operation: string;
-    if (body.import_mode === 'NEW') {
-      operation = 'IMPORT_NEW';
-    } else if (body.import_mode === 'UPDATE_ALL') {
-      operation = 'IMPORT_UPDATE_ALL';
-    } else {
-      operation = 'IMPORT_UPDATE_PARTIAL';
-    }
+    // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存の
+    // IMPORT_UPDATE_PARTIAL を再利用する（過去ログ互換のため enum は変えない）。
+    const operation =
+      body.import_mode === 'NEW' ? 'IMPORT_NEW' : 'IMPORT_UPDATE_PARTIAL';
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -340,15 +335,9 @@ export class HanbaitenImportService {
             });
             createdCount += 1;
             createdIds.push(Number(saved.hanbaitenId));
-          } else if (body.import_mode === 'UPDATE_ALL') {
-            await this.applyImportRowUpdateAll(manager, row, {
-              existingMap,
-              tankaId,
-              session,
-            });
-            updatedCount += 1;
           } else {
-            // UPDATE_PARTIAL — only mutate columns named in selected_columns.
+            // UPDATE — 選択列のみ更新（未選択列は既存DB値を維持）。全列更新は
+            // selected_columns に全列が含まれる形で実現する。
             await this.applyImportRowUpdatePartial(manager, row, {
               existingMap,
               selectedColumns: body.selected_columns,
@@ -377,7 +366,7 @@ export class HanbaitenImportService {
           imported_at: importedAt,
         };
         // 取込はバッチ操作なので「1回の取込につき監査ログ1行」。操作種別は
-        // 非標準ラベル (IMPORT_NEW / IMPORT_UPDATE_ALL / IMPORT_UPDATE_PARTIAL)
+        // 非標準ラベル (IMPORT_NEW / IMPORT_UPDATE_PARTIAL)
         // を logOperation で直接記録する。以前は spec を通すために logCreate /
         // logUpdate も併発しており t_log が1取込で2行（CREATE + IMPORT_NEW 等）
         // になっていた — その重複を排除し logOperation 1本に統一。
@@ -600,8 +589,7 @@ export class HanbaitenImportService {
   //                  fields must be non-blank. "Effective" merges the
   //                  Excel cell with the existing DB row per mode:
   //                    NEW            — selected ? cell : default(blank)
-  //                    UPDATE_ALL     — cell (every column overwritten)
-  //                    UPDATE_PARTIAL — selected ? cell : existing DB value
+  //                    UPDATE — selected ? cell : existing DB value
   //                  (TC-019-040: an unselected, already-blank bank field
   //                   still trips the check). koza_meigi excluded per spec.
   // ──────────────────────────────────────────────────────────────
@@ -620,9 +608,8 @@ export class HanbaitenImportService {
         | undefined;
       // Effective post-import value of a column for this row + mode.
       const effective = (field: string): unknown => {
-        if (importMode === 'UPDATE_ALL') return cell[field];
         if (importMode === 'NEW') return sel.has(field) ? cell[field] : undefined;
-        // UPDATE_PARTIAL — keep the existing DB value for unselected columns.
+        // UPDATE — keep the existing DB value for unselected columns.
         return sel.has(field) ? cell[field] : existing?.[field];
       };
 
@@ -715,45 +702,6 @@ export class HanbaitenImportService {
       updatedBy: String(session.account_id),
     });
     return manager.save(Hanbaiten, entity);
-  }
-
-  private async applyImportRowUpdateAll(
-    manager: EntityManager,
-    row: ImportHanbaitenRowDto,
-    ctx: {
-      existingMap: Map<string, number>;
-      tankaId: number | null;
-      session: SessionPayload;
-    },
-  ): Promise<void> {
-    const { existingMap, tankaId, session } = ctx;
-    const existingId = existingMap.get(row.hanbaiten_code)!;
-    const payload: Partial<Hanbaiten> = {
-      hanbaitenName: row.hanbaiten_name ?? '',
-      hanbaitenNameKana: row.hanbaiten_name_kana ?? '',
-      torihikisakiNo: row.torihikisaki_no ?? '',
-      yubinNo: row.yubin_no ?? '',
-      address: row.address ?? '',
-      tel: row.tel ?? '',
-      fax: row.fax ?? '',
-      shochoName: row.shocho_name ?? '',
-      itakuKubun: row.itaku_kubun ?? null,
-      haitatsuryoTankaId: tankaId,
-      haitatsuryoShiharaiCycle: row.haitatsuryo_shiharai_cycle ?? null,
-      furikomiTesuryoFutanKubun: row.furikomi_tesuryo_futan_kubun ?? null,
-      furikomiTesuryo: row.furikomi_tesuryo ?? null,
-      bankCode: row.bank_code ?? '',
-      bankName: row.bank_name ?? '',
-      bankBranchCode: row.bank_branch_code ?? '',
-      bankBranchName: row.bank_branch_name ?? '',
-      yokinShubetsu: row.yokin_shubetsu ?? null,
-      kozaNo: row.koza_no ?? '',
-      kozaMeigi: row.koza_meigi ?? '',
-      haitenFlg: row.haiten_flg ?? false,
-      biko: row.biko ?? '',
-      updatedBy: String(session.account_id),
-    };
-    await manager.update(Hanbaiten, { hanbaitenId: existingId }, payload);
   }
 
   private async applyImportRowUpdatePartial(

@@ -114,7 +114,7 @@ export const IMPORT_TEMPLATE_FILENAME = '販売店Excelデータ取込_テンプ
 
 /**
  * Maps logical request column (`hanbaiten_name`, …) → TypeORM entity
- * field (`hanbaitenName`, …). Used in UPDATE_PARTIAL to translate
+ * field (`hanbaitenName`, …). Used in UPDATE to translate
  * `selected_columns` into the `manager.update()` partial. The two
  * special cases (`hanbaiten_code` excluded because it's the key column;
  * `haitatsuryo_tanka_code` because it goes through the m_tanka lookup
@@ -146,7 +146,7 @@ export const IMPORT_COLUMN_TO_FIELD: Record<string, keyof Hanbaiten> = {
 
 /**
  * Per-column default when the cell is empty / undefined / null.
- * Mirrors NEW-mode defaults so UPDATE_PARTIAL honours NOT NULL
+ * Mirrors NEW-mode defaults so UPDATE honours NOT NULL
  * constraints on the m_hanbaiten columns that the schema marks
  * 空文字許容 (NOT NULL string default ''). Nullable columns (numeric
  * / enum) accept null directly.

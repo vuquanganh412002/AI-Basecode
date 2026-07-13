@@ -18,7 +18,7 @@ export type DokusyaSnapshot = Dokusya;
 /**
  * Target business-column values for a create/update, keyed by the
  * `DokusyaRireki` entity property (camelCase). Only columns the caller
- * intends to set are present — for import UPDATE_PARTIAL, only the
+ * intends to set are present — for import UPDATE, only the selected
  * columns present in the Excel row.
  */
 export type DokusyaFields = Partial<Record<keyof DokusyaRireki, unknown>>;

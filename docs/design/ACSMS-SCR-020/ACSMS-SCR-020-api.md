@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/22 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/11 | 1.1  | VTI Japan | プレビュー→金額編集→ファイル作成の2ステップ化。API-020-003（preview）追加。API-020-002 に rows（編集金額）追加＋スコープ再集計の注記。JASTEM は readonly（マスタ書き戻し撤廃）。ダウンロード名 ZENOUTFD（拡張子なし）。 | | |
 
 ## システム概要
 
@@ -240,18 +241,25 @@ LIMIT 1
 | 10  | jastem_toriatsukai_tenpo_code | String        | -        | 〇   | 1      | 3      | JASTEMデータ送信取扱店舗コード。半角数字。対象 m_shiten に保存／更新                                                           |
 | 11  | jastem_tenpo_name             | String        | -        | 〇   | 1      | 15     | JASTEM店舗名。対象 m_shiten に保存／更新                                                                                       |
 | 12  | jastem_tyokin_shubetsu        | String        | -        | 〇   | 1      | 1      | JASTEM貯金種目（"1":普通貯金, "2":当座貯金, "9":その他）。対象 m_shiten に保存／更新                                          |
-| 13  | jastem_koza_no                | String        | -        | 〇   | 1      | 7      | JASTEM口座番号。半角数字。対象 m_shiten に保存／更新                                                                           |
+| 13  | jastem_koza_no                | String        | -        | 〇   | 1      | 7      | JASTEM口座番号。半角数字。（v1.1: readonly 表示のみ・マスタへ書き戻さない）                                                    |
+| 14  | rows                          | Array<Object> | 1..N     | 〇   |        |        | v1.1: プレビューで確認・編集した振替対象行。要素＝`{ dokusya_id:Number, furikae_kingaku:Number(0〜9,999,999,999) }`。空配列不可 |
+
+> **v1.1 補足**
+> - 6〜13 の JASTEM 情報は **readonly 表示のみ**。出力時に m_ja / m_shiten へは書き戻さない（旧版の保存／更新は撤廃）。
+> - `rows` の `dokusya_id` は信用しない。サーバはセッションのスコープ（ja_id / kanri_shiten_id）で **再集計**した対象とのみ突合し、その集合にある行だけ金額を上書きする（スコープ外・不正IDは無視）。編集金額は t_koza_furikae にスナップショット保存する（m_tanka は不変）。
 
 ## レスポンスデータ
 
-CSVファイル（`Content-Type: text/csv; charset=Shift_JIS`、全銀フォーマット準拠）
+全銀フォーマット固定長テキスト（`Content-Type: text/plain; charset=Shift_JIS`、1レコード120バイト）
 
 ### レスポンスヘッダ
 
 ```
-Content-Type: text/csv; charset=Shift_JIS
-Content-Disposition: attachment; filename="koza_furikae_YYYYMMDD_HHmmss.csv"
+Content-Type: text/plain; charset=Shift_JIS
+Content-Disposition: attachment; filename="ZENOUTFD"; filename*=UTF-8''ZENOUTFD
 ```
+
+> v1.1: ダウンロード名は全銀メディア受入名の固定値 `ZENOUTFD`（**拡張子なし**。銀行提出ファイルに .txt 等は付与しない）。S3保存名・t_file_download も拡張子なし。
 
 ### CSVフォーマット（全銀フォーマット）
 
@@ -281,13 +289,17 @@ Content-Type: application/json
   "jastem_toriatsukai_tenpo_code": "001",
   "jastem_tenpo_name": "ホンテン",
   "jastem_tyokin_shubetsu": "1",
-  "jastem_koza_no": "1234567"
+  "jastem_koza_no": "1234567",
+  "rows": [
+    { "dokusya_id": 1, "furikae_kingaku": 8000 },
+    { "dokusya_id": 2, "furikae_kingaku": 4900 }
+  ]
 }
 ```
 
 ## レスポンス成功例
 
-CSV ファイル（全銀フォーマット、Shift_JIS）がレスポンスボディとして返却される。
+全銀フォーマット固定長テキスト（Shift_JIS、拡張子なし固定名 ZENOUTFD）がレスポンスボディとして返却される。
 
 ```
 1,21,0,1234567890,ﾆﾎﾝﾉｳｷﾞｮｳｼﾝﾌﾞﾝ          ,0527,1234,ﾆﾎﾝﾉｳｷﾞｮｳ      ,001,ﾎﾝﾃﾝ          ,1,1234567,
@@ -601,6 +613,97 @@ VALUES (3, NOW(), :account_id, :ja_id,
         :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```
+
+---
+
+# API ACSMS-API-020-003
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | 口座振替データ プレビュー取得（v1.1）                                                                                                                            |
+| エンドポイント         | POST /api/v1/koza-furikae/preview                                                                                                                                |
+| 概要                   | 「作成開始」= 対象年月・フィルタで振替対象を集計し、プレビュー一覧（金額編集用）を返す。**DB / S3 / 監査ログは書き込まない（閲覧のみ）**                          |
+| 権限                   | koza_furikae.export                                                                                                                                              |
+| リクエストパラメーター | JSON body                                                                                                                                                        |
+| HTTPレスポンスコード   | 200:正常に取得しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象データがありません, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| #   | パラメーターID   | タイプ        | 必須 | 最小長 | 最大長 | 説明                                                             |
+| --- | ---------------- | ------------- | ---- | ------ | ------ | ---------------------------------------------------------------- |
+| 1   | target_month     | String        | 〇   | 10     | 10     | 対象年月日（YYYY-MM-DD）。集計基準日                             |
+| 2   | hikiotoshi_date  | String        | 〇   | 10     | 10     | 引落日（YYYY-MM-DD）                                             |
+| 3   | kanri_shiten_ids | Array<Number> | -    |        |        | 管理支店ID配列（絞込。空/未指定は全件）                          |
+| 4   | shiten_ids       | Array<Number> | -    |        |        | 支店ID配列（絞込）                                               |
+| 5   | koza_shiten_ids  | Array<Number> | -    |        |        | 口座支店ID配列（絞込）                                           |
+
+（JASTEM 各項目・金額は不要。JASTEM の必須チェックと金額編集は「ファイル作成」= API-020-002 で行う。）
+
+## レスポンスデータ
+
+`{ data, meta }` エンベロープ。`data` は集計した振替対象の配列（金額は編集可能な初期値）。
+
+| フィールド                     | タイプ | 説明                                       |
+| ------------------------------ | ------ | ------------------------------------------ |
+| data[].dokusya_id              | Number | 購読者ID（突合キー）                       |
+| data[].koza_meigi              | String | 預金者名（カナ）                           |
+| data[].kanri_shiten_id         | Number | 管理支店ID（null 許容）                    |
+| data[].bank_branch_code        | String | 引落支店コード                             |
+| data[].bank_branch_name        | String | 引落支店名                                 |
+| data[].hikiotoshi_yokin_shubetsu | Number | 預金種目（1:普通,2:当座,9:その他）        |
+| data[].hikiotoshi_koza_no      | String | 引落口座番号                               |
+| data[].furikae_kingaku         | Number | 振替金額（集計初期値・FEで編集可）         |
+| meta.total                     | Number | 対象件数                                   |
+
+## リクエスト例
+
+```json
+POST /api/v1/koza-furikae/preview
+Content-Type: application/json
+
+{
+  "target_month": "2026-05-01",
+  "hikiotoshi_date": "2026-05-27",
+  "kanri_shiten_ids": [1, 2],
+  "shiten_ids": [],
+  "koza_shiten_ids": [10, 11]
+}
+```
+
+## レスポンス成功例
+
+```json
+{
+  "data": [
+    {
+      "dokusya_id": 1,
+      "koza_meigi": "ﾔﾏﾀﾞ ﾀﾛｳ",
+      "kanri_shiten_id": 1,
+      "bank_branch_code": "001",
+      "bank_branch_name": "ﾎﾝﾃﾝ",
+      "hikiotoshi_yokin_shubetsu": 1,
+      "hikiotoshi_koza_no": "1234567",
+      "furikae_kingaku": 4900
+    }
+  ],
+  "meta": { "total": 1, "page": 1, "per_page": 1, "total_pages": 1 }
+}
+```
+
+## レスポンス失敗例（404 対象データなし）
+
+```json
+{ "error_code": "NO_TARGET_DATA", "message": "対象データがありません。" }
+```
+
+## 処理手順
+
+- **4.1** バリデーション：target_month / hikiotoshi_date 必須・YYYY-MM-DD 形式。
+- **4.2** 認証・認可：SessionAuthGuard + PermissionsGuard（koza_furikae.export）。
+- **4.3** 集計：API-020-002 §4.3 と同一の集計SQL（DataScope をパラメータに内包）。取得0件 → HTTP 404（NO_TARGET_DATA）。
+- **4.4** レスポンス生成：集計行を `{ data, meta }` で返す。**S3保存・t_koza_furikae更新・監査ログは行わない。**
 
 ---
 

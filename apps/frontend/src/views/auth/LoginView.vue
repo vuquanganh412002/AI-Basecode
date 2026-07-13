@@ -131,14 +131,13 @@ async function onSubmit(): Promise<void> {
           </a-form-item>
 
           <!-- SCR-012 entry point. Per screen-design.md note: just below
-               the login button, before the terms-of-service line.
-               Path-based `to` (not `:to="{ name }"`) so the existing
-               LoginView spec's test router — which registers Login /
-               MfaVerify / Dashboard but NOT ForgotPassword — still
-               resolves the link without throwing. -->
+               the login button, before the terms-of-service line. Named
+               route per the "named routes only" convention; the LoginView
+               spec's test router registers ForgotPassword so the link
+               resolves. -->
           <div class="text-center mb-4">
             <router-link
-              to="/forgot-password"
+              :to="{ name: 'ForgotPassword' }"
               class="text-sm text-primary hover:underline"
             >
               パスワードを忘れた場合

@@ -1,3 +1,4 @@
+import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import {
@@ -203,8 +204,10 @@ export function isDokusyaReadOnly(
 ): boolean {
   const shubetsu = Number(dokusyaShubetsu);
   const hoho = Number(shiharaiHoho);
-  if (shubetsu === 3) return true;
-  return shubetsu === 2 && hoho === 6;
+  if (shubetsu === DokusyaShubetsu.BOTH) return true;
+  return (
+    shubetsu === DokusyaShubetsu.DIGITAL && hoho === ShiharaiHoho.CREDIT_CARD
+  );
 }
 
 /**

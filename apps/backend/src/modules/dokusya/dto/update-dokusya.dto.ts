@@ -1,12 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import {
-  IsEmpty,
-  IsOptional,
-  IsString,
-  Matches,
-  ValidateIf,
-} from 'class-validator';
+import { IsEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 import {
   CreateDokusyaDto,
@@ -37,26 +31,10 @@ export class UpdateDokusyaDto extends CreateDokusyaDto {
   @IsEmpty({ message: 'dokusya_id はリクエストボディに含められません。' })
   dokusya_id?: never;
 
-  /**
-   * 氏名(氏/名/かな) は作成時のみ入力可。編集では FE で :disabled、サービスでも
-   * `before` の値に pin される（dokusya.service §[name-immutable]）ため、編集での
-   * 値は無視される。親 CreateDokusyaDto の @Matches(漢字/ひらがな) を編集では
-   * 無効化する — 旧取込等で非準拠の既存データを持つ購読者でも、ユーザーが直せ
-   * ない項目の検証で更新がブロックされないようにする。`@ValidateIf(() => false)`
-   * は当該プロパティの全バリデータ（継承分含む）をスキップする。whitelist には
-   * 残るので値はサービスへ渡り、そこで before に pin される。
-   */
-  @ValidateIf(() => false)
-  shimei_sei!: string;
-
-  @ValidateIf(() => false)
-  shimei_mei!: string;
-
-  @ValidateIf(() => false)
-  shimei_kana_sei!: string;
-
-  @ValidateIf(() => false)
-  shimei_kana_mei!: string;
+  // 氏名(氏/名/かな) は作成・編集の両方で変更可（顧客要件 2026-07）。親
+  // CreateDokusyaDto の 必須 + @Matches(漢字/ひらがな) をそのまま継承して
+  // 編集でも検証する（プロパティのオーバーライドは行わない）。サービスの
+  // name-pin も撤廃済みのため、送信値がそのまま保存・履歴化される。
 
   /**
    * 販売店適用日 — 編集で販売店 (hanbaiten_id) を変更したときの適用日。

@@ -62,19 +62,12 @@ import {
   insertResubscribe,
   insertScheduledKaiyaku,
 } from './dokusya-history.writer';
-import { DokusyaFields } from './dokusya-history.types';
 import {
   collectTekiyoDateViolations,
   collectChushiViolations,
   collectChushiVsMaxJoho,
   tekiyoViolationField,
 } from './dokusya-tekiyo-date.rules';
-
-/**
- * 遠未来 asOf — チェーン末尾(有効レコード)を取消可否判定のために取得する際に
- * 使う（canTorikeshi と同一値）。joho が未来でも末尾を拾う。
- */
-const TORIKESHI_TAIL_ASOF = '9999-12-31';
 import { DokusyaSearchService } from './dokusya-search.service';
 import { DokusyaReplaceService } from './dokusya-replace.service';
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
@@ -88,6 +81,12 @@ import {
   toDokusyaResponse,
   type ReplaceSearchItem,
 } from './dokusya.mapper';
+
+/**
+ * 遠未来 asOf — チェーン末尾(有効レコード)を取消可否判定のために取得する際に
+ * 使う（canTorikeshi と同一値）。joho が未来でも末尾を拾う。
+ */
+const TORIKESHI_TAIL_ASOF = '9999-12-31';
 
 /** Per-screen audit-context labels (api.md §4.5 INSERT INTO t_log). */
 const SCREEN_NAME = '購読者情報登録画面 (ACSMS-SCR-011)';
@@ -292,7 +291,9 @@ export class DokusyaService {
   ): Promise<{ count: number; ja_id: number | null }> {
     const qb = this.dokusyaRepo
       .createQueryBuilder('d')
-      .where('d.denshi_shonin_status = :status', { status: 0 })
+      .where('d.denshi_shonin_status = :status', {
+        status: DenshiShoninStatus.PENDING,
+      })
       .andWhere('d.deleted_at IS NULL');
     applyBranchScope(
       qb,
@@ -453,7 +454,7 @@ export class DokusyaService {
         // ションで実行。t_dokusya は有効レコードから再計算で確定する。
         const result = await applyChange(manager, {
           mode: 'CREATE',
-          values: payload as unknown as DokusyaFields,
+          values: payload,
           johoDate,
           source: 'UI',
           actor: String(session.account_id),
@@ -596,61 +597,10 @@ export class DokusyaService {
     // 再購読(解約済み→新規)は新しい購読で旧解約予定日は無関係。joho=新購読開始日
     // なので旧解約日を上限参照にすると「joho <= 旧解約予定日」で誤って弾かれる。
     // よって再購読時は解約予定日参照を無効化する（chushi=null）。
-    const scheduledChushi = isResubscribe
-      ? null
-      : await this.loadScheduledChushiAsOf(id, dto.joho_henko_tekiyo_date);
-    const effectiveChushi = isResubscribe
-      ? null
-      : (dto.dokusya_chushi_date ?? scheduledChushi);
-    const dateViolations = [
-      ...collectTekiyoDateViolations({
-        johoDate: dto.joho_henko_tekiyo_date,
-        hanbaitenDate: dto.hanbaiten_tekiyo_date,
-        kaishiDate: before.dokusyaKaishiDate,
-        chushiDate: effectiveChushi,
-      }),
-      // 入力された解約予定日の整合性（購読開始日以降・未来日のみ）。購読開始日は
-      // 編集不可＝before の値を参照する。
-      ...collectChushiViolations({
-        chushiDate: dto.dokusya_chushi_date,
-        kaishiDate: before.dokusyaKaishiDate,
-        today: todayIsoJst(),
-      }),
-    ];
-    if (dateViolations.length > 0) {
-      throw new ValidationException(
-        dateViolations.map((v) => ({
-          field: tekiyoViolationField(v.kind),
-          message: v.message,
-        })),
-      );
-    }
+    await this.assertUpdateDateConsistency(id, dto, before, isResubscribe);
 
-    // [cancel-guards] 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）:
-    //   (B) 既に有効な解約予約がある → 二重解約を拒否（変更は履歴画面で当該解約を
-    //       取消してから）。master は未来解約を反映しないため履歴を直接参照する。
-    //   (A) 解約予定日 >= 最終変更適用日(履歴 MAX joho) — 最終変更より前の解約は不整合。
-    if (dto.dokusya_chushi_date) {
-      if (await this.hasActiveKaiyaku(id)) {
-        throw fieldValidationError(
-          'dokusya_chushi_date',
-          '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
-        );
-      }
-      const maxJoho = await this.loadMaxJoho(id);
-      const maxJohoViolations = collectChushiVsMaxJoho({
-        chushiDate: dto.dokusya_chushi_date,
-        maxJoho,
-      });
-      if (maxJohoViolations.length > 0) {
-        throw new ValidationException(
-          maxJohoViolations.map((v) => ({
-            field: tekiyoViolationField(v.kind),
-            message: v.message,
-          })),
-        );
-      }
-    }
+    // [cancel-guards] 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）。
+    await this.assertChushiCancelGuards(id, dto);
 
     // [shubetsu-immutable] 購読種別 (dokusya_shubetsu) is read-only in edit
     // mode — the FE radio group is disabled, but the screen submits the full
@@ -678,16 +628,9 @@ export class DokusyaService {
       dto.dokusya_kaishi_date = before.dokusyaKaishiDate;
     }
 
-    // [name-immutable] 購読者氏名 (氏/名) と 購読者かな (氏/名) は作成時に
-    // 確定し、編集では変更不可。FE は4項目を disabled にするが、画面は
-    // フォーム全体を送信するので body には届く。保存値に pin して、
-    // 改変リクエスト (または FE の disable 退行) が氏名を書き換えられない
-    // ようにする (FE の disable は UX、ここが境界)。dokusya_shubetsu /
-    // dokusya_kaishi_date と同じ扱い。
-    dto.shimei_sei = before.shimeiSei;
-    dto.shimei_mei = before.shimeiMei;
-    dto.shimei_kana_sei = before.shimeiKanaSei;
-    dto.shimei_kana_mei = before.shimeiKanaMei;
+    // 購読者氏名 (氏/名) と 購読者かな (氏/名) は編集でも変更可（顧客要件
+    // 2026-07）。DTO で必須＋漢字/ひらがなを検証済みの送信値をそのまま
+    // buildUpdatePartial 経由で保存・履歴化する（name-pin は撤廃）。
 
     // [layer4-fk-guard] Validate body FK ids against the EXISTING row's JA
     // (not session) so editing stays bound to the record's tenant.
@@ -764,7 +707,7 @@ export class DokusyaService {
           const result = await insertResubscribe(manager, {
             dokusyaId: id,
             kaishiDate: normalizeDbDate(dto.dokusya_kaishi_date) as string,
-            values: rv as DokusyaFields,
+            values: rv,
             actor: String(session.account_id),
           });
           await manager.update(
@@ -812,7 +755,7 @@ export class DokusyaService {
         const result = await applyChange(manager, {
           mode: 'UPDATE',
           dokusyaId: id,
-          values: values as DokusyaFields,
+          values,
           johoDate: updatePartial.johoHenkoTekiyoDate as string,
           hanbaitenDate:
             normalizeDbDate(dto.hanbaiten_tekiyo_date ?? null) ?? undefined,
@@ -1455,7 +1398,8 @@ export class DokusyaService {
     return {
       jaId,
       kanriShitenId: Number(dto.kanri_shiten_id ?? 0),
-      shitenId: Number(dto.shiten_id ?? 0),
+      // 支店 は任意（顧客要件 2026-07）。未指定は NULL 保存（0 に丸めない）。
+      shitenId: dto.shiten_id != null ? Number(dto.shiten_id) : null,
       kumiaiinCode: dto.kumiaiin_code ?? '',
       dokusyaShubetsu: Number(dto.dokusya_shubetsu),
       tetsuzukiShurui: Number(dto.tetsuzuki_shurui),
@@ -1591,6 +1535,82 @@ export class DokusyaService {
       order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
     });
     return row != null;
+  }
+
+  /**
+   * 更新の適用日 範囲整合性（顧客要件 2026-07 改訂）。購読開始日 <= joho/hanbaiten <=
+   * 解約予定日、および入力解約予定日の範囲。解約予定日(chushi)の上限参照は「変更適用日
+   * (joho)時点で有効な解約予定日」= その日以前で joho が最も近い履歴行の解約日。本編集で
+   * 解約日を入力/変更した場合はその値を優先。再購読(解約済み→新規)は旧解約予定日を無効化
+   * (chushi=null)。違反があれば VALIDATION_ERROR。
+   */
+  private async assertUpdateDateConsistency(
+    id: number,
+    dto: UpdateDokusyaDto,
+    before: Dokusya,
+    isResubscribe: boolean,
+  ): Promise<void> {
+    const scheduledChushi = isResubscribe
+      ? null
+      : await this.loadScheduledChushiAsOf(id, dto.joho_henko_tekiyo_date);
+    const effectiveChushi = isResubscribe
+      ? null
+      : (dto.dokusya_chushi_date ?? scheduledChushi);
+    const dateViolations = [
+      ...collectTekiyoDateViolations({
+        johoDate: dto.joho_henko_tekiyo_date,
+        hanbaitenDate: dto.hanbaiten_tekiyo_date,
+        kaishiDate: before.dokusyaKaishiDate,
+        chushiDate: effectiveChushi,
+      }),
+      // 入力された解約予定日の整合性（購読開始日以降・未来日のみ）。購読開始日は
+      // 編集不可＝before の値を参照する。
+      ...collectChushiViolations({
+        chushiDate: dto.dokusya_chushi_date,
+        kaishiDate: before.dokusyaKaishiDate,
+        today: todayIsoJst(),
+      }),
+    ];
+    if (dateViolations.length > 0) {
+      throw new ValidationException(
+        dateViolations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
+  }
+
+  /**
+   * 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）:
+   *   (B) 既に有効な解約予約がある → 二重解約を拒否（変更は履歴画面で当該解約を取消して
+   *       から）。master は未来解約を反映しないため履歴を直接参照する。
+   *   (A) 解約予定日 > 最終変更適用日(履歴 MAX joho・同日不可) — 最終変更以前の解約は不整合。
+   */
+  private async assertChushiCancelGuards(
+    id: number,
+    dto: UpdateDokusyaDto,
+  ): Promise<void> {
+    if (!dto.dokusya_chushi_date) return;
+    if (await this.hasActiveKaiyaku(id)) {
+      throw fieldValidationError(
+        'dokusya_chushi_date',
+        '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
+      );
+    }
+    const maxJoho = await this.loadMaxJoho(id);
+    const maxJohoViolations = collectChushiVsMaxJoho({
+      chushiDate: dto.dokusya_chushi_date,
+      maxJoho,
+    });
+    if (maxJohoViolations.length > 0) {
+      throw new ValidationException(
+        maxJohoViolations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
   }
 
   /**

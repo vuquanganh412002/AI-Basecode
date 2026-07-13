@@ -374,6 +374,47 @@ export function useEntityDropdown<
     );
   }
 
+  // 全件取得（「全て選択」用）。検索(q)を無視し、per_page 上限(=100・BE DTO @Max(100))
+  // で全ページを走査して全 ID を返す。取得行は options へマージ（タグのラベル表示のため）。
+  // buildExtraParams のスコープ（ja_id 等）はそのまま効くので権限スコープ内の全件。
+  // 安全のため最大ページ数で打ち切る。
+  const LOAD_ALL_PER_PAGE = 100; // BE dropdown DTO の per_page 上限に合わせる
+  const LOAD_ALL_MAX_PAGES = 200; // 最大 20,000 件で打ち切り
+  async function loadAll(): Promise<number[]> {
+    const mySeq = ++requestSeq;
+    loading.value = true;
+    try {
+      const acc: TItem[] = [];
+      let p = 1;
+      let more = true;
+      while (more && p <= LOAD_ALL_MAX_PAGES) {
+        const base: Record<string, unknown> = {
+          page: p,
+          per_page: LOAD_ALL_PER_PAGE,
+        };
+        const extra = opts.buildExtraParams?.() ?? {};
+        const res = await opts.fetcher({ ...base, ...extra } as TQuery);
+        if (mySeq !== requestSeq) return []; // superseded by a newer request
+        acc.push(...res.data);
+        more = res.meta.has_more;
+        p += 1;
+      }
+      const idField = opts.idField;
+      const seen = new Set(options.value.map((o) => o[idField]));
+      const ids: number[] = [];
+      for (const item of acc) {
+        if (!seen.has(item[idField])) {
+          options.value.push(item);
+          seen.add(item[idField]);
+        }
+        ids.push(item[idField] as unknown as number);
+      }
+      return ids;
+    } finally {
+      if (mySeq === requestSeq) loading.value = false;
+    }
+  }
+
   return {
     options,
     loading,
@@ -382,6 +423,7 @@ export function useEntityDropdown<
     q,
     lastFetchedQ,
     fetchPage,
+    loadAll,
     onSearch,
     onPopupScroll,
     onChange,

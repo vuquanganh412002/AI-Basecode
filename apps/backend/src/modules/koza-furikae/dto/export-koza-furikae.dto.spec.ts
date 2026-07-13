@@ -176,4 +176,42 @@ describe('ExportKozaFurikaeDto', () => {
     const dto = plainToInstance(ExportKozaFurikaeDto, { ...VALID, jastem_koza_no: '12345678' });
     expect(hasError(await validate(dto), 'jastem_koza_no')).toBe(true);
   });
+
+  // ─── rows (required, non-empty, edited 金額 per dokusya_id) — v1.1 ──────
+  it('should fail when rows is missing', async () => {
+    const dto = plainToInstance(ExportKozaFurikaeDto, { ...VALID, rows: undefined });
+    expect(hasError(await validate(dto), 'rows')).toBe(true);
+  });
+
+  it('should fail when rows is an empty array', async () => {
+    const dto = plainToInstance(ExportKozaFurikaeDto, { ...VALID, rows: [] });
+    expect(hasError(await validate(dto), 'rows')).toBe(true);
+  });
+
+  it('should fail when a row furikae_kingaku is negative', async () => {
+    const dto = plainToInstance(ExportKozaFurikaeDto, {
+      ...VALID,
+      rows: [{ dokusya_id: 1, furikae_kingaku: -1 }],
+    });
+    expect(hasError(await validate(dto), 'rows')).toBe(true);
+  });
+
+  it('should fail when a row furikae_kingaku exceeds 10 digits (> 9,999,999,999)', async () => {
+    const dto = plainToInstance(ExportKozaFurikaeDto, {
+      ...VALID,
+      rows: [{ dokusya_id: 1, furikae_kingaku: 10_000_000_000 }],
+    });
+    expect(hasError(await validate(dto), 'rows')).toBe(true);
+  });
+
+  it('should pass when rows carry valid dokusya_id + 0..9,999,999,999 amounts', async () => {
+    const dto = plainToInstance(ExportKozaFurikaeDto, {
+      ...VALID,
+      rows: [
+        { dokusya_id: 1, furikae_kingaku: 0 },
+        { dokusya_id: 2, furikae_kingaku: 9_999_999_999 },
+      ],
+    });
+    expect(hasError(await validate(dto), 'rows')).toBe(false);
+  });
 });

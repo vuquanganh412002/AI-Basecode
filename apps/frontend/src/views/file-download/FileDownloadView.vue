@@ -11,8 +11,10 @@ import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
+import { RoleCode } from '@/constants/enums';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { formatDateTime } from '@/utils/formatters';
+import { downloadBlob } from '@/utils/download';
 import {
   listFiles,
   getFilePreview,
@@ -38,7 +40,7 @@ const codes = useCodesStore();
 // JA 絞り込みは自JAで固定（プリセット＋disable）＝情報提供のみの意味合い。
 // NICHINO_ADMIN/STAFF は全JAを自由に絞り込める。
 const isJaScopedRole = computed(() =>
-  ['CHUOKAI', 'JA_HONTEN', 'JA_KANRI_SHITEN'].includes(
+  ([RoleCode.CHUOKAI, RoleCode.JA_HONTEN, RoleCode.JA_KANRI_SHITEN] as string[]).includes(
     authStore.user?.role_code ?? '',
   ),
 );
@@ -79,7 +81,7 @@ function isDeleted(row: FileDownloadListItem): boolean {
 // 行を選択不可（チェックボックス disabled + ファイル名はプレーンテキスト）にする。
 // 他ロールはフラグに関わらず操作可能。BE の assertNichinoDownloadAllowed と対。
 const isNichinoRole = computed(() =>
-  ['NICHINO_ADMIN', 'NICHINO_STAFF', 'CHUOKAI'].includes(
+  ([RoleCode.NICHINO_ADMIN, RoleCode.NICHINO_STAFF, RoleCode.CHUOKAI] as string[]).includes(
     authStore.user?.role_code ?? '',
   ),
 );
@@ -282,17 +284,6 @@ async function onPreviewRow(row: FileDownloadListItem): Promise<void> {
 }
 
 // ──────────────── 機能定義 5.x — ダウンロード実行 ────────────────
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = globalThis.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  globalThis.URL.revokeObjectURL(url);
-}
-
 async function onDownload(): Promise<void> {
   if (selectedIds.value.length === 0) {
     message.warning('ファイルを選択してください。');

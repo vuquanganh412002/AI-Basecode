@@ -58,6 +58,11 @@ async function renderView(opts: RenderOptions = {}): Promise<{
       { path: '/login', name: 'Login', component: { template: '<div />' } },
       { path: '/mfa-verify', name: 'MfaVerify', component: { template: '<div />' } },
       { path: '/dashboard', name: 'Dashboard', component: { template: '<div />' } },
+      {
+        path: '/forgot-password',
+        name: 'ForgotPassword',
+        component: { template: '<div />' },
+      },
     ],
   });
   await router.push({

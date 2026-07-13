@@ -42,12 +42,13 @@ import {
   normalizeImportBool,
 } from '@/utils/dokusya-import';
 import { normalizeImportDate } from '@/utils/datetime';
+import { downloadBlob } from '@/utils/download';
 
-// FE radio display value → BE wire value.
+// FE radio display value → BE wire value。取込モードは 新規登録 / 更新 の2択。
+// 更新は選択列のみ更新（空欄スキップ）。全列更新は「すべて選択」でチェックする。
 const MODE_TO_BE: Record<string, DokusyaImportMode> = {
   new: 'NEW',
-  update: 'UPDATE_ALL',
-  cancel: 'UPDATE_PARTIAL',
+  update: 'UPDATE',
 };
 
 const IMPORT_MODE_OPTIONS: ReadonlyArray<{
@@ -55,8 +56,7 @@ const IMPORT_MODE_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { value: 'new', label: '新規登録' },
-  { value: 'update', label: '全項目更新' },
-  { value: 'cancel', label: '入力箇所のみ更新' },
+  { value: 'update', label: '更新' },
 ];
 
 // ─── messages (screen-design.md §メッセージ情報) ──────────────────────
@@ -119,27 +119,24 @@ const previewVisible = computed(() => hasFile.value);
 
 /**
  * 強制チェック＋disable（forced ON）になる列か:
- *   - 全項目更新 (UPDATE_ALL) → 編集不可項目を除く全列を lock（全項目対象）。
- *   - 新規登録 (NEW)          → 必須列を lock。
- *   - 入力箇所のみ更新 (PARTIAL) → キー列 (dokusya_id) のみ lock。
+ *   - 新規登録 (NEW)   → 必須列を lock。
+ *   - 更新 (UPDATE)    → キー列 (dokusya_id) のみ lock。他は任意選択。
  */
 function isLocked(col: PhysicalColumn): boolean {
-  if (importModeFe.value === 'update') return !EDIT_IMMUTABLE_SET.has(col);
   if (importModeFe.value === 'new') return REQUIRED_SET.has(col);
-  return importModeFe.value === 'cancel' && col === KEY_COLUMN;
+  // 更新: キー列のみ lock（更新対象の突合キー）。
+  return col === KEY_COLUMN;
 }
 
 /**
  * 強制 未チェック＋disable（forced OFF）になる列か。
- * 更新モード（全項目更新 / 入力箇所のみ更新）の編集不可項目
- * （購読種別 / 氏名4 / 購読開始日）は更新対象外なので未チェック＋disable。
+ * 更新モードの編集不可項目（購読種別 / 手続種類 / 氏名4 / 購読開始日）は
+ * 更新対象外なので未チェック＋disable。
  */
 function isForcedUnchecked(col: PhysicalColumn): boolean {
   // 新規登録: 読者情報変更適用日 / 販売店適用日 は対象外（UPDATE 専用の変更イベント日）。
   if (importModeFe.value === 'new') return NEW_EXCLUDED_SET.has(col);
-  const isUpdateMode =
-    importModeFe.value === 'update' || importModeFe.value === 'cancel';
-  if (!isUpdateMode) return false;
+  // 更新: キー以外の編集不可列は更新対象外。
   return col !== KEY_COLUMN && EDIT_IMMUTABLE_SET.has(col);
 }
 
@@ -162,7 +159,7 @@ const PREVIEW_ROW_CAP = 100;
 const previewRows = computed(() => parsedRows.value.slice(0, PREVIEW_ROW_CAP));
 
 /**
- * Bound to the すべて選択／解除 checkbox. Disabled in 全項目更新 (all locked).
+ * Bound to the すべて選択／解除 checkbox.
  * 編集不可項目（チェックボックス無し）は判定から除外する — 当該列は常に
  * 未チェックなので、含めると「全選択」でも常に false になってしまう。
  */
@@ -181,18 +178,23 @@ const allChecked = computed<boolean>({
   },
 });
 
-// モード変更時に各列のチェック状態を初期化する:
+// モード変更時（＋マウント時 immediate）に各列のチェック状態を初期化する:
 //   - forced ON  → チェック
 //   - forced OFF → 未チェック
-//   - それ以外   → 全モードで既定はチェック（入力箇所のみ更新でも編集不可項目
-//                  以外は既定ですべてチェックし、ユーザーが任意で外せる）。
-watch(importModeFe, () => {
-  for (const col of PHYSICAL_COLUMNS) {
-    if (isLocked(col)) selected[col] = true;
-    else if (isForcedUnchecked(col)) selected[col] = false;
-    else selected[col] = true;
-  }
-});
+//   - それ以外   → 新規登録は既定チェック / **更新は既定で未チェック**（顧客要件
+//                  2026-07：更新は既定で列を選択しない。全列更新は「すべて選択」で
+//                  チェックする）。
+watch(
+  importModeFe,
+  () => {
+    for (const col of PHYSICAL_COLUMNS) {
+      if (isLocked(col)) selected[col] = true;
+      else if (isForcedUnchecked(col)) selected[col] = false;
+      else selected[col] = importModeFe.value === 'new';
+    }
+  },
+  { immediate: true },
+);
 
 // ─── file change → xlsx parse → preview ─────────────────────────────
 
@@ -271,19 +273,7 @@ async function onFileChange(event: Event): Promise<void> {
 async function onTemplateDownload(): Promise<void> {
   try {
     const blob = await downloadDokusyaImportTemplate();
-    if (
-      globalThis.window !== undefined &&
-      typeof globalThis.URL?.createObjectURL === 'function'
-    ) {
-      const url = globalThis.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '購読者Excelデータ取込_テンプレート.xlsx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      globalThis.URL.revokeObjectURL(url);
-    }
+    downloadBlob(blob, '購読者Excelデータ取込_テンプレート.xlsx');
   } catch {
     // Global axios interceptor already toasted the 500 — swallow here.
   }
@@ -619,7 +609,7 @@ function renderCell(value: unknown): string {
                 v-if="importModeFe === 'update'"
                 class="ml-2 text-xs font-normal text-text-secondary"
               >
-                全項目更新では全列が対象です。列を選択する場合は「入力箇所のみ更新」を選択してください。
+                更新は選択した列のみ対象です。全列を更新する場合は「すべて選択」にチェックしてください。
               </span>
             </div>
             <label
@@ -629,7 +619,6 @@ function renderCell(value: unknown): string {
                 v-model="allChecked"
                 data-test="select-all-checkbox"
                 type="checkbox"
-                :disabled="importModeFe === 'update'"
                 class="w-3.5 h-3.5 rounded border-border-strong accent-primary focus:ring-primary/20 disabled:cursor-not-allowed"
               />
               すべて選択／解除

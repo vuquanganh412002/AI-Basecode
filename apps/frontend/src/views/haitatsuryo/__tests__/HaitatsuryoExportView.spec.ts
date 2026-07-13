@@ -13,6 +13,7 @@
 // （SCR-026/028 と同じ 200+empty 方針）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { endOfMonthIsoTokyo } from '@/utils/datetime';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
@@ -142,9 +143,9 @@ describe('HaitatsuryoExportView — 画面初期表示', () => {
     expect(wrapper.find(exportBtn()).exists()).toBe(true);
   });
 
-  it('should default 年月日 (target_month) to empty when first mounted', async () => {
+  it('should default 年月日 (target_month) to the last day of the current month (JST)', async () => {
     const { wrapper } = await renderView();
-    expect((wrapper.vm as any).formState.target_month).toBe('');
+    expect((wrapper.vm as any).formState.target_month).toBe(endOfMonthIsoTokyo());
   });
 
   it('should NOT render any aggregation rows when first mounted (empty grid)', async () => {

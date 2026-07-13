@@ -240,15 +240,16 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     expect((defaultRadio.element as HTMLInputElement).checked).toBe(true);
   });
 
-  it('should render all three 取込モード radios when the view first mounts', async () => {
+  it('should render the two 取込モード radios (新規登録 / 更新) when the view first mounts', async () => {
+    // 顧客要件 2026-07: 全項目更新を廃止し 新規登録/更新 の2択に統合。
     const { wrapper } = await renderView();
     expect(wrapper.find('[data-test="import-mode-new"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="import-mode-update"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="import-mode-cancel"]').exists()).toBe(true);
+    // 旧「入力箇所のみ更新」(cancel) ラジオは削除済み。
+    expect(wrapper.find('[data-test="import-mode-cancel"]').exists()).toBe(false);
     const text = wrapper.text();
     expect(text).toContain(IMPORT_MODE_LABEL_JP.new);
     expect(text).toContain(IMPORT_MODE_LABEL_JP.update);
-    expect(text).toContain(IMPORT_MODE_LABEL_JP.cancel);
   });
 
   it('should render the テンプレート button when the view first mounts', async () => {
@@ -296,9 +297,9 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     }
   });
 
-  it('should set PARTIAL (入力箇所のみ更新) column states: ID checked+disabled, immutable fields rendered WITHOUT a checkbox, others enabled', async () => {
+  it('should set UPDATE (更新) column states: ID checked+disabled, immutable fields rendered WITHOUT a checkbox, others enabled', async () => {
     const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
     await flushPromises();
 
     // ID（キー）→ チェック + disable
@@ -542,100 +543,65 @@ describe('DokusyaImportView (ACSMS-SCR-016) — column panel + select-all', () =
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
-  it('should send import_mode=UPDATE_ALL to the API when the user picks 全項目更新 radio', async () => {
+  it('should send import_mode=UPDATE to the API when the user picks 更新 radio', async () => {
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
+    // 更新は既定で列未チェック → 送信のため「すべて選択」で全列チェックする。
+    await wrapper.find('[data-test="select-all-checkbox"]').setValue(true);
+    await flushPromises();
     vi.mocked(importDokusyaExcel).mockResolvedValue(
-      buildImportSuccessResponse({ data: { import_mode: 'UPDATE_ALL' } }) as any,
+      buildImportSuccessResponse({ data: { import_mode: 'UPDATE' } }) as any,
     );
     await uploadFile(wrapper, [buildImportRow()]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<string, unknown>;
     expect(body).toBeDefined();
-    expect(body.import_mode).toBe('UPDATE_ALL');
+    expect(body.import_mode).toBe('UPDATE');
   });
 
-  it('should disable+check every updatable column in 全項目更新 (UPDATE_ALL) and render edit-immutable fields (購読種別/氏名/購読開始日) WITHOUT a checkbox', async () => {
-    // 全項目更新 targets every updatable column — those checkboxes are disabled
-    // and checked. Edit-immutable fields (購読種別・氏名4・購読開始日) are NOT
-    // updated on update, so they render with NO checkbox at all (grey label only).
-    const IMMUTABLE = [
-      'dokusya_shubetsu',
-      'shimei_sei',
-      'shimei_mei',
-      'shimei_kana_sei',
-      'shimei_kana_mei',
-      'dokusya_kaishi_date',
-    ];
+  it('should leave columns freely toggleable in 更新 (UPDATE)', async () => {
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
-    const cols = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(cols.length).toBeGreaterThan(0);
-    const rendered = cols.map((cb) => (cb.element as HTMLInputElement).value);
-    for (const cb of cols) {
-      const el = cb.element as HTMLInputElement;
-      // Edit-immutable fields must NOT render a checkbox at all.
-      expect(IMMUTABLE).not.toContain(el.value);
-      // Every rendered (updatable) column is disabled + checked.
-      expect(el.disabled).toBe(true);
-      expect(el.checked).toBe(true);
-    }
-    // None of the immutable columns appear as a checkbox.
-    for (const imm of IMMUTABLE) expect(rendered).not.toContain(imm);
-    // The すべて選択／解除 toggle is also disabled in this mode.
-    const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
-    expect((selectAll.element as HTMLInputElement).disabled).toBe(true);
-  });
-
-  it('should leave columns freely toggleable in 入力箇所のみ更新 (UPDATE_PARTIAL)', async () => {
-    const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
-    await flushPromises();
     const biko = wrapper.find('input[type="checkbox"][value="biko"]');
     expect((biko.element as HTMLInputElement).disabled).toBe(false);
-    await biko.setValue(false);
-    expect((biko.element as HTMLInputElement).checked).toBe(false);
+    // 更新は既定で未チェック → チェックできること。
+    await biko.setValue(true);
+    expect((biko.element as HTMLInputElement).checked).toBe(true);
   });
 
-  it('should default to all checked (incl. the すべて選択 toggle) in 入力箇所のみ更新, then unchecking the toggle clears editable columns but keeps the key', async () => {
+  it('should default to NO columns checked (すべて選択 OFF) in 更新, and ticking すべて選択 checks all columns while the key stays checked', async () => {
+    // 顧客要件 2026-07: 更新は既定で列を選択しない。全列更新は「すべて選択」で行う。
     const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
+    await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
 
-    // 既定: 全列チェック → すべて選択 トグルも ON。
+    // 既定: 編集可能列は未チェック → すべて選択 トグルも OFF。キー(ID)は常にチェック。
     const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
-    expect((selectAll.element as HTMLInputElement).checked).toBe(true);
+    expect((selectAll.element as HTMLInputElement).checked).toBe(false);
     const email = wrapper.find('input[type="checkbox"][value="email"]');
-    expect((email.element as HTMLInputElement).checked).toBe(true);
-
-    // トグル OFF → 編集可能列は外れるが、キー(ID)は残る。
-    await selectAll.setValue(false);
-    await flushPromises();
     expect((email.element as HTMLInputElement).checked).toBe(false);
-    // 回帰: 編集可能な必須列（購読部数）も入力箇所のみ更新では外れること。
-    const busu = wrapper.find(
-      'input[type="checkbox"][value="dokusya_busu"]',
-    );
-    expect((busu.element as HTMLInputElement).checked).toBe(false);
     const idCb = wrapper.find('input[type="checkbox"][value="dokusya_id"]');
+    expect((idCb.element as HTMLInputElement).checked).toBe(true);
+
+    // すべて選択 ON → 全編集可能列がチェックされる（＝全列更新）。
+    await selectAll.setValue(true);
+    await flushPromises();
+    expect((email.element as HTMLInputElement).checked).toBe(true);
+    const busu = wrapper.find('input[type="checkbox"][value="dokusya_busu"]');
+    expect((busu.element as HTMLInputElement).checked).toBe(true);
+    // キーは引き続きチェック。
     expect((idCb.element as HTMLInputElement).checked).toBe(true);
   });
 
-  it('should send import_mode=UPDATE_PARTIAL to the API when the user picks 入力箇所のみ更新 radio', async () => {
+  it('should keep the すべて選択 toggle enabled (not disabled) in 更新 mode', async () => {
     const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
+    await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
-    vi.mocked(importDokusyaExcel).mockResolvedValue(
-      buildImportSuccessResponse({ data: { import_mode: 'UPDATE_PARTIAL' } }) as any,
-    );
-    await uploadFile(wrapper, [buildImportRow()]);
-    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
-    await flushPromises();
-    const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(body.import_mode).toBe('UPDATE_PARTIAL');
+    const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
+    expect((selectAll.element as HTMLInputElement).disabled).toBe(false);
   });
 });
 
@@ -730,7 +696,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
   it('should block submit when an UPDATE row omits 読者情報変更適用日', async () => {
     // 顧客要件 2026-06 — UPDATE は読者情報変更適用日が必須。
     const { wrapper } = await renderView();
-    await wrapper.find('[data-test="import-mode-cancel"]').setValue(true);
+    await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
     await uploadFile(wrapper, [
       buildImportRow({ dokusya_id: 7001, joho_henko_tekiyo_date: '' }),

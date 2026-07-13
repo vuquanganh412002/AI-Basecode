@@ -350,14 +350,24 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       expect(service.update).not.toHaveBeenCalled();
     });
 
-    it('should NOT validate shimei_sei on update (氏名は編集で不変・pin) — request reaches service', async () => {
-      // 顧客要件 2026-06 — 氏名(氏/名/かな) は編集で :disabled・サービスで before に
-      // pin。UpdateDokusyaDto で @ValidateIf(() => false) により検証無効化したので、
-      // body に shimei_sei が無く（または非準拠でも）400 にならずサービスへ届く。
+    it('should validate shimei_sei on update (氏名は編集で変更可・検証あり) — 400 when blank', async () => {
+      // 顧客要件 2026-07 — 氏名(氏/名/かな) は編集で変更可。UpdateDokusyaDto は
+      // CreateDokusyaDto の必須/漢字/ひらがな検証を継承するので、空・非準拠の
+      // 氏名は 400 VALIDATION_ERROR となりサービスへ届かない。
+      service.update.mockResolvedValue(buildDokusyaDetailResponse({ dokusya_id: 100 }));
+      const res = await http()
+        .put(apiUrl('dokusya/100'))
+        .send(buildUpdateDokusyaBody({ shimei_sei: '' }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(service.update).not.toHaveBeenCalled();
+    });
+
+    it('should reach service on update when shimei is conforming (氏名編集可)', async () => {
       service.update.mockResolvedValue(buildDokusyaDetailResponse({ dokusya_id: 100 }));
       await http()
         .put(apiUrl('dokusya/100'))
-        .send(buildUpdateDokusyaBody({ shimei_sei: undefined }))
+        .send(buildUpdateDokusyaBody({ shimei_sei: '田中', shimei_kana_sei: 'たなか' }))
         .expect(200);
       expect(service.update).toHaveBeenCalled();
     });
@@ -1387,6 +1397,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
         .expect(200);
 
       expect(res.body.data).toEqual(expect.any(Array));
@@ -1407,11 +1418,15 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001' })
+        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001', hanbaiten_tekiyo_date: '2099-12-31' })
         .expect(200);
 
       expect(service.searchForReplace).toHaveBeenCalledWith(
-        expect.objectContaining({ kanri_shiten_id: 10, kumiaiin_code: '10001' }),
+        expect.objectContaining({
+          kanri_shiten_id: 10,
+          kumiaiin_code: '10001',
+          hanbaiten_tekiyo_date: '2099-12-31',
+        }),
         expect.objectContaining({ ja_id: 1, account_id: 11 }),
       );
     });
@@ -1445,6 +1460,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
         .query({
           dokusya_kaishi_date_from: '2026-12-31',
           dokusya_kaishi_date_to: '2026-01-01',
+          hanbaiten_tekiyo_date: '2099-12-31',
         })
         .expect(400);
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
@@ -1481,6 +1497,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
         .expect(403);
       expect(res.body.error_code).toBe('DATA_SCOPE_VIOLATION');
     });
@@ -1489,6 +1506,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
       service.searchForReplace.mockRejectedValue(new Error('DB exploded'));
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
@@ -1929,10 +1947,18 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
     });
 
-    it('should return 400 VALIDATION_ERROR when import_mode is not one of NEW / UPDATE_ALL / UPDATE_PARTIAL', async () => {
+    it('should return 400 VALIDATION_ERROR when import_mode is not one of NEW / UPDATE', async () => {
       const res = await http()
         .post(apiUrl('dokusya/import'))
         .send(buildImportBody({ import_mode: 'DELETE_ALL' }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 400 VALIDATION_ERROR when import_mode is UPDATE_ALL (廃止)', async () => {
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .send(buildImportBody({ import_mode: 'UPDATE_ALL' }))
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
     });

@@ -438,13 +438,15 @@ export class ImportDokusyaRowDto {
 
 export class ImportDokusyaDto {
   @ApiProperty({
-    description: '取込モード（NEW / UPDATE_ALL / UPDATE_PARTIAL）',
-    enum: ['NEW', 'UPDATE_ALL', 'UPDATE_PARTIAL'],
+    description:
+      '取込モード（NEW / UPDATE）。UPDATE は selected_columns の列のみ更新（空欄は' +
+      'スキップ）。全列更新は全列を selected_columns に含める。旧 UPDATE_ALL は廃止。',
+    enum: ['NEW', 'UPDATE'],
   })
-  @IsIn(['NEW', 'UPDATE_ALL', 'UPDATE_PARTIAL'], {
+  @IsIn(['NEW', 'UPDATE'], {
     message: '取込モードの値が不正です。',
   })
-  import_mode!: 'NEW' | 'UPDATE_ALL' | 'UPDATE_PARTIAL';
+  import_mode!: 'NEW' | 'UPDATE';
 
   @ApiProperty({
     description: '取込対象の列（物理カラム名）配列',

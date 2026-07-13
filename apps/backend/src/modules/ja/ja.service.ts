@@ -8,7 +8,11 @@ import { Ja } from '@/database/entities/ja.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { Role } from '@/database/entities/role.entity';
 import { RoleCode } from '@/common/enums/role-code.enum';
-import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import {
+  paginate,
+  paginateCursor,
+  type PaginatedResponse,
+} from '@/common/utils/paginate';
 import { CreateJaDto } from './dto/create-ja.dto';
 import { UpdateJaDto } from './dto/update-ja.dto';
 import { JaResponseDto } from './dto/ja-response.dto';
@@ -582,7 +586,6 @@ export class JaService {
 
     const [rows, total] = await qb.getManyAndCount();
     const pageIds = new Set(rows.map((r) => r.jaId));
-    const has_more = page * per_page < total;
 
     // include_id: if specified and the row is in scope BUT not in the
     // current page slice, prepend it so the FE can render the
@@ -617,9 +620,6 @@ export class JaService {
       chuokai_flg: r.chuokaiFlg,
     }));
 
-    return {
-      data,
-      meta: { total, page, per_page, has_more },
-    };
+    return paginateCursor(data, total, page, per_page);
   }
 }

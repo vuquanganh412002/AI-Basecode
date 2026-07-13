@@ -16,7 +16,10 @@ import {
 } from '@/api/report/report';
 import BaseHanbaitenSelect from '@/components/common/BaseHanbaitenSelect.vue';
 import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
+import BaseReportPager from '@/components/common/BaseReportPager.vue';
 import { nowTokyo } from '@/utils/datetime';
+import { formatJpDate } from '@/utils/formatters';
+import { downloadBlob } from '@/utils/download';
 
 const authStore = useAuthStore();
 const notify = useNotify();
@@ -39,13 +42,20 @@ const formState = reactive<{
   kanri_shiten_id: [],
 });
 
-const fieldErrors = reactive<{ tekiyo_date: string }>({ tekiyo_date: '' });
+const fieldErrors = reactive<{
+  tekiyo_date: string;
+  hanbaiten_id: string;
+  kanri_shiten_id: string;
+}>({ tekiyo_date: '', hanbaiten_id: '', kanri_shiten_id: '' });
 
 const previewData = ref<ZougenPreviewData | null>(null);
 /** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-028-002 を表示。 */
 const noDataMessage = ref(false);
 
-// ─── ページ送り（文書ページ。1ページ=A4 1枚に収まる目安15レコード。名簿と同方針）─
+// ─── ページ送り（文書ページ）──────────────────────────────────────────
+// 1ページ = 1販売店+管理支店(combo)。ZOUGEN_PER_PAGE は「1 combo 内で1ページに載せる
+// 最大レコード数」で、これを超える大きい combo のみ自 combo 内で複数ページに分かれる
+// （BE の per_page として送信）。総ページ数は combo 数で決まる（顧客要件 2026-07）。
 const ZOUGEN_PER_PAGE = 15;
 const currentPage = ref(1);
 
@@ -57,13 +67,6 @@ const nowIssuedAt = (): string => nowTokyo().format('YYYY/MM/DD HH:mm');
 const hasReports = computed(
   () => previewData.value !== null && previewData.value.reports.length > 0,
 );
-
-/** 適用日 YYYY-MM-DD → 「YYYY年M月D日」（帳票の日付表記）。 */
-function formatJpDate(iso: string): string {
-  const [y, m, d] = (iso ?? '').split('-');
-  if (!y || !m || !d) return iso ?? '';
-  return `${y}年${Number(m)}月${Number(d)}日`;
-}
 
 /**
  * 住所変更は1購読者につき [変更前, 変更後] の2行。氏名・配達先・電話・備考は
@@ -84,16 +87,29 @@ function addressChangePairs(
 
 function validate(): boolean {
   fieldErrors.tekiyo_date = '';
+  fieldErrors.hanbaiten_id = '';
+  fieldErrors.kanri_shiten_id = '';
   // ?.trim() — <a-date-picker> の × クリアで undefined になるため。
   if (!formState.tekiyo_date?.trim()) {
     fieldErrors.tekiyo_date = '必須項目です。'; // ACSMS-MSG-028-004
   }
-  return !fieldErrors.tekiyo_date;
+  // 販売店・管理支店は必須入力（顧客要件 2026-07）。「全て」選択で全件を選べる。
+  if (formState.hanbaiten_id.length === 0) {
+    fieldErrors.hanbaiten_id = '販売店を1件以上選択してください。';
+  }
+  if (formState.kanri_shiten_id.length === 0) {
+    fieldErrors.kanri_shiten_id = '管理支店を1件以上選択してください。';
+  }
+  return (
+    !fieldErrors.tekiyo_date &&
+    !fieldErrors.hanbaiten_id &&
+    !fieldErrors.kanri_shiten_id
+  );
 }
 
 function buildQuery(page?: number): ZougenHanbaitenQuery {
   const q: ZougenHanbaitenQuery = { tekiyo_date: formState.tekiyo_date };
-  // 未選択（空配列）は全件対象 → パラメータを送らない。
+  // 販売店・管理支店は必須（validate 済）。「全て」選択時は全 ID が入るため常に送る。
   if (formState.hanbaiten_id.length > 0) q.hanbaiten_id = formState.hanbaiten_id;
   if (formState.kanri_shiten_id.length > 0) {
     q.kanri_shiten_id = formState.kanri_shiten_id;
@@ -150,17 +166,10 @@ async function onExport(): Promise<void> {
       noDataMessage.value = true;
       return;
     }
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     // ファイル名はサーバ（権限別）が決めるため Content-Disposition から受け取る。
     // 取得できないときのみ適用日ベースの既定名にフォールバックする。
     const [y, m, d] = formState.tekiyo_date.split('-');
-    link.download = filename ?? `増減連絡票_${y}年${m}月${d}日.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
+    downloadBlob(blob, filename ?? `増減連絡票_${y}年${m}月${d}日.pdf`);
     notify.downloaded();
   } catch {
     // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
@@ -208,26 +217,41 @@ defineExpose({ formState });
           </p>
         </div>
 
-        <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3）
-             マルチセレクトのドロップダウン（コード・名称で検索、50件ずつ無限スクロール、
-             複数選択可・未選択＝全件）。 -->
+        <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3）— 必須（顧客要件 2026-07）。
+             マルチセレクトのドロップダウン（コード・名称で検索、50件ずつ無限スクロール）。
+             ドロップダウン先頭の「全て」で全件選択＝入力欄に「全て」タグ表示。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
           <div class="md:col-span-2">
-            <div class="text-sm font-medium text-text-main mb-2">販売店</div>
+            <div class="text-sm font-medium text-text-main mb-2">
+              販売店<span class="text-error ml-1">*</span>
+            </div>
             <BaseHanbaitenSelect
               v-model:value="formState.hanbaiten_id"
+              placeholder="販売店を選択（「全て」で全件）"
+              allow-select-all
               data-test="hanbaiten-select"
             />
+            <!-- エラーは入力欄の下に表示（ラベル直下だと右列とベースラインがずれるため）。 -->
+            <p v-if="fieldErrors.hanbaiten_id" class="text-error text-sm mt-1">
+              {{ fieldErrors.hanbaiten_id }}
+            </p>
           </div>
 
           <div>
-            <div class="text-sm font-medium text-text-main mb-2">管理支店</div>
+            <div class="text-sm font-medium text-text-main mb-2">
+              管理支店<span class="text-error ml-1">*</span>
+            </div>
             <BaseKanriShitenSelect
               v-if="jaId != null"
               v-model:value="formState.kanri_shiten_id"
               :ja-id="jaId"
+              placeholder="管理支店を選択（「全て」で全件）"
+              allow-select-all
               data-test="kanri-shiten-select"
             />
+            <p v-if="fieldErrors.kanri_shiten_id" class="text-error text-sm mt-1">
+              {{ fieldErrors.kanri_shiten_id }}
+            </p>
           </div>
         </div>
 
@@ -289,7 +313,8 @@ defineExpose({ formState });
               </h3>
             </div>
             <div class="text-xs text-right leading-relaxed text-text-description">
-              <div>ページ数：{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}</div>
+              <!-- ページ数は販売店ごとに採番（1ページ=1販売店+管理支店・顧客要件 2026-07）。 -->
+              <div>ページ数：{{ previewData?.group_page_no ?? 1 }}/{{ previewData?.group_total_pages ?? 1 }}</div>
             </div>
           </div>
 
@@ -457,23 +482,17 @@ defineExpose({ formState });
         </div>
       </div>
 
-      <!-- ページャ — 文書ページ送り（15レコード/A4）。ブラウザは1ページ分のみ描画。 -->
-      <div
-        v-if="(previewData?.total_pages ?? 1) > 1"
-        class="px-6 py-3 border-t border-border flex items-center justify-between"
+      <!-- ページャ — 文書ページ送り（1ページ=1販売店+管理支店）— 共通 BaseReportPager
+           で SCR-026/029 と統一。 -->
+      <BaseReportPager
+        :current="currentPage"
+        :page-no="previewData?.page_no ?? 1"
+        :total-pages="previewData?.total_pages ?? 1"
+        :per-page="previewData?.per_page ?? ZOUGEN_PER_PAGE"
+        :total-rows="previewData?.total_rows ?? 0"
         data-test="zougen-pager"
-      >
-        <span class="text-text-description text-sm">
-          全{{ previewData?.total_rows ?? 0 }}件・{{ previewData?.page_no ?? 1 }}/{{ previewData?.total_pages ?? 1 }}ページ
-        </span>
-        <a-pagination
-          :current="currentPage"
-          :total="previewData?.total_rows ?? 0"
-          :page-size="previewData?.per_page ?? ZOUGEN_PER_PAGE"
-          :show-size-changer="false"
-          @change="onPageChange"
-        />
-      </div>
+        @change="onPageChange"
+      />
     </div>
   </div>
 </template>

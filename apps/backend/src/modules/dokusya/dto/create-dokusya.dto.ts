@@ -101,13 +101,16 @@ export class CreateDokusyaDto {
   @IsInt({ message: '管理支店IDは整数で指定してください。' })
   kanri_shiten_id?: number;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description:
-      '支店ID (FK: m_shiten)。購読者の所属支店として必須。金融支店 (kinyu_shiten_flg=true) は対象外（引落口座支店専用）。',
+      '支店ID (FK: m_shiten)。任意（顧客要件 2026-07：必須を解除）。未指定時は NULL で保存。金融支店 (kinyu_shiten_flg=true) は対象外（引落口座支店専用）。',
+    nullable: true,
   })
+  @Transform(blankToUndef)
+  @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '支店IDは整数で指定してください。' })
-  shiten_id!: number;
+  shiten_id?: number | null;
 
   @ApiPropertyOptional({ description: '組合員コード', maxLength: 20 })
   @Transform(blankToUndef)

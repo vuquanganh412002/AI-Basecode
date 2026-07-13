@@ -604,6 +604,8 @@ export function buildReplaceSearchQuery(
     per_page: 20,
     sort_by: 'kumiaiin_code',
     sort_order: 'asc',
+    // 販売店適用日は必須（顧客要件 2026-07）。既定は遠未来日で未来日チェックを通す。
+    hanbaiten_tekiyo_date: '2099-12-31',
     ...overrides,
   };
 }

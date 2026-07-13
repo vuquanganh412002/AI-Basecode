@@ -11,7 +11,11 @@
 // m_shiten); these fixtures produce the per-購読者 flat-row shape (snake_case SQL
 // aliases) the service consumes BEFORE building the Zengin CSV.
 
-/** Valid export body (api.md §リクエストパラメータ, all 13 fields). */
+/**
+ * Valid export body (api.md §リクエストパラメータ). v1.1: プレビューで確認・
+ * 編集した `rows[]`（dokusya_id + furikae_kingaku）を含む。既定は集計モックの
+ * 2 購読者（id 1・2）を各 4900 円で送る＝上書きしても金額は変わらない構成。
+ */
 export function buildExportKozaFurikaeQuery(
   overrides: Record<string, unknown> = {},
 ) {
@@ -29,6 +33,24 @@ export function buildExportKozaFurikaeQuery(
     jastem_tenpo_name: 'ホンテン',
     jastem_tyokin_shubetsu: '1',
     jastem_koza_no: '1234567',
+    rows: [
+      { dokusya_id: 1, furikae_kingaku: 4900 },
+      { dokusya_id: 2, furikae_kingaku: 4900 },
+    ],
+    ...overrides,
+  } as any;
+}
+
+/** Valid preview body (API-020-003, v1.1). 集計フィルタのみ（JASTEM/金額なし）。 */
+export function buildPreviewKozaFurikaeQuery(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    target_month: '2026-05-01',
+    hikiotoshi_date: '2026-05-27',
+    kanri_shiten_ids: [1, 2],
+    shiten_ids: [],
+    koza_shiten_ids: [10, 11],
     ...overrides,
   } as any;
 }

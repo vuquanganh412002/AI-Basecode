@@ -57,8 +57,8 @@ export class DokusyaRireki {
   @Column({ name: 'kanri_shiten_id', type: 'bigint' })
   kanriShitenId: number;
 
-  @Column({ name: 'shiten_id', type: 'bigint' })
-  shitenId: number;
+  @Column({ name: 'shiten_id', type: 'bigint', nullable: true })
+  shitenId: number | null;
 
   @Column({ name: 'kumiaiin_code', type: 'varchar', length: 20, default: '' })
   kumiaiinCode: string;

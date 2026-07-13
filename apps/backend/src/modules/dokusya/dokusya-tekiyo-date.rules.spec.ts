@@ -6,6 +6,7 @@
 import {
   collectTekiyoDateViolations,
   collectChushiViolations,
+  collectChushiVsMaxJoho,
   tekiyoViolationField,
   TEKIYO_VIOLATION,
 } from './dokusya-tekiyo-date.rules';
@@ -193,6 +194,44 @@ describe('collectChushiViolations', () => {
     expect(v.map((x) => x.kind).sort()).toEqual(
       [TEKIYO_VIOLATION.CHUSHI_BEFORE_KAISHI, TEKIYO_VIOLATION.CHUSHI_NOT_FUTURE].sort(),
     );
+  });
+});
+
+describe('collectChushiVsMaxJoho（解約予定日 > 最終変更適用日・同日不可・顧客要件 2026-07）', () => {
+  it('should return no violation when chushi > maxJoho（最終変更より後）', () => {
+    expect(
+      collectChushiVsMaxJoho({ chushiDate: '2026-08-02', maxJoho: '2026-08-01' }),
+    ).toEqual([]);
+  });
+
+  it('should flag CHUSHI_BEFORE_MAX_JOHO when chushi == maxJoho（同日は不可）', () => {
+    const out = collectChushiVsMaxJoho({
+      chushiDate: '2026-08-01',
+      maxJoho: '2026-08-01',
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].kind).toBe(TEKIYO_VIOLATION.CHUSHI_BEFORE_MAX_JOHO);
+    expect(out[0].message).toContain('より後');
+  });
+
+  it('should flag CHUSHI_BEFORE_MAX_JOHO when chushi < maxJoho', () => {
+    const out = collectChushiVsMaxJoho({
+      chushiDate: '2026-07-20',
+      maxJoho: '2026-08-01',
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].kind).toBe(TEKIYO_VIOLATION.CHUSHI_BEFORE_MAX_JOHO);
+  });
+
+  it('should skip when chushi or maxJoho is null/empty', () => {
+    expect(collectChushiVsMaxJoho({ chushiDate: null, maxJoho: '2026-08-01' })).toEqual([]);
+    expect(collectChushiVsMaxJoho({ chushiDate: '2026-08-02', maxJoho: null })).toEqual([]);
+  });
+
+  it('should compare correctly with YYYY/MM/DD input (正規化)', () => {
+    expect(
+      collectChushiVsMaxJoho({ chushiDate: '2026/08/01', maxJoho: '2026/08/01' }),
+    ).toHaveLength(1); // 同日 → 違反
   });
 });
 

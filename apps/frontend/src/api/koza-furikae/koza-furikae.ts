@@ -22,6 +22,39 @@ export interface KozaFurikaeInitialEnvelope {
   data: KozaFurikaeInitialData;
 }
 
+/** プレビュー要求ボディ（API-020-003, v1.1）。集計フィルタのみ。 */
+export interface PreviewKozaFurikaeBody {
+  target_month: string;
+  hikiotoshi_date: string;
+  kanri_shiten_ids?: number[];
+  shiten_ids?: number[];
+  koza_shiten_ids?: number[];
+}
+
+/** プレビュー一覧の1行（API-020-003 §レスポンス）。金額は編集可。 */
+export interface KozaPreviewRow {
+  dokusya_id: number;
+  koza_meigi: string;
+  kanri_shiten_id: number | null;
+  bank_branch_code: string;
+  bank_branch_name: string;
+  hikiotoshi_yokin_shubetsu: number | null;
+  hikiotoshi_koza_no: string;
+  furikae_kingaku: number;
+}
+
+/** プレビュー一覧レスポンス（{ data, meta }）。 */
+export interface KozaPreviewEnvelope {
+  data: KozaPreviewRow[];
+  meta: { total: number; page: number; per_page: number; total_pages: number };
+}
+
+/** ファイル作成へ送る編集済みの1行（dokusya_id 突合 + 編集金額）。 */
+export interface ExportKozaFurikaeRow {
+  dokusya_id: number;
+  furikae_kingaku: number;
+}
+
 /** POST /api/v1/koza-furikae/export のリクエストボディ（API-020-002 §リクエストパラメータ）。 */
 export interface ExportKozaFurikaeBody {
   target_month: string;
@@ -37,6 +70,8 @@ export interface ExportKozaFurikaeBody {
   jastem_tenpo_name: string;
   jastem_tyokin_shubetsu: string;
   jastem_koza_no: string;
+  /** プレビューで確認・編集した振替対象行（v1.1）。 */
+  rows: ExportKozaFurikaeRow[];
 }
 
 /** A normalized non-axios error carrying the screen-specific error_code. */
@@ -76,6 +111,32 @@ export async function getInitialKozaFurikae(): Promise<KozaFurikaeInitialEnvelop
     '/api/v1/koza-furikae/initial',
   );
   return res.data;
+}
+
+/**
+ * POST /api/v1/koza-furikae/preview — ACSMS-API-020-003 (v1.1). 集計して
+ * プレビュー一覧（金額編集用）を返す。DB/S3 書込なし。対象0件は BE 404
+ * (NO_TARGET_DATA) → `{ error_code }` に正規化して再スロー（呼び出し側で
+ * MSG-020-002 を画面内表示）。
+ */
+export async function previewKozaFurikae(
+  body: PreviewKozaFurikaeBody,
+): Promise<KozaPreviewEnvelope> {
+  try {
+    const res = await axiosInstance.post<KozaPreviewEnvelope>(
+      '/api/v1/koza-furikae/preview',
+      body,
+    );
+    return res.data;
+  } catch (err) {
+    const code = (err as AxiosError<{ error_code?: string }>).response?.data
+      ?.error_code;
+    if (code) {
+      const normalized: KozaFurikaeError = { error_code: code };
+      throw normalized;
+    }
+    throw err;
+  }
 }
 
 /**

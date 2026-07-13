@@ -429,11 +429,29 @@ describe('CreateDokusyaDto', () => {
     expect(haitatsuErrs).toHaveLength(0);
   });
 
-  // ─── shiten_id (Number, required) ───────────────────────────────────────
-  it('should fail when shiten_id is missing (支店は必須)', async () => {
+  // ─── shiten_id (Number, optional — 顧客要件 2026-07: 支店は任意) ──────────
+  it('should PASS when shiten_id is missing (支店は任意)', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
       buildCreateDokusyaBody({ shiten_id: undefined }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'shiten_id')).toBe(false);
+  });
+
+  it('should PASS when shiten_id is blank string (blankToUndef → optional)', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ shiten_id: '' as unknown as number }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'shiten_id')).toBe(false);
+  });
+
+  it('should still validate shiten_id type when provided (non-integer → error)', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ shiten_id: 'abc' as unknown as number }),
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'shiten_id')).toBe(true);

@@ -11,10 +11,14 @@ import { message } from 'ant-design-vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { downloadBlob } from '@/utils/download';
+import { formatYen } from '@/utils/formatters';
 import {
   getInitialKozaFurikae,
+  previewKozaFurikae,
   exportKozaFurikae,
   type ExportKozaFurikaeBody,
+  type KozaPreviewRow,
 } from '@/api/koza-furikae/koza-furikae';
 import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
 import {
@@ -76,6 +80,19 @@ const fieldErrors = reactive<Record<FieldKey, string>>({
 });
 
 const submitting = ref(false);
+
+// ── v1.1: プレビュー（作成開始）→ 金額編集 → ファイル作成 の2ステップ ──
+const previewRows = ref<KozaPreviewRow[]>([]);
+const previewed = ref(false); // 作成開始でプレビュー取得済み
+const previewing = ref(false); // 作成開始のローディング
+const noDataMessage = ref(false); // 対象0件（MSG-020-002）を画面内表示
+const amountError = ref(''); // 金額編集の範囲外エラー（ファイル作成時）
+const jastemError = ref(''); // JASTEM 情報未設定エラー（ファイル作成時）
+
+/** プレビュー金額の合計（編集で変動）。 */
+const totalKingaku = computed(() =>
+  previewRows.value.reduce((a, r) => a + (Number(r.furikae_kingaku) || 0), 0),
+);
 
 // ── ドロップダウン選択肢 ──
 const kanriShitenOptions = ref<Array<{ value: number; label: string }>>([]);
@@ -171,13 +188,50 @@ async function loadDropdowns(): Promise<void> {
   }
 }
 
-function validate(): boolean {
+// 金額の上限（Zengin 引落金額10桁・D3）。
+const KINGAKU_MAX = 9_999_999_999;
+
+// JASTEM 情報（Part A: 委託者/農協 = m_ja、Part B: 店舗/口座 = 選択した口座支店 m_shiten）。
+// 全て readonly 表示のため、未設定時は <a-form-item :help> ではなくセクションの
+// エラーバナー（jastemError）でまとめて通知する。
+const JASTEM_FIELDS: FieldKey[] = [
+  'jastem_itakusha_code',
+  'jastem_itakusha_name',
+  'jastem_ja_code',
+  'jastem_ja_name',
+  'jastem_toriatsukai_tenpo_code',
+  'jastem_tenpo_name',
+  'jastem_tyokin_shubetsu',
+  'jastem_koza_no',
+];
+
+/** 作成開始（プレビュー）用: 年月日・引落日 のみ必須（D8）。 */
+function validateForPreview(): boolean {
+  const dateKeys: FieldKey[] = ['target_month', 'hikiotoshi_date'];
+  for (const k of dateKeys) fieldErrors[k] = '';
+  for (const k of dateKeys) {
+    if (!formState[k]?.trim()) fieldErrors[k] = REQUIRED_MSG;
+  }
+  return dateKeys.every((k) => !fieldErrors[k]);
+}
+
+/** ファイル作成用: JASTEM 全項目（必須+形式）+ 編集金額の範囲チェック（D8）。 */
+function validateForCreate(): boolean {
   for (const k of FIELD_ORDER) fieldErrors[k] = '';
+  amountError.value = '';
+  jastemError.value = '';
 
   // 必須チェック（クリア可能コントロールは undefined になりうるため ?.trim()）。
   for (const k of FIELD_ORDER) {
     const v = formState[k];
     if (!v?.trim()) fieldErrors[k] = REQUIRED_MSG;
+  }
+
+  // JASTEM 情報が1つでも未設定なら、readonly セクションにまとめてエラーを出す。
+  // （口座支店 未選択や JA/支店マスタ未登録が原因 → 出力させない）。
+  if (JASTEM_FIELDS.some((k) => !formState[k]?.trim())) {
+    jastemError.value =
+      'JASTEM委託者情報・金融機関支店情報が未設定のため出力できません。口座支店を選択し、JASTEM情報をご確認ください。';
   }
 
   // 形式チェック（BE DTO のミラー、非空のときのみ）。
@@ -198,7 +252,18 @@ function validate(): boolean {
     fieldErrors.jastem_koza_no = '口座番号は半角数字7桁以内で入力してください。';
   }
 
-  return FIELD_ORDER.every((k) => !fieldErrors[k]);
+  // 金額（プレビュー編集値）: 0〜10桁の整数。a-input-number でも制約するが二重で担保。
+  const badAmount = previewRows.value.some((r) => {
+    const n = Number(r.furikae_kingaku);
+    return !Number.isInteger(n) || n < 0 || n > KINGAKU_MAX;
+  });
+  if (badAmount) amountError.value = '金額は0以上10桁以内の半角数字で入力してください。';
+
+  return (
+    FIELD_ORDER.every((k) => !fieldErrors[k]) &&
+    !amountError.value &&
+    !jastemError.value
+  );
 }
 
 function buildBody(): ExportKozaFurikaeBody {
@@ -216,30 +281,59 @@ function buildBody(): ExportKozaFurikaeBody {
     jastem_tenpo_name: formState.jastem_tenpo_name,
     jastem_tyokin_shubetsu: formState.jastem_tyokin_shubetsu,
     jastem_koza_no: formState.jastem_koza_no,
+    // v1.1: プレビューで編集した金額を dokusya_id と一緒に送る。
+    rows: previewRows.value.map((r) => ({
+      dokusya_id: r.dokusya_id,
+      furikae_kingaku: Number(r.furikae_kingaku) || 0,
+    })),
   };
 }
 
-async function onCreate(): Promise<void> {
-  if (!validate()) return;
+/** 作成開始 = プレビュー一覧を取得（DB/S3 書込なし）。 */
+async function onPreview(): Promise<void> {
+  if (!validateForPreview()) return;
+  if (previewing.value) return;
+  previewing.value = true;
+  noDataMessage.value = false;
+  try {
+    const res = await previewKozaFurikae({
+      target_month: formState.target_month as string,
+      hikiotoshi_date: formState.hikiotoshi_date as string,
+      kanri_shiten_ids: formState.kanri_shiten_ids,
+      shiten_ids: formState.shiten_ids,
+      koza_shiten_ids: formState.koza_shiten_ids,
+    });
+    previewRows.value = res.data;
+    previewed.value = true;
+  } catch (err) {
+    // 対象0件（NO_TARGET_DATA）→ 画面内メッセージ（MSG-020-002）。他は集約
+    // インターセプタがトースト済み。
+    previewed.value = false;
+    previewRows.value = [];
+    if ((err as { error_code?: string })?.error_code === 'NO_TARGET_DATA') {
+      noDataMessage.value = true;
+    }
+  } finally {
+    previewing.value = false;
+  }
+}
+
+/** ファイル作成 = 編集金額を送信して全銀CSVを生成・ダウンロード。 */
+async function onCreateFile(): Promise<void> {
+  if (!validateForCreate()) return;
   if (submitting.value) return;
   submitting.value = true;
   try {
     const { blob, filename } = await exportKozaFurikae(buildBody());
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    // ファイル名はサーバ（ja_code + 引落日）が決めるため Content-Disposition から
-    // 受け取る。取得できないときのみ引落日ベースの既定名にフォールバックする。
+    // ファイル名はサーバ（全銀メディア固定名 ZENOUTFD・拡張子なし）が決めるため
+    // Content-Disposition から受け取る。取得できないときのみ引落日ベースの既定名に
+    // フォールバックする（銀行提出ファイルは拡張子なし）。
     const [y, m, d] = (formState.hikiotoshi_date as string).split('-');
-    link.download = filename ?? `口座振替データ_${y}年${m}月${d}日.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
+    downloadBlob(blob, filename ?? `口座振替データ_${y}年${m}月${d}日`);
     notify.success('口座振替データの作成が完了しました。'); // ACSMS-MSG-020-001
   } catch (err) {
-    // 対象0件（NO_TARGET_DATA）は warning トーストで MSG-020-002 を表示。それ以外は
-    // 集約インターセプタがトースト済み（MSG-020-003 等）。
+    // プレビュー〜作成の間にデータが消えた等で 0 件になった場合（MSG-020-002）。
+    // 他は集約インターセプタがトースト済み（MSG-020-003 等）。
     if ((err as { error_code?: string })?.error_code === 'NO_TARGET_DATA') {
       message.warning('対象データがありません。'); // ACSMS-MSG-020-002
     }
@@ -248,7 +342,35 @@ async function onCreate(): Promise<void> {
   }
 }
 
-defineExpose({ formState });
+// D1: フィルタ（年月日/管理支店/支店/口座支店）を変更したらプレビューを破棄し、
+// 「作成開始」の再実行を要求する（古いプレビューでファイル作成させない）。
+watch(
+  () => [
+    formState.target_month,
+    formState.kanri_shiten_ids,
+    formState.shiten_ids,
+    formState.koza_shiten_ids,
+  ],
+  () => {
+    if (previewed.value) {
+      previewed.value = false;
+      previewRows.value = [];
+    }
+    noDataMessage.value = false;
+    amountError.value = '';
+    jastemError.value = '';
+  },
+  { deep: true },
+);
+
+defineExpose({
+  formState,
+  previewRows,
+  previewed,
+  noDataMessage,
+  onPreview,
+  onCreateFile,
+});
 </script>
 
 <template>
@@ -345,6 +467,16 @@ defineExpose({ formState });
         JASTEM委託者コード情報
       </h3>
 
+      <!-- JASTEM 未設定エラー（ファイル作成時に検証。readonly 項目のためここに集約表示） -->
+      <a-alert
+        v-if="jastemError"
+        type="error"
+        show-icon
+        class="mb-4"
+        :message="jastemError"
+        data-test="jastem-error"
+      />
+
       <!--
         顧客要件: JASTEM 情報は readonly 表示のみ（m_ja + 口座支店 m_shiten 由来）。
         値は formState に保持され、作成開始 時に CSV 用にそのまま送信する。
@@ -423,15 +555,86 @@ defineExpose({ formState });
       </div>
     </section>
 
-    <!-- フッター：作成開始 -->
+    <!-- ❸ プレビュー一覧（作成開始で取得。金額を編集してファイル作成へ） -->
+    <p
+      v-if="noDataMessage"
+      class="text-text-description text-sm"
+      data-test="koza-no-data"
+    >
+      対象データがありません。
+    </p>
+
+    <section
+      v-if="previewed"
+      class="bg-surface-card border border-border rounded-ant p-6"
+      data-test="preview-section"
+    >
+      <h3 class="text-lg font-bold mb-4 pb-4 border-b border-border">
+        プレビュー（{{ previewRows.length }}件）
+      </h3>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="bg-surface-card-subtle">
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">預金者名</th>
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">引落支店</th>
+              <th class="border border-border px-3 py-2 text-left font-medium text-text-main">口座番号</th>
+              <th class="border border-border px-3 py-2 text-right font-medium text-text-main">金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in previewRows" :key="row.dokusya_id">
+              <td class="border border-border px-3 py-2 text-text-main">{{ row.koza_meigi || '—' }}</td>
+              <td class="border border-border px-3 py-2 text-text-main">
+                {{ row.bank_branch_code }} {{ row.bank_branch_name }}
+              </td>
+              <td class="border border-border px-3 py-2 text-text-main">{{ row.hikiotoshi_koza_no || '—' }}</td>
+              <td class="border border-border px-2 py-1 text-right">
+                <a-input-number
+                  v-model:value="row.furikae_kingaku"
+                  :min="0"
+                  :max="9999999999"
+                  :precision="0"
+                  :controls="false"
+                  class="w-32 text-right"
+                  :data-test="`kingaku-${row.dokusya_id}`"
+                />
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="bg-surface-card-subtle font-bold">
+              <td class="border border-border px-3 py-2 text-text-main" colspan="3">合計</td>
+              <td class="border border-border px-3 py-2 text-right text-text-main" data-test="total-kingaku">
+                {{ formatYen(totalKingaku) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p v-if="amountError" class="text-error text-sm mt-2" data-test="amount-error">
+        {{ amountError }}
+      </p>
+    </section>
+
+    <!-- フッター：作成開始（プレビュー）→ ファイル作成 -->
     <div class="flex items-center justify-start gap-2">
       <a-button
         type="primary"
-        :loading="submitting"
-        data-test="create-btn"
-        @click="onCreate"
+        :loading="previewing"
+        data-test="preview-btn"
+        @click="onPreview"
       >
         作成開始
+      </a-button>
+      <a-button
+        v-if="previewed && previewRows.length > 0"
+        type="primary"
+        :loading="submitting"
+        data-test="create-btn"
+        @click="onCreateFile"
+      >
+        ファイル作成
       </a-button>
     </div>
   </a-form>

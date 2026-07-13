@@ -2286,10 +2286,10 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       });
     });
 
-    // ─── UPDATE_ALL mode ─────────────────────────────────────────────
-    describe('UPDATE_ALL mode (全項目更新)', () => {
+    // ─── UPDATE mode ─────────────────────────────────────────────
+    describe('UPDATE mode — all columns selected (旧全項目更新相当)', () => {
       beforeEach(() => {
-        // §4.3.1 — UPDATE_ALL expects rows to EXIST. Return the matching code.
+        // §4.3.1 — UPDATE expects rows to EXIST. Return the matching code.
         dataSource.query = jest.fn(async (sql: string) => {
           if (/m_hanbaiten/i.test(sql)) {
             return [{ hanbaiten_id: 1, hanbaiten_code: 'H001' }];
@@ -2298,20 +2298,20 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should UPDATE each row and return updated_count when UPDATE_ALL succeeds', async () => {
+      it('should UPDATE each row and return updated_count when UPDATE succeeds', async () => {
         const body = buildImportRequestUpdateAll();
         const rowCount = (body.rows as any[]).length;
         const result = await service.importExcel(body, importerSession(), baseReq);
 
         expect(result.data).toMatchObject({
-          import_mode: 'UPDATE_ALL',
+          import_mode: 'UPDATE',
           total_rows: rowCount,
           created_count: 0,
           updated_count: rowCount,
         });
       });
 
-      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_ALL when UPDATE_ALL succeeds', async () => {
+      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_PARTIAL when UPDATE succeeds', async () => {
         // EXCEPTION to bare-verb rule per api.md §4.5.
         await service.importExcel(
           buildImportRequestUpdateAll(),
@@ -2322,19 +2322,19 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         const updateCtx =
           auditLog.logUpdate.mock.calls[0]?.[0] ??
           auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
           )?.[0];
         expect(updateCtx).toBeDefined();
         const operation =
           updateCtx.operation ??
           auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
           )?.[0]?.operation;
-        expect(operation).toBe('IMPORT_UPDATE_ALL');
+        expect(operation).toBe('IMPORT_UPDATE_PARTIAL');
       });
 
-      it('should populate before_value JSON with the pre-update row snapshot when audit-logging UPDATE_ALL', async () => {
-        // §4.5 — before_value: UPDATE_ALL / UPDATE_PARTIAL モード — 更新前データJSON
+      it('should populate before_value JSON with the pre-update row snapshot when audit-logging UPDATE', async () => {
+        // §4.5 — before_value: UPDATE / UPDATE モード — 更新前データJSON
         await service.importExcel(
           buildImportRequestUpdateAll(),
           importerSession(),
@@ -2342,14 +2342,14 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         );
         // 単一 logOperation 呼び出しの payload.beforeValue に更新前データが入る。
         const opCall = auditLog.logOperation.mock.calls.find(
-          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
         );
         expect(opCall).toBeDefined();
         expect(opCall![0]?.beforeValue).toBeDefined();
       });
 
-      it('should throw IMPORT_VALIDATION_ERROR when UPDATE_ALL targets a hanbaiten_code that does not exist', async () => {
-        // §4.3.1 — UPDATE_ALL with a missing code is "存在しない" error.
+      it('should throw IMPORT_VALIDATION_ERROR when UPDATE targets a hanbaiten_code that does not exist', async () => {
+        // §4.3.1 — UPDATE with a missing code is "存在しない" error.
         dataSource.query = jest.fn(async () => []);
 
         await expect(
@@ -2368,31 +2368,6 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should overwrite unselected columns with NULL / empty when UPDATE_ALL is the mode (selected_columns is informational only)', async () => {
-        // §4.4.2 — UPDATE_ALL: 未選択列は NULL / 空文字で上書き
-        await service.importExcel(
-          buildImportRequestUpdateAll({
-            selected_columns: ['hanbaiten_code', 'hanbaiten_name'],
-            rows: [
-              {
-                hanbaiten_code: 'H001',
-                hanbaiten_name: '販売店A改定',
-                // tel/fax intentionally omitted in body — UPDATE_ALL still writes them as NULL.
-              },
-            ],
-          }),
-          importerSession(),
-          baseReq,
-        );
-
-        // The service either calls txManager.update / txManager.save /
-        // txManager.query — at least one mutation must have fired.
-        const mutated =
-          (txManager.update as jest.Mock).mock.calls.length +
-          (txManager.save as jest.Mock).mock.calls.length +
-          (txManager.query as jest.Mock).mock.calls.length;
-        expect(mutated).toBeGreaterThan(0);
-      });
 
       it('should pass the transaction manager to logOperation when calling audit log so the audit row joins the tx', async () => {
         await service.importExcel(
@@ -2401,7 +2376,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           baseReq,
         );
         const opCall = auditLog.logOperation.mock.calls.find(
-          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_ALL',
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
         );
         expect(opCall).toBeDefined();
         // logOperation signature: (payload, manager?). 2nd arg is the manager.
@@ -2409,8 +2384,8 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       });
     });
 
-    // ─── UPDATE_PARTIAL mode ─────────────────────────────────────────
-    describe('UPDATE_PARTIAL mode (入力箇所のみ更新)', () => {
+    // ─── UPDATE mode ─────────────────────────────────────────
+    describe('UPDATE mode — subset of columns (selected_columns)', () => {
       beforeEach(() => {
         dataSource.query = jest.fn(async (sql: string) => {
           if (/m_hanbaiten/i.test(sql)) {
@@ -2420,17 +2395,17 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should UPDATE only selected_columns and return updated_count when UPDATE_PARTIAL succeeds', async () => {
+      it('should UPDATE only selected_columns and return updated_count when UPDATE succeeds', async () => {
         const body = buildImportRequestUpdatePartial();
         const rowCount = (body.rows as any[]).length;
         const result = await service.importExcel(body, importerSession(), baseReq);
         expect(result.data).toMatchObject({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           updated_count: rowCount,
         });
       });
 
-      it('should throw IMPORT_VALIDATION_ERROR when UPDATE_PARTIAL sets itaku_kubun=1 but existing bank fields are blank + unselected (TC-019-040)', async () => {
+      it('should throw IMPORT_VALIDATION_ERROR when UPDATE sets itaku_kubun=1 but existing bank fields are blank + unselected (TC-019-040)', async () => {
         // #3 — effective itaku_kubun = 1 (from the Excel cell, selected),
         // effective bank fields = existing DB blanks (unselected) → 振込
         // required check fires.
@@ -2471,7 +2446,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_PARTIAL when UPDATE_PARTIAL succeeds', async () => {
+      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_PARTIAL when UPDATE succeeds', async () => {
         await service.importExcel(
           buildImportRequestUpdatePartial(),
           importerSession(),
@@ -2485,8 +2460,8 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         expect(operation).toBe('IMPORT_UPDATE_PARTIAL');
       });
 
-      it('should NOT touch unselected columns when UPDATE_PARTIAL is the mode (existing DB values retained)', async () => {
-        // §4.4.3 — UPDATE_PARTIAL: 未選択列は既存値を維持する。
+      it('should NOT touch unselected columns when UPDATE is the mode (existing DB values retained)', async () => {
+        // §4.4.3 — UPDATE: 未選択列は既存値を維持する。
         // Implementation contract: SET clause includes ONLY selected_columns.
         await service.importExcel(
           buildImportRequestUpdatePartial({

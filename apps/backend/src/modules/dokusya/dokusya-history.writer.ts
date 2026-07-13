@@ -1,5 +1,6 @@
 import { EntityManager } from 'typeorm';
 
+import { DokusyaShubetsu } from '@/common/enums';
 import { addDaysIso, todayIsoJst } from '@/common/utils/datetime';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
@@ -38,8 +39,13 @@ import {
   DokusyaFields,
 } from './dokusya-history.types';
 
-// Digital subscriber types (紙版=1, 電子版=2, 併読=3) — sync 電子版 on 2/3.
-const DENSHI_SHUBETSU = new Set([2, 3]);
+// Digital subscriber types (電子版=2, 併読=3) — sync 電子版 on either.
+// Set<number> annotation: enum members are literal-typed (2 | 3), but
+// `.has()` is called with a general `number`, so widen explicitly.
+const DENSHI_SHUBETSU = new Set<number>([
+  DokusyaShubetsu.DIGITAL,
+  DokusyaShubetsu.BOTH,
+]);
 
 /**
  * Bitemporal history writer — orchestration over the query + builder
@@ -152,6 +158,10 @@ export async function recomputeMaster(
 }
 
 /**
+ * NOTE(未実装バッチ用): 到来日バッチ（日次 cron）から呼ばれる想定の関数。バッチ本体は
+ * 未実装のため現状 production の呼び出し元は無く unit test のみが対象（意図的な pending・
+ * 孤立コードではない）。バッチ実装時にスケジューラから配線する。
+ *
  * Batch 解約: append one cancellation row for a subscriber whose
  * `dokusya_chushi_date` has arrived, then reflect it into `t_dokusya`.
  *
@@ -170,7 +180,7 @@ export async function insertKaiyaku(
   const ref = await loadEffectiveRow(m, dokusyaId, asOf);
   if (ref?.dokusyaChushiDate == null || ref.kaiyakuFlg) return;
 
-  const isDenshi = ref.dokusyaShubetsu === 2; // 電子版 → +1 day
+  const isDenshi = ref.dokusyaShubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1 day
   const kaiyakuJoho = isDenshi
     ? addDaysIso(ref.dokusyaChushiDate, 1)
     : ref.dokusyaChushiDate;
@@ -211,7 +221,7 @@ export async function insertScheduledKaiyaku(
   const { dokusyaId, chushiDate, shubetsu, actor } = input;
   const beforeMaster = await loadMaster(m, dokusyaId);
 
-  const isDenshi = shubetsu === 2; // 電子版 → +1 day
+  const isDenshi = shubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1 day
   const kaiyakuJoho = isDenshi ? addDaysIso(chushiDate, 1) : chushiDate;
 
   // predecessor = 適用日(kaiyakuJoho)時点の有効行。zenkai_* と継承業務項目の基準。
@@ -315,7 +325,9 @@ export async function canTorikeshi(
 ): Promise<boolean> {
   if (target.shinkiFlg || target.torikeshiFlg) return false;
   const tail = await loadEffectiveRow(m, dokusyaId, CHAIN_TAIL_ASOF);
-  return tail != null && target.dokusyaRirekiId === tail.dokusyaRirekiId;
+  // tail が null なら optional chain で undefined ⇒ 一致せず false（従来の
+  // `tail != null && ...` と等価）。
+  return target.dokusyaRirekiId === tail?.dokusyaRirekiId;
 }
 
 /**

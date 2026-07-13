@@ -159,20 +159,17 @@ export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
 // ─── Import mode literals (FE display → BE wire) ──────────────────────
 
 /**
- * FE radio display values (index.html lines 405/409/413: 'new' /
- * 'update' / 'cancel'). The view translates to BE wire values when
- * submitting:
+ * FE radio display values（顧客要件 2026-07：全項目更新を廃止し 新規登録/更新 の
+ * 2択に統合）。view が BE wire 値へ変換する:
  *   new    → NEW
- *   update → UPDATE_ALL
- *   cancel → UPDATE_PARTIAL
+ *   update → UPDATE（選択列のみ更新。全列更新は「すべて選択」でチェック）
  * Tests assert the mapping at the request boundary.
  */
-export const IMPORT_MODE_FE = ['new', 'update', 'cancel'] as const;
-export const IMPORT_MODE_BE = ['NEW', 'UPDATE_ALL', 'UPDATE_PARTIAL'] as const;
+export const IMPORT_MODE_FE = ['new', 'update'] as const;
+export const IMPORT_MODE_BE = ['NEW', 'UPDATE'] as const;
 export const IMPORT_MODE_LABEL_JP: Record<(typeof IMPORT_MODE_FE)[number], string> = {
   new: '新規登録',
-  update: '全項目更新',
-  cancel: '入力箇所のみ更新',
+  update: '更新',
 };
 
 // ─── Message literals (screen-design §メッセージ情報) ──────────────────

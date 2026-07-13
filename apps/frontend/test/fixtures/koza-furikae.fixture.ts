@@ -106,3 +106,34 @@ export function buildKozaFurikaeForm(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+/** プレビュー一覧レスポンス（API-020-003, v1.1）。既定は2件。 */
+export function buildKozaPreview(overrides: Record<string, unknown> = {}) {
+  const data = [
+    {
+      dokusya_id: 1,
+      koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',
+      kanri_shiten_id: 1,
+      bank_branch_code: '001',
+      bank_branch_name: 'ﾎﾝﾃﾝ',
+      hikiotoshi_yokin_shubetsu: 1,
+      hikiotoshi_koza_no: '1234567',
+      furikae_kingaku: 4900,
+    },
+    {
+      dokusya_id: 2,
+      koza_meigi: 'ｽｽﾞｷ ﾊﾅｺ',
+      kanri_shiten_id: 1,
+      bank_branch_code: '002',
+      bank_branch_name: 'ｷﾀｼﾃﾝ',
+      hikiotoshi_yokin_shubetsu: 1,
+      hikiotoshi_koza_no: '7654321',
+      furikae_kingaku: 4900,
+    },
+  ];
+  return {
+    data,
+    meta: { total: data.length, page: 1, per_page: data.length, total_pages: 1 },
+    ...overrides,
+  };
+}

@@ -14,9 +14,10 @@ import {
 } from '@/api/report/report';
 import BaseHanbaitenSelect from '@/components/common/BaseHanbaitenSelect.vue';
 import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
+import BaseReportPager from '@/components/common/BaseReportPager.vue';
 import { formatPostalCode, formatDate } from '@/utils/formatters';
-import { nowTokyo } from '@/utils/datetime';
-import { meiboRowsPerA4 } from '@/utils/meibo-page';
+import { nowTokyo, endOfMonthIsoTokyo } from '@/utils/datetime';
+import { downloadBlob } from '@/utils/download';
 
 const authStore = useAuthStore();
 const codes = useCodesStore();
@@ -36,7 +37,8 @@ const formState = reactive<{
   dokusya_shubetsu: number | undefined;
   shiharai_hoho: number | undefined;
 }>({
-  tekiyo_date: '',
+  // 適用日の既定は当月末日（顧客要件・複数帳票画面で共通）。
+  tekiyo_date: endOfMonthIsoTokyo(),
   report_type: 'hanbaiten',
   hanbaiten_ids: [],
   kanri_shiten_ids: [],
@@ -51,11 +53,12 @@ const fieldErrors = reactive<{
 }>({ tekiyo_date: '', hanbaiten_ids: '', kanri_shiten_ids: '' });
 
 const previewData = ref<MeiboPreviewData | null>(null);
-const hasSearched = ref(false);
 
-// ─── ページ送り（文書ページ。1ページ=A4 1枚に収まる明細行数を算出）──────
-// 帳票種別でヘッダ高が異なるため行数も変わる（meiboRowsPerA4 参照）。
-const perPage = computed(() => meiboRowsPerA4(formState.report_type));
+// ─── ページ送り（文書ページ）──────────────────────────────────────────
+// per_page の名目値。BE は明細の高さを積算して A4 1枚ごとに動的分割するため、
+// この値はページ数の算出には使われない（BE が返す per_page と同値で、ページャの
+// total 算出に使う名目行数のみ）。
+const MEIBO_NOMINAL_PER_PAGE = 15;
 const currentPage = ref(1);
 
 // 帳票種別は m_code 非対象（固定UI選択肢）。
@@ -73,11 +76,11 @@ const shubetsuOptions = computed(() =>
   codes.options('DOKUSYA_SHUBETSU').filter((o) => Number(o.value) !== 3),
 );
 
+// previewData は fetch 成功時のみ設定（帳票種別変更・エラー時は null に戻す）ため、
+// 「検索済み」判定は previewData !== null で足りる（別途 hasSearched フラグは不要）。
 const isEmptyResult = computed(
   () =>
-    hasSearched.value &&
-    previewData.value !== null &&
-    previewData.value.grand_total_busu === 0,
+    previewData.value !== null && previewData.value.grand_total_busu === 0,
 );
 
 /** プレビュー結果に出力対象データがあるか（Excel出力ボタンの活性判定）。 */
@@ -90,7 +93,6 @@ watch(
   () => formState.report_type,
   () => {
     previewData.value = null;
-    hasSearched.value = false;
     currentPage.value = 1;
     fieldErrors.hanbaiten_ids = '';
     fieldErrors.kanri_shiten_ids = '';
@@ -133,10 +135,10 @@ function buildQuery(page?: number): MeiboReportQuery {
   if (formState.shiharai_hoho != null) q.shiharai_hoho = formState.shiharai_hoho;
   // 日農ダウンロード許可フラグは画面から選択させない（顧客要件）。FE は送らず、
   // BE 側で未指定→false に既定化する（service: `?? false`）。
-  // ページ送り（preview のみ。export では渡さず全件出力）。
+  // ページ送り（preview のみ。export では渡さず全件出力）。per_page は送らない
+  // ―― BE は A4 高さ基準で動的分割するため受け付けない（DTO 非対象）。
   if (page != null) {
     q.page = page;
-    q.per_page = perPage.value; // A4 1枚に収まる行数（帳票種別で算出）
   }
   return q;
 }
@@ -147,11 +149,9 @@ async function fetchPage(page: number): Promise<void> {
     const resp = await previewMeibo(buildQuery(page));
     previewData.value = resp.data;
     currentPage.value = resp.data.page_no ?? page;
-    hasSearched.value = true;
   } catch {
     // 集約 axios インターセプタが 403/500 をトースト済み。ローカル状態のみ整理。
     previewData.value = null;
-    hasSearched.value = true;
   }
 }
 
@@ -170,19 +170,12 @@ async function onExport(): Promise<void> {
   if (!validate()) return;
   try {
     const blob = await exportMeibo(buildQuery());
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     const [y, m] = formState.tekiyo_date.split('-');
     // 帳票種別で接頭辞を切替（hanbaiten=販売店別 / kanri_shiten=管理支店別）。
     // 例: 販売店別購読者名簿_2026年01月.xlsx
     const prefix =
       formState.report_type === 'hanbaiten' ? '販売店別' : '管理支店別';
-    link.download = `${prefix}購読者名簿_${y}年${m}月.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
+    downloadBlob(blob, `${prefix}購読者名簿_${y}年${m}月.xlsx`);
     notify.downloaded();
   } catch {
     // 対象なし(404)/500 はインターセプタがトースト済み。
@@ -212,45 +205,13 @@ function splitAddress(addr: string): { postal: string; rest: string } {
   return { postal: `〒${formatPostalCode(m[1])}`, rest: m[2] };
 }
 
-// ─── 販売店別：選択した複数販売店を1帳票に統合（管理支店でグループ化） ──────
-interface MergedKanriGroup {
-  kanri_shiten_id: number | null;
-  kanri_shiten_name: string;
-  subtotal_busu: number;
-  rows: import('@/api/report/report').HanbaitenReportRow[];
-}
-/** 選択した全販売店の購読者を管理支店(支所)単位でまとめる。 */
-const mergedKanriGroups = computed<MergedKanriGroup[]>(() => {
-  const pd = previewData.value;
-  if (!pd || pd.report_type !== 'hanbaiten') return [];
-  const map = new Map<string, MergedKanriGroup>();
-  for (const hg of pd.hanbaiten_groups) {
-    for (const sg of hg.kanri_shiten_groups) {
-      const key = sg.kanri_shiten_id == null ? 'none' : String(sg.kanri_shiten_id);
-      const ex = map.get(key);
-      if (ex) {
-        ex.subtotal_busu += sg.subtotal_busu;
-        ex.rows.push(...sg.rows);
-      } else {
-        map.set(key, {
-          kanri_shiten_id: sg.kanri_shiten_id,
-          kanri_shiten_name: sg.kanri_shiten_name,
-          subtotal_busu: sg.subtotal_busu,
-          rows: [...sg.rows],
-        });
-      }
-    }
-  }
-  return [...map.values()];
-});
+// ─── 販売店別ヘッダ表示用 ─────────────────────────────────────────────
 /** 選択販売店名（ヘッダ・合計行表示用）。 */
 const selectedHanbaitenNames = computed(() =>
   previewData.value?.hanbaiten_groups.map((g) => g.hanbaiten_name).join('、') ?? '',
 );
 /** ヘッダの販売店情報は先頭販売店を代表として表示。 */
 const headerHanbaiten = computed(() => previewData.value?.hanbaiten_groups[0]);
-/** ヘッダの支所（代表 = 先頭の管理支店グループ）。 */
-const headerShisho = computed(() => mergedKanriGroups.value[0]?.kanri_shiten_name ?? '');
 
 /** 選択管理支店名（管理支店別ヘッダの「管理支店：」表示用）。 */
 const selectedKanriShitenNames = computed(() =>
@@ -342,7 +303,10 @@ defineExpose({ formState });
            複数列に折り返し、高さ上限＋スクロールで間延びを防ぐ。 -->
       <!-- 販売店（販売店別のみ）— マルチセレクトのドロップダウン
            （コード/名称検索、50件ずつ無限スクロール、複数選択可・1件以上必須）。 -->
-      <div v-if="formState.report_type === 'hanbaiten'" class="mt-4">
+      <!-- v-show（v-if ではない）: 帳票種別を切り替えても選択コンポーネントを remount
+           しないため、「全て」選択(allIds キャッシュ)が保持され、戻ったときに個別タグに
+           バラけず「全て」タグのまま表示される（顧客要件 2026-07）。 -->
+      <div v-show="formState.report_type === 'hanbaiten'" class="mt-4">
         <div class="text-sm font-medium text-text-main mb-1">
           販売店<span class="text-error ml-1">*</span>
         </div>
@@ -353,12 +317,13 @@ defineExpose({ formState });
         <BaseHanbaitenSelect
           v-model:value="formState.hanbaiten_ids"
           placeholder="販売店を選択（1件以上）"
+          allow-select-all
           data-test="hanbaiten-select"
         />
       </div>
 
       <!-- 管理支店（管理支店別のみ）— マルチセレクトのドロップダウン。 -->
-      <div v-else class="mt-4">
+      <div v-show="formState.report_type !== 'hanbaiten'" class="mt-4">
         <div class="text-sm font-medium text-text-main mb-1">
           管理支店<span class="text-error ml-1">*</span>
         </div>
@@ -371,6 +336,7 @@ defineExpose({ formState });
           v-model:value="formState.kanri_shiten_ids"
           :ja-id="jaId"
           placeholder="管理支店を選択（1件以上）"
+          allow-select-all
           data-test="kanri-shiten-select"
         />
       </div>
@@ -451,17 +417,18 @@ defineExpose({ formState });
                 <div class="text-xs">{{ tekiyoLabel }} 現在</div>
               </div>
               <div class="text-right space-y-1">
-                <div class="flex items-center justify-end gap-8">
-                  <span class="text-sm">{{ previewData.ja_name }}</span>
-                  <span class="text-xs">TEL：{{ previewData.ja_tel || '-' }}</span>
-                </div>
-                <div class="flex items-center justify-end gap-8">
-                  <span class="text-sm">{{ headerShisho || '（未割当）支所' }}</span>
-                  <span class="text-xs">TEL：-</span>
+                <!-- 名称(右寄せ) / TEL(左寄せ・固定列) の2列グリッド。TEL の値有無に
+                     関わらず「TEL：」の開始位置を揃える（顧客要件 2026-07）。
+                     販売店別は1ページに複数の管理支店(支所)が載りうるため、代表1件を
+                     ヘッダに出すのは誤解を招く → 支所行は表示しない（顧客要件 2026-07）。 -->
+                <div class="grid grid-cols-[auto_auto] gap-x-6 gap-y-1 w-max ml-auto items-center">
+                  <span class="text-sm text-right">{{ previewData.ja_name }}</span>
+                  <span class="text-xs text-left whitespace-nowrap">TEL：{{ previewData.ja_tel || '-' }}</span>
                 </div>
                 <div class="text-xs pt-1">出力日：{{ outputDate }}</div>
                 <div class="text-xs">出力時間：{{ outputTime }}</div>
-                <div class="text-xs">ページ数：&nbsp;{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}</div>
+                <!-- ページ数は販売店/管理支店ごとに 1..N（顧客要件 2026-07）。 -->
+              <div class="text-xs">ページ数：&nbsp;{{ previewData.group_page_no ?? 1 }}/{{ previewData.group_total_pages ?? 1 }}</div>
               </div>
             </div>
 
@@ -488,12 +455,8 @@ defineExpose({ formState });
                   v-for="hg in previewData.hanbaiten_groups"
                   :key="hg.hanbaiten_id"
                 >
-                  <!-- 販売店 見出し帯 -->
-                  <tr class="bg-surface-active font-bold">
-                    <td class="border border-border-strong px-2 py-1.5" colspan="7">
-                      {{ hg.hanbaiten_name }}<span v-if="hg.hanbaiten_code">（{{ hg.hanbaiten_code }}）</span><span v-if="hg.is_continued" class="font-normal">（続き）</span>
-                    </td>
-                  </tr>
+                  <!-- 販売店見出し帯は廃止（グループ単位ページングで各販売店が独立
+                       ページ・ヘッダに販売店コード/名を表示するため冗長・顧客要件 2026-07）。 -->
                   <template
                     v-for="kg in hg.kanri_shiten_groups"
                     :key="kg.kanri_shiten_id ?? 'none'"
@@ -520,14 +483,7 @@ defineExpose({ formState });
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ hg.total_busu }}件</td>
                   </tr>
                 </template>
-                <!-- 合計 — 複数販売店のとき、最終ページにのみ表示。 -->
-                <tr
-                  v-if="previewData.is_last_page !== false && (previewData.group_count ?? previewData.hanbaiten_groups.length) > 1"
-                  class="bg-surface-active font-bold"
-                >
-                  <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
-                  <td class="border border-border-strong px-2 py-1.5 text-center">{{ previewData.grand_total_busu }}件</td>
-                </tr>
+                <!-- 全体合計行は廃止（各販売店が独立ページ・小計のみ・顧客要件 2026-07）。 -->
               </tbody>
             </table>
           </div>
@@ -554,7 +510,8 @@ defineExpose({ formState });
             <div class="flex justify-between items-start mb-4 text-sm">
               <div><span class="font-semibold">管理支店：</span><span class="font-bold">{{ selectedKanriShitenNames }}</span></div>
               <div class="font-bold">{{ tekiyoLabel }} 現在</div>
-              <div class="text-xs">ページ数：&nbsp;{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}</div>
+              <!-- ページ数は販売店/管理支店ごとに 1..N（顧客要件 2026-07）。 -->
+              <div class="text-xs">ページ数：&nbsp;{{ previewData.group_page_no ?? 1 }}/{{ previewData.group_total_pages ?? 1 }}</div>
             </div>
 
             <table class="w-full text-xs border-collapse" style="table-layout: fixed">
@@ -591,37 +548,23 @@ defineExpose({ formState });
                     <td class="border border-border-strong px-2 py-1.5 text-center">{{ kg.subtotal_busu }}件</td>
                   </tr>
                 </template>
-                <!-- 合計 — 複数管理支店のとき、最終ページにのみ表示。 -->
-                <tr
-                  v-if="previewData.is_last_page !== false && (previewData.group_count ?? previewData.kanri_shiten_groups.length) > 1"
-                  class="bg-surface-active font-bold"
-                >
-                  <td class="border border-border-strong px-2 py-1.5 text-right whitespace-nowrap" colspan="6">合計</td>
-                  <td class="border border-border-strong px-2 py-1.5 text-center">{{ previewData.grand_total_busu }}件</td>
-                </tr>
+                <!-- 全体合計行は廃止（各管理支店が独立ページ・小計のみ・顧客要件 2026-07）。 -->
               </tbody>
             </table>
           </div>
         </template>
       </div>
 
-      <!-- ページャ — 文書ページ送り。ブラウザは1ページ分の明細のみ描画する。 -->
-      <div
-        v-if="(previewData.total_pages ?? 1) > 1"
-        class="px-6 py-3 border-t border-border flex items-center justify-between"
+      <!-- ページャ — 文書ページ送り（共通 BaseReportPager）。ブラウザは1ページ分のみ描画。 -->
+      <BaseReportPager
+        :current="currentPage"
+        :page-no="previewData.page_no ?? 1"
+        :total-pages="previewData.total_pages ?? 1"
+        :per-page="previewData.per_page ?? MEIBO_NOMINAL_PER_PAGE"
+        :total-rows="previewData.total_rows ?? 0"
         data-test="meibo-pager"
-      >
-        <span class="text-text-description text-sm">
-          全{{ previewData.total_rows ?? 0 }}件・{{ previewData.page_no ?? 1 }}/{{ previewData.total_pages ?? 1 }}ページ
-        </span>
-        <a-pagination
-          :current="currentPage"
-          :total="previewData.total_rows ?? 0"
-          :page-size="previewData.per_page ?? perPage"
-          :show-size-changer="false"
-          @change="onPageChange"
-        />
-      </div>
+        @change="onPageChange"
+      />
     </div>
   </div>
 </template>

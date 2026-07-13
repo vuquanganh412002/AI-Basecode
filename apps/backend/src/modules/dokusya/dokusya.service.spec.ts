@@ -2032,9 +2032,9 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(lockCall[1].where).toEqual({ dokusyaId: 100 });
     });
 
-    it('should keep the stored 購読者氏名/かな and ignore changed name fields on update (immutable after create)', async () => {
-      // 氏名4項目 (氏名_氏/名, かな_氏/名) は作成時に確定し編集不可。
-      // body に改変値が届いても保存値に pin する。
+    it('should persist changed 購読者氏名/かな on update (顧客要件 2026-07: 氏名編集可)', async () => {
+      // 氏名4項目 (氏名_氏/名, かな_氏/名) は編集で変更可。name-pin は撤廃され、
+      // 送信された新値がそのまま values に載る（保存・履歴化される）。
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -2059,12 +2059,34 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
 
-      // 氏名4項目は編集不可 → stored 値に pin されて values に載る。
+      // 氏名4項目は編集可 → 送信された新値が values に載る。
       const values = lastApplyChangeInput().values;
-      expect(values.shimeiSei).toBe('山田');
-      expect(values.shimeiMei).toBe('太郎');
-      expect(values.shimeiKanaSei).toBe('やまだ');
-      expect(values.shimeiKanaMei).toBe('たろう');
+      expect(values.shimeiSei).toBe('田中');
+      expect(values.shimeiMei).toBe('次郎');
+      expect(values.shimeiKanaSei).toBe('たなか');
+      expect(values.shimeiKanaMei).toBe('じろう');
+    });
+
+    it('should persist NULL shiten_id on update when 支店 is cleared (任意・顧客要件 2026-07)', async () => {
+      // 支店 は任意。null が届いたら 0 に丸めず NULL で保存する。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        shitenId: 100,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ shiten_id: null }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const values = lastApplyChangeInput().values;
+      expect(values.shitenId).toBeNull();
     });
 
     it('should throw NotFoundException when target does not exist', async () => {
@@ -5411,6 +5433,36 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       expect(/tetsuzuki_shurui/i.test(sqlBlobs)).toBe(true);
     });
 
+    it('should throw DATE_RANGE_INVALID when hanbaiten_tekiyo_date is today or past (未来日のみ・顧客要件 2026-07)', async () => {
+      // COVERS: 検索段でも置換適用日は未来日のみ。
+      primeSearchRows([]);
+      await expect(
+        service.searchForReplace(
+          buildReplaceSearchQuery({ hanbaiten_tekiyo_date: '2000-01-01' }),
+          buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+        ),
+      ).rejects.toMatchObject({ response: { error_code: 'DATE_RANGE_INVALID' } });
+    });
+
+    it('should filter eligible 購読者 by hanbaiten_tekiyo_date (dokusya_kaishi_date <= 適用日 AND (chushi IS NULL OR chushi > 適用日))', async () => {
+      // COVERS: §4.3 置換可能条件（顧客要件 2026-07）— 適用日で置換可能な購読者のみ返す。
+      primeSearchRows([]);
+
+      await service.searchForReplace(
+        buildReplaceSearchQuery({ hanbaiten_tekiyo_date: '2099-12-31' }),
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      const sqlBlobs = [
+        ...dokusyaQb.where.mock.calls,
+        ...dokusyaQb.andWhere.mock.calls,
+      ]
+        .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
+        .join(' || ');
+      expect(/dokusya_kaishi_date\s*<=\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
+      expect(/dokusya_chushi_date IS NULL OR d\.dokusya_chushi_date\s*>\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
+    });
+
     it('should filter 購読開始日 range on shoki_dokusya_kaishi_date (NOT dokusya_kaishi_date)', async () => {
       // Regression: 購読開始日 検索は初期購読開始日列を対象にする
       // （dokusya_kaishi_date ではなく shoki_dokusya_kaishi_date）。
@@ -5431,8 +5483,10 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
         .join(' || ');
       expect(sqlBlobs).toContain('d.shoki_dokusya_kaishi_date');
-      // バグ列（接頭辞 shoki 無しの d.dokusya_kaishi_date）を使っていないこと。
-      expect(/d\.dokusya_kaishi_date\b/.test(sqlBlobs)).toBe(false);
+      // 範囲フィルタは shoki_ 列を使うこと（範囲パラメータ rkKaishiFrom/To に
+      // bare の d.dokusya_kaishi_date を使わない）。bare の d.dokusya_kaishi_date は
+      // 販売店適用日 eligibility（<= :rkApplied）専用（顧客要件 2026-07）。
+      expect(/d\.dokusya_kaishi_date\s*(>=|<=)\s*:rkKaishi/.test(sqlBlobs)).toBe(false);
     });
 
     it('should exclude soft-deleted rows when building the search query (deleted_at IS NULL)', async () => {
@@ -6094,7 +6148,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
   // Pha3 (S3.2): 取込 NEW は共通ライタ applyChange(CREATE) に集約された。NEW の
   // 履歴/master 生成の中身は writer(builder)が網羅するので、SCR-016 NEW テストは
   // service が正しい values(FK解決・承認状態・配達先フラグ)/johoDate で applyChange
-  // を呼ぶ契約を検証する。UPDATE_ALL/PARTIAL は未移行(raw SQL)なので spy に触れない。
+  // を呼ぶ契約を検証する。UPDATE も applyChange(UPDATE) に集約され spy で検証する。
   let applyChangeSpy!: jest.SpyInstance;
 
   const baseReq = {
@@ -6913,14 +6967,14 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       ).rejects.toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
     });
 
-    it('should throw IMPORT_VALIDATION_ERROR with field=dokusya_id when UPDATE_ALL targets a non-existent record', async () => {
+    it('should throw IMPORT_VALIDATION_ERROR with field=dokusya_id when UPDATE targets a non-existent record', async () => {
       // COVERS: §4.3.4 — UPDATE_* 未ヒットは「存在しない」エラー
       primeImport({ existing: [] });
 
       await expect(
         service.importExcel(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['dokusya_id', 'dokusya_busu'],
             rows: [buildImportRow({ dokusya_id: 99999 })],
           }),
@@ -6938,7 +6992,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       try {
         await service.importExcel(
           buildImportBody({
-            import_mode: 'UPDATE_PARTIAL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'tetsuzuki_shurui', 'dokusya_busu'],
             rows: [
               buildImportRow({
@@ -6978,7 +7032,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       try {
         await service.importExcel(
           buildImportBody({
-            import_mode: 'UPDATE_PARTIAL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'tetsuzuki_shurui', 'dokusya_busu'],
             rows: [
               buildImportRow({
@@ -7018,7 +7072,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       const result = await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu'],
           rows: [
             buildImportRow({ dokusya_id: 7001, kumiaiin_code: 'K00001', dokusya_busu: 5 }),
@@ -7057,7 +7111,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'email'],
           rows: [buildImportRow({ dokusya_id: 7001, email: 'new@example.com' })],
         }),
@@ -7072,8 +7126,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(lockCall).toBeDefined();
     });
 
-    it('should invoke applyChange(UPDATE) for an UPDATE_ALL row (dokusya_id 解決 + values)', async () => {
-      // UPDATE_ALL は S3.2b で applyChange(UPDATE) に集約。対象 dokusya_id を解決し
+    it('should invoke applyChange(UPDATE) for an UPDATE row (dokusya_id 解決 + values)', async () => {
+      // UPDATE は S3.2b で applyChange(UPDATE) に集約。対象 dokusya_id を解決し
       // 変更後値を values に載せる（履歴の生成・分割は writer.spec が網羅）。
       primeImport({
         existing: [
@@ -7084,7 +7138,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_ALL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu'],
           rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 5 })],
         }),
@@ -7099,8 +7153,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(input.values.dokusyaBusu).toBe(5);
     });
 
-    it('should invoke applyChange(UPDATE) with only the selected column for an UPDATE_PARTIAL row', async () => {
-      // UPDATE_PARTIAL は S3.2c で applyChange(UPDATE) に集約。選択列(email)のみ
+    it('should invoke applyChange(UPDATE) with only the selected column for an UPDATE row', async () => {
+      // UPDATE は S3.2c で applyChange(UPDATE) に集約。選択列(email)のみ
       // values に載る（履歴の生成は writer.spec が網羅）。
       primeImport({
         existing: [
@@ -7111,7 +7165,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'email'],
           rows: [buildImportRow({ dokusya_id: 7001, email: 'new@example.com' })],
         }),
@@ -7150,7 +7204,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_ALL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu', 'hanbaiten_code'],
           rows: [
             buildImportRow({
@@ -7184,7 +7238,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       await expect(
         service.importExcel(
           buildImportBody({
-            import_mode: 'UPDATE_PARTIAL',
+            import_mode: 'UPDATE',
             selected_columns: ['dokusya_id', 'dokusya_busu'],
             rows: [
               buildImportRow({
@@ -7200,7 +7254,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       ).rejects.toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
     });
 
-    it('should set haitatsu_same_flg=false in values and forceZougen for UPDATE_PARTIAL when a selected 配達先 column has data', async () => {
+    it('should set haitatsu_same_flg=false in values and forceZougen for UPDATE when a selected 配達先 column has data', async () => {
       // 増減対象の変更(購読部数/販売店/住所)が無くても、選択された配達先列に
       // 値があれば same_flg を下ろし forceZougen で増減報告対象にする。zougen フラグ
       // 自体の付与は writer が forceZougen を受けて行う（builder.spec）。
@@ -7213,7 +7267,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'haitatsu_shikuchoson'],
           rows: [buildImportRow({ dokusya_id: 7001, haitatsu_shikuchoson: '渋谷区' })],
         }),
@@ -7228,7 +7282,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
     // 顧客要件 2026-06: 「購読者情報と同じ」列が明示指定されたら BE は推論せず
     // その値を採用する（配達先データがあっても列が true なら same_flg=true）。
-    it('should use the explicit haitatsu_same_flg column over delivery-data inference (UPDATE_PARTIAL)', async () => {
+    it('should use the explicit haitatsu_same_flg column over delivery-data inference (UPDATE)', async () => {
       primeImport({
         existing: [
           { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
@@ -7238,7 +7292,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'haitatsu_same_flg', 'haitatsu_shikuchoson'],
           rows: [
             buildImportRow({
@@ -7297,7 +7351,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu'],
           rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 6 })],
         }),
@@ -7393,7 +7447,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       await expect(
         service.importExcel(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['dokusya_id', 'dokusya_busu'],
             rows: [buildImportRow({ dokusya_id: 7001 })],
           }),
@@ -7442,7 +7496,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
   });
 
   describe('importExcel — update modes (column selection)', () => {
-    it('should put ONLY the selected columns in applyChange values for UPDATE_PARTIAL', async () => {
+    it('should put ONLY the selected columns in applyChange values for UPDATE', async () => {
       // COVERS: §4.4.3 — selected_columns に含まれる列のみ values に載る。
       primeImport({
         existing: [
@@ -7458,7 +7512,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu'],
           rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 5 })],
         }),
@@ -7474,53 +7528,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect('yubinNo' in values).toBe(false);
     });
 
-    it('should put editable columns in applyChange values but OMIT edit-immutable fields (購読種別/氏名/購読開始日) for UPDATE_ALL', async () => {
-      // COVERS: §4.4.2 — 更新可能列は values に載せて上書き。編集不可項目
-      // （購読種別・氏名4・購読開始日・初回購読開始日）は values に含めず、
-      // applyChange が predecessor 値を引き継ぐ（＝既存値維持）。
-      primeImport({
-        existing: [
-          {
-            dokusya_id: 7001,
-            kumiaiin_code: 'K00001',
-            ja_id: 1,
-            kanri_shiten_id: 101,
-          },
-        ],
-        onUpdate: () => [{ dokusya_id: 7001, rireki_no: 2 }],
-      });
 
-      await service.importExcel(
-        buildImportBody({
-          import_mode: 'UPDATE_ALL',
-          selected_columns: ['dokusya_id', 'dokusya_busu'],
-          rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 5 })],
-        }),
-        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
-        baseReq,
-      );
-
-      const values = applyChangeInputs()[0].values;
-      // 顧客報告バグ回帰防止 — email / 郵便番号 / 都道府県コード / 配達先住所 /
-      // 口座 / 支払方法 等の更新可能列は values に必ず載ること（旧実装は7列のみ）。
-      expect(values.email).toBeDefined();
-      expect(values.yubinNo).toBeDefined();
-      expect(values.todofukenCode).toBeDefined();
-      expect(values.haitatsuChomeBanchi).toBeDefined();
-      expect(values.bankBranchCode).toBeDefined();
-      expect(values.shiharaiHoho).toBeDefined();
-      // 編集不可項目は values に含めない（predecessor 値を維持）。
-      expect('dokusyaShubetsu' in values).toBe(false);
-      expect('tetsuzukiShurui' in values).toBe(false);
-      expect('shimeiSei' in values).toBe(false);
-      expect('shimeiMei' in values).toBe(false);
-      expect('shimeiKanaSei' in values).toBe(false);
-      expect('shimeiKanaMei' in values).toBe(false);
-      expect('dokusyaKaishiDate' in values).toBe(false);
-      expect('shokiDokusyaKaishiDate' in values).toBe(false);
-    });
-
-    it('should include the selected columns (email/todofuken_code) in applyChange values for UPDATE_PARTIAL', async () => {
+    it('should include the selected columns (email/todofuken_code) in applyChange values for UPDATE', async () => {
       // COVERS: §4.4.3 回帰防止 — 旧 WRITABLE は email 等を欠落し、選択しても
       // 更新されなかった。selected_columns に email/todofuken_code があれば values に載ること。
       primeImport({
@@ -7537,7 +7546,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await service.importExcel(
         buildImportBody({
-          import_mode: 'UPDATE_PARTIAL',
+          import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'email', 'todofuken_code'],
           rows: [
             buildImportRow({
@@ -8012,7 +8021,7 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
     });
     await service.importExcel(
       buildImportBody({
-        import_mode: 'UPDATE_PARTIAL',
+        import_mode: 'UPDATE',
         selected_columns: ['dokusya_id', 'biko'],
         rows: [buildImportRow({ dokusya_id: 7001, biko: '備考だけ変更' })],
       }),

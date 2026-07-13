@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { Repository, SelectQueryBuilder } from 'typeorm';
@@ -13,6 +13,7 @@ import {
   DenshiShoninStatus,
   DokusyaShubetsu,
   DownloadType,
+  RoleCode,
 } from '@/common/enums';
 
 import { ZougenHanbaitenQueryDto } from './dto/zougen-hanbaiten-query.dto';
@@ -23,6 +24,7 @@ import { ReportNotificationService } from './report-notification.service';
 import {
   buildZougenDocDefinition,
   groupZougenReports,
+  paginateZougenSubscribers,
   ZOUGEN_PER_PAGE,
   type ZougenPreviewData,
   type ZougenRawRow,
@@ -30,6 +32,7 @@ import {
 import {
   buildZougenNichinoDocDefinition,
   groupZougenNichinoReports,
+  paginateNichinoSubscribers,
   ZOUGEN_NICHINO_PER_PAGE,
   type ZougenNichinoPreviewData,
   type ZougenNichinoRawRow,
@@ -81,8 +84,6 @@ export type ExportZougenNichinoResult =
 
 @Injectable()
 export class ZougenReportService {
-  private readonly logger = new Logger(ZougenReportService.name);
-
   constructor(
     @InjectRepository(DokusyaRireki)
     private readonly rirekiRepo: Repository<DokusyaRireki>,
@@ -101,28 +102,44 @@ export class ZougenReportService {
     query: ZougenHanbaitenQueryDto,
     session: SessionPayload,
   ): Promise<ZougenPreviewData> {
-    // SQLページング（購読者単位）。累計は同日履歴をまたいで分割できないため、
-    // OFFSET/LIMIT の最小単位は dokusya_id（≒1レコード/購読者）。BEは1ページ分の
-    // 購読者の明細のみロードする。export PDF は別途 fetchZougenRows で全件を使う。
-    // 0件は 200 + 空 reports（FE が「対象のデータが存在しません。」を表示）。
+    // グループ単位ページング（顧客要件 2026-07・SCR-026/029 と同方針）: 販売店+管理支店
+    // (combo)ごとに独立ページ、ページ数は販売店ごとに 1..N。全件取得 →
+    // paginateZougenSubscribers で combo ページに分割し、要求ページを返す。preview と
+    // PDF が同じ関数を共有するのでページ構成は一致（BEが唯一の真実源）。0件は 200 + 空。
     const perPage = query.per_page ?? ZOUGEN_PER_PAGE;
-    const total = await this.countZougenSubscribers(query, session);
-    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const rows = await this.fetchZougenRows(query, session);
+    const pages = paginateZougenSubscribers(rows, perPage);
+    const totalRows = new Set(rows.map((r) => Number(r.dokusya_id))).size;
+    if (pages.length === 0) {
+      return {
+        tekiyo_date: query.tekiyo_date,
+        reports: [],
+        page_no: 1,
+        per_page: perPage,
+        total_pages: 1,
+        total_rows: 0,
+        is_last_page: true,
+        group_count: 0,
+        group_page_no: 1,
+        group_total_pages: 1,
+      };
+    }
+    const totalPages = pages.length;
     const page = Math.min(Math.max(query.page ?? 1, 1), totalPages);
-    const offset = (page - 1) * perPage;
-    const ids =
-      total === 0
-        ? []
-        : await this.fetchZougenSubscriberIds(query, session, offset, perPage);
-    const rows = await this.fetchZougenRowsByIds(query, session, ids);
+    const pageReports = pages[page - 1];
+    const rep = pageReports[0];
     return {
       tekiyo_date: query.tekiyo_date,
-      reports: groupZougenReports(rows),
+      reports: pageReports,
       page_no: page,
       per_page: perPage,
       total_pages: totalPages,
-      total_rows: total,
+      total_rows: totalRows,
       is_last_page: page >= totalPages,
+      // 全体の販売店グループ数（独立販売店の数）。
+      group_count: new Set(rows.map((r) => Number(r.hanbaiten_id))).size,
+      group_page_no: rep?.group_page_no ?? 1,
+      group_total_pages: rep?.group_total_pages ?? 1,
     };
   }
 
@@ -229,27 +246,45 @@ export class ZougenReportService {
     query: ZougenNichinoQueryDto,
     session: SessionPayload,
   ): Promise<ZougenNichinoPreviewData> {
-    // SQLページング（購読者単位。SCR-028 と同方針）。累計は同日履歴をまたいで
-    // 分割できないため OFFSET/LIMIT の最小単位は dokusya_id（≒1行/購読者）。BEは
-    // 1ページ分の購読者の明細のみロードする。0件は 200 + 空 reports（no-data方針）。
+    // グループ単位ページング（顧客要件 2026-07・SCR-026 と同方針）: 管理支店ごとに
+    // 独立A4ページ。全件取得 → paginateNichinoSubscribers で管理支店ページに分割し、
+    // 要求ページを返す。preview と PDF が同じ関数を共有するのでページ構成は一致する
+    // （BEが唯一の真実源）。0件は 200 + 空 reports（no-data方針）。
     const perPage = query.per_page ?? ZOUGEN_NICHINO_PER_PAGE;
-    const total = await this.countNichinoSubscribers(query, session);
-    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const rows = await this.fetchZougenNichinoRows(query, session);
+    const pages = paginateNichinoSubscribers(rows, perPage);
+    // 対象購読者数（ページングの単位ではないが従来の total_rows と互換のため保持）。
+    const totalRows = new Set(rows.map((r) => Number(r.dokusya_id))).size;
+    if (pages.length === 0) {
+      return {
+        tekiyo_date: query.tekiyo_date,
+        reports: [],
+        page_no: 1,
+        per_page: perPage,
+        total_pages: 1,
+        total_rows: 0,
+        is_last_page: true,
+        group_count: 0,
+        group_page_no: 1,
+        group_total_pages: 1,
+      };
+    }
+    const totalPages = pages.length;
     const page = Math.min(Math.max(query.page ?? 1, 1), totalPages);
-    const offset = (page - 1) * perPage;
-    const ids =
-      total === 0
-        ? []
-        : await this.fetchNichinoSubscriberIds(query, session, offset, perPage);
-    const rows = await this.fetchNichinoRowsByIds(query, session, ids);
+    const pageReports = pages[page - 1];
+    const rep = pageReports[0];
     return {
       tekiyo_date: query.tekiyo_date,
-      reports: groupZougenNichinoReports(rows),
+      reports: pageReports,
       page_no: page,
       per_page: perPage,
       total_pages: totalPages,
-      total_rows: total,
+      total_rows: totalRows,
       is_last_page: page >= totalPages,
+      // 全体の管理支店グループ数（= 独立管理支店の数）。
+      group_count: new Set(rows.map((r) => Number(r.kanri_shiten_id))).size,
+      group_page_no: rep?.group_page_no ?? 1,
+      group_total_pages: rep?.group_total_pages ?? 1,
     };
   }
 
@@ -516,56 +551,6 @@ export class ZougenReportService {
     return qb.getRawMany<ZougenRawRow>();
   }
 
-  /** 対象購読者数（dokusya_id の distinct 件数）。ページ数算出用。 */
-  private async countZougenSubscribers(
-    query: ZougenHanbaitenQueryDto,
-    session: SessionPayload,
-  ): Promise<number> {
-    const qb = this.zougenBaseQuery(query, session).select(
-      'COUNT(DISTINCT r.dokusya_id)',
-      'cnt',
-    );
-    const row = await qb.getRawOne<{ cnt: string }>();
-    return Number(row?.cnt ?? 0);
-  }
-
-  /**
-   * ページ対象の dokusya_id を SQL の OFFSET/LIMIT で取得（販売店コード昇順）。
-   * 累計は購読者単位のため、ページングの最小単位も購読者（同日履歴をまたいで
-   * 分割しない）。
-   */
-  private async fetchZougenSubscriberIds(
-    query: ZougenHanbaitenQueryDto,
-    session: SessionPayload,
-    offset: number,
-    limit: number,
-  ): Promise<number[]> {
-    const qb = this.zougenBaseQuery(query, session)
-      .select('r.dokusya_id', 'dokusya_id')
-      .addSelect('MIN(h.hanbaiten_code)', 'hc')
-      .groupBy('r.dokusya_id')
-      .orderBy('hc', 'ASC')
-      .addOrderBy('r.dokusya_id', 'ASC')
-      .offset(offset)
-      .limit(limit);
-    const rows = await qb.getRawMany<{ dokusya_id: number | string }>();
-    return rows.map((r) => Number(r.dokusya_id));
-  }
-
-  /** 指定購読者の同日履歴を全件取得（dokusya_id, rireki_no 昇順）。 */
-  private async fetchZougenRowsByIds(
-    query: ZougenHanbaitenQueryDto,
-    session: SessionPayload,
-    dokusyaIds: number[],
-  ): Promise<ZougenRawRow[]> {
-    if (dokusyaIds.length === 0) return [];
-    const qb = this.zougenDetailSelect(this.zougenBaseQuery(query, session))
-      .andWhere('r.dokusya_id IN (:...dokusyaIds)', { dokusyaIds })
-      .orderBy('r.dokusya_id', 'ASC')
-      .addOrderBy('r.rireki_no', 'ASC');
-    return qb.getRawMany<ZougenRawRow>();
-  }
-
   /**
    * 増減連絡票（販売店）のファイル名基底（拡張子・タイムスタンプ無し）。
    * ログイン権限で分岐する：
@@ -581,7 +566,7 @@ export class ZougenReportService {
   ): string {
     const [y, m, d] = tekiyoDate.split('-');
     const date = `${y}年${m}月${d}日`;
-    if (roleCode === 'JA_KANRI_SHITEN') {
+    if (roleCode === RoleCode.JA_KANRI_SHITEN) {
       return `増減連絡票_${jaCode}_${jaName}_${date}`;
     }
     return `増減連絡票_${jaCode}_${date}`;
@@ -711,53 +696,4 @@ export class ZougenReportService {
     return qb.getRawMany<ZougenNichinoRawRow>();
   }
 
-  /** 対象購読者数（dokusya_id の distinct 件数）。ページ数算出用。 */
-  private async countNichinoSubscribers(
-    query: ZougenNichinoQueryDto,
-    session: SessionPayload,
-  ): Promise<number> {
-    const row = await this.nichinoBaseQuery(query, session)
-      .select('COUNT(DISTINCT r.dokusya_id)', 'cnt')
-      .getRawOne<{ cnt: string }>();
-    return Number(row?.cnt ?? 0);
-  }
-
-  /**
-   * ページ対象の dokusya_id を SQL の OFFSET/LIMIT で取得（管理支店コード昇順 →
-   * 販売店コード昇順 → dokusya_id 昇順＝プレビューの表示順）。累計は購読者単位の
-   * ため、ページングの最小単位も購読者（同日履歴をまたいで分割しない）。
-   */
-  private async fetchNichinoSubscriberIds(
-    query: ZougenNichinoQueryDto,
-    session: SessionPayload,
-    offset: number,
-    limit: number,
-  ): Promise<number[]> {
-    const rows = await this.nichinoBaseQuery(query, session)
-      .select('r.dokusya_id', 'dokusya_id')
-      .addSelect('MIN(ks.kanri_shiten_code)', 'ksc')
-      .addSelect('MIN(h.hanbaiten_code)', 'hc')
-      .groupBy('r.dokusya_id')
-      .orderBy('ksc', 'ASC')
-      .addOrderBy('hc', 'ASC')
-      .addOrderBy('r.dokusya_id', 'ASC')
-      .offset(offset)
-      .limit(limit)
-      .getRawMany<{ dokusya_id: number | string }>();
-    return rows.map((r) => Number(r.dokusya_id));
-  }
-
-  /** 指定購読者の同日履歴を全件取得（dokusya_id, rireki_no 昇順）。 */
-  private async fetchNichinoRowsByIds(
-    query: ZougenNichinoQueryDto,
-    session: SessionPayload,
-    dokusyaIds: number[],
-  ): Promise<ZougenNichinoRawRow[]> {
-    if (dokusyaIds.length === 0) return [];
-    const qb = this.nichinoDetailSelect(this.nichinoBaseQuery(query, session))
-      .andWhere('r.dokusya_id IN (:...dokusyaIds)', { dokusyaIds })
-      .orderBy('r.dokusya_id', 'ASC')
-      .addOrderBy('r.rireki_no', 'ASC');
-    return qb.getRawMany<ZougenNichinoRawRow>();
-  }
 }

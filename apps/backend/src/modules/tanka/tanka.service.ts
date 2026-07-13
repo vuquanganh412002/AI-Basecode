@@ -6,7 +6,11 @@ import type { Request } from 'express';
 import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { Tanka } from '@/database/entities/tanka.entity';
-import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import {
+  paginate,
+  paginateCursor,
+  type PaginatedResponse,
+} from '@/common/utils/paginate';
 import {
   DuplicateCodeException,
   NotFoundException,
@@ -562,7 +566,6 @@ export class TankaService {
 
     const [rows, total] = await qb.getManyAndCount();
     const pageIds = new Set(rows.map((r) => Number(r.tankaId)));
-    const has_more = page * per_page < total;
 
     // [include-id] prepend the pre-selected row when it survives the
     // scope/active filter but falls outside the current page.
@@ -588,6 +591,6 @@ export class TankaService {
       kingaku_zeikomi: Number(r.kingakuZeikomi),
     }));
 
-    return { data, meta: { total, page, per_page, has_more } };
+    return paginateCursor(data, total, page, per_page);
   }
 }

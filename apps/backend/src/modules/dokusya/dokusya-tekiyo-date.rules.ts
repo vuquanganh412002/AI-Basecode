@@ -27,7 +27,7 @@ export const TEKIYO_VIOLATION = {
   CHUSHI_BEFORE_KAISHI: 'CHUSHI_BEFORE_KAISHI',
   /** 入力された 解約予定日 <= 本日（未来日のみ・当日不可） */
   CHUSHI_NOT_FUTURE: 'CHUSHI_NOT_FUTURE',
-  /** 入力された 解約予定日 < 最終変更適用日（履歴 MAX joho・解約は最終変更以降） */
+  /** 入力された 解約予定日 <= 最終変更適用日（履歴 MAX joho・解約は最終変更より後・同日不可） */
   CHUSHI_BEFORE_MAX_JOHO: 'CHUSHI_BEFORE_MAX_JOHO',
 } as const;
 export type TekiyoViolationKind =
@@ -64,9 +64,10 @@ export function tekiyoViolationField(kind: TekiyoViolationKind): string {
 }
 
 /**
- * 入力された 解約予定日(chushi) が 最終変更適用日(maxJoho) 以降かを検証する
- * （顧客要件 2026-07 — 最終の変更より前に解約を予約させない）。maxJoho は履歴の
- * MAX joho（取消除外）。どちらか null/空はスキップ。日付は正規化して比較する。
+ * 入力された 解約予定日(chushi) が 最終変更適用日(maxJoho) より後かを検証する
+ * （顧客要件 2026-07 — 最終の変更より前に解約を予約させない。同日も不可：解約は
+ * 最終変更適用日より後でなければならない）。maxJoho は履歴の MAX joho（取消除外＝
+ * torikeshi_flg=0 の有効行）。どちらか null/空はスキップ。日付は正規化して比較する。
  */
 export function collectChushiVsMaxJoho(input: {
   chushiDate?: string | null;
@@ -75,11 +76,12 @@ export function collectChushiVsMaxJoho(input: {
   if (!input.chushiDate || !input.maxJoho) return [];
   const chushi = normalizeDbDate(input.chushiDate);
   const maxJoho = normalizeDbDate(input.maxJoho);
-  if (chushi < maxJoho) {
+  // 同日不可：maxJoho < chushi （<= で違反＝同日も弾く・顧客要件 2026-07）。
+  if (chushi <= maxJoho) {
     return [
       {
         kind: TEKIYO_VIOLATION.CHUSHI_BEFORE_MAX_JOHO,
-        message: `解約予定日は最終変更適用日（${fmt(maxJoho)}）以降の日付を指定してください。`,
+        message: `解約予定日は最終変更適用日（${fmt(maxJoho)}）より後の日付を指定してください。`,
       },
     ];
   }

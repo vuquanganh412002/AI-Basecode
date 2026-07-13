@@ -18,6 +18,8 @@ import {
   type HaitatsuryoRow,
 } from '@/api/haitatsuryo/haitatsuryo';
 import { formatYen, formatNumber } from '@/utils/formatters';
+import { endOfMonthIsoTokyo } from '@/utils/datetime';
+import { downloadBlob } from '@/utils/download';
 
 const codes = useCodesStore();
 const notify = useNotify();
@@ -27,7 +29,8 @@ const formState = reactive<{
   target_month: string;
   haitatsuryo_shiharai_cycle: number | undefined;
 }>({
-  target_month: '',
+  // 既定値は当月末日（JST）。共通ヘルパ endOfMonthIsoTokyo を使用（SCR-026 と同一）。
+  target_month: endOfMonthIsoTokyo(),
   haitatsuryo_shiharai_cycle: undefined,
 });
 
@@ -150,15 +153,8 @@ async function onExport(): Promise<void> {
       noDataMessage.value = true;
       return;
     }
-    const url = globalThis.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     const [y, m] = formState.target_month.split('-');
-    link.download = `配達手数料支払情報出力_${y}年${m}月.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    globalThis.URL.revokeObjectURL(url);
+    downloadBlob(blob, `配達手数料支払情報出力_${y}年${m}月.xlsx`);
     notify.downloaded();
   } catch {
     // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。

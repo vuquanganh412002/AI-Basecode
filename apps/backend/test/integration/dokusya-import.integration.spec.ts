@@ -445,7 +445,7 @@ describeRealPg(
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
     });
 
-    it('should INSERT a new t_dokusya_rireki row on UPDATE_ALL and UPDATE_PARTIAL (regression: 履歴未作成)', async () => {
+    it('should INSERT a new t_dokusya_rireki row on two UPDATE imports (regression: 履歴未作成)', async () => {
       // REGRESSION — TypeORM `manager.query()` returns `[rows, affectedCount]`
       // for UPDATE…RETURNING (not the bare rows array as for INSERT…RETURNING),
       // so the previous `result[0]?.dokusya_id` read undefined → affectedDokusyaId
@@ -475,13 +475,13 @@ describeRealPg(
       };
       expect(await rirekiCount()).toBe(1);
 
-      // UPDATE_ALL → a 2nd rireki row.
+      // 1st UPDATE → a 2nd rireki row.
       await http()
         .post(apiUrl('dokusya/import'))
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [buildImportRow({ kumiaiin_code: 'KUPD1', dokusya_busu: 5 })],
           }),
@@ -489,13 +489,13 @@ describeRealPg(
         .expect(200);
       expect(await rirekiCount()).toBe(2);
 
-      // UPDATE_PARTIAL → a 3rd rireki row.
+      // 2nd UPDATE → a 3rd rireki row.
       await http()
         .post(apiUrl('dokusya/import'))
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_PARTIAL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [buildImportRow({ kumiaiin_code: 'KUPD1', dokusya_busu: 9 })],
           }),
@@ -503,15 +503,26 @@ describeRealPg(
         .expect(200);
       expect(await rirekiCount()).toBe(3);
 
-      // Exactly one 最新データ row, carrying the latest 購読部数.
-      const latest = await ctx.dataSource.query(
-        `SELECT rireki_no, dokusya_busu FROM t_dokusya_rireki
+      // 最新データ(saishin_data_flg)は as-of-today の有効行。UPDATE 取込の適用日
+      // (joho_henko_tekiyo_date) は未来日（未来日のみルール・顧客要件 2026-07）の
+      // ため、今日時点ではまだ有効化されず、saishin は更新前の行に残る。将来変更は
+      // 履歴 (rireki 2, 3) として積まれる。ここでの回帰ガードは「UPDATE で履歴が
+      // 作成されること」(count 1→2→3) と、最後の取込値が履歴に載ることの2点。
+      const saishin = await ctx.dataSource.query(
+        `SELECT rireki_no FROM t_dokusya_rireki
            WHERE dokusya_id = $1 AND saishin_data_flg = true`,
         [did],
       );
-      expect(latest).toHaveLength(1);
-      expect(Number(latest[0].rireki_no)).toBe(3);
-      expect(Number(latest[0].dokusya_busu)).toBe(9);
+      // saishin は常にちょうど1行（bitemporal 不変条件）。
+      expect(saishin).toHaveLength(1);
+      // 最後に取り込んだ変更（最大 rireki_no）が編集値 購読部数=9 を保持する。
+      const lastChange = await ctx.dataSource.query(
+        `SELECT rireki_no, dokusya_busu FROM t_dokusya_rireki
+           WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [did],
+      );
+      expect(Number(lastChange[0].rireki_no)).toBe(3);
+      expect(Number(lastChange[0].dokusya_busu)).toBe(9);
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (joho < 購読開始日) on UPDATE import (顧客要件 2026-07)', async () => {
@@ -533,7 +544,7 @@ describeRealPg(
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [buildImportRow({ kumiaiin_code: 'KDATE1', dokusya_busu: 5 })],
           }),
@@ -558,7 +569,7 @@ describeRealPg(
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [
               buildImportRow({
@@ -615,7 +626,7 @@ describeRealPg(
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [
               buildImportRow({
@@ -646,7 +657,7 @@ describeRealPg(
         .set('Cookie', cookie)
         .send(
           buildImportBody({
-            import_mode: 'UPDATE_ALL',
+            import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [
               buildImportRow({

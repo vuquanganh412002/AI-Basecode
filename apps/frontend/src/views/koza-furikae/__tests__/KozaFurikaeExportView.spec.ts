@@ -1,16 +1,13 @@
-// Screen: ACSMS-SCR-020 — 口座振替データ出力画面
+// Screen: ACSMS-SCR-020 — 口座振替データ出力画面（v1.1: プレビュー→金額編集→ファイル作成）
 //
-// Drives src/views/koza-furikae/KozaFurikaeExportView.vue. Each it() maps to a
-// clause in:
-//   docs/design/ACSMS-SCR-020/screen-design.md (機能定義 + メッセージ情報)
-//   docs/design/ACSMS-SCR-020/index.html (UI labels: 年月日 / 引落日 / 委託者コード /
-//     貯金種目 / 作成開始)
-//   docs/design/ACSMS-SCR-020/ACSMS-SCR-020-api.md (API-020-001 initial / 002 export CSV)
+// Drives src/views/koza-furikae/KozaFurikaeExportView.vue. v1.1 の2ステップ:
+//   ① 作成開始 (preview-btn) → previewKozaFurikae → 編集テーブル表示
+//   ② 金額編集 → ③ ファイル作成 (create-btn) → exportKozaFurikae(rows付き) → Blob DL
+// 対象0件は preview 段で MSG-020-002 を画面内表示。
 //
-// The view defineExposes `{ formState }` so setup can seed the JASTEM form
-// (antd controls aren't drivable via jsdom DOM events). Buttons are clicked
-// through `[data-test]` markers. 作成開始 → POST export → Blob ダウンロード or
-// MSG-020-002 (対象データなし) / MSG-020-004 (必須項目).
+// The view defineExposes `{ formState, previewRows, previewed, ... }`.
+// antd controls aren't drivable via jsdom, so form seeding goes through
+// formState and buttons via `[data-test]`.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -26,12 +23,12 @@ import {
   buildShitenDropdown,
   buildKozaShitenDropdown,
   buildKozaFurikaeForm,
+  buildKozaPreview,
 } from '@test/fixtures/koza-furikae.fixture';
 
-// API wrappers — /gen-code-frontend emits @/api/koza-furikae/koza-furikae and
-// adds getKozaShitenDropdown to @/api/shiten/shiten.
 vi.mock('@/api/koza-furikae/koza-furikae', () => ({
   getInitialKozaFurikae: vi.fn(),
+  previewKozaFurikae: vi.fn(),
   exportKozaFurikae: vi.fn(),
 }));
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
@@ -48,10 +45,12 @@ vi.spyOn(message, 'error').mockImplementation(() => noopMessage);
 vi.spyOn(message, 'warning').mockImplementation(() => noopMessage);
 vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
 
-// Blob → file download helpers the CSV export uses.
 const createObjectURL = vi.fn(() => 'blob:mock-url');
 const revokeObjectURL = vi.fn();
 beforeEach(() => {
+  // 各テストで呼び出し履歴をリセット（describe 内の後続テストが前のテストの
+  // export/preview 呼び出しを引き継がないように）。実装は setApiMocks が再設定する。
+  vi.clearAllMocks();
   Object.defineProperty(window.URL, 'createObjectURL', {
     configurable: true,
     writable: true,
@@ -69,7 +68,7 @@ interface RenderOptions {
 }
 
 async function setApiMocks() {
-  const { getInitialKozaFurikae, exportKozaFurikae } = await import(
+  const { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae } = await import(
     '@/api/koza-furikae/koza-furikae'
   );
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
@@ -78,11 +77,12 @@ async function setApiMocks() {
   vi.mocked(getKanriShitenDropdown).mockResolvedValue(buildKanriShitenDropdown());
   vi.mocked(getShitenDropdown).mockResolvedValue(buildShitenDropdown());
   vi.mocked(getKozaShitenDropdown).mockResolvedValue(buildKozaShitenDropdown());
+  vi.mocked(previewKozaFurikae).mockResolvedValue(buildKozaPreview() as any);
   vi.mocked(exportKozaFurikae).mockResolvedValue({
     blob: new Blob(['ZENOUTFD'], { type: 'text/plain' }),
     filename: 'ZENOUTFD',
   });
-  return { getInitialKozaFurikae, exportKozaFurikae, getKanriShitenDropdown, getShitenDropdown, getKozaShitenDropdown };
+  return { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae };
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -120,31 +120,23 @@ async function renderView(opts: RenderOptions = {}): Promise<{
   return { wrapper, router };
 }
 
+const previewBtn = () => '[data-test="preview-btn"]';
 const createBtn = () => '[data-test="create-btn"]';
 
-/** Seed every required JASTEM field on formState so 作成開始 passes validation. */
 function fillRequired(wrapper: any, overrides: Record<string, unknown> = {}): void {
   Object.assign((wrapper.vm as any).formState, buildKozaFurikaeForm(overrides));
 }
 
-/** Blank every required field on formState so 作成開始 fails validation. */
-function blankRequired(wrapper: any): void {
-  Object.assign((wrapper.vm as any).formState, {
-    target_month: '',
-    hikiotoshi_date: '',
-    jastem_itakusha_code: '',
-    jastem_itakusha_name: '',
-    jastem_ja_code: '',
-    jastem_ja_name: '',
-    jastem_toriatsukai_tenpo_code: '',
-    jastem_tenpo_name: '',
-    jastem_tyokin_shubetsu: '',
-    jastem_koza_no: '',
-  });
+/** 作成開始（プレビュー）を実行して編集テーブルを表示させる。 */
+async function doPreview(wrapper: any): Promise<void> {
+  fillRequired(wrapper);
+  await flushPromises();
+  await wrapper.find(previewBtn()).trigger('click');
+  await flushPromises();
 }
 
 // ───────────────────────────────────────────────────────────────────────
-// 1. 画面表示 (機能定義 1)
+// 1. 画面表示
 // ───────────────────────────────────────────────────────────────────────
 describe('KozaFurikaeExportView — 画面表示', () => {
   beforeEach(async () => {
@@ -162,7 +154,6 @@ describe('KozaFurikaeExportView — 画面表示', () => {
     const { getShitenDropdown, getKozaShitenDropdown } = await import('@/api/shiten/shiten');
     await renderView();
     expect(getKanriShitenDropdown).toHaveBeenCalled();
-    // 支店絞込は金融機関支店以外（kinyu_shiten_flg=false）のみ取得する。
     expect(getShitenDropdown).toHaveBeenCalledWith({ kinyu_shiten_flg: false });
     expect(getKozaShitenDropdown).toHaveBeenCalled();
   });
@@ -172,93 +163,92 @@ describe('KozaFurikaeExportView — 画面表示', () => {
     expect((wrapper.vm as any).formState.jastem_itakusha_code).toBe('1234567890');
   });
 
-  it('should default 貯金種目 to 普通貯金 ("1") when the form is first displayed', async () => {
-    const { getInitialKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
-    // Initial data with no shiten → 貯金種目 defaults to "1".
-    vi.mocked(getInitialKozaFurikae).mockResolvedValue(
-      buildKozaFurikaeInitial({ jastem_tyokin_shubetsu: '1' }),
-    );
+  it('should render the 作成開始 button and NOT the ファイル作成 button before previewing', async () => {
     const { wrapper } = await renderView();
-    expect((wrapper.vm as any).formState.jastem_tyokin_shubetsu).toBe('1');
-  });
-
-  it('should render the 年月日 / 引落日 / 委託者コード labels when the form is displayed', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('年月日'))).toBe(true);
-    expect(labels.some((t) => t.includes('引落日'))).toBe(true);
-    // 委託者コード は readonly 表示（<span>）になったため描画テキストで確認する。
-    expect(wrapper.text()).toContain('委託者コード');
-  });
-
-  it('should show an empty 口座支店 table when none is selected, and one row per selected 口座支店', async () => {
-    const { wrapper } = await renderView();
-    await flushPromises();
-    // 未選択 → プレースホルダ（行なし）。
-    expect(wrapper.find('[data-test="koza-empty"]').exists()).toBe(true);
-    // 口座支店を選択 → 選択した shiten ごとに JASTEM 店舗情報の行が出る。
-    Object.assign((wrapper.vm as any).formState, { koza_shiten_ids: [10, 11] });
-    await flushPromises();
-    expect(wrapper.find('[data-test="koza-empty"]').exists()).toBe(false);
-    expect(wrapper.text()).toContain('ホンテン');
-    expect(wrapper.text()).toContain('キタシテン');
-  });
-
-  it('should render the 作成開始 button when the form is displayed', async () => {
-    const { wrapper } = await renderView();
-    const btn = wrapper.find(createBtn());
-    expect(btn.exists()).toBe(true);
-    expect(btn.text()).toContain('作成開始');
+    expect(wrapper.find(previewBtn()).exists()).toBe(true);
+    expect(wrapper.find(previewBtn()).text()).toContain('作成開始');
+    // ファイル作成はプレビュー前は非表示。
+    expect(wrapper.find(createBtn()).exists()).toBe(false);
   });
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// 2. 作成開始 — バリデーション (機能定義 2.2 / MSG-020-004)
+// 2. 作成開始（プレビュー）— バリデーション (D8: 日付のみ必須) + 取得
 // ───────────────────────────────────────────────────────────────────────
-describe('KozaFurikaeExportView — 作成開始 バリデーション', () => {
+describe('KozaFurikaeExportView — 作成開始（プレビュー）', () => {
   beforeEach(async () => {
     await setApiMocks();
   });
 
-  it('should show 必須項目です。 and NOT call exportKozaFurikae when required fields are blank', async () => {
-    const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+  it('should show 必須項目です。 and NOT call previewKozaFurikae when 年月日 is blank', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
     const { wrapper } = await renderView();
-    blankRequired(wrapper);
+    (wrapper.vm as any).formState.target_month = '';
+    (wrapper.vm as any).formState.hikiotoshi_date = '';
     await flushPromises();
 
-    await wrapper.find(createBtn()).trigger('click');
+    await wrapper.find(previewBtn()).trigger('click');
     await flushPromises();
 
     expect(wrapper.text()).toContain('必須項目です。');
-    expect(exportKozaFurikae).not.toHaveBeenCalled();
+    expect(previewKozaFurikae).not.toHaveBeenCalled();
   });
 
-  it('should show 必須項目です。 (not エラーが発生しました) when 年月日 is cleared to undefined', async () => {
+  it('should call previewKozaFurikae with the filter payload and render the editable table', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
     const { wrapper } = await renderView();
-    fillRequired(wrapper);
-    (wrapper.vm as any).formState.target_month = undefined;
+    await doPreview(wrapper);
+
+    expect(previewKozaFurikae).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(previewKozaFurikae).mock.calls[0]?.[0];
+    expect(arg.target_month).toBe('2026-05-01');
+    expect(arg.hikiotoshi_date).toBe('2026-05-27');
+    // 編集テーブル + ファイル作成ボタンが出る。
+    expect(wrapper.find('[data-test="preview-section"]').exists()).toBe(true);
+    expect(wrapper.find(createBtn()).exists()).toBe(true);
+    expect((wrapper.vm as any).previewRows).toHaveLength(2);
+  });
+
+  it('should show 対象データがありません。 and NOT show ファイル作成 when preview returns NO_TARGET_DATA', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(previewKozaFurikae).mockRejectedValueOnce({ error_code: 'NO_TARGET_DATA' });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    expect(wrapper.find('[data-test="koza-no-data"]').exists()).toBe(true);
+    expect(wrapper.find(createBtn()).exists()).toBe(false);
+    expect((wrapper.vm as any).previewed).toBe(false);
+  });
+
+  it('should discard the preview (hide ファイル作成) when a filter changes after previewing (D1)', async () => {
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    expect(wrapper.find(createBtn()).exists()).toBe(true);
+
+    // フィルタ（年月日）を変更 → プレビュー破棄。
+    (wrapper.vm as any).formState.target_month = '2026-06-01';
     await flushPromises();
 
-    await wrapper.find(createBtn()).trigger('click');
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('必須項目です。');
-    expect(wrapper.text()).not.toContain('エラーが発生しました');
+    expect((wrapper.vm as any).previewed).toBe(false);
+    expect(wrapper.find(createBtn()).exists()).toBe(false);
   });
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// 3. 作成開始 — エクスポート (機能定義 2.3 / 2.4 / MSG-020-001 / 002 / 003)
+// 3. ファイル作成 — 編集金額の送信 + ダウンロード
 // ───────────────────────────────────────────────────────────────────────
-describe('KozaFurikaeExportView — 作成開始 エクスポート', () => {
+describe('KozaFurikaeExportView — ファイル作成', () => {
   beforeEach(async () => {
     await setApiMocks();
   });
 
-  it('should call exportKozaFurikae with the form payload when 作成開始 is clicked with valid input', async () => {
+  it('should call exportKozaFurikae with the edited 金額 rows when ファイル作成 is clicked', async () => {
     const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
     const { wrapper } = await renderView();
-    fillRequired(wrapper);
+    await doPreview(wrapper);
+
+    // ユーザーが1行目の金額を編集。
+    (wrapper.vm as any).previewRows[0].furikae_kingaku = 8000;
     await flushPromises();
 
     await wrapper.find(createBtn()).trigger('click');
@@ -266,15 +256,16 @@ describe('KozaFurikaeExportView — 作成開始 エクスポート', () => {
 
     expect(exportKozaFurikae).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(exportKozaFurikae).mock.calls[0]?.[0];
-    expect(arg.target_month).toBe('2026-05-01');
-    expect(arg.hikiotoshi_date).toBe('2026-05-27');
+    expect(arg.rows).toEqual([
+      { dokusya_id: 1, furikae_kingaku: 8000 },
+      { dokusya_id: 2, furikae_kingaku: 4900 },
+    ]);
     expect(arg.jastem_itakusha_code).toBe('1234567890');
   });
 
   it('should trigger a file download and toast 口座振替データの作成が完了しました。 when the export succeeds', async () => {
     const { wrapper } = await renderView();
-    fillRequired(wrapper);
-    await flushPromises();
+    await doPreview(wrapper);
 
     await wrapper.find(createBtn()).trigger('click');
     await flushPromises();
@@ -283,30 +274,47 @@ describe('KozaFurikaeExportView — 作成開始 エクスポート', () => {
     expect(message.success).toHaveBeenCalledWith('口座振替データの作成が完了しました。');
   });
 
-  it('should toast 対象データがありません。 (warning) when the export rejects with NO_TARGET_DATA', async () => {
+  it('should show the JASTEM error banner and NOT call exportKozaFurikae when a JASTEM field is blank', async () => {
+    // JASTEM 項目は master 由来の readonly 表示のため、未設定時はセクションの
+    // エラーバナー（jastem-error）でまとめて通知し、export をブロックする。
+    const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    (wrapper.vm as any).formState.jastem_koza_no = '';
+    await flushPromises();
+
+    await wrapper.find(createBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportKozaFurikae).not.toHaveBeenCalled();
+    const banner = wrapper.find('[data-test="jastem-error"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain('未設定のため出力できません');
+  });
+
+  it('should NOT call exportKozaFurikae when an edited 金額 is out of range', async () => {
+    const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    (wrapper.vm as any).previewRows[0].furikae_kingaku = -5;
+    await flushPromises();
+
+    await wrapper.find(createBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportKozaFurikae).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-test="amount-error"]').exists()).toBe(true);
+  });
+
+  it('should toast 対象データがありません。 (warning) when export rejects with NO_TARGET_DATA', async () => {
     const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
     vi.mocked(exportKozaFurikae).mockRejectedValueOnce({ error_code: 'NO_TARGET_DATA' });
     const { wrapper } = await renderView();
-    fillRequired(wrapper);
-    await flushPromises();
+    await doPreview(wrapper);
 
     await wrapper.find(createBtn()).trigger('click');
     await flushPromises();
 
     expect(message.warning).toHaveBeenCalledWith('対象データがありません。');
-  });
-
-  it('should NOT trigger a download when the export rejects with NO_TARGET_DATA', async () => {
-    const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
-    vi.mocked(exportKozaFurikae).mockRejectedValueOnce({ error_code: 'NO_TARGET_DATA' });
-    const { wrapper } = await renderView();
-    fillRequired(wrapper);
-    await flushPromises();
-    createObjectURL.mockClear();
-
-    await wrapper.find(createBtn()).trigger('click');
-    await flushPromises();
-
-    expect(createObjectURL).not.toHaveBeenCalled();
   });
 });
