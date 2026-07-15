@@ -231,12 +231,15 @@ export class CreateDokusyaDto {
   email?: string;
 
   @ApiPropertyOptional({
-    description: 'メルマガ配信フラグ (m_code.code_category=MAIL_MAGAZINE_FLG)',
+    description:
+      'メルマガ配信フラグ (m_code.code_category=MAIL_MAGAZINE_FLG)。電子版用項目。' +
+      '紙版時は未選択で NULL 保存（顧客要件 2026-07）。',
+    nullable: true,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'メルマガ配信フラグは整数で指定してください。' })
-  mail_magazine_flg?: number;
+  mail_magazine_flg?: number | null;
 
   @ApiPropertyOptional({ description: '生年 (西暦)' })
   @IsOptional()

@@ -68,7 +68,6 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
   '購読中止日',
   '備考',
   '読者情報変更適用日',
-  '販売店適用日',
 ] as const;
 
 /**

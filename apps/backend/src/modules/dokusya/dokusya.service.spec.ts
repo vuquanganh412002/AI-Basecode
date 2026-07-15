@@ -552,6 +552,32 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result.ja_id).toBe(42);
     });
 
+    it('should pin the 購読者 shiten_id to session.shiten_id when the operator account has a 所属支店 (制限③・顧客要件2026-07)', async () => {
+      // 所属支店固定アカウント(session.shiten_id=77)は新規登録時に購読者の
+      // shiten_id を強制的に 77 にピンする（body の値は無視）。
+      mockBankShitenLookup(true);
+      let savedRow: any;
+      txManager.save.mockImplementation(async (_entity: any, value: any) => {
+        if (value && 'dokusyaBusu' in (value ?? {})) savedRow = value;
+        return value && typeof value === 'object' && 'dokusyaId' in value
+          ? value
+          : { ...value, dokusyaId: 100 };
+      });
+
+      await service.create(
+        buildCreateDokusyaBody({ shiten_id: 999 } as any),
+        buildJaKanriShitenSession({
+          ja_id: 1,
+          kanri_shiten_id: 100,
+          shiten_id: 77,
+          account_id: 11,
+        }),
+        baseReq,
+      );
+
+      expect(Number((savedRow ?? {}).shitenId)).toBe(77);
+    });
+
     it('should reject a body FK id from another JA (Layer 4 cross-tenant guard)', async () => {
       // COVERS: security.md §Layer 4 — kanri_shiten_id resolves to JA 999
       // while the session is JA 1 → DataScopeViolation, no INSERT.
@@ -1435,6 +1461,165 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result.dokusya_id).toBe(100);
     });
 
+    // ─── 当日変更 / 予約変更 モード（顧客要件2026-07・参照→編集フロー）────────
+    describe('change_mode (当日変更 / 予約変更)', () => {
+      const sess = () => buildChuokaiSession({ ja_id: 1, account_id: 11 });
+
+      it('当日変更・紙版: 部数変更（帳票影響）は VALIDATION_ERROR で弾く', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1, dokusyaBusu: 1 }),
+        );
+        mockBankShitenLookup(true);
+        await expect(
+          service.update(
+            100,
+            buildUpdateDokusyaBody({ change_mode: 'today', dokusya_busu: 2 }),
+            sess(),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errors: expect.arrayContaining([
+              expect.objectContaining({ field: 'dokusya_busu' }),
+            ]),
+          }),
+        });
+      });
+
+      it('当日変更・紙版: 購読者住所変更（帳票影響）は VALIDATION_ERROR で弾く', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1, yubinNo: '1000001' }),
+        );
+        mockBankShitenLookup(true);
+        await expect(
+          service.update(
+            100,
+            buildUpdateDokusyaBody({ change_mode: 'today', yubin_no: '9998888' }),
+            sess(),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errors: expect.arrayContaining([
+              expect.objectContaining({ field: 'yubin_no' }),
+            ]),
+          }),
+        });
+      });
+
+      it('当日変更・紙版: 購読中止日（解約予約）入力は VALIDATION_ERROR で弾く', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1 }),
+        );
+        mockBankShitenLookup(true);
+        await expect(
+          service.update(
+            100,
+            buildUpdateDokusyaBody({
+              change_mode: 'today',
+              dokusya_chushi_date: futureDate(30),
+            }),
+            sess(),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errors: expect.arrayContaining([
+              expect.objectContaining({ field: 'dokusya_chushi_date' }),
+            ]),
+          }),
+        });
+      });
+
+      it('当日変更・紙版: 帳票非影響のみ（備考）→ 成功、joho は本日に固定', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1, dokusyaBusu: 1 }),
+        );
+        mockBankShitenLookup(true);
+        // 帳票影響項目（部数・住所）は before と同値に揃える＝帳票影響なし。
+        const result = await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            change_mode: 'today',
+            biko: '当日変更テスト',
+            dokusya_busu: 1,
+            chome_banchi: '千代田1-1',
+          }),
+          sess(),
+          baseReq,
+        );
+        expect(result.dokusya_id).toBe(100);
+        expect(lastApplyChangeInput().johoDate).toBe(todayIsoJst());
+      });
+
+      it('当日変更: クライアントが未来日を送っても joho は本日に固定する', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1 }),
+        );
+        mockBankShitenLookup(true);
+        await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            change_mode: 'today',
+            joho_henko_tekiyo_date: futureDate(30),
+            // 帳票影響項目は before と同値（当日変更で許可される変更のみ）。
+            dokusya_busu: 1,
+            chome_banchi: '千代田1-1',
+          }),
+          sess(),
+          baseReq,
+        );
+        expect(lastApplyChangeInput().johoDate).toBe(todayIsoJst());
+      });
+
+      it('当日変更・電子版: 帳票影響項目（住所）でも制限なしで成功する', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 2, // 電子版
+            dokusyaBusu: 1,
+            yubinNo: '1000001',
+          }),
+        );
+        mockBankShitenLookup(true);
+        const result = await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            change_mode: 'today',
+            dokusya_shubetsu: 2,
+            dokusya_busu: 1,
+            yubin_no: '9998888', // 住所変更でも電子版は許可
+            email: 'denshi@example.com',
+          }),
+          sess(),
+          baseReq,
+        );
+        expect(result.dokusya_id).toBe(100);
+        expect(lastApplyChangeInput().johoDate).toBe(todayIsoJst());
+      });
+
+      it('予約変更: 未来日を指定して帳票影響項目も変更できる', async () => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({ dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1, dokusyaBusu: 1 }),
+        );
+        mockBankShitenLookup(true);
+        const future = futureDate(20);
+        const result = await service.update(
+          100,
+          buildUpdateDokusyaBody({
+            change_mode: 'reserved',
+            dokusya_busu: 3,
+            joho_henko_tekiyo_date: future,
+          }),
+          sess(),
+          baseReq,
+        );
+        expect(result.dokusya_id).toBe(100);
+        expect(lastApplyChangeInput().johoDate).toBe(future);
+      });
+    });
+
     it('should throw VALIDATION_ERROR (field=joho_henko_tekiyo_date) when joho < 購読開始日', async () => {
       // 顧客要件 2026-07 — 情報変更適用日は購読開始日以降。before(直前の有効
       // レコード)の購読開始日を未来にし、joho=当日 を送ると kaishi>joho で弾かれる。
@@ -1458,41 +1643,6 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           error_code: 'VALIDATION_ERROR',
           errors: expect.arrayContaining([
             expect.objectContaining({ field: 'joho_henko_tekiyo_date' }),
-          ]),
-        }),
-      });
-      expect(applyChangeSpy).not.toHaveBeenCalled();
-    });
-
-    it('should throw VALIDATION_ERROR (field=hanbaiten_tekiyo_date) when 販売店適用日 >= 解約予定日', async () => {
-      // 顧客要件 2026-07 — 販売店適用日は解約予定日より前。上限参照は履歴末尾行の
-      // 予定解約日 (未来日運用で master には入らないため)。それ以降の販売店適用日を送ると弾かれる。
-      const before = buildDokusya({
-        dokusyaId: 100,
-        jaId: 1,
-        rirekiNo: 1,
-        dokusyaKaishiDate: '2026-04-01',
-        dokusyaChushiDate: '2026-08-01',
-      });
-      dokusyaRepo.findOne.mockResolvedValue(before);
-      // 変更適用日以前で最も近い履歴行の予定解約日。
-      rirekiRepo.findOne.mockResolvedValue({ dokusyaChushiDate: '2026-08-01' });
-      mockBankShitenLookup(true);
-      await expect(
-        service.update(
-          100,
-          buildUpdateDokusyaBody({
-            dokusya_busu: 2,
-            hanbaiten_tekiyo_date: '2026-09-01', // >= chushi(2026-08-01)
-          }),
-          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-          baseReq,
-        ),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({
-          error_code: 'VALIDATION_ERROR',
-          errors: expect.arrayContaining([
-            expect.objectContaining({ field: 'hanbaiten_tekiyo_date' }),
           ]),
         }),
       });
@@ -1534,7 +1684,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(applyChangeSpy).not.toHaveBeenCalled();
     });
 
-    it('should PASS date-consistency when joho >= 購読開始日 and 販売店適用日 < 解約予定日', async () => {
+    it('should PASS date-consistency when joho within [購読開始日, 解約予定日]', async () => {
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -1548,7 +1698,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         100,
         buildUpdateDokusyaBody({
           dokusya_busu: 2,
-          hanbaiten_tekiyo_date: '2026-09-01', // < chushi(2026-12-31)
+          joho_henko_tekiyo_date: '2026-09-01', // 購読開始日 < joho < 解約予定日
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -1962,6 +2112,28 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(lastApplyChangeInput().values.dokusyaKaishiDate).toBe('2026-04-01');
     });
 
+    it('should keep the stored 管理支店 and ignore a changed kanri_shiten_id on update (変更不可)', async () => {
+      // 管理支店は編集不可（顧客要件 2026-07）。body に改変値が届いても保存値に pin。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        kanriShitenId: 10,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ kanri_shiten_id: 99 }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // 管理支店は stored 値(10)に pin され、改変値(99)は無視される。
+      expect(lastApplyChangeInput().values.kanriShitenId).toBe(10);
+    });
+
     it('should preserve 初回購読開始日 (shoki_dokusya_kaishi_date) on update — not clobber it with the current kaishi date', async () => {
       // shoki(初回) と kaishi(当期) が異なる行を更新しても初回日は保持する。
       const before = buildDokusya({
@@ -2087,6 +2259,29 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       const values = lastApplyChangeInput().values;
       expect(values.shitenId).toBeNull();
+    });
+
+    it('should persist NULL mail_magazine_flg on update when 紙版で未選択 (電子版用項目)', async () => {
+      // メールマガジンは電子版用項目。紙版で未選択(null)なら NULL 保存（0 に
+      // 丸めない・顧客要件 2026-07）。
+      const before = buildDokusya({
+        dokusyaId: 100,
+        jaId: 1,
+        rirekiNo: 1,
+        mailMagazineFlg: 1,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      mockBankShitenLookup(true);
+
+      await service.update(
+        100,
+        buildUpdateDokusyaBody({ mail_magazine_flg: null }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const values = lastApplyChangeInput().values;
+      expect(values.mailMagazineFlg).toBeNull();
     });
 
     it('should throw NotFoundException when target does not exist', async () => {
@@ -2331,9 +2526,10 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(values.tatemonoMei).toBe('東京ビル');
     });
 
-    it('should record hanbaiten_tekiyo_date into the rireki snapshot when 販売店 changes on update', async () => {
-      // 販売店変更時の適用日は履歴の hanbaiten_tekiyo_date に記録する
-      // （マスタの joho_henko_tekiyo_date は触らない・後日定義）。
+    it('should pass johoDate + changed hanbaitenId to applyChange when 販売店 changes on update (販売店適用日=joho に統一)', async () => {
+      // 顧客要件 2026-07: 販売店適用日を廃止し joho に統一。販売店変更でも別の
+      // hanbaitenDate は渡さず、johoDate(=適用日) と変更後の hanbaitenId を渡す。
+      // 履歴は1件・hanbaiten_tekiyo_date=joho の転記は writer の責務。
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -2347,43 +2543,16 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         100,
         buildUpdateDokusyaBody({
           hanbaiten_id: 201, // 販売店変更
-          hanbaiten_tekiyo_date: '2099-12-31',
+          joho_henko_tekiyo_date: '2099-12-31',
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
       );
 
-      // 販売店変更 → applyChange に hanbaitenDate(=適用日) を渡し、変更後の
-      // hanbaitenId を values に載せる。履歴の2件分割・hanbaiten_tekiyo_date への
-      // 転記・前回販売店の退避は writer(splitEvents/buildRirekiRow) の責務。
       const input = lastApplyChangeInput();
-      expect(input.hanbaitenDate).toBe('2099-12-31');
+      expect(input.johoDate).toBe('2099-12-31');
+      expect(input.hanbaitenDate).toBeUndefined(); // 別 hanbaiten 適用日は渡さない
       expect(Number(input.values.hanbaitenId)).toBe(201);
-    });
-
-    it('should reject update when hanbaiten_tekiyo_date is in the past', async () => {
-      const before = buildDokusya({ dokusyaId: 100, jaId: 1, rirekiNo: 1 });
-      dokusyaRepo.findOne.mockResolvedValue(before);
-      mockBankShitenLookup(true);
-
-      await expect(
-        service.update(
-          100,
-          buildUpdateDokusyaBody({
-            hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: '2020-01-01',
-          }),
-          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-          baseReq,
-        ),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({
-          error_code: 'VALIDATION_ERROR',
-          errors: expect.arrayContaining([
-            expect.objectContaining({ field: 'hanbaiten_tekiyo_date' }),
-          ]),
-        }),
-      });
     });
 
     it('should record the user-entered joho_henko_tekiyo_date on update (顧客要件 2026-06 更新)', async () => {
@@ -2775,12 +2944,11 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(Number(lastApplyChangeInput().values.hanbaitenId)).toBe(5);
     });
 
-    // ── 顧客要件 2026-06: 情報変更＋販売店変更 同時 → 履歴2件分割 ──────────
-    // 分割の有無・2件の順序・saishin の付与・hanbaiten_tekiyo_date への転記は
+    // ── 顧客要件 2026-07: 販売店適用日を廃止し joho に統一 → 1更新1レコード ────
+    // service 契約: applyChange へ johoDate のみ渡す（hanbaitenDate は廃止・常に
+    // undefined）。UI/取込/置換で同一。分割なし・hanbaiten_tekiyo_date=joho の転記は
     // writer(splitEvents/buildRirekiRow) の責務で writer.spec が網羅する。
-    // service 契約としては、情報変更適用日(johoDate) と 販売店適用日(hanbaitenDate)
-    // を applyChange へ正しく渡すことを検証する。
-    it('case1 — 情報+販売店 同時・適用日が同じ: johoDate=hanbaitenDate を渡す', async () => {
+    it('情報+販売店 同時変更: johoDate のみ渡し、hanbaitenId + 情報を values に載せる', async () => {
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -2798,8 +2966,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           hanbaiten_id: 9, // 5 → 9（販売店変更）
           dokusya_busu: 6, // 1 → 6（情報変更）
           chome_banchi: '千代田9-9', // 住所変更
-          hanbaiten_tekiyo_date: '2099-07-01',
-          joho_henko_tekiyo_date: '2099-07-01', // 同日
+          joho_henko_tekiyo_date: '2099-07-01',
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -2807,97 +2974,13 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
       const input = lastApplyChangeInput();
       expect(input.johoDate).toBe('2099-07-01');
-      expect(input.hanbaitenDate).toBe('2099-07-01');
+      expect(input.hanbaitenDate).toBeUndefined(); // 廃止
       expect(Number(input.values.hanbaitenId)).toBe(9);
       expect(input.values.dokusyaBusu).toBe(6);
       expect(input.values.chomeBanchi).toBe('千代田9-9');
     });
 
-    it('case2 — 販売店適用日 < 情報変更日: hanbaitenDate < johoDate を渡す', async () => {
-      const before = buildDokusya({
-        dokusyaId: 100,
-        jaId: 1,
-        rirekiNo: 1,
-        hanbaitenId: 5,
-        dokusyaBusu: 1,
-      });
-      dokusyaRepo.findOne.mockResolvedValue(before);
-      mockBankShitenLookup(true);
-
-      await service.update(
-        100,
-        buildUpdateDokusyaBody({
-          hanbaiten_id: 9,
-          dokusya_busu: 6,
-          hanbaiten_tekiyo_date: '2099-03-01', // 早い
-          joho_henko_tekiyo_date: '2099-09-01', // 遅い
-        }),
-        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-        baseReq,
-      );
-
-      const input = lastApplyChangeInput();
-      expect(input.hanbaitenDate).toBe('2099-03-01');
-      expect(input.johoDate).toBe('2099-09-01');
-    });
-
-    it('case3 — 販売店適用日 > 情報変更日: hanbaitenDate > johoDate を渡す', async () => {
-      const before = buildDokusya({
-        dokusyaId: 100,
-        jaId: 1,
-        rirekiNo: 1,
-        hanbaitenId: 5,
-        dokusyaBusu: 1,
-      });
-      dokusyaRepo.findOne.mockResolvedValue(before);
-      mockBankShitenLookup(true);
-
-      await service.update(
-        100,
-        buildUpdateDokusyaBody({
-          hanbaiten_id: 9,
-          dokusya_busu: 6,
-          hanbaiten_tekiyo_date: '2099-09-01', // 遅い
-          joho_henko_tekiyo_date: '2099-03-01', // 早い
-        }),
-        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-        baseReq,
-      );
-
-      const input = lastApplyChangeInput();
-      expect(input.hanbaitenDate).toBe('2099-09-01');
-      expect(input.johoDate).toBe('2099-03-01');
-    });
-
-    it('Rule2 — 販売店のみ変更（情報据え置き）: hanbaitenDate を渡し hanbaiten_id 変更を forward', async () => {
-      // 情報を before に合わせて据え置く（busu=2 / chome=千代田1-2 は body 既定）。
-      const before = buildDokusya({
-        dokusyaId: 100,
-        jaId: 1,
-        rirekiNo: 1,
-        hanbaitenId: 5,
-        dokusyaBusu: 2,
-        chomeBanchi: '千代田1-2',
-      });
-      dokusyaRepo.findOne.mockResolvedValue(before);
-      mockBankShitenLookup(true);
-
-      await service.update(
-        100,
-        buildUpdateDokusyaBody({
-          hanbaiten_id: 9, // 販売店のみ変更
-          hanbaiten_tekiyo_date: '2099-05-01',
-        }),
-        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-        baseReq,
-      );
-
-      const input = lastApplyChangeInput();
-      expect(input.hanbaitenDate).toBe('2099-05-01');
-      expect(Number(input.values.hanbaitenId)).toBe(9);
-    });
-
-    it('Rule1 — 情報のみ変更（販売店据え置き）: hanbaitenDate 未指定、johoDate を渡す', async () => {
+    it('情報のみ変更: johoDate のみ渡す（hanbaitenDate は常に undefined）', async () => {
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -2920,7 +3003,6 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       );
 
       const input = lastApplyChangeInput();
-      // 販売店適用日 未入力 → hanbaitenDate は undefined（writer は情報1件のみ生成）。
       expect(input.hanbaitenDate).toBeUndefined();
       expect(input.johoDate).toBe('2099-04-01');
     });
@@ -5731,9 +5813,10 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       expect(input.mode).toBe('UPDATE');
       expect(input.dokusyaId).toBe(5001);
       expect(Number(input.values.hanbaitenId)).toBe(201); // 置換後の販売店
-      // 販売店のみ変更 → johoDate と hanbaitenDate を同じ販売店適用日に揃える。
+      // 販売店適用日を廃止し joho に統一（顧客要件 2026-07）→ 置換画面の適用日を
+      // johoDate として渡す（hanbaitenDate は廃止）。1更新1レコード。
       expect(input.johoDate).toBe(tekiyoDate);
-      expect(input.hanbaitenDate).toBe(tekiyoDate);
+      expect(input.hanbaitenDate).toBeUndefined();
       expect(input.reason).toBe('販売店一括置換');
       expect(input.source).toBe('REPLACE_HANBAITEN');
     });
@@ -7180,8 +7263,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(input.values.email).toBe('new@example.com');
     });
 
-    // 顧客要件 2026-06: 取込 UPDATE で 情報＋販売店 が同時に変わると履歴2件に分割。
-    it('should pass changed hanbaiten_id + distinct 適用日 to applyChange for a BOTH info+販売店 UPDATE (writer splits)', async () => {
+    // 顧客要件 2026-07: 取込も販売店適用日を廃止し joho に統一 → 1更新1レコード
+    // （UI/置換と同一）。情報＋販売店が同時に変わっても hanbaitenDate は渡さない。
+    it('should pass changed hanbaiten_id with johoDate only (no hanbaitenDate) for a BOTH info+販売店 UPDATE — 1更新1レコード', async () => {
       // 2件分割そのものは writer(splitEvents) の責務で writer.spec が網羅する。
       // service 契約としては、販売店変更後の hanbaiten_id を values に載せ、情報変更
       // 適用日(johoDate)と販売店適用日(hanbaitenDate)を applyChange へ渡すことを検証。
@@ -7211,7 +7295,6 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
               dokusya_id: 7001,
               dokusya_busu: 6,
               hanbaiten_code: 'H009', // 5 → 9（販売店変更）
-              hanbaiten_tekiyo_date: '2099-09-01',
               joho_henko_tekiyo_date: '2099-03-01',
             }),
           ],
@@ -7223,8 +7306,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       const input = applyChangeInputs()[0];
       expect(input.mode).toBe('UPDATE');
       expect(Number(input.values.hanbaitenId)).toBe(9); // H009 → 9
-      expect(input.johoDate).toBe('2099-03-01'); // 情報変更適用日
-      expect(input.hanbaitenDate).toBe('2099-09-01'); // 販売店適用日
+      expect(input.johoDate).toBe('2099-03-01'); // 唯一の適用日(joho)
+      expect(input.hanbaitenDate).toBeUndefined(); // 販売店適用日は廃止
     });
 
     it('should throw IMPORT_VALIDATION_ERROR when an UPDATE row omits joho_henko_tekiyo_date', async () => {

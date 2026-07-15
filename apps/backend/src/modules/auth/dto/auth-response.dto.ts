@@ -26,6 +26,9 @@ export class AuthUserDto {
   kanri_shiten_id: number | null;
 
   @ApiProperty({ nullable: true })
+  shiten_id: number | null;
+
+  @ApiProperty({ nullable: true })
   todofuken_code: string | null;
 
   @ApiProperty()

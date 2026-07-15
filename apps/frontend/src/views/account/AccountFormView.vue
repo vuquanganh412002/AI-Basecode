@@ -29,6 +29,7 @@ import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
 } from '@/api/kanri-shiten/kanri-shiten';
+import { getShitenDropdown, type ShitenDropdownItem } from '@/api/shiten/shiten';
 import { RoleCode } from '@/constants/enums';
 
 interface AccountFormState {
@@ -38,6 +39,9 @@ interface AccountFormState {
   todofuken_code: string | null;
   ja_id: number | null;
   kanri_shiten_id: number | null;
+  // 所属支店（顧客要件 2026-07）— JA管理支店ロールのみ・任意。設定するとその支店の
+  // 読者しか扱えず帳票5画面が使用不可になる。
+  shiten_id: number | null;
   account_name: string;
   email: string;
   sub_email_1: string;
@@ -77,6 +81,7 @@ const formState = reactive<AccountFormState>({
   todofuken_code: null,
   ja_id: null,
   kanri_shiten_id: null,
+  shiten_id: null,
   account_name: '',
   email: '',
   sub_email_1: '',
@@ -99,6 +104,7 @@ const roleOptions = ref<RoleDropdownItem[]>([]);
 const todofukenOptions = ref<TodofukenItem[]>([]);
 const jaOptions = ref<JaDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
+const shitenOptions = ref<ShitenDropdownItem[]>([]);
 
 // `hydrateFromDetail` (edit mode) and other programmatic bulk-loads
 // would otherwise trip the cascade watchers below — setting both
@@ -129,6 +135,12 @@ const showTodofuken = computed(() => isJaScopedRole(selectedRoleCode.value));
 const showJa = computed(() => isJaScopedRole(selectedRoleCode.value));
 const showKanriShiten = computed(
   () => selectedRoleCode.value === RoleCode.JA_KANRI_SHITEN,
+);
+// 所属支店は JA管理支店ロール かつ 管理支店を選択済みのときのみ表示（任意）。
+const showShiten = computed(
+  () =>
+    selectedRoleCode.value === RoleCode.JA_KANRI_SHITEN &&
+    formState.kanri_shiten_id != null,
 );
 
 // ─── Mount / edit-mode load ─────────────────────────────────────────
@@ -176,6 +188,23 @@ async function fetchKanriShitenOptions(jaId: number): Promise<void> {
   }
 }
 
+// 所属支店ドロップダウン（顧客要件 2026-07）— 管理支店配下の支店を返す。
+async function fetchShitenOptions(
+  kanriShitenId: number,
+  jaId: number | null,
+): Promise<void> {
+  try {
+    const resp = await getShitenDropdown({
+      kanri_shiten_id: kanriShitenId,
+      ja_id: jaId ?? undefined,
+      per_page: 100,
+    });
+    shitenOptions.value = resp.data;
+  } catch {
+    shitenOptions.value = [];
+  }
+}
+
 function hydrateFromDetail(detail: AccountDetail): void {
   // Edit mode pre-fill — login_id read-only, password blank (空欄=保持).
   // Guard with isHydrating so the cascade watchers don't wipe the
@@ -187,6 +216,7 @@ function hydrateFromDetail(detail: AccountDetail): void {
   formState.todofuken_code = detail.todofuken_code;
   formState.ja_id = detail.ja_id;
   formState.kanri_shiten_id = detail.kanri_shiten_id;
+  formState.shiten_id = detail.shiten_id;
   formState.account_name = detail.account_name;
   formState.email = detail.email;
   formState.sub_email_1 = detail.sub_email_1;
@@ -223,6 +253,9 @@ onMounted(async () => {
       if (resp.data.ja_id) {
         void fetchKanriShitenOptions(resp.data.ja_id);
       }
+      if (resp.data.kanri_shiten_id) {
+        void fetchShitenOptions(resp.data.kanri_shiten_id, resp.data.ja_id);
+      }
       // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
       await editGuard.capture();
     } catch {
@@ -245,7 +278,9 @@ watch(
     // new todofuken's JA list arrives.
     formState.ja_id = null;
     formState.kanri_shiten_id = null;
+    formState.shiten_id = null;
     kanriShitenOptions.value = [];
+    shitenOptions.value = [];
     if (next) {
       void fetchJaOptions(next, formState.role_id);
     } else {
@@ -260,10 +295,27 @@ watch(
     if (isHydrating.value) return;
     if (next === prev) return;
     formState.kanri_shiten_id = null;
+    formState.shiten_id = null;
+    shitenOptions.value = [];
     if (next) {
       void fetchKanriShitenOptions(next);
     } else {
       kanriShitenOptions.value = [];
+    }
+  },
+);
+
+// 管理支店を切り替えたら所属支店をリセットし、配下の支店を読み込む（顧客要件 2026-07）。
+watch(
+  () => formState.kanri_shiten_id,
+  (next, prev) => {
+    if (isHydrating.value) return;
+    if (next === prev) return;
+    formState.shiten_id = null;
+    if (next) {
+      void fetchShitenOptions(next, formState.ja_id);
+    } else {
+      shitenOptions.value = [];
     }
   },
 );
@@ -365,6 +417,8 @@ function buildCreateBody(): CreateAccountBody {
     todofuken_code: formState.todofuken_code,
     ja_id: formState.ja_id,
     kanri_shiten_id: formState.kanri_shiten_id,
+    // 所属支店 — JA管理支店ロール以外は BE が破棄するため null 固定送信。
+    shiten_id: showShiten.value ? formState.shiten_id : null,
     account_name: formState.account_name,
     email: formState.email,
     sub_email_1: formState.sub_email_1,
@@ -384,6 +438,7 @@ function buildUpdateBody(): UpdateAccountBody {
     todofuken_code: formState.todofuken_code,
     ja_id: formState.ja_id,
     kanri_shiten_id: formState.kanri_shiten_id,
+    shiten_id: showShiten.value ? formState.shiten_id : null,
     account_name: formState.account_name,
     email: formState.email,
     sub_email_1: formState.sub_email_1,
@@ -614,7 +669,36 @@ defineExpose({ formState, fieldErrors });
             </a-form-item>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- 所属支店 + アカウント名 + 通知先メールアドレス を 1 行 3 列で表示。 -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 所属支店（顧客要件 2026-07）— JA管理支店ロールのみ・任意。
+                 他ロール／管理支店未選択時は常に表示のうえグレーアウト
+                 （都道府県 / JA / 管理支店 と同じ挙動）。設定すると当該
+                 アカウントは対象支店の購読者のみ参照/編集/追加可。 -->
+            <a-form-item
+              name="shiten_id"
+              :validate-status="fieldErrors.shiten_id ? 'error' : ''"
+              :help="fieldErrors.shiten_id"
+            >
+              <template #label>
+                <span>所属支店</span>
+              </template>
+              <a-select
+                v-model:value="formState.shiten_id"
+                placeholder="選択してください（任意）"
+                allow-clear
+                :disabled="!showShiten"
+              >
+                <a-select-option
+                  v-for="opt in shitenOptions"
+                  :key="opt.shiten_id"
+                  :value="opt.shiten_id"
+                >
+                  {{ opt.shiten_code }} - {{ opt.shiten_name }}
+                </a-select-option>
+              </a-select>
+            </a-form-item>
+
             <a-form-item
               name="account_name"
               :validate-status="fieldErrors.account_name ? 'error' : ''"

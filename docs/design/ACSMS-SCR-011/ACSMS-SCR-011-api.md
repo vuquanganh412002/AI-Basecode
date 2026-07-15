@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/05/27 | 1.1  | Tran Duc Tuyen | 画面設計書 v1.1 反映：読者情報変更適用日（joho_henko_tekiyo_date）を入力項目として追加。項目仕様の整合修正 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/05/29 | 1.2  | Tran Duc Tuyen | 画面設計書 v1.1 追加反映：①郵送区分（yubin_kubun）を販売店連動の自動表示から `m_code.code_category='YUBIN_KUBUN'` プルダウン入力項目へ変更（commit e4a3721）、②引落口座支店をテキスト1項目から `bank_shiten_id`（`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込み）+ 自動表示ラベル（`jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name`）の3項目構成へ分割（commit cdc7ae6）、③機能定義の API パスを `/api/subscribers` から `/api/dokusya` へ統一（commit b2bbe9f）、④画面設計書のマークダウン表構造正規化への追従（commit a3b3204）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/06/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-06 反映：更新時の履歴 zenkai_* 退避ルールを変更。`haitatsu_same_flg=TRUE` のときは住所が変更されていなくても購読者住所（todofuken_code / shikuchoson / chome_banchi / tatemono_mei + yubin_no）を常に zenkai_* に格納する。増減報告フラグ（zougen_hokoku_flg）は zenkai_* 退避有無とは独立に、実際の変更（購読部数 / 販売店 / 住所）でのみ判定するよう明確化。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/07/14 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07：更新(API-011-003)に情報変更モード `change_mode`（'today'当日変更 / 'reserved'予約変更）を追加。当日変更は適用日を本日固定＋紙版の帳票影響項目変更を VALIDATION_ERROR で拒否（電子版は制限なし）。予約変更は適用日必須・未来日のみ・全項目可。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -905,6 +906,12 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 1   | dokusya_id     | Number | -        | 〇   |        |        | 更新対象の dokusya_id（パスパラメータ） |
 
 ※ リクエストボディはACSMS-API-011-002と同一構造。dokusya_id は変更不可（URLから取得）。
+
+※ **`change_mode`（情報変更モード・顧客要件2026-07）をボディに追加**：`'today'`（当日変更）／`'reserved'`（予約変更）。未指定は後方互換で `reserved`。
+
+- `change_mode = 'today'`（当日変更）：サーバは `joho_henko_tekiyo_date` を**本日に固定**（送信値は無視）。**紙版**は帳票影響項目（`dokusya_busu` / `hanbaiten_id` / 購読者住所 `yubin_no`・`todofuken_code`・`shikuchoson`・`chome_banchi`・`tatemono_mei` / 配達先住所 `haitatsu_*` / `dokusya_chushi_date`）を既存値から変更した場合 `VALIDATION_ERROR`（当該フィールド）で弾く。**電子版**は帳票を生成しないため制限なし。
+- `change_mode = 'reserved'`（予約変更）：`joho_henko_tekiyo_date` は必須・未来日のみ（当日不可）。全項目変更可。
+- 履歴は従来どおり 1更新1レコード。併読／電子版クレカは read-only（403）。
 
 ## レスポンスデータ
 

@@ -10,6 +10,11 @@ export interface SessionPayload {
   role_code: string;
   ja_id: number | null;
   kanri_shiten_id: number | null;
+  /**
+   * 所属支店ID（顧客要件 2026-07）。設定されている（非 null）JA管理支店アカウントは
+   * DataScope を支店単位まで絞り込み、帳票5画面の使用が禁止される。
+   */
+  shiten_id: number | null;
   permissions: string[];
   created_at: string;      // ISO-8601
   last_activity_at: string; // ISO-8601 — updated on each successful request

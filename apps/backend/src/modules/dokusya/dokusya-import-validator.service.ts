@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 
 import { ValidationException } from '@/common/exceptions/common.exceptions';
-import { assertBranchScopeViolation } from '@/common/utils/data-scope';
+import {
+  assertBranchScopeViolation,
+  assertShitenScopeViolation,
+} from '@/common/utils/data-scope';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
@@ -298,7 +301,6 @@ export class DokusyaImportValidator {
     const isUpdate =
       dto.import_mode === 'UPDATE';
     const joho = dbDateOrNull(row.joho_henko_tekiyo_date);
-    const hanbaiten = dbDateOrNull(row.hanbaiten_tekiyo_date);
     const chushi = dbDateOrNull(row.dokusya_chushi_date);
     const today = todayIsoJst();
 
@@ -330,8 +332,8 @@ export class DokusyaImportValidator {
     }
 
     // 適用日の単項目（未来日/過去日）チェック。NEW は購読開始日、UPDATE は
-    // joho(未来日のみ) + hanbaiten(過去日のみ不可) を検証する（顧客要件 2026-07 改訂）。
-    this.checkImportRowDateBounds(row, rowNo, isUpdate, joho, hanbaiten, today, errors);
+    // joho(未来日のみ) を検証する（顧客要件 2026-07: 販売店適用日を廃止し joho に統一）。
+    this.checkImportRowDateBounds(row, rowNo, isUpdate, joho, today, errors);
 
     // NEW 行は相対チェック対象外（joho=購読開始日で自明）。
     if (!isUpdate) return;
@@ -340,7 +342,6 @@ export class DokusyaImportValidator {
     if (!existing) return;
     for (const v of collectTekiyoDateViolations({
       johoDate: joho,
-      hanbaitenDate: hanbaiten,
       kaishiDate: existing.dokusya_kaishi_date as string | null | undefined,
       chushiDate: existing.dokusya_chushi_date as string | null | undefined,
     })) {
@@ -356,14 +357,13 @@ export class DokusyaImportValidator {
    * 適用日の単項目境界チェック（顧客要件 2026-07 改訂）。
    *   NEW    : 購読開始日(=情報変更適用日) は未来日のみ（当日・過去日 不可）。取込は
    *            UI のラジオ特例（電子版+口座引落 当日可）が無いため一律で未来日を要求。
-   *   UPDATE : 読者情報変更適用日・販売店適用日 とも未来日のみ（当日・過去日 不可）。
+   *   UPDATE : 読者情報変更適用日（販売店を含む全変更の唯一の適用日）は未来日のみ。
    */
   private checkImportRowDateBounds(
     row: ImportDokusyaRowDto,
     rowNo: number,
     isUpdate: boolean,
     joho: string | null,
-    hanbaiten: string | null,
     today: string,
     errors: ImportRowError[],
   ): void {
@@ -383,14 +383,6 @@ export class DokusyaImportValidator {
         row: rowNo,
         field: 'joho_henko_tekiyo_date',
         message: '読者情報変更適用日は本日より後の日付を指定してください。',
-      });
-    }
-    // 販売店適用日も未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。
-    if (hanbaiten && normalizeDbDate(hanbaiten) <= today) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'hanbaiten_tekiyo_date',
-        message: '販売店適用日は本日より後の日付を指定してください。',
       });
     }
   }
@@ -572,14 +564,14 @@ export class DokusyaImportValidator {
       existing.kanri_shiten_id == null ? null : Number(existing.kanri_shiten_id),
       session,
     );
-    this.assertHanbaitenTekiyoForStoreChange(
-      row,
-      rowNo,
-      dto,
-      lookups,
-      existing,
-      errors,
+    // 所属支店スコープ（顧客要件 2026-07）— session.shiten_id 設定時は他支店の
+    // 読者を取込で更新できない（403）。
+    assertShitenScopeViolation(
+      existing.shiten_id == null ? null : Number(existing.shiten_id),
+      session,
     );
+    // 販売店適用日は廃止（顧客要件 2026-07）。販売店変更の適用日は読者情報変更
+    // 適用日(joho)に統一されるため、店舗変更時の販売店適用日必須チェックは撤廃。
     return 'updated';
   }
 
@@ -594,40 +586,6 @@ export class DokusyaImportValidator {
   ): boolean {
     if (hasDokusyaId || !row.kumiaiin_code) return false;
     return (lookups.kumiaiinCounts.get(String(row.kumiaiin_code)) ?? 0) > 1;
-  }
-
-  /**
-   * 販売店が変わる UPDATE 行は販売店適用日 (hanbaiten_tekiyo_date) が必須
-   * （履歴の販売店イベント日。顧客要件 2026-06）。UPDATE は販売店コード列が
-   * selected_columns にあるときのみ「変更対象」とみなす。
-   */
-  private assertHanbaitenTekiyoForStoreChange(
-    row: ImportDokusyaRowDto,
-    rowNo: number,
-    dto: ImportDokusyaDto,
-    lookups: ImportRowLookups,
-    existing: Record<string, unknown>,
-    errors: ImportRowError[],
-  ): void {
-    const storeColumnActive =
-      dto.import_mode === 'UPDATE' &&
-      dto.selected_columns.includes('hanbaiten_code');
-    if (!storeColumnActive || !row.hanbaiten_code) return;
-
-    const newHanbaitenId = lookups.hanbaitenIdByCode.get(
-      String(row.hanbaiten_code),
-    );
-    const storeChanged =
-      existing.hanbaiten_id != null &&
-      newHanbaitenId != null &&
-      newHanbaitenId !== Number(existing.hanbaiten_id);
-    if (storeChanged && !String(row.hanbaiten_tekiyo_date ?? '').trim()) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'hanbaiten_tekiyo_date',
-        message: '販売店適用日を入力してください。',
-      });
-    }
   }
 
   /** Push a row error, never exceeding the 10-entry cap. */

@@ -29,9 +29,6 @@ interface Mocks {
   auditLog: {
     logError: jest.Mock;
   };
-  configService: {
-    get: jest.Mock;
-  };
 }
 
 function buildMocks(): Mocks {
@@ -53,11 +50,6 @@ function buildMocks(): Mocks {
     auditLog: {
       logError: jest.fn(async () => undefined),
     },
-    configService: {
-      get: jest.fn((key: string) =>
-        key === 'app.frontendUrl' ? 'https://app.example.com' : undefined,
-      ),
-    },
   };
 }
 
@@ -68,7 +60,6 @@ function buildWorker(m: Mocks): FileUploadNotificationWorker {
     m.jaRepo as any,
     m.mailService as any,
     m.auditLog as any,
-    m.configService as any,
   );
 }
 

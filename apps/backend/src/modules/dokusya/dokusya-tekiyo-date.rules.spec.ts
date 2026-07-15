@@ -12,11 +12,10 @@ import {
 } from './dokusya-tekiyo-date.rules';
 
 describe('collectTekiyoDateViolations', () => {
-  it('should return no violation when kaishi <= joho/hanbaiten <= chushi', () => {
+  it('should return no violation when kaishi <= joho <= chushi', () => {
     expect(
       collectTekiyoDateViolations({
         johoDate: '2026-07-10',
-        hanbaitenDate: '2026-07-10',
         kaishiDate: '2026-07-01',
         chushiDate: '2026-12-31',
       }),
@@ -59,58 +58,14 @@ describe('collectTekiyoDateViolations', () => {
     ).toEqual([]);
   });
 
-  it('should flag HANBAITEN_BEFORE_KAISHI when hanbaiten < kaishi', () => {
-    const v = collectTekiyoDateViolations({
-      hanbaitenDate: '2026-06-30',
-      kaishiDate: '2026-07-01',
-    });
-    expect(v.map((x) => x.kind)).toEqual([
-      TEKIYO_VIOLATION.HANBAITEN_BEFORE_KAISHI,
-    ]);
-    expect(v[0].message).toContain('購読開始日');
-  });
-
-  it('should flag HANBAITEN_AFTER_CHUSHI when hanbaiten > chushi (== は許容)', () => {
-    expect(
-      collectTekiyoDateViolations({
-        hanbaitenDate: '2026-12-31',
-        kaishiDate: '2026-07-01',
-        chushiDate: '2026-12-31',
-      }),
-    ).toEqual([]);
-    const v = collectTekiyoDateViolations({
-      hanbaitenDate: '2027-01-05',
-      chushiDate: '2026-12-31',
-    });
-    expect(v.map((x) => x.kind)).toEqual([
-      TEKIYO_VIOLATION.HANBAITEN_AFTER_CHUSHI,
-    ]);
-  });
-
   it('should skip the upper-bound (chushi) check when chushi is null', () => {
     expect(
       collectTekiyoDateViolations({
         johoDate: '2099-12-31',
-        hanbaitenDate: '2099-12-31',
         kaishiDate: '2026-07-01',
         chushiDate: null,
       }),
     ).toEqual([]);
-  });
-
-  it('should return BOTH violations when joho < kaishi and hanbaiten > chushi', () => {
-    const v = collectTekiyoDateViolations({
-      johoDate: '2026-06-01',
-      hanbaitenDate: '2027-01-01',
-      kaishiDate: '2026-07-01',
-      chushiDate: '2026-12-31',
-    });
-    expect(v.map((x) => x.kind).sort()).toEqual(
-      [
-        TEKIYO_VIOLATION.HANBAITEN_AFTER_CHUSHI,
-        TEKIYO_VIOLATION.JOHO_BEFORE_KAISHI,
-      ].sort(),
-    );
   });
 
   it('should normalize YYYY/MM/DD input before comparing', () => {
@@ -126,7 +81,6 @@ describe('collectTekiyoDateViolations', () => {
     expect(
       collectTekiyoDateViolations({
         johoDate: '2026-07-10',
-        hanbaitenDate: '2026-07-10',
       }),
     ).toEqual([]);
   });
@@ -242,12 +196,6 @@ describe('tekiyoViolationField', () => {
     );
     expect(tekiyoViolationField(TEKIYO_VIOLATION.JOHO_AFTER_CHUSHI)).toBe(
       'joho_henko_tekiyo_date',
-    );
-    expect(tekiyoViolationField(TEKIYO_VIOLATION.HANBAITEN_BEFORE_KAISHI)).toBe(
-      'hanbaiten_tekiyo_date',
-    );
-    expect(tekiyoViolationField(TEKIYO_VIOLATION.HANBAITEN_AFTER_CHUSHI)).toBe(
-      'hanbaiten_tekiyo_date',
     );
     expect(tekiyoViolationField(TEKIYO_VIOLATION.CHUSHI_BEFORE_KAISHI)).toBe(
       'dokusya_chushi_date',

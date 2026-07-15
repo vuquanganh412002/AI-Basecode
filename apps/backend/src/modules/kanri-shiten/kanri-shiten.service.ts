@@ -225,6 +225,9 @@ export class KanriShitenService {
       kanri_shiten_id: Number(r.kanriShitenId),
       kanri_shiten_code: r.kanriShitenCode,
       kanri_shiten_name: r.kanriShitenName,
+      // SCR-011 で購読種別による絞り込みに使う（顧客要件2026-07）。
+      paper_flg: r.paperFlg,
+      denshi_flg: r.denshiFlg,
     });
 
     const buildScoped = () => {

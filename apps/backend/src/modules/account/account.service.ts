@@ -6,6 +6,7 @@ import { DataSource, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Account } from '@/database/entities/account.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
+import { Shiten } from '@/database/entities/shiten.entity';
 import { Role } from '@/database/entities/role.entity';
 import {
   ConflictException,
@@ -75,6 +76,7 @@ function buildAccountAuditSnapshot(account: Account): Record<string, unknown> {
     ja_id: account.jaId === null ? null : Number(account.jaId),
     kanri_shiten_id:
       account.kanriShitenId === null ? null : Number(account.kanriShitenId),
+    shiten_id: account.shitenId === null ? null : Number(account.shitenId),
     email: account.email,
     sub_email_1: account.subEmail1,
     sub_email_2: account.subEmail2,
@@ -136,9 +138,50 @@ export class AccountService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KanriShiten)
     private readonly kanriShitenRepo: Repository<KanriShiten>,
+    @InjectRepository(Shiten)
+    private readonly shitenRepo: Repository<Shiten>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
   ) {}
+
+  /**
+   * 所属支店(shiten_id)の整合性を検証する（顧客要件 2026-07）。JA管理支店アカウント
+   * のみ設定可で、支店はそのアカウントの管理支店(kanri_shiten_id)配下でなければ
+   * ならない。存在しなければ 400、管理支店/JA が一致しなければ検証エラー。
+   */
+  private async assertShitenBelongsToKanriShiten(
+    shitenId: number,
+    expectedKanriShitenId: number | null | undefined,
+    expectedJaId: number | null | undefined,
+  ): Promise<void> {
+    const shiten = await this.shitenRepo.findOne({
+      where: { shitenId, deletedAt: IsNull() },
+    });
+    if (!shiten) {
+      throw new ValidationException([
+        { field: 'shiten_id', message: '支店IDが存在しません。' },
+      ]);
+    }
+    if (
+      expectedKanriShitenId != null &&
+      Number(shiten.kanriShitenId) !== Number(expectedKanriShitenId)
+    ) {
+      throw new ValidationException([
+        {
+          field: 'shiten_id',
+          message: '支店はアカウントの管理支店に属している必要があります。',
+        },
+      ]);
+    }
+    if (expectedJaId != null && Number(shiten.jaId) !== Number(expectedJaId)) {
+      throw new ValidationException([
+        {
+          field: 'shiten_id',
+          message: '支店はアカウントのJAに属している必要があります。',
+        },
+      ]);
+    }
+  }
 
   /**
    * Resolve `role_id` (DTO input, FK to m_roles.role_id) → `role_code`
@@ -246,6 +289,11 @@ export class AccountService {
         'ks',
         'a.kanri_shiten_id = ks.kanri_shiten_id AND ks.deleted_at IS NULL',
       )
+      .leftJoin(
+        'm_shiten',
+        's',
+        'a.shiten_id = s.shiten_id AND s.deleted_at IS NULL',
+      )
       .select([
         'a.account_id AS account_id',
         'a.login_id AS login_id',
@@ -258,6 +306,8 @@ export class AccountService {
         'j.ja_name AS ja_name',
         'a.kanri_shiten_id AS kanri_shiten_id',
         'ks.kanri_shiten_name AS kanri_shiten_name',
+        'a.shiten_id AS shiten_id',
+        's.shiten_name AS shiten_name',
         'a.email AS email',
         'a.sub_email_1 AS sub_email_1',
         'a.sub_email_2 AS sub_email_2',
@@ -548,6 +598,7 @@ export class AccountService {
     // lookup also acts as FK existence check for role_id.
     const roleCode = await this.resolveRoleCode(dto.role_id);
     const stripScope = isNichinoRole(roleCode);
+    const isKanriShitenRole = roleCode === RoleCode.JA_KANRI_SHITEN;
 
     // FK guard + Layer 4 DataScope — kanri_shiten must belong to the
     // account's JA (whether scoped or 代行入力 from NICHINO_STAFF).
@@ -568,10 +619,20 @@ export class AccountService {
       }
     }
 
+    // 所属支店(shiten_id)は JA管理支店アカウントのみ設定可・アカウントの管理支店配下
+    // でなければならない（顧客要件 2026-07）。
+    if (isKanriShitenRole && dto.shiten_id != null) {
+      await this.assertShitenBelongsToKanriShiten(
+        dto.shiten_id,
+        dto.kanri_shiten_id,
+        dto.ja_id ?? session.ja_id,
+      );
+    }
+
     const newRow: Partial<Account> = {
       loginId: dto.login_id,
       passwordHash,
-      ...this.buildAccountSharedPartial(dto, stripScope),
+      ...this.buildAccountSharedPartial(dto, stripScope, isKanriShitenRole),
       // Initial security state per §4.4 注記.
       loginFailureCount: 0,
       accountLockFlg: false,
@@ -647,6 +708,7 @@ export class AccountService {
     // role_code-driven scope check — same rationale as createAccount.
     const roleCode = await this.resolveRoleCode(dto.role_id);
     const stripScope = isNichinoRole(roleCode);
+    const isKanriShitenRole = roleCode === RoleCode.JA_KANRI_SHITEN;
 
     // FK guard + Layer 4 DataScope — new kanri_shiten (when provided)
     // must exist AND belong to the SAME JA as the existing account
@@ -670,9 +732,20 @@ export class AccountService {
       }
     }
 
+    // 所属支店(shiten_id)は JA管理支店アカウントのみ・実効管理支店配下（顧客要件
+    // 2026-07）。実効管理支店 = dto.kanri_shiten_id ?? before.kanriShitenId。
+    if (isKanriShitenRole && dto.shiten_id != null) {
+      await this.assertShitenBelongsToKanriShiten(
+        dto.shiten_id,
+        dto.kanri_shiten_id ?? before.kanriShitenId,
+        before.jaId,
+      );
+    }
+
     const updatePartial = await this.buildAccountUpdatePartial(
       dto,
       stripScope,
+      isKanriShitenRole,
       session,
     );
 
@@ -743,6 +816,9 @@ export class AccountService {
         kanri_shiten_id: query.kanri_shiten_id,
       });
     }
+    if (query.shiten_id !== undefined && query.shiten_id !== null) {
+      qb.andWhere('a.shiten_id = :shiten_id', { shiten_id: query.shiten_id });
+    }
   }
 
   private resolveAccountSortColumn(sortBy: AccountSearchSortBy): string {
@@ -777,6 +853,7 @@ export class AccountService {
       todofuken_code?: string | null;
       ja_id?: number | null;
       kanri_shiten_id?: number | null;
+      shiten_id?: number | null;
       email?: string;
       sub_email_1?: string;
       sub_email_2?: string;
@@ -786,6 +863,9 @@ export class AccountService {
       biko?: string;
     },
     stripScope: boolean,
+    // 所属支店は JA管理支店アカウントのみ設定可（顧客要件 2026-07）。それ以外の
+    // role では常に NULL に固定する。
+    isKanriShitenRole: boolean,
   ): Partial<Account> {
     return {
       accountName: dto.account_name,
@@ -793,6 +873,7 @@ export class AccountService {
       todofukenCode: stripScope ? null : (dto.todofuken_code ?? null),
       jaId: stripScope ? null : (dto.ja_id ?? null),
       kanriShitenId: stripScope ? null : (dto.kanri_shiten_id ?? null),
+      shitenId: isKanriShitenRole ? (dto.shiten_id ?? null) : null,
       email: dto.email ?? '',
       subEmail1: dto.sub_email_1 ?? '',
       subEmail2: dto.sub_email_2 ?? '',
@@ -806,10 +887,11 @@ export class AccountService {
   private async buildAccountUpdatePartial(
     dto: UpdateAccountDto,
     stripScope: boolean,
+    isKanriShitenRole: boolean,
     session: SessionPayload,
   ): Promise<Partial<Account>> {
     const updatePartial: Partial<Account> = {
-      ...this.buildAccountSharedPartial(dto, stripScope),
+      ...this.buildAccountSharedPartial(dto, stripScope, isKanriShitenRole),
       updatedBy: String(session.account_id),
     };
 
@@ -859,6 +941,11 @@ export class AccountService {
         'ks',
         'a.kanri_shiten_id = ks.kanri_shiten_id AND ks.deleted_at IS NULL',
       )
+      .leftJoin(
+        'm_shiten',
+        's',
+        'a.shiten_id = s.shiten_id AND s.deleted_at IS NULL',
+      )
       .select([
         'a.account_id AS account_id',
         'a.login_id AS login_id',
@@ -871,6 +958,8 @@ export class AccountService {
         'j.ja_name AS ja_name',
         'a.kanri_shiten_id AS kanri_shiten_id',
         'ks.kanri_shiten_name AS kanri_shiten_name',
+        'a.shiten_id AS shiten_id',
+        's.shiten_name AS shiten_name',
         'a.email AS email',
         'a.sub_email_1 AS sub_email_1',
         'a.sub_email_2 AS sub_email_2',

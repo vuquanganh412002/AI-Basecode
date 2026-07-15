@@ -9,7 +9,9 @@ import { buildAuditCtx } from '@/common/utils/audit-context';
 import { todayIsoJst, normalizeDbDate } from '@/common/utils/datetime';
 import {
   applyBranchScope,
+  applyShitenScope,
   assertBranchScopeViolation,
+  assertShitenScopeViolation,
   assertJaScopeViolation,
 } from '@/common/utils/data-scope';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
@@ -147,6 +149,8 @@ export class DokusyaReplaceService {
       { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
       session,
     );
+    // 所属支店スコープ（顧客要件 2026-07）— session.shiten_id 設定時のみ支店へ絞る。
+    applyShitenScope(qb, 'd', 'shiten_id', session);
 
     // §4.3 search filters.
     if (query.kanri_shiten_id !== undefined) {
@@ -321,11 +325,12 @@ export class DokusyaReplaceService {
     try {
       const summary = await this.dataSource.transaction(async (manager) => {
         // §4.5 — 各購読者を共通ライタ applyChange(UPDATE) で置換 (Pha3)。販売店
-        // (hanbaiten_id) のみ変更する UPDATE イベントなので、johoDate と
-        // hanbaitenDate を同じ販売店適用日に揃える（＝UI 編集 Rule2「販売店のみ
-        // 変更」と同一）。applyChange が差分→履歴INSERT→recomputeMaster まで担い、
-        // saishin_data_flg 無効化・rireki_no 採番・zenkai_hanbaiten_id 退避・
-        // 増減報告フラグ(hanbaiten はトリガ)を一元的に処理する。
+        // (hanbaiten_id) のみ変更する UPDATE。適用日は読者情報変更適用日(joho)に
+        // 統一され（顧客要件 2026-07: 販売店適用日を廃止）、置換画面の適用日を
+        // johoDate として渡す＝1更新1レコード（UI/取込と同一ロジック）。applyChange
+        // が差分→履歴INSERT→recomputeMaster まで担い、saishin 無効化・rireki_no
+        // 採番・zenkai_hanbaiten_id 退避・増減報告フラグを一元処理する。販売店を
+        // 変えた行なので hanbaiten_tekiyo_date=joho が設定される。
         let rirekiCount = 0;
         for (const before of candidates) {
           const dokusyaId = Number(before.dokusyaId);
@@ -336,7 +341,6 @@ export class DokusyaReplaceService {
             dokusyaId,
             values: { hanbaitenId: Number(dto.new_hanbaiten_id) },
             johoDate: dto.hanbaiten_tekiyo_date,
-            hanbaitenDate: dto.hanbaiten_tekiyo_date,
             source: 'REPLACE_HANBAITEN',
             actor: String(session.account_id),
             reason: '販売店一括置換',
@@ -403,6 +407,11 @@ export class DokusyaReplaceService {
       assertBranchScopeViolation(
         Number(c.jaId),
         c.kanriShitenId == null ? null : Number(c.kanriShitenId),
+        session,
+      );
+      // 所属支店スコープ（顧客要件 2026-07）— 他支店の読者は置換対象にできない。
+      assertShitenScopeViolation(
+        c.shitenId == null ? null : Number(c.shitenId),
         session,
       );
     }

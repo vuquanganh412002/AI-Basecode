@@ -755,6 +755,7 @@ export class AuthService {
       ja_id: account.jaId !== null ? Number(account.jaId) : null,
       kanri_shiten_id:
         account.kanriShitenId !== null ? Number(account.kanriShitenId) : null,
+      shiten_id: account.shitenId !== null ? Number(account.shitenId) : null,
       permissions,
     };
 
@@ -774,6 +775,7 @@ export class AuthService {
         ja_id: account.jaId !== null ? Number(account.jaId) : null,
         kanri_shiten_id:
           account.kanriShitenId !== null ? Number(account.kanriShitenId) : null,
+        shiten_id: account.shitenId !== null ? Number(account.shitenId) : null,
         todofuken_code: account.todofukenCode,
         paper_flg: account.paperFlg,
         denshi_flg: account.denshiFlg,

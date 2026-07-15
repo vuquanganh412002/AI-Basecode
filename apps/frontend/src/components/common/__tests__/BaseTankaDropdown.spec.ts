@@ -28,6 +28,8 @@ function buildResponse(
       tanka_code: '0000001',
       tanka_type: 2,
       kingaku_zeikomi: 100,
+      kingaku_zeinuki: 90,
+      kingaku: 100,
       ...r,
     })),
     meta: {

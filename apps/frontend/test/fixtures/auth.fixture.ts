@@ -14,6 +14,7 @@ export function buildUser(overrides: Partial<User> = {}): User {
     role_name: '日農（管理者）',
     ja_id: null,
     kanri_shiten_id: null,
+    shiten_id: null,
     todofuken_code: null,
     paper_flg: false,
     denshi_flg: false,

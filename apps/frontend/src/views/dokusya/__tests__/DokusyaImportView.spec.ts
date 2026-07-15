@@ -204,23 +204,22 @@ beforeEach(() => {
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
-  it('should render the selectable column checkboxes all checked in NEW mode, excluding the UPDATE-only date columns', async () => {
+  it('should render the selectable column checkboxes all checked in NEW mode, excluding the UPDATE-only date column', async () => {
     const { wrapper } = await renderView();
     // 機能 1.1 — 取込列パネルは展開済み。新規登録では変更イベント日
-    // （読者情報変更適用日 / 販売店適用日）は対象外でチェックボックスを出さず
-    // グレー表示にする（49列中2列を除く47列がチェックボックス＋全選択済み）。
+    // （読者情報変更適用日）は対象外でチェックボックスを出さずグレー表示にする
+    // （49列中1列を除く48列がチェックボックス＋全選択済み。販売店適用日は廃止・
+    // 顧客要件 2026-07）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
     expect(colCheckboxes.length).toBe(48);
     for (const cb of colCheckboxes) {
       const el = cb.element as HTMLInputElement;
-      expect(['joho_henko_tekiyo_date', 'hanbaiten_tekiyo_date']).not.toContain(
-        el.value,
-      );
+      expect(el.value).not.toBe('joho_henko_tekiyo_date');
       expect(el.checked).toBe(true);
     }
-    // 除外2列はラベルとしては表示される（グレー）。
+    // 除外列(joho)はラベルとしては表示される（グレー）。販売店適用日は列自体が無い。
     expect(wrapper.text()).toContain('読者情報変更適用日');
-    expect(wrapper.text()).toContain('販売店適用日');
+    expect(wrapper.text()).not.toContain('販売店適用日');
   });
 
   it('should render every Japanese column header label when the view first mounts', async () => {

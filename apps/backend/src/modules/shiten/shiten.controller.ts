@@ -65,17 +65,29 @@ export class ShitenController {
   @ApiOperation({ summary: '支店プルダウン (SCR-011 用)' })
   @ApiResponse({ status: 200, description: 'Dropdown projection.' })
   async listShitenDropdown(
-    @Query() query: { ja_id?: string; kinyu_shiten_flg?: string; q?: string },
+    @Query()
+    query: {
+      ja_id?: string;
+      kanri_shiten_id?: string;
+      kinyu_shiten_flg?: string;
+      q?: string;
+    },
     @Req() req: Request & { user: SessionPayload },
   ) {
     const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
+    // 管理支店で絞り込む（顧客要件2026-07・SCR-025 所属支店 / SCR-011）。選択した
+    // 管理支店配下の支店のみをドロップダウンに出す。未指定なら絞らない。
+    const kanriShitenId =
+      query.kanri_shiten_id === undefined
+        ? undefined
+        : Number(query.kanri_shiten_id);
     // Query-string booleans arrive as 'true' / 'false' / undefined; coerce.
     let kinyuFlg: boolean | undefined;
     if (query.kinyu_shiten_flg === 'true') kinyuFlg = true;
     else if (query.kinyu_shiten_flg === 'false') kinyuFlg = false;
     const q = typeof query.q === 'string' ? query.q : undefined;
     const data = await this.service.listDropdown(
-      { ja_id: jaId, kinyu_shiten_flg: kinyuFlg, q },
+      { ja_id: jaId, kanri_shiten_id: kanriShitenId, kinyu_shiten_flg: kinyuFlg, q },
       req.user,
     );
     return {

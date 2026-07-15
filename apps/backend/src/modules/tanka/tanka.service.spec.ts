@@ -471,6 +471,7 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           tankaName: '配達手数料A',
           tankaType: 2,
           kingakuZeikomi: 100,
+          kingakuZeinuki: 90,
         },
         {
           tankaId: 12,
@@ -478,10 +479,11 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           tankaName: '配達手数料B',
           tankaType: 2,
           kingakuZeikomi: 150,
+          kingakuZeinuki: 140,
         },
       ];
       qbMock.getManyAndCount.mockResolvedValue([rows, 137]);
-
+      // 税区分不明（既定 mock は zei_kubun を返さない）→ kingaku は税込で既定。
       const result = await service.getDropdown(
         { tanka_type: 2, page: 1, per_page: 50 } as any,
         buildChuokaiSession({ ja_id: 1 }),
@@ -494,6 +496,8 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           tanka_name: '配達手数料A',
           tanka_type: 2,
           kingaku_zeikomi: 100,
+          kingaku_zeinuki: 90,
+          kingaku: 100,
         },
         {
           tanka_id: 12,
@@ -501,6 +505,8 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           tanka_name: '配達手数料B',
           tanka_type: 2,
           kingaku_zeikomi: 150,
+          kingaku_zeinuki: 140,
+          kingaku: 150,
         },
       ]);
       expect(result.meta).toEqual({
@@ -509,6 +515,84 @@ describe('TankaService — SCR-002 (list / delete)', () => {
         per_page: 50,
         has_more: true,
       });
+    });
+
+    it('should resolve kingaku from 税込 (kingaku_zeikomi) when JA zei_kubun=1', async () => {
+      const rows = [
+        {
+          tankaId: 11,
+          tankaCode: '0001001',
+          tankaName: '基本購読料',
+          tankaType: 1,
+          kingakuZeikomi: 4900,
+          kingakuZeinuki: 4500,
+        },
+      ];
+      qbMock.getManyAndCount.mockResolvedValue([rows, 1]);
+      dataSource.query.mockImplementation(async (sql: string) =>
+        sql.includes('zei_kubun') ? [{ zei_kubun: 1 }] : [{ count: '0' }],
+      );
+
+      const result = await service.getDropdown(
+        { tanka_type: 1 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.data[0].kingaku).toBe(4900);
+    });
+
+    it('should resolve kingaku from 税抜 (kingaku_zeinuki) when JA zei_kubun=2', async () => {
+      const rows = [
+        {
+          tankaId: 11,
+          tankaCode: '0001001',
+          tankaName: '基本購読料',
+          tankaType: 1,
+          kingakuZeikomi: 4900,
+          kingakuZeinuki: 4500,
+        },
+      ];
+      qbMock.getManyAndCount.mockResolvedValue([rows, 1]);
+      dataSource.query.mockImplementation(async (sql: string) =>
+        sql.includes('zei_kubun') ? [{ zei_kubun: 2 }] : [{ count: '0' }],
+      );
+
+      const result = await service.getDropdown(
+        { tanka_type: 1 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.data[0].kingaku).toBe(4500);
+    });
+
+    it('should resolve effective JA from query.ja_id for NICHINO_STAFF (ja_id=null)', async () => {
+      const rows = [
+        {
+          tankaId: 11,
+          tankaCode: '0001001',
+          tankaName: '基本購読料',
+          tankaType: 1,
+          kingakuZeikomi: 4900,
+          kingakuZeinuki: 4500,
+        },
+      ];
+      qbMock.getManyAndCount.mockResolvedValue([rows, 1]);
+      const zeiCall = jest.fn(async (sql: string, _params?: unknown[]) =>
+        sql.includes('zei_kubun') ? [{ zei_kubun: 2 }] : [{ count: '0' }],
+      );
+      dataSource.query.mockImplementation(zeiCall);
+
+      const result = await service.getDropdown(
+        { tanka_type: 1, ja_id: 7 } as any,
+        buildSession({ role_code: 'NICHINO_STAFF', ja_id: null }),
+      );
+
+      // 代行入力の選択 JA(7) の税区分で解決する。
+      const zeiSqlCall = zeiCall.mock.calls.find(([sql]) =>
+        sql.includes('zei_kubun'),
+      );
+      expect(zeiSqlCall?.[1]).toEqual([7]);
+      expect(result.data[0].kingaku).toBe(4500);
     });
 
     it('should filter by tanka_type when provided', async () => {

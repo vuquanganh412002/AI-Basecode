@@ -43,7 +43,7 @@ export class DokusyaResponseDto {
   @ApiProperty() renrakusaki_1: string;
   @ApiProperty() renrakusaki_2: string;
   @ApiProperty() email: string;
-  @ApiProperty() mail_magazine_flg: number;
+  @ApiProperty({ nullable: true }) mail_magazine_flg: number | null;
   @ApiProperty({ nullable: true }) birth_year: number | null;
   @ApiProperty({ nullable: true }) gender: number | null;
   @ApiProperty() haitatsu_same_flg: boolean;

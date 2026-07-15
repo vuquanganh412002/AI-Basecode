@@ -28,7 +28,10 @@ describe('ReportNotificationService', () => {
   let mailService: any;
 
   beforeEach(() => {
-    accountRepo = { find: jest.fn().mockResolvedValue([]) };
+    accountRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({ accountName: '' }),
+    };
     mailService = { sendNotification: jest.fn().mockResolvedValue(undefined) };
     service = new ReportNotificationService(accountRepo, mailService);
   });
@@ -99,5 +102,70 @@ describe('ReportNotificationService', () => {
     const count = await service.notifyRoles([1, 2], { subject: 's', body: 'b' });
     expect(count).toBe(0);
     expect(mailService.sendNotification).not.toHaveBeenCalled();
+  });
+
+  // 顧客要件2026-07 — SCR-029 メールレイアウト（都道府県 + 発行アカウント）。
+  describe('notifyNichinoExport', () => {
+    const baseParams = {
+      session: {
+        account_id: 12,
+        login_id: 'ja_kanri01',
+      } as any,
+      todofukenName: '東京都',
+      tekiyoDate: '2026-03-01',
+      fileName: '増減通知_JAテスト_1301002001_20260301.pdf',
+      recordCount: 19,
+    };
+
+    it('builds subject with 【都道府県】【ログインID アカウント名】 and notifies roles [1,2]', async () => {
+      accountRepo.findOne.mockResolvedValue({ accountName: '管理支店 太郎' });
+      accountRepo.find.mockResolvedValue([acc('n@x.jp', '', '', '', 1)]);
+
+      const count = await service.notifyNichinoExport(baseParams);
+
+      expect(count).toBe(1);
+      expect(accountRepo.find).toHaveBeenCalledWith({
+        where: { roleId: In([1, 2]), deletedAt: IsNull() },
+      });
+      const [, subject] = mailService.sendNotification.mock.calls[0];
+      expect(subject).toBe(
+        '【東京都】【ja_kanri01 管理支店 太郎】増減通知（日本農業新聞）を出力しました',
+      );
+    });
+
+    it('includes issuer, 適用日(YYYYMMDD), ファイル名, 件数 and the download line in the body', async () => {
+      accountRepo.findOne.mockResolvedValue({ accountName: '管理支店 太郎' });
+      accountRepo.find.mockResolvedValue([acc('n@x.jp', '', '', '', 1)]);
+
+      await service.notifyNichinoExport(baseParams);
+
+      const [, , body] = mailService.sendNotification.mock.calls[0];
+      expect(body).toContain('JA名：ja_kanri01 管理支店 太郎');
+      expect(body).toContain('適用日：20260301');
+      expect(body).toContain('ファイル名：増減通知_JAテスト_1301002001_20260301.pdf');
+      expect(body).toContain('件数：19件');
+      expect(body).toContain('ファイル管理画面からダウンロードできます。');
+    });
+
+    it('falls back to login_id only (trimmed) when account_name resolves empty', async () => {
+      accountRepo.findOne.mockResolvedValue({ accountName: '' });
+      accountRepo.find.mockResolvedValue([acc('n@x.jp', '', '', '', 1)]);
+
+      await service.notifyNichinoExport(baseParams);
+
+      const [, subject] = mailService.sendNotification.mock.calls[0];
+      expect(subject).toBe(
+        '【東京都】【ja_kanri01】増減通知（日本農業新聞）を出力しました',
+      );
+    });
+
+    it('never throws when account_name lookup fails (issuer = login_id only)', async () => {
+      accountRepo.findOne.mockRejectedValue(new Error('db-down'));
+      accountRepo.find.mockResolvedValue([acc('n@x.jp', '', '', '', 1)]);
+
+      await expect(service.notifyNichinoExport(baseParams)).resolves.toBe(1);
+      const [, subject] = mailService.sendNotification.mock.calls[0];
+      expect(subject).toContain('【ja_kanri01】');
+    });
   });
 });

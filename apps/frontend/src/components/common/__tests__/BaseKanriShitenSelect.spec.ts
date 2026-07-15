@@ -15,7 +15,7 @@ function buildResponse(
   meta: Partial<{ total: number; page: number; per_page: number; has_more: boolean }> = {},
 ) {
   return {
-    data: rows,
+    data: rows.map((r) => ({ paper_flg: true, denshi_flg: true, ...r })),
     meta: {
       total: meta.total ?? rows.length,
       page: meta.page ?? 1,

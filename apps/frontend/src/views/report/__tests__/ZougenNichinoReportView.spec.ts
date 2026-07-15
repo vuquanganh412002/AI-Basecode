@@ -262,6 +262,18 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
     expect(text).toContain('新部数');
   });
 
+  it('should render 減部数 with the ▲ minus sign in the preview (顧客要件2026-07)', async () => {
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    // fixture: 明細の gen_busu=1 / 合計 gen_busu=1 → 「▲1」で表示する。
+    expect(wrapper.text()).toContain('▲1');
+  });
+
   it('should render the 販売店コード + 販売店名 detail row when previewZougenNichino resolves data', async () => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';

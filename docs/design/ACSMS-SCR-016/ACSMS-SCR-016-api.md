@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/16 | 1.1  | Tran Duc Tuyen | 不具合修正：UPDATE_ALL / UPDATE_PARTIAL の更新カラム欠落を修正。`UPDATE_ALL` は §4.4.2 の全項目（email / 郵便番号 / 都道府県 / 住所 / 配達先 / 口座 / 単価・販売店 等）を更新するよう実装を是正（旧実装は7列のみ）。`UPDATE_PARTIAL` の更新可能カラムを取込テンプレート全項目（FKコード列 hanbaiten_code→hanbaiten_id / tanka_code→tanka_id 解決含む）へ拡張。NOT NULL の FK・参照列（管理支店 / 支店 / 販売店 / 単価 / 購読種別 / 手続種類 / 支払方法）は空欄上書きで制約違反にならないよう `COALESCE(:値, 既存値)` で既存値を維持。購読開始日(初回・shoki_dokusya_kaishi_date)は不変のため更新対象外。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/06/25 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06：(1) **手続種類カラムをテンプレート/取込列から削除**。取込で解約は扱わず、NEW は `tetsuzuki_shurui=1`（新規）固定、UPDATE は手続種類を変更しない（既存値維持）。(2) **販売店適用日カラムを追加**（テンプレート末尾）。(3) UPDATE は読者情報変更適用日が必須、販売店が変わる行は販売店適用日が必須（IMPORT_VALIDATION_ERROR）。(4) **UPDATE で情報変更と販売店変更が同時のとき履歴を2件に分割**（情報イベント: hanbaiten_tekiyo_date=NULL / 販売店イベント: hanbaiten_tekiyo_date=joho_henko=販売店適用日。適用日が早い方を先・遅い方を saishin_data_flg=true。UI 編集 SCR-011/013 §14.3 と同一ロジック）。旧 §4.4.4 一括中止（解約）は廃止。(5) **「購読者情報と同じ」(haitatsu_same_flg) 列を追加**（配達先列の直前）。TRUE なら配達先＝購読者住所で配達先列は空でよい。BE は推論せず列値を採用（列が空欄の行のみ従来の自動判定）。取込列上限は 49→50 に拡張。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/07/13 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07：**販売店適用日カラムを廃止**し、適用日を読者情報変更適用日(joho_henko_tekiyo_date)に統一（販売店・支払方法を含む全変更の唯一の適用日）。取込 UPDATE も **1更新1レコード**（情報+販売店を同時に変えても履歴は1件。UI編集 SCR-011/013・一括置換 SCR-015 と同一ロジックに完全統一）。v1.2 の「2件分割」と「販売店が変わる行は販売店適用日が必須」を撤廃。取込列上限は 50→49、テンプレート・列パネルから販売店適用日を除去。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -151,10 +152,9 @@ updated_by: Tran Duc Tuyen
 | 47 | 購読中止日                       | 購読中止日                 | dokusya_chushi_date        | DATE          | -    |
 | 48 | 備考                             | 備考                       | biko                       | TEXT          | -    |
 | 49 | 読者情報変更適用日               | 読者情報変更適用日         | joho_henko_tekiyo_date     | DATE          | -    |
-| 50 | 販売店適用日（v1.2 追加）        | 販売店適用日               | hanbaiten_tekiyo_date      | DATE          | -    |
 
-> v1.2（顧客要件 2026-06）: 列3「手続種類」は削除（取込で解約は扱わない。NEW は新規(1)固定・UPDATE は変更不可）。列50「販売店適用日」を追加（販売店が変わる UPDATE 行で必須。履歴の販売店イベント日）。実カラム順の正準は BE `IMPORT_TEMPLATE_HEADERS`。
-> **NEW（新規登録）モードでは「読者情報変更適用日」「販売店適用日」は対象外**（履歴の変更イベント日であり新規登録に概念が無いため。取込列パネルでは未チェック＋disable、保存時も NULL）。両列は UPDATE_ALL / UPDATE_PARTIAL でのみ使用する。
+> v1.3（顧客要件 2026-07）: 「販売店適用日」列を**廃止**し、適用日は「読者情報変更適用日」(joho_henko_tekiyo_date) に統一（販売店・支払方法を含む全変更の唯一の適用日）。取込 UPDATE も **1更新1レコード**（情報+販売店を同時に変えても履歴は1件。UI編集/一括置換と同一ロジック）。取込列は 50→49。実カラム順の正準は BE `IMPORT_TEMPLATE_HEADERS`。
+> **NEW（新規登録）モードでは「読者情報変更適用日」は対象外**（履歴の変更イベント日であり新規登録に概念が無いため。取込列パネルでは未チェック＋disable、保存時は購読開始日に揃える）。UPDATE でのみ使用する。
 
 ## リクエスト例
 
@@ -532,9 +532,8 @@ Content-Type: application/json
     - `email`：メールアドレス形式チェック
     - `birth_year`：1900〜現在年
     - `dokusya_busu`：1 以上（v1.2 — 解約は取込対象外のため 0 入力なし）
-    - `joho_henko_tekiyo_date`：UPDATE_ALL / UPDATE_PARTIAL では必須（履歴の情報変更イベント日。v1.2）
-    - `hanbaiten_tekiyo_date`：UPDATE で販売店が変わる行は必須（履歴の販売店イベント日。v1.2）
-    - `dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date` / `hanbaiten_tekiyo_date`：`YYYY-MM-DD` 形式
+    - `joho_henko_tekiyo_date`：UPDATE では必須・未来日のみ（販売店・支払方法を含む全変更の唯一の適用日。v1.3 — 販売店適用日を廃止し joho に統一）
+    - `dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date`：`YYYY-MM-DD` 形式
     - `renrakusaki_1` / `renrakusaki_2`：数字のみ保存
     - `hikiotoshi_koza_meigi`：全角カナ→半角カナ変換
 - 業務ルールチェック：
@@ -786,10 +785,9 @@ RETURNING *
 - 取込モードに関わらず、取り込んだデータ件数分のレコードを `t_dokusya_rireki` に追加する。
 - 履歴No（`rireki_no`）は `t_dokusya.rireki_no` の値を引き継ぐ。
 - `saishin_data_flg` は新規追加レコードのみ TRUE、既存履歴は FALSE に更新する。
-- **v1.2（顧客要件 2026-06）— UPDATE での履歴分割**: 情報変更（購読部数/住所等）と販売店変更が同一行で同時に起きた場合は履歴を **2件に分割**する（UI 編集 SCR-011/013 §14.3 と同一ロジック・共通実装）。
-  - 情報変更イベント: `hanbaiten_tekiyo_date=NULL`、`joho_henko_tekiyo_date`=読者情報変更適用日。
-  - 販売店変更イベント: `hanbaiten_tekiyo_date = joho_henko_tekiyo_date`=販売店適用日。
-  - 適用日が早いイベントを先（`rireki_no` 小）、遅い方を後＋`saishin_data_flg=TRUE`。同日は 情報→販売店 の順。各レコードの `zenkai_*` / `zougen_hokoku_flg` は直前状態との差分で算出。
+- **v1.3（顧客要件 2026-07）— UPDATE は1更新1レコード**: 販売店適用日を廃止し、適用日は `joho_henko_tekiyo_date` に統一。情報変更（購読部数/住所等）と販売店変更が同一行で同時に起きても履歴は **1件**にまとめる（UI編集 SCR-011/013・一括置換 SCR-015 と同一ロジック・共通実装）。旧 v1.2 の「適用日順に2件分割」は廃止。
+  - 追加レコード: `joho_henko_tekiyo_date`=読者情報変更適用日。販売店を変更した行は `hanbaiten_tekiyo_date = joho_henko_tekiyo_date`（同値）、変更しない行は `hanbaiten_tekiyo_date=NULL`。
+  - `saishin_data_flg` は当日基準の再計算（recomputeMaster）で確定。`zenkai_*` / `zougen_hokoku_flg` は直前状態との差分で算出。
   - 取込で解約は扱わないため `kaiyaku_flg` は常に FALSE。`shinki_flg` は NEW かつ手続種類=新規(1) のときのみ TRUE。
 
 ```sql
@@ -839,7 +837,9 @@ VALUES (
   :zougen_hokoku_flg, :shinki_flg, :kaiyaku_flg,
   :zenkai_hanbaiten_id, :zenkai_dokusya_busu, :zenkai_yubin_no,
   :zenkai_todofuken_code, :zenkai_shikuchoson, :zenkai_chome_banchi, :zenkai_tatemono_mei,
-  :hanbaiten_tekiyo_date,
+  -- 販売店を変更した行のみ joho_henko_tekiyo_date と同値、変更しない行は NULL
+  -- （v1.3: 販売店適用日は入力列を廃止し joho から導出）
+  CASE WHEN :hanbaiten_changed THEN :joho_henko_tekiyo_date ELSE NULL END,
   NOW(), :user_account_id
 )
 ```

@@ -261,14 +261,15 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
 
       const header = (sheet.getRow(1).values as unknown[]).slice(1);
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
-      // v1.2（顧客要件 2026-06）: 手続種類を削除し、購読者情報と同じ / 販売店適用日 を
-      // 追加（49 → 50 列）。
-      expect(header.length).toBe(50);
+      // v1.3（顧客要件 2026-07）: 販売店適用日を廃止し、適用日は読者情報変更適用日に
+      // 統一（50 → 49 列。1更新1レコード・UI/置換と同一）。
+      expect(header.length).toBe(49);
       // Sample demonstrates a valid 紙版 / 新規 format example.
       expect(Number(sample[header.indexOf('購読種別')])).toBe(1);
       expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）
-      expect(header).toContain('購読者情報と同じ'); // 追加
-      expect(header).toContain('販売店適用日'); // 追加
+      expect(header).toContain('購読者情報と同じ');
+      expect(header).not.toContain('販売店適用日'); // 廃止（joho に統一）
+      expect(header).toContain('読者情報変更適用日'); // 唯一の適用日
       expect(String(sample[header.indexOf('備考')])).toContain('書き換えて');
     });
   });
@@ -608,8 +609,9 @@ describeRealPg(
       expect(fields).toContain('dokusya_kaishi_date');
     });
 
-    it('should return 400 IMPORT_VALIDATION_ERROR (販売店適用日 >= 解約予定日) on UPDATE import', async () => {
-      // §4.1 適用日整合性 — 販売店適用日 < 解約予定日(before)。
+    it('should return 400 IMPORT_VALIDATION_ERROR (読者情報変更適用日 >= 解約予定日) on UPDATE import', async () => {
+      // §4.1 適用日整合性 — 適用日(joho) < 解約予定日(before)。販売店適用日は廃止し
+      // joho に統一（顧客要件 2026-07）ので、範囲違反は joho フィールドで返る。
       const sid = await asJaHonten(1);
       const cookie = [buildSessionCookie(ctx.app, sid)];
       await http()
@@ -632,7 +634,7 @@ describeRealPg(
               buildImportRow({
                 kumiaiin_code: 'KDATE2',
                 dokusya_busu: 5,
-                hanbaiten_tekiyo_date: '2026-09-01', // >= chushi & >= today
+                joho_henko_tekiyo_date: '2026-09-01', // >= chushi & >= today
               }),
             ],
           }),
@@ -640,7 +642,7 @@ describeRealPg(
         .expect(400);
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
-      expect(fields).toContain('hanbaiten_tekiyo_date');
+      expect(fields).toContain('joho_henko_tekiyo_date');
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (解約予定日 過去日) on UPDATE import (顧客要件 2026-07)', async () => {

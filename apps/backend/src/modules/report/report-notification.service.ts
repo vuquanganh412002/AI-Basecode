@@ -4,7 +4,11 @@ import { In, IsNull, Repository } from 'typeorm';
 
 import { collectAccountEmails } from '@/common/utils/account-emails';
 import { Account } from '@/database/entities/account.entity';
+import type { SessionPayload } from '@/modules/auth/session.service';
 import { MailService } from '@/modules/mail/mail.service';
+
+/** 増減通知の通知先ロール: NICHINO_ADMIN(1) / NICHINO_STAFF(2)（m_roles SERIAL 順）。 */
+const NICHINO_NOTIFY_ROLE_IDS = [1, 2];
 
 /**
  * 帳票出力時に、指定ロールのアカウント宛へ通知メールを自動送信する共通サービス。
@@ -78,6 +82,56 @@ export class ReportNotificationService {
       recipientCount: recipients.length,
     });
     return recipients.length;
+  }
+
+  /**
+   * SCR-029 増減通知の出力完了メールを日農担当者（NICHINO_ADMIN/STAFF）へ送信する。
+   *
+   * 顧客要件2026-07（メールレイアウト）:
+   * - 件名: `【{都道府県}】【{ログインID} {アカウント名}】増減通知（日本農業新聞）を出力しました`
+   * - 本文: 発行アカウント（ログインID+アカウント名）・適用日・ファイル名・件数を記載。
+   *   当社事務担当者が都道府県別に分かれているため、都道府県と出力アカウントを
+   *   メール上で特定できるようにする。個人情報（購読者の氏名・住所等）は含めない。
+   *
+   * account_name は session に無いため m_account を引く（accountRepo）。
+   * 都道府県名は呼び出し側が対象データ（管理支店）の都道府県名を渡す。
+   */
+  async notifyNichinoExport(params: {
+    session: SessionPayload;
+    todofukenName: string;
+    /** 適用日（`YYYY-MM-DD`）。本文には `YYYYMMDD` で表示する。 */
+    tekiyoDate: string;
+    /** 表示ファイル名（タイムスタンプ無し）。 */
+    fileName: string;
+    recordCount: number;
+  }): Promise<number> {
+    const accountName = await this.resolveAccountName(params.session.account_id);
+    // 発行アカウント表示: ログインID + アカウント名（運用上 OAコード / OA表示名 に一致）。
+    const issuer = `${params.session.login_id} ${accountName}`.trim();
+    const ymd = params.tekiyoDate.replaceAll('-', '');
+    const subject = `【${params.todofukenName}】【${issuer}】増減通知（日本農業新聞）を出力しました`;
+    const body =
+      `<p>増減通知（日本農業新聞）を出力しました。</p>` +
+      `<p>JA名：${issuer}<br>` +
+      `適用日：${ymd}<br>` +
+      `ファイル名：${params.fileName}<br>` +
+      `件数：${params.recordCount}件</p>` +
+      `<p>ファイル管理画面からダウンロードできます。</p>`;
+    return this.notifyRoles(NICHINO_NOTIFY_ROLE_IDS, { subject, body });
+  }
+
+  /** account_id → account_name（見つからない/削除済みは空文字）。 */
+  private async resolveAccountName(accountId: number): Promise<string> {
+    try {
+      const acc = await this.accountRepo.findOne({
+        where: { accountId, deletedAt: IsNull() },
+        select: ['accountName'],
+      });
+      return acc?.accountName ?? '';
+    } catch {
+      // 宛先解決同様 non-fatal。名前が取れなくてもメール送信は継続する。
+      return '';
+    }
   }
 }
 

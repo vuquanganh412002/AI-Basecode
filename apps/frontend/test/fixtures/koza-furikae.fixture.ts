@@ -42,8 +42,8 @@ export function buildKozaFurikaeInitial(overrides: Record<string, unknown> = {})
 export function buildKanriShitenDropdown() {
   return {
     data: [
-      { kanri_shiten_id: 1, kanri_shiten_code: 'KS01', kanri_shiten_name: '千代田支所' },
-      { kanri_shiten_id: 2, kanri_shiten_code: 'KS02', kanri_shiten_name: '渋谷支所' },
+      { kanri_shiten_id: 1, kanri_shiten_code: 'KS01', kanri_shiten_name: '千代田支所', paper_flg: true, denshi_flg: true },
+      { kanri_shiten_id: 2, kanri_shiten_code: 'KS02', kanri_shiten_name: '渋谷支所', paper_flg: true, denshi_flg: true },
     ],
   };
 }

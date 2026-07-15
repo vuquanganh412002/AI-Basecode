@@ -67,6 +67,17 @@ export class UpdateAccountDto {
   @IsInt({ message: '管理支店IDは整数で指定してください。' })
   kanri_shiten_id?: number | null;
 
+  @ApiPropertyOptional({
+    description:
+      '所属支店ID (FK: m_shiten)。JA管理支店アカウントのみ設定可（任意）。設定時は' +
+      'その支店の読者のみ参照・編集・追加でき、帳票5画面は使用不可（顧客要件 2026-07）。',
+    nullable: true,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '支店IDは整数で指定してください。' })
+  shiten_id?: number | null;
+
   @ApiProperty({ description: 'アカウント名', maxLength: 50 })
   @IsString({ message: 'アカウント名は文字列で指定してください。' })
   @IsNotEmpty({ message: 'アカウント名は必須です。' })

@@ -44,8 +44,8 @@ export interface DokusyaDetail {
   renrakusaki_1: string;
   renrakusaki_2: string;
   email: string;
-  /** m_code.code_category='MAIL_MAGAZINE_FLG' — 0=配信しない, 1=配信する. */
-  mail_magazine_flg: number;
+  /** m_code.code_category='MAIL_MAGAZINE_FLG' — 0=配信しない, 1=配信する。電子版用項目のため紙版時は null. */
+  mail_magazine_flg: number | null;
   birth_year: number | null;
   /** m_code.code_category='GENDER'. */
   gender: number | null;
@@ -142,7 +142,7 @@ export interface CreateDokusyaRequest {
   renrakusaki_1: string;
   renrakusaki_2?: string;
   email?: string;
-  mail_magazine_flg?: number;
+  mail_magazine_flg?: number | null;
   birth_year?: number | null;
   gender?: number | null;
   haitatsu_same_flg: boolean;
@@ -173,20 +173,24 @@ export interface CreateDokusyaRequest {
   dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
   dokusya_chushi_date?: string | null;
-  /** YYYY-MM-DD — 情報変更適用日（別フィールド変更用・後日定義）。当面 null。 */
-  joho_henko_tekiyo_date?: string | null;
   /**
-   * YYYY-MM-DD — 販売店適用日。編集で販売店を変更したときのみ送る（当日以降）。
-   * BE は t_dokusya_rireki.hanbaiten_tekiyo_date に記録する。
+   * YYYY-MM-DD — 読者情報変更適用日。販売店・支払方法を含む全変更の唯一の適用日
+   * （顧客要件 2026-07: 販売店適用日を廃止し joho に統一。1更新1レコード）。
    */
-  hanbaiten_tekiyo_date?: string | null;
+  joho_henko_tekiyo_date?: string | null;
   /** YYYYMM. */
   seikyu_kaishi_month?: string;
   biko?: string;
 }
 
-/** PUT /api/v1/dokusya/:id — identical to Create per api.md §API-011-003. */
-export type UpdateDokusyaRequest = CreateDokusyaRequest;
+/**
+ * PUT /api/v1/dokusya/:id — Create と同一構造（api.md §API-011-003）に加え、
+ * 情報変更モード `change_mode`（当日変更/予約変更・顧客要件2026-07）を持つ。
+ */
+export type UpdateDokusyaRequest = CreateDokusyaRequest & {
+  /** 'today'=当日変更（適用日=本日固定） / 'reserved'=予約変更（未来日）。 */
+  change_mode?: 'today' | 'reserved';
+};
 
 /** Envelope for GET-detail responses — `{ data: DokusyaDetail }`. */
 export interface DokusyaEnvelope {
@@ -439,8 +443,8 @@ export interface DokusyaRirekiItem {
   renrakusaki_1: string;
   renrakusaki_2: string;
   email: string;
-  /** m_code.code_category='MAIL_MAGAZINE_FLG'. */
-  mail_magazine_flg: number;
+  /** m_code.code_category='MAIL_MAGAZINE_FLG'。電子版用項目のため紙版時は null. */
+  mail_magazine_flg: number | null;
   birth_year: number | null;
   /** m_code.code_category='GENDER'. */
   gender: number | null;

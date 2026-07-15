@@ -77,6 +77,15 @@ function kumiaiName(report: ZougenNichinoPreviewData['reports'][number]): string
   return `${groupKanriShitenCode(report.kanri_shiten_code)}: ${report.ja_name} ${report.kanri_shiten_name}`;
 }
 
+/**
+ * 減部数の表示（顧客要件2026-07）: 減がある場合はマイナス符号「▲」を付ける
+ * （例: 2部減 → 「▲2」）。gen_busu は正の減部数で届くため、正値のとき「▲」を
+ * 前置、0 は「0」のまま。PDF(zougen-nichino.mapper.ts の formatGenBusu)と同一仕様。
+ */
+function formatGenBusu(genBusu: number): string {
+  return genBusu > 0 ? `▲${genBusu}` : String(genBusu);
+}
+
 function validate(): boolean {
   fieldErrors.tekiyo_date = '';
   fieldErrors.kanri_shiten_id = '';
@@ -350,7 +359,7 @@ defineExpose({ formState });
                 <td class="border border-border-strong px-2 py-1.5">{{ row.hanbaiten_name }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.genzai_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.zou_busu }}</td>
-                <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.gen_busu }}</td>
+                <td class="border border-border-strong px-2 py-1.5 text-right">{{ formatGenBusu(row.gen_busu) }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ row.shin_busu }}</td>
               </tr>
               <!-- 合計行 -->
@@ -359,7 +368,7 @@ defineExpose({ formState });
                 <td class="border border-border-strong px-2 py-1.5 text-center" colspan="3">合計</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.genzai_busu }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.zou_busu }}</td>
-                <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.gen_busu }}</td>
+                <td class="border border-border-strong px-2 py-1.5 text-right">{{ formatGenBusu(report.total.gen_busu) }}</td>
                 <td class="border border-border-strong px-2 py-1.5 text-right">{{ report.total.shin_busu }}</td>
               </tr>
             </tbody>

@@ -1,7 +1,6 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { AuditOperation } from '@/common/enums';
 import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Job } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
@@ -74,7 +73,6 @@ export class FileUploadNotificationWorker extends WorkerHost {
     private readonly jaRepo: Repository<Ja>,
     private readonly mailService: MailService,
     private readonly auditLog: AuditLogService,
-    private readonly configService: ConfigService,
   ) {
     super();
   }
@@ -148,10 +146,6 @@ export class FileUploadNotificationWorker extends WorkerHost {
     });
     const uploaderLoginId = uploader?.loginId ?? '(unknown)';
 
-    const frontendUrl =
-      this.configService.get<string>('app.frontendUrl') ?? '';
-    const downloadUrl = `${frontendUrl}/file-download`;
-
     // [send-loop] Serial within a job so SES isn't slammed by a
     // single JA with hundreds of recipients. BullMQ concurrency
     // covers parallelism across jobs (= across JAs).
@@ -163,7 +157,6 @@ export class FileUploadNotificationWorker extends WorkerHost {
           fileName: row.fileName,
           uploadDatetime: row.uploadDatetime,
           uploaderLoginId,
-          downloadUrl,
         });
       } catch (err) {
         failedEmails.push(email);

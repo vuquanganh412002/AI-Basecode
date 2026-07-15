@@ -32,13 +32,11 @@ export interface ApplyChangeInput {
   dokusyaId?: number;
   mode: 'CREATE' | 'UPDATE';
   values: DokusyaFields;
-  /** Applied date for the information change. Always `>= today`. */
-  johoDate: DateOnly;
   /**
-   * Applied date when `hanbaiten_id` changes; when it differs from
-   * `johoDate` the change is split into a second (hanbaiten) row.
+   * 唯一の適用日（読者情報変更適用日）。販売店・支払方法を含む全変更に適用され、
+   * 1更新1レコードで記録される（顧客要件 2026-07: 販売店適用日を廃止）。`>= today`。
    */
-  hanbaitenDate?: DateOnly;
+  johoDate: DateOnly;
   source: ApplyChangeSource;
   /** `henko_riyu`. */
   reason: string;

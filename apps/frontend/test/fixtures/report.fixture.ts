@@ -146,8 +146,8 @@ export function buildHanbaitenDropdownResponse() {
 export function buildKanriShitenDropdownResponse() {
   return {
     data: [
-      { kanri_shiten_id: 10, kanri_shiten_code: '0010', kanri_shiten_name: '中央管理支店' },
-      { kanri_shiten_id: 11, kanri_shiten_code: '0011', kanri_shiten_name: '北部管理支店' },
+      { kanri_shiten_id: 10, kanri_shiten_code: '0010', kanri_shiten_name: '中央管理支店', paper_flg: true, denshi_flg: true },
+      { kanri_shiten_id: 11, kanri_shiten_code: '0011', kanri_shiten_name: '北部管理支店', paper_flg: true, denshi_flg: true },
     ],
     meta: { total: 2, page: 1, per_page: 50, has_more: false },
   };

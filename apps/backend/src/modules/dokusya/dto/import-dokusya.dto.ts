@@ -421,19 +421,14 @@ export class ImportDokusyaRowDto {
   @IsString()
   biko?: string;
 
+  // 読者情報変更適用日（YYYY-MM-DD）— 販売店・支払方法を含む全変更の唯一の適用日
+  // （顧客要件 2026-07: 販売店適用日を廃止し joho に統一。1更新1レコード）。
   @ApiPropertyOptional({ description: '読者情報変更適用日（YYYY-MM-DD）' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
   @MaxLength(10, { message: '読者情報変更適用日は10文字以内で入力してください。' })
   joho_henko_tekiyo_date?: string;
-
-  @ApiPropertyOptional({ description: '販売店適用日（YYYY-MM-DD。販売店変更時に必須）' })
-  @Transform(blankToUndef)
-  @IsOptional()
-  @IsString()
-  @MaxLength(10, { message: '販売店適用日は10文字以内で入力してください。' })
-  hanbaiten_tekiyo_date?: string;
 }
 
 export class ImportDokusyaDto {

@@ -52,6 +52,20 @@ export function todayIsoJst(): string {
 }
 
 /**
+ * 対象日時の年月 (Asia/Tokyo) を `YYYYMM` で返す。既定は現在時刻。電子版連携の
+ * `payment_start` 判定（請求開始月が「今月」か「翌月」か）のように、月境界を
+ * JST で判定する必要がある箇所で使う。
+ *
+ * @example
+ * // 2026-07-01 05:00 JST (= 2026-06-30T20:00Z) でも '202607' を返す。
+ * yearMonthJst(new Date('2026-06-30T20:00:00Z')); // '202607'
+ */
+export function yearMonthJst(date: Date = new Date()): string {
+  const p = jstParts(date);
+  return `${p.year}${p.month}`;
+}
+
+/**
  * `YYYY-MM-DD` の日付に `days` を加算した `YYYY-MM-DD` を返す（暦日計算、
  * タイムゾーン非依存）。UTC 正午基準で計算し、DST や TZ 早朝ずれの影響を受けない。
  * 解約バッチの適用日（電子版 = 購読中止日 + 1日）等で使用。

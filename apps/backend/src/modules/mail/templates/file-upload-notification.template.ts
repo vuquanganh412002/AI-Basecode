@@ -7,8 +7,8 @@
  * 宛名は個別氏名ではなく「ご担当者様」を使用する。
  *
  * 受信者は SCR-022（ファイルダウンロード画面）からファイルを取得
- * する想定。本文末尾のリンクは `app.frontendUrl` 設定値（ECS task
- * definition で AWS Secrets Manager から注入）を参照する。
+ * する想定。顧客要件2026-07: ダウンロード画面への URL リンクは本文に
+ * 含めない（環境依存の絶対 URL を載せない・遷移案内も不要との要望）。
  */
 
 import { formatDateTimeMinutesJst } from '@/common/utils/datetime';
@@ -18,7 +18,6 @@ interface FileUploadNotificationInput {
   fileName: string;
   uploadDatetime: Date;
   uploaderLoginId: string;
-  downloadUrl: string;
 }
 
 interface RenderedMail {
@@ -33,7 +32,6 @@ export function renderFileUploadNotificationMail({
   fileName,
   uploadDatetime,
   uploaderLoginId,
-  downloadUrl,
 }: FileUploadNotificationInput): RenderedMail {
   const subject = `${SUBJECT_PREFIX}ファイルアップロードのお知らせ`;
   const text = [
@@ -45,9 +43,6 @@ export function renderFileUploadNotificationMail({
     `ファイル名　: ${fileName}`,
     `アップロード日時: ${formatDateTimeMinutesJst(uploadDatetime)}`,
     `アップロード者: ${uploaderLoginId}`,
-    '',
-    '下記のURLよりファイルダウンロード画面にアクセスし、内容をご確認ください。',
-    downloadUrl,
     '',
     '※このメールは送信専用です。返信されてもご対応できません。',
   ].join('\n');

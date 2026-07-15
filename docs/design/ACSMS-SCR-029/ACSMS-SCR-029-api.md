@@ -19,6 +19,8 @@ updated_by: Nguyen Truong An
 | --- | ---------- | ---- | ---------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/05 | 1.0  | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 減部数のマイナス符号「▲」表示を廃止し数値のまま表示（顧客要望）。差異マーク「◆」を行頭列に表示し、履歴の前回値（zenkai_*）と現在値の差（増減あり・販売店変更）で `diff_mark` を判定するよう実装。 | Tran Duc Tuyen | Tran Duc Tuyen |
+| 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：4.4 ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更＋表示名とS3キー(タイムスタンプ)を分離、削除予定日＝作成日+5年・日農DL許可フラグ=True を明記。4.5 メール件名/本文に都道府県＋発行アカウント（ログインID+アカウント名）を追記。4.6 INSERT に scheduled_delete_date / nichino_download_allowed_flg を追加。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/07/14 | 1.3  | Tran Duc Tuyen | 顧客コメント対応：減部数（gen_busu）をプレビュー・帳票でマイナス符号「▲」付き表示（例「▲2」）に戻す。値は正の減部数（Number）のまま、▲は表示フォーマット。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -139,7 +141,7 @@ FE が検出して画面内表示するメッセージである（エラーコ�
 | 17  | →→→hanbaiten_name       | String  | -        |              | -        | 販売店名（免税販売店＝適格請求書発行事業者番号が空の場合は先頭に「（免）」を付与）                 |
 | 18  | →→→genzai_busu          | Number  | -        |              | -        | 現在部数（前回購読部数 `zenkai_dokusya_busu`。NULLは0として扱う）                                  |
 | 19  | →→→zou_busu             | Number  | -        |              | -        | 増部数（`dokusya_busu > 現在部数` の場合に `dokusya_busu - 現在部数`、それ以外は0）                |
-| 20  | →→→gen_busu             | Number  | -        |              | -        | 減部数（`dokusya_busu < 現在部数` の場合に `現在部数 - dokusya_busu`、それ以外は0）。帳票では数値のまま表示する（マイナス符号「▲」は付与しない） |
+| 20  | →→→gen_busu             | Number  | -        |              | -        | 減部数（`dokusya_busu < 現在部数` の場合に `現在部数 - dokusya_busu`、それ以外は0）。値は正の減部数（Number）。プレビュー・帳票ではマイナス符号「▲」を付けて表示する（例：`▲2`。0 は「0」・顧客要件2026-07） |
 | 21  | →→→shin_busu            | Number  | -        |              | -        | 新部数（購読部数 `dokusya_busu`。＝現在部数 ＋ 増部数 － 減部数）                                  |
 | 22  | →→→diff_mark            | Boolean | -        |              | -        | 差異マーク。履歴の前回値（`zenkai_dokusya_busu` / `zenkai_hanbaiten_id`）と現在値に差がある行（増減あり・販売店変更）は `true`（帳票では行頭に「◆」を付与）              |
 | 23  | →→total                 | Object  | -        |              | -        | 合計行（当該管理支店内の全販売店合計）                                                             |
@@ -577,14 +579,24 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
   管理支店ブロックは明細テーブル＋合計行＋備考（PDFレイアウト参照）。
 - 委託欄・免税（（免））・差異マーク（◆）の整形は `ACSMS-API-029-001` の 4.6 と同一とする（減部数は数値のまま。「▲」は付与しない）。
 - ヘッダにページ数（`Page: 現在ページ/全体ページ数`）、組合名（管理支店コードを3-4-3でハイフン区切り＋JA名＋管理支店名）、都道府県名、担当部署 ／ 担当者、TEL / FAX を表示する。
-- 出力形式：PDF（A4）。テンプレート（Handlebars）→ HTML → Puppeteer で生成する。
-- 生成した1つのPDFをS3に保存する。保存先パス：`s3://{bucket}/ja-{ja_id}/report/`、ファイル名：`zougen_nichino_{適用日YYYYMMDD}_{timestamp}.pdf`。
+- 出力形式：PDF（A4）。pdfmake（document-definition → PDF）で生成する。
+- 生成した1つのPDFをS3に保存する。保存先パス：`s3://{bucket}/reports/zougen-nichino/{ja_code}/{適用日の年YYYY}/`。
+- **ファイル名（出力アカウントのロール別・顧客要件2026-07）**：
+  - JA本店 / 中央会：`増減通知_{JA名}_{JAコード}_{適用日YYYYMMDD}.pdf`
+  - JA管理支店：`増減通知_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}.pdf`（自管理支店のみのスコープなので対象データから確定）
+  - `t_file_download.file_name`（＝ダウンロード表示名）は上記のタイムスタンプ無し名を保存する。S3オブジェクト名は再出力時の上書き防止のため別途14桁(JST)タイムスタンプを付与して一意化する（file_path）。
+- **`scheduled_delete_date` は作成日(JST)から5年後の日付**を登録する（4.6 参照）。
+- **`nichino_download_allowed_flg = true`**（日農担当者DL可）で登録する（4.6 参照）。
 
-### 4.5 メール通知
+### 4.5 メール通知（顧客要件2026-07 レイアウト）
 
-- 日農担当者（NICHINO_ADMIN / NICHINO_STAFF のメールアドレス、または設定済み通知先）へ増減通知の作成完了をメールで自動通知する（`MailService`。件名プレフィックス `【AgriNews_ACSMS】`）。
-- メール本文には適用日・対象管理支店・件数を記載する。個人情報（購読者の氏名・住所等）は含めないこと。
-- メール送信失敗時もPDF出力自体は成功扱いとし、警告ログ（`log_type = 2` 等）を記録する。
+- 日農担当者（NICHINO_ADMIN / NICHINO_STAFF のメールアドレス）へ増減通知の作成完了を自動通知する（`ReportNotificationService.notifyNichinoExport` → `MailService.sendNotification`。件名プレフィックス `【クラウド版購読者管理システム】`）。
+- 当社事務担当者が都道府県別に分かれているため、**件名に都道府県および出力したアカウント（ログインID＋アカウント名）を含める**：
+  - 件名：`【{都道府県}】【{ログインID} {アカウント名}】増減通知（日本農業新聞）を出力しました`
+  - 本文：`JA名：{ログインID} {アカウント名}` / `適用日：{YYYYMMDD}` / `ファイル名：{4.4のファイル名}` / `件数：{件数}件` / `ファイル管理画面からダウンロードできます。`
+- `アカウント名` は session に含まれないため `m_account`（`account_id`）から取得する。都道府県は対象データ（管理支店）の `todofuken_name` を用いる（出力スコープは1JA/1中央会のため単一）。
+- 個人情報（購読者の氏名・住所等）は含めないこと。
+- メール送信失敗時もPDF出力自体は成功扱いとし、警告ログを記録する（fire-and-forget / non-fatal）。
 
 ### 4.6 ダウンロード履歴登録
 
@@ -594,16 +606,21 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
 INSERT INTO t_file_download (ja_id, download_datetime, download_type,
                             file_name, file_path, file_size,
                             record_count, target_month,
+                            scheduled_delete_date, nichino_download_allowed_flg,
                             created_at, created_by)
 VALUES (:ja_id, NOW(), 4,
         :file_name, :file_path, :file_size,
         :record_count, :target_month,
+        (CURRENT_DATE + INTERVAL '5 years'), TRUE,
         NOW(), :user_account_id)
 ```
 
 - `download_type`：4（増減通知書 ※m_code.code_category='DOWNLOAD_TYPE' を参照）
 - `target_month`：適用日の年月（YYYYMM）
 - `record_count`：当該管理支店の対象明細件数
+- `file_name`：4.4 のロール別命名（タイムスタンプ無し）。`file_path` はタイムスタンプ付きS3キー。
+- `scheduled_delete_date`：作成日(JST)から5年後（顧客要件2026-07）
+- `nichino_download_allowed_flg`：`true`（日農担当者DL可・顧客要件2026-07）
 
 ### 4.7 操作ログ記録
 
@@ -633,10 +650,8 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "kanri_shiten_id": [20, 21],
   "report_count": 2,
   "record_count": 5,
-  "file_names": [
-    "増減通知_1AA-3300-001_20260301.pdf",
-    "増減通知_1AA-3300-002_20260301.pdf"
-  ]
+  "file_name": "増減通知_JA○○_1301002001_20260301.pdf",
+  "recipient_count": 2
 }
 ```
 

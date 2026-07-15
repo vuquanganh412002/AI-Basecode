@@ -17,6 +17,8 @@ export interface AccountDetailRow {
   ja_name: string | null;
   kanri_shiten_id: number | string | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | string | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -41,6 +43,8 @@ export interface AccountDetail {
   ja_name: string | null;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -71,6 +75,8 @@ export function toAccountDetail(row: AccountDetailRow): AccountDetail {
     ja_name: row.ja_name ?? null,
     kanri_shiten_id: toNumber(row.kanri_shiten_id),
     kanri_shiten_name: row.kanri_shiten_name ?? null,
+    shiten_id: toNumber(row.shiten_id),
+    shiten_name: row.shiten_name ?? null,
     email: row.email ?? '',
     sub_email_1: row.sub_email_1 ?? '',
     sub_email_2: row.sub_email_2 ?? '',

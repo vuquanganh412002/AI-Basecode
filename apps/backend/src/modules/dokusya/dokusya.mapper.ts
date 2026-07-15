@@ -101,7 +101,7 @@ export function toDokusyaResponse(
     renrakusaki_1: entity.renrakusaki1 ?? '',
     renrakusaki_2: entity.renrakusaki2 ?? '',
     email: entity.email ?? '',
-    mail_magazine_flg: coerceNumber(entity.mailMagazineFlg),
+    mail_magazine_flg: coerceNullableNumber(entity.mailMagazineFlg),
     birth_year: coerceNullableNumber(entity.birthYear),
     gender: coerceNullableNumber(entity.gender),
     haitatsu_same_flg: Boolean(entity.haitatsuSameFlg),
@@ -365,7 +365,7 @@ export interface DokusyaRirekiListItem {
   renrakusaki_1: string;
   renrakusaki_2: string;
   email: string;
-  mail_magazine_flg: number;
+  mail_magazine_flg: number | null;
   birth_year: number | null;
   gender: number | null;
   dokusyaso_bunrui: string;
@@ -483,7 +483,7 @@ export function toDokusyaRirekiListItem(
     renrakusaki_1: stringOrEmpty(row.renrakusaki_1),
     renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
     email: stringOrEmpty(row.email),
-    mail_magazine_flg: coerceNumber(row.mail_magazine_flg as number | string),
+    mail_magazine_flg: coerceNullableNumber(row.mail_magazine_flg as number | string | null),
     birth_year: coerceNullableNumber(row.birth_year as RawScalarNullable),
     gender: coerceNullableNumber(row.gender as RawScalarNullable),
     dokusyaso_bunrui: stringOrEmpty(row.dokusyaso_bunrui),

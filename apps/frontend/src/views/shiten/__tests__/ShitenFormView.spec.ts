@@ -119,6 +119,8 @@ beforeEach(async () => {
       kanri_shiten_id: r.kanri_shiten_id,
       kanri_shiten_code: r.kanri_shiten_code,
       kanri_shiten_name: r.kanri_shiten_name,
+      paper_flg: true,
+      denshi_flg: true,
     })),
   });
 });

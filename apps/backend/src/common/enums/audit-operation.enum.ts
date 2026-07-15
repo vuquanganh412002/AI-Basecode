@@ -38,6 +38,8 @@ export const AuditOperation = {
   IMPORT_UPDATE_PARTIAL: 'IMPORT_UPDATE_PARTIAL',
   /** Async notification mail send (worker). */
   SEND_NOTIFICATION: 'SEND_NOTIFICATION',
+  /** 電子版（顧客システム）への会員情報送信（worker）。 */
+  SYNC_DENSHIBAN: 'SYNC_DENSHIBAN',
   /** Scheduled / batch job. */
   CRON: 'CRON',
   /** Password reset completed. */

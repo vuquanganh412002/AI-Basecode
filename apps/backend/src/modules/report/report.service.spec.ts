@@ -1257,8 +1257,9 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
   // API-028-002 — POST /api/v1/report/zougen-hanbaiten/export (PDF)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportZougenHanbaitenPdf', () => {
-    it('should return a PDF buffer + role-aware filename (CHUOKAI → no ja_name) when data exists', async () => {
-      // COVERS: ファイル名 (CHUOKAI/JA_HONTEN) = 増減連絡票_{ja_code}_{YYYY年MM月DD日}.pdf
+    it('should return a PDF buffer + role-aware filename (CHUOKAI/JA本店 → no 管理支店) when data exists', async () => {
+      // COVERS: 顧客要件2026-07 ファイル名 (JA本店/中央会) =
+      //   増減連絡票_{JA名}_{JAコード}_{適用日YYYYMMDD}.pdf
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
 
       const result = await service.exportZougenHanbaitenPdf(
@@ -1270,14 +1271,15 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
-          filename: '増減連絡票_JA001_2026年05月01日.pdf',
+          filename: '増減連絡票_テストJA_JA001_20260501.pdf',
         }),
       );
       expect(pdfService.generatePdf).toHaveBeenCalledTimes(1);
     });
 
-    it('should include ja_name in the filename when the role is JA_KANRI_SHITEN', async () => {
-      // COVERS: ファイル名 (JA_KANRI_SHITEN) = 増減連絡票_{ja_code}_{ja_name}_{YYYY年MM月DD日}.pdf
+    it('should include 管理支店名/コード in the filename when the role is JA_KANRI_SHITEN', async () => {
+      // COVERS: 顧客要件2026-07 ファイル名 (JA管理支店) =
+      //   増減連絡票_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}.pdf
       qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
 
       const result = await service.exportZougenHanbaitenPdf(
@@ -1290,7 +1292,8 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       );
 
       expect(result).toMatchObject({
-        filename: '増減連絡票_JA001_テストJA_2026年05月01日.pdf',
+        filename:
+          '増減連絡票_テストJA_JA001_JA東京中央 本店管理支店_1AA3300001_20260501.pdf',
       });
     });
 
@@ -1310,7 +1313,9 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
           category: 'zougen-hanbaiten',
           year: '2026',
           jaCode: 'JA001',
-          baseName: '増減連絡票_JA001_2026年05月01日',
+          baseName: '増減連絡票_テストJA_JA001_20260501',
+          // DB/DL表示名はタイムスタンプ無し（S3キーのみ一意化）。
+          displayName: '増減連絡票_テストJA_JA001_20260501',
           contentType: 'application/pdf',
           extension: '.pdf',
           recordCount: 1,

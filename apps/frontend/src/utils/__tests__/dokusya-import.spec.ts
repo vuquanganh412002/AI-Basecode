@@ -14,11 +14,12 @@ import {
 // したため、そのテストは utils/__tests__/datetime.spec.ts 側にある。
 
 describe('dokusya-import — column model', () => {
-  it('has 50 physical columns (v1.2: 手続種類 削除 + 購読者情報と同じ/販売店適用日 追加)', () => {
-    expect(PHYSICAL_COLUMNS).toHaveLength(50);
+  it('has 49 physical columns (v1.3: 販売店適用日 廃止・適用日は joho に統一)', () => {
+    expect(PHYSICAL_COLUMNS).toHaveLength(49);
     expect(PHYSICAL_COLUMNS).not.toContain('tetsuzuki_shurui' as never);
     expect(PHYSICAL_COLUMNS).toContain('haitatsu_same_flg');
-    expect(PHYSICAL_COLUMNS).toContain('hanbaiten_tekiyo_date');
+    expect(PHYSICAL_COLUMNS).not.toContain('hanbaiten_tekiyo_date' as never);
+    expect(PHYSICAL_COLUMNS).toContain('joho_henko_tekiyo_date');
   });
 
   it('maps every physical column to a JP header (no missing label)', () => {
@@ -34,12 +35,11 @@ describe('dokusya-import — column model', () => {
   });
 
   it('classifies the date + boolean columns', () => {
-    expect(DATE_PHYSICAL_COLUMNS.has('hanbaiten_tekiyo_date')).toBe(true);
     expect(DATE_PHYSICAL_COLUMNS.has('joho_henko_tekiyo_date')).toBe(true);
+    expect(DATE_PHYSICAL_COLUMNS.has('hanbaiten_tekiyo_date')).toBe(false); // 廃止
     expect(BOOLEAN_PHYSICAL_COLUMNS.has('haitatsu_same_flg')).toBe(true);
-    // NEW では変更イベント日2列を対象外にする。
+    // NEW では変更イベント日(joho)を対象外にする。
     expect(NEW_EXCLUDED_SET.has('joho_henko_tekiyo_date')).toBe(true);
-    expect(NEW_EXCLUDED_SET.has('hanbaiten_tekiyo_date')).toBe(true);
   });
 
   it('caps import at 30000 rows', () => {

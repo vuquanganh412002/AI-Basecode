@@ -22,6 +22,8 @@ import {
 import {
   applyBranchScope,
   assertBranchScope,
+  applyShitenScope,
+  assertShitenScope,
   fetchFkInJa,
 } from '@/common/utils/data-scope';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
@@ -38,7 +40,10 @@ import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
-import { UpdateDokusyaDto } from './dto/update-dokusya.dto';
+import {
+  UpdateDokusyaDto,
+  type DokusyaChangeMode,
+} from './dto/update-dokusya.dto';
 import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
 import { ReplaceHanbaitenDto } from './dto/replace-hanbaiten.dto';
@@ -301,6 +306,7 @@ export class DokusyaService {
       { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' },
       session,
     );
+    applyShitenScope(qb, 'd', 'shitenId', session);
     const count = await qb.getCount();
     return { count, ja_id: session.ja_id ?? null };
   }
@@ -501,29 +507,28 @@ export class DokusyaService {
     req: Request,
   ): Promise<DokusyaResponseDto> {
     this.assertCodeMasterValues(dto);
-    // 販売店適用日 (販売店変更時に入力) は未来日のみ（当日・過去日 不可・顧客要件
-    // 2026-07 改訂）。情報変更適用日(joho) と同一の未来日基準。
-    this.assertTekiyoDateFuture(
-      dto.hanbaiten_tekiyo_date,
-      'hanbaiten_tekiyo_date',
-      '販売店適用日は本日より後の日付を指定してください。',
-    );
-    // 情報変更適用日 (joho_henko_tekiyo_date) はユーザー入力・編集時は必須。
-    // 顧客要件 2026-07 改訂: 未来日のみ許可（当日・過去日 不可）。販売店のみ変更で
-    // joho が販売店適用日へ追随する場合も dto.joho_henko_tekiyo_date に同値が
-    // 入るため、本チェックがそのまま効く。値は buildUpdatePartial 経由で master /
-    // 履歴へ反映される。
-    if (!dto.joho_henko_tekiyo_date?.trim()) {
-      throw fieldValidationError(
+    // 情報変更モード（顧客要件2026-07）。未指定は後方互換で予約変更（未来日のみ）。
+    const changeMode: DokusyaChangeMode = dto.change_mode ?? 'reserved';
+    // 情報変更適用日 (joho_henko_tekiyo_date) の扱いはモードで分岐する:
+    // - 当日変更(today): 適用日=本日に固定（クライアント送信値は信頼しない）。
+    // - 予約変更(reserved): 必須・未来日のみ（従来動作）。
+    // 販売店のみ変更で joho が販売店適用日へ追随する場合も dto.joho_henko_tekiyo_date
+    // に同値が入るため、値は buildUpdatePartial 経由で master / 履歴へ反映される。
+    if (changeMode === 'today') {
+      dto.joho_henko_tekiyo_date = todayIsoJst();
+    } else {
+      if (!dto.joho_henko_tekiyo_date?.trim()) {
+        throw fieldValidationError(
+          'joho_henko_tekiyo_date',
+          '情報変更適用日を入力してください。',
+        );
+      }
+      this.assertTekiyoDateFuture(
+        dto.joho_henko_tekiyo_date,
         'joho_henko_tekiyo_date',
-        '情報変更適用日を入力してください。',
+        '情報変更適用日は本日より後の日付を指定してください。',
       );
     }
-    this.assertTekiyoDateFuture(
-      dto.joho_henko_tekiyo_date,
-      'joho_henko_tekiyo_date',
-      '情報変更適用日は本日より後の日付を指定してください。',
-    );
 
     const before = await this.fetchInScope(id, session);
     const effectiveJaId = Number(before.jaId);
@@ -583,6 +588,14 @@ export class DokusyaService {
       throw new DokusyaReadOnlyException();
     }
 
+    // [today-mode-field-restriction] 当日変更モード（joho=本日）の帳票影響項目の
+    // 変更制限（顧客要件2026-07）。電子版は全項目 当日反映可、紙版は帳票影響項目
+    // （部数・販売店・購読者住所・配達先住所・購読中止日）を当日反映不可とし、
+    // 予約変更（未来日）へ誘導する。併読/電子版クレカは上の read-only(403) で到達しない。
+    if (changeMode === 'today') {
+      this.assertTodayModeFieldRestriction(dto, before);
+    }
+
     // [tekiyo-date-consistency] 適用日の範囲整合性（顧客要件 2026-07 改訂）。read-only
     // (403) より後に置き、編集不可レコードは先に 403 で弾く。未来日(> today)は上の
     // assertTekiyoDateFuture、ここは範囲チェック:
@@ -635,6 +648,14 @@ export class DokusyaService {
     // [layer4-fk-guard] Validate body FK ids against the EXISTING row's JA
     // (not session) so editing stays bound to the record's tenant.
     await this.assertFkScope(dto, effectiveJaId);
+
+    // [kanri-shiten-immutable] 管理支店 は作成時に確定し編集では変更不可（顧客
+    // 要件 2026-07）。FE はグレーアウトするが画面はフォーム全体を送信するので
+    // body に届く。FK guard の後に保存値へ pin して、改変リクエスト（または FE
+    // の disable 退行）が管理支店を書き換えられないようにする（FE の disable は
+    // UX、ここが境界）。pin を FK guard の後に置くのは、行自身の管理支店を再度
+    // FK 検証して冗長に 400 を出さないため（送信 0=未設定はスキップ動作を維持）。
+    dto.kanri_shiten_id = Number(before.kanriShitenId);
 
     // dto.dokusya_shubetsu は上で before の値に固定済み（購読種別は編集不可）。
     // 電子版・併読は email 必須＋電子版/併読レコード間で一意（自身は除外）。
@@ -749,16 +770,15 @@ export class DokusyaService {
         delete (values as { updatedBy?: string }).updatedBy;
 
         // ── 履歴書き込み + master 再計算を共通ライタへ集約 (Pha3)。─────────────
-        // 情報変更と販売店変更が同時なら applyChange が適用日順に2件へ分割する。
-        // recomputeMaster が有効レコードから t_dokusya を確定するため、master の
-        // 明示 UPDATE は不要（未来日 joho の場合は当日時点で未反映＝正しい挙動）。
+        // 販売店を含む全変更を単一の適用日(joho)で1件の履歴行にまとめる（顧客要件
+        // 2026-07: 販売店適用日を廃止し joho に統一）。recomputeMaster が有効レコード
+        // から t_dokusya を確定するため master の明示 UPDATE は不要（未来日 joho は
+        // 当日時点で未反映＝正しい挙動）。
         const result = await applyChange(manager, {
           mode: 'UPDATE',
           dokusyaId: id,
           values,
           johoDate: updatePartial.johoHenkoTekiyoDate as string,
-          hanbaitenDate:
-            normalizeDbDate(dto.hanbaiten_tekiyo_date ?? null) ?? undefined,
           source: 'UI',
           actor: String(session.account_id),
           reason: '',
@@ -1074,6 +1094,7 @@ export class DokusyaService {
     });
     if (!row) throw new NotFoundException('購読者');
     assertBranchScope(row.jaId, row.kanriShitenId, session, '購読者');
+    assertShitenScope(row.shitenId, session, '購読者');
     return row;
   }
 
@@ -1331,6 +1352,77 @@ export class DokusyaService {
   }
 
   /**
+   * 当日変更モード（joho=本日）のフィールド制限（顧客要件2026-07）。
+   *
+   * - 電子版(2): 全項目 当日反映可（紙の帳票を生成しないため）→ 制限なし。
+   * - 紙版(1): 帳票に影響する項目は当日反映不可 → 予約変更（未来日）で行う。
+   *   対象＝部数(dokusya_busu)・販売店(hanbaiten_id)・購読者住所(郵便番号/都道府県/
+   *   市区町村/丁目番地/建物名)・配達先住所(同項目)・購読中止日(dokusya_chushi_date)。
+   * - 併読(3)・電子版クレカ は上流の read-only(403) で弾かれるため到達しない。
+   *
+   * 送信値が既存値(before)と異なる場合のみ違反とする（画面は全項目を送るため）。
+   */
+  private assertTodayModeFieldRestriction(
+    dto: UpdateDokusyaDto,
+    before: Dokusya,
+  ): void {
+    // 電子版は全項目 当日反映可。制限は紙版のみ。
+    if (Number(before.dokusyaShubetsu) !== DokusyaShubetsu.PAPER) return;
+
+    const RESERVE_ONLY =
+      '帳票に影響する変更は予約変更（未来日を指定）で行ってください。';
+    const violations: { field: string; message: string }[] = [];
+    // 送信あり かつ 既存値と差分あり → 帳票影響の変更とみなす。
+    const changed = (v: unknown, b: unknown): boolean =>
+      v !== undefined && String(v ?? '') !== String(b ?? '');
+    const check = (v: unknown, b: unknown, field: string): void => {
+      if (changed(v, b)) violations.push({ field, message: RESERVE_ONLY });
+    };
+
+    // 購読中止日（解約予約）は帳票影響＝当日不可。入力があれば違反。
+    if (dto.dokusya_chushi_date?.trim()) {
+      violations.push({
+        field: 'dokusya_chushi_date',
+        message: '購読中止日（解約予約）は予約変更で行ってください。',
+      });
+    }
+    check(dto.dokusya_busu, before.dokusyaBusu, 'dokusya_busu');
+    check(dto.hanbaiten_id, before.hanbaitenId, 'hanbaiten_id');
+    // 購読者住所
+    check(dto.yubin_no, before.yubinNo, 'yubin_no');
+    check(dto.todofuken_code, before.todofukenCode, 'todofuken_code');
+    check(dto.shikuchoson, before.shikuchoson, 'shikuchoson');
+    check(dto.chome_banchi, before.chomeBanchi, 'chome_banchi');
+    check(dto.tatemono_mei, before.tatemonoMei, 'tatemono_mei');
+    // 配達先住所（顧客決定2026-07: 帳票影響に含める）
+    check(dto.haitatsu_yubin_no, before.haitatsuYubinNo, 'haitatsu_yubin_no');
+    check(
+      dto.haitatsu_todofuken_code,
+      before.haitatsuTodofukenCode,
+      'haitatsu_todofuken_code',
+    );
+    check(
+      dto.haitatsu_shikuchoson,
+      before.haitatsuShikuchoson,
+      'haitatsu_shikuchoson',
+    );
+    check(
+      dto.haitatsu_chome_banchi,
+      before.haitatsuChomeBanchi,
+      'haitatsu_chome_banchi',
+    );
+    check(
+      dto.haitatsu_tatemono_mei,
+      before.haitatsuTatemonoMei,
+      'haitatsu_tatemono_mei',
+    );
+
+    if (violations.length > 0) {
+      throw new ValidationException(violations);
+    }
+  }
+
+  /**
    * 電子版(2)・併読(3) は email 必須。紙版(1) は任意。
    * 顧客要件: メールは電子版/併読でのみ必須・一意。
    */
@@ -1399,7 +1491,14 @@ export class DokusyaService {
       jaId,
       kanriShitenId: Number(dto.kanri_shiten_id ?? 0),
       // 支店 は任意（顧客要件 2026-07）。未指定は NULL 保存（0 に丸めない）。
-      shitenId: dto.shiten_id != null ? Number(dto.shiten_id) : null,
+      // 所属支店が設定されたアカウント(session.shiten_id != null)が追加する読者は、
+      // その支店へ固定する（改変・FE 退行を無視・顧客要件 2026-07）。
+      shitenId:
+        session.shiten_id != null
+          ? Number(session.shiten_id)
+          : dto.shiten_id != null
+            ? Number(dto.shiten_id)
+            : null,
       kumiaiinCode: dto.kumiaiin_code ?? '',
       dokusyaShubetsu: Number(dto.dokusya_shubetsu),
       tetsuzukiShurui: Number(dto.tetsuzuki_shurui),
@@ -1417,7 +1516,9 @@ export class DokusyaService {
       renrakusaki1: dto.renrakusaki_1,
       renrakusaki2: dto.renrakusaki_2 ?? '',
       email: dto.email ?? '',
-      mailMagazineFlg: Number(dto.mail_magazine_flg ?? 0),
+      // メールマガジンは電子版用項目。紙版時は未選択(null)→ NULL 保存（0 に丸めない）。
+      mailMagazineFlg:
+        dto.mail_magazine_flg != null ? Number(dto.mail_magazine_flg) : null,
       birthYear: dto.birth_year ?? null,
       gender: dto.gender ?? null,
       haitatsuSameFlg: dto.haitatsu_same_flg,
@@ -1559,7 +1660,6 @@ export class DokusyaService {
     const dateViolations = [
       ...collectTekiyoDateViolations({
         johoDate: dto.joho_henko_tekiyo_date,
-        hanbaitenDate: dto.hanbaiten_tekiyo_date,
         kaishiDate: before.dokusyaKaishiDate,
         chushiDate: effectiveChushi,
       }),
@@ -1734,6 +1834,7 @@ export class DokusyaService {
 
     // DataScope (404 mask, post-existence-check).
     assertBranchScope(target.jaId, target.kanriShitenId, session, '購読者');
+    assertShitenScope(target.shitenId, session, '購読者');
 
     // Read-only guard (api.md §4.3 / err:DOKUSYA_READ_ONLY).
     if (

@@ -18,6 +18,7 @@ updated_by: Nguyen Duyen Manh
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/14 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/14 | 1.1  | Tran Duc Tuyen | 所属支店(shiten_id)追加。登録/更新リクエストに shiten_id（role_id=5のみ有効・任意）、詳細/登録/更新レスポンスに shiten_id / shiten_name を追加（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -101,6 +102,8 @@ updated_by: Nguyen Duyen Manh
 | 10  | →ja_name            | String  | -        |              | 〇       | JA名称                   |
 | 11  | →kanri_shiten_id    | Number  | -        |              | 〇       | 管理支店ID               |
 | 12  | →kanri_shiten_name  | String  | -        |              | 〇       | 管理支店名称             |
+| 12.1 | →shiten_id          | Number  | -        |              | 〇       | 所属支店ID（顧客要件2026-07） |
+| 12.2 | →shiten_name        | String  | -        |              | 〇       | 所属支店名称             |
 | 13  | →email              | String  | -        |              | -        | メールアドレス（NOT NULL、空文字許容）        |
 | 14  | →sub_email_1        | String  | -        |              | -        | サブメールアドレス1（NOT NULL、空文字許容）   |
 | 15  | →sub_email_2        | String  | -        |              | -        | サブメールアドレス2（NOT NULL、空文字許容）   |
@@ -133,6 +136,8 @@ GET /api/v1/accounts/1
     "ja_name": null,
     "kanri_shiten_id": null,
     "kanri_shiten_name": null,
+    "shiten_id": null,
+    "shiten_name": null,
     "email": "admin@agrinews.jp",
     "sub_email_1": "admin.sub1@agrinews.jp",
     "sub_email_2": "",
@@ -262,6 +267,7 @@ WHERE a.account_id = :account_id
 | 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。role_id=3,4,5の場合は必須                                           |
 | 5   | ja_id            | Number  | -        | △    |        |        | JA ID。role_id=3,4,5の場合は必須                                                              |
 | 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。role_id=5の場合は必須                                                             |
+| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では破棄 |
 | 7   | account_name     | String  | -        | 〇   | 1      | 50     | アカウント名称                                                                                |
 | 8   | email            | String  | -        | -    |        | 100    | メールアドレス（メール形式）。空欄可                                                          |
 | 9   | sub_email_1      | String  | -        | -    |        | 100    | サブメールアドレス1（メール形式）。空欄可                                                     |
@@ -287,6 +293,8 @@ WHERE a.account_id = :account_id
 | 10  | →ja_name            | String  | -        |              | 〇       | JA名称                   |
 | 11  | →kanri_shiten_id    | Number  | -        |              | 〇       | 管理支店ID               |
 | 12  | →kanri_shiten_name  | String  | -        |              | 〇       | 管理支店名称             |
+| 12.1 | →shiten_id          | Number  | -        |              | 〇       | 所属支店ID（顧客要件2026-07） |
+| 12.2 | →shiten_name        | String  | -        |              | 〇       | 所属支店名称             |
 | 13  | →email              | String  | -        |              | -        | メールアドレス（NOT NULL、空文字許容）        |
 | 14  | →sub_email_1        | String  | -        |              | -        | サブメールアドレス1（NOT NULL、空文字許容）   |
 | 15  | →sub_email_2        | String  | -        |              | -        | サブメールアドレス2（NOT NULL、空文字許容）   |
@@ -310,6 +318,7 @@ Content-Type: application/json
   "todofuken_code": "13",
   "ja_id": 10,
   "kanri_shiten_id": null,
+  "shiten_id": null,
   "account_name": "JA本店 花子",
   "email": "honten001@example.com",
   "sub_email_1": "honten001.sub1@example.com",
@@ -337,6 +346,8 @@ Content-Type: application/json
     "ja_name": "JA東京中央",
     "kanri_shiten_id": null,
     "kanri_shiten_name": null,
+    "shiten_id": null,
+    "shiten_name": null,
     "email": "honten001@example.com",
     "sub_email_1": "honten001.sub1@example.com",
     "sub_email_2": "",
@@ -488,6 +499,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "todofuken_code": "13",
   "ja_id": 10,
   "kanri_shiten_id": null,
+  "shiten_id": null,
   "email": "honten001@example.com",
   "sub_email_1": "honten001.sub1@example.com",
   "sub_email_2": "",
@@ -551,6 +563,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。role_id=3,4,5の場合は必須                                           |
 | 5   | ja_id            | Number  | -        | △    |        |        | JA ID。role_id=3,4,5の場合は必須                                                              |
 | 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。role_id=5の場合は必須                                                             |
+| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では破棄 |
 | 7   | account_name     | String  | -        | 〇   | 1      | 50     | アカウント名称                                                                                |
 | 8   | email            | String  | -        | -    |        | 100    | メールアドレス（メール形式）。空欄可                                                          |
 | 9   | sub_email_1      | String  | -        | -    |        | 100    | サブメールアドレス1（メール形式）。空欄可                                                     |
@@ -578,6 +591,8 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 10  | →ja_name            | String  | -        |              | 〇       | JA名称                   |
 | 11  | →kanri_shiten_id    | Number  | -        |              | 〇       | 管理支店ID               |
 | 12  | →kanri_shiten_name  | String  | -        |              | 〇       | 管理支店名称             |
+| 12.1 | →shiten_id          | Number  | -        |              | 〇       | 所属支店ID（顧客要件2026-07） |
+| 12.2 | →shiten_name        | String  | -        |              | 〇       | 所属支店名称             |
 | 13  | →email              | String  | -        |              | -        | メールアドレス（NOT NULL、空文字許容）        |
 | 14  | →sub_email_1        | String  | -        |              | -        | サブメールアドレス1（NOT NULL、空文字許容）   |
 | 15  | →sub_email_2        | String  | -        |              | -        | サブメールアドレス2（NOT NULL、空文字許容）   |
@@ -600,6 +615,7 @@ Content-Type: application/json
   "todofuken_code": "13",
   "ja_id": 10,
   "kanri_shiten_id": null,
+  "shiten_id": null,
   "account_name": "JA本店 花子（更新）",
   "email": "honten001_new@example.com",
   "sub_email_1": "honten001.sub1_new@example.com",
@@ -627,6 +643,8 @@ Content-Type: application/json
     "ja_name": "JA東京中央",
     "kanri_shiten_id": null,
     "kanri_shiten_name": null,
+    "shiten_id": null,
+    "shiten_name": null,
     "email": "honten001_new@example.com",
     "sub_email_1": "honten001.sub1_new@example.com",
     "sub_email_2": "manager@example.com",
@@ -793,6 +811,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "todofuken_code": "13",
   "ja_id": 10,
   "kanri_shiten_id": null,
+  "shiten_id": null,
   "email": "honten001@example.com",
   "sub_email_1": "honten001.sub1@example.com",
   "sub_email_2": "",
@@ -816,6 +835,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "todofuken_code": "13",
   "ja_id": 10,
   "kanri_shiten_id": null,
+  "shiten_id": null,
   "email": "honten001_new@example.com",
   "sub_email_1": "honten001.sub1_new@example.com",
   "sub_email_2": "manager@example.com",

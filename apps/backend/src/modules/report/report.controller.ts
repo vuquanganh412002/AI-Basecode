@@ -21,6 +21,7 @@ import type { Request, Response } from 'express';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
+import { ShitenRestrictedGuard } from '@/common/guards/shiten-restricted.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { MeiboReportQueryDto } from './dto/meibo-report-query.dto';
@@ -30,7 +31,7 @@ import { ReportService } from './report.service';
 
 @ApiTags('report')
 @Controller('report')
-@UseGuards(SessionAuthGuard, PermissionsGuard)
+@UseGuards(SessionAuthGuard, PermissionsGuard, ShitenRestrictedGuard)
 @ApiCookieAuth('session_id')
 export class ReportController {
   constructor(private readonly reportService: ReportService) {}

@@ -17,6 +17,7 @@ updated_by: Tran Duc Tuyen
 |---|---|---|---|---|---|---|
 | 1 | 2026/03/17 | 1 | Tran Duc Tuyen | Tạo mới | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/03/27 | 1.1 | Tran Duc Tuyen | Tạo mới | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3 | 2026/07/14 | 1.12 | Tran Duc Tuyen | Thêm cột shiten_id (ID chi nhánh trực thuộc) và chỉ mục IX_m_account_shiten_id vào m_account. Giới hạn phạm vi người đọc của tài khoản JA chi nhánh quản lý xuống mức chi nhánh (Yêu cầu khách hàng 2026-07) | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## Tổng quan hệ thống
 
@@ -59,25 +60,26 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 5 | role_id |  | INTEGER |  |  |  | Phân loại quản trị viên. Khóa ngoại tham chiếu m_roles.role_id |
 | 6 | ja_id |  | BIGINT |  |  | 〇 | JA ID (Khóa ngoại) Nichino là NULL, Trung ương hội/JA trụ sở chính/JA chi nhánh quản lý là bắt buộc |
 | 7 | kanri_shiten_id |  | BIGINT |  |  | 〇 | ID chi nhánh quản lý (chỉ dành cho JA chi nhánh quản lý) |
-| 8 | todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố (bắt buộc với Trung ương hội) ※Cho phép NULL |
-| 9 | paper_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản giấy (DEFAULT false) |
-| 10 | denshi_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản điện tử (DEFAULT false) ※Liên quan đến kích hoạt chức năng phê duyệt |
-| 11 | email |  | VARCHAR | 100 |  |  | Email người nhận thông báo ※Cho phép chuỗi rỗng |
-| 12 | sub_email_1 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 1 ※Cho phép chuỗi rỗng |
-| 13 | sub_email_2 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 2 ※Cho phép chuỗi rỗng |
-| 14 | sub_email_3 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 3 ※Cho phép chuỗi rỗng |
-| 15 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ cập nhật mật khẩu |
-| 16 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ đăng nhập cuối cùng |
-| 17 | login_failure_count |  | INTEGER |  |  |  | Số lần đăng nhập thất bại (DEFAULT 0) |
-| 18 | mfa_enable_flg |  | BOOLEAN |  |  |  | Cờ kích hoạt xác thực đa yếu tố (DEFAULT false) |
-| 19 | account_lock_flg |  | BOOLEAN |  |  |  | Cờ khóa tài khoản (DEFAULT false) |
-| 20 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ khóa tài khoản |
-| 21 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 22 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 23 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 24 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 25 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 26 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 8 | shiten_id |  | BIGINT |  |  | 〇 | ID chi nhánh trực thuộc (Khóa ngoại → m_shiten.shiten_id). Chỉ role JA chi nhánh quản lý được thiết lập. NULL = không giới hạn theo chi nhánh (hoạt động như cũ). Khác NULL = chỉ được xem/sửa/thêm người đọc của chi nhánh đó (giới hạn ①) + không dùng được 5 màn xuất báo cáo (chuyển khoản/phí giao hàng/danh sách người đọc/phiếu liên lạc tăng giảm/thông báo tăng giảm) (giới hạn ②). Yêu cầu khách hàng 2026-07 |
+| 9 | todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố (bắt buộc với Trung ương hội) ※Cho phép NULL |
+| 10 | paper_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản giấy (DEFAULT false) |
+| 11 | denshi_flg |  | BOOLEAN |  |  |  | Cờ xử lý bản điện tử (DEFAULT false) ※Liên quan đến kích hoạt chức năng phê duyệt |
+| 12 | email |  | VARCHAR | 100 |  |  | Email người nhận thông báo ※Cho phép chuỗi rỗng |
+| 13 | sub_email_1 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 1 ※Cho phép chuỗi rỗng |
+| 14 | sub_email_2 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 2 ※Cho phép chuỗi rỗng |
+| 15 | sub_email_3 |  | VARCHAR | 100 |  |  | Email phụ người nhận thông báo 3 ※Cho phép chuỗi rỗng |
+| 16 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ cập nhật mật khẩu |
+| 17 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ đăng nhập cuối cùng |
+| 18 | login_failure_count |  | INTEGER |  |  |  | Số lần đăng nhập thất bại (DEFAULT 0) |
+| 19 | mfa_enable_flg |  | BOOLEAN |  |  |  | Cờ kích hoạt xác thực đa yếu tố (DEFAULT false) |
+| 20 | account_lock_flg |  | BOOLEAN |  |  |  | Cờ khóa tài khoản (DEFAULT false) |
+| 21 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ khóa tài khoản |
+| 22 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 23 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 24 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 25 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 26 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 27 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -87,8 +89,9 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 2 | UQ_m_account_login_id | login_id |  | 〇 | Ràng buộc duy nhất cho ID đăng nhập |
 | 3 | IX_m_account_ja_id | ja_id |  |  | Tham chiếu bảng master JA (Khóa ngoại) |
 | 4 | IX_m_account_kanri_shiten_id | kanri_shiten_id |  |  | Tham chiếu bảng master chi nhánh quản lý (Khóa ngoại) |
-| 5 | IX_m_account_todofuken_code | todofuken_code |  |  | Tham chiếu bảng master tỉnh/thành phố (Khóa ngoại) |
-| 6 | IX_m_account_role_id | role_id |  |  | Tìm kiếm theo vai trò |
+| 5 | IX_m_account_shiten_id | shiten_id |  |  | Tham chiếu bảng master chi nhánh (Khóa ngoại). Dùng để lọc phạm vi người đọc theo chi nhánh trực thuộc. Yêu cầu khách hàng 2026-07 |
+| 6 | IX_m_account_todofuken_code | todofuken_code |  |  | Tham chiếu bảng master tỉnh/thành phố (Khóa ngoại) |
+| 7 | IX_m_account_role_id | role_id |  |  | Tìm kiếm theo vai trò |
 
 ---
 

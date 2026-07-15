@@ -275,7 +275,9 @@ describe('applyChange', () => {
     expect(res.insertedRirekiIds).toHaveLength(1);
   });
 
-  it('UPDATE both same day → 2 rows (split)', async () => {
+  it('UPDATE(UI) 情報+販売店 同時変更 → 1行のみ (1更新1レコード・顧客要件 2026-07)', async () => {
+    // 画面編集(source=UI)は販売店適用日を廃止し joho に統一 → 情報+販売店を同時に
+    // 変えても1件の履歴行にまとめる。販売店を変えた行なので hanbaiten_tekiyo_date=joho。
     q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 6, hanbaitenId: 459 }));
     q.loadMaster.mockResolvedValue(
       master({ dokusyaId: 1001, dokusyaShubetsu: 1 }),
@@ -291,8 +293,36 @@ describe('applyChange', () => {
       reason: '',
     });
 
-    expect(q.insertRow).toHaveBeenCalledTimes(2); // information + hanbaiten
-    expect(res.insertedRirekiIds).toHaveLength(2);
+    expect(q.insertRow).toHaveBeenCalledTimes(1);
+    expect(res.insertedRirekiIds).toHaveLength(1);
+    const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
+    expect(row.johoHenkoTekiyoDate).toBe('2026-07-05');
+    expect(row.hanbaitenTekiyoDate).toBe('2026-07-05'); // 販売店適用日=joho
+  });
+
+  it('UPDATE(IMPORT) 情報+販売店 → 1行のみ (取込も UI と同一・1更新1レコード)', async () => {
+    // 顧客要件 2026-07: 取込(source=IMPORT)も販売店適用日を廃止し joho に統一。
+    // 情報+販売店を同時に変えても履歴は1件のみ（UI/置換と同一ロジック）。
+    q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 6, hanbaitenId: 459 }));
+    q.loadMaster.mockResolvedValue(
+      master({ dokusyaId: 1001, dokusyaShubetsu: 1 }),
+    );
+
+    const res = await applyChange(m, {
+      mode: 'UPDATE',
+      dokusyaId: 1001,
+      values: { dokusyaBusu: 8, hanbaitenId: 460 },
+      johoDate: '2026-07-05',
+      source: 'IMPORT',
+      actor: 'u',
+      reason: '',
+    });
+
+    expect(q.insertRow).toHaveBeenCalledTimes(1);
+    expect(res.insertedRirekiIds).toHaveLength(1);
+    const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
+    expect(row.johoHenkoTekiyoDate).toBe('2026-07-05');
+    expect(row.hanbaitenTekiyoDate).toBe('2026-07-05'); // 販売店適用日=joho
   });
 
   it('UPDATE 販売店のみ (master と直前行が乖離) → 1行のみ・busu は直前行から carry (顧客要件 2026-07)', async () => {
@@ -327,7 +357,6 @@ describe('applyChange', () => {
         johoHenkoTekiyoDate: '2026-07-24',
       },
       johoDate: '2026-07-24',
-      hanbaitenDate: '2026-07-24',
       source: 'UI',
       actor: 'u',
       reason: '',

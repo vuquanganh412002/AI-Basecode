@@ -661,6 +661,40 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(rireki[1].saishin_data_flg).toBe(false);
     });
 
+    it('should write exactly ONE rireki row (joho=販売店適用日) when 販売店+情報 changed together — 1更新1レコード (顧客要件 2026-07)', async () => {
+      // 顧客要件 2026-07: 画面編集(UI)は販売店適用日を廃止し joho に統一。販売店と
+      // その他情報を同時に変えても履歴は1件だけ追加され、販売店を変えた行の
+      // hanbaiten_tekiyo_date は joho と同値になる（別日付の2行分割はしない）。
+      const { id, sid } = await seed();
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            hanbaiten_id: 1, // 5 → 1（販売店変更）
+            chome_banchi: '千代田1-2-both', // 情報変更も同時
+          }),
+        )
+        .expect(200);
+
+      const rireki = await ctx.dataSource.query(
+        `SELECT rireki_no, hanbaiten_id, joho_henko_tekiyo_date, hanbaiten_tekiyo_date
+           FROM t_dokusya_rireki WHERE dokusya_id = $1 ORDER BY rireki_no`,
+        [id],
+      );
+      // 作成行(1) + 今回の更新行(2) の計2行のみ（＝更新で1件だけ追加）。
+      expect(rireki).toHaveLength(2);
+      const added = rireki[1];
+      expect(Number(added.rireki_no)).toBe(2);
+      expect(Number(added.hanbaiten_id)).toBe(1); // 新販売店
+      // 販売店適用日 = 情報変更適用日(joho)。
+      expect(added.hanbaiten_tekiyo_date).not.toBeNull();
+      expect(String(added.hanbaiten_tekiyo_date)).toBe(
+        String(added.joho_henko_tekiyo_date),
+      );
+    });
+
     it('should insert a real 解約(kaiyaku) row (部数0・tetsuzuki0・kaiyaku_flg・zougen・saishin=false) when 購読中止日 is set — 顧客決定 2026-07', async () => {
       // 解約予定日(購読中止日) 入力＝解約予約。継続情報変更ではなく解約履歴を
       // 1件挿入する。到来日バッチが recomputeMaster で t_dokusya へ反映するのみ。

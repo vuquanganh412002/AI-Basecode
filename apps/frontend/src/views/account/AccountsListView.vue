@@ -89,6 +89,7 @@ const columns: TableColumnsType = [
   { title: '都道府県', dataIndex: 'todofuken_name', key: 'todofuken_code', sorter: true, width: 120 },
   { title: 'JA名', dataIndex: 'ja_name', key: 'ja_name', width: 180 },
   { title: '管理支店', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', width: 200 },
+  { title: '所属支店', dataIndex: 'shiten_name', key: 'shiten_name', width: 200 },
   { title: '通知先メールアドレス', dataIndex: 'email', key: 'email', width: 220 },
   { title: 'サブメール1', dataIndex: 'sub_email_1', key: 'sub_email_1', width: 220 },
   { title: 'サブメール2', dataIndex: 'sub_email_2', key: 'sub_email_2', width: 220 },

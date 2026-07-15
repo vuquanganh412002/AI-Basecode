@@ -299,14 +299,20 @@ export class ShitenService {
   // ─── ACSMS-API-COMMON — Shiten dropdown (SCR-011) ───────────────────
   /**
    * Minimal dropdown projection consumed by 購読者情報登録 (SCR-011)'s
-   * 引落口座支店 picker. Optional `kinyu_shiten_flg` filter narrows to
-   * 金融機関支店 only (machine-readable filter for the 口座引落 case).
+   * 引落口座支店 picker と アカウント登録 (SCR-025)'s 所属支店 picker.
+   * Optional filters: `kanri_shiten_id`（選択した管理支店配下のみ・顧客要件
+   * 2026-07）、`kinyu_shiten_flg`（金融機関支店のみ・口座引落用）。
    * Scoped by `applyBranchScope`; NICHINO_* see all JAs unless `ja_id`
    * is supplied, JA_KANRI_SHITEN is narrowed to its own kanri_shiten_id.
    * Soft-deleted rows excluded. `q` partial-matches shiten_name (ILIKE).
    */
   async listDropdown(
-    query: { ja_id?: number; kinyu_shiten_flg?: boolean; q?: string },
+    query: {
+      ja_id?: number;
+      kanri_shiten_id?: number;
+      kinyu_shiten_flg?: boolean;
+      q?: string;
+    },
     session: SessionPayload,
   ): Promise<
     Array<{
@@ -330,6 +336,11 @@ export class ShitenService {
     );
     if (session.ja_id == null && query.ja_id !== undefined) {
       qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+    }
+    // 管理支店で絞り込む（顧客要件2026-07）。applyBranchScope で権限境界は担保済み、
+    // これは選択した管理支店配下のみに絞る UI 用フィルタ。
+    if (query.kanri_shiten_id !== undefined) {
+      qb.andWhere('m.kanri_shiten_id = :qks', { qks: query.kanri_shiten_id });
     }
     if (query.kinyu_shiten_flg !== undefined) {
       qb.andWhere('m.kinyu_shiten_flg = :ksf', {

@@ -22,6 +22,7 @@
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1.0 | 2026-03-20 00:00:00 | 1.0 | Nguyen Duyen Manh | 新規作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2.0 | 2026/07/14 | 1.1 | Tran Duc Tuyen | 検索結果一覧に「所属支店（列）」を追加（shiten_id / shiten_name、顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ---
 
@@ -95,6 +96,7 @@
 | 3.0 | 都道府県（列） | todofuken_code | ラベル | 出 | — | todofuken_name |
 | 4.0 | JA（列） | ja_id | ラベル | 出 | — | ja_name |
 | 5.0 | 管理支店（列） | kanri_shiten_id | ラベル | 出 | — | kanri_shiten_name |
+| 5.1 | 所属支店（列） | shiten_id | ラベル | 出 | — | shiten_name |
 | 6.0 | 紙版（列） | paper_flg | ラベル | 出 | — | paper_flg |
 | 7.0 | 電子版（列） | denshi_flg | ラベル | 出 | — | denshi_flg |
 

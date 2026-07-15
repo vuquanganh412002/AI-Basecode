@@ -14,6 +14,7 @@ export function buildSession(overrides: Partial<SessionPayload> = {}): SessionPa
     role_code: 'NICHINO_ADMIN',
     ja_id: null,
     kanri_shiten_id: null,
+    shiten_id: null,
     permissions: [
       'ja.view',
       'ja.create',

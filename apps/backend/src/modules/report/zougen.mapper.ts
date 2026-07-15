@@ -28,6 +28,7 @@ export interface ZougenRawRow {
   zenkai_hanbaiten_code: string | null;
   zenkai_hanbaiten_name: string | null;
   kanri_shiten_id: RawNullableNum;
+  kanri_shiten_code: string | null;
   kanri_shiten_name: string | null;
   kanri_shiten_tel: string | null;
   kanri_shiten_fax: string | null;

@@ -50,8 +50,17 @@ const NICHINO_TARGET_TABLE = 't_file_download';
 
 // ─── ACSMS-SCR-029 — 増減通知（日本農業新聞） ─────────────────────────
 const NICHINO_SCREEN_NAME = '増減通知（日本農業新聞）出力画面 (ACSMS-SCR-029)';
-// 通知先ロール: NICHINO_ADMIN(1) / NICHINO_STAFF(2)（m_roles SERIAL 順）。
-const NICHINO_NOTIFY_ROLE_IDS = [1, 2];
+
+/**
+ * ファイル名の一部（JA名・管理支店名）をサニタイズする。区切り文字 `_` と
+ * ファイルパス／S3キーで問題になる文字を除去し、空白を1つに畳む。日本語は保持。
+ */
+function sanitizeFilenamePart(value: string): string {
+  return value
+    .replaceAll(/[/\\:*?"<>|_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export type ExportZougenResult =
   | {
@@ -173,15 +182,17 @@ export class ZougenReportService {
       );
       const buffer = await this.pdfService.generatePdf(docDefinition);
 
-      // ファイル名はログイン権限で分岐する（JA_KANRI_SHITEN は ja_name を含める）。
-      // ダウンロード名はタイムスタンプ無し、S3 名のみ FileArchiveService が
-      // 14桁の JST タイムスタンプを付与する。
+      // ファイル名はログイン権限で分岐する（顧客要件2026-07・機能詳細3.2）。
+      // ダウンロード名・DB表示名はタイムスタンプ無し、S3キーのみ FileArchiveService が
+      // 14桁の JST タイムスタンプを付与して一意化する。
       const ja = await this.fileArchive.resolveJa(session.ja_id ?? null);
       const baseName = this.buildZougenBaseName(
         query.tekiyo_date,
         session.role_code,
         ja.code,
         ja.name,
+        rows[0]?.kanri_shiten_name ?? '',
+        rows[0]?.kanri_shiten_code ?? '',
       );
       const filename = `${baseName}.pdf`;
       const asciiFilename = this.buildZougenAsciiFilename(query.tekiyo_date);
@@ -192,6 +203,8 @@ export class ZougenReportService {
       const archived = await this.fileArchive.archive({
         buffer,
         baseName,
+        // DB/DL表示名は baseName（タイムスタンプ無し）、S3キーは別途一意化。
+        displayName: baseName,
         category: 'zougen-hanbaiten',
         // 増減連絡票（販売店） (SCR-028)：日農担当者DL不可。
         downloadType: DownloadType.ZOUGEN,
@@ -320,22 +333,39 @@ export class ZougenReportService {
       );
       const buffer = await this.pdfService.generatePdf(doc);
 
-      // 基底ファイル名: 増減通知_{YYYY年MM月DD日}（年月日表記）。
-      const [year, month, day] = query.tekiyo_date.split('-');
-      const baseName = `増減通知_${year}年${month}月${day}日`;
+      // 表示ファイル名（顧客要件2026-07・機能詳細3.2）— 出力アカウントのロール別:
+      //   JA本店 / 中央会      : 増減通知_{JA名}_{JAコード}_{適用日YYYYMMDD}
+      //   JA管理支店           : 増減通知_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}
+      // 中央会・JA本店は複数管理支店にまたがるため管理支店をファイル名に含めない。
+      // JA管理支店は自管理支店のみのスコープなので rows[0] の管理支店で確定できる。
+      const [year] = query.tekiyo_date.split('-');
+      const ymd = query.tekiyo_date.replaceAll('-', '');
+      const ja = await this.fileArchive.resolveJa(session.ja_id ?? null);
+      const jaName = sanitizeFilenamePart(ja.name);
+      const jaCode = ja.code;
+      let baseName: string;
+      if (session.role_code === RoleCode.JA_KANRI_SHITEN) {
+        const ksName = sanitizeFilenamePart(rows[0]?.kanri_shiten_name ?? '');
+        const ksCode = rows[0]?.kanri_shiten_code ?? '';
+        baseName = `増減通知_${jaName}_${jaCode}_${ksName}_${ksCode}_${ymd}`;
+      } else {
+        baseName = `増減通知_${jaName}_${jaCode}_${ymd}`;
+      }
 
-      // S3 保存 + t_file_upload 登録は共通の FileArchiveService に委譲する。
+      // S3 保存 + t_file_download 登録は共通の FileArchiveService に委譲する。
       // S3 パス: reports/zougen-nichino/{ja_code}/{YYYY}/（subFolder なし、
-      // YYYY=適用日の年）。FileArchiveService が 14桁(JST)のタイムスタンプを
-      // ファイル名に付与する。
+      // YYYY=適用日の年）。S3キーは baseName＋14桁(JST)タイムスタンプで一意化し、
+      // DB/DL表示名(file_name)は displayName（タイムスタンプ無し）を用いる。
       const archived = await this.fileArchive.archive({
         buffer,
         baseName,
+        displayName: baseName,
         category: 'zougen-nichino',
         // 増減通知（日本農業新聞） (SCR-029)：日農担当者DL可。
         downloadType: DownloadType.ZOUGEN_NICHINO,
         nichinoDownloadAllowedFlg: true,
         year,
+        jaCode,
         jaId: session.ja_id ?? null,
         session,
         recordCount: rows.length,
@@ -343,18 +373,18 @@ export class ZougenReportService {
         extension: '.pdf',
       });
 
-      // 日農担当者（NICHINO_ADMIN/STAFF）へメール自動通知（4.5）。
-      // fire-and-forget / non-fatal: notifyRoles は throw しないため await して
+      // 日農担当者（NICHINO_ADMIN/STAFF）へメール自動通知（4.5・顧客要件2026-07）。
+      // 件名・本文に都道府県 + 発行アカウント（ログインID+アカウント名）を含める。
+      // fire-and-forget / non-fatal: notify* は throw しないため await して
       // recipient_count を得る（メール失敗時も S3保存・監査ログは成功扱い）。
       const recipientCount =
-        (await this.reportNotification?.notifyRoles(NICHINO_NOTIFY_ROLE_IDS, {
-          subject: '増減通知（日本農業新聞）を出力しました',
-          body:
-            `<p>増減通知（日本農業新聞）を出力しました。</p>` +
-            `<p>対象月：${query.tekiyo_date}<br>` +
-            `ファイル名：${archived.filename}<br>` +
-            `件数：${rows.length}件</p>` +
-            `<p>ファイル管理画面からダウンロードできます。</p>`,
+        (await this.reportNotification?.notifyNichinoExport({
+          session,
+          // 出力スコープ（1JA/1中央会）内の都道府県は単一のため rows[0] で確定。
+          todofukenName: rows[0]?.todofuken_name ?? '',
+          tekiyoDate: query.tekiyo_date,
+          fileName: archived.filename,
+          recordCount: rows.length,
         })) ?? 0;
 
       // 操作ログ（4.7）— アーカイブと原子的に対にすべき DML がないため
@@ -411,6 +441,7 @@ export class ZougenReportService {
     'zh.hanbaiten_code AS zenkai_hanbaiten_code',
     'zh.hanbaiten_name AS zenkai_hanbaiten_name',
     'r.kanri_shiten_id AS kanri_shiten_id',
+    'ks.kanri_shiten_code AS kanri_shiten_code',
     'ks.kanri_shiten_name AS kanri_shiten_name',
     'ks.tel AS kanri_shiten_tel',
     'ks.fax AS kanri_shiten_fax',
@@ -553,9 +584,11 @@ export class ZougenReportService {
 
   /**
    * 増減連絡票（販売店）のファイル名基底（拡張子・タイムスタンプ無し）。
-   * ログイン権限で分岐する：
-   * - JA_KANRI_SHITEN → `増減連絡票_{ja_code}_{ja_name}_{YYYY年MM月DD日}`
-   * - それ以外（CHUOKAI / JA_HONTEN など）→ `増減連絡票_{ja_code}_{YYYY年MM月DD日}`
+   * 出力アカウントのロール別（顧客要件2026-07・機能詳細3.2）：
+   * - JA本店 / 中央会 → `増減連絡票_{JA名}_{JAコード}_{適用日YYYYMMDD}`
+   * - JA管理支店     → `増減連絡票_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}`
+   * 中央会は複数管理支店にまたがるため管理支店を含めない（JA本店と同一形式）。
+   * JA管理支店は自管理支店のみのスコープなので対象データ（rows[0]）で確定できる。
    * 日付は適用日（tekiyo_date）に基づく。
    */
   private buildZougenBaseName(
@@ -563,13 +596,16 @@ export class ZougenReportService {
     roleCode: string,
     jaCode: string,
     jaName: string,
+    kanriShitenName: string,
+    kanriShitenCode: string,
   ): string {
-    const [y, m, d] = tekiyoDate.split('-');
-    const date = `${y}年${m}月${d}日`;
+    const ymd = tekiyoDate.replaceAll('-', '');
+    const name = sanitizeFilenamePart(jaName);
     if (roleCode === RoleCode.JA_KANRI_SHITEN) {
-      return `増減連絡票_${jaCode}_${jaName}_${date}`;
+      const ksName = sanitizeFilenamePart(kanriShitenName);
+      return `増減連絡票_${name}_${jaCode}_${ksName}_${kanriShitenCode}_${ymd}`;
     }
-    return `増減連絡票_${jaCode}_${date}`;
+    return `増減連絡票_${name}_${jaCode}_${ymd}`;
   }
 
   /** ASCII別名：zougen_hanbaiten_{YYYYMMDD}.pdf（Content-Disposition filename用）。 */

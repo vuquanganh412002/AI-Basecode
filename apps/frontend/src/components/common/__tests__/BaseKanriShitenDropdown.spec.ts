@@ -18,6 +18,8 @@ function buildResponse(
 ) {
   const data = rows.map((r) => ({
     kanri_shiten_code: 'KS001',
+    paper_flg: true,
+    denshi_flg: true,
     ...r,
   }));
   return withMeta

@@ -13,6 +13,8 @@ export interface AccountDetail {
   ja_name: string | null;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -74,6 +76,8 @@ export function buildAccountDetail(
     ja_name: 'JA東京中央',
     kanri_shiten_id: null,
     kanri_shiten_name: null,
+    shiten_id: null,
+    shiten_name: null,
     email: 'honten001@example.com',
     sub_email_1: 'honten001.sub1@example.com',
     sub_email_2: '',

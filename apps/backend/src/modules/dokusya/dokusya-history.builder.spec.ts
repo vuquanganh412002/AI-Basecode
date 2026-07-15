@@ -85,27 +85,23 @@ describe('splitEvents', () => {
     ]);
   });
 
-  it('UPDATE information only → one information event', () => {
+  // 顧客要件 2026-07: 販売店適用日を廃止し joho に統一 → UPDATE は常に1イベント
+  // （UI/取込/置換で共通・1更新1レコード）。
+  it('UPDATE information only → one event, isHanbaiten=false', () => {
     const events = splitEvents('UPDATE', ['dokusyaBusu'], values, '2026-07-01');
     expect(events).toEqual([
       { joho: '2026-07-01', values: { dokusyaBusu: 8 }, isHanbaiten: false },
     ]);
   });
 
-  it('UPDATE hanbaiten only → one hanbaiten event at hanbaitenDate', () => {
-    const events = splitEvents(
-      'UPDATE',
-      ['hanbaitenId'],
-      values,
-      '2026-07-01',
-      '2026-07-01',
-    );
+  it('UPDATE hanbaiten only → one event at johoDate, isHanbaiten=true', () => {
+    const events = splitEvents('UPDATE', ['hanbaitenId'], values, '2026-07-01');
     expect(events).toEqual([
       { joho: '2026-07-01', values: { hanbaitenId: 460 }, isHanbaiten: true },
     ]);
   });
 
-  it('UPDATE both same day → 2 rows, information before hanbaiten', () => {
+  it('UPDATE 情報+販売店 → 1イベントにまとめる (1更新1レコード)', () => {
     const events = splitEvents(
       'UPDATE',
       ['dokusyaBusu', 'hanbaitenId'],
@@ -113,36 +109,11 @@ describe('splitEvents', () => {
       '2026-07-01',
     );
     expect(events).toEqual([
-      { joho: '2026-07-01', values: { dokusyaBusu: 8 }, isHanbaiten: false },
-      { joho: '2026-07-01', values: { hanbaitenId: 460 }, isHanbaiten: true },
-    ]);
-  });
-
-  it('UPDATE both, hanbaiten earlier → hanbaiten first', () => {
-    const events = splitEvents(
-      'UPDATE',
-      ['dokusyaBusu', 'hanbaitenId'],
-      values,
-      '2026-06-25',
-      '2026-06-20',
-    );
-    expect(events).toEqual([
-      { joho: '2026-06-20', values: { hanbaitenId: 460 }, isHanbaiten: true },
-      { joho: '2026-06-25', values: { dokusyaBusu: 8 }, isHanbaiten: false },
-    ]);
-  });
-
-  it('UPDATE both, information earlier → information first', () => {
-    const events = splitEvents(
-      'UPDATE',
-      ['dokusyaBusu', 'hanbaitenId'],
-      values,
-      '2026-06-20',
-      '2026-06-25',
-    );
-    expect(events).toEqual([
-      { joho: '2026-06-20', values: { dokusyaBusu: 8 }, isHanbaiten: false },
-      { joho: '2026-06-25', values: { hanbaitenId: 460 }, isHanbaiten: true },
+      {
+        joho: '2026-07-01',
+        values: { dokusyaBusu: 8, hanbaitenId: 460 },
+        isHanbaiten: true, // 販売店を含むので hanbaiten_tekiyo_date=joho
+      },
     ]);
   });
 

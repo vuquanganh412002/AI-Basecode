@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | ---------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/01 | 1.0  | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書との整合：住所変更テーブルの住所カラム組（変更前=zenkai_*, 変更後=haitatsu_*）を4.5に明記、システムエラーメッセージ（ACSMS-MSG-028-003）の句点を統一 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更。表示名とS3キー(タイムスタンプ)を分離。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -447,9 +448,12 @@ Content-Type: application/pdf
 Content-Disposition: attachment; filename="zougen_hanbaiten_YYYYMMDD.pdf"
 ```
 
-※ ファイル名は適用日に基づく（例：適用日 2026-05-01 → `増減連絡票_販売店_2026年05月01日.pdf`）。
+※ ファイル名は出力アカウントのロール別（顧客要件2026-07）。適用日は `YYYYMMDD`。
+  - JA本店 / 中央会：`増減連絡票_{JA名}_{JAコード}_{適用日YYYYMMDD}.pdf`
+  - JA管理支店：`増減連絡票_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}.pdf`
+  （中央会は複数管理支店にまたがるため管理支店を含めない。JA管理支店は自管理支店のみのスコープなので対象データから確定）
   `Content-Disposition` の `filename` には ASCII 別名（`zougen_hanbaiten_20260501.pdf`）、
-  `filename*`（RFC 5987）には日本語名（`増減連絡票_販売店_2026年05月01日.pdf`）を設定する。
+  `filename*`（RFC 5987）には上記の日本語名を設定する。`t_file_download.file_name`（ファイル管理画面の表示名）も上記のタイムスタンプ無し名を保存し、S3オブジェクト名のみ14桁(JST)タイムスタンプを付与して一意化する。
 
 ### PDFレイアウト
 
@@ -485,7 +489,8 @@ Content-Type: application/json
 ```
 HTTP/1.1 200 OK
 Content-Type: application/pdf
-Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filename*=UTF-8''%E5%A2%97%E6%B8%9B%E9%80%A3%E7%B5%A1%E7%A5%A8_%E8%B2%A9%E5%A3%B2%E5%BA%97_2026%E5%B9%B405%E6%9C%8801%E6%97%A5.pdf
+# filename* はロール別の日本語名（例は JA本店: 増減連絡票_{JA名}_{JAコード}_20260501.pdf）を URL エンコードして設定する。
+Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filename*=UTF-8''<URLエンコードした日本語ファイル名>
 
 （PDFバイナリ）
 ```

@@ -11,7 +11,7 @@ import {
   slashDateToIso,
   timestampForFilenameJst,
 } from '@/common/utils/datetime';
-import { applyBranchScope } from '@/common/utils/data-scope';
+import { applyBranchScope, applyShitenScope } from '@/common/utils/data-scope';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
@@ -363,6 +363,8 @@ export class DokusyaSearchService {
       { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
       session,
     );
+    // 所属支店スコープ（顧客要件 2026-07）— session.shiten_id 設定時のみ支店へ絞る。
+    applyShitenScope(qb, 'd', 'shiten_id', session);
 
     this.applySearchEqualityFilters(qb, query);
     this.applySearchPartialFilters(qb, query);

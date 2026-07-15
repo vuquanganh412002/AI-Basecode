@@ -13,6 +13,8 @@ export interface AccountListItem {
   ja_name: string | null;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -52,6 +54,8 @@ export function buildAccountListItem(
     ja_name: null,
     kanri_shiten_id: null,
     kanri_shiten_name: null,
+    shiten_id: null,
+    shiten_name: null,
     email: 'admin001@example.com',
     sub_email_1: '',
     sub_email_2: '',
@@ -131,6 +135,8 @@ export interface KanriShitenDropdownItem {
   kanri_shiten_id: number;
   kanri_shiten_code: string;
   kanri_shiten_name: string;
+  paper_flg: boolean;
+  denshi_flg: boolean;
 }
 
 export function buildRoleDropdownList(): RoleDropdownItem[] {
@@ -175,8 +181,8 @@ export function buildJaDropdownResponse(
 
 export function buildKanriShitenDropdownList(): KanriShitenDropdownItem[] {
   return [
-    { kanri_shiten_id: 20, kanri_shiten_code: '113-5001-001', kanri_shiten_name: 'JA東京中央 本店管理支店' },
-    { kanri_shiten_id: 21, kanri_shiten_code: '113-5001-002', kanri_shiten_name: 'JA東京中央 渋谷管理支店' },
+    { kanri_shiten_id: 20, kanri_shiten_code: '113-5001-001', kanri_shiten_name: 'JA東京中央 本店管理支店', paper_flg: true, denshi_flg: true },
+    { kanri_shiten_id: 21, kanri_shiten_code: '113-5001-002', kanri_shiten_name: 'JA東京中央 渋谷管理支店', paper_flg: true, denshi_flg: true },
   ];
 }
 

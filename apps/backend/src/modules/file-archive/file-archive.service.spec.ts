@@ -49,6 +49,25 @@ describe('FileArchiveService', () => {
     expect(filename).toMatch(/^販売店別購読者名簿_2026年01月_\d{14}\.xlsx$/);
   });
 
+  // 顧客要件2026-07 — displayName 指定時: S3キーはタイムスタンプ付きで一意、
+  // DB/DL表示名(file_name)はタイムスタンプ無しの表示名。
+  it('separates a timestamped S3 key from a clean DB file_name when displayName is provided', async () => {
+    const { key, filename } = await service.archive({
+      ...baseParams(),
+      baseName: '増減通知_JAテスト_JA001_20260301',
+      displayName: '増減通知_JAテスト_JA001_20260301',
+      extension: '.pdf',
+    });
+    // 返り値 filename（メール・監査ログ用）＝表示名（タイムスタンプ無し）。
+    expect(filename).toBe('増減通知_JAテスト_JA001_20260301.pdf');
+    // S3キーはタイムスタンプ付きで一意化。
+    expect(key).toMatch(/増減通知_JAテスト_JA001_20260301_\d{14}\.pdf$/);
+    // DBに保存する file_name は表示名（タイムスタンプ無し）。
+    const saved = fileDownloadRepo.create.mock.calls[0][0];
+    expect(saved.fileName).toBe('増減通知_JAテスト_JA001_20260301.pdf');
+    expect(saved.filePath).toBe(key);
+  });
+
   it('uploads to S3 under reports/{category}/{ja_code}/{subFolder}/{year}/{filename}', async () => {
     const { key } = await service.archive(baseParams());
     expect(storage.upload).toHaveBeenCalledTimes(1);

@@ -1,12 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
-import { IsEmpty, IsOptional, IsString, Matches } from 'class-validator';
+import { IsEmpty, IsIn, IsOptional } from 'class-validator';
 
-import {
-  CreateDokusyaDto,
-  DATE_INPUT_RE,
-  blankToUndef,
-} from './create-dokusya.dto';
+import { CreateDokusyaDto } from './create-dokusya.dto';
+
+/**
+ * 情報変更モード（顧客要件2026-07・SCR-011 参照→編集フロー）:
+ * - `today`（当日変更）: 情報変更適用日=本日固定。帳票に影響しない項目のみ即時反映
+ *   （紙版）。電子版は全項目可（帳票を生成しないため）。
+ * - `reserved`（予約変更）: 情報変更適用日=未来日（必須・入力）。全変更可。
+ */
+export type DokusyaChangeMode = 'today' | 'reserved';
 
 /**
  * Body for PUT /api/v1/dokusya/{dokusya_id} (ACSMS-API-011-003).
@@ -31,27 +34,22 @@ export class UpdateDokusyaDto extends CreateDokusyaDto {
   @IsEmpty({ message: 'dokusya_id はリクエストボディに含められません。' })
   dokusya_id?: never;
 
+  /**
+   * 情報変更モード（顧客要件2026-07）。未指定時は後方互換で `reserved`（予約変更・
+   * 未来日のみ）として扱う。`today`（当日変更）は適用日=本日固定＋帳票影響項目の
+   * 変更を制限（紙版）する。値の検証はサービス層で行う。
+   */
+  @ApiPropertyOptional({ enum: ['today', 'reserved'], description: '情報変更モード（当日変更/予約変更）' })
+  @IsOptional()
+  @IsIn(['today', 'reserved'], { message: '情報変更モードの値が不正です。' })
+  change_mode?: DokusyaChangeMode;
+
   // 氏名(氏/名/かな) は作成・編集の両方で変更可（顧客要件 2026-07）。親
   // CreateDokusyaDto の 必須 + @Matches(漢字/ひらがな) をそのまま継承して
   // 編集でも検証する（プロパティのオーバーライドは行わない）。サービスの
   // name-pin も撤廃済みのため、送信値がそのまま保存・履歴化される。
-
-  /**
-   * 販売店適用日 — 編集で販売店 (hanbaiten_id) を変更したときの適用日。
-   * 当日以降（過去日不可・当日は即日適用）。サービスで
-   * `t_dokusya_rireki.hanbaiten_tekiyo_date` に記録する。マスタには
-   * 列が無いため保存しない。販売店を変更しない更新では未送信 (null)。
-   * 情報変更適用日 (joho_henko_tekiyo_date) とは別概念（後者は後日定義）。
-   */
-  @ApiPropertyOptional({
-    description: '販売店適用日 (YYYY/MM/DD、当日以降)。販売店変更時のみ。',
-    nullable: true,
-  })
-  @Transform(blankToUndef)
-  @IsOptional()
-  @IsString({ message: '販売店適用日は文字列で指定してください。' })
-  @Matches(DATE_INPUT_RE, {
-    message: '販売店適用日はYYYY/MM/DD形式で指定してください。',
-  })
-  hanbaiten_tekiyo_date?: string | null;
+  //
+  // 販売店適用日 (hanbaiten_tekiyo_date) は廃止（顧客要件 2026-07）。販売店変更の
+  // 適用日は読者情報変更適用日 (joho_henko_tekiyo_date) に統一され、更新は
+  // 1更新1レコードで記録される。UI/取込/置換で同一ロジック。
 }

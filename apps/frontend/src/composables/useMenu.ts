@@ -36,6 +36,26 @@ const STAFF_DAIKO_ROUTE_NAMES: ReadonlySet<string> = new Set([
   'HanbaitenList',
 ]);
 
+/**
+ * 制限②（顧客要件 2026-07）— 所属支店(shiten_id)が設定されたアカウントは
+ * 帳票5画面を使用できない。BE 側は ShitenRestrictedGuard で 403 を返す。
+ * FE ではメニューを「非表示」ではなく「表示のうえ非活性(グレーアウト)」に
+ * する — 権限(ロール)自体は保持しているため、機能の存在は見せつつ所属支店
+ * 設定により今は使えないことを示す（購読種別フラグの非活性と同じ扱い）。
+ *   - 口座振替データ出力 (SCR-020)
+ *   - 配達手数料支払情報出力 (SCR-021)
+ *   - 購読者名簿 (SCR-026)
+ *   - 増減連絡票（販売店）(SCR-028)
+ *   - 増減通知（日本農業新聞）(SCR-029)
+ */
+const SHITEN_RESTRICTED_ROUTE_NAMES: ReadonlySet<string> = new Set([
+  'KozaFurikaeExport',
+  'HaitatsuryoExport',
+  'ReportMeibo',
+  'ReportZougenHanbaiten',
+  'ReportZougenNichino',
+]);
+
 export interface UseMenuOptions {
   /**
    * Drop the rootless top-level entry (the Dashboard "メニュー画面" item)
@@ -66,6 +86,8 @@ export function useMenu(options: UseMenuOptions = {}): {
     // 一括置換ができない → 該当メニューを非活性化 (account_concept.md §139-145)。
     const hasAnyDokusyaFlag =
       !!authStore.user?.paper_flg || !!authStore.user?.denshi_flg;
+    // 制限② — 所属支店が設定されたアカウントは帳票5画面のメニューを非表示。
+    const isShitenRestricted = authStore.user?.shiten_id != null;
     return MENU_SECTIONS
       .filter((section) => !options.excludeRoot || section.heading !== undefined)
       .map((section) => ({
@@ -78,7 +100,8 @@ export function useMenu(options: UseMenuOptions = {}): {
                 ? it.label + STAFF_DAIKO_LABEL_SUFFIX
                 : it.label;
             const disabled =
-              it.requiresAnyDokusyaFlag === true && !hasAnyDokusyaFlag;
+              (it.requiresAnyDokusyaFlag === true && !hasAnyDokusyaFlag) ||
+              (isShitenRestricted && SHITEN_RESTRICTED_ROUTE_NAMES.has(it.name));
             return { ...it, label, disabled };
           }),
       }))

@@ -516,6 +516,10 @@ export class TankaService {
       tanka_name: string;
       tanka_type: number;
       kingaku_zeikomi: number;
+      kingaku_zeinuki: number;
+      // ログイン中アカウントの JA の税区分 (m_ja.zei_kubun) で解決した表示用金額。
+      // zei_kubun=1(内税) → 税込、=2(外税) → 税抜。JA 不明時は税込で既定。
+      kingaku: number;
     }>;
     meta: { total: number; page: number; per_page: number; has_more: boolean };
   }> {
@@ -559,6 +563,7 @@ export class TankaService {
         'mt.tankaName',
         'mt.tankaType',
         'mt.kingakuZeikomi',
+        'mt.kingakuZeinuki',
       ])
       .orderBy('mt.tanka_name', 'ASC')
       .take(per_page)
@@ -583,13 +588,35 @@ export class TankaService {
       pinned = await pinnedQb.getOne();
     }
 
-    const data = [...(pinned ? [pinned] : []), ...rows].map((r) => ({
-      tanka_id: Number(r.tankaId),
-      tanka_code: r.tankaCode,
-      tanka_name: r.tankaName,
-      tanka_type: r.tankaType,
-      kingaku_zeikomi: Number(r.kingakuZeikomi),
-    }));
+    // [tanka-amount-by-zeikubun] ログイン中アカウントの JA の税区分で表示金額を
+    // 解決する（顧客要件）。effective JA = session.ja_id（JA スコープ role）
+    // ?? query.ja_id（NICHINO_STAFF 代行入力で選択した JA）。zei_kubun=1(内税)
+    // → 税込(kingaku_zeikomi)、=2(外税) → 税抜(kingaku_zeinuki)。JA 不明
+    // (NICHINO_ADMIN でフィルタ無し等) は税込で既定。全行同一 JA スコープの
+    // ため 1 回だけ解決する。
+    const effectiveJaId = session.ja_id ?? query.ja_id ?? null;
+    let effectiveZeiKubun: number | null = null;
+    if (effectiveJaId != null) {
+      const jaRows = (await this.dataSource.query(
+        'SELECT zei_kubun FROM m_ja WHERE ja_id = $1 AND deleted_at IS NULL LIMIT 1',
+        [effectiveJaId],
+      )) as Array<{ zei_kubun: number }>;
+      effectiveZeiKubun = jaRows[0] ? Number(jaRows[0].zei_kubun) : null;
+    }
+
+    const data = [...(pinned ? [pinned] : []), ...rows].map((r) => {
+      const zeikomi = Number(r.kingakuZeikomi);
+      const zeinuki = Number(r.kingakuZeinuki);
+      return {
+        tanka_id: Number(r.tankaId),
+        tanka_code: r.tankaCode,
+        tanka_name: r.tankaName,
+        tanka_type: r.tankaType,
+        kingaku_zeikomi: zeikomi,
+        kingaku_zeinuki: zeinuki,
+        kingaku: effectiveZeiKubun === 2 ? zeinuki : zeikomi,
+      };
+    });
 
     return paginateCursor(data, total, page, per_page);
   }

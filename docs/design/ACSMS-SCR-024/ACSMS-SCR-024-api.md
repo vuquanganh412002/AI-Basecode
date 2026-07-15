@@ -18,6 +18,7 @@ updated_by: Nguyen Duyen Manh
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/14 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/07/14 | 1.1  | Tran Duc Tuyen | 検索条件に shiten_id、レスポンス一覧に shiten_id / shiten_name を追加（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -80,6 +81,7 @@ updated_by: Nguyen Duyen Manh
 | 2   | role_id          | Number | -        | -    |        |        | 管理者区分（1〜5）。未指定=全て                                      |
 | 3   | ja_id            | Number | -        | -    |        |        | JA ID                                                                |
 | 4   | kanri_shiten_id  | Number | -        | -    |        |        | 管理支店ID                                                           |
+| 4.1 | shiten_id        | Number | -        | -    |        |        | 所属支店ID（顧客要件2026-07）                                        |
 | 5   | page             | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                          |
 | 6   | per_page         | Number | -        | -    |        |        | 1ページあたりの件数（デフォルト: 20、最大: 100）                     |
 | 7   | sort_by          | String | -        | -    |        |        | ソート項目（デフォルト: created_at）                                  |
@@ -101,6 +103,8 @@ updated_by: Nguyen Duyen Manh
 | 10  | →ja_name              | String  | -        |              | 〇       | JA名称                                      |
 | 11  | →kanri_shiten_id      | Number  | -        |              | 〇       | 管理支店ID                                  |
 | 12  | →kanri_shiten_name    | String  | -        |              | 〇       | 管理支店名称                                |
+| 12.1 | →shiten_id           | Number  | -        |              | 〇       | 所属支店ID（顧客要件2026-07）               |
+| 12.2 | →shiten_name         | String  | -        |              | 〇       | 所属支店名称                                |
 | 13  | →paper_flg            | Boolean | -        |              | -        | 紙版取扱フラグ                              |
 | 14  | →denshi_flg           | Boolean | -        |              | -        | 電子版取扱フラグ                            |
 | 15  | →created_at           | String  | -        | ISO8601      | -        | 作成日時                                    |
@@ -134,6 +138,8 @@ GET /api/v1/accounts?login_id=admin&role_id=1&page=1&per_page=20&sort_by=created
       "ja_name": null,
       "kanri_shiten_id": null,
       "kanri_shiten_name": null,
+      "shiten_id": null,
+      "shiten_name": null,
       "paper_flg": true,
       "denshi_flg": false,
       "created_at": "2026-01-15T10:00:00Z",
@@ -151,6 +157,8 @@ GET /api/v1/accounts?login_id=admin&role_id=1&page=1&per_page=20&sort_by=created
       "ja_name": "JA東京中央",
       "kanri_shiten_id": null,
       "kanri_shiten_name": null,
+      "shiten_id": null,
+      "shiten_name": null,
       "paper_flg": true,
       "denshi_flg": true,
       "created_at": "2026-02-01T09:00:00Z",
@@ -462,6 +470,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "role_id": 5,
   "ja_id": 10,
   "kanri_shiten_id": 20,
+  "shiten_id": null,
   "todofuken_code": "13",
   "paper_flg": true,
   "denshi_flg": false,
@@ -828,6 +837,8 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | 2   | →kanri_shiten_id    | Number | -        |              | -        | 管理支店ID       |
 | 3   | →kanri_shiten_code  | String | -        |              | -        | 管理支店コード   |
 | 4   | →kanri_shiten_name  | String | -        |              | -        | 管理支店名称     |
+| 5   | →paper_flg          | Boolean | -       |              | -        | 紙版取扱フラグ（SCR-011 の購読種別による絞り込み用・顧客要件2026-07） |
+| 6   | →denshi_flg         | Boolean | -       |              | -        | 電子版取扱フラグ（同上） |
 
 ## リクエスト例
 
@@ -843,12 +854,16 @@ GET /api/v1/kanri-shiten/dropdown?ja_id=10
     {
       "kanri_shiten_id": 20,
       "kanri_shiten_code": "113-5001-001",
-      "kanri_shiten_name": "JA東京中央 本店管理支店"
+      "kanri_shiten_name": "JA東京中央 本店管理支店",
+      "paper_flg": true,
+      "denshi_flg": true
     },
     {
       "kanri_shiten_id": 21,
       "kanri_shiten_code": "113-5001-002",
-      "kanri_shiten_name": "JA東京中央 渋谷管理支店"
+      "kanri_shiten_name": "JA東京中央 渋谷管理支店",
+      "paper_flg": true,
+      "denshi_flg": false
     }
   ]
 }

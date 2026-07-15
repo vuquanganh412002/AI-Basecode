@@ -18,6 +18,7 @@ function buildBasePayload(): Omit<SessionPayload, 'created_at' | 'last_activity_
     role_code: 'NICHINO_ADMIN',
     ja_id: null,
     kanri_shiten_id: null,
+    shiten_id: null,
     permissions: ['ja.view'],
   };
 }

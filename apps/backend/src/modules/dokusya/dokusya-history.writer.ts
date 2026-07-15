@@ -64,7 +64,7 @@ export async function applyChange(
   m: EntityManager,
   input: ApplyChangeInput,
 ): Promise<ApplyChangeResult> {
-  const { mode, values, johoDate, hanbaitenDate, actor, reason } = input;
+  const { mode, values, johoDate, actor, reason } = input;
 
   let dokusyaId: number;
   let beforeMaster: Dokusya | null;
@@ -88,7 +88,9 @@ export async function applyChange(
   // 各履歴行に埋める値・zenkai_*・後続行の cascade は従来どおり findBefore
   // （日付上の直前行）から取る＝「データは直前行から」の設計は不変。
   const changed = diffChangedFields(beforeMaster, values);
-  const events = splitEvents(mode, changed, values, johoDate, hanbaitenDate);
+  // [1更新1レコード] 販売店・支払方法の変更日を廃止し、全変更を joho で1件の履歴行に
+  // まとめる（顧客要件 2026-07）。UI編集・Excel取込・一括置換で統一（source 分岐なし）。
+  const events = splitEvents(mode, changed, values, johoDate);
 
   const insertedRirekiIds: number[] = [];
   for (const e of events) {

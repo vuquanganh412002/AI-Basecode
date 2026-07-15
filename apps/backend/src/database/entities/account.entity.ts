@@ -10,6 +10,7 @@ import {
 
 @Entity('m_account')
 @Index('UQ_m_account_login_id', ['loginId'], { unique: true })
+@Index('IX_m_account_shiten_id', ['shitenId'])
 export class Account {
   @PrimaryGeneratedColumn({ name: 'account_id', type: 'bigint' })
   accountId: number;
@@ -31,6 +32,12 @@ export class Account {
 
   @Column({ name: 'kanri_shiten_id', type: 'bigint', nullable: true })
   kanriShitenId: number | null;
+
+  // 所属支店（顧客要件 2026-07）。JA管理支店アカウントに設定すると、その支店の
+  // 読者しか参照・編集・追加できず（DataScope 3層目）、帳票5画面も使用不可になる。
+  // NULL は従来どおり（管理支店単位のスコープのみ）。
+  @Column({ name: 'shiten_id', type: 'bigint', nullable: true })
+  shitenId: number | null;
 
   @Column({ name: 'todofuken_code', type: 'varchar', length: 2, nullable: true })
   todofukenCode: string | null;

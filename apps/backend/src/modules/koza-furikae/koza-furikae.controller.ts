@@ -20,6 +20,7 @@ import type { Request, Response } from 'express';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
+import { ShitenRestrictedGuard } from '@/common/guards/shiten-restricted.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
@@ -28,7 +29,7 @@ import { KozaFurikaeService } from './koza-furikae.service';
 
 @ApiTags('koza-furikae')
 @Controller('koza-furikae')
-@UseGuards(SessionAuthGuard, PermissionsGuard)
+@UseGuards(SessionAuthGuard, PermissionsGuard, ShitenRestrictedGuard)
 @ApiCookieAuth('session_id')
 export class KozaFurikaeController {
   constructor(private readonly kozaFurikaeService: KozaFurikaeService) {}

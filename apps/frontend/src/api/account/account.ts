@@ -17,6 +17,8 @@ export interface AccountListItem {
   ja_name: string | null;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -48,6 +50,7 @@ export interface ListAccountsQuery {
   todofuken_code?: string;
   ja_id?: number;
   kanri_shiten_id?: number;
+  shiten_id?: number;
   page?: number;
   per_page?: number;
   sort_by?: 'login_id' | 'account_name' | 'role_name' | 'todofuken_code' | 'created_at';
@@ -93,6 +96,8 @@ export interface AccountDetail {
   ja_name: string | null;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
+  shiten_id: number | null;
+  shiten_name: string | null;
   email: string;
   sub_email_1: string;
   sub_email_2: string;
@@ -113,6 +118,7 @@ export interface CreateAccountBody {
   todofuken_code?: string | null;
   ja_id?: number | null;
   kanri_shiten_id?: number | null;
+  shiten_id?: number | null;
   account_name: string;
   email?: string;
   sub_email_1?: string;
@@ -129,6 +135,7 @@ export interface UpdateAccountBody {
   todofuken_code?: string | null;
   ja_id?: number | null;
   kanri_shiten_id?: number | null;
+  shiten_id?: number | null;
   account_name: string;
   email?: string;
   sub_email_1?: string;

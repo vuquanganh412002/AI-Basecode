@@ -34,6 +34,18 @@ import {
   buildZougenNichinoRemark,
   buildZougenNichinoRawRow,
 } from '@test/fixtures/report-zougen-nichino.factory';
+import { formatGenBusu } from '@/modules/report/zougen-nichino.mapper';
+
+describe('zougen-nichino.mapper — formatGenBusu (減部数の▲表示・顧客要件2026-07)', () => {
+  it('prefixes 減部数 with ▲ when the value is positive', () => {
+    expect(formatGenBusu(2)).toBe('▲2');
+    expect(formatGenBusu(1)).toBe('▲1');
+  });
+
+  it('shows "0" (no ▲) when there is no 減部数', () => {
+    expect(formatGenBusu(0)).toBe('0');
+  });
+});
 
 describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () => {
   let service: ReportService;
@@ -95,17 +107,24 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     // dataSource は引き続き渡す（実装では未使用）。
     dataSource = { transaction: jest.fn(async (cb: any) => cb({})) };
     pdfService = { generatePdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 nichino')) };
-    // SCR-029: メール通知は S3 保存後に notifyRoles() で fire-and-forget。
-    // 戻り値（送信を試みた宛先数）を recipient_count に使う。
+    // SCR-029: メール通知は S3 保存後に notifyNichinoExport() で fire-and-forget。
+    // 戻り値（送信を試みた宛先数）を recipient_count に使う（顧客要件2026-07で
+    // 件名・本文に都道府県+発行アカウントを含める専用メソッドに変更）。
     reportNotification = {
       notifyRoles: jest.fn().mockResolvedValue(3),
+      notifyNichinoExport: jest.fn().mockResolvedValue(3),
     };
     reportArchive = {
+      // 表示名（displayName）はタイムスタンプ無し。S3キーは別途タイムスタンプ付き。
       archive: jest.fn().mockResolvedValue({
-        key: 'reports/zougen-nichino/1301002001/2026/増減通知_2026年03月01日_20260301120000.pdf',
-        filename: '増減通知_2026年03月01日_20260301120000.pdf',
+        key: 'reports/zougen-nichino/1301002001/2026/増減通知_JAテスト_1301002001_20260301_20260301120000.pdf',
+        filename: '増減通知_JAテスト_1301002001_20260301.pdf',
         fileDownloadId: 77,
       }),
+      // 顧客要件2026-07: ロール別ファイル名に JA名/JAコードを使うため resolveJa を追加。
+      resolveJa: jest
+        .fn()
+        .mockResolvedValue({ code: '1301002001', name: 'JAテスト' }),
     };
 
     // Facade wiring: SCR-029 export needs pdfService + reportNotification on the
@@ -539,7 +558,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       );
 
       expect(result.empty).toBe(false);
-      expect(result.fileName).toBe('増減通知_2026年03月01日_20260301120000.pdf');
+      // 顧客要件2026-07: 表示名は 増減通知_{JA名}_{JAコード}_{適用日}.pdf（タイムスタンプ無し）。
+      expect(result.fileName).toBe('増減通知_JAテスト_1301002001_20260301.pdf');
       expect(result.recipientCount).toBe(3);
       // PDFバッファ・Content-Type はもう返さない。
       expect(result.buffer).toBeUndefined();
@@ -579,7 +599,10 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
         expect.objectContaining({
           category: 'zougen-nichino',
           year: '2026',
-          baseName: '増減通知_2026年03月01日',
+          // CHUOKAI(=JA本店系) は管理支店をファイル名に含めない。
+          baseName: '増減通知_JAテスト_1301002001_20260301',
+          // 表示名(file_name)はタイムスタンプ無し、S3キーは別途タイムスタンプ付き。
+          displayName: '増減通知_JAテスト_1301002001_20260301',
           contentType: 'application/pdf',
           extension: '.pdf',
         }),
@@ -588,16 +611,51 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(arg.subFolder).toBeUndefined();
     });
 
-    it('should auto-send a notification mail to roles [1,2] (NICHINO_ADMIN/STAFF) when export succeeds', async () => {
-      // COVERS: 4.5 メール通知（ReportNotificationService.notifyRoles）
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
-      await service.exportZougenNichinoPdf(buildZougenNichinoQuery(), nSession(), req);
+    it('should build the filename with 管理支店名/コード when the exporter is JA_KANRI_SHITEN', async () => {
+      // 顧客要件2026-07: JA管理支店ロールは自管理支店のみのスコープなので
+      // 増減通知_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日} とする。
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenNichinoRawRow({
+          kanri_shiten_name: '本店管理支店',
+          kanri_shiten_code: '1AA3300001',
+        }),
+      ]);
+      await service.exportZougenNichinoPdf(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        buildJaKanriShitenSession({
+          ja_id: 1,
+          kanri_shiten_id: 20,
+          permissions: ['report.export_zougen_nichino'],
+        }),
+        req,
+      );
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg.baseName).toBe(
+        '増減通知_JAテスト_1301002001_本店管理支店_1AA3300001_20260301',
+      );
+    });
 
-      expect(reportNotification.notifyRoles).toHaveBeenCalledTimes(1);
-      const [roleIds, mail] = reportNotification.notifyRoles.mock.calls[0];
-      expect(roleIds).toEqual([1, 2]);
-      expect(mail.subject).toContain('増減通知');
-      expect(mail.body).toContain('ファイル管理画面');
+    it('should auto-send a notification mail via notifyNichinoExport with 都道府県 + issuer + file/count when export succeeds', async () => {
+      // COVERS: 4.5 メール通知（顧客要件2026-07: notifyNichinoExport）
+      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      await service.exportZougenNichinoPdf(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+
+      expect(reportNotification.notifyNichinoExport).toHaveBeenCalledTimes(1);
+      const params = reportNotification.notifyNichinoExport.mock.calls[0][0];
+      expect(params).toEqual(
+        expect.objectContaining({
+          tekiyoDate: '2026-03-01',
+          fileName: '増減通知_JAテスト_1301002001_20260301.pdf',
+          recordCount: 1,
+        }),
+      );
+      // 都道府県名は対象データ（管理支店）の todofuken_name を渡す。
+      expect(typeof params.todofukenName).toBe('string');
+      expect(params.session).toBeDefined();
     });
 
     it('should still succeed (S3 + audit) when no ReportNotificationService is injected — recipientCount=0', async () => {
@@ -675,6 +733,20 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(calls).toContain('3月度分の増減通知です。');
     });
 
+    it('should render 減部数 with the ▲ minus sign in the PDF (顧客要件2026-07)', async () => {
+      // dokusya_busu 7 < zenkai 10 → 減部数 3 → 帳票では「▲3」で表示する。
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenNichinoRawRow({ dokusya_busu: 7, zenkai_dokusya_busu: 10 }),
+      ]);
+      await service.exportZougenNichinoPdf(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+      const calls = JSON.stringify(pdfService.generatePdf.mock.calls);
+      expect(calls).toContain('▲3');
+    });
+
     it('should emit an error log (log_type=3) OUTSIDE any transaction when export fails', async () => {
       // COVERS: 4.9 エラーログはトランザクション外（log_type=3, result_status=2）
       qbMock.getRawMany.mockRejectedValueOnce(new Error('db-down'));
@@ -708,7 +780,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(result).toEqual({ empty: true });
       expect(pdfService.generatePdf).not.toHaveBeenCalled();
       expect(reportArchive.archive).not.toHaveBeenCalled();
-      expect(reportNotification.notifyRoles).not.toHaveBeenCalled();
+      expect(reportNotification.notifyNichinoExport).not.toHaveBeenCalled();
       // 0件は操作ログも残さない。
       expect(auditLog.logOperation).not.toHaveBeenCalled();
     });

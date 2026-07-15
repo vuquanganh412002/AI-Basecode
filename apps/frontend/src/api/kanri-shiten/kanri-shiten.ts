@@ -90,6 +90,10 @@ export interface KanriShitenDropdownItem {
   kanri_shiten_id: number;
   kanri_shiten_code: string;
   kanri_shiten_name: string;
+  /** 紙版取扱フラグ（SCR-011 購読種別による絞り込み用・顧客要件2026-07）。 */
+  paper_flg: boolean;
+  /** 電子版取扱フラグ（同上）。 */
+  denshi_flg: boolean;
 }
 
 export interface KanriShitenDropdownEnvelope {

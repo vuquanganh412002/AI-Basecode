@@ -457,6 +457,16 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shiten_id')).toBe(true);
   });
 
+  // ─── mail_magazine_flg (Number, optional nullable — 電子版用項目) ─────────
+  it('should PASS when mail_magazine_flg is null (紙版は未選択で NULL)', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ mail_magazine_flg: null }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'mail_magazine_flg')).toBe(false);
+  });
+
   // ─── hanbaiten_id (Number, required) ────────────────────────────────────
   it('should fail when hanbaiten_id is missing', async () => {
     const dto = plainToInstance(

@@ -320,6 +320,53 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
+  // COMMON — listDropdown (GET /api/v1/shiten/dropdown)
+  // 顧客要件2026-07: 選択した管理支店(kanri_shiten_id)配下の支店に絞り込む。
+  // ═════════════════════════════════════════════════════════════════════
+  describe('listDropdown (shiten dropdown)', () => {
+    function ksFilterCall() {
+      return qbMock.andWhere.mock.calls.find(
+        ([sql]: [string]) => sql === 'm.kanri_shiten_id = :qks',
+      );
+    }
+
+    it('should filter by kanri_shiten_id when provided (管理支店配下のみ)', async () => {
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown(
+        { ja_id: 1, kanri_shiten_id: 20 },
+        buildSession({ ja_id: null }),
+      );
+      const call = ksFilterCall();
+      expect(call).toBeDefined();
+      expect(call?.[1]).toEqual({ qks: 20 });
+    });
+
+    it('should NOT add the kanri_shiten_id filter when omitted', async () => {
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown({ ja_id: 1 }, buildSession({ ja_id: null }));
+      expect(ksFilterCall()).toBeUndefined();
+    });
+
+    it('should return the minimal projection mapped from rows', async () => {
+      qbMock.getMany.mockResolvedValue([
+        buildShiten({ shitenId: 5, shitenCode: 'S05', shitenName: '本店', kanriShitenId: 20 }),
+      ]);
+      const rows = await service.listDropdown(
+        { ja_id: 1, kanri_shiten_id: 20 },
+        buildSession({ ja_id: null }),
+      );
+      expect(rows[0]).toEqual(
+        expect.objectContaining({
+          shiten_id: 5,
+          shiten_code: 'S05',
+          shiten_name: '本店',
+          kanri_shiten_id: 20,
+        }),
+      );
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
   // API-006-002 — remove (DELETE /api/v1/shiten/:id)
   // ═════════════════════════════════════════════════════════════════════
   describe('remove (API-006-002)', () => {

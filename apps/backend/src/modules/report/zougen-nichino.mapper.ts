@@ -322,7 +322,7 @@ export function paginateNichinoSubscribers(
 // ─── PDF (pdfmake) document definition — ACSMS-SCR-029 §4.4 帳票レイアウト ──
 // 管理支店ごとに1枚。発行元（日農）ヘッダ + タイトル + 見出し（適用日/都道府県/
 // 組合名/担当）+ 明細テーブル（委託/販売店コード/販売店名/現在/増/減/新）+
-// 合計行 + ＜備考＞欄。差異マーク行に「◆」を付与する（減部数は数値のまま。マイナス符号「▲」なし）。
+// 合計行 + ＜備考＞欄。差異マーク行に「◆」を付与する（減部数は「▲{n}」で表示・顧客要件2026-07）。
 
 const HEADER_FILL = '#f1f5f9';
 const BORDER_COLOR = '#94a3b8';
@@ -355,7 +355,15 @@ function cell(text: string, align: 'left' | 'center' | 'right' = 'left'): TableC
   return { text: text ?? '', alignment: align, fontSize: 8 };
 }
 
-// 減部数は数値そのまま表示する（顧客要望によりマイナス符号「▲」は付与しない）。
+/**
+ * 減部数の表示（顧客要件2026-07・再変更）: 減がある場合はマイナス符号「▲」を
+ * 付けて表示する（例: 2部減 → 「▲2」）。gen_busu は abs（正の減部数）で保持
+ * されるため、正値のとき「▲」を前置し、0 は「0」のまま表示する。
+ */
+export function formatGenBusu(genBusu: number): string {
+  return genBusu > 0 ? `▲${genBusu}` : String(genBusu);
+}
+
 function detailTable(report: ZougenNichinoReport): TableCell[][] {
   const header: TableCell[] = [
     // 増減マーク（◆）用の先頭列。見出しは空（枠線・背景は他の見出しと同じ）。
@@ -378,7 +386,7 @@ function detailTable(report: ZougenNichinoReport): TableCell[][] {
       cell(row.hanbaiten_name),
       cell(String(row.genzai_busu), 'right'),
       cell(String(row.zou_busu), 'right'),
-      cell(String(row.gen_busu), 'right'),
+      cell(formatGenBusu(row.gen_busu), 'right'),
       cell(String(row.shin_busu), 'right'),
     ]);
   }
@@ -390,7 +398,7 @@ function detailTable(report: ZougenNichinoReport): TableCell[][] {
     {},
     { text: String(report.total.genzai_busu), bold: true, alignment: 'right', fontSize: 8 },
     { text: String(report.total.zou_busu), bold: true, alignment: 'right', fontSize: 8 },
-    { text: String(report.total.gen_busu), bold: true, alignment: 'right', fontSize: 8 },
+    { text: formatGenBusu(report.total.gen_busu), bold: true, alignment: 'right', fontSize: 8 },
     { text: String(report.total.shin_busu), bold: true, alignment: 'right', fontSize: 8 },
   ]);
   return body;

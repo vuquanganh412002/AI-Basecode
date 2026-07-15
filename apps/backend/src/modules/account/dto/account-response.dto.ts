@@ -21,6 +21,8 @@ export class AccountListItemDto {
   @ApiPropertyOptional({ nullable: true }) ja_name: string | null;
   @ApiPropertyOptional({ nullable: true }) kanri_shiten_id: number | null;
   @ApiPropertyOptional({ nullable: true }) kanri_shiten_name: string | null;
+  @ApiPropertyOptional({ nullable: true }) shiten_id: number | null;
+  @ApiPropertyOptional({ nullable: true }) shiten_name: string | null;
   @ApiProperty() email: string;
   @ApiProperty() sub_email_1: string;
   @ApiProperty() sub_email_2: string;

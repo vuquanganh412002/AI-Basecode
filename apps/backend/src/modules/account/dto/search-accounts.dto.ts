@@ -64,6 +64,12 @@ export class SearchAccountsDto extends PaginationDto {
   @IsInt({ message: '管理支店IDは整数で指定してください。' })
   kanri_shiten_id?: number;
 
+  @ApiPropertyOptional({ description: '所属支店ID' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '支店IDは整数で指定してください。' })
+  shiten_id?: number;
+
   @ApiPropertyOptional({
     description: 'ソート対象（login_id / account_name / role_id / role_name / todofuken_code / created_at）',
     enum: ACCOUNT_SEARCH_SORT_BY,

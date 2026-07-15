@@ -200,6 +200,13 @@ export interface TankaDropdownItem {
   tanka_name: string;
   tanka_type: number;
   kingaku_zeikomi: number;
+  kingaku_zeinuki: number;
+  /**
+   * ログイン中アカウントの JA の税区分 (m_ja.zei_kubun) で BE が解決した
+   * 表示用金額。zei_kubun=1(内税)→税込、=2(外税)→税抜。単価ドロップダウンの
+   * ラベル「単価名 + 半角スペース + 金額」に用いる。
+   */
+  kingaku: number;
 }
 
 export interface TankaDropdownResponse {

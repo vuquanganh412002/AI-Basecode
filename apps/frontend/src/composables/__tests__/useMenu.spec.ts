@@ -18,6 +18,7 @@ function seedAdmin(): void {
     role_name: 'NICHINO_ADMIN',
     ja_id: null,
     kanri_shiten_id: null,
+    shiten_id: null,
     todofuken_code: null,
     paper_flg: true,
     denshi_flg: false,
@@ -41,6 +42,7 @@ function seedDokusyaUser(paper: boolean, denshi: boolean): void {
     role_name: 'JA_HONTEN',
     ja_id: 1,
     kanri_shiten_id: null,
+    shiten_id: null,
     todofuken_code: '13',
     paper_flg: paper,
     denshi_flg: denshi,
@@ -96,6 +98,7 @@ describe('useMenu', () => {
         role_name: '',
         ja_id: null,
         kanri_shiten_id: null,
+        shiten_id: null,
         todofuken_code: null,
         paper_flg: false,
         denshi_flg: false,
@@ -128,6 +131,73 @@ describe('useMenu', () => {
       expect(items.DokusyaCreate.disabled).toBe(false);
       expect(items.DokusyaImport.disabled).toBe(false);
       expect(items.DokusyaReplaceHanbaiten.disabled).toBe(false);
+    });
+  });
+
+  // 制限②（顧客要件2026-07）— 所属支店(shiten_id)設定アカウントは帳票5画面を
+  // 非表示ではなく「表示のうえ非活性(disabled)」にする。
+  describe('所属支店(shiten_id) restriction — 帳票5画面 disabled', () => {
+    const REPORT_ROUTES = [
+      'KozaFurikaeExport',
+      'HaitatsuryoExport',
+      'ReportMeibo',
+      'ReportZougenHanbaiten',
+      'ReportZougenNichino',
+    ];
+
+    function seedKanriShitenUser(shitenId: number | null): void {
+      setActivePinia(createPinia());
+      useAuthStore().user = {
+        account_id: 9,
+        login_id: 'ks',
+        account_name: 'JA管理支店',
+        role_id: 5,
+        role_code: 'JA_KANRI_SHITEN',
+        role_name: 'JA_KANRI_SHITEN',
+        ja_id: 1,
+        kanri_shiten_id: 3,
+        shiten_id: shitenId,
+        todofuken_code: '13',
+        paper_flg: true,
+        denshi_flg: false,
+        email: '',
+        mfa_enable_flg: false,
+        permissions: [
+          'koza_furikae.export',
+          'haitatsuryo.export',
+          'report.export_meibo',
+          'report.export_zougen_hanbaiten',
+          'report.export_zougen_nichino',
+          'dokusya.view',
+        ],
+      };
+    }
+
+    function itemsByName(): Record<string, { name: string; disabled?: boolean }> {
+      const { visibleSections } = useMenu();
+      return Object.fromEntries(
+        visibleSections.value.flatMap((s) => s.items.map((i) => [i.name, i])),
+      );
+    }
+
+    it('keeps the 5 帳票 menus visible but disabled when shiten_id is set (権限は保持)', () => {
+      seedKanriShitenUser(7);
+      const items = itemsByName();
+      REPORT_ROUTES.forEach((r) => {
+        expect(items[r]).toBeDefined();
+        expect(items[r].disabled).toBe(true);
+      });
+      // sanity — a non-report screen the account can use stays enabled.
+      expect(items.DokusyaList.disabled).toBe(false);
+    });
+
+    it('shows the 5 帳票 menus enabled when shiten_id is null (従来動作)', () => {
+      seedKanriShitenUser(null);
+      const items = itemsByName();
+      REPORT_ROUTES.forEach((r) => {
+        expect(items[r]).toBeDefined();
+        expect(items[r].disabled).toBe(false);
+      });
     });
   });
 });

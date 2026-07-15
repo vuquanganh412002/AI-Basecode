@@ -67,6 +67,7 @@ function buildUser(overrides: Partial<User> & Pick<User, 'role_code' | 'permissi
     role_name: overrides.role_code,
     ja_id: null,
     kanri_shiten_id: null,
+    shiten_id: null,
     todofuken_code: null,
     paper_flg: true,
     denshi_flg: false,

@@ -9,9 +9,10 @@
 // import させない — 同一ソース同士の比較になりトートロジーになるため。
 
 /**
- * 50 physical column names — exact order per api.md §テンプレートファイル仕様
- * （v1.2: 手続種類を削除し 購読者情報と同じ / 販売店適用日 を追加）。Index N が
- * index-N の日本語ヘッダ + チェックボックスの value 属性に対応する。
+ * 49 physical column names — exact order per api.md §テンプレートファイル仕様
+ * （v1.3: 販売店適用日を廃止し、適用日は読者情報変更適用日に統一。1更新1レコード・
+ * UI/置換と同一）。Index N が index-N の日本語ヘッダ + チェックボックスの value
+ * 属性に対応する。
  */
 export const PHYSICAL_COLUMNS = [
   'dokusya_id',
@@ -63,7 +64,6 @@ export const PHYSICAL_COLUMNS = [
   'dokusya_chushi_date',
   'biko',
   'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
 ] as const;
 export type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
@@ -118,7 +118,6 @@ export const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_chushi_date: '購読中止日',
   biko: '備考',
   joho_henko_tekiyo_date: '読者情報変更適用日',
-  hanbaiten_tekiyo_date: '販売店適用日',
 };
 
 /** Header (JP) → physical column. sheet_to_json keys are row-1 strings. */
@@ -135,7 +134,6 @@ export const DATE_PHYSICAL_COLUMNS = new Set<string>([
   'dokusya_kaishi_date',
   'dokusya_chushi_date',
   'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
 ]);
 
 /** 真偽値列（Excel のチェック/文字列を boolean へ変換する対象）。 */
@@ -185,13 +183,12 @@ export const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
 export const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);
 
 /**
- * 新規登録（NEW）で対象外の列。読者情報変更適用日 / 販売店適用日 は履歴の
- * 「変更イベント日」であり、新規登録には概念が無いため NEW では未チェック＋
- * disable にする（顧客要件 2026-06。UPDATE でのみ使用）。
+ * 新規登録（NEW）で対象外の列。読者情報変更適用日 は履歴の「変更イベント日」で
+ * あり新規登録には概念が無いため NEW では未チェック＋disable にする（UPDATE で
+ * のみ使用）。販売店適用日は廃止し joho に統一（顧客要件 2026-07）。
  */
 export const NEW_EXCLUDED_COLUMNS: readonly PhysicalColumn[] = [
   'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
 ];
 export const NEW_EXCLUDED_SET = new Set<string>(NEW_EXCLUDED_COLUMNS);
 

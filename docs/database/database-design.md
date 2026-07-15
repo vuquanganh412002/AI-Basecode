@@ -17,6 +17,7 @@ updated_by: Tran Duc Tuyen
 |---|---|---|---|---|---|---|
 | 1 | 2026/03/17 | 1 | Tran Duc Tuyen | 作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/03/27 | 1.1 | Tran Duc Tuyen | 作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3 | 2026/07/14 | 1.12 | Tran Duc Tuyen | m_account に shiten_id（所属支店ID）とインデックス IX_m_account_shiten_id を追加。JA管理支店アカウントの購読者スコープを支店単位に制限（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -59,25 +60,26 @@ updated_by: Tran Duc Tuyen
 | 5 | role_id |  | INTEGER |  |  |  | 管理者区分。m_roles.role_idを参照する外部キー |
 | 6 | ja_id |  | BIGINT |  |  | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
 | 7 | kanri_shiten_id |  | BIGINT |  |  | 〇 | 管理支店ID（JA管理支店のみ） |
-| 8 | todofuken_code |  | VARCHAR | 2 |  | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。※NULL許容 |
-| 9 | paper_flg |  | BOOLEAN |  |  |  | 紙版取扱フラグ（DEFAULT false） |
-| 10 | denshi_flg |  | BOOLEAN |  |  |  | 電子版取扱フラグ（DEFAULT false）※承認機能有効化に関係 |
-| 11 | email |  | VARCHAR | 100 |  |  | 通知先メールアドレス※空文字許容 |
-| 12 | sub_email_1 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス1※空文字許容 |
-| 13 | sub_email_2 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス2※空文字許容 |
-| 14 | sub_email_3 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス3※空文字許容 |
-| 15 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | パスワード更新日時 |
-| 16 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | 最終ログイン日時 |
-| 17 | login_failure_count |  | INTEGER |  |  |  | ログイン失敗回数（DEFAULT 0） |
-| 18 | mfa_enable_flg |  | BOOLEAN |  |  |  | 多要素認証有効フラグ（DEFAULT false） |
-| 19 | account_lock_flg |  | BOOLEAN |  |  |  | アカウントロックフラグ（DEFAULT false） |
-| 20 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | アカウントロック日時 |
-| 21 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 22 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 23 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 24 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 25 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 26 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 8 | shiten_id |  | BIGINT |  |  | 〇 | 所属支店ID（外部キー → m_shiten.shiten_id）。JA管理支店ロールのみ設定可。NULL=支店制限なし（従来動作）。非NULL=当該支店の購読者のみ参照・編集・追加可（制限①）＋帳票5画面（口座振替/配達手数料/購読者名簿/増減連絡票/増減通知）使用不可（制限②）。顧客要件2026-07 |
+| 9 | todofuken_code |  | VARCHAR | 2 |  | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。※NULL許容 |
+| 10 | paper_flg |  | BOOLEAN |  |  |  | 紙版取扱フラグ（DEFAULT false） |
+| 11 | denshi_flg |  | BOOLEAN |  |  |  | 電子版取扱フラグ（DEFAULT false）※承認機能有効化に関係 |
+| 12 | email |  | VARCHAR | 100 |  |  | 通知先メールアドレス※空文字許容 |
+| 13 | sub_email_1 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス1※空文字許容 |
+| 14 | sub_email_2 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス2※空文字許容 |
+| 15 | sub_email_3 |  | VARCHAR | 100 |  |  | 通知先サブメールアドレス3※空文字許容 |
+| 16 | password_updated_at |  | TIMESTAMPTZ |  |  | 〇 | パスワード更新日時 |
+| 17 | last_login_at |  | TIMESTAMPTZ |  |  | 〇 | 最終ログイン日時 |
+| 18 | login_failure_count |  | INTEGER |  |  |  | ログイン失敗回数（DEFAULT 0） |
+| 19 | mfa_enable_flg |  | BOOLEAN |  |  |  | 多要素認証有効フラグ（DEFAULT false） |
+| 20 | account_lock_flg |  | BOOLEAN |  |  |  | アカウントロックフラグ（DEFAULT false） |
+| 21 | account_lock_at |  | TIMESTAMPTZ |  |  | 〇 | アカウントロック日時 |
+| 22 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 23 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 24 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 25 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 26 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 27 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -87,8 +89,9 @@ updated_by: Tran Duc Tuyen
 | 2 | UQ_m_account_login_id | login_id |  | 〇 | ログインIDの一意制約 |
 | 3 | IX_m_account_ja_id | ja_id |  |  | JAマスタ参照用（外部キー） |
 | 4 | IX_m_account_kanri_shiten_id | kanri_shiten_id |  |  | 管理支店マスタ参照用（外部キー） |
-| 5 | IX_m_account_todofuken_code | todofuken_code |  |  | 都道府県マスタ参照用（外部キー） |
-| 6 | IX_m_account_role_id | role_id |  |  | ロールによる検索用 |
+| 5 | IX_m_account_shiten_id | shiten_id |  |  | 支店マスタ参照用（外部キー）。所属支店による購読者スコープ絞込用。顧客要件2026-07 |
+| 6 | IX_m_account_todofuken_code | todofuken_code |  |  | 都道府県マスタ参照用（外部キー） |
+| 7 | IX_m_account_role_id | role_id |  |  | ロールによる検索用 |
 
 ---
 

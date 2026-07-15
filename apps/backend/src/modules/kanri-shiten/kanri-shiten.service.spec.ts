@@ -594,6 +594,35 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
       expect(res.data).toHaveLength(2);
     });
 
+    it('should include paper_flg/denshi_flg in the dropdown item (SCR-011 購読種別フィルタ用・顧客要件2026-07)', async () => {
+      qbMock.getMany.mockResolvedValueOnce([
+        {
+          kanriShitenId: 1,
+          kanriShitenCode: 'KS1',
+          kanriShitenName: '紙のみ支店',
+          paperFlg: true,
+          denshiFlg: false,
+        },
+        {
+          kanriShitenId: 2,
+          kanriShitenCode: 'KS2',
+          kanriShitenName: '両方支店',
+          paperFlg: true,
+          denshiFlg: true,
+        },
+      ]);
+      const res = await service.listDropdown(
+        { ja_id: 1 },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      expect(res.data[0]).toEqual(
+        expect.objectContaining({ kanri_shiten_id: 1, paper_flg: true, denshi_flg: false }),
+      );
+      expect(res.data[1]).toEqual(
+        expect.objectContaining({ kanri_shiten_id: 2, paper_flg: true, denshi_flg: true }),
+      );
+    });
+
     it('should pin include_id onto page 1 when not in the fetched page', async () => {
       const mk = (id: number) => ({
         kanriShitenId: id,

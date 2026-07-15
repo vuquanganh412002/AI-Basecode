@@ -106,57 +106,32 @@ function pick(values: DokusyaFields, keys: string[]): DokusyaFields {
 }
 
 /**
- * Split a change into the rows to write, ordered by applied date.
+ * Split a change into the rows to write.
  *
- * - CREATE → a single event carrying all changed fields; `hanbaiten_id`
- *   is an initial value (no split, `hanbaiten_tekiyo_date` stays NULL).
- * - UPDATE → an information event (all non-`hanbaiten_id` changes at
- *   `johoDate`) and/or a hanbaiten event (`hanbaiten_id` change at
- *   `hanbaitenDate ?? johoDate`, which sets `hanbaiten_tekiyo_date`).
+ * 顧客要件 2026-07: 販売店・支払方法の変更日を廃止し、適用日を読者情報変更適用日
+ * (joho) に統一。**UI編集・Excel取込・一括置換のすべてで 1更新1レコード**（変更を
+ * 適用日で分割しない）。
  *
- * Events are sorted `(joho ASC, isHanbaiten ASC)` → on the same day the
- * information row precedes the hanbaiten row.
- *
- * NOTE: `mode` is an added parameter vs common-functions §5.2 — CREATE
- * must never split into two rows.
+ * - CREATE → 全変更を1件（`hanbaiten_id` は初期値なので `hanbaiten_tekiyo_date`
+ *   は NULL）。
+ * - UPDATE → 全変更を単一の適用日(johoDate)で1件。販売店を変更した行は
+ *   `isHanbaiten=true` となり `buildRirekiRow` が `hanbaiten_tekiyo_date=joho` を
+ *   設定する（＝販売店適用日＝読者情報変更適用日）。
  */
 export function splitEvents(
   mode: 'CREATE' | 'UPDATE',
   changed: string[],
   values: DokusyaFields,
   johoDate: DateOnly,
-  hanbaitenDate?: DateOnly,
 ): ChangeEvent[] {
   if (changed.length === 0) return [];
-
-  if (mode === 'CREATE') {
-    return [{ joho: johoDate, values: pick(values, changed), isHanbaiten: false }];
-  }
-
-  const infoFields = changed.filter((k) => k !== HANBAITEN_FIELD);
-  const hanbaitenChanged = changed.includes(HANBAITEN_FIELD);
-
-  const events: ChangeEvent[] = [];
-  if (infoFields.length > 0) {
-    events.push({
+  return [
+    {
       joho: johoDate,
-      values: pick(values, infoFields),
-      isHanbaiten: false,
-    });
-  }
-  if (hanbaitenChanged) {
-    events.push({
-      joho: hanbaitenDate ?? johoDate,
-      values: pick(values, [HANBAITEN_FIELD]),
-      isHanbaiten: true,
-    });
-  }
-
-  events.sort((a, b) => {
-    if (a.joho !== b.joho) return a.joho < b.joho ? -1 : 1;
-    return Number(a.isHanbaiten) - Number(b.isHanbaiten);
-  });
-  return events;
+      values: pick(values, changed),
+      isHanbaiten: mode === 'UPDATE' && changed.includes(HANBAITEN_FIELD),
+    },
+  ];
 }
 
 /** Metadata for a row being built (identity + audit). */

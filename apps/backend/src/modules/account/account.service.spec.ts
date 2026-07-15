@@ -16,6 +16,7 @@ import {
   ConflictException,
   DuplicateCodeException,
   NotFoundException,
+  ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { AccountService } from '@/modules/account/account.service';
 import {
@@ -89,7 +90,8 @@ describe('AccountService', () => {
         return Promise.resolve(code ? { roleCode: code } : null);
       }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
+    const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -319,7 +321,8 @@ describe('AccountService — SCR-024 (search + delete)', () => {
         return Promise.resolve(code ? { roleCode: code } : null);
       }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
+    const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -854,7 +857,8 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
         return Promise.resolve(code ? { roleCode: code } : null);
       }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
+    const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -1189,6 +1193,53 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
         operation: 'CREATE',
         targetTable: 'm_account',
       });
+    });
+
+    // ─── 所属支店(shiten_id) — 顧客要件2026-07 ───────────────────────
+    it('should persist shiten_id when the created account is JA_KANRI_SHITEN and the 支店 is within its 管理支店', async () => {
+      await service.createAccount(
+        buildCreateAccountBody({
+          role_id: 5,
+          ja_id: 1,
+          kanri_shiten_id: 1,
+          shiten_id: 1,
+        }),
+        adminSession(),
+        baseReq,
+      );
+
+      const insertCall = txManager.save.mock.calls[0];
+      const savedRow = insertCall[insertCall.length - 1];
+      expect(Number(savedRow.shitenId)).toBe(1);
+    });
+
+    it('should force shiten_id to null when the created account is NOT JA_KANRI_SHITEN even if a shiten_id is submitted', async () => {
+      await service.createAccount(
+        buildCreateAccountBody({ role_id: 4, ja_id: 1, shiten_id: 1 }),
+        adminSession(),
+        baseReq,
+      );
+
+      const insertCall = txManager.save.mock.calls[0];
+      const savedRow = insertCall[insertCall.length - 1];
+      expect(savedRow.shitenId).toBeNull();
+    });
+
+    it('should throw ValidationException when the shiten_id does not belong to the account 管理支店', async () => {
+      // shiten row resolves with kanriShitenId=1 (default mock), but the DTO
+      // pins kanri_shiten_id=2 → mismatch → 支店 not under the 管理支店.
+      await expect(
+        service.createAccount(
+          buildCreateAccountBody({
+            role_id: 5,
+            ja_id: 1,
+            kanri_shiten_id: 2,
+            shiten_id: 1,
+          }),
+          adminSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow(ValidationException);
     });
   });
 
@@ -1528,7 +1579,8 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
         return Promise.resolve(code ? { roleCode: code } : null);
       }),
     };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, roleRepo);
+    const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
   });
 
   afterEach(() => jest.restoreAllMocks());

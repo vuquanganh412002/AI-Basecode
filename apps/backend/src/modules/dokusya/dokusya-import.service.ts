@@ -128,7 +128,6 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   '購読中止日',
   '備考',
   '読者情報変更適用日',
-  '販売店適用日',
 ] as const;
 
 /**
@@ -191,8 +190,7 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '2026-04-01', // 購読開始日 (YYYY-MM-DD)
   '', // 購読中止日
   'サンプル行です。管理支店・支店はID(数値)、新聞単価・販売店コードは自組織のコードに書き換えてからインポートしてください。', // 備考
-  '', // 読者情報変更適用日
-  '', // 販売店適用日 (販売店変更時に入力)
+  '', // 読者情報変更適用日（販売店を含む全変更の唯一の適用日）
 ] as const;
 
 /** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
@@ -533,7 +531,7 @@ export class DokusyaImportService {
       dokusyaIds.length === 0 && kumiaiinCodes.length === 0
         ? []
         : await this.dataSource.query(
-            `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id,
+            `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id, shiten_id,
                     dokusya_shubetsu, email, hanbaiten_id,
                     dokusya_kaishi_date, dokusya_chushi_date
                FROM t_dokusya
@@ -1000,8 +998,9 @@ export class DokusyaImportService {
     // UPDATE — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象 dokusya_id を
     // 解決し、選択された編集可能列だけを values に載せる（未選択列は省略＝
     // predecessor 値を維持、空欄はスキップ）。全列更新は FE が全列を selected_columns
-    // に含めることで実現する。情報+販売店 同時変更は適用日順に分割され、配達先データ
-    // あり(hasHaitatsuData)は forceZougen で増減報告対象にする。NEW は上で return 済み。
+    // に含めることで実現する。販売店を含む全変更は単一の適用日(joho)で1件の履歴行に
+    // まとめる（顧客要件 2026-07: 販売店適用日を廃止・UI/置換と同一ロジック）。配達先
+    // データあり(hasHaitatsuData)は forceZougen で増減報告対象にする。NEW は上で return 済み。
     const dokusyaId = await this.resolveImportTargetId(manager, jaId, row);
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。
@@ -1011,7 +1010,6 @@ export class DokusyaImportService {
       dokusyaId,
       values: this.buildUpdatePartialValues(dto.selected_columns, row, fkMaps),
       johoDate: dbDateOrNull(row.joho_henko_tekiyo_date) ?? todayIsoJst(),
-      hanbaitenDate: dbDateOrNull(row.hanbaiten_tekiyo_date) ?? undefined,
       source: 'IMPORT',
       actor: updatedBy,
       reason: 'Excel取込',

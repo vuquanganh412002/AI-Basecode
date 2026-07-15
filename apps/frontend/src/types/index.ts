@@ -7,6 +7,8 @@ export interface User {
   role_name: string;
   ja_id: number | null;
   kanri_shiten_id: number | null;
+  /** 所属支店（顧客要件 2026-07）— JA管理支店ロールのみ設定。非nullで購読者スコープ制限＋帳票5画面ガード。 */
+  shiten_id: number | null;
   todofuken_code: string | null;
   paper_flg: boolean;
   denshi_flg: boolean;

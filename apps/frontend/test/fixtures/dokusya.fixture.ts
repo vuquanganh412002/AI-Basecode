@@ -544,12 +544,16 @@ export interface KanriShitenDropdownItem {
   kanri_shiten_id: number;
   kanri_shiten_code: string;
   kanri_shiten_name: string;
+  paper_flg: boolean;
+  denshi_flg: boolean;
 }
 
 export function buildKanriShitenDropdown(): KanriShitenDropdownItem[] {
+  // 既定は両フラグ true（購読種別フィルタの影響を受けず全件表示）。
+  // 絞り込みを検証するテストは個別に paper_flg/denshi_flg を上書きする。
   return [
-    { kanri_shiten_id: 10, kanri_shiten_code: 'KS001', kanri_shiten_name: '千代田管理支店' },
-    { kanri_shiten_id: 20, kanri_shiten_code: 'KS002', kanri_shiten_name: '渋谷管理支店' },
+    { kanri_shiten_id: 10, kanri_shiten_code: 'KS001', kanri_shiten_name: '千代田管理支店', paper_flg: true, denshi_flg: true },
+    { kanri_shiten_id: 20, kanri_shiten_code: 'KS002', kanri_shiten_name: '渋谷管理支店', paper_flg: true, denshi_flg: true },
   ];
 }
 
@@ -599,6 +603,9 @@ export interface TankaDropdownItem {
   tanka_name: string;
   tanka_type: number;
   kingaku_zeikomi: number;
+  kingaku_zeinuki: number;
+  // BE がログイン中 JA の税区分で解決した表示用金額（=1 税込 / =2 税抜）。
+  kingaku: number;
 }
 
 export function buildTankaDropdown(): TankaDropdownItem[] {
@@ -609,6 +616,8 @@ export function buildTankaDropdown(): TankaDropdownItem[] {
       tanka_name: '基本購読料（月額）',
       tanka_type: 1,
       kingaku_zeikomi: 4900,
+      kingaku_zeinuki: 4500,
+      kingaku: 4900,
     },
   ];
 }

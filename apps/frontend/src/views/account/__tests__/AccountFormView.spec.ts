@@ -50,6 +50,9 @@ vi.mock('@/api/ja/ja', () => ({
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   getKanriShitenDropdown: vi.fn(),
 }));
+vi.mock('@/api/shiten/shiten', () => ({
+  getShitenDropdown: vi.fn(),
+}));
 
 const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
 vi.spyOn(message, 'success').mockImplementation(() => noopMessage);
@@ -142,6 +145,13 @@ beforeEach(async () => {
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
   vi.mocked(getKanriShitenDropdown).mockResolvedValue({
     data: buildKanriShitenDropdownList(),
+  });
+
+  const { getShitenDropdown } = await import('@/api/shiten/shiten');
+  vi.mocked(getShitenDropdown).mockResolvedValue({
+    data: [
+      { shiten_id: 30, shiten_code: 'S001', shiten_name: '本店支店', kanri_shiten_id: 20, kinyu_shiten_flg: false },
+    ],
   });
 
   const { getAccount, createAccount, updateAccount } = await import('@/api/account/account');
@@ -301,6 +311,38 @@ describe('AccountFormView — role-based dropdown visibility (機能定義 4.x)'
     expect(labels.some((t) => t === '都道府県*')).toBe(true);
     expect(labels.some((t) => t === 'JA名*')).toBe(true);
     expect(labels.some((t) => t === '管理支店*')).toBe(true);
+  });
+
+  // 所属支店(shiten_id) — 顧客要件2026-07: 常に表示。role_id=5＋管理支店選択時のみ
+  // 活性、それ以外は都道府県 / JA / 管理支店 と同様グレーアウト。
+  function shitenSelect(wrapper: ReturnType<typeof mount>) {
+    return wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'shiten_id')
+      ?.findComponent({ name: 'ASelect' });
+  }
+
+  it('should always render the 所属支店 dropdown but disable it for role_id 4 (JA本店)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) vm.formState.role_id = 4;
+    await flushPromises();
+    expect(wrapper.findAll('label').map((l) => l.text())).toContain('所属支店');
+    expect(shitenSelect(wrapper)?.props('disabled')).toBe(true);
+  });
+
+  it('should enable the 所属支店 dropdown only when role_id is 5 and a 管理支店 is selected', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    if (vm.formState) vm.formState.role_id = 5;
+    await flushPromises();
+    // 管理支店未選択 → 表示されるが非活性。
+    expect(wrapper.findAll('label').map((l) => l.text())).toContain('所属支店');
+    expect(shitenSelect(wrapper)?.props('disabled')).toBe(true);
+
+    vm.formState.kanri_shiten_id = 20;
+    await flushPromises();
+    expect(shitenSelect(wrapper)?.props('disabled')).toBe(false);
   });
 });
 

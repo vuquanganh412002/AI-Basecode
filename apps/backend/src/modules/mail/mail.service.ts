@@ -101,7 +101,6 @@ export class MailService implements OnModuleInit {
       fileName: string;
       uploadDatetime: Date;
       uploaderLoginId: string;
-      downloadUrl: string;
     },
   ): Promise<void> {
     const { subject, text } = renderFileUploadNotificationMail(input);

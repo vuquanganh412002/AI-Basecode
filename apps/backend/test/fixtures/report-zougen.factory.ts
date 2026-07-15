@@ -41,6 +41,7 @@ export function buildZougenRawRow(overrides: Record<string, unknown> = {}) {
     zenkai_hanbaiten_code: 'H001',
     zenkai_hanbaiten_name: '千代田販売店',
     kanri_shiten_id: 20,
+    kanri_shiten_code: '1AA3300001',
     kanri_shiten_name: 'JA東京中央 本店管理支店',
     kanri_shiten_tel: '03-1234-5678',
     kanri_shiten_fax: '03-1234-5679',

@@ -111,8 +111,8 @@ export class DokusyaRireki {
   @Column({ name: 'email', type: 'varchar', length: 100, default: '' })
   email: string;
 
-  @Column({ name: 'mail_magazine_flg', type: 'int', default: 0 })
-  mailMagazineFlg: number;
+  @Column({ name: 'mail_magazine_flg', type: 'int', default: 0, nullable: true })
+  mailMagazineFlg: number | null;
 
   @Column({ name: 'birth_year', type: 'int', nullable: true })
   birthYear: number | null;

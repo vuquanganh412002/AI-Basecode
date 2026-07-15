@@ -166,6 +166,35 @@ export function assertJaScopeViolation(
   }
 }
 
+/* ─────────── 所属支店スコープ（3層目・顧客要件 2026-07） ────────────────── */
+// JA管理支店アカウントに所属支店(session.shiten_id)が設定されている場合、購読者
+// (t_dokusya) の参照・編集・追加をその支店に限定する（管理支店スコープの下位に
+// さらに絞り込む）。session.shiten_id == null のときは常に no-op（従来どおり）。
+// 管理支店スコープ(assertBranchScope / applyBranchScope)と併用して呼ぶ。
+
+/** assert 版（URL の :id 由来 → 存在マスクのため 404）。 */
+export function assertShitenScope(
+  recordShitenId: number | null | undefined,
+  session: SessionPayload,
+  resourceLabel?: string,
+): void {
+  if (session.shiten_id == null) return;
+  if (numericId(recordShitenId) !== numericId(session.shiten_id)) {
+    throw scopeNotFound(resourceLabel);
+  }
+}
+
+/** assert 版（呼び出し側が供給した id → 明示 403。取込・置換の候補行用）。 */
+export function assertShitenScopeViolation(
+  recordShitenId: number | null | undefined,
+  session: SessionPayload,
+): void {
+  if (session.shiten_id == null) return;
+  if (numericId(recordShitenId) !== numericId(session.shiten_id)) {
+    throw new DataScopeViolationException();
+  }
+}
+
 /* ─────────────── Query-builder helpers (for list queries) ───────────── */
 
 /**
@@ -214,6 +243,23 @@ export function applyBranchScope<T extends object>(
   }
   qb.andWhere(`${alias}.${fields.jaIdField} = :scopeJaId`, {
     scopeJaId: session.ja_id,
+  });
+}
+
+/**
+ * 所属支店スコープ（QB 版・顧客要件 2026-07）。session.shiten_id が設定されている
+ * 場合のみ `WHERE alias.shitenIdField = session.shiten_id` を付与する。null なら
+ * no-op（従来どおり）。applyBranchScope と併用して購読者一覧を支店単位へ絞り込む。
+ */
+export function applyShitenScope<T extends object>(
+  qb: SelectQueryBuilder<T>,
+  alias: string,
+  shitenIdField: string,
+  session: SessionPayload,
+): void {
+  if (session.shiten_id == null) return;
+  qb.andWhere(`${alias}.${shitenIdField} = :scopeShitenId`, {
+    scopeShitenId: session.shiten_id,
   });
 }
 

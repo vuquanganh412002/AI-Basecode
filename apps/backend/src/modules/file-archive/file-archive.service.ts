@@ -18,6 +18,14 @@ export interface FileArchiveParams {
   buffer: Buffer;
   /** タイムスタンプ・拡張子を除いたファイル名の基底（例: `販売店別購読者名簿_2026年01月`）。 */
   baseName: string;
+  /**
+   * DB `t_file_download.file_name`（＝ダウンロード時の表示名）に用いる、拡張子を
+   * 除いた基底名。省略時は `baseName` と同じ（＝S3キーと同じくタイムスタンプ付き）。
+   * 指定時のみ「S3キーは baseName＋タイムスタンプで一意」「DB/DL表示名は displayName
+   * でタイムスタンプ無し」に分離する（顧客要件2026-07・SCR-029: 増減通知の表示名を
+   * `増減通知_JA名_JAコード_適用日.pdf` に統一しつつ、S3上書きを避ける）。
+   */
+  displayName?: string;
   /** S3 パスの帳票カテゴリ区分（例: `meibo`）。 */
   category: string;
   /**
@@ -93,7 +101,15 @@ export class FileArchiveService {
   ): Promise<{ key: string; filename: string; fileDownloadId: number }> {
     const now = new Date();
     const extension = params.extension ?? '.xlsx';
-    const filename = `${params.baseName}_${compactTimestampJst(now)}${extension}`;
+    // S3 キー用ファイル名は必ずタイムスタンプ付きで一意にする（同条件の再出力で
+    // 既存オブジェクトを上書きしない）。
+    const storageFilename = `${params.baseName}_${compactTimestampJst(now)}${extension}`;
+    // DB / ダウンロード表示名。displayName 指定時はタイムスタンプ無しの表示名、
+    // 省略時は従来どおり S3 と同じタイムスタンプ付き名。
+    const displayFilename =
+      params.displayName != null
+        ? `${params.displayName}${extension}`
+        : storageFilename;
 
     const jaCode = params.jaCode ?? (await this.resolveJa(params.jaId)).code;
     // subFolder 未指定時はサブフォルダ区切りを付けない。
@@ -101,7 +117,7 @@ export class FileArchiveService {
     // rootPrefix 未指定時は `reports`、空文字指定時はプレフィックスなし。
     const root = params.rootPrefix ?? 'reports';
     const rootSeg = root ? `${root}/` : '';
-    const key = `${rootSeg}${params.category}/${jaCode}/${subSeg}${params.year}/${filename}`;
+    const key = `${rootSeg}${params.category}/${jaCode}/${subSeg}${params.year}/${storageFilename}`;
 
     // S3 保存（外部 I/O）を先に完了させてから DB 登録する。
     await this.storage.upload(key, params.buffer, params.contentType);
@@ -113,7 +129,7 @@ export class FileArchiveService {
         downloadType: params.downloadType,
         scheduledDeleteDate: this.scheduledDeleteDate(),
         nichinoDownloadAllowedFlg: params.nichinoDownloadAllowedFlg ?? false,
-        fileName: filename,
+        fileName: displayFilename,
         filePath: key,
         fileSize: params.buffer.length,
         recordCount: params.recordCount ?? 0,
@@ -131,7 +147,9 @@ export class FileArchiveService {
       nichinoDownloadAllowedFlg: params.nichinoDownloadAllowedFlg ?? false,
     });
 
-    return { key, filename, fileDownloadId: saved.fileDownloadId };
+    // `filename` は表示名（displayName 指定時はタイムスタンプ無し）を返す。
+    // メール本文・監査ログ・レスポンスはこの表示名を使う。
+    return { key, filename: displayFilename, fileDownloadId: saved.fileDownloadId };
   }
 
   /**
