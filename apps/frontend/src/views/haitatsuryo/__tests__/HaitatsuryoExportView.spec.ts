@@ -74,6 +74,11 @@ async function renderView(opts: RenderOptions = {}): Promise<{
         component: { template: '<div />' },
       },
       {
+        path: '/hanbaiten',
+        name: 'HanbaitenList',
+        component: { template: '<div />' },
+      },
+      {
         path: '/hanbaiten/:id/edit',
         name: 'HanbaitenEdit',
         component: { template: '<div />' },
@@ -206,6 +211,82 @@ describe('HaitatsuryoExportView — 検索・集計', () => {
     await flushPromises();
 
     expect(previewHaitatsuryo).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render the 失効単価 error list (not a toast) when preview returns INACTIVE_TANKA_REFERENCED', async () => {
+    const { wrapper } = await renderView();
+    const { previewHaitatsuryo } = await import('@/api/haitatsuryo/haitatsuryo');
+    vi.mocked(previewHaitatsuryo).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: '失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。',
+      total: 2,
+      errors: [
+        { field: '101', message: 'H001 渋谷販売店（単価: T900 旧配達手数料）' },
+        { field: '102', message: 'H002 原宿販売店（単価: T900 旧配達手数料）' },
+      ],
+    });
+    (wrapper.vm as any).formState.target_month = '2026-04-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    // インラインエラー一覧が該当販売店を列挙する（トーストではない）。
+    const panel = wrapper.find('[data-test="inactive-tanka-error-list"]');
+    expect(panel.exists()).toBe(true);
+    expect(wrapper.findAll('[data-test="inactive-tanka-error-row"]')).toHaveLength(2);
+    expect(panel.text()).toContain('渋谷販売店');
+    // プレビュー一覧は表示しない。
+    expect(wrapper.find('[data-test="preview-area"]').exists()).toBe(false);
+  });
+
+  it('should navigate to 販売店明細検索 with ?inactive_tanka=1 when the deep-link button is clicked', async () => {
+    const { wrapper, router } = await renderView();
+    const { previewHaitatsuryo } = await import('@/api/haitatsuryo/haitatsuryo');
+    vi.mocked(previewHaitatsuryo).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      total: 1,
+      errors: [{ field: '101', message: 'H001 渋谷販売店' }],
+    });
+    const pushSpy = vi.spyOn(router, 'push');
+    (wrapper.vm as any).formState.target_month = '2026-04-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    await wrapper.find('[data-test="goto-hanbaiten-search"]').trigger('click');
+    await flushPromises();
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'HanbaitenList',
+      query: { inactive_tanka: '1' },
+    });
+  });
+
+  it('should show 該当 N 件中 15 件 summary when the 失効単価 error list is capped (total > shown)', async () => {
+    const { wrapper } = await renderView();
+    const { previewHaitatsuryo } = await import('@/api/haitatsuryo/haitatsuryo');
+    const errors = Array.from({ length: 15 }, (_, i) => ({
+      field: String(i + 1),
+      message: `販売店${i + 1}（単価: T900 旧配達手数料）`,
+    }));
+    vi.mocked(previewHaitatsuryo).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      total: 245,
+      errors,
+    });
+    (wrapper.vm as any).formState.target_month = '2026-04-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findAll('[data-test="inactive-tanka-error-row"]')).toHaveLength(15);
+    const summary = wrapper.find('[data-test="inactive-tanka-error-summary"]');
+    expect(summary.text()).toContain('245');
+    expect(summary.text()).toContain('15');
+    expect(summary.text()).toContain('販売店明細検索');
+    expect((wrapper.vm as any).inactiveTankaTotal).toBe(245);
   });
 
   it('should render the 対象月 / 販売店コード / 当月部数 / 当月金額 column titles when previewHaitatsuryo resolves data', async () => {

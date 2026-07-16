@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-05-22
 created_date: 2026/05/22
 created_by: Tran Duc Tuyen
-updated_date: 2026/05/22
+updated_date: 2026/07/16
 updated_by: Tran Duc Tuyen
 ---
 
@@ -19,6 +19,8 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/22 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/11 | 1.1  | VTI Japan | プレビュー→金額編集→ファイル作成の2ステップ化。API-020-003（preview）追加。API-020-002 に rows（編集金額）追加＋スコープ再集計の注記。JASTEM は readonly（マスタ書き戻し撤廃）。ダウンロード名 ZENOUTFD（拡張子なし）。 | | |
+| 3   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 実装との整合更新：§4.5 の m_ja/m_shiten 書き戻しSQLを撤廃（readonly 反映）、手順を 4.5 t_koza_furikae→4.6 t_file_download→4.7 ログ→4.8 応答→4.9 例外 に再採番。全銀種別を 21→**91**（預金口座振替・固定長120バイト）に修正。応答 Content-Type を text/plain・固定名 ZENOUTFD に統一。集計SQLに shiten_name_kana 追加。t_file_download に scheduled_delete_date / nichino_download_allowed_flg 反映。 | | |
+| 4   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用）反映：集計SQLの単価有効判定を **`active_flg = TRUE` のみ**に変更し、適用期間の日付判定（tekiyo_start/end vs target_month）を撤廃（日付↔active_flg の整合は 0:05 の失効バッチが担保）。出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する購読者が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（errors[]＝該当購読者）で出力を止める。エラー一覧 #9 追加。 | | |
 
 ## システム概要
 
@@ -62,6 +64,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NO_TARGET_DATA        | 対象データがありません。                                               | HTTP 404 |
+| 9   | 画面固有     | INACTIVE_TANKA_REFERENCED | 失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。 | HTTP 409（`total`＝総該当件数、`errors[]`＝先頭15件の該当購読者。field=dokusya_id） |
 
 ---
 
@@ -217,13 +220,13 @@ LIMIT 1
 | 項目                   | 内容                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Export Koza Furikae CSV                                                                                                                                                                                                                                                                                                              |
-| 概要                   | 指定された対象年月・引落日・絞込条件で口座振替データ（全銀フォーマット CSV）を生成・S3に保存し、ダウンロードする。同時に t_koza_furikae にスナップショットを登録し、m_ja のJASTEM委託者情報および対象 m_shiten のJASTEM金融機関支店情報を保存／更新する。                                                                              |
+| 概要                   | 指定された対象年月・引落日・絞込条件で口座振替データ（全銀フォーマット固定長・種別91）を生成・S3に保存し、ダウンロードする。同時に t_koza_furikae にスナップショット（編集金額）を登録する。JASTEM委託者情報（m_ja）／金融機関支店情報（m_shiten）は readonly 表示のみで、出力時にマスタへは書き戻さない（v1.1）。                                                                              |
 | URI                    | /api/v1/koza-furikae/export                                                                                                                                                                                                                                                                                                          |
 | メソッド               | POST                                                                                                                                                                                                                                                                                                                                  |
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                                                                                                  |
 | リクエストパラメーター |                                                                                                                                                                                                                                                                                                                                       |
 | ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                                                                                  |
-| HTTPレスポンスコード   | 200:正常に口座振替データを生成しダウンロードしました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象データがありません, 500:システムエラーが発生しました                                                                                       |
+| HTTPレスポンスコード   | 200:正常に口座振替データを生成しダウンロードしました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象データがありません, 409:失効単価を参照する購読者が存在します, 500:システムエラーが発生しました                                                                                       |
 
 ## リクエストパラメータ
 
@@ -234,14 +237,14 @@ LIMIT 1
 | 3   | kanri_shiten_ids              | Array<Number> | -        | -    |        |        | 管理支店ID配列（複数選択可、空配列または未指定の場合は全管理支店）。t_dokusya.kanri_shiten_id で絞込                          |
 | 4   | shiten_ids                    | Array<Number> | -        | -    |        |        | 支店ID配列（複数選択可、空配列または未指定の場合は全支店）。t_dokusya.shiten_id で絞込                                        |
 | 5   | koza_shiten_ids               | Array<Number> | -        | -    |        |        | 口座支店ID配列（m_shiten.kinyu_shiten_flg=TRUE のみ。空配列または未指定の場合は全金融機関支店）                               |
-| 6   | jastem_itakusha_code          | String        | -        | 〇   | 1      | 10     | JASTEM委託者コード。半角英数字。m_ja に保存／更新                                                                              |
-| 7   | jastem_itakusha_name          | String        | -        | 〇   | 1      | 40     | JASTEM委託者名。m_ja に保存／更新                                                                                              |
-| 8   | jastem_ja_code                | String        | -        | 〇   | 1      | 4      | JASTEM農協番号。半角数字。m_ja に保存／更新                                                                                    |
-| 9   | jastem_ja_name                | String        | -        | 〇   | 1      | 15     | JASTEM農協名。m_ja に保存／更新                                                                                                |
-| 10  | jastem_toriatsukai_tenpo_code | String        | -        | 〇   | 1      | 3      | JASTEMデータ送信取扱店舗コード。半角数字。対象 m_shiten に保存／更新                                                           |
-| 11  | jastem_tenpo_name             | String        | -        | 〇   | 1      | 15     | JASTEM店舗名。対象 m_shiten に保存／更新                                                                                       |
-| 12  | jastem_tyokin_shubetsu        | String        | -        | 〇   | 1      | 1      | JASTEM貯金種目（"1":普通貯金, "2":当座貯金, "9":その他）。対象 m_shiten に保存／更新                                          |
-| 13  | jastem_koza_no                | String        | -        | 〇   | 1      | 7      | JASTEM口座番号。半角数字。（v1.1: readonly 表示のみ・マスタへ書き戻さない）                                                    |
+| 6   | jastem_itakusha_code          | String        | -        | 〇   | 1      | 10     | JASTEM委託者コード。半角英数字。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）                              |
+| 7   | jastem_itakusha_name          | String        | -        | 〇   | 1      | 40     | JASTEM委託者名。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）                                              |
+| 8   | jastem_ja_code                | String        | -        | 〇   | 1      | 4      | JASTEM農協番号。半角数字。（v1.1: readonly 表示・全銀ヘッダ/データに使用、マスタへ書き戻さない）                            |
+| 9   | jastem_ja_name                | String        | -        | 〇   | 1      | 15     | JASTEM農協名。（v1.1: readonly 表示・全銀ヘッダ/データに使用、マスタへ書き戻さない）                                        |
+| 10  | jastem_toriatsukai_tenpo_code | String        | -        | 〇   | 1      | 3      | JASTEMデータ送信取扱店舗コード。半角数字。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）                    |
+| 11  | jastem_tenpo_name             | String        | -        | 〇   | 1      | 15     | JASTEM店舗名。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）                                                |
+| 12  | jastem_tyokin_shubetsu        | String        | -        | 〇   | 1      | 1      | JASTEM貯金種目（"1":普通貯金, "2":当座貯金, "9":その他）。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）    |
+| 13  | jastem_koza_no                | String        | -        | 〇   | 1      | 7      | JASTEM口座番号。半角数字。（v1.1: readonly 表示・全銀ヘッダに使用、マスタへ書き戻さない）                                    |
 | 14  | rows                          | Array<Object> | 1..N     | 〇   |        |        | v1.1: プレビューで確認・編集した振替対象行。要素＝`{ dokusya_id:Number, furikae_kingaku:Number(0〜9,999,999,999) }`。空配列不可 |
 
 > **v1.1 補足**
@@ -261,13 +264,13 @@ Content-Disposition: attachment; filename="ZENOUTFD"; filename*=UTF-8''ZENOUTFD
 
 > v1.1: ダウンロード名は全銀メディア受入名の固定値 `ZENOUTFD`（**拡張子なし**。銀行提出ファイルに .txt 等は付与しない）。S3保存名・t_file_download も拡張子なし。
 
-### CSVフォーマット（全銀フォーマット）
+### 全銀フォーマット（固定長・1レコード120バイト）
 
 | レコード種別 | 説明                                                                                                                |
 | ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| ヘッダー     | 1=ヘッダ, 21=預金口座振替, 0=新規, 委託者コード, 委託者名, 引落日(MMDD), 仕向金融機関コード/名, 取扱店舗コード/名 |
-| データ       | 2=データ, 引落金融機関コード/名, 預金種目, 口座番号, 口座名義カナ, 引落金額, 顧客番号                                |
-| トレーラー   | 8=トレーラ, 件数, 合計金額                                                                                          |
+| ヘッダー     | 1=ヘッダ, 91=預金口座振替, 0=コード区分, 委託者コード, 委託者名, 引落日(MMDD), 取引銀行コード/名, 取扱店舗コード/名, 預金種目, 口座番号 |
+| データ       | 2=データ, 引落銀行コード/名, 引落支店コード/名, 預金種目, 口座番号, 預金者名カナ, 引落金額, 新規コード, 顧客番号                                |
+| トレーラー   | 8=トレーラ, 合計件数, 合計金額, 振替済件数/金額, 振替不能件数/金額                                                                          |
 | エンド       | 9=エンド                                                                                                            |
 
 ## リクエスト例
@@ -299,13 +302,15 @@ Content-Type: application/json
 
 ## レスポンス成功例
 
-全銀フォーマット固定長テキスト（Shift_JIS、拡張子なし固定名 ZENOUTFD）がレスポンスボディとして返却される。
+全銀フォーマット固定長テキスト（Shift_JIS、1レコード120バイト、拡張子なし固定名 ZENOUTFD）がレスポンスボディとして返却される。
+
+> 下記は各フィールドを可読化のためカンマ区切りで示したイメージ。実ファイルは**区切り文字なしの固定長**（各フィールドはゼロ埋め／スペース埋め）。種別コードは **91**（預金口座振替）、顧客番号は購読者ID（右詰20桁）。
 
 ```
-1,21,0,1234567890,ﾆﾎﾝﾉｳｷﾞｮｳｼﾝﾌﾞﾝ          ,0527,1234,ﾆﾎﾝﾉｳｷﾞｮｳ      ,001,ﾎﾝﾃﾝ          ,1,1234567,
-2,0001,ﾐｽﾞﾎﾌﾞﾝｺｳ      ,001,ﾎﾝﾃﾝ          ,1,1234567,ﾔﾏﾀﾞ ﾀﾛｳ            ,4900,DOK00001,1, ,
-2,0001,ﾐｽﾞﾎﾌﾞﾝｺｳ      ,002,ｷﾀｼﾃﾝ         ,1,7654321,ｽｽﾞｷ ﾊﾅｺ           ,4900,DOK00002,1, ,
-8,2,9800,
+1,91,0,1234567890,ﾆﾎﾝﾉｳｷﾞｮｳｼﾝﾌﾞﾝ          ,0527,1234,ﾆﾎﾝﾉｳｷﾞｮｳ      ,001,ﾎﾝﾃﾝ          ,1,1234567,
+2,1234,ﾆﾎﾝﾉｳｷﾞｮｳ      ,001,ﾎﾝﾃﾝ          ,1,1234567,ﾔﾏﾀﾞ ﾀﾛｳ            ,0000004900,0,00000000000000000001,0,
+2,1234,ﾆﾎﾝﾉｳｷﾞｮｳ      ,002,ｷﾀｼﾃﾝ         ,1,7654321,ｽｽﾞｷ ﾊﾅｺ           ,0000004900,0,00000000000000000002,0,
+8,000002,000000009800,000000,000000000000,000000,000000000000,
 9,
 ```
 
@@ -352,6 +357,20 @@ Content-Type: application/json
 }
 ```
 
+### 409 Conflict（失効単価参照）
+
+```json
+{
+  "error_code": "INACTIVE_TANKA_REFERENCED",
+  "message": "失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。",
+  "total": 245,
+  "errors": [
+    { "field": "1", "message": "ﾔﾏﾀﾞ ﾀﾛｳ（単価: T001 旧購読料）" },
+    { "field": "5", "message": "ｽｽﾞｷ ﾊﾅｺ（単価: T001 旧購読料）" }
+  ]
+}
+```
+
 ### 500 Internal Server Error
 
 ```json
@@ -363,8 +382,9 @@ Content-Type: application/json
 
 ## 処理手順
 
-> ※ 4.5 m_ja・m_shiten 更新 と 4.6 t_koza_furikae 登録 と 4.7 t_file_download 登録 と 4.8 操作ログ記録 は単一トランザクション内で実行する。
+> ※ 4.5 t_koza_furikae 登録（+ ファイルアーカイブ共通サービスによる t_file_download 登録）と 4.6 操作ログ記録 は単一トランザクション内で実行する。
 > いずれかが失敗した場合は全てロールバックすること。
+> v1.1: JASTEM委託者情報（m_ja）／金融機関支店情報（m_shiten）への書き戻しは撤廃した（readonly 表示のみ）。
 > 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
 > S3保存（4.4の一部）はトランザクション外で実行する。S3アップロード成功後にDB更新を行い、DB側がロールバックした場合の S3 残骸ファイルは別途バッチでクリーンアップする運用とする。
 
@@ -399,10 +419,65 @@ Content-Type: application/json
 - 指定された `kanri_shiten_ids` / `shiten_ids` / `koza_shiten_ids` が自JA配下のレコードでない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
 - JA_KANRI_SHITEN ロールで自管理支店以外の `kanri_shiten_ids` を指定した場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
 
-### 4.3 対象データの集計・取得
+### 4.3 失効単価チェック（error gate）＋ 対象データの集計・取得
+
+> **単価の有効判定（顧客要件 2026-07）**
+> 単価の適用期間（`tekiyo_start_date` / `tekiyo_end_date`）と `active_flg` の整合は、
+> 毎日 0:05 に走る**単価失効バッチ**（`tekiyo_end_date < 本日 かつ active_flg=TRUE
+> → active_flg=FALSE`）が担保する。したがって本APIの集計では**期間の日付判定は行わず、
+> `active_flg = TRUE` のみ**で有効単価を判定する。
+> 失効した単価（`active_flg=FALSE`）は「新規に選択できない」だけで、既存購読者は
+> 失効単価を参照したまま自動移行しない。そこで**出力時に失効単価参照を検証**し、
+> 該当購読者が居ればエラーで出力を止める（運用者が手動で新単価へ変更 → 当日中に再出力）。
+
+**① 失効単価参照チェック（1件でも該当すれば HTTP 409 `INACTIVE_TANKA_REFERENCED` で出力中止）**
+
+- 出力対象の母集合（口座引落・継続・スコープ・画面絞込）のうち、参照単価が
+  `active_flg = FALSE` の購読者を抽出する。1件以上あれば出力を止める。
+- **大量該当への配慮**: 該当が多数（同一失効単価を多数の購読者が参照）になり得るため、
+  `errors[]` は**先頭15件で打ち切り**、`total`（総該当件数・`COUNT(*) OVER()`）を別途返す。
+  FE は「該当 N 件中 15 件を表示」と要約し、全件の確認・単価変更は**購読者明細検索画面
+  （「失効単価参照」絞込）**へ誘導する（レスポンス肥大・DOM肥大の回避）。
+
+```sql
+SELECT d.dokusya_id,
+       d.shimei_kana_sei || ' ' || d.shimei_kana_mei AS koza_meigi,
+       t.tanka_code,
+       t.tanka_name,
+       COUNT(*) OVER() AS total_count   -- LIMIT 前の総該当件数（window は LIMIT より先に評価）
+  FROM t_dokusya d
+  INNER JOIN m_hanbaiten h
+    ON h.hanbaiten_id = d.hanbaiten_id
+   AND h.deleted_at IS NULL
+  INNER JOIN m_tanka t
+    ON t.tanka_id = d.tanka_id
+   AND t.tanka_type = 1
+   AND t.deleted_at IS NULL
+   AND t.active_flg = FALSE          -- ← 失効単価のみ
+  LEFT JOIN m_shiten s
+    ON s.shiten_code = d.bank_branch_code
+   AND s.ja_id = d.ja_id
+   AND s.kinyu_shiten_flg = TRUE
+   AND s.deleted_at IS NULL
+ WHERE d.deleted_at IS NULL
+   AND d.shiharai_hoho = 1
+   AND d.tetsuzuki_shurui = 1
+   AND d.dokusya_kaishi_date <= :target_month
+   AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :target_month)
+   AND d.ja_id = :user_ja_id
+   AND (:user_kanri_shiten_id IS NULL OR d.kanri_shiten_id = :user_kanri_shiten_id)
+   AND (:kanri_shiten_ids IS NULL OR d.kanri_shiten_id = ANY(:kanri_shiten_ids))
+   AND (:shiten_ids IS NULL OR d.shiten_id = ANY(:shiten_ids))
+   AND (:koza_shiten_ids IS NULL OR s.shiten_id = ANY(:koza_shiten_ids))
+ ORDER BY d.kanri_shiten_id, d.shiten_id, d.dokusya_id
+ LIMIT 15
+```
+
+**② 対象データの集計・取得（① を通過した後に実行）**
 
 - ログインユーザーのスコープを取得する（ja_id、必要に応じて kanri_shiten_id）。
 - 対象年月（target_month）と絞込条件で集計対象となる購読者データを取得する。
+  有効単価は `active_flg = TRUE` のみで判定する（日付判定はバッチが担保）。
 
 ```sql
 SELECT d.dokusya_id,
@@ -418,7 +493,8 @@ SELECT d.dokusya_id,
        t.kingaku_zeikomi AS furikae_kingaku,
        s.shiten_id AS koza_shiten_id,
        s.shiten_code AS bank_branch_code_master,
-       s.shiten_name AS bank_branch_name_master
+       s.shiten_name AS bank_branch_name_master,
+       s.shiten_name_kana AS bank_branch_name_kana  /* 全銀データレコードの引落支店名（カナ）用 */
   FROM t_dokusya d
   INNER JOIN m_hanbaiten h
     ON h.hanbaiten_id = d.hanbaiten_id
@@ -427,9 +503,7 @@ SELECT d.dokusya_id,
     ON t.tanka_id = d.tanka_id
    AND t.tanka_type = 1
    AND t.deleted_at IS NULL
-   AND t.active_flg = TRUE
-   AND t.tekiyo_start_date <= :target_month
-   AND (t.tekiyo_end_date IS NULL OR t.tekiyo_end_date >= :target_month)
+   AND t.active_flg = TRUE          -- ← 有効単価のみ（日付判定は失効バッチが担保）
   LEFT JOIN m_shiten s
     ON s.shiten_code = d.bank_branch_code
    AND s.ja_id = d.ja_id
@@ -453,54 +527,24 @@ SELECT d.dokusya_id,
 
 - 取得件数が 0 件の場合：HTTP 404 (`NO_TARGET_DATA`)
 
-### 4.4 CSV生成・S3保存
+### 4.4 全銀フォーマット生成・S3保存
 
-- 全銀フォーマット（CSV、Shift_JIS、CRLF）に整形する。
-  - ヘッダーレコード（1=ヘッダ）：種別コード(21)、コード区分(0)、委託者コード、委託者名（半角カナ40桁、左詰）、引落日(MMDD)、農協番号、農協名（半角カナ15桁）、取扱店舗コード、店舗名（半角カナ15桁）、預金種目、口座番号
-  - データレコード（2=データ）：1件につき1レコード、引落金融機関コード/名、預金種目、口座番号、口座名義（半角カナ30桁）、引落金額、顧客番号（dokusya_id）
-  - トレーラーレコード（8=トレーラ）：件数、合計金額
+- 全銀フォーマット（**固定長テキスト・1レコード120バイト**、Shift_JIS、CRLF）に整形する。**CSV ではない。**
+  - ヘッダーレコード（1=ヘッダ）：データ区分(1)、**種別コード(91=預金口座振替)**、コード区分(0)、委託者コード(10)、委託者名（半角カナ40桁、左詰）、引落日(MMDD)、取引銀行番号(4)、取引銀行名（半角カナ15桁）、取引支店番号(3)、取引支店名（半角カナ15桁）、預金種目(1)、口座番号(7)
+  - データレコード（2=データ）：1件につき1レコード、引落銀行番号/名、引落支店番号/名（半角カナ15桁）、預金種目、口座番号、預金者名（半角カナ30桁）、引落金額、新規コード、顧客番号（dokusya_id・右詰20桁）
+  - トレーラーレコード（8=トレーラ）：合計件数、合計金額、振替済件数/金額(0)、振替不能件数/金額(0)
   - エンドレコード（9=エンド）
-- ファイル名：`koza_furikae_YYYYMMDD_HHmmss.csv`（現在日時）
-- 生成したCSVをS3（バケット：環境変数 `S3_BUCKET`、キー：`ja-{ja_id}/koza_furikae/{filename}`）にアップロードする。
+- v1.1: ダウンロード名は全銀メディア受入名の**固定値 `ZENOUTFD`（拡張子なし）**。
+- 生成したファイルを共通のファイルアーカイブサービス（FileArchiveService）経由でS3に保存する。
+  - S3キー: `koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}`（`baseName` = `口座振替データ_{ja_code}_{YYYY}年{MM}月{DD}日`、拡張子なし）。
+  - `scheduled_delete_date` = 作成日(JST)+5年、`download_type = KOZA_FURIKAE`、日農担当者DL不可（`nichino_download_allowed_flg = false`）を設定する。
   - S3アップロード失敗時はDB処理を行わず、HTTP 500 (`INTERNAL_SERVER_ERROR`) を返却する。
 
-### 4.5 JASTEM情報の更新（m_ja, m_shiten）
+> v1.1: 取引/引落銀行番号は暫定的に `jastem_ja_code`（農協番号）を使用する（統一金融機関番号の正式ソース確定までのつなぎ・顧客合意 2026-07）。
 
-- m_ja のJASTEM委託者情報を更新する。
+### 4.5 t_koza_furikae 登録
 
-```sql
-UPDATE m_ja
-   SET jastem_itakusha_code = :jastem_itakusha_code,
-       jastem_itakusha_name = :jastem_itakusha_name,
-       jastem_ja_code       = :jastem_ja_code,
-       jastem_ja_name       = :jastem_ja_name,
-       updated_at           = NOW(),
-       updated_by           = :user_account_id
- WHERE ja_id = :user_ja_id
-   AND deleted_at IS NULL
-RETURNING *
-```
-
-- 指定された `koza_shiten_ids` の m_shiten レコードのJASTEM金融機関支店情報を更新する。`koza_shiten_ids` が空の場合は対象集計に登場した全 m_shiten レコードを対象とする。
-
-```sql
-UPDATE m_shiten
-   SET jastem_toriatsukai_tenpo_code = :jastem_toriatsukai_tenpo_code,
-       jastem_tenpo_name             = :jastem_tenpo_name,
-       jastem_tyokin_shubetsu        = :jastem_tyokin_shubetsu,
-       jastem_koza_no                = :jastem_koza_no,
-       updated_at                    = NOW(),
-       updated_by                    = :user_account_id
- WHERE shiten_id = ANY(:target_shiten_ids)
-   AND ja_id = :user_ja_id
-   AND kinyu_shiten_flg = TRUE
-   AND deleted_at IS NULL
-RETURNING *
-```
-
-### 4.6 t_koza_furikae 登録
-
-- 集計したデータを t_koza_furikae にスナップショットとして登録する（1購読者×対象年月で1件、重複時は同月再生成として一旦削除し再INSERT、または ON CONFLICT で更新）。
+- v1.1: 再集計した対象行の**編集金額**を t_koza_furikae にスナップショットとして登録する（1購読者×対象年月で1件、重複時は ON CONFLICT で更新）。`bank_code` には委託元 `jastem_ja_code`、`bank_name` には `jastem_tenpo_name` を格納する。`target_month` は `YYYYMM` 形式で保存する。
 
 ```sql
 INSERT INTO t_koza_furikae (
@@ -529,25 +573,26 @@ DO UPDATE SET
   updated_by       = :user_account_id
 ```
 
-### 4.7 t_file_download 登録
+### 4.6 t_file_download 登録
 
-- ダウンロード履歴を t_file_download に登録する。
+- ダウンロード履歴を t_file_download に登録する（FileArchiveService が S3 保存と同一フローで登録する）。`download_type = 1`（KOZA_FURIKAE）、`nichino_download_allowed_flg = false`、`scheduled_delete_date` = 作成日(JST)+5年、拡張子なしのファイル名を設定する。
 
 ```sql
 INSERT INTO t_file_download (
   ja_id, download_datetime, download_type,
   file_name, file_path, file_size, record_count,
-  target_month, created_at, created_by
+  target_month, scheduled_delete_date, nichino_download_allowed_flg,
+  created_at, created_by
 ) VALUES (
   :user_ja_id, NOW(), 1,
   :file_name, :s3_file_path, :file_size, :record_count,
-  TO_CHAR(:target_month::date, 'YYYYMM'),
+  TO_CHAR(:target_month::date, 'YYYYMM'), :scheduled_delete_date, FALSE,
   NOW(), :user_account_id
 )
 RETURNING *
 ```
 
-### 4.8 操作ログ記録
+### 4.7 操作ログ記録
 
 - 以下のSQLを実行して操作ログを記録する。
 
@@ -583,18 +628,19 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "jastem_toriatsukai_tenpo_code": "001",
   "jastem_tyokin_shubetsu": "1",
   "jastem_koza_no": "*******",
-  "file_name": "koza_furikae_20260522_103000.csv",
+  "file_name": "口座振替データ_JA1301_2026年05月27日_20260522103000",
+  "s3_file_path": "koza-furikae/JA1301/2026/口座振替データ_JA1301_2026年05月27日_20260522103000",
   "record_count": 2
 }
 ```
 
-### 4.9 レスポンス生成
+### 4.8 レスポンス生成
 
-- 生成したCSVファイルをレスポンスボディとして返却する。HTTP 200。
-- `Content-Type: text/csv; charset=Shift_JIS`
-- `Content-Disposition: attachment; filename="koza_furikae_YYYYMMDD_HHmmss.csv"`
+- 生成した全銀フォーマット固定長ファイル（Shift_JIS）をレスポンスボディとして返却する。HTTP 200。
+- `Content-Type: text/plain; charset=Shift_JIS`
+- `Content-Disposition: attachment; filename="ZENOUTFD"; filename*=UTF-8''ZENOUTFD`（拡張子なし固定名）
 
-### 4.10 例外処理
+### 4.9 例外処理
 
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
 - エラー発生時も操作ログを記録する（`log_type = 3`、トランザクション外で記録）。
@@ -627,7 +673,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 概要                   | 「作成開始」= 対象年月・フィルタで振替対象を集計し、プレビュー一覧（金額編集用）を返す。**DB / S3 / 監査ログは書き込まない（閲覧のみ）**                          |
 | 権限                   | koza_furikae.export                                                                                                                                              |
 | リクエストパラメーター | JSON body                                                                                                                                                        |
-| HTTPレスポンスコード   | 200:正常に取得しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象データがありません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:正常に取得しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:対象データがありません, 409:失効単価を参照する購読者が存在します, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -698,11 +744,28 @@ Content-Type: application/json
 { "error_code": "NO_TARGET_DATA", "message": "対象データがありません。" }
 ```
 
+## レスポンス失敗例（409 失効単価参照）
+
+```json
+{
+  "error_code": "INACTIVE_TANKA_REFERENCED",
+  "message": "失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。",
+  "total": 245,
+  "errors": [
+    { "field": "1", "message": "ﾔﾏﾀﾞ ﾀﾛｳ（単価: T001 旧購読料）" },
+    { "field": "5", "message": "ｽｽﾞｷ ﾊﾅｺ（単価: T001 旧購読料）" }
+  ]
+}
+```
+
 ## 処理手順
 
 - **4.1** バリデーション：target_month / hikiotoshi_date 必須・YYYY-MM-DD 形式。
 - **4.2** 認証・認可：SessionAuthGuard + PermissionsGuard（koza_furikae.export）。
-- **4.3** 集計：API-020-002 §4.3 と同一の集計SQL（DataScope をパラメータに内包）。取得0件 → HTTP 404（NO_TARGET_DATA）。
+- **4.3** 失効単価チェック（§4.3 ①）＋ 集計（§4.3 ②）を実行する。
+  - v1.1: **プレビュー時点でも失効単価チェックを行う**（顧客要件 2026-07）。出力対象に失効単価(`active_flg=FALSE`)を参照する購読者が居れば HTTP 409（`INACTIVE_TANKA_REFERENCED`）で止め、該当購読者を `errors[]`（`field=dokusya_id`, `message=購読者名 + 単価`）で列挙して返す。FE は Excel取込画面と同様のインラインエラー一覧で該当購読者を提示し、手動で単価変更へ誘導する（トーストではない）。
+  - チェック通過後、②の集計SQL（`active_flg = TRUE` のみ・DataScope をパラメータに内包）を実行。取得0件 → HTTP 404（NO_TARGET_DATA）。
+  - **S3保存・t_koza_furikae更新・監査ログは行わない（閲覧のみ）。**
 - **4.4** レスポンス生成：集計行を `{ data, meta }` で返す。**S3保存・t_koza_furikae更新・監査ログは行わない。**
 
 ---

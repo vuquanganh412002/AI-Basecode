@@ -1,4 +1,5 @@
 import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
+import { todayIsoJst } from '@/common/utils/datetime';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import {
@@ -404,9 +405,10 @@ export interface DokusyaRirekiListItem {
   /** 備考。取消時は取消理由が記録される（顧客要件）。*/
   biko: string;
   /**
-   * この行を 取消 できるか（BE の {@link canTorikeshi} と同一条件）: 新規でない
-   * かつ取消済でないかつチェーン末尾(有効レコード)であること。FE のボタン
-   * disable 判定に使う（実際の可否は BE エンドポイントが再検証する）。
+   * この行を 取消 できるか（BE の {@link canTorikeshi} と同一条件・顧客要件2026-07）:
+   * 紙版(dokusya_shubetsu=1) かつ 新規/取消済でない かつ 適用日が未来(本日<適用日,JST)
+   * かつ チェーン末尾(有効レコード) であること。FE のボタン disable 判定に使う
+   * （実際の可否は BE エンドポイントが再検証する）。
    */
   can_torikeshi: boolean;
   hikiotoshi_yokin_shubetsu: number | null;
@@ -461,6 +463,15 @@ export function toDokusyaRirekiListItem(
   const isTail =
     tailRirekiId != null &&
     coerceNumber(row.dokusya_rireki_id as number | string) === tailRirekiId;
+  // 顧客要件2026-07（canTorikeshi と同一条件）:
+  // 6. 紙版(dokusya_shubetsu=1)のみ取消可（電子版=2・併読=3 は電子版連携のため不可）。
+  const isPaper =
+    coerceNumber(row.dokusya_shubetsu as number | string) ===
+    DokusyaShubetsu.PAPER;
+  // 7. 適用日が未来（本日 < 適用日, JST）でなければ取消不可。DATE の ISO 文字列比較。
+  const isFutureJoho =
+    typeof row.joho_henko_tekiyo_date === 'string' &&
+    row.joho_henko_tekiyo_date > todayIsoJst();
   return {
     dokusya_rireki_id: coerceNumber(row.dokusya_rireki_id as number | string),
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
@@ -523,7 +534,7 @@ export function toDokusyaRirekiListItem(
     kaiyaku_flg: Boolean(row.kaiyaku_flg),
     torikeshi_flg: torikeshi,
     biko: stringOrEmpty(row.biko),
-    can_torikeshi: !shinki && !torikeshi && isTail,
+    can_torikeshi: isPaper && !shinki && !torikeshi && isFutureJoho && isTail,
     hikiotoshi_yokin_shubetsu: coerceNullableNumber(
       row.hikiotoshi_yokin_shubetsu as RawScalarNullable,
     ),

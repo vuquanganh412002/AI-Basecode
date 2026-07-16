@@ -101,6 +101,7 @@ export class MailService implements OnModuleInit {
       fileName: string;
       uploadDatetime: Date;
       uploaderLoginId: string;
+      uploaderAccountName: string;
     },
   ): Promise<void> {
     const { subject, text } = renderFileUploadNotificationMail(input);
@@ -111,10 +112,15 @@ export class MailService implements OnModuleInit {
     });
   }
 
+  /**
+   * 汎用通知メール。件名は呼び出し側が完成形で渡す（システム名プレフィックスは
+   * 付与しない）。SCR-029 増減通知では件名に【都道府県】【発行アカウント】を含め、
+   * システム名【クラウド版購読者管理システム】は本文先頭に置く（顧客要件2026-07）。
+   */
   async sendNotification(email: string, subject: string, content: string): Promise<void> {
     await this.provider.sendMail({
       to: email,
-      subject: `【クラウド版購読者管理システム】${subject}`,
+      subject,
       html: content,
     });
   }

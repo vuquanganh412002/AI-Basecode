@@ -12,15 +12,22 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { AuditOperation, DownloadType, LogType } from '@/common/enums';
 
+import { InactiveTankaReferencedException } from '@/common/exceptions/inactive-tanka-referenced.exception';
+
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
 import {
   buildHaitatsuryoSql,
+  buildInactiveHaitatsuryoTankaSql,
   mapHaitatsuryoRows,
   type HaitatsuryoAggRow,
   type HaitatsuryoPreviewData,
+  type InactiveHaitatsuryoTankaRow,
 } from './haitatsuryo.mapper';
 
 const SCREEN_NAME = '配達手数料支払情報出力画面 (ACSMS-SCR-021)';
+// 失効単価参照エラー（error gate）の案内文（SCR-021 専用・顧客要件2026-07）。
+const INACTIVE_TANKA_MESSAGE =
+  '失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。';
 const TABLE_NAME = 't_file_download';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -63,6 +70,10 @@ export class HaitatsuryoService {
     query: HaitatsuryoQueryDto,
     session: SessionPayload,
   ): Promise<HaitatsuryoPreviewData> {
+    // v1.x error gate: 出力対象に失効単価(active_flg=FALSE)を参照する販売店が
+    // 居れば 409 (INACTIVE_TANKA_REFERENCED) で止め、該当販売店を提示する。
+    // プレビュー段階で検出し、手動での単価移行を促す（顧客要件 2026-07）。
+    await this.assertNoInactiveTanka(query, session);
     const zeiKubun = await this.fetchZeiKubun(session);
     const rows = await this.fetchAggRows(query, session, zeiKubun);
     // 0件は「検索成功・結果なし」として 200 + 空配列を返す（REST 準拠、
@@ -83,6 +94,8 @@ export class HaitatsuryoService {
     req: Request,
   ): Promise<ExportHaitatsuryoResult> {
     try {
+      // 4.x error gate: 失効単価参照の販売店が居れば 409 で止める（preview と同様）。
+      await this.assertNoInactiveTanka(body, session);
       const zeiKubun = await this.fetchZeiKubun(session);
       const rows = await this.fetchAggRows(body, session, zeiKubun);
       // 対象0件 → Excel 生成 / S3 保存 / DB 登録は実行しない。controller が
@@ -145,8 +158,10 @@ export class HaitatsuryoService {
 
       return { empty: false, buffer, filename, asciiFilename };
     } catch (err) {
-      // DB/S3障害等は log_type=3 をトランザクション外で記録する（4.8）。
-      // 0件は throw ではなく早期 return のためここには到達しない。
+      // 失効単価参照 (409) は業務エラーのためエラーログ対象外。0件は throw では
+      // なく早期 return のためここには到達しない。それ以外は log_type=3 を
+      // トランザクション外で記録する（4.8）。
+      if (err instanceof InactiveTankaReferencedException) throw err;
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
         AuditOperation.CREATE,
@@ -157,6 +172,36 @@ export class HaitatsuryoService {
   }
 
   // ─── private ─────────────────────────────────────────────────────
+
+  /**
+   * 4.x 失効単価参照の検証（error gate）。出力対象の母集合に、配達手数料単価
+   * (tanka_type=2) が active_flg=FALSE の販売店が 1 件でもあれば
+   * InactiveTankaReferencedException(409) を送出し、出力を止める（顧客要件2026-07）。
+   * 該当販売店は `errors[]`（field=hanbaiten_id, message=販売店名 + 単価）で先頭
+   * INACTIVE_TANKA_LIST_LIMIT 件を列挙し、`total` に総該当件数を載せる。全件確認・
+   * 単価変更は販売店明細検索で行う運用。
+   */
+  private async assertNoInactiveTanka(
+    query: HaitatsuryoQueryDto,
+    session: SessionPayload,
+  ): Promise<void> {
+    const { sql, params } = buildInactiveHaitatsuryoTankaSql(query, session);
+    const rows: InactiveHaitatsuryoTankaRow[] = await this.dataSource.query(
+      sql,
+      params,
+    );
+    if (rows.length === 0) return;
+    const total = Number(rows[0]?.total_count ?? rows.length);
+    const errors = rows.map((r) => ({
+      field: String(r.hanbaiten_id),
+      message: `${r.hanbaiten_code ?? ''} ${r.hanbaiten_name ?? ''}（単価: ${r.tanka_code} ${r.tanka_name}）`,
+    }));
+    throw new InactiveTankaReferencedException(
+      errors,
+      total,
+      INACTIVE_TANKA_MESSAGE,
+    );
+  }
 
   /** ログインユーザーの所属 JA の税区分を取得する（4.3。未取得時は内税=1）。 */
   private async fetchZeiKubun(session: SessionPayload): Promise<number> {

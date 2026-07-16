@@ -23,6 +23,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message, type TableColumnsType } from 'ant-design-vue';
+import type { Dayjs } from 'dayjs';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -34,14 +35,22 @@ import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
+import { DokusyaShubetsu, TetsuzukiShurui } from '@/constants/enums';
 import { formatDate } from '@/utils/formatters';
-import { timestampForFilenameTokyo } from '@/utils/datetime';
+import {
+  timestampForFilenameTokyo,
+  nowTokyo,
+  todayIsoTokyo,
+} from '@/utils/datetime';
 import { confirmDelete } from '@/utils/confirm';
 import { downloadBlob } from '@/utils/download';
 import {
   listDokusya,
   removeDokusya,
   exportDokusyaExcel,
+  getDokusya,
+  stopDokusya,
+  type DokusyaDetail,
   type DokusyaListItem,
   type DokusyaSearchParams,
 } from '@/api/dokusya/dokusya';
@@ -73,6 +82,8 @@ interface DokusyaFilters {
   joho_henko_tekiyo_date_from: string;
   joho_henko_tekiyo_date_to: string;
   shiharai_hoho: number | undefined;
+  // 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）。
+  inactive_tanka_flg: boolean;
 }
 
 const DEFAULT_FILTERS: DokusyaFilters = {
@@ -98,6 +109,7 @@ const DEFAULT_FILTERS: DokusyaFilters = {
   joho_henko_tekiyo_date_from: '',
   joho_henko_tekiyo_date_to: '',
   shiharai_hoho: undefined,
+  inactive_tanka_flg: false,
 };
 
 const router = useRouter();
@@ -259,7 +271,9 @@ const columns: TableColumnsType = [
     key: 'dokusya_chushi_date',
     width: 130,
   },
-  { title: '操作', key: 'actions', align: 'center', width: 100 },
+  // 操作列は右端に固定(fixed:'right')— 横スクロールしても常に表示される
+  // （履歴画面 DokusyaRirekiView と同じ挙動）。
+  { title: '操作', key: 'actions', align: 'center', width: 180, fixed: 'right' },
 ];
 
 // ─── Validation messages (literals from screen-design.md §メッセージ情報) ─
@@ -343,6 +357,8 @@ function applyNumberFilters(
   if (f.denshi_shonin_status !== undefined)
     params.denshi_shonin_status = f.denshi_shonin_status;
   if (f.shiharai_hoho !== undefined) params.shiharai_hoho = f.shiharai_hoho;
+  // true のときのみ送信（false は BE に渡さず絞り込まない）。
+  if (f.inactive_tanka_flg) params.inactive_tanka_flg = true;
 }
 
 /** Free-text filters — copied when non-empty (blank → BE sees no value). */
@@ -441,6 +457,14 @@ onMounted(() => {
       showAdvanced.value = true;
     }
   }
+  // [scr020-deep-link] 口座振替データ出力 (SCR-020) の失効単価エラーから
+  // ?inactive_tanka=1 で遷移してくる導線。失効単価参照フィルタを初期適用し、
+  // 詳細検索を開いて選択状態を見せる（手動で新単価へ移行する運用）。
+  if (route.query.inactive_tanka === '1') {
+    state.filters.inactive_tanka_flg = true;
+    applyFilters({ ...state.filters });
+    showAdvanced.value = true;
+  }
   void fetchList();
 });
 
@@ -507,6 +531,156 @@ function askDelete(row: DokusyaListItem): void {
       // .claude/rules/vue.md §Error Handling Architecture.
     }
   });
+}
+
+// ─── 購読停止（解約予約）— 一覧の「購読停止」ボタン → ポップアップ ────────
+//
+// 顧客要件 2026-07: 購読中止日を選んで停止予約する。行データだけでは
+// 請求開始月 / 最終変更適用日 / 解約予約有無 が分からないため、クリック時に
+// 詳細(GET /dokusya/:id)を取得してからポップアップを開く。
+//   - 紙版(1): カレンダーで購読中止日を選ぶ（未来日 + 購読開始日以降 + 最終変更
+//     適用日より後）。
+//   - 電子版(2): 「終了月」を選び月末日で停止する（当月以降 + 請求開始月以降）。
+//     請求開始月が未設定なら料金徴収未開始 → クリック時に toast 警告して開かない。
+// OK で専用 API(POST /dokusya/:id/stop)を叩き、成功したら一覧を再取得する。
+
+const SEIKYU_NOT_STARTED_MSG = 'この読者料金の徴収はまだ開始されていません。';
+const ALREADY_RESERVED_MSG =
+  '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。';
+
+const stopModalOpen = ref(false);
+const stopTarget = ref<DokusyaDetail | null>(null);
+const stopDate = ref<Dayjs | null>(null); // 紙版カレンダー
+const stopMonth = ref<Dayjs | null>(null); // 電子版 終了月
+const stopSubmitting = ref(false);
+const stopFieldError = ref<string | null>(null);
+
+/** 停止ポップアップ対象が電子版か（月ピッカー vs 日ピッカーの切替）。 */
+const isStopDigital = computed(
+  () => Number(stopTarget.value?.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
+);
+
+/** 停止ボタン非活性: 更新権限なし / 編集不可(併読・電子版クレカ) / 既に解約済み。 */
+function isStopDisabled(row: DokusyaListItem): boolean {
+  return (
+    !canUpdate.value ||
+    row.is_read_only ||
+    row.tetsuzuki_shurui === TetsuzukiShurui.KAIYAKU
+  );
+}
+
+async function openStopModal(row: DokusyaListItem): Promise<void> {
+  let detail: DokusyaDetail;
+  try {
+    detail = (await getDokusya(row.dokusya_id)).data;
+  } catch {
+    // 詳細取得失敗 (403/404/500) は interceptor が toast 済み。
+    return;
+  }
+  // 既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要）。
+  if (detail.has_active_kaiyaku) {
+    message.warning(ALREADY_RESERVED_MSG);
+    return;
+  }
+  // 電子版で請求開始月が未設定＝料金徴収未開始 → 停止不可（顧客要件 2026-07）。
+  if (
+    Number(detail.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+    !detail.seikyu_kaishi_month?.trim()
+  ) {
+    message.warning(SEIKYU_NOT_STARTED_MSG);
+    return;
+  }
+  stopTarget.value = detail;
+  stopDate.value = null;
+  stopMonth.value = null;
+  stopFieldError.value = null;
+  stopModalOpen.value = true;
+}
+
+function closeStopModal(): void {
+  stopModalOpen.value = false;
+  stopTarget.value = null;
+  stopDate.value = null;
+  stopMonth.value = null;
+  stopFieldError.value = null;
+}
+
+// 紙版カレンダー: 未来日のみ + 最終変更適用日(max_joho_date)より後(同日不可) +
+// 購読開始日以降。全て JST(Asia/Tokyo) 基準の YYYY-MM-DD で比較する。
+function disabledStopPaperDate(current: Dayjs | null): boolean {
+  if (!current) return false;
+  const t = stopTarget.value;
+  const d = current.format('YYYY-MM-DD');
+  if (d <= todayIsoTokyo()) return true;
+  if (t?.max_joho_date && d <= t.max_joho_date) return true;
+  if (t?.dokusya_kaishi_date && d < t.dokusya_kaishi_date) return true;
+  return false;
+}
+
+// 電子版 終了月ピッカー: 当月以降 かつ 請求開始月(seikyu_kaishi_month)以降。
+function disabledStopMonth(current: Dayjs | null): boolean {
+  if (!current) return false;
+  const ym = current.format('YYYYMM');
+  if (ym < nowTokyo().format('YYYYMM')) return true;
+  const seikyu = stopTarget.value?.seikyu_kaishi_month?.trim();
+  if (seikyu && ym < seikyu) return true;
+  return false;
+}
+
+/** VALIDATION_ERROR(400) の errors[0].message を取り出す（無ければ null）。 */
+function extractStopFieldError(err: unknown): string | null {
+  const data = (
+    err as {
+      response?: {
+        data?: {
+          error_code?: string;
+          errors?: { field: string; message: string }[];
+        };
+      };
+    }
+  )?.response?.data;
+  if (data?.error_code === 'VALIDATION_ERROR' && data.errors?.length) {
+    return data.errors[0].message;
+  }
+  return null;
+}
+
+async function confirmStop(): Promise<void> {
+  const t = stopTarget.value;
+  if (!t) return;
+  stopFieldError.value = null;
+
+  // 中止日を組み立てる: 紙版=選択日、電子版=選択月の月末日。
+  let chushi: string;
+  if (isStopDigital.value) {
+    if (!stopMonth.value) {
+      stopFieldError.value = '購読中止日を入力してください。';
+      return;
+    }
+    chushi = stopMonth.value.endOf('month').format('YYYY-MM-DD');
+  } else {
+    if (!stopDate.value) {
+      stopFieldError.value = '購読中止日を入力してください。';
+      return;
+    }
+    chushi = stopDate.value.format('YYYY-MM-DD');
+  }
+
+  stopSubmitting.value = true;
+  try {
+    await stopDokusya(t.dokusya_id, { dokusya_chushi_date: chushi });
+    notify.success('購読停止を予約しました。');
+    closeStopModal();
+    await fetchList();
+  } catch (err) {
+    // VALIDATION_ERROR(400) は interceptor が toast しない設計なので、
+    // フィールドエラーとしてポップアップ内に表示する。403/500 は interceptor
+    // が toast 済み。
+    const msg = extractStopFieldError(err);
+    if (msg) stopFieldError.value = msg;
+  } finally {
+    stopSubmitting.value = false;
+  }
 }
 
 // ─── Excel export ──────────────────────────────────────────────────
@@ -870,6 +1044,18 @@ defineExpose({ state });
             </a-radio>
           </a-radio-group>
         </div>
+
+        <!-- 失効単価参照フィルタ（SCR-020 error gate 連携・顧客要件2026-07）。
+             口座振替出力時に失効単価参照でブロックされた購読者を手動で新単価へ
+             移行するための絞込。SCR-020 から ?inactive_tanka=1 で初期選択される。 -->
+        <div class="col-span-full flex items-center gap-2 text-sm text-text-main">
+          <a-checkbox
+            v-model:checked="state.filters.inactive_tanka_flg"
+            data-test="inactive-tanka-filter"
+          >
+            失効単価を参照する購読者のみ表示
+          </a-checkbox>
+        </div>
       </template>
 
       <!-- 検索 / 検索クリア (BaseSearchForm) + Excel出力 on the same
@@ -964,21 +1150,96 @@ defineExpose({ state });
           {{ formatDate((record as DokusyaListItem).dokusya_chushi_date) }}
         </template>
         <template v-else-if="column.key === 'actions'">
-          <!-- 削除 visible-but-disabled when:
-                 (a) the row carries is_read_only=true, OR
-                 (b) the user lacks dokusya.delete.
-               Edit affordance is on the 購読者名 anchor above, NOT here. -->
-          <BaseActionColumn
-            :can-edit="false"
-            :disable-delete="
-              !canDelete ||
-              !hasAnyDokusyaFlag ||
-              (record as DokusyaListItem).is_read_only
-            "
-            @delete="askDelete(record as DokusyaListItem)"
-          />
+          <div class="flex justify-center items-center gap-3">
+            <!-- 購読停止（解約予約）— 削除の前に配置。更新権限なし / 編集不可
+                 (併読・電子版クレカ) / 既に解約済み のとき非活性。 -->
+            <button
+              type="button"
+              :disabled="isStopDisabled(record as DokusyaListItem)"
+              class="text-primary hover:text-primary-hover font-medium disabled:text-text-disabled disabled:hover:text-text-disabled disabled:cursor-not-allowed"
+              data-test="stop-button"
+              @click="openStopModal(record as DokusyaListItem)"
+            >
+              購読停止
+            </button>
+            <!-- 削除 visible-but-disabled when:
+                   (a) the row carries is_read_only=true, OR
+                   (b) the user lacks dokusya.delete.
+                 Edit affordance is on the 購読者名 anchor above, NOT here. -->
+            <BaseActionColumn
+              :can-edit="false"
+              :disable-delete="
+                !canDelete ||
+                !hasAnyDokusyaFlag ||
+                (record as DokusyaListItem).is_read_only
+              "
+              @delete="askDelete(record as DokusyaListItem)"
+            />
+          </div>
         </template>
       </template>
     </BaseDataTable>
+
+    <!-- ─── 購読停止（解約予約）ポップアップ ────────────────────────────
+         紙版はカレンダー、電子版は「終了月」ピッカー(月末で終了)。OK で
+         専用 API を叩き、成功したら一覧を再取得する。VALIDATION_ERROR は
+         ポップアップ内にフィールドエラーとして表示する。 -->
+    <a-modal
+      v-model:open="stopModalOpen"
+      title="購読を停止する"
+      ok-text="購読を停止する"
+      ok-type="danger"
+      cancel-text="キャンセル"
+      :confirm-loading="stopSubmitting"
+      :mask-closable="false"
+      data-test="stop-modal"
+      @ok="confirmStop"
+      @cancel="closeStopModal"
+    >
+      <div v-if="stopTarget" class="space-y-3 py-2">
+        <p class="text-text-description text-sm">
+          対象購読者:
+          <span class="text-text-main font-medium">
+            {{ stopTarget.shimei_sei }} {{ stopTarget.shimei_mei }}
+          </span>
+        </p>
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium whitespace-nowrap text-text-main">
+            購読中止日
+          </label>
+          <!-- 電子版: 終了月ピッカー + 「月末で終了」。当月以降 + 請求開始月以降。 -->
+          <template v-if="isStopDigital">
+            <a-date-picker
+              v-model:value="stopMonth"
+              picker="month"
+              format="YYYY/MM"
+              placeholder="終了月を選択"
+              :disabled-date="disabledStopMonth"
+              class="flex-1"
+              data-test="stop-month-picker"
+            />
+            <span class="text-text-main whitespace-nowrap">月末で終了</span>
+          </template>
+          <!-- 紙版: カレンダー。未来日 + 購読開始日以降 + 最終変更適用日より後。 -->
+          <template v-else>
+            <a-date-picker
+              v-model:value="stopDate"
+              format="YYYY/MM/DD"
+              placeholder="購読中止日を選択"
+              :disabled-date="disabledStopPaperDate"
+              class="flex-1"
+              data-test="stop-date-picker"
+            />
+          </template>
+        </div>
+        <p
+          v-if="stopFieldError"
+          class="text-error text-sm"
+          data-test="stop-error"
+        >
+          {{ stopFieldError }}
+        </p>
+      </div>
+    </a-modal>
   </div>
 </template>

@@ -634,49 +634,11 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
     expect(/ant-picker-disabled/.test(chushiItem!.html())).toBe(true);
   });
 
-  it('(A) should reject 解約予定日 earlier than max_joho_date on submit — 顧客要件 2026-07', async () => {
-    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
-    vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ max_joho_date: '2030-01-01' }),
-    });
-    const { wrapper } = await renderView({ dokusyaId: 100 });
-    const vm = wrapper.vm as unknown as {
-      formState: { dokusya_chushi_date: string | null };
-    };
-    // 未来 & 当日より後だが 最終変更適用日(2030-01-01) より前。
-    vm.formState.dokusya_chushi_date = '2029-06-01';
-    await flushPromises();
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
-
-    const chushiItem = wrapper
-      .findAllComponents({ name: 'AFormItem' })
-      .find((it) => it.props('name') === 'dokusya_chushi_date');
-    expect(chushiItem!.html()).toContain('最終変更適用日');
-    expect(vi.mocked(updateDokusya)).not.toHaveBeenCalled();
-  });
-
-  it('(A2) should reject 解約予定日 equal to max_joho_date on submit — 同日不可・顧客要件 2026-07', async () => {
-    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
-    vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ max_joho_date: '2030-01-01' }),
-    });
-    const { wrapper } = await renderView({ dokusyaId: 100 });
-    const vm = wrapper.vm as unknown as {
-      formState: { dokusya_chushi_date: string | null };
-    };
-    // 最終変更適用日(2030-01-01) と同日 → 同日不可なので弾く。
-    vm.formState.dokusya_chushi_date = '2030-01-01';
-    await flushPromises();
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
-
-    const chushiItem = wrapper
-      .findAllComponents({ name: 'AFormItem' })
-      .find((it) => it.props('name') === 'dokusya_chushi_date');
-    expect(chushiItem!.html()).toContain('より後');
-    expect(vi.mocked(updateDokusya)).not.toHaveBeenCalled();
-  });
+  // NOTE: 解約予定日(購読中止日)そのものの相対チェック（購読開始日以降・未来日・
+  // 最終変更適用日より後）は本フォームから撤去し、一覧の「購読を停止する」
+  // ポップアップ + 専用API(POST /dokusya/:id/stop)へ移設した（顧客要件 2026-07 改訂）。
+  // そのため旧「submit 時に解約予定日を弾く」テスト（A/A2）は削除。停止側の
+  // 相対チェックは DokusyaListView.spec.ts + dokusya.service.spec.ts(stop) が担う。
 
   it('should reset 適用日 and skip update when the other change is reverted (no lone-date 履歴)', async () => {
     const { updateDokusya } = await import('@/api/dokusya/dokusya');
@@ -812,11 +774,11 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(false);
   });
 
-  it('should ENABLE 購読中止日 (解約予定日) in edit mode even when 手続種類 is 新規', async () => {
-    // 顧客要件 2026-06: 編集画面では解約予定日を入力可（手続種類は変更不可。
-    // 実際の解約はバッチ処理）。既定の detail は 手続種類=新規(1)。
+  it('should keep 購読中止日 read-only (disabled) in edit mode — 停止は一覧のポップアップで行う (顧客要件 2026-07 改訂)', async () => {
+    // 顧客要件 2026-07 改訂: 購読の停止(解約予約)は一覧画面(SCR-014)の
+    // 「購読を停止する」ボタン → ポップアップで行う。編集フォームでは購読中止日は
+    // 表示のみ（読取専用）で編集不可。既定の detail は 手続種類=新規(1)。
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    // 予約変更モードでは購読中止日（帳票影響・解約予約）も入力可。
     (wrapper.vm as any).selectMode('reserved');
     await flushPromises();
     const item = wrapper
@@ -825,7 +787,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect(item).toBeDefined();
     const input = item!.find('input');
     expect(input.exists()).toBe(true);
-    expect((input.element as HTMLInputElement).disabled).toBe(false);
+    expect((input.element as HTMLInputElement).disabled).toBe(true);
   });
 
   it('should disable 購読中止日 in create mode (新規作成では入力不可)', async () => {
@@ -1363,21 +1325,11 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(updateDokusya).not.toHaveBeenCalled();
   });
 
-  it('should block update + show 購読開始日 message when 解約予定日 < 購読開始日 (顧客要件 2026-07)', async () => {
-    // 入力された解約予定日は購読開始日以降であること（既定 detail の開始日=2026-04-01）。
-    const { updateDokusya } = await import('@/api/dokusya/dokusya');
-    const { wrapper } = await renderView({ dokusyaId: 100 });
-    const vm = wrapper.vm as any;
-    vm.formState.dokusya_chushi_date = '2026-03-01';
-    vm.formState.biko = '変更メモ'; // pristine ガード解除
-    await flushPromises();
-
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('解約予定日は購読開始日（2026/04/01）');
-    expect(updateDokusya).not.toHaveBeenCalled();
-  });
+  // 「解約予定日 < 購読開始日」の submit ブロックは本フォームから撤去した（顧客要件
+  // 2026-07 改訂 — 停止は一覧ポップアップ + 専用API）。開始日以降チェックは停止側の
+  // disabledStopPaperDate + BE service.stop が担う（DokusyaListView.spec.ts /
+  // dokusya.service.spec.ts）。joho の上限参照として既存の解約予約日を使う検証は
+  // 上のテスト（joho >= 解約予定日）で引き続きカバーする。
 
   it('should show the joho<kaishi error on 情報変更適用日 when 販売店のみ変更 (販売店適用日は joho に統一)', async () => {
     // 顧客要件 2026-07: 販売店適用日を廃止。販売店のみ変更でも joho が唯一の適用日で
@@ -2920,9 +2872,47 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
       data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    (wrapper.vm as any).selectMode('today');
+    // 電子版はマウント直後から当日変更モード（selectMode 不要）。帳票影響項目も編集可。
     await flushPromises();
     expect(fieldDisabled(wrapper, 'yubin_no')).toBe(false);
+  });
+
+  it('電子版は編集マウント直後から当日変更モード（モードバーなし・当日変更ノート表示・submit 表示）', async () => {
+    // 顧客要件 2026-07 改訂: 電子版は当日変更のみ。モードバー（当日変更/予約変更の
+    // 2択）は出さず、当日変更である旨のノートだけ表示し、直接編集可能にする。
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect((wrapper.vm as any).viewMode).toBe('today');
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(false);
+    expect(
+      wrapper.find('[data-test="dokusya-digital-today-note"]').exists(),
+    ).toBe(true);
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+    expect((wrapper.vm as any).formState.joho_henko_tekiyo_date).toBe(
+      todayIsoTokyo(),
+    );
+  });
+
+  it('電子版 submit は change_mode=today を送る', async () => {
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
+    });
+    vi.mocked(updateDokusya).mockClear();
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    // 実際に業務項目を変更しないと編集ガードで PUT がスキップされる。
+    (wrapper.vm as any).formState.biko = '電子版変更メモ';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(vi.mocked(updateDokusya)).toHaveBeenCalled();
+    const body = vi.mocked(updateDokusya).mock.calls.at(-1)?.[1] as {
+      change_mode?: string;
+    };
+    expect(body.change_mode).toBe('today');
   });
 
   it('予約変更で submit すると change_mode=reserved を送る', async () => {

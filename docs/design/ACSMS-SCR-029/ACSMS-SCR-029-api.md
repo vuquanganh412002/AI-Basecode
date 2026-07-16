@@ -21,6 +21,7 @@ updated_by: Nguyen Truong An
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 減部数のマイナス符号「▲」表示を廃止し数値のまま表示（顧客要望）。差異マーク「◆」を行頭列に表示し、履歴の前回値（zenkai_*）と現在値の差（増減あり・販売店変更）で `diff_mark` を判定するよう実装。 | Tran Duc Tuyen | Tran Duc Tuyen |
 | 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：4.4 ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更＋表示名とS3キー(タイムスタンプ)を分離、削除予定日＝作成日+5年・日農DL許可フラグ=True を明記。4.5 メール件名/本文に都道府県＋発行アカウント（ログインID+アカウント名）を追記。4.6 INSERT に scheduled_delete_date / nichino_download_allowed_flg を追加。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/14 | 1.3  | Tran Duc Tuyen | 顧客コメント対応：減部数（gen_busu）をプレビュー・帳票でマイナス符号「▲」付き表示（例「▲2」）に戻す。値は正の減部数（Number）のまま、▲は表示フォーマット。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/07/15 | 1.4  | Tran Duc Tuyen | 顧客コメント対応：4.5 メールのシステム名【クラウド版購読者管理システム】を件名から外し本文先頭行へ移動。件名は【都道府県】【発行アカウント】+タイトルのみ。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -590,10 +591,11 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
 
 ### 4.5 メール通知（顧客要件2026-07 レイアウト）
 
-- 日農担当者（NICHINO_ADMIN / NICHINO_STAFF のメールアドレス）へ増減通知の作成完了を自動通知する（`ReportNotificationService.notifyNichinoExport` → `MailService.sendNotification`。件名プレフィックス `【クラウド版購読者管理システム】`）。
+- 日農担当者（NICHINO_ADMIN / NICHINO_STAFF のメールアドレス）へ増減通知の作成完了を自動通知する（`ReportNotificationService.notifyNichinoExport` → `MailService.sendNotification`）。
+- **システム名 `【クラウド版購読者管理システム】` は件名に含めず、本文の先頭行に置く**（顧客要件2026-07）。件名は `【都道府県】【発行アカウント】+ タイトル` のみ。
 - 当社事務担当者が都道府県別に分かれているため、**件名に都道府県および出力したアカウント（ログインID＋アカウント名）を含める**：
   - 件名：`【{都道府県}】【{ログインID} {アカウント名}】増減通知（日本農業新聞）を出力しました`
-  - 本文：`JA名：{ログインID} {アカウント名}` / `適用日：{YYYYMMDD}` / `ファイル名：{4.4のファイル名}` / `件数：{件数}件` / `ファイル管理画面からダウンロードできます。`
+  - 本文：`【クラウド版購読者管理システム】`（先頭行）/ `増減通知（日本農業新聞）を出力しました。` / `JA名：{ログインID} {アカウント名}` / `適用日：{YYYYMMDD}` / `ファイル名：{4.4のファイル名}` / `件数：{件数}件` / `ファイル管理画面からダウンロードできます。`
 - `アカウント名` は session に含まれないため `m_account`（`account_id`）から取得する。都道府県は対象データ（管理支店）の `todofuken_name` を用いる（出力スコープは1JA/1中央会のため単一）。
 - 個人情報（購読者の氏名・住所等）は含めないこと。
 - メール送信失敗時もPDF出力自体は成功扱いとし、警告ログを記録する（fire-and-forget / non-fatal）。

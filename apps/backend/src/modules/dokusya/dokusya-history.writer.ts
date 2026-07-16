@@ -10,6 +10,7 @@ import { TorikeshiNotAllowedException } from './exceptions/torikeshi-not-allowed
 import {
   buildCounterRow,
   buildKaiyakuRow,
+  buildKaiyakuReservationRow,
   buildResubscribeRow,
   buildRirekiRow,
   computeZougen,
@@ -202,14 +203,14 @@ export async function insertKaiyaku(
 }
 
 /**
- * UI 解約予約: append a real 解約 (cancellation) row when the user schedules a
- * 購読中止日 from the edit screen — instead of a 継続 info row. The row is
- * future-dated (`saishin_data_flg=false`); the 到来日バッチ later just runs
- * `recomputeMaster` to reflect it into `t_dokusya`. Row shape (`部数=0`,
- * `tetsuzuki=0`, `kaiyaku_flg=true`, `zougen=true`) is built by
- * `buildKaiyakuRow`. Applied date = 中止日 (紙版) or +1 (電子版), matching the
- * batch `insertKaiyaku`. Returns the same `ApplyChangeResult` shape as
- * `applyChange` so the caller writes audit + 電子版 sync uniformly.
+ * UI 解約予約（Phase 1・顧客要件2026-07 の2フェーズ化）: 編集画面で購読中止日を入力
+ * した時点で**予約行**を1件追加する（継続情報行ではない）。予約行は最小限のみ override
+ * （`部数=0`・`zougen=true`・`中止日`・`適用日=中止日`・`kaiyaku_flg=false`・
+ * `saishin=false`）し、`buildKaiyakuReservationRow` が build する。実際の解約確定
+ * （`tetsuzuki=0`・`kaiyaku_flg=true`・saishin 反映・電子版は適用日+1）は **Phase 2 の
+ * 到来日バッチ `insertKaiyaku`** が別レコードで行う（docs/dokusya-kaiyaku-phase2-plan.md）。
+ * 予約行は未来日（saishin=false）なので到来まで master 未反映。Returns the same
+ * `ApplyChangeResult` shape as `applyChange` so the caller writes audit uniformly.
  */
 export async function insertScheduledKaiyaku(
   m: EntityManager,
@@ -220,23 +221,20 @@ export async function insertScheduledKaiyaku(
     actor: string;
   },
 ): Promise<ApplyChangeResult> {
-  const { dokusyaId, chushiDate, shubetsu, actor } = input;
+  const { dokusyaId, chushiDate, actor } = input;
   const beforeMaster = await loadMaster(m, dokusyaId);
 
-  const isDenshi = shubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1 day
-  const kaiyakuJoho = isDenshi ? addDaysIso(chushiDate, 1) : chushiDate;
-
-  // predecessor = 適用日(kaiyakuJoho)時点の有効行。zenkai_* と継承業務項目の基準。
-  const before = await findBefore(m, dokusyaId, kaiyakuJoho);
+  // Phase 1: 予約行の適用日 = 中止日（紙版/電子版とも。電子版の +1 は Phase 2 バッチで）。
+  // predecessor = 適用日(中止日)時点の有効行。zenkai_* と継承業務項目の基準。
+  const before = await findBefore(m, dokusyaId, chushiDate);
   if (!before) {
     throw new Error('insertScheduledKaiyaku: predecessor row not found');
   }
 
   const no = await nextRirekiNo(m, dokusyaId);
-  const row = buildKaiyakuRow(before, {
+  const row = buildKaiyakuReservationRow(before, {
     dokusyaId,
     rirekiNo: no,
-    kaiyakuJoho,
     chushiDate,
     createdBy: actor,
   });
@@ -313,19 +311,37 @@ export async function insertResubscribe(
 const CHAIN_TAIL_ASOF = '9999-12-31';
 
 /**
- * Whether `target` may be cancelled (取消可否, G1):
+ * Whether `target` may be cancelled (取消可否, G1・顧客要件2026-07):
+ * - 紙版(dokusya_shubetsu=1)のみ → 電子版(2)・併読(3) は電子版読者管理システムへ
+ *   即時連携されるため取消不可;
  * - `shinki_flg` (新規 / 解約→再購読, both flagged per DB design) → no;
  * - already `torikeshi_flg` → no;
+ * - 適用日が未来 (本日 < joho_henko_tekiyo_date, JST) → 適用日到来済み（反映・報告済み）
+ *   は取消不可。紙版の解約行は joho = 購読中止日 なので「解約バッチ前まで取消可」も
+ *   この一条件で満たす（電子版のみ joho = 中止日+1 だが、そもそも電子版は取消不可）;
  * - must be the TAIL of the (joho, rireki_no) chain among `flag=0` rows
  *   (LIFO) — a 中間 row with a later un-cancelled row → no.
- * 解約 and 通常変更 at the tail → yes.
+ * 紙版・末尾・適用日未来の 解約 / 通常変更 → yes.
  */
 export async function canTorikeshi(
   m: EntityManager,
   dokusyaId: number,
   target: DokusyaRireki,
 ): Promise<boolean> {
+  // 6. 紙版のみ取消可（電子版連携のため 電子版・併読 は不可）。
+  if (target.dokusyaShubetsu !== DokusyaShubetsu.PAPER) return false;
+  // 3+4. 新規/再購読・取消済は取消不可。
   if (target.shinkiFlg || target.torikeshiFlg) return false;
+  // 7. 適用日が未来（本日 < 適用日, JST）でなければ取消不可（適用日到来済み＝反映済み）。
+  //    joho_henko_tekiyo_date は DATE（'YYYY-MM-DD'）— ISO 文字列比較で日付順が保たれる。
+  //    null（理論上あり得ない）も未来ではないので取消不可扱い。
+  if (
+    target.johoHenkoTekiyoDate == null ||
+    target.johoHenkoTekiyoDate <= todayIsoJst()
+  ) {
+    return false;
+  }
+  // 5. 末尾（適用日チェーンの有効レコード）でなければ取消不可（LIFO）。
   const tail = await loadEffectiveRow(m, dokusyaId, CHAIN_TAIL_ASOF);
   // tail が null なら optional chain で undefined ⇒ 一致せず false（従来の
   // `tail != null && ...` と等価）。

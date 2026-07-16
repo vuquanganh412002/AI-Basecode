@@ -1,6 +1,7 @@
 // Hand-written wrapper around the /api/v1/haitatsuryo endpoints
 // (ACSMS-SCR-021). Mirrors docs/design/ACSMS-SCR-021/ACSMS-SCR-021-api.md.
 
+import type { AxiosError } from 'axios';
 import axiosInstance from '@/api/axios-instance';
 
 /** Query DTO shared by preview (GET) + Excel export (POST body). */
@@ -63,29 +64,83 @@ export interface HaitatsuryoPreviewData {
   meta: HaitatsuryoMeta;
 }
 
+/** 失効単価参照エラー（409 INACTIVE_TANKA_REFERENCED）の1件（該当販売店）。 */
+export interface HaitatsuryoErrorDetail {
+  /** hanbaiten_id（文字列）。 */
+  field: string;
+  /** 販売店コード/名 + 単価コード/名。 */
+  message: string;
+}
+
+/**
+ * A normalized non-axios error carrying the screen-specific error_code.
+ * INACTIVE_TANKA_REFERENCED のときは `errors[]`（該当販売店一覧・先頭15件）と
+ * `total`（総件数）+ `message` を伴い、view が SCR-020 と同様のインライン
+ * エラー一覧で提示する（トーストではない）。
+ */
+export interface HaitatsuryoError {
+  error_code: string;
+  message?: string;
+  errors?: HaitatsuryoErrorDetail[];
+  total?: number;
+}
+
+/** 409 応答 body から error_code を取り出し、あれば正規化エラーを throw する。 */
+function normalizeHaitatsuryoError(err: unknown): never {
+  const body = (
+    err as AxiosError<{
+      error_code?: string;
+      message?: string;
+      errors?: HaitatsuryoErrorDetail[];
+      total?: number;
+    }>
+  ).response?.data;
+  const code = body?.error_code;
+  if (code) {
+    const normalized: HaitatsuryoError = {
+      error_code: code,
+      message: body?.message,
+      errors: body?.errors,
+      total: body?.total,
+    };
+    throw normalized;
+  }
+  throw err;
+}
+
 /** GET /api/v1/haitatsuryo/preview — ACSMS-API-021-001. */
 export async function previewHaitatsuryo(
   query: HaitatsuryoQuery,
 ): Promise<HaitatsuryoPreviewData> {
-  const res = await axiosInstance.get<HaitatsuryoPreviewData>(
-    '/api/v1/haitatsuryo/preview',
-    { params: query },
-  );
-  return res.data;
+  try {
+    const res = await axiosInstance.get<HaitatsuryoPreviewData>(
+      '/api/v1/haitatsuryo/preview',
+      { params: query },
+    );
+    return res.data;
+  } catch (err) {
+    normalizeHaitatsuryoError(err);
+  }
 }
 
 /**
  * POST /api/v1/haitatsuryo/export — ACSMS-API-021-002. Returns a Blob.
  * 対象0件のときは BE が 200 + application/json `{ data: [] }` を返す（xlsx では
  * ない）。呼び出し側は blob.type で判定し、no-data 表示に切替える。
+ * 失効単価参照(409)は error-handler が Blob body を JSON へ復元済みなので、
+ * ここで `{ error_code, message, errors, total }` に正規化して view へ渡す。
  */
 export async function exportHaitatsuryo(
   query: HaitatsuryoQuery,
 ): Promise<Blob> {
-  const res = await axiosInstance.post<Blob>(
-    '/api/v1/haitatsuryo/export',
-    query,
-    { responseType: 'blob' },
-  );
-  return res.data;
+  try {
+    const res = await axiosInstance.post<Blob>(
+      '/api/v1/haitatsuryo/export',
+      query,
+      { responseType: 'blob' },
+    );
+    return res.data;
+  } catch (err) {
+    normalizeHaitatsuryoError(err);
+  }
 }

@@ -27,11 +27,22 @@ export class DomainException extends HttpException {
      * `useApiForm` can map them to `<a-form-item :help>`.
      */
     public readonly errors?: ValidationErrorDetail[],
+    /**
+     * Optional total count for list-style errors whose `errors[]` is capped
+     * (e.g. SCR-020 INACTIVE_TANKA_REFERENCED returns the first 15 rows but
+     * the true total). Serialized as `total` by GlobalExceptionFilter so the
+     * FE can show "該当 N 件中 15 件を表示".
+     */
+    public readonly total?: number,
   ) {
     super(
-      errors
-        ? { message, code, error_code: code, errors }
-        : { message, code, error_code: code },
+      {
+        message,
+        code,
+        error_code: code,
+        ...(errors ? { errors } : {}),
+        ...(total !== undefined ? { total } : {}),
+      },
       status,
     );
   }

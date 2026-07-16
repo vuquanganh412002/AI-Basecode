@@ -35,6 +35,19 @@ export class UpdateDokusyaDto extends CreateDokusyaDto {
   dokusya_id?: never;
 
   /**
+   * 購読中止日（解約予約）は本APIでは扱わない（顧客要件 2026-07 改訂）。
+   * 停止は専用エンドポイント `POST /api/v1/dokusya/{dokusya_id}/stop`
+   * （購読停止）へ分離した。更新フォームでは購読中止日は読取専用で、
+   * 情報変更・販売店変更・再購読のみを本APIで扱う。body に含まれた場合は
+   * 無視ではなく 400 で弾く（`dokusya_id` と同じ混入防止方針）。
+   */
+  @IsEmpty({
+    message:
+      '購読中止日は本APIでは指定できません。購読停止は専用の停止機能をご利用ください。',
+  })
+  dokusya_chushi_date?: never;
+
+  /**
    * 情報変更モード（顧客要件2026-07）。未指定時は後方互換で `reserved`（予約変更・
    * 未来日のみ）として扱う。`today`（当日変更）は適用日=本日固定＋帳票影響項目の
    * 変更を制限（紙版）する。値の検証はサービス層で行う。

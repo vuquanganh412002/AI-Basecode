@@ -95,6 +95,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
       { path: '/', name: 'Home', component: { template: '<div />' } },
       { path: '/dashboard', name: 'Dashboard', component: { template: '<div />' } },
       { path: '/koza-furikae', name: 'KozaFurikaeExport', component: { template: '<div />' } },
+      { path: '/dokusya', name: 'DokusyaList', component: { template: '<div />' } },
     ],
   });
   await router.push({ name: 'KozaFurikaeExport' });
@@ -218,6 +219,95 @@ describe('KozaFurikaeExportView — 作成開始（プレビュー）', () => {
     expect(wrapper.find('[data-test="koza-no-data"]').exists()).toBe(true);
     expect(wrapper.find(createBtn()).exists()).toBe(false);
     expect((wrapper.vm as any).previewed).toBe(false);
+  });
+
+  it('should render the 失効単価 error list (not a toast) when preview returns INACTIVE_TANKA_REFERENCED', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(previewKozaFurikae).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: '失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。',
+      total: 2,
+      errors: [
+        { field: '1', message: 'ﾔﾏﾀﾞ ﾀﾛｳ（単価: T001 旧購読料）' },
+        { field: '5', message: 'ｽｽﾞｷ ﾊﾅｺ（単価: T001 旧購読料）' },
+      ],
+    });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    // インラインエラー一覧が該当購読者を列挙する（トーストではない）。
+    const panel = wrapper.find('[data-test="inactive-tanka-error-list"]');
+    expect(panel.exists()).toBe(true);
+    const rows = wrapper.findAll('[data-test="inactive-tanka-error-row"]');
+    expect(rows).toHaveLength(2);
+    expect(panel.text()).toContain('ﾔﾏﾀﾞ ﾀﾛｳ');
+    // プレビューは表示せず、ファイル作成ボタンも出さない。
+    expect(wrapper.find('[data-test="preview-section"]').exists()).toBe(false);
+    expect(wrapper.find(createBtn()).exists()).toBe(false);
+    expect((wrapper.vm as any).previewed).toBe(false);
+  });
+
+  it('should navigate to 購読者明細検索 with ?inactive_tanka=1 when the deep-link button is clicked', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(previewKozaFurikae).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      total: 2,
+      errors: [{ field: '1', message: 'ﾔﾏﾀﾞ ﾀﾛｳ' }],
+    });
+    const { wrapper, router } = await renderView();
+    const pushSpy = vi.spyOn(router, 'push');
+    await doPreview(wrapper);
+
+    await wrapper.find('[data-test="goto-dokusya-search"]').trigger('click');
+    await flushPromises();
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'DokusyaList',
+      query: { inactive_tanka: '1' },
+    });
+  });
+
+  it('should show 該当 N 件中 15 件 summary when the error list is capped (total > shown)', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    // total=245 だが errors[] は先頭15件のみ（BE の LIMIT 15）。
+    const errors = Array.from({ length: 15 }, (_, i) => ({
+      field: String(i + 1),
+      message: `購読者${i + 1}（単価: T001 旧購読料）`,
+    }));
+    vi.mocked(previewKozaFurikae).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      total: 245,
+      errors,
+    });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    // 15件だけ描画（残りは購読者明細検索へ誘導）。
+    expect(wrapper.findAll('[data-test="inactive-tanka-error-row"]')).toHaveLength(15);
+    const summary = wrapper.find('[data-test="inactive-tanka-error-summary"]');
+    expect(summary.text()).toContain('245');
+    expect(summary.text()).toContain('15');
+    expect(summary.text()).toContain('購読者明細検索');
+    expect((wrapper.vm as any).inactiveTankaTotal).toBe(245);
+  });
+
+  it('should clear the 失効単価 error list when a filter changes after the error', async () => {
+    const { previewKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(previewKozaFurikae).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      errors: [{ field: '1', message: 'ﾔﾏﾀﾞ ﾀﾛｳ' }],
+    });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    expect(wrapper.find('[data-test="inactive-tanka-error-list"]').exists()).toBe(true);
+
+    (wrapper.vm as any).formState.target_month = '2026-06-01';
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="inactive-tanka-error-list"]').exists()).toBe(false);
   });
 
   it('should discard the preview (hide ファイル作成) when a filter changes after previewing (D1)', async () => {

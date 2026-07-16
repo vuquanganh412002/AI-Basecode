@@ -516,16 +516,59 @@ describe('canTorikeshi', () => {
     expect(ok).toBe(false);
   });
 
-  it('通常変更 at the tail → true', async () => {
+  it('通常変更 at the tail (紙版・適用日未来) → true', async () => {
     q.loadEffectiveRow.mockResolvedValue(rireki({ dokusyaRirekiId: 3 }));
-    const ok = await canTorikeshi(m, 1001, rireki({ dokusyaRirekiId: 3 }));
+    const ok = await canTorikeshi(
+      m,
+      1001,
+      rireki({ dokusyaRirekiId: 3, dokusyaShubetsu: 1, johoHenkoTekiyoDate: '2099-12-31' }),
+    );
     expect(ok).toBe(true);
   });
 
-  it('解約 at the tail → true', async () => {
+  it('解約 at the tail (紙版・適用日未来=中止日) → true', async () => {
     q.loadEffectiveRow.mockResolvedValue(rireki({ dokusyaRirekiId: 4, kaiyakuFlg: true }));
-    const ok = await canTorikeshi(m, 1001, rireki({ dokusyaRirekiId: 4, kaiyakuFlg: true }));
+    const ok = await canTorikeshi(
+      m,
+      1001,
+      rireki({
+        dokusyaRirekiId: 4,
+        kaiyakuFlg: true,
+        dokusyaShubetsu: 1,
+        johoHenkoTekiyoDate: '2099-12-31',
+      }),
+    );
     expect(ok).toBe(true);
+  });
+
+  // 顧客要件2026-07 — 追加された 2 条件（紙版のみ・適用日未来のみ）。
+  it('電子版 (dokusya_shubetsu=2) → false (電子版連携のため取消不可・末尾でも不可)', async () => {
+    const ok = await canTorikeshi(
+      m,
+      1001,
+      rireki({ dokusyaRirekiId: 3, dokusyaShubetsu: 2, johoHenkoTekiyoDate: '2099-12-31' }),
+    );
+    expect(ok).toBe(false);
+    expect(q.loadEffectiveRow).not.toHaveBeenCalled(); // 紙版チェックで早期 return
+  });
+
+  it('併読 (dokusya_shubetsu=3) → false (電子版連携のため取消不可)', async () => {
+    const ok = await canTorikeshi(
+      m,
+      1001,
+      rireki({ dokusyaRirekiId: 3, dokusyaShubetsu: 3, johoHenkoTekiyoDate: '2099-12-31' }),
+    );
+    expect(ok).toBe(false);
+  });
+
+  it('適用日到来済み (past joho) → false (反映・報告済みのため取消不可)', async () => {
+    const ok = await canTorikeshi(
+      m,
+      1001,
+      rireki({ dokusyaRirekiId: 3, dokusyaShubetsu: 1, johoHenkoTekiyoDate: '2000-01-01' }),
+    );
+    expect(ok).toBe(false);
+    expect(q.loadEffectiveRow).not.toHaveBeenCalled(); // 適用日チェックで早期 return（末尾判定前）
   });
 });
 
@@ -551,9 +594,10 @@ describe('applyTorikeshi', () => {
     const target = rireki({
       dokusyaRirekiId: 3,
       dokusyaId: 1001,
+      dokusyaShubetsu: 1,
       hanbaitenId: 460,
       zenkaiHanbaitenId: 459,
-      johoHenkoTekiyoDate: '2026-07-01',
+      johoHenkoTekiyoDate: '2099-12-31',
       shinkiFlg: false,
       torikeshiFlg: false,
     });
@@ -591,9 +635,10 @@ describe('applyTorikeshi', () => {
     const target = rireki({
       dokusyaRirekiId: 4,
       dokusyaId: 1001,
+      dokusyaShubetsu: 1,
       tetsuzukiShurui: 0,
       kaiyakuFlg: true,
-      johoHenkoTekiyoDate: '2026-07-15',
+      johoHenkoTekiyoDate: '2099-12-31',
       shinkiFlg: false,
       torikeshiFlg: false,
     });

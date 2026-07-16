@@ -22,6 +22,9 @@ updated_by: Tran Duc Tuyen
 | 3   | 2026/05/29 | 1.2  | Tran Duc Tuyen | 画面設計書 v1.1 追加反映：①郵送区分（yubin_kubun）を販売店連動の自動表示から `m_code.code_category='YUBIN_KUBUN'` プルダウン入力項目へ変更（commit e4a3721）、②引落口座支店をテキスト1項目から `bank_shiten_id`（`m_shiten.shiten_id` を `kinyu_shiten_flg=TRUE` で絞り込み）+ 自動表示ラベル（`jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name`）の3項目構成へ分割（commit cdc7ae6）、③機能定義の API パスを `/api/subscribers` から `/api/dokusya` へ統一（commit b2bbe9f）、④画面設計書のマークダウン表構造正規化への追従（commit a3b3204）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/06/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-06 反映：更新時の履歴 zenkai_* 退避ルールを変更。`haitatsu_same_flg=TRUE` のときは住所が変更されていなくても購読者住所（todofuken_code / shikuchoson / chome_banchi / tatemono_mei + yubin_no）を常に zenkai_* に格納する。増減報告フラグ（zougen_hokoku_flg）は zenkai_* 退避有無とは独立に、実際の変更（購読部数 / 販売店 / 住所）でのみ判定するよう明確化。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/14 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07：更新(API-011-003)に情報変更モード `change_mode`（'today'当日変更 / 'reserved'予約変更）を追加。当日変更は適用日を本日固定＋紙版の帳票影響項目変更を VALIDATION_ERROR で拒否（電子版は制限なし）。予約変更は適用日必須・未来日のみ・全項目可。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6   | 2026/07/16 | 1.5  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：購読停止（解約予約）を更新(API-011-003)から分離し、専用エンドポイント `POST /api/v1/dokusya/{dokusya_id}/stop`（ACSMS-API-014-004・購読停止）へ移設。更新APIは `dokusya_chushi_date` を受け付けず、body に含まれると `VALIDATION_ERROR`（@IsEmpty）で 400。当日変更モードの帳票影響項目一覧から `dokusya_chushi_date` を除外。更新画面では購読中止日は読取専用。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 7   | 2026/07/16 | 1.6  | Tran Duc Tuyen | 顧客要件：併読（dokusya_shubetsu=3・紙版＋電子版）は新規登録(API-011-002)不可を明記＋BEガード追加。併読データは電子版読者管理システムがバッチ連携で管理するため、作成は `VALIDATION_ERROR`、編集/停止/削除は `DOKUSYA_READ_ONLY`(403)、Excel取込は取込不可で統一。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 8   | 2026/07/16 | 1.7  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：更新(API-011-003)で **電子版（dokusya_shubetsu=2）は当日変更のみ**とし、`change_mode='reserved'`（予約変更）を `VALIDATION_ERROR`(field=`change_mode`)で拒否（再購読は例外）。紙版のみ当日変更／予約変更の2モードを保持。FEは電子版で編集画面のモードバーを非表示にし当日変更固定で開く。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -667,6 +670,7 @@ Content-Type: application/json
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
+  - dokusya_shubetsu：必須。**3:併読（紙版＋電子版）は新規登録不可**（顧客要件）。併読データは外部の電子版読者管理システムがバッチ連携で管理するため、本システムでは作成・編集・停止・削除いずれも不可。作成は `VALIDATION_ERROR`（field=`dokusya_shubetsu`、メッセージ「併読（紙版＋電子版）はバッチ連携で管理されるため、新規登録できません。」）、編集/停止/削除は `DOKUSYA_READ_ONLY`（403）、Excel取込は取込不可。FEは新規作成モードで併読ラジオを非活性化。
   - shimei_sei / shimei_mei：必須、最大50文字
   - shimei_kana_sei / shimei_kana_mei：必須、最大100文字、ひらがな/カタカナ形式
   - dokusya_busu：必須、半角数字。解約時は0
@@ -907,10 +911,13 @@ VALUES (3, NOW(), :account_id, :ja_id,
 
 ※ リクエストボディはACSMS-API-011-002と同一構造。dokusya_id は変更不可（URLから取得）。
 
+※ **`dokusya_chushi_date`（購読中止日）は本APIでは受け付けない（顧客要件2026-07 改訂）**。購読停止（解約予約）は専用エンドポイント **`POST /api/v1/dokusya/{dokusya_id}/stop`（ACSMS-API-014-004・購読停止）** へ分離した。本APIの body に `dokusya_chushi_date` が含まれると `VALIDATION_ERROR`（`dokusya_id` と同じ混入防止方針）で 400 を返す。更新画面では購読中止日は読取専用で、情報変更・販売店変更・再購読のみを本APIで扱う。
+
 ※ **`change_mode`（情報変更モード・顧客要件2026-07）をボディに追加**：`'today'`（当日変更）／`'reserved'`（予約変更）。未指定は後方互換で `reserved`。
 
-- `change_mode = 'today'`（当日変更）：サーバは `joho_henko_tekiyo_date` を**本日に固定**（送信値は無視）。**紙版**は帳票影響項目（`dokusya_busu` / `hanbaiten_id` / 購読者住所 `yubin_no`・`todofuken_code`・`shikuchoson`・`chome_banchi`・`tatemono_mei` / 配達先住所 `haitatsu_*` / `dokusya_chushi_date`）を既存値から変更した場合 `VALIDATION_ERROR`（当該フィールド）で弾く。**電子版**は帳票を生成しないため制限なし。
+- `change_mode = 'today'`（当日変更）：サーバは `joho_henko_tekiyo_date` を**本日に固定**（送信値は無視）。**紙版**は帳票影響項目（`dokusya_busu` / `hanbaiten_id` / 購読者住所 `yubin_no`・`todofuken_code`・`shikuchoson`・`chome_banchi`・`tatemono_mei` / 配達先住所 `haitatsu_*`）を既存値から変更した場合 `VALIDATION_ERROR`（当該フィールド）で弾く。**電子版**は帳票を生成しないため制限なし。
 - `change_mode = 'reserved'`（予約変更）：`joho_henko_tekiyo_date` は必須・未来日のみ（当日不可）。全項目変更可。
+- **電子版（dokusya_shubetsu=2）は当日変更のみ（顧客要件2026-07 改訂）**：`change_mode='reserved'`（予約変更）は不可で、`VALIDATION_ERROR`（field=`change_mode`、メッセージ「電子版は当日変更のみ可能です。予約変更はできません。」）を返す。電子版は帳票を生成せず即時反映のため、変更は常に本日適用。購読種別は保存値で判定（body の spoof 不可）。例外：再購読（解約済み→新規）は新しい購読を未来開始日で作る別フローのため対象外。**紙版のみ当日変更／予約変更の2モードを持つ**。FEは電子版で編集画面のモードバーを出さず当日変更固定で開く。
 - 履歴は従来どおり 1更新1レコード。併読／電子版クレカは read-only（403）。
 
 ## レスポンスデータ

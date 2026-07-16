@@ -325,6 +325,33 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(Number(persisted.ja_id)).toBe(1);
     });
 
+    it('should reject creating a 併読(dokusya_shubetsu=3) subscriber with 400 — バッチ連携管理で新規作成不可 (顧客要件)', async () => {
+      // 併読(紙版＋電子版)は外部の電子版読者管理システムがバッチ連携で管理するため
+      // 本システムでは新規作成不可。編集/停止/削除は isDokusyaReadOnly(403)、Excel取込も
+      // 取込不可。単票作成はここで VALIDATION_ERROR。
+      const sid = await asChuokai(1);
+      const res = await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildCreateDokusyaBody({
+            kumiaiin_code: 'INT-HEIDOKU',
+            dokusya_shubetsu: 3,
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(
+        res.body.errors.some(
+          (e: { field: string }) => e.field === 'dokusya_shubetsu',
+        ),
+      ).toBe(true);
+      const persisted = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE kumiaiin_code = 'INT-HEIDOKU'`,
+      );
+      expect(persisted).toHaveLength(0);
+    });
+
     it('should reject cross-tenant FK ids (Layer 4) — JA-2 user referencing JA-1 master → 403', async () => {
       // [layer4-fk-guard] A CHUOKAI bound to JA 2 posts a 購読者 whose
       // kanri_shiten/shiten/hanbaiten/tanka ids (fixture defaults 10/100/5/1)
@@ -695,69 +722,18 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       );
     });
 
-    it('should insert a real 解約(kaiyaku) row (部数0・tetsuzuki0・kaiyaku_flg・zougen・saishin=false) when 購読中止日 is set — 顧客決定 2026-07', async () => {
-      // 解約予定日(購読中止日) 入力＝解約予約。継続情報変更ではなく解約履歴を
-      // 1件挿入する。到来日バッチが recomputeMaster で t_dokusya へ反映するのみ。
+    it('should REJECT dokusya_chushi_date in the update body with 400 (停止は専用API — 顧客要件 2026-07 改訂)', async () => {
+      // 購読停止(解約予約)は update から分離し、専用 POST /dokusya/:id/stop へ移設した。
+      // update body に購読中止日を含めると @IsEmpty で 400（dokusya_id と同じ混入防止）。
       const { id, sid } = await seed();
-      const chushi = '2027-12-01'; // 未来・購読開始日以降
-      await http()
-        .put(apiUrl(`dokusya/${id}`))
-        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(
-          buildUpdateDokusyaBody({
-            kumiaiin_code: 'INT-UPD',
-            dokusya_chushi_date: chushi,
-            joho_henko_tekiyo_date: chushi, // FE: joho 解約予定日へ追随
-          }),
-        )
-        .expect(200);
-
-      const [row] = await ctx.dataSource.query(
-        `SELECT tetsuzuki_shurui, dokusya_busu, kaiyaku_flg, zougen_hokoku_flg,
-                saishin_data_flg, torikeshi_flg, dokusya_chushi_date
-           FROM t_dokusya_rireki
-          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
-        [id],
-      );
-      expect(Number(row.tetsuzuki_shurui)).toBe(0); // 解約
-      expect(Number(row.dokusya_busu)).toBe(0); // 解約=部数なし
-      expect(row.kaiyaku_flg).toBe(true);
-      expect(row.zougen_hokoku_flg).toBe(true); // 解約は増減報告対象
-      expect(row.saishin_data_flg).toBe(false); // 未来予約 — 当日未反映
-      expect(row.torikeshi_flg).toBe(false);
-      expect(String(row.dokusya_chushi_date).slice(0, 10)).toBe(chushi);
-
-      // t_dokusya はまだ解約反映されない（未来予約・バッチ未実行）。
-      const [master] = await ctx.dataSource.query(
-        `SELECT tetsuzuki_shurui FROM t_dokusya WHERE dokusya_id = $1`,
-        [id],
-      );
-      expect(Number(master.tetsuzuki_shurui)).not.toBe(0);
-    });
-
-    it('(A) should reject a 解約予定日 earlier than the latest 変更適用日 (MAX joho) — 顧客要件 2026-07', async () => {
-      const { id, sid } = await seed();
-      // 先に未来の情報変更を1件（joho=2029-01-01）。→ MAX joho = 2029-01-01。
-      await http()
-        .put(apiUrl(`dokusya/${id}`))
-        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(
-          buildUpdateDokusyaBody({
-            kumiaiin_code: 'INT-UPD',
-            dokusya_busu: 2,
-            joho_henko_tekiyo_date: '2029-01-01',
-          }),
-        )
-        .expect(200);
-      // 解約予定日=2028-01-01 は MAX joho(2029-01-01) より前 → 400。
       const res = await http()
         .put(apiUrl(`dokusya/${id}`))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(
           buildUpdateDokusyaBody({
             kumiaiin_code: 'INT-UPD',
-            dokusya_chushi_date: '2028-01-01',
-            joho_henko_tekiyo_date: '2028-01-01',
+            dokusya_chushi_date: '2027-12-01',
+            joho_henko_tekiyo_date: '2027-12-01',
           }),
         )
         .expect(400);
@@ -767,44 +743,67 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
           (e: { field: string }) => e.field === 'dokusya_chushi_date',
         ),
       ).toBe(true);
+
+      // 予約行は作られていない（作成行 rireki_no=1 のみ）。
+      const rireki = await ctx.dataSource.query(
+        `SELECT rireki_no FROM t_dokusya_rireki WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(rireki).toHaveLength(1);
     });
 
-    it('(B) should block a 2nd 解約予約 while one is already active — 顧客要件 2026-07', async () => {
+    it('POST /:id/stop should insert the SAME 解約予約(Phase 1) row + return "購読停止を予約しました。" (SCR-014 専用API・顧客要件 2026-07)', async () => {
+      // 一覧の「購読を停止する」ボタン専用エンドポイント。中止日だけを送り、PUT の
+      // chushi 分岐と同じ予約行(部数0・zougen・chushi・joho=chushi・kaiyaku_flg=false・
+      // saishin=false)を1件挿入する。
       const { id, sid } = await seed();
-      // 1回目の解約予約。
-      await http()
-        .put(apiUrl(`dokusya/${id}`))
-        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(
-          buildUpdateDokusyaBody({
-            kumiaiin_code: 'INT-UPD',
-            dokusya_chushi_date: '2027-06-01',
-            joho_henko_tekiyo_date: '2027-06-01',
-          }),
-        )
-        .expect(200);
-      // 2回目 → 既に解約予約あり → 400。
+      const chushi = '2027-11-30';
       const res = await http()
-        .put(apiUrl(`dokusya/${id}`))
+        .post(apiUrl(`dokusya/${id}/stop`))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(
-          buildUpdateDokusyaBody({
-            kumiaiin_code: 'INT-UPD',
-            dokusya_chushi_date: '2027-08-01',
-            joho_henko_tekiyo_date: '2027-08-01',
-          }),
-        )
+        .send({ dokusya_chushi_date: chushi })
+        .expect(200);
+      expect(res.body.message).toBe('購読停止を予約しました。');
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT dokusya_busu, kaiyaku_flg, zougen_hokoku_flg, saishin_data_flg,
+                torikeshi_flg, shinki_flg, dokusya_chushi_date, joho_henko_tekiyo_date
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(row.dokusya_busu)).toBe(0);
+      expect(row.zougen_hokoku_flg).toBe(true);
+      expect(row.kaiyaku_flg).toBe(false); // Phase 2 バッチが解約確定する
+      expect(row.saishin_data_flg).toBe(false);
+      expect(row.torikeshi_flg).toBe(false);
+      expect(row.shinki_flg).toBe(false);
+      expect(String(row.dokusya_chushi_date).slice(0, 10)).toBe(chushi);
+      expect(String(row.joho_henko_tekiyo_date).slice(0, 10)).toBe(chushi);
+    });
+
+    it('POST /:id/stop should block a 2nd 解約予約 (400 VALIDATION_ERROR — 既に解約予約) — 顧客要件 2026-07', async () => {
+      const { id, sid } = await seed();
+      await http()
+        .post(apiUrl(`dokusya/${id}/stop`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ dokusya_chushi_date: '2027-11-30' })
+        .expect(200);
+      // 2回目 → 既に有効な解約予約あり → 二重解約は拒否。
+      const res = await http()
+        .post(apiUrl(`dokusya/${id}/stop`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ dokusya_chushi_date: '2027-12-31' })
         .expect(400);
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
-      expect(res.body.message ?? '').not.toContain('既に解約'); // message は errors 側
-      expect(
-        res.body.errors.some(
-          (e: { field: string; message: string }) =>
-            e.field === 'dokusya_chushi_date' &&
-            e.message.includes('既に解約予約'),
-        ),
-      ).toBe(true);
+      expect(res.body.errors[0].field).toBe('dokusya_chushi_date');
+      expect(res.body.errors[0].message).toContain('既に解約予約');
     });
+
+    // NOTE: 「解約予定日 < 最終変更適用日(MAX joho)」ガードと「二重解約ブロック」は
+    // update から stop へ移設した（顧客要件 2026-07 改訂）。PUT で購読中止日を送ると
+    // 上の @IsEmpty(400) で弾かれるため、これらの相対チェックは POST /dokusya/:id/stop
+    // 側（本ファイルの stop テスト + dokusya.service.spec.ts(stop)）が担う。
 
     it('(C) should insert a 再購読(shinki) row when 解約済み + 手続種類=新規 + new 購読開始日 — 顧客要件 2026-07', async () => {
       const { id, sid } = await seed();
@@ -846,17 +845,11 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       // 新規 + 新開始日(未来)を指定。旧解約日を上限参照にすると誤って弾かれる不具合 +
       // 新規作成同様に t_dokusya を即時 購読中 にする（到来日を待たない・顧客要件 2026-07）。
       const { id, sid } = await seed();
-      // 解約予約（履歴に解約行）。
+      // 解約予約（履歴に予約行）— 停止は専用エンドポイント（顧客要件 2026-07 改訂）。
       await http()
-        .put(apiUrl(`dokusya/${id}`))
+        .post(apiUrl(`dokusya/${id}/stop`))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(
-          buildUpdateDokusyaBody({
-            kumiaiin_code: 'INT-UPD',
-            dokusya_chushi_date: '2027-06-01',
-            joho_henko_tekiyo_date: '2027-06-01',
-          }),
-        )
+        .send({ dokusya_chushi_date: '2027-06-01' })
         .expect(200);
       // 到来日バッチ相当: 解約行の適用日を過去日にして「有効な解約(joho<=当日)」に
       // し、master も解約状態へ。これで recomputeMaster は解約行を有効行に選ぶ。
@@ -1335,7 +1328,8 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
             '', '', '', '', '', '', '', '',
             NULL, false,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
-        // m_tanka — explicit id 1 (fixture tanka_id). JA 1.
+        // m_tanka — id 1 = 有効(active), id 2 = 失効(active_flg=FALSE)。
+        // id 2 は SCR-020 error gate 連携の失効単価参照フィルタ検証用。JA 1。
         `INSERT INTO m_tanka
            (tanka_id, ja_id, tanka_code, tanka_type, tanka_name,
             kingaku_zeikomi, kingaku_zeinuki, tax_rate,
@@ -1345,6 +1339,10 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
            (1, 1, 'T001', 1, '基本購読料（月額）',
             4900, 4455, 10.00,
             '2026-01-01', NULL, '', TRUE,
+            NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+           (2, 1, 'T002', 1, '旧購読料（失効）',
+            4900, 4455, 10.00,
+            '2026-01-01', '2026-03-31', '', FALSE,
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // FK-conflict helper for DELETE — dokusya.remove() checks
         // t_koza_furikae (not yet a synchronized entity). 本番マイグレーション
@@ -1501,16 +1499,66 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       expect(codes).not.toEqual(expect.arrayContaining(['OTHER-Y1']));
     });
 
-    it('should compute is_read_only=true for 併読者 (dokusya_shubetsu=3) in list response', async () => {
+    it('should filter to ONLY 失効単価参照 rows when inactive_tanka_flg=true (SCR-020 error gate 連携)', async () => {
       const sid = await asChuokai(1);
+      // A: 有効単価(tanka_id=1) を参照する購読者。
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({
-          kumiaiin_code: 'INT-014-HEIDO',
-          dokusya_shubetsu: 3,
-        }))
+        .send(
+          buildCreateDokusyaBody({
+            kumiaiin_code: 'INT-INACT-A',
+            email: 'int-inact-a@example.com',
+            tanka_id: 1,
+          }),
+        )
         .expect(201);
+      // B: 失効単価(tanka_id=2, active_flg=FALSE) を参照する購読者。
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildCreateDokusyaBody({
+            kumiaiin_code: 'INT-INACT-B',
+            email: 'int-inact-b@example.com',
+            tanka_id: 2,
+          }),
+        )
+        .expect(201);
+
+      // フィルタ OFF → A・B 両方返る。
+      const off = await http()
+        .get(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ kumiaiin_code: 'INT-INACT' })
+        .expect(200);
+      const offCodes = off.body.data.map((r: any) => r.kumiaiin_code);
+      expect(offCodes).toEqual(expect.arrayContaining(['INT-INACT-A', 'INT-INACT-B']));
+
+      // フィルタ ON → 失効単価参照の B のみ。A は除外される。
+      const on = await http()
+        .get(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ kumiaiin_code: 'INT-INACT', inactive_tanka_flg: 'true' })
+        .expect(200);
+      const onCodes = on.body.data.map((r: any) => r.kumiaiin_code);
+      expect(onCodes).toEqual(expect.arrayContaining(['INT-INACT-B']));
+      expect(onCodes).not.toEqual(expect.arrayContaining(['INT-INACT-A']));
+    });
+
+    it('should compute is_read_only=true for 併読者 (dokusya_shubetsu=3) in list response', async () => {
+      const sid = await asChuokai(1);
+      // 併読は本システムで API 作成不可（バッチ連携管理）。外部連携で併読データが
+      // 入った状態を模擬するため、紙版で作成後 DB で併読(3)へ変更し、一覧の
+      // is_read_only 計算だけを検証する。
+      await http()
+        .post(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-014-HEIDO' }))
+        .expect(201);
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_shubetsu = 3 WHERE kumiaiin_code = 'INT-014-HEIDO'`,
+      );
 
       const res = await http()
         .get(apiUrl('dokusya'))
@@ -2065,6 +2113,44 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
       expect(res.body.data[1].can_torikeshi).toBe(false);
       expect(res.body.data[1].shinki_flg).toBe(true);
     });
+
+    it('should flag can_torikeshi=false on the tail when it is 電子版 (紙版のみ可・顧客要件2026-07)', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      // 末尾(rireki #2, 更新)を電子版に書き換え → 電子版連携のため取消不可になる。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya_rireki SET dokusya_shubetsu = 2 WHERE dokusya_id = $1 AND rireki_no = 2`,
+        [dokusyaId],
+      );
+
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+
+      expect(Number(res.body.data[0].rireki_no)).toBe(2); // 末尾
+      expect(res.body.data[0].can_torikeshi).toBe(false); // 電子版 → 取消不可
+    });
+
+    it('should flag can_torikeshi=false on the tail when its 適用日 has already arrived (適用日未来のみ可)', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      // 両行の適用日を過去日へ（#2 を末尾に保つため #2 > #1）→ 末尾の適用日到来済みで取消不可。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya_rireki
+            SET joho_henko_tekiyo_date = CASE rireki_no WHEN 1 THEN '2000-01-01' ELSE '2000-06-01' END
+          WHERE dokusya_id = $1`,
+        [dokusyaId],
+      );
+
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+
+      expect(Number(res.body.data[0].rireki_no)).toBe(2); // 末尾（適用日 2000-06-01 で最大）
+      expect(res.body.data[0].can_torikeshi).toBe(false); // 適用日到来済み → 取消不可
+    });
   });
 
   describe('POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi', () => {
@@ -2148,6 +2234,24 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
 
       const r = await http()
         .post(apiUrl(`dokusya/${dokusyaId}/rireki/${shinkiId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: 'x' })
+        .expect(400);
+      expect(r.body.error_code).toBe('TORIKESHI_NOT_ALLOWED');
+    });
+
+    it('should return 400 TORIKESHI_NOT_ALLOWED for a 電子版 tail row (紙版のみ可・顧客要件2026-07)', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+      const targetId = await tailRirekiId(sid, dokusyaId);
+      // 末尾を電子版に書き換え → 取消不可。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya_rireki SET dokusya_shubetsu = 2 WHERE dokusya_rireki_id = $1`,
+        [targetId],
+      );
+
+      const r = await http()
+        .post(apiUrl(`dokusya/${dokusyaId}/rireki/${targetId}/torikeshi`))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send({ reason: 'x' })
         .expect(400);

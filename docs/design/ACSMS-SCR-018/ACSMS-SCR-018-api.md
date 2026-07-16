@@ -85,6 +85,7 @@ updated_by: Dao Van Thang
 | 5   | address        | String  | -        | -    |        | 200    | 住所（部分一致検索）                                                                             |
 | 6   | shocho_name    | String  | -        | -    |        | 50     | 所長名（部分一致検索）                                                                           |
 | 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店フラグ（true:廃店も含む, false:廃店を除外）。**省略時は false（廃店フラグが立っているレコードは一覧に表示しない）**。画面設計書 v1.2 §1.1 / §2.1 参照 |
+| 7.5 | inactive_tanka_flg | Boolean | -    | -    |        |        | 失効単価参照フラグ（SCR-021 error gate 連携・顧客要件2026-07）。`true` のとき有効。参照する配達手数料単価(m_hanbaiten.haitatsuryo_tanka_id → m_tanka.tanka_type=2)が `active_flg=FALSE` の販売店だけを抽出（配達手数料出力で失効単価参照によりブロックされた販売店を手動で新単価へ移行するための絞込） |
 | 8   | page           | Number  | -        | -    |        |        | ページ番号（1始まり）。デフォルト: 1                                                              |
 | 9   | per_page       | Number  | -        | -    |        |        | 1ページあたりの件数（1〜100）。デフォルト: 20                                                     |
 | 10  | sort_by        | String  | -        | -    |        |        | ソート対象カラム（hanbaiten_code, hanbaiten_name, updated_at）。デフォルト: updated_at（最終更新が新しい順）。updated_at は画面のソートヘッダではなく既定の並び順（新規作成・取込・更新直後の行を先頭に表示） |
@@ -253,6 +254,15 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
   - fax 指定時：`fax ILIKE '%' || :fax || '%'`
   - address 指定時：`address ILIKE '%' || :address || '%'`
   - shocho_name 指定時：`shocho_name ILIKE '%' || :shocho_name || '%'`
+  - inactive_tanka_flg=true 指定時：参照する配達手数料単価が失効している販売店のみ抽出。非相関サブクエリ IN で判定する（getManyAndCount のページング経路を壊さず、pg-mem でも動作）。`haitatsuryo_tanka_id` が NULL の販売店は `NULL IN (...)` が真にならず除外される。
+    ```sql
+    AND m.haitatsuryo_tanka_id IN (
+      SELECT mti.tanka_id FROM m_tanka mti
+       WHERE mti.tanka_type = 2
+         AND mti.deleted_at IS NULL
+         AND mti.active_flg = FALSE
+    )
+    ```
 - 都道府県表示：`m_todofuken` を `LEFT JOIN`（`m_hanbaiten.todofuken_code = m_todofuken.todofuken_code`）し、`todofuken_name` を取得する。
 
 ### 4.4 データ件数の取得

@@ -11,6 +11,7 @@
 //   exportDokusyaExcel  → ACSMS-API-014-003 (Excel 出力)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import dayjs from 'dayjs';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
@@ -20,6 +21,7 @@ import DokusyaListView from '@/views/dokusya/DokusyaListView.vue';
 import {
   buildDokusyaListRow,
   buildDokusyaListResponse,
+  buildDokusyaDetail,
   buildCodesSeed,
   buildAuthUser,
 } from '@test/fixtures/dokusya.fixture';
@@ -41,6 +43,8 @@ vi.mock('@/api/dokusya/dokusya', () => ({
   listDokusya: vi.fn(),
   removeDokusya: vi.fn(),
   exportDokusyaExcel: vi.fn(),
+  // ACSMS-API-014-004 — 購読停止（解約予約）ポップアップから呼ぶ専用 API。
+  stopDokusya: vi.fn(),
 }));
 
 // Dropdown lookups — kanri_shiten / shiten / hanbaiten use the shared
@@ -365,6 +369,47 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
       | Record<string, unknown>
       | undefined;
     expect(arg).toMatchObject({ denshi_shonin_status: 0 });
+  });
+
+  it('should seed the 失効単価参照 filter on mount when the SCR-020 deep-link query ?inactive_tanka=1 is present', async () => {
+    // COVERS: SCR-020 error gate → 購読者明細検索 deep-link（顧客要件2026-07）
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+    await renderView({ query: { inactive_tanka: '1' } });
+    expect(listDokusya).toHaveBeenCalled();
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+  });
+
+  it('should call listDokusya with inactive_tanka_flg=true when the 失効単価 checkbox is checked and submitted', async () => {
+    const { wrapper } = await renderView();
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.inactive_tanka_flg = true;
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(listDokusya).toHaveBeenCalled();
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+  });
+
+  it('should NOT send inactive_tanka_flg when the 失効単価 checkbox is unchecked (default mount call)', async () => {
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+    await renderView(); // default filters → checkbox unchecked
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toBeDefined();
+    expect('inactive_tanka_flg' in (arg ?? {})).toBe(false);
   });
 
   it('should call listDokusya with kumiaiin_code filter when the form is submitted', async () => {
@@ -1236,5 +1281,216 @@ describe('DokusyaListView — empty 検索 is a no-op', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
     expect(listDokusya).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 購読停止（解約予約）ポップアップ (顧客要件 2026-07・ACSMS-API-014-004) ──────
+//
+// 一覧の「購読停止」ボタン → 詳細取得 → ポップアップ → 専用 API。DOM の a-modal は
+// teleport されるためポップアップ内の操作はコンポーネント内部状態(vm)経由で駆動する。
+describe('DokusyaListView — 購読停止（解約予約）ポップアップ', () => {
+  it('should render a 購読停止 button BEFORE 削除 in each row action cell', async () => {
+    const { wrapper } = await renderView();
+    const rowEl = wrapper
+      .findAll('tr')
+      .find((tr) => tr.text().includes('山田 太郎'));
+    expect(rowEl).toBeDefined();
+    const stopBtn = rowEl!.find('[data-test="stop-button"]');
+    expect(stopBtn.exists()).toBe(true);
+    // 順序: 購読停止 が 削除 より前に来る。
+    const html = rowEl!.html();
+    expect(html.indexOf('購読停止')).toBeLessThan(html.indexOf('削除'));
+  });
+
+  it('should disable 購読停止 for read-only rows (is_read_only=true)', async () => {
+    const { wrapper } = await renderView();
+    // 既定 fixture: row2 (佐藤 花子) は is_read_only=true。
+    const rowEl = wrapper
+      .findAll('tr')
+      .find((tr) => tr.text().includes('佐藤 花子'));
+    const stopBtn = rowEl!.find('[data-test="stop-button"]');
+    expect(stopBtn.exists()).toBe(true);
+    expect((stopBtn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('should disable 購読停止 when the user lacks dokusya.update', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({
+        permissions: ['dokusya.view', 'dokusya.create', 'dokusya.delete'],
+      }),
+    });
+    const stopBtn = wrapper.find('[data-test="stop-button"]');
+    expect(stopBtn.exists()).toBe(true);
+    expect((stopBtn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('should fetch detail and OPEN the popup for a 紙版 row', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 100,
+        dokusya_shubetsu: 1,
+        dokusya_kaishi_date: '2026-04-01',
+        max_joho_date: null,
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopModalOpen: boolean;
+      isStopDigital: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    expect(getDokusya).toHaveBeenCalledWith(100);
+    expect(vm.stopModalOpen).toBe(true);
+    expect(vm.isStopDigital).toBe(false);
+  });
+
+  it('should WARN and NOT open the popup for a 電子版 row with empty 請求開始月', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 101,
+        dokusya_shubetsu: 2,
+        seikyu_kaishi_month: '', // 料金徴収未開始
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopModalOpen: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
+    await flushPromises();
+    expect(message.warning).toHaveBeenCalledWith(
+      'この読者料金の徴収はまだ開始されていません。',
+    );
+    expect(vm.stopModalOpen).toBe(false);
+  });
+
+  it('should WARN and NOT open the popup when 解約予約 already exists (has_active_kaiyaku)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 102,
+        dokusya_shubetsu: 1,
+        has_active_kaiyaku: true,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopModalOpen: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 102 }));
+    await flushPromises();
+    expect(message.warning).toHaveBeenCalledWith(
+      '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
+    );
+    expect(vm.stopModalOpen).toBe(false);
+  });
+
+  it('should call stopDokusya with the picked date for a 紙版 row, then refetch', async () => {
+    const { getDokusya, stopDokusya, listDokusya } = await import(
+      '@/api/dokusya/dokusya'
+    );
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_shubetsu: 1 }),
+    });
+    vi.mocked(stopDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 100 }),
+      message: '購読停止を予約しました。',
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      confirmStop: () => Promise<void>;
+      stopDate: unknown;
+      stopModalOpen: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    // 紙版カレンダーで日付を選択（Dayjs）。
+    vm.stopDate = dayjs('2030-09-15');
+    vi.mocked(listDokusya).mockClear();
+    await vm.confirmStop();
+    await flushPromises();
+    expect(stopDokusya).toHaveBeenCalledWith(100, {
+      dokusya_chushi_date: '2030-09-15',
+    });
+    expect(vm.stopModalOpen).toBe(false); // 成功で閉じる
+    expect(listDokusya).toHaveBeenCalled(); // 再取得
+  });
+
+  it('should call stopDokusya with the END-of-month date for a 電子版 row', async () => {
+    const { getDokusya, stopDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 101,
+        dokusya_shubetsu: 2,
+        seikyu_kaishi_month: '202604',
+      }),
+    });
+    vi.mocked(stopDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 101, dokusya_shubetsu: 2 }),
+      message: '購読停止を予約しました。',
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      confirmStop: () => Promise<void>;
+      stopMonth: unknown;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
+    await flushPromises();
+    // 終了月に 2030/07 を選択 → 月末 2030-07-31 で停止する。
+    vm.stopMonth = dayjs('2030-07-10');
+    await vm.confirmStop();
+    await flushPromises();
+    expect(stopDokusya).toHaveBeenCalledWith(101, {
+      dokusya_chushi_date: '2030-07-31',
+    });
+  });
+
+  it('should surface a VALIDATION_ERROR message inside the popup (no re-toast)', async () => {
+    const { getDokusya, stopDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_shubetsu: 1 }),
+    });
+    vi.mocked(stopDokusya).mockRejectedValue({
+      response: {
+        status: 400,
+        data: {
+          error_code: 'VALIDATION_ERROR',
+          message: '入力値が不正です',
+          errors: [
+            {
+              field: 'dokusya_chushi_date',
+              message: '購読中止日は本日より後の日付を指定してください。',
+            },
+          ],
+        },
+      },
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      confirmStop: () => Promise<void>;
+      stopDate: unknown;
+      stopFieldError: string | null;
+      stopModalOpen: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    vm.stopDate = dayjs('2030-09-15');
+    await vm.confirmStop();
+    await flushPromises();
+    expect(vm.stopFieldError).toBe(
+      '購読中止日は本日より後の日付を指定してください。',
+    );
+    expect(vm.stopModalOpen).toBe(true); // エラーでは閉じない
   });
 });

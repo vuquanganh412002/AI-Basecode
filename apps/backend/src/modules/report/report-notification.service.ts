@@ -109,8 +109,11 @@ export class ReportNotificationService {
     // 発行アカウント表示: ログインID + アカウント名（運用上 OAコード / OA表示名 に一致）。
     const issuer = `${params.session.login_id} ${accountName}`.trim();
     const ymd = params.tekiyoDate.replaceAll('-', '');
+    // 顧客要件2026-07: システム名【クラウド版購読者管理システム】は件名から外し、
+    // 本文の先頭行に移動する。件名は【都道府県】【発行アカウント】+ 本文タイトル。
     const subject = `【${params.todofukenName}】【${issuer}】増減通知（日本農業新聞）を出力しました`;
     const body =
+      `<p>【クラウド版購読者管理システム】</p>` +
       `<p>増減通知（日本農業新聞）を出力しました。</p>` +
       `<p>JA名：${issuer}<br>` +
       `適用日：${ymd}<br>` +

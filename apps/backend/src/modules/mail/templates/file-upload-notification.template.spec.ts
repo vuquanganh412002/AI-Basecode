@@ -2,19 +2,27 @@
 
 import { renderFileUploadNotificationMail } from './file-upload-notification.template';
 
-function render() {
+function render(overrides: { uploaderAccountName?: string } = {}) {
   return renderFileUploadNotificationMail({
     jaName: 'JA北海道',
     fileName: 'Checklist_Project Management Audit.xlsx',
     uploadDatetime: new Date('2026-07-14T09:37:00Z'), // JST 18:37
-    uploaderLoginId: 'admin01',
+    uploaderLoginId: 'chuokai01_zg',
+    uploaderAccountName: '東京中央会 担当者',
+    ...overrides,
   });
 }
 
 describe('renderFileUploadNotificationMail', () => {
-  it('should return the customer-confirmed subject literal', () => {
+  it('should put the system name + 【login + account name】 in the subject (顧客要件2026-07)', () => {
     expect(render().subject).toBe(
-      '【クラウド版購読者管理システム】ファイルアップロードのお知らせ',
+      '【クラウド版購読者管理システム】【chuokai01_zg 東京中央会 担当者】ファイルアップロードのお知らせ',
+    );
+  });
+
+  it('should fall back to login only in the subject when account name is empty', () => {
+    expect(render({ uploaderAccountName: '' }).subject).toBe(
+      '【クラウド版購読者管理システム】【chuokai01_zg】ファイルアップロードのお知らせ',
     );
   });
 
@@ -23,7 +31,7 @@ describe('renderFileUploadNotificationMail', () => {
     expect(text).toContain('JA名　　　　: JA北海道');
     expect(text).toContain('ファイル名　: Checklist_Project Management Audit.xlsx');
     expect(text).toContain('アップロード日時: 2026/07/14 18:37');
-    expect(text).toContain('アップロード者: admin01');
+    expect(text).toContain('アップロード者: chuokai01_zg');
   });
 
   it('should include the 送信専用 footer', () => {

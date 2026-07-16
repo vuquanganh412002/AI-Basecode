@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { type TableColumnsType } from 'ant-design-vue';
 import { confirmDelete } from '@/utils/confirm';
 
@@ -30,6 +30,8 @@ interface HanbaitenFilters {
   shocho_name: string;
   /** Default false — 廃店フラグの立つレコードを除外する。 */
   haiten_flg: boolean;
+  /** [scr021-error-gate] 失効配達手数料単価を参照する販売店のみ抽出（SCR-021 連携）。 */
+  inactive_tanka_flg: boolean;
   /**
    * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) selects a
    * JA via BaseJaDropdown before any search runs. Null means "no JA
@@ -41,6 +43,7 @@ interface HanbaitenFilters {
 }
 
 const router = useRouter();
+const route = useRoute();
 const notify = useNotify();
 const authStore = useAuthStore();
 const codes = useCodesStore();
@@ -83,6 +86,7 @@ const {
       address: '',
       shocho_name: '',
       haiten_flg: false,
+      inactive_tanka_flg: false,
       ja_id: null,
     },
     // Default landing order is updated_at desc (most-recently-touched first)
@@ -132,6 +136,8 @@ async function fetchList(): Promise<void> {
       // (exclude 廃店). Pass-through both states explicitly so the
       // spec can assert `haiten_flg: true` was sent.
       haiten_flg: state.filters.haiten_flg,
+      // true のときのみ送信（false は BE に渡さず絞り込まない）。
+      inactive_tanka_flg: state.filters.inactive_tanka_flg || undefined,
       // [staff-ja-filter] only sent when set — non-staff omit the key
       // and the BE falls back to session.ja_id.
       ja_id: state.filters.ja_id ?? undefined,
@@ -181,6 +187,12 @@ function runSearch(): void {
 }
 
 onMounted(() => {
+  // [scr021-deep-link] 配達手数料支払情報出力 (SCR-021) の失効単価エラーから
+  // ?inactive_tanka=1 で遷移してくる導線。失効単価参照フィルタを初期適用する。
+  if (route.query.inactive_tanka === '1') {
+    state.filters.inactive_tanka_flg = true;
+    applyFilters({ ...state.filters });
+  }
   // Staff: keep the list empty until a JA is chosen (機能: 代行検索は
   // JA選択が前提). Non-staff: auto-load their scoped list as before.
   if (!isStaff.value) void fetchList();
@@ -356,6 +368,18 @@ function askDelete(row: HanbaitenListItem): void {
         <a-checkbox v-model:checked="state.filters.haiten_flg">
           <span class="text-sm font-medium whitespace-nowrap text-text-main">
             廃店フラグ
+          </span>
+        </a-checkbox>
+      </div>
+      <!-- [scr021-error-gate] 失効配達手数料単価を参照する販売店のみ抽出。
+           SCR-021 の失効単価エラーから ?inactive_tanka=1 で初期選択される。 -->
+      <div class="flex items-center gap-2">
+        <a-checkbox
+          v-model:checked="state.filters.inactive_tanka_flg"
+          data-test="inactive-tanka-filter"
+        >
+          <span class="text-sm font-medium whitespace-nowrap text-text-main">
+            失効単価を参照する販売店のみ
           </span>
         </a-checkbox>
       </div>

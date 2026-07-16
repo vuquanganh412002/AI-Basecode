@@ -49,6 +49,8 @@ vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
 interface RenderOptions {
   /** Override default JA_HONTEN session (for permission-gating paths). */
   user?: ReturnType<typeof buildAuthUser>;
+  /** Initial URL query (e.g. SCR-021 deep-link ?inactive_tanka=1). */
+  query?: Record<string, string>;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -73,7 +75,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
       },
     ],
   });
-  await router.push({ name: 'HanbaitenList' });
+  await router.push({ name: 'HanbaitenList', query: opts.query });
   await router.isReady();
 
   const wrapper = mount(HanbaitenListView, {
@@ -229,6 +231,48 @@ describe('HanbaitenListView — search (機能定義 2.x)', () => {
     expect(listHanbaiten).toHaveBeenCalled();
     const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(callArg).toMatchObject({ hanbaiten_code: 'H001' });
+  });
+
+  it('should seed the 失効単価参照 filter on mount when the SCR-021 deep-link query ?inactive_tanka=1 is present', async () => {
+    // COVERS: SCR-021 error gate → 販売店明細検索 deep-link（顧客要件2026-07）
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(listHanbaiten).mockClear();
+    await renderView({ query: { inactive_tanka: '1' } });
+    expect(listHanbaiten).toHaveBeenCalled();
+    const arg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+  });
+
+  it('should call listHanbaiten with inactive_tanka_flg=true when the 失効単価 checkbox is checked and submitted', async () => {
+    const { wrapper } = await renderView();
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(listHanbaiten).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.inactive_tanka_flg = true;
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(listHanbaiten).toHaveBeenCalled();
+    const arg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+  });
+
+  it('should NOT send inactive_tanka_flg when the 失効単価 checkbox is unchecked (default mount call)', async () => {
+    const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(listHanbaiten).mockClear();
+    await renderView();
+    const arg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toBeDefined();
+    // false のとき undefined を渡す（axios は undefined のクエリを送信しない）。
+    expect(arg?.inactive_tanka_flg).toBeUndefined();
   });
 
   it('should call listHanbaiten with hanbaiten_name partial-match filter when 検索 is clicked', async () => {

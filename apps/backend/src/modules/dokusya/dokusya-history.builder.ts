@@ -252,6 +252,61 @@ export function buildKaiyakuRow(
   return built;
 }
 
+/** UI 解約予約行（Phase 1）のメタ。 */
+export interface KaiyakuReservationContext {
+  dokusyaId: number;
+  rirekiNo: number;
+  /** 解約予定日(購読中止日)。適用日(joho)にも同値を使う（未来）。 */
+  chushiDate: DateOnly;
+  createdBy: string;
+}
+
+/**
+ * Phase 1（顧客要件 2026-07・解約予約の2フェーズ化）: UI で購読中止日を入力した時点の
+ * **予約行**を build する。実際の解約確定（tetsuzuki=0・kaiyaku_flg=true・saishin 反映
+ * 等）は Phase 2 の到来日バッチ（insertKaiyaku）が **別レコード**で行う。
+ *
+ * この予約行が override するのは最小限のみ:
+ *   - `dokusya_busu = 0`（予約: 部数0）
+ *   - `zougen_hokoku_flg = true`（減の増減報告対象）
+ *   - `dokusya_chushi_date = 中止日`（Phase 2 バッチのトリガ + 予約検出キー）
+ *   - `joho_henko_tekiyo_date = 中止日`（未来 → 到来まで master 未反映）
+ *   - `kaiyaku_flg = false`（バッチが確定するまで解約確定でない = バッチ insertKaiyaku の
+ *      トリガ条件 `!kaiyaku_flg` を満たす）
+ *   - `saishin_data_flg = false`（未来予約）
+ *   - `shinki_flg = false` / `torikeshi_flg = false`（before が新規でも予約は非新規・防御）
+ * それ以外は before から継承する。`zenkai_*` は before 由来（増減報告用）。
+ *
+ * 注: 電子版の「適用日 = 中止日 + 1」は Phase 2 バッチ（実解約行）で扱う。予約行の
+ * 適用日は紙版/電子版とも中止日で統一する（顧客決定）。
+ */
+export function buildKaiyakuReservationRow(
+  before: DokusyaRireki,
+  ctx: KaiyakuReservationContext,
+): DokusyaRireki {
+  const row = { ...before } as unknown as Record<string, unknown>;
+  delete row.dokusyaRirekiId;
+  delete row.createdAt;
+
+  row.dokusyaId = ctx.dokusyaId;
+  row.rirekiNo = ctx.rirekiNo;
+  row.dokusyaBusu = 0; // 予約: 部数0
+  row.dokusyaChushiDate = ctx.chushiDate;
+  row.johoHenkoTekiyoDate = ctx.chushiDate; // 適用日=中止日（未来）
+  row.createdBy = ctx.createdBy;
+
+  const built = row as unknown as DokusyaRireki;
+  fillZenkai(built, before); // zenkai_* = before の値（増減報告用）
+
+  row.zougenHokokuFlg = true; // 減の増減報告対象
+  row.saishinDataFlg = false; // 未来予約 → 未反映
+  row.kaiyakuFlg = false; // 解約確定はバッチ（Phase 2）が行う
+  row.shinkiFlg = false;
+  row.torikeshiFlg = false;
+
+  return built;
+}
+
 /**
  * Build a 再購読 (resubscribe) row for a 解約済み subscriber whose 解約 has
  * taken effect (master が 解約状態)。編集画面で 手続種類=新規 + 新しい購読開始日を

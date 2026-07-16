@@ -372,6 +372,23 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       expect(service.update).toHaveBeenCalled();
     });
 
+    it('should return 400 VALIDATION_ERROR when the body carries dokusya_chushi_date (停止は専用API — @IsEmpty)', async () => {
+      // 顧客要件 2026-07 改訂: 購読中止日は update から分離（POST /dokusya/:id/stop）。
+      // body に含めると UpdateDokusyaDto の @IsEmpty で 400、サービスへは届かない。
+      service.update.mockResolvedValue(buildDokusyaDetailResponse({ dokusya_id: 100 }));
+      const res = await http()
+        .put(apiUrl('dokusya/100'))
+        .send(buildUpdateDokusyaBody({ dokusya_chushi_date: '2027-12-01' }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(
+        (res.body.errors as { field: string }[]).some(
+          (e) => e.field === 'dokusya_chushi_date',
+        ),
+      ).toBe(true);
+      expect(service.update).not.toHaveBeenCalled();
+    });
+
     it('should return 400 DUPLICATE_EMAIL when service throws', async () => {
       service.update.mockRejectedValue(
         new HttpException(
@@ -713,11 +730,12 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
       search: jest.fn(),
       remove: jest.fn(),
       exportExcel: jest.fn(),
+      stop: jest.fn(),
     };
     currentSession = buildChuokaiSession({
       ja_id: 1,
       account_id: 11,
-      permissions: ['dokusya.view', 'dokusya.delete'],
+      permissions: ['dokusya.view', 'dokusya.delete', 'dokusya.update'],
     });
     permissionsGuardValue = true;
 
@@ -948,6 +966,106 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
       service.remove.mockRejectedValue(new Error('DB exploded'));
       const res = await http().delete(apiUrl('dokusya/1001')).expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop（購読停止・解約予約）
+  // ════════════════════════════════════════════════════════════════════════
+  describe('POST /api/v1/dokusya/:dokusya_id/stop', () => {
+    const body = { dokusya_chushi_date: '2030-08-31' };
+
+    it('should return 200 with { data, message: "購読停止を予約しました。" } on happy path', async () => {
+      service.stop.mockResolvedValue({ dokusya_id: 1001 });
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send(body)
+        .expect(200);
+      expect(res.body.message).toBe('購読停止を予約しました。');
+      expect(res.body.data).toEqual({ dokusya_id: 1001 });
+    });
+
+    it('should parse dokusya_id path param as Number and forward the DTO', async () => {
+      service.stop.mockResolvedValue({ dokusya_id: 42 });
+      await http().post(apiUrl('dokusya/42/stop')).send(body).expect(200);
+      expect(service.stop).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ dokusya_chushi_date: '2030-08-31' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('should return 400 VALIDATION_ERROR when dokusya_chushi_date is missing', async () => {
+      const res = await http().post(apiUrl('dokusya/1001/stop')).send({}).expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(service.stop).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 VALIDATION_ERROR when dokusya_chushi_date is malformed', async () => {
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send({ dokusya_chushi_date: '2030/08/31' })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(service.stop).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 BAD_REQUEST when dokusya_id is non-numeric', async () => {
+      await http().post(apiUrl('dokusya/abc/stop')).send(body).expect(400);
+      expect(service.stop).not.toHaveBeenCalled();
+    });
+
+    it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+      currentSession = null;
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send(body)
+        .expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when dokusya.update permission is missing', async () => {
+      permissionsGuardValue = false;
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send(body)
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 400 VALIDATION_ERROR forwarded from service (相対チェック違反)', async () => {
+      service.stop.mockRejectedValue(
+        new HttpException(
+          {
+            code: 'VALIDATION_ERROR',
+            error_code: 'VALIDATION_ERROR',
+            message: '入力値が不正です',
+            errors: [
+              {
+                field: 'dokusya_chushi_date',
+                message: '購読中止日は本日より後の日付を指定してください。',
+              },
+            ],
+          },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send(body)
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors[0].field).toBe('dokusya_chushi_date');
+    });
+
+    it('should return 404 NOT_FOUND when service throws NotFoundException', async () => {
+      service.stop.mockRejectedValue(new NotFoundException('購読者'));
+      const res = await http()
+        .post(apiUrl('dokusya/9999/stop'))
+        .send(body)
+        .expect(404);
+      expect(res.body.error_code).toBe('NOT_FOUND');
     });
   });
 

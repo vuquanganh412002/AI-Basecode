@@ -49,12 +49,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let code: string = ErrorCode.INTERNAL_SERVER_ERROR;
     let message: string = ErrorMessage.INTERNAL_SERVER_ERROR;
     let errors: ValidationErrorDetail[] | undefined;
+    let total: number | undefined;
 
     if (exception instanceof DomainException) {
       status = exception.getStatus();
       code = exception.code;
       message = exception.message;
       errors = exception.errors;
+      total = exception.total;
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
@@ -80,6 +82,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             (obj.message as string) ??
             exception.message);
         errors = obj.errors as ValidationErrorDetail[] | undefined;
+        total = obj.total as number | undefined;
       } else {
         // String-response HttpException (framework default). Prefer the
         // localized message for a mapped status, else fall back.
@@ -112,10 +115,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message = ErrorMessage.INTERNAL_SERVER_ERROR;
     }
 
-    const body: Record<string, unknown> = { error_code: code, message };
-    if (errors && errors.length > 0) {
-      body.errors = errors;
-    }
+    const body: Record<string, unknown> = {
+      error_code: code,
+      message,
+      ...(errors && errors.length > 0 ? { errors } : {}),
+      ...(total !== undefined ? { total } : {}),
+    };
 
     response.status(status).json(body);
   }

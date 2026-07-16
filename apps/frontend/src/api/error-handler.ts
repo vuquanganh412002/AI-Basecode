@@ -29,6 +29,11 @@ const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
   //   The wrapper normalizes the 404 blob to `{ error_code }` and the view
   //   shows 対象データがありません。 in-screen — a global toast would duplicate.
   'NO_TARGET_DATA',
+  // INACTIVE_TANKA_REFERENCED: SCR-020 (口座振替データ出力) preview/export when a
+  //   購読者 references a 失効単価 (active_flg=false). Carries errors[] (該当購読者).
+  //   The view renders an inline error list (Excel取込画面と同様) so the operator
+  //   can migrate them — a global toast would drop the list detail.
+  'INACTIVE_TANKA_REFERENCED',
 ]);
 
 /**

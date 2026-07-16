@@ -732,6 +732,15 @@ const canSelectMode = computed(
     Number(originalTetsuzukiShurui.value) !== 0 &&
     authStore.hasPermission('dokusya.update'),
 );
+// 電子版は当日変更のみ（顧客要件 2026-07 改訂）— モードバー（当日変更/予約変更の
+// 2択）を出さず、編集可能な電子版読者は直接「当日変更」モードで開く。紙版のみ
+// 参照→当日/予約 のモードバーを出す。
+const isPureDigitalEditable = computed(
+  () => canSelectMode.value && isDigital.value,
+);
+// モードバー（2択ボタン）を出すのは紙版の編集可能読者のみ。
+const showModeBar = computed(() => canSelectMode.value && isPaper.value);
+
 const isReferenceMode = computed(
   () => isEdit.value && canSelectMode.value && viewMode.value === 'reference',
 );
@@ -1294,10 +1303,8 @@ function validateMisc(errs: Record<string, string>): void {
   ) {
     errs.dokusya_busu = DIGITAL_BUSU_MSG;
   }
-  // 解約 (手続種類=0) のとき購読中止日は必須。新規 (=1) は入力不可なので対象外。
-  if (isCancelTetsuzuki.value && !formState.dokusya_chushi_date?.trim()) {
-    errs.dokusya_chushi_date = REQUIRED_MSG;
-  }
+  // 購読中止日（解約予約）の入力・検証は本フォームから撤去した（顧客要件 2026-07
+  // 改訂）。停止は一覧の「購読を停止する」ポップアップ + 専用APIで行う。
   validateTekiyoDates(errs);
 }
 
@@ -1317,12 +1324,14 @@ interface TekiyoCtx {
  * 情報変更適用日 (joho_henko_tekiyo_date) の検証 — 編集時必須。販売店を含む全変更の
  * 唯一の適用日（顧客要件 2026-07: 販売店適用日を廃止し joho に統一）。解約予定日のみ
  * 変更は joho=解約予定日 で自動的に妥当（解約予定日側で検証）なので追随中はスキップ。
+ * 当日変更モード（電子版は常時・紙版は当日変更選択時）は joho=本日で BE が固定する
+ * ため、未来日(> today)チェックはスキップする（joho は本日で正しい）。
  */
 function validateJohoTekiyoDate(
   errs: Record<string, string>,
   ctx: TekiyoCtx,
 ): void {
-  if (!isEdit.value || johoFollows.value) return;
+  if (!isEdit.value || johoFollows.value || isTodayMode.value) return;
   const j = formState.joho_henko_tekiyo_date;
   if (!j?.trim()) {
     errs.joho_henko_tekiyo_date = REQUIRED_MSG;
@@ -1335,36 +1344,15 @@ function validateJohoTekiyoDate(
   }
 }
 
-/** 解約予定日 (dokusya_chushi_date) の検証 — 入力時のみ。購読開始日以降 かつ 未来日のみ。 */
-function validateChushiTekiyoDate(
-  errs: Record<string, string>,
-  ctx: TekiyoCtx,
-): void {
-  const c = formState.dokusya_chushi_date;
-  if (!c) return;
-  if (hasActiveKaiyaku.value) {
-    // 既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要・顧客要件 2026-07）。
-    errs.dokusya_chushi_date =
-      '既に解約予約されています。変更するには履歴画面で解約を取消してください。';
-  } else if (ctx.kaishi && c < ctx.kaishi) {
-    errs.dokusya_chushi_date = `解約予定日は購読開始日（${slashDate(ctx.kaishi)}）以降の日付を指定してください。`;
-  } else if (c <= ctx.todayIso) {
-    errs.dokusya_chushi_date = '解約予定日は本日より後の日付を指定してください。';
-  } else if (maxJohoDate.value && c <= maxJohoDate.value) {
-    // 解約予定日は最終変更適用日より後（同日不可・顧客要件 2026-07）。
-    errs.dokusya_chushi_date = `解約予定日は最終変更適用日（${slashDate(maxJohoDate.value)}）より後の日付を指定してください。`;
-  }
-}
-
 /**
- * 適用日 (joho_henko_tekiyo_date / dokusya_chushi_date) の必須・範囲検証。
- * BE(collectTekiyoDateViolations / collectChushiViolations)と同一ルールを FE でも
- * 即時表示する（顧客要件 2026-07 改訂）:
+ * 情報変更適用日 (joho_henko_tekiyo_date) の必須・範囲検証。
+ * BE(collectTekiyoDateViolations)と同一ルールを FE でも即時表示する（顧客要件
+ * 2026-07 改訂）:
  *   - 情報変更適用日(joho): 未来日のみ(> today) かつ 購読開始日 <= 値 <= 解約予定日。
  *     販売店・支払方法を含む全変更の唯一の適用日（販売店適用日は廃止し joho に統一）。
- *   - 解約予定日: 購読開始日 <= 解約予定日 かつ 解約予定日 > today かつ > 最終変更適用日
- * 上限の解約予定日は本編集で変更可のため実効値 (入力値 || ロード値) を参照し、
- * 再購読(解約済み→新規)時は旧解約予定日を無効化する。
+ * 上限の解約予定日はロード値（既存の解約予約）を参照する。購読中止日そのものの
+ * 検証は本フォームから撤去した（停止は専用ポップアップ + API）。再購読(解約済み→
+ * 新規)時は旧解約予定日を無効化する。
  */
 function validateTekiyoDates(errs: Record<string, string>): void {
   const ctx: TekiyoCtx = {
@@ -1375,7 +1363,6 @@ function validateTekiyoDates(errs: Record<string, string>): void {
       : formState.dokusya_chushi_date || originalChushiDate.value,
   };
   validateJohoTekiyoDate(errs, ctx);
-  validateChushiTekiyoDate(errs, ctx);
 }
 
 function validateClient(): boolean {
@@ -1531,12 +1518,18 @@ async function onSubmit(): Promise<void> {
         await approveDokusya(dokusyaId.value);
         notify.success('承認しました。');
       } else {
-        await updateDokusya(dokusyaId.value, {
-          ...(buildRequestBody() as UpdateDokusyaRequest),
+        // 購読中止日（解約予約）は本APIでは送らない（顧客要件 2026-07 改訂）。
+        // 停止は専用エンドポイント stopDokusya（一覧の「購読を停止する」）で行う。
+        // 送ると BE の @IsEmpty で 400 になるため、更新ボディから除外する。
+        const updateBody: UpdateDokusyaRequest = {
+          ...buildRequestBody(),
           // 情報変更モード（当日変更/予約変更）を BE へ送る。参照モードでは
           // submit ボタンが出ないため viewMode は 'today' | 'reserved'。
           change_mode: viewMode.value === 'today' ? 'today' : 'reserved',
-        });
+        };
+        delete (updateBody as { dokusya_chushi_date?: unknown })
+          .dokusya_chushi_date;
+        await updateDokusya(dokusyaId.value, updateBody);
         notify.updated();
       }
     } else {
@@ -1701,7 +1694,18 @@ async function applyRouteMode(): Promise<void> {
     await loadDetail(dokusyaId.value);
     // 現在紐づく販売店（既に廃店でも）を include_id でピンして取得する。
     await fetchHanbaitenOptions(formState.hanbaiten_id ?? undefined);
-    // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
+    // 参照→編集フロー: 紙版は最初「参照」モード（当日変更/予約変更を選ぶ）。
+    // 電子版は当日変更のみ（顧客要件 2026-07 改訂）— モードバーを出さず、編集可能な
+    // 読者は直接「当日変更」モードで開く（適用日=本日）。適用日=本日は capture より
+    // 先に確定させる — そうしないと editGuard が「未変更なのに dirty」と誤検知して
+    // 「変更がありません」スキップが効かなくなる。
+    if (isPureDigitalEditable.value) {
+      viewMode.value = 'today';
+      formState.joho_henko_tekiyo_date = todayIsoTokyo();
+    } else {
+      viewMode.value = 'reference';
+    }
+    // ロード（＋ハイドレート中 watcher・電子版の当日適用日）が確定した状態を基準に控える。
     await editGuard.capture();
     // 読者情報変更適用日の編集可否判定用に、適用日を除いた基準も控える。
     // 基準値(適用日)は infoChangeGuard.capture より先に確定させる — capture で
@@ -1709,9 +1713,7 @@ async function applyRouteMode(): Promise<void> {
     // johoHenkoBaseline が null だと適用日が null に戻ってしまう。
     johoHenkoBaseline.value = formState.joho_henko_tekiyo_date;
     await infoChangeGuard.capture();
-    // 参照→編集フロー: 編集は最初「参照」モード。モード切替リセット用に
-    // 読込直後の formState をスナップショット。
-    viewMode.value = 'reference';
+    // モード切替リセット用に読込直後の formState をスナップショット。
     loadedFormSnapshot.value = { ...formState };
   } else {
     // 新規: 営業中(haiten_flg=false)の販売店のみ取得する。
@@ -1775,10 +1777,22 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
       {{ notFoundMessage }}
     </p>
 
-    <!-- 情報変更モードバー（顧客要件2026-07・参照→編集フロー）。a-form の外に
-         置くことで、参照モードで form 全体が disabled でもボタンは押せる。 -->
+    <!-- 電子版は当日変更のみ（顧客要件2026-07 改訂）— モードバーを出さず、当日変更
+         (適用日=本日)である旨を表示するだけ。編集可能な電子版読者のみ表示。 -->
     <div
-      v-if="isEdit && canSelectMode"
+      v-if="isEdit && isPureDigitalEditable"
+      data-test="dokusya-digital-today-note"
+      class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4 text-sm"
+    >
+      <span class="font-bold text-primary">当日変更モード</span>
+      <span class="text-text-description ml-2">電子版は当日変更のみです（適用日は本日）。</span>
+    </div>
+
+    <!-- 情報変更モードバー（顧客要件2026-07・参照→編集フロー）。a-form の外に
+         置くことで、参照モードで form 全体が disabled でもボタンは押せる。
+         2択（当日変更/予約変更）は紙版のみ（電子版は上の当日変更固定）。 -->
+    <div
+      v-if="isEdit && showModeBar"
       data-test="dokusya-mode-bar"
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4 flex items-center justify-between gap-4"
     >
@@ -2743,8 +2757,10 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 <a-input :value="chushiMonthDisplay" readonly class="flex-1" />
                 <span class="text-text-description text-sm whitespace-nowrap">月末で終了</span>
               </div>
-              <!-- 解約予定日は未来日のみ + 最終変更適用日より後（同日不可・顧客要件 2026-07）。
-                   既に有効な解約予約がある間は disabled（履歴画面で取消要）。 -->
+              <!-- 購読中止日は読取専用（顧客要件 2026-07 改訂）。停止（解約予約）は
+                   一覧画面(SCR-014)の「購読を停止する」ボタン → ポップアップで行う。
+                   本フォームでは現在の解約予定日を表示するのみ（編集不可）。
+                   disabled-date は残すが disabled のため実質無効。 -->
               <a-date-picker
                 v-else
                 v-model:value="formState.dokusya_chushi_date"
@@ -2752,7 +2768,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
-                :disabled="!isEdit || hasActiveKaiyaku || reportFieldDisabled"
+                disabled
                 :disabled-date="disabledChushiDate"
               />
               <p
@@ -2761,6 +2777,13 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 data-test="active-kaiyaku-hint"
               >
                 既に解約予約されています。変更するには履歴画面で解約を取消してください。
+              </p>
+              <p
+                v-else-if="isEdit"
+                class="text-text-description text-xs mt-1"
+                data-test="chushi-stop-hint"
+              >
+                購読の停止は一覧画面の「購読を停止する」から行ってください。
               </p>
             </a-form-item>
           </div>

@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -252,6 +253,23 @@ export class SearchDokusyaDto {
   @IsInt({ message: '電子版承認ステータスは整数で指定してください。' })
   @IsIn([0, 1, 2], { message: '電子版承認ステータスの値が不正です。' })
   denshi_shonin_status?: number;
+
+  // ─── 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）──────────
+  // true のとき、参照する購読料単価(tanka_type=1)が active_flg=FALSE の購読者
+  // だけを抽出する（口座振替出力時に失効単価参照でブロックされた購読者を手動で
+  // 新単価へ移行するための絞込）。GETクエリは文字列で届くため truthy 値のみ
+  // true に変換し、それ以外は undefined にして絞り込まない。
+  @ApiPropertyOptional({
+    description:
+      '失効単価(active_flg=false)を参照する購読者のみ抽出（true/1 のときのみ有効）',
+    type: Boolean,
+  })
+  @Transform(({ value }) =>
+    value === true || value === 'true' || value === '1' ? true : undefined,
+  )
+  @IsOptional()
+  @IsBoolean({ message: '失効単価フラグの値が不正です。' })
+  inactive_tanka_flg?: boolean;
 
   // ─── Pagination + sort ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1 })

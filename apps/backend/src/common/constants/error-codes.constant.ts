@@ -30,12 +30,15 @@ export const ErrorCode = {
   DUPLICATE_EMAIL: 'DUPLICATE_EMAIL',                 // 400 — same email already exists in JA scope
   INVALID_STATUS: 'INVALID_STATUS',                   // 400 — approve/reject called on a row not in 承認待ち
   SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED', // 403 — account lacks paper_flg/denshi_flg for the row's 購読種別
-  TORIKESHI_NOT_ALLOWED: 'TORIKESHI_NOT_ALLOWED',     // 400 — 履歴の取消不可（新規・取消済・中間レコード）
+  TORIKESHI_NOT_ALLOWED: 'TORIKESHI_NOT_ALLOWED',     // 400 — 履歴の取消不可（紙版・適用日未来・末尾のみ可。新規/取消済/中間/電子版/適用日到来済みは不可）
 
   // ─── SCR-015 — 購読者販売店一括置換画面 ────────────────────────────────
   SAME_HANBAITEN: 'SAME_HANBAITEN',                   // 400 — replace target equals the candidate's current hanbaiten
   INELIGIBLE_DOKUSYA: 'INELIGIBLE_DOKUSYA',           // 400 — 電子版クレカ決済者・併読者 cannot be replaced (carries errors[])
   DATE_RANGE_INVALID: 'DATE_RANGE_INVALID',           // 400 — date_from > date_to
+
+  // ─── SCR-020 — 口座振替データ出力画面 ──────────────────────────────────
+  INACTIVE_TANKA_REFERENCED: 'INACTIVE_TANKA_REFERENCED', // 409 — 出力対象に失効単価(active_flg=false)参照の購読者あり（carries errors[]: field=dokusya_id）
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -71,8 +74,10 @@ export const ErrorMessage: Record<ErrorCode, string> = {
   INVALID_STATUS: '承認待ちの読者ではありません。',
   SHUBETSU_PERMISSION_DENIED: 'この購読種別に対する操作権限がありません。',
   TORIKESHI_NOT_ALLOWED:
-    '取消できないレコードです（新規・取消済・中間レコードは取消できません）。',
+    '取消できないレコードです（紙版・適用日が未来の末尾レコードのみ取消可能。新規・取消済・中間レコード・電子版・適用日到来済みは取消できません）。',
   SAME_HANBAITEN: '現在の販売店と同じ販売店は選択できません。',
   INELIGIBLE_DOKUSYA: '電子版クレカ決済者・併読者は編集・削除できません。',
   DATE_RANGE_INVALID: '「開始日」は「終了日」以前の日付を入力してください。',
+  INACTIVE_TANKA_REFERENCED:
+    '失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。',
 };

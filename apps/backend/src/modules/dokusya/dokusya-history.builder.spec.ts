@@ -3,6 +3,7 @@ import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import {
   buildCounterRow,
   buildKaiyakuRow,
+  buildKaiyakuReservationRow,
   buildResubscribeRow,
   buildRirekiRow,
   computeZougen,
@@ -421,6 +422,46 @@ describe('buildKaiyakuRow', () => {
     });
     expect(r.hanbaitenId).toBe(460);
     expect(r.zenkaiHanbaitenId).toBe(460);
+  });
+});
+
+describe('buildKaiyakuReservationRow (Phase 1 予約行)', () => {
+  it('overrides only 部数0・zougen=true・中止日・適用日=中止日・kaiyaku_flg=false・saishin=false; inherits tetsuzuki; zenkai from before', () => {
+    const before = row({
+      dokusyaRirekiId: 4,
+      dokusyaId: 1001,
+      dokusyaBusu: 6,
+      hanbaitenId: 459,
+      dokusyaChushiDate: null,
+      tetsuzukiShurui: 1, // 継続（購読中）
+      shinkiFlg: true, // before が新規でも予約は非新規
+    });
+    const r = buildKaiyakuReservationRow(before, {
+      dokusyaId: 1001,
+      rirekiNo: 5,
+      chushiDate: '2027-12-01',
+      createdBy: '42',
+    });
+
+    // Phase 1 で override する項目
+    expect(r.dokusyaBusu).toBe(0); // 予約=部数0
+    expect(r.zougenHokokuFlg).toBe(true); // 減の増減報告対象
+    expect(r.dokusyaChushiDate).toBe('2027-12-01'); // 中止日
+    expect(r.johoHenkoTekiyoDate).toBe('2027-12-01'); // 適用日=中止日（未来）
+    expect(r.kaiyakuFlg).toBe(false); // 解約確定はバッチ（Phase 2）
+    expect(r.saishinDataFlg).toBe(false); // 未来予約 → 未反映
+    expect(r.shinkiFlg).toBe(false); // 予約は非新規（before が新規でも）
+    expect(r.torikeshiFlg).toBe(false);
+    expect(r.createdBy).toBe('42');
+    expect(r.dokusyaRirekiId).toBeUndefined(); // PK dropped → INSERTs
+
+    // 継承する項目（override しない）
+    expect(r.tetsuzukiShurui).toBe(1); // 継承（解約確定はバッチ）
+    expect(r.hanbaitenId).toBe(459); // 継承
+
+    // zenkai_* は before 由来（増減報告用: 6 → 0）
+    expect(r.zenkaiDokusyaBusu).toBe(6);
+    expect(r.zenkaiHanbaitenId).toBe(459);
   });
 });
 

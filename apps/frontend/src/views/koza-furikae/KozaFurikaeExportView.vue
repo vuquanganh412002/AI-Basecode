@@ -7,6 +7,7 @@
 // アクセス制御は route guard（meta.permission: 'koza_furikae.export'）が担う。
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { message } from 'ant-design-vue';
+import { useRouter } from 'vue-router';
 
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
@@ -19,6 +20,8 @@ import {
   exportKozaFurikae,
   type ExportKozaFurikaeBody,
   type KozaPreviewRow,
+  type KozaFurikaeError,
+  type KozaFurikaeErrorDetail,
 } from '@/api/koza-furikae/koza-furikae';
 import { getKanriShitenDropdown } from '@/api/kanri-shiten/kanri-shiten';
 import {
@@ -29,6 +32,12 @@ import {
 
 const authStore = useAuthStore();
 const notify = useNotify();
+const router = useRouter();
+
+/** 失効単価エラーから購読者明細検索(SCR-014)へ遷移し、失効単価参照フィルタを初期適用する。 */
+function goToDokusyaSearch(): void {
+  void router.push({ name: 'DokusyaList', query: { inactive_tanka: '1' } });
+}
 
 interface FormState {
   target_month: string | undefined;
@@ -88,6 +97,44 @@ const previewing = ref(false); // 作成開始のローディング
 const noDataMessage = ref(false); // 対象0件（MSG-020-002）を画面内表示
 const amountError = ref(''); // 金額編集の範囲外エラー（ファイル作成時）
 const jastemError = ref(''); // JASTEM 情報未設定エラー（ファイル作成時）
+
+// 失効単価参照エラー（409 INACTIVE_TANKA_REFERENCED）。作成開始/ファイル作成で
+// 失効単価(active_flg=false)を参照する購読者が居れば、Excel取込画面と同様の
+// インラインエラー一覧で該当購読者を提示する（トーストではない）。手動で単価変更後、
+// 再度「作成開始」する運用。
+const inactiveTankaErrors = ref<KozaFurikaeErrorDetail[]>([]);
+const inactiveTankaMessage = ref('');
+// 総該当件数（errors[] は先頭15件で打ち切り。全件は購読者明細検索で確認・変更）。
+const inactiveTankaTotal = ref(0);
+
+/** 失効単価エラーなら一覧をセットして true。それ以外は false（呼び出し側で従来処理）。 */
+function applyInactiveTankaError(err: unknown): boolean {
+  const e = err as KozaFurikaeError;
+  if (e?.error_code !== 'INACTIVE_TANKA_REFERENCED') return false;
+  inactiveTankaErrors.value = e.errors ?? [];
+  inactiveTankaTotal.value = e.total ?? e.errors?.length ?? 0;
+  inactiveTankaMessage.value =
+    e.message ??
+    '失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。';
+  return true;
+}
+
+/** 失効単価エラー表示をクリアする。 */
+function clearInactiveTankaError(): void {
+  inactiveTankaErrors.value = [];
+  inactiveTankaMessage.value = '';
+  inactiveTankaTotal.value = 0;
+}
+
+// 「該当 N 件中 15 件を表示」等の要約。打ち切りがある場合のみ全件確認導線を出す。
+const inactiveTankaSummary = computed(() => {
+  const total = inactiveTankaTotal.value;
+  const shown = inactiveTankaErrors.value.length;
+  if (total > shown) {
+    return `該当 ${total} 件中 ${shown} 件を表示しています。全件は購読者明細検索画面（「失効単価参照」絞込）で確認し、単価を変更してから再度「作成開始」してください。`;
+  }
+  return `該当購読者（${total}件）の単価を変更してから、再度「作成開始」してください。`;
+});
 
 /** プレビュー金額の合計（編集で変動）。 */
 const totalKingaku = computed(() =>
@@ -295,6 +342,7 @@ async function onPreview(): Promise<void> {
   if (previewing.value) return;
   previewing.value = true;
   noDataMessage.value = false;
+  clearInactiveTankaError();
   try {
     const res = await previewKozaFurikae({
       target_month: formState.target_month as string,
@@ -306,10 +354,12 @@ async function onPreview(): Promise<void> {
     previewRows.value = res.data;
     previewed.value = true;
   } catch (err) {
-    // 対象0件（NO_TARGET_DATA）→ 画面内メッセージ（MSG-020-002）。他は集約
-    // インターセプタがトースト済み。
+    // 失効単価参照（409）→ インラインエラー一覧で該当購読者を提示。
+    // 対象0件（NO_TARGET_DATA）→ 画面内メッセージ（MSG-020-002）。
+    // 他は集約インターセプタがトースト済み。
     previewed.value = false;
     previewRows.value = [];
+    if (applyInactiveTankaError(err)) return;
     if ((err as { error_code?: string })?.error_code === 'NO_TARGET_DATA') {
       noDataMessage.value = true;
     }
@@ -323,6 +373,7 @@ async function onCreateFile(): Promise<void> {
   if (!validateForCreate()) return;
   if (submitting.value) return;
   submitting.value = true;
+  clearInactiveTankaError();
   try {
     const { blob, filename } = await exportKozaFurikae(buildBody());
     // ファイル名はサーバ（全銀メディア固定名 ZENOUTFD・拡張子なし）が決めるため
@@ -332,6 +383,13 @@ async function onCreateFile(): Promise<void> {
     downloadBlob(blob, filename ?? `口座振替データ_${y}年${m}月${d}日`);
     notify.success('口座振替データの作成が完了しました。'); // ACSMS-MSG-020-001
   } catch (err) {
+    // 失効単価参照（409）→ インラインエラー一覧で該当購読者を提示（プレビュー〜作成
+    // の間に単価が失効した場合等）。プレビュー破棄して再作成を促す。
+    if (applyInactiveTankaError(err)) {
+      previewed.value = false;
+      previewRows.value = [];
+      return;
+    }
     // プレビュー〜作成の間にデータが消えた等で 0 件になった場合（MSG-020-002）。
     // 他は集約インターセプタがトースト済み（MSG-020-003 等）。
     if ((err as { error_code?: string })?.error_code === 'NO_TARGET_DATA') {
@@ -359,6 +417,7 @@ watch(
     noDataMessage.value = false;
     amountError.value = '';
     jastemError.value = '';
+    clearInactiveTankaError();
   },
   { deep: true },
 );
@@ -368,6 +427,8 @@ defineExpose({
   previewRows,
   previewed,
   noDataMessage,
+  inactiveTankaErrors,
+  inactiveTankaTotal,
   onPreview,
   onCreateFile,
 });
@@ -554,6 +615,39 @@ defineExpose({
         </table>
       </div>
     </section>
+
+    <!-- 失効単価参照エラー（409）: 該当購読者を Excel取込画面と同様のインライン一覧で提示 -->
+    <div
+      v-if="inactiveTankaErrors.length > 0"
+      data-test="inactive-tanka-error-list"
+      class="border border-error/40 bg-error-subtle rounded-ant p-4 space-y-2"
+    >
+      <p class="text-sm font-semibold text-error" data-test="inactive-tanka-error-message">
+        {{ inactiveTankaMessage }}
+      </p>
+      <p class="text-sm text-error" data-test="inactive-tanka-error-summary">
+        {{ inactiveTankaSummary }}
+      </p>
+      <ul class="m-0 pl-0 list-none space-y-0.5">
+        <li
+          v-for="(e, idx) in inactiveTankaErrors"
+          :key="idx"
+          data-test="inactive-tanka-error-row"
+          class="text-sm text-error"
+        >
+          購読者ID {{ e.field }}: {{ e.message }}
+        </li>
+      </ul>
+      <div class="pt-1">
+        <a-button
+          size="small"
+          data-test="goto-dokusya-search"
+          @click="goToDokusyaSearch"
+        >
+          購読者明細検索へ（失効単価参照で絞込）
+        </a-button>
+      </div>
+    </div>
 
     <!-- ❸ プレビュー一覧（作成開始で取得。金額を編集してファイル作成へ） -->
     <p

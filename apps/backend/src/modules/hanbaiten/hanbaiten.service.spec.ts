@@ -58,6 +58,7 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
     qbMock = {
       leftJoin: jest.fn().mockReturnThis(),
       leftJoinAndSelect: jest.fn().mockReturnThis(),
+      innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
@@ -285,6 +286,38 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
 
       const result = await service.findAll({} as any, buildSession({ ja_id: null, role_code: 'NICHINO_STAFF' }));
       expect(result.data[0].todofuken_name).toBe('');
+    });
+
+    it('should add a 失効配達手数料単価 subquery (m_tanka active_flg=FALSE) when inactive_tanka_flg=true', async () => {
+      // COVERS: SCR-021 error gate 連携 — 失効配達手数料単価参照フィルタ（顧客要件2026-07）
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll(
+        { inactive_tanka_flg: true } as any,
+        buildSession({ ja_id: 1 }),
+      );
+
+      const applied = qbMock.andWhere.mock.calls.some(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /haitatsuryo_tanka_id\s+IN/i.test(sql) &&
+          /m_tanka/i.test(sql) &&
+          /tanka_type\s*=\s*2/i.test(sql) &&
+          /active_flg\s*=\s*FALSE/i.test(sql),
+      );
+      expect(applied).toBe(true);
+    });
+
+    it('should NOT add the 失効配達手数料単価 subquery when inactive_tanka_flg is absent', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({} as any, buildSession({ ja_id: 1 }));
+
+      const applied = qbMock.andWhere.mock.calls.some(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /active_flg\s*=\s*FALSE/i.test(sql),
+      );
+      expect(applied).toBe(false);
     });
 
     it('should NOT apply ja_id scope when caller is NICHINO_STAFF (ja_id=null bypass)', async () => {
@@ -883,6 +916,7 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
     qbMock = {
       leftJoin: jest.fn().mockReturnThis(),
       leftJoinAndSelect: jest.fn().mockReturnThis(),
+      innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
@@ -1740,6 +1774,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
     qbMock = {
       leftJoin: jest.fn().mockReturnThis(),
       leftJoinAndSelect: jest.fn().mockReturnThis(),
+      innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),

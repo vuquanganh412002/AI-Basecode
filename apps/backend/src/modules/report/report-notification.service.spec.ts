@@ -139,7 +139,10 @@ describe('ReportNotificationService', () => {
 
       await service.notifyNichinoExport(baseParams);
 
-      const [, , body] = mailService.sendNotification.mock.calls[0];
+      const [, subject, body] = mailService.sendNotification.mock.calls[0];
+      // 顧客要件2026-07: システム名は本文先頭に、件名には含めない。
+      expect(body).toContain('【クラウド版購読者管理システム】');
+      expect(subject).not.toContain('【クラウド版購読者管理システム】');
       expect(body).toContain('JA名：ja_kanri01 管理支店 太郎');
       expect(body).toContain('適用日：20260301');
       expect(body).toContain('ファイル名：増減通知_JAテスト_1301002001_20260301.pdf');

@@ -39,9 +39,16 @@ describe('HaitatsuryoService', () => {
       ...overrides,
     });
 
-  /** Make dataSource.query return aggRows for the aggregation call. */
+  /**
+   * Make dataSource.query return aggRows for the aggregation call and [] for
+   * the 失効単価参照チェック(error gate)（active_flg=FALSE の SQL）。
+   */
   function mockAgg(rows: any[]) {
-    dataSource.query.mockResolvedValue(rows);
+    dataSource.query.mockImplementation((sql: string) =>
+      typeof sql === 'string' && /active_flg\s*=\s*FALSE/i.test(sql)
+        ? Promise.resolve([])
+        : Promise.resolve(rows),
+    );
   }
 
   beforeEach(() => {
@@ -51,7 +58,12 @@ describe('HaitatsuryoService', () => {
       save: jest.fn(async (_e: any, v: any) => ({ fileDownloadId: 5, ...(v ?? _e) })),
     };
     dataSource = {
-      query: jest.fn().mockResolvedValue([buildHaitatsuryoAggRow()]),
+      // 失効単価チェック(active_flg=FALSE)は 0 件 → error gate 通過。集計はデフォルト1件。
+      query: jest.fn((sql: string) =>
+        typeof sql === 'string' && /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([])
+          : Promise.resolve([buildHaitatsuryoAggRow()]),
+      ),
       transaction: jest.fn(async (cb: any) => cb(txManager)),
     };
     auditLog = {
@@ -171,7 +183,10 @@ describe('HaitatsuryoService', () => {
 
       expect(result.meta.zei_kubun).toBe(2);
       const aggCall = dataSource.query.mock.calls.find(
-        ([sql]: any[]) => typeof sql === 'string' && /GROUP BY|t_dokusya|latest_dokusya/i.test(sql),
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /latest_dokusya/i.test(sql) &&
+          !/active_flg\s*=\s*FALSE/i.test(sql), // 集計SQL（失効チェックSQLを除外）
       );
       expect(aggCall).toBeDefined();
       expect(aggCall[1]).toContain(2); // zei_kubun param
@@ -183,7 +198,10 @@ describe('HaitatsuryoService', () => {
       await service.previewHaitatsuryo(buildHaitatsuryoQuery({ haitatsuryo_shiharai_cycle: 6 }), hSession());
 
       const aggCall = dataSource.query.mock.calls.find(
-        ([sql]: any[]) => typeof sql === 'string' && /GROUP BY|t_dokusya|latest_dokusya/i.test(sql),
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /latest_dokusya/i.test(sql) &&
+          !/active_flg\s*=\s*FALSE/i.test(sql), // 集計SQL（失効チェックSQLを除外）
       );
       expect(aggCall).toBeDefined();
       expect(aggCall[1]).toContain(6);
@@ -244,6 +262,34 @@ describe('HaitatsuryoService', () => {
       expect(result.meta.total).toBe(0);
       expect(result.meta.grand_total_busu).toBe(0);
       expect(result.meta.grand_total_kingaku).toBe(0);
+    });
+
+    it('should throw INACTIVE_TANKA_REFERENCED at preview when a 販売店 references a 失効配達手数料単価 (active_flg=FALSE)', async () => {
+      // COVERS: SCR-021 error gate（顧客要件2026-07）— プレビュー時点で検出
+      dataSource.query.mockImplementation((sql: string) =>
+        /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([
+              {
+                hanbaiten_id: 101,
+                hanbaiten_code: 'H001',
+                hanbaiten_name: '渋谷販売店',
+                tanka_code: 'T900',
+                tanka_name: '旧配達手数料',
+                total_count: '3',
+              },
+            ])
+          : Promise.resolve([buildHaitatsuryoAggRow()]),
+      );
+
+      await expect(
+        service.previewHaitatsuryo(buildHaitatsuryoQuery(), hSession()),
+      ).rejects.toMatchObject({
+        response: {
+          error_code: 'INACTIVE_TANKA_REFERENCED',
+          errors: [expect.objectContaining({ field: '101' })],
+          total: 3,
+        },
+      });
     });
   });
 
@@ -341,6 +387,33 @@ describe('HaitatsuryoService', () => {
       expect(result).toEqual({ empty: true });
       expect(reportArchive.archive).not.toHaveBeenCalled();
       expect(auditLog.logOperation).not.toHaveBeenCalled();
+    });
+
+    it('should throw INACTIVE_TANKA_REFERENCED and NOT archive / write an error log when a 販売店 references a 失効単価', async () => {
+      // COVERS: SCR-021 error gate — 業務エラーなので S3/DB/エラーログは実行しない
+      dataSource.query.mockImplementation((sql: string) =>
+        /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([
+              {
+                hanbaiten_id: 101,
+                hanbaiten_code: 'H001',
+                hanbaiten_name: '渋谷販売店',
+                tanka_code: 'T900',
+                tanka_name: '旧配達手数料',
+                total_count: '1',
+              },
+            ])
+          : Promise.resolve([buildHaitatsuryoAggRow()]),
+      );
+
+      await expect(
+        service.exportHaitatsuryoExcel(buildHaitatsuryoQuery(), hSession(), req),
+      ).rejects.toMatchObject({
+        response: { error_code: 'INACTIVE_TANKA_REFERENCED', total: 1 },
+      });
+
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      expect(auditLog.logError).not.toHaveBeenCalled();
     });
 
     it('should throw when the audit log fails after a successful archive', async () => {

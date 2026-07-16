@@ -18,6 +18,8 @@ interface FileUploadNotificationInput {
   fileName: string;
   uploadDatetime: Date;
   uploaderLoginId: string;
+  /** アップロード者のアカウント名（顧客要件2026-07: 件名に ログインID + アカウント名 を表示）。 */
+  uploaderAccountName: string;
 }
 
 interface RenderedMail {
@@ -32,8 +34,12 @@ export function renderFileUploadNotificationMail({
   fileName,
   uploadDatetime,
   uploaderLoginId,
+  uploaderAccountName,
 }: FileUploadNotificationInput): RenderedMail {
-  const subject = `${SUBJECT_PREFIX}ファイルアップロードのお知らせ`;
+  // 件名: システム名 + 【発行アカウント(ログインID + アカウント名)】+ タイトル
+  // （顧客要件2026-07）。アカウント名が空なら login のみ。
+  const uploader = `${uploaderLoginId} ${uploaderAccountName}`.trim();
+  const subject = `${SUBJECT_PREFIX}【${uploader}】ファイルアップロードのお知らせ`;
   const text = [
     'ご担当者様',
     '',

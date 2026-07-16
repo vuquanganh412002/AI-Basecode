@@ -62,11 +62,20 @@ describe('KozaFurikaeService', () => {
       query: jest.fn().mockResolvedValue([{ file_download_id: 5 }]),
     };
     dataSource = {
-      // default: aggregation returns 2 購読者 rows.
-      query: jest.fn().mockResolvedValue([
-        buildKozaFurikaeAggRow({ dokusya_id: 1, furikae_kingaku: 4900 }),
-        buildKozaFurikaeAggRow({ dokusya_id: 2, koza_meigi: 'ｽｽﾞｷ ﾊﾅｺ', furikae_kingaku: 4900 }),
-      ]),
+      // default: 失効単価チェック(active_flg=FALSE)は 0 件 → error gate 通過。
+      //          集計(active_flg=TRUE)は 2 購読者 rows。
+      query: jest.fn((sql: string) =>
+        typeof sql === 'string' && /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([])
+          : Promise.resolve([
+              buildKozaFurikaeAggRow({ dokusya_id: 1, furikae_kingaku: 4900 }),
+              buildKozaFurikaeAggRow({
+                dokusya_id: 2,
+                koza_meigi: 'ｽｽﾞｷ ﾊﾅｺ',
+                furikae_kingaku: 4900,
+              }),
+            ]),
+      ),
       transaction: jest.fn(async (cb: any) => cb(txManager)),
     };
     auditLog = {
@@ -184,6 +193,34 @@ describe('KozaFurikaeService', () => {
       expect(auditLog.logOperation).not.toHaveBeenCalled();
     });
 
+    it('should throw INACTIVE_TANKA_REFERENCED at preview when a 購読者 references a 失効単価 (active_flg=FALSE)', async () => {
+      // COVERS: v1.1 §4.3 ① 失効単価参照チェック（プレビュー時点で検出）
+      // 総該当 3 件だが LIMIT 15 で全件返る想定。total_count は各行に載る。
+      dataSource.query.mockImplementation((sql: string) =>
+        /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([
+              {
+                dokusya_id: 1,
+                koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',
+                tanka_code: 'T001',
+                tanka_name: '旧購読料',
+                total_count: '3',
+              },
+            ])
+          : Promise.resolve([buildKozaFurikaeAggRow({ dokusya_id: 1 })]),
+      );
+
+      await expect(
+        service.previewData(buildPreviewKozaFurikaeQuery(), kSession()),
+      ).rejects.toMatchObject({
+        response: {
+          error_code: 'INACTIVE_TANKA_REFERENCED',
+          errors: [expect.objectContaining({ field: '1' })],
+          total: 3,
+        },
+      });
+    });
+
     it('should bind the session ja_id into the preview aggregation params', async () => {
       // COVERS: 4.2 DataScope ja_id = user.ja_id（preview も同一集計）
       await service.previewData(buildPreviewKozaFurikaeQuery(), kSession({ ja_id: 8 }));
@@ -269,6 +306,35 @@ describe('KozaFurikaeService', () => {
       await expect(
         service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req),
       ).rejects.toMatchObject({ response: { error_code: 'NO_TARGET_DATA' } });
+    });
+
+    it('should throw INACTIVE_TANKA_REFERENCED (error gate) and NOT archive/transact when a 購読者 references a 失効単価 (active_flg=FALSE)', async () => {
+      // COVERS: 4.3 ① 失効単価参照チェック（顧客要件 2026-07）
+      // 失効チェック(active_flg=FALSE)が該当者を返す → 出力を止める。
+      dataSource.query.mockImplementation((sql: string) =>
+        /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([
+              {
+                dokusya_id: 1,
+                koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',
+                tanka_code: 'T001',
+                tanka_name: '旧購読料',
+                total_count: '1',
+              },
+            ])
+          : Promise.resolve([buildKozaFurikaeAggRow({ dokusya_id: 1 })]),
+      );
+
+      await expect(
+        service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req),
+      ).rejects.toMatchObject({
+        response: { error_code: 'INACTIVE_TANKA_REFERENCED', total: 1 },
+      });
+
+      // 業務エラーなので S3 保存・DB トランザクション・エラーログは実行しない。
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(auditLog.logError).not.toHaveBeenCalled();
     });
 
     it('should NOT archive to S3 nor open a transaction when 0 rows are aggregated', async () => {

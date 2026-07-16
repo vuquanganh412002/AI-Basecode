@@ -299,7 +299,9 @@ describe('MailService', () => {
   });
 
   describe('sendNotification', () => {
-    it('should send html body with the 【】 subject prefix', async () => {
+    it('should send html body with the subject passed through as-is (no prefix)', async () => {
+      // 顧客要件2026-07: システム名プレフィックスは付与せず、件名は呼び出し側が
+      // 完成形で渡す（SCR-029 は本文先頭に【クラウド版購読者管理システム】を置く）。
       const service = new MailService(
         buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
       );
@@ -307,13 +309,13 @@ describe('MailService', () => {
 
       await service.sendNotification(
         'user@example.com',
-        'お知らせ',
+        '【東京都】【admin01】お知らせ',
         '<p>本文</p>',
       );
 
       expect(smtpSendMail).toHaveBeenCalledWith({
         to: 'user@example.com',
-        subject: '【クラウド版購読者管理システム】お知らせ',
+        subject: '【東京都】【admin01】お知らせ',
         html: '<p>本文</p>',
       });
     });

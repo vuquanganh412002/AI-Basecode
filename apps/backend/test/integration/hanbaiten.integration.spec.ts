@@ -74,6 +74,7 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
     await ctx.dataSource.query(`DELETE FROM t_dokusya`);
     await ctx.dataSource.query(`DELETE FROM t_dokusya_rireki`);
     await ctx.dataSource.query(`DELETE FROM m_hanbaiten`);
+    await ctx.dataSource.query(`DELETE FROM m_tanka`);
     await ctx.dataSource.query(
       `DELETE FROM t_log WHERE target_table = 'm_hanbaiten'`,
     );
@@ -110,15 +111,16 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
     shochoName?: string;
     todofukenCode?: string;
     haitenFlg?: boolean;
+    haitatsuryoTankaId?: number | null;
   } = {}) {
     const rows = await ctx.dataSource.query(
       `INSERT INTO m_hanbaiten
          (ja_id, hanbaiten_code, hanbaiten_name, todofuken_code,
-          tel, fax, address, shocho_name, haiten_flg,
+          tel, fax, address, shocho_name, haiten_flg, haitatsuryo_tanka_id,
           created_at, created_by, updated_at, updated_by)
        VALUES
          ($1, $2, $3, $4,
-          $5, $6, $7, $8, $9,
+          $5, $6, $7, $8, $9, $10,
           NOW(), 'SYSTEM', NOW(), 'SYSTEM')
        RETURNING hanbaiten_id`,
       [
@@ -131,9 +133,32 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
         opts.address ?? '東京都千代田区千代田1-1',
         opts.shochoName ?? '山田太郎',
         opts.haitenFlg ?? false,
+        opts.haitatsuryoTankaId ?? null,
       ],
     );
     return Number(rows[0].hanbaiten_id);
+  }
+
+  /** 配達手数料単価(tanka_type=2)を1件 seed する。active_flg で有効/失効を切替。 */
+  async function insertHaitatsuryoTanka(opts: {
+    tankaId: number;
+    jaId?: number;
+    tankaCode?: string;
+    activeFlg?: boolean;
+  }) {
+    await ctx.dataSource.query(
+      `INSERT INTO m_tanka
+         (tanka_id, ja_id, tanka_code, tanka_type, tanka_name,
+          kingaku_zeikomi, kingaku_zeinuki, tax_rate,
+          tekiyo_start_date, tekiyo_end_date, biko, active_flg,
+          created_at, created_by, updated_at, updated_by)
+       VALUES
+         ($1, $2, $3, 2, '配達手数料',
+          100, 91, 10.00,
+          '2026-01-01', NULL, '', $4,
+          NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      [opts.tankaId, opts.jaId ?? 1, opts.tankaCode ?? 'HT001', opts.activeFlg ?? true],
+    );
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -152,6 +177,35 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
         .expect(200);
 
       expect(res.body.meta.total).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should filter to ONLY 失効配達手数料単価 販売店 when inactive_tanka_flg=true (SCR-021 error gate 連携)', async () => {
+      // 有効単価(8001) / 失効単価(8002, active_flg=FALSE) を seed。
+      await insertHaitatsuryoTanka({ tankaId: 8001, tankaCode: 'HT-A', activeFlg: true });
+      await insertHaitatsuryoTanka({ tankaId: 8002, tankaCode: 'HT-B', activeFlg: false });
+      // A: 有効単価参照 / B: 失効単価参照 / C: 単価未設定(NULL)。
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'HB-A', haitatsuryoTankaId: 8001 });
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'HB-B', haitatsuryoTankaId: 8002 });
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'HB-C', haitatsuryoTankaId: null });
+
+      const cookie = await chuokaiCookie(1);
+
+      // フィルタ OFF → 3件すべて。
+      const off = await http()
+        .get('/api/v1/hanbaiten')
+        .set('Cookie', cookie)
+        .expect(200);
+      const offCodes = off.body.data.map((r: any) => r.hanbaiten_code);
+      expect(offCodes).toEqual(expect.arrayContaining(['HB-A', 'HB-B', 'HB-C']));
+
+      // フィルタ ON → 失効単価参照の HB-B のみ。
+      const on = await http()
+        .get('/api/v1/hanbaiten')
+        .set('Cookie', cookie)
+        .query({ inactive_tanka_flg: 'true' })
+        .expect(200);
+      const onCodes = on.body.data.map((r: any) => r.hanbaiten_code);
+      expect(onCodes).toEqual(['HB-B']);
     });
 
     it('should return only ja_id=1 rows when CHUOKAI of ja_id=1 lists (DataScope)', async () => {

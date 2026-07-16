@@ -499,4 +499,31 @@ describe('SearchDokusyaDto', () => {
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'sort_order')).toBe(true);
   });
+
+  // ─── inactive_tanka_flg (Boolean — SCR-020 error gate 連携) ──────────────
+  it.each(['1', 'true', true])(
+    'should transform inactive_tanka_flg=%p to boolean true',
+    async (value) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ inactive_tanka_flg: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
+      expect(dto.inactive_tanka_flg).toBe(true);
+    },
+  );
+
+  it.each(['0', 'false', '', undefined])(
+    'should treat inactive_tanka_flg=%p as unset (undefined → no filter)',
+    async (value) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ inactive_tanka_flg: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
+      expect(dto.inactive_tanka_flg).toBeUndefined();
+    },
+  );
 });

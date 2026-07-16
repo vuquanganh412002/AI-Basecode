@@ -15,6 +15,7 @@ import { AuditOperation, DownloadType } from '@/common/enums';
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
 import { NoTargetDataException } from './exceptions/no-target-data.exception';
+import { InactiveTankaReferencedException } from '@/common/exceptions/inactive-tanka-referenced.exception';
 import { toKozaPreviewRow, type KozaPreviewRow } from './koza-furikae.mapper';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
@@ -72,6 +73,23 @@ export interface KozaFurikaeAggRow {
   bank_branch_code_master: string | null;
   bank_branch_name_master: string | null;
 }
+
+/** 失効単価参照チェック（KOZA_FURIKAE_INACTIVE_TANKA_SQL）の1行。 */
+export interface InactiveTankaRow {
+  dokusya_id: number | string;
+  koza_meigi: string | null;
+  tanka_code: string | null;
+  tanka_name: string | null;
+  /** COUNT(*) OVER() — LIMIT 前の総該当件数（pg は文字列で返す場合あり）。 */
+  total_count: number | string;
+}
+
+/**
+ * 失効単価参照エラーで返す該当購読者一覧の上限。全件はエラー画面に列挙せず、
+ * 総件数(total)＋先頭 N 件のみ提示し、全件の確認・単価変更は購読者明細検索画面
+ * （「失効単価参照」絞込）へ誘導する運用（顧客要件 2026-07）。
+ */
+const INACTIVE_TANKA_LIST_LIMIT = 15;
 
 export interface ExportKozaFurikaeResult {
   buffer: Buffer;
@@ -143,6 +161,10 @@ export class KozaFurikaeService {
     body: PreviewKozaFurikaeDto,
     session: SessionPayload,
   ): Promise<PaginatedResponse<KozaPreviewRow>> {
+    // v1.1 error gate: 出力対象に失効単価(active_flg=FALSE)を参照する購読者が
+    // 居れば 409 (INACTIVE_TANKA_REFERENCED) で止め、該当者を提示する。プレビュー
+    // 段階で検出することで、金額編集前にユーザーへ手動移行を促す（顧客要件 2026-07）。
+    await this.assertNoInactiveTanka(body, session);
     const rows = await this.fetchAggRows(body, session);
     if (rows.length === 0) throw new NoTargetDataException();
     // 全件を1ページで返す（D4）。FE はクライアントページングで表示、meta.total を
@@ -158,6 +180,11 @@ export class KozaFurikaeService {
     req: Request,
   ): Promise<ExportKozaFurikaeResult> {
     try {
+      // 4.3 error gate: 出力対象に失効単価(active_flg=FALSE)を参照する購読者が
+      // 居れば 409 (INACTIVE_TANKA_REFERENCED) で出力を止め、該当者を提示する
+      // （顧客要件 2026-07）。CSV / S3 / DB は実行しない。
+      await this.assertNoInactiveTanka(body, session);
+
       // 4.3 集計対象の購読者（口座引落・継続）を取得する。スコープ（ja_id /
       // kanri_shiten_id）は params に内包されるため、これが信頼できる行集合。
       const rows: KozaFurikaeAggRow[] = await this.fetchAggRows(body, session);
@@ -277,9 +304,14 @@ export class KozaFurikaeService {
 
       return { buffer, filename, asciiFilename, recordCount: rows.length };
     } catch (err) {
-      // 業務上の 0 件 (404) はエラーログ対象外。それ以外は log_type=3 を
-      // トランザクション外で記録してから再スローする（4.10）。
-      if (err instanceof NoTargetDataException) throw err;
+      // 業務上の 0 件 (404) / 失効単価参照 (409) はエラーログ対象外。それ以外は
+      // log_type=3 をトランザクション外で記録してから再スローする（4.10）。
+      if (
+        err instanceof NoTargetDataException ||
+        err instanceof InactiveTankaReferencedException
+      ) {
+        throw err;
+      }
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
         AuditOperation.CREATE,
@@ -292,14 +324,15 @@ export class KozaFurikaeService {
   // ─── private ─────────────────────────────────────────────────────
 
   /**
-   * 4.3 対象購読者の集計（DataScope は params に内包）。preview / export で共用する
-   * 唯一の集計ロジック。フィルタ項目だけを持つ構造型を受け取り、両 DTO で使える。
+   * 4.3 集計 SQL 用パラメータ（DataScope は params に内包）。集計・失効チェックで共用。
+   * params: [$1 target_month, $2 ja_id, $3 kanri_shiten_id,
+   *          $4 kanri_shiten_ids, $5 shiten_ids, $6 koza_shiten_ids]
    */
-  private async fetchAggRows(
+  private buildAggParams(
     body: KozaFurikaeAggFilter,
     session: SessionPayload,
-  ): Promise<KozaFurikaeAggRow[]> {
-    const params: unknown[] = [
+  ): unknown[] {
+    return [
       body.target_month, // $1
       session.ja_id, // $2
       session.kanri_shiten_id ?? null, // $3
@@ -311,7 +344,45 @@ export class KozaFurikaeService {
         ? body.koza_shiten_ids
         : null, // $6
     ];
-    return this.dataSource.query(KOZA_FURIKAE_AGG_SQL, params);
+  }
+
+  /**
+   * 4.3 対象購読者の集計（DataScope は params に内包）。preview / export で共用する
+   * 唯一の集計ロジック。フィルタ項目だけを持つ構造型を受け取り、両 DTO で使える。
+   */
+  private async fetchAggRows(
+    body: KozaFurikaeAggFilter,
+    session: SessionPayload,
+  ): Promise<KozaFurikaeAggRow[]> {
+    return this.dataSource.query(
+      KOZA_FURIKAE_AGG_SQL,
+      this.buildAggParams(body, session),
+    );
+  }
+
+  /**
+   * 4.3 失効単価参照の検証（export 前の error gate）。出力対象の母集合に
+   * active_flg=FALSE の単価を参照する購読者が 1 件でもあれば
+   * InactiveTankaReferencedException を送出し、出力を止める（顧客要件 2026-07）。
+   * 該当購読者は `errors[]`（field=dokusya_id, message=購読者名 + 単価）で列挙する。
+   */
+  private async assertNoInactiveTanka(
+    body: KozaFurikaeAggFilter,
+    session: SessionPayload,
+  ): Promise<void> {
+    const rows: InactiveTankaRow[] = await this.dataSource.query(
+      KOZA_FURIKAE_INACTIVE_TANKA_SQL,
+      this.buildAggParams(body, session),
+    );
+    if (rows.length === 0) return;
+    // SQL は COUNT(*) OVER() で LIMIT 前の総件数を各行に載せ、行自体は
+    // INACTIVE_TANKA_LIST_LIMIT 件に絞る。総件数(total)＋先頭N件を返す。
+    const total = Number(rows[0]?.total_count ?? rows.length);
+    const errors = rows.map((r) => ({
+      field: String(r.dokusya_id),
+      message: `${r.koza_meigi ?? ''}（単価: ${r.tanka_code} ${r.tanka_name}）`,
+    }));
+    throw new InactiveTankaReferencedException(errors, total);
   }
 
   /** 全銀フォーマット CSV（ヘッダ/データ/トレーラ/エンド）を組み立てる（4.4）。 */
@@ -399,7 +470,14 @@ export class KozaFurikaeService {
 
 /**
  * 4.3 対象購読者の集計 SQL。口座引落(shiharai_hoho=1)・継続(tetsuzuki_shurui=1)で
- * 対象年月時点の有効購読料単価(tanka_type=1)を持つ購読者を販売店・支店スコープで抽出。
+ * 有効な購読料単価(tanka_type=1, active_flg=TRUE)を持つ購読者を販売店・支店スコープで抽出。
+ *
+ * 顧客要件 2026-07: 単価の適用期間(tekiyo_start_date / tekiyo_end_date)と active_flg の
+ * 整合は毎日 0:05 の単価失効バッチ（tekiyo_end_date < 本日 → active_flg=FALSE）が担保する。
+ * よって本集計では期間の日付判定は行わず active_flg=TRUE のみで有効判定する。
+ * 出力対象に失効単価(active_flg=FALSE)を参照する購読者が居ないことは、export 前に
+ * KOZA_FURIKAE_INACTIVE_TANKA_SQL で検証しエラーで止める（該当者は本集計から除外される）。
+ *
  * params: [$1 target_month, $2 ja_id, $3 kanri_shiten_id,
  *          $4 kanri_shiten_ids, $5 shiten_ids, $6 koza_shiten_ids]
  */
@@ -428,8 +506,6 @@ const KOZA_FURIKAE_AGG_SQL = `
      AND t.tanka_type = 1
      AND t.deleted_at IS NULL
      AND t.active_flg = TRUE
-     AND t.tekiyo_start_date <= $1::date
-     AND (t.tekiyo_end_date IS NULL OR t.tekiyo_end_date >= $1::date)
     LEFT JOIN m_shiten s
       ON s.shiten_code = d.bank_branch_code
      AND s.ja_id = d.ja_id
@@ -446,6 +522,46 @@ const KOZA_FURIKAE_AGG_SQL = `
      AND ($5::bigint[] IS NULL OR d.shiten_id = ANY($5::bigint[]))
      AND ($6::bigint[] IS NULL OR s.shiten_id = ANY($6::bigint[]))
    ORDER BY d.kanri_shiten_id, d.shiten_id, d.dokusya_id
+`;
+
+/**
+ * 4.3 失効単価参照チェック SQL（export 前の error gate）。KOZA_FURIKAE_AGG_SQL と
+ * 同一の対象母集合（口座引落・継続・スコープ・画面絞込）から、参照単価が
+ * active_flg=FALSE の購読者だけを抽出する。1件以上返れば出力を止める。
+ * params は KOZA_FURIKAE_AGG_SQL と同一（$1..$6）。
+ */
+const KOZA_FURIKAE_INACTIVE_TANKA_SQL = `
+  SELECT d.dokusya_id,
+         d.shimei_kana_sei || ' ' || d.shimei_kana_mei AS koza_meigi,
+         t.tanka_code,
+         t.tanka_name,
+         COUNT(*) OVER() AS total_count   -- LIMIT 前の総該当件数（window は LIMIT より先に評価される）
+    FROM t_dokusya d
+    INNER JOIN m_hanbaiten h
+      ON h.hanbaiten_id = d.hanbaiten_id
+     AND h.deleted_at IS NULL
+    INNER JOIN m_tanka t
+      ON t.tanka_id = d.tanka_id
+     AND t.tanka_type = 1
+     AND t.deleted_at IS NULL
+     AND t.active_flg = FALSE
+    LEFT JOIN m_shiten s
+      ON s.shiten_code = d.bank_branch_code
+     AND s.ja_id = d.ja_id
+     AND s.kinyu_shiten_flg = TRUE
+     AND s.deleted_at IS NULL
+   WHERE d.deleted_at IS NULL
+     AND d.shiharai_hoho = 1
+     AND d.tetsuzuki_shurui = 1
+     AND d.dokusya_kaishi_date <= $1
+     AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > $1)
+     AND d.ja_id = $2
+     AND ($3::bigint IS NULL OR d.kanri_shiten_id = $3::bigint)
+     AND ($4::bigint[] IS NULL OR d.kanri_shiten_id = ANY($4::bigint[]))
+     AND ($5::bigint[] IS NULL OR d.shiten_id = ANY($5::bigint[]))
+     AND ($6::bigint[] IS NULL OR s.shiten_id = ANY($6::bigint[]))
+   ORDER BY d.kanri_shiten_id, d.shiten_id, d.dokusya_id
+   LIMIT ${INACTIVE_TANKA_LIST_LIMIT}
 `;
 
 /**

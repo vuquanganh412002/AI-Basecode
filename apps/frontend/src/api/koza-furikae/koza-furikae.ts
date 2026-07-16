@@ -74,9 +74,25 @@ export interface ExportKozaFurikaeBody {
   rows: ExportKozaFurikaeRow[];
 }
 
-/** A normalized non-axios error carrying the screen-specific error_code. */
+/** 失効単価参照エラー（409 INACTIVE_TANKA_REFERENCED）の1件（該当購読者）。 */
+export interface KozaFurikaeErrorDetail {
+  /** dokusya_id（文字列）。 */
+  field: string;
+  /** 購読者名 + 単価コード/名。 */
+  message: string;
+}
+
+/**
+ * A normalized non-axios error carrying the screen-specific error_code.
+ * INACTIVE_TANKA_REFERENCED のときは `errors[]`（該当購読者一覧）と `message`
+ * を伴い、view が Excel取込画面と同様のインラインエラー一覧で提示する。
+ */
 export interface KozaFurikaeError {
   error_code: string;
+  message?: string;
+  errors?: KozaFurikaeErrorDetail[];
+  /** 失効単価参照(409)の総該当件数。errors[] は先頭15件で打ち切られる。 */
+  total?: number;
 }
 
 /** CSV出力レスポンス：Blob 本体 + サーバが付与したダウンロードファイル名。 */
@@ -129,10 +145,23 @@ export async function previewKozaFurikae(
     );
     return res.data;
   } catch (err) {
-    const code = (err as AxiosError<{ error_code?: string }>).response?.data
-      ?.error_code;
+    const body = (
+      err as AxiosError<{
+        error_code?: string;
+        message?: string;
+        errors?: KozaFurikaeErrorDetail[];
+        total?: number;
+      }>
+    ).response?.data;
+    const code = body?.error_code;
     if (code) {
-      const normalized: KozaFurikaeError = { error_code: code };
+      // 失効単価参照(409)は errors[]（先頭15件）+ total（総件数）+ message を view に渡す。
+      const normalized: KozaFurikaeError = {
+        error_code: code,
+        message: body?.message,
+        errors: body?.errors,
+        total: body?.total,
+      };
       throw normalized;
     }
     throw err;
@@ -163,10 +192,23 @@ export async function exportKozaFurikae(
       filename: filenameFromDisposition(res.headers['content-disposition']),
     };
   } catch (err) {
-    const code = (err as AxiosError<{ error_code?: string }>).response?.data
-      ?.error_code;
+    const body = (
+      err as AxiosError<{
+        error_code?: string;
+        message?: string;
+        errors?: KozaFurikaeErrorDetail[];
+        total?: number;
+      }>
+    ).response?.data;
+    const code = body?.error_code;
     if (code) {
-      const normalized: KozaFurikaeError = { error_code: code };
+      // 失効単価参照(409)は errors[]（先頭15件）+ total（総件数）+ message を view に渡す。
+      const normalized: KozaFurikaeError = {
+        error_code: code,
+        message: body?.message,
+        errors: body?.errors,
+        total: body?.total,
+      };
       throw normalized;
     }
     throw err;

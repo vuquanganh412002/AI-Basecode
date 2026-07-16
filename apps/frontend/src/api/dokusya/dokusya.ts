@@ -186,8 +186,15 @@ export interface CreateDokusyaRequest {
 /**
  * PUT /api/v1/dokusya/:id — Create と同一構造（api.md §API-011-003）に加え、
  * 情報変更モード `change_mode`（当日変更/予約変更・顧客要件2026-07）を持つ。
+ *
+ * `dokusya_chushi_date`（購読中止日）は本APIでは扱わない（顧客要件 2026-07 改訂）。
+ * 停止は専用エンドポイント `POST /api/v1/dokusya/:id/stop`（stopDokusya）へ分離。
+ * BE 側も UpdateDokusyaDto で `@IsEmpty` により混入を 400 で弾く。
  */
-export type UpdateDokusyaRequest = CreateDokusyaRequest & {
+export type UpdateDokusyaRequest = Omit<
+  CreateDokusyaRequest,
+  'dokusya_chushi_date'
+> & {
   /** 'today'=当日変更（適用日=本日固定） / 'reserved'=予約変更（未来日）。 */
   change_mode?: 'today' | 'reserved';
 };
@@ -253,6 +260,27 @@ export async function updateDokusya(
 ): Promise<DokusyaMutationEnvelope> {
   const res = await axiosInstance.put<DokusyaMutationEnvelope>(
     `/api/v1/dokusya/${dokusyaId}`,
+    body,
+  );
+  return res.data;
+}
+
+/**
+ * POST /api/v1/dokusya/:id/stop request body (ACSMS-API-014-004).
+ * 購読停止（解約予約）— 購読中止日(解約予定日)だけを送る。紙版はカレンダー選択日、
+ * 電子版は選択した終了月の月末日（FE が丸める）。どちらも `YYYY-MM-DD`。
+ */
+export interface StopDokusyaRequest {
+  dokusya_chushi_date: string;
+}
+
+/** POST /api/v1/dokusya/:id/stop — ACSMS-API-014-004 (購読停止・解約予約). */
+export async function stopDokusya(
+  dokusyaId: number,
+  body: StopDokusyaRequest,
+): Promise<DokusyaMutationEnvelope> {
+  const res = await axiosInstance.post<DokusyaMutationEnvelope>(
+    `/api/v1/dokusya/${dokusyaId}/stop`,
     body,
   );
   return res.data;
@@ -349,6 +377,11 @@ export interface DokusyaSearchParams {
   joho_henko_tekiyo_date_from?: string;
   joho_henko_tekiyo_date_to?: string;
   shiharai_hoho?: number;
+  /**
+   * 失効単価(active_flg=false)を参照する購読者のみ抽出（SCR-020 error gate 連携）。
+   * true のときのみ送信し、BE は EXISTS 条件で絞り込む。
+   */
+  inactive_tanka_flg?: boolean;
   page?: number;
   per_page?: number;
   sort_by?: string;

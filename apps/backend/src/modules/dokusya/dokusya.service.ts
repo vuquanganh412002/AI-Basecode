@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { DataSource, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
@@ -47,6 +47,7 @@ import {
 import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
 import { ReplaceHanbaitenDto } from './dto/replace-hanbaiten.dto';
+import { StopDokusyaDto } from './dto/stop-dokusya.dto';
 import { DokusyaRirekiQueryDto } from './dto/dokusya-rireki-query.dto';
 import {
   DokusyaHistoryItemDto,
@@ -168,6 +169,17 @@ const EMAIL_REQUIRED_DIGITAL_MSG =
 
 /** 電子版で購読部数が1以外のときのメッセージ（BE/FE 共通文言）。 */
 const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
+
+/**
+ * 電子版の購読停止で 請求開始月(seikyu_kaishi_month) が未設定のときのメッセージ
+ * （料金の徴収が始まっていない読者は停止予約できない・顧客要件 2026-07）。BE/FE 共通文言。
+ */
+const SEIKYU_NOT_STARTED_MSG = 'この読者料金の徴収はまだ開始されていません。';
+
+/** 'YYYYMM'（seikyu_kaishi_month / 月比較値）→ 'YYYY/MM'（顧客向けメッセージ用）。 */
+function fmtYearMonth(ym: string): string {
+  return `${ym.slice(0, 4)}/${ym.slice(4, 6)}`;
+}
 
 /**
  * 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規・更新とも、解約以外で
@@ -335,6 +347,18 @@ export class DokusyaService {
     req: Request,
   ): Promise<DokusyaResponseDto> {
     this.assertCodeMasterValues(dto);
+    // 併読(3) は本システムで新規作成不可（顧客要件）。紙版＋電子版の併読データは
+    // 外部の電子版読者管理システムが管理し、バッチ連携で同期される。よって本画面
+    // での作成・編集・停止・削除はすべて不可 — 作成はここで弾き、編集/停止/削除は
+    // isDokusyaReadOnly により 403（DOKUSYA_READ_ONLY）で弾く。Excel取込も併読は
+    // 取込不可（dokusya-import-validator）。FE はラジオを disabled にするが、これは
+    // UX であり実際の境界は本ガード（security.md Layer 3 同様）。
+    if (Number(dto.dokusya_shubetsu) === DokusyaShubetsu.BOTH) {
+      throw fieldValidationError(
+        'dokusya_shubetsu',
+        '併読（紙版＋電子版）はバッチ連携で管理されるため、新規登録できません。',
+      );
+    }
     // 新規登録では手続種類に解約(0)を指定できない。解約は既存購読者に対する
     // 更新操作のため、新規作成画面では選択不可（FE もラジオを disabled）。
     if (dto.tetsuzuki_shurui === TetsuzukiShurui.KAIYAKU) {
@@ -540,6 +564,23 @@ export class DokusyaService {
     const isResubscribe =
       Number(before.tetsuzukiShurui) === TetsuzukiShurui.KAIYAKU &&
       Number(dto.tetsuzuki_shurui) === TetsuzukiShurui.SHINKI;
+
+    // [digital-today-only] 電子版は当日変更のみ（顧客要件 2026-07 改訂）。電子版は
+    // 帳票を生成せず即時反映のため、変更は常に本日適用とし、予約変更(未来日の予約)は
+    // 不可とする。FE は電子版でモードバーを出さず当日固定で送るが、改竄/退行に備え
+    // BE でも予約変更を弾く（購読種別は before の保存値で判定 — spoof 不可）。
+    // 例外: 再購読(解約済み→新規)は新しい購読を未来開始日で作る別フローなので対象外。
+    if (
+      !isResubscribe &&
+      Number(before.dokusyaShubetsu) === DokusyaShubetsu.DIGITAL &&
+      changeMode !== 'today'
+    ) {
+      throw fieldValidationError(
+        'change_mode',
+        '電子版は当日変更のみ可能です。予約変更はできません。',
+      );
+    }
+
     if (isResubscribe) {
       // 再購読の購読開始日は新規登録同様 未来日のみ（当日・過去日 不可）。
       if (!dto.dokusya_kaishi_date?.trim()) {
@@ -612,9 +653,6 @@ export class DokusyaService {
     // よって再購読時は解約予定日参照を無効化する（chushi=null）。
     await this.assertUpdateDateConsistency(id, dto, before, isResubscribe);
 
-    // [cancel-guards] 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）。
-    await this.assertChushiCancelGuards(id, dto);
-
     // [shubetsu-immutable] 購読種別 (dokusya_shubetsu) is read-only in edit
     // mode — the FE radio group is disabled, but the screen submits the full
     // form so the field still arrives in the body. Pin it to the stored
@@ -684,28 +722,11 @@ export class DokusyaService {
         // nextRirekiNo/recomputeMaster もこのロックの下で直列化される。
         await this.rireki.lockDokusyaRow(manager, id);
 
-        // [cancel-scheduling] 購読中止日(解約予定日)を入力＝解約予約（顧客決定
-        // 2026-07）。継続情報変更ではなく解約(kaiyaku)履歴を1件だけ挿入する:
-        // 部数0・tetsuzuki=0・kaiyaku_flg=true・zougen=true・saishin=false(未来
-        // 予約)。到来日バッチは recomputeMaster で t_dokusya へ反映するのみ。他項目
-        // の同時変更は無視し、行は predecessor から継承する（顧客決定: 解約時は
-        // 「登録終了」なので他変更は取り込まない）。
-        const chushi = normalizeDbDate(dto.dokusya_chushi_date ?? null);
-        if (chushi) {
-          const result = await insertScheduledKaiyaku(manager, {
-            dokusyaId: id,
-            chushiDate: chushi,
-            shubetsu: Number(before.dokusyaShubetsu),
-            actor: String(session.account_id),
-          });
-          await manager.update(
-            Dokusya,
-            { dokusyaId: id },
-            { updatedBy: String(session.account_id) },
-          );
-          await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
-          return result.after;
-        }
+        // [cancel-separated] 購読停止（解約予約）は本APIから分離した（顧客要件
+        // 2026-07 改訂）。停止は専用エンドポイント POST /dokusya/:id/stop
+        // （service.stop → insertScheduledKaiyaku）で行う。update は情報変更・
+        // 販売店変更・再購読のみを扱い、購読中止日は受け付けない（DTO で @IsEmpty
+        // により 400）。
 
         // [resubscribe] 再購読（解約済み → 手続種類=新規 + 新しい購読開始日）。
         // 継続情報変更ではなく「新規(再購読)」履歴行を挿入する: shinki_flg=true・
@@ -792,6 +813,136 @@ export class DokusyaService {
           { updatedBy: String(session.account_id) },
         );
 
+        await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
+        return result.after;
+      });
+    } catch (err) {
+      await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
+      throw err;
+    }
+
+    const joins = await this.fetchJoinFieldsViaQB(id);
+    return toDokusyaResponse(refreshed, joins);
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop
+  // ════════════════════════════════════════════════════════════════════
+  /**
+   * 購読停止（解約予約） — SCR-014 一覧の「購読を停止する」ボタン専用。購読中止日
+   * (解約予定日) だけを受け取り、Phase 1 の予約行 (`insertScheduledKaiyaku`) を1件挿入
+   * する。フルの更新 DTO を要さない slim エンドポイント。
+   *
+   * バリデーション（購読種別で分岐）:
+   *   - 共通: 編集不可レコード(併読/電子版クレカ)は 403、二重解約は VALIDATION_ERROR。
+   *   - 紙版(1): 現行ロジックと同一 — 解約予定日 >= 購読開始日 / > 本日 /
+   *     > 最終変更適用日(同日不可)。
+   *   - 電子版(2): 請求開始月(seikyu_kaishi_month)が未設定なら停止不可
+   *     （料金徴収未開始）。選択月(中止日の YYYYMM)は 請求開始月以降 かつ 当月以降。
+   *     中止日は選択月の月末日（FE が丸めて送る）。
+   *
+   * 反映は Phase 1 と同じ — 予約行は未来日(saishin=false)なので到来日バッチ(Phase 2)
+   * が master へ確定する。監査は SCR-014 画面名で 't_dokusya' 対象の UPDATE として記録。
+   */
+  async stop(
+    id: number,
+    dto: StopDokusyaDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<DokusyaResponseDto> {
+    const chushi = normalizeDbDate(dto.dokusya_chushi_date);
+    const before = await this.fetchInScope(id, session);
+
+    // [read-only guard] 併読(3) / 電子版クレカ決済者 は編集不可 → 停止も不可(403)。
+    if (
+      isDokusyaReadOnly(
+        Number(before.dokusyaShubetsu),
+        Number(before.shiharaiHoho),
+      )
+    ) {
+      throw new DokusyaReadOnlyException();
+    }
+
+    // [double-cancel] 既に有効な解約予約がある → 二重解約は不可（履歴画面で取消要）。
+    if (await this.hasActiveKaiyaku(id)) {
+      throw fieldValidationError(
+        'dokusya_chushi_date',
+        '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
+      );
+    }
+
+    const shubetsu = Number(before.dokusyaShubetsu);
+    if (shubetsu === DokusyaShubetsu.DIGITAL) {
+      // 電子版: 請求開始月が未設定＝料金徴収未開始 → 停止予約不可。
+      const seikyu = (before.seikyuKaishiMonth ?? '').trim();
+      if (!seikyu) {
+        throw fieldValidationError('dokusya_chushi_date', SEIKYU_NOT_STARTED_MSG);
+      }
+      // 選択月 = 中止日(月末日)の YYYYMM。請求開始月以降 かつ 当月以降であること。
+      const chushiMonth = chushi.slice(0, 4) + chushi.slice(5, 7); // YYYYMM
+      const currentMonth = (() => {
+        const today = todayIsoJst(); // YYYY-MM-DD
+        return today.slice(0, 4) + today.slice(5, 7);
+      })();
+      if (chushiMonth < seikyu) {
+        throw fieldValidationError(
+          'dokusya_chushi_date',
+          `購読中止日は請求開始月（${fmtYearMonth(seikyu)}）以降の月を選択してください。`,
+        );
+      }
+      if (chushiMonth < currentMonth) {
+        throw fieldValidationError(
+          'dokusya_chushi_date',
+          '購読中止日は当月以降の月を選択してください。',
+        );
+      }
+    } else {
+      // 紙版: 現行の解約予定日ルール（購読開始日以降・未来日・最終変更適用日より後）。
+      const violations = [
+        ...collectChushiViolations({
+          chushiDate: chushi,
+          kaishiDate: before.dokusyaKaishiDate,
+          today: todayIsoJst(),
+        }),
+        ...collectChushiVsMaxJoho({
+          chushiDate: chushi,
+          maxJoho: await this.loadMaxJoho(id),
+        }),
+      ];
+      if (violations.length > 0) {
+        throw new ValidationException(
+          violations.map((v) => ({
+            field: tekiyoViolationField(v.kind),
+            message: v.message,
+          })),
+        );
+      }
+    }
+
+    const auditCtx = buildAuditCtx(
+      session,
+      req,
+      SCREEN_NAME_SCR014,
+      TABLE_NAME,
+      id,
+    );
+
+    let refreshed: Dokusya;
+    try {
+      refreshed = await this.dataSource.transaction(async (manager) => {
+        // rireki_no 採番の直列化（update と同じ理由）。
+        await this.rireki.lockDokusyaRow(manager, id);
+        const result = await insertScheduledKaiyaku(manager, {
+          dokusyaId: id,
+          chushiDate: chushi,
+          shubetsu,
+          actor: String(session.account_id),
+        });
+        await manager.update(
+          Dokusya,
+          { dokusyaId: id },
+          { updatedBy: String(session.account_id) },
+        );
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
       });
@@ -968,6 +1119,8 @@ export class DokusyaService {
         'r.dokusya_kaishi_date AS dokusya_kaishi_date',
         'r.dokusya_chushi_date AS dokusya_chushi_date',
         'r.joho_henko_tekiyo_date AS joho_henko_tekiyo_date',
+        // can_torikeshi 判定用（紙版のみ取消可・顧客要件2026-07）。出力DTOには含めない。
+        'r.dokusya_shubetsu AS dokusya_shubetsu',
         'r.saishin_data_flg AS saishin_data_flg',
         'r.zougen_hokoku_flg AS zougen_hokoku_flg',
         'r.shinki_flg AS shinki_flg',
@@ -1379,13 +1532,7 @@ export class DokusyaService {
       if (changed(v, b)) violations.push({ field, message: RESERVE_ONLY });
     };
 
-    // 購読中止日（解約予約）は帳票影響＝当日不可。入力があれば違反。
-    if (dto.dokusya_chushi_date?.trim()) {
-      violations.push({
-        field: 'dokusya_chushi_date',
-        message: '購読中止日（解約予約）は予約変更で行ってください。',
-      });
-    }
+    // 購読中止日（解約予約）は本APIでは扱わない（停止は専用エンドポイントへ分離）。
     check(dto.dokusya_busu, before.dokusyaBusu, 'dokusya_busu');
     check(dto.hanbaiten_id, before.hanbaitenId, 'hanbaiten_id');
     // 購読者住所
@@ -1627,12 +1774,17 @@ export class DokusyaService {
   }
 
   /**
-   * 有効な解約予約（kaiyaku_flg=true・取消除外）が存在するか。存在する間は追加の
-   * 解約予約を禁止（変更は履歴画面で当該解約を取消してから・顧客要件 2026-07）。
+   * 有効な解約予約が存在するか。存在する間は追加の解約予約を禁止（変更は履歴画面で
+   * 当該解約を取消してから・顧客要件 2026-07）。
+   *
+   * 検出キー = 購読中止日(dokusya_chushi_date) が入っている取消されていない行。
+   * Phase 1（2フェーズ化）で予約行は kaiyaku_flg=false（解約確定はバッチが行う）に
+   * なったため、kaiyaku_flg では検出できない。中止日は解約予約行にのみ入るため、
+   * これが「予約あり」の判定キーになる（Phase 2 バッチが作る実解約行にも中止日は入る）。
    */
   private async hasActiveKaiyaku(dokusyaId: number): Promise<boolean> {
     const row = await this.rirekiRepo.findOne({
-      where: { dokusyaId, torikeshiFlg: false, kaiyakuFlg: true },
+      where: { dokusyaId, torikeshiFlg: false, dokusyaChushiDate: Not(IsNull()) },
       order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
     });
     return row != null;
@@ -1651,61 +1803,21 @@ export class DokusyaService {
     before: Dokusya,
     isResubscribe: boolean,
   ): Promise<void> {
-    const scheduledChushi = isResubscribe
-      ? null
-      : await this.loadScheduledChushiAsOf(id, dto.joho_henko_tekiyo_date);
+    // 購読中止日は本APIでは扱わない（停止は専用エンドポイントへ分離・顧客要件
+    // 2026-07 改訂）。ただし joho の上限参照として「変更適用日時点で有効な解約予定日」
+    // (履歴に既にある予約行) は残す — 解約予約後に、その予定日より後の情報変更を
+    // 挿入させない不整合防止（joho <= 解約予定日）。再購読時は旧解約予定日を無効化。
     const effectiveChushi = isResubscribe
       ? null
-      : (dto.dokusya_chushi_date ?? scheduledChushi);
-    const dateViolations = [
-      ...collectTekiyoDateViolations({
-        johoDate: dto.joho_henko_tekiyo_date,
-        kaishiDate: before.dokusyaKaishiDate,
-        chushiDate: effectiveChushi,
-      }),
-      // 入力された解約予定日の整合性（購読開始日以降・未来日のみ）。購読開始日は
-      // 編集不可＝before の値を参照する。
-      ...collectChushiViolations({
-        chushiDate: dto.dokusya_chushi_date,
-        kaishiDate: before.dokusyaKaishiDate,
-        today: todayIsoJst(),
-      }),
-    ];
+      : await this.loadScheduledChushiAsOf(id, dto.joho_henko_tekiyo_date);
+    const dateViolations = collectTekiyoDateViolations({
+      johoDate: dto.joho_henko_tekiyo_date,
+      kaishiDate: before.dokusyaKaishiDate,
+      chushiDate: effectiveChushi,
+    });
     if (dateViolations.length > 0) {
       throw new ValidationException(
         dateViolations.map((v) => ({
-          field: tekiyoViolationField(v.kind),
-          message: v.message,
-        })),
-      );
-    }
-  }
-
-  /**
-   * 解約予約(購読中止日入力)時の追加ガード（顧客要件 2026-07）:
-   *   (B) 既に有効な解約予約がある → 二重解約を拒否（変更は履歴画面で当該解約を取消して
-   *       から）。master は未来解約を反映しないため履歴を直接参照する。
-   *   (A) 解約予定日 > 最終変更適用日(履歴 MAX joho・同日不可) — 最終変更以前の解約は不整合。
-   */
-  private async assertChushiCancelGuards(
-    id: number,
-    dto: UpdateDokusyaDto,
-  ): Promise<void> {
-    if (!dto.dokusya_chushi_date) return;
-    if (await this.hasActiveKaiyaku(id)) {
-      throw fieldValidationError(
-        'dokusya_chushi_date',
-        '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
-      );
-    }
-    const maxJoho = await this.loadMaxJoho(id);
-    const maxJohoViolations = collectChushiVsMaxJoho({
-      chushiDate: dto.dokusya_chushi_date,
-      maxJoho,
-    });
-    if (maxJohoViolations.length > 0) {
-      throw new ValidationException(
-        maxJohoViolations.map((v) => ({
           field: tekiyoViolationField(v.kind),
           message: v.message,
         })),

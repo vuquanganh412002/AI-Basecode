@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/05/22 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 『手数料』列の表示を配達手数料単価から振込手数料負担区分（m_hanbaiten.furikomi_tesuryo_futan_kubun、m_code TESURYO_KUBUN ラベル）に変更。レスポンスに furikomi_tesuryo_futan_kubun を追加。tesuryo は当月金額算出用に継続保持（非表示）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/16 | 1.2  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用・⑨-2）反映：集計SQLの配達手数料単価判定を `active_flg = TRUE` のみに変更。プレビュー・出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する販売店が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（total＋errors[]先頭15件）で止める。エラー一覧 #8 追加。 | | |
 
 ## システム概要
 
@@ -56,6 +57,7 @@ updated_by: Tran Duc Tuyen
 | 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 8   | 画面固有     | INACTIVE_TANKA_REFERENCED | 失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。 | HTTP 409（`total`＝総該当件数、`errors[]`＝先頭15件の該当販売店。field=hanbaiten_id） |
 
 ※ 対象0件は業務エラーではなく「検索成功・結果なし」として扱う。プレビュー・出力とも
 HTTP 200 を返し（プレビュー: `data:[]`、出力: `application/json` の `{ data: [] }`）、FE が画面内に
@@ -77,7 +79,7 @@ SCR-026 / SCR-028 と方針統一。
 | リクエストボディー     | なし                                                                                                                                                                                                                                                                                |
 | リクエストパラメーター | クエリパラメーター（後述）                                                                                                                                                                                                                                                          |
 | ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                                 |
-| HTTPレスポンスコード   | 200:正常に集計情報を取得しました（対象0件のときは data:[]）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                                                       |
+| HTTPレスポンスコード   | 200:正常に集計情報を取得しました（対象0件のときは data:[]）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:失効単価を参照する販売店が存在します, 500:システムエラーが発生しました                                                       |
 
 ## リクエストパラメータ
 
@@ -264,9 +266,58 @@ SELECT zei_kubun
   - `zei_kubun = 1`（内税）→ `m_tanka.kingaku_zeikomi`
   - `zei_kubun = 2`（外税）→ `m_tanka.kingaku_zeinuki`
 
-### 4.4 集計データの取得
+### 4.4 失効単価チェック（error gate）＋ 集計データの取得
 
-- 対象年月の最新スナップショットを購読者ごとに特定（変更適用日 DESC、created_at DESC で最上位 1 件）し、販売店単位でグループ化して集計する。
+> **単価の有効判定（顧客要件 2026-07・SCR-020 と同一方針）**
+> 配達手数料単価の適用期間と `active_flg` の整合は毎日 0:05 の単価失効バッチ
+> （`tekiyo_end_date < 本日 → active_flg=FALSE`）が担保する。集計では期間の日付判定を
+> 行わず `active_flg = TRUE` のみで有効単価を判定する。失効単価（`active_flg=FALSE`）は
+> 「新規に選択できない」だけで、既存の販売店紐付けは失効単価を参照したまま自動移行しない。
+> そこで**プレビュー・出力時に失効単価参照を検証**し、該当販売店が居ればエラーで止める
+> （運用者が手動で新単価へ変更 → 当日中に再出力）。
+
+**① 失効単価参照チェック（1件でも該当すれば HTTP 409 `INACTIVE_TANKA_REFERENCED` で中止）**
+
+- 集計と同一の母集合（対象年月・スコープ・支払サイクル絞込に一致する販売店）のうち、
+  参照する配達手数料単価(tanka_type=2)が `active_flg = FALSE` の販売店を抽出する。
+  1件以上あれば出力を止め、該当販売店を `errors[]`（`field=hanbaiten_id`,
+  `message=販売店コード/名 + 単価コード/名`）で列挙して返す。大量該当対策として
+  `errors[]` は**先頭15件で打ち切り**、`total`（総該当件数・`COUNT(*) OVER()`）を別途返す。
+  FE は「該当 N 件中 15 件を表示」と要約し、全件の確認・単価変更は**販売店明細検索**へ
+  誘導する。プレビュー・出力の両方で実施する。
+
+```sql
+WITH latest_dokusya AS (
+  SELECT DISTINCT ON (d.dokusya_id)
+         d.dokusya_id, d.hanbaiten_id, d.joho_henko_tekiyo_date
+    FROM t_dokusya d
+   WHERE d.deleted_at IS NULL
+     AND d.tetsuzuki_shurui = 1
+     AND d.joho_henko_tekiyo_date <= DATE_TRUNC('month', :target_month::date) + INTERVAL '1 month' - INTERVAL '1 day'
+     AND d.ja_id = :user_ja_id
+     AND (:user_kanri_shiten_id IS NULL OR d.kanri_shiten_id = :user_kanri_shiten_id)
+   ORDER BY d.dokusya_id, d.joho_henko_tekiyo_date DESC, d.created_at DESC
+)
+SELECT h.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name,
+       t.tanka_code, t.tanka_name,
+       COUNT(*) OVER() AS total_count   -- GROUP BY 後の総該当販売店数（LIMIT 前）
+  FROM latest_dokusya ld
+  INNER JOIN m_hanbaiten h
+    ON h.hanbaiten_id = ld.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = FALSE
+  INNER JOIN m_tanka t
+    ON t.tanka_id = h.haitatsuryo_tanka_id
+   AND t.tanka_type = 2
+   AND t.deleted_at IS NULL
+   AND t.active_flg = FALSE          -- ← 失効単価のみ
+ WHERE (:haitatsuryo_shiharai_cycle IS NULL OR h.haitatsuryo_shiharai_cycle = :haitatsuryo_shiharai_cycle)
+ GROUP BY h.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name, t.tanka_code, t.tanka_name
+ ORDER BY h.hanbaiten_code
+ LIMIT 15
+```
+
+**② 集計データの取得（① を通過した後に実行）**
+
+- 対象年月の最新スナップショットを購読者ごとに特定（変更適用日 DESC、created_at DESC で最上位 1 件）し、販売店単位でグループ化して集計する。有効単価は `active_flg = TRUE` のみで判定する。
 
 ```sql
 WITH latest_dokusya AS (
@@ -323,6 +374,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
     ON t.tanka_id = h.haitatsuryo_tanka_id                         -- 配達手数料単価（FK）
    AND t.tanka_type = 2                                            -- 配達手数料
    AND t.deleted_at IS NULL
+   AND t.active_flg = TRUE                                         -- 有効単価のみ（失効は §4.4① で検出）
  WHERE (:haitatsuryo_shiharai_cycle IS NULL
         OR h.haitatsuryo_shiharai_cycle = :haitatsuryo_shiharai_cycle)
  GROUP BY h.hanbaiten_id,
@@ -371,7 +423,7 @@ SELECT TO_CHAR(:target_month::date, 'YYYYMM')        AS target_month,
 | リクエストボディー     | JSON                                                                                                                                                                                                                                                                                                                                       |
 | リクエストパラメーター | リクエストボディ（後述）                                                                                                                                                                                                                                                                                                                   |
 | ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                                                                                        |
-| HTTPレスポンスコード   | 200:正常に Excel ファイルを出力しました（バイナリ応答。対象0件のときは application/json で { data: [] }）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました                                                                                       |
+| HTTPレスポンスコード   | 200:正常に Excel ファイルを出力しました（バイナリ応答。対象0件のときは application/json で { data: [] }）, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 409:失効単価を参照する販売店が存在します, 500:システムエラーが発生しました                                                                                       |
 
 ## リクエストパラメータ
 

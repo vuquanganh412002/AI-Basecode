@@ -5,6 +5,7 @@
 // no-data は業務エラーではなく画面内に ACSMS-MSG-021-003 を表示する。アクセス制御は
 // route guard（meta.permission: 'haitatsuryo.export'）が担い、view 内に権限ガードはない。
 import { computed, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue';
 
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -16,6 +17,8 @@ import {
   type HaitatsuryoQuery,
   type HaitatsuryoPreviewData,
   type HaitatsuryoRow,
+  type HaitatsuryoError,
+  type HaitatsuryoErrorDetail,
 } from '@/api/haitatsuryo/haitatsuryo';
 import { formatYen, formatNumber } from '@/utils/formatters';
 import { endOfMonthIsoTokyo } from '@/utils/datetime';
@@ -23,6 +26,12 @@ import { downloadBlob } from '@/utils/download';
 
 const codes = useCodesStore();
 const notify = useNotify();
+const router = useRouter();
+
+/** 失効単価エラーから販売店明細検索(SCR-018)へ遷移し、失効単価参照フィルタを初期適用する。 */
+function goToHanbaitenSearch(): void {
+  void router.push({ name: 'HanbaitenList', query: { inactive_tanka: '1' } });
+}
 // 販売店コードはリンクにせずプレーンテキストで表示する（画面遷移なし）。
 
 const formState = reactive<{
@@ -39,6 +48,42 @@ const fieldErrors = reactive<{ target_month: string }>({ target_month: '' });
 const previewData = ref<HaitatsuryoPreviewData | null>(null);
 /** 対象データなし（200 + data:[]）→ ACSMS-MSG-021-003 を表示。 */
 const noDataMessage = ref(false);
+
+// 失効単価参照エラー（409 INACTIVE_TANKA_REFERENCED）。検索/出力で失効単価
+// (active_flg=false)を参照する販売店が居れば、SCR-020 と同様のインライン
+// エラー一覧で該当販売店を提示する（トーストではない）。手動で単価変更後、再検索。
+const inactiveTankaErrors = ref<HaitatsuryoErrorDetail[]>([]);
+const inactiveTankaMessage = ref('');
+const inactiveTankaTotal = ref(0);
+
+/** 失効単価エラーなら一覧をセットして true。それ以外は false（呼び出し側で従来処理）。 */
+function applyInactiveTankaError(err: unknown): boolean {
+  const e = err as HaitatsuryoError;
+  if (e?.error_code !== 'INACTIVE_TANKA_REFERENCED') return false;
+  inactiveTankaErrors.value = e.errors ?? [];
+  inactiveTankaTotal.value = e.total ?? e.errors?.length ?? 0;
+  inactiveTankaMessage.value =
+    e.message ??
+    '失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。';
+  return true;
+}
+
+/** 失効単価エラー表示をクリアする。 */
+function clearInactiveTankaError(): void {
+  inactiveTankaErrors.value = [];
+  inactiveTankaMessage.value = '';
+  inactiveTankaTotal.value = 0;
+}
+
+// 「該当 N 件中 15 件を表示」等の要約。打ち切りがある場合のみ全件確認導線を出す。
+const inactiveTankaSummary = computed(() => {
+  const total = inactiveTankaTotal.value;
+  const shown = inactiveTankaErrors.value.length;
+  if (total > shown) {
+    return `該当 ${total} 件中 ${shown} 件を表示しています。全件は販売店明細検索画面（「失効単価参照」絞込）で確認し、単価を変更してから再度実行してください。`;
+  }
+  return `該当販売店（${total}件）の単価を変更してから、再度実行してください。`;
+});
 
 /** ページネーション状態（index.html 全N件 / 20頁 に対応、preview のみ）。 */
 const page = ref(1);
@@ -106,6 +151,7 @@ function buildQuery(): HaitatsuryoQuery {
 /** 現在の page / per_page で集計プレビューを取得する（preview 共通処理）。 */
 async function fetchPreview(): Promise<void> {
   noDataMessage.value = false;
+  clearInactiveTankaError();
   try {
     const resp = await previewHaitatsuryo({
       ...buildQuery(),
@@ -116,9 +162,11 @@ async function fetchPreview(): Promise<void> {
     // 対象0件は 200 + data:[] で返る（業務エラーではない）→ 画面内テキスト。
     // 全件数(meta.total)で判定（ページ送りで data が空でも対象なしではない）。
     if (resp.meta.total === 0) noDataMessage.value = true;
-  } catch {
-    // 403/500 は集約 axios インターセプタがトースト済み。ローカル状態のみ整理。
+  } catch (err) {
+    // 失効単価参照（409）→ インラインエラー一覧で該当販売店を提示。
+    // 403/500 は集約 axios インターセプタがトースト済み。
     previewData.value = null;
+    applyInactiveTankaError(err);
   }
 }
 
@@ -144,6 +192,7 @@ function onTableChange(pagination: TablePaginationConfig): void {
 async function onExport(): Promise<void> {
   if (!validate()) return;
   noDataMessage.value = false;
+  clearInactiveTankaError();
   try {
     const blob = await exportHaitatsuryo(buildQuery());
     // 対象0件のとき BE は Excel ではなく application/json を返す。その場合は
@@ -156,12 +205,21 @@ async function onExport(): Promise<void> {
     const [y, m] = formState.target_month.split('-');
     downloadBlob(blob, `配達手数料支払情報出力_${y}年${m}月.xlsx`);
     notify.downloaded();
-  } catch {
+  } catch (err) {
+    // 失効単価参照（409）→ インラインエラー一覧で該当販売店を提示。
     // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
+    applyInactiveTankaError(err);
   }
 }
 
-defineExpose({ formState, page, perPage, onPageChange });
+defineExpose({
+  formState,
+  page,
+  perPage,
+  onPageChange,
+  inactiveTankaErrors,
+  inactiveTankaTotal,
+});
 </script>
 
 <template>
@@ -218,6 +276,39 @@ defineExpose({ formState, page, perPage, onPageChange });
           @click="onExport"
         >
           Excel出力
+        </a-button>
+      </div>
+    </div>
+
+    <!-- 失効単価参照エラー（409）: 該当販売店を SCR-020 と同様のインライン一覧で提示 -->
+    <div
+      v-if="inactiveTankaErrors.length > 0"
+      data-test="inactive-tanka-error-list"
+      class="border border-error/40 bg-error-subtle rounded-ant p-4 space-y-2"
+    >
+      <p class="text-sm font-semibold text-error" data-test="inactive-tanka-error-message">
+        {{ inactiveTankaMessage }}
+      </p>
+      <p class="text-sm text-error" data-test="inactive-tanka-error-summary">
+        {{ inactiveTankaSummary }}
+      </p>
+      <ul class="m-0 pl-0 list-none space-y-0.5">
+        <li
+          v-for="(e, idx) in inactiveTankaErrors"
+          :key="idx"
+          data-test="inactive-tanka-error-row"
+          class="text-sm text-error"
+        >
+          販売店ID {{ e.field }}: {{ e.message }}
+        </li>
+      </ul>
+      <div class="pt-1">
+        <a-button
+          size="small"
+          data-test="goto-hanbaiten-search"
+          @click="goToHanbaitenSearch"
+        >
+          販売店明細検索へ（失効単価参照で絞込）
         </a-button>
       </div>
     </div>

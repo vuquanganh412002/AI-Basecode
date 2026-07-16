@@ -158,6 +158,7 @@ export function buildHaitatsuryoSql(
         ON t.tanka_id = h.haitatsuryo_tanka_id
        AND t.tanka_type = 2
        AND t.deleted_at IS NULL
+       AND t.active_flg = TRUE
      WHERE ($5::int IS NULL OR h.haitatsuryo_shiharai_cycle = $5::int)
      GROUP BY h.hanbaiten_id,
               h.hanbaiten_code, h.hanbaiten_name,
@@ -173,6 +174,82 @@ export function buildHaitatsuryoSql(
     session.ja_id,
     session.kanri_shiten_id ?? null,
     zeiKubun,
+    query.haitatsuryo_shiharai_cycle ?? null,
+  ];
+  return { sql, params };
+}
+
+/** 失効単価参照チェック（error gate）で返す該当販売店一覧の上限。SCR-020 と同値。 */
+export const INACTIVE_TANKA_LIST_LIMIT = 15;
+
+/** 失効単価参照チェック（error gate）の1行（該当販売店）。 */
+export interface InactiveHaitatsuryoTankaRow {
+  hanbaiten_id: number | string;
+  hanbaiten_code: string | null;
+  hanbaiten_name: string | null;
+  tanka_code: string | null;
+  tanka_name: string | null;
+  /** COUNT(*) OVER() — LIMIT 前の総該当件数（pg は文字列で返す場合あり）。 */
+  total_count: number | string;
+}
+
+/**
+ * 失効単価参照チェック SQL（SCR-021 error gate・顧客要件2026-07）。
+ * 集計と同一の母集合（対象年月・スコープ・支払サイクル絞込に一致する販売店）から、
+ * 配達手数料単価(tanka_type=2)が active_flg=FALSE の販売店だけを抽出する。
+ * COUNT(*) OVER() で GROUP BY 後の総該当件数（＝販売店数）を各行に載せ、
+ * 行自体は INACTIVE_TANKA_LIST_LIMIT 件で打ち切る。
+ *
+ * params 順: [$1 target_month, $2 ja_id, $3 kanri_shiten_id,
+ *             $4 haitatsuryo_shiharai_cycle]
+ */
+export function buildInactiveHaitatsuryoTankaSql(
+  query: HaitatsuryoQueryDto,
+  session: ScopeSession,
+): { sql: string; params: unknown[] } {
+  const sql = `
+    WITH latest_dokusya AS (
+      SELECT DISTINCT ON (d.dokusya_id)
+             d.dokusya_id,
+             d.hanbaiten_id,
+             d.joho_henko_tekiyo_date
+        FROM t_dokusya d
+       WHERE d.deleted_at IS NULL
+         AND d.tetsuzuki_shurui = 1
+         AND d.joho_henko_tekiyo_date
+             <= DATE_TRUNC('month', $1::date) + INTERVAL '1 month' - INTERVAL '1 day'
+         AND d.ja_id = $2
+         AND ($3::bigint IS NULL OR d.kanri_shiten_id = $3::bigint)
+       ORDER BY d.dokusya_id,
+                d.joho_henko_tekiyo_date DESC,
+                d.created_at DESC
+    )
+    SELECT h.hanbaiten_id,
+           h.hanbaiten_code,
+           h.hanbaiten_name,
+           t.tanka_code,
+           t.tanka_name,
+           COUNT(*) OVER() AS total_count   -- GROUP BY 後の総該当販売店数（LIMIT 前）
+      FROM latest_dokusya ld
+      INNER JOIN m_hanbaiten h
+        ON h.hanbaiten_id = ld.hanbaiten_id
+       AND h.deleted_at IS NULL
+       AND h.haiten_flg = FALSE
+      INNER JOIN m_tanka t
+        ON t.tanka_id = h.haitatsuryo_tanka_id
+       AND t.tanka_type = 2
+       AND t.deleted_at IS NULL
+       AND t.active_flg = FALSE          -- ← 失効単価のみ
+     WHERE ($4::int IS NULL OR h.haitatsuryo_shiharai_cycle = $4::int)
+     GROUP BY h.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name,
+              t.tanka_code, t.tanka_name
+     ORDER BY h.hanbaiten_code
+     LIMIT ${INACTIVE_TANKA_LIST_LIMIT}
+  `;
+  const params: unknown[] = [
+    query.target_month,
+    session.ja_id,
+    session.kanri_shiten_id ?? null,
     query.haitatsuryo_shiharai_cycle ?? null,
   ];
   return { sql, params };

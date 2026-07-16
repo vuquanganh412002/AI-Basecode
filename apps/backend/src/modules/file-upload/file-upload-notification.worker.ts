@@ -145,6 +145,8 @@ export class FileUploadNotificationWorker extends WorkerHost {
       where: { accountId: uploaded_by },
     });
     const uploaderLoginId = uploader?.loginId ?? '(unknown)';
+    // 件名に ログインID + アカウント名 を表示する（顧客要件2026-07）。
+    const uploaderAccountName = uploader?.accountName ?? '';
 
     // [send-loop] Serial within a job so SES isn't slammed by a
     // single JA with hundreds of recipients. BullMQ concurrency
@@ -157,6 +159,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
           fileName: row.fileName,
           uploadDatetime: row.uploadDatetime,
           uploaderLoginId,
+          uploaderAccountName,
         });
       } catch (err) {
         failedEmails.push(email);

@@ -41,6 +41,12 @@ export const ErrorCode = {
   // ─── SCR-011 — 購読者情報登録画面 ─────────────────────────────────────
   // 403 — account lacks paper_flg/denshi_flg for the row's 購読種別.
   SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED',
+
+  // ─── SCR-020 — 口座振替データ出力画面 ─────────────────────────────────
+  // 409 — 出力対象に失効単価(active_flg=false)を参照する購読者が存在。
+  // body.errors[] = { field: dokusya_id, message: 購読者名 + 単価 } を
+  // SCR-020 のビューで一覧提示し、手動で単価変更へ誘導する。
+  INACTIVE_TANKA_REFERENCED: 'INACTIVE_TANKA_REFERENCED',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -20,6 +20,7 @@ updated_by: Nguyen Duyen Manh
 | 1   | 2026/05/22 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/30 | 1.1  | Nguyen Duyen Manh | 画面設計書 v1.2 / 画面イメージ v1.2 同期：<br>1. リクエストパラメータ：`bank_branch_code` / `bank_branch_name` を `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` にリネーム（物理カラム `bank_branch_code` / `bank_branch_name` は不変）<br>2. 期間検索化：`shoki_dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date` を `_from` / `_to` ペアに分割（相関チェック：from ≦ to）<br>3. 機能定義 2.2 と整合：手続種類・購読種別・電子版承認ステータスを常時表示エリアに配置（API には影響なし、備考のみ更新）<br>4. Excel 出力カラムを画面検索結果テーブル（24-35）に合わせて 12 列に圧縮（かな氏名・購読種別・支払方法を除外） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/06/16 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06 反映：<br>1. 検索条件の部分一致対象を拡張：`full_name`＝購読者氏名＋配達先氏名（shimei_sei/mei・haitatsu_shimei_sei/mei）、`full_name_kana`＝同かな4項目、`haitatsu`＝配達先住所4項目＋購読者住所4項目（todofuken_code/shikuchoson/chome_banchi/tatemono_mei）、`renrakusaki_1`＝連絡先１＋配達先連絡先１<br>2. レスポンス／検索結果テーブルに `tetsuzuki_shurui`（手続種類）と `haitatsu_full_name`（配達先氏名）を追加。一覧から 支店・連絡先２ 列を削除し、手続種類・購読種別を購読者名の後、配達先氏名を連絡先１の後、支払方法を販売店名の後に配置<br>3. Excel 出力を上記の新一覧（14 列）に合わせて変更。手続種類・購読種別・支払方法は m_code ラベルを出力 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/07/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07 反映：<br>1. ACSMS-API-014-004（Stop Dokusya＝購読停止・解約予約）を追加。一覧の「購読を停止する」ボタン専用。購読中止日だけを送り Phase 1 の解約予約行を1件挿入する（`POST /api/v1/dokusya/{dokusya_id}/stop`、権限 `dokusya.update`）。<br>2. 紙版はカレンダーで中止日を選択（購読開始日以降・未来日・最終変更適用日より後）。電子版は終了月を選び月末日で停止（当月以降・請求開始月以降。請求開始月未設定なら停止不可）。<br>3. 編集画面（SCR-011）の購読中止日はインライン編集を廃止し読取専用化（停止は本ボタンへ集約） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -108,6 +109,7 @@ updated_by: Nguyen Duyen Manh
 | 20  | joho_henko_tekiyo_date_from    | String | -        | -    |        |        | 適用日（範囲開始）YYYY/MM/DD【詳細検索】                                                            |
 | 21  | joho_henko_tekiyo_date_to      | String | -        | -    |        |        | 適用日（範囲終了）YYYY/MM/DD ※相関チェック：from ≦ to。両方空欄=最新データフラグ=1、入力時=変更適用日が範囲内の履歴を抽出【詳細検索】 |
 | 22  | shiharai_hoho                  | Number | -        | -    |        |        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）【詳細検索】 |
+| 22.5 | inactive_tanka_flg           | Boolean | -       | -    |        |        | 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）。`true`/`1` のときのみ有効。参照する購読料単価(tanka_type=1)が `active_flg=FALSE` の購読者だけを抽出（口座振替出力で失効単価参照によりブロックされた購読者を手動で新単価へ移行するための絞込）【詳細検索】 |
 | 23  | page                           | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                         |
 | 24  | per_page                       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
 | 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
@@ -322,6 +324,14 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
   - dokusya_chushi_date_from 指定時：`d.dokusya_chushi_date >= :dokusya_chushi_date_from`
   - dokusya_chushi_date_to 指定時：`d.dokusya_chushi_date <= :dokusya_chushi_date_to`
   - dokusya_shubetsu / shiharai_hoho / tetsuzuki_shurui / denshi_shonin_status 指定時：それぞれ等価条件
+  - inactive_tanka_flg=true 指定時：参照購読料単価が失効している購読者のみ抽出。`tanka_id` は m_tanka の PK のため INNER JOIN で行数は増えない（0/1件）。
+    ```sql
+    INNER JOIN m_tanka mti
+      ON mti.tanka_id = d.tanka_id
+     AND mti.tanka_type = 1
+     AND mti.deleted_at IS NULL
+     AND mti.active_flg = FALSE
+    ```
 - 適用日（joho_henko_tekiyo_date_from / joho_henko_tekiyo_date_to）の処理：
   - 両方空欄の場合：購読者履歴の最新データフラグ（saishin_data_flg=TRUE）のレコードを抽出
   - いずれか入力されている場合：購読者履歴テーブル（`t_dokusya_rireki`）の変更適用日が `[from, to]` の範囲内のレコードを抽出（from のみ指定 → `>= from`、to のみ指定 → `<= to`、両方 → 範囲内）
@@ -832,3 +842,159 @@ VALUES (3, NOW(), :account_id, :ja_id,
         NULL, 't_dokusya', :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```
+
+# API ACSMS-API-014-004
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                                                                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | Stop Dokusya（購読停止・解約予約）                                                                                                                                                                                                                          |
+| 概要                   | 一覧の「購読を停止する」ボタンから、購読中止日（解約予定日）だけを指定して解約予約行を1件挿入する専用API。実際の解約確定（t_dokusya への反映）は到来日バッチ（Phase 2）が行う。                                                                              |
+| URI                    | /api/v1/dokusya/{dokusya_id}/stop                                                                                                                                                                                                                          |
+| メソッド               | POST                                                                                                                                                                                                                                                       |
+| リクエストボディー     | dokusya_chushi_date（YYYY-MM-DD）                                                                                                                                                                                                                          |
+| リクエストパラメーター | dokusya_id（パスパラメータ）                                                                                                                                                                                                                               |
+| ヘッダ                 | Content-Type: application/json ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                     |
+| HTTPレスポンスコード   | 200:購読停止を予約しました, 400:バリデーションエラー, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 403:この購読者は編集・削除できません, 404:指定された購読者が見つかりません, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| #   | パラメーターID     | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                                       |
+| --- | ------------------ | ------ | -------- | ---- | ------ | ------ | ---------------------------------------------------------------------------------------------------------- |
+| 1   | dokusya_id         | Number | -        | 〇   |        |        | 停止対象の dokusya_id（パスパラメータ）                                                                     |
+| 2   | dokusya_chushi_date| String | -        | 〇   |        |        | 購読中止日（解約予定日）。紙版はカレンダー選択日、電子版は選択した終了月の月末日。フォーマットは `YYYY-MM-DD`。 |
+
+## レスポンスデータ
+
+| #   | 項目ID  | タイプ | 繰り返し | フォーマット | Nullable | 説明                                     |
+| --- | ------- | ------ | -------- | ------------ | -------- | ---------------------------------------- |
+| 1   | data    | Object | -        |              | -        | 更新後の購読者詳細（ACSMS-API-011-001 と同型） |
+| 2   | message | String | -        |              | -        | 「購読停止を予約しました。」             |
+
+## リクエスト例
+
+```
+POST /api/v1/dokusya/1001/stop
+Content-Type: application/json
+
+{
+  "dokusya_chushi_date": "2027-11-30"
+}
+```
+
+## レスポンス成功例
+
+```json
+{
+  "data": { "dokusya_id": 1001, "dokusya_chushi_date": "2027-11-30" },
+  "message": "購読停止を予約しました。"
+}
+```
+
+## レスポンス失敗例
+
+### 400 Validation Error（紙版：中止日の相対チェック違反）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [
+    { "field": "dokusya_chushi_date", "message": "購読中止日は本日より後の日付を指定してください。" }
+  ]
+}
+```
+
+### 400 Validation Error（電子版：請求開始月が未設定）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [
+    { "field": "dokusya_chushi_date", "message": "この読者料金の徴収はまだ開始されていません。" }
+  ]
+}
+```
+
+### 400 Validation Error（二重解約）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [
+    { "field": "dokusya_chushi_date", "message": "既に解約予約されています。変更する場合は履歴画面で解約を取消してください。" }
+  ]
+}
+```
+
+### 403 Dokusya Read Only
+
+```json
+{
+  "error_code": "DOKUSYA_READ_ONLY",
+  "message": "この購読者は編集・削除できません。（電子版クレジットカード決済者・併読者は読み取り専用）"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error_code": "NOT_FOUND",
+  "message": "指定された購読者が見つかりません。"
+}
+```
+
+## 処理手順
+
+> ※ 解約予約行の挿入 と 操作ログ記録 は単一トランザクション内で実行する。
+> いずれかが失敗した場合は全てロールバックすること。
+> 例外処理中のエラーログ（log_type=3）はトランザクション外で別途記録する。
+
+### 4.1 リクエストのバリデーション
+
+- パスパラメータ：dokusya_id の数値型チェック・必須チェック。
+- ボディ：dokusya_chushi_date の必須チェック・`YYYY-MM-DD` フォーマットチェック。
+- 不正な場合：HTTP 400（`BAD_REQUEST` / `VALIDATION_ERROR`）。
+
+### 4.2 認証・認可チェック
+
+- 認証情報を検証する（HTTP-only Cookieセッション）。未認証：HTTP 401（`UNAUTHORIZED`）。
+- 必要権限: `dokusya.update`。権限不足：HTTP 403（`FORBIDDEN`）。
+- DataScope（削除と同じ境界）：CHUOKAI=自中央会管轄JA / JA_HONTEN=自JA / JA_KANRI_SHITEN=自管理支店。範囲外は 404 でマスク。
+
+### 4.3 読み取り専用判定
+
+- 併読（dokusya_shubetsu=3）または 電子版クレカ決済者（dokusya_shubetsu=2 かつ shiharai_hoho=6）は編集不可 → HTTP 403（`DOKUSYA_READ_ONLY`）。
+
+### 4.4 停止（解約予約）バリデーション
+
+- 二重解約ガード：有効な解約予約（購読中止日が入った取消されていない履歴行）が既にある場合は 400（`VALIDATION_ERROR` / 既に解約予約されています…）。
+- 紙版（dokusya_shubetsu=1）：
+  - 解約予定日 >= 購読開始日
+  - 解約予定日 > 本日（未来日のみ）
+  - 解約予定日 > 最終変更適用日（履歴 MAX joho・同日不可）
+- 電子版（dokusya_shubetsu=2）：
+  - 請求開始月（seikyu_kaishi_month）が未設定なら停止不可（`この読者料金の徴収はまだ開始されていません。`）。
+  - 選択月（中止日の YYYYMM）は 請求開始月以降 かつ 当月以降。中止日は選択月の月末日（FE が丸めて送る）。
+
+### 4.5 解約予約行の挿入
+
+- Phase 1 の予約行を1件挿入する（`insertScheduledKaiyaku`）。最小限のみ override：`部数=0`・`zougen_hokoku_flg=true`・`中止日`・`適用日=中止日`・`kaiyaku_flg=false`・`saishin_data_flg=false`・`shinki_flg=false`・`torikeshi_flg=false`。その他項目は直前行から継承。
+- 未来日予約のため当日時点で t_dokusya は未反映（到来日バッチが確定）。
+
+### 4.6 操作ログ記録
+
+- `log_type=1`（USER_OPERATION）、`gamen_name='購読者明細検索画面 (ACSMS-SCR-014)'`、`operation='UPDATE'`、`target_table='t_dokusya'` で記録する（主DMLと同一トランザクション）。
+
+### 4.7 レスポンス生成
+
+- 更新後の購読者詳細（ACSMS-API-011-001 と同型）を `data` に、`message: '購読停止を予約しました。'` を返す。HTTP 200。
+
+### 4.8 例外処理
+
+- DB エラー等の場合：HTTP 500（`INTERNAL_SERVER_ERROR`）。
+- エラー発生時も操作ログを記録する（`log_type=3`、トランザクション外）。

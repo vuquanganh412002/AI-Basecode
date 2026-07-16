@@ -187,6 +187,31 @@ describe('SearchHanbaitenDto', () => {
     });
   });
 
+  describe('inactive_tanka_flg (SCR-021 error gate 連携)', () => {
+    it('should coerce string "true" to boolean true via @Transform', async () => {
+      const { dto, errors } = await run({ inactive_tanka_flg: 'true' });
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
+      expect((dto as any).inactive_tanka_flg).toBe(true);
+    });
+
+    it('should coerce string "false" to boolean false via @Transform', async () => {
+      const { dto, errors } = await run({ inactive_tanka_flg: 'false' });
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
+      expect((dto as any).inactive_tanka_flg).toBe(false);
+    });
+
+    it('should leave inactive_tanka_flg undefined when omitted', async () => {
+      const { dto, errors } = await run({});
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
+      expect((dto as any).inactive_tanka_flg).toBeUndefined();
+    });
+
+    it('should fail when inactive_tanka_flg is a non-boolean string like "maybe"', async () => {
+      const { errors } = await run({ inactive_tanka_flg: 'maybe' });
+      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(true);
+    });
+  });
+
   // ─── page ───────────────────────────────────────────────────────────
   describe('page', () => {
     it('should fail when page is below 1', async () => {
