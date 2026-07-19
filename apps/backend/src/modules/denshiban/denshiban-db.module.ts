@@ -2,34 +2,51 @@ import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
+import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { KanriShiten } from '@/database/entities/kanri-shiten.entity';
 
 import { DenshibanApiService } from './denshiban-api.service';
 import { DenshibanDbService } from './denshiban-db.service';
-import { DenshibanSyncService } from './denshiban-sync.service';
-import { DenshibanSyncWorker } from './denshiban-sync.worker';
+import { DenshibanDokusyaAssembler } from './inbound/denshiban-dokusya.assembler';
+import { DenshibanInboundFetcher } from './inbound/denshiban-inbound.fetcher';
+import { DenshibanInboundSyncService } from './inbound/denshiban-inbound-sync.service';
+import { DenshibanPayloadAssembler } from './outbound/denshiban-payload.assembler';
 
 /**
- * 顧客システム「電子版」との連携モジュール。
+ * Integration module for the customer system "denshiban".
  *
- * 横断的に参照されうるので `@Global()` — `DokusyaService`（Pha 3）は
- * import 無しで `DenshibanSyncService` を注入できる。
+ * `@Global()` because it can be referenced from anywhere — `DokusyaService`
+ * injects `DenshibanApiService` without importing this module.
  *
- * 構成:
- *   - `DenshibanSyncService` … 業務ロジックが呼ぶ唯一の入口（enqueue するだけ）
- *   - `DenshibanSyncWorker`  … キューを消費し、組み立て → 検証 → 送信 → 会員ID保存
- *   - `DenshibanApiService`  … 暗号化 + POST（`updateUserInfo`）
- *   - `DenshibanDbService`   … 電子版 MySQL の read-only 参照（別系統・受信側）
+ * Contents:
+ *   - `DenshibanApiService`       … the single entry point business logic calls
+ *                                   (`sendNow` = synchronous, in-transaction send)
+ *                                   plus the transport layer (`send` = encrypt +
+ *                                   POST `updateUserInfo`)
+ *   - `DenshibanPayloadAssembler` … subscriber → payload assembly (outbound)
+ *   - `DenshibanDbService`        … read-only access to denshiban's MySQL
+ *   - Inbound (電子版 `users` → `t_dokusya`):
+ *       `DenshibanInboundFetcher`     … reads `users` (collecting=1)
+ *       `DenshibanDokusyaAssembler`   … resolves FKs + builds the draft
+ *       `DenshibanInboundSyncService` … single-shot `syncAll()` the batch runner
+ *                                       calls (fetch → classify → write + audit)
  */
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([Dokusya, KanriShiten])],
+  imports: [TypeOrmModule.forFeature([Dokusya, KanriShiten, Hanbaiten])],
   providers: [
     DenshibanDbService,
     DenshibanApiService,
-    DenshibanSyncService,
-    DenshibanSyncWorker,
+    DenshibanPayloadAssembler,
+    DenshibanInboundFetcher,
+    DenshibanDokusyaAssembler,
+    DenshibanInboundSyncService,
   ],
-  exports: [DenshibanDbService, DenshibanApiService, DenshibanSyncService],
+  exports: [
+    DenshibanDbService,
+    DenshibanApiService,
+    DenshibanPayloadAssembler,
+    DenshibanInboundSyncService,
+  ],
 })
 export class DenshibanDbModule {}

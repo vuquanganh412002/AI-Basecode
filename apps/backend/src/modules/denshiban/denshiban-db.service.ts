@@ -3,17 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 /**
- * 顧客システム「電子版」のDB（読み取り専用 / MySQL）への副接続サービス。
+ * Secondary connection to the customer system "denshiban"'s DB (read-only / MySQL).
  *
- * 電子版DBは「一部のバッチ」でのみ参照するため、メイン業務DB
- * （PostgreSQL, `DatabaseModule`）のように常時接続プールを保持しない。
- * 代わりに `withConnection()` で呼ばれるたびに短命接続を開き、処理後に
- * 必ず閉じる（接続のライフサイクル = バッチの実行中だけ）。常時 idle conn を
- * 抱えないので wait_timeout / NAT idle 切断・stale conn 問題が原理的に発生しない。
+ * The denshiban DB is only read by "some batches", so unlike the main business DB
+ * (PostgreSQL, `DatabaseModule`) it does not hold a persistent connection pool.
+ * Instead, `withConnection()` opens a short-lived connection per call and always
+ * closes it afterwards (the connection's lifetime = the batch run). Because no
+ * idle connection is ever held, wait_timeout / NAT idle disconnects / stale
+ * connections cannot occur by construction.
  *
- * 起動時（onApplicationBootstrap）は「疎通確認だけ」短命接続で行い、
- * すぐ閉じる。接続失敗してもアプリ本体は落とさず、ログのみ
- * （ECS / CloudWatch で確認）。`denshiban.enabled=false` なら一切接続しない。
+ * At startup (onApplicationBootstrap) it does a connectivity check only, over a
+ * short-lived connection, then closes immediately. A connection failure does not
+ * take the app down — it only logs (check ECS / CloudWatch). With
+ * `denshiban.enabled=false` it never connects at all.
  */
 @Injectable()
 export class DenshibanDbService implements OnApplicationBootstrap {
@@ -22,8 +24,8 @@ export class DenshibanDbService implements OnApplicationBootstrap {
   constructor(private readonly configService: ConfigService) {}
 
   /**
-   * 設定から DataSource オプションを組み立てる（初期化はしない）。
-   * `denshiban.enabled=false` なら null。
+   * Builds the DataSource options from config (does not initialize).
+   * `null` when `denshiban.enabled=false`.
    */
   private buildOptions(): DataSourceOptions | null {
     if (!this.configService.get<boolean>('denshiban.enabled')) return null;
@@ -41,34 +43,37 @@ export class DenshibanDbService implements OnApplicationBootstrap {
       port,
       username,
       password,
-      // database 未指定（空文字）でも接続できるよう undefined に正規化。
+      // Normalize to undefined so connecting works even with no database
+      // specified (empty string).
       database: database || undefined,
-      // RDS は TLS 必須。RDS CA を同梱せず in-transit 暗号化のみ行うため
-      // rejectUnauthorized:false。検証/ローカルは false。
+      // RDS requires TLS. We don't bundle the RDS CA and only want in-transit
+      // encryption, hence rejectUnauthorized:false. False for verification/local.
       ssl: ssl ? { rejectUnauthorized: false } : undefined,
-      // 読み取り専用の外部参照。エンティティ・マイグレーションは持たない。
+      // Read-only external reference. Owns no entities and no migrations.
       entities: [],
       synchronize: false,
       extra: {
-        // バッチ実行中だけの短命プール。常時保持しないので idleTimeout /
-        // maxIdle / keepAlive のような「idle 維持」チューニングは不要。
+        // A short-lived pool that exists only during a batch run. Since nothing is
+        // held long-term, "keep idle alive" tuning (idleTimeout / maxIdle /
+        // keepAlive) is unnecessary.
         connectionLimit: 3,
-        // 接続が無応答でハングしないよう接続タイムアウトのみ設定。
+        // Only a connect timeout, so an unresponsive connection can't hang.
         connectTimeout: 10_000,
       },
     };
   }
 
   /**
-   * バッチ用途のエントリポイント。呼ぶたびに短命接続を開き、`fn` 実行後に
-   * 必ず閉じる（成功・失敗にかかわらず destroy）。常時接続は保持しない。
+   * The entry point for batch use. Opens a short-lived connection per call and
+   * always closes it after `fn` (destroy on success or failure). No persistent
+   * connection is held.
    *
    * @example
    *   const rows = await denshibanDb.withConnection((ds) =>
    *     ds.query('SELECT * FROM t_dokusya WHERE updated_at > ?', [since]),
    *   );
    *
-   * @throws `denshiban.enabled=false` のとき。
+   * @throws when `denshiban.enabled=false`.
    */
   async withConnection<T>(fn: (ds: DataSource) => Promise<T>): Promise<T> {
     const options = this.buildOptions();
@@ -80,14 +85,15 @@ export class DenshibanDbService implements OnApplicationBootstrap {
     try {
       return await fn(ds);
     } finally {
-      // バッチ終了時に必ず接続を解放。
+      // Always release the connection when the batch ends.
       await ds.destroy().catch(() => undefined);
     }
   }
 
   /**
-   * ECS BE 起動時の疎通確認のみ。短命接続を開き `SELECT 1` で検証し、
-   * ログを出してすぐ閉じる（接続は保持しない）。認証情報はログに出さない。
+   * Connectivity check only, at ECS BE startup. Opens a short-lived connection,
+   * verifies with `SELECT 1`, logs, and closes immediately (no connection is
+   * retained). Credentials are never logged.
    */
   async onApplicationBootstrap(): Promise<void> {
     if (!this.configService.get<boolean>('denshiban.enabled')) {
@@ -108,15 +114,17 @@ export class DenshibanDbService implements OnApplicationBootstrap {
         this.logger.log(
           `✅ 電子版DB (MySQL) connected — ${target}（疎通確認のみ・接続は保持しない）`,
         );
-        // ⚠️ TEMPORARY 診断 — フラグ ON のときだけ、テーブル一覧 + 各テーブル
-        // 先頭10件を起動ログに出す。dump 許可待ちの暫定確認用（PII をログに
-        // 出すため既定 OFF・本番禁止、許可後に削除）。
+        // ⚠️ TEMPORARY diagnostic — only when the flag is ON, log the table list
+        // plus the first 10 rows of each table at startup. An interim check while
+        // we wait for dump permission (it logs PII, so default OFF, banned in
+        // production, delete once permission arrives).
         if (this.configService.get<boolean>('denshiban.debugSample')) {
           await this.logSampleData(ds);
         }
       });
     } catch (err) {
-      // 補助接続の失敗でアプリ本体を落とさない — ログだけ出して継続する。
+      // A failure on a secondary connection must not take the app down — log and
+      // continue.
       this.logger.error(
         `❌ 電子版DB (MySQL) connection failed — ${target}: ${(err as Error).message}`,
       );
@@ -124,27 +132,30 @@ export class DenshibanDbService implements OnApplicationBootstrap {
   }
 
   /**
-   * ⚠️ TEMPORARY 診断（dump 許可待ちの暫定確認）。フラグ
-   * `DENSHIBAN_DB_DEBUG_SAMPLE=true` のときだけ呼ばれる。渡された短命接続
-   * （onApplicationBootstrap の withConnection 内）に対して直接:
+   * ⚠️ TEMPORARY diagnostic (an interim check while dump permission is pending).
+   * Called only when the flag `DENSHIBAN_DB_DEBUG_SAMPLE=true`. Against the
+   * short-lived connection it is handed (from onApplicationBootstrap's
+   * withConnection) it directly:
    *
-   *   1. SHOW TABLES でテーブル一覧をログに出す。
-   *   2. 各テーブルの「列数・列名・先頭3件」を見やすいツリー形式でログに出す
-   *      （テーブルごと best-effort）。
+   *   1. Logs the table list via SHOW TABLES.
+   *   2. Logs each table's column count / column names / first 3 rows in a readable
+   *      tree format (best-effort per table).
    *
-   * ⚠️ ja / users 等は個人情報(PII)を含みうる。本メソッドは PII を CloudWatch に
-   * 書き出すため、dev/検証のみ・暫定限定。dump 許可が下りたら本メソッドごと削除。
-   * 全て best-effort — 失敗しても接続疎通は成功扱いのまま warn のみ。
+   * ⚠️ Tables like ja / users can contain personal information (PII). This method
+   * writes PII to CloudWatch, so it is dev/verification only and strictly interim.
+   * Delete the whole method once dump permission is granted. Everything is
+   * best-effort — a failure leaves the connectivity check successful and only warns.
    */
   private async logSampleData(ds: DataSource): Promise<void> {
     const SAMPLE_ROWS = 3;
 
-    // ── 1. テーブル一覧（接続中DB = cmsDB）─────────────────────────────
+    // ── 1. Table list (the connected DB = cmsDB) ────────────────────────────
     let tableNames: string[] = [];
     try {
       const rows =
         await ds.query<Array<Record<string, string>>>('SHOW TABLES');
-      // SHOW TABLES の列名は `Tables_in_<db>` と可変なので最初の値を取る。
+      // SHOW TABLES names its column `Tables_in_<db>`, which varies, so take the
+      // first value.
       tableNames = rows.map((r) => Object.values(r)[0]).filter(Boolean);
       this.logger.log(
         `🗂️  電子版DB tables (${tableNames.length}): ${tableNames.join(', ')}`,
@@ -156,15 +167,16 @@ export class DenshibanDbService implements OnApplicationBootstrap {
       return;
     }
 
-    // ── 2. 各テーブル: 列数・列名・先頭3件（テーブルごと best-effort）──────
-    // テーブル名は SHOW TABLES 由来のサーバ側識別子なのでバッククォートで
-    // 安全に補間（ユーザー入力ではない）。行数は定数。
-    // 1テーブル分を1つの複数行メッセージにまとめてツリー形式で出力し、
-    // ログ上で1ブロックとして読みやすくする。
+    // ── 2. Per table: column count / names / first 3 rows (best-effort each) ──
+    // Table names come from SHOW TABLES, i.e. server-side identifiers, so
+    // backtick interpolation is safe (not user input). The row count is a constant.
+    // Each table is emitted as one multi-line message in tree form so it reads as a
+    // single block in the logs.
     for (const table of tableNames) {
       try {
-        // 列情報は SHOW COLUMNS から取得（0件のテーブルでも列が分かる）。
-        // SHOW COLUMNS の各列値は文字列なので Record<string, string> で受ける。
+        // Column info comes from SHOW COLUMNS (so columns are visible even for an
+        // empty table). Every SHOW COLUMNS value is a string, hence
+        // Record<string, string>.
         const columns = await ds.query<Array<Record<string, string>>>(
           `SHOW COLUMNS FROM \`${table}\``,
         );

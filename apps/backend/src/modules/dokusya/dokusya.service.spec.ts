@@ -266,6 +266,11 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
+      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
+      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
+      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
+      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -3987,6 +3992,11 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       rireki,
       searchService,
       replaceService,
+      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
+      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
+      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
+      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -5193,6 +5203,11 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       rireki,
       searchService,
       replaceService,
+      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
+      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
+      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
+      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -7999,6 +8014,11 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       rireki,
       searchService,
       replaceService,
+      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
+      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
+      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
+      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -8243,6 +8263,11 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       rireki,
       searchService,
       replaceService,
+      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
+      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
+      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
+      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 

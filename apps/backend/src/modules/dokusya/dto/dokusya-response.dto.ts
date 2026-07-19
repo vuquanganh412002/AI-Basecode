@@ -58,9 +58,9 @@ export class DokusyaResponseDto {
   @ApiProperty() haitatsu_shimei_mei: string;
   @ApiProperty() haitatsu_shimei_kana_sei: string;
   @ApiProperty() haitatsu_shimei_kana_mei: string;
-  @ApiProperty() hanbaiten_id: number;
+  @ApiProperty({ nullable: true }) hanbaiten_id: number | null;
   @ApiProperty() hanbaiten_name: string;
-  @ApiProperty() tanka_id: number;
+  @ApiProperty({ nullable: true }) tanka_id: number | null;
   @ApiProperty() tanka_name: string;
   @ApiProperty() yubin_kubun: string;
   @ApiProperty() shiharai_hoho: number;

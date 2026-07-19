@@ -2,23 +2,27 @@ import { dateOnlyIsoJst, yearMonthJst } from '@/common/utils/datetime';
 import { DenshibanMappingError } from './denshiban-payload.builder';
 
 /**
- * `payment_start`（電子版の購読開始 — **0: 当日 / 1: 翌月1日**）の算出。
+ * Computes `payment_start` (denshiban's subscription start — **0: today / 1: the
+ * 1st of next month**).
  *
- * 対応する cloud 側の列は `t_dokusya.dokusya_kaishi_date`（購読開始日）。電子版の
- * 会員登録画面では購読開始日が **この2択に畳まれている** ため、cloud の絶対日付を
- * 2値へ変換する必要がある。`approve`（未承認会員の承認）も同じ変換を使う — 承認とは
- * 「いつから購読を開始するか」を確定させる操作だから。
+ * The corresponding cloud column is `t_dokusya.dokusya_kaishi_date` (subscription
+ * start date). denshiban's member-registration screen **collapses the start date
+ * into those two choices**, so cloud's absolute date has to be converted to the two
+ * values. `approve` (approving an unapproved member) uses the same conversion —
+ * because approving *is* the act of settling "when does the subscription start".
  *
- * **builder から切り出してある**。電子版へ送るのは 0/1 の2値だけで日付は送らない
- * ので、builder 自身は時計を知らなくてよい。時計依存をこの1関数に隔離して
- * {@link ./denshiban-payload.builder} を完全な純関数に保つ。
+ * **Split out of the builder.** Only the 0/1 pair is sent to denshiban, never a
+ * date, so the builder itself need not know about the clock. Isolating the clock
+ * dependency in this one function keeps {@link ./denshiban-payload.builder} purely
+ * functional.
  *
- * ⚠️ 2値は **電子版が受信した瞬間** の日付で解釈される。キュー滞留や再送で日付／
- * 月境界をまたぐと、cloud が意図した開始日と食い違う。呼び出し側は送信直前の
- * `now` で算出すること（`new Date()` を既定にしているのはそのため）。
+ * ⚠️ The two values are interpreted against the date **at the moment denshiban
+ * receives them**. If a queue delay or a retry crosses a day or month boundary, the
+ * result disagrees with the start date cloud intended. Callers must compute this
+ * with the `now` from right before sending (which is why `new Date()` is the default).
  *
- * @param dokusyaKaishiDate 購読開始日 `YYYY-MM-DD`（`YYYY/MM/DD` も受ける）。
- * @param now 判定基準時刻。既定は現在時刻。
+ * @param dokusyaKaishiDate Subscription start date `YYYY-MM-DD` (`YYYY/MM/DD` also accepted).
+ * @param now The reference time. Defaults to the current time.
  */
 export function toPaymentStart(
   dokusyaKaishiDate: string,
@@ -31,16 +35,17 @@ export function toPaymentStart(
   if (date === today) return '0';
   if (date === nextMonth1st) return '1';
 
-  // 「当日」でも「翌月1日」でもない日付（例: 来週・過去日・当月15日）は電子版の
-  // 2値では表現できない。適当に '0' を送ると購読開始日が黙ってずれ、cloud と
-  // 電子版で課金開始が食い違う。
+  // A date that is neither "today" nor "the 1st of next month" (e.g. next week, a
+  // past date, the 15th of this month) cannot be expressed by denshiban's two
+  // values. Arbitrarily sending '0' would silently shift the subscription start,
+  // making cloud and denshiban disagree about when billing begins.
   throw new DenshibanMappingError(
     'dokusya_kaishi_date',
     `購読開始日「${date || '(空)'}」は電子版の payment_start（当日=${today} → 0 / 翌月1日=${nextMonth1st} → 1）で表現できません。`,
   );
 }
 
-/** JST 基準で翌月1日を `YYYY-MM-DD` で返す（12月 → 翌年1月1日）。 */
+/** Returns the 1st of next month as `YYYY-MM-DD`, JST-based (December → Jan 1 of next year). */
 function firstDayOfNextMonth(now: Date): string {
   const ym = yearMonthJst(now);
   const year = Number(ym.slice(0, 4));

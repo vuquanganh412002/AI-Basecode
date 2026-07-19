@@ -3,10 +3,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { toBoolean } from '@/common/utils/env';
 
-import {
-  QUEUE_DENSHIBAN_SYNC,
-  QUEUE_FILE_UPLOAD_NOTIFICATION,
-} from './queue-names.constants';
+import { QUEUE_FILE_UPLOAD_NOTIFICATION } from './queue-names.constants';
 
 /**
  * Global BullMQ wiring. Feature modules import the resulting queue via
@@ -72,9 +69,6 @@ import {
     }),
     BullModule.registerQueue({
       name: QUEUE_FILE_UPLOAD_NOTIFICATION,
-    }),
-    BullModule.registerQueue({
-      name: QUEUE_DENSHIBAN_SYNC,
     }),
   ],
   exports: [BullModule],

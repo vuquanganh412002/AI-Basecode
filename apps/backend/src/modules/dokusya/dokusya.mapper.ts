@@ -117,9 +117,11 @@ export function toDokusyaResponse(
     haitatsu_shimei_mei: entity.haitatsuShimeiMei ?? '',
     haitatsu_shimei_kana_sei: entity.haitatsuShimeiKanaSei ?? '',
     haitatsu_shimei_kana_mei: entity.haitatsuShimeiKanaMei ?? '',
-    hanbaiten_id: coerceNumber(entity.hanbaitenId),
+    // NULL許容: 電子版連携で作成された購読者は販売店/単価未設定（NULL）。
+    // coerceNumber は NULL→0 にしてしまい API が嘘をつくため coerceNullableNumber。
+    hanbaiten_id: coerceNullableNumber(entity.hanbaitenId),
     hanbaiten_name: joins.hanbaiten_name,
-    tanka_id: coerceNumber(entity.tankaId),
+    tanka_id: coerceNullableNumber(entity.tankaId),
     tanka_name: joins.tanka_name,
     yubin_kubun: entity.yubinKubun ?? '',
     shiharai_hoho: coerceNumber(entity.shiharaiHoho),

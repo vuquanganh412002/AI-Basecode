@@ -1,19 +1,23 @@
-// 電子版連携 Pha 2 — 送信クライアント (`DenshibanApiService.send`) のユニットテスト。
+// Denshiban integration Phase 2 — unit tests for the send client
+// (`DenshibanApiService.send`).
 //
-// 契約: docs/design-vi/Denshiban-mapper/outbound-field-matrix.md §E
-//   - HTTP は常に 200。成否はボディの `statusCode`。
-//   - `timestamp` は send() が送信直前に打つ（epoch 秒）。
+// Contract: docs/design-vi/Denshiban-mapper/outbound-field-matrix.md §E
+//   - HTTP is always 200. Success/failure lives in the body's `statusCode`.
+//   - `timestamp` is stamped by send() right before sending (epoch seconds).
 //
-// `fetch` をモックするのでネットワークは不要。
+// `fetch` is mocked, so no network is needed.
 
 import { createDecipheriv } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 
-import { DenshibanApiService } from './denshiban-api.service';
-import type { DenshibanPayload } from './denshiban-payload.builder';
-import { DenshibanSyncException } from './denshiban-sync.exception';
+import { buildDokusya } from '@test/fixtures/dokusya.factory';
 
-/** 32byte = AES-256 の鍵長ちょうど（utf8 生バイト列として解決される）。 */
+import { DenshibanApiService } from './denshiban-api.service';
+import type { DenshibanPayloadAssembler } from './outbound/denshiban-payload.assembler';
+import type { DenshibanPayload } from './mapper/denshiban-payload.builder';
+import { DenshibanApiException } from './outbound/denshiban-api.exception';
+
+/** 32 bytes = exactly the AES-256 key length (resolved as a raw utf8 byte string). */
 const KEY = '01234567890123456789012345678901';
 const URL = 'https://denshiban.example.jp/readermanage/updateUserInfo';
 
@@ -31,7 +35,7 @@ function buildService(config: Record<string, unknown> = {}): DenshibanApiService
   return new DenshibanApiService(configService);
 }
 
-/** モック fetch — 呼ばれたボディを覗けるように保持する。 */
+/** Mock fetch — retained so the body it was called with can be inspected. */
 function mockFetch(body: unknown, status = 200) {
   const fn = jest.fn().mockResolvedValue({
     status,
@@ -44,7 +48,7 @@ function mockFetch(body: unknown, status = 200) {
   return fn;
 }
 
-/** send() が実際に送った平文を復号して取り出す（IV(12) + 本文 + Tag(16)）。 */
+/** Decrypts and extracts the plaintext send() actually sent (IV(12) + body + Tag(16)). */
 function decryptSentPayload(fetchMock: jest.Mock): Record<string, unknown> {
   const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
   const packet = Buffer.from(body.payload as string, 'base64');
@@ -91,7 +95,7 @@ describe('DenshibanApiService.send', () => {
     try {
       await buildService().send(PAYLOAD);
       const sent = decryptSentPayload(fetchMock);
-      // ペイロードに timestamp は含まれていなかった（builder は打たない）。
+      // The payload carried no timestamp (the builder doesn't stamp one).
       expect(PAYLOAD.timestamp).toBeUndefined();
       expect(sent.timestamp).toBe(Math.floor(Date.parse('2026-07-14T03:00:00Z') / 1000));
       expect(String(sent.timestamp)).toHaveLength(10);
@@ -100,25 +104,19 @@ describe('DenshibanApiService.send', () => {
     }
   });
 
-  it('statusCode!=0 は HTTP 200 でも DenshibanSyncException を投げる', async () => {
+  it('statusCode!=0 は HTTP 200 でも DenshibanApiException を投げる', async () => {
     mockFetch({ statusCode: 'P01', message: 'メールアドレスが重複しています' }, 200);
 
     await expect(buildService().send(PAYLOAD)).rejects.toBeInstanceOf(
-      DenshibanSyncException,
+      DenshibanApiException,
     );
   });
 
-  it('E05 は再送可、V12 は再送不可として分類される', async () => {
-    mockFetch({ statusCode: 'E05', message: 'timeout' });
-    await expect(buildService().send(PAYLOAD)).rejects.toMatchObject({
-      statusCode: 'E05',
-      retryable: true,
-    });
-
+  it('denshiban の statusCode を例外に保持する', async () => {
     mockFetch({ statusCode: 'V12', message: 'invalid zip' });
+
     await expect(buildService().send(PAYLOAD)).rejects.toMatchObject({
       statusCode: 'V12',
-      retryable: false,
     });
   });
 
@@ -156,5 +154,119 @@ describe('DenshibanApiService.send', () => {
       buildService({ 'denshiban.commonKey': '' }).send(PAYLOAD),
     ).rejects.toThrow(/DENSHIBAN_DB_COMMON_KEY/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── sendNow — the business entry (gate + assemble + send) ──────────────────
+// sendNow's contract:
+//   1. Gate: only digital-only (2) subscribers are sent; both (3) / paper-only
+//      (1) return null without assembling or POSTing.
+//   2. Digital: assemble the payload then send() it, returning denshiban's response.
+//   3. Unwired (no assembler) for a digital subscriber → throws (a silent no-op
+//      would mean "we think we sent it but we didn't").
+//   4. Denshiban errors are NOT swallowed — they propagate so the caller's tx rolls back.
+
+const ASSEMBLED: DenshibanPayload = {
+  action_kbn: 'create',
+  jacd_execute: '0123456789',
+  first_name: '山田',
+};
+
+function buildAssembler() {
+  return {
+    assemble: jest.fn().mockResolvedValue(ASSEMBLED),
+  } as unknown as jest.Mocked<Pick<DenshibanPayloadAssembler, 'assemble'>>;
+}
+
+function buildServiceWith(
+  assembler?: Pick<DenshibanPayloadAssembler, 'assemble'>,
+  config: Record<string, unknown> = {},
+): DenshibanApiService {
+  const configService = {
+    get: (key: string) =>
+      ({ 'denshiban.apiUrl': URL, 'denshiban.commonKey': KEY, ...config })[key],
+  } as unknown as ConfigService;
+  return new DenshibanApiService(
+    configService,
+    assembler as DenshibanPayloadAssembler,
+  );
+}
+
+describe('DenshibanApiService.sendNow', () => {
+  it('電子版読者 (2) は組み立てて送信し、結果を返す', async () => {
+    mockFetch({ statusCode: '0', id: '5001', message: '' });
+    const assembler = buildAssembler();
+
+    const result = await buildServiceWith(assembler).sendNow({
+      dokusya: buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 }),
+      mode: 'create',
+    });
+
+    expect(assembler.assemble).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'create' }),
+      undefined,
+    );
+    expect(result).toEqual({ statusCode: '0', id: '5001', message: '' });
+  });
+
+  it('併読 (3) は組み立ても送信もせず null', async () => {
+    const assembler = buildAssembler();
+    const fetchMock = mockFetch({ statusCode: '0' });
+
+    const result = await buildServiceWith(assembler).sendNow({
+      dokusya: buildDokusya({ dokusyaShubetsu: 3 }),
+      mode: 'update',
+      before: buildDokusya({ dokusyaShubetsu: 3 }),
+    });
+
+    expect(result).toBeNull();
+    expect(assembler.assemble).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('紙のみ (1) は組み立ても送信もせず null', async () => {
+    const assembler = buildAssembler();
+    const fetchMock = mockFetch({ statusCode: '0' });
+
+    const result = await buildServiceWith(assembler).sendNow({
+      dokusya: buildDokusya({ dokusyaShubetsu: 1 }),
+      mode: 'create',
+    });
+
+    expect(result).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('manager を assembler にそのまま渡す（同一トランザクション接続で読む）', async () => {
+    mockFetch({ statusCode: '0' });
+    const assembler = buildAssembler();
+    const manager = { marker: 'tx' } as never;
+
+    await buildServiceWith(assembler).sendNow(
+      { dokusya: buildDokusya({ dokusyaShubetsu: 2 }), mode: 'create' },
+      manager,
+    );
+
+    expect(assembler.assemble).toHaveBeenCalledWith(expect.anything(), manager);
+  });
+
+  it('未配線（assembler 未注入）で電子版読者を送ると投げる', async () => {
+    await expect(
+      buildServiceWith(undefined).sendNow({
+        dokusya: buildDokusya({ dokusyaShubetsu: 2 }),
+        mode: 'create',
+      }),
+    ).rejects.toThrow(/未配線/);
+  });
+
+  it('電子版APIのエラーは握りつぶさず伝播する（呼び出し側の tx を巻き戻す）', async () => {
+    mockFetch({ statusCode: 'P03', message: '会員が存在しません' });
+
+    await expect(
+      buildServiceWith(buildAssembler()).sendNow({
+        dokusya: buildDokusya({ dokusyaShubetsu: 2 }),
+        mode: 'create',
+      }),
+    ).rejects.toBeInstanceOf(DenshibanApiException);
   });
 });

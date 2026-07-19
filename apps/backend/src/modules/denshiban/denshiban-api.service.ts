@@ -1,47 +1,143 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { EntityManager } from 'typeorm';
 
-import type { DenshibanPayload } from './denshiban-payload.builder';
-import { DenshibanSyncException } from './denshiban-sync.exception';
+import { DokusyaShubetsu } from '@/common/enums';
+import type { Dokusya } from '@/database/entities/dokusya.entity';
+
+// ⚠️ Value import (not `import type`) — Nest's DI reads the runtime value via
+// `design:paramtypes`. A type-only import is erased at compile time, so the
+// constructor parameter loses its type and can no longer be injected.
+import { DenshibanPayloadAssembler } from './outbound/denshiban-payload.assembler';
+import type { DenshibanMode, DenshibanPayload } from './mapper/denshiban-payload.builder';
+import { DenshibanApiException } from './outbound/denshiban-api.exception';
 
 /**
- * 顧客システム「電子版」の会員情報更新 共通API (`updateUserInfo`) クライアント。
+ * Client for the customer system "denshiban"'s member-info update common API
+ * (`updateUserInfo`), plus the business entry point business logic calls to sync
+ * a subscriber ({@link sendNow}).
  *
- * 仕様（顧客提供 "Common Flow"）:
+ * `sendNow` gates on sync eligibility, assembles the payload (via
+ * {@link DenshibanPayloadAssembler}) and hands it to {@link send} — the transport
+ * layer that encrypts and POSTs it. Call `sendNow` from inside the caller's
+ * transaction, before COMMIT: a denshiban error propagates and rolls the tx back,
+ * so data denshiban rejects never ends up in cloud either (customer req, 2026-07).
+ *
+ * Spec (customer-provided "Common Flow"):
  *   - HTTPS / POST, Content-Type: application/json, UTF-8
- *   - 平文JSON 全体を AES-256-GCM（共通鍵）で暗号化
- *   - パケット = IV(12B) + Ciphertext + AuthTag(16B) を連結し Base64 化
- *   - リクエストボディ = `{ "payload": "<Base64パケット>" }`
- *   - 平文JSON にリプレイ防止用の `timestamp`（epoch 秒）を含める
- *     （API開始 - timestamp <= 300秒。超過すると `E05`）
+ *   - The entire plaintext JSON is encrypted with AES-256-GCM (shared key)
+ *   - Packet = IV(12B) + Ciphertext + AuthTag(16B), concatenated and Base64-encoded
+ *   - Request body = `{ "payload": "<Base64 packet>" }`
+ *   - The plaintext JSON carries a `timestamp` (epoch seconds) for replay protection
+ *     (API start - timestamp <= 300s; over that it returns `E05`)
  *
- * ⚠️ **HTTP は常に 200**。成否はボディの `statusCode` にしかない。
+ * ⚠️ **HTTP is always 200.** Success/failure lives only in the body's `statusCode`.
  */
 @Injectable()
 export class DenshibanApiService implements OnApplicationBootstrap {
   private readonly logger = new Logger('DenshibanApi');
 
-  /** 外部I/Oがハングしないための受信タイムアウト（ms）。 */
+  /** Response timeout (ms) so external I/O can't hang. */
   private static readonly REQUEST_TIMEOUT_MS = 15_000;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    // `@Optional()` so `send()`-only unit specs (and any context that never
+    // syncs) can construct without the assembler. In production DI the real
+    // instance comes from the global `DenshibanDbModule`.
+    @Optional() private readonly assembler?: DenshibanPayloadAssembler,
+  ) {}
 
   // ───────────────────────────────────────────────────────────────────────
-  // 本番経路 — ワーカー (`DenshibanSyncWorker`) からのみ呼ばれる
+  // Business entry — the single method business logic (DokusyaService) calls
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * 平文ペイロードを暗号化して `updateUserInfo` に POST し、結果を返す。
+   * **Synchronous send** — call from inside the caller's transaction, before COMMIT.
    *
-   * **`timestamp` はここで打つ** — build 時ではない。ジョブがキューで滞留したり
-   * 再送で時間が経つと、build 時刻のままでは 300 秒を超えて `E05` になる。
-   * 「送る直前の時刻」でなければ意味がない。
+   * 1. **Gate**: only digital-only (2) subscribers sync. Both (3) and paper-only
+   *    (1) return `null` without touching the API.
+   * 2. **Assemble** the payload — reads `m_kanri_shiten` on the caller's `manager`
+   *    connection, resolves `payment_start` against the clock, validates.
+   * 3. **{@link send}** it (encrypt + POST). On a denshiban error the exception
+   *    propagates so the caller's tx rolls back — data denshiban rejects never
+   *    ends up in cloud either (customer requirement, 2026-07).
    *
-   * @throws {DenshibanSyncException} `statusCode !== '0'`（業務エラー）。
-   *   再送可否は `.retryable` を見る。
-   * @throws {Error} 設定不備 / ネットワーク到達不可 / タイムアウト / 非JSON応答。
-   *   いずれも一時障害の可能性があるため呼び出し側は再送してよい。
+   * ⚠️ **Dual write, not a distributed transaction.** If COMMIT fails *after*
+   * denshiban returned success (`create` is not idempotent), denshiban has a
+   * member cloud does not — reconcile by hand.
+   *
+   * @returns `null` when out of scope (not digital-only); otherwise denshiban's response.
+   * @throws {DenshibanApiException} denshiban returned `statusCode !== '0'`.
+   * @throws {DenshibanMappingError} cloud data cannot be expressed in denshiban.
+   * @throws {Error} not wired / misconfigured / network unreachable / timeout.
+   */
+  async sendNow(
+    input: DenshibanSyncInput,
+    manager?: EntityManager,
+  ): Promise<DenshibanApiResult | null> {
+    const { dokusya, mode } = input;
+
+    // ── Gate: only digital-only (2) subscribers sync ─────────────────────────
+    // Both (3) and paper-only (1) are not synced (customer decision — "both"
+    // members are registered separately on the denshiban side).
+    if (!isDenshibanSubscriber(dokusya.dokusyaShubetsu)) {
+      this.logger.debug({
+        event: 'denshiban.sync.skip.not_digital_only',
+        dokusya_id: dokusya.dokusyaId,
+        dokusya_shubetsu: dokusya.dokusyaShubetsu,
+        mode,
+      });
+      return null;
+    }
+
+    if (!this.assembler) {
+      // Proceeding quietly when unwired means "we think we sent it but we didn't".
+      // Stop the business operation to make it visible.
+      throw new Error(
+        '電子版への同期送信が未配線です（DenshibanPayloadAssembler が注入されていません）。',
+      );
+    }
+
+    const payload = await this.assembler.assemble(
+      {
+        dokusya,
+        mode,
+        cancelYm: input.cancelYm,
+        notifyFlg: input.notifyFlg,
+        before: input.before,
+      },
+      manager,
+    );
+
+    const result = await this.send(payload);
+
+    this.logger.log({
+      event: 'denshiban.sync.sent',
+      dokusya_id: dokusya.dokusyaId,
+      mode,
+      statusCode: result.statusCode,
+    });
+
+    return result;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Transport — encrypt + POST (`updateUserInfo`)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Encrypts the plaintext payload, POSTs it to `updateUserInfo`, returns the result.
+   *
+   * **`timestamp` is stamped here**, not at build time. If any time passes between
+   * assembling the payload and sending it, a build-time stamp could exceed 300
+   * seconds and come back `E05`. Only "the moment just before sending" is meaningful.
+   *
+   * @throws {DenshibanApiException} `statusCode !== '0'` (business error) — carries
+   *   the denshiban `statusCode`.
+   * @throws {Error} misconfiguration / network unreachable / timeout / non-JSON response.
+   *   All of these may be transient, so the caller may retry.
    */
   async send(payload: DenshibanPayload): Promise<DenshibanApiResult> {
     const url = this.configService.get<string>('denshiban.apiUrl');
@@ -57,11 +153,23 @@ export class DenshibanApiService implements OnApplicationBootstrap {
       );
     }
 
-    // リプレイ防止用の処理時刻 — 仕様上ここだけ String ではなく数値(long)。
-    const plaintext = JSON.stringify({
+    // Processing time for replay protection — per the spec this is the one field
+    // that is a number (long), not a String.
+    const plainObj = {
       ...payload,
       timestamp: Math.floor(Date.now() / 1000),
-    });
+    };
+    const plaintext = JSON.stringify(plainObj);
+    const encrypted = this.encrypt(plaintext, rawKey);
+
+    // ⚠️ TEMPORARY — for eyeballing what gets sent (requested 2026-07-16).
+    // The plaintext carries name / address / email / phone = PII. This flatly
+    // contradicts security.md's "never log PII", so **it MUST be removed before
+    // this goes to production**. It is console.log rather than Logger to avoid
+    // mixing PII into structured-log JSON that CloudWatch retains permanently
+    // (the intent is to keep it on stdout).
+    console.log('[denshiban] plain :', JSON.stringify(plainObj, null, 2));
+    console.log('[denshiban] cipher:', encrypted);
 
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -76,7 +184,7 @@ export class DenshibanApiService implements OnApplicationBootstrap {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-        body: JSON.stringify({ payload: this.encrypt(plaintext, rawKey) }),
+        body: JSON.stringify({ payload: encrypted }),
         signal: controller.signal,
       });
       httpStatus = res.status;
@@ -98,14 +206,15 @@ export class DenshibanApiService implements OnApplicationBootstrap {
     this.logger.log({
       event: 'denshiban.api.response',
       action_kbn: payload.action_kbn,
-      // 会員IDは PII ではないが、氏名・住所・メールは載せない（平文は出さない）。
+      // The member id is not PII, but name / address / email are never logged
+      // (the plaintext is not emitted).
       statusCode: result.statusCode,
       httpStatus,
       durationMs: Date.now() - startedAt,
     });
 
     if (result.statusCode !== '0') {
-      throw new DenshibanSyncException(
+      throw new DenshibanApiException(
         result.statusCode,
         `電子版API (${payload.action_kbn}) がエラーを返しました: ` +
           `statusCode=${result.statusCode} ${result.message}`,
@@ -116,11 +225,11 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   }
 
   /**
-   * 応答ボディを {@link DenshibanApiResult} に正規化する。
+   * Normalizes the response body into a {@link DenshibanApiResult}.
    *
-   * ⚠️ HTTP ステータスは **判定に使わない**（常に 200 が来る仕様）。ただし
-   * 5xx + HTML など「そもそも電子版まで届いていない」ケースは JSON parse に
-   * 失敗するので、そこで一時障害として弾かれる。
+   * ⚠️ The HTTP status is **not used for the decision** (the spec is: always 200).
+   * That said, cases where the request never reached denshiban at all (5xx + HTML,
+   * etc.) fail JSON parsing and get rejected there as a transient failure.
    */
   private parseResult(text: string, httpStatus: number): DenshibanApiResult {
     let body: Record<string, unknown>;
@@ -134,8 +243,9 @@ export class DenshibanApiService implements OnApplicationBootstrap {
 
     const statusCode = body.statusCode ?? body.status_code;
     if (statusCode === undefined || statusCode === null) {
-      // statusCode が無い応答は仕様違反。成功と誤認すると、送れていないのに
-      // denshi_kaiin_id を書き込むなど静かな乖離を生む。必ず落とす。
+      // A response with no statusCode violates the spec. Mistaking it for success
+      // would create silent divergence — e.g. writing denshi_kaiin_id for something
+      // that was never sent. Always fail.
       throw new Error(
         `電子版APIの応答に statusCode がありません (HTTP ${httpStatus}): ${text.slice(0, 200)}`,
       );
@@ -149,17 +259,20 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // ⚠️ TEMPORARY — 疎通確認 ping（本番経路が安定したら本ブロックごと削除する）
+  // ⚠️ TEMPORARY — connectivity ping (delete this whole block once the
+  // production path is stable)
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * 顧客は ECS の NAT IP だけを whitelist しているため、このAPIは開発端末からは
-   * 到達できない。そこで ECS 起動時に1回だけ叩いて疎通を CloudWatch に出す。
+   * The customer whitelists only the ECS NAT IP, so this API is unreachable from a
+   * developer machine. Hence: hit it once at ECS startup and surface connectivity
+   * in CloudWatch.
    *
-   * フラグ `DENSHIBAN_API_PING=true` のときだけ動く（既定 OFF）。全 action_kbn は
-   * 「書き込み」なので、本物の action を投げると顧客システムにゴミ会員が増える。
-   * よって「復号は通るが処理は不正」になる invalid probe を送り、サーバが構造化
-   * エラーを返すことで NAT whitelist + TLS + 共通鍵での復号だけを確認する。
+   * Runs only when the flag `DENSHIBAN_API_PING=true` (default OFF). Every
+   * action_kbn is a "write", so sending a real action would litter the customer
+   * system with junk members. Instead we send an invalid probe — one that decrypts
+   * fine but is not a valid operation — so the server's structured error confirms
+   * just the NAT whitelist + TLS + shared-key decryption.
    */
   async onApplicationBootstrap(): Promise<void> {
     if (!this.configService.get<boolean>('denshiban.apiPing')) return;
@@ -183,7 +296,7 @@ export class DenshibanApiService implements OnApplicationBootstrap {
     await this.ping(url, rawKey);
   }
 
-  /** invalid probe を1回 POST し、response を詳細ログに出す（best-effort）。 */
+  /** POSTs the invalid probe once and logs the response in detail (best-effort). */
   private async ping(url: string, rawKey: string): Promise<void> {
     const startedAt = Date.now();
     const plainObj: Record<string, unknown> = {
@@ -245,11 +358,12 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // 暗号
+  // Cryptography
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * 平文を AES-256-GCM で暗号化し、IV(12B)+Ciphertext+Tag(16B) を Base64 で返す。
+   * Encrypts plaintext with AES-256-GCM and returns IV(12B)+Ciphertext+Tag(16B)
+   * as Base64.
    */
   private encrypt(plaintext: string, rawKey: string): string {
     const key = this.resolveKey(rawKey);
@@ -265,13 +379,14 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   }
 
   /**
-   * 共通鍵文字列を AES-256 用の 32byte Buffer に解決する。
+   * Resolves the shared-key string into a 32-byte Buffer for AES-256.
    *
-   * 顧客から共有された鍵は「64文字の16進文字列（= 32byte）」形式。その場合は hex
-   * デコードしてそのまま使う（追加のハッシュ化は不要）。32byte の生バイト列で
-   * 渡された場合も raw で使う。
+   * The key the customer shared is a "64-character hex string (= 32 bytes)". In
+   * that case, hex-decode and use it as-is (no extra hashing needed). A raw
+   * 32-byte string is also used as-is.
    *
-   * ⚠️ それ以外はサーバと鍵がズレている可能性が高いので、握りつぶさず例外を投げる。
+   * ⚠️ Anything else most likely means our key is out of sync with the server's, so
+   * throw rather than swallow it.
    */
   private resolveKey(rawKey: string): Buffer {
     const trimmed = rawKey.trim();
@@ -292,11 +407,36 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   }
 }
 
-/** `updateUserInfo` の応答（正規化後）。 */
+/** The `updateUserInfo` response (normalized). */
 export interface DenshibanApiResult {
-  /** `'0'` = 成功。それ以外は {@link DenshibanSyncException} として投げられる。 */
+  /** `'0'` = success. Anything else is thrown as a {@link DenshibanApiException}. */
   statusCode: string;
-  /** `create` 成功時のみ — 電子版が採番した会員ID。`t_dokusya.denshi_kaiin_id` に保存する。 */
+  /** Only on `create` success — the member id denshiban assigned. Stored in `t_dokusya.denshi_kaiin_id`. */
   id?: string;
   message: string;
+}
+
+/** Argument for {@link DenshibanApiService.sendNow} from business logic. */
+export interface DenshibanSyncInput {
+  /** The subscriber to sync (its in-transaction state). */
+  dokusya: Dokusya;
+  mode: DenshibanMode;
+  /** Cancellation month `YYYYMM` — required for `cancel`. */
+  cancelYm?: string;
+  /** Notify-the-member flag. Defaults to `'0'` (do not notify). */
+  notifyFlg?: '0' | '1';
+  /** The prior state — required for `update` / `reread` (diff-based sending). */
+  before?: Dokusya;
+}
+
+/**
+ * Which subscriber types sync to denshiban — **digital-only (DIGITAL=2) only**.
+ *
+ * Both (BOTH=3) and paper-only (PAPER=1) do not sync (customer decision).
+ * "Both" members are registered on the denshiban side through another route, so
+ * cloud does not push them. The type code is m_code `DOKUSYA_SHUBETSU`
+ * (Group A) → {@link DokusyaShubetsu}.
+ */
+export function isDenshibanSubscriber(dokusyaShubetsu: number): boolean {
+  return dokusyaShubetsu === DokusyaShubetsu.DIGITAL;
 }

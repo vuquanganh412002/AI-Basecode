@@ -1,12 +1,12 @@
-// 電子版連携 Pha 1 — ペイロード組み立て（純関数）のユニットテスト。
+// Denshiban integration Phase 1 — unit tests for payload assembly (pure functions).
 //
-// 契約: docs/design-vi/Denshiban-mapper/outbound-field-matrix.md
-//   §A   フィールド × モード行列
-//   §A-2 command 系3モードの確定シグネチャ
-//   §B   フィールド毎の変換規則
-//   §C   共通4原則
+// Contract: docs/design-vi/Denshiban-mapper/outbound-field-matrix.md
+//   §A   the field × mode matrix
+//   §A-2 the settled signatures of the 3 command modes
+//   §B   per-field conversion rules
+//   §C   the 4 shared principles
 //
-// DB / Redis / ネットワーク不要 — 全てオフラインで回る。
+// No DB / Redis / network — everything runs offline.
 
 import { buildDokusya } from '@test/fixtures/dokusya.factory';
 import { toPaymentStart } from './denshiban-payment-start';
@@ -25,23 +25,23 @@ import {
 } from './denshiban-payload.builder';
 import { assertPayload } from './denshiban-payload.validator';
 
-/** 2026-07-14 12:00 JST。請求開始月 202607 = 当月、202608 = 翌月。 */
+/** 2026-07-14 12:00 JST. Billing start month 202607 = this month, 202608 = next month. */
 const NOW = new Date('2026-07-14T03:00:00Z');
 
 /**
- * builder は時計を持たない — `payment_start` は呼び出し側が
- * `toPaymentStart()` で解決して渡す（既定は当月 = '0'）。
+ * The builder has no clock — the caller resolves `payment_start` via
+ * `toPaymentStart()` and passes it in (the default here is this month = '0').
  */
 function ctx(overrides: Partial<BuildCtx> = {}): BuildCtx {
   return { jacdExecute: '1234567890', paymentStart: '0', ...overrides };
 }
 
-/** 電子版へ同期可能な既定の購読者（電子版・農業者・購読開始日=当日）。 */
+/** The default subscriber that can sync to denshiban (digital / farmer / starts today). */
 function buildDenshiDokusya(overrides = {}) {
   return buildDokusya({
-    dokusyaShubetsu: 2, // 電子版
+    dokusyaShubetsu: 2, // digital
     denshiKaiinId: 12345,
-    dokusyaKaishiDate: '2026-07-14', // NOW と同日 → payment_start = '0'
+    dokusyaKaishiDate: '2026-07-14', // Same day as NOW → payment_start = '0'
     dokusyasoBunrui: '農業者',
     nogyosyaBunrui: '米,野菜',
     biko: '',
@@ -61,7 +61,8 @@ describe('単位変換', () => {
   });
 
   describe('toSex', () => {
-    // cloud と電子版でコードが逆 — ここを取り違えると性別が入れ替わる。
+    // The codes are inverted between cloud and denshiban — get this wrong and
+    // genders swap.
     it('cloud 女 (2) → 電子版 0', () => {
       expect(toSex(2)).toBe('0');
     });
@@ -82,7 +83,8 @@ describe('単位変換', () => {
     });
   });
 
-  // 購読開始日 (dokusya_kaishi_date) → 電子版の2択（0: 当日 / 1: 翌月1日）。
+  // Subscription start date (dokusya_kaishi_date) → denshiban's two choices
+  // (0: today / 1: the 1st of next month).
   describe('toPaymentStart', () => {
     it('当日 → 0', () => {
       expect(toPaymentStart('2026-07-14', NOW)).toBe('0');
@@ -124,10 +126,10 @@ describe('単位変換', () => {
     });
 
     it('日付境界を JST で判定する（UTC だと前日になる時刻でも当日扱い）', () => {
-      // 2026-07-01 05:00 JST = 2026-06-30 20:00 UTC。UTC 基準だと 06-30。
+      // 2026-07-01 05:00 JST = 2026-06-30 20:00 UTC. In UTC terms it's 06-30.
       const justAfterJstMidnight = new Date('2026-06-30T20:00:00Z');
       expect(toPaymentStart('2026-07-01', justAfterJstMidnight)).toBe('0');
-      // 同じ時刻で「翌月1日」は 08-01。
+      // At the same instant, "the 1st of next month" is 08-01.
       expect(toPaymentStart('2026-08-01', justAfterJstMidnight)).toBe('1');
     });
   });
@@ -289,7 +291,7 @@ describe('buildCreatePayload', () => {
   it('農業者以外では products を送らない（profession=0 のときのみ許可）', () => {
     const d = buildDenshiDokusya({
       dokusyasoBunrui: '学生',
-      nogyosyaBunrui: '米', // 画面上は消えるはずだが、残っていても送らない
+      nogyosyaBunrui: '米', // The screen should clear it, but even if it lingers we don't send it
     });
     const payload = buildCreatePayload(d, ctx());
     expect(payload.profession).toBe('3');
@@ -387,7 +389,7 @@ describe('buildUpdatePayload', () => {
 
     const payload = buildUpdatePayload(before, after, ctx(), 'update');
     expect(payload.products).toBe('0,1');
-    // profession 自体は変わっていないが、条件フィールドなので同送する。
+    // profession itself didn't change, but it's a condition field so it goes along.
     expect(payload.profession).toBe('0');
     expect(() => assertPayload(payload)).not.toThrow();
   });
@@ -427,7 +429,7 @@ describe('buildCommandPayload', () => {
     ).toThrow(DenshibanMappingError);
   });
 
-  // 承認 = 「いつから購読を開始するか」の確定。create と同じ変換を使う。
+  // Approval = settling "when does the subscription start". Same conversion as create.
   it('approve — id + payment_start（購読開始日から導出、notify_flg は無い）', () => {
     const d = buildDenshiDokusya({ dokusyaKaishiDate: '2026-08-01' });
     expect(
@@ -477,7 +479,7 @@ describe('buildCommandPayload', () => {
     expect(() => buildCommandPayload(d, bare, 'unapprove')).toThrow(
       DenshibanMappingError,
     );
-    // cancel は payment_start を持たないので、渡し忘れても問題にならない。
+    // cancel has no payment_start, so forgetting to pass it is harmless.
     expect(() =>
       buildCommandPayload(d, { ...bare, cancelYm: '202608' }, 'cancel'),
     ).not.toThrow();

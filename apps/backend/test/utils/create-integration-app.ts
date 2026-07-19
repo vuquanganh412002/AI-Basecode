@@ -29,9 +29,11 @@ import {
   ConfigService,
 } from '@nestjs/config';
 import {
+  Global,
   HttpException,
   HttpStatus,
   INestApplication,
+  Module,
   Type,
   ValidationPipe,
 } from '@nestjs/common';
@@ -86,12 +88,38 @@ import { AuthModule } from '@/modules/auth/auth.module';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 import { CodeModule } from '@/modules/code/code.module';
 import { CodeService } from '@/modules/code/code.service';
+import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
 import { MailModule } from '@/modules/mail/mail.module';
 import { MailService } from '@/modules/mail/mail.service';
 import { RedisModule } from '@/modules/redis/redis.module';
 import { RedisService } from '@/modules/redis/redis.service';
 import { SessionService, SessionPayload } from '@/modules/auth/session.service';
 import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
+
+/**
+ * 電子版連携のスタブ。`DokusyaService` は create/update/approve/stop で
+ * `DenshibanApiService.sendNow()` を **COMMIT 前に await** するので、素の
+ * `DenshibanDbModule` を読ませると統合テストが顧客システムへ本当に POST して
+ * しまう（しかも失敗すれば業務トランザクションごと巻き戻るので、テストは
+ * 電子版の生死に左右される）。Redis / Mail / Storage と同じ方針でスタブに置く。
+ *
+ * `sendNow` が `null` を返す = 「送信対象外」— 紙版・併読と同じ経路になり、
+ * `denshi_kaiin_id` を触らない。送信内容そのものの検証は
+ * `denshiban-payload.*.spec.ts` / `denshiban-api.service.spec.ts` の担当。
+ *
+ * 本番では `DenshibanDbModule`（`@Global`）が `AppModule` から実体を配る。
+ */
+@Global()
+@Module({
+  providers: [
+    {
+      provide: DenshibanApiService,
+      useValue: { sendNow: async () => null },
+    },
+  ],
+  exports: [DenshibanApiService],
+})
+class DenshibanSyncStubModule {}
 
 export interface IntegrationTestContext {
   app: INestApplication;
@@ -380,6 +408,9 @@ async function bootApp(
       CodeModule,
       MailModule,
       AuthModule,
+      // 本番の DenshibanDbModule 相当（@Global）。実体だと顧客システムへ本当に
+      // POST してしまうのでスタブを配る — 宣言は上の DenshibanSyncStubModule。
+      DenshibanSyncStubModule,
       ...(options.modules ?? []),
       // Opt-in throttler — see `enableThrottler` doc on CreateIntegrationOptions.
       ...(options.enableThrottler

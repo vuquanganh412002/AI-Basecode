@@ -4,18 +4,19 @@ import {
 } from './denshiban-payload.builder';
 
 /**
- * 送信直前の平文ペイロードを **cloud 側で** 検証する。
+ * Validates the plaintext payload **on the cloud side** right before sending.
  *
- * 契約は `docs/design-vi/Denshiban-mapper/outbound-field-matrix.md` §B の
- * 「Validation」列 = 電子版が `V01`〜`V35` を返す条件そのもの。ここで落として
- * おかないと、エラーに気付くのはジョブがキューに入った後 — 利用者はとっくに
- * 画面を離れている。**電子版に判定させず、cloud で先に落とす。**
+ * The contract is the "Validation" column of §B in
+ * `docs/design-vi/Denshiban-mapper/outbound-field-matrix.md` — i.e. exactly the
+ * conditions under which denshiban returns `V01`..`V35`. Without rejecting here,
+ * we'd only learn about the error after the job is already queued — long after the
+ * user left the screen. **Don't let denshiban be the judge; reject in cloud first.**
  *
- * `timestamp` はここでは見ない（送信直前に `send()` が打つため、この時点では
- * まだ存在しない）。
+ * `timestamp` is not checked here (it doesn't exist yet at this point — `send()`
+ * stamps it right before sending).
  */
 
-/** 各フィールドの検査規則。`test` が false を返したら `message` で落とす。 */
+/** A per-field check. When `test` returns false, reject with `message`. */
 interface FieldRule {
   test: (value: string) => boolean;
   message: string;
@@ -41,7 +42,7 @@ const oneOf = (...allowed: string[]): FieldRule => ({
   message: `${allowed.join(' / ')} のいずれかで入力してください。`,
 });
 
-/** 電子版フィールド名 → 検査規則（行列 §B の Validation 列）。 */
+/** denshiban field name → check (the Validation column of matrix §B). */
 const RULES: Record<string, FieldRule> = {
   action_kbn: oneOf(
     'create',
@@ -71,8 +72,9 @@ const RULES: Record<string, FieldRule> = {
   building: maxLength(255),
   tel: digits(13),
   email: {
-    // 電子版は「半角英数記号・255文字以内」。形式そのものは cloud の DTO
-    // (`@IsEmail`) が既に担保しているので、ここは長さと全角混入だけ見る。
+    // denshiban wants "half-width alphanumerics and symbols, up to 255 chars". The
+    // format itself is already guaranteed by cloud's DTO (`@IsEmail`), so this only
+    // checks length and full-width contamination.
     test: (v) => [...v].length <= 255 && /^[\x21-\x7E]+$/.test(v),
     message: '半角文字・255文字以内で入力してください。',
   },
@@ -98,7 +100,7 @@ const RULES: Record<string, FieldRule> = {
   sex: oneOf('0', '1', '9'),
 };
 
-/** cloud 側の列名（エラーを画面のどの項目に出すか）。 */
+/** The cloud-side column name (which form field the error belongs to). */
 const CLOUD_FIELD: Record<string, string> = {
   jacd_execute: 'kanri_shiten_code',
   jacd: 'kanri_shiten_code',
@@ -129,7 +131,7 @@ const CLOUD_FIELD: Record<string, string> = {
   remarks5: 'biko',
 };
 
-/** モード毎の必須フィールド（行列 §A の ◎）。 */
+/** Required fields per mode (the ◎ marks in matrix §A). */
 const REQUIRED_BY_MODE: Record<string, string[]> = {
   create: [
     'action_kbn',
@@ -157,15 +159,16 @@ const REQUIRED_BY_MODE: Record<string, string[]> = {
 };
 
 /**
- * ペイロードを検証する。1件でも違反があれば {@link DenshibanMappingError} を
- * 投げる（最初の1件で止めず、全件をまとめて出す — 送り直しの往復を減らす）。
+ * Validates the payload. A single violation throws a {@link DenshibanMappingError}
+ * (it doesn't stop at the first one — it reports all of them, to cut down on
+ * resubmission round trips).
  *
- * 見るもの:
- *   1. モード毎の必須フィールドが存在し、空でないこと。
- *   2. 各フィールドが §B の Validation を満たすこと。
- *   3. フィールド間の条件（`products` は `profession=0` のときだけ、等）。
+ * What it checks:
+ *   1. That each mode's required fields exist and are non-empty.
+ *   2. That each field satisfies §B's Validation.
+ *   3. Inter-field conditions (`products` only when `profession=0`, etc.).
  *
- * @throws {DenshibanMappingError} 違反があるとき。`field` は cloud 側の列名。
+ * @throws {DenshibanMappingError} on any violation. `field` is the cloud-side column.
  */
 export function assertPayload(payload: DenshibanPayload): void {
   const violations: { field: string; message: string }[] = [];
@@ -181,10 +184,10 @@ export function assertPayload(payload: DenshibanPayload): void {
   }
 
   for (const [key, value] of Object.entries(payload)) {
-    if (value === '') continue; // 必須チェックで既に拾っている。
+    if (value === '') continue; // Already caught by the required check.
     const rule = RULES[key];
     if (!rule) {
-      // 行列に無いキーを勝手に足していないかの保険。
+      // Insurance against someone adding a key that isn't in the matrix.
       violations.push({
         field: key,
         message: `${key} は電子版の仕様に存在しないフィールドです。`,
@@ -209,7 +212,7 @@ export function assertPayload(payload: DenshibanPayload): void {
   }
 }
 
-/** フィールド間の条件（違反すると電子版が該当フィールドの `V**` を返す）。 */
+/** Inter-field conditions (violating one makes denshiban return that field's `V**`). */
 function checkCrossFieldRules(
   payload: DenshibanPayload,
 ): { field: string; message: string }[] {

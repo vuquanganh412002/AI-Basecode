@@ -2,35 +2,36 @@ import { DokusyaShubetsu } from '@/common/enums';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 
 /**
- * 電子版 共通API `updateUserInfo` へ送るリクエスト平文（props）を組み立てる
- * 純関数群。DI なし・repo なし・HTTP なし・**時計なし** → オフラインで
- * 100% ユニットテストできる（TDD Pha 1）。
+ * Pure functions that assemble the plaintext request (props) sent to denshiban's
+ * common API `updateUserInfo`. No DI, no repo, no HTTP, and **no clock** → 100%
+ * unit-testable offline (TDD Phase 1).
  *
- * 時計に依存する唯一の変換（`payment_start` = 絶対月 → 当月/翌月の2値）は
- * {@link ./denshiban-payment-start} に隔離してある。呼び出し側が
- * `toPaymentStart()` で解決し、{@link BuildCtx.paymentStart} として渡す。
+ * The one clock-dependent conversion (`payment_start` = absolute month → the
+ * two-valued this-month/next-month) is isolated in
+ * {@link ./denshiban-payment-start}. The caller resolves it with
+ * `toPaymentStart()` and passes it as {@link BuildCtx.paymentStart}.
  *
- * 契約は `docs/design-vi/Denshiban-mapper/outbound-field-matrix.md`：
- *   §A   フィールド × モードの行列
- *   §A-2 command 系3モード（cancel / approve / unapprove）の確定シグネチャ
- *   §B   フィールド毎の変換規則
- *   §C   共通4原則
- * **この行列に無いことを推測して足さないこと。**
+ * The contract is `docs/design-vi/Denshiban-mapper/outbound-field-matrix.md`:
+ *   §A   the field × mode matrix
+ *   §A-2 the settled signatures of the 3 command modes (cancel / approve / unapprove)
+ *   §B   per-field conversion rules
+ *   §C   the 4 shared principles
+ * **Do not guess and add anything that isn't in that matrix.**
  *
- * 共通4原則（§C）:
- *   1. 値は全て `String`（数値も）。
- *   2. null / undefined / '' は **キーごと落とす**（'' 送信は「値を消す」と
- *      解釈される恐れがあるため）。必須フィールドだけは空でも載せ、
- *      {@link assertPayload} で落とす。
- *   3. UPDATE は **変わったフィールドだけ**送る（必須フィールドは常に送る）。
- *   4. フィールド間の条件（products は profession=0 のときだけ、等）を破ると
- *      電子版側が該当フィールドの `V**` を返す。
+ * The 4 shared principles (§C):
+ *   1. Every value is a `String` (numbers included).
+ *   2. null / undefined / '' are **dropped key and all** (sending '' risks being
+ *      interpreted as "clear this value"). Only required fields are sent even when
+ *      empty, so {@link assertPayload} can reject them.
+ *   3. UPDATE sends **only the fields that changed** (required fields are always sent).
+ *   4. Breaking an inter-field condition (products only when profession=0, etc.)
+ *      makes denshiban return `V**` for that field.
  *
- * `timestamp` はここでは生成しない — キュー滞留で 300 秒を超えると `E05` に
- * なるため、送信直前（`DenshibanApiService.send()`）に打つ。
+ * `timestamp` is not generated here — sitting in the queue past 300 seconds turns
+ * into `E05`, so it is stamped right before sending (`DenshibanApiService.send()`).
  */
 
-/** 処理区分（action_kbn）。 */
+/** Operation type (action_kbn). */
 export type DenshibanMode =
   | 'create'
   | 'update'
@@ -39,15 +40,15 @@ export type DenshibanMode =
   | 'approve'
   | 'unapprove';
 
-/** command 系3モード — プロフィールを持たない「指示」だけのモード。 */
+/** The 3 command modes — "instruction only" modes that carry no profile. */
 export type DenshibanCommandMode = Extract<
   DenshibanMode,
   'cancel' | 'approve' | 'unapprove'
 >;
 
 /**
- * `updateUserInfo` の平文ボディ（`timestamp` を除く）。仕様上フィールドは全て
- * String。送らないフィールドは **キーごと存在しない**。
+ * The plaintext body of `updateUserInfo` (excluding `timestamp`). Per the spec
+ * every field is a String. Fields that aren't sent **do not exist as keys**.
  */
 export interface DenshibanPayload {
   action_kbn: DenshibanMode;
@@ -56,34 +57,36 @@ export interface DenshibanPayload {
 }
 
 /**
- * builder が DB を引かずに済むよう、呼び出し側が事前に解決して渡す文脈。
+ * Context the caller resolves up front and passes in, so the builder never has to
+ * touch the DB.
  */
 export interface BuildCtx {
-  /** 実行JA — 操作者（ログインユーザー）の `m_kanri_shiten.kanri_shiten_code`（10桁）。 */
+  /** Executing JA — the operator's (logged-in user's) `m_kanri_shiten.kanri_shiten_code` (10 digits). */
   jacdExecute: string;
-  /** 所属JA — レコード側の `kanri_shiten_code`。update / reread の `jacd` 用。 */
+  /** Owning JA — the record's `kanri_shiten_code`. For `jacd` on update / reread. */
   jacd?: string;
-  /** 会員への通知フラグ。update / reread / cancel で必須。既定 '0'（通知しない）。 */
+  /** Notify-the-member flag. Required for update / reread / cancel. Defaults to '0' (do not notify). */
   notifyFlg?: '0' | '1';
-  /** 解約月 `YYYYMM` — cancel 専用。過去月は電子版が `P05` を返す。 */
+  /** Cancellation month `YYYYMM` — cancel only. A past month makes denshiban return `P05`. */
   cancelYm?: string;
   /**
-   * 購読開始（0: 当日 / 1: 翌月1日）。create / approve / unapprove で必須。
-   * `t_dokusya.dokusya_kaishi_date`（絶対日付）からの変換は時計に依存するため
-   * builder では行わない — 呼び出し側が
-   * {@link ./denshiban-payment-start#toPaymentStart} で解決して渡す。
+   * Subscription start (0: today / 1: the 1st of next month). Required for
+   * create / approve / unapprove. Converting from
+   * `t_dokusya.dokusya_kaishi_date` (an absolute date) depends on the clock, so the
+   * builder doesn't do it — the caller resolves it via
+   * {@link ./denshiban-payment-start#toPaymentStart} and passes it in.
    */
   paymentStart?: '0' | '1';
 }
 
 /**
- * マッピング不能を表す例外。**握り潰さないこと** — 送れないデータを黙って
- * 落とすと、電子版と cloud が静かに乖離する。呼び出し側（Pha 2 の trigger）が
- * `t_log(ERROR)` に落として運用者に見せる。
+ * Signals that a value cannot be mapped. **Do not swallow it** — quietly dropping
+ * data we can't send makes denshiban and cloud diverge silently. The caller
+ * (Phase 2's trigger) records it in `t_log(ERROR)` for operators to see.
  */
 export class DenshibanMappingError extends Error {
   constructor(
-    /** 原因となった cloud 側の列名（`t_dokusya`）。 */
+    /** The cloud-side column that caused it (`t_dokusya`). */
     readonly field: string,
     message: string,
   ) {
@@ -92,12 +95,13 @@ export class DenshibanMappingError extends Error {
   }
 }
 
-// ─── コード変換表 ──────────────────────────────────────────────────────────
-// cloud は日本語ラベルの CSV を保存し（SCR-011 のチェックボックス）、電子版は
-// 数値コードを受け取る。ラベル集合は画面定義 (`DokusyaFormView.vue`
-// dokusyaSoBunruiOptions / nogyosyaBunruiOptions) が唯一の出所。
+// ─── Code conversion tables ────────────────────────────────────────────────
+// Cloud stores CSVs of Japanese labels (SCR-011's checkboxes) and denshiban
+// receives numeric codes. The screen definition (`DokusyaFormView.vue`
+// dokusyaSoBunruiOptions / nogyosyaBunruiOptions) is the single source of the
+// label set.
 
-/** 読者属性ラベル → 電子版 `profession`。 */
+/** Subscriber-attribute label → denshiban `profession`. */
 const PROFESSION_BY_LABEL: Record<string, string> = {
   農業者: '0',
   JAグループ役職員: '1',
@@ -107,10 +111,11 @@ const PROFESSION_BY_LABEL: Record<string, string> = {
 };
 
 /**
- * 主な生産物ラベル → 電子版 `products`。
+ * Main-product label → denshiban `products`.
  *
- * 電子版には `5:酪農` があるが cloud の画面には該当チェックボックスが無い
- * （＝ cloud から 5 は出得ない）。逆写像が要る受信側（将来の Pha）で扱う。
+ * denshiban has `5:酪農` but cloud's screen has no matching checkbox (i.e. 5 can
+ * never come out of cloud). The inbound side, which needs the reverse mapping,
+ * will handle it (a future phase).
  */
 const PRODUCTS_BY_LABEL: Record<string, string> = {
   米: '0',
@@ -122,26 +127,28 @@ const PRODUCTS_BY_LABEL: Record<string, string> = {
 };
 
 /**
- * 性別 cloud(`GENDER`) → 電子版 `sex`。**コードが逆**（cloud 女=2 / 電子版 女=0）。
- * `GENDER` は m_code Group B（TS enum を持たない）ため、変換はこの表に閉じ込める。
- * 未設定・未対応値は '9'（無回答）へ寄せる。
+ * Gender: cloud (`GENDER`) → denshiban `sex`. **The codes are inverted**
+ * (cloud female=2 / denshiban female=0). `GENDER` is m_code Group B (it has no TS
+ * enum), so the conversion is confined to this table. Unset and unsupported values
+ * collapse to '9' (no answer).
  */
 const SEX_BY_GENDER: Record<number, string> = {
-  1: '1', // 男
-  2: '0', // 女
-  9: '9', // 無回答
+  1: '1', // male
+  2: '0', // female
+  9: '9', // no answer
 };
-/** 電子版 `sex` の既定値（無回答）。cloud 側が NULL / 未対応値のとき使う。 */
+/** The default for denshiban `sex` (no answer). Used when the cloud side is NULL or unsupported. */
 const SEX_UNKNOWN = '9';
 
-/** `profession = 999`（その他）のとき電子版へ送る固定値（仕様書 §2 / QnA 7）。 */
+/** The fixed value sent to denshiban when `profession = 999` (other) (spec §2 / QnA 7). */
 const OTHERS_PROFESSION_VALUE = '会社員';
-/** `products` に 999 を含むとき電子版へ送る固定値（仕様書 §2 / QnA 8）。 */
+/** The fixed value sent to denshiban when `products` contains 999 (spec §2 / QnA 8). */
 const OTHERS_PRODUCTS_VALUE = 'その他の農畜産物';
 
 /**
- * 職業グループ — 互いに条件で縛られているフィールド群（§B 条件表）。update の
- * 差分でも「1つ変わったら全部送る」= 常に整合したセットで送るために使う。
+ * The profession group — fields bound to each other by conditions (§B condition
+ * table). Used so that an update diff sends "all of them if any one changed" =
+ * always a mutually consistent set.
  */
 const PROFESSION_GROUP = [
   'profession',
@@ -150,39 +157,41 @@ const PROFESSION_GROUP = [
   'others_products',
 ] as const;
 
-/** 備考は remarks1..4 に1行ずつ、5行目以降は remarks5 にまとめる（§B）。 */
+/** Remarks go one line each into remarks1..4; line 5 onward is grouped into remarks5 (§B). */
 const REMARKS_SLOTS = 5;
-/** 各 remarks の最大長（仕様: 255文字）。 */
+/** Max length of each remarks field (spec: 255 characters). */
 const REMARKS_MAX = 255;
 
-// ─── 単位変換（それぞれ独立にテストする） ─────────────────────────────────
+// ─── Unit conversions (each tested independently) ──────────────────────────
 
 /**
- * 購読者種別 → `subscribe_flg`（紙版の購読有無）。併読 → '1'、電子版のみ → '0'。
- * 種別コードは m_code `DOKUSYA_SHUBETSU`（Group A）の {@link DokusyaShubetsu}。
+ * Subscriber type → `subscribe_flg` (whether the paper edition is subscribed).
+ * Both → '1', digital-only → '0'. The type code is m_code `DOKUSYA_SHUBETSU`
+ * (Group A) → {@link DokusyaShubetsu}.
  */
 export function toSubscribeFlg(dokusyaShubetsu: number): string {
   return dokusyaShubetsu === DokusyaShubetsu.BOTH ? '1' : '0';
 }
 
 /**
- * 性別 → `sex`。**cloud と電子版でコードが逆**（cloud 女=2 / 電子版 女=0）。
- * 変換は {@link SEX_BY_GENDER} に閉じ込め、未設定・未対応値は {@link SEX_UNKNOWN}。
+ * Gender → `sex`. **The codes are inverted between cloud and denshiban**
+ * (cloud female=2 / denshiban female=0). The conversion is confined to
+ * {@link SEX_BY_GENDER}; unset and unsupported values become {@link SEX_UNKNOWN}.
  */
 export function toSex(gender: number | null | undefined): string {
   if (gender === null || gender === undefined) return SEX_UNKNOWN;
   return SEX_BY_GENDER[gender] ?? SEX_UNKNOWN;
 }
 
-/** 連絡先1 → `tel`。ハイフンを除去した数字のみ。 */
+/** Contact 1 → `tel`. Digits only, hyphens stripped. */
 export function toTel(renrakusaki1: string): string {
   return (renrakusaki1 ?? '').replace(/-/g, '');
 }
 
 /**
- * 備考 → `remarks1`〜`remarks5`。1〜4行目は各スロットへ、**5行目以降は改行込みで
- * remarks5 にまとめる**（行が消えないように）。各スロット 255 文字で切る。
- * 空行・空文字のスロットはキーごと落とす。
+ * Remarks → `remarks1`..`remarks5`. Lines 1-4 go to their own slot; **line 5 onward
+ * is grouped into remarks5, newlines included** (so no line is lost). Each slot is
+ * truncated at 255 characters. Empty lines / empty strings are dropped key and all.
  */
 export function toRemarks(biko: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -200,11 +209,12 @@ export function toRemarks(biko: string): Record<string, string> {
 }
 
 /**
- * 読者属性 CSV → `profession`（+ その他なら `others_profession`）。
+ * Subscriber-attribute CSV → `profession` (+ `others_profession` when "other").
  *
- * ⚠️ **カーディナリティ不整合**（行列 §D-1）: cloud は複数選択可、電子版は
- * 単一値。2つ以上選ばれていたら **投げる** — 先頭だけ送ると残りが黙って
- * 消える。UI 側で電子版読者は1つだけ選ばせる想定（§D の案 (a)）。
+ * ⚠️ **Cardinality mismatch** (matrix §D-1): cloud allows multiple selections,
+ * denshiban takes a single value. If two or more are selected, **throw** — sending
+ * only the first would silently discard the rest. The UI is expected to let
+ * denshiban subscribers pick exactly one (§D option (a)).
  */
 export function toProfession(dokusyasoBunrui: string): Record<string, string> {
   const labels = splitCsv(dokusyasoBunrui);
@@ -237,11 +247,11 @@ export function toProfession(dokusyasoBunrui: string): Record<string, string> {
 }
 
 /**
- * 主な生産物 CSV → `products`（+ その他なら `others_products`）。
+ * Main-products CSV → `products` (+ `others_products` when "other").
  *
- * `products` は電子版でも **複数値可**（カンマ区切り）— profession と違い
- * カーディナリティ問題は無い。`profession = 0`（農業者）以外では送れないので
- * 呼び出し側が判定する（この関数は変換だけ）。
+ * `products` **accepts multiple values** on denshiban too (comma-separated) — unlike
+ * profession, there is no cardinality problem. It cannot be sent unless
+ * `profession = 0` (farmer), which the caller decides (this function only converts).
  */
 export function toProducts(nogyosyaBunrui: string): Record<string, string> {
   const labels = splitCsv(nogyosyaBunrui);
@@ -263,7 +273,7 @@ export function toProducts(nogyosyaBunrui: string): Record<string, string> {
   return out;
 }
 
-/** CSV を trim + 空要素除去して配列に。 */
+/** Splits a CSV into an array, trimming and dropping empty elements. */
 function splitCsv(csv: string): string[] {
   return (csv ?? '')
     .split(',')
@@ -271,25 +281,27 @@ function splitCsv(csv: string): string[] {
     .filter((s) => s !== '');
 }
 
-// ─── プロフィール（create / update 共通） ─────────────────────────────────
+// ─── Profile (shared by create / update) ───────────────────────────────────
 
 /**
- * 購読者1件から、プロフィール系フィールドを全て組み立てる（キー欠落ルール適用済み）。
- * create はこれをそのまま、update は before と差分を取ってから使う。
+ * Assembles every profile field from one subscriber (with the key-dropping rule
+ * already applied). create uses it as-is; update diffs it against before first.
  */
 function buildProfileFields(d: Dokusya): Record<string, string> {
   const out: Record<string, string> = {};
 
-  // 必須系 — 空でも載せて assertPayload で落とす（黙って欠落させない）。
+  // Required — sent even when empty so assertPayload can reject them (never
+  // dropped silently).
   out.first_name = d.shimeiSei ?? '';
   out.last_name = d.shimeiMei ?? '';
-  // カナは変換しない（仕様書どおり素通し）。
+  // Kana is not converted (passed through exactly as the spec says).
   out.first_kana = d.shimeiKanaSei ?? '';
   out.last_kana = d.shimeiKanaMei ?? '';
   out.zip = d.yubinNo ?? '';
-  // 都道府県コードは '01' のまま送る（0 落としをしない）— 往復で値が変わらない。
+  // The prefecture code is sent as '01' verbatim (no zero-stripping) — the value
+  // survives a round trip unchanged.
   out.pref_id = d.todofukenCode ?? '';
-  // 名前がねじれている: addr ← 市町村郡 / city ← 丁目番地。
+  // The names are twisted: addr ← municipality / city ← street address.
   out.addr = d.shikuchoson ?? '';
   out.city = d.chomeBanchi ?? '';
   out.tel = toTel(d.renrakusaki1);
@@ -297,21 +309,21 @@ function buildProfileFields(d: Dokusya): Record<string, string> {
   out.subscribe_flg = toSubscribeFlg(d.dokusyaShubetsu);
   out.melmaga = String(d.mailMagazineFlg ?? 0);
 
-  // 任意系 — 空はキーごと落とす。
+  // Optional — empties are dropped key and all.
   put(out, 'building', d.tatemonoMei);
   put(out, 'birthyear', d.birthYear === null ? '' : String(d.birthYear ?? ''));
   put(out, 'sex', toSex(d.gender));
   Object.assign(out, toRemarks(d.biko ?? ''));
 
-  // `branch` は cloud 側に出所が無い（電子版読者の shiten_id は NULL）。任意
-  // フィールドなので送らない（行列 §D-2 / QnA 9 待ち）。
-  // `profession_and_ja` / `profession_and_agri` も cloud に対応列が無いため
-  // 送らない（§D-3 / QnA 10 待ち）。
+  // `branch` has no source on the cloud side (a denshiban subscriber's shiten_id is
+  // NULL). It's an optional field, so it isn't sent (matrix §D-2 / awaiting QnA 9).
+  // `profession_and_ja` / `profession_and_agri` have no corresponding cloud column
+  // either, so they aren't sent (§D-3 / awaiting QnA 10).
 
   const profession = toProfession(d.dokusyasoBunrui ?? '');
   Object.assign(out, profession);
 
-  // products は profession = 0（農業者）のときだけ送れる（§B 条件表）。
+  // products can only be sent when profession = 0 (farmer) (§B condition table).
   if (profession.profession === '0') {
     Object.assign(out, toProducts(d.nogyosyaBunrui ?? ''));
   }
@@ -319,7 +331,7 @@ function buildProfileFields(d: Dokusya): Record<string, string> {
   return out;
 }
 
-/** null / undefined / '' はキーごと落とす（§C-2）。 */
+/** null / undefined / '' are dropped key and all (§C-2). */
 function put(
   target: Record<string, string>,
   key: string,
@@ -329,13 +341,15 @@ function put(
   target[key] = value;
 }
 
-// ─── モード別ビルダー ─────────────────────────────────────────────────────
+// ─── Per-mode builders ─────────────────────────────────────────────────────
 
 /**
- * create — 全プロフィール + `payment_start`。`id` / `jacd` / `notify_flg` は **無い**。
+ * create — the whole profile + `payment_start`. `id` / `jacd` / `notify_flg` do
+ * **not** exist here.
  *
- * @throws {DenshibanMappingError} 読者属性の未選択・複数選択など、電子版で
- *   表現できない値のとき。`ctx.paymentStart` 未指定のときも投げる。
+ * @throws {DenshibanMappingError} for values denshiban cannot express, such as a
+ *   subscriber attribute that is unselected or multi-selected. Also thrown when
+ *   `ctx.paymentStart` is missing.
  */
 export function buildCreatePayload(d: Dokusya, ctx: BuildCtx): DenshibanPayload {
   return {
@@ -347,16 +361,18 @@ export function buildCreatePayload(d: Dokusya, ctx: BuildCtx): DenshibanPayload 
 }
 
 /**
- * update / reread — **変わったフィールドだけ** + 必須フィールド
- * （`action_kbn` / `jacd_execute` / `id` / `notify_flg`）。`payment_start` は
- * update 系には無い。
+ * update / reread — **only the changed fields** + the required ones
+ * (`action_kbn` / `jacd_execute` / `id` / `notify_flg`). The update modes have no
+ * `payment_start`.
  *
- * 差分は「組み立て後の電子版フィールド」で取る（cloud 列で取らない）。備考の
- * ように 1 列 → 複数フィールドへ展開されるものがあり、列単位では対応が付かない。
+ * The diff is taken over the **assembled denshiban fields**, not over cloud columns.
+ * Some cloud columns expand into several fields (remarks does), so a column-level
+ * diff wouldn't line up.
  *
- * ⚠️ 既知の制約: 任意フィールドを **空にした**変更（例: 建物名を消した）は
- * §C-2（'' はキーごと落とす）により送れない。'' が電子版で「値の削除」と解釈
- * されるか未確認のため、行列の規則に従って送らない。QnA 待ち。
+ * ⚠️ Known limitation: a change that **clears** an optional field (e.g. deleting the
+ * building name) cannot be sent, because of §C-2 ('' is dropped key and all).
+ * Whether denshiban interprets '' as "delete the value" is unconfirmed, so we follow
+ * the matrix rule and don't send it. Awaiting QnA.
  */
 export function buildUpdatePayload(
   before: Dokusya,
@@ -372,9 +388,10 @@ export function buildUpdatePayload(
     if (beforeFields[key] !== value) changed[key] = value;
   }
 
-  // 職業グループは **まとめて送る**。`products` は `profession=0` のときしか
-  // 送れない（§B 条件表）ので、生産物だけ変わって profession が差分から落ちると
-  // 「profession 無しの products」= 条件違反のペイロードになってしまう。
+  // The profession group is sent **together**. `products` can only be sent when
+  // `profession=0` (§B condition table), so if only the products changed and
+  // profession drops out of the diff, the payload becomes "products without
+  // profession" = a condition violation.
   if (PROFESSION_GROUP.some((key) => key in changed)) {
     for (const key of PROFESSION_GROUP) {
       if (afterFields[key] !== undefined) changed[key] = afterFields[key];
@@ -388,25 +405,25 @@ export function buildUpdatePayload(
     notify_flg: ctx.notifyFlg ?? '0',
     ...changed,
   };
-  // 所属JA（レコード側）— JA 間の移管時に使う。任意フィールド。
+  // Owning JA (the record side) — used when transferring between JAs. Optional field.
   put(payload, 'jacd', ctx.jacd);
   return payload;
 }
 
 /**
- * cancel / approve / unapprove — プロフィールを持たない「指示」モード。
- * 確定シグネチャは行列 §A-2（全フィールド必須）:
+ * cancel / approve / unapprove — "instruction" modes that carry no profile.
+ * The settled signatures are matrix §A-2 (every field required):
  *
- * | mode      | フィールド                                                    |
+ * | mode      | fields                                                        |
  * |-----------|---------------------------------------------------------------|
  * | cancel    | action_kbn, jacd_execute, id, cancel_ym, notify_flg            |
  * | approve   | action_kbn, jacd_execute, id, payment_start                    |
  * | unapprove | action_kbn, jacd_execute, id, payment_start                    |
  *
- * 3モードで **フィールド集合が違う**（cancel に payment_start は無く、
- * approve / unapprove に notify_flg は無い）ので mode で分岐して丸ごと返す。
- * `unapprove` にも payment_start が要るのは API 側の仕様（業務的には不自然だが
- * 省くと `V**` になる）。
+ * The 3 modes have **different field sets** (cancel has no payment_start;
+ * approve / unapprove have no notify_flg), so we branch on mode and return each
+ * whole. `unapprove` needing payment_start too is the API's own spec (odd from a
+ * business standpoint, but omitting it yields `V**`).
  */
 export function buildCommandPayload(
   d: Dokusya,
@@ -429,15 +446,16 @@ export function buildCommandPayload(
     return { ...base, cancel_ym: ctx.cancelYm, notify_flg: ctx.notifyFlg ?? '0' };
   }
 
-  // approve / unapprove — 両方とも payment_start が必須。
+  // approve / unapprove — both require payment_start.
   return { ...base, payment_start: requirePaymentStart(ctx, mode) };
 }
 
 /**
- * `ctx.paymentStart` を返す。未指定なら投げる。
+ * Returns `ctx.paymentStart`, throwing when it's missing.
  *
- * 絶対月 → 2値の変換は時計依存なので builder では行わない（`toPaymentStart()`
- * を呼び出し側で使う）。ここは「渡し忘れ」を静かに落とさないためのガード。
+ * The absolute-month → two-value conversion depends on the clock, so the builder
+ * doesn't do it (the caller uses `toPaymentStart()`). This is just the guard that
+ * keeps a forgotten hand-off from being dropped silently.
  */
 function requirePaymentStart(ctx: BuildCtx, mode: DenshibanMode): '0' | '1' {
   if (ctx.paymentStart === undefined) {
@@ -449,7 +467,7 @@ function requirePaymentStart(ctx: BuildCtx, mode: DenshibanMode): '0' | '1' {
   return ctx.paymentStart;
 }
 
-/** 電子版会員ID を文字列で返す。未同期（NULL）なら投げる。 */
+/** Returns the denshiban member id as a string. Throws when unsynced (NULL). */
 function requireKaiinId(d: Dokusya): string {
   if (d.denshiKaiinId === null || d.denshiKaiinId === undefined) {
     throw new DenshibanMappingError(

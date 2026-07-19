@@ -37,6 +37,8 @@ import {
 } from '@/common/enums';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
+import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
+import type { DenshibanMode } from '@/modules/denshiban/mapper/denshiban-payload.builder';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
@@ -258,6 +260,7 @@ export class DokusyaService {
     private readonly rireki: DokusyaRirekiService,
     private readonly searchService: DokusyaSearchService,
     private readonly replaceService: DokusyaReplaceService,
+    private readonly denshibanApi: DenshibanApiService,
   ) {}
 
   // ════════════════════════════════════════════════════════════════════
@@ -490,6 +493,23 @@ export class DokusyaService {
           actor: String(session.account_id),
           reason: '',
         });
+
+        // ── 電子版へ同期（COMMIT 前 / 顧客要件 2026-07）─────────────────────
+        // 電子版が受け付けないデータは cloud にも作らない。ここで投げると本
+        // トランザクションごと巻き戻り、読者は作られなかったことになる。
+        // 紙のみ・併読は sendNow が門番で弾いて null を返す（＝送信しない）。
+        const sync = await this.denshibanApi.sendNow(
+          { dokusya: result.after, mode: 'create' },
+          manager,
+        );
+        // 電子版が採番した会員ID。取り込まないと以後の update / cancel が送れない
+        // （`id` が必須）。同一 tx で書くので、この UPDATE が失敗すれば送信ごと
+        // 巻き戻る… わけではない点に注意 — 電子版側の会員は既に出来ている。
+        if (sync?.id) {
+          const kaiinId = Number(sync.id);
+          await manager.update(Dokusya, { dokusyaId: result.dokusyaId }, { denshiKaiinId: kaiinId });
+          result.after.denshiKaiinId = kaiinId;
+        }
 
         await this.auditLog.logCreate(
           auditCtxFactory(result.dokusyaId),
@@ -757,6 +777,12 @@ export class DokusyaService {
             { dokusyaId: id },
             { updatedBy: String(session.account_id) },
           );
+          // 再購読は電子版から見れば「読み直し」= reread（会員は既に居る）。
+          await this.denshibanApi.sendNow(
+            { dokusya: result.after, mode: 'reread', before },
+            manager,
+          );
+
           await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
           return result.after;
         }
@@ -811,6 +837,14 @@ export class DokusyaService {
           Dokusya,
           { dokusyaId: id },
           { updatedBy: String(session.account_id) },
+        );
+
+        // ── 電子版へ同期（COMMIT 前）──────────────────────────────────────
+        // `before` は変更前の姿。update は「変わった項目だけ」送る仕様なので、
+        // 差分の基準として必須（渡さないと assembler が落とす）。
+        await this.denshibanApi.sendNow(
+          { dokusya: result.after, mode: 'update', before },
+          manager,
         );
 
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
@@ -943,6 +977,21 @@ export class DokusyaService {
           { dokusyaId: id },
           { updatedBy: String(session.account_id) },
         );
+
+        // ── 電子版へ同期（COMMIT 前）──────────────────────────────────────
+        // 購読停止 = 電子版の cancel。`cancel_ym` は購読中止日の年月。`chushi` は
+        // 既に JST の業務日 `YYYY-MM-DD` なので、Date に戻さず文字列から切り出す
+        // （Date 経由だと UTC↔JST の往復で月境界がずれうる）。電子版の仕様上
+        // 過去月は `P05` で弾かれるが、停止日の未来日チェックは上流で済んでいる。
+        await this.denshibanApi.sendNow(
+          {
+            dokusya: result.after,
+            mode: 'cancel',
+            cancelYm: String(chushi).replace(/-/g, '').slice(0, 6),
+          },
+          manager,
+        );
+
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
       });
@@ -967,6 +1016,7 @@ export class DokusyaService {
       newStatus: DenshiShoninStatus.APPROVED,
       henkoRiyu: '電子版承認',
       message: '承認しました。',
+      denshibanMode: 'approve',
     });
   }
 
@@ -1834,7 +1884,18 @@ export class DokusyaService {
     id: number,
     session: SessionPayload,
     req: Request,
-    options: { newStatus: number; henkoRiyu: string; message: string },
+    options: {
+      newStatus: number;
+      henkoRiyu: string;
+      message: string;
+      /**
+       * 指定されたときだけ電子版へ同期する。`approve` のみ設定（顧客要件 2026-07 の
+       * 連携対象は create / update / approve / stop）。否認 (`reject`) は電子版側の
+       * `unapprove` に対応するが、連携対象に入っていないので敢えて渡していない —
+       * 対象に加えるときは `denshibanMode: 'unapprove'` を足せば足りる。
+       */
+      denshibanMode?: DenshibanMode;
+    },
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     const before = await this.fetchInScope(id, session);
     // 承認/否認 is a 電子版 (dokusya_shubetsu=2) workflow → requires
@@ -1874,6 +1935,15 @@ export class DokusyaService {
           denshiShoninStatus: options.newStatus,
           updatedBy: String(session.account_id),
         } as Dokusya;
+
+        // ── 電子版へ同期（COMMIT 前）— approve のみ ────────────────────────
+        if (options.denshibanMode) {
+          await this.denshibanApi.sendNow(
+            { dokusya: after, mode: options.denshibanMode },
+            manager,
+          );
+        }
+
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
         return after;
       });
