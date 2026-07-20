@@ -95,7 +95,7 @@ ACSMS-SCR-013_購読者履歴情報画面_画面イメージ
 | 9 | 連絡先１ | renrakusaki_1 | ラベル | 出力 | - | VARCHAR | - | 15 | 左 | - | 読者履歴テーブル | t_dokusya_rireki | 連絡先１ | renrakusaki_1 | 常時表示 | - |  |
 | 10 | 連絡先２ | renrakusaki_2 | ラベル | 出力 | - | VARCHAR | - | 15 | 左 | - | 読者履歴テーブル | t_dokusya_rireki | 連絡先2 | renrakusaki_2 | 常時表示 | - |  |
 | 11 | メールアドレス | email | ラベル | 出力 | - | VARCHAR | - | 10 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | メールアドレス | email | 常時表示 | - |  |
-| 12 | メールマガジンフラグ（コード名称） | mail_magazine_flg | ラベル | 出力 | - | INTEGER | - | 50 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | メールマガジンフラグ | mail_magazine_flg | 常時表示 | - | メールマガジン（0:配信しない, 1:配信する） |
+| 12 | メールマガジンフラグ | mail_magazine_flg | ラベル | 出力 | - | INTEGER | - | 50 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | メールマガジンフラグ | mail_magazine_flg | 常時表示 | - | メールマガジン（0:配信しない, 1:配信する） |
 | 13 | 生年 | birth_year | ラベル | 出力 | - | INTEGER | - | - | - | - | 読者履歴テーブル | t_dokusya_rireki | 生年 | birth_year | 常時表示 | - | 生年（西暦） |
 | 14 | 性別 | gender | ラベル | 出力 | - | INTEGER | - | - | - | - | 読者履歴テーブル | t_dokusya_rireki | 性別 | gender | データある場合 | - | 性別（1:男性, 2:女性, 9:回答しない） |
 | 15 | 購読者層分類 | dokusyaso_bunrui | ラベル | 出力 | - | VARCHAR | - | 50 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | 購読者層分類 | dokusyaso_bunrui | 常時表示 | - | 購読者層分類（複数カンマ区切り）※空文字許容 |

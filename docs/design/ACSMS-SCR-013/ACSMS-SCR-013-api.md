@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | ----------------- | ------------------------------------------------------------------------------------------------------------------- | -------------- | -------------- |
 | 1   | 2026/05/15 | 1.0  | Nguyen Duyen Manh | 初版作成                                                                                                            | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/30 | 1.1  | Tran Duc Tuyen    | 画面設計書 v1.2 / index.html に整合。`t_dokusya_rireki` に存在しない `bank_code` / `bank_name` をレスポンスから削除し、`bank_branch_code` / `bank_branch_name` を論理名「引落元口座店舗コード／名」に改称（画面項目 No.40・41） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/17 | 1.2  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加・並べ替え）: レスポンスに `dokusya_shubetsu`（購読種別）・`tanka_id`/`tanka_name`/`tanka_kingaku`（新聞単価。金額は JA 税区分で解決）・`shiharai_hoho`（支払い方法）・`yubin_kubun`（郵送区分）・`dokusyaryo_shiharai_cycle`（購読料支払サイクル）・`biko`（備考）を追加。SELECT に `m_tanka` / `m_ja` を LEFT JOIN。列並び: 履歴番号→購読種別→手続種別、新聞単価は購読部数の前、初回購読開始日（旧「購読開始日」）→増部日→減部日、支払い方法/郵送区分/購読料サイクルは引落口座貯金種目の前、備考は最終データ列。増部日/減部日は部数の増減時のみ `dokusya_kaishi_date` を表示。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -147,13 +148,25 @@ updated_by: Tran Duc Tuyen
 | 59  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                    |
 | 60  | →created_at                  | String  | -        | ISO8601      |          | 履歴作成日時                                                                                                  |
 | 61  | →created_by                  | String  | -        |              |          | 履歴作成者                                                                                                    |
-| 62  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
-| 63  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
-| 64  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
-| 65  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
-| 66  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
+| 62  | →dokusya_shubetsu            | Number  | -        |              |          | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧の 履歴番号 直後に表示 |
+| 63  | →tanka_id                    | Number  | -        |              |          | 新聞単価ID（m_tanka）                                                                                          |
+| 64  | →tanka_name                  | String  | -        |              | 〇       | 新聞単価名（m_tanka 結合、単価削除済み等は null）。一覧は「単価名 + 半角スペース + 金額」で表示                 |
+| 65  | →tanka_kingaku               | Number  | -        |              | 〇       | 新聞単価の表示金額。JA の税区分(m_ja.zei_kubun)で解決（1:内税→税込 / それ以外→税抜）。単価削除済み等は null    |
+| 66  | →shiharai_hoho               | Number  | -        |              |          | 支払い方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                                                        |
+| 67  | →yubin_kubun                 | String  | -        |              |          | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                            |
+| 68  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数 1〜12、未設定は null）                                                                |
+| 69  | →biko                        | String  | -        |              |          | 備考（取消時は取消理由を記録・空文字許容）。一覧の最終データ列                                                 |
+| 70  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
+| 71  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
+| 72  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
+| 73  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
+| 74  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
 
-※ `mail_magazine_flg` / `gender` / `tetsuzuki_shurui` / `hikiotoshi_yokin_shubetsu` はコード値のみ返却し、ラベルはFE側で `useCodesStore().label('CATEGORY', value)` から取得する（`.claude/rules/nestjs.md §Response serialization` 参照）。
+※ `mail_magazine_flg` / `gender` / `tetsuzuki_shurui` / `dokusya_shubetsu` / `shiharai_hoho` / `yubin_kubun` / `hikiotoshi_yokin_shubetsu` はコード値のみ返却し、ラベルはFE側で `useCodesStore().label('CATEGORY', value)` から取得する（`.claude/rules/nestjs.md §Response serialization` 参照）。
+
+※ 新聞単価金額(`tanka_kingaku`)は JA の税区分で BE 解決する（単価ドロップダウン・haitatsuryo と同一方式）。`tanka_name` と併せ、一覧では「単価名 + 半角スペース + 金額」で表示する。
+
+※ SCR-013 一覧の列並び（顧客要件 2026-07）: 履歴番号 → **購読種別** → 手続種別（購読種別の直後へ移動）→ … → **新聞単価**（購読部数の前）→ 購読部数 → … → 前回販売店名 → **初回購読開始日** → **増部日** → **減部日** → … → **支払い方法 / 郵送区分 / 購読料支払いサイクル**（引落口座貯金種目の前）→ 引落口座貯金種目 → … → **備考**（最終データ列）→ 操作。増部日/減部日は `dokusya_kaishi_date` を条件付き表示: 増部日は `dokusya_busu > zenkai_dokusya_busu` または `zenkai_dokusya_busu` が null のとき、減部日は `dokusya_busu < zenkai_dokusya_busu` または null のとき表示（それ以外は空欄）。
 
 ## リクエスト例
 
@@ -191,6 +204,10 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
       "gender": 1,
       "dokusyaso_bunrui": "一般,個人",
       "nogyosya_bunrui": "",
+      "dokusya_shubetsu": 1,
+      "tanka_id": 1,
+      "tanka_name": "新聞購読料",
+      "tanka_kingaku": 3500,
       "dokusya_busu": 2,
       "zenkai_dokusya_busu": 1,
       "haitatsu_yubin_no": "1000001",
@@ -220,6 +237,10 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
       "zougen_hokoku_flg": true,
       "shinki_flg": false,
       "kaiyaku_flg": false,
+      "biko": "",
+      "shiharai_hoho": 1,
+      "yubin_kubun": "0",
+      "dokusyaryo_shiharai_cycle": 1,
       "hikiotoshi_yokin_shubetsu": 1,
       "bank_branch_code": "001",
       "bank_branch_name": "本店",
@@ -369,7 +390,11 @@ SELECT
   r.shikuchoson, r.chome_banchi, r.tatemono_mei,
   r.renrakusaki_1, r.renrakusaki_2, r.email,
   r.mail_magazine_flg, r.birth_year, r.gender,
+  r.dokusya_shubetsu,
   r.dokusyaso_bunrui, r.nogyosya_bunrui,
+  r.tanka_id, t.tanka_name,
+  /* 金額は JA の税区分で解決（zei_kubun=1 内税→税込、それ以外→税抜） */
+  CASE WHEN ja.zei_kubun = 1 THEN t.kingaku_zeikomi ELSE t.kingaku_zeinuki END AS tanka_kingaku,
   r.dokusya_busu, r.zenkai_dokusya_busu,
   r.haitatsu_yubin_no, r.zenkai_yubin_no,
   r.haitatsu_todofuken_code, ht.todofuken_name AS haitatsu_todofuken_name,
@@ -383,6 +408,8 @@ SELECT
   r.shoki_dokusya_kaishi_date, r.dokusya_kaishi_date,
   r.dokusya_chushi_date, r.joho_henko_tekiyo_date,
   r.saishin_data_flg, r.zougen_hokoku_flg, r.shinki_flg, r.kaiyaku_flg,
+  r.biko,
+  r.shiharai_hoho, r.yubin_kubun, r.dokusyaryo_shiharai_cycle,
   r.hikiotoshi_yokin_shubetsu,
   r.bank_branch_code, r.bank_branch_name,
   r.hikiotoshi_koza_no, r.hikiotoshi_koza_meigi,
@@ -395,6 +422,9 @@ LEFT JOIN m_todofuken     ht ON r.haitatsu_todofuken_code = ht.todofuken_code
 LEFT JOIN m_todofuken     zt ON r.zenkai_todofuken_code   = zt.todofuken_code
 LEFT JOIN m_hanbaiten     h  ON r.hanbaiten_id        = h.hanbaiten_id        AND h.deleted_at IS NULL
 LEFT JOIN m_hanbaiten     zh ON r.zenkai_hanbaiten_id = zh.hanbaiten_id        AND zh.deleted_at IS NULL
+/* 新聞単価（名称）と、金額を税区分で解決するための JA を結合 */
+LEFT JOIN m_tanka         t  ON r.tanka_id = t.tanka_id
+LEFT JOIN m_ja            ja ON r.ja_id    = ja.ja_id
 WHERE r.dokusya_id = :dokusya_id
   AND r.ja_id = :user_ja_id
   /* JA_KANRI_SHITEN の場合のみ追加 */

@@ -19,6 +19,7 @@ updated_by: Dao Van Thang
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/16 | 1.0  | Dao Van Thang | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/18 | 1.2  | Dao Van Thang | 画面設計書 v1.2 対応：検索条件「廃店フラグ」追加（デフォルトは廃店=false のレコードのみ表示）、一覧レスポンスに「都道府県」（m_todofuken JOIN による todofuken_name）追加、列ラベルを「手数料区分」→「振込手数料負担区分」、「支払区分」→「配達手数料支払サイクル」に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/07/17 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：失効単価参照フィルタ `inactive_tanka_flg`（真偽・失効のみ）を **有効単価フラグ `active_tanka_flg`（トライステート：true=有効単価参照のみ / false=失効単価参照のみ / 省略=両方）** へ変更。UI を単価一覧(SCR-006)と同一のラジオ（有効/無効）に統一。SCR-021 の失効単価エラーからの導線(`?inactive_tanka=1`)は「無効(false)」で初期選択。非相関サブクエリの active_flg はパラメータバインド。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -85,7 +86,7 @@ updated_by: Dao Van Thang
 | 5   | address        | String  | -        | -    |        | 200    | 住所（部分一致検索）                                                                             |
 | 6   | shocho_name    | String  | -        | -    |        | 50     | 所長名（部分一致検索）                                                                           |
 | 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店フラグ（true:廃店も含む, false:廃店を除外）。**省略時は false（廃店フラグが立っているレコードは一覧に表示しない）**。画面設計書 v1.2 §1.1 / §2.1 参照 |
-| 7.5 | inactive_tanka_flg | Boolean | -    | -    |        |        | 失効単価参照フラグ（SCR-021 error gate 連携・顧客要件2026-07）。`true` のとき有効。参照する配達手数料単価(m_hanbaiten.haitatsuryo_tanka_id → m_tanka.tanka_type=2)が `active_flg=FALSE` の販売店だけを抽出（配達手数料出力で失効単価参照によりブロックされた販売店を手動で新単価へ移行するための絞込） |
+| 7.5 | active_tanka_flg | Boolean | -    | -    |        |        | 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する販売店のみ、`false`=失効単価(active_flg=FALSE)を参照する販売店のみ、省略=両方。参照する配達手数料単価は m_hanbaiten.haitatsuryo_tanka_id → m_tanka.tanka_type=2。配達手数料出力(SCR-021)の失効単価エラーからは `false`(無効)で初期選択される |
 | 8   | page           | Number  | -        | -    |        |        | ページ番号（1始まり）。デフォルト: 1                                                              |
 | 9   | per_page       | Number  | -        | -    |        |        | 1ページあたりの件数（1〜100）。デフォルト: 20                                                     |
 | 10  | sort_by        | String  | -        | -    |        |        | ソート対象カラム（hanbaiten_code, hanbaiten_name, updated_at）。デフォルト: updated_at（最終更新が新しい順）。updated_at は画面のソートヘッダではなく既定の並び順（新規作成・取込・更新直後の行を先頭に表示） |
@@ -254,7 +255,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
   - fax 指定時：`fax ILIKE '%' || :fax || '%'`
   - address 指定時：`address ILIKE '%' || :address || '%'`
   - shocho_name 指定時：`shocho_name ILIKE '%' || :shocho_name || '%'`
-  - inactive_tanka_flg=true 指定時：参照する配達手数料単価が失効している販売店のみ抽出。非相関サブクエリ IN で判定する（getManyAndCount のページング経路を壊さず、pg-mem でも動作）。`haitatsuryo_tanka_id` が NULL の販売店は `NULL IN (...)` が真にならず除外される。
+  - active_tanka_flg 指定時：`true`=参照する配達手数料単価が有効(active_flg=TRUE)の販売店のみ、`false`=失効(active_flg=FALSE)の販売店のみ抽出（省略時は絞り込まない）。非相関サブクエリ IN で判定する（getManyAndCount のページング経路を壊さず、pg-mem でも動作）。active_flg はパラメータ（`:activeTankaFlg`）でバインドする。`haitatsuryo_tanka_id` が NULL の販売店は `NULL IN (...)` が真にならず除外される。
     ```sql
     AND m.haitatsuryo_tanka_id IN (
       SELECT mti.tanka_id FROM m_tanka mti

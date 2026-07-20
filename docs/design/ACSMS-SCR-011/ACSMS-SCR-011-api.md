@@ -25,6 +25,8 @@ updated_by: Tran Duc Tuyen
 | 6   | 2026/07/16 | 1.5  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：購読停止（解約予約）を更新(API-011-003)から分離し、専用エンドポイント `POST /api/v1/dokusya/{dokusya_id}/stop`（ACSMS-API-014-004・購読停止）へ移設。更新APIは `dokusya_chushi_date` を受け付けず、body に含まれると `VALIDATION_ERROR`（@IsEmpty）で 400。当日変更モードの帳票影響項目一覧から `dokusya_chushi_date` を除外。更新画面では購読中止日は読取専用。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 7   | 2026/07/16 | 1.6  | Tran Duc Tuyen | 顧客要件：併読（dokusya_shubetsu=3・紙版＋電子版）は新規登録(API-011-002)不可を明記＋BEガード追加。併読データは電子版読者管理システムがバッチ連携で管理するため、作成は `VALIDATION_ERROR`、編集/停止/削除は `DOKUSYA_READ_ONLY`(403)、Excel取込は取込不可で統一。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 8   | 2026/07/16 | 1.7  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：更新(API-011-003)で **電子版（dokusya_shubetsu=2）は当日変更のみ**とし、`change_mode='reserved'`（予約変更）を `VALIDATION_ERROR`(field=`change_mode`)で拒否（再購読は例外）。紙版のみ当日変更／予約変更の2モードを保持。FEは電子版で編集画面のモードバーを非表示にし当日変更固定で開く。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 9   | 2026/07/17 | 1.8  | Tran Duc Tuyen | 不具合修正（増減報告フラグ）：更新時の `zougen_hokoku_flg` 判定が購読者住所しか見ておらず、`haitatsu_same_flg=FALSE` で別配達先住所を入力しても FALSE のままだった。**実効配達先住所**（same_flg=TRUE→購読者住所 / FALSE→配達先住所）の変更、および `haitatsu_same_flg` の切替を増減トリガに追加し、配達先変更が正しく TRUE になるよう修正（BE: computeZougen）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 10  | 2026/07/17 | 1.9  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：氏名（購読者氏名_氏 `shimei_sei`・購読者氏名_名 `shimei_mei`・配達先氏名 `haitatsu_shimei_sei`/`haitatsu_shimei_mei`）の形式チェックを **漢字のみ → 漢字・ひらがな・カタカナ許容** に緩和（ひらがな/カタカナ表記の氏名の方に対応）。半角カナ・英数字は引き続き不可。形式不正メッセージを「漢字で入力してください。」→「漢字・ひらがな・カタカナで入力してください。」に変更。かな項目（`shimei_kana_*`）の全角ひらがな形式は変更なし。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -671,7 +673,8 @@ Content-Type: application/json
 
 - リクエストボディの検証：
   - dokusya_shubetsu：必須。**3:併読（紙版＋電子版）は新規登録不可**（顧客要件）。併読データは外部の電子版読者管理システムがバッチ連携で管理するため、本システムでは作成・編集・停止・削除いずれも不可。作成は `VALIDATION_ERROR`（field=`dokusya_shubetsu`、メッセージ「併読（紙版＋電子版）はバッチ連携で管理されるため、新規登録できません。」）、編集/停止/削除は `DOKUSYA_READ_ONLY`（403）、Excel取込は取込不可。FEは新規作成モードで併読ラジオを非活性化。
-  - shimei_sei / shimei_mei：必須、最大50文字
+  - shimei_sei / shimei_mei：必須、最大50文字、**漢字・ひらがな・カタカナ形式**（半角カナ・英数字不可。顧客要件 2026-07 でひらがな/カタカナ表記の氏名に対応するため漢字のみから緩和）。形式不正時は `VALIDATION_ERROR`（メッセージ「漢字・ひらがな・カタカナで入力してください。」）
+  - haitatsu_shimei_sei / haitatsu_shimei_mei：haitatsu_same_flg=false 時必須、shimei_sei/mei と同じ漢字・ひらがな・カタカナ形式
   - shimei_kana_sei / shimei_kana_mei：必須、最大100文字、ひらがな/カタカナ形式
   - dokusya_busu：必須、半角数字。解約時は0
   - yubin_no：必須、半角数字7桁
@@ -1212,7 +1215,8 @@ WHERE dokusya_id = :dokusya_id
     項目のみの変更（例：口座情報のみ）なら FALSE：
     - 購読部数（dokusya_busu）
     - 販売店（hanbaiten_id）
-    - 住所5項目 — `haitatsu_same_flg=TRUE` なら購読者住所（yubin_no / todofuken_code / shikuchoson / chome_banchi / tatemono_mei）、`FALSE` なら配達先住所（haitatsu_yubin_no / haitatsu_todofuken_code / haitatsu_shikuchoson / haitatsu_chome_banchi / haitatsu_tatemono_mei）
+    - 配達先同一フラグ（haitatsu_same_flg）の切替（配達先の切替＝配達変更）
+    - **実効配達先住所**5項目 — `haitatsu_same_flg=TRUE` なら購読者住所（yubin_no / todofuken_code / shikuchoson / chome_banchi / tatemono_mei）、`FALSE` なら配達先住所（haitatsu_yubin_no / haitatsu_todofuken_code / haitatsu_shikuchoson / haitatsu_chome_banchi / haitatsu_tatemono_mei）。※ `haitatsu_same_flg=FALSE` で別住所を入力して配達先を変えた場合も TRUE（顧客要件）。逆に `FALSE` のとき購読者住所だけを変えても実効配達先（配達先住所）は不変なので FALSE。
     - 解約（tetsuzuki_shurui=0）は購読部数が N→0 になるため上記「購読部数変更」に
       含まれ TRUE（change_notification_concept.md 解約例）。
     （判定は実際の変更有無のみで行う。BE: hasZougenReportableChange。

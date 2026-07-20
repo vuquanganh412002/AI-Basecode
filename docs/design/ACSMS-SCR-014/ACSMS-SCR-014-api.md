@@ -21,6 +21,8 @@ updated_by: Nguyen Duyen Manh
 | 2   | 2026/05/30 | 1.1  | Nguyen Duyen Manh | 画面設計書 v1.2 / 画面イメージ v1.2 同期：<br>1. リクエストパラメータ：`bank_branch_code` / `bank_branch_name` を `jastem_toriatsukai_tenpo_code` / `jastem_tenpo_name` にリネーム（物理カラム `bank_branch_code` / `bank_branch_name` は不変）<br>2. 期間検索化：`shoki_dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date` を `_from` / `_to` ペアに分割（相関チェック：from ≦ to）<br>3. 機能定義 2.2 と整合：手続種類・購読種別・電子版承認ステータスを常時表示エリアに配置（API には影響なし、備考のみ更新）<br>4. Excel 出力カラムを画面検索結果テーブル（24-35）に合わせて 12 列に圧縮（かな氏名・購読種別・支払方法を除外） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/06/16 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06 反映：<br>1. 検索条件の部分一致対象を拡張：`full_name`＝購読者氏名＋配達先氏名（shimei_sei/mei・haitatsu_shimei_sei/mei）、`full_name_kana`＝同かな4項目、`haitatsu`＝配達先住所4項目＋購読者住所4項目（todofuken_code/shikuchoson/chome_banchi/tatemono_mei）、`renrakusaki_1`＝連絡先１＋配達先連絡先１<br>2. レスポンス／検索結果テーブルに `tetsuzuki_shurui`（手続種類）と `haitatsu_full_name`（配達先氏名）を追加。一覧から 支店・連絡先２ 列を削除し、手続種類・購読種別を購読者名の後、配達先氏名を連絡先１の後、支払方法を販売店名の後に配置<br>3. Excel 出力を上記の新一覧（14 列）に合わせて変更。手続種類・購読種別・支払方法は m_code ラベルを出力 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07 反映：<br>1. ACSMS-API-014-004（Stop Dokusya＝購読停止・解約予約）を追加。一覧の「購読を停止する」ボタン専用。購読中止日だけを送り Phase 1 の解約予約行を1件挿入する（`POST /api/v1/dokusya/{dokusya_id}/stop`、権限 `dokusya.update`）。<br>2. 紙版はカレンダーで中止日を選択（購読開始日以降・未来日・最終変更適用日より後）。電子版は終了月を選び月末日で停止（当月以降・請求開始月以降。請求開始月未設定なら停止不可）。<br>3. 編集画面（SCR-011）の購読中止日はインライン編集を廃止し読取専用化（停止は本ボタンへ集約） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/07/17 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：失効単価参照フィルタ `inactive_tanka_flg`（真偽・失効のみ）を **有効単価フラグ `active_tanka_flg`（トライステート：true=有効単価参照のみ / false=失効単価参照のみ / 省略=両方）** へ変更。UI を単価一覧(SCR-006)と同一のラジオ（有効/無効）に統一。SCR-020 の失効単価エラーからの導線(`?inactive_tanka=1`)は「無効(false)」で初期選択。JOIN の active_flg はパラメータバインド。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6   | 2026/07/17 | 1.5  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：Stop Dokusya（ACSMS-API-014-004）で購読中止日を予約時点に master（t_dokusya.dokusya_chushi_date）へ即時反映する仕様を明記。予約行は未来日で有効行にならないが購読中止日のみ一覧(SCR-014)・詳細(SCR-011)へ直ちに表示。予約行を取消すと購読中止日は自動で null へ戻る（解約フラグ・購読状態の確定は従来どおり到来日バッチ Phase 2）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -109,7 +111,7 @@ updated_by: Nguyen Duyen Manh
 | 20  | joho_henko_tekiyo_date_from    | String | -        | -    |        |        | 適用日（範囲開始）YYYY/MM/DD【詳細検索】                                                            |
 | 21  | joho_henko_tekiyo_date_to      | String | -        | -    |        |        | 適用日（範囲終了）YYYY/MM/DD ※相関チェック：from ≦ to。両方空欄=最新データフラグ=1、入力時=変更適用日が範囲内の履歴を抽出【詳細検索】 |
 | 22  | shiharai_hoho                  | Number | -        | -    |        |        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）【詳細検索】 |
-| 22.5 | inactive_tanka_flg           | Boolean | -       | -    |        |        | 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）。`true`/`1` のときのみ有効。参照する購読料単価(tanka_type=1)が `active_flg=FALSE` の購読者だけを抽出（口座振替出力で失効単価参照によりブロックされた購読者を手動で新単価へ移行するための絞込）【詳細検索】 |
+| 22.5 | active_tanka_flg             | Boolean | -       | -    |        |        | 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する購読者のみ、`false`=失効単価(active_flg=FALSE)を参照する購読者のみ、省略=両方。参照する購読料単価は tanka_type=1。口座振替出力(SCR-020)の失効単価エラーからは `false`(無効)で初期選択される【詳細検索】 |
 | 23  | page                           | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                         |
 | 24  | per_page                       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
 | 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
@@ -324,7 +326,7 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
   - dokusya_chushi_date_from 指定時：`d.dokusya_chushi_date >= :dokusya_chushi_date_from`
   - dokusya_chushi_date_to 指定時：`d.dokusya_chushi_date <= :dokusya_chushi_date_to`
   - dokusya_shubetsu / shiharai_hoho / tetsuzuki_shurui / denshi_shonin_status 指定時：それぞれ等価条件
-  - inactive_tanka_flg=true 指定時：参照購読料単価が失効している購読者のみ抽出。`tanka_id` は m_tanka の PK のため INNER JOIN で行数は増えない（0/1件）。
+  - active_tanka_flg 指定時：`true`=参照購読料単価が有効(active_flg=TRUE)の購読者のみ、`false`=失効(active_flg=FALSE)の購読者のみ抽出（省略時は絞り込まない）。`tanka_id` は m_tanka の PK のため INNER JOIN で行数は増えない（0/1件）。JOIN 条件の active_flg はパラメータ（`:activeTankaFlg`）でバインドする。
     ```sql
     INNER JOIN m_tanka mti
       ON mti.tanka_id = d.tanka_id
@@ -850,7 +852,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 項目                   | 内容                                                                                                                                                                                                                                                       |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Stop Dokusya（購読停止・解約予約）                                                                                                                                                                                                                          |
-| 概要                   | 一覧の「購読を停止する」ボタンから、購読中止日（解約予定日）だけを指定して解約予約行を1件挿入する専用API。実際の解約確定（t_dokusya への反映）は到来日バッチ（Phase 2）が行う。                                                                              |
+| 概要                   | 一覧の「購読を停止する」ボタンから、購読中止日（解約予定日）だけを指定して解約予約行を1件挿入する専用API。購読中止日は予約時点で master（t_dokusya.dokusya_chushi_date）へ即時反映し、一覧（SCR-014）・詳細（SCR-011）に直ちに表示する。解約の確定（解約フラグ・購読状態の反映）は到来日バッチ（Phase 2）が行う。予約行を取消すると master の購読中止日は自動で null へ戻る。 |
 | URI                    | /api/v1/dokusya/{dokusya_id}/stop                                                                                                                                                                                                                          |
 | メソッド               | POST                                                                                                                                                                                                                                                       |
 | リクエストボディー     | dokusya_chushi_date（YYYY-MM-DD）                                                                                                                                                                                                                          |
