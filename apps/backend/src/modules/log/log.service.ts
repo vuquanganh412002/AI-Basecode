@@ -361,9 +361,14 @@ export class LogService {
   }
 
   private csvEscape(value: string): string {
-    if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
-      return `"${value.replaceAll('"', '""')}"`;
-    }
-    return `"${value}"`;
+    // [csv-formula-injection] — Excel/LibreOffice evaluate a cell whose text
+    // begins with = + - @ (or a leading TAB/CR) as a formula, even when the
+    // field is CSV-quoted (the parser strips the quotes first). Some columns
+    // (e.g. ip_address, sourced from the unvalidated X-Forwarded-For header)
+    // are attacker-influenceable and land in t_log, so a later CSV export
+    // opened by an admin would execute the payload (DDE / data exfiltration).
+    // Neutralize by prefixing a single quote, which forces the cell to text.
+    const neutralized = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+    return `"${neutralized.replaceAll('"', '""')}"`;
   }
 }

@@ -79,16 +79,15 @@ describe('OshiraseService — SCR-001 (public findLogin)', () => {
       ]);
     });
 
-    it('should label oshirase_type=2 as "重要" when row is type 2', async () => {
-      qbMock.getMany.mockResolvedValue([buildOshirase({ oshiraseType: 2 })]);
+    it.each([
+      ['oshirase_type=2 as "重要" when row is type 2', 2, '重要'],
+      ['oshirase_type=3 as "一般" when row is type 3', 3, '一般'],
+      // Unknown type → empty label (defensive).
+      ['empty label when oshirase_type is unknown (defensive)', 99, ''],
+    ])('should label %s', async (_desc, oshiraseType, expectedLabel) => {
+      qbMock.getMany.mockResolvedValue([buildOshirase({ oshiraseType })]);
       const result = await service.findLogin({});
-      expect(result[0].oshirase_type_label).toBe('重要');
-    });
-
-    it('should label oshirase_type=3 as "一般" when row is type 3', async () => {
-      qbMock.getMany.mockResolvedValue([buildOshirase({ oshiraseType: 3 })]);
-      const result = await service.findLogin({});
-      expect(result[0].oshirase_type_label).toBe('一般');
+      expect(result[0].oshirase_type_label).toBe(expectedLabel);
     });
 
     it('should default publish_location to 1 when query omits it', async () => {
@@ -183,12 +182,6 @@ describe('OshiraseService — SCR-001 (public findLogin)', () => {
       ]);
       const result = await service.findLogin({});
       expect(result[0].publish_start_date).toBe('2026-04-10');
-    });
-
-    it('should return empty label when oshirase_type is unknown (defensive)', async () => {
-      qbMock.getMany.mockResolvedValue([buildOshirase({ oshiraseType: 99 })]);
-      const result = await service.findLogin({});
-      expect(result[0].oshirase_type_label).toBe('');
     });
   });
 });

@@ -943,7 +943,7 @@ function disabledChushiDate(current: Dayjs | null): boolean {
 
 // 購読開始日カレンダー。新規登録・再購読は未来日のみ (当日・過去日 不可・顧客要件
 // 2026-07。BE も assertTekiyoDateFuture で当日を弾く)。それ以外(通常編集)は購読開始日
-// 自体が disabled だが従来どおり過去日のみ不可。電子版+口座引落 の新規はラジオ
+// 自体が disabled だが従来どおり過去日のみ不可。電子版 の新規はラジオ
 // 「今日/翌月1日」なので本カレンダー自体を表示しない (特例・当日可)。
 function disabledKaishiDate(current: Dayjs | null): boolean {
   return !isEdit.value || isResubscribing.value
@@ -1040,28 +1040,28 @@ const isDigitalOrBoth = computed(
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH,
 );
 
-// ─── 購読開始日・中止日 — create-mode 電子版 + 口座引落 の特例 ────────
+// ─── 購読開始日・中止日 — create-mode 電子版 の特例 ──────────────────
 //
-// 顧客要件 (create のみ): 電子版(2) かつ 支払方法=口座引落(1) のとき
+// 顧客要件 2026-07 改訂: create かつ 電子版(2) のとき（支払方法は問わない）
 //   - 購読開始日 : ラジオ 2 択「今日 / 翌月1日」(既定=今日)。実際の保存
 //                 値は buildRequestBody でラジオから確定する (今日=本日
 //                 JST / 翌月1日=翌月1日 JST)。
 //   - 購読中止日 : 読取専用・空欄。submit は null。表示は「月末で終了」
-//                 (値があれば YYYY/MM 表示)。
-//   - 請求開始月 : 非表示。
-// edit モードおよびここに挙げていない組み合わせは従来ロジックを維持。
-const isDigitalKozaCreate = computed(
+//                 (値があれば YYYY/MM 表示)。中止（解約予約）は一覧の
+//                 「購読を停止する」で行う。紙版も中止日は読取専用。
+//   - 請求開始月 : 非表示（電子版システム決定後に受信するため create では未確定）。
+// edit モードおよび紙版 create は従来ロジックを維持。
+const isDigitalCreate = computed(
   () =>
     !isEdit.value &&
-    Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-    Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI,
+    Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
 );
 
 /** 購読開始日ラジオ — 'today'(今日) / 'next_month_first'(翌月1日). */
 const kaishiDateMode = ref<'today' | 'next_month_first'>('today');
 
-/** 電子版・口座引落の購読開始日として保存する YYYY-MM-DD を確定する。 */
-function resolveKaishiDateDigitalKoza(): string {
+/** 電子版 create の購読開始日として保存する YYYY-MM-DD を確定する。 */
+function resolveKaishiDateDigitalCreate(): string {
   return kaishiDateMode.value === 'next_month_first'
     ? nextMonthFirstIsoTokyo()
     : todayIsoTokyo();
@@ -1123,10 +1123,12 @@ const haitatsuRequired = computed(
 const REQUIRED_MSG = '必須項目です。';
 const HIRAGANA_RE = /^[ぁ-ゖー\s]+$/u;
 const HIRAGANA_MSG = 'ひらがなで入力してください。';
-// 漢字 — CJK統合漢字 + 々(繰返し) + 〇 + CJK互換漢字(﨑/髙等の人名漢字).
-// 空白は氏名のトークン区切りとして許容 (かなフィールドと同じ方針)。
-const KANJI_RE = /^[一-鿿々〇豈-﫿\s]+$/u;
-const KANJI_MSG = '漢字で入力してください。';
+// 氏名 (氏/名) は漢字・ひらがな・カタカナを許容（顧客要件 2026-07 緩和）。
+// CJK統合漢字 + 々 + 〇 + CJK互換漢字(﨑/髙等) + ひらがな + 全角カタカナ(長音符ー・
+// 中点・含む). 半角カナ/英数字は不可。空白は氏名のトークン区切りとして許容。
+// BE 側 KANJI_NAME_RE (create-dokusya.dto.ts) と同一文字集合 — 両方同時更新。
+const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿ\s]+$/u;
+const KANJI_MSG = '漢字・ひらがな・カタカナで入力してください。';
 const POSTAL_MSG = '郵便番号は半角数字7桁で入力してください。';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
@@ -1204,20 +1206,20 @@ function validateFkDropdowns(errs: Record<string, string>): void {
 }
 
 /**
- * 購読開始日 required on create (unless 電子版+口座引落, where the radio
+ * 購読開始日 required on create (unless 電子版 create, where the radio
  * always fixes it) + §7.1 電子版/併読 → email required & format.
  */
 function validateKaishiAndEmail(errs: Record<string, string>): void {
-  if (!isDigitalKozaCreate.value && !formState.dokusya_kaishi_date) {
+  if (!isDigitalCreate.value && !formState.dokusya_kaishi_date) {
     errs.dokusya_kaishi_date = REQUIRED_MSG;
   }
   // 購読開始日は新規登録のみ未来日チェック（顧客要件 2026-07 改訂: 当日・過去日
-  // 不可）。編集モードは読取専用で既存日を保持するため対象外。電子版+口座引落
+  // 不可）。編集モードは読取専用で既存日を保持するため対象外。電子版 create
   // create はラジオ(今日/翌月1日)で確定する特例なので date-picker 経路
-  // （!isDigitalKozaCreate）のみチェックし、当日は許容する。
+  // （!isDigitalCreate）のみチェックし、当日は許容する。
   if (
     !isEdit.value &&
-    !isDigitalKozaCreate.value &&
+    !isDigitalCreate.value &&
     !errs.dokusya_kaishi_date &&
     formState.dokusya_kaishi_date &&
     formState.dokusya_kaishi_date <= todayIsoTokyo()
@@ -1426,20 +1428,20 @@ function buildRequestBody(): CreateDokusyaRequest {
     hikiotoshi_koza_meigi: formState.hikiotoshi_koza_meigi,
     dokusyaso_bunrui: formState.dokusyaso_bunrui,
     nogyosya_bunrui: formState.nogyosya_bunrui,
-    // 電子版+口座引落 (create): 購読開始日はラジオで確定、購読中止日は
+    // 電子版 (create): 購読開始日はラジオで確定、購読中止日は
     // null (月末で終了)、請求開始月は送らない (空)。それ以外は従来通り
     // formState の値をそのまま送る。
-    dokusya_kaishi_date: isDigitalKozaCreate.value
-      ? resolveKaishiDateDigitalKoza()
+    dokusya_kaishi_date: isDigitalCreate.value
+      ? resolveKaishiDateDigitalCreate()
       : formState.dokusya_kaishi_date,
-    dokusya_chushi_date: isDigitalKozaCreate.value
+    dokusya_chushi_date: isDigitalCreate.value
       ? null
       : formState.dokusya_chushi_date,
     // 情報変更適用日は編集時にユーザー入力（未来日のみ）。販売店・支払方法を含む
     // 全変更の唯一の適用日（顧客要件 2026-07: 販売店適用日を廃止し joho に統一）。
     // 新規登録では null（UI 非表示）。hanbaiten_tekiyo_date は送信しない。
     joho_henko_tekiyo_date: formState.joho_henko_tekiyo_date,
-    seikyu_kaishi_month: isDigitalKozaCreate.value
+    seikyu_kaishi_month: isDigitalCreate.value
       ? ''
       : formState.seikyu_kaishi_month,
     biko: formState.biko,
@@ -2704,12 +2706,12 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 <span class="text-error ml-1">*</span>
               </template>
               <!--
-                電子版+口座引落 (create) はラジオ「今日/翌月1日」で指定し、
+                電子版 (create) はラジオ「今日/翌月1日」で指定し、
                 実際の保存値は buildRequestBody で確定する。それ以外は
                 a-date-picker（作成時のみ入力可、編集モードは読取専用）。
               -->
               <a-radio-group
-                v-if="isDigitalKozaCreate"
+                v-if="isDigitalCreate"
                 v-model:value="kaishiDateMode"
               >
                 <a-radio value="today">今日</a-radio>
@@ -2737,14 +2739,14 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 <span v-if="isCancelTetsuzuki" class="text-error ml-1">*</span>
               </template>
               <!--
-                ① 電子版+口座引落 (create): 読取専用・空欄で「月末で終了」を
+                ① 電子版 (create): 読取専用・空欄で「月末で終了」を
                    placeholder 表示。submit は null (値があれば YYYY/MM 表示)。
                 ② 電子版+クレカ / 併読 (update): 読取専用で月 YYYY/MM を表示し
                    suffix に「月末で終了」。formState の元値はそのまま保持・送信。
                 ③ それ以外: 従来の a-date-picker (編集可能)。
               -->
               <a-input
-                v-if="isDigitalKozaCreate"
+                v-if="isDigitalCreate"
                 :value="chushiMonthDisplay"
                 readonly
                 placeholder="月末で終了"
@@ -2792,10 +2794,10 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
             画面項目定義 No.55 — 請求開始月 (seikyu_kaishi_month) は
             電子版/併読の場合のみ表示, 読取専用 (電子版読者管理
             システム決定後の値を受信して表示). ただし create の
-            電子版+口座引落 では非表示 (顧客要件)。
+            電子版 create では非表示 (顧客要件)。
           -->
           <div
-            v-if="isDigitalOrBoth && !isDigitalKozaCreate"
+            v-if="isDigitalOrBoth && !isDigitalCreate"
             class="grid grid-cols-1 md:grid-cols-2 gap-4"
           >
             <a-form-item name="seikyu_kaishi_month">

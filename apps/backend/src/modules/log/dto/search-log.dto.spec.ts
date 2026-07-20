@@ -141,20 +141,13 @@ describe('SearchLogDto', () => {
   });
 
   describe('sort_by (optional, whitelist)', () => {
-    it('should accept sort_by when value is log_datetime', async () => {
-      const errs = await check({ ...VALID, sort_by: 'log_datetime' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
-
-    it('should accept sort_by when value is log_type', async () => {
-      const errs = await check({ ...VALID, sort_by: 'log_type' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
-
-    it('should accept sort_by when value is result_status', async () => {
-      const errs = await check({ ...VALID, sort_by: 'result_status' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
+    it.each(['log_datetime', 'log_type', 'result_status'])(
+      'should accept sort_by when value is %s',
+      async (sortBy) => {
+        const errs = await check({ ...VALID, sort_by: sortBy });
+        expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
+      },
+    );
 
     it('should reject sort_by when value is not in the whitelist', async () => {
       // api.md §4.1: 許可されたカラム名（log_datetime, log_type, result_status）

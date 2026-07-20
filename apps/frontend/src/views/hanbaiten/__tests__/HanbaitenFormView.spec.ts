@@ -194,28 +194,15 @@ beforeEach(async () => {
 // 1. 画面初期表示 (機能定義 1.x)
 // ───────────────────────────────────────────────────────────────────────
 describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => {
-  it('should render the 販売店コード label when mounted in create mode', async () => {
+  it.each([
+    ['販売店コード', 'create mode'],
+    ['販売店名称', 'create mode'],
+    ['カナ', 'mounted'],
+    ['都道府県', 'mounted'],
+  ])('should render the %s label when %s', async (labelText) => {
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('販売店コード'))).toBe(true);
-  });
-
-  it('should render the 販売店名称 label when mounted in create mode', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('販売店名称'))).toBe(true);
-  });
-
-  it('should render the 販売店名称（カナ） label when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('カナ'))).toBe(true);
-  });
-
-  it('should render the 都道府県 label when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('都道府県'))).toBe(true);
+    expect(labels.some((t) => t.includes(labelText))).toBe(true);
   });
 
   it('should render the 郵便番号 / 住所 / 電話番号 / FAX labels when mounted', async () => {
@@ -345,7 +332,7 @@ describe('HanbaitenFormView — edit mode pre-fill (機能定義 2.x)', () => {
       (i) => (i.element as HTMLInputElement).value === 'H001',
     );
     expect(codeInput).toBeDefined();
-    expect(codeInput!.attributes('disabled') !== undefined).toBe(true);
+    expect(codeInput!.attributes('disabled')).toBeDefined();
   });
 
   it('should render the 更新 submit button (not 登録) when mounted in edit mode', async () => {

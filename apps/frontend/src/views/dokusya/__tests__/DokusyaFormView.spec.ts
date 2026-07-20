@@ -255,10 +255,15 @@ beforeEach(async () => {
 // 1. 画面初期表示 (機能定義 1.x + 画面項目定義)
 // ═══════════════════════════════════════════════════════════════════════
 describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
-  it('should render the 購読種別 label when mounted in create mode', async () => {
+  // 履歴No is edit-only (表示条件 No.8) — absent in create mode; the others render.
+  it.each([
+    ['購読種別', true],
+    ['手続種類', true],
+    ['履歴No', false],
+  ])('label %s presence should be %s in create mode', async (needle, present) => {
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('購読種別'))).toBe(true);
+    expect(labels.some((t) => t.includes(needle))).toBe(present);
   });
 
   it('should keep the 購読種別 radio group editable in create mode (only 併読 disabled)', async () => {
@@ -270,12 +275,6 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     expect(shubetsuItem).toBeDefined();
     const radios = shubetsuItem!.findAll('input[type="radio"]');
     expect(radios.some((r) => !(r.element as HTMLInputElement).disabled)).toBe(true);
-  });
-
-  it('should render the 手続種類 label when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('手続種類'))).toBe(true);
   });
 
   // ─── 購読種別-flag permission gate (account_concept.md §139-145) ─────────
@@ -317,12 +316,17 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     expect((submitBtn.element as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('should render the 管理支店 / 支店 / 組合員コード labels when mounted', async () => {
+  it.each([
+    [['管理支店', '支店', '組合員コード']],
+    [['連絡先', 'メールアドレス', 'メールマガジン']],
+    [['販売店コード', '販売店名', '郵送区分']],
+    [['購読開始日', '購読中止日', '備考']],
+  ])('should render labels %j when mounted', async (needles) => {
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('管理支店'))).toBe(true);
-    expect(labels.some((t) => t.includes('支店'))).toBe(true);
-    expect(labels.some((t) => t.includes('組合員コード'))).toBe(true);
+    for (const needle of needles) {
+      expect(labels.some((t) => t.includes(needle))).toBe(true);
+    }
   });
 
   it('should render the 4 name input labels (氏 / 名 / かな_氏 / かな_名) when mounted', async () => {
@@ -343,31 +347,13 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('丁目番地'))).toBe(true);
   });
 
-  it('should render the contact / email / mail-magazine labels when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('連絡先'))).toBe(true);
-    expect(labels.some((t) => t.includes('メールアドレス'))).toBe(true);
-    expect(labels.some((t) => t.includes('メールマガジン'))).toBe(true);
-  });
-
-  it('should render the 配達先情報 section label when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('配達先情報');
-  });
-
-  it('should render the 購読者情報と同じ checkbox label when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('購読者情報と同じ');
-  });
-
-  it('should render the 販売店コード / 販売店名 / 郵送区分 labels when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('販売店コード'))).toBe(true);
-    expect(labels.some((t) => t.includes('販売店名'))).toBe(true);
-    expect(labels.some((t) => t.includes('郵送区分'))).toBe(true);
-  });
+  it.each([['配達先情報'], ['購読者情報と同じ'], ['前の画面に戻る']])(
+    'should render the %s text when mounted',
+    async (needle) => {
+      const { wrapper } = await renderView();
+      expect(wrapper.text()).toContain(needle);
+    },
+  );
 
   it('should render the 支払方法 / 購読料支払サイクル labels when mounted', async () => {
     const { wrapper } = await renderView();
@@ -385,14 +371,6 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('引落口座名義'))).toBe(true);
   });
 
-  it('should render the 購読開始日 / 購読中止日 / 備考 labels when mounted', async () => {
-    const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('購読開始日'))).toBe(true);
-    expect(labels.some((t) => t.includes('購読中止日'))).toBe(true);
-    expect(labels.some((t) => t.includes('備考'))).toBe(true);
-  });
-
   it('should render the 承認・登録 submit button when mounted in create mode', async () => {
     // Antd inserts a half-width space between two CJK chars — match by
     // selector + substring rather than literal text.
@@ -402,22 +380,10 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     expect(submitBtn.text()).toContain('登');
   });
 
-  it('should render the 前の画面に戻る back button when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('前の画面に戻る');
-  });
-
   it('should NOT call getDokusya when mounted in create mode (no :id)', async () => {
     await renderView();
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     expect(getDokusya).not.toHaveBeenCalled();
-  });
-
-  it('should NOT render the 履歴No field when mounted in create mode (項目定義 No.8)', async () => {
-    const { wrapper } = await renderView();
-    // 履歴No is edit-only per the 表示条件 column of 画面項目定義.
-    const labels = wrapper.findAll('label').map((l) => l.text());
-    expect(labels.some((t) => t.includes('履歴No'))).toBe(false);
   });
 
   it('should NOT render the 履歴表示 button when mounted in create mode (no history yet)', async () => {
@@ -459,6 +425,41 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     vm.formState.dokusya_shubetsu = 2; // 電子版へ切替
     await flushPromises();
     expect(Number(vm.formState.dokusya_busu)).toBe(1);
+  });
+
+  it('should show 購読開始日 radio (今日/翌月1日) + read-only 中止日 for ANY 電子版 create — not only 口座引落 (顧客要件 2026-07)', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const vm = wrapper.vm as unknown as {
+      formState: { dokusya_shubetsu: number; shiharai_hoho: number | null };
+    };
+    vm.formState.dokusya_shubetsu = 2; // 電子版
+    vm.formState.shiharai_hoho = null; // 支払方法 未選択（＝口座引落ではない）
+    await flushPromises();
+
+    // 購読開始日はラジオ「今日 / 翌月1日」で表示される（支払方法に関係なく）。
+    expect(wrapper.text()).toContain('翌月1日');
+
+    // 購読中止日は読取専用インプット（placeholder=月末で終了）。
+    const chushiInput = wrapper.find('input[placeholder="月末で終了"]');
+    expect(chushiInput.exists()).toBe(true);
+    expect((chushiInput.element as HTMLInputElement).readOnly).toBe(true);
+  });
+
+  it('should show 購読開始日 date-picker (NOT the radio) for 紙版 create', async () => {
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const vm = wrapper.vm as unknown as {
+      formState: { dokusya_shubetsu: number };
+    };
+    vm.formState.dokusya_shubetsu = 1; // 紙版
+    await flushPromises();
+
+    // 紙版 create はラジオを出さない（従来どおりカレンダー）。
+    expect(wrapper.text()).not.toContain('翌月1日');
+    expect(wrapper.find('input[placeholder="月末で終了"]').exists()).toBe(false);
   });
 
   it('should grey out メールマガジン when 紙版(1) is selected (電子版用項目)', async () => {
@@ -1142,7 +1143,7 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('漢字で入力してください。');
+    expect(wrapper.text()).toContain('漢字・ひらがな・カタカナで入力してください。');
     expect(wrapper.text()).toContain('ひらがなで入力してください');
     expect(updateDokusya).not.toHaveBeenCalled();
   });
@@ -1647,8 +1648,8 @@ describe('DokusyaFormView — 購読種別 conditional rules (機能定義 7.x /
       // If the entire section is removed from the DOM, that's also a
       // valid implementation — pass when no haitatsu labels render.
       expect(
-        wrapper.findAll('label').filter((l) => l.text().includes('配達先苗字')).length,
-      ).toBe(0);
+        wrapper.findAll('label').filter((l) => l.text().includes('配達先苗字')),
+      ).toHaveLength(0);
     }
   });
 });
@@ -1770,7 +1771,7 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should reject 配達先苗字/名前（漢字） when not kanji — same as 購読者氏名 (機能定義 9.2)', async () => {
+  it('should reject 配達先苗字/名前（漢字） when romaji/digits — 漢字・ひらがな・カタカナのみ許容 (顧客要件 2026-07)', async () => {
     const { wrapper } = await renderView();
     const { createDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(createDokusya).mockClear();
@@ -1783,9 +1784,10 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
       haitatsu_todofuken_code: '13',
       haitatsu_shikuchoson: '渋谷区',
       haitatsu_chome_banchi: '神宮前1-1',
-      // 非漢字（カナ）→ 漢字チェックで弾く。かなは正しいひらがな。
-      haitatsu_shimei_sei: 'スズキ',
-      haitatsu_shimei_mei: 'ハナコ',
+      // ローマ字 → 氏名チェックで弾く（漢字・ひらがな・カタカナは可、英数字は不可）。
+      // かなは正しいひらがな。
+      haitatsu_shimei_sei: 'Suzuki',
+      haitatsu_shimei_mei: 'Hanako',
       haitatsu_shimei_kana_sei: 'すずき',
       haitatsu_shimei_kana_mei: 'はなこ',
     }));
@@ -1793,8 +1795,12 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(vm.fieldErrors.haitatsu_shimei_sei).toBe('漢字で入力してください。');
-    expect(vm.fieldErrors.haitatsu_shimei_mei).toBe('漢字で入力してください。');
+    expect(vm.fieldErrors.haitatsu_shimei_sei).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
+    expect(vm.fieldErrors.haitatsu_shimei_mei).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
     expect(createDokusya).not.toHaveBeenCalled();
   });
 

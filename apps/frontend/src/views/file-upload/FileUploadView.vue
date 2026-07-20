@@ -86,7 +86,7 @@ const {
 } = useEntityDropdown<JaDropdownItem, JaDropdownQuery>({
   fetcher: getJaDropdown,
   idField: 'ja_id',
-  selected: ref(null),
+  selected: ref<number | null>(null),
   perPage: ref(50),
   buildExtraParams: () =>
     selectedTodofukenCode.value

@@ -489,7 +489,7 @@ export class AuthService {
           afterValue: JSON.stringify({ event: 'reset_token_issued' }),
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
-        });
+        }, manager);
       });
     } catch (err) {
       // [audit-error-log] — OUTSIDE the rolled-back tx so the trace survives.
@@ -632,7 +632,7 @@ export class AuthService {
           afterValue: JSON.stringify({ event: 'password_reset' }),
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
-        });
+        }, manager);
       });
     } catch (err) {
       await this.auditLogService.logError(

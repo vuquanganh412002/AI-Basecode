@@ -238,7 +238,20 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     expect(previewZougenHanbaiten).not.toHaveBeenCalled();
   });
 
-  it('should render the 増部 / 減部 / 住所変更 section titles when previewZougenHanbaiten resolves data', async () => {
+  it.each([
+    [
+      'render the 増部 / 減部 / 住所変更 section titles when previewZougenHanbaiten resolves data',
+      ['増部', '減部', '住所変更'],
+    ],
+    [
+      'render the 販売店名 + 増部 row (氏名 + 部数遷移) when previewZougenHanbaiten resolves data',
+      ['千代田販売店', '農業 太郎', '1 → 2'],
+    ],
+    [
+      'render the 変更前 / 変更後 rows when the report has 住所変更 records',
+      ['変更前', '変更後', '銀座3-3-3'],
+    ],
+  ])('should %s', async (_desc, expectedTexts) => {
     const { wrapper } = await renderView();
     (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
     (wrapper.vm as any).formState.hanbaiten_id = [200];
@@ -248,39 +261,9 @@ describe('ZougenHanbaitenReportView — レポートプレビュー', () => {
     await flushPromises();
 
     const text = wrapper.text();
-    expect(text).toContain('増部');
-    expect(text).toContain('減部');
-    expect(text).toContain('住所変更');
-  });
-
-  it('should render the 販売店名 + 増部 row (氏名 + 部数遷移) when previewZougenHanbaiten resolves data', async () => {
-    const { wrapper } = await renderView();
-    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
-    (wrapper.vm as any).formState.hanbaiten_id = [200];
-    (wrapper.vm as any).formState.kanri_shiten_id = [30];
-
-    await wrapper.find(previewBtn()).trigger('click');
-    await flushPromises();
-
-    const text = wrapper.text();
-    expect(text).toContain('千代田販売店');
-    expect(text).toContain('農業 太郎');
-    expect(text).toContain('1 → 2');
-  });
-
-  it('should render the 変更前 / 変更後 rows when the report has 住所変更 records', async () => {
-    const { wrapper } = await renderView();
-    (wrapper.vm as any).formState.tekiyo_date = '2026-05-01';
-    (wrapper.vm as any).formState.hanbaiten_id = [200];
-    (wrapper.vm as any).formState.kanri_shiten_id = [30];
-
-    await wrapper.find(previewBtn()).trigger('click');
-    await flushPromises();
-
-    const text = wrapper.text();
-    expect(text).toContain('変更前');
-    expect(text).toContain('変更後');
-    expect(text).toContain('銀座3-3-3');
+    for (const expected of expectedTexts) {
+      expect(text).toContain(expected);
+    }
   });
 
   it('should show 対象のデータが存在しません。 when previewZougenHanbaiten resolves an empty reports array', async () => {

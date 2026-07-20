@@ -28,7 +28,10 @@ import {
   AuditLogService,
   type AuditOperationContext,
 } from '@/modules/audit-log/audit-log.service';
-import type { SessionPayload } from '@/modules/auth/session.service';
+import {
+  SessionService,
+  type SessionPayload,
+} from '@/modules/auth/session.service';
 
 import {
   toAccountListItem,
@@ -142,6 +145,7 @@ export class AccountService {
     private readonly shitenRepo: Repository<Shiten>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
+    private readonly sessionService: SessionService,
   ) {}
 
   /**
@@ -553,7 +557,43 @@ export class AccountService {
       throw err;
     }
 
+    // [session-revoke] — 削除したアカウントの有効セッションを全破棄する
+    // (セキュリティ: de-provisioning)。cookie を保持したままの退職者/無効化
+    // アカウントが権限を持ち続けるのを防ぐ。削除自体は既にコミット済みなので
+    // Redis 障害でも応答は成功のまま（失敗は warn ログのみ）。
+    await this.revokeSessionsSafely(accountId, 'account_deleted');
+
     return { message: '削除しました。' };
+  }
+
+  /**
+   * Best-effort destruction of ALL Redis sessions for an account. Called
+   * after de-provisioning writes (delete / lock / password / role / scope
+   * change) COMMIT, so a stale `session_id` cookie can't outlive the change.
+   * A Redis failure MUST NOT fail the already-committed business write —
+   * log a warning and move on (sessions still expire within their 24h TTL,
+   * and the change is durably persisted).
+   */
+  private async revokeSessionsSafely(
+    accountId: number,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const count = await this.sessionService.destroyAllForAccount(accountId);
+      this.logger.log({
+        event: 'account.sessions_revoked',
+        accountId,
+        reason,
+        revokedCount: count,
+      });
+    } catch (err) {
+      this.logger.warn({
+        event: 'account.sessions_revoke_failed',
+        accountId,
+        reason,
+        error: (err as Error).message,
+      });
+    }
   }
 
   // ─── ACSMS-API-025-001 — GET /api/v1/accounts/:account_id ────────────
@@ -783,11 +823,79 @@ export class AccountService {
       throw err;
     }
 
+    // [session-revoke] — セキュリティ上重要な変更（パスワード変更・アカウント
+    // ロック・ロール変更・所属スコープ変更）があった場合、対象アカウントの
+    // 有効セッションを全破棄する。session ペイロードは permissions/role_code/
+    // ja_id 等をログイン時に固定するため、破棄しないと降格/ロックが現在の
+    // cookie 保持者に反映されず権限が残り続ける（de-provisioning bypass）。
+    // ロック解除(false)・メール等の非機密変更では破棄しない。
+    if (this.isSecuritySensitiveUpdate(before, updatePartial)) {
+      await this.revokeSessionsSafely(accountId, 'account_updated');
+    }
+
     const row = await this.buildDetailQuery(accountId).getRawOne<AccountDetailRow>();
     if (!row) {
       throw new NotFoundException('アカウント');
     }
     return { data: toAccountDetail(row), message: '更新しました。' };
+  }
+
+  /**
+   * True when an update changes a field that a live session freezes at login
+   * time — password, lock (→ true), role, or organizational scope
+   * (ja/kanri_shiten/shiten). Such changes require destroying existing
+   * sessions so the change takes effect immediately rather than after the
+   * ≤24h TTL. Unlock (account_lock_flg=false), email, biko, name, etc. are
+   * NOT security-sensitive and do not trigger revocation.
+   */
+  private isSecuritySensitiveUpdate(
+    before: Account,
+    updatePartial: Partial<Account>,
+  ): boolean {
+    // Password rotated (admin-forced reset).
+    if (updatePartial.passwordHash !== undefined) return true;
+    // Account locked (true only — unlock must NOT kill the admin's own view).
+    if (updatePartial.accountLockFlg === true) return true;
+    // Role (privilege set) changed.
+    if (
+      updatePartial.roleId !== undefined &&
+      Number(updatePartial.roleId) !== Number(before.roleId)
+    ) {
+      return true;
+    }
+    // Organizational scope changed — session ja_id/kanri_shiten_id are frozen.
+    // Normalize undefined↔null on BOTH sides: `undefined` means the field was
+    // not part of this update (or absent on the entity), which is equivalent
+    // to `null` (no scope) — only a real value transition counts as a change.
+    const scopeChanged = (
+      next: number | null | undefined,
+      prev: bigint | number | null | undefined,
+    ): boolean => {
+      if (next === undefined) return false; // field not in the update partial
+      const n = next === null ? null : Number(next);
+      const p = prev === null || prev === undefined ? null : Number(prev);
+      return n !== p;
+    };
+    if (scopeChanged(updatePartial.jaId as number | null | undefined, before.jaId)) {
+      return true;
+    }
+    if (
+      scopeChanged(
+        updatePartial.kanriShitenId as number | null | undefined,
+        before.kanriShitenId,
+      )
+    ) {
+      return true;
+    }
+    if (
+      scopeChanged(
+        updatePartial.shitenId as number | null | undefined,
+        before.shitenId,
+      )
+    ) {
+      return true;
+    }
+    return false;
   }
 
   // ─── helpers ─────────────────────────────────────────────────────────

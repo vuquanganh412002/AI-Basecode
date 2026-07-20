@@ -52,6 +52,30 @@ export function loadEffectiveRow(
 }
 
 /**
+ * 予約中の解約予定日(購読中止日) — 取消されていない行のうち `dokusya_chushi_date`
+ * が入った最新 `(joho, rireki_no)` 行の中止日。予約行は未来日で effective ではないが、
+ * 購読中止日だけは予約時点から master(t_dokusya) に反映して一覧(SCR-014)/詳細(SCR-011)
+ * に即時表示するため `recomputeMaster` が参照する（顧客要件 2026-07）。無ければ null。
+ * 予約を取消(torikeshi)すると該当行が除外され null に戻り、master 側もクリアされる。
+ */
+export async function loadScheduledChushiDate(
+  m: EntityManager,
+  dokusyaId: number,
+): Promise<DokusyaRireki['dokusyaChushiDate'] | null> {
+  const row = await applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.dokusya_chushi_date IS NOT NULL'),
+    SORT_CHAIN_DESC,
+  )
+    .limit(1)
+    .getOne();
+  return row?.dokusyaChushiDate ?? null;
+}
+
+/**
  * Earliest row in the chain (MIN `(joho, rireki_no)`, `torikeshi_flg = false`).
  * Used by `recomputeMaster` as the master-effective fallback when NO row is
  * `joho <= asOf` (i.e. every row is future — a subscriber created with a

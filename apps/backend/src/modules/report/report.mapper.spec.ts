@@ -45,7 +45,7 @@ describe('paginateZougenSubscribers / buildZougenDocDefinition — PDFをプレ�
     const doc = buildZougenDocDefinition(rows, '2026-06-01', 15);
     const json = JSON.stringify(doc.content);
     // 改ページは2ページ目の先頭1回のみ（1ページ目は付けない）。
-    expect((json.match(/"pageBreak":"before"/g) ?? []).length).toBe(1);
+    expect(json.match(/"pageBreak":"before"/g) ?? []).toHaveLength(1);
     // Page表記が両ページ分（総ページ数=2）。
     expect(json).toContain('Page：1/2');
     expect(json).toContain('Page：2/2');
@@ -119,7 +119,7 @@ describe('paginateNichinoSubscribers / buildZougenNichinoDocDefinition — PDF�
   it('ページ先頭でのみ改ページし、ページ数表記は ページ番号/総ページ数', () => {
     const doc = buildZougenNichinoDocDefinition(rows, '2026-03-01', new Map(), 15);
     const json = JSON.stringify(doc.content);
-    expect((json.match(/"pageBreak":"before"/g) ?? []).length).toBe(1);
+    expect(json.match(/"pageBreak":"before"/g) ?? []).toHaveLength(1);
     expect(json).toContain('ページ数：1/2');
     expect(json).toContain('ページ数：2/2');
   });

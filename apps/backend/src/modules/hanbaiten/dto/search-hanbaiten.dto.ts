@@ -132,19 +132,21 @@ export class SearchHanbaitenDto extends PaginationDto {
   @IsBoolean({ message: '廃店フラグはbooleanで指定してください。' })
   haiten_flg?: boolean;
 
-  // [scr021-error-gate] SCR-021 (配達手数料出力) の失効単価エラーから遷移する導線。
-  // true のとき、配達手数料単価(haitatsuryo_tanka_id → m_tanka.tanka_type=2)が
-  // active_flg=FALSE の販売店のみ抽出する（手動で新単価へ移行するための絞込）。
+  // 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。配達手数料単価
+  // (haitatsuryo_tanka_id → m_tanka.tanka_type=2)の active_flg で絞り込むトライステート
+  // ラジオ: true=有効単価(active_flg=TRUE)を参照する販売店、false=失効単価
+  // (active_flg=FALSE)を参照する販売店のみ、省略時は絞り込まない（両方）。SCR-021 の
+  // 失効単価エラーからは「無効(false)」で初期選択される。
   @ApiPropertyOptional({
     description:
-      '失効した配達手数料単価(active_flg=false)を参照する販売店のみ抽出（true のとき有効）。',
+      '有効単価フラグ（true=有効単価を参照する販売店のみ、false=失効単価を参照する販売店のみ、省略=両方）。',
     type: Boolean,
   })
   @Type(() => String)
   @Transform(stringToBoolean)
   @IsOptional()
-  @IsBoolean({ message: '失効単価フラグはbooleanで指定してください。' })
-  inactive_tanka_flg?: boolean;
+  @IsBoolean({ message: '有効単価フラグはbooleanで指定してください。' })
+  active_tanka_flg?: boolean;
 
   @ApiPropertyOptional({
     enum: HANBAITEN_SEARCH_SORT_BY,

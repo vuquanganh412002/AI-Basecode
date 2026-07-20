@@ -263,7 +263,7 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
       // v1.3（顧客要件 2026-07）: 販売店適用日を廃止し、適用日は読者情報変更適用日に
       // 統一（50 → 49 列。1更新1レコード・UI/置換と同一）。
-      expect(header.length).toBe(49);
+      expect(header).toHaveLength(49);
       // Sample demonstrates a valid 紙版 / 新規 format example.
       expect(Number(sample[header.indexOf('購読種別')])).toBe(1);
       expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）

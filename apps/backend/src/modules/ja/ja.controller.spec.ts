@@ -508,35 +508,24 @@ describe('JaController (HTTP)', () => {
       });
     });
 
-    it('should return 400 VALIDATION_ERROR when per_page exceeds 100', async () => {
+    it.each([
       // COVERS: 4.1 per_page バリデーション — Max(100)
-      const res = await http().get('/api/v1/ja?per_page=500').expect(400);
-
-      expect(res.body.error_code).toBe('VALIDATION_ERROR');
-      expect(res.body.errors).toEqual(
-        expect.arrayContaining([expect.objectContaining({ field: 'per_page' })]),
-      );
-    });
-
-    it('should return 400 VALIDATION_ERROR when sort_order is neither asc nor desc', async () => {
+      ['per_page exceeds 100', 'per_page=500', 'per_page'],
       // COVERS: 4.1 sort_order バリデーション — enum [asc, desc]
-      const res = await http().get('/api/v1/ja?sort_order=random').expect(400);
-
-      expect(res.body.error_code).toBe('VALIDATION_ERROR');
-      expect(res.body.errors).toEqual(
-        expect.arrayContaining([expect.objectContaining({ field: 'sort_order' })]),
-      );
-    });
-
-    it('should return 400 VALIDATION_ERROR when sort_by is not a whitelisted column', async () => {
+      ['sort_order is neither asc nor desc', 'sort_order=random', 'sort_order'],
       // COVERS: 4.1 sort_by バリデーション — enum allow-list
-      const res = await http().get('/api/v1/ja?sort_by=password').expect(400);
+      ['sort_by is not a whitelisted column', 'sort_by=password', 'sort_by'],
+    ])(
+      'should return 400 VALIDATION_ERROR when %s',
+      async (_desc, queryString, field) => {
+        const res = await http().get(`/api/v1/ja?${queryString}`).expect(400);
 
-      expect(res.body.error_code).toBe('VALIDATION_ERROR');
-      expect(res.body.errors).toEqual(
-        expect.arrayContaining([expect.objectContaining({ field: 'sort_by' })]),
-      );
-    });
+        expect(res.body.error_code).toBe('VALIDATION_ERROR');
+        expect(res.body.errors).toEqual(
+          expect.arrayContaining([expect.objectContaining({ field })]),
+        );
+      },
+    );
 
     it('should return 500 INTERNAL_SERVER_ERROR on unexpected service error', async () => {
       // COVERS: err:INTERNAL_SERVER_ERROR (row 7)

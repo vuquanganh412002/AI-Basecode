@@ -114,16 +114,20 @@ describe('MfaVerifyView', () => {
   // §5 — Initial render
   // ───────────────────────────────────────────────────────────────────
   describe('initial render (§5)', () => {
-    it('should render the 2段階認証 heading when mounted with mfa_token', async () => {
-      const { wrapper } = await renderView();
-      await flushPromises();
-      expect(wrapper.text()).toContain('2段階認証');
-    });
+    // ログイン画面に戻る: label ≥3 CJK chars — antd does NOT auto-space.
+    it.each([['2段階認証'], ['ログイン画面に戻る'], ['05:00']])(
+      'should render the %s text when mounted',
+      async (needle) => {
+        const { wrapper } = await renderView();
+        await flushPromises();
+        expect(wrapper.text()).toContain(needle);
+      },
+    );
 
     it('should render 6 digit input boxes when mounted', async () => {
       const { wrapper } = await renderView();
       await flushPromises();
-      expect(wrapper.findAll('input[inputmode="numeric"]').length).toBe(6);
+      expect(wrapper.findAll('input[inputmode="numeric"]')).toHaveLength(6);
     });
 
     it('should render the 認証 submit button when mounted', async () => {
@@ -132,19 +136,6 @@ describe('MfaVerifyView', () => {
       const buttons = wrapper.findAll('button');
       const verifyBtn = buttons.find((b) => b.text().includes('認'));
       expect(verifyBtn).toBeTruthy();
-    });
-
-    it('should render the ログイン画面に戻る link when mounted', async () => {
-      const { wrapper } = await renderView();
-      await flushPromises();
-      // Label ≥3 CJK chars — antd does NOT auto-space.
-      expect(wrapper.text()).toContain('ログイン画面に戻る');
-    });
-
-    it('should render initial countdown 05:00 when mounted', async () => {
-      const { wrapper } = await renderView();
-      await flushPromises();
-      expect(wrapper.text()).toContain('05:00');
     });
 
     it('should redirect to /login when mfa_token query is missing (direct navigation)', async () => {

@@ -133,25 +133,15 @@ describe('SearchJaDto', () => {
   });
 
   // ─── per_page ───────────────────────────────────────────────────────
-  it('should fail when per_page is below 1', async () => {
-    // COVERS: 4.1 per_page 1以上100以下の整数
-    const { errors } = await run({ per_page: 0 });
-    expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-  });
-
-  it('should fail when per_page exceeds 100', async () => {
-    const { errors } = await run({ per_page: 101 });
-    expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-  });
-
-  it('should pass when per_page is exactly 100', async () => {
-    const { errors } = await run({ per_page: 100 });
-    expect(errors.some((e) => e.property === 'per_page')).toBe(false);
-  });
-
-  it('should fail when per_page is non-integer', async () => {
-    const { errors } = await run({ per_page: 20.5 });
-    expect(errors.some((e) => e.property === 'per_page')).toBe(true);
+  // COVERS: 4.1 per_page 1以上100以下の整数
+  it.each([
+    ['below 1', 0, true],
+    ['exceeds 100', 101, true],
+    ['exactly 100', 100, false],
+    ['non-integer', 20.5, true],
+  ])('should validate when per_page is %s', async (_label, value, expectError) => {
+    const { errors } = await run({ per_page: value });
+    expect(errors.some((e) => e.property === 'per_page')).toBe(expectError);
   });
 
   // ─── sort_by ────────────────────────────────────────────────────────

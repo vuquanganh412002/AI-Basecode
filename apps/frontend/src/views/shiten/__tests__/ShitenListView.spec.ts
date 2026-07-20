@@ -438,7 +438,7 @@ describe('ShitenListView — delete (§5)', () => {
     const deleteButtons = wrapper
       .findAll('button')
       .filter((b) => b.text().includes('削除'));
-    expect(deleteButtons.length).toBe(2);
+    expect(deleteButtons).toHaveLength(2);
     // Row order mirrors the API order: [0]=own (enabled), [1]=other (disabled).
     expect(deleteButtons[0].attributes('disabled')).toBeUndefined();
     expect(deleteButtons[1].attributes('disabled')).toBeDefined();
@@ -520,44 +520,21 @@ describe('ShitenListView — sort (§8)', () => {
 // テーブルカラムレンダリング (画面項目定義 + index.html)
 // ═════════════════════════════════════════════════════════════════════
 describe('ShitenListView — table column rendering', () => {
-  it('should render the 管理支店名 column header as the leading context column when mounted', async () => {
-    // 管理支店名 is JOIN'd from m_kanri_shiten by the BE and shown first
-    // so users can see which parent branch each shiten belongs to.
+  // 管理支店名 is JOIN'd from m_kanri_shiten by the BE and shown first so
+  // users can see which parent branch each shiten belongs to. The cell
+  // value '東京中央管理支店' comes from the default fixture row.
+  // 支店カナ (index.html line 497) / 金融機関支店フラグ (line 499) headers.
+  it.each([
+    ['管理支店名 column header as the leading context column when mounted', '管理支店名'],
+    ['kanri_shiten_name cell value when rows resolve', '東京中央管理支店'],
+    ['支店コード column header when mounted', '支店コード'],
+    ['支店名 column header when mounted', '支店名'],
+    ['支店カナ column header when mounted', '支店カナ'],
+    ['金融機関支店フラグ column header when mounted', '金融機関支店フラグ'],
+    ['操作 column header when mounted', '操作'],
+  ])('should render the %s', async (_desc, expected) => {
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('管理支店名');
-  });
-
-  it('should render the kanri_shiten_name cell value when rows resolve', async () => {
-    const { wrapper } = await renderView();
-    // Default fixture row carries kanri_shiten_name: '東京中央管理支店'.
-    expect(wrapper.text()).toContain('東京中央管理支店');
-  });
-
-  it('should render the 支店コード column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('支店コード');
-  });
-
-  it('should render the 支店名 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('支店名');
-  });
-
-  it('should render the 支店カナ column header when mounted', async () => {
-    // index.html line 497 — 支店カナ header.
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('支店カナ');
-  });
-
-  it('should render the 金融機関支店フラグ column header when mounted', async () => {
-    // index.html line 499 — 金融機関支店フラグ header.
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('金融機関支店フラグ');
-  });
-
-  it('should render the 操作 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('操作');
+    expect(wrapper.text()).toContain(expected);
   });
 });
 

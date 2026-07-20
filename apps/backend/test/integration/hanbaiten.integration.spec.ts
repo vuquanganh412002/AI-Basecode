@@ -179,7 +179,7 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       expect(res.body.meta.total).toBeGreaterThanOrEqual(2);
     });
 
-    it('should filter to ONLY 失効配達手数料単価 販売店 when inactive_tanka_flg=true (SCR-021 error gate 連携)', async () => {
+    it('should filter by 有効単価フラグ (active_tanka_flg): false→失効単価参照のみ / true→有効単価参照のみ (SCR-021 error gate 連携)', async () => {
       // 有効単価(8001) / 失効単価(8002, active_flg=FALSE) を seed。
       await insertHaitatsuryoTanka({ tankaId: 8001, tankaCode: 'HT-A', activeFlg: true });
       await insertHaitatsuryoTanka({ tankaId: 8002, tankaCode: 'HT-B', activeFlg: false });
@@ -198,14 +198,23 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       const offCodes = off.body.data.map((r: any) => r.hanbaiten_code);
       expect(offCodes).toEqual(expect.arrayContaining(['HB-A', 'HB-B', 'HB-C']));
 
-      // フィルタ ON → 失効単価参照の HB-B のみ。
-      const on = await http()
+      // 無効(active_tanka_flg=false) → 失効単価参照の HB-B のみ。
+      const invalid = await http()
         .get('/api/v1/hanbaiten')
         .set('Cookie', cookie)
-        .query({ inactive_tanka_flg: 'true' })
+        .query({ active_tanka_flg: 'false' })
         .expect(200);
-      const onCodes = on.body.data.map((r: any) => r.hanbaiten_code);
-      expect(onCodes).toEqual(['HB-B']);
+      const invalidCodes = invalid.body.data.map((r: any) => r.hanbaiten_code);
+      expect(invalidCodes).toEqual(['HB-B']);
+
+      // 有効(active_tanka_flg=true) → 有効単価参照の HB-A のみ（単価未設定 HB-C は除外）。
+      const valid = await http()
+        .get('/api/v1/hanbaiten')
+        .set('Cookie', cookie)
+        .query({ active_tanka_flg: 'true' })
+        .expect(200);
+      const validCodes = valid.body.data.map((r: any) => r.hanbaiten_code);
+      expect(validCodes).toEqual(['HB-A']);
     });
 
     it('should return only ja_id=1 rows when CHUOKAI of ja_id=1 lists (DataScope)', async () => {

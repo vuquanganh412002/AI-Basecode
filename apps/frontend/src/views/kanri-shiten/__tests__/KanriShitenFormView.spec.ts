@@ -433,25 +433,15 @@ describe('KanriShitenFormView — 管理支店コード format', () => {
     }
   }
 
-  it('should auto-insert hyphen after the 3rd digit on live typing', async () => {
+  it.each([
+    ['auto-insert hyphen after the 3rd digit on live typing', '123', '123-'],
+    ['auto-insert second hyphen after the 7th digit on live typing', '1234567', '123-4567-'],
+    ['render canonical dashed shape when the full 10 digits are typed', '1234567890', '123-4567-890'],
+  ])('should %s', async (_desc, typed, expected) => {
     const { wrapper } = await renderView();
-    await typeCode(wrapper, '123');
+    await typeCode(wrapper, typed);
     const vm = wrapper.vm as any;
-    expect(vm.form.kanri_shiten_code).toBe('123-');
-  });
-
-  it('should auto-insert second hyphen after the 7th digit on live typing', async () => {
-    const { wrapper } = await renderView();
-    await typeCode(wrapper, '1234567');
-    const vm = wrapper.vm as any;
-    expect(vm.form.kanri_shiten_code).toBe('123-4567-');
-  });
-
-  it('should render canonical dashed shape when the full 10 digits are typed', async () => {
-    const { wrapper } = await renderView();
-    await typeCode(wrapper, '1234567890');
-    const vm = wrapper.vm as any;
-    expect(vm.form.kanri_shiten_code).toBe('123-4567-890');
+    expect(vm.form.kanri_shiten_code).toBe(expected);
   });
 
   it('should NOT re-insert trailing hyphen when user backspaces across a segment boundary', async () => {
@@ -502,50 +492,18 @@ describe('KanriShitenFormView — 管理支店コード format', () => {
     );
   });
 
-  it('should REJECT mixed alphanumeric input — digits only per customer spec', async () => {
+  it.each([
+    ['REJECT mixed alphanumeric input — digits only per customer spec', '1AA-BBBB-CCC'],
+    ['show format error and NOT submit when the input is 8 chars (cannot normalise)', '12345678'],
+    ['show format error when the input contains non-digit / non-hyphen characters', '113_3300_099'],
+  ])('should %s', async (_desc, code) => {
     const { createKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
     if (vm.form) {
       Object.assign(vm.form, {
         ...buildCreateKanriShitenForm(),
-        kanri_shiten_code: '1AA-BBBB-CCC',
-      });
-    }
-    await flushPromises();
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
-
-    expect(createKanriShiten).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('NNN-NNNN-NNN');
-  });
-
-  it('should show format error and NOT submit when the input is 8 chars (cannot normalise)', async () => {
-    const { createKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
-    const { wrapper } = await renderView();
-    const vm = wrapper.vm as any;
-    if (vm.form) {
-      Object.assign(vm.form, {
-        ...buildCreateKanriShitenForm(),
-        kanri_shiten_code: '12345678',
-      });
-    }
-    await flushPromises();
-    await wrapper.find('form').trigger('submit');
-    await flushPromises();
-
-    expect(createKanriShiten).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('NNN-NNNN-NNN');
-  });
-
-  it('should show format error when the input contains non-digit / non-hyphen characters', async () => {
-    const { createKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
-    const { wrapper } = await renderView();
-    const vm = wrapper.vm as any;
-    if (vm.form) {
-      Object.assign(vm.form, {
-        ...buildCreateKanriShitenForm(),
-        kanri_shiten_code: '113_3300_099',
+        kanri_shiten_code: code,
       });
     }
     await flushPromises();

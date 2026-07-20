@@ -89,7 +89,7 @@ describe('ACSMS-SCR-002 integration — tanka endpoints', () => {
         .get(apiUrl('tanka'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .expect(200);
-      expect(res.body.data.length).toBe(2);
+      expect(res.body.data).toHaveLength(2);
       expect(res.body.meta.total).toBe(2);
     });
 

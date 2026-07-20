@@ -288,34 +288,53 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       expect(result.data[0].todofuken_name).toBe('');
     });
 
-    it('should add a 失効配達手数料単価 subquery (m_tanka active_flg=FALSE) when inactive_tanka_flg=true', async () => {
-      // COVERS: SCR-021 error gate 連携 — 失効配達手数料単価参照フィルタ（顧客要件2026-07）
+    it('should add the 配達手数料単価 subquery with active_flg param=false when active_tanka_flg=false (失効単価のみ)', async () => {
+      // COVERS: 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll(
-        { inactive_tanka_flg: true } as any,
+        { active_tanka_flg: false } as any,
         buildSession({ ja_id: 1 }),
       );
 
-      const applied = qbMock.andWhere.mock.calls.some(
+      const call = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
           typeof sql === 'string' &&
           /haitatsuryo_tanka_id\s+IN/i.test(sql) &&
           /m_tanka/i.test(sql) &&
           /tanka_type\s*=\s*2/i.test(sql) &&
-          /active_flg\s*=\s*FALSE/i.test(sql),
+          /active_flg\s*=\s*:activeTankaFlg/i.test(sql),
       );
-      expect(applied).toBe(true);
+      expect(call).toBeDefined();
+      const [, params] = call as any[];
+      expect(params.activeTankaFlg).toBe(false);
     });
 
-    it('should NOT add the 失効配達手数料単価 subquery when inactive_tanka_flg is absent', async () => {
+    it('should add the subquery with active_flg param=true when active_tanka_flg=true (有効単価のみ)', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll(
+        { active_tanka_flg: true } as any,
+        buildSession({ ja_id: 1 }),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /active_flg\s*=\s*:activeTankaFlg/i.test(sql),
+      );
+      expect(call).toBeDefined();
+      const [, params] = call as any[];
+      expect(params.activeTankaFlg).toBe(true);
+    });
+
+    it('should NOT add the 配達手数料単価 subquery when active_tanka_flg is absent (両方)', async () => {
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll({} as any, buildSession({ ja_id: 1 }));
 
       const applied = qbMock.andWhere.mock.calls.some(
         ([sql]: any[]) =>
-          typeof sql === 'string' && /active_flg\s*=\s*FALSE/i.test(sql),
+          typeof sql === 'string' && /active_flg\s*=\s*:activeTankaFlg/i.test(sql),
       );
       expect(applied).toBe(false);
     });

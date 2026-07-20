@@ -133,20 +133,13 @@ describe('SearchAccountsDto', () => {
   });
 
   describe('sort_by (optional, whitelist)', () => {
-    it('should accept sort_by when value is login_id', async () => {
-      const errs = await check({ ...VALID, sort_by: 'login_id' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
-
-    it('should accept sort_by when value is role_id', async () => {
-      const errs = await check({ ...VALID, sort_by: 'role_id' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
-
-    it('should accept sort_by when value is created_at', async () => {
-      const errs = await check({ ...VALID, sort_by: 'created_at' });
-      expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
-    });
+    it.each(['login_id', 'role_id', 'created_at'])(
+      'should accept sort_by when value is %s',
+      async (sortBy) => {
+        const errs = await check({ ...VALID, sort_by: sortBy });
+        expect(errs.some((e) => e.property === 'sort_by')).toBe(false);
+      },
+    );
 
     it('should reject sort_by when value is not in the whitelist', async () => {
       // api.md §4.1: 許可されたカラム名（login_id, role_id, created_at）

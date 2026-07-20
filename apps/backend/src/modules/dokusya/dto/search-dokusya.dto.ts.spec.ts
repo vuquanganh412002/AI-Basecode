@@ -221,41 +221,24 @@ describe('SearchDokusyaDto', () => {
   });
 
   // ─── dokusya_shubetsu (Number, 1-3) ─────────────────────────────────────
-  it('should pass when dokusya_shubetsu is 1', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ dokusya_shubetsu: 1 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
-  });
-
-  it('should pass when dokusya_shubetsu is 3', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ dokusya_shubetsu: 3 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
-  });
-
-  it('should fail when dokusya_shubetsu is 99 (out of range)', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ dokusya_shubetsu: 99 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
-  });
-
-  it('should fail when dokusya_shubetsu is 0 (out of range)', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ dokusya_shubetsu: 0 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
-  });
+  it.each([
+    ['1', 1, false],
+    ['3', 3, false],
+    ['99 (out of range)', 99, true],
+    ['0 (out of range)', 0, true],
+  ])(
+    'should validate when dokusya_shubetsu is %s',
+    async (_label, value, expectError) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ dokusya_shubetsu: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(
+        expectError,
+      );
+    },
+  );
 
   // ─── shiharai_hoho (Number, 1-6, 9) ─────────────────────────────────────
   it('should pass when shiharai_hoho is in {1,2,3,4,5,6,9}', async () => {
@@ -416,32 +399,21 @@ describe('SearchDokusyaDto', () => {
   });
 
   // ─── per_page (Number, 1-100) ───────────────────────────────────────────
-  it('should fail when per_page is 0', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ per_page: 0 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-  });
-
-  it('should fail when per_page exceeds 100', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ per_page: 101 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-  });
-
-  it('should pass when per_page is 100 (boundary)', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ per_page: 100 }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'per_page')).toBe(false);
-  });
+  it.each([
+    ['0', 0, true],
+    ['101 (exceeds 100)', 101, true],
+    ['100 (boundary)', 100, false],
+  ])(
+    'should validate when per_page is %s',
+    async (_label, value, expectError) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ per_page: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'per_page')).toBe(expectError);
+    },
+  );
 
   // ─── sort_by (String, whitelist) ────────────────────────────────────────
   it('should pass when sort_by is a documented allow-listed column', async () => {
@@ -473,57 +445,59 @@ describe('SearchDokusyaDto', () => {
   });
 
   // ─── sort_order (String, 'asc' | 'desc') ────────────────────────────────
-  it('should pass when sort_order is "asc"', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ sort_order: 'asc' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'sort_order')).toBe(false);
-  });
-
-  it('should pass when sort_order is "desc"', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ sort_order: 'desc' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'sort_order')).toBe(false);
-  });
-
-  it('should fail when sort_order is neither asc nor desc', async () => {
-    const dto = plainToInstance(
-      SearchDokusyaDto,
-      buildSearchDokusyaQuery({ sort_order: 'random' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'sort_order')).toBe(true);
-  });
-
-  // ─── inactive_tanka_flg (Boolean — SCR-020 error gate 連携) ──────────────
-  it.each(['1', 'true', true])(
-    'should transform inactive_tanka_flg=%p to boolean true',
-    async (value) => {
+  it.each([
+    ['"asc"', 'asc', false],
+    ['"desc"', 'desc', false],
+    ['neither asc nor desc', 'random', true],
+  ])(
+    'should validate when sort_order is %s',
+    async (_label, value, expectError) => {
       const dto = plainToInstance(
         SearchDokusyaDto,
-        buildSearchDokusyaQuery({ inactive_tanka_flg: value }),
+        buildSearchDokusyaQuery({ sort_order: value }),
       );
       const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
-      expect(dto.inactive_tanka_flg).toBe(true);
+      expect(errors.some((e) => e.property === 'sort_order')).toBe(expectError);
     },
   );
 
-  it.each(['0', 'false', '', undefined])(
-    'should treat inactive_tanka_flg=%p as unset (undefined → no filter)',
+  // ─── active_tanka_flg (Boolean トライステート — 有効単価フラグ) ──────────────
+  it.each(['1', 'true', true])(
+    'should transform active_tanka_flg=%p to boolean true (有効単価のみ)',
     async (value) => {
       const dto = plainToInstance(
         SearchDokusyaDto,
-        buildSearchDokusyaQuery({ inactive_tanka_flg: value }),
+        buildSearchDokusyaQuery({ active_tanka_flg: value }),
       );
       const errors = await validate(dto);
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
-      expect(dto.inactive_tanka_flg).toBeUndefined();
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect(dto.active_tanka_flg).toBe(true);
+    },
+  );
+
+  it.each(['0', 'false', false])(
+    'should transform active_tanka_flg=%p to boolean false (失効単価のみ)',
+    async (value) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ active_tanka_flg: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect(dto.active_tanka_flg).toBe(false);
+    },
+  );
+
+  it.each(['', undefined])(
+    'should treat active_tanka_flg=%p as unset (undefined → 両方)',
+    async (value) => {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ active_tanka_flg: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect(dto.active_tanka_flg).toBeUndefined();
     },
   );
 });

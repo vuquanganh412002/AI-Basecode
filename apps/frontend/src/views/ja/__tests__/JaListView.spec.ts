@@ -648,44 +648,18 @@ describe('JaListView — edit navigation (機能定義 8.x)', () => {
 // 9. レスポンス列レンダリング
 // ───────────────────────────────────────────────────────────────────────
 describe('JaListView — table column rendering', () => {
-  it('should render the JAコード column header when mounted', async () => {
+  it.each([
+    'JAコード',
+    'JA名',
+    '郵便番号',
+    '都道府県',
+    '電話番号',
+    '住所',
+    'FAX',
+    '操作',
+  ])('should render the %s column header when mounted', async (header) => {
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('JAコード');
-  });
-
-  it('should render the JA名 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('JA名');
-  });
-
-  it('should render the 郵便番号 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('郵便番号');
-  });
-
-  it('should render the 都道府県 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('都道府県');
-  });
-
-  it('should render the 電話番号 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('電話番号');
-  });
-
-  it('should render the 住所 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('住所');
-  });
-
-  it('should render the FAX column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('FAX');
-  });
-
-  it('should render the 操作 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('操作');
+    expect(wrapper.text()).toContain(header);
   });
 
   it('should render the 都道府県名 (joined) value when row contains todofuken_name', async () => {
@@ -744,7 +718,7 @@ describe('JaListView — permission gating (account_concept §JA matrix)', () =>
     const codeAnchors = wrapper
       .findAll('a')
       .filter((el) => el.text().includes('1301001001'));
-    expect(codeAnchors.length).toBe(0);
+    expect(codeAnchors).toHaveLength(0);
     expect(wrapper.text()).toContain('1301001001');
   });
 
@@ -757,7 +731,7 @@ describe('JaListView — permission gating (account_concept §JA matrix)', () =>
     const editBtns = wrapper
       .findAll('button')
       .filter((el) => el.text().trim() === '編集');
-    expect(editBtns.length).toBe(0);
+    expect(editBtns).toHaveLength(0);
   });
 
   it('should leave 新規登録 + 削除 enabled (no disabled attr) for NICHINO_ADMIN', async () => {

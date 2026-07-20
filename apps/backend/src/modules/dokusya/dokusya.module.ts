@@ -11,6 +11,7 @@ import { Account } from '@/database/entities/account.entity';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { CodeModule } from '@/modules/code/code.module';
+import { DenshibanDbModule } from '@/modules/denshiban/denshiban-db.module';
 
 import { DokusyaController } from './dokusya.controller';
 import { DokusyaService } from './dokusya.service';
@@ -33,6 +34,15 @@ import { DokusyaReplaceService } from './dokusya-replace.service';
  * is `@Global` so it doesn't need importing — but listing it here makes
  * the dependency explicit for future readers and survives module
  * extraction.
+ *
+ * `DenshibanDbModule` provides `DenshibanApiService` — injected by
+ * `DokusyaService` to sync DIGITAL(2) subscribers out to 電子版 on
+ * create/update/stop/approve/reject (in-transaction, before COMMIT). It
+ * is `@Global` (imported once in `AppModule`), but listing it here makes
+ * the dependency explicit AND lets integration specs boot `DokusyaModule`
+ * in isolation resolve `DenshibanApiService` without wiring the whole app.
+ * With `denshiban.enabled=false` the module boots without any MySQL
+ * connection, so it is safe in the pg-mem integration harness.
  */
 @Module({
   imports: [
@@ -48,6 +58,7 @@ import { DokusyaReplaceService } from './dokusya-replace.service';
     AuthModule,
     AuditLogModule,
     CodeModule,
+    DenshibanDbModule,
   ],
   controllers: [DokusyaController],
   providers: [

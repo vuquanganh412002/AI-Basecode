@@ -278,7 +278,7 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
       user: buildFileDownloadUser({ role_code: 'NICHINO_ADMIN', ja_id: null }),
     });
     const vm = wrapper.vm as any;
-    expect(vm.state.filters.ja_id).toBe(null);
+    expect(vm.state.filters.ja_id).toBeNull();
     expect(wrapper.findComponent(BaseJaDropdown).props('disabled')).toBe(false);
   });
 
@@ -447,31 +447,36 @@ describe('FileDownloadView — nichino download permission (role 1/2/3)', () => 
     });
   }
 
-  it('disables a flag=false row for NICHINO_ADMIN (role 1)', async () => {
-    const { wrapper } = await renderAs('NICHINO_ADMIN');
+  it.each([
+    {
+      desc: 'disables a flag=false row for NICHINO_ADMIN (role 1)',
+      role: 'NICHINO_ADMIN',
+      blocked: true,
+      allowed: false,
+    },
+    {
+      desc: 'disables a flag=false row for CHUOKAI (role 3) — 顧客要件',
+      role: 'CHUOKAI',
+      blocked: true,
+      allowed: false,
+    },
+    {
+      desc: 'does NOT disable a flag=false row for other JA roles (e.g. JA_HONTEN)',
+      role: 'JA_HONTEN',
+      blocked: false,
+      allowed: false,
+    },
+  ])('$desc', async ({ role, blocked, allowed }) => {
+    const { wrapper } = await renderAs(role);
     const cfg = (wrapper.vm as any).rowSelectionConfig;
-    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
-    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(blocked);
+    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(allowed);
   });
 
   it('disables a flag=false row for NICHINO_STAFF (role 2)', async () => {
     const { wrapper } = await renderAs('NICHINO_STAFF');
     const cfg = (wrapper.vm as any).rowSelectionConfig;
     expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
-  });
-
-  it('disables a flag=false row for CHUOKAI (role 3) — 顧客要件', async () => {
-    const { wrapper } = await renderAs('CHUOKAI');
-    const cfg = (wrapper.vm as any).rowSelectionConfig;
-    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
-    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
-  });
-
-  it('does NOT disable a flag=false row for other JA roles (e.g. JA_HONTEN)', async () => {
-    const { wrapper } = await renderAs('JA_HONTEN');
-    const cfg = (wrapper.vm as any).rowSelectionConfig;
-    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(false);
-    expect(cfg.getCheckboxProps(allowedRow).disabled).toBe(false);
   });
 
   it('renders a nichino-blocked filename as plain text (no preview link) for role 1/2', async () => {
@@ -793,7 +798,7 @@ describe('FileDownloadView — clear selection (機能定義 6.x)', () => {
     const vm = wrapper.vm as any;
     vm.selectedIds = [101, 102];
     await flushPromises();
-    expect(vm.selectedIds.length).toBe(2);
+    expect(vm.selectedIds).toHaveLength(2);
 
     // The view exposes a clearSelection action; drive directly so we
     // don't depend on which 「クリア」 button (search vs selection) the
@@ -801,7 +806,7 @@ describe('FileDownloadView — clear selection (機能定義 6.x)', () => {
     if (typeof vm.clearSelection === 'function') vm.clearSelection();
     await flushPromises();
 
-    expect(vm.selectedIds.length).toBe(0);
+    expect(vm.selectedIds).toHaveLength(0);
   });
 
   it('should close the preview modal when the footer クリア is clicked', async () => {

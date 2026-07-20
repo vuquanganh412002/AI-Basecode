@@ -211,7 +211,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     // （49列中1列を除く48列がチェックボックス＋全選択済み。販売店適用日は廃止・
     // 顧客要件 2026-07）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes.length).toBe(48);
+    expect(colCheckboxes).toHaveLength(48);
     for (const cb of colCheckboxes) {
       const el = cb.element as HTMLInputElement;
       expect(el.value).not.toBe('joho_henko_tekiyo_date');
@@ -749,7 +749,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — confirm modal + submit', () => {
     const body = vi.mocked(importDokusyaExcel).mock.calls[0][0] as Record<string, unknown>;
     expect(body.import_mode).toBe('NEW');
     expect(Array.isArray(body.rows)).toBe(true);
-    expect((body.rows as unknown[]).length).toBe(2);
+    expect(body.rows as unknown[]).toHaveLength(2);
     expect(Array.isArray(body.selected_columns)).toBe(true);
   });
 
@@ -982,6 +982,6 @@ describe('DokusyaImportView (ACSMS-SCR-016) — permission gating', () => {
     expect(btn.exists()).toBe(true);
     const html = btn.html();
     // Enabled = no disabled attr (the no-file guard handles empty-file submit).
-    expect(html.includes('ant-btn-disabled')).toBe(false);
+    expect(html).not.toContain('ant-btn-disabled');
   });
 });

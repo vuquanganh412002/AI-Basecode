@@ -74,8 +74,8 @@ describe('BaseKanriShitenDropdown', () => {
     const wrapper = await mountDropdown();
     await flushPromises();
     expect(
-      (wrapper.findComponent({ name: 'ASelect' }).props('options') as unknown[]).length,
-    ).toBe(1);
+      wrapper.findComponent({ name: 'ASelect' }).props('options') as unknown[],
+    ).toHaveLength(1);
   });
 
   it('refetches + clears selection when jaId changes (hard cascade)', async () => {

@@ -23,7 +23,7 @@ export class ShitenRestrictedGuard implements CanActivate {
       user?: SessionPayload;
     }>();
     const user = request.user;
-    if (user && user.shiten_id != null) {
+    if (user?.shiten_id != null) {
       throw new ForbiddenException(
         '所属支店が設定されたアカウントはこの機能を使用できません。',
       );

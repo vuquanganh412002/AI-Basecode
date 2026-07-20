@@ -177,10 +177,11 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
     expect(text).toContain('配達先氏名');
   });
 
-  it('should render the メールマガジンフラグ（コード名称） column header when mounted', async () => {
-    // COVERS: index.html No.12 — appended （コード名称）
+  it('should render the メールマガジンフラグ column header when mounted', async () => {
+    // COVERS: index.html No.12 — 列名は「メールマガジンフラグ」（（コード名称）は付けない・顧客要件）
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('メールマガジンフラグ（コード名称）');
+    expect(wrapper.text()).toContain('メールマガジンフラグ');
+    expect(wrapper.text()).not.toContain('メールマガジンフラグ（コード名称）');
   });
 
   it('should render rows from the API response when getDokusyaRirekiList resolves', async () => {
@@ -198,6 +199,87 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
     // mail_magazine_flg=1 → '配信する' (buildCodesSeed MAIL_MAGAZINE_FLG)
     const { wrapper } = await renderView();
     expect(wrapper.text()).toContain('配信する');
+  });
+
+  it('renders the new SCR-013 columns + resolves 購読種別/支払い方法/新聞単価 (顧客要件)', async () => {
+    const { wrapper } = await renderView();
+    const text = wrapper.text();
+    // 追加した列ヘッダ。
+    expect(text).toContain('購読種別');
+    expect(text).toContain('新聞単価');
+    expect(text).toContain('初回購読開始日');
+    expect(text).toContain('増部日');
+    expect(text).toContain('減部日');
+    expect(text).toContain('支払い方法');
+    expect(text).toContain('郵送区分');
+    expect(text).toContain('購読料支払いサイクル');
+    // セル: 購読種別=紙版(DOKUSYA_SHUBETSU=1)、支払い方法=口座引落(SHIHARAI_HOHO=1)、
+    // 新聞単価=単価名 + 金額（tanka_name='新聞購読料' + formatYen(3500)）。
+    expect(text).toContain('紙版');
+    expect(text).toContain('口座引落');
+    expect(text).toContain('新聞購読料');
+  });
+
+  it('shows 増部日 (dokusya_kaishi_date) when 部数 increased vs 前回', async () => {
+    // 部数 2 > 前回 1 → 増部日に購読開始日(dokusya_kaishi_date)を表示。
+    // dokusya_kaishi_date は 増部日/減部日 だけが参照する列なので、他の日付列と
+    // 重複しない一意な日付にして「表示された」ことを検証する。
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_busu: 2,
+            zenkai_dokusya_busu: 1,
+            dokusya_kaishi_date: '2027-09-09',
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('2027/09/09');
+  });
+
+  it('hides 増部日/減部日 when 部数 unchanged vs 前回 (顧客要件)', async () => {
+    // 部数 2 == 前回 2 かつ 前回≠null → 増部日・減部日とも空欄。dokusya_kaishi_date
+    // は他の日付列に出ないので、表示されていないことを text で検証する。
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_busu: 2,
+            zenkai_dokusya_busu: 2,
+            dokusya_kaishi_date: '2027-09-09',
+            shoki_dokusya_kaishi_date: '2024-04-01',
+            joho_henko_tekiyo_date: '2026-04-01',
+            dokusya_chushi_date: null,
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).not.toContain('2027/09/09');
+  });
+
+  it('shows 減部日 (dokusya_kaishi_date) when 部数 decreased vs 前回', async () => {
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_busu: 1,
+            zenkai_dokusya_busu: 3,
+            dokusya_kaishi_date: '2027-09-09',
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('2027/09/09');
   });
 
   it('should NOT crash and still render the table when a nullable join (kanri_shiten_name) is null', async () => {

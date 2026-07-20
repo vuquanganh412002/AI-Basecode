@@ -47,61 +47,33 @@ describe('CreateKanriShitenDto', () => {
       expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
     });
 
-    it('should accept the canonical dashed shape (XXX-XXXX-XXX) unchanged', async () => {
-      const dto = plainToInstance(CreateKanriShitenDto, {
-        ...VALID,
-        kanri_shiten_code: '113-3300-002',
-      });
-      expect(await validate(dto)).toHaveLength(0);
-      expect(dto.kanri_shiten_code).toBe('113-3300-002');
-    });
+    it.each([
+      ['canonical dashed shape (XXX-XXXX-XXX) unchanged', '113-3300-002'],
+      ['bare 10 alphanumeric (digits) chars via @Transform', '1133300002'],
+      ['surrounding whitespace trimmed before normalising', '  1133300002  '],
+    ])(
+      'should accept and normalise kanri_shiten_code to 113-3300-002 — %s',
+      async (_label, input) => {
+        const dto = plainToInstance(CreateKanriShitenDto, {
+          ...VALID,
+          kanri_shiten_code: input,
+        });
+        expect(await validate(dto)).toHaveLength(0);
+        expect(dto.kanri_shiten_code).toBe('113-3300-002');
+      },
+    );
 
-    it('should normalise bare 10 alphanumeric chars to XXX-XXXX-XXX via @Transform', async () => {
-      const dto = plainToInstance(CreateKanriShitenDto, {
-        ...VALID,
-        kanri_shiten_code: '1133300002',
-      });
-      expect(await validate(dto)).toHaveLength(0);
-      expect(dto.kanri_shiten_code).toBe('113-3300-002');
-    });
-
-    it('should reject mixed letters + digits in the canonical shape — digits-only per customer spec (2026-05-19)', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: 'abc-1234-XYZ' });
+    // digits-only per customer spec (2026-05-19); only bare digits normalise.
+    it.each([
+      ['mixed letters + digits in the canonical shape', 'abc-1234-XYZ'],
+      ['bare 10 mixed alphanumeric chars', 'abc1234XYZ'],
+      ['length is 9 alphanumeric chars (too short, cannot normalise)', '113330000'],
+      ['length is 11 alphanumeric chars (too long, cannot normalise)', '11333000123'],
+      ['contains non-alphanumeric characters', '113_3300_002'],
+      ['dashed groups have the wrong widths (e.g. 4-3-3)', '1133-300-002'],
+    ])('should reject when kanri_shiten_code %s', async (_label, code) => {
+      const errs = await check({ ...VALID, kanri_shiten_code: code });
       expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should reject bare 10 mixed alphanumeric chars — only digits normalise to dashed', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: 'abc1234XYZ' });
-      expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should reject when length is 9 alphanumeric chars (too short, cannot normalise)', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: '113330000' });
-      expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should reject when length is 11 alphanumeric chars (too long, cannot normalise)', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: '11333000123' });
-      expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should reject when the format contains non-alphanumeric characters', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: '113_3300_002' });
-      expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should reject when the dashed groups have the wrong widths (e.g. 4-3-3)', async () => {
-      const errs = await check({ ...VALID, kanri_shiten_code: '1133-300-002' });
-      expect(errs.some((e) => e.property === 'kanri_shiten_code')).toBe(true);
-    });
-
-    it('should trim surrounding whitespace before normalising', async () => {
-      const dto = plainToInstance(CreateKanriShitenDto, {
-        ...VALID,
-        kanri_shiten_code: '  1133300002  ',
-      });
-      expect(await validate(dto)).toHaveLength(0);
-      expect(dto.kanri_shiten_code).toBe('113-3300-002');
     });
   });
 

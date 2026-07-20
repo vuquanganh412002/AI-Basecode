@@ -551,8 +551,8 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const plainUpdate = logs.filter(
         (l: { operation: string }) => l.operation === 'UPDATE',
       );
-      expect(importUpdateAll.length).toBe(1);
-      expect(plainUpdate.length).toBe(0);
+      expect(importUpdateAll).toHaveLength(1);
+      expect(plainUpdate).toHaveLength(0);
     });
   });
 
@@ -719,9 +719,9 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const create = logs.filter(
         (l: { operation: string }) => l.operation === 'CREATE',
       );
-      expect(importNew.length).toBe(1);
+      expect(importNew).toHaveLength(1);
       expect(importNew[0].result_status).toBe(1);
-      expect(create.length).toBe(0);
+      expect(create).toHaveLength(0);
     });
 
     it('should NOT persist any m_hanbaiten row when a row error fires (full rollback inside the transaction)', async () => {
@@ -745,7 +745,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
         `SELECT operation FROM t_log
            WHERE target_table = 'm_hanbaiten' AND operation = 'IMPORT_NEW' AND result_status = 1`,
       );
-      expect(okLogs.length).toBe(0);
+      expect(okLogs).toHaveLength(0);
     });
   });
 

@@ -92,23 +92,18 @@ describe('MeiboReportQueryDto', () => {
   });
 
   // ─── dokusya_shubetsu (optional, 1 or 2 — 併読(3) rejected) ────────────
-  it('should pass when dokusya_shubetsu is 1 (紙版)', async () => {
-    const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, dokusya_shubetsu: 1 });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
-  });
-
-  it('should pass when dokusya_shubetsu is 2 (電子版)', async () => {
-    const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, dokusya_shubetsu: 2 });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
-  });
-
-  it('should fail when dokusya_shubetsu is 3 (併読は本帳票では選択不可)', async () => {
-    const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, dokusya_shubetsu: 3 });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
-  });
+  it.each([
+    ['1 (紙版)', 1, false],
+    ['2 (電子版)', 2, false],
+    ['3 (併読は本帳票では選択不可)', 3, true],
+  ])(
+    'should validate when dokusya_shubetsu is %s',
+    async (_label, value, expectError) => {
+      const dto = plainToInstance(MeiboReportQueryDto, { ...VALID, dokusya_shubetsu: value });
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(expectError);
+    },
+  );
 
   // ─── shiharai_hoho (optional number — m_code SHIHARAI_HOHO) ─────────────
   it('should pass when shiharai_hoho is a valid integer', async () => {

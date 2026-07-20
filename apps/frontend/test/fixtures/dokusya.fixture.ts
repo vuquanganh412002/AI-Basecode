@@ -378,6 +378,7 @@ export interface DokusyaRirekiRow {
   dokusya_rireki_id: number;
   dokusya_id: number;
   rireki_no: number;
+  dokusya_shubetsu: number;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
@@ -399,6 +400,9 @@ export interface DokusyaRirekiRow {
   gender: number | null;
   dokusyaso_bunrui: string;
   nogyosya_bunrui: string;
+  tanka_id: number;
+  tanka_name: string | null;
+  tanka_kingaku: number | null;
   dokusya_busu: number;
   zenkai_dokusya_busu: number | null;
   haitatsu_yubin_no: string;
@@ -431,6 +435,9 @@ export interface DokusyaRirekiRow {
   torikeshi_flg: boolean;
   biko: string;
   can_torikeshi: boolean;
+  shiharai_hoho: number;
+  yubin_kubun: string;
+  dokusyaryo_shiharai_cycle: number | null;
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;
   bank_branch_name: string;
@@ -452,6 +459,7 @@ export function buildDokusyaRirekiRow(
     dokusya_rireki_id: 42,
     dokusya_id: 100,
     rireki_no: 3,
+    dokusya_shubetsu: 1,
     ja_id: 1,
     kanri_shiten_id: 5,
     kanri_shiten_name: '東京中央管理支店',
@@ -473,6 +481,9 @@ export function buildDokusyaRirekiRow(
     gender: 1,
     dokusyaso_bunrui: '一般,個人',
     nogyosya_bunrui: '',
+    tanka_id: 1,
+    tanka_name: '新聞購読料',
+    tanka_kingaku: 3500,
     dokusya_busu: 2,
     zenkai_dokusya_busu: 1,
     haitatsu_yubin_no: '1000001',
@@ -505,6 +516,9 @@ export function buildDokusyaRirekiRow(
     torikeshi_flg: false,
     biko: '',
     can_torikeshi: true,
+    shiharai_hoho: 1,
+    yubin_kubun: '0',
+    dokusyaryo_shiharai_cycle: 1,
     hikiotoshi_yokin_shubetsu: 1,
     bank_branch_code: '001',
     bank_branch_name: '本店',

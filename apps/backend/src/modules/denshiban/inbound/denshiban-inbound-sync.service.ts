@@ -172,9 +172,19 @@ export class DenshibanInboundSyncService {
     // default (1) on create, mirroring the UI create payload.
     const { denshiKaiinId: _dk, rirekiNo: _rn, ...values } = draft;
 
+    // `created_by` / `updated_by` are NOT NULL system columns the pure builder
+    // deliberately omits (see DokusyaDraft doc — "created_* / updated_* (system)")
+    // and the DB column carries NO default. Stamp the sync actor here, exactly
+    // like the UI create stamps `session.account_id` in buildInsertPayload — the
+    // same values object then flows through applyChange → ensureMaster. Without
+    // this the master INSERT violates the NOT NULL constraint on created_by.
     const result = await applyChange(manager, {
       mode: 'CREATE',
-      values: values as DokusyaFields,
+      values: {
+        ...values,
+        createdBy: SYNC_ACTOR,
+        updatedBy: SYNC_ACTOR,
+      } as DokusyaFields,
       johoDate: syncDate,
       source: 'BATCH',
       actor: SYNC_ACTOR,

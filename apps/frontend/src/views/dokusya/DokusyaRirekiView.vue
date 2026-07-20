@@ -20,7 +20,7 @@ import { useTableQuery } from '@/composables/useTableQuery';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
-import { formatDate } from '@/utils/formatters';
+import { formatDate, formatYen } from '@/utils/formatters';
 import {
   getDokusyaRirekiList,
   torikeshiDokusyaRireki,
@@ -56,6 +56,9 @@ const rows = ref<DokusyaRirekiItem[]>([]);
 // created_at}) carry `sorter: true`.
 const columns: TableColumnsType = [
   { title: '履歴番号', dataIndex: 'rireki_no', key: 'rireki_no', sorter: true, width: 90 },
+  // 購読種別 を 履歴番号 の直後に追加、手続種別 をその直後へ移動（顧客要件 SCR-013）。
+  { title: '購読種別', key: 'dokusya_shubetsu', width: 110 },
+  { title: '手続種別', key: 'tetsuzuki_shurui', width: 110 },
   { title: '管理支店', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', width: 160 },
   { title: '支店名', dataIndex: 'shiten_name', key: 'shiten_name', width: 140 },
   { title: '組合員コード', dataIndex: 'kumiaiin_code', key: 'kumiaiin_code', width: 140 },
@@ -64,11 +67,13 @@ const columns: TableColumnsType = [
   { title: '連絡先１', dataIndex: 'renrakusaki_1', key: 'renrakusaki_1', width: 130 },
   { title: '連絡先２', dataIndex: 'renrakusaki_2', key: 'renrakusaki_2', width: 130 },
   { title: 'メールアドレス', dataIndex: 'email', key: 'email', width: 180 },
-  { title: 'メールマガジンフラグ（コード名称）', key: 'mail_magazine_flg', width: 220 },
+  { title: 'メールマガジンフラグ', key: 'mail_magazine_flg', width: 180 },
   { title: '生年', dataIndex: 'birth_year', key: 'birth_year', width: 90 },
   { title: '性別', key: 'gender', width: 90 },
   { title: '購読者層分類', dataIndex: 'dokusyaso_bunrui', key: 'dokusyaso_bunrui', width: 150 },
   { title: '農業者分類', dataIndex: 'nogyosya_bunrui', key: 'nogyosya_bunrui', width: 150 },
+  // 新聞単価（単価名 + 半角スペース + 金額）を 購読部数 の前に追加。
+  { title: '新聞単価', key: 'tanka', width: 180 },
   { title: '購読部数', dataIndex: 'dokusya_busu', key: 'dokusya_busu', width: 100 },
   { title: '前回購読部数', dataIndex: 'zenkai_dokusya_busu', key: 'zenkai_dokusya_busu', width: 120 },
   { title: '配達先氏名', key: 'haitatsu_shimei', width: 140 },
@@ -78,8 +83,11 @@ const columns: TableColumnsType = [
   { title: '前回配達先住所', key: 'zenkai_haitatsu_jusho', width: 220 },
   { title: '販売店名', dataIndex: 'hanbaiten_name', key: 'hanbaiten_name', width: 150 },
   { title: '前回販売店名', dataIndex: 'zenkai_hanbaiten_name', key: 'zenkai_hanbaiten_name', width: 150 },
-  { title: '手続種別', key: 'tetsuzuki_shurui', width: 110 },
-  { title: '購読開始日', key: 'shoki_dokusya_kaishi_date', width: 120 },
+  // 初回購読開始日（shoki）を 前回販売店名 の後・増部日 の前へ移動（旧「購読開始日」を改称）。
+  { title: '初回購読開始日', key: 'shoki_dokusya_kaishi_date', width: 130 },
+  // 増部日 / 減部日 は dokusya_kaishi_date を条件付きで表示（部数の増減時のみ）。
+  { title: '増部日', key: 'zoubu_date', width: 120 },
+  { title: '減部日', key: 'genbu_date', width: 120 },
   { title: '購読中止日', key: 'dokusya_chushi_date', width: 120 },
   { title: '変更適用日', key: 'joho_henko_tekiyo_date', sorter: true, width: 120 },
   { title: '最新データフラグ', key: 'saishin_data_flg', width: 130 },
@@ -87,11 +95,17 @@ const columns: TableColumnsType = [
   { title: '新規フラグ', key: 'shinki_flg', width: 110 },
   { title: '解約フラグ', key: 'kaiyaku_flg', width: 110 },
   { title: '取消フラグ', key: 'torikeshi_flg', width: 110 },
+  // 支払い方法 / 郵送区分 / 購読料支払いサイクル を 引落口座貯金種目 の前に追加。
+  { title: '支払い方法', key: 'shiharai_hoho', width: 130 },
+  { title: '郵送区分', key: 'yubin_kubun', width: 110 },
+  { title: '購読料支払いサイクル', dataIndex: 'dokusyaryo_shiharai_cycle', key: 'dokusyaryo_shiharai_cycle', align: 'center', width: 160 },
   { title: '引落口座貯金種目', key: 'hikiotoshi_yokin_shubetsu', width: 140 },
   { title: '引落元口座店舗コード', dataIndex: 'bank_branch_code', key: 'bank_branch_code', width: 170 },
   { title: '引落元口座店舗名', dataIndex: 'bank_branch_name', key: 'bank_branch_name', width: 160 },
   { title: '引落口座番号', dataIndex: 'hikiotoshi_koza_no', key: 'hikiotoshi_koza_no', width: 130 },
   { title: '引落口座名義', dataIndex: 'hikiotoshi_koza_meigi', key: 'hikiotoshi_koza_meigi', width: 150 },
+  // 備考 は最終データ列（操作ボタンの前）。
+  { title: '備考', dataIndex: 'biko', key: 'biko', width: 200 },
   // 操作列は右端に固定(fixed:'right')— 横スクロールしても常に表示される。
   { title: '操作', key: 'torikeshi_action', width: 100, fixed: 'right', align: 'center' },
 ];
@@ -117,6 +131,35 @@ function joinAddress(
 
 function flagLabel(value: boolean): string {
   return value ? 'はい' : 'いいえ';
+}
+
+/** 新聞単価表示: 単価名 + 半角スペース + 金額（金額は BE が JA 税区分で解決済み）。 */
+function tankaLabel(r: DokusyaRirekiItem): string {
+  return [r.tanka_name, formatYen(r.tanka_kingaku)].filter(Boolean).join(' ');
+}
+
+/**
+ * 増部日: この行の購読部数が前回より増えた（または前回部数が null）とき、
+ * 増減の適用日(dokusya_kaishi_date)を表示する。それ以外は空欄（顧客要件 SCR-013）。
+ */
+function zoubuDate(r: DokusyaRirekiItem): string {
+  const zenkai = r.zenkai_dokusya_busu;
+  if (zenkai == null || r.dokusya_busu > zenkai) {
+    return formatDate(r.dokusya_kaishi_date);
+  }
+  return '';
+}
+
+/**
+ * 減部日: この行の購読部数が前回より減った（または前回部数が null）とき、
+ * 増減の適用日(dokusya_kaishi_date)を表示する。それ以外は空欄（顧客要件 SCR-013）。
+ */
+function genbuDate(r: DokusyaRirekiItem): string {
+  const zenkai = r.zenkai_dokusya_busu;
+  if (zenkai == null || r.dokusya_busu < zenkai) {
+    return formatDate(r.dokusya_kaishi_date);
+  }
+  return '';
 }
 
 // ─── Fetch ───────────────────────────────────────────────────────────
@@ -301,6 +344,24 @@ async function confirmTorikeshi(): Promise<void> {
         </template>
         <template v-else-if="column.key === 'tetsuzuki_shurui'">
           {{ codes.label('TETSUZUKI_SHURUI', (record as DokusyaRirekiItem).tetsuzuki_shurui) }}
+        </template>
+        <template v-else-if="column.key === 'dokusya_shubetsu'">
+          {{ codes.label('DOKUSYA_SHUBETSU', (record as DokusyaRirekiItem).dokusya_shubetsu) }}
+        </template>
+        <template v-else-if="column.key === 'tanka'">
+          {{ tankaLabel(record as DokusyaRirekiItem) }}
+        </template>
+        <template v-else-if="column.key === 'zoubu_date'">
+          {{ zoubuDate(record as DokusyaRirekiItem) }}
+        </template>
+        <template v-else-if="column.key === 'genbu_date'">
+          {{ genbuDate(record as DokusyaRirekiItem) }}
+        </template>
+        <template v-else-if="column.key === 'shiharai_hoho'">
+          {{ codes.label('SHIHARAI_HOHO', (record as DokusyaRirekiItem).shiharai_hoho) }}
+        </template>
+        <template v-else-if="column.key === 'yubin_kubun'">
+          {{ codes.label('YUBIN_KUBUN', (record as DokusyaRirekiItem).yubin_kubun) }}
         </template>
         <template v-else-if="column.key === 'hikiotoshi_yokin_shubetsu'">
           {{ codes.label('YOKIN_SHUBETSU', (record as DokusyaRirekiItem).hikiotoshi_yokin_shubetsu) }}

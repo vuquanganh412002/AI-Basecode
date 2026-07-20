@@ -343,7 +343,7 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
           WHERE log_type = 4 AND operation = 'CREATE'
           ORDER BY log_id DESC LIMIT 1`,
       );
-      expect(logs.length).toBe(1);
+      expect(logs).toHaveLength(1);
     });
   });
 
@@ -399,7 +399,7 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
           WHERE log_type = 4 AND operation = 'DELETE'
           ORDER BY log_id DESC LIMIT 1`,
       );
-      expect(logs.length).toBe(1);
+      expect(logs).toHaveLength(1);
     });
 
     it('should return 404 (existence-hiding) when JA_HONTEN deletes another JAs file', async () => {

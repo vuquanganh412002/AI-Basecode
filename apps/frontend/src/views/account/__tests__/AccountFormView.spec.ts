@@ -249,7 +249,7 @@ describe('AccountFormView — edit mode pre-fill (機能定義 1.2)', () => {
       (i) => (i.element as HTMLInputElement).value === 'ja_honten001',
     );
     expect(loginIdInput).toBeDefined();
-    expect(loginIdInput!.attributes('disabled') !== undefined).toBe(true);
+    expect(loginIdInput!.attributes('disabled')).toBeDefined();
   });
 
   it('should leave the password input blank when in edit mode (空欄=変更しない)', async () => {

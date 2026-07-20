@@ -35,20 +35,12 @@ describe('HaitatsuryoQueryDto', () => {
     expect(errors.some((e) => e.property === 'target_month')).toBe(true);
   });
 
-  it('should fail when target_month is an empty string', async () => {
-    const dto = plainToInstance(HaitatsuryoQueryDto, { ...VALID, target_month: '' });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'target_month')).toBe(true);
-  });
-
-  it('should fail when target_month is not in YYYY-MM-DD format', async () => {
-    const dto = plainToInstance(HaitatsuryoQueryDto, { ...VALID, target_month: '2026/04/01' });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'target_month')).toBe(true);
-  });
-
-  it('should fail when target_month is a year-month only (not 10 chars)', async () => {
-    const dto = plainToInstance(HaitatsuryoQueryDto, { ...VALID, target_month: '2026-04' });
+  it.each([
+    ['an empty string', ''],
+    ['not in YYYY-MM-DD format', '2026/04/01'],
+    ['a year-month only (not 10 chars)', '2026-04'],
+  ])('should fail when target_month is %s', async (_label, targetMonth) => {
+    const dto = plainToInstance(HaitatsuryoQueryDto, { ...VALID, target_month: targetMonth });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'target_month')).toBe(true);
   });

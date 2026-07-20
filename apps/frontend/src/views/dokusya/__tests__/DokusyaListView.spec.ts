@@ -371,8 +371,8 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
     expect(arg).toMatchObject({ denshi_shonin_status: 0 });
   });
 
-  it('should seed the 失効単価参照 filter on mount when the SCR-020 deep-link query ?inactive_tanka=1 is present', async () => {
-    // COVERS: SCR-020 error gate → 購読者明細検索 deep-link（顧客要件2026-07）
+  it('should seed 有効単価フラグ=無効 (active_tanka_flg=false) on mount when the SCR-020 deep-link ?inactive_tanka=1 is present', async () => {
+    // COVERS: SCR-020 error gate → 購読者明細検索 deep-link（顧客要件2026-07 改訂）
     const { listDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(listDokusya).mockClear();
     await renderView({ query: { inactive_tanka: '1' } });
@@ -380,16 +380,16 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
     const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
       | Record<string, unknown>
       | undefined;
-    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+    expect(arg).toMatchObject({ active_tanka_flg: false });
   });
 
-  it('should call listDokusya with inactive_tanka_flg=true when the 失効単価 checkbox is checked and submitted', async () => {
+  it('should send active_tanka_flg=false when 有効単価フラグ=無効 is selected and submitted (失効単価参照)', async () => {
     const { wrapper } = await renderView();
     const { listDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(listDokusya).mockClear();
 
     const vm = wrapper.vm as any;
-    if (vm.state?.filters) vm.state.filters.inactive_tanka_flg = true;
+    if (vm.state?.filters) vm.state.filters.active_tanka_flg = '0';
     await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
@@ -398,18 +398,35 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
     const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
       | Record<string, unknown>
       | undefined;
-    expect(arg).toMatchObject({ inactive_tanka_flg: true });
+    expect(arg).toMatchObject({ active_tanka_flg: false });
   });
 
-  it('should NOT send inactive_tanka_flg when the 失効単価 checkbox is unchecked (default mount call)', async () => {
+  it('should send active_tanka_flg=true when 有効単価フラグ=有効 is selected and submitted (有効単価参照)', async () => {
+    const { wrapper } = await renderView();
     const { listDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(listDokusya).mockClear();
-    await renderView(); // default filters → checkbox unchecked
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.active_tanka_flg = '1';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ active_tanka_flg: true });
+  });
+
+  it('should NOT send active_tanka_flg when 有効単価フラグ is unselected (default mount call → 両方)', async () => {
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+    await renderView(); // default filters → radio unselected
     const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
       | Record<string, unknown>
       | undefined;
     expect(arg).toBeDefined();
-    expect('inactive_tanka_flg' in (arg ?? {})).toBe(false);
+    expect('active_tanka_flg' in (arg ?? {})).toBe(false);
   });
 
   it('should call listDokusya with kumiaiin_code filter when the form is submitted', async () => {

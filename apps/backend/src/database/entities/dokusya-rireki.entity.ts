@@ -196,13 +196,11 @@ export class DokusyaRireki {
   })
   haitatsuShimeiKanaMei: string;
 
-  // NULL許容: 電子版連携で作成される購読者は販売店/単価未設定（t_dokusya と同じ）。
-  // 履歴も NULL を保持できるよう NOT NULL を解除（denshiban inbound sync）。
-  @Column({ name: 'hanbaiten_id', type: 'bigint', nullable: true })
-  hanbaitenId: number | null;
+  @Column({ name: 'hanbaiten_id', type: 'bigint' })
+  hanbaitenId: number;
 
-  @Column({ name: 'tanka_id', type: 'bigint', nullable: true })
-  tankaId: number | null;
+  @Column({ name: 'tanka_id', type: 'bigint' })
+  tankaId: number;
 
   @Column({ name: 'yubin_kubun', type: 'varchar', length: 1, default: '0' })
   yubinKubun: string;

@@ -5,20 +5,23 @@
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
 
+type IdRaw = number | string;
+type IdRawNullable = number | string | null;
+
 export interface AccountSearchRow {
   /** Raw row returned by the QueryBuilder.getRawMany() result. */
-  account_id: number | string;
+  account_id: IdRaw;
   login_id: string;
   account_name: string;
-  role_id: number | string;
+  role_id: IdRaw;
   role_name: string;
   todofuken_code: string | null;
   todofuken_name: string | null;
-  ja_id: number | string | null;
+  ja_id: IdRawNullable;
   ja_name: string | null;
-  kanri_shiten_id: number | string | null;
+  kanri_shiten_id: IdRawNullable;
   kanri_shiten_name: string | null;
-  shiten_id: number | string | null;
+  shiten_id: IdRawNullable;
   shiten_name: string | null;
   email: string;
   sub_email_1: string;

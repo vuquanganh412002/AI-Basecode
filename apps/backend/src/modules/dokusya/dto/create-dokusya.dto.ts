@@ -61,14 +61,15 @@ function isHaitatsuAddressRequired(o: {
 export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
 
 /**
- * 氏名 (氏/名) は漢字のみ — CJK統合漢字 (U+4E00-9FFF) + 々(U+3005 繰返し)
- * + 〇(U+3007) + CJK互換漢字 (U+F900-FAFF, 﨑/髙等の人名漢字). 空白は
+ * 氏名 (氏/名) は漢字・ひらがな・カタカナを許容（顧客要件 2026-07 緩和）— CJK統合漢字 (U+4E00-9FFF) + 々(U+3005 繰返し)
+ * + 〇(U+3007) + CJK互換漢字 (U+F900-FAFF, 﨑/髙等の人名漢字) + ひらがな(U+3041-309F)
+ * + 全角カタカナ(U+30A1-30FF ァ-ヿ、長音符ー・中点・含む). 半角カナ/英数字は不可. 空白は
  * トークン区切りとして許容。FE 側 `KANJI_RE`
  * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
  * 片方を変えたら両方更新すること。
  */
-const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿\s]+$/u;
-const KANJI_NAME_MSG = '漢字で入力してください。';
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿ\s]+$/u;
+const KANJI_NAME_MSG = '漢字・ひらがな・カタカナで入力してください。';
 
 /**
  * Body for POST /api/v1/dokusya (ACSMS-API-011-002).

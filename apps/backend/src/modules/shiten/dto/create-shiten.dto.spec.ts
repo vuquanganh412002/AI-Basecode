@@ -31,23 +31,13 @@ describe('CreateShitenDto', () => {
       expect(errs.some((e) => e.property === 'shiten_code')).toBe(true);
     });
 
-    it('should reject when shiten_code is empty string', async () => {
-      const errs = await check({ ...VALID, shiten_code: '' });
-      expect(errs.some((e) => e.property === 'shiten_code')).toBe(true);
-    });
-
-    it('should reject when shiten_code is shorter than 3 chars', async () => {
-      const errs = await check({ ...VALID, shiten_code: '12' });
-      expect(errs.some((e) => e.property === 'shiten_code')).toBe(true);
-    });
-
-    it('should reject when shiten_code is longer than 3 chars', async () => {
-      const errs = await check({ ...VALID, shiten_code: '1234' });
-      expect(errs.some((e) => e.property === 'shiten_code')).toBe(true);
-    });
-
-    it('should reject when shiten_code contains non-digit characters', async () => {
-      const errs = await check({ ...VALID, shiten_code: 'S01' });
+    it.each([
+      ['empty string', ''],
+      ['shorter than 3 chars', '12'],
+      ['longer than 3 chars', '1234'],
+      ['contains non-digit characters', 'S01'],
+    ])('should reject when shiten_code is %s', async (_label, code) => {
+      const errs = await check({ ...VALID, shiten_code: code });
       expect(errs.some((e) => e.property === 'shiten_code')).toBe(true);
     });
 

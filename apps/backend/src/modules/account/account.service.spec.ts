@@ -91,7 +91,10 @@ describe('AccountService', () => {
       }),
     };
     const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
+    const sessionService: any = {
+      destroyAllForAccount: jest.fn().mockResolvedValue(0),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo, sessionService);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -322,7 +325,10 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       }),
     };
     const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
+    const sessionService: any = {
+      destroyAllForAccount: jest.fn().mockResolvedValue(0),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo, sessionService);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -571,6 +577,26 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     });
 
+    it('should revoke ALL Redis sessions of the deleted account (de-provisioning) when delete succeeds', async () => {
+      // COVERS: security — 削除アカウントの cookie セッションを即時無効化
+      await service.deleteAccount(5, adminSession(), baseReq);
+
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(5);
+    });
+
+    it('should still return success when session revocation (Redis) fails after commit', async () => {
+      // COVERS: revocation is best-effort — a Redis error MUST NOT fail the
+      // already-committed delete.
+      (service as any).sessionService.destroyAllForAccount.mockRejectedValueOnce(
+        new Error('redis down'),
+      );
+
+      const result = await service.deleteAccount(5, adminSession(), baseReq);
+      expect(result).toMatchObject({ message: '削除しました。' });
+    });
+
     it('should throw NotFoundException when target account_id does not exist', async () => {
       // COVERS: §4.3 レコード存在しない場合 → 404
       accountRepo.findOne.mockResolvedValue(null);
@@ -578,6 +604,11 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       await expect(
         service.deleteAccount(999, adminSession(), baseReq),
       ).rejects.toThrow(NotFoundException);
+
+      // No sessions destroyed when the target doesn't exist.
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException when target account_id is already soft-deleted', async () => {
@@ -858,7 +889,10 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       }),
     };
     const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
+    const sessionService: any = {
+      destroyAllForAccount: jest.fn().mockResolvedValue(0),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo, sessionService);
   });
 
   // ───────────────────────────────────────────────────────────────────
@@ -1340,6 +1374,59 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       expect(merged.passwordUpdatedAt).toBeDefined();
     });
 
+    // ─── session revocation on security-sensitive updates (de-provisioning) ───
+    it('should revoke sessions when admin LOCKS the account (account_lock_flg=true)', async () => {
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ account_lock_flg: true }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should revoke sessions when password is changed (admin-forced reset)', async () => {
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ password: 'NewPass123!' }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should revoke sessions when the role (privilege set) changes', async () => {
+      // before.roleId=4 (JA本店) → 3 (中央会): privilege change.
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ role_id: 3 }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should NOT revoke sessions on a non-sensitive update (name/email/biko only, unlock)', async () => {
+      // Default body keeps role_id=4, ja_id=10, kanri_shiten_id=null (same as
+      // before), password blank, account_lock_flg=false → no security-sensitive
+      // change → live sessions must NOT be destroyed.
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ account_lock_flg: false }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).not.toHaveBeenCalled();
+    });
+
     it('should reset login_failure_count to 0 AND account_lock_at to null when admin unlocks (account_lock_flg=false)', async () => {
       // COVERS: QA bug 2026-05 — unlock left account_lock_at frozen
       // at the lock timestamp. Operator reading m_account couldn't
@@ -1580,7 +1667,10 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
       }),
     };
     const shitenRepo: any = { findOne: jest.fn().mockResolvedValue({ shitenId: 1, kanriShitenId: 1, jaId: 1 }) };
-    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo);
+    const sessionService: any = {
+      destroyAllForAccount: jest.fn().mockResolvedValue(0),
+    };
+    service = new AccountService(accountRepo, auditLog, dataSource, kanriShitenRepo, shitenRepo, roleRepo, sessionService);
   });
 
   afterEach(() => jest.restoreAllMocks());

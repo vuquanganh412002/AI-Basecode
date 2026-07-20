@@ -409,16 +409,18 @@ export class DokusyaSearchService {
         denshi_shonin_status: query.denshi_shonin_status,
       });
     }
-    // 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）。
-    // 参照する購読料単価(tanka_type=1)が active_flg=FALSE の購読者のみ抽出する。
-    // tanka_id は m_tanka の PK なので INNER JOIN で行数は増えない（0/1件）。
-    // 相関 EXISTS は pg-mem が外側エイリアスを解決できず失敗するため JOIN を採用
-    // （SCR-020 の失効判定 SQL と同じ方式）。
-    if (query.inactive_tanka_flg === true) {
+    // 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。
+    // 参照する購読料単価(tanka_type=1)の active_flg で絞り込む: true=有効単価
+    // (active_flg=TRUE)を参照する購読者、false=失効単価(active_flg=FALSE)を参照する
+    // 購読者のみ。省略時は絞り込まない（両方）。tanka_id は m_tanka の PK なので
+    // INNER JOIN で行数は増えない（0/1件）。相関 EXISTS は pg-mem が外側エイリアスを
+    // 解決できず失敗するため JOIN を採用（SCR-020 の失効判定 SQL と同じ方式）。
+    if (query.active_tanka_flg !== undefined) {
       qb.innerJoin(
         'm_tanka',
         'mti',
-        'mti.tanka_id = d.tanka_id AND mti.tanka_type = 1 AND mti.deleted_at IS NULL AND mti.active_flg = FALSE',
+        'mti.tanka_id = d.tanka_id AND mti.tanka_type = 1 AND mti.deleted_at IS NULL AND mti.active_flg = :activeTankaFlg',
+        { activeTankaFlg: query.active_tanka_flg },
       );
     }
   }

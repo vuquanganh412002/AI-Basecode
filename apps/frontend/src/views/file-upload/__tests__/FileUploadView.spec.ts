@@ -150,9 +150,22 @@ const pickedJa = {
 // 1. 画面初期表示 (機能定義 1.x)
 // ───────────────────────────────────────────────────────────────────────
 describe('FileUploadView — initial render (機能定義 1.x)', () => {
-  it('should render the アップロードされたファイルリスト section heading when mounted', async () => {
+  it.each([
+    [
+      'should render the アップロードされたファイルリスト section heading when mounted',
+      'アップロードされたファイルリスト',
+    ],
+    [
+      'should render the 削除予定日 label when mounted (画面項目定義 No.7)',
+      '削除予定日',
+    ],
+    [
+      'should render rows from the history API response when list resolves',
+      '令和5年度_購読者リスト.csv',
+    ],
+  ])('%s', async (_title, expectedText) => {
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('アップロードされたファイルリスト');
+    expect(wrapper.text()).toContain(expectedText);
   });
 
   it('should fetch the file upload history once when mounted', async () => {
@@ -194,11 +207,6 @@ describe('FileUploadView — initial render (機能定義 1.x)', () => {
     expect(labelTexts.some((t) => t.includes('対象JA') || t.includes('JAコード'))).toBe(true);
   });
 
-  it('should render the 削除予定日 label when mounted (画面項目定義 No.7)', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('削除予定日');
-  });
-
   it('should render the アップロード実行 button when mounted (画面項目定義 No.11)', async () => {
     const { wrapper } = await renderView();
     const btn = wrapper.findAll('button').find((b) => b.text().includes('アップロード実行'));
@@ -218,11 +226,6 @@ describe('FileUploadView — initial render (機能定義 1.x)', () => {
     expect(text).toContain('サイズ');
     expect(text).toContain('通知ステータス');
     expect(text).toContain('削除予定日');
-  });
-
-  it('should render rows from the history API response when list resolves', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('令和5年度_購読者リスト.csv');
   });
 
   it('should still call listFiles when the API rejects with 500 (interceptor handles toast)', async () => {
@@ -250,10 +253,10 @@ describe('FileUploadView — JA selection (機能定義 2.x)', () => {
     // a-select(mode=multiple) @change emits the full label-in-value array.
     vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
-    expect(vm.targetJas.length).toBe(1);
+    expect(vm.targetJas).toHaveLength(1);
     expect(vm.targetJas.find((j: any) => j.ja_id === pickedJa.ja_id)).toBeDefined();
     // box は純粋なピッカー：選択後はタグを保持しない（二重表示防止）。
-    expect(vm.jaPickerValue.length).toBe(0);
+    expect(vm.jaPickerValue).toHaveLength(0);
   });
 
   it('should add multiple JAs and keep both when selected together', async () => {
@@ -276,9 +279,9 @@ describe('FileUploadView — JA selection (機能定義 2.x)', () => {
     vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
     expect(
-      vm.targetJas.filter((j: any) => j.ja_id === pickedJa.ja_id).length,
-    ).toBe(1);
-    expect(vm.targetJas.length).toBe(1);
+      vm.targetJas.filter((j: any) => j.ja_id === pickedJa.ja_id),
+    ).toHaveLength(1);
+    expect(vm.targetJas).toHaveLength(1);
   });
 
   it('should mark already-listed JAs via selectedJaIds so the dropdown can highlight them', async () => {
@@ -296,14 +299,14 @@ describe('FileUploadView — JA selection (機能定義 2.x)', () => {
     const vm = wrapper.vm as any;
     vm.onJaChange([labelOf(pickedJa)]);
     await flushPromises();
-    expect(vm.targetJas.length).toBe(1);
-    expect(vm.jaPickerValue.length).toBe(0); // ピッカーは常に空
+    expect(vm.targetJas).toHaveLength(1);
+    expect(vm.jaPickerValue).toHaveLength(0); // ピッカーは常に空
 
     vm.selectedTodofukenCode = '13'; // 都道府県を切り替え
     await flushPromises();
 
-    expect(vm.targetJas.length).toBe(1); // 蓄積済みリストは保持
-    expect(vm.jaPickerValue.length).toBe(0);
+    expect(vm.targetJas).toHaveLength(1); // 蓄積済みリストは保持
+    expect(vm.jaPickerValue).toHaveLength(0);
   });
 
   it('should pass todofuken_code as a cascade filter to getJaDropdown when 都道府県 changes', async () => {
@@ -343,7 +346,7 @@ describe('FileUploadView — file selection (機能定義 4.x)', () => {
     const ok = new File([new Uint8Array(1024)], 'list.csv', { type: 'text/csv' });
     if (typeof vm.addFile === 'function') vm.addFile(ok);
     await flushPromises();
-    expect(vm.selectedFiles.length).toBe(1);
+    expect(vm.selectedFiles).toHaveLength(1);
     expect(vm.selectedFiles[0].name).toBe('list.csv');
   });
 
@@ -358,7 +361,7 @@ describe('FileUploadView — file selection (機能定義 4.x)', () => {
     expect(message.error).toHaveBeenCalledWith(
       expect.stringContaining('ファイルサイズが30MBを超えています。'),
     );
-    expect(vm.selectedFiles.length).toBe(0);
+    expect(vm.selectedFiles).toHaveLength(0);
   });
 
   it('should accept multiple files when called with N inputs (機能定義 4.1)', async () => {
@@ -371,7 +374,7 @@ describe('FileUploadView — file selection (機能定義 4.x)', () => {
       vm.addFile(b);
     }
     await flushPromises();
-    expect(vm.selectedFiles.length).toBe(2);
+    expect(vm.selectedFiles).toHaveLength(2);
   });
 
   it('should remove a selected file when its 削除 link is invoked (機能定義 5.x)', async () => {
@@ -382,7 +385,7 @@ describe('FileUploadView — file selection (機能定義 4.x)', () => {
     await flushPromises();
     if (typeof vm.removeFile === 'function') vm.removeFile(0);
     await flushPromises();
-    expect(vm.selectedFiles.length).toBe(0);
+    expect(vm.selectedFiles).toHaveLength(0);
   });
 });
 
@@ -514,7 +517,7 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     expect(Array.isArray(callArg.ja_ids)).toBe(true);
     expect(callArg.ja_ids).toContain(12345);
     expect(Array.isArray(callArg.files)).toBe(true);
-    expect(callArg.files.length).toBe(1);
+    expect(callArg.files).toHaveLength(1);
   });
 
   it('should display ACSMS-MSG-023-006 「ファイルのアップロードが完了しました。」 toast when uploadFiles resolves (機能定義 6.6)', async () => {
@@ -548,8 +551,8 @@ describe('FileUploadView — upload submit (機能定義 6.x)', () => {
     await btn!.trigger('click');
     await flushPromises();
 
-    expect(vm.selectedFiles.length).toBe(0);
-    expect(vm.targetJas.length).toBe(0);
+    expect(vm.selectedFiles).toHaveLength(0);
+    expect(vm.targetJas).toHaveLength(0);
   });
 
   it('should refetch the upload history after a successful upload (機能定義 6.6)', async () => {
@@ -636,8 +639,8 @@ describe('FileUploadView — clear button (機能定義 7.x)', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
 
-    expect(vm.selectedFiles.length).toBe(0);
-    expect(vm.targetJas.length).toBe(0);
+    expect(vm.selectedFiles).toHaveLength(0);
+    expect(vm.targetJas).toHaveLength(0);
   });
 });
 
@@ -720,47 +723,22 @@ describe('FileUploadView — delete uploaded file (機能定義 8.x)', () => {
 // Notification-status badge rendering
 // ───────────────────────────────────────────────────────────────────────
 describe('FileUploadView — notification status badge', () => {
-  it('should render 「完了」 label when notification_status is 3', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
-    vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadHistoryResponse({
-        data: [buildFileUploadHistoryItem({ notification_status: 3 })],
-      }) as any,
-    );
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('完了');
-  });
-
-  it('should render 「一部失敗」 label when notification_status is 4', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
-    vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadHistoryResponse({
-        data: [buildFileUploadHistoryItem({ notification_status: 4 })],
-      }) as any,
-    );
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('一部失敗');
-  });
-
-  it('should render 「未送信」 label when notification_status is 1', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
-    vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadHistoryResponse({
-        data: [buildFileUploadHistoryItem({ notification_status: 1 })],
-      }) as any,
-    );
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('未送信');
-  });
-
-  it('should render 「送信中」 label when notification_status is 2', async () => {
-    const { listFiles } = await import('@/api/file-upload/file-upload');
-    vi.mocked(listFiles).mockResolvedValue(
-      buildFileUploadHistoryResponse({
-        data: [buildFileUploadHistoryItem({ notification_status: 2 })],
-      }) as any,
-    );
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('送信中');
-  });
+  it.each([
+    ['完了', 3],
+    ['一部失敗', 4],
+    ['未送信', 1],
+    ['送信中', 2],
+  ])(
+    'should render 「%s」 label when notification_status is %s',
+    async (label, status) => {
+      const { listFiles } = await import('@/api/file-upload/file-upload');
+      vi.mocked(listFiles).mockResolvedValue(
+        buildFileUploadHistoryResponse({
+          data: [buildFileUploadHistoryItem({ notification_status: status })],
+        }) as any,
+      );
+      const { wrapper } = await renderView();
+      expect(wrapper.text()).toContain(label);
+    },
+  );
 });

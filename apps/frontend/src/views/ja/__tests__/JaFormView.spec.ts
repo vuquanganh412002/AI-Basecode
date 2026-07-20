@@ -368,26 +368,19 @@ describe('JaFormView — form validation (per screen-design.md メッセージ�
     expect(wrapper.text()).toContain('有効なメールアドレス');
   });
 
-  it('should show kana format error when ja_name_kana contains hiragana', async () => {
-    const { wrapper } = await renderView();
-    await wrapper.vm.submitWith?.({ ...buildCreateJaForm(), ja_name_kana: 'じぇいえい' });
-    await flushPromises();
-    expect(wrapper.text()).toContain('JA名(カナ)は半角カタカナ・半角数字で入力してください。');
-  });
-
-  it('should show kana format error when ja_name_kana contains ASCII letters', async () => {
-    const { wrapper } = await renderView();
-    await wrapper.vm.submitWith?.({ ...buildCreateJaForm(), ja_name_kana: 'JA Tokyo' });
-    await flushPromises();
-    expect(wrapper.text()).toContain('JA名(カナ)は半角カタカナ・半角数字で入力してください。');
-  });
-
-  it('should show kana format error when ja_name_kana contains full-width katakana', async () => {
-    const { wrapper } = await renderView();
-    await wrapper.vm.submitWith?.({ ...buildCreateJaForm(), ja_name_kana: 'ジェイエイ' });
-    await flushPromises();
-    expect(wrapper.text()).toContain('JA名(カナ)は半角カタカナ・半角数字で入力してください。');
-  });
+  it.each([
+    ['hiragana', 'じぇいえい'],
+    ['ASCII letters', 'JA Tokyo'],
+    ['full-width katakana', 'ジェイエイ'],
+  ])(
+    'should show kana format error when ja_name_kana contains %s',
+    async (_desc, kanaValue) => {
+      const { wrapper } = await renderView();
+      await wrapper.vm.submitWith?.({ ...buildCreateJaForm(), ja_name_kana: kanaValue });
+      await flushPromises();
+      expect(wrapper.text()).toContain('JA名(カナ)は半角カタカナ・半角数字で入力してください。');
+    },
+  );
 
   it('should pass kana validation when ja_name_kana is empty (optional field)', async () => {
     const { createJa } = await import('@/api/ja/ja');

@@ -29,6 +29,7 @@ import {
   loadEffectiveRow,
   loadMaster,
   loadRireki,
+  loadScheduledChushiDate,
   markTorikeshi,
   nextRirekiNo,
   setSaishinFlags,
@@ -156,7 +157,17 @@ export async function recomputeMaster(
   );
   await setSaishinFlags(m, dokusyaId, effectiveRow?.dokusyaRirekiId ?? null);
   if (effectiveRow) {
-    await m.update(Dokusya, { dokusyaId }, mapRirekiToMaster(effectiveRow));
+    const masterFields = mapRirekiToMaster(effectiveRow);
+    // [scheduled-chushi] 予約中の解約予定日(購読中止日)を master へ即時反映する
+    // （顧客要件2026-07）。予約行は未来日で effective ではないため通常は master に
+    // 反映されないが、購読中止日だけは予約時点から一覧(SCR-014)/詳細(SCR-011)に
+    // 表示したい。取消済みなら null が返り、master 側もクリアされる。effective 行
+    // が既に中止日を持つ（バッチ確定後など）場合も同じ値が返り整合する。
+    const scheduledChushi = await loadScheduledChushiDate(m, dokusyaId);
+    if (scheduledChushi != null) {
+      masterFields.dokusyaChushiDate = scheduledChushi;
+    }
+    await m.update(Dokusya, { dokusyaId }, masterFields);
   }
 }
 
@@ -372,19 +383,26 @@ export async function applyTorikeshi(
 }
 
 /**
- * After inserting `inserted` (at `changed` fields) between existing rows,
- * fix the successor chain: relink each following row's `zenkai_*` to its
- * new predecessor and carry the changed field value forward until a row
- * re-sets that field itself.
+ * After inserting `inserted` between two existing rows, update ONLY the
+ * immediate successor (直後行): relink its `zenkai_*` to the newly-inserted
+ * row and recompute its `zougen_hokoku_flg`. This is the「B-thuần」policy
+ * requested by the customer (顧客要件 2026-07):
  *
- * - `changed` = the fields this row changed (the event's `values` keys).
- * - CREATE / no change → no successor to fix (returns early).
- * - `findNext` skips `torikeshi_flg=1` rows, so cancelled rows are never
- *   read or written (G2 freeze).
+ *  - 挿入行の直後行 1件だけを更新する。
+ *  - 直後行の `zenkai_*` は `fillZenkai(after, inserted)` で新しい直前行
+ *    (=挿入行)へ付け替える。住所 zenkai は `fillZenkai` が実効配達先住所
+ *    (haitatsu_same_flg 依存)を入れる。
+ *  - 直後行の業務項目 current 値（`dokusya_busu`・`biko`・住所・
+ *    `haitatsu_same_flg` 等）は一切変更しない。
+ *  - 直後行より後ろの行へは cascade しない（過去の carry-forward 伝播は廃止）。
  *
- * NOTE: `changed` is an added parameter vs common-functions §7 — the
- * caller already knows the event's changed fields, avoiding a full
- * business-column diff here. See docs/dokusya-rireki-common-functions.md §7.
+ * 注意: この方針では、挿入行が carry-forward された値項目(busu 等)を変えても
+ * 直後行の current 値は据え置くため、直後行が有効化された時点の master がその
+ * 値に戻る（顧客が明示的に選択したトレードオフ — full snapshot な予約行前提）。
+ *
+ * - CREATE / no change → 直後行なし（返る）。
+ * - `findNext` は `torikeshi_flg=1` 行をスキップするため取消行は読まない。
+ * - `changed` は現状ガード用途のみ（伝播はしない）。
  */
 export async function recomputeAfterChain(
   m: EntityManager,
@@ -395,44 +413,17 @@ export async function recomputeAfterChain(
 ): Promise<void> {
   if (!before || changed.length === 0) return;
 
-  const ins = inserted as unknown as Record<string, unknown>;
-  const bef = before as unknown as Record<string, unknown>;
-  let propagate = new Map<string, { newVal: unknown; oldVal: unknown }>();
-  for (const f of changed) {
-    propagate.set(f, { newVal: ins[f], oldVal: bef[f] });
-  }
-
-  let prev = inserted;
-  let after = await findNext(
+  const after = await findNext(
     m,
     dokusyaId,
-    prev.johoHenkoTekiyoDate as DateOnly,
-    prev.rirekiNo,
+    inserted.johoHenkoTekiyoDate as DateOnly,
+    inserted.rirekiNo,
   );
-  while (after !== null) {
-    const aft = after as unknown as Record<string, unknown>;
-    fillZenkai(after, prev); // relink previous-values to the new predecessor
+  if (after === null) return;
 
-    const keep = new Map<string, { newVal: unknown; oldVal: unknown }>();
-    for (const [f, entry] of propagate) {
-      if (aft[f] === entry.oldVal) {
-        // this row did NOT change f → carry the new value forward
-        aft[f] = entry.newVal;
-        keep.set(f, entry);
-      }
-      // else: this row set f itself → stop propagating f
-    }
-    after.zougenHokokuFlg = computeZougen(after, prev);
-    await m.save(DokusyaRireki, after);
-
-    if (keep.size === 0) break;
-    prev = after;
-    propagate = keep;
-    after = await findNext(
-      m,
-      dokusyaId,
-      prev.johoHenkoTekiyoDate as DateOnly,
-      prev.rirekiNo,
-    );
-  }
+  // 直後行のみ: zenkai を挿入行へ relink（住所は実効配達先住所）+ zougen 再計算。
+  // current 値・haitatsu_same_flg は据え置き。後続行へは伝播しない。
+  fillZenkai(after, inserted);
+  after.zougenHokokuFlg = computeZougen(after, inserted);
+  await m.save(DokusyaRireki, after);
 }

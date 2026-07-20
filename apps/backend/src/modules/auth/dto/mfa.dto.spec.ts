@@ -35,26 +35,14 @@ describe('MfaVerifyDto', () => {
     expect(errors).toContain('otp_code');
   });
 
-  it('should reject when otp_code is not 6 digits long', async () => {
+  it.each([
+    ['not 6 digits long', '12345'],
+    ['exactly 7 digits', '1234567'],
+    ['containing non-digit characters', '12345a'],
+  ])('should reject when otp_code is %s', async (_label, otpCode) => {
     const errors = await fields(MfaVerifyDto, {
       mfa_token: validToken,
-      otp_code: '12345',
-    });
-    expect(errors).toContain('otp_code');
-  });
-
-  it('should reject when otp_code is exactly 7 digits', async () => {
-    const errors = await fields(MfaVerifyDto, {
-      mfa_token: validToken,
-      otp_code: '1234567',
-    });
-    expect(errors).toContain('otp_code');
-  });
-
-  it('should reject when otp_code contains non-digit characters', async () => {
-    const errors = await fields(MfaVerifyDto, {
-      mfa_token: validToken,
-      otp_code: '12345a',
+      otp_code: otpCode,
     });
     expect(errors).toContain('otp_code');
   });

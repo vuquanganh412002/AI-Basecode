@@ -69,43 +69,23 @@ describe('CreateJaDto', () => {
       expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(false);
     });
 
-    it('should pass when ja_name_kana is empty string (Transform → undefined)', async () => {
-      const errors = await run({ ...base, ja_name_kana: '' });
+    it.each([
+      ['empty string (Transform → undefined)', ''],
+      ['whitespace-only (Transform → undefined)', '   '],
+      ['half-width katakana + chouonpu', 'ｼﾞｪｲｴｲﾄｳｷｮｳﾐﾄﾞﾘｰ'],
+      ['half-width katakana plus space (multi-word)', 'ｼﾞｪｲｴｲ ﾄｳｷｮｳ'],
+    ])('should pass when ja_name_kana is %s', async (_label, value) => {
+      const errors = await run({ ...base, ja_name_kana: value });
       expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(false);
     });
 
-    it('should pass when ja_name_kana is whitespace-only (Transform → undefined)', async () => {
-      const errors = await run({ ...base, ja_name_kana: '   ' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(false);
-    });
-
-    it('should pass with half-width katakana + chouonpu', async () => {
-      const errors = await run({ ...base, ja_name_kana: 'ｼﾞｪｲｴｲﾄｳｷｮｳﾐﾄﾞﾘｰ' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(false);
-    });
-
-    it('should pass with half-width katakana plus space (multi-word)', async () => {
-      const errors = await run({ ...base, ja_name_kana: 'ｼﾞｪｲｴｲ ﾄｳｷｮｳ' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(false);
-    });
-
-    it('should fail when ja_name_kana contains hiragana', async () => {
-      const errors = await run({ ...base, ja_name_kana: 'じぇいえい' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(true);
-    });
-
-    it('should fail when ja_name_kana contains kanji', async () => {
-      const errors = await run({ ...base, ja_name_kana: '東京' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(true);
-    });
-
-    it('should fail when ja_name_kana contains ASCII letters', async () => {
-      const errors = await run({ ...base, ja_name_kana: 'JA Tokyo' });
-      expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(true);
-    });
-
-    it('should fail when ja_name_kana contains full-width katakana', async () => {
-      const errors = await run({ ...base, ja_name_kana: 'ジェイエイ' });
+    it.each([
+      ['hiragana', 'じぇいえい'],
+      ['kanji', '東京'],
+      ['ASCII letters', 'JA Tokyo'],
+      ['full-width katakana', 'ジェイエイ'],
+    ])('should fail when ja_name_kana contains %s', async (_label, value) => {
+      const errors = await run({ ...base, ja_name_kana: value });
       expect(errors.some((e) => e.property === 'ja_name_kana')).toBe(true);
     });
 

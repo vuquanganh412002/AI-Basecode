@@ -544,54 +544,20 @@ describe('KanriShitenListView — sort (§8)', () => {
 // テーブルカラムレンダリング (画面項目定義 + index.html)
 // ═════════════════════════════════════════════════════════════════════
 describe('KanriShitenListView — table column rendering', () => {
-  it('should render the 管理支店コード column header when mounted', async () => {
+  it.each([
+    '管理支店コード',
+    '管理支店名',
+    '都道府県',
+    '郵便番号',
+    '住所',
+    '電話番号',
+    'FAX',
+    '紙版',
+    '電子版',
+    '操作',
+  ])('should render the %s column header when mounted', async (header) => {
     const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('管理支店コード');
-  });
-
-  it('should render the 管理支店名 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('管理支店名');
-  });
-
-  it('should render the 都道府県 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('都道府県');
-  });
-
-  it('should render the 郵便番号 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('郵便番号');
-  });
-
-  it('should render the 住所 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('住所');
-  });
-
-  it('should render the 電話番号 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('電話番号');
-  });
-
-  it('should render the FAX column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('FAX');
-  });
-
-  it('should render the 紙版 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('紙版');
-  });
-
-  it('should render the 電子版 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('電子版');
-  });
-
-  it('should render the 操作 column header when mounted', async () => {
-    const { wrapper } = await renderView();
-    expect(wrapper.text()).toContain('操作');
+    expect(wrapper.text()).toContain(header);
   });
 });
 

@@ -378,10 +378,11 @@ export interface DokusyaSearchParams {
   joho_henko_tekiyo_date_to?: string;
   shiharai_hoho?: number;
   /**
-   * 失効単価(active_flg=false)を参照する購読者のみ抽出（SCR-020 error gate 連携）。
-   * true のときのみ送信し、BE は EXISTS 条件で絞り込む。
+   * 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。参照する購読料
+   * 単価(tanka_type=1)の active_flg で絞り込む: true=有効単価を参照する購読者のみ、
+   * false=失効単価を参照する購読者のみ、省略=両方（送らない）。
    */
-  inactive_tanka_flg?: boolean;
+  active_tanka_flg?: boolean;
   page?: number;
   per_page?: number;
   sort_by?: string;
@@ -460,6 +461,8 @@ export interface DokusyaRirekiItem {
   dokusya_rireki_id: number;
   dokusya_id: number;
   rireki_no: number;
+  /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。*/
+  dokusya_shubetsu: number;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
@@ -483,6 +486,12 @@ export interface DokusyaRirekiItem {
   gender: number | null;
   dokusyaso_bunrui: string;
   nogyosya_bunrui: string;
+  /** 新聞単価 (m_tanka.tanka_id)。*/
+  tanka_id: number;
+  /** 新聞単価名。単価削除済み等は null。*/
+  tanka_name: string | null;
+  /** 新聞単価の表示金額（JA の税区分で BE 解決：内税→税込 / 外税→税抜）。*/
+  tanka_kingaku: number | null;
   dokusya_busu: number;
   zenkai_dokusya_busu: number | null;
   haitatsu_yubin_no: string;
@@ -526,6 +535,12 @@ export interface DokusyaRirekiItem {
    * (有効レコード)であること。FE の取消ボタン disable 判定に使う。
    */
   can_torikeshi: boolean;
+  /** m_code.code_category='SHIHARAI_HOHO'（支払い方法）。*/
+  shiharai_hoho: number;
+  /** m_code.code_category='YUBIN_KUBUN'（郵送区分・'0':空/'1':郵送）。*/
+  yubin_kubun: string;
+  /** 購読料支払サイクル（月数 1〜12）。未設定は null。*/
+  dokusyaryo_shiharai_cycle: number | null;
   /** m_code.code_category='YOKIN_SHUBETSU'. */
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;

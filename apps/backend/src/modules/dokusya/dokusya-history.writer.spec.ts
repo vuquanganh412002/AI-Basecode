@@ -119,7 +119,8 @@ describe('recomputeAfterChain', () => {
     expect(after.zougenHokokuFlg).toBe(true); // 10 vs prev 8 → changed
   });
 
-  it('successors that did NOT change the field → carry forward (cascade)', async () => {
+  it('B-thuần: updates ONLY the immediate successor — NO cascade to rows after it', async () => {
+    // 顧客要件 2026-07: 挿入行の直後行だけを更新し、後続行へは伝播しない。
     const before = rireki({ dokusyaBusu: 4 });
     const inserted = rireki({
       johoHenkoTekiyoDate: '2026-07-01',
@@ -130,13 +131,13 @@ describe('recomputeAfterChain', () => {
       dokusyaRirekiId: 4,
       johoHenkoTekiyoDate: '2026-08-01',
       rirekiNo: 2,
-      dokusyaBusu: 4, // unchanged → carries 6
+      dokusyaBusu: 4,
     });
     const after2 = rireki({
       dokusyaRirekiId: 5,
       johoHenkoTekiyoDate: '2026-09-01',
       rirekiNo: 4,
-      dokusyaBusu: 4, // unchanged → carries 6
+      dokusyaBusu: 4,
     });
     q.findNext
       .mockResolvedValueOnce(after1)
@@ -145,11 +146,38 @@ describe('recomputeAfterChain', () => {
 
     await recomputeAfterChain(m, 1001, inserted, before, ['dokusyaBusu']);
 
-    expect(save).toHaveBeenCalledTimes(2);
-    expect(after1.dokusyaBusu).toBe(6); // carried
-    expect(after2.dokusyaBusu).toBe(6); // carried
-    expect(after1.zenkaiDokusyaBusu).toBe(6); // prev = inserted (6)
-    expect(after2.zenkaiDokusyaBusu).toBe(6); // prev = after1 (now 6)
+    // 直後行(after1)のみ: findNext 1回・save 1回。
+    expect(q.findNext).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledTimes(1);
+    // after1: zenkai を挿入行へ relink するが current 値は据え置き。
+    expect(after1.zenkaiDokusyaBusu).toBe(6); // prev = inserted
+    expect(after1.dokusyaBusu).toBe(4); // current NOT cascaded (B-thuần)
+    // after2 は一切触らない。
+    expect(after2.dokusyaBusu).toBe(4);
+    expect(after2.zenkaiDokusyaBusu).toBeUndefined();
+  });
+
+  it('B-thuần: keeps the successor\'s haitatsu_same_flg unchanged even when the inserted row changed it', async () => {
+    // 顧客要件 2026-07: 直後行の haitatsu_same_flg は挿入行に追随して書き換えない。
+    const before = rireki({ haitatsuSameFlg: true, dokusyaBusu: 4 });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-07-01',
+      rirekiNo: 3,
+      haitatsuSameFlg: false, // 挿入行が別配達先へ切替
+      dokusyaBusu: 4,
+    });
+    const after = rireki({
+      dokusyaRirekiId: 4,
+      johoHenkoTekiyoDate: '2026-08-01',
+      rirekiNo: 2,
+      haitatsuSameFlg: true, // 直後行は購読者住所と同一のまま
+      dokusyaBusu: 4,
+    });
+    q.findNext.mockResolvedValueOnce(after).mockResolvedValue(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['haitatsuSameFlg']);
+
+    expect(after.haitatsuSameFlg).toBe(true); // 据え置き（挿入行の false に追随しない）
   });
 
   it('CREATE (before null) → no successor work', async () => {

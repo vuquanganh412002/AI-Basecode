@@ -22,7 +22,7 @@
 // disabled, placeholder, id.
 
 interface Props {
-  value: number | null | undefined;
+  value?: number | null;
   maxlength?: number;
   disabled?: boolean;
   placeholder?: string;

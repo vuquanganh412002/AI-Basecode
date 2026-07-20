@@ -504,7 +504,7 @@ describe('DokusyaReplaceHanbaitenView — kanri-shiten change (機能定義 7.x)
     if (typeof vm.isShitenDisabled !== 'undefined') {
       expect(vm.isShitenDisabled).toBe(true);
     } else if (vm.shitenOptions) {
-      expect(vm.shitenOptions.length).toBe(0);
+      expect(vm.shitenOptions).toHaveLength(0);
     } else {
       expect(wrapper.exists()).toBe(true);
     }
@@ -566,7 +566,7 @@ describe('DokusyaReplaceHanbaitenView — row selection (機能定義 5.x)', () 
 
     const vm = wrapper.vm as any;
     if (typeof vm.selectedRowKeys !== 'undefined') {
-      expect(vm.selectedRowKeys.length).toBe(2);
+      expect(vm.selectedRowKeys).toHaveLength(2);
     } else {
       // Fallback — 置換処理実行 should be enabled with all rows selected.
       const execBtn = wrapper
@@ -589,7 +589,7 @@ describe('DokusyaReplaceHanbaitenView — row selection (機能定義 5.x)', () 
 
     const vm = wrapper.vm as any;
     if (typeof vm.selectedRowKeys !== 'undefined') {
-      expect(vm.selectedRowKeys.length).toBe(0);
+      expect(vm.selectedRowKeys).toHaveLength(0);
     } else {
       const execBtn = wrapper
         .findAll('button')
@@ -849,7 +849,7 @@ describe('DokusyaReplaceHanbaitenView — replace confirm + execute (機能定�
 
     const vm = wrapper.vm as any;
     if (typeof vm.selectedRowKeys !== 'undefined') {
-      expect(vm.selectedRowKeys.length).toBe(0);
+      expect(vm.selectedRowKeys).toHaveLength(0);
     } else {
       // After clearing selection the exec button re-disables.
       const after = wrapper
@@ -951,8 +951,8 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
       expect(vm.state.filters.kumiaiin_code).toBe('');
       expect(vm.state.filters.hanbaiten_tekiyo_date).toBe('');
     }
-    expect(vm.rows.length).toBe(0);
-    expect(vm.selectedRowKeys.length).toBe(0);
+    expect(vm.rows).toHaveLength(0);
+    expect(vm.selectedRowKeys).toHaveLength(0);
   });
 
   it('should block search + show an error when 検索 is pressed without 適用日 (required)', async () => {
@@ -983,7 +983,7 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     expect(searchDokusyaForReplace).not.toHaveBeenCalled();
     const vm = wrapper.vm as any;
     if (typeof vm.selectedRowKeys !== 'undefined') {
-      expect(vm.selectedRowKeys.length).toBe(0);
+      expect(vm.selectedRowKeys).toHaveLength(0);
     }
   });
 

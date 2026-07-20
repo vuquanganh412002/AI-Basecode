@@ -57,11 +57,11 @@ export interface ListHanbaitenQuery {
   /** true:廃店レコードも含む / false (default):廃店を除外. */
   haiten_flg?: boolean;
   /**
-   * [scr021-error-gate] 失効配達手数料単価(active_flg=false)を参照する販売店のみ
-   * 抽出（SCR-021 の失効単価エラーからの導線）。true のときのみ送信し、BE は
-   * INNER JOIN 条件で絞り込む。
+   * 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。参照する配達
+   * 手数料単価(tanka_type=2)の active_flg で絞り込む: true=有効単価を参照する販売店
+   * のみ、false=失効単価を参照する販売店のみ、省略=両方（送らない）。
    */
-  inactive_tanka_flg?: boolean;
+  active_tanka_flg?: boolean;
   /**
    * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) supplies
    * the JA to scope the search against via the 代行入力 list view's

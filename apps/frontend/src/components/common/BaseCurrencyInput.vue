@@ -34,7 +34,7 @@
 import { computed, ref } from 'vue';
 
 interface Props {
-  value: number | null | undefined;
+  value?: number | null;
   maxlength?: number;
   disabled?: boolean;
   placeholder?: string;

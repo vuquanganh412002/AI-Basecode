@@ -5,19 +5,24 @@
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
 
+// Raw DB id columns arrive as number or string depending on the pg driver /
+// aggregation. Aliased to avoid repeating the union across every id field.
+type IdRaw = number | string;
+type IdRawNullable = number | string | null;
+
 export interface AccountDetailRow {
-  account_id: number | string;
+  account_id: IdRaw;
   login_id: string;
   account_name: string;
-  role_id: number | string;
+  role_id: IdRaw;
   role_name: string;
   todofuken_code: string | null;
   todofuken_name: string | null;
-  ja_id: number | string | null;
+  ja_id: IdRawNullable;
   ja_name: string | null;
-  kanri_shiten_id: number | string | null;
+  kanri_shiten_id: IdRawNullable;
   kanri_shiten_name: string | null;
-  shiten_id: number | string | null;
+  shiten_id: IdRawNullable;
   shiten_name: string | null;
   email: string;
   sub_email_1: string;

@@ -266,10 +266,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
-      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
-      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
-      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
-      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
       { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
@@ -3992,10 +3990,8 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       rireki,
       searchService,
       replaceService,
-      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
-      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
-      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
-      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
       { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
@@ -4029,27 +4025,47 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       );
     });
 
-    it('should INNER JOIN m_tanka (active_flg=FALSE) when inactive_tanka_flg=true', async () => {
-      // COVERS: SCR-020 error gate 連携 — 失効単価参照フィルタ（顧客要件2026-07）
+    it('should INNER JOIN m_tanka with active_flg param=false when active_tanka_flg=false (失効単価のみ)', async () => {
+      // COVERS: 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）
       dokusyaQb.getRawMany.mockResolvedValue([]);
       dokusyaQb.getCount.mockResolvedValue(0);
 
       await service.search(
-        buildSearchDokusyaQuery({ inactive_tanka_flg: true }),
+        buildSearchDokusyaQuery({ active_tanka_flg: false }),
         buildChuokaiSession({ ja_id: 1 }),
       );
 
-      const applied = dokusyaQb.innerJoin.mock.calls.some(
-        ([table, , cond]: unknown[]) =>
-          table === 'm_tanka' &&
-          typeof cond === 'string' &&
-          /active_flg\s*=\s*FALSE/i.test(cond) &&
-          /tanka_id\s*=\s*d\.tanka_id/i.test(cond),
+      const call = dokusyaQb.innerJoin.mock.calls.find(
+        ([table]: unknown[]) => table === 'm_tanka',
       );
-      expect(applied).toBe(true);
+      expect(call).toBeDefined();
+      const [, , cond, params] = call as unknown[];
+      expect(
+        typeof cond === 'string' &&
+          /active_flg\s*=\s*:activeTankaFlg/i.test(cond) &&
+          /tanka_id\s*=\s*d\.tanka_id/i.test(cond),
+      ).toBe(true);
+      expect((params as Record<string, unknown>).activeTankaFlg).toBe(false);
     });
 
-    it('should NOT INNER JOIN m_tanka for the failed-tanka filter when inactive_tanka_flg is absent', async () => {
+    it('should INNER JOIN m_tanka with active_flg param=true when active_tanka_flg=true (有効単価のみ)', async () => {
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(0);
+
+      await service.search(
+        buildSearchDokusyaQuery({ active_tanka_flg: true }),
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      const call = dokusyaQb.innerJoin.mock.calls.find(
+        ([table]: unknown[]) => table === 'm_tanka',
+      );
+      expect(call).toBeDefined();
+      const [, , , params] = call as unknown[];
+      expect((params as Record<string, unknown>).activeTankaFlg).toBe(true);
+    });
+
+    it('should NOT INNER JOIN m_tanka for the 有効単価フラグ filter when active_tanka_flg is absent (両方)', async () => {
       dokusyaQb.getRawMany.mockResolvedValue([]);
       dokusyaQb.getCount.mockResolvedValue(0);
 
@@ -5203,10 +5219,8 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       rireki,
       searchService,
       replaceService,
-      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
-      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
-      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
-      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
       { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
@@ -5254,6 +5268,43 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       bank_branch_code: '001',
       bank_branch_name: '本店',
       hikiotoshi_koza_meigi: 'ヤマダタロウ',
+    });
+  });
+
+  it('should surface the SCR-013 追加列 (購読種別/新聞単価/支払い方法/郵送区分/購読料サイクル/備考) — 顧客要件', async () => {
+    // 追加列: dokusya_shubetsu・tanka(id/name/kingaku 税区分解決)・shiharai_hoho・
+    // yubin_kubun・dokusyaryo_shiharai_cycle・biko を一覧行に載せる。
+    dokusyaRepo.findOne.mockResolvedValue(buildDokusya({ dokusyaId: 1, jaId: 1 }));
+    rirekiQb.getRawMany.mockResolvedValue([
+      buildDokusyaRirekiListRow({
+        dokusya_id: 1,
+        dokusya_shubetsu: 2,
+        tanka_id: 7,
+        tanka_name: '新聞購読料',
+        tanka_kingaku: 3500,
+        shiharai_hoho: 2,
+        yubin_kubun: '1',
+        dokusyaryo_shiharai_cycle: 6,
+        biko: '履歴メモ',
+      }),
+    ]);
+    rirekiQb.getCount.mockResolvedValue(1);
+
+    const result = await service.getRirekiList(
+      1,
+      buildDokusyaRirekiQuery(),
+      buildChuokaiSession({ ja_id: 1 }),
+    );
+
+    expect(result.data[0]).toMatchObject({
+      dokusya_shubetsu: 2,
+      tanka_id: 7,
+      tanka_name: '新聞購読料',
+      tanka_kingaku: 3500,
+      shiharai_hoho: 2,
+      yubin_kubun: '1',
+      dokusyaryo_shiharai_cycle: 6,
+      biko: '履歴メモ',
     });
   });
 
@@ -5617,6 +5668,9 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       rireki,
       searchService,
       replaceService,
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
 
     // 一括置換は各購読者を applyChange(UPDATE) で置換する。CREATE/UPDATE の履歴
@@ -6693,6 +6747,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       rireki,
       searchService,
       replaceService,
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
+      { sendNow: jest.fn().mockResolvedValue(null) },
     );
 
     // NEW 取込は applyChange(CREATE) を通る。CREATE の master/履歴生成を writer に
@@ -8014,10 +8071,8 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       rireki,
       searchService,
       replaceService,
-      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
-      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
-      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
-      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
       { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
@@ -8263,10 +8318,8 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       rireki,
       searchService,
       replaceService,
-      // 電子版連携は COMMIT 前の同期送信（DokusyaService が sendNow を await する）。
-      // null = 「送信対象外」の戻り値 — 紙版・併読と同じ扱いになり、既存の期待値
-      // （denshi_kaiin_id を触らない）をそのまま保てる。送信そのものの検証は
-      // denshiban-api.service.spec.ts / denshiban-payload.* 側の担当。
+      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
+      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
       { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
@@ -8310,21 +8363,24 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       dokusyaId: 100, jaId: 1, rirekiNo: 1, dokusyaBusu: 2, hanbaitenId: 5,
     });
     dokusyaRepo.findOne.mockResolvedValue(before);
-    // UI update も 取込 UPDATE も Pha3 で applyChange を通る（real）。applyChange は
-    // 「適用日時点の有効レコード」を DokusyaRireki QB.getOne で読む。単一イベント
-    // 更新は 1 呼び出しあたり getOne を4回使う（findBefore×2 → findNext → recompute）。
-    // 4回周期で「先頭2回=predecessor(before) / 後半2回=後続なし(null)」を返すことで、
-    // UI・取込の両レグとも差分（biko のみ・増減トリガ不変）→ zougen=false が成立する。
-    let rirekiGetOneCall = 0;
+    // UI update も 取込 UPDATE も Pha3 で applyChange を通る（real）。このシナリオは
+    // 「最新行への更新」で後続行は無い。findNext だけが昇順(SORT_CHAIN_ASC)で
+    // orderBy するので、ASC 並びのクエリ(=findNext)には null を返し「後続行なし」を
+    // 表現する。findBefore / recomputeMaster(降順)には predecessor(before) を返す。
+    // 呼び出し回数に依存しない堅牢な判定（B-thuần: 後続行が無ければ
+    // recomputeAfterChain は何もしない）。差分は biko のみ → 挿入行 zougen=false。
     txManager.createQueryBuilder = jest.fn((entity: any) => {
       const q = qb();
       q.getRawOne = jest
         .fn()
         .mockResolvedValue({ next: '2', new_rireki_no: 2 });
       if (entity?.name === 'DokusyaRireki') {
-        q.getOne = jest.fn(async () =>
-          rirekiGetOneCall++ % 4 < 2 ? before : null,
-        );
+        q.getOne = jest.fn(async () => {
+          const orderedAsc = q.orderBy.mock.calls.some(
+            (c: unknown[]) => c[1] === 'ASC',
+          );
+          return orderedAsc ? null : before; // findNext(ASC)→後続なし
+        });
       }
       return q;
     });

@@ -46,15 +46,30 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_sei')).toBe(true);
   });
 
-  it('should fail with 漢字で入力してください。 when shimei_sei is not kanji', async () => {
+  it('should fail with 漢字・ひらがな・カタカナで入力してください。 when shimei_sei has romaji/digits', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ shimei_sei: 'ヤマダ' }),
+      buildCreateDokusyaBody({ shimei_sei: 'Yamada12' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'shimei_sei');
-    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+    expect(e?.constraints?.matches).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
   });
+
+  // 顧客要件 2026-07: 氏名は漢字・ひらがな・カタカナを許容。
+  it.each(['山田', 'やまだ', 'ヤマダ', '田中 マリー'])(
+    'should accept shimei_sei = %s (kanji/hiragana/katakana)',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ shimei_sei: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'shimei_sei')).toBe(false);
+    },
+  );
 
   // ─── shimei_mei (String, required, max 50) ──────────────────────────────
   it('should fail when shimei_mei is missing', async () => {
@@ -75,15 +90,30 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_mei')).toBe(true);
   });
 
-  it('should fail with 漢字で入力してください。 when shimei_mei is not kanji', async () => {
+  it('should fail with 漢字・ひらがな・カタカナで入力してください。 when shimei_mei has romaji', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
       buildCreateDokusyaBody({ shimei_mei: 'Taro' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'shimei_mei');
-    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+    expect(e?.constraints?.matches).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
   });
+
+  // 顧客要件 2026-07: 氏名は漢字・ひらがな・カタカナを許容。
+  it.each(['太郎', 'たろう', 'タロウ'])(
+    'should accept shimei_mei = %s (kanji/hiragana/katakana)',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ shimei_mei: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'shimei_mei')).toBe(false);
+    },
+  );
 
   // ─── shimei_kana_sei (String, required, max 100) ────────────────────────
   it('should fail when shimei_kana_sei is missing', async () => {
@@ -172,28 +202,14 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'yubin_no')).toBe(true);
   });
 
-  it('should fail when yubin_no length is less than 7', async () => {
+  it.each([
+    ['length is less than 7', '123456'],
+    ['length is more than 7', '12345678'],
+    ['contains non-digit characters', 'ABCDEFG'],
+  ])('should fail when yubin_no %s', async (_label, yubinNo) => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ yubin_no: '123456' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'yubin_no')).toBe(true);
-  });
-
-  it('should fail when yubin_no length is more than 7', async () => {
-    const dto = plainToInstance(
-      CreateDokusyaDto,
-      buildCreateDokusyaBody({ yubin_no: '12345678' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'yubin_no')).toBe(true);
-  });
-
-  it('should fail when yubin_no contains non-digit characters', async () => {
-    const dto = plainToInstance(
-      CreateDokusyaDto,
-      buildCreateDokusyaBody({ yubin_no: 'ABCDEFG' }),
+      buildCreateDokusyaBody({ yubin_no: yubinNo }),
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'yubin_no')).toBe(true);
@@ -535,32 +551,23 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'dokusya_kaishi_date')).toBe(true);
   });
 
-  it('should accept dokusya_kaishi_date in YYYY/MM/DD (slash) — picker display format', async () => {
-    const dto = plainToInstance(
-      CreateDokusyaDto,
-      buildCreateDokusyaBody({ dokusya_kaishi_date: '2026/04/01' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_kaishi_date')).toBe(false);
-  });
-
-  it('should accept dokusya_kaishi_date in YYYY-MM-DD (hyphen / ISO)', async () => {
-    const dto = plainToInstance(
-      CreateDokusyaDto,
-      buildCreateDokusyaBody({ dokusya_kaishi_date: '2026-04-01' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_kaishi_date')).toBe(false);
-  });
-
-  it('should fail when dokusya_kaishi_date is non-date garbage', async () => {
-    const dto = plainToInstance(
-      CreateDokusyaDto,
-      buildCreateDokusyaBody({ dokusya_kaishi_date: 'not-a-date' }),
-    );
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'dokusya_kaishi_date')).toBe(true);
-  });
+  it.each([
+    ['YYYY/MM/DD (slash) — picker display format', '2026/04/01', false],
+    ['YYYY-MM-DD (hyphen / ISO)', '2026-04-01', false],
+    ['non-date garbage', 'not-a-date', true],
+  ])(
+    'should validate dokusya_kaishi_date %s',
+    async (_label, dateValue, expectError) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ dokusya_kaishi_date: dateValue }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusya_kaishi_date')).toBe(
+        expectError,
+      );
+    },
+  );
 
   // ─── dokusya_chushi_date (optional, YYYY-MM-DD) ─────────────────────────
   it('should accept dokusya_chushi_date as null', async () => {
@@ -726,24 +733,40 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'haitatsu_shimei_sei')).toBe(true);
   });
 
-  it('should fail with 漢字で入力してください。 when haitatsu_shimei_sei is not kanji', async () => {
+  it('should fail with 漢字・ひらがな・カタカナで入力してください。 when haitatsu_shimei_sei has romaji', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'スズキ' }),
+      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'Suzuki' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'haitatsu_shimei_sei');
-    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+    expect(e?.constraints?.matches).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
   });
 
-  it('should fail with 漢字で入力してください。 when haitatsu_shimei_mei is not kanji', async () => {
+  it('should fail with 漢字・ひらがな・カタカナで入力してください。 when haitatsu_shimei_mei has romaji', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
       buildCreateDokusyaBody({ haitatsu_shimei_mei: 'Hanako' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'haitatsu_shimei_mei');
-    expect(e?.constraints?.matches).toBe('漢字で入力してください。');
+    expect(e?.constraints?.matches).toBe(
+      '漢字・ひらがな・カタカナで入力してください。',
+    );
+  });
+
+  // 顧客要件 2026-07: 配達先氏名も漢字・ひらがな・カタカナを許容。
+  it('should accept katakana haitatsu_shimei_sei (スズキ)', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'スズキ' }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'haitatsu_shimei_sei')).toBe(
+      false,
+    );
   });
 
   it('should fail when haitatsu_shimei_kana_sei exceeds 100 chars', async () => {

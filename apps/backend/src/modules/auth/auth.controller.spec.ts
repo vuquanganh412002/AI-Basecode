@@ -578,8 +578,8 @@ describe('AuthController — branch coverage', () => {
       await controller.login({ login_id: 'a', password: 'b' } as any, req, buildRes());
 
       const ctx = authService.login.mock.calls[0][1];
-      expect(ctx.ipAddress.length).toBe(50);
-      expect(ctx.userAgent.length).toBe(500);
+      expect(ctx.ipAddress).toHaveLength(50);
+      expect(ctx.userAgent).toHaveLength(500);
     });
   });
 

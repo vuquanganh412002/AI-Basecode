@@ -57,6 +57,12 @@ import {
 
 // ─── State ──────────────────────────────────────────────────────────
 
+// 有効単価フラグ filter — 単価一覧(SCR-006)と同一のトライステートラジオ。
+// '' = 両方（既定・絞り込まない）、'1' = 有効単価を参照する購読者のみ、
+// '0' = 失効単価を参照する購読者のみ。検索クリアで '' に戻す。BE へは
+// toBoolean で boolean | undefined に変換して送る（active_tanka_flg）。
+type ActiveFlgFilter = '' | '1' | '0';
+
 interface DokusyaFilters {
   // 常時表示エリア (12 fields per index.html).
   kanri_shiten_id: number | undefined;
@@ -82,8 +88,8 @@ interface DokusyaFilters {
   joho_henko_tekiyo_date_from: string;
   joho_henko_tekiyo_date_to: string;
   shiharai_hoho: number | undefined;
-  // 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）。
-  inactive_tanka_flg: boolean;
+  // 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。
+  active_tanka_flg: ActiveFlgFilter;
 }
 
 const DEFAULT_FILTERS: DokusyaFilters = {
@@ -109,8 +115,15 @@ const DEFAULT_FILTERS: DokusyaFilters = {
   joho_henko_tekiyo_date_from: '',
   joho_henko_tekiyo_date_to: '',
   shiharai_hoho: undefined,
-  inactive_tanka_flg: false,
+  active_tanka_flg: '',
 };
+
+/** 有効単価フラグのラジオ値 → BE 送信用 boolean | undefined（'' は両方=送らない）。 */
+function toBoolean(flag: ActiveFlgFilter): boolean | undefined {
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+  return undefined;
+}
 
 const router = useRouter();
 const route = useRoute();
@@ -357,8 +370,9 @@ function applyNumberFilters(
   if (f.denshi_shonin_status !== undefined)
     params.denshi_shonin_status = f.denshi_shonin_status;
   if (f.shiharai_hoho !== undefined) params.shiharai_hoho = f.shiharai_hoho;
-  // true のときのみ送信（false は BE に渡さず絞り込まない）。
-  if (f.inactive_tanka_flg) params.inactive_tanka_flg = true;
+  // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
+  const activeTanka = toBoolean(f.active_tanka_flg);
+  if (activeTanka !== undefined) params.active_tanka_flg = activeTanka;
 }
 
 /** Free-text filters — copied when non-empty (blank → BE sees no value). */
@@ -458,10 +472,10 @@ onMounted(() => {
     }
   }
   // [scr020-deep-link] 口座振替データ出力 (SCR-020) の失効単価エラーから
-  // ?inactive_tanka=1 で遷移してくる導線。失効単価参照フィルタを初期適用し、
-  // 詳細検索を開いて選択状態を見せる（手動で新単価へ移行する運用）。
+  // ?inactive_tanka=1 で遷移してくる導線。有効単価フラグを「無効(失効単価参照)」で
+  // 初期選択し、詳細検索を開いて選択状態を見せる（手動で新単価へ移行する運用）。
   if (route.query.inactive_tanka === '1') {
-    state.filters.inactive_tanka_flg = true;
+    state.filters.active_tanka_flg = '0';
     applyFilters({ ...state.filters });
     showAdvanced.value = true;
   }
@@ -1045,16 +1059,19 @@ defineExpose({ state });
           </a-radio-group>
         </div>
 
-        <!-- 失効単価参照フィルタ（SCR-020 error gate 連携・顧客要件2026-07）。
-             口座振替出力時に失効単価参照でブロックされた購読者を手動で新単価へ
-             移行するための絞込。SCR-020 から ?inactive_tanka=1 で初期選択される。 -->
-        <div class="col-span-full flex items-center gap-2 text-sm text-text-main">
-          <a-checkbox
-            v-model:checked="state.filters.inactive_tanka_flg"
-            data-test="inactive-tanka-filter"
+        <!-- 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧
+             (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者のみ、
+             無効=失効単価を参照する購読者のみ、未選択=両方。口座振替出力の失効単価
+             エラーからは ?inactive_tanka=1 で「無効」が初期選択される。 -->
+        <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap">有効単価フラグ</span>
+          <a-radio-group
+            v-model:value="state.filters.active_tanka_flg"
+            data-test="active-tanka-filter"
           >
-            失効単価を参照する購読者のみ表示
-          </a-checkbox>
+            <a-radio value="1">有効</a-radio>
+            <a-radio value="0">無効</a-radio>
+          </a-radio-group>
         </div>
       </template>
 
@@ -1203,10 +1220,13 @@ defineExpose({ state });
             {{ stopTarget.shimei_sei }} {{ stopTarget.shimei_mei }}
           </span>
         </p>
+        <!-- antd の a-date-picker はカスタムコンポーネントで <label for> による
+             静的関連付けができないため、説明テキストは <span> とし、各ピッカーに
+             aria-label を付与してアクセシブル名を与える（スクリーンリーダー対応）。 -->
         <div class="flex items-center gap-2">
-          <label class="text-sm font-medium whitespace-nowrap text-text-main">
+          <span class="text-sm font-medium whitespace-nowrap text-text-main">
             購読中止日
-          </label>
+          </span>
           <!-- 電子版: 終了月ピッカー + 「月末で終了」。当月以降 + 請求開始月以降。 -->
           <template v-if="isStopDigital">
             <a-date-picker
@@ -1214,6 +1234,7 @@ defineExpose({ state });
               picker="month"
               format="YYYY/MM"
               placeholder="終了月を選択"
+              aria-label="購読中止日"
               :disabled-date="disabledStopMonth"
               class="flex-1"
               data-test="stop-month-picker"
@@ -1226,6 +1247,7 @@ defineExpose({ state });
               v-model:value="stopDate"
               format="YYYY/MM/DD"
               placeholder="購読中止日を選択"
+              aria-label="購読中止日"
               :disabled-date="disabledStopPaperDate"
               class="flex-1"
               data-test="stop-date-picker"

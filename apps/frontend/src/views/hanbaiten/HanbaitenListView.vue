@@ -21,6 +21,13 @@ import {
 
 // 機能定義 1.1 / 2.1 — 廃店フラグが立っているものは販売店の一覧に表示しない。
 // haiten_flg=true をチェックした場合のみ廃店レコードも含めて検索する。
+
+// 有効単価フラグ filter — 単価一覧(SCR-006)と同一のトライステートラジオ。
+// '' = 両方（既定）、'1' = 有効単価を参照する販売店のみ、'0' = 失効単価を参照する
+// 販売店のみ。検索クリアで '' に戻す。BE へは toBoolean で boolean | undefined に
+// 変換して送る（active_tanka_flg）。
+type ActiveFlgFilter = '' | '1' | '0';
+
 interface HanbaitenFilters {
   hanbaiten_code: string;
   hanbaiten_name: string;
@@ -30,8 +37,8 @@ interface HanbaitenFilters {
   shocho_name: string;
   /** Default false — 廃店フラグの立つレコードを除外する。 */
   haiten_flg: boolean;
-  /** [scr021-error-gate] 失効配達手数料単価を参照する販売店のみ抽出（SCR-021 連携）。 */
-  inactive_tanka_flg: boolean;
+  /** 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。 */
+  active_tanka_flg: ActiveFlgFilter;
   /**
    * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) selects a
    * JA via BaseJaDropdown before any search runs. Null means "no JA
@@ -86,7 +93,7 @@ const {
       address: '',
       shocho_name: '',
       haiten_flg: false,
-      inactive_tanka_flg: false,
+      active_tanka_flg: '',
       ja_id: null,
     },
     // Default landing order is updated_at desc (most-recently-touched first)
@@ -122,6 +129,13 @@ const columns: TableColumnsType = [
   { title: '操作', key: 'actions', align: 'center', width: 100 },
 ];
 
+/** 有効単価フラグのラジオ値 → BE 送信用 boolean | undefined（'' は両方=送らない）。 */
+function toBoolean(flag: ActiveFlgFilter): boolean | undefined {
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+  return undefined;
+}
+
 async function fetchList(): Promise<void> {
   loading.value = true;
   try {
@@ -136,8 +150,8 @@ async function fetchList(): Promise<void> {
       // (exclude 廃店). Pass-through both states explicitly so the
       // spec can assert `haiten_flg: true` was sent.
       haiten_flg: state.filters.haiten_flg,
-      // true のときのみ送信（false は BE に渡さず絞り込まない）。
-      inactive_tanka_flg: state.filters.inactive_tanka_flg || undefined,
+      // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
+      active_tanka_flg: toBoolean(state.filters.active_tanka_flg),
       // [staff-ja-filter] only sent when set — non-staff omit the key
       // and the BE falls back to session.ja_id.
       ja_id: state.filters.ja_id ?? undefined,
@@ -188,9 +202,10 @@ function runSearch(): void {
 
 onMounted(() => {
   // [scr021-deep-link] 配達手数料支払情報出力 (SCR-021) の失効単価エラーから
-  // ?inactive_tanka=1 で遷移してくる導線。失効単価参照フィルタを初期適用する。
+  // ?inactive_tanka=1 で遷移してくる導線。有効単価フラグを「無効(失効単価参照)」で
+  // 初期選択する。
   if (route.query.inactive_tanka === '1') {
-    state.filters.inactive_tanka_flg = true;
+    state.filters.active_tanka_flg = '0';
     applyFilters({ ...state.filters });
   }
   // Staff: keep the list empty until a JA is chosen (機能: 代行検索は
@@ -371,17 +386,19 @@ function askDelete(row: HanbaitenListItem): void {
           </span>
         </a-checkbox>
       </div>
-      <!-- [scr021-error-gate] 失効配達手数料単価を参照する販売店のみ抽出。
-           SCR-021 の失効単価エラーから ?inactive_tanka=1 で初期選択される。 -->
+      <!-- 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧
+           (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する販売店のみ、
+           無効=失効単価を参照する販売店のみ、未選択=両方。SCR-021 の失効単価エラー
+           からは ?inactive_tanka=1 で「無効」が初期選択される。 -->
       <div class="flex items-center gap-2">
-        <a-checkbox
-          v-model:checked="state.filters.inactive_tanka_flg"
-          data-test="inactive-tanka-filter"
+        <span class="text-sm font-medium whitespace-nowrap text-text-main">有効単価フラグ</span>
+        <a-radio-group
+          v-model:value="state.filters.active_tanka_flg"
+          data-test="active-tanka-filter"
         >
-          <span class="text-sm font-medium whitespace-nowrap text-text-main">
-            失効単価を参照する販売店のみ
-          </span>
-        </a-checkbox>
+          <a-radio value="1">有効</a-radio>
+          <a-radio value="0">無効</a-radio>
+        </a-radio-group>
       </div>
       <!-- [staff-ja-required] Last cell for NICHINO_STAFF 代行検索.
            JA is a REQUIRED condition: the list starts empty and only

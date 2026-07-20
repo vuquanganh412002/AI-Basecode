@@ -117,11 +117,9 @@ export function toDokusyaResponse(
     haitatsu_shimei_mei: entity.haitatsuShimeiMei ?? '',
     haitatsu_shimei_kana_sei: entity.haitatsuShimeiKanaSei ?? '',
     haitatsu_shimei_kana_mei: entity.haitatsuShimeiKanaMei ?? '',
-    // NULL許容: 電子版連携で作成された購読者は販売店/単価未設定（NULL）。
-    // coerceNumber は NULL→0 にしてしまい API が嘘をつくため coerceNullableNumber。
-    hanbaiten_id: coerceNullableNumber(entity.hanbaitenId),
+    hanbaiten_id: coerceNumber(entity.hanbaitenId),
     hanbaiten_name: joins.hanbaiten_name,
-    tanka_id: coerceNullableNumber(entity.tankaId),
+    tanka_id: coerceNumber(entity.tankaId),
     tanka_name: joins.tanka_name,
     yubin_kubun: entity.yubinKubun ?? '',
     shiharai_hoho: coerceNumber(entity.shiharaiHoho),
@@ -352,6 +350,8 @@ export interface DokusyaRirekiListItem {
   dokusya_rireki_id: number;
   dokusya_id: number;
   rireki_no: number;
+  /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧。*/
+  dokusya_shubetsu: number;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
@@ -373,6 +373,12 @@ export interface DokusyaRirekiListItem {
   gender: number | null;
   dokusyaso_bunrui: string;
   nogyosya_bunrui: string;
+  /** 新聞単価 (m_tanka.tanka_id)。*/
+  tanka_id: number;
+  /** 新聞単価名 (m_tanka.tanka_name)。単価削除済み等は null。*/
+  tanka_name: string | null;
+  /** 新聞単価の表示金額。JA の税区分で BE 解決（zei_kubun=1 内税→税込, else 税抜）。*/
+  tanka_kingaku: number | null;
   dokusya_busu: number;
   zenkai_dokusya_busu: number | null;
   haitatsu_yubin_no: string;
@@ -413,6 +419,12 @@ export interface DokusyaRirekiListItem {
    * （実際の可否は BE エンドポイントが再検証する）。
    */
   can_torikeshi: boolean;
+  /** m_code.code_category='SHIHARAI_HOHO'（支払い方法）。*/
+  shiharai_hoho: number;
+  /** m_code.code_category='YUBIN_KUBUN'（郵送区分・'0':空/'1':郵送）。*/
+  yubin_kubun: string;
+  /** 購読料支払サイクル（月数 1〜12）。未設定は null。*/
+  dokusyaryo_shiharai_cycle: number | null;
   hikiotoshi_yokin_shubetsu: number | null;
   bank_branch_code: string;
   bank_branch_name: string;
@@ -478,6 +490,7 @@ export function toDokusyaRirekiListItem(
     dokusya_rireki_id: coerceNumber(row.dokusya_rireki_id as number | string),
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
     rireki_no: coerceNumber(row.rireki_no as number | string),
+    dokusya_shubetsu: coerceNumber(row.dokusya_shubetsu as number | string),
     ja_id: coerceNumber(row.ja_id as number | string),
     kanri_shiten_id: coerceNullableNumber(
       row.kanri_shiten_id as RawScalarNullable,
@@ -501,6 +514,9 @@ export function toDokusyaRirekiListItem(
     gender: coerceNullableNumber(row.gender as RawScalarNullable),
     dokusyaso_bunrui: stringOrEmpty(row.dokusyaso_bunrui),
     nogyosya_bunrui: stringOrEmpty(row.nogyosya_bunrui),
+    tanka_id: coerceNumber(row.tanka_id as number | string),
+    tanka_name: nullableString(row.tanka_name),
+    tanka_kingaku: coerceNullableNumber(row.tanka_kingaku as RawScalarNullable),
     dokusya_busu: coerceNumber(row.dokusya_busu as number | string),
     zenkai_dokusya_busu: coerceNullableNumber(
       row.zenkai_dokusya_busu as RawScalarNullable,
@@ -537,6 +553,11 @@ export function toDokusyaRirekiListItem(
     torikeshi_flg: torikeshi,
     biko: stringOrEmpty(row.biko),
     can_torikeshi: isPaper && !shinki && !torikeshi && isFutureJoho && isTail,
+    shiharai_hoho: coerceNumber(row.shiharai_hoho as number | string),
+    yubin_kubun: stringOrEmpty(row.yubin_kubun),
+    dokusyaryo_shiharai_cycle: coerceNullableNumber(
+      row.dokusyaryo_shiharai_cycle as RawScalarNullable,
+    ),
     hikiotoshi_yokin_shubetsu: coerceNullableNumber(
       row.hikiotoshi_yokin_shubetsu as RawScalarNullable,
     ),

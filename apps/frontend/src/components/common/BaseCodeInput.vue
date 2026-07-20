@@ -25,7 +25,7 @@
 // placeholder, id. Add new props only when a form actually needs them.
 
 interface Props {
-  value: string | undefined;
+  value?: string;
   maxlength?: number;
   disabled?: boolean;
   placeholder?: string;

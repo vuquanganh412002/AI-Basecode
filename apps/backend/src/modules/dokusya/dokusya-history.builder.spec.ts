@@ -166,6 +166,42 @@ describe('fillZenkai', () => {
     expect(t.zenkaiDokusyaBusu).toBe(6);
     expect(t.zenkaiHanbaitenId).toBeNull();
   });
+
+  it('haitatsu_same_flg=TRUE → address zenkai_* uses before の購読者住所 (KODOKU)', () => {
+    // 顧客要件 2026-07: 住所 zenkai は「実効配達先住所」。同一フラグ=true は購読者住所。
+    const before = row({
+      haitatsuSameFlg: true,
+      yubinNo: '1000001',
+      shikuchoson: 'Chiyoda-ku',
+      haitatsuYubinNo: '9999999', // 別配達先は入っていても無視される
+      haitatsuShikuchoson: '無視される区',
+    });
+    const target = {} as unknown as DokusyaRireki;
+    fillZenkai(target, before);
+    const t = target as unknown as Record<string, unknown>;
+    expect(t.zenkaiYubinNo).toBe('1000001');
+    expect(t.zenkaiShikuchoson).toBe('Chiyoda-ku');
+  });
+
+  it('haitatsu_same_flg=FALSE → address zenkai_* uses before の配達先住所 (HAITATSU)', () => {
+    // 同一フラグ=false は別配達先住所を実効配達先住所として zenkai に入れる。
+    const before = row({
+      haitatsuSameFlg: false,
+      yubinNo: '1000001', // 購読者住所は無視される
+      shikuchoson: 'Chiyoda-ku',
+      haitatsuYubinNo: '5300001',
+      haitatsuShikuchoson: 'Kita-ku',
+      haitatsuChomeBanchi: '配達先1-2-3',
+    });
+    const target = {} as unknown as DokusyaRireki;
+    fillZenkai(target, before);
+    const t = target as unknown as Record<string, unknown>;
+    expect(t.zenkaiYubinNo).toBe('5300001'); // 配達先の郵便番号
+    expect(t.zenkaiShikuchoson).toBe('Kita-ku'); // 配達先の市区町村
+    expect(t.zenkaiChomeBanchi).toBe('配達先1-2-3');
+    // 非住所 zenkai は従来どおり直接コピー。
+    expect(t.zenkaiDokusyaBusu).toBe(before.dokusyaBusu ?? null);
+  });
 });
 
 describe('computeZougen', () => {
@@ -185,13 +221,42 @@ describe('computeZougen', () => {
     ).toBe(true);
   });
 
-  it('address change → true', () => {
+  it('購読者住所 change with haitatsu_same_flg=true → true (実効配達先=購読者住所)', () => {
     expect(
       computeZougen(
-        row({ shikuchoson: 'Minato-ku' }),
-        row({ shikuchoson: 'Chiyoda-ku' }),
+        row({ haitatsuSameFlg: true, shikuchoson: 'Minato-ku' }),
+        row({ haitatsuSameFlg: true, shikuchoson: 'Chiyoda-ku' }),
       ),
     ).toBe(true);
+  });
+
+  it('配達先住所 change with haitatsu_same_flg=false → true (顧客要件: 別住所の配達先変更も増減報告対象)', () => {
+    expect(
+      computeZougen(
+        row({ haitatsuSameFlg: false, haitatsuChomeBanchi: '新配達先1-2-3' }),
+        row({ haitatsuSameFlg: false, haitatsuChomeBanchi: '旧配達先4-5-6' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('haitatsu_same_flg change (配達先同一→別住所) → true', () => {
+    // haitatsu_same_flg=true→false（別住所を入力）で配達先が切り替わる＝配達変更。
+    expect(
+      computeZougen(
+        row({ haitatsuSameFlg: false, haitatsuChomeBanchi: '別1-1' }),
+        row({ haitatsuSameFlg: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it('購読者住所 change with haitatsu_same_flg=false → false (実効配達先=配達先住所は不変なので増減なし)', () => {
+    // 別住所(false)のとき購読者住所を変えても配達先(haitatsu_*)は変わらない＝増減なし。
+    expect(
+      computeZougen(
+        row({ haitatsuSameFlg: false, shikuchoson: 'Minato-ku', haitatsuChomeBanchi: '配達先1-1' }),
+        row({ haitatsuSameFlg: false, shikuchoson: 'Chiyoda-ku', haitatsuChomeBanchi: '配達先1-1' }),
+      ),
+    ).toBe(false);
   });
 
   it('account-only change (not a trigger field) → false', () => {

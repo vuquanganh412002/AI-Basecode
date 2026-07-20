@@ -27,18 +27,12 @@ describe('VerifyResetTokenDto', () => {
     expect(errors[0].property).toBe('token');
   });
 
-  it('should reject when token is empty', async () => {
-    const errors = await check({ token: '' });
-    expect(errors.length).toBeGreaterThan(0);
-  });
-
-  it('should reject when token length is not 36', async () => {
-    const errors = await check({ token: 'short-token' });
-    expect(errors.length).toBeGreaterThan(0);
-  });
-
-  it('should reject when token is not a valid UUID format', async () => {
-    const errors = await check({ token: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' });
+  it.each([
+    ['empty', ''],
+    ['length is not 36', 'short-token'],
+    ['not a valid UUID format', 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'],
+  ])('should reject when token is %s', async (_label, token) => {
+    const errors = await check({ token });
     expect(errors.length).toBeGreaterThan(0);
   });
 

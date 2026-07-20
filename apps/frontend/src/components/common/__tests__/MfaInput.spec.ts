@@ -15,12 +15,12 @@ import MfaInput from '@/components/common/MfaInput.vue';
 describe('MfaInput', () => {
   it('should render 6 digit inputs by default when mounted with no length prop', () => {
     const wrapper = mount(MfaInput, { props: { modelValue: '' } });
-    expect(wrapper.findAll('input').length).toBe(6);
+    expect(wrapper.findAll('input')).toHaveLength(6);
   });
 
   it('should render N digit inputs when length prop is provided', () => {
     const wrapper = mount(MfaInput, { props: { modelValue: '', length: 4 } });
-    expect(wrapper.findAll('input').length).toBe(4);
+    expect(wrapper.findAll('input')).toHaveLength(4);
   });
 
   it('should hydrate digit boxes from modelValue when initial value is non-empty', () => {

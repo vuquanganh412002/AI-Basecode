@@ -23,6 +23,19 @@ import {
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
+/**
+ * 有効単価フラグ等のトライステート真偽値変換（単価一覧の active_flg と同一方式）:
+ * '' / null / undefined → undefined（絞り込まない＝両方）、'true'/'1'/1/true → true、
+ * 'false'/'0'/0/false → false。
+ */
+const stringToBool = ({ value }: { value: unknown }): unknown => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === '1' || value === 1) return true;
+  if (value === 'false' || value === '0' || value === 0) return false;
+  return value;
+};
+
 /** Allow-list of columns the FE can sort by (api.md §4.1 sort_by). */
 const ALLOWED_SORT_COLUMNS = [
   'dokusya_id',
@@ -254,22 +267,21 @@ export class SearchDokusyaDto {
   @IsIn([0, 1, 2], { message: '電子版承認ステータスの値が不正です。' })
   denshi_shonin_status?: number;
 
-  // ─── 失効単価参照フラグ（SCR-020 error gate 連携・顧客要件2026-07）──────────
-  // true のとき、参照する購読料単価(tanka_type=1)が active_flg=FALSE の購読者
-  // だけを抽出する（口座振替出力時に失効単価参照でブロックされた購読者を手動で
-  // 新単価へ移行するための絞込）。GETクエリは文字列で届くため truthy 値のみ
-  // true に変換し、それ以外は undefined にして絞り込まない。
+  // ─── 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）──────────
+  // 参照する購読料単価(tanka_type=1)の active_flg で購読者を絞り込むトライステート
+  // ラジオ（単価一覧の 有効単価フラグ と同一 UI）。true=有効単価(active_flg=TRUE)
+  // を参照する購読者のみ、false=失効単価(active_flg=FALSE)を参照する購読者のみ、
+  // 省略時は絞り込まない（両方）。口座振替出力(SCR-020)の失効単価エラーからは
+  // 「無効(false)」で初期選択され、該当購読者を手動で新単価へ移行する運用。
   @ApiPropertyOptional({
     description:
-      '失効単価(active_flg=false)を参照する購読者のみ抽出（true/1 のときのみ有効）',
+      '有効単価フラグ（true=有効単価を参照する購読者のみ、false=失効単価を参照する購読者のみ、省略=両方）',
     type: Boolean,
   })
-  @Transform(({ value }) =>
-    value === true || value === 'true' || value === '1' ? true : undefined,
-  )
+  @Transform(stringToBool)
   @IsOptional()
-  @IsBoolean({ message: '失効単価フラグの値が不正です。' })
-  inactive_tanka_flg?: boolean;
+  @IsBoolean({ message: '有効単価フラグの値が不正です。' })
+  active_tanka_flg?: boolean;
 
   // ─── Pagination + sort ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1 })

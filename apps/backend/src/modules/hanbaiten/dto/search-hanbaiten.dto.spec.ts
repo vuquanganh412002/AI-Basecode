@@ -187,28 +187,28 @@ describe('SearchHanbaitenDto', () => {
     });
   });
 
-  describe('inactive_tanka_flg (SCR-021 error gate 連携)', () => {
-    it('should coerce string "true" to boolean true via @Transform', async () => {
-      const { dto, errors } = await run({ inactive_tanka_flg: 'true' });
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
-      expect((dto as any).inactive_tanka_flg).toBe(true);
+  describe('active_tanka_flg (有効単価フラグ・SCR-021 error gate 連携)', () => {
+    it('should coerce string "true" to boolean true via @Transform (有効単価のみ)', async () => {
+      const { dto, errors } = await run({ active_tanka_flg: 'true' });
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect((dto as any).active_tanka_flg).toBe(true);
     });
 
-    it('should coerce string "false" to boolean false via @Transform', async () => {
-      const { dto, errors } = await run({ inactive_tanka_flg: 'false' });
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
-      expect((dto as any).inactive_tanka_flg).toBe(false);
+    it('should coerce string "false" to boolean false via @Transform (失効単価のみ)', async () => {
+      const { dto, errors } = await run({ active_tanka_flg: 'false' });
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect((dto as any).active_tanka_flg).toBe(false);
     });
 
-    it('should leave inactive_tanka_flg undefined when omitted', async () => {
+    it('should leave active_tanka_flg undefined when omitted (両方)', async () => {
       const { dto, errors } = await run({});
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(false);
-      expect((dto as any).inactive_tanka_flg).toBeUndefined();
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(false);
+      expect((dto as any).active_tanka_flg).toBeUndefined();
     });
 
-    it('should fail when inactive_tanka_flg is a non-boolean string like "maybe"', async () => {
-      const { errors } = await run({ inactive_tanka_flg: 'maybe' });
-      expect(errors.some((e) => e.property === 'inactive_tanka_flg')).toBe(true);
+    it('should fail when active_tanka_flg is a non-boolean string like "maybe"', async () => {
+      const { errors } = await run({ active_tanka_flg: 'maybe' });
+      expect(errors.some((e) => e.property === 'active_tanka_flg')).toBe(true);
     });
   });
 
@@ -239,25 +239,15 @@ describe('SearchHanbaitenDto', () => {
 
   // ─── per_page ───────────────────────────────────────────────────────
   describe('per_page', () => {
-    it('should fail when per_page is below 1', async () => {
-      // COVERS: §4.1 per_page 1〜100の整数
-      const { errors } = await run({ per_page: 0 });
-      expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-    });
-
-    it('should fail when per_page exceeds 100', async () => {
-      const { errors } = await run({ per_page: 101 });
-      expect(errors.some((e) => e.property === 'per_page')).toBe(true);
-    });
-
-    it('should pass when per_page is exactly 100', async () => {
-      const { errors } = await run({ per_page: 100 });
-      expect(errors.some((e) => e.property === 'per_page')).toBe(false);
-    });
-
-    it('should fail when per_page is non-integer', async () => {
-      const { errors } = await run({ per_page: 20.5 });
-      expect(errors.some((e) => e.property === 'per_page')).toBe(true);
+    // COVERS: §4.1 per_page 1〜100の整数
+    it.each([
+      ['below 1', 0, true],
+      ['exceeds 100', 101, true],
+      ['exactly 100', 100, false],
+      ['non-integer', 20.5, true],
+    ])('should validate when per_page is %s', async (_label, value, expectError) => {
+      const { errors } = await run({ per_page: value });
+      expect(errors.some((e) => e.property === 'per_page')).toBe(expectError);
     });
   });
 

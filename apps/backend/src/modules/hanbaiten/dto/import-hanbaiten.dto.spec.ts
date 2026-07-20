@@ -210,34 +210,26 @@ describe('ImportHanbaitenDto', () => {
       expect(flat.some((p) => /rows.*hanbaiten_name_kana/.test(p))).toBe(true);
     });
 
-    it('should reject when hanbaiten_name_kana is full-width katakana (half-width only)', async () => {
-      // #2 — parity with create/update: import must not let non-half-width
-      // kana through (it flows into Zengin / bank-CSV downstream).
-      const errs = await check({
-        ...VALID,
-        rows: [buildImportRow({ hanbaiten_name_kana: 'ハンバイテン' })],
-      });
-      const flat = flattenProperties(errs);
-      expect(flat.some((p) => /rows.*hanbaiten_name_kana/.test(p))).toBe(true);
-    });
-
-    it('should reject when hanbaiten_name_kana contains latin letters', async () => {
-      const errs = await check({
-        ...VALID,
-        rows: [buildImportRow({ hanbaiten_name_kana: 'ﾊﾝﾊﾞｲﾃﾝA' })],
-      });
-      const flat = flattenProperties(errs);
-      expect(flat.some((p) => /rows.*hanbaiten_name_kana/.test(p))).toBe(true);
-    });
-
-    it('should accept half-width katakana (with half-width digits) for hanbaiten_name_kana', async () => {
-      const errs = await check({
-        ...VALID,
-        rows: [buildImportRow({ hanbaiten_name_kana: 'ﾊﾝﾊﾞｲﾃﾝ1' })],
-      });
-      const flat = flattenProperties(errs);
-      expect(flat.some((p) => /rows.*hanbaiten_name_kana/.test(p))).toBe(false);
-    });
+    // #2 — parity with create/update: import must not let non-half-width
+    // kana through (it flows into Zengin / bank-CSV downstream). Half-width
+    // katakana (with half-width digits) is accepted.
+    it.each([
+      ['reject full-width katakana (half-width only)', 'ハンバイテン', true],
+      ['reject latin letters', 'ﾊﾝﾊﾞｲﾃﾝA', true],
+      ['accept half-width katakana (with half-width digits)', 'ﾊﾝﾊﾞｲﾃﾝ1', false],
+    ])(
+      'should %s for hanbaiten_name_kana',
+      async (_label, kana, expectError) => {
+        const errs = await check({
+          ...VALID,
+          rows: [buildImportRow({ hanbaiten_name_kana: kana })],
+        });
+        const flat = flattenProperties(errs);
+        expect(flat.some((p) => /rows.*hanbaiten_name_kana/.test(p))).toBe(
+          expectError,
+        );
+      },
+    );
 
     it('should coerce Excel-style haiten_flg values (1 / "true" / "○") to boolean and accept them', async () => {
       // #4 — xlsx cells arrive as number / string; the transform maps the

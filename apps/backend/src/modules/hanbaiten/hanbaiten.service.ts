@@ -312,22 +312,24 @@ export class HanbaitenService {
       });
     }
 
-    // [scr021-error-gate] 失効配達手数料単価参照フィルタ（顧客要件2026-07）。
-    // 参照する配達手数料単価(tanka_type=2)が active_flg=FALSE の販売店のみ抽出する。
-    // 非相関サブクエリ IN を使う：
+    // 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。参照する
+    // 配達手数料単価(tanka_type=2)の active_flg で絞り込む: true=有効単価
+    // (active_flg=TRUE)を参照する販売店、false=失効単価(active_flg=FALSE)を参照する
+    // 販売店のみ。省略時は絞り込まない（両方）。非相関サブクエリ IN を使う：
     //   - 相関 EXISTS は pg-mem が外側エイリアス(m)を解決できず失敗する。
     //   - INNER JOIN は getManyAndCount() + take/skip のページング経路で TypeORM の
     //     orderBy 合成が壊れる（databaseName undefined）。
     //   非相関サブクエリなら JOIN を増やさずページングも壊れず、pg-mem でも動く。
     //   haitatsuryo_tanka_id が NULL の販売店は `NULL IN (...)` が真にならず除外される。
-    if (query.inactive_tanka_flg === true) {
+    if (query.active_tanka_flg !== undefined) {
       qb.andWhere(
         `m.haitatsuryo_tanka_id IN (
           SELECT mti.tanka_id FROM m_tanka mti
            WHERE mti.tanka_type = 2
              AND mti.deleted_at IS NULL
-             AND mti.active_flg = FALSE
+             AND mti.active_flg = :activeTankaFlg
         )`,
+        { activeTankaFlg: query.active_tanka_flg },
       );
     }
 

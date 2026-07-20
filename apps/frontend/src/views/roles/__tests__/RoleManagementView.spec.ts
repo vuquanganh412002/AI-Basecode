@@ -260,7 +260,7 @@ describe('RoleManagementView — enter edit mode (機能定義 2.1)', () => {
       (i) => (i.element as HTMLInputElement).value === 'NICHINO_ADMIN',
     );
     expect(codeInput).toBeDefined();
-    expect(codeInput!.attributes('disabled') !== undefined).toBe(true);
+    expect(codeInput!.attributes('disabled')).toBeDefined();
   });
 
   it('should NOT disable the role_name input when entering 編集モード', async () => {

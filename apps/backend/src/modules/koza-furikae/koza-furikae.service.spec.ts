@@ -261,7 +261,7 @@ describe('KozaFurikaeService', () => {
       expect(records).toHaveLength(5);
       // 各レコードは Shift_JIS で 120 バイト固定長（受入条件#8）。
       for (const rec of records) {
-        expect(iconv.encode(rec, 'Shift_JIS').length).toBe(120);
+        expect(iconv.encode(rec, 'Shift_JIS')).toHaveLength(120);
       }
       const [header, d1, , trailer, end] = records;
       // ヘッダ: データ区分1 / 種別コード91 / コード区分0。

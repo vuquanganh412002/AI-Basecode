@@ -24,18 +24,47 @@ export const SORT_CHAIN_ASC: ReadonlyArray<readonly [string, 'ASC']> = [
 ];
 
 /**
- * `zougen_hokoku_flg = true` when a row changes any of these business
- * fields (entity property names) vs its predecessor. `satisfies` ties
- * the list to the entity so a renamed column fails the build.
+ * 住所に依存しない「常に増減報告対象」な項目。これらが更新前後で変われば
+ * `zougen_hokoku_flg = true`。住所は配達先の実効値で別途判定する（下記）。
  */
 export const ZOUGEN_TRIGGER_FIELDS = [
   'dokusyaBusu',
   'hanbaitenId',
+] as const satisfies readonly (keyof DokusyaRireki)[];
+
+/**
+ * 配達先が「配達先同一(haitatsu_same_flg=true)」のときの実効配達先住所＝購読者住所。
+ */
+export const KODOKU_ADDRESS_FIELDS = [
   'yubinNo',
   'todofukenCode',
   'shikuchoson',
   'chomeBanchi',
   'tatemonoMei',
+] as const satisfies readonly (keyof DokusyaRireki)[];
+
+/**
+ * 配達先が「別住所(haitatsu_same_flg=false)」のときの実効配達先住所＝配達先住所。
+ */
+export const HAITATSU_ADDRESS_FIELDS = [
+  'haitatsuYubinNo',
+  'haitatsuTodofukenCode',
+  'haitatsuShikuchoson',
+  'haitatsuChomeBanchi',
+  'haitatsuTatemonoMei',
+] as const satisfies readonly (keyof DokusyaRireki)[];
+
+/**
+ * 住所 zenkai 列。{@link KODOKU_ADDRESS_FIELDS} / {@link HAITATSU_ADDRESS_FIELDS}
+ * と同じ並び（郵便番号・都道府県・市町村郡・丁目番地・建物名）。`fillZenkai` が
+ * 「実効配達先住所」を書き込む際にインデックス整合で参照する（顧客要件 2026-07）。
+ */
+export const ZENKAI_ADDRESS_ZCOLS = [
+  'zenkaiYubinNo',
+  'zenkaiTodofukenCode',
+  'zenkaiShikuchoson',
+  'zenkaiChomeBanchi',
+  'zenkaiTatemonoMei',
 ] as const satisfies readonly (keyof DokusyaRireki)[];
 
 /**

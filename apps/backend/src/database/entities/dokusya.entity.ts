@@ -187,17 +187,11 @@ export class Dokusya {
   })
   haitatsuShimeiKanaMei: string;
 
-  // NULL許容: 電子版連携で作成される購読者は販売店を持たない（電子版単独 →
-  // ダミー販売店が用意されるまで NULL、併読 → ShopCd から解決）。UI 作成は DTO で
-  // 必須のまま。詳細は denshiban inbound sync 設計。
-  @Column({ name: 'hanbaiten_id', type: 'bigint', nullable: true })
-  hanbaitenId: number | null;
+  @Column({ name: 'hanbaiten_id', type: 'bigint' })
+  hanbaitenId: number;
 
-  // NULL許容: 電子版連携（連動時）は単価未確定 → NULL。承認時に購読者情報登録
-  // 画面から単価を登録する（電子版かつ支払方法=JA集金 の場合は必須）。UI 作成は
-  // DTO で必須のまま。
-  @Column({ name: 'tanka_id', type: 'bigint', nullable: true })
-  tankaId: number | null;
+  @Column({ name: 'tanka_id', type: 'bigint' })
+  tankaId: number;
 
   @Column({ name: 'yubin_kubun', type: 'varchar', length: 1, default: '0' })
   yubinKubun: string;

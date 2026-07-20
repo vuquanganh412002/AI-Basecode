@@ -4,9 +4,12 @@ import { Dokusya } from '@/database/entities/dokusya.entity';
 
 import {
   DIFF_EXCLUDE_FIELDS,
+  HAITATSU_ADDRESS_FIELDS,
   HANBAITEN_FIELD,
+  KODOKU_ADDRESS_FIELDS,
   MASTER_EXCLUDE_FIELDS,
   TORIKESHI_HENKO_RIYU,
+  ZENKAI_ADDRESS_ZCOLS,
   ZENKAI_FIELD_MAP,
   ZOUGEN_TRIGGER_FIELDS,
 } from './dokusya-history.constants';
@@ -77,15 +80,34 @@ export function fillZenkai(
 ): void {
   const r = row as unknown as Record<string, unknown>;
   const b = before as unknown as Record<string, unknown> | null;
-  for (const [srcCol, zenkaiCol] of Object.entries(ZENKAI_FIELD_MAP)) {
-    r[zenkaiCol] = b?.[srcCol] ?? null;
-  }
+  // 非住所 zenkai は直接コピー。
+  r.zenkaiHanbaitenId = b?.hanbaitenId ?? null;
+  r.zenkaiDokusyaBusu = b?.dokusyaBusu ?? null;
+  // 住所 zenkai は before の「実効配達先住所」を格納する（顧客要件 2026-07）:
+  //   before.haitatsu_same_flg=TRUE  → 購読者住所 (KODOKU_ADDRESS_FIELDS)
+  //   before.haitatsu_same_flg=FALSE → 配達先住所 (HAITATSU_ADDRESS_FIELDS)
+  // 増減連絡票/増減通知の前回住所は「前回の実効配達先住所」であり、report 側の
+  // zenkaiAddrField は zenkai_X があればそれを信頼するため、書き込み側で実効値を
+  // 入れておく。first row (before=null) は全て null。
+  const srcAddr =
+    b?.haitatsuSameFlg === false ? HAITATSU_ADDRESS_FIELDS : KODOKU_ADDRESS_FIELDS;
+  ZENKAI_ADDRESS_ZCOLS.forEach((zcol, i) => {
+    r[zcol] = b?.[srcAddr[i]] ?? null;
+  });
 }
 
 /**
- * `zougen_hokoku_flg`: `true` on CREATE, otherwise `true` when `row`
- * differs from `before` on any {@link ZOUGEN_TRIGGER_FIELDS} (dokusya_busu,
- * hanbaiten_id, address). Account/name/phone-only changes → `false`.
+ * `zougen_hokoku_flg`: `true` on CREATE, otherwise `true` when 配達に影響する変更が
+ * あったとき（顧客要件）:
+ *  - 購読部数 / 販売店（{@link ZOUGEN_TRIGGER_FIELDS}）が変わった、または
+ *  - 配達先同一フラグ(haitatsu_same_flg)が切り替わった、または
+ *  - **実効配達先住所**が変わった。実効配達先住所は
+ *    `haitatsu_same_flg=TRUE` なら購読者住所（{@link KODOKU_ADDRESS_FIELDS}）、
+ *    `FALSE` なら配達先住所（{@link HAITATSU_ADDRESS_FIELDS}）。
+ * これにより「別住所(haitatsu_same_flg=false)を入力して配達先を変えた」ケースも
+ * 増減報告対象になる（顧客要件・従来は購読者住所しか見ておらず取りこぼしていた）。
+ * 氏名 / 電話 / 口座等のみの変更は `false`。配達先同一のときに購読者住所を触っても
+ * 実効配達先が変われば TRUE、変わらなければ FALSE。
  */
 export function computeZougen(
   row: DokusyaRireki,
@@ -94,7 +116,15 @@ export function computeZougen(
   if (!before) return true;
   const r = row as unknown as Record<string, unknown>;
   const b = before as unknown as Record<string, unknown>;
-  return ZOUGEN_TRIGGER_FIELDS.some((f) => r[f] !== b[f]);
+  // 購読部数 / 販売店。
+  if (ZOUGEN_TRIGGER_FIELDS.some((f) => r[f] !== b[f])) return true;
+  // 配達先同一フラグの切替＝配達先の変更。
+  if (r.haitatsuSameFlg !== b.haitatsuSameFlg) return true;
+  // 実効配達先住所の変更。同一フラグは更新後(row)の値で判定する。
+  const addressFields = r.haitatsuSameFlg
+    ? KODOKU_ADDRESS_FIELDS
+    : HAITATSU_ADDRESS_FIELDS;
+  return addressFields.some((f) => r[f] !== b[f]);
 }
 
 /** Subset of `values` limited to `keys` (order preserved). */

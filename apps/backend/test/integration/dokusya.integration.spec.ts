@@ -688,6 +688,44 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(rireki[1].saishin_data_flg).toBe(false);
     });
 
+    it('should set zougen_hokoku_flg=true when 配達先住所 changes (haitatsu_same_flg=false + 別住所) — 顧客要件', async () => {
+      // 作成時は配達先同一(haitatsu_same_flg=true・配達先住所は空)。編集で
+      // haitatsu_same_flg=false + 別配達先住所を入力すると配達先が変わる＝増減報告
+      // 対象。部数・販売店・購読者住所は作成時と同値にして、配達先変更だけを
+      // 増減トリガとして検証する。
+      const { id, sid } = await seed();
+      await http()
+        .put(apiUrl(`dokusya/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildUpdateDokusyaBody({
+            kumiaiin_code: 'INT-UPD',
+            dokusya_busu: 1, // 作成時と同値（部数変更なし）
+            chome_banchi: '千代田1-1', // 作成時と同値（購読者住所変更なし）
+            haitatsu_same_flg: false,
+            haitatsu_yubin_no: '1500001',
+            haitatsu_todofuken_code: '13',
+            haitatsu_shikuchoson: '渋谷区',
+            haitatsu_chome_banchi: '道玄坂2-1-1',
+            haitatsu_tatemono_mei: '',
+            haitatsu_shimei_sei: '配達',
+            haitatsu_shimei_mei: '先太郎',
+            haitatsu_shimei_kana_sei: 'ハイタツ',
+            haitatsu_shimei_kana_mei: 'サキタロウ',
+          }),
+        )
+        .expect(200);
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT zougen_hokoku_flg, haitatsu_chome_banchi
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(row.zougen_hokoku_flg).toBe(true);
+      expect(row.haitatsu_chome_banchi).toBe('道玄坂2-1-1');
+    });
+
     it('should write exactly ONE rireki row (joho=販売店適用日) when 販売店+情報 changed together — 1更新1レコード (顧客要件 2026-07)', async () => {
       // 顧客要件 2026-07: 画面編集(UI)は販売店適用日を廃止し joho に統一。販売店と
       // その他情報を同時に変えても履歴は1件だけ追加され、販売店を変えた行の
@@ -780,6 +818,15 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(row.shinki_flg).toBe(false);
       expect(String(row.dokusya_chushi_date).slice(0, 10)).toBe(chushi);
       expect(String(row.joho_henko_tekiyo_date).slice(0, 10)).toBe(chushi);
+
+      // [scheduled-chushi] 予約行は未来日で effective ではないが、購読中止日は
+      // 予約時点で master(t_dokusya) に即時反映され一覧(SCR-014)/詳細(SCR-011)に
+      // 表示される（顧客要件 2026-07）。
+      const [master] = await ctx.dataSource.query(
+        `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(String(master.dokusya_chushi_date).slice(0, 10)).toBe(chushi);
     });
 
     it('POST /:id/stop should block a 2nd 解約予約 (400 VALIDATION_ERROR — 既に解約予約) — 顧客要件 2026-07', async () => {
@@ -798,6 +845,40 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(res.body.error_code).toBe('VALIDATION_ERROR');
       expect(res.body.errors[0].field).toBe('dokusya_chushi_date');
       expect(res.body.errors[0].message).toContain('既に解約予約');
+    });
+
+    it('POST /:id/stop then 取消 the 解約予約 → master.dokusya_chushi_date reverts to null — 顧客要件 2026-07', async () => {
+      const { id, sid } = await seed();
+      await http()
+        .post(apiUrl(`dokusya/${id}/stop`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ dokusya_chushi_date: '2027-11-30' })
+        .expect(200);
+      // 反映確認: 予約直後は master に中止日が入る。
+      const [afterStop] = await ctx.dataSource.query(
+        `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(String(afterStop.dokusya_chushi_date).slice(0, 10)).toBe(
+        '2027-11-30',
+      );
+      // 予約行(tail)を取消 → loadScheduledChushiDate が torikeshi 行を除外 →
+      // recomputeMaster が master の中止日を null へ戻す（自動クリア）。
+      const list = await http()
+        .get(apiUrl(`dokusya/${id}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+      const reservationId = Number(list.body.data[0].dokusya_rireki_id);
+      await http()
+        .post(apiUrl(`dokusya/${id}/rireki/${reservationId}/torikeshi`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send({ reason: '解約予約の取消' })
+        .expect(200);
+      const [afterCancel] = await ctx.dataSource.query(
+        `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(afterCancel.dokusya_chushi_date).toBeNull();
     });
 
     // NOTE: 「解約予定日 < 最終変更適用日(MAX joho)」ガードと「二重解約ブロック」は
@@ -1499,7 +1580,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       expect(codes).not.toEqual(expect.arrayContaining(['OTHER-Y1']));
     });
 
-    it('should filter to ONLY 失効単価参照 rows when inactive_tanka_flg=true (SCR-020 error gate 連携)', async () => {
+    it('should filter by 有効単価フラグ (active_tanka_flg): false→失効単価参照のみ / true→有効単価参照のみ (SCR-020 error gate 連携)', async () => {
       const sid = await asChuokai(1);
       // A: 有効単価(tanka_id=1) を参照する購読者。
       await http()
@@ -1535,15 +1616,25 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       const offCodes = off.body.data.map((r: any) => r.kumiaiin_code);
       expect(offCodes).toEqual(expect.arrayContaining(['INT-INACT-A', 'INT-INACT-B']));
 
-      // フィルタ ON → 失効単価参照の B のみ。A は除外される。
-      const on = await http()
+      // 無効(active_tanka_flg=false) → 失効単価参照の B のみ。A は除外される。
+      const invalid = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-INACT', inactive_tanka_flg: 'true' })
+        .query({ kumiaiin_code: 'INT-INACT', active_tanka_flg: 'false' })
         .expect(200);
-      const onCodes = on.body.data.map((r: any) => r.kumiaiin_code);
-      expect(onCodes).toEqual(expect.arrayContaining(['INT-INACT-B']));
-      expect(onCodes).not.toEqual(expect.arrayContaining(['INT-INACT-A']));
+      const invalidCodes = invalid.body.data.map((r: any) => r.kumiaiin_code);
+      expect(invalidCodes).toEqual(expect.arrayContaining(['INT-INACT-B']));
+      expect(invalidCodes).not.toEqual(expect.arrayContaining(['INT-INACT-A']));
+
+      // 有効(active_tanka_flg=true) → 有効単価参照の A のみ。B は除外される。
+      const valid = await http()
+        .get(apiUrl('dokusya'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ kumiaiin_code: 'INT-INACT', active_tanka_flg: 'true' })
+        .expect(200);
+      const validCodes = valid.body.data.map((r: any) => r.kumiaiin_code);
+      expect(validCodes).toEqual(expect.arrayContaining(['INT-INACT-A']));
+      expect(validCodes).not.toEqual(expect.arrayContaining(['INT-INACT-B']));
     });
 
     it('should compute is_read_only=true for 併読者 (dokusya_shubetsu=3) in list response', async () => {
@@ -2053,6 +2144,38 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
       expect(Number(res.body.data[0].rireki_no)).toBe(2);
       expect(Number(res.body.data[1].rireki_no)).toBe(1);
       expect(res.body.meta).toMatchObject({ total: 2, page: 1, per_page: 20, total_pages: 1 });
+    });
+
+    it('should surface the SCR-013 追加列 (購読種別/新聞単価 JOIN/支払い方法/郵送区分/サイクル/備考) — 顧客要件', async () => {
+      const sid = await asChuokai(1);
+      const dokusyaId = await seedDokusyaWithTwoHistoryRows(sid);
+
+      const res = await http()
+        .get(apiUrl(`dokusya/${dokusyaId}/rireki`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(200);
+
+      const row = res.body.data[0];
+      // 追加列がレスポンスに載る。
+      for (const key of [
+        'dokusya_shubetsu',
+        'tanka_id',
+        'tanka_name',
+        'tanka_kingaku',
+        'shiharai_hoho',
+        'yubin_kubun',
+        'dokusyaryo_shiharai_cycle',
+        'biko',
+      ]) {
+        expect(row).toHaveProperty(key);
+      }
+      // 新聞単価は m_tanka JOIN で名称解決、金額は m_ja 税区分で解決（number）。
+      expect(typeof row.tanka_name).toBe('string');
+      expect(row.tanka_name.length).toBeGreaterThan(0);
+      expect(typeof row.tanka_kingaku).toBe('number');
+      // *_label は載せない（m_code 値のみ・authenticated endpoint）。
+      expect(row).not.toHaveProperty('dokusya_shubetsu_label');
+      expect(row).not.toHaveProperty('shiharai_hoho_label');
     });
 
     it('should paginate — per_page=1 yields 1 row and total_pages=2', async () => {

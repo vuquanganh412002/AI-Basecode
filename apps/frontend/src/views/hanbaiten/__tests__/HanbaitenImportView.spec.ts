@@ -202,7 +202,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — initial render', () => {
     }
     // 23 column checkboxes — all checked by default per 機能 0.0.
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes.length).toBe(23);
+    expect(colCheckboxes).toHaveLength(23);
   });
 
   it('should render the 取込モード radio group with 新規登録 checked by default when the view first mounts', async () => {
@@ -515,7 +515,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     await selectAll.setValue(true);
     await flushPromises();
     const allCols = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(allCols.length).toBe(23);
+    expect(allCols).toHaveLength(23);
     for (const cb of allCols) {
       expect((cb.element as HTMLInputElement).checked).toBe(true);
     }
@@ -592,7 +592,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — submit + confirm modal', () =>
     >;
     expect(body.import_mode).toBe('NEW');
     expect(Array.isArray(body.rows)).toBe(true);
-    expect((body.rows as unknown[]).length).toBe(2);
+    expect(body.rows as unknown[]).toHaveLength(2);
     expect(Array.isArray(body.selected_columns)).toBe(true);
     // hanbaiten_code MUST always appear in selected_columns.
     expect((body.selected_columns as string[])).toContain('hanbaiten_code');
@@ -717,7 +717,7 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — success path', () => {
       successCalls.some((s) => typeof s === 'string' && /2/.test(s)) ||
       /2件|created.*2|2.*登録/.test(text);
     // Spec is permissive — at minimum the success toast OR the page MUST mention the count.
-    expect(typeof sawCount === 'boolean').toBe(true);
+    expect(typeof sawCount).toBe('boolean');
   });
 });
 
