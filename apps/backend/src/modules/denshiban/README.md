@@ -10,8 +10,9 @@
 > | **OUTBOUND** | cloud `t_dokusya` → denshiban `updateUserInfo` API | synchronous, inside the caller's DB transaction (`DokusyaService` create/update/…) | HTTPS POST, AES-256-GCM |
 > | **INBOUND** | denshiban `users` view → cloud `t_dokusya` | single-shot batch (EventBridge → ECS RunTask, ~10 min) | MySQL read (short-lived conn) |
 >
-> Inbound porting has its own step-by-step at [`inbound/PORTING.md`](./inbound/PORTING.md);
-> this README covers the whole module and the outbound side in full.
+> Each direction has its own step-by-step porting guide:
+> [`outbound/PORTING.md`](./outbound/PORTING.md) and [`inbound/PORTING.md`](./inbound/PORTING.md).
+> This README is the shared reference both guides build on.
 
 ---
 
@@ -31,7 +32,8 @@ modules/denshiban/
 │
 ├── outbound/
 │   ├── denshiban-payload.assembler.ts#   OUTBOUND: resolve jacd_execute + payment_start, pick build* by mode
-│   └── denshiban-api.exception.ts    #   OUTBOUND: DenshibanApiException (statusCode != '0')
+│   ├── denshiban-api.exception.ts    #   OUTBOUND: DenshibanApiException (statusCode != '0')
+│   └── PORTING.md                    #   OUTBOUND port checklist (5 caller sites)
 │
 └── inbound/
     ├── denshiban-inbound.fetcher.ts       # read users WHERE collecting='1', normalize
@@ -66,8 +68,12 @@ All under the `denshiban.*` group in `src/config/configuration.ts`.
 
 ### 3.1 Flow
 
+The five caller sites live in `DokusyaService` — `create()`, `update()` (two
+branches: info-change + re-subscribe), `stop()` (cancel), and `changeApprovalStatus()`
+(shared by `approve()` / `reject()`). Exact args + placement for each: [`outbound/PORTING.md §5`](./outbound/PORTING.md).
+
 ```
-DokusyaService.create/update/cancel/approve/…  (inside dataSource.transaction, BEFORE commit)
+DokusyaService.{create,update,stop,changeApprovalStatus}  (inside dataSource.transaction, BEFORE commit)
    │ denshibanApi.sendNow({ dokusya, mode, before?, cancelYm?, notifyFlg? }, manager)
    ▼
 DenshibanApiService.sendNow
@@ -123,6 +129,11 @@ Six modes (`action_kbn`):
 | `update` / `reread` | **only changed** profile fields + required (`action_kbn`,`jacd_execute`,`id`,`notify_flg`); no payment_start |
 | `cancel` | `action_kbn`,`jacd_execute`,`id`,`cancel_ym`,`notify_flg` |
 | `approve` / `unapprove` | `action_kbn`,`jacd_execute`,`id`,`payment_start` |
+
+> **`reread` is implemented but has no current caller.** The assembler + builder treat
+> it identically to `update` (both need `before`), but the re-subscribe branch in
+> `DokusyaService.update()` sends `mode: 'update'`, not `'reread'`. Treat `reread` as a
+> reserved mode — don't wire a caller for it during porting.
 
 Field conversions (cloud `t_dokusya` → denshiban):
 
@@ -271,9 +282,12 @@ history rows only, not the master — see §10.)
    - Datetime helpers used by `payment-start.ts`: `dateOnlyIsoJst`, `yearMonthJst`.
 3. **Register the module**: import `DenshibanDbModule` in `AppModule` (it is `@Global`,
    so `DenshibanApiService` / `DenshibanInboundSyncService` become injectable app-wide).
-4. **Wire the outbound caller**: `DokusyaService` (create/update/cancel/approve)
-   injects `DenshibanApiService` and calls `sendNow(...)` inside its transaction,
-   capturing `result.id` into `denshi_kaiin_id` on create.
+4. **Wire the outbound side** — follow [`outbound/PORTING.md`](./outbound/PORTING.md)
+   §4–§8: register `DenshibanApiService`/`DenshibanPayloadAssembler`, then wire the
+   **five** `sendNow` call sites in `DokusyaService` (create / update×2 / stop /
+   changeApprovalStatus), capturing `result.id` into `denshi_kaiin_id` on create.
+   ⚠️ The env keys (`DENSHIBAN_API_URL`, `DENSHIBAN_DB_COMMON_KEY`) are set by a
+   human / the task definition — do not edit `.env` (outbound guide §7).
 5. **Wire the inbound batch** + **schema nullable** + **env** — follow
    [`inbound/PORTING.md`](./inbound/PORTING.md) §3–§8.
 6. **Config `denshiban.*`** in `configuration.ts` + env (§2).
