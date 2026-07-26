@@ -239,7 +239,7 @@ function makeHelpers(getCtx: () => IntegrationTestContext) {
          dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
          joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
          henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
-         hanbaiten_tekiyo_date, created_at, created_by)
+         joho_henko_tekiyo_date, created_at, created_by)
        SELECT
          dokusya_id, 1, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
          dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
@@ -379,21 +379,36 @@ describeRealPg(
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         // 販売店適用日は必須（顧客要件 2026-07）。遠未来日で eligible 判定を通す。
-        .query({ page: 1, per_page: 20, hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ page: 1, per_page: 20, joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(200);
 
       expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.meta).toMatchObject({ page: 1, per_page: 20 });
     });
 
-    it('should return 400 DATE_RANGE_INVALID when hanbaiten_tekiyo_date is past (未来日のみ)', async () => {
+    it('should return 400 DATE_RANGE_INVALID when joho_henko_tekiyo_date is past (未来日のみ)', async () => {
       const sid = await asChuokai(1);
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ hanbaiten_tekiyo_date: '2000-01-01' })
+        .query({ joho_henko_tekiyo_date: '2000-01-01', dokusya_shubetsu: 1 })
         .expect(400);
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
+    });
+
+    it('should return 400 VALIDATION_ERROR (電子版は本画面では対象外) when dokusya_shubetsu=2 (ACSMS-MSG-015-009・顧客要件 2026-07 改訂)', async () => {
+      // 電子版=電子配信で販売店を持たない → 一括置換の対象外。FE の検索ボタン無効化に
+      // 対する防御的サーバ側ガード（日付に関係なく種別2は拒否）。
+      const sid = await asChuokai(1);
+      const res = await http()
+        .get(apiUrl('dokusya/replace-hanbaiten/search'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 2 })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors).toEqual([
+        { field: 'dokusya_shubetsu', message: '電子版は本画面では対象外です。' },
+      ]);
     });
 
     it('should EXCLUDE a 購読者 whose 解約予定日 is on/before the 適用日, and INCLUDE when 適用日 is earlier', async () => {
@@ -410,7 +425,7 @@ describeRealPg(
       const excluded = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'RPL-CHUSHI', hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ kumiaiin_code: 'RPL-CHUSHI', joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(200);
       expect(excluded.body.data).toHaveLength(0);
 
@@ -418,7 +433,7 @@ describeRealPg(
       const included = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'RPL-CHUSHI', hanbaiten_tekiyo_date: '2099-01-01' })
+        .query({ kumiaiin_code: 'RPL-CHUSHI', joho_henko_tekiyo_date: '2099-01-01', dokusya_shubetsu: 1 })
         .expect(200);
       expect(included.body.data.length).toBeGreaterThanOrEqual(1);
     });
@@ -482,7 +497,7 @@ describeRealPg(
            dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
            joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
            henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
-           hanbaiten_tekiyo_date, created_at, created_by)
+           joho_henko_tekiyo_date, created_at, created_by)
          SELECT
            dokusya_id, 2, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
            dokusya_shubetsu, tetsuzuki_shurui, denshi_dokusya_shubetsu,
@@ -508,7 +523,7 @@ describeRealPg(
           buildReplaceBody({
             dokusya_ids: [id],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: '2026-09-01', // 取消行の chushi(2026-08-01)より後
+            joho_henko_tekiyo_date: '2026-09-01', // 取消行の chushi(2026-08-01)より後
           }),
         )
         .expect(200);
@@ -530,7 +545,7 @@ describeRealPg(
           buildReplaceBody({
             dokusya_ids: [id],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: '2026-09-01', // >= chushi & >= today
+            joho_henko_tekiyo_date: '2026-09-01', // >= chushi & >= today
           }),
         )
         .expect(400);
@@ -553,7 +568,7 @@ describeRealPg(
           buildReplaceBody({
             dokusya_ids: [id],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: '2026-09-01', // >= today but < kaishi(2030)
+            joho_henko_tekiyo_date: '2026-09-01', // >= today but < kaishi(2030)
           }),
         )
         .expect(400);
@@ -574,8 +589,9 @@ describeRealPg(
       expect(res.body.error_code).toBe('SAME_HANBAITEN');
     });
 
-    it('should return 400 INELIGIBLE_DOKUSYA when a candidate is 併読', async () => {
-      // COVERS: §4.3 業務ルール — INELIGIBLE_DOKUSYA (併読者)
+    it('should return 400 DATE_RANGE_INVALID (種別不一致) when a candidate is 併読 — 併読 は dokusya_shubetsu で送れず一致チェックで弾く', async () => {
+      // COVERS: §4.1 候補種別の整合チェック — 併読(3) は dto.dokusya_shubetsu(1/2)
+      // と一致しないため mismatch で弾かれる（顧客要件 2026-07）。
       const sid = await asChuokai(1);
       const id = await seedEligibleDokusya('RPL-INELIG', {
         hanbaiten_id: 200,
@@ -585,9 +601,10 @@ describeRealPg(
       const res = await http()
         .post(apiUrl('dokusya/replace-hanbaiten'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        // buildReplaceBody は dokusya_shubetsu=1(紙版) 既定 → 併読候補と不一致。
         .send(buildReplaceBody({ dokusya_ids: [id], new_hanbaiten_id: 201 }))
         .expect(400);
-      expect(res.body.error_code).toBe('INELIGIBLE_DOKUSYA');
+      expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
     });
   },
 );

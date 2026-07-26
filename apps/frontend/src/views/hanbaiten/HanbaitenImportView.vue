@@ -147,13 +147,15 @@ const selected = reactive<Record<PhysicalColumn, boolean>>(
  * Columns force-checked + disabled per mode (the "取込列" lock set).
  * A locked column cannot be unchecked; entering a mode re-checks its set.
  *
- *   new    (新規登録) — hanbaiten_code + hanbaiten_name: both are NOT NULL
- *                     with no 空文字許容 on the m_hanbaiten schema, so a new
- *                     row MUST carry them.
+ *   new    (新規登録) — hanbaiten_code + hanbaiten_name + itaku_kubun +
+ *                     furikomi_tesuryo_futan_kubun: 販売店コード/名称は NOT NULL、
+ *                     委託区分/振込手数料負担区分は必須（顧客要件）なので、新規行は
+ *                     これらを必ず取り込む → ロック（チェック外し不可）。
  *   update (更新)     — hanbaiten_code only: the anchor key. Every other
  *                     column is free to tick/untick (only ticked columns are
- *                     written; the rest keep their existing DB value). 全列
- *                     更新は「すべて選択」で全列をチェックする。
+ *                     written; the rest keep their existing DB value). 委託区分/
+ *                     振込手数料負担区分 は未選択なら既存値を維持するためロック不要。
+ *                     全列更新は「すべて選択」で全列をチェックする。
  *
  * (The bank cluster's conditional-required rule — required iff
  * itaku_kubun=1 — is per-row and validated by the BE, not a column lock.)
@@ -162,7 +164,12 @@ const REQUIRED_BY_MODE: Record<
   keyof typeof MODE_TO_BE,
   readonly PhysicalColumn[]
 > = {
-  new: ['hanbaiten_code', 'hanbaiten_name'],
+  new: [
+    'hanbaiten_code',
+    'hanbaiten_name',
+    'itaku_kubun',
+    'furikomi_tesuryo_futan_kubun',
+  ],
   update: ['hanbaiten_code'],
 };
 

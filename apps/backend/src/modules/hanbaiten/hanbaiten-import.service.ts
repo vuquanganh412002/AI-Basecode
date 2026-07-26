@@ -4,7 +4,7 @@ import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 
-import { LogType, ResultStatus } from '@/common/enums';
+import { ItakuKubun, LogType, ResultStatus } from '@/common/enums';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
@@ -39,12 +39,6 @@ const SCR019_SCREEN_NAME = '販売店Excelデータ取込画面 (ACSMS-SCR-019)'
  * HanbaitenService と同一値だが、本サービス内で完結させるため複製して保持する。
  */
 const TABLE_NAME = 'm_hanbaiten';
-
-/**
- * 委託区分が振込（1）のとき bank フィールド群が必須になる判定値。core 側
- * HanbaitenService と同一値だが、本サービス内で完結させるため複製して保持する。
- */
-const ITAKU_KUBUN_FURIKOMI = 1;
 
 /**
  * SCR-019 import — bank fields that become REQUIRED when the EFFECTIVE
@@ -82,6 +76,7 @@ interface ImportExistingRow {
   hanbaiten_id: number;
   hanbaiten_code: string;
   itaku_kubun: number | null;
+  furikomi_tesuryo_futan_kubun: number | null;
   bank_code: string;
   bank_name: string;
   bank_branch_code: string;
@@ -254,6 +249,7 @@ export class HanbaitenImportService {
       ? []
       : await this.dataSource.query(
           `SELECT hanbaiten_id, hanbaiten_code, itaku_kubun,
+                  furikomi_tesuryo_futan_kubun,
                   bank_code, bank_name, bank_branch_code, bank_branch_name,
                   yokin_shubetsu, koza_no
              FROM m_hanbaiten
@@ -271,6 +267,13 @@ export class HanbaitenImportService {
 
     this.collectExistenceErrors(body.rows, body.import_mode, existingMap, errors);
     this.collectImportConditionalRequiredErrors(
+      body.rows,
+      body.import_mode,
+      body.selected_columns,
+      existingDataMap,
+      errors,
+    );
+    this.collectImportRequiredKubunErrors(
       body.rows,
       body.import_mode,
       body.selected_columns,
@@ -613,7 +616,7 @@ export class HanbaitenImportService {
         return sel.has(field) ? cell[field] : existing?.[field];
       };
 
-      if (effective('itaku_kubun') !== ITAKU_KUBUN_FURIKOMI) return;
+      if (effective('itaku_kubun') !== ItakuKubun.FURIKOMI) return;
 
       for (const { key, label } of IMPORT_FURIKOMI_REQUIRED_FIELDS) {
         const v = effective(key);
@@ -626,6 +629,50 @@ export class HanbaitenImportService {
             row: idx + 2,
             field: key,
             message: `委託区分が振込の場合は${label}は必須です。`,
+          });
+        }
+      }
+    });
+  }
+
+  // SCR-019 import — 委託区分 / 振込手数料負担区分 は必須（顧客要件・作成/更新
+  //                  画面と同方針）。EFFECTIVE 値が空なら必須エラー。
+  //                    NEW    — selected ? cell : blank（＝未選択は必須違反）
+  //                    UPDATE — selected ? cell : existing DB value
+  //                  （未選択で既存DBに値があれば維持・エラーにしない）。
+  // ──────────────────────────────────────────────────────────────
+  private collectImportRequiredKubunErrors(
+    rows: ImportHanbaitenRowDto[],
+    importMode: ImportHanbaitenDto['import_mode'],
+    selectedColumns: string[],
+    existingDataMap: Map<string, ImportExistingRow>,
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): void {
+    const sel = new Set(selectedColumns);
+    const REQUIRED_KUBUN: ReadonlyArray<{ key: string; label: string }> = [
+      { key: 'itaku_kubun', label: '委託区分' },
+      { key: 'furikomi_tesuryo_futan_kubun', label: '振込手数料負担区分' },
+    ];
+    rows.forEach((row, idx) => {
+      const cell = row as unknown as Record<string, unknown>;
+      const existing = existingDataMap.get(row.hanbaiten_code) as
+        | Record<string, unknown>
+        | undefined;
+      const effective = (field: string): unknown => {
+        if (importMode === 'NEW') return sel.has(field) ? cell[field] : undefined;
+        return sel.has(field) ? cell[field] : existing?.[field];
+      };
+      for (const { key, label } of REQUIRED_KUBUN) {
+        const v = effective(key);
+        const blank =
+          v === undefined ||
+          v === null ||
+          (typeof v === 'string' && v.trim() === '');
+        if (blank) {
+          errors.push({
+            row: idx + 2,
+            field: key,
+            message: `${label}は必須です。`,
           });
         }
       }

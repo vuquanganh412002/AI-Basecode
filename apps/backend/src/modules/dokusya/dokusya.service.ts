@@ -1,6 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  IsNull,
+  LessThanOrEqual,
+  Not,
+  Repository,
+} from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
@@ -15,6 +22,7 @@ import {
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
+import { resolveDenshibanSyncGate } from '@/common/utils/denshiban-sync-gate';
 import {
   todayIsoJst,
   normalizeDbDate,
@@ -35,10 +43,15 @@ import {
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/common/enums';
+import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
-import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
+// ⚠️ Value import (not `import type`) — Nest DI reads the runtime value via
+// `design:paramtypes`; a type-only import is erased and the ctor param loses
+// its injectable type. Outbound denshiban sync (電子版) entry point.
+import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
+import type { DenshibanMode } from '@/modules/denshiban/mapper/denshiban-payload.builder';
 
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
 import {
@@ -69,6 +82,8 @@ import {
   insertResubscribe,
   insertScheduledKaiyaku,
 } from './dokusya-history.writer';
+import { loadEffectiveRow } from './dokusya-history.query';
+import { mapRirekiToMaster } from './dokusya-history.builder';
 import {
   collectTekiyoDateViolations,
   collectChushiViolations,
@@ -88,6 +103,13 @@ import {
   toDokusyaResponse,
   type ReplaceSearchItem,
 } from './dokusya.mapper';
+import {
+  isDigitalOrBoth,
+  collectDigitalBusuViolation,
+  collectTodayModeReportViolations,
+  computeChangedReportFields,
+  SHUBETSU_MSG,
+} from './dokusya-shubetsu.rules';
 
 /**
  * 遠未来 asOf — チェーン末尾(有効レコード)を取消可否判定のために取得する際に
@@ -155,21 +177,12 @@ const RELATED_TABLES: readonly string[] = ['t_koza_furikae'] as const;
 // test guards drift). DenshiShoninStatus is BE-only — no m_code, FE doesn't
 // branch on the value.
 
-/**
- * 電子版(2)・併読(3) 判定。これらの購読種別は email 必須かつ
- * email の一意性チェック対象。紙版(1) は email 任意・重複可。
- */
-function isDigitalOrBoth(shubetsu: number | null | undefined): boolean {
-  const n = Number(shubetsu);
-  return n === DokusyaShubetsu.DIGITAL || n === DokusyaShubetsu.BOTH;
-}
+/** 電子版・併読で email 未入力時のメッセージ（共通ルール由来）。 */
+const EMAIL_REQUIRED_DIGITAL_MSG = SHUBETSU_MSG.EMAIL_REQUIRED_DIGITAL;
 
-/** 電子版・併読で email 未入力時のメッセージ（BE/FE/取込で共通文言）。 */
-const EMAIL_REQUIRED_DIGITAL_MSG =
-  'メールアドレスは電子版・併読の場合は必須です。';
-
-/** 電子版で購読部数が1以外のときのメッセージ（BE/FE 共通文言）。 */
-const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
+/** 電子版・併読で 読者属性 未選択時のメッセージ（共通ルール由来）。 */
+const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
+  SHUBETSU_MSG.DOKUSYASO_BUNRUI_REQUIRED_DIGITAL;
 
 /**
  * 電子版の購読停止で 請求開始月(seikyu_kaishi_month) が未設定のときのメッセージ
@@ -192,12 +205,9 @@ function assertDigitalBusu(
   busu: number,
   tetsuzuki: number,
 ): void {
-  if (
-    Number(shubetsu) === DokusyaShubetsu.DIGITAL &&
-    Number(tetsuzuki) !== TetsuzukiShurui.KAIYAKU &&
-    Number(busu) !== 1
-  ) {
-    throw fieldValidationError('dokusya_busu', DIGITAL_BUSU_MSG);
+  const violations = collectDigitalBusuViolation(shubetsu, busu, tetsuzuki);
+  if (violations.length > 0) {
+    throw fieldValidationError(violations[0].field, violations[0].message);
   }
 }
 
@@ -236,6 +246,7 @@ function fieldValidationError(
  */
 @Injectable()
 export class DokusyaService {
+  private readonly logger = new Logger(DokusyaService.name);
 
   constructor(
     @InjectRepository(Dokusya)
@@ -259,11 +270,13 @@ export class DokusyaService {
     private readonly rireki: DokusyaRirekiService,
     private readonly searchService: DokusyaSearchService,
     private readonly replaceService: DokusyaReplaceService,
-    // 電子版(denshiban)への同期送信。DIGITAL(2) 購読者の作成/更新/停止/承認/否認を
-    // トランザクション内・COMMIT 前に電子版へ送る（sendNow が DIGITAL 以外は null で
-    // ゲート）。dual-write: 電子版が拒否したデータはクラウドにも残さない（顧客要件
-    // 2026-07）。@Global DenshibanDbModule から注入される。
-    private readonly denshibanApi: DenshibanApiService,
+    // 電子版アウトバウンド同期（cloud → denshiban `updateUserInfo`）。DIGITAL(2)
+    // 購読者の作成/更新/解約/承認/否認をトランザクション内・COMMIT 前に同期する
+    // （outbound/PORTING.md §5）。`@Optional()`: 本サービスを positional `new(...)`
+    // で組み立てる単体テストは注入しない — 実アプリでは @Global な DenshibanDbModule
+    // が常に提供する。**直接触らず必ず {@link denshibanApiFor} を経由すること** —
+    // 未注入(テスト) と 送信対象外(紙版/併読/キャンペーン単価) の両方をそこで弾く。
+    @Optional() private readonly denshibanApi?: DenshibanApiService,
   ) {}
 
   // ════════════════════════════════════════════════════════════════════
@@ -295,6 +308,50 @@ export class DokusyaService {
       this.loadMaxJoho(id),
     ]);
     return toDokusyaResponse(entity, joins, {
+      has_active_kaiyaku: activeKaiyaku,
+      max_joho_date: maxJoho,
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // API-011-004 — GET /api/v1/dokusya/{dokusya_id}/effective-at?joho=YYYY-MM-DD
+  // ════════════════════════════════════════════════════════════════════
+  /**
+   * 予約変更(未来日)編集の基準行を返す (SCR-011・顧客要件2026-07)。
+   *
+   * 指定 `joho` 時点で有効な履歴行 = `loadEffectiveRow(joho)`（= writer の
+   * findBefore と同一条件：`joho_henko_tekiyo_date <= 指定joho` の
+   * `(joho, rireki_no)` 最大・取消除外）を詳細レスポンス形へマップして返す。
+   *
+   * FE はこれをフォームの基準(predecessor)としてロードし、editGuard の baseline
+   * もこの値にする。こうすることで未来予約が積み重なっても「直前行と異なる変更」
+   * だけを検出でき、BE の timeline-diff (applyChange) と一致する。直前行が無い
+   * （joho が作成日より前 等）場合は master 詳細へフォールバックする。
+   */
+  async getEffectiveAt(
+    id: number,
+    joho: string,
+    session: SessionPayload,
+  ): Promise<DokusyaResponseDto> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(joho ?? '')) {
+      throw fieldValidationError('joho', '情報変更適用日の形式が不正です。');
+    }
+    const master = await this.fetchInScope(id, session);
+    const predecessor = await loadEffectiveRow(this.dataSource.manager, id, joho);
+    // 直前行なし（joho が最初の履歴より前）→ 現行 master をそのまま基準にする。
+    if (!predecessor) return this.getDetail(id, session);
+
+    // predecessor の業務値を master の識別子(ja_id 等)へ上書きした基準エンティティ。
+    const merged = this.dokusyaRepo.create({
+      ...master,
+      ...mapRirekiToMaster(predecessor),
+    });
+    const [joins, activeKaiyaku, maxJoho] = await Promise.all([
+      this.fetchJoinFieldsForEntity(merged),
+      this.hasActiveKaiyaku(id),
+      this.loadMaxJoho(id),
+    ]);
+    return toDokusyaResponse(merged, joins, {
       has_active_kaiyaku: activeKaiyaku,
       max_joho_date: maxJoho,
     });
@@ -394,12 +451,11 @@ export class DokusyaService {
     );
     // 購読開始日は新規登録のみ対象（更新では before に pin され不変）。顧客要件
     // 2026-07 改訂: 新規登録の適用日(=購読開始日)は未来日のみ許可（当日・過去日
-    // 不可）。ただし 電子版+口座引落 はラジオ「今日/翌月1日」で確定する特例のため
-    // 当日を許容（過去日のみ不可）＝従来どおり。
-    const isDigitalKozaCreate =
-      Number(dto.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-      Number(dto.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI;
-    if (isDigitalKozaCreate) {
+    // 不可）。ただし 電子版(2) はラジオ「今日/翌月1日」で確定する特例のため
+    // 支払方法を問わず当日を許容（過去日のみ不可）。FE(isDigitalCreate)と同一基準。
+    const isDigitalCreate =
+      Number(dto.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL;
+    if (isDigitalCreate) {
       this.assertTekiyoDateNotPast(
         dto.dokusya_kaishi_date,
         'dokusya_kaishi_date',
@@ -445,6 +501,10 @@ export class DokusyaService {
 
     // 電子版・併読は email 必須＋電子版/併読レコード間で一意（紙版は任意・重複可）。
     this.assertEmailRequiredForShubetsu(dto.email, dto.dokusya_shubetsu);
+    this.assertDokusyaSoBunruiRequiredForShubetsu(
+      dto.dokusyaso_bunrui,
+      dto.dokusya_shubetsu,
+    );
     await this.assertEmailUnique(
       dto.email,
       dto.dokusya_shubetsu,
@@ -497,24 +557,12 @@ export class DokusyaService {
           reason: '',
         });
 
-        // [denshiban-outbound] 電子版へ新規会員を同期する（COMMIT 前・同一トランザク
-        // ション）。DIGITAL(2) 以外は sendNow がゲートして null を返し何もしない。
-        // 電子版が採番した会員ID (result.id) を denshi_kaiin_id へ確定し、以後の
-        // 更新/停止/承認で電子版側レコードと 1:1 で結びつける。電子版エラーは伝播し
-        // トランザクション全体をロールバックする（dual-write・顧客要件 2026-07）。
-        const dsResult = await this.denshibanApi.sendNow(
-          { dokusya: result.after, mode: 'create' },
-          manager,
-        );
-        if (dsResult?.id) {
-          const denshiKaiinId = Number(dsResult.id);
-          result.after.denshiKaiinId = denshiKaiinId;
-          await manager.update(
-            Dokusya,
-            { dokusyaId: result.dokusyaId },
-            { denshiKaiinId },
-          );
-        }
+        // 電子版同期（outbound/PORTING.md §5.1）。DIGITAL(2) のみ発火し、denshiban が
+        // 発番した会員 id を同一トランザクション内で t_dokusya.denshi_kaiin_id に確定
+        // する（inbound が突合する 1:1 リンク）。gate 外（BOTH/PAPER）は null 返却で
+        // if を素通り。denshiban がエラー(statusCode != '0')なら例外が伝播し tx は
+        // ロールバックする（catch が logError を残して再送出）。
+        await this.syncDenshibanCreate(manager, result.after, result.dokusyaId);
 
         await this.auditLog.logCreate(
           auditCtxFactory(result.dokusyaId),
@@ -733,6 +781,10 @@ export class DokusyaService {
     // dto.dokusya_shubetsu は上で before の値に固定済み（購読種別は編集不可）。
     // 電子版・併読は email 必須＋電子版/併読レコード間で一意（自身は除外）。
     this.assertEmailRequiredForShubetsu(dto.email, dto.dokusya_shubetsu);
+    this.assertDokusyaSoBunruiRequiredForShubetsu(
+      dto.dokusyaso_bunrui,
+      dto.dokusya_shubetsu,
+    );
     await this.assertEmailUnique(
       dto.email,
       dto.dokusya_shubetsu,
@@ -792,12 +844,11 @@ export class DokusyaService {
             { dokusyaId: id },
             { updatedBy: String(session.account_id) },
           );
-          // [denshiban-outbound] 再購読も電子版へは差分更新として送る（DIGITAL のみ）。
-          // before（旧・解約状態のスナップショット）との差分で変更項目のみ送信する。
-          await this.denshibanApi.sendNow(
-            { dokusya: result.after, mode: 'update', before },
-            manager,
-          );
+          // 電子版同期（outbound/PORTING.md §5, #2 再購読）。mode は 'reread' ではなく
+          // 'update'（reread は予約モードでカレントの caller なし）。差分送信のため
+          // `before`（適用前スナップショット）を渡す。DIGITAL(2) のみ発火。未同期
+          // （denshi_kaiin_id NULL）なら create にフォールバックして会員IDを採番する。
+          await this.syncDenshibanUpsert(manager, result.after, before, id);
           await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
           return result.after;
         }
@@ -854,13 +905,10 @@ export class DokusyaService {
           { updatedBy: String(session.account_id) },
         );
 
-        // [denshiban-outbound] 情報変更を電子版へ差分送信する（DIGITAL のみ・COMMIT 前）。
-        // before（適用前スナップショット）と result.after の差分で変更項目のみ送る。
-        // 電子版エラーはトランザクションをロールバックする（dual-write）。
-        await this.denshibanApi.sendNow(
-          { dokusya: result.after, mode: 'update', before },
-          manager,
-        );
+        // 電子版同期（outbound/PORTING.md §5, #3 情報変更）。差分送信のため
+        // `before`（適用前スナップショット）を渡す。DIGITAL(2) のみ発火。未同期
+        // （denshi_kaiin_id NULL）なら create にフォールバックして会員IDを採番する。
+        await this.syncDenshibanUpsert(manager, result.after, before, id);
 
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
@@ -992,18 +1040,20 @@ export class DokusyaService {
           { dokusyaId: id },
           { updatedBy: String(session.account_id) },
         );
-        // [denshiban-outbound] 解約予約を電子版へ送る（mode=cancel・DIGITAL のみ）。
-        // cancel_ym = 購読中止日(chushi: YYYY-MM-DD) の YYYYMM。紙版(1)の解約は
-        // 電子版に無関係なので sendNow がゲートして null を返す。電子版エラーは
-        // トランザクションをロールバックする（dual-write）。
-        await this.denshibanApi.sendNow(
-          {
-            dokusya: result.after,
-            mode: 'cancel',
-            cancelYm: chushi.slice(0, 4) + chushi.slice(5, 7),
-          },
-          manager,
-        );
+        // 電子版同期（outbound/PORTING.md §5.2 解約）。cancel_ym = 中止日(chushi:
+        // YYYY-MM-DD)の YYYYMM。送信対象（電子版(2) かつ 非キャンペーン単価）の
+        // 判定は denshibanApiFor が行い、対象外はここで送信自体をスキップする。
+        const denshiban = await this.denshibanApiFor(manager, result.after);
+        if (denshiban) {
+          await denshiban.sendNow(
+            {
+              dokusya: result.after,
+              mode: 'cancel',
+              cancelYm: chushi.slice(0, 4) + chushi.slice(5, 7),
+            },
+            manager,
+          );
+        }
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
       });
@@ -1023,11 +1073,13 @@ export class DokusyaService {
     id: number,
     session: SessionPayload,
     req: Request,
+    tankaId?: number,
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     return this.changeApprovalStatus(id, session, req, {
       newStatus: DenshiShoninStatus.APPROVED,
       henkoRiyu: '電子版承認',
       message: '承認しました。',
+      tankaId,
       denshibanMode: 'approve',
     });
   }
@@ -1165,8 +1217,8 @@ export class DokusyaService {
         'r.nogyosya_bunrui AS nogyosya_bunrui',
         'r.tanka_id AS tanka_id',
         't.tanka_name AS tanka_name',
-        // 金額は JA の税区分で解決（zei_kubun=1 内税→税込、それ以外→税抜）。
-        'CASE WHEN ja.zei_kubun = 1 THEN t.kingaku_zeikomi ELSE t.kingaku_zeinuki END AS tanka_kingaku',
+        // 金額は JA の税区分で解決（内税→税込、それ以外→税抜）。
+        `CASE WHEN ja.zei_kubun = ${ZEI_KUBUN_UCHIZEI} THEN t.kingaku_zeikomi ELSE t.kingaku_zeinuki END AS tanka_kingaku`,
         'r.dokusya_busu AS dokusya_busu',
         'r.zenkai_dokusya_busu AS zenkai_dokusya_busu',
         'r.haitatsu_yubin_no AS haitatsu_yubin_no',
@@ -1328,6 +1380,109 @@ export class DokusyaService {
   }
 
   /**
+   * アウトバウンド同期の**入口ゲート**。送信対象なら API インスタンスを、対象外なら
+   * `undefined` を返す。全 `sendNow` 呼び出しは必ずここを通すこと。
+   *
+   * 二つの条件をまとめて見る:
+   * 1. **未注入** — `@Optional()` の `denshibanApi` を持たない単体テスト環境。
+   * 2. **送信対象外** — {@link resolveDenshibanSyncGate}（電子版(2) かつ
+   *    非キャンペーン単価）。判定式は common に一本化してある。
+   *
+   * boolean ではなくインスタンスを返すのは、呼び出し側で TypeScript の絞り込みが
+   * 効き `this.denshibanApi!` のような非 null 断言が要らなくなるため。
+   *
+   * `manager` は呼び出し元トランザクションのものを渡す — キャンペーン判定が読む
+   * `m_tanka` を同一接続で見せるため（同トランザクション内の単価変更も反映される）。
+   */
+  private async denshibanApiFor(
+    manager: EntityManager,
+    after: Dokusya,
+  ): Promise<DenshibanApiService | undefined> {
+    if (!this.denshibanApi) return undefined;
+
+    const gate = await resolveDenshibanSyncGate(after, { manager });
+    if (!gate.eligible) {
+      this.logger.debug({
+        event: `denshiban.sync.skip.${gate.reason}`,
+        dokusya_id: after.dokusyaId,
+        dokusya_shubetsu: after.dokusyaShubetsu,
+        tanka_id: after.tankaId,
+      });
+      return undefined;
+    }
+    return this.denshibanApi;
+  }
+
+  /**
+   * 電子版 create 同期 + 会員ID採番結果を `t_dokusya.denshi_kaiin_id` に確定する。
+   * 新規登録フローと、未同期の既存行を編集したときの update フォールバック
+   * （{@link syncDenshibanUpsert}）で共有する。送信対象外（BOTH/PAPER/キャンペーン
+   * 単価）は {@link denshibanApiFor} が undefined を返すので送信自体を行わない。
+   * denshiban 側エラーは例外が伝播し呼び出し元トランザクションをロールバックさせる。
+   */
+  private async syncDenshibanCreate(
+    manager: EntityManager,
+    after: Dokusya,
+    dokusyaId: number,
+  ): Promise<void> {
+    const denshiban = await this.denshibanApiFor(manager, after);
+    if (!denshiban) return;
+    await this.sendDenshibanCreate(denshiban, manager, after, dokusyaId);
+  }
+
+  /**
+   * create 送信 + 会員ID確定の実処理。**ゲート通過済みが前提**。
+   *
+   * {@link syncDenshibanUpsert} の create フォールバックから直接呼べるように
+   * ゲートと分離してある（分離しないとフォールバック経路でゲートが二度走り、
+   * `m_tanka` を無駄に二回読む）。
+   */
+  private async sendDenshibanCreate(
+    denshiban: DenshibanApiService,
+    manager: EntityManager,
+    after: Dokusya,
+    dokusyaId: number,
+  ): Promise<void> {
+    const dsResult = await denshiban.sendNow(
+      { dokusya: after, mode: 'create' },
+      manager,
+    );
+    if (dsResult?.id) {
+      const denshiKaiinId = Number(dsResult.id);
+      // in-memory の after も更新する — 後続の監査ログがこの object を使うため、
+      // DB だけ更新すると監査ログに null が残る。
+      after.denshiKaiinId = denshiKaiinId;
+      await manager.update(Dokusya, { dokusyaId }, { denshiKaiinId });
+    }
+  }
+
+  /**
+   * 電子版 upsert 同期（編集フロー）。会員IDが未採番（`denshi_kaiin_id` NULL ＝
+   * 未同期）の電子版会員を編集した場合は、update ではなく create で会員IDを採番して
+   * からリンクする（顧客決定 2026-07: 「Fallback sang create」）。理由:
+   * seed/取込で直接投入された行や、denshiban 未配線時に作成された行は create 同期を
+   * 経ておらず id を持たない。既に会員IDがあれば通常どおり差分 update を送る。
+   *
+   * `after.denshiKaiinId` は recomputeMaster 後に DB 再取得した master 値（recompute
+   * は部分 UPDATE で denshi_kaiin_id を触らないため保持される）＝ 実際の同期状態を
+   * 正しく反映する。
+   */
+  private async syncDenshibanUpsert(
+    manager: EntityManager,
+    after: Dokusya,
+    before: Dokusya,
+    dokusyaId: number,
+  ): Promise<void> {
+    const denshiban = await this.denshibanApiFor(manager, after);
+    if (!denshiban) return;
+    if (after.denshiKaiinId === null || after.denshiKaiinId === undefined) {
+      await this.sendDenshibanCreate(denshiban, manager, after, dokusyaId);
+      return;
+    }
+    await denshiban.sendNow({ dokusya: after, mode: 'update', before }, manager);
+  }
+
+  /**
    * Resolve `hanbaiten_name`, `tanka_name`, and the m_shiten reverse-
    * lookup via a single QueryBuilder so the unit spec's
    * `dokusyaQb.getRawOne` mock fires. The QB joins are LEFT JOINs so
@@ -1375,6 +1530,52 @@ export class DokusyaService {
       bank_shiten_id: bankShitenId,
       jastem_toriatsukai_tenpo_code: str(raw?.jastem_toriatsukai_tenpo_code),
       jastem_tenpo_name: str(raw?.jastem_tenpo_name),
+    };
+  }
+
+  /**
+   * fetchJoinFieldsViaQB の「任意エンティティ版」。dokusya_id ではなく渡された
+   * エンティティの FK 値(hanbaiten_id / tanka_id / bank_branch_code)から結合値を
+   * 解決する。getEffectiveAt が predecessor(直前行)の FK に対して名称・引落支店を
+   * 引くために使う（master の FK では無く predecessor の FK を基準にするため）。
+   */
+  private async fetchJoinFieldsForEntity(
+    entity: Dokusya,
+  ): Promise<DokusyaJoinFields> {
+    const str = (v: unknown): string => (v == null ? '' : String(asScalar(v)));
+    const [hb, tk, bs] = await Promise.all([
+      entity.hanbaitenId == null
+        ? Promise.resolve([])
+        : this.dataSource.query(
+            `SELECT hanbaiten_name FROM m_hanbaiten
+              WHERE hanbaiten_id = $1 AND deleted_at IS NULL`,
+            [entity.hanbaitenId],
+          ),
+      entity.tankaId == null
+        ? Promise.resolve([])
+        : this.dataSource.query(
+            `SELECT tanka_name FROM m_tanka
+              WHERE tanka_id = $1 AND deleted_at IS NULL`,
+            [entity.tankaId],
+          ),
+      !entity.bankBranchCode
+        ? Promise.resolve([])
+        : this.dataSource.query(
+            // CAST(... AS text) は fetchJoinFieldsViaQB と同じ pg-mem 対策。
+            `SELECT shiten_id, jastem_toriatsukai_tenpo_code, jastem_tenpo_name
+               FROM m_shiten
+              WHERE ja_id = $1 AND shiten_code = CAST($2 AS text)
+                AND kinyu_shiten_flg = TRUE AND deleted_at IS NULL`,
+            [entity.jaId, entity.bankBranchCode],
+          ),
+    ]);
+    const bankShitenId = bs?.[0]?.shiten_id;
+    return {
+      hanbaiten_name: str(hb?.[0]?.hanbaiten_name),
+      tanka_name: str(tk?.[0]?.tanka_name),
+      bank_shiten_id: bankShitenId == null ? null : Number(bankShitenId),
+      jastem_toriatsukai_tenpo_code: str(bs?.[0]?.jastem_toriatsukai_tenpo_code),
+      jastem_tenpo_name: str(bs?.[0]?.jastem_tenpo_name),
     };
   }
 
@@ -1545,8 +1746,8 @@ export class DokusyaService {
   }
 
   /**
-   * 適用日系フィールド (販売店適用日 hanbaiten_tekiyo_date / 情報変更適用日
-   * joho_henko_tekiyo_date) は当日以降であること（過去日不可・当日は即日適用
+   * 適用日 (情報変更適用日 joho_henko_tekiyo_date。販売店適用日 hanbaiten_tekiyo_date
+   * は廃止し joho に一本化・顧客要件 2026-07) は当日以降であること（過去日不可・当日は即日適用
    * として許可）。本日基準は JST 暦日 (todayIsoJst)。toISOString().slice(0,10)
    * は UTC で JST 09:00 前に前日へずれるため使わない。
    *
@@ -1595,54 +1796,19 @@ export class DokusyaService {
     dto: UpdateDokusyaDto,
     before: Dokusya,
   ): void {
-    // 電子版は全項目 当日反映可。制限は紙版のみ。
-    if (Number(before.dokusyaShubetsu) !== DokusyaShubetsu.PAPER) return;
-
-    const RESERVE_ONLY =
-      '帳票に影響する変更は予約変更（未来日を指定）で行ってください。';
-    const violations: { field: string; message: string }[] = [];
-    // 送信あり かつ 既存値と差分あり → 帳票影響の変更とみなす。
-    // Scalar field values only (never objects) — typed as primitives so the
-    // `String(... ?? '')` comparison can't hit Object's default stringification.
-    type Scalar = string | number | boolean | null | undefined;
-    const changed = (v: Scalar, b: Scalar): boolean =>
-      v !== undefined && String(v ?? '') !== String(b ?? '');
-    const check = (v: Scalar, b: Scalar, field: string): void => {
-      if (changed(v, b)) violations.push({ field, message: RESERVE_ONLY });
-    };
-
-    // 購読中止日（解約予約）は本APIでは扱わない（停止は専用エンドポイントへ分離）。
-    check(dto.dokusya_busu, before.dokusyaBusu, 'dokusya_busu');
-    check(dto.hanbaiten_id, before.hanbaitenId, 'hanbaiten_id');
-    // 購読者住所
-    check(dto.yubin_no, before.yubinNo, 'yubin_no');
-    check(dto.todofuken_code, before.todofukenCode, 'todofuken_code');
-    check(dto.shikuchoson, before.shikuchoson, 'shikuchoson');
-    check(dto.chome_banchi, before.chomeBanchi, 'chome_banchi');
-    check(dto.tatemono_mei, before.tatemonoMei, 'tatemono_mei');
-    // 配達先住所（顧客決定2026-07: 帳票影響に含める）
-    check(dto.haitatsu_yubin_no, before.haitatsuYubinNo, 'haitatsu_yubin_no');
-    check(
-      dto.haitatsu_todofuken_code,
-      before.haitatsuTodofukenCode,
-      'haitatsu_todofuken_code',
+    // 当日変更モードで到達（joho=本日）。共通ルールに委譲する（UI/取込/置換で統一）。
+    // 紙版のみ制限（電子版は全項目 当日可）。変更された帳票影響項目があれば予約変更を要求。
+    const today = todayIsoJst();
+    const changedReportFields = computeChangedReportFields(
+      dto as unknown as Record<string, unknown>,
+      before as unknown as Record<string, unknown>,
     );
-    check(
-      dto.haitatsu_shikuchoson,
-      before.haitatsuShikuchoson,
-      'haitatsu_shikuchoson',
-    );
-    check(
-      dto.haitatsu_chome_banchi,
-      before.haitatsuChomeBanchi,
-      'haitatsu_chome_banchi',
-    );
-    check(
-      dto.haitatsu_tatemono_mei,
-      before.haitatsuTatemonoMei,
-      'haitatsu_tatemono_mei',
-    );
-
+    const violations = collectTodayModeReportViolations({
+      shubetsu: Number(before.dokusyaShubetsu),
+      joho: today,
+      today,
+      changedReportFields,
+    });
     if (violations.length > 0) {
       throw new ValidationException(violations);
     }
@@ -1658,6 +1824,23 @@ export class DokusyaService {
   ): void {
     if (isDigitalOrBoth(dokusyaShubetsu) && !email?.trim()) {
       throw fieldValidationError('email', EMAIL_REQUIRED_DIGITAL_MSG);
+    }
+  }
+
+  /**
+   * 電子版(2)・併読(3) は 読者属性(dokusyaso_bunrui) を1つ以上選択する
+   * （CSV 空文字＝未選択）。紙版(1)は任意。email 必須と同じ電子版判定
+   * (isDigitalOrBoth) を用いるため create / update 双方から呼ぶ。
+   */
+  private assertDokusyaSoBunruiRequiredForShubetsu(
+    dokusyaSoBunrui: string | null | undefined,
+    dokusyaShubetsu: number | null | undefined,
+  ): void {
+    if (isDigitalOrBoth(dokusyaShubetsu) && !dokusyaSoBunrui?.trim()) {
+      throw fieldValidationError(
+        'dokusyaso_bunrui',
+        DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG,
+      );
     }
   }
 
@@ -1720,7 +1903,13 @@ export class DokusyaService {
     const shitenId = rawShitenId != null ? Number(rawShitenId) : null;
     return {
       jaId,
-      kanriShitenId: Number(dto.kanri_shiten_id ?? 0),
+      // 管理支店は任意（顧客要件 2026-07）。未指定/0 は NULL 保存（0 に丸めない）。
+      // shiten_id と同方針。0 を入れると存在しない m_kanri_shiten.id=0 への
+      // FK 違反（fk_t_dokusya_m_kanri_shiten）で INSERT が 500 になる。
+      kanriShitenId:
+        dto.kanri_shiten_id != null && Number(dto.kanri_shiten_id) > 0
+          ? Number(dto.kanri_shiten_id)
+          : null,
       shitenId,
       kumiaiinCode: dto.kumiaiin_code ?? '',
       dokusyaShubetsu: Number(dto.dokusya_shubetsu),
@@ -1914,8 +2103,8 @@ export class DokusyaService {
       newStatus: number;
       henkoRiyu: string;
       message: string;
-      // 承認→'approve'（課金開始）/ 否認→'unapprove' を電子版へ送る際の action_kbn。
-      denshibanMode: 'approve' | 'unapprove';
+      tankaId?: number;
+      denshibanMode: DenshibanMode;
     },
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     const before = await this.fetchInScope(id, session);
@@ -1926,6 +2115,20 @@ export class DokusyaService {
     if (Number(before.denshiShoninStatus) !== DenshiShoninStatus.PENDING) {
       throw new InvalidDokusyaStatusException();
     }
+
+    // 承認時のみ「新聞単価」を編集可（顧客要件）。指定時はテナント跨ぎ FK 検証
+    // （存在＋自JA）を先に済ませてから承認確定する。否認は tankaId を渡さない。
+    const updateTanka = options.tankaId != null && Number(options.tankaId) > 0;
+    if (updateTanka) {
+      await fetchFkInJa(
+        this.tankaRepo,
+        'tankaId',
+        options.tankaId,
+        Number(before.jaId),
+        '単価',
+      );
+    }
+    const tankaPatch = updateTanka ? { tankaId: Number(options.tankaId) } : {};
 
     const auditCtx = buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id);
 
@@ -1942,30 +2145,34 @@ export class DokusyaService {
           {
             denshiShoninStatus: options.newStatus,
             updatedBy: String(session.account_id),
+            ...tankaPatch,
           },
         );
         await manager.update(
           DokusyaRireki,
           { dokusyaId: id, saishinDataFlg: true },
-          { denshiShoninStatus: options.newStatus },
+          { denshiShoninStatus: options.newStatus, ...tankaPatch },
         );
 
-        // 変更後スナップショット = before に新ステータスを重ねたもの（再取得不要）。
+        // 変更後スナップショット = before に新ステータス（＋承認時は単価）を重ねたもの。
         const after = {
           ...before,
           denshiShoninStatus: options.newStatus,
           updatedBy: String(session.account_id),
+          ...tankaPatch,
         } as Dokusya;
-
-        // [denshiban-outbound] 承認/否認を電子版へ送る（DIGITAL のみ・COMMIT 前）。
-        // 承認→'approve'（payment_start を解決して課金開始）、否認→'unapprove'。
-        // 併読(3)は sendNow がゲートして null（電子版側は別ルートで管理）。電子版
-        // エラーはトランザクションをロールバックする（dual-write）。
-        await this.denshibanApi.sendNow(
-          { dokusya: after, mode: options.denshibanMode },
-          manager,
-        );
-
+        // 電子版同期（outbound/PORTING.md §5.3 承認/否認）。mode は options 由来
+        // （approve → 'approve' / reject → 'unapprove'）。assembler が payment_start
+        // をクロックから解決するため before/cancelYm 不要。承認/否認は電子版
+        // ワークフロー専用なので基本 DIGITAL(2) だが、キャンペーン単価の可能性が
+        // あるため他フローと同じく denshibanApiFor でゲートする。
+        const denshiban = await this.denshibanApiFor(manager, after);
+        if (denshiban) {
+          await denshiban.sendNow(
+            { dokusya: after, mode: options.denshibanMode },
+            manager,
+          );
+        }
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
         return after;
       });

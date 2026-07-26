@@ -68,8 +68,8 @@ export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
  * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
  * 片方を変えたら両方更新すること。
  */
-const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿ\s]+$/u;
-const KANJI_NAME_MSG = '漢字・ひらがな・カタカナで入力してください。';
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿA-Za-zＡ-Ｚａ-ｚ\s]+$/u;
+const KANJI_NAME_MSG = '漢字・ひらがな・カタカナ・アルファベットで入力してください。';
 
 /**
  * Body for POST /api/v1/dokusya (ACSMS-API-011-002).
@@ -96,11 +96,15 @@ export class CreateDokusyaDto {
   @IsEmpty({ message: 'ja_id はリクエストボディに含められません。' })
   ja_id?: never;
 
-  @ApiPropertyOptional({ description: '管理支店ID (FK: m_kanri_shiten)' })
-  @IsOptional()
+  // 管理支店は必須（画面上 * 表示・顧客要件）。未指定/0 を許すと BE で
+  // kanri_shiten_id=0 → m_kanri_shiten への FK 違反(500)になるため、DTO 層で
+  // 明示的に必須＋1以上を検証し、VALIDATION_ERROR(400) を返す。
+  @ApiProperty({ description: '管理支店ID (FK: m_kanri_shiten)' })
   @Type(() => Number)
+  @IsNotEmpty({ message: '管理支店を選択してください。' })
   @IsInt({ message: '管理支店IDは整数で指定してください。' })
-  kanri_shiten_id?: number;
+  @Min(1, { message: '管理支店を選択してください。' })
+  kanri_shiten_id!: number;
 
   @ApiPropertyOptional({
     description:
@@ -140,14 +144,14 @@ export class CreateDokusyaDto {
   @Min(0, { message: '購読部数は0以上で指定してください。' })
   dokusya_busu!: number;
 
-  @ApiProperty({ description: '氏名 (姓) — 漢字のみ', maxLength: 50 })
+  @ApiProperty({ description: '氏名 (姓) — 漢字・かな・アルファベット', maxLength: 50 })
   @IsString({ message: '氏名(姓)は文字列で指定してください。' })
   @IsNotEmpty({ message: '氏名(姓)は必須です。' })
   @MaxLength(50, { message: '氏名(姓)は最大50文字で指定してください。' })
   @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   shimei_sei!: string;
 
-  @ApiProperty({ description: '氏名 (名) — 漢字のみ', maxLength: 50 })
+  @ApiProperty({ description: '氏名 (名) — 漢字・かな・アルファベット', maxLength: 50 })
   @IsString({ message: '氏名(名)は文字列で指定してください。' })
   @IsNotEmpty({ message: '氏名(名)は必須です。' })
   @MaxLength(50, { message: '氏名(名)は最大50文字で指定してください。' })

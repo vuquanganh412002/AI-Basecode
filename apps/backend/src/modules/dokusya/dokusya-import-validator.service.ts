@@ -5,7 +5,6 @@ import {
   assertBranchScopeViolation,
   assertShitenScopeViolation,
 } from '@/common/utils/data-scope';
-import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
@@ -20,6 +19,16 @@ import {
   collectChushiViolations,
   tekiyoViolationField,
 } from './dokusya-tekiyo-date.rules';
+import {
+  isDigitalOrBoth,
+  isBoth,
+  isDigitalCreditCard,
+  collectDigitalBusuViolation,
+  collectDigitalTodayModeViolation,
+  collectTodayModeReportViolations,
+  computeChangedReportFields,
+  SHUBETSU_MSG,
+} from './dokusya-shubetsu.rules';
 
 /**
  * Pre-fetched lookup sets/maps shared by the per-row Excel-import
@@ -47,19 +56,12 @@ interface ImportRowLookups {
 /** Per-row import error accumulator entry. */
 type ImportRowError = { row: number; field: string; message: string };
 
-/** 電子版・併読で email 未入力時のメッセージ（BE/FE/取込で共通文言）。 */
-const EMAIL_REQUIRED_DIGITAL_MSG =
-  'メールアドレスは電子版・併読の場合は必須です。';
+/** 電子版・併読で email 未入力時のメッセージ（共通ルール由来）。 */
+const EMAIL_REQUIRED_DIGITAL_MSG = SHUBETSU_MSG.EMAIL_REQUIRED_DIGITAL;
 
-/**
- * 電子版(2)・併読(3) 判定。これらの購読種別は email 必須かつ
- * email の一意性チェック対象。紙版(1) は email 任意・重複可。
- * core 側 DokusyaService と同一実装（取込と UI で判定を揃えるため複製）。
- */
-function isDigitalOrBoth(shubetsu: number | null | undefined): boolean {
-  const n = Number(shubetsu);
-  return n === DokusyaShubetsu.DIGITAL || n === DokusyaShubetsu.BOTH;
-}
+/** 電子版・併読で 読者属性 未選択時のメッセージ（共通ルール由来）。 */
+const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
+  SHUBETSU_MSG.DOKUSYASO_BUNRUI_REQUIRED_DIGITAL;
 
 /**
  * Raise a single VALIDATION_ERROR with a one-field errors[] payload.
@@ -185,6 +187,7 @@ export class DokusyaImportValidator {
         batchDigitalEmail,
         errors,
       );
+      this.validateImportRowDokusyaSoBunrui(row, rowNo, dto, lookups, errors);
       const category = this.classifyImportRow(
         row,
         rowNo,
@@ -239,20 +242,16 @@ export class DokusyaImportValidator {
     dto: ImportDokusyaDto,
     errors: ImportRowError[],
   ): void {
-    if (
-      row.dokusya_shubetsu !== undefined &&
-      Number(row.dokusya_shubetsu) === DokusyaShubetsu.BOTH
-    ) {
+    // 併読(3) は第3システム同期のため取込不可（共通述語・取込文言）。
+    if (row.dokusya_shubetsu !== undefined && isBoth(row.dokusya_shubetsu)) {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'dokusya_shubetsu',
         message: '購読種別が3:併読のためExcel取込みできません。',
       });
     }
-    if (
-      Number(row.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-      Number(row.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD
-    ) {
+    // 電子版クレカ は読取専用のため取込不可（共通述語・取込文言）。
+    if (isDigitalCreditCard(row.dokusya_shubetsu, row.shiharai_hoho)) {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'shiharai_hoho',
@@ -266,6 +265,15 @@ export class DokusyaImportValidator {
         field: 'dokusya_busu',
         message: '購読部数は1以上で入力してください。',
       });
+    }
+    // 電子版は購読部数=1固定（顧客要件・UI と統一。従来 取込では未チェックだった）。
+    // 取込は解約を扱わないため tetsuzuki は非解約(1)として判定する。
+    for (const v of collectDigitalBusuViolation(
+      row.dokusya_shubetsu,
+      row.dokusya_busu,
+      1,
+    )) {
+      this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
     }
     // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
     // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
@@ -351,13 +359,46 @@ export class DokusyaImportValidator {
         message: v.message,
       });
     }
+
+    // [shubetsu-date-mode] 当日/未来 の可否を購読種別で判定（UI と統一・顧客要件
+    // 2026-07 改訂）。購読種別は既存レコードの保存値基準（種別は編集不可・改竄防御）。
+    //   電子版: 当日のみ（未来 joho は不可）。
+    //   紙版  : 当日変更で帳票影響項目を変更した場合は予約変更（未来日）を要求。
+    // 併読/電子版クレカ は validateImportRowRules で既に弾かれる。
+    if (joho) {
+      const shubetsu = Number(existing.dokusya_shubetsu);
+      for (const v of collectDigitalTodayModeViolation({
+        shubetsu,
+        joho,
+        today,
+        field: 'joho_henko_tekiyo_date',
+      })) {
+        this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
+      }
+      // 取込 UPDATE は selected_columns の列だけが実際の変更対象。行は全列に既定値を
+      // 持つため、選択列に限定して帳票影響項目の変更を判定する（UI は全項目送信のため
+      // この限定は不要だが、取込では必須）。
+      const selected = new Set(dto.selected_columns ?? []);
+      const changedReportFields = computeChangedReportFields(
+        row as unknown as Record<string, unknown>,
+        existing,
+      ).filter((f) => selected.has(f));
+      for (const v of collectTodayModeReportViolations({
+        shubetsu,
+        joho,
+        today,
+        changedReportFields,
+      })) {
+        this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
+      }
+    }
   }
 
   /**
    * 適用日の単項目境界チェック（顧客要件 2026-07 改訂）。
-   *   NEW    : 購読開始日(=情報変更適用日) は未来日のみ（当日・過去日 不可）。取込は
-   *            UI のラジオ特例（電子版+口座引落 当日可）が無いため一律で未来日を要求。
-   *   UPDATE : 読者情報変更適用日（販売店を含む全変更の唯一の適用日）は未来日のみ。
+   *   NEW    : 購読開始日(=情報変更適用日) は未来日のみ（当日・過去日 不可）。
+   *   UPDATE : 読者情報変更適用日は過去日不可（当日・未来日は可）。当日 vs 未来の
+   *            可否は購読種別ルール（validateImportRowTekiyoDates 内）で判定する。
    */
   private checkImportRowDateBounds(
     row: ImportDokusyaRowDto,
@@ -378,11 +419,15 @@ export class DokusyaImportValidator {
       }
       return;
     }
-    if (joho && normalizeDbDate(joho) <= today) {
+    // UPDATE は当日変更 + 予約変更（未来日）可（UI と統一・顧客要件 2026-07 改訂）。
+    // 過去日のみ不可。当日 vs 未来 の可否は購読種別ルール
+    // (validateImportRowTekiyoDates の collectDigitalTodayModeViolation /
+    // collectTodayModeReportViolations) で判定する。
+    if (joho && normalizeDbDate(joho) < today) {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'joho_henko_tekiyo_date',
-        message: '読者情報変更適用日は本日より後の日付を指定してください。',
+        message: '読者情報変更適用日は本日以降の日付を指定してください。',
       });
     }
   }
@@ -429,6 +474,59 @@ export class DokusyaImportValidator {
         row: rowNo,
         field: 'shiten_code',
         message: '指定された支店が見つかりません。',
+      });
+    }
+  }
+
+  /**
+   * 顧客要件 — 読者属性(dokusyaso_bunrui) は電子版(2)・併読(3) で1つ以上
+   * 選択必須（紙版(1) は任意）。フォーム(SCR-011)の必須ルールと同一。
+   *
+   * - 実効購読種別: NEW は行の購読種別、UPDATE は既存レコードの購読種別
+   *   （購読種別は編集不可のため DB の値で判定）。email 必須と同じ扱い。
+   * - UPDATE で dokusyaso_bunrui 列が selected_columns に無い行は未変更の
+   *   ため検証しない（既存値を維持）。
+   */
+  private validateImportRowDokusyaSoBunrui(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    dto: ImportDokusyaDto,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    // dokusyaso_bunrui 列が対象でない UPDATE は素通し（既存値を維持）。
+    const targeted =
+      dto.import_mode === 'NEW' ||
+      (dto.import_mode === 'UPDATE' &&
+        dto.selected_columns.includes('dokusyaso_bunrui'));
+    if (!targeted) return;
+
+    let effectiveShubetsu: number;
+    if (dto.import_mode === 'NEW') {
+      effectiveShubetsu = Number(row.dokusya_shubetsu);
+    } else {
+      const existing = this.resolveExistingRow(
+        row,
+        lookups.existingById,
+        lookups.existingByKumiaiin,
+      );
+      // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
+      if (!existing) return;
+      effectiveShubetsu = Number(existing.dokusya_shubetsu);
+    }
+
+    // 紙版は任意。
+    if (!isDigitalOrBoth(effectiveShubetsu)) return;
+
+    const value =
+      typeof row.dokusyaso_bunrui === 'string'
+        ? row.dokusyaso_bunrui.trim()
+        : '';
+    if (!value) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'dokusyaso_bunrui',
+        message: DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG,
       });
     }
   }

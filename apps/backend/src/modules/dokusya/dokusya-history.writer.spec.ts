@@ -305,7 +305,7 @@ describe('applyChange', () => {
 
   it('UPDATE(UI) 情報+販売店 同時変更 → 1行のみ (1更新1レコード・顧客要件 2026-07)', async () => {
     // 画面編集(source=UI)は販売店適用日を廃止し joho に統一 → 情報+販売店を同時に
-    // 変えても1件の履歴行にまとめる。販売店を変えた行なので hanbaiten_tekiyo_date=joho。
+    // 変えても1件の履歴行にまとめる（適用日は joho のみ）。
     q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 6, hanbaitenId: 459 }));
     q.loadMaster.mockResolvedValue(
       master({ dokusyaId: 1001, dokusyaShubetsu: 1 }),
@@ -325,7 +325,6 @@ describe('applyChange', () => {
     expect(res.insertedRirekiIds).toHaveLength(1);
     const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
     expect(row.johoHenkoTekiyoDate).toBe('2026-07-05');
-    expect(row.hanbaitenTekiyoDate).toBe('2026-07-05'); // 販売店適用日=joho
   });
 
   it('UPDATE(IMPORT) 情報+販売店 → 1行のみ (取込も UI と同一・1更新1レコード)', async () => {
@@ -350,16 +349,12 @@ describe('applyChange', () => {
     expect(res.insertedRirekiIds).toHaveLength(1);
     const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
     expect(row.johoHenkoTekiyoDate).toBe('2026-07-05');
-    expect(row.hanbaitenTekiyoDate).toBe('2026-07-05'); // 販売店適用日=joho
   });
 
-  it('UPDATE 販売店のみ (master と直前行が乖離) → 1行のみ・busu は直前行から carry (顧客要件 2026-07)', async () => {
-    // ユーザーが見た master: busu=3, hb=459。日付上の直前行(findBefore): busu=8, hb=459
-    // （未来日レコードが挟まって master が乖離した状態）。販売店のみ 459→460 に変更し、
-    // busu はフォーム=master 値 3 を据え置き送信。
-    //  - 変更検出は master 基準 → busu(3==3)は非変更・hanbaiten のみ → 1イベント（余計な
-    //    busu 行を作らない）。
-    //  - 行データ・zenkai は従来どおり findBefore(直前行) から carry → busu=8。
+  it('UPDATE 変更検出は直前行(findBefore)基準 — 直前行と同値の項目は非変更 (顧客要件改訂 2026-07)', async () => {
+    // 変更検出は master ではなく findBefore(joho=タイムライン上の直前行)基準。
+    // フォームは直前行の実効値をベースに送るため、未編集の busu は直前行と同値(8)で
+    // 届く → 非変更。販売店のみ 459→460。master(busu=3)は diff に無関係になった。
     q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 8, hanbaitenId: 459 }));
     q.loadMaster.mockResolvedValue(
       master({
@@ -367,20 +362,15 @@ describe('applyChange', () => {
         dokusyaBusu: 3,
         hanbaitenId: 459,
         dokusyaShubetsu: 1,
-        // master の旧 joho（作成時）。今回の適用日(07-24)とは異なる。実サービスの
-        // payload は johoHenkoTekiyoDate を含むため、diff から除外しないと「joho が
-        // 変わった」で余計な情報履歴行が生まれる。
-        johoHenkoTekiyoDate: '2026-07-11',
       }),
     );
 
     const res = await applyChange(m, {
       mode: 'UPDATE',
       dokusyaId: 1001,
-      // 実サービスの updatePartial は適用日(johoHenkoTekiyoDate)も values に含む。
-      // これは業務変更ではないので diff 対象外であるべき（除外しないと 2 行になる）。
+      // 適用日(johoHenkoTekiyoDate)は業務変更ではないので diff 対象外(DIFF_EXCLUDE)。
       values: {
-        dokusyaBusu: 3,
+        dokusyaBusu: 8, // 直前行と同値＝ユーザー未編集 → 非変更
         hanbaitenId: 460,
         johoHenkoTekiyoDate: '2026-07-24',
       },
@@ -390,13 +380,42 @@ describe('applyChange', () => {
       reason: '',
     });
 
-    expect(q.insertRow).toHaveBeenCalledTimes(1); // hanbaiten 1行のみ（busu 行なし）
+    expect(q.insertRow).toHaveBeenCalledTimes(1); // hanbaiten 1行のみ（busu は非変更）
     expect(res.insertedRirekiIds).toHaveLength(1);
     const inserted = q.insertRow.mock.calls[0][1] as DokusyaRireki;
     expect(inserted.hanbaitenId).toBe(460); // ユーザー入力
-    expect(inserted.dokusyaBusu).toBe(8); // 直前行から carry（master 3 ではない）
+    expect(inserted.dokusyaBusu).toBe(8); // 直前行から carry
     expect(inserted.zenkaiHanbaitenId).toBe(459); // 直前行の販売店
     expect(inserted.zenkaiDokusyaBusu).toBe(8); // 直前行の busu
+  });
+
+  it('UPDATE 予約変更の積み重ね: 直前行と異なれば master と同値でも検出 (回帰: false@22 → true@23)', async () => {
+    // 直前行 findBefore(07-23) = 予約 false@22（haitatsuSameFlg=false）。master は
+    // rireki#1(=true・未来予約はまだ有効化されていない)。07-23 で true へ戻すと
+    // master と同値(true)だが直前行(false)とは異なる → 検出され1行 insert。
+    // 旧・master 基準では「master と同値」で未検出になり履歴が作られなかった不具合の
+    // 回帰防止（顧客要件改訂 2026-07：予約変更の積み重ねを許可）。
+    q.findBefore.mockResolvedValue(
+      rireki({ dokusyaBusu: 5, hanbaitenId: 459, haitatsuSameFlg: false }),
+    );
+    q.loadMaster.mockResolvedValue(
+      master({ dokusyaId: 4, haitatsuSameFlg: true, dokusyaShubetsu: 1 }),
+    );
+
+    const res = await applyChange(m, {
+      mode: 'UPDATE',
+      dokusyaId: 4,
+      values: { haitatsuSameFlg: true, johoHenkoTekiyoDate: '2026-07-23' },
+      johoDate: '2026-07-23',
+      source: 'UI',
+      actor: 'u',
+      reason: '',
+    });
+
+    expect(q.insertRow).toHaveBeenCalledTimes(1);
+    expect(res.insertedRirekiIds).toHaveLength(1);
+    const inserted = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(inserted.haitatsuSameFlg).toBe(true);
   });
 
   it('denshiSync = true when master is 電子版 (dokusya_shubetsu=2)', async () => {

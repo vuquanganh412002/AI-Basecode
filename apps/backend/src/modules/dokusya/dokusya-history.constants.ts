@@ -82,24 +82,17 @@ export const ZENKAI_FIELD_MAP = {
 } as const satisfies Partial<Record<keyof DokusyaRireki, keyof DokusyaRireki>>;
 
 /**
- * The field whose change opens a separate hanbaiten event and sets
- * `hanbaiten_tekiyo_date`.
- */
-export const HANBAITEN_FIELD = 'hanbaitenId' as const;
-
-/**
  * Rireki columns NOT copied into `t_dokusya` when recomputing the master
  * from the effective row (`mapRirekiToMaster`). Everything else common to
  * both entities is copied (full recompute). Groups:
  *  - rireki-only columns absent on master (PK, `zenkai_*`, history flags,
- *    `hanbaiten_tekiyo_date`, `henko_riyu`);
+ *    `henko_riyu`);
  *  - common columns the master keeps its own (`created_at/by`) or that are
  *    the update key (`dokusya_id`).
  * NOTE: keep in sync when adding a rireki-only column.
  */
 export const MASTER_EXCLUDE_FIELDS = [
   'dokusyaRirekiId',
-  'hanbaitenTekiyoDate',
   'henkoRiyu',
   'saishinDataFlg',
   'zougenHokokuFlg',

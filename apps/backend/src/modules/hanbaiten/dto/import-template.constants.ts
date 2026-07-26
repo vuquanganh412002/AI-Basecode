@@ -97,6 +97,7 @@ export const IMPORT_TEMPLATE_SAMPLE_ROW: Readonly<
   fax: '0312345679',
   shocho_name: '山田太郎',
   itaku_kubun: 2,
+  furikomi_tesuryo_futan_kubun: 1,
   biko: 'サンプル行です。インポート前に書き換えてください。',
   haiten_flg: false,
 };

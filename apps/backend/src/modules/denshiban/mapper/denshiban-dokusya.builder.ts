@@ -312,6 +312,13 @@ export interface DenshibanUserRow {
   birthyear: string | null;
   sex: string | null;
 
+  /**
+   * 本紙購読フラグ (`'0'`:未購読 / `'1'`:購読) → `t_dokusya.honshi_kodoku_flg`.
+   * denshiban is authoritative for this value; the cloud echoes it back on
+   * outbound (see `toSubscribeFlg` in `./denshiban-payload.builder`).
+   */
+  subscribe_flg: string | null;
+
   // Classification (No 8, 9, 57).
   member_type: string | null;
   status: string | null;
@@ -422,6 +429,8 @@ export interface DokusyaDraft {
 
   // Attributes.
   mailMagazineFlg: number;
+  /** 本紙購読フラグ ← `users.subscribe_flg`（'1' → true, それ以外 → false）。 */
+  honshiKodokuFlg: boolean;
   birthYear: number | null;
   gender: number;
   dokusyasoBunrui: string;
@@ -574,6 +583,8 @@ export function buildDokusyaFromDenshiban(
 
     // ── Attributes (No 23-25, 48-49) ──
     mailMagazineFlg: str(row.melmaga).trim() === '1' ? 1 : 0,
+    // 本紙購読フラグ: '1' のみ true。空/NULL/その他は false（列は NOT NULL）。
+    honshiKodokuFlg: str(row.subscribe_flg).trim() === '1',
     birthYear: toBirthYear(row.birthyear),
     gender: toGender(row.sex),
     dokusyasoBunrui: toDokusyasoBunrui(row.profession, row.others_profession),

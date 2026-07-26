@@ -78,14 +78,13 @@ export function dateOnlyIsoJst(
 }
 
 /**
- * 年月 (Asia/Tokyo) を区切りなしの `YYYYMM`（6桁）で返す。既定は現在時刻。
- * 「当月／翌月」を跨ぐ判定（電子版 payment_start の翌月1日算出など）は
- * これを経由すること。`getMonth()` はプロセス TZ 依存のため、月初・月末の
- * JST 深夜に1ヶ月ずれる。
+ * 年月を Asia/Tokyo の `YYYYMM`（6桁）で返す。既定は現在時刻。電子版アウトバウンド
+ * の payment_start（翌月1日算出）等で使う。`getUTCMonth()` 系は JST 早朝/月初に
+ * 1か月ずれるため、必ず本ヘルパー（`jstParts` 経由）で JST 暦月を得る。
  *
  * @example
- * // 2026-07-01 06:00 JST (= 2026-06-30T21:00Z) でも '202607' を返す。
- * yearMonthJst();
+ * // 2026-07-21 12:00 JST → '202607'
+ * yearMonthJst(new Date('2026-07-21T03:00:00Z'));
  */
 export function yearMonthJst(date: Date = new Date()): string {
   const p = jstParts(date);

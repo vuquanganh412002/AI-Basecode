@@ -21,6 +21,7 @@ import {
   type HanbaitenDropdownQuery,
 } from '@/api/hanbaiten/hanbaiten';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 import {
   useSelectAllSentinel,
   withAllOption,
@@ -44,7 +45,7 @@ const props = withDefaults(defineProps<Props>(), {
   jaId: null,
   disabled: false,
   placeholder: '販売店を選択（未選択＝全件）',
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
   allowSelectAll: false,
 });
 

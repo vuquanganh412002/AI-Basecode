@@ -42,6 +42,8 @@ import {
 
 const SCREEN_NAME = 'お知らせ一覧画面 (ACSMS-SCR-031)';
 const TABLE_NAME = 't_oshirase';
+/** 「新着」バッジを表示する期間（公開起点から N 日以内なら is_new=true）。 */
+const NEW_BADGE_DAYS = 7;
 
 // OSHIRASE_TYPE was promoted from Group B → Group A: value 4
 // (`OshiraseType.DEADLINE`) drives mandatory business branching in 3
@@ -222,7 +224,7 @@ export class OshiraseService {
   }> {
     const limit = Math.min(Math.max(limitInput ?? 20, 1), 20);
     const now = new Date();
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const newBadgeMs = NEW_BADGE_DAYS * 24 * 60 * 60 * 1000;
     const userJaId = session.ja_id;
     // target_kanri_kubun stores a comma-separated list of 管理者区分 codes
     // (= role_id 1〜5); empty string = 全選択 (targets every role). The
@@ -299,7 +301,7 @@ export class OshiraseService {
         publish_end_date: r.publishEndDate
           ? formatDateTimeMinutesJst(r.publishEndDate)
           : null,
-        is_new: now.getTime() - freshnessBasis.getTime() <= sevenDaysMs,
+        is_new: now.getTime() - freshnessBasis.getTime() <= newBadgeMs,
         ja_id: r.jaId === null ? null : Number(r.jaId),
       };
     };

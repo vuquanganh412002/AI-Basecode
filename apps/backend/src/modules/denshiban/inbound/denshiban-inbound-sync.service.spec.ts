@@ -50,6 +50,7 @@ function userRow(o: Partial<DenshibanUserRow> = {}): DenshibanUserRow {
     tel2: '',
     email: 'taro@example.jp',
     melmaga: '1',
+    subscribe_flg: '0',
     birthyear: '1990',
     sex: '1',
     member_type: '2',
@@ -129,7 +130,14 @@ function setup(): Harness {
   return { service, fetcher, assembler, auditLog, codeService, manager };
 }
 
+// syncAll() stamps johoDate = todayIsoJst() (JST). Freeze the clock to a fixed
+// JST instant so that value is deterministic regardless of the machine's date —
+// 03:00Z = 12:00 JST on 2026-07-19 (well clear of the day boundary). Without this
+// the `johoDate` assertions below fail on every day that isn't the hard-coded one.
+const FROZEN_NOW = new Date('2026-07-19T03:00:00.000Z');
+
 beforeEach(() => {
+  jest.useFakeTimers().setSystemTime(FROZEN_NOW);
   mockedApplyChange.mockReset();
   mockedApplyChange.mockResolvedValue({
     dokusyaId: 42,
@@ -138,6 +146,10 @@ beforeEach(() => {
     after: { dokusyaId: 42 },
     denshiSync: false,
   });
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
@@ -220,6 +232,13 @@ describe('DenshibanInboundSyncService — UPDATE / SKIP', () => {
     expect(input.mode).toBe('UPDATE');
     expect(input.dokusyaId).toBe(42);
     expect(input.values).toEqual({ email: 'new@example.jp' }); // 変更列のみ
+    // updated_by は master 専用列で applyChange の recompute 対象外 → 明示スタンプ
+    // （UI update と同じ扱い・README §10 #1）。
+    expect(h.manager.update).toHaveBeenCalledWith(
+      Dokusya,
+      { dokusyaId: 42 },
+      { updatedBy: 'DENSHIBAN_SYNC' },
+    );
     expect(h.auditLog.logUpdate).toHaveBeenCalledTimes(1);
   });
 

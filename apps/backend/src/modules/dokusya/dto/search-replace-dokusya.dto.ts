@@ -12,6 +12,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { DokusyaShubetsu } from '@/common/enums';
+
 /**
  * Empty-string → undefined transformer. `@IsOptional()` only skips
  * `null` / `undefined`, NOT `""`. GET requests serialise blank inputs
@@ -110,14 +112,29 @@ export class SearchReplaceDokusyaDto {
   @Matches(DATE_FORMAT_RE, { message: DATE_FORMAT_MSG })
   dokusya_kaishi_date_to?: string;
 
-  // ─── 販売店適用日（必須・未来日のみ／顧客要件 2026-07）────────────────────
+  // ─── 情報変更適用日（必須・未来日のみ／顧客要件 2026-07。販売店適用日は廃止し
+  //     joho に一本化）──────────────────────────────────────────────────────
   // この日付で「置換可能」な購読者のみ返す（dokusya_kaishi_date ≦ 適用日 かつ
   // dokusya_chushi_date が null または 適用日より後）。未来日チェックはサービス層。
-  @ApiProperty({ description: '販売店適用日（YYYY-MM-DD、必須・未来日のみ）' })
+  @ApiProperty({ description: '情報変更適用日（YYYY-MM-DD、必須）。紙版=未来日のみ／電子版=本日のみ（種別依存・サービス層）' })
   @IsNotEmpty({ message: '適用日を入力してください。' })
   @IsString({ message: '適用日は文字列で指定してください。' })
   @Matches(DATE_FORMAT_RE, { message: DATE_FORMAT_MSG })
-  hanbaiten_tekiyo_date!: string;
+  joho_henko_tekiyo_date!: string;
+
+  // ─── 購読種別（必須・1:紙版 / 2:電子版 のみ／顧客要件 2026-07）──────────────
+  // 一括置換の対象種別。紙版は未来日で予約置換、電子版は当日のみ置換（適用日ルール
+  // は種別依存・サービス層）。この種別で購読者を絞り込む。3:併読 は対象外。
+  @ApiProperty({
+    description: '購読種別（1:紙版, 2:電子版）。一括置換の対象種別で絞り込む。',
+    enum: [DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL],
+  })
+  @Type(() => Number)
+  @IsInt({ message: '購読種別は整数で指定してください。' })
+  @IsIn([DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL], {
+    message: '購読種別は紙版または電子版で指定してください。',
+  })
+  dokusya_shubetsu!: number;
 
   // ─── Pagination + sort ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })

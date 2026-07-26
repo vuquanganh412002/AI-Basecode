@@ -139,8 +139,9 @@ function tankaLabel(r: DokusyaRirekiItem): string {
 }
 
 /**
- * 増部日: この行の購読部数が前回より増えた（または前回部数が null）とき、
- * 増減の適用日(dokusya_kaishi_date)を表示する。それ以外は空欄（顧客要件 SCR-013）。
+ * 増部日: この行の購読部数が前回より増えたとき、増減の適用日(dokusya_kaishi_date)
+ * を表示する。前回部数が null（新規作成・再購読の初回行＝0→N の増加）も増部として
+ * 扱う。それ以外は空欄（顧客要件 SCR-013）。
  */
 function zoubuDate(r: DokusyaRirekiItem): string {
   const zenkai = r.zenkai_dokusya_busu;
@@ -151,12 +152,14 @@ function zoubuDate(r: DokusyaRirekiItem): string {
 }
 
 /**
- * 減部日: この行の購読部数が前回より減った（または前回部数が null）とき、
- * 増減の適用日(dokusya_kaishi_date)を表示する。それ以外は空欄（顧客要件 SCR-013）。
+ * 減部日: この行の購読部数が前回より減ったとき、増減の適用日(dokusya_kaishi_date)
+ * を表示する。前回部数が null（新規作成・再購読の初回行）は増部であって減部では
+ * ないため空欄にする（顧客要件 SCR-013：新規・再購読は 増部日 のみ表示し、減部日は
+ * 出さない。両方表示しない）。
  */
 function genbuDate(r: DokusyaRirekiItem): string {
   const zenkai = r.zenkai_dokusya_busu;
-  if (zenkai == null || r.dokusya_busu < zenkai) {
+  if (zenkai != null && r.dokusya_busu < zenkai) {
     return formatDate(r.dokusya_kaishi_date);
   }
   return '';

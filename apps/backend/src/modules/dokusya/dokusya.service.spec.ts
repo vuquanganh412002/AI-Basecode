@@ -25,6 +25,7 @@ import { DokusyaImportValidator } from '@/modules/dokusya/dokusya-import-validat
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
 import { DokusyaSearchService } from '@/modules/dokusya/dokusya-search.service';
 import { DokusyaReplaceService } from '@/modules/dokusya/dokusya-replace.service';
+import { Dokusya } from '@/database/entities/dokusya.entity';
 import {
   NotFoundException,
   DataScopeViolationException,
@@ -266,9 +267,6 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -765,6 +763,23 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           shiharai_hoho: 1,
           dokusya_busu: 1,
           email: 'digi@example.com',
+          dokusya_kaishi_date: todayIsoJst(),
+        }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      expect(res).toBeDefined();
+    });
+
+    it('should ALLOW create with dokusya_kaishi_date=TODAY for 電子版+現金集金 (支払方法問わず・顧客要件 2026-07 改訂)', async () => {
+      // 電子版(2) は口座引落に限らずラジオ「今日/翌月1日」で当日可（FE と同一基準）。
+      const res = await service.create(
+        buildCreateDokusyaBody({
+          dokusya_shubetsu: 2,
+          shiharai_hoho: 2, // 現金集金（口座引落ではない）
+          bank_shiten_id: null,
+          dokusya_busu: 1,
+          email: 'digi-genkin-today@example.com',
           dokusya_kaishi_date: todayIsoJst(),
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
@@ -2464,7 +2479,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
     it('should pass johoDate + changed hanbaitenId to applyChange when 販売店 changes on update (販売店適用日=joho に統一)', async () => {
       // 顧客要件 2026-07: 販売店適用日を廃止し joho に統一。販売店変更でも別の
       // hanbaitenDate は渡さず、johoDate(=適用日) と変更後の hanbaitenId を渡す。
-      // 履歴は1件・hanbaiten_tekiyo_date=joho の転記は writer の責務。
+      // 履歴は1件・joho_henko_tekiyo_date=joho の転記は writer の責務。
       const before = buildDokusya({
         dokusyaId: 100,
         jaId: 1,
@@ -2882,7 +2897,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
 
     // ── 顧客要件 2026-07: 販売店適用日を廃止し joho に統一 → 1更新1レコード ────
     // service 契約: applyChange へ johoDate のみ渡す（hanbaitenDate は廃止・常に
-    // undefined）。UI/取込/置換で同一。分割なし・hanbaiten_tekiyo_date=joho の転記は
+    // undefined）。UI/取込/置換で同一。分割なし・joho_henko_tekiyo_date=joho の転記は
     // writer(splitEvents/buildRirekiRow) の責務で writer.spec が網羅する。
     it('情報+販売店 同時変更: johoDate のみ渡し、hanbaitenId + 情報を values に載せる', async () => {
       const before = buildDokusya({
@@ -3990,9 +4005,6 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -4272,6 +4284,49 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       expect(matched).toBeDefined();
     });
 
+    it('should add range WHERE for 請求開始月 (>= from AND <= to, excluding empty)', async () => {
+      // COVERS: 請求開始月 範囲検索 — from ≦ 月 ≦ to、未設定(空文字)は除外
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(0);
+      dokusyaQb.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.search(
+        buildSearchDokusyaQuery({
+          seikyu_kaishi_month_from: '202601',
+          seikyu_kaishi_month_to: '202612',
+        }),
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      const calls = [
+        ...dokusyaQb.where.mock.calls,
+        ...dokusyaQb.andWhere.mock.calls,
+      ];
+      const sqls = calls
+        .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
+        .join(' | ');
+      // 未設定(空文字)除外ガード
+      expect(/seikyu_kaishi_month\s*<>\s*''/.test(sqls)).toBe(true);
+      // from: >= :seikyu_from
+      expect(
+        calls.some(
+          ([sql, p]: any[]) =>
+            typeof sql === 'string' &&
+            /seikyu_kaishi_month\s*>=/.test(sql) &&
+            p?.seikyu_from === '202601',
+        ),
+      ).toBe(true);
+      // to: <= :seikyu_to
+      expect(
+        calls.some(
+          ([sql, p]: any[]) =>
+            typeof sql === 'string' &&
+            /seikyu_kaishi_month\s*<=/.test(sql) &&
+            p?.seikyu_to === '202612',
+        ),
+      ).toBe(true);
+    });
+
     it('should add partial-match WHERE for full_name concatenated from shimei_sei + shimei_mei', async () => {
       // COVERS: §4.3 — full_name (d.shimei_sei || ' ' || d.shimei_mei) ILIKE '%' || :full_name || '%'
       dokusyaQb.getRawMany.mockResolvedValue([]);
@@ -4297,14 +4352,14 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       expect(matched).toBeDefined();
     });
 
-    it('should add partial-match WHERE for jastem_toriatsukai_tenpo_code against physical bank_branch_code column', async () => {
-      // COVERS: §4.3 — jastem_toriatsukai_tenpo_code → d.bank_branch_code ILIKE ...
+    it('should add partial-match WHERE for 引落元口座支店 (bank_branch) across bank_branch_code OR bank_branch_name', async () => {
+      // COVERS: §4.3 — bank_branch → (d.bank_branch_code ILIKE ... OR d.bank_branch_name ILIKE ...)
       dokusyaQb.getRawMany.mockResolvedValue([]);
       dokusyaQb.getCount.mockResolvedValue(0);
       dokusyaQb.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.search(
-        buildSearchDokusyaQuery({ jastem_toriatsukai_tenpo_code: '001' }),
+        buildSearchDokusyaQuery({ bank_branch: '001' }),
         buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
       );
 
@@ -4313,12 +4368,87 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
         ...dokusyaQb.andWhere.mock.calls,
       ];
       const matched = calls.find(
-        ([sql]: any[]) =>
+        ([sql, params]: any[]) =>
           typeof sql === 'string' &&
           /bank_branch_code/i.test(sql) &&
-          /ILIKE/i.test(sql),
+          /bank_branch_name/i.test(sql) &&
+          /ILIKE/i.test(sql) &&
+          params?.bank_branch === '001',
       );
       expect(matched).toBeDefined();
+    });
+
+    it('should add partial-match WHERE for 連絡先 (renrakusaki) across renrakusaki_1/2 + haitatsu_renrakusaki_1/2', async () => {
+      // COVERS: §4.3 — renrakusaki → (renrakusaki_1 OR haitatsu_renrakusaki_1 OR renrakusaki_2 OR haitatsu_renrakusaki_2) ILIKE
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(0);
+      dokusyaQb.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.search(
+        buildSearchDokusyaQuery({ renrakusaki: '090' }),
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      const calls = [
+        ...dokusyaQb.where.mock.calls,
+        ...dokusyaQb.andWhere.mock.calls,
+      ];
+      const matched = calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /\brenrakusaki_1\b/.test(sql) &&
+          /\bhaitatsu_renrakusaki_1\b/.test(sql) &&
+          /\brenrakusaki_2\b/.test(sql) &&
+          /\bhaitatsu_renrakusaki_2\b/.test(sql) &&
+          /ILIKE/i.test(sql) &&
+          params?.renrakusaki === '090',
+      );
+      expect(matched).toBeDefined();
+    });
+
+    it('should add exact WHERE for 郵送区分 (yubin_kubun) and 新聞単価 (tanka_id), partial for 備考 (biko)', async () => {
+      // COVERS: 郵送区分/新聞単価=完全一致、備考=部分一致（顧客要件 2026-07 追加）
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(0);
+      dokusyaQb.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.search(
+        buildSearchDokusyaQuery({ yubin_kubun: '1', tanka_id: 5, biko: 'メモ' }),
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      const calls = [
+        ...dokusyaQb.where.mock.calls,
+        ...dokusyaQb.andWhere.mock.calls,
+      ];
+      // 郵送区分: d.yubin_kubun = :yubin_kubun
+      expect(
+        calls.some(
+          ([sql, p]: any[]) =>
+            typeof sql === 'string' &&
+            /d\.yubin_kubun\s*=/.test(sql) &&
+            p?.yubin_kubun === '1',
+        ),
+      ).toBe(true);
+      // 新聞単価: d.tanka_id = :tanka_id
+      expect(
+        calls.some(
+          ([sql, p]: any[]) =>
+            typeof sql === 'string' &&
+            /d\.tanka_id\s*=/.test(sql) &&
+            p?.tanka_id === 5,
+        ),
+      ).toBe(true);
+      // 備考: d.biko ILIKE
+      expect(
+        calls.some(
+          ([sql, p]: any[]) =>
+            typeof sql === 'string' &&
+            /d\.biko/.test(sql) &&
+            /ILIKE/i.test(sql) &&
+            p?.biko === 'メモ',
+        ),
+      ).toBe(true);
     });
 
     it('should add range WHERE for shoki_dokusya_kaishi_date_from / _to (>=/<= on column)', async () => {
@@ -5219,9 +5349,6 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -5668,9 +5795,6 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
 
     // 一括置換は各購読者を applyChange(UPDATE) で置換する。CREATE/UPDATE の履歴
@@ -5810,23 +5934,45 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       expect(/tetsuzuki_shurui/i.test(sqlBlobs)).toBe(true);
     });
 
-    it('should throw DATE_RANGE_INVALID when hanbaiten_tekiyo_date is today or past (未来日のみ・顧客要件 2026-07)', async () => {
+    it('should throw DATE_RANGE_INVALID when joho_henko_tekiyo_date is today or past (未来日のみ・顧客要件 2026-07)', async () => {
       // COVERS: 検索段でも置換適用日は未来日のみ。
       primeSearchRows([]);
       await expect(
         service.searchForReplace(
-          buildReplaceSearchQuery({ hanbaiten_tekiyo_date: '2000-01-01' }),
+          buildReplaceSearchQuery({ joho_henko_tekiyo_date: '2000-01-01' }),
           buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
         ),
       ).rejects.toMatchObject({ response: { error_code: 'DATE_RANGE_INVALID' } });
     });
 
-    it('should filter eligible 購読者 by hanbaiten_tekiyo_date (dokusya_kaishi_date <= 適用日 AND (chushi IS NULL OR chushi > 適用日))', async () => {
+    it('should throw VALIDATION_ERROR (field=dokusya_shubetsu) when 電子版(2) is requested — 本画面の対象外 (ACSMS-MSG-015-009・顧客要件 2026-07 改訂)', async () => {
+      // COVERS: 電子版=電子配信で販売店を持たない → 一括置換の対象外。FE の検索ボタン
+      // 無効化に対する防御的サーバ側ガード（種別が2なら日付に関係なく拒否）。
+      primeSearchRows([]);
+      await expect(
+        service.searchForReplace(
+          buildReplaceSearchQuery({
+            dokusya_shubetsu: 2,
+            joho_henko_tekiyo_date: '2099-12-31',
+          }),
+          buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+        ),
+      ).rejects.toMatchObject({
+        response: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [
+            { field: 'dokusya_shubetsu', message: '電子版は本画面では対象外です。' },
+          ],
+        },
+      });
+    });
+
+    it('should filter eligible 購読者 by joho_henko_tekiyo_date (dokusya_kaishi_date <= 適用日 AND (chushi IS NULL OR chushi > 適用日))', async () => {
       // COVERS: §4.3 置換可能条件（顧客要件 2026-07）— 適用日で置換可能な購読者のみ返す。
       primeSearchRows([]);
 
       await service.searchForReplace(
-        buildReplaceSearchQuery({ hanbaiten_tekiyo_date: '2099-12-31' }),
+        buildReplaceSearchQuery({ joho_henko_tekiyo_date: '2099-12-31' }),
         buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
       );
 
@@ -6068,7 +6214,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         buildReplaceBody({
           dokusya_ids: [5001, 5002],
           new_hanbaiten_id: 201,
-          hanbaiten_tekiyo_date: tekiyoDate,
+          joho_henko_tekiyo_date: tekiyoDate,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -6084,6 +6230,32 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       expect(result.message).toBe('置換処理が完了しました。');
     });
 
+    it('should throw VALIDATION_ERROR (field=dokusya_shubetsu) + NOT fetch candidates when 電子版(2) is requested — 本画面の対象外 (ACSMS-MSG-015-009・顧客要件 2026-07 改訂)', async () => {
+      // COVERS: 電子版は一括置換の対象外。候補取得(find)より前に拒否する
+      // 防御的サーバ側ガード。
+      dokusyaRepo.find.mockClear();
+      await expect(
+        service.replaceHanbaiten(
+          buildReplaceBody({
+            dokusya_ids: [5001],
+            new_hanbaiten_id: 201,
+            dokusya_shubetsu: 2,
+            joho_henko_tekiyo_date: tekiyoDate,
+          }),
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [
+            { field: 'dokusya_shubetsu', message: '電子版は本画面では対象外です。' },
+          ],
+        },
+      });
+      expect(dokusyaRepo.find).not.toHaveBeenCalled();
+    });
+
     it('should invoke applyChange(UPDATE) per candidate with hanbaitenId change at 適用日 (販売店のみ変更イベント)', async () => {
       // 一括置換は各購読者を applyChange(UPDATE) で「販売店のみ変更」する。
       // values は hanbaiten_id のみ、johoDate=hanbaitenDate=販売店適用日
@@ -6097,7 +6269,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         buildReplaceBody({
           dokusya_ids: [5001],
           new_hanbaiten_id: 201,
-          hanbaiten_tekiyo_date: tekiyoDate,
+          joho_henko_tekiyo_date: tekiyoDate,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -6125,7 +6297,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         buildReplaceBody({
           dokusya_ids: [5001],
           new_hanbaiten_id: 201,
-          hanbaiten_tekiyo_date: tekiyoDate,
+          joho_henko_tekiyo_date: tekiyoDate,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -6143,7 +6315,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         buildReplaceBody({
           dokusya_ids: [5001],
           new_hanbaiten_id: 201,
-          hanbaiten_tekiyo_date: tekiyoDate,
+          joho_henko_tekiyo_date: tekiyoDate,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -6191,7 +6363,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
         buildReplaceBody({
           dokusya_ids: [5001],
           new_hanbaiten_id: 201,
-          hanbaiten_tekiyo_date: tekiyoDate,
+          joho_henko_tekiyo_date: tekiyoDate,
         }),
         buildChuokaiSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -6223,7 +6395,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6231,8 +6403,9 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       ).rejects.toMatchObject({ code: 'SAME_HANBAITEN' });
     });
 
-    it('should throw INELIGIBLE_DOKUSYA (400) with errors[] when a candidate is 併読 (dokusya_shubetsu=3)', async () => {
-      // COVERS: §4.3 業務ルール — 併読者 (dokusya_shubetsu=3)
+    it('should reject a 併読 (dokusya_shubetsu=3) candidate via 種別不一致 (DATE_RANGE_INVALID) — 併読 は種別で送れないため一致チェックで弾く', async () => {
+      // COVERS: §4.1 候補種別の整合チェック — 併読(3) は dto.dokusya_shubetsu(1/2) と
+      // 一致しないため mismatch で弾かれる（顧客要件 2026-07）。
       const rows = [
         buildReplaceCandidateRow({
           dokusya_id: 5001,
@@ -6247,50 +6420,22 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
+            dokusya_shubetsu: 1, // 紙版で検索 → 併読候補は不一致
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
       ).rejects.toMatchObject({
-        code: 'INELIGIBLE_DOKUSYA',
+        code: 'DATE_RANGE_INVALID',
       });
     });
 
-    it('should include the offending dokusya_id in errors[] when a 併読 candidate is INELIGIBLE', async () => {
-      // COVERS: §4.3 業務ルール — errors[] = { dokusya_id, reason }
-      const rows = [
-        buildReplaceCandidateRow({
-          dokusya_id: 5001,
-          hanbaiten_id: 200,
-          dokusya_shubetsu: 3,
-        }),
-      ];
-      primeReplace(rows);
-
-      let caught: any;
-      try {
-        await service.replaceHanbaiten(
-          buildReplaceBody({
-            dokusya_ids: [5001],
-            new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
-          }),
-          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
-          baseReq,
-        );
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeDefined();
-      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
-      const errors = body?.errors ?? caught?.errors ?? [];
-      expect(Array.isArray(errors)).toBe(true);
-      expect(errors.some((e: any) => e.dokusya_id === 5001)).toBe(true);
-    });
-
-    it('should throw INELIGIBLE_DOKUSYA (400) when a candidate is 電子版クレカ (dokusya_shubetsu=2 && shiharai_hoho=6)', async () => {
-      // COVERS: §4.3 業務ルール — 電子版クレカ決済者
+    it('should throw VALIDATION_ERROR (電子版は本画面では対象外) when a 電子版クレカ candidate is requested (dokusya_shubetsu=2) — 電子版全体が本画面の対象外 (顧客要件 2026-07 改訂)', async () => {
+      // COVERS: 電子版クレカ(2 && 6) は 電子版 の部分集合。1.4 では per-row の
+      // INELIGIBLE_DOKUSYA に到達したが、1.5 で 電子版(2) 全体が本画面の対象外と
+      // なったため、候補取得より前に VALIDATION_ERROR で拒否される（per-row の
+      // ineligible 判定 = isDigitalCreditCard には到達しない）。
       const rows = [
         buildReplaceCandidateRow({
           dokusya_id: 5002,
@@ -6306,12 +6451,20 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5002],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: todayIsoJst(),
+            dokusya_shubetsu: 2,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
-      ).rejects.toMatchObject({ code: 'INELIGIBLE_DOKUSYA' });
+      ).rejects.toMatchObject({
+        response: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [
+            { field: 'dokusya_shubetsu', message: '電子版は本画面では対象外です。' },
+          ],
+        },
+      });
     });
 
     it('should throw NOT_FOUND (404) when one of the dokusya_ids does not resolve to a candidate row', async () => {
@@ -6324,7 +6477,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001, 9999],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6332,7 +6485,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
-    it('should reject the request when hanbaiten_tekiyo_date is past/today (未来日のみ・顧客要件 2026-07)', async () => {
+    it('should reject the request when joho_henko_tekiyo_date is past/today (未来日のみ・顧客要件 2026-07)', async () => {
       // COVERS: §4.1 — 一括置換=販売店のみ変更=情報変更適用日 → tekiyo_date > today。
       const rows = [buildReplaceCandidateRow({ dokusya_id: 5001, hanbaiten_id: 200 })];
       primeReplace(rows);
@@ -6341,7 +6494,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: pastDate(7),
+            joho_henko_tekiyo_date: pastDate(7),
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6355,7 +6508,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: todayIsoJst(),
+            joho_henko_tekiyo_date: todayIsoJst(),
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6375,7 +6528,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6393,7 +6546,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6413,7 +6566,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6443,7 +6596,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 201,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6481,7 +6634,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
           buildReplaceBody({
             dokusya_ids: [5001],
             new_hanbaiten_id: 999,
-            hanbaiten_tekiyo_date: tekiyoDate,
+            joho_henko_tekiyo_date: tekiyoDate,
           }),
           buildChuokaiSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -6747,9 +6900,6 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
 
     // NEW 取込は applyChange(CREATE) を通る。CREATE の master/履歴生成を writer に
@@ -8071,9 +8221,6 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -8318,9 +8465,6 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       rireki,
       searchService,
       replaceService,
-      // 電子版同期(outbound)。デフォルトは null（DIGITAL 以外＝ゲート対象外）を返し
-      // 既存テストの挙動を変えない。sendNow を検証したいテストは個別に上書きする。
-      { sendNow: jest.fn().mockResolvedValue(null) },
     );
   });
 
@@ -8422,5 +8566,216 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
 
     expect(ui!.zougenHokokuFlg).toBe(false);
     expect(imp!.zougenHokokuFlg).toBe(ui!.zougenHokokuFlg);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// 電子版 upsert 同期フォールバック（未同期 → create） — 顧客決定 2026-07
+// syncDenshibanUpsert: 未同期(denshi_kaiin_id NULL)の電子版会員を編集したら
+// update ではなく create で会員IDを採番してリンクする。既に id があれば差分 update。
+// 他の依存を使わないため denshibanApi 以外は undefined の最小構成で組む
+// （constructor は代入のみ）。
+// ════════════════════════════════════════════════════════════════════════
+describe('DokusyaService — 電子版 upsert 同期フォールバック', () => {
+  function buildServiceWithDenshiban(sendNow: jest.Mock): any {
+    const denshibanApi = { sendNow } as unknown;
+    return new (DokusyaService as any)(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      denshibanApi,
+    );
+  }
+  /**
+   * `denshibanApiFor` のゲートが `manager.getRepository(Tanka).findOne` で
+   * キャンペーン単価を判定するため、update だけのモックでは足りない。
+   * @param campaignFlg 適用単価の m_tanka.campaign_flg（既定 false = 送信対象）
+   */
+  function buildManager(campaignFlg = false): any {
+    return {
+      update: jest.fn(),
+      getRepository: jest.fn().mockReturnValue({
+        findOne: jest.fn().mockResolvedValue({ tankaId: 1, campaignFlg }),
+      }),
+    };
+  }
+
+  it('未同期（denshi_kaiin_id NULL）の編集は update ではなく create を送り、採番IDを保存する', async () => {
+    const sendNow = jest.fn().mockResolvedValue({ id: '55555', statusCode: '0' });
+    const svc = buildServiceWithDenshiban(sendNow);
+    const manager = buildManager();
+    const after = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
+    const before = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
+
+    await svc.syncDenshibanUpsert(manager, after, before, 42);
+
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(sendNow.mock.calls[0][0]).toMatchObject({ dokusya: after, mode: 'create' });
+    expect(after.denshiKaiinId).toBe(55555);
+    expect(manager.update).toHaveBeenCalledWith(
+      Dokusya,
+      { dokusyaId: 42 },
+      { denshiKaiinId: 55555 },
+    );
+  });
+
+  it('同期済み（denshi_kaiin_id あり）の編集は通常どおり差分 update を送る', async () => {
+    const sendNow = jest.fn().mockResolvedValue({ id: null, statusCode: '0' });
+    const svc = buildServiceWithDenshiban(sendNow);
+    const manager = buildManager();
+    const after = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999;
+    const before = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
+
+    await svc.syncDenshibanUpsert(manager, after, before, 42);
+
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(sendNow.mock.calls[0][0]).toMatchObject({
+      dokusya: after,
+      mode: 'update',
+      before,
+    });
+    expect(manager.update).not.toHaveBeenCalled();
+  });
+
+  it('denshibanApi 未配線なら何もしない（skip）', async () => {
+    const svc = new (DokusyaService as any)(
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      // denshibanApi 省略
+    );
+    const manager = buildManager();
+    const after = buildDokusya({ dokusyaId: 42 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
+    const before = buildDokusya({ dokusyaId: 42 });
+
+    await expect(
+      svc.syncDenshibanUpsert(manager, after, before, 42),
+    ).resolves.toBeUndefined();
+    expect(manager.update).not.toHaveBeenCalled();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// アウトバウンド送信ゲート（denshibanApiFor） — 顧客決定 2026-07
+// 電子版(2) かつ 非キャンペーン単価 のみ outbound フローに入る。対象外は
+// sendNow を「呼ばない」— sendNow 内の gate 任せにせず呼び出し側で弾く。
+// ════════════════════════════════════════════════════════════════════════
+describe('DokusyaService — アウトバウンド送信ゲート', () => {
+  function buildServiceWithDenshiban(sendNow: jest.Mock): any {
+    const denshibanApi = { sendNow } as unknown;
+    return new (DokusyaService as any)(
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      denshibanApi,
+    );
+  }
+  function buildManager(campaignFlg = false): any {
+    return {
+      update: jest.fn(),
+      getRepository: jest.fn().mockReturnValue({
+        findOne: jest.fn().mockResolvedValue({ tankaId: 1, campaignFlg }),
+      }),
+    };
+  }
+
+  it('電子版(2)＋非キャンペーン単価 は create を送信する', async () => {
+    const sendNow = jest.fn().mockResolvedValue({ id: '77', statusCode: '0' });
+    const svc = buildServiceWithDenshiban(sendNow);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
+
+    await svc.syncDenshibanCreate(buildManager(false), after, 1);
+
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(sendNow.mock.calls[0][0]).toMatchObject({ mode: 'create' });
+  });
+
+  it('電子版(2) でもキャンペーン単価なら sendNow を呼ばない', async () => {
+    const sendNow = jest.fn();
+    const svc = buildServiceWithDenshiban(sendNow);
+    const manager = buildManager(true); // m_tanka.campaign_flg = true
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
+
+    await svc.syncDenshibanCreate(manager, after, 1);
+
+    expect(sendNow).not.toHaveBeenCalled();
+    // 会員ID採番も走らないこと（送信していないので確定する id が無い）。
+    expect(manager.update).not.toHaveBeenCalled();
+  });
+
+  it('紙版(1) は単価を読むまでもなく sendNow を呼ばない（安いチェックが先）', async () => {
+    const sendNow = jest.fn();
+    const svc = buildServiceWithDenshiban(sendNow);
+    const manager = buildManager(false);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 1, tankaId: 1 });
+
+    await svc.syncDenshibanCreate(manager, after, 1);
+
+    expect(sendNow).not.toHaveBeenCalled();
+    expect(manager.getRepository).not.toHaveBeenCalled();
+  });
+
+  it('併読(3) は sendNow を呼ばない（denshiban 側で別経路登録される）', async () => {
+    const sendNow = jest.fn();
+    const svc = buildServiceWithDenshiban(sendNow);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 3, tankaId: 1 });
+
+    await svc.syncDenshibanCreate(buildManager(false), after, 1);
+
+    expect(sendNow).not.toHaveBeenCalled();
+  });
+
+  it('キャンペーン単価の電子版は update 経路でも sendNow を呼ばない', async () => {
+    const sendNow = jest.fn();
+    const svc = buildServiceWithDenshiban(sendNow);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999; // 同期済み
+    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
+
+    await svc.syncDenshibanUpsert(buildManager(true), after, before, 1);
+
+    expect(sendNow).not.toHaveBeenCalled();
+  });
+
+  it('ゲートは after で判定する — 電子版→紙版 変更は送信しない', async () => {
+    const sendNow = jest.fn();
+    const svc = buildServiceWithDenshiban(sendNow);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 1, tankaId: 1 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999;
+    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
+
+    await svc.syncDenshibanUpsert(buildManager(false), after, before, 1);
+
+    expect(sendNow).not.toHaveBeenCalled();
+  });
+
+  it('update フォールバック（未同期）でもゲートは一度しか単価を読まない', async () => {
+    const sendNow = jest.fn().mockResolvedValue({ id: '77', statusCode: '0' });
+    const svc = buildServiceWithDenshiban(sendNow);
+    const manager = buildManager(false);
+    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
+    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
+    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
+
+    await svc.syncDenshibanUpsert(manager, after, before, 1);
+
+    expect(sendNow).toHaveBeenCalledTimes(1);
+    expect(sendNow.mock.calls[0][0]).toMatchObject({ mode: 'create' });
+    // create フォールバックがゲートを再実行すると 2 回になる。
+    expect(manager.getRepository).toHaveBeenCalledTimes(1);
   });
 });

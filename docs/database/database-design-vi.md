@@ -634,13 +634,14 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
 | 54 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
 | 55 | rireki_no |  | INTEGER |  |  |  | Số lịch sử (số lịch sử mới nhất) |
-| 56 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 57 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 58 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 59 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 60 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
-| 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 62 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | ID hội viên bản điện tử (ID hội viên của hệ thống ngoài. Do tính năng liên kết ngoài thiết lập. Duy nhất toàn bộ) |
+| 56 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 57 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | ID hội viên bản điện tử (ID hội viên của hệ thống ngoài. Do tính năng liên kết ngoài thiết lập. Duy nhất toàn bộ) |
+| 58 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. Chỉ khi loại đăng ký = bản điện tử mới hiển thị "Có tình trạng đăng ký bản giấy" trên màn hình. |
+| 59 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 60 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 61 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 62 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 63 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -731,10 +732,9 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
 | 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
 | 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng đại lý bán hàng  |
-| 71 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
-| 72 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
-| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
+| 70 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
+| 71 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
+| 72 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
 
 ## Chỉ mục
 

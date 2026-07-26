@@ -196,11 +196,11 @@ export class DokusyaRireki {
   })
   haitatsuShimeiKanaMei: string;
 
-  @Column({ name: 'hanbaiten_id', type: 'bigint' })
-  hanbaitenId: number;
+  @Column({ name: 'hanbaiten_id', type: 'bigint', nullable: true })
+  hanbaitenId: number | null;
 
-  @Column({ name: 'tanka_id', type: 'bigint' })
-  tankaId: number;
+  @Column({ name: 'tanka_id', type: 'bigint', nullable: true })
+  tankaId: number | null;
 
   @Column({ name: 'yubin_kubun', type: 'varchar', length: 1, default: '0' })
   yubinKubun: string;
@@ -359,13 +359,8 @@ export class DokusyaRireki {
   @Column({ name: 'denshi_shonin_status', type: 'int', nullable: true })
   denshiShoninStatus: number | null;
 
-  @Column({
-    name: 'hanbaiten_tekiyo_date',
-    type: 'varchar',
-    length: 10,
-    nullable: true,
-  })
-  hanbaitenTekiyoDate: string | null;
+  // 販売店適用日 (hanbaiten_tekiyo_date) は廃止（顧客要件 2026-07）。適用日は
+  // 読者情報変更適用日 (joho_henko_tekiyo_date) に一本化した。
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

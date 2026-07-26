@@ -122,10 +122,13 @@ async function renderView(opts: RenderOptions = {}): Promise<{
     },
   });
   await flushPromises();
-  // 販売店適用日は検索の必須条件（顧客要件 2026-07）。既定で遠未来日を入れて
-  // 検索が通る状態にする（未入力時のバリデーションは opts.seedTekiyo=false で検証）。
+  // 検索の必須条件（顧客要件 2026-07）: 購読種別 + 適用日。既定で 紙版(1) を選び
+  // （watch が適用日をクリア）→ 遠未来日を入れて検索が通る状態にする（紙版は未来日可）。
+  // 未選択時のバリデーションは opts.seedTekiyo=false で検証する。
   if (opts.seedTekiyo !== false) {
-    (wrapper.vm as any).state.filters.hanbaiten_tekiyo_date = '2099-12-31';
+    (wrapper.vm as any).state.filters.dokusya_shubetsu = 1;
+    await flushPromises();
+    (wrapper.vm as any).state.filters.joho_henko_tekiyo_date = '2099-12-31';
     await flushPromises();
   }
   return { wrapper, router };
@@ -243,6 +246,80 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     const { wrapper } = await renderView({ seedTekiyo: false });
     const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('適用日'))).toBe(true);
+  });
+
+  // ─── 購読種別 radio + 適用日ルール（顧客要件 2026-07）────────────────────────
+  it('should disable 適用日 until a 購読種別 is chosen', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const vm = wrapper.vm as any;
+    expect(vm.state.filters.dokusya_shubetsu).toBeUndefined();
+    expect(vm.isTekiyoDateDisabled).toBe(true);
+  });
+
+  it('should show ACSMS-MSG-015-009 toast (NO inline) + disable 検索 + clear 適用日 when 電子版(2) is chosen (顧客要件 2026-07 改訂)', async () => {
+    vi.mocked(message.warning).mockClear();
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const vm = wrapper.vm as any;
+    vm.state.filters.dokusya_shubetsu = 2; // 電子版
+    await flushPromises();
+    // 電子版=電子配信で販売店を持たない → 一括置換の対象外。通知はトーストのみ。
+    expect(message.warning).toHaveBeenCalledWith('電子版は本画面では対象外です。');
+    // インライン（フォーム内）メッセージは出さない。
+    expect(wrapper.text()).not.toContain('電子版は本画面では対象外です。');
+    // 適用日はクリアされ、ピッカーは非活性のまま。
+    expect(vm.state.filters.joho_henko_tekiyo_date).toBe('');
+    expect(vm.isTekiyoDateDisabled).toBe(true);
+    // 検索ボタンは無効化される（電子版では検索させない）。
+    const searchBtn = wrapper.find('button[type="submit"]');
+    expect(searchBtn.attributes('disabled')).toBeDefined();
+  });
+
+  it('should NOT call searchDokusyaForReplace when onSearch runs with 電子版 chosen', async () => {
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const vm = wrapper.vm as any;
+    vm.state.filters.dokusya_shubetsu = 2; // 電子版
+    await flushPromises();
+    vm.onSearch(); // 防御的ガード（ボタン無効化に加えて validateSearch でも弾く）
+    await flushPromises();
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+  });
+
+  it('should re-enable the picker + 検索 button when switching back to 紙版(1)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    const vm = wrapper.vm as any;
+    vm.state.filters.dokusya_shubetsu = 2; // 電子版 → トースト + 検索無効
+    await flushPromises();
+    vm.state.filters.dokusya_shubetsu = 1; // 紙版 へ切替
+    await flushPromises();
+    expect(vm.state.filters.joho_henko_tekiyo_date).toBe(''); // クリア
+    expect(vm.isTekiyoDateDisabled).toBe(false); // カレンダー入力可
+    // 紙版に戻したら検索ボタンは再度有効。
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('should NOT call searchDokusyaForReplace + show 購読種別 error when 検索 pressed without a 購読種別', async () => {
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    (wrapper.vm as any).onSearch();
+    await flushPromises();
+    expect(searchDokusyaForReplace).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('購読種別を選択してください。');
+  });
+
+  it('should send dokusya_shubetsu in the search params', async () => {
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    vi.mocked(searchDokusyaForReplace).mockClear();
+    const { wrapper } = await renderView(); // seeds 紙版(1) + 未来日
+    const vm = wrapper.vm as any;
+    vm.state.filters.kumiaiin_code = '10001';
+    await flushPromises();
+    vm.onSearch();
+    await flushPromises();
+    const arg = vi.mocked(searchDokusyaForReplace).mock.calls[0]?.[0];
+    expect(arg?.dokusya_shubetsu).toBe(1);
   });
 
   it('should NOT call getShitenDropdown when mounted before 管理支店 is chosen (支店 stays empty)', async () => {
@@ -766,7 +843,7 @@ describe('DokusyaReplaceHanbaitenView — replace confirm + execute (機能定�
     expect(flat).toContain('選択した購読者の販売店を置換します。よろしいでしょうか？');
   });
 
-  it('should call replaceDokusyaHanbaiten with dokusya_ids + new_hanbaiten_id + hanbaiten_tekiyo_date when confirmed', async () => {
+  it('should call replaceDokusyaHanbaiten with dokusya_ids + new_hanbaiten_id + joho_henko_tekiyo_date when confirmed', async () => {
     vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
       opts?.onOk?.();
       return { destroy: () => undefined, update: () => undefined };
@@ -788,7 +865,7 @@ describe('DokusyaReplaceHanbaitenView — replace confirm + execute (機能定�
       | undefined;
     expect(body).toMatchObject({
       new_hanbaiten_id: 201,
-      hanbaiten_tekiyo_date: '2099-12-31',
+      joho_henko_tekiyo_date: '2099-12-31',
     });
     expect(Array.isArray(body?.dokusya_ids)).toBe(true);
     expect(body?.dokusya_ids).toContain(5001);
@@ -949,7 +1026,7 @@ describe('DokusyaReplaceHanbaitenView — clear (機能定義 3.x)', () => {
     expect(searchDokusyaForReplace).not.toHaveBeenCalled();
     if (vm.state?.filters) {
       expect(vm.state.filters.kumiaiin_code).toBe('');
-      expect(vm.state.filters.hanbaiten_tekiyo_date).toBe('');
+      expect(vm.state.filters.joho_henko_tekiyo_date).toBe('');
     }
     expect(vm.rows).toHaveLength(0);
     expect(vm.selectedRowKeys).toHaveLength(0);

@@ -23,6 +23,9 @@ updated_by: Nguyen Duyen Manh
 | 4   | 2026/07/16 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07 反映：<br>1. ACSMS-API-014-004（Stop Dokusya＝購読停止・解約予約）を追加。一覧の「購読を停止する」ボタン専用。購読中止日だけを送り Phase 1 の解約予約行を1件挿入する（`POST /api/v1/dokusya/{dokusya_id}/stop`、権限 `dokusya.update`）。<br>2. 紙版はカレンダーで中止日を選択（購読開始日以降・未来日・最終変更適用日より後）。電子版は終了月を選び月末日で停止（当月以降・請求開始月以降。請求開始月未設定なら停止不可）。<br>3. 編集画面（SCR-011）の購読中止日はインライン編集を廃止し読取専用化（停止は本ボタンへ集約） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/17 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：失効単価参照フィルタ `inactive_tanka_flg`（真偽・失効のみ）を **有効単価フラグ `active_tanka_flg`（トライステート：true=有効単価参照のみ / false=失効単価参照のみ / 省略=両方）** へ変更。UI を単価一覧(SCR-006)と同一のラジオ（有効/無効）に統一。SCR-020 の失効単価エラーからの導線(`?inactive_tanka=1`)は「無効(false)」で初期選択。JOIN の active_flg はパラメータバインド。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 6   | 2026/07/17 | 1.5  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：Stop Dokusya（ACSMS-API-014-004）で購読中止日を予約時点に master（t_dokusya.dokusya_chushi_date）へ即時反映する仕様を明記。予約行は未来日で有効行にならないが購読中止日のみ一覧(SCR-014)・詳細(SCR-011)へ直ちに表示。予約行を取消すと購読中止日は自動で null へ戻る（解約フラグ・購読状態の確定は従来どおり到来日バッチ Phase 2）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 7   | 2026/07/24 | 1.6  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：<br>1. 検索結果テーブル・一覧レスポンスに `haitatsu_renrakusaki_1`（配送先連絡先１）を「連絡先１」の直後へ追加（16 列）。<br>2. 一覧の停止ボタン名を「購読停止」→「購読中止」に変更。<br>3. 購読停止（解約予約）ポップアップのタイトルを「購読を停止する」→「購読中止」、OK ボタンを「購読を停止する」→「確認」に変更（API 契約・応答メッセージ `購読停止を予約しました。` は不変）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 8   | 2026/07/24 | 1.7  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：詳細検索エリアの「支払方法」の後に検索条件を3件追加 — `yubin_kubun`（郵送区分・m_code YUBIN_KUBUN 0:空/1:郵送・完全一致）、`tanka_id`（新聞単価・完全一致）、`biko`（備考・部分一致）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 9   | 2026/07/24 | 1.8  | Tran Duc Tuyen | 不具合修正：検索結果テーブル・Excel出力の「販売店コード」列が販売店ID（hanbaiten_id）を表示していたため、`m_hanbaiten` を JOIN した実コード `hanbaiten_code` を表示するよう修正。一覧レスポンスに `hanbaiten_code` を追加、ソート許可カラムに `hanbaiten_code` を追加（列クリックのソートも code 基準）。検索条件の「配達販売店」(hanbaiten_id) は不変。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -92,15 +95,18 @@ updated_by: Nguyen Duyen Manh
 | 1   | kanri_shiten_id           | Number  | -        | -    |        |        | 管理支店ID（プルダウン）【常時表示】                                                                |
 | 2   | shiten_id                 | Number  | -        | -    |        |        | 支店ID（プルダウン、kanri_shiten_id 配下）【常時表示】                                              |
 | 3   | kumiaiin_code             | String  | -        | -    |        | 20     | 組合員コード（部分一致）【常時表示】                                                                |
-| 4   | jastem_toriatsukai_tenpo_code | String | -        | -    |        | 3      | 引落元口座支店コード（部分一致）。物理カラムは `bank_branch_code`（レガシー名）【詳細検索】          |
-| 5   | jastem_tenpo_name             | String | -        | -    |        | 100    | 引落元口座支店名（部分一致）。物理カラムは `bank_branch_name`（レガシー名）【詳細検索】              |
+| 4   | bank_branch                   | String | -        | -    |        | 100    | 引落元口座支店（部分一致）。コード（`bank_branch_code`）・名称（`bank_branch_name`）を横断して OR 部分一致【詳細検索】 |
 | 6   | full_name                 | String  | -        | -    |        | 100    | 氏名（部分一致）。`shimei_sei` / `shimei_mei` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei` のいずれかに部分一致（OR）【常時表示】 |
 | 7   | full_name_kana            | String  | -        | -    |        | 100    | かな氏名（部分一致）。`shimei_kana_sei` / `shimei_kana_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei` のいずれかに部分一致（OR）【常時表示】 |
-| 8   | renrakusaki_1             | String  | -        | -    |        | 15     | 連絡先１（部分一致）。`renrakusaki_1` / `haitatsu_renrakusaki_1` のいずれかに部分一致（OR）【詳細検索】 |
+| 8   | renrakusaki               | String  | -        | -    |        | 15     | 連絡先（部分一致）。`renrakusaki_1` / `haitatsu_renrakusaki_1` / `renrakusaki_2` / `haitatsu_renrakusaki_2` のいずれかに部分一致（OR）【詳細検索】 |
 | 9   | haitatsu                  | String  | -        | -    |        | 200    | 配達先住所（部分一致）。配達先住所4項目（`haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei`）＋購読者住所4項目（`todofuken_code` / `shikuchoson` / `chome_banchi` / `tatemono_mei`）のいずれかに部分一致（OR）【常時表示】 |
 | 10  | hanbaiten_id              | Number  | -        | -    |        |        | 配達販売店ID（プルダウン）【常時表示】                                                              |
 | 11  | email                     | String  | -        | -    |        | 100    | メールアドレス（部分一致、メール形式チェック）【詳細検索】                                          |
-| 12  | seikyu_kaishi_month       | String  | -        | -    |        | 6      | 請求開始月（YYYYMM、部分一致）【詳細検索】                                                          |
+| 11.1 | yubin_kubun              | String  | -        | -    |        | -      | 郵送区分（m_code YUBIN_KUBUN: 0:空 / 1:郵送）。完全一致【詳細検索】                                  |
+| 11.2 | tanka_id                 | Number  | -        | -    |        | -      | 新聞単価ID。完全一致【詳細検索】                                                                    |
+| 11.3 | biko                     | String  | -        | -    |        | 500    | 備考（部分一致）【詳細検索】                                                                        |
+| 12  | seikyu_kaishi_month_from  | String  | -        | -    |        | 6      | 請求開始月（範囲開始）YYYYMM【詳細検索】                                                            |
+| 12.5 | seikyu_kaishi_month_to  | String  | -        | -    |        | 6      | 請求開始月（範囲終了）YYYYMM ※相関チェック：from ≦ to【詳細検索】                                    |
 | 13  | shoki_dokusya_kaishi_date_from | String | -        | -    |        |        | 購読開始日（範囲開始）YYYY/MM/DD【常時表示】                                                        |
 | 14  | shoki_dokusya_kaishi_date_to   | String | -        | -    |        |        | 購読開始日（範囲終了）YYYY/MM/DD ※相関チェック：from ≦ to【常時表示】                               |
 | 15  | dokusya_chushi_date_from       | String | -        | -    |        |        | 購読中止日（範囲開始）YYYY/MM/DD【常時表示】                                                        |
@@ -114,7 +120,7 @@ updated_by: Nguyen Duyen Manh
 | 22.5 | active_tanka_flg             | Boolean | -       | -    |        |        | 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する購読者のみ、`false`=失効単価(active_flg=FALSE)を参照する購読者のみ、省略=両方。参照する購読料単価は tanka_type=1。口座振替出力(SCR-020)の失効単価エラーからは `false`(無効)で初期選択される【詳細検索】 |
 | 23  | page                           | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                         |
 | 24  | per_page                       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
-| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
+| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, hanbaiten_code, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
 | 26  | sort_order                     | String | -        | -    |        |        | ソート順（asc / desc、デフォルト: desc）                                                            |
 
 ## レスポンスデータ
@@ -133,11 +139,13 @@ updated_by: Nguyen Duyen Manh
 | 10  | →full_name_kana              | String  | -        |              | -        | かな氏名（shimei_kana_sei + " " + shimei_kana_mei）                        |
 | 11  | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）  |
 | 12  | →renrakusaki_1               | String  | -        |              | -        | 連絡先１（空文字許容）                                                     |
+| 12.5 | →haitatsu_renrakusaki_1     | String  | -        |              | -        | 配送先連絡先１（空文字許容）                                               |
 | 13  | →renrakusaki_2               | String  | -        |              | -        | 連絡先２（空文字許容）                                                     |
 | 14  | →haitatsu_full_name          | String  | -        |              | -        | 配達先氏名（haitatsu_shimei_sei + " " + haitatsu_shimei_mei、前後空白トリム） |
 | 15  | →haitatsu_yubin_no           | String  | -        |              | -        | 配達先郵便番号（空文字許容）                                               |
 | 16  | →haitatsu                    | String  | -        |              | -        | 配達先住所（todofuken_name + shikuchoson + chome_banchi + tatemono_mei）   |
 | 17  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                   |
+| 17.5 | →hanbaiten_code             | String  | -        |              | -        | 販売店コード（検索結果テーブルの「販売店コード」列に表示）                 |
 | 18  | →hanbaiten_name              | String  | -        |              | -        | 販売店名                                                                   |
 | 19  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読） |
 | 20  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                       |
@@ -179,6 +187,7 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
       "haitatsu_yubin_no": "1500001",
       "haitatsu": "東京都渋谷区神宮前1-1-1 渋谷マンション101",
       "hanbaiten_id": 501,
+      "hanbaiten_code": "HB501",
       "hanbaiten_name": "渋谷販売店",
       "dokusya_shubetsu": 1,
       "shiharai_hoho": 1,
@@ -204,6 +213,7 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
       "haitatsu_yubin_no": "1500002",
       "haitatsu": "東京都渋谷区神宮前2-2-2",
       "hanbaiten_id": 502,
+      "hanbaiten_code": "HB502",
       "hanbaiten_name": "原宿販売店",
       "dokusya_shubetsu": 2,
       "shiharai_hoho": 6,
@@ -270,13 +280,15 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
 - クエリパラメータの検証：
   - kanri_shiten_id / shiten_id / hanbaiten_id：数値型チェック
   - kumiaiin_code：最大20文字
-  - jastem_toriatsukai_tenpo_code：最大3文字（物理カラム `bank_branch_code` に対する部分一致）
-  - jastem_tenpo_name：最大100文字（物理カラム `bank_branch_name` に対する部分一致）
+  - bank_branch：最大100文字（物理カラム `bank_branch_code` / `bank_branch_name` に対する OR 部分一致）
   - full_name / full_name_kana：最大100文字
   - haitatsu：最大200文字
-  - renrakusaki_1：最大15文字
+  - renrakusaki：最大15文字
   - email：最大100文字、メール形式チェック（不正の場合、`VALIDATION_ERROR` + `errors[]` に `正しいメール形式を入力してください。` を含める）
-  - seikyu_kaishi_month：最大6文字
+  - yubin_kubun：m_code YUBIN_KUBUN（0:空 / 1:郵送）の値（完全一致）
+  - tanka_id：整数（完全一致）
+  - biko：最大500文字（部分一致）
+  - seikyu_kaishi_month_from / seikyu_kaishi_month_to：YYYYMM形式（半角数字6桁）、両方指定時 `from ≦ to`
   - shoki_dokusya_kaishi_date_from / shoki_dokusya_kaishi_date_to：有効な日付形式（YYYY/MM/DD）、両方指定時 `from ≦ to`
   - dokusya_chushi_date_from / dokusya_chushi_date_to：有効な日付形式（YYYY/MM/DD）、両方指定時 `from ≦ to`
   - joho_henko_tekiyo_date_from / joho_henko_tekiyo_date_to：有効な日付形式（YYYY/MM/DD）、両方指定時 `from ≦ to`
@@ -286,7 +298,7 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
   - denshi_shonin_status：0〜2 または未指定
   - page：1以上
   - per_page：1〜100
-  - sort_by：許可カラム一覧に含まれるか確認（kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, shoki_dokusya_kaishi_date, dokusya_chushi_date, updated_at）
+  - sort_by：許可カラム一覧に含まれるか確認（kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, hanbaiten_code, shoki_dokusya_kaishi_date, dokusya_chushi_date, updated_at）
   - sort_order：`asc` または `desc`
 - デフォルト値を設定する（page=1, per_page=20, sort_by=updated_at, sort_order=desc）
 - 不正なパラメータの場合：HTTP 400 (`BAD_REQUEST`) または HTTP 400 (`VALIDATION_ERROR`)
@@ -312,15 +324,17 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
   - kanri_shiten_id 指定時：`d.kanri_shiten_id = :kanri_shiten_id`
   - shiten_id 指定時：`d.shiten_id = :shiten_id`
   - kumiaiin_code 指定時：`d.kumiaiin_code ILIKE '%' || :kumiaiin_code || '%'`
-  - jastem_toriatsukai_tenpo_code 指定時：`d.bank_branch_code ILIKE '%' || :jastem_toriatsukai_tenpo_code || '%'` ※物理カラムは `bank_branch_code`（レガシー名）
-  - jastem_tenpo_name 指定時：`d.bank_branch_name ILIKE '%' || :jastem_tenpo_name || '%'` ※物理カラムは `bank_branch_name`（レガシー名）
+  - bank_branch 指定時：`(d.bank_branch_code ILIKE '%' || :bank_branch || '%' OR d.bank_branch_name ILIKE '%' || :bank_branch || '%')` ※物理カラムは `bank_branch_code` / `bank_branch_name`（レガシー名）
   - full_name 指定時：`(d.shimei_sei ILIKE '%' || :full_name || '%' OR d.shimei_mei ILIKE '%' || :full_name || '%' OR d.haitatsu_shimei_sei ILIKE '%' || :full_name || '%' OR d.haitatsu_shimei_mei ILIKE '%' || :full_name || '%')`（購読者氏名＋配達先氏名の各カラムに OR 部分一致）
   - full_name_kana 指定時：`(d.shimei_kana_sei ILIKE '%' || :full_name_kana || '%' OR d.shimei_kana_mei ILIKE ... OR d.haitatsu_shimei_kana_sei ILIKE ... OR d.haitatsu_shimei_kana_mei ILIKE ...)`（購読者かな氏名＋配達先かな氏名の各カラムに OR 部分一致）
-  - renrakusaki_1 指定時：`(d.renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%' OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%')`（連絡先１＋配達先連絡先１に OR 部分一致）
+  - renrakusaki 指定時：`(d.renrakusaki_1 ILIKE '%' || :renrakusaki || '%' OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki || '%' OR d.renrakusaki_2 ILIKE '%' || :renrakusaki || '%' OR d.haitatsu_renrakusaki_2 ILIKE '%' || :renrakusaki || '%')`（購読者連絡先1/2＋配達先連絡先1/2に OR 部分一致）
   - haitatsu 指定時：配達先住所4項目（`haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei`）＋購読者住所4項目（`todofuken_code` / `shikuchoson` / `chome_banchi` / `tatemono_mei`）の各カラムに OR 部分一致
   - hanbaiten_id 指定時：`d.hanbaiten_id = :hanbaiten_id`
   - email 指定時：部分一致
-  - seikyu_kaishi_month 指定時：部分一致
+  - yubin_kubun 指定時：`d.yubin_kubun = :yubin_kubun`（完全一致）
+  - tanka_id 指定時：`d.tanka_id = :tanka_id`（完全一致）
+  - biko 指定時：`d.biko ILIKE '%' || :biko || '%'`（部分一致）
+  - seikyu_kaishi_month_from / seikyu_kaishi_month_to 指定時：YYYYMM の範囲検索（未設定＝空文字の購読者は除外）。from 指定時 `d.seikyu_kaishi_month >= :seikyu_from`、to 指定時 `d.seikyu_kaishi_month <= :seikyu_to`（6桁固定のため辞書順比較が数値順と一致）
   - shoki_dokusya_kaishi_date_from 指定時：`d.shoki_dokusya_kaishi_date >= :shoki_dokusya_kaishi_date_from`
   - shoki_dokusya_kaishi_date_to 指定時：`d.shoki_dokusya_kaishi_date <= :shoki_dokusya_kaishi_date_to`
   - dokusya_chushi_date_from 指定時：`d.dokusya_chushi_date >= :dokusya_chushi_date_from`
@@ -376,7 +390,7 @@ SELECT d.dokusya_id, d.ja_id,
        (d.haitatsu_shimei_sei || ' ' || d.haitatsu_shimei_mei) AS haitatsu_full_name,
        d.haitatsu_yubin_no,
        (COALESCE(t.todofuken_name, '') || d.haitatsu_shikuchoson || d.haitatsu_chome_banchi || d.haitatsu_tatemono_mei) AS haitatsu,
-       d.hanbaiten_id, h.hanbaiten_name,
+       d.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name,
        d.dokusya_shubetsu, d.shiharai_hoho, d.denshi_shonin_status,
        d.shoki_dokusya_kaishi_date, d.dokusya_chushi_date,
        /* is_read_only: 電子版クレジットカード決済者（dokusya_shubetsu=2 AND shiharai_hoho=6）または併読者（dokusya_shubetsu=3） */
@@ -672,7 +686,7 @@ Content-Disposition: attachment; filename*=UTF-8''<URLエンコードした 購�
 | 8    | 配達先氏名       | haitatsu_full_name                                    |
 | 9    | 配達先郵便       | haitatsu_yubin_no                                     |
 | 10   | 配達先住所       | haitatsu                                              |
-| 11   | 販売店コード     | hanbaiten_id                                          |
+| 11   | 販売店コード     | hanbaiten_code                                        |
 | 12   | 販売店名         | hanbaiten_name                                        |
 | 13   | 支払方法         | shiharai_hoho（m_code ラベル）                        |
 | 14   | 購読開始日       | shoki_dokusya_kaishi_date                             |
@@ -790,7 +804,7 @@ LIMIT 30000
 
 - ファイル名：`購読者一覧出力_YYYYMMDD_HHmmss.xlsx`（現在日時、JST）
 - 文字コード：UTF-8
-- ヘッダー行（検索結果テーブルと一致、15 列）：`ID, 管理支店, 組合員コード, 購読者名, 手続種類, 購読種別, 連絡先１, 配達先氏名, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 支払方法, 購読開始日, 購読中止日`
+- ヘッダー行（検索結果テーブルと一致、16 列）：`ID, 管理支店, 組合員コード, 購読者名, 手続種類, 購読種別, 連絡先１, 配送先連絡先１, 配達先氏名, 配達先郵便, 配達先住所, 販売店コード, 販売店名, 支払方法, 購読開始日, 購読中止日`
 - 手続種類 / 購読種別 / 支払方法 は m_code ラベルを `CodeService.getLabel` で解決して出力する
 - 日付を `YYYY/MM/DD` 形式でフォーマットする（NULL の場合は空文字）
 
@@ -852,7 +866,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 項目                   | 内容                                                                                                                                                                                                                                                       |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Stop Dokusya（購読停止・解約予約）                                                                                                                                                                                                                          |
-| 概要                   | 一覧の「購読を停止する」ボタンから、購読中止日（解約予定日）だけを指定して解約予約行を1件挿入する専用API。購読中止日は予約時点で master（t_dokusya.dokusya_chushi_date）へ即時反映し、一覧（SCR-014）・詳細（SCR-011）に直ちに表示する。解約の確定（解約フラグ・購読状態の反映）は到来日バッチ（Phase 2）が行う。予約行を取消すると master の購読中止日は自動で null へ戻る。 |
+| 概要                   | 一覧の「購読中止」ボタンから、購読中止日（解約予定日）だけを指定して解約予約行を1件挿入する専用API。購読中止日は予約時点で master（t_dokusya.dokusya_chushi_date）へ即時反映し、一覧（SCR-014）・詳細（SCR-011）に直ちに表示する。解約の確定（解約フラグ・購読状態の反映）は到来日バッチ（Phase 2）が行う。予約行を取消すると master の購読中止日は自動で null へ戻る。 |
 | URI                    | /api/v1/dokusya/{dokusya_id}/stop                                                                                                                                                                                                                          |
 | メソッド               | POST                                                                                                                                                                                                                                                       |
 | リクエストボディー     | dokusya_chushi_date（YYYY-MM-DD）                                                                                                                                                                                                                          |

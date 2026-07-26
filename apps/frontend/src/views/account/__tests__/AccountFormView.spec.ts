@@ -65,6 +65,8 @@ interface RenderOptions {
   accountId?: number;
   /** Override default NICHINO_ADMIN session (for access-denied path). */
   user?: ReturnType<typeof buildAuthUser>;
+  /** Attach to document.body so document-based focus (focusFirstError) is observable. */
+  attach?: boolean;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -93,6 +95,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
   await router.isReady();
 
   const wrapper = mount(AccountFormView, {
+    ...(opts.attach ? { attachTo: document.body } : {}),
     global: {
       plugins: [
         router,
@@ -854,6 +857,22 @@ describe('AccountFormView — update flow (edit mode)', () => {
     await flushPromises();
 
     expect(createAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe('AccountFormView — focus first error on submit', () => {
+  it('should focus the first errored field when submit hits a validation error', async () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    // attach=true で document へマウントし focusFirstError の document 検索を有効化。
+    const { wrapper } = await renderView({ attach: true }); // 新規（必須未入力）
+    const { createAccount } = await import('@/api/account/account');
+    vi.mocked(createAccount).mockClear();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await flushPromises(); // nextTick(focusFirstError) を待つ
+    expect(createAccount).not.toHaveBeenCalled(); // 検証で送信ブロック
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
   });
 });
 

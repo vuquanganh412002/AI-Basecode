@@ -525,7 +525,7 @@ Kiểm tra trạng thái vùng tìm kiếm chi tiết lúc hiển thị ban đ�
 Click button「詳細検索を表示」
 
 ステップ3：
-Kiểm tra các mục của vùng tìm kiếm chi tiết được mở rộng (引落元口座支店コード, 引落元口座支店名, 連絡先１, メールアドレス, 請求開始月, 適用日, 支払方法)
+Kiểm tra các mục của vùng tìm kiếm chi tiết được mở rộng (引落元口座支店, 連絡先, メールアドレス, 請求開始月, 適用日, 支払方法, 郵送区分, 新聞単価, 備考)
 
 ステップ4：
 Click button「詳細検索を非表示」
@@ -539,7 +539,7 @@ Vùng tìm kiếm chi tiết ở trạng thái thu gọn (trạng thái ban đ�
 Vùng tìm kiếm chi tiết được mở rộng, label button đổi thành「詳細検索を非表示」
 
 ステップ3：
-引落元口座支店コード, 引落元口座支店名, 連絡先１, メールアドレス, 請求開始月, 適用日 (2 ô input bắt đầu・kết thúc), 支払方法 (radio 7 lựa chọn: 口座引落・現金集金・振込集金・JA施設等・給与天引き・クレジットカード・その他) được hiển thị
+引落元口座支店, 連絡先, メールアドレス, 請求開始月 (2 ô input bắt đầu・kết thúc・chọn tháng YYYYMM), 適用日 (2 ô input bắt đầu・kết thúc), 支払方法 (radio 7 lựa chọn: 口座引落・現金集金・振込集金・JA施設等・給与天引き・クレジットカード・その他), 郵送区分 (dropdown: 0:空 / 1:郵送), 新聞単価 (dropdown), 備考 (text・partial match) được hiển thị
 
 ステップ4：
 Vùng tìm kiếm chi tiết được thu gọn lại, label button trở về「詳細検索を表示」
@@ -1048,7 +1048,7 @@ Hiển thị lỗi vượt quá số ký tự (HTTP 400, `error_code: VALIDATION
 
 (なし)
 
-## ACSMS-TC-014-017 — Giá trị biên độ dài tối đa mục tìm kiếm chi tiết (引落元口座支店コード 3 ký tự, 請求開始月 6 ký tự, 連絡先１ 15 ký tự)
+## ACSMS-TC-014-017 — Giá trị biên độ dài tối đa mục tìm kiếm chi tiết (引落元口座支店 100 ký tự, 請求開始月 (bắt đầu) YYYYMM 6 chữ số, 連絡先 15 ký tự)
 
 - 観点ID: VP-B-02
 - 種類: Boundary (境界)
@@ -1058,28 +1058,27 @@ Hiển thị lỗi vượt quá số ký tự (HTTP 400, `error_code: VALIDATION
 ### 手順
 
 ステップ1：
-Nhập 3 ký tự vào 引落元口座支店コード, click「検索」, tiếp tục nhập 4 ký tự, click「検索」
+Nhập 100 ký tự vào 引落元口座支店, click「検索」, tiếp tục nhập 101 ký tự, click「検索」
 
 ステップ2：
-Nhập 6 ký tự vào 請求開始月, click「検索」, tiếp tục nhập 7 ký tự, click「検索」
+Nhập 6 chữ số (YYYYMM) vào 請求開始月 (bắt đầu), click「検索」, tiếp tục nhập 7 chữ số, click「検索」
 
 ステップ3：
-Nhập 15 ký tự vào 連絡先１, click「検索」, tiếp tục nhập 16 ký tự, click「検索」
+Nhập 15 ký tự vào 連絡先, click「検索」, tiếp tục nhập 16 ký tự, click「検索」
 
 ### 期待結果
 
 ステップ1：
-3 ký tự tìm kiếm bình thường với HTTP 200, 4 ký tự hiển thị lỗi vượt quá số ký tự (`error_code: VALIDATION_ERROR`, `errors[]` có `field: jastem_toriatsukai_tenpo_code`)
+100 ký tự tìm kiếm bình thường với HTTP 200, 101 ký tự hiển thị lỗi vượt quá số ký tự (`error_code: VALIDATION_ERROR`, `errors[]` có `field: bank_branch`)
 
 ステップ2：
-6 ký tự tìm kiếm bình thường với HTTP 200, 7 ký tự hiển thị lỗi vượt quá số ký tự (`errors[]` có `field: seikyu_kaishi_month`)
+6 chữ số (YYYYMM) tìm kiếm bình thường với HTTP 200, 7 chữ số hiển thị lỗi định dạng (`請求開始月はYYYYMMの形式で指定してください。`) (`errors[]` có `field: seikyu_kaishi_month_from`)
 
 ステップ3：
-15 ký tự tìm kiếm bình thường với HTTP 200, 16 ký tự hiển thị lỗi vượt quá số ký tự (`errors[]` có `field: renrakusaki_1`)
+15 ký tự tìm kiếm bình thường với HTTP 200, 16 ký tự hiển thị lỗi vượt quá số ký tự (`errors[]` có `field: renrakusaki`)
 
 補足：
-・引落元口座支店コード là partial match với cột vật lý `bank_branch_code` (tối đa 3 ký tự)
-・引落元口座支店名 là partial match với cột vật lý `bank_branch_name` (tối đa 100 ký tự)
+・引落元口座支店 là OR partial match với cột vật lý `bank_branch_code` / `bank_branch_name` (tối đa 100 ký tự)
 ・Mỗi độ dài tối đa theo request parameter tài liệu API
 
 ### テスト結果（1回目）

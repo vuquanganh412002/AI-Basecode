@@ -47,6 +47,7 @@ function makeDraft(overrides: Partial<DokusyaDraft> = {}): DokusyaDraft {
     email: 'taro@example.jp',
     // attributes
     mailMagazineFlg: 1,
+    honshiKodokuFlg: false,
     birthYear: 1990,
     gender: 1,
     dokusyasoBunrui: '農業者',
@@ -253,6 +254,7 @@ describe('classifyInbound — 実ビルダー連携', () => {
       tel2: '',
       email: 'taro@example.jp',
       melmaga: '1',
+      subscribe_flg: '0',
       birthyear: '1990',
       sex: '1',
       member_type: '2',

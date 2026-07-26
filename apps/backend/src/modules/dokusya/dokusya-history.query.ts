@@ -52,21 +52,54 @@ export function loadEffectiveRow(
 }
 
 /**
- * 予約中の解約予定日(購読中止日) — 取消されていない行のうち `dokusya_chushi_date`
- * が入った最新 `(joho, rireki_no)` 行の中止日。予約行は未来日で effective ではないが、
- * 購読中止日だけは予約時点から master(t_dokusya) に反映して一覧(SCR-014)/詳細(SCR-011)
- * に即時表示するため `recomputeMaster` が参照する（顧客要件 2026-07）。無ければ null。
- * 予約を取消(torikeshi)すると該当行が除外され null に戻り、master 側もクリアされる。
+ * 現ライフサイクルの起点 — 最新の新規/再購読行（`shinki_flg=true`・取消除外の
+ * 最大 `(joho, rireki_no)`）。全購読者に最低1つ（作成行）存在する。再購読すると
+ * この行が再購読行へ進むため、これを境界に「現ライフサイクル = rireki_no >= 起点」を
+ * 定義できる。{@link loadCurrentLifecycleEffectiveRow} /
+ * {@link loadScheduledChushiDate} が共有する。無ければ null（履歴なし）。
+ */
+function loadLatestShinki(
+  m: EntityManager,
+  dokusyaId: number,
+): Promise<DokusyaRireki | null> {
+  return applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.shinki_flg = true'),
+    SORT_CHAIN_DESC,
+  )
+    .limit(1)
+    .getOne();
+}
+
+/**
+ * 予約中の解約予定日(購読中止日) — **現ライフサイクル**（最新の新規/再購読行以降）で
+ * 取消されていない `dokusya_chushi_date` が入った最新 `(joho, rireki_no)` 行の中止日。
+ * 予約行は未来日で effective ではないが、購読中止日だけは予約時点から master(t_dokusya)
+ * に反映して一覧(SCR-014)/詳細(SCR-011)に即時表示するため `recomputeMaster` が参照する
+ * （顧客要件 2026-07）。無ければ null。
+ *
+ * **ライフサイクル限定が重要**（顧客要件 2026-07）: 解約確定 → 再購読 すると、旧
+ * ライフサイクルの解約予約/確定行には中止日が残るが、それらは `rireki_no` が
+ * 再購読行より小さいため除外される。これにより再購読後は master の購読中止日が
+ * null に戻る（現ライフサイクルに予約が無いため）。予約を取消(torikeshi)した場合も
+ * 該当行が除外され null に戻り、master 側もクリアされる。
  */
 export async function loadScheduledChushiDate(
   m: EntityManager,
   dokusyaId: number,
 ): Promise<DokusyaRireki['dokusyaChushiDate'] | null> {
+  const latestShinki = await loadLatestShinki(m, dokusyaId);
+  if (!latestShinki) return null; // 履歴なし
+
   const row = await applyChainOrder(
     m
       .createQueryBuilder(DokusyaRireki, 'r')
       .where('r.dokusya_id = :dokusyaId', { dokusyaId })
       .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.rireki_no >= :minNo', { minNo: latestShinki.rirekiNo })
       .andWhere('r.dokusya_chushi_date IS NOT NULL'),
     SORT_CHAIN_DESC,
   )
@@ -120,16 +153,7 @@ export async function loadCurrentLifecycleEffectiveRow(
   dokusyaId: number,
   asOf: DateOnly,
 ): Promise<DokusyaRireki | null> {
-  const latestShinki = await applyChainOrder(
-    m
-      .createQueryBuilder(DokusyaRireki, 'r')
-      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
-      .andWhere('r.torikeshi_flg = false')
-      .andWhere('r.shinki_flg = true'),
-    SORT_CHAIN_DESC,
-  )
-    .limit(1)
-    .getOne();
+  const latestShinki = await loadLatestShinki(m, dokusyaId);
   if (!latestShinki) return null; // 履歴なし
 
   const effective = await applyChainOrder(

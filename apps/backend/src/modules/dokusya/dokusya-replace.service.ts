@@ -4,7 +4,11 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
-import { NotFoundException } from '@/common/exceptions/common.exceptions';
+import {
+  NotFoundException,
+  ValidationException,
+} from '@/common/exceptions/common.exceptions';
+import { TetsuzukiShurui } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { todayIsoJst, normalizeDbDate } from '@/common/utils/datetime';
 import {
@@ -15,7 +19,7 @@ import {
   assertJaScopeViolation,
 } from '@/common/utils/data-scope';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
-import { AuditOperation, DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
+import { AuditOperation, DokusyaShubetsu } from '@/common/enums';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
@@ -34,6 +38,7 @@ import {
   toReplaceSearchItem,
   type ReplaceSearchItem,
 } from './dokusya.mapper';
+import { isBoth, isDigitalCreditCard } from './dokusya-shubetsu.rules';
 
 /**
  * SCR-015 — 購読者販売店一括置換画面 audit-context label. core 側
@@ -46,6 +51,13 @@ const SCREEN_NAME_SCR015 = '購読者販売店一括置換画面 (ACSMS-SCR-015)
  * 同一値だが、本サービス内で完結させるため複製して保持する。
  */
 const TABLE_NAME = 't_dokusya';
+
+/**
+ * 電子版は本画面（販売店一括置換）の対象外である旨のメッセージ（ACSMS-MSG-015-009・
+ * 顧客要件 2026-07 改訂）。電子版=電子配信で販売店を持たないため一括置換できない。
+ * FE の同一文言（DokusyaReplaceHanbaitenView `MSG_DIGITAL_UNSUPPORTED`）と一致させる。
+ */
+const REPLACE_DIGITAL_UNSUPPORTED_MSG = '電子版は本画面では対象外です。';
 
 /**
  * Sort-by allow-list for the SCR-015 replace search. Mirrors the
@@ -103,13 +115,13 @@ export class DokusyaReplaceService {
       throw new DateRangeInvalidException();
     }
 
-    // §4.1 販売店適用日は未来日のみ（当日・過去日不可・顧客要件 2026-07）。置換の
-    // 実行時チェック(assertReplaceTekiyoDate)と同一基準を検索段でも適用する。
-    if (query.hanbaiten_tekiyo_date <= todayIsoJst()) {
-      throw new DateRangeInvalidException(
-        '販売店適用日は本日より後の日付を入力してください。',
-      );
-    }
+    // §4.1 適用日ルールは購読種別依存（顧客要件 2026-07 改訂）:
+    //   紙版=未来日のみ（予約置換）／電子版=当日のみ（即時反映・未来予約不可）。
+    // 置換の実行時チェックと同一基準を検索段でも適用する。
+    this.assertTekiyoDateForShubetsu(
+      query.dokusya_shubetsu,
+      query.joho_henko_tekiyo_date,
+    );
 
     const page = Math.max(1, Number(query.page ?? 1));
     const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
@@ -126,20 +138,25 @@ export class DokusyaReplaceService {
     qb.leftJoin('m_todofuken', 't', 't.todofuken_code = d.haitatsu_todofuken_code');
 
     // §4.3 固定条件 — 購読中 only, exclude soft-deleted.
-    qb.where('d.tetsuzuki_shurui = 1');
+    qb.where(`d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}`);
     qb.andWhere('d.deleted_at IS NULL');
 
-    // §4.3 販売店適用日で「置換可能」な購読者のみに絞る（顧客要件 2026-07）。
+    // §4.3 購読種別で絞り込む（必須・1:紙版 / 2:電子版・顧客要件 2026-07）。
+    qb.andWhere('d.dokusya_shubetsu = :rkShubetsu', {
+      rkShubetsu: query.dokusya_shubetsu,
+    });
+
+    // §4.3 適用日(joho)で「置換可能」な購読者のみに絞る（顧客要件 2026-07）。
     // 置換の実行時チェック(assertReplaceTekiyoDate)と同一の境界を per-row で適用:
     //   購読開始日 <= 適用日  かつ  (解約予定日が無い OR 解約予定日 > 適用日)。
     // これで返る各行は個別に適用日で置換可能 → 任意の部分集合を選択しても実行時の
     // 集約チェックが必ず通る。
     qb.andWhere('d.dokusya_kaishi_date <= :rkApplied', {
-      rkApplied: query.hanbaiten_tekiyo_date,
+      rkApplied: query.joho_henko_tekiyo_date,
     });
     qb.andWhere(
       '(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :rkApplied)',
-      { rkApplied: query.hanbaiten_tekiyo_date },
+      { rkApplied: query.joho_henko_tekiyo_date },
     );
 
     // §4.2 DataScope.
@@ -269,13 +286,12 @@ export class DokusyaReplaceService {
     // (account_concept.md §139-145).
     await this.accountFlags.assertAnyDokusyaFlag(session);
 
-    // §4.1 — 一括置換は 販売店のみ変更 = 情報変更適用日 を兼ねるため、tekiyo_date は
-    // 未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。UI 単票の joho と同一基準。
-    if (dto.hanbaiten_tekiyo_date <= todayIsoJst()) {
-      throw new DateRangeInvalidException(
-        '販売店適用日は本日より後の日付を入力してください。',
-      );
-    }
+    // §4.1 — 適用日ルールは購読種別依存（顧客要件 2026-07 改訂）:
+    //   紙版=未来日のみ（予約置換）／電子版=当日のみ（即時反映・未来予約不可）。
+    this.assertTekiyoDateForShubetsu(
+      dto.dokusya_shubetsu,
+      dto.joho_henko_tekiyo_date,
+    );
 
     const ids = dto.dokusya_ids;
 
@@ -287,13 +303,24 @@ export class DokusyaReplaceService {
       where: { dokusyaId: In(ids), deletedAt: IsNull() },
     });
 
+    // §4.3 — 全候補が要求された購読種別と一致することを保証（検索で種別絞り込み
+    // 済みだが、改竄・不整合な id 混入を防ぐ防御。顧客要件 2026-07）。
+    const hasShubetsuMismatch = candidates.some(
+      (c) => Number(c.dokusyaShubetsu) !== Number(dto.dokusya_shubetsu),
+    );
+    if (hasShubetsuMismatch) {
+      throw new DateRangeInvalidException(
+        '選択した購読者に指定の購読種別と異なる購読者が含まれています。',
+      );
+    }
+
     this.validateReplaceCandidates(candidates, ids, dto.new_hanbaiten_id, session);
 
-    // §4.1 — 販売店適用日の整合性（顧客要件 2026-07）。単一の適用日を全候補へ
+    // §4.1 — 適用日(joho)の整合性（顧客要件 2026-07）。単一の適用日を全候補へ
     // 適用するため「候補全体で最も遅い購読開始日以降 かつ 最も早い解約予定日
     // より前」であること。参照は各候補の現行有効レコード(before)。UI/取込の
     // 単票チェックと同じルールだが、置換は複数候補の境界を集約して判定する。
-    this.assertReplaceTekiyoDate(candidates, dto.hanbaiten_tekiyo_date);
+    this.assertReplaceTekiyoDate(candidates, dto.joho_henko_tekiyo_date);
 
     // §4.4 — validate the replace target hanbaiten exists + is in scope.
     const targetRows: Array<Record<string, unknown>> =
@@ -329,8 +356,7 @@ export class DokusyaReplaceService {
         // 統一され（顧客要件 2026-07: 販売店適用日を廃止）、置換画面の適用日を
         // johoDate として渡す＝1更新1レコード（UI/取込と同一ロジック）。applyChange
         // が差分→履歴INSERT→recomputeMaster まで担い、saishin 無効化・rireki_no
-        // 採番・zenkai_hanbaiten_id 退避・増減報告フラグを一元処理する。販売店を
-        // 変えた行なので hanbaiten_tekiyo_date=joho が設定される。
+        // 採番・zenkai_hanbaiten_id 退避・増減報告フラグを一元処理する。
         let rirekiCount = 0;
         for (const before of candidates) {
           const dokusyaId = Number(before.dokusyaId);
@@ -340,7 +366,7 @@ export class DokusyaReplaceService {
             mode: 'UPDATE',
             dokusyaId,
             values: { hanbaitenId: Number(dto.new_hanbaiten_id) },
-            johoDate: dto.hanbaiten_tekiyo_date,
+            johoDate: dto.joho_henko_tekiyo_date,
             source: 'REPLACE_HANBAITEN',
             actor: String(session.account_id),
             reason: '販売店一括置換',
@@ -422,17 +448,13 @@ export class DokusyaReplaceService {
 
     const ineligible: IneligibleDokusyaDetail[] = [];
     for (const c of candidates) {
-      const shubetsu = Number(c.dokusyaShubetsu);
-      const hoho = Number(c.shiharaiHoho);
-      if (shubetsu === DokusyaShubetsu.BOTH) {
+      // 併読 / 電子版クレカ は読取専用（共通述語で判定・置換文言）。
+      if (isBoth(c.dokusyaShubetsu)) {
         ineligible.push({
           dokusya_id: Number(c.dokusyaId),
           reason: '併読者のため置換できません。',
         });
-      } else if (
-        shubetsu === DokusyaShubetsu.DIGITAL &&
-        hoho === ShiharaiHoho.CREDIT_CARD
-      ) {
+      } else if (isDigitalCreditCard(c.dokusyaShubetsu, c.shiharaiHoho)) {
         ineligible.push({
           dokusya_id: Number(c.dokusyaId),
           reason: '電子版クレカ決済者のため置換できません。',
@@ -445,7 +467,30 @@ export class DokusyaReplaceService {
   }
 
   /**
-   * §4.1 販売店適用日の整合性（一括置換）。単一の適用日を全候補へ適用するので、
+   * §4.1 購読種別に応じた適用日ルール（顧客要件 2026-07 改訂）:
+   *   - 紙版(1): 未来日のみ（当日・過去日不可）。予約置換。
+   *   - 電子版(2): 本画面（販売店一括置換）の対象外 → 検索・置換とも拒否。
+   *     電子版=電子配信で販売店を持たないため一括置換できない
+   *     （ACSMS-MSG-015-009・顧客要件 2026-07 改訂で「電子版=当日置換」を撤回）。
+   * 検索段・置換実行段の双方で同一基準を適用する（FE の検索ボタン無効化に対する
+   * 防御的サーバ側ガード）。
+   */
+  private assertTekiyoDateForShubetsu(shubetsu: number, date: string): void {
+    if (Number(shubetsu) === DokusyaShubetsu.DIGITAL) {
+      throw new ValidationException([
+        { field: 'dokusya_shubetsu', message: REPLACE_DIGITAL_UNSUPPORTED_MSG },
+      ]);
+    }
+    // 紙版（既定）— 未来日のみ。
+    if (date <= todayIsoJst()) {
+      throw new DateRangeInvalidException(
+        '紙版の適用日は本日より後の日付を入力してください。',
+      );
+    }
+  }
+
+  /**
+   * §4.1 適用日(joho)の整合性（一括置換）。単一の適用日を全候補へ適用するので、
    * 候補全体で「最も遅い購読開始日(maxKaishi)以降」かつ「最も早い解約予定日
    * (minChushi)より前」であること（解約予定日が設定済みの候補がある場合のみ）。
    * 参照は各候補の現行有効レコード(before)。過去日(today基準)は呼び出し側で確認済み。
@@ -467,12 +512,12 @@ export class DokusyaReplaceService {
     }
     if (maxKaishi && applied < maxKaishi) {
       throw new DateRangeInvalidException(
-        `販売店適用日は購読開始日（${maxKaishi.replaceAll('-', '/')}）以降の日付を指定してください。`,
+        `適用日は購読開始日（${maxKaishi.replaceAll('-', '/')}）以降の日付を指定してください。`,
       );
     }
     if (minChushi && applied >= minChushi) {
       throw new DateRangeInvalidException(
-        `販売店適用日は解約予定日（${minChushi.replaceAll('-', '/')}）より前の日付を指定してください。`,
+        `適用日は解約予定日（${minChushi.replaceAll('-', '/')}）より前の日付を指定してください。`,
       );
     }
   }

@@ -4,4 +4,3 @@
  * `queue.add(...)` and `@Processor(...)` call sites.
  */
 export const QUEUE_FILE_UPLOAD_NOTIFICATION = 'file-upload-notification';
-export const QUEUE_DENSHIBAN_SYNC = 'denshiban-sync';

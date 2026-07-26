@@ -7,9 +7,10 @@
  * 承認 / 否認 endpoints set 1 / 2, and 電子版(2) の Excel取込 auto-approves
  * (1) since staff-driven. Adding a state is a code change + review.
  *
- * BE-only: the FE doesn't branch on the VALUE (it only presence-filters by
- * the column), so there is no FE mirror / enum-sync pair. Add one (and a
- * PAIRS entry in enum-sync.spec.ts) if the FE starts branching on it.
+ * The FE branches on the VALUE in DokusyaFormView (承認待ち→単価のみ編集可 /
+ * 否認→読取専用), so it is mirrored at
+ * `apps/frontend/src/constants/enums/denshi-shonin-status.ts` with an
+ * `enum-sync.spec.ts` PAIRS entry that fails CI on drift.
  */
 export const DenshiShoninStatus = {
   /** 承認待ち */

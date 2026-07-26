@@ -475,11 +475,19 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
         .set('Cookie', cookie)
         .send(
           buildImportRequestNEW({
-            selected_columns: ['hanbaiten_code', 'hanbaiten_name'],
+            // 委託区分 / 振込手数料負担区分 は必須（顧客要件）→ selected + 値必須。
+            selected_columns: [
+              'hanbaiten_code',
+              'hanbaiten_name',
+              'itaku_kubun',
+              'furikomi_tesuryo_futan_kubun',
+            ],
             rows: [
               buildImportRow({
                 hanbaiten_code: 'H001',
                 hanbaiten_name: '販売店A',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
                 tel: '0312345678',
               }),
             ],

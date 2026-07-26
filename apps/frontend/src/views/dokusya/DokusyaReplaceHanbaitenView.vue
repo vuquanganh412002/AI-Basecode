@@ -42,6 +42,7 @@ import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useAuthStore } from '@/stores/auth.store';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
+import { useCodesStore } from '@/stores/codes.store';
 import { isTodayOrPastDayTokyo, todayIsoTokyo } from '@/utils/datetime';
 import {
   searchDokusyaForReplace,
@@ -65,8 +66,10 @@ interface ReplaceFilters {
   hanbaiten_id: number | undefined;
   dokusya_kaishi_date_from: string;
   dokusya_kaishi_date_to: string;
-  /** 販売店適用日（必須・未来日のみ）。この日付で置換可能な購読者のみ検索する。 */
-  hanbaiten_tekiyo_date: string;
+  /** 購読種別（必須・1:紙版 / 2:電子版）。この種別で購読者を絞り込む。未選択は undefined。 */
+  dokusya_shubetsu: number | undefined;
+  /** 情報変更適用日（必須）。紙版=未来日のみ／電子版=本日のみ。置換可能な購読者のみ検索。 */
+  joho_henko_tekiyo_date: string;
 }
 
 const DEFAULT_FILTERS: ReplaceFilters = {
@@ -79,7 +82,8 @@ const DEFAULT_FILTERS: ReplaceFilters = {
   hanbaiten_id: undefined,
   dokusya_kaishi_date_from: '',
   dokusya_kaishi_date_to: '',
-  hanbaiten_tekiyo_date: '',
+  dokusya_shubetsu: undefined,
+  joho_henko_tekiyo_date: '',
 };
 
 const authStore = useAuthStore();
@@ -137,6 +141,56 @@ const isShitenDisabled = computed(
 
 /** ≥1 row checked reveals 置換先 + enables 置換処理実行（適用日は検索条件で常時表示）. */
 const hasSelection = computed(() => selectedRowKeys.value.length > 0);
+
+const codes = useCodesStore();
+
+/** 一括置換の購読種別ラジオ候補 — 紙版(1) / 電子版(2) のみ（併読は対象外）。
+ *  ラベルは m_code(DOKUSYA_SHUBETSU) から取得（ハードコード禁止・vue.md §m_code）。 */
+const shubetsuOptions = computed(() =>
+  codes
+    .options('DOKUSYA_SHUBETSU')
+    .filter(
+      (o) =>
+        Number(o.value) === DokusyaShubetsu.PAPER ||
+        Number(o.value) === DokusyaShubetsu.DIGITAL,
+    ),
+);
+
+/** 購読種別=電子版 が選択されているか（適用日=当日固定の判定）。 */
+const isDigitalShubetsu = computed(
+  () => state.filters.dokusya_shubetsu === DokusyaShubetsu.DIGITAL,
+);
+
+/** 適用日ピッカーは 購読種別 未選択 か 電子版（本画面では対象外）のとき入力不可。
+ *  紙版のときだけカレンダーで未来日を選べる（顧客要件 2026-07）。 */
+const isTekiyoDateDisabled = computed(
+  () => state.filters.dokusya_shubetsu === undefined || isDigitalShubetsu.value,
+);
+
+/** 検索エリアの購読種別/適用日バリデーションメッセージ。 */
+const searchError = ref<string>('');
+
+/** 電子版は本画面（販売店一括置換）の対象外である旨のメッセージ（顧客要件 2026-07 改訂・
+ *  ACSMS-MSG-015-009）。電子版=電子配信で販売店を持たないため一括置換できない。 */
+const MSG_DIGITAL_UNSUPPORTED = '電子版は本画面では対象外です。';
+
+// 購読種別を選ぶと検索条件が変わる（顧客要件 2026-07 改訂）:
+//   電子版 → 本画面では対象外。トーストで通知し検索ボタンを無効化する
+//            （インラインメッセージは出さない・検索不可のため適用日はクリアし
+//            ピッカー非活性のまま）。
+//   紙版   → 未来日のみ → 適用日をクリアしユーザーにカレンダー入力させる。
+// どちらも適用日をクリアするため、既存の検索結果・選択・置換フォームは
+// joho_henko_tekiyo_date の watch がまとめてリセットする。
+watch(
+  () => state.filters.dokusya_shubetsu,
+  (shubetsu) => {
+    state.filters.joho_henko_tekiyo_date = '';
+    searchError.value = '';
+    if (shubetsu === DokusyaShubetsu.DIGITAL) {
+      message.warning(MSG_DIGITAL_UNSUPPORTED); // トーストのみ（顧客要件 2026-07）
+    }
+  },
+);
 
 /** 機能定義 7.x — load 支店 list scoped to the chosen 管理支店. */
 async function fetchShitenDropdown(kanriShitenId: number): Promise<void> {
@@ -236,8 +290,9 @@ function buildSearchParams(): ReplaceSearchParams {
     per_page: state.per_page,
     sort_by: state.sort_by as ReplaceSearchParams['sort_by'],
     sort_order: state.sort_order,
-    // 販売店適用日は必須（検索前に validateSearch で担保）。
-    hanbaiten_tekiyo_date: f.hanbaiten_tekiyo_date,
+    // 適用日 + 購読種別 は必須（検索前に validateSearch で担保）。
+    joho_henko_tekiyo_date: f.joho_henko_tekiyo_date,
+    dokusya_shubetsu: f.dokusya_shubetsu as number,
   };
   // 管理支店 / 販売店 は Base*Dropdown が未選択時 null を emit（!= null で両対応）。
   if (f.kanri_shiten_id != null) params.kanri_shiten_id = f.kanri_shiten_id;
@@ -257,7 +312,7 @@ function buildSearchParams(): ReplaceSearchParams {
 async function fetchList(): Promise<void> {
   // 適用日（必須）が無ければ検索しない — 未入力/クリア直後は空状態に戻す。
   // onSearch で必須検証済みのため、通常はここに空で来るのはクリア/初期のみ。
-  if (!state.filters.hanbaiten_tekiyo_date?.trim()) {
+  if (!state.filters.joho_henko_tekiyo_date?.trim()) {
     rows.value = [];
     total.value = 0;
     searched.value = false;
@@ -309,19 +364,27 @@ const { onSearch: runSearch, onClear: runClear } = searchActions({
   },
 });
 
-/** 検索エリアの適用日バリデーションメッセージ。 */
-const searchError = ref<string>('');
-
-/** 検索前チェック — 適用日は必須 + 未来日のみ（BE と同一基準）。 */
+/** 検索前チェック — 購読種別必須 + 電子版対象外ガード + 適用日必須 + 紙版の日付ルール
+ *   （BE と同一基準・紙版=未来日のみ > 本日）。電子版は本画面の対象外のため検索させない
+ *   （通常は検索ボタンが無効化されるが、防御的に validateSearch でも弾く）。 */
 function validateSearch(): boolean {
   searchError.value = '';
-  const d = state.filters.hanbaiten_tekiyo_date;
+  if (state.filters.dokusya_shubetsu === undefined) {
+    searchError.value = '購読種別を選択してください。';
+    return false;
+  }
+  if (isDigitalShubetsu.value) {
+    // 電子版は本画面の対象外（ACSMS-MSG-015-009）。通知はトースト（種別選択時に
+    // 発火済み）で行い、インラインメッセージは出さないため検索を止めるだけ。
+    return false;
+  }
+  const d = state.filters.joho_henko_tekiyo_date;
   if (!d?.trim()) {
     searchError.value = '適用日を入力してください。'; // ACSMS-MSG-015-004
     return false;
   }
   if (d <= todayIsoTokyo()) {
-    searchError.value = '適用日は本日より後の日付を入力してください。';
+    searchError.value = '紙版の適用日は本日より後の日付を入力してください。';
     return false;
   }
   return true;
@@ -346,7 +409,7 @@ function onClear(): void {
 // 適用日を変更したら、既存の検索結果は別の適用日で置換可能な集合になり得るため
 // 破棄して再検索を促す（古い結果で置換実行しないため）。
 watch(
-  () => state.filters.hanbaiten_tekiyo_date,
+  () => state.filters.joho_henko_tekiyo_date,
   () => {
     if (searched.value) {
       rows.value = [];
@@ -417,8 +480,9 @@ async function runReplace(): Promise<void> {
     await replaceDokusyaHanbaiten({
       dokusya_ids: [...selectedRowKeys.value],
       new_hanbaiten_id: form.new_hanbaiten_id,
-      // 適用日は検索条件の値をそのまま使う（検索で入力・検証済み）。
-      hanbaiten_tekiyo_date: state.filters.hanbaiten_tekiyo_date,
+      // 適用日・購読種別は検索条件の値をそのまま使う（検索で入力・検証済み）。
+      joho_henko_tekiyo_date: state.filters.joho_henko_tekiyo_date,
+      dokusya_shubetsu: state.filters.dokusya_shubetsu as number,
     });
     // Custom copy (subject-bearing) — verb-only notify helpers don't fit.
     message.success(MSG_SUCCESS);
@@ -466,7 +530,7 @@ defineExpose({
     <!-- 検索エリア -->
     <BaseSearchForm
       :loading="loading"
-      :disable-submit="hasSelection"
+      :disable-submit="hasSelection || isDigitalShubetsu"
       :columns="4"
       @search="onSearch"
       @clear="onClear"
@@ -577,19 +641,40 @@ defineExpose({
         />
       </div>
 
-      <!-- 適用日 (必須・未来日のみ) — 検索条件。この日付で置換可能な購読者のみ
-           検索する（顧客要件 2026-07）。検索前に validateSearch で必須+未来日を担保。
-           必須/未来日エラーはこの項目の直下に表示する。 -->
+      <!-- 購読種別 (必須・紙版/電子版のみ) — 対象種別で購読者を絞り込む。選択するまで
+           適用日は入力不可（顧客要件 2026-07）。電子版=当日のみ / 紙版=未来日のみ。 -->
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap">購読種別</span>
+        <span class="text-error">*</span>
+        <a-radio-group
+          v-model:value="state.filters.dokusya_shubetsu"
+          data-test="replace-shubetsu"
+          class="flex-1"
+        >
+          <a-radio
+            v-for="opt in shubetsuOptions"
+            :key="opt.value"
+            :value="Number(opt.value)"
+          >
+            {{ opt.label }}
+          </a-radio>
+        </a-radio-group>
+      </div>
+
+      <!-- 適用日 (必須) — 購読種別 選択後に有効化。紙版=未来日のみ（カレンダー入力）／
+           電子版=本日を自動セットしピッカーを非活性化（顧客要件 2026-07）。この日付で
+           置換可能な購読者のみ検索。必須/日付エラーはこの項目の直下に表示する。 -->
       <div class="text-sm font-medium text-text-main">
         <div class="flex items-center gap-2">
           <span class="whitespace-nowrap">適用日</span>
           <span class="text-error">*</span>
           <a-date-picker
-            v-model:value="state.filters.hanbaiten_tekiyo_date"
+            v-model:value="state.filters.joho_henko_tekiyo_date"
             value-format="YYYY-MM-DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
+            :disabled="isTekiyoDateDisabled"
             :disabled-date="isTodayOrPastDayTokyo"
             data-test="replace-tekiyo-date"
             class="flex-1"

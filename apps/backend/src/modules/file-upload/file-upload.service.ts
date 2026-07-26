@@ -37,7 +37,9 @@ import {
 import { FileUploadFormatException } from './exceptions/file-format-error.exception';
 import { FileSizeExceededException } from './exceptions/file-size-exceeded.exception';
 import { TargetJaRequiredException } from './exceptions/target-ja-required.exception';
+import { FileUploadStatus } from './file-upload-status.constant';
 import { NotificationQueueService } from './notification-queue.service';
+import { NotificationStatus } from './notification-status.constant';
 
 /**
  * Subset of `Express.Multer.File` we actually consume — keeping the
@@ -56,6 +58,8 @@ const SCREEN_NAME = 'ファイルダウンロード画面 (ACSMS-SCR-022)';
 const SCR023_SCREEN = 'ファイルアップロード画面 (ACSMS-SCR-023)';
 const TABLE_NAME = 't_file_upload';
 const PREVIEW_TTL_SECONDS = 3600;
+/** 削除予定日の既定オフセット（アップロード日 + N 日）。FE が値を省略した時のみ適用。 */
+const DEFAULT_RETENTION_DAYS = 180;
 
 /**
  * SCR-023 — file format check (customer review 2026-05).
@@ -473,7 +477,9 @@ export class FileUploadService {
         // timestamptz and discarded the user's selection — reported bug.
         const deleteDate =
           parsedDeleteDate ??
-          dateOnlyIsoJst(new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000));
+          dateOnlyIsoJst(
+            new Date(now.getTime() + DEFAULT_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+          );
         for (const { jaId, file, filePath } of inputs) {
           const entity = manager.create(FileUpload, {
             jaId,
@@ -485,8 +491,8 @@ export class FileUploadService {
             recordCount: null,
             successCount: null,
             errorCount: null,
-            status: 1,
-            notificationStatus: 1,
+            status: FileUploadStatus.PROCESSING,
+            notificationStatus: NotificationStatus.NOT_SENT,
             errorFilePath: '',
             createdBy: String(session.account_id),
           });
@@ -516,8 +522,8 @@ export class FileUploadService {
                 file_name: file.originalname,
                 file_path: filePath,
                 file_size: file.size,
-                status: 1,
-                notification_status: 1,
+                status: FileUploadStatus.PROCESSING,
+                notification_status: NotificationStatus.NOT_SENT,
                 upload_datetime: now.toISOString(),
                 scheduled_delete_date: deleteDate,
                 error_file_path: '',

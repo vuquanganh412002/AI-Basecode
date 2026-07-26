@@ -63,6 +63,9 @@ vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   listHanbaiten: vi.fn(),
   removeHanbaiten: vi.fn(),
 }));
+vi.mock('@/api/tanka/tanka', () => ({
+  getTankaDropdown: vi.fn(),
+}));
 
 // Spy on antd's global toasts. Antd's `MessageType` is a callable
 // PromiseLike — return undefined via cast so the spy compiles even
@@ -176,6 +179,21 @@ beforeEach(async () => {
     ],
     meta: { total: 2, page: 1, per_page: 50, has_more: false },
   } as never);
+
+  const { getTankaDropdown } = await import('@/api/tanka/tanka');
+  vi.mocked(getTankaDropdown).mockResolvedValue({
+    data: [
+      {
+        tanka_id: 1,
+        tanka_code: 'T001',
+        tanka_name: '基本購読料(月額)',
+        tanka_type: 1,
+        kingaku_zeikomi: 4900,
+        kingaku_zeinuki: 4455,
+      },
+    ],
+    meta: { total: 1, page: 1, per_page: 50, has_more: false },
+  } as never);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -213,7 +231,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('組合員コード'))).toBe(true);
     expect(labels.some((t) => t.includes('氏名'))).toBe(true);
     expect(labels.some((t) => t.includes('かな氏名'))).toBe(true);
-    expect(labels.some((t) => t.includes('配達先住所'))).toBe(true);
+    expect(labels.some((t) => t.includes('住所'))).toBe(true);
     expect(labels.some((t) => t.includes('配達販売店'))).toBe(true);
     expect(labels.some((t) => t.includes('手続種類'))).toBe(true);
     expect(labels.some((t) => t.includes('購読開始日'))).toBe(true);
@@ -222,11 +240,12 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('電子版承認ステータス'))).toBe(true);
   });
 
-  it('should render the 15 result table column headers when mounted', async () => {
+  it('should render the 16 result table column headers when mounted', async () => {
     const { wrapper } = await renderView();
     const headerText = wrapper.findAll('th').map((th) => th.text());
-    // 顧客要件 2026-06 検索結果テーブル — ID + 14 列 + 操作
-    // (ID added first; 支店 / 連絡先２ removed; 手続種類 / 購読種別 / 配達先氏名 / 支払方法 added).
+    // 顧客要件 2026-06 検索結果テーブル — ID + 15 列 + 操作
+    // (ID added first; 支店 / 連絡先２ removed; 手続種類 / 購読種別 / 配達先氏名 /
+    //  配送先連絡先1 / 支払方法 added).
     expect(headerText).toContain('ID');
     expect(headerText).toContain('管理支店');
     expect(headerText).toContain('組合員コード');
@@ -234,6 +253,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(headerText).toContain('手続種類');
     expect(headerText).toContain('購読種別');
     expect(headerText).toContain('連絡先1');
+    expect(headerText).toContain('配送先連絡先1');
     expect(headerText).toContain('配達先氏名');
     expect(headerText).toContain('配達先郵便');
     expect(headerText).toContain('配達先住所');
@@ -305,6 +325,27 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(wrapper.text()).toContain('K000002');
   });
 
+  it('should show 販売店コード column as hanbaiten_code (NOT hanbaiten_id)', async () => {
+    // 回帰: 「販売店コード」列は m_hanbaiten の実コード hanbaiten_code を表示する
+    // （以前は誤って hanbaiten_id を表示していた）。
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockResolvedValue(
+      buildDokusyaListResponse({
+        data: [
+          buildDokusyaListRow({
+            dokusya_id: 7001,
+            hanbaiten_id: 32,
+            hanbaiten_code: 'HANB-XYZ',
+            hanbaiten_name: 'テスト販売店',
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    expect(wrapper.text()).toContain('HANB-XYZ');
+  });
+
   it('should render the 詳細検索を表示 toggle button initially when mounted', async () => {
     const { wrapper } = await renderView();
     const toggleBtn = wrapper
@@ -324,13 +365,15 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(wrapper.text()).toContain('詳細検索を非表示');
     // After expansion, advanced-search fields should be reachable.
     const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
-    expect(labels.some((t) => t.includes('引落元口座支店コード'))).toBe(true);
-    expect(labels.some((t) => t.includes('引落元口座支店名'))).toBe(true);
-    expect(labels.some((t) => t.includes('連絡先1'))).toBe(true);
+    expect(labels.some((t) => t.includes('引落元口座支店'))).toBe(true);
+    expect(labels.some((t) => t.includes('連絡先'))).toBe(true);
     expect(labels.some((t) => t.includes('メールアドレス'))).toBe(true);
     expect(labels.some((t) => t.includes('請求開始月'))).toBe(true);
     expect(labels.some((t) => t.includes('適用日'))).toBe(true);
     expect(labels.some((t) => t.includes('支払方法'))).toBe(true);
+    expect(labels.some((t) => t.includes('郵送区分'))).toBe(true);
+    expect(labels.some((t) => t.includes('新聞単価'))).toBe(true);
+    expect(labels.some((t) => t.includes('備考'))).toBe(true);
   });
 
   it('should populate 購読種別 radio options from useCodesStore().options("DOKUSYA_SHUBETSU")', async () => {
@@ -504,7 +547,8 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
     // Pair with a real text filter so the search actually fires (a no-change
     // submit is skipped) — the trim step still runs first, which is where the
     // old code threw on the undefined month.
-    vm.state.filters.seikyu_kaishi_month = undefined;
+    vm.state.filters.seikyu_kaishi_month_from = undefined;
+    vm.state.filters.seikyu_kaishi_month_to = undefined;
     vm.state.filters.kumiaiin_code = 'K000001';
     await flushPromises();
     await wrapper.find('form').trigger('submit');
@@ -515,7 +559,8 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
       | Record<string, unknown>
       | undefined;
     // Cleared month → omitted from the request params.
-    expect(arg?.seikyu_kaishi_month).toBeUndefined();
+    expect(arg?.seikyu_kaishi_month_from).toBeUndefined();
+    expect(arg?.seikyu_kaishi_month_to).toBeUndefined();
     expect(arg?.kumiaiin_code).toBe('K000001');
   });
 
@@ -811,6 +856,46 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
     if (vm.state?.filters) {
       vm.state.filters.joho_henko_tekiyo_date_from = '2026/12/31';
       vm.state.filters.joho_henko_tekiyo_date_to = '2026/01/01';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(listDokusya).not.toHaveBeenCalled();
+  });
+
+  it('should send seikyu_kaishi_month_from / _to when the 請求開始月 range is populated (詳細検索)', async () => {
+    const { wrapper } = await renderView();
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.seikyu_kaishi_month_from = '202601';
+      vm.state.filters.seikyu_kaishi_month_to = '202612';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({
+      seikyu_kaishi_month_from: '202601',
+      seikyu_kaishi_month_to: '202612',
+    });
+  });
+
+  it('should NOT call listDokusya when 請求開始月 from > to (相関チェック violation)', async () => {
+    const { wrapper } = await renderView();
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.seikyu_kaishi_month_from = '202612';
+      vm.state.filters.seikyu_kaishi_month_to = '202601';
     }
     await flushPromises();
     await wrapper.find('form').trigger('submit');
@@ -1306,7 +1391,7 @@ describe('DokusyaListView — empty 検索 is a no-op', () => {
 // 一覧の「購読停止」ボタン → 詳細取得 → ポップアップ → 専用 API。DOM の a-modal は
 // teleport されるためポップアップ内の操作はコンポーネント内部状態(vm)経由で駆動する。
 describe('DokusyaListView — 購読停止（解約予約）ポップアップ', () => {
-  it('should render a 購読停止 button BEFORE 削除 in each row action cell', async () => {
+  it('should render a 購読中止 button BEFORE 削除 in each row action cell', async () => {
     const { wrapper } = await renderView();
     const rowEl = wrapper
       .findAll('tr')
@@ -1314,9 +1399,10 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
     expect(rowEl).toBeDefined();
     const stopBtn = rowEl!.find('[data-test="stop-button"]');
     expect(stopBtn.exists()).toBe(true);
-    // 順序: 購読停止 が 削除 より前に来る。
-    const html = rowEl!.html();
-    expect(html.indexOf('購読停止')).toBeLessThan(html.indexOf('削除'));
+    // 順序: 購読中止 が 削除 より前に来る。HTML コメントは .html() に含まれ
+    // 「削除の前に配置」等の語が誤マッチするため、コメントを除去してから比較する。
+    const html = rowEl!.html().replace(/<!--[\s\S]*?-->/g, '');
+    expect(html.indexOf('購読中止')).toBeLessThan(html.indexOf('削除'));
   });
 
   it('should disable 購読停止 for read-only rows (is_read_only=true)', async () => {

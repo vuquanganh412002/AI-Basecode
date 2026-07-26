@@ -16,7 +16,7 @@
  * subset per api.md §4.4) are enforced server-side; the FE submits
  * everything and the backend ignores out-of-scope keys.
  */
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 
@@ -29,6 +29,7 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import {
   HALF_WIDTH_KATAKANA_RE,
   JASTEM_NAME_RE,
@@ -276,73 +277,6 @@ const FIELD_ORDER: ReadonlyArray<keyof CreateJaRequest> = [
 ];
 
 /**
- * Focus the first input (in DOM order) that has a validation error,
- * and scroll it into view so the user always sees the field they
- * need to fix even when it's below the fold.
- *
- * Looking up the DOM element is robustified across the three antd
- * control kinds we use, because antd v4 places the `id` differently
- * for each:
- *   - <a-input>, <a-textarea>  : the native `<input>` / `<textarea>` carries id="X"
- *   - <a-select>               : the wrapper carries id="X"; the actual
- *                                focusable element is the `.ant-select-selector`
- *                                child
- *   - <a-radio-group>          : the wrapper carries id="X"; we focus
- *                                the first `<input type="radio">` inside
- */
-function focusFirstError(errors: Record<string, string>): void {
-  const first = FIELD_ORDER.find((f) => errors[f]);
-  if (!first) return;
-
-  void nextTick(() => {
-    // Try the obvious id lookup first.
-    let target: HTMLElement | null = document.getElementById(first);
-    // Antd sometimes prefixes ids with the form name + underscore.
-    if (!target) {
-      target = document.querySelector<HTMLElement>(
-        `[id$="_${first}"], [id="${first}"]`,
-      );
-    }
-    // Last resort: any descendant of the matching .ant-form-item label.
-    if (!target) {
-      const items = document.querySelectorAll<HTMLElement>('.ant-form-item');
-      for (const item of items) {
-        if (item.querySelector(`[name="${first}"], #${first}`)) {
-          target = item;
-          break;
-        }
-      }
-    }
-    if (!target) return;
-
-    // Native focusable control → focus directly.
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target instanceof HTMLButtonElement
-    ) {
-      target.focus();
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-
-    // Wrapper (a-select / a-radio-group / a-form-item) → drill in to
-    // the first focusable descendant.
-    const inner =
-      target.querySelector<HTMLElement>('.ant-select-selector') ??
-      target.querySelector<HTMLElement>(
-        'input, textarea, select, [tabindex]:not([tabindex="-1"])',
-      ) ??
-      target;
-    if (typeof (inner as HTMLElement).focus === 'function') {
-      (inner as HTMLElement).focus();
-    }
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-}
-
-/**
  * Programmatic submit — exposed so the spec can drive the form without
  * reaching into antd's internal form state. The real UX submit handler
  * funnels through this same path on `<form @submit>`.
@@ -351,7 +285,7 @@ async function submitWith(form: CreateJaRequest): Promise<void> {
   const errs = validateClient(form);
   clientErrors.value = errs;
   if (Object.keys(errs).length > 0) {
-    focusFirstError(errs);
+    focusFirstError(FIELD_ORDER, errs);
     return;
   }
 
@@ -376,7 +310,7 @@ async function submitWith(form: CreateJaRequest): Promise<void> {
   // back-end checks (e.g. duplicate ja_code) feel as snappy as the
   // client-side ones.
   if (Object.keys(fieldErrors.value).length > 0) {
-    focusFirstError(fieldErrors.value);
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
 }
 

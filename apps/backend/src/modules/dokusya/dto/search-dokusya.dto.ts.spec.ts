@@ -33,15 +33,18 @@ describe('SearchDokusyaDto', () => {
         kanri_shiten_id: 10,
         shiten_id: 21,
         kumiaiin_code: 'K0001',
-        jastem_toriatsukai_tenpo_code: '001',
-        jastem_tenpo_name: '本店',
+        bank_branch: '001',
         full_name: '山田',
         full_name_kana: 'ヤマダ',
-        renrakusaki_1: '0312345678',
+        renrakusaki: '0312345678',
         haitatsu: '東京都渋谷区',
         hanbaiten_id: 501,
         email: 'user@example.com',
-        seikyu_kaishi_month: '202604',
+        yubin_kubun: '1',
+        tanka_id: 5,
+        biko: '備考メモ',
+        seikyu_kaishi_month_from: '202604',
+        seikyu_kaishi_month_to: '202612',
         shoki_dokusya_kaishi_date_from: '2024/01/01',
         shoki_dokusya_kaishi_date_to: '2024/12/31',
         dokusya_chushi_date_from: '2025/01/01',
@@ -101,26 +104,23 @@ describe('SearchDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'kumiaiin_code')).toBe(false);
   });
 
-  // ─── jastem_toriatsukai_tenpo_code (String, max 3) ──────────────────────
-  it('should fail when jastem_toriatsukai_tenpo_code exceeds 3 chars', async () => {
+  // ─── bank_branch (引落元口座支店・String, max 100) ───────────────────────
+  it('should fail when bank_branch exceeds 100 chars', async () => {
     const dto = plainToInstance(
       SearchDokusyaDto,
-      buildSearchDokusyaQuery({ jastem_toriatsukai_tenpo_code: '1234' }),
+      buildSearchDokusyaQuery({ bank_branch: 'あ'.repeat(101) }),
     );
     const errors = await validate(dto);
-    expect(
-      errors.some((e) => e.property === 'jastem_toriatsukai_tenpo_code'),
-    ).toBe(true);
+    expect(errors.some((e) => e.property === 'bank_branch')).toBe(true);
   });
 
-  // ─── jastem_tenpo_name (String, max 100) ────────────────────────────────
-  it('should fail when jastem_tenpo_name exceeds 100 chars', async () => {
+  it('should pass when bank_branch is within 100 chars', async () => {
     const dto = plainToInstance(
       SearchDokusyaDto,
-      buildSearchDokusyaQuery({ jastem_tenpo_name: 'あ'.repeat(101) }),
+      buildSearchDokusyaQuery({ bank_branch: '本店' }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'jastem_tenpo_name')).toBe(true);
+    expect(errors.some((e) => e.property === 'bank_branch')).toBe(false);
   });
 
   // ─── full_name (String, max 100) ────────────────────────────────────────
@@ -143,14 +143,46 @@ describe('SearchDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'full_name_kana')).toBe(true);
   });
 
-  // ─── renrakusaki_1 (String, max 15) ─────────────────────────────────────
-  it('should fail when renrakusaki_1 exceeds 15 chars', async () => {
+  // ─── renrakusaki (連絡先・String, max 15) ────────────────────────────────
+  it('should fail when renrakusaki exceeds 15 chars', async () => {
     const dto = plainToInstance(
       SearchDokusyaDto,
-      buildSearchDokusyaQuery({ renrakusaki_1: '1'.repeat(16) }),
+      buildSearchDokusyaQuery({ renrakusaki: '1'.repeat(16) }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'renrakusaki_1')).toBe(true);
+    expect(errors.some((e) => e.property === 'renrakusaki')).toBe(true);
+  });
+
+  // ─── yubin_kubun / tanka_id / biko（顧客要件 2026-07 追加）────────────────
+  it('should fail when tanka_id is non-numeric', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({ tanka_id: 'abc' }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'tanka_id')).toBe(true);
+  });
+
+  it('should fail when biko exceeds 500 chars', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({ biko: 'あ'.repeat(501) }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'biko')).toBe(true);
+  });
+
+  it('should pass when yubin_kubun / tanka_id / biko are valid', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({ yubin_kubun: '1', tanka_id: 5, biko: '備考' }),
+    );
+    const errors = await validate(dto);
+    expect(
+      errors.some((e) =>
+        ['yubin_kubun', 'tanka_id', 'biko'].includes(e.property),
+      ),
+    ).toBe(false);
   });
 
   // ─── haitatsu (String, max 200) ─────────────────────────────────────────
@@ -210,14 +242,30 @@ describe('SearchDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'email')).toBe(false);
   });
 
-  // ─── seikyu_kaishi_month (String, max 6) ────────────────────────────────
-  it('should fail when seikyu_kaishi_month exceeds 6 chars', async () => {
+  // ─── seikyu_kaishi_month_from/to (String, YYYYMM 範囲) ───────────────────
+  it('should fail when seikyu_kaishi_month_from is not YYYYMM (6桁)', async () => {
     const dto = plainToInstance(
       SearchDokusyaDto,
-      buildSearchDokusyaQuery({ seikyu_kaishi_month: '2026041' }),
+      buildSearchDokusyaQuery({ seikyu_kaishi_month_from: '2026041' }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'seikyu_kaishi_month')).toBe(true);
+    expect(errors.some((e) => e.property === 'seikyu_kaishi_month_from')).toBe(
+      true,
+    );
+  });
+
+  it('should pass when seikyu_kaishi_month_from/to are valid YYYYMM', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({
+        seikyu_kaishi_month_from: '202601',
+        seikyu_kaishi_month_to: '202612',
+      }),
+    );
+    const errors = await validate(dto);
+    expect(
+      errors.some((e) => e.property.startsWith('seikyu_kaishi_month')),
+    ).toBe(false);
   });
 
   // ─── dokusya_shubetsu (Number, 1-3) ─────────────────────────────────────

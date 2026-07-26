@@ -29,6 +29,7 @@ import {
   PasswordResetRateLimitException,
 } from './exceptions/auth.exceptions';
 import { UnauthorizedException } from '@/common/exceptions/common.exceptions';
+import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
 import { Account } from '@/database/entities/account.entity';
 import { MfaOtp } from '@/database/entities/mfa-otp.entity';
 import { Role } from '@/database/entities/role.entity';
@@ -513,7 +514,7 @@ export class AuthService {
     // durably persisted (api.md §4.6 — fire-and-forget if mail fails).
     const frontendUrl =
       this.configService?.get<string>('app.frontendUrl') ??
-      'http://localhost:5173';
+      DEFAULT_FRONTEND_URL;
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
     await this.mailService.sendPasswordReset(
       email,

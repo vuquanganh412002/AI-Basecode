@@ -2230,7 +2230,7 @@ Trả về HTTP 400 (error_code: BAD_REQUEST, message「リクエストパラメ
 Gọi `POST /api/v1/dokusya/replace-hanbaiten` từ API client.
 
 ステップ2：
-Gửi với dokusya_ids - new_hanbaiten_id - hanbaiten_tekiyo_date chưa thiết lập.
+Gửi với dokusya_ids - new_hanbaiten_id - joho_henko_tekiyo_date chưa thiết lập.
 
 ### 期待結果
 

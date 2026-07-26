@@ -11,6 +11,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { FileUploadStatus } from '../file-upload-status.constant';
+
 /**
  * Coerce blank `""` / null / undefined to `undefined` so `@IsOptional`
  * short-circuits — query strings from the FE arrive as `''` rather
@@ -73,7 +75,9 @@ export class SearchFileUploadDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '処理ステータスは整数で指定してください。' })
-  @IsIn([1, 2, 3], { message: '処理ステータスは1〜3で指定してください。' })
+  @IsIn(Object.values(FileUploadStatus), {
+    message: '処理ステータスは1〜3で指定してください。',
+  })
   status?: number;
 
   @ApiPropertyOptional({ description: 'ページ番号（1-indexed）', default: 1, minimum: 1 })

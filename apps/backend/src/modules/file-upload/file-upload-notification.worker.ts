@@ -13,6 +13,7 @@ import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { MailService } from '@/modules/mail/mail.service';
 import { QUEUE_FILE_UPLOAD_NOTIFICATION } from '@/modules/queue/queue-names.constants';
 
+import { NotificationStatus } from './notification-status.constant';
 import type { FileUploadNotificationJob } from './notification-queue.service';
 
 /**
@@ -96,7 +97,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
     // Status 3 means a prior worker run finished the job; the BullMQ
     // ACK simply never landed (crash, network blip). Re-sending
     // would spam every recipient.
-    if (row.notificationStatus === 3) {
+    if (row.notificationStatus === NotificationStatus.COMPLETE) {
       this.logger.log({ event: 'notification.skip.already_complete', ...ctx });
       return;
     }
@@ -106,7 +107,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
     // mid-job shows "送信中" rather than the stale "未送信".
     await this.fileUploadRepo.update(
       { fileUploadId: file_upload_id },
-      { notificationStatus: 2 },
+      { notificationStatus: NotificationStatus.SENDING },
     );
 
     // [ja-lookup] template needs ja_name; JA missing means data
@@ -214,21 +215,26 @@ export class FileUploadNotificationWorker extends WorkerHost {
       ...ctx,
       total,
       failed,
-      status: failed > 0 ? 4 : 3,
+      status: failed > 0
+        ? NotificationStatus.PARTIAL_FAILURE
+        : NotificationStatus.COMPLETE,
     });
   }
 
   private async markComplete(fileUploadId: number): Promise<void> {
     await this.fileUploadRepo.update(
       { fileUploadId },
-      { notificationStatus: 3, notifiedAt: new Date() },
+      { notificationStatus: NotificationStatus.COMPLETE, notifiedAt: new Date() },
     );
   }
 
   private async markPartial(fileUploadId: number): Promise<void> {
     await this.fileUploadRepo.update(
       { fileUploadId },
-      { notificationStatus: 4, notifiedAt: new Date() },
+      {
+        notificationStatus: NotificationStatus.PARTIAL_FAILURE,
+        notifiedAt: new Date(),
+      },
     );
   }
 

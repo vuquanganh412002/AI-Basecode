@@ -1,5 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  DEFAULT_MAIL_FROM,
+  DEFAULT_MAIL_FROM_NAME,
+  DEFAULT_MAIL_HOST,
+} from '@/config/config-defaults.constant';
 import { MailProvider } from './interfaces/mail-provider.interface';
 import { SmtpMailProvider } from './providers/smtp.provider';
 import { SesMailProvider } from './providers/ses.provider';
@@ -30,8 +35,8 @@ export class MailService implements OnModuleInit {
     // 受信トレイに表示される送信者名。MAIL_FROM はアドレスのみを保持し、
     // 表示名は MAIL_FROM_NAME（既定 'AGRINEWS'）で付与する。既に MAIL_FROM が
     // "Name <addr>" 形式（'<' を含む）の場合はそのまま尊重する。
-    const fromAddress = this.configService.get<string>('mail.from') ?? 'noreply@agrinews.jp';
-    const fromName = this.configService.get<string>('mail.fromName') ?? 'AGRINEWS';
+    const fromAddress = this.configService.get<string>('mail.from') ?? DEFAULT_MAIL_FROM;
+    const fromName = this.configService.get<string>('mail.fromName') ?? DEFAULT_MAIL_FROM_NAME;
     this.mailFrom =
       fromName && !fromAddress.includes('<')
         ? `"${fromName}" <${fromAddress}>`
@@ -46,7 +51,7 @@ export class MailService implements OnModuleInit {
       this.logger.log({ event: 'mail.init', provider: 'ses', nodeEnv });
     } else {
       this.provider = new SmtpMailProvider({
-        host: this.configService.get<string>('mail.host') ?? 'localhost',
+        host: this.configService.get<string>('mail.host') ?? DEFAULT_MAIL_HOST,
         port: this.configService.get<number>('mail.port') ?? 1025,
         user: this.configService.get<string>('mail.user') ?? '',
         pass: this.configService.get<string>('mail.pass') ?? '',

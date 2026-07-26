@@ -7,7 +7,7 @@
 //
 // The DTO binds the JSON body of `POST /api/v1/dokusya/replace-hanbaiten`.
 // NOTE: the "未来日のみ可" (> today・当日不可・顧客要件 2026-07 改訂) check on
-// hanbaiten_tekiyo_date is a SERVICE-level business rule (api.md §4.1)
+// joho_henko_tekiyo_date is a SERVICE-level business rule (api.md §4.1)
 // and is asserted in the replace service — this DTO only enforces
 // required + YYYY-MM-DD format.
 
@@ -118,35 +118,62 @@ describe('ReplaceHanbaitenDto', () => {
     expect(dto.new_hanbaiten_id).toBe(201);
   });
 
-  // ─── hanbaiten_tekiyo_date (String, required, YYYY-MM-DD) ────────────────
-  it('should fail when hanbaiten_tekiyo_date is missing', async () => {
+  // ─── joho_henko_tekiyo_date (String, required, YYYY-MM-DD) ────────────────
+  it('should fail when joho_henko_tekiyo_date is missing', async () => {
     const body = buildReplaceBody();
-    delete body.hanbaiten_tekiyo_date;
+    delete body.joho_henko_tekiyo_date;
     const dto = plainToInstance(ReplaceHanbaitenDto, body);
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(
+    expect(errors.some((e) => e.property === 'joho_henko_tekiyo_date')).toBe(
       true,
     );
   });
 
-  it('should fail when hanbaiten_tekiyo_date is not YYYY-MM-DD format', async () => {
+  it('should fail when joho_henko_tekiyo_date is not YYYY-MM-DD format', async () => {
     const dto = plainToInstance(
       ReplaceHanbaitenDto,
-      buildReplaceBody({ hanbaiten_tekiyo_date: '2026/06/01' }),
+      buildReplaceBody({ joho_henko_tekiyo_date: '2026/06/01' }),
     );
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(
+    expect(errors.some((e) => e.property === 'joho_henko_tekiyo_date')).toBe(
       true,
     );
   });
 
-  it('should pass when hanbaiten_tekiyo_date is a valid YYYY-MM-DD', async () => {
+  it('should pass when joho_henko_tekiyo_date is a valid YYYY-MM-DD', async () => {
     const dto = plainToInstance(
       ReplaceHanbaitenDto,
-      buildReplaceBody({ hanbaiten_tekiyo_date: '2026-06-01' }),
+      buildReplaceBody({ joho_henko_tekiyo_date: '2026-06-01' }),
     );
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  // ─── dokusya_shubetsu (required, 1:紙版 / 2:電子版 のみ) — 顧客要件 2026-07 ──
+  it('should fail when dokusya_shubetsu is missing', async () => {
+    const body = buildReplaceBody();
+    delete (body as Record<string, unknown>).dokusya_shubetsu;
+    const dto = plainToInstance(ReplaceHanbaitenDto, body);
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
+  });
+
+  it.each([1, 2])('should pass when dokusya_shubetsu is %s', async (shubetsu) => {
+    const dto = plainToInstance(
+      ReplaceHanbaitenDto,
+      buildReplaceBody({ dokusya_shubetsu: shubetsu }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
+  });
+
+  it('should fail when dokusya_shubetsu is 3 (併読 — not allowed)', async () => {
+    const dto = plainToInstance(
+      ReplaceHanbaitenDto,
+      buildReplaceBody({ dokusya_shubetsu: 3 }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
   });
 
   // ─── whitelist — forbid unknown params ──────────────────────────────────

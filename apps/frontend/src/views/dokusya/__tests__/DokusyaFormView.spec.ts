@@ -44,6 +44,7 @@ import dayjs from 'dayjs';
 // 6 functions. The spec mocks them all here so no real HTTP fires.
 vi.mock('@/api/dokusya/dokusya', () => ({
   getDokusya: vi.fn(),
+  getDokusyaEffectiveAt: vi.fn(),
   createDokusya: vi.fn(),
   updateDokusya: vi.fn(),
   approveDokusya: vi.fn(),
@@ -97,6 +98,8 @@ interface RenderOptions {
   user?: ReturnType<typeof buildAuthUser>;
   /** Optional route query string. */
   query?: Record<string, string>;
+  /** Attach to document.body so document-based focus/scroll (focusFirstError) is observable. */
+  attach?: boolean;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -137,6 +140,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
   await router.isReady();
 
   const wrapper = mount(DokusyaFormView, {
+    ...(opts.attach ? { attachTo: document.body } : {}),
     global: {
       plugins: [
         router,
@@ -225,6 +229,7 @@ beforeEach(async () => {
   // SCR-011 BE endpoints — default-happy mocks.
   const {
     getDokusya,
+    getDokusyaEffectiveAt,
     createDokusya,
     updateDokusya,
     approveDokusya,
@@ -232,6 +237,11 @@ beforeEach(async () => {
     getDokusyaHistory,
   } = await import('@/api/dokusya/dokusya');
   vi.mocked(getDokusya).mockResolvedValue({ data: buildDokusyaDetail() });
+  // 予約変更ポップアップの predecessor 取得は既定で同じ detail を返す
+  // （テストが上書きする場合は mockResolvedValueOnce で差し替える）。
+  vi.mocked(getDokusyaEffectiveAt).mockResolvedValue({
+    data: buildDokusyaDetail({ dokusya_id: 100 }),
+  });
   vi.mocked(createDokusya).mockResolvedValue({
     data: buildDokusyaDetail({ dokusya_id: 100 }),
     message: '登録しました。',
@@ -250,6 +260,27 @@ beforeEach(async () => {
   });
   vi.mocked(getDokusyaHistory).mockResolvedValue(buildDokusyaHistoryResponse());
 });
+
+/**
+ * 予約変更モードへ入る（B案 のポップアップ経由）。selectMode('reserved')
+ * が適用日ポップアップを開くようになったため、テストは joho を入れて
+ * confirmReservedJoho() を呼ぶ。predecessor は getDokusyaEffectiveAt のモックが返す。
+ */
+async function enterReservedMode(
+  wrapper: VueWrapper,
+  joho: string = tomorrowIsoTokyo(),
+): Promise<void> {
+  const vm = wrapper.vm as unknown as {
+    selectMode: (m: string) => void;
+    reservedJohoInput: string | null;
+    confirmReservedJoho: () => Promise<void>;
+  };
+  vm.selectMode('reserved');
+  await flushPromises();
+  vm.reservedJohoInput = joho;
+  await vm.confirmReservedJoho();
+  await flushPromises();
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // 1. 画面初期表示 (機能定義 1.x + 画面項目定義)
@@ -320,7 +351,8 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     [['管理支店', '支店', '組合員コード']],
     [['連絡先', 'メールアドレス', 'メールマガジン']],
     [['販売店コード', '販売店名', '郵送区分']],
-    [['購読開始日', '購読中止日', '備考']],
+    // 購読中止日は create モードでは撤去（編集のみ表示）。
+    [['購読開始日', '備考']],
   ])('should render labels %j when mounted', async (needles) => {
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label').map((l) => l.text());
@@ -441,10 +473,8 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     // 購読開始日はラジオ「今日 / 翌月1日」で表示される（支払方法に関係なく）。
     expect(wrapper.text()).toContain('翌月1日');
 
-    // 購読中止日は読取専用インプット（placeholder=月末で終了）。
-    const chushiInput = wrapper.find('input[placeholder="月末で終了"]');
-    expect(chushiInput.exists()).toBe(true);
-    expect((chushiInput.element as HTMLInputElement).readOnly).toBe(true);
+    // 購読中止日は新規作成では非表示（フォームから撤去 — 編集モードのみ）。
+    expect(wrapper.find('input[placeholder="月末で終了"]').exists()).toBe(false);
   });
 
   it('should show 購読開始日 date-picker (NOT the radio) for 紙版 create', async () => {
@@ -625,7 +655,11 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
   it('(B) should disable 購読中止日 + show hint when has_active_kaiyaku (既に解約予約済み) — 顧客要件 2026-07', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ has_active_kaiyaku: true }),
+      // 有効な解約予約あり → 中止日(値)が入っているので項目は表示される。
+      data: buildDokusyaDetail({
+        has_active_kaiyaku: true,
+        dokusya_chushi_date: '2030-06-01',
+      }),
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
     expect(wrapper.find('[data-test="active-kaiyaku-hint"]').exists()).toBe(true);
@@ -748,8 +782,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
   ])('should keep %s editable in edit mode (顧客要件 2026-07: 氏名変更可)', async (field) => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
     // 参照→編集フロー(顧客要件2026-07): 予約変更モードで全項目編集可。
-    (wrapper.vm as any).selectMode('reserved');
-    await flushPromises();
+    await enterReservedMode(wrapper);
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === field);
@@ -775,31 +808,24 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect((input.element as HTMLInputElement).disabled).toBe(false);
   });
 
-  it('should keep 購読中止日 read-only (disabled) in edit mode — 停止は一覧のポップアップで行う (顧客要件 2026-07 改訂)', async () => {
-    // 顧客要件 2026-07 改訂: 購読の停止(解約予約)は一覧画面(SCR-014)の
-    // 「購読を停止する」ボタン → ポップアップで行う。編集フォームでは購読中止日は
-    // 表示のみ（読取専用）で編集不可。既定の detail は 手続種類=新規(1)。
+  it('should HIDE 購読中止日 in edit mode when the loaded value is null (顧客要件 2026-07 改訂)', async () => {
+    // 顧客要件 2026-07 改訂: 中止日が null（未解約・再購読で null に戻った等）なら
+    // 編集フォームでも項目ごと非表示にする。既定の detail は 中止日=null。
+    // 中止日が入っている場合の読取専用表示は別テスト（loading a 解約 record）で担保。
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    (wrapper.vm as any).selectMode('reserved');
-    await flushPromises();
+    await enterReservedMode(wrapper);
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === 'dokusya_chushi_date');
-    expect(item).toBeDefined();
-    const input = item!.find('input');
-    expect(input.exists()).toBe(true);
-    expect((input.element as HTMLInputElement).disabled).toBe(true);
+    expect(item).toBeUndefined();
   });
 
-  it('should disable 購読中止日 in create mode (新規作成では入力不可)', async () => {
+  it('should NOT render 購読中止日 in create mode (新規作成では撤去)', async () => {
     const { wrapper } = await renderView(); // create mode (no id)
     const item = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === 'dokusya_chushi_date');
-    expect(item).toBeDefined();
-    const input = item!.find('input');
-    expect(input.exists()).toBe(true);
-    expect((input.element as HTMLInputElement).disabled).toBe(true);
+    expect(item).toBeUndefined();
   });
 
   it('should LOCK 購読中止日 (disabled) when loading a 解約 record — 全項目 read-only until 新規 (顧客要件 2026-07)', async () => {
@@ -920,6 +946,107 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect(inputByName('chome_banchi').disabled).toBe(false);
     expect(inputByName('dokusya_busu').disabled).toBe(false);
     expect(sameFlgCheckbox().disabled).toBe(false);
+  });
+
+  it('should RESTORE 購読開始日 + 情報変更適用日 to DB values (readonly) when switching 解約→新規→解約 (再購読取消・顧客要件 2026-07)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 1,
+        tetsuzuki_shurui: 0, // 解約済み
+        dokusya_busu: 0,
+        dokusya_kaishi_date: '2026-04-01', // DB 値
+        joho_henko_tekiyo_date: '2026-06-01', // DB 値
+        dokusya_chushi_date: '2026-06-01',
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: {
+        tetsuzuki_shurui: number;
+        dokusya_kaishi_date: string;
+        joho_henko_tekiyo_date: string | null;
+      };
+    };
+    const itemByName = (name: string) =>
+      wrapper
+        .findAllComponents({ name: 'AFormItem' })
+        .find((it) => it.props('name') === name);
+
+    // 新規へ切替（再購読）→ 購読開始日は翌日にセットされ編集可になる。
+    vm.formState.tetsuzuki_shurui = 1;
+    await flushPromises();
+    expect(vm.formState.dokusya_kaishi_date).toBe(tomorrowIsoTokyo());
+    expect(
+      (itemByName('dokusya_kaishi_date')!.find('input').element as HTMLInputElement)
+        .disabled,
+    ).toBe(false);
+
+    // 解約へ戻す → 両日付が DB 値へ復元され readonly（disabled）に戻る。
+    vm.formState.tetsuzuki_shurui = 0;
+    await flushPromises();
+    expect(vm.formState.dokusya_kaishi_date).toBe('2026-04-01'); // DB 値
+    expect(vm.formState.joho_henko_tekiyo_date).toBe('2026-06-01'); // DB 値
+    expect(
+      (itemByName('dokusya_kaishi_date')!.find('input').element as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      /ant-picker-disabled/.test(itemByName('joho_henko_tekiyo_date')!.html()),
+    ).toBe(true);
+  });
+
+  it('should default 購読部数 to 1 (not the cancelled 0) when resubscribing 解約→新規 (顧客要件 2026-07)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 1,
+        tetsuzuki_shurui: 0, // 解約済み → 部数 0
+        dokusya_busu: 0,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { tetsuzuki_shurui: number; dokusya_busu: number };
+    };
+    // 手続種類=新規 へ切替（再購読）→ 部数は解約時の 0 ではなく新規既定の 1。
+    vm.formState.tetsuzuki_shurui = 1;
+    await flushPromises();
+    expect(Number(vm.formState.dokusya_busu)).toBe(1);
+  });
+
+  it('should show 購読開始日 radio (今日/翌月1日) like create when resubscribing a 電子版 record (顧客要件 2026-07)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2, // 電子版
+        tetsuzuki_shurui: 0, // 解約済み
+        dokusya_busu: 0,
+        shiharai_hoho: 1, // 口座引落
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { tetsuzuki_shurui: number };
+    };
+    // 解約読込時はラジオ非表示。新規へ切替（再購読）→ create と同じフォームに。
+    vm.formState.tetsuzuki_shurui = 1;
+    await flushPromises();
+    // 電子版 create と同じく購読開始日ラジオ「今日 / 翌月1日」を表示する。
+    expect(wrapper.text()).toContain('翌月1日');
+  });
+
+  it('should focus the first errored field when submit hits a validation error (顧客要件)', async () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    // attach=true で document へマウントし focusFirstError の document 検索を有効化。
+    const { wrapper } = await renderView({ attach: true }); // 新規作成（必須未入力多数）
+    // 必須未入力のまま送信 → validateClient がエラー → 先頭エラー項目へフォーカス。
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await flushPromises(); // nextTick(focusFirstError) を待つ
+    expect(wrapper.text()).toContain('必須');
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
   });
 
   it('should disable the 更新 button when loading 解約 (locked), enable after switching to 新規 — 顧客要件 2026-07', async () => {
@@ -1081,8 +1208,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     // 選ぶと 更新 ボタンが出る（顧客要件2026-07）。
     const { wrapper } = await renderView({ dokusyaId: 100 });
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
-    (wrapper.vm as any).selectMode('reserved');
-    await flushPromises();
+    await enterReservedMode(wrapper);
     const submitBtn = wrapper.find('button[type="submit"]');
     expect(submitBtn.exists()).toBe(true);
     // Antd auto-spacing — match by single CJK char.
@@ -1122,6 +1248,26 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
+  // 管理支店 は必須（* 表示）。未選択で submit すると以前は BE で
+  // kanri_shiten_id=0 → FK 違反(500)になっていた。FE で required を検証し、
+  // createDokusya を呼ばずフィールドに 必須項目です。を出すことを保証する。
+  it('should block create and show 必須項目です。 on 管理支店 when kanri_shiten_id is not selected', async () => {
+    const { wrapper } = await renderView();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({ kanri_shiten_id: null }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === 'kanri_shiten_id');
+    expect(item?.html()).toContain('必須項目です。');
+    expect(createDokusya).not.toHaveBeenCalled();
+  });
+
   it('should VALIDATE 氏名 on edit and block update when non-conforming — 顧客要件 2026-07 (氏名編集可)', async () => {
     // 氏名は編集で変更可（顧客要件 2026-07）。作成と同じく 氏/名は漢字・かなは
     // 全角ひらがなを検証するため、旧取込等で "太郎12"（数字混じり）やカタカナの
@@ -1143,7 +1289,7 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('漢字・ひらがな・カタカナで入力してください。');
+    expect(wrapper.text()).toContain('漢字・ひらがな・カタカナ・アルファベットで入力してください。');
     expect(wrapper.text()).toContain('ひらがなで入力してください');
     expect(updateDokusya).not.toHaveBeenCalled();
   });
@@ -1771,7 +1917,7 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should reject 配達先苗字/名前（漢字） when romaji/digits — 漢字・ひらがな・カタカナのみ許容 (顧客要件 2026-07)', async () => {
+  it('should reject 配達先苗字/名前（漢字） when 半角数字 — 漢字・かな・アルファベット許容/数字不可 (顧客要件 2026-07)', async () => {
     const { wrapper } = await renderView();
     const { createDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(createDokusya).mockClear();
@@ -1784,10 +1930,10 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
       haitatsu_todofuken_code: '13',
       haitatsu_shikuchoson: '渋谷区',
       haitatsu_chome_banchi: '神宮前1-1',
-      // ローマ字 → 氏名チェックで弾く（漢字・ひらがな・カタカナは可、英数字は不可）。
-      // かなは正しいひらがな。
-      haitatsu_shimei_sei: 'Suzuki',
-      haitatsu_shimei_mei: 'Hanako',
+      // 半角数字 → 氏名チェックで弾く（漢字・ひらがな・カタカナ・アルファベットは可、
+      // 数字は不可）。かなは正しいひらがな。
+      haitatsu_shimei_sei: 'Suzuki12',
+      haitatsu_shimei_mei: 'Hanako12',
       haitatsu_shimei_kana_sei: 'すずき',
       haitatsu_shimei_kana_mei: 'はなこ',
     }));
@@ -1796,10 +1942,10 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     await flushPromises();
 
     expect(vm.fieldErrors.haitatsu_shimei_sei).toBe(
-      '漢字・ひらがな・カタカナで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
     );
     expect(vm.fieldErrors.haitatsu_shimei_mei).toBe(
-      '漢字・ひらがな・カタカナで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
     );
     expect(createDokusya).not.toHaveBeenCalled();
   });
@@ -2272,7 +2418,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
     // status=0 (承認待ち) → 否認ボタン表示.
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
 
     const { wrapper } = await renderView({ dokusyaId: 100 });
@@ -2304,7 +2450,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
     //   "電子版読者の登録を否認します。よろしいですか？"
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     const confirmSpy = vi.spyOn(Modal, 'confirm');
     confirmSpy.mockClear();
@@ -2326,7 +2472,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
   it('should call rejectDokusya when 承認しない confirm dialog OK is clicked', async () => {
     const { getDokusya, rejectDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     vi.mocked(rejectDokusya).mockClear();
 
@@ -2345,7 +2491,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
   it('should show 「否認しました。」 toast when rejectDokusya succeeds', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     const successSpy = vi.spyOn(message, 'success');
     successSpy.mockClear();
@@ -2363,7 +2509,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
   it('should navigate to DokusyaList when rejectDokusya succeeds (機能定義 4.3)', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
 
     const { wrapper, router } = await renderView({ dokusyaId: 100 });
@@ -2385,7 +2531,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
     // pending state.
     const { getDokusya, approveDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     vi.mocked(approveDokusya).mockClear();
 
@@ -2406,7 +2552,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
   it('should show 「承認しました。」 toast when approveDokusya succeeds', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     const successSpy = vi.spyOn(message, 'success');
     successSpy.mockClear();
@@ -2427,7 +2573,7 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
     // NOT happen.
     const { getDokusya, approveDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
-      data: buildDokusyaDetail({ denshi_shonin_status: 0 }),
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
     });
     vi.mocked(approveDokusya).mockRejectedValueOnce({
       response: {
@@ -2863,13 +3009,18 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     expect(fieldDisabled(wrapper, 'yubin_no')).toBe(true);
   });
 
-  it('予約変更を選ぶと帳票影響項目が編集可、joho は空でユーザー入力', async () => {
+  it('予約変更ポップアップで適用日を確定すると予約変更モードに入り帳票影響項目が編集可（適用日はポップアップ確定・インライン読取専用）', async () => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    (wrapper.vm as any).selectMode('reserved');
-    await flushPromises();
-    expect((wrapper.vm as any).formState.joho_henko_tekiyo_date).toBeNull();
+    await enterReservedMode(wrapper, tomorrowIsoTokyo());
+    expect((wrapper.vm as any).viewMode).toBe('reserved');
+    // 適用日はポップアップで確定した未来日（空ではない）。
+    expect((wrapper.vm as any).formState.joho_henko_tekiyo_date).toBe(
+      tomorrowIsoTokyo(),
+    );
     expect(fieldDisabled(wrapper, 'dokusya_busu')).toBe(false);
     expect(fieldDisabled(wrapper, 'hanbaiten_id')).toBe(false);
+    // インラインの適用日は読取専用（変更はポップアップ経由）。
+    expect(fieldDisabled(wrapper, 'joho_henko_tekiyo_date')).toBe(true);
   });
 
   it('電子版は当日変更でも帳票影響項目（住所）を非活性にしない', async () => {
@@ -2925,8 +3076,7 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     const { updateDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(updateDokusya).mockClear();
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    (wrapper.vm as any).selectMode('reserved');
-    await flushPromises();
+    await enterReservedMode(wrapper);
     // 実際に業務項目を変更しないと編集ガードで PUT がスキップされるため、
     // 帳票影響項目（部数）を変更＋未来日を指定する。
     (wrapper.vm as any).formState.dokusya_busu = 7;
@@ -2939,6 +3089,57 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
       change_mode?: string;
     };
     expect(body.change_mode).toBe('reserved');
+  });
+
+  // B案 — 予約変更は「その適用日時点で有効な直前行(predecessor)」を
+  // フォームへロードする。master(t_dokusya, 未来予約未反映) ではない。
+  it('予約変更ポップアップ確定で predecessor(findBefore) をロードする（master ではない）', async () => {
+    const { getDokusya, getDokusyaEffectiveAt } = await import(
+      '@/api/dokusya/dokusya'
+    );
+    // master は haitatsu_same_flg=true（未来予約はまだ反映されていない）。
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_id: 100, haitatsu_same_flg: true }),
+    });
+    // findBefore(joho) = 直前の予約行 は haitatsu_same_flg=false。
+    vi.mocked(getDokusyaEffectiveAt).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_id: 100, haitatsu_same_flg: false }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await enterReservedMode(wrapper, tomorrowIsoTokyo());
+    expect(vi.mocked(getDokusyaEffectiveAt)).toHaveBeenCalledWith(
+      100,
+      tomorrowIsoTokyo(),
+    );
+    // フォームは predecessor(false) をロードする（master(true) ではない）。
+    expect((wrapper.vm as any).formState.haitatsu_same_flg).toBe(false);
+  });
+
+  // B案 の核 — 未編集項目は predecessor 値のまま送られ、master へ
+  // 誤って revert しない（master busu=5 / predecessor busu=8 → 送信 busu=8）。
+  it('予約変更で未編集項目は predecessor 値のまま送る（master へ revert しない）', async () => {
+    const { getDokusya, getDokusyaEffectiveAt, updateDokusya } = await import(
+      '@/api/dokusya/dokusya'
+    );
+    vi.mocked(updateDokusya).mockClear();
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_busu: 5 }),
+    });
+    vi.mocked(getDokusyaEffectiveAt).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_busu: 8 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await enterReservedMode(wrapper, tomorrowIsoTokyo());
+    // busu は触らず備考だけ変更 → busu は predecessor(8) のまま。
+    (wrapper.vm as any).formState.biko = '予約変更メモ';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(vi.mocked(updateDokusya)).toHaveBeenCalled();
+    const body = vi.mocked(updateDokusya).mock.calls.at(-1)?.[1] as {
+      dokusya_busu?: number;
+    };
+    expect(body.dokusya_busu).toBe(8); // predecessor 値（master 5 へ revert しない）
   });
 
   it('モードバーは読取専用（併読）レコードでは出さない', async () => {

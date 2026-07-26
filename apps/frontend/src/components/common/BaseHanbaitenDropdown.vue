@@ -16,6 +16,7 @@ import {
   type HanbaitenDropdownQuery,
 } from '@/api/hanbaiten/hanbaiten';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /** Selected hanbaiten_id (`null`/`undefined` = nothing selected). */
@@ -32,7 +33,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '選択してください',
   allowClear: true,
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
 });
 
 const emit = defineEmits<{ 'update:value': [v: number | null] }>();

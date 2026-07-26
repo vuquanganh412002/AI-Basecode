@@ -178,7 +178,6 @@ export function buildDokusyaRireki(
     zenkaiChomeBanchi: null,
     zenkaiTatemonoMei: null,
     denshiShoninStatus: null,
-    hanbaitenTekiyoDate: null,
     createdAt: now,
     createdBy: 'SYSTEM',
     ...overrides,
@@ -613,7 +612,9 @@ export function buildReplaceSearchQuery(
     sort_by: 'kumiaiin_code',
     sort_order: 'asc',
     // 販売店適用日は必須（顧客要件 2026-07）。既定は遠未来日で未来日チェックを通す。
-    hanbaiten_tekiyo_date: '2099-12-31',
+    joho_henko_tekiyo_date: '2099-12-31',
+    // 購読種別は必須（1:紙版 / 2:電子版・顧客要件 2026-07）。既定は紙版=未来日と整合。
+    dokusya_shubetsu: 1,
     ...overrides,
   };
 }
@@ -622,7 +623,7 @@ export function buildReplaceSearchQuery(
  * Default-valid request body for `POST /api/v1/dokusya/replace-hanbaiten`
  * (ACSMS-API-015-002 リクエストパラメータ).
  *
- * `hanbaiten_tekiyo_date` is computed as a FUTURE date from `new Date()`
+ * `joho_henko_tekiyo_date` is computed as a FUTURE date from `new Date()`
  * (never a hardcoded literal) so the service-level "当日以降の日付のみ可"
  * check (api.md §4.1) passes regardless of when the suite runs.
  */
@@ -635,7 +636,9 @@ export function buildReplaceBody(
     // 一括置換は 販売店のみ変更 = 情報変更適用日 を兼ねるため未来日のみ（顧客要件
     // 2026-07 改訂）。既定を未来日にして happy-path 置換を通す（UTC 基準 futureDate と
     // JST 基準 service のズレ吸収で +2 日）。未来日での chèn-giữa は明示上書き。
-    hanbaiten_tekiyo_date: futureDate(2),
+    joho_henko_tekiyo_date: futureDate(2),
+    // 購読種別は必須（1:紙版 / 2:電子版・顧客要件 2026-07）。既定は紙版=未来日と整合。
+    dokusya_shubetsu: 1,
     ...overrides,
   };
 }

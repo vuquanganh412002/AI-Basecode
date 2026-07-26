@@ -10,6 +10,7 @@ import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import { useAuthStore } from '@/stores/auth.store';
 import {
   getAccount,
@@ -24,6 +25,7 @@ import {
   type RoleDropdownItem,
 } from '@/api/roles/roles';
 import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken';
+import { DROPDOWN_MAX_PAGE_SIZE } from '@/constants/pagination';
 import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 import {
   getKanriShitenDropdown,
@@ -171,7 +173,7 @@ async function fetchJaOptions(todofukenCode: string, roleId: number | null): Pro
     const resp = await getJaDropdown({
       todofuken_code: todofukenCode,
       role_id: roleId ?? undefined,
-      per_page: 100,
+      per_page: DROPDOWN_MAX_PAGE_SIZE,
     });
     jaOptions.value = resp.data;
   } catch {
@@ -197,7 +199,7 @@ async function fetchShitenOptions(
     const resp = await getShitenDropdown({
       kanri_shiten_id: kanriShitenId,
       ja_id: jaId ?? undefined,
-      per_page: 100,
+      per_page: DROPDOWN_MAX_PAGE_SIZE,
     });
     shitenOptions.value = resp.data;
   } catch {
@@ -365,6 +367,22 @@ function isStrongPassword(value: string): boolean {
   return [hasAlpha, hasDigit, hasSymbol].filter(Boolean).length >= 2;
 }
 
+// フォーム項目の DOM 出現順（submit エラー時に先頭のエラー項目へフォーカスする）。
+const FIELD_ORDER: readonly string[] = [
+  'login_id',
+  'password',
+  'role_id',
+  'todofuken_code',
+  'ja_id',
+  'kanri_shiten_id',
+  'shiten_id',
+  'account_name',
+  'email',
+  'sub_email_1',
+  'sub_email_2',
+  'sub_email_3',
+];
+
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
 
@@ -472,13 +490,17 @@ function handleServerError(err: unknown): void {
         )
         .map((e) => [e.field, e.message]),
     );
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
   }
   // Non-field-level errors (500, generic 400) are toasted by the
   // global axios interceptor — the view must NOT re-toast.
 }
 
 async function onSubmit(): Promise<void> {
-  if (!validateClient()) return;
+  if (!validateClient()) {
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
+    return;
+  }
   // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
   if (isEdit.value && accountId.value !== null && editGuard.isPristine()) {
     message.info('変更がありません。');

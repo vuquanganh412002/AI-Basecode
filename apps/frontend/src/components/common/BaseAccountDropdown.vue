@@ -23,6 +23,7 @@ import {
   type AccountDropdownQuery,
 } from '@/api/account/account';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /**
@@ -59,7 +60,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '選択してください',
   allowClear: true,
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
   labelFormat: 'login-name',
   searchField: 'both',
 });

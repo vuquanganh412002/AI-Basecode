@@ -20,6 +20,7 @@ import {
   VerifyResetTokenResponseDto,
 } from './dto/auth-response.dto';
 import { baseCookieOptions } from '@/common/utils/cookie';
+import { DEFAULT_SESSION_TTL_SECONDS } from '@/config/config-defaults.constant';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -45,7 +46,9 @@ export class AuthController {
     private readonly configService: ConfigService,
   ) {
     this.cookieName = this.configService.get<string>('session.cookieName') ?? 'session_id';
-    this.ttlSeconds = this.configService.get<number>('session.ttlSeconds') ?? 24 * 60 * 60;
+    this.ttlSeconds =
+      this.configService.get<number>('session.ttlSeconds') ??
+      DEFAULT_SESSION_TTL_SECONDS;
     this.nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
   }
 

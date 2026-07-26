@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
@@ -18,8 +18,8 @@ import { DataSource, DataSourceOptions } from 'typeorm';
  * `denshiban.enabled=false` it never connects at all.
  */
 @Injectable()
-export class DenshibanDbService implements OnApplicationBootstrap {
-  private readonly logger = new Logger('DenshibanDbConnection');
+export class DenshibanDbService {
+  private readonly logger = new Logger(DenshibanDbService.name);
 
   constructor(private readonly configService: ConfigService) {}
 

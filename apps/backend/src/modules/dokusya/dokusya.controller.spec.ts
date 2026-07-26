@@ -81,6 +81,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   beforeEach(async () => {
     service = {
       getDetail: jest.fn(),
+      getEffectiveAt: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       approve: jest.fn(),
@@ -195,6 +196,54 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       service.getDetail.mockRejectedValue(new Error('DB exploded'));
       const res = await http().get(apiUrl('dokusya/1')).expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  describe('GET /api/v1/dokusya/:dokusya_id/effective-at', () => {
+    it('should return 200 with { data } and pass (id, joho) to service.getEffectiveAt', async () => {
+      // ACSMS-API-011-004 — 予約変更編集の基準行(findBefore)取得。
+      service.getEffectiveAt.mockResolvedValue(
+        buildDokusyaDetailResponse({ dokusya_id: 7 }),
+      );
+
+      const res = await http()
+        .get(apiUrl('dokusya/7/effective-at'))
+        .query({ joho: '2026-08-23' })
+        .expect(200);
+
+      expect(res.body.data).toMatchObject({ dokusya_id: 7 });
+      expect(service.getEffectiveAt).toHaveBeenCalledWith(
+        7,
+        '2026-08-23',
+        expect.anything(),
+      );
+    });
+
+    it('should return 400 when joho format is invalid (service throws VALIDATION_ERROR)', async () => {
+      service.getEffectiveAt.mockRejectedValue(
+        new HttpException(
+          {
+            code: 'VALIDATION_ERROR',
+            message: '入力値が不正です',
+            errors: [{ field: 'joho', message: '情報変更適用日の形式が不正です。' }],
+          },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+      const res = await http()
+        .get(apiUrl('dokusya/7/effective-at'))
+        .query({ joho: 'bad' })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 403 FORBIDDEN when dokusya.view permission is missing', async () => {
+      permissionsGuardValue = false;
+      const res = await http()
+        .get(apiUrl('dokusya/7/effective-at'))
+        .query({ joho: '2026-08-23' })
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
     });
   });
 
@@ -468,7 +517,27 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         message: '承認しました。',
       });
       await http().put(apiUrl('dokusya/42/approve')).expect(200);
-      expect(service.approve).toHaveBeenCalledWith(42, expect.anything(), expect.anything());
+      // 4th arg = optional tanka_id from the body (undefined when no body sent).
+      expect(service.approve).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+      );
+    });
+
+    it('should pass tanka_id from the body to service.approve', async () => {
+      service.approve.mockResolvedValue({
+        data: buildDokusyaDetailResponse({ dokusya_id: 42, denshi_shonin_status: 1 }),
+        message: '承認しました。',
+      });
+      await http().put(apiUrl('dokusya/42/approve')).send({ tanka_id: 7 }).expect(200);
+      expect(service.approve).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        7,
+      );
     });
 
     it('should return 400 BAD_REQUEST when dokusya_id is non-numeric', async () => {
@@ -1515,7 +1584,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(200);
 
       expect(res.body.data).toEqual(expect.any(Array));
@@ -1536,14 +1605,14 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001', hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001', joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(200);
 
       expect(service.searchForReplace).toHaveBeenCalledWith(
         expect.objectContaining({
           kanri_shiten_id: 10,
           kumiaiin_code: '10001',
-          hanbaiten_tekiyo_date: '2099-12-31',
+          joho_henko_tekiyo_date: '2099-12-31',
         }),
         expect.objectContaining({ ja_id: 1, account_id: 11 }),
       );
@@ -1578,7 +1647,8 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
         .query({
           dokusya_kaishi_date_from: '2026-12-31',
           dokusya_kaishi_date_to: '2026-01-01',
-          hanbaiten_tekiyo_date: '2099-12-31',
+          joho_henko_tekiyo_date: '2099-12-31',
+          dokusya_shubetsu: 1,
         })
         .expect(400);
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
@@ -1615,7 +1685,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(403);
       expect(res.body.error_code).toBe('DATA_SCOPE_VIOLATION');
     });
@@ -1624,7 +1694,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
       service.searchForReplace.mockRejectedValue(new Error('DB exploded'));
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ hanbaiten_tekiyo_date: '2099-12-31' })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });

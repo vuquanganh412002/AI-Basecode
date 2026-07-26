@@ -28,7 +28,7 @@ describe('DenshibanInboundFetcher.fetchCollectingRows', () => {
     expect(rows[0].JACd).toBe('1135001999');
   });
 
-  it('WHERE collecting = \'1\' と DATE_FORMAT で日付を YYYY-MM-DD 化する SQL を投げる', async () => {
+  it('WHERE collecting = \'1\' または treatment=1 かつ payment_id=6、DATE_FORMAT で日付を YYYY-MM-DD 化する SQL を投げる', async () => {
     const query = jest.fn().mockResolvedValue([]);
     const denshibanDb = {
       withConnection: jest.fn((fn: (ds: DataSource) => Promise<unknown>) =>
@@ -40,12 +40,48 @@ describe('DenshibanInboundFetcher.fetchCollectingRows', () => {
 
     const sql = query.mock.calls[0][0] as string;
     expect(sql).toContain("collecting = '1'");
+    expect(sql).toContain('treatment = 1 AND payment_id = 6');
     expect(sql).toContain("DATE_FORMAT(activated_at, '%Y-%m-%d')");
     expect(sql).toContain("DATE_FORMAT(deleted_at, '%Y-%m-%d')");
     expect(sql).toContain('JACd');
     expect(sql).toContain('ShopCd');
     expect(sql).toContain('payment_id');
     expect(sql).toContain('FROM users');
+  });
+
+  it('キャンペーン会員（campagna_flg = 1）を除外する SQL を投げる', async () => {
+    const query = jest.fn().mockResolvedValue([]);
+    const denshibanDb = {
+      withConnection: jest.fn((fn: (ds: DataSource) => Promise<unknown>) =>
+        fn({ query } as unknown as DataSource),
+      ),
+    } as unknown as DenshibanDbService;
+
+    await new DenshibanInboundFetcher(denshibanDb).fetchCollectingRows();
+
+    const sql = query.mock.calls[0][0] as string;
+    // 列名は denshiban 側の綴り `campagna_flg`（cloud の m_tanka.campaign_flg とは別物）。
+    expect(sql).toContain('COALESCE(campagna_flg, 0) <> 1');
+    // NULL 落ちを防ぐため素の `campagna_flg <> 1` は使わない。
+    expect(sql).not.toMatch(/[^)]\s*campagna_flg\s*<>/);
+    // 除外は AND で結合し、collecting / 口座振替 の OR 全体に掛かること。
+    expect(sql).toMatch(/COALESCE\(campagna_flg, 0\) <> 1\s+AND\s+\(/);
+  });
+
+  it('subscribe_flg（本紙購読フラグ）を SELECT し、文字列として正規化する', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValue([{ id: 5001, subscribe_flg: 1 }]);
+    const denshibanDb = {
+      withConnection: jest.fn((fn: (ds: DataSource) => Promise<unknown>) =>
+        fn({ query } as unknown as DataSource),
+      ),
+    } as unknown as DenshibanDbService;
+
+    const rows = await new DenshibanInboundFetcher(denshibanDb).fetchCollectingRows();
+
+    expect(query.mock.calls[0][0] as string).toContain('subscribe_flg');
+    expect(rows[0].subscribe_flg).toBe('1');
   });
 
   it('denshiban.enabled=false（withConnection が throw）はそのまま伝播', async () => {

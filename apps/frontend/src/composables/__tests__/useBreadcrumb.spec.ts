@@ -6,7 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter, type RouteRecordRaw } from 'vue-router';
 import { defineComponent, h } from 'vue';
-import { useBreadcrumb, type BreadcrumbItem } from '@/composables/useBreadcrumb';
+import {
+  pageTitleFromMatched,
+  useBreadcrumb,
+  type BreadcrumbItem,
+} from '@/composables/useBreadcrumb';
 
 const Probe = defineComponent({
   setup() {
@@ -110,5 +114,57 @@ describe('useBreadcrumb', () => {
     );
     // Parent has no breadcrumb → only ホーム + Child are emitted.
     expect(items.map((i) => i.label)).toEqual(['ホーム', 'Child']);
+  });
+});
+
+describe('pageTitleFromMatched (document.title source)', () => {
+  async function matchedAt(routes: RouteRecordRaw[], path: string) {
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push(path);
+    await router.isReady();
+    return router.currentRoute.value.matched;
+  }
+
+  it('returns the leaf label for a string breadcrumb (list page)', async () => {
+    const m = await matchedAt(
+      [
+        {
+          path: '/haitatsuryo',
+          name: 'HaitatsuryoExport',
+          meta: { breadcrumb: '配達手数料支払情報出力' },
+          component: { template: '<div/>' },
+        },
+      ],
+      '/haitatsuryo',
+    );
+    expect(pageTitleFromMatched(m)).toBe('配達手数料支払情報出力');
+  });
+
+  it('returns the last array item label (create/edit page)', async () => {
+    const m = await matchedAt(
+      [
+        {
+          path: '/ja/create',
+          name: 'JaCreate',
+          meta: {
+            breadcrumb: [
+              { label: 'JAマスタ一覧', to: '/ja' },
+              { label: 'JAマスタ登録画面' },
+            ],
+          },
+          component: { template: '<div/>' },
+        },
+      ],
+      '/ja/create',
+    );
+    expect(pageTitleFromMatched(m)).toBe('JAマスタ登録画面');
+  });
+
+  it('returns null when the route resolves to only ホーム (no breadcrumb)', async () => {
+    const m = await matchedAt(
+      [{ path: '/', name: 'H', component: { template: '<div/>' } }],
+      '/',
+    );
+    expect(pageTitleFromMatched(m)).toBeNull();
   });
 });

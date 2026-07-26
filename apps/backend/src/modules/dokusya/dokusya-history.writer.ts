@@ -79,17 +79,22 @@ export async function applyChange(
       throw new Error('applyChange(UPDATE): dokusyaId is required');
     }
     dokusyaId = input.dokusyaId;
-    beforeMaster = await loadMaster(m, dokusyaId); // snapshot BEFORE change
+    beforeMaster = await loadMaster(m, dokusyaId); // 監査 result.before 用スナップショット
   }
 
-  // 変更検出は「ユーザーが編集した現行スナップショット(master)」基準で行う
-  // （顧客要件 2026-07）。フォームは master をロードして送るため、diff を
-  // 履歴の日付上の直前行(findBefore)に対して取ると、master と直前行が乖離した
-  // 未来日レコードの存在時に「ユーザーが触っていない項目」まで変更扱いされ、
-  // 余計な履歴行が生まれる。ここで検出するのは「利用者が実際に変えた項目」だけ。
-  // 各履歴行に埋める値・zenkai_*・後続行の cascade は従来どおり findBefore
-  // （日付上の直前行）から取る＝「データは直前行から」の設計は不変。
-  const changed = diffChangedFields(beforeMaster, values);
+  // 変更検出は「タイムライン上の直前行 findBefore(joho)」基準で行う（顧客要件
+  // 改訂 2026-07：予約変更を積み重ねられるようにする）。適用日 joho は必ず当日
+  // 以降（電子版=当日 / 紙版>=当日、過去日は service のガードで拒否）なので、
+  // 直前行 = その joho 時点で有効な行 = 新規行が実効値を carry-forward する元。
+  //
+  // 旧・master 基準だと未来予約行が存在するとき master と直前行が乖離し、
+  // 「直前行とは異なるが master とは同値」の変更（例: 予約 false@22 の後に
+  // 07-23 で true へ戻す）が未検出となり履歴が作られなかった。直前行基準にする
+  // ことで、各履歴行に埋める値・zenkai_*・後続行 cascade も同じ findBefore から
+  // 取る設計と一貫する。CREATE は直前行なし(null)＝全項目を変更扱い（従来同）。
+  const diffBase =
+    mode === 'CREATE' ? null : await findBefore(m, dokusyaId, johoDate);
+  const changed = diffChangedFields(diffBase, values);
   // [1更新1レコード] 販売店・支払方法の変更日を廃止し、全変更を joho で1件の履歴行に
   // まとめる（顧客要件 2026-07）。UI編集・Excel取込・一括置換で統一（source 分岐なし）。
   const events = splitEvents(mode, changed, values, johoDate);

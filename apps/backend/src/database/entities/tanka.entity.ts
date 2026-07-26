@@ -12,9 +12,14 @@ import {
  * m_tanka — 単価マスタ. Per-JA pricing for subscriptions and delivery.
  *
  * `tanka_type` (m_code category `TANKA_TYPE`): 1=購読料, 2=配達手数料.
- * `active_flg` is an operator-controlled manual override INDEPENDENT of
- * the effective period (tekiyo_start_date / tekiyo_end_date). FALSE
- * blocks new subscriber assignments but keeps existing contracts.
+ * `active_flg` is an operator-controlled manual flag: FALSE blocks new
+ * subscriber assignments but keeps existing contracts. The operator may
+ * set it FALSE anytime (even within the effective period), and being
+ * within the period does NOT force it TRUE. The nightly tanka-expire
+ * batch additionally flips it TRUE→FALSE once `tekiyo_end_date` has
+ * passed (one-directional: expiry → FALSE; never FALSE→TRUE), so a
+ * lapsed 単価 is not left "active". See
+ * `src/modules/batch/tanka-expire/`.
  *
  * Schema source: `docs/database/database-design.md §m_tanka`.
  */

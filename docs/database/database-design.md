@@ -635,13 +635,14 @@ updated_by: Tran Duc Tuyen
 | 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
 | 54 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
 | 55 | rireki_no |  | INTEGER |  |  |  | 履歴No（最新の履歴番号） |
-| 56 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 57 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 58 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 59 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 60 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
-| 61 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 62 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | 電子版会員ID（外部システムの会員ID。外部連携機能が設定。全体一意） |
+| 56 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 57 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | 電子版会員ID（外部システムの会員ID。外部連携機能が設定。全体一意） |
+| 58 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。購読種別=電子版の場合のみ画面に「紙版購読状況有り」と表示する。 |
+| 59 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 60 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 61 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 62 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 63 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -732,10 +733,9 @@ updated_by: Tran Duc Tuyen
 | 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
 | 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
 | 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 70 | hanbaiten_tekiyo_date |  | DATE |  |  | 〇 | 販売店適用日 |
-| 71 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
-| 72 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
-| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
+| 70 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
+| 71 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
+| 72 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
 
 ## インデックス
 

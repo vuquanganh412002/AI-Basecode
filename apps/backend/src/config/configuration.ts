@@ -1,4 +1,11 @@
 import { isNodeEnv, toBoolean } from '@/common/utils/env';
+import {
+  DEFAULT_FRONTEND_URL,
+  DEFAULT_MAIL_FROM,
+  DEFAULT_MAIL_FROM_NAME,
+  DEFAULT_MAIL_HOST,
+  DEFAULT_SESSION_TTL_SECONDS,
+} from './config-defaults.constant';
 
 /**
  * Dev-only fallback values that MUST NOT survive into a production
@@ -60,7 +67,7 @@ export default () => {
     port: parseInt(process.env.PORT ?? '3000', 10),
     nodeEnv: process.env.NODE_ENV || 'development',
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:5173',
+      DEFAULT_FRONTEND_URL,
     ],
     app: {
       /**
@@ -68,7 +75,7 @@ export default () => {
        * links sent to users (password-reset email, etc.). Falls back to
        * the local Vite dev server origin.
        */
-      frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+      frontendUrl: process.env.FRONTEND_URL ?? DEFAULT_FRONTEND_URL,
       /**
        * Number of trusted reverse-proxy hops in front of the app, passed
        * to Express `app.set('trust proxy', n)`. Behind CloudFront → ALB →
@@ -79,6 +86,12 @@ export default () => {
        * trust a spoofable leftmost XFF entry. Local/no-proxy: set 0.
        */
       trustProxyHops: Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '2', 10),
+      /**
+       * ログ保持年数。ログ削除バッチ(log-cleanup)が
+       * `t_log` / `t_login_log` のうちこの年数より古いレコードを物理削除する。
+       * 既定は 5年（顧客レビュー 2026-07 No.5）。
+       */
+      logRetentionYears: Number.parseInt(process.env.LOG_RETENTION_YEARS ?? '5', 10),
     },
     database: {
       host: process.env.DB_HOST || 'localhost',
@@ -119,7 +132,10 @@ export default () => {
       // at boot by assertProductionSecrets().
       secret:
       process.env.SESSION_SECRET || DEV_FALLBACKS.SESSION_SECRET,
-      ttlSeconds: parseInt(process.env.SESSION_TTL_SECONDS ?? String(24 * 60 * 60), 10),
+      ttlSeconds: parseInt(
+        process.env.SESSION_TTL_SECONDS ?? String(DEFAULT_SESSION_TTL_SECONDS),
+        10,
+      ),
     },
     storage: {
       provider: storageProvider,
@@ -171,12 +187,6 @@ export default () => {
       // 電子版から共有された共通キー（common key: examplestring）。現状は接続確認の
       // 対象外だが、今後この電子版DBのデータ取得時に利用するため設定として保持する。
       commonKey: process.env.DENSHIBAN_DB_COMMON_KEY || 'examplestring',
-      // ⚠️ TEMPORARY — 起動時にテーブル一覧 + t_dokusya 先頭10件を「ログに出す」
-      // 診断フラグ。t_dokusya は購読者(PII)なので、これは CloudWatch に PII を
-      // 書き出す＝本来は禁止行為（.claude/rules/security.md / monitoring.md）。
-      // dump 許可を顧客に取りに行っている間の暫定確認用。dev/検証のみ true、
-      // 本番では必ず未設定(false)。許可が下りたら本フラグごと削除する。
-      debugSample: toBoolean(process.env.DENSHIBAN_DB_DEBUG_SAMPLE),
       // 電子版「会員情報更新」共通API (updateUserInfo)。顧客は ECS の NAT IP
       // 2つだけを whitelist しているため、疎通確認はローカルからではなく
       // ECS 起動時に行う（DenshibanApiService）。
@@ -193,14 +203,14 @@ export default () => {
       // from NODE_ENV (local → SMTP/Mailhog, otherwise → SES). docker-compose
       // sets MAIL_PROVIDER=smtp to force Mailhog while NODE_ENV=development.
       provider: process.env.MAIL_PROVIDER || 'smtp',
-      host: process.env.MAIL_HOST || 'localhost',
+      host: process.env.MAIL_HOST || DEFAULT_MAIL_HOST,
       port: parseInt(process.env.MAIL_PORT ?? '1025', 10),
       user: process.env.MAIL_USER || '',
       pass: process.env.MAIL_PASS || '',
-      from: process.env.MAIL_FROM || 'noreply@agrinews.jp',
+      from: process.env.MAIL_FROM || DEFAULT_MAIL_FROM,
       // 受信トレイに表示する送信者名（差出人の表示名）。MAIL_FROM はアドレスのみ、
       // 表示名はこちらで付与する（例: "AGRINEWS" <noreply@agrinews.jp>）。
-      fromName: process.env.MAIL_FROM_NAME || 'AGRINEWS',
+      fromName: process.env.MAIL_FROM_NAME || DEFAULT_MAIL_FROM_NAME,
       region: process.env.MAIL_REGION || 'ap-northeast-1',
       // SES configuration set (provider=ses only). Attributes outbound mail to
       // the set so its CloudWatch metrics + SNS bounce/complaint events fire.

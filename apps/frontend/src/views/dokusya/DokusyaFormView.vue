@@ -34,12 +34,14 @@ import { useNotify } from '@/composables/useNotify';
 import { useEditGuard } from '@/composables/useEditGuard';
 import {
   getDokusya,
+  getDokusyaEffectiveAt,
   createDokusya,
   updateDokusya,
   approveDokusya,
   rejectDokusya,
   type CreateDokusyaRequest,
   type UpdateDokusyaRequest,
+  type DokusyaDetail,
 } from '@/api/dokusya/dokusya';
 import {
   getKanriShitenDropdown,
@@ -63,8 +65,14 @@ import {
   type TodofukenItem,
 } from '@/api/todofuken/todofuken';
 import { useCodesStore } from '@/stores/codes.store';
-import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
+import {
+  DenshiShoninStatus,
+  DokusyaShubetsu,
+  ShiharaiHoho,
+  TetsuzukiShurui,
+} from '@/constants/enums';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import type { Dayjs } from 'dayjs';
 import {
   todayIsoTokyo,
@@ -143,8 +151,8 @@ function defaultFormState(): DokusyaFormState {
     kanri_shiten_id: null,
     shiten_id: null,
     kumiaiin_code: '',
-    dokusya_shubetsu: 1,
-    tetsuzuki_shurui: 1,
+    dokusya_shubetsu: DokusyaShubetsu.PAPER,
+    tetsuzuki_shurui: TetsuzukiShurui.SHINKI,
     shimei_sei: '',
     shimei_mei: '',
     shimei_kana_sei: '',
@@ -314,6 +322,13 @@ const originalDokusyaBusu = ref<number>(1);
 // 可変になり得るため、判定は読込時のスナップショットで固定する＝循環回避）。
 const originalTetsuzukiShurui = ref<number | null>(null);
 const originalShiharaiHoho = ref<number | null>(null);
+// DB 登録時の購読開始日・情報変更適用日・解約予定日（編集で 解約→新規→解約 と
+// 切替えたとき、両日付を DB 値へ復元し読取専用に戻すために控える。顧客要件 2026-07）。
+const originalKaishiDate = ref<string>('');
+const originalJohoDate = ref<string | null>(null);
+const originalChushiDate = ref<string | null>(null);
+/** ロード時点の適用日（他項目が未変更へ戻ったとき joho を復元する基準値）。 */
+const johoHenkoBaseline = ref<string | null>(null);
 const detailDenshiShoninStatus = ref<number | null>(null);
 /** 電子版読者種別 (m_code DENSHI_DOKUSYA_SHUBETSU). Edit-mode readonly. */
 const detailDenshiDokusyaShubetsu = ref<number | null>(null);
@@ -323,8 +338,19 @@ const detailIdLabel = computed<string>(() => {
   return String(dokusyaId.value);
 });
 
+// 電子版(2) の承認ワークフロー（顧客要件）。紙版(null)/併読(既に読取専用) には
+// 適用しない。承認待ち(0)=単価のみ編集可＋承認/否認ボタン、否認(2)=全項目読取専用。
 const isPending = computed(
-  () => isEdit.value && detailDenshiShoninStatus.value === 0,
+  () =>
+    isEdit.value &&
+    isDigital.value &&
+    detailDenshiShoninStatus.value === DenshiShoninStatus.PENDING,
+);
+const isDenshiRejected = computed(
+  () =>
+    isEdit.value &&
+    isDigital.value &&
+    detailDenshiShoninStatus.value === DenshiShoninStatus.REJECTED,
 );
 
 // ─── Dropdown options ──────────────────────────────────────────────
@@ -490,89 +516,95 @@ async function fetchTankaOptions(): Promise<void> {
 const isHydrating = ref(false);
 const notFoundMessage = ref<string>('');
 
+/**
+ * ロード済み詳細レスポンス (master or predecessor) を formState + 各基準
+ * スナップショットへ反映する。`johoValue` は情報変更適用日の初期値
+ * （通常編集/当日=翌日 / 予約変更=ポップアップで選んだ未来日）。
+ * loadDetail(master) と confirmReservedJoho(predecessor) が共用する。
+ */
+function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
+  isHydrating.value = true;
+  Object.assign(formState, {
+    kanri_shiten_id: data.kanri_shiten_id ?? null,
+    shiten_id: data.shiten_id ?? null,
+    kumiaiin_code: data.kumiaiin_code,
+    dokusya_shubetsu: data.dokusya_shubetsu,
+    tetsuzuki_shurui: data.tetsuzuki_shurui,
+    shimei_sei: data.shimei_sei,
+    shimei_mei: data.shimei_mei,
+    shimei_kana_sei: data.shimei_kana_sei,
+    shimei_kana_mei: data.shimei_kana_mei,
+    dokusya_busu: data.dokusya_busu,
+    yubin_no: data.yubin_no,
+    todofuken_code: data.todofuken_code,
+    shikuchoson: data.shikuchoson,
+    chome_banchi: data.chome_banchi,
+    tatemono_mei: data.tatemono_mei,
+    renrakusaki_1: data.renrakusaki_1,
+    renrakusaki_2: data.renrakusaki_2,
+    email: data.email,
+    mail_magazine_flg: data.mail_magazine_flg,
+    birth_year: data.birth_year,
+    gender: data.gender,
+    haitatsu_same_flg: data.haitatsu_same_flg,
+    haitatsu_yubin_no: data.haitatsu_yubin_no,
+    haitatsu_todofuken_code: data.haitatsu_todofuken_code,
+    haitatsu_shikuchoson: data.haitatsu_shikuchoson,
+    haitatsu_chome_banchi: data.haitatsu_chome_banchi,
+    haitatsu_tatemono_mei: data.haitatsu_tatemono_mei,
+    haitatsu_renrakusaki_1: data.haitatsu_renrakusaki_1,
+    haitatsu_renrakusaki_2: data.haitatsu_renrakusaki_2,
+    haitatsu_shimei_sei: data.haitatsu_shimei_sei,
+    haitatsu_shimei_mei: data.haitatsu_shimei_mei,
+    haitatsu_shimei_kana_sei: data.haitatsu_shimei_kana_sei,
+    haitatsu_shimei_kana_mei: data.haitatsu_shimei_kana_mei,
+    hanbaiten_id: data.hanbaiten_id,
+    tanka_id: data.tanka_id,
+    yubin_kubun: data.yubin_kubun,
+    shiharai_hoho: data.shiharai_hoho,
+    dokusyaryo_shiharai_cycle: data.dokusyaryo_shiharai_cycle,
+    bank_shiten_id: data.bank_shiten_id,
+    hikiotoshi_yokin_shubetsu: data.hikiotoshi_yokin_shubetsu,
+    hikiotoshi_koza_no: data.hikiotoshi_koza_no,
+    hikiotoshi_koza_meigi: data.hikiotoshi_koza_meigi,
+    dokusyaso_bunrui: data.dokusyaso_bunrui,
+    nogyosya_bunrui: data.nogyosya_bunrui,
+    dokusya_kaishi_date: data.dokusya_kaishi_date,
+    dokusya_chushi_date: data.dokusya_chushi_date,
+    joho_henko_tekiyo_date: johoValue,
+    seikyu_kaishi_month: data.seikyu_kaishi_month,
+    biko: data.biko,
+  });
+  // 元の販売店を控えておき、編集中の変更検知 (hanbaitenChanged) に使う。
+  originalHanbaitenId.value = data.hanbaiten_id ?? null;
+  // 編集前の解約予定日を控える（相対チェックの参照＝直前の有効レコード）。
+  originalChushiDate.value = data.dokusya_chushi_date ?? null;
+  // DB 値の購読開始日・情報変更適用日を控える（解約→新規→解約 で復元する）。
+  // joho は編集初期値(johoValue=翌日)ではなく DB 実値を保持し、復元時は
+  // 「データベースの正しい値」を読取専用で表示する（顧客要件 2026-07）。
+  originalKaishiDate.value = data.dokusya_kaishi_date;
+  originalJohoDate.value = data.joho_henko_tekiyo_date ?? null;
+  // DB 登録時の部数を控える（解約→新規 と切替えたとき復元する）。
+  originalDokusyaBusu.value = data.dokusya_busu;
+  // 読込時の手続種類・支払方法を控える（canResubscribe 判定用スナップショット）。
+  originalTetsuzukiShurui.value = data.tetsuzuki_shurui;
+  originalShiharaiHoho.value = data.shiharai_hoho;
+  // 解約予約ガード（顧客要件 2026-07）。
+  hasActiveKaiyaku.value = data.has_active_kaiyaku ?? false;
+  maxJohoDate.value = data.max_joho_date ?? null;
+  detailRireki.value = data.rireki_no;
+  detailDenshiShoninStatus.value = data.denshi_shonin_status;
+  detailDenshiDokusyaShubetsu.value = data.denshi_dokusya_shubetsu;
+  queueMicrotask(() => {
+    isHydrating.value = false;
+  });
+}
+
 async function loadDetail(id: number): Promise<void> {
   try {
     const resp = await getDokusya(id);
-    isHydrating.value = true;
-    Object.assign(formState, {
-      kanri_shiten_id: resp.data.kanri_shiten_id ?? null,
-      shiten_id: resp.data.shiten_id ?? null,
-      kumiaiin_code: resp.data.kumiaiin_code,
-      dokusya_shubetsu: resp.data.dokusya_shubetsu,
-      tetsuzuki_shurui: resp.data.tetsuzuki_shurui,
-      shimei_sei: resp.data.shimei_sei,
-      shimei_mei: resp.data.shimei_mei,
-      shimei_kana_sei: resp.data.shimei_kana_sei,
-      shimei_kana_mei: resp.data.shimei_kana_mei,
-      dokusya_busu: resp.data.dokusya_busu,
-      yubin_no: resp.data.yubin_no,
-      todofuken_code: resp.data.todofuken_code,
-      shikuchoson: resp.data.shikuchoson,
-      chome_banchi: resp.data.chome_banchi,
-      tatemono_mei: resp.data.tatemono_mei,
-      renrakusaki_1: resp.data.renrakusaki_1,
-      renrakusaki_2: resp.data.renrakusaki_2,
-      email: resp.data.email,
-      mail_magazine_flg: resp.data.mail_magazine_flg,
-      birth_year: resp.data.birth_year,
-      gender: resp.data.gender,
-      haitatsu_same_flg: resp.data.haitatsu_same_flg,
-      haitatsu_yubin_no: resp.data.haitatsu_yubin_no,
-      haitatsu_todofuken_code: resp.data.haitatsu_todofuken_code,
-      haitatsu_shikuchoson: resp.data.haitatsu_shikuchoson,
-      haitatsu_chome_banchi: resp.data.haitatsu_chome_banchi,
-      haitatsu_tatemono_mei: resp.data.haitatsu_tatemono_mei,
-      haitatsu_renrakusaki_1: resp.data.haitatsu_renrakusaki_1,
-      haitatsu_renrakusaki_2: resp.data.haitatsu_renrakusaki_2,
-      haitatsu_shimei_sei: resp.data.haitatsu_shimei_sei,
-      haitatsu_shimei_mei: resp.data.haitatsu_shimei_mei,
-      haitatsu_shimei_kana_sei: resp.data.haitatsu_shimei_kana_sei,
-      haitatsu_shimei_kana_mei: resp.data.haitatsu_shimei_kana_mei,
-      hanbaiten_id: resp.data.hanbaiten_id,
-      tanka_id: resp.data.tanka_id,
-      yubin_kubun: resp.data.yubin_kubun,
-      shiharai_hoho: resp.data.shiharai_hoho,
-      dokusyaryo_shiharai_cycle: resp.data.dokusyaryo_shiharai_cycle,
-      bank_shiten_id: resp.data.bank_shiten_id,
-      hikiotoshi_yokin_shubetsu: resp.data.hikiotoshi_yokin_shubetsu,
-      hikiotoshi_koza_no: resp.data.hikiotoshi_koza_no,
-      hikiotoshi_koza_meigi: resp.data.hikiotoshi_koza_meigi,
-      dokusyaso_bunrui: resp.data.dokusyaso_bunrui,
-      nogyosya_bunrui: resp.data.nogyosya_bunrui,
-      dokusya_kaishi_date: resp.data.dokusya_kaishi_date,
-      dokusya_chushi_date: resp.data.dokusya_chushi_date,
-      // 情報変更適用日はこの編集での「変更適用日」。顧客要件 2026-07 改訂により
-      // 未来日のみ許可（当日・過去日 不可）。既定値は翌日にする（ロード済みの
-      // 過去値も使わない）。
-      joho_henko_tekiyo_date: tomorrowIsoTokyo(),
-      seikyu_kaishi_month: resp.data.seikyu_kaishi_month,
-      biko: resp.data.biko,
-    });
-    // 元の販売店を控えておき、編集中の変更検知 (hanbaitenChanged) に使う。
-    originalHanbaitenId.value = resp.data.hanbaiten_id ?? null;
-    // 編集前の解約予定日を控える（販売店適用日 < 解約予定日 の相対チェック用。
-    // 参照は「直前の有効レコード」= ロード値。フォームで chushi を同時編集しても
-    // 判定はこの旧値を使う。顧客要件 2026-07）。
-    originalChushiDate.value = resp.data.dokusya_chushi_date ?? null;
-    // DB 登録時の部数を控える（解約→新規 と切替えたとき復元する）。
-    originalDokusyaBusu.value = resp.data.dokusya_busu;
-    // 読込時の手続種類・支払方法を控える（canResubscribe 判定用スナップショット）。
-    originalTetsuzukiShurui.value = resp.data.tetsuzuki_shurui;
-    originalShiharaiHoho.value = resp.data.shiharai_hoho;
-    // 解約予約ガード（顧客要件 2026-07）: 有効な解約予約があれば購読中止日を disabled、
-    // 解約予定日は最終変更適用日(max_joho_date)より後のみ選択可（同日不可）。
-    hasActiveKaiyaku.value = resp.data.has_active_kaiyaku ?? false;
-    maxJohoDate.value = resp.data.max_joho_date ?? null;
-    detailRireki.value = resp.data.rireki_no;
-    detailDenshiShoninStatus.value = resp.data.denshi_shonin_status;
-    detailDenshiDokusyaShubetsu.value = resp.data.denshi_dokusya_shubetsu;
-    // [haitatsu-prefill] Seed the haitatsu-name fields with the source
-    // name so the conditional-required cluster passes validation when
-    // haitatsu_same_flg=false (the BE will copy from the 購読者氏名
-    // cluster, but the FE check is per-field).
-    queueMicrotask(() => {
-      isHydrating.value = false;
-    });
+    // 通常編集の初期適用日は翌日（未来日のみ許可・過去値は使わない）。
+    applyDetailResponse(resp.data, tomorrowIsoTokyo());
   } catch (err) {
     const ax = err as AxiosError<{ error_code?: string; message?: string }>;
     const code = ax?.response?.data?.error_code;
@@ -601,24 +633,41 @@ watch(
   () => formState.tetsuzuki_shurui,
   (next) => {
     if (isHydrating.value) return;
-    if (Number(next) === 0) {
-      // 解約: 部数=0。購読中止日は必須・未来日のみ（顧客要件 2026-07 改訂）なので
-      // 空なら翌日を初期値にする。
+    if (Number(next) === TetsuzukiShurui.KAIYAKU) {
+      // 解約: 部数=0。
       formState.dokusya_busu = 0;
-      if (!formState.dokusya_chushi_date) {
+      if (isEdit.value && Number(originalTetsuzukiShurui.value) === TetsuzukiShurui.KAIYAKU) {
+        // 解約済み読込 → 新規へ切替 → 再度 解約へ戻した場合（再購読の取消）:
+        // 購読開始日・情報変更適用日・購読中止日を DB 値へ復元し、読取専用表示に
+        // 戻す（顧客要件 2026-07）。開始日を DB 値へ戻すと otherInfoChanged=false に
+        // なり johoEditable=false → 情報変更適用日も自動的に readonly へ戻る。
+        formState.dokusya_kaishi_date = originalKaishiDate.value;
+        formState.dokusya_chushi_date = originalChushiDate.value;
+        // joho は sync watch(otherInfoChanged 等)が「未変更＝johoHenkoBaseline」へ
+        // 追随させるため、基準値と formState の双方を DB 実値へ揃える（そうしないと
+        // 再購読中に kaishi へ追随した翌日値へ戻されてしまう）。
+        johoHenkoBaseline.value = originalJohoDate.value;
+        formState.joho_henko_tekiyo_date = originalJohoDate.value;
+      } else if (!formState.dokusya_chushi_date) {
+        // 通常フロー（新規読込 → 中止日入力で解約予約）: 購読中止日は必須・未来日のみ
+        // （顧客要件 2026-07 改訂）なので空なら翌日を初期値にする。
         formState.dokusya_chushi_date = tomorrowIsoTokyo();
       }
     } else {
       // 新規:
       //  - 新規作成: 既定 1 部。
-      //  - 編集: DB 登録時の部数に復元する（解約で 0 にした後、新規 に
-      //    戻すと元の数量が戻る）。
-      formState.dokusya_busu = isEdit.value ? originalDokusyaBusu.value : 1;
+      //  - 再購読（解約済み→新規）: 解約時の 0 ではなく新規購読の既定 1 部にする
+      //    （解約読込の originalDokusyaBusu は 0 のため復元不可・顧客要件 2026-07）。
+      //  - 編集(非解約)で 解約→新規 に戻したとき: DB 登録時の部数を復元する。
+      const isResubscribe =
+        isEdit.value && Number(originalTetsuzukiShurui.value) === TetsuzukiShurui.KAIYAKU;
+      formState.dokusya_busu =
+        !isEdit.value || isResubscribe ? 1 : originalDokusyaBusu.value;
       // 新規は購読中止日を持たない → クリア（入力不可）。
       formState.dokusya_chushi_date = null;
-      // 再購読（解約済み→新規）は購読開始日を翌日(未来日のみ)へリセットする。
-      // 旧開始日は過去日で未来日検証に通らないため、そのまま残さず翌日を初期値に。
-      if (isEdit.value && Number(originalTetsuzukiShurui.value) === 0) {
+      // 再購読は購読開始日を翌日(未来日のみ)へリセットする（旧開始日は過去日で
+      // 未来日検証に通らないため、そのまま残さず翌日を初期値に）。
+      if (isResubscribe) {
         formState.dokusya_kaishi_date = tomorrowIsoTokyo();
       }
     }
@@ -634,11 +683,13 @@ watch(
   (chushi) => {
     if (isHydrating.value || !isEdit.value) return;
     if (chushi) {
-      if (Number(formState.tetsuzuki_shurui) !== 0) {
-        formState.tetsuzuki_shurui = 0;
+      if (Number(formState.tetsuzuki_shurui) !== TetsuzukiShurui.KAIYAKU) {
+        formState.tetsuzuki_shurui = TetsuzukiShurui.KAIYAKU;
       }
-    } else if (Number(formState.tetsuzuki_shurui) === 0) {
-      formState.tetsuzuki_shurui = Number(originalTetsuzukiShurui.value ?? 1);
+    } else if (Number(formState.tetsuzuki_shurui) === TetsuzukiShurui.KAIYAKU) {
+      formState.tetsuzuki_shurui = Number(
+        originalTetsuzukiShurui.value ?? TetsuzukiShurui.SHINKI,
+      );
     }
   },
 );
@@ -646,7 +697,7 @@ watch(
 // 購読中止日（解約予定日）: 編集画面では任意入力可。中止日入力で解約予約になる
 // （上の watch が手続種類=解約へ寄せる）。新規作成画面では入力不可。実際の解約
 // 反映（t_dokusya 更新）は日次バッチが到来日に行う（BE は未来日の解約履歴を挿入）。
-const isCancelTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === 0);
+const isCancelTetsuzuki = computed(() => Number(formState.tetsuzuki_shurui) === TetsuzukiShurui.KAIYAKU);
 
 // 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規は1強制＋入力不可、
 // 編集は不変なので入力不可。紙版(1)・併読(3) は従来どおり編集可。
@@ -684,7 +735,7 @@ watch(
 const canResubscribe = computed(
   () =>
     isEdit.value &&
-    Number(originalTetsuzukiShurui.value) === 0 && // 解約
+    Number(originalTetsuzukiShurui.value) === TetsuzukiShurui.KAIYAKU && // 解約
     (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.PAPER ||
       (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
         Number(originalShiharaiHoho.value) !== ShiharaiHoho.CREDIT_CARD)),
@@ -698,16 +749,16 @@ const canResubscribe = computed(
 const isCancelledLocked = computed(
   () =>
     isEdit.value &&
-    Number(originalTetsuzukiShurui.value) === 0 && // 読込時=解約
-    Number(formState.tetsuzuki_shurui) === 0, // まだ新規へ切替えていない
+    Number(originalTetsuzukiShurui.value) === TetsuzukiShurui.KAIYAKU && // 読込時=解約
+    Number(formState.tetsuzuki_shurui) === TetsuzukiShurui.KAIYAKU, // まだ新規へ切替えていない
 );
 // 再購読中 — 解約済み → 手続種類=新規 を選択。フォームが編集可になり、購読開始日を
 // 再入力できる。情報変更適用日(joho)は購読開始日へ追随して disabled。
 const isResubscribing = computed(
   () =>
     isEdit.value &&
-    Number(originalTetsuzukiShurui.value) === 0 && // 読込時=解約
-    Number(formState.tetsuzuki_shurui) === 1, // 新規へ切替
+    Number(originalTetsuzukiShurui.value) === TetsuzukiShurui.KAIYAKU && // 読込時=解約
+    Number(formState.tetsuzuki_shurui) === TetsuzukiShurui.SHINKI, // 新規へ切替
 );
 
 // ─── 情報変更モード（顧客要件2026-07・参照→編集フロー・SCR-011）────────────
@@ -716,6 +767,15 @@ const isResubscribing = computed(
 // 予約変更=適用日を未来日で入力・全項目可。BE がサーバ側の境界を enforce する。
 type ViewMode = 'reference' | 'today' | 'reserved';
 const viewMode = ref<ViewMode>('reference');
+
+// 予約変更(未来日)の適用日ポップアップ (B案)。予約変更モードに入る前に
+// 適用日(joho)を確定させ、その joho 時点の有効履歴行(predecessor)をフォームへ
+// ロードする。これにより editGuard baseline が predecessor になり、BE の
+// timeline-diff と一致（未来予約の積み重ねで未編集項目を誤変更しない）。
+const reservedJohoModalOpen = ref(false);
+const reservedJohoInput = ref<string | null>(null);
+const reservedJohoError = ref('');
+const reservedJohoLoading = ref(false);
 // 読込直後の formState スナップショット（モード切替リセット用）。
 const loadedFormSnapshot = ref<Record<string, unknown> | null>(null);
 
@@ -729,7 +789,7 @@ const canSelectMode = computed(
     // 承認待ち(電子版)は承認/否認フロー、解約読込は再購読フローのため
     // モード選択（参照→当日/予約）の対象外とする。
     !isPending.value &&
-    Number(originalTetsuzukiShurui.value) !== 0 &&
+    Number(originalTetsuzukiShurui.value) !== TetsuzukiShurui.KAIYAKU &&
     authStore.hasPermission('dokusya.update'),
 );
 // 電子版は当日変更のみ（顧客要件 2026-07 改訂）— モードバー（当日変更/予約変更の
@@ -752,9 +812,18 @@ const isReservedMode = computed(
 // a-form の :disabled は明示 :disabled を持つ項目には効かない（antd-vue は
 // 明示 disabled がコンテキストより優先）ため、明示 :disabled を持つ項目には
 // この computed を OR して参照モードでも確実にロックする。
-const readOnlyForm = computed(
-  () => isReferenceMode.value || isRecordReadOnly.value || isCancelledLocked.value,
+// 「新聞単価を除く全項目」を読取専用にする基準（否認・参照モード・編集不可
+// レコード・解約ロック）。承認待ち(単価のみ編集可)は含めない → 単価フィールドは
+// この formLocked を明示 :disabled に用い、承認待ち中も編集可能に保つ。
+const formLocked = computed(
+  () =>
+    isReferenceMode.value ||
+    isRecordReadOnly.value ||
+    isCancelledLocked.value ||
+    isDenshiRejected.value,
 );
+// フォーム全体の読取専用（formLocked ＋ 承認待ち）。承認待ちは単価以外を全ロック。
+const readOnlyForm = computed(() => formLocked.value || isPending.value);
 // 当日変更モードで帳票影響項目をロックするか（紙版のみ。電子版は全項目 当日反映可）。
 const reportFieldsLocked = computed(() => isTodayMode.value && isPaper.value);
 // 帳票影響項目の最終 disabled（読取専用 or 当日変更・紙版ロック）。
@@ -769,12 +838,19 @@ const reportFieldDisabled = computed(
  */
 function selectMode(mode: 'today' | 'reserved'): void {
   if (viewMode.value === mode) return;
+  // 予約変更は、モードに入る前に適用日ポップアップで joho を確定し、その joho
+  // 時点の有効履歴行(predecessor)をロードする（B案）。
+  if (mode === 'reserved') {
+    reservedJohoInput.value = null;
+    reservedJohoError.value = '';
+    reservedJohoModalOpen.value = true;
+    return;
+  }
+  // 当日変更: 適用日=本日固定。
   const apply = (): void => {
     if (viewMode.value !== 'reference') resetFormToLoaded();
-    viewMode.value = mode;
-    // 適用日: 当日変更=本日固定 / 予約変更=空欄（必須入力）。
-    formState.joho_henko_tekiyo_date =
-      mode === 'today' ? todayIsoTokyo() : null;
+    viewMode.value = 'today';
+    formState.joho_henko_tekiyo_date = todayIsoTokyo();
     fieldErrors.value = {};
   };
   if (viewMode.value !== 'reference') {
@@ -787,6 +863,42 @@ function selectMode(mode: 'today' | 'reserved'): void {
     });
   } else {
     apply();
+  }
+}
+
+/**
+ * 予約変更ポップアップの確定。適用日(未来日)を検証し、その joho 時点の有効
+ * 履歴行(findBefore)をフォームへロードして予約変更モードへ入る。editGuard の
+ * baseline はロードした predecessor になり、BE の timeline-diff と一致する
+ * （未来予約の積み重ねで未編集項目を誤って revert しない）。
+ */
+async function confirmReservedJoho(): Promise<void> {
+  const joho = reservedJohoInput.value;
+  reservedJohoError.value = '';
+  if (!joho) {
+    reservedJohoError.value = '情報変更適用日を入力してください。';
+    return;
+  }
+  if (joho <= todayIsoTokyo()) {
+    reservedJohoError.value =
+      '情報変更適用日は本日より後の日付を指定してください。';
+    return;
+  }
+  const id = dokusyaId.value;
+  if (id === null) return;
+  reservedJohoLoading.value = true;
+  try {
+    const resp = await getDokusyaEffectiveAt(id, joho);
+    applyDetailResponse(resp.data, joho);
+    viewMode.value = 'reserved';
+    fieldErrors.value = {};
+    reservedJohoModalOpen.value = false;
+    // predecessor をロードした状態を基準にする（未編集 = 直前行と同一）。
+    await editGuard.capture();
+  } catch {
+    // 全体エラーは axios interceptor が toast 済み。ポップアップは開いたまま。
+  } finally {
+    reservedJohoLoading.value = false;
   }
 }
 
@@ -806,8 +918,7 @@ function resetFormToLoaded(): void {
 // 元の販売店に戻したら非表示にして値もクリアする (変更していない販売店に
 // 適用日を送らない)。
 const originalHanbaitenId = ref<number | null>(null);
-// 編集前の解約予定日（相対チェックの参照値。loadDetail で設定）。
-const originalChushiDate = ref<string | null>(null);
+// （originalChushiDate は上部の original* 群にまとめて宣言済み）
 // 解約予約ガード（顧客要件 2026-07。loadDetail で設定）:
 //  - hasActiveKaiyaku: 有効な解約予約あり → 購読中止日を disabled（履歴画面で取消要）。
 //  - maxJohoDate: 履歴の最終変更適用日。解約予定日はこの日より後のみ選択可（同日不可）。
@@ -883,15 +994,12 @@ const johoEditable = computed(
   () =>
     isEdit.value &&
     !isResubscribing.value &&
-    // 予約変更モード: 適用日（未来日）をユーザー入力する。
-    // 当日変更/参照モード: 適用日は本日固定/読取専用（編集不可）。
+    // 予約変更モードの適用日はポップアップで確定済み → インライン編集不可（表示のみ）。
+    // 当日変更モードは本日固定（読取専用）。
     // モード未確定（既存フロー・後方互換）は従来どおり情報/販売店変更で編集可。
-    (isReservedMode.value ||
-      (viewMode.value === 'reference' &&
-        (otherInfoChanged.value || hanbaitenChanged.value))),
+    viewMode.value === 'reference' &&
+    (otherInfoChanged.value || hanbaitenChanged.value),
 );
-/** ロード時点の適用日（他項目が未変更へ戻ったとき復元する基準値）。 */
-const johoHenkoBaseline = ref<string | null>(null);
 // joho の自動値（編集不可のとき）:
 //  - 解約予定日のみ変更 → 解約予定日(dokusya_chushi_date)へ追随。
 //  - それ以外（＝情報変更なし）→ ロード時の基準値へ戻す（→ pristine、PUT/履歴なし）。
@@ -1051,9 +1159,12 @@ const isDigitalOrBoth = computed(
 //                 「購読を停止する」で行う。紙版も中止日は読取専用。
 //   - 請求開始月 : 非表示（電子版システム決定後に受信するため create では未確定）。
 // edit モードおよび紙版 create は従来ロジックを維持。
+// 顧客要件 2026-07: 電子版の再購読（解約済み→新規）も新規作成と同じフォームに
+// する（購読開始日ラジオ・中止日読取専用・請求開始月非表示・当日可）。よって
+// 再購読中(isResubscribing)の電子版も create 扱いにする。
 const isDigitalCreate = computed(
   () =>
-    !isEdit.value &&
+    (!isEdit.value || isResubscribing.value) &&
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
 );
 
@@ -1123,12 +1234,13 @@ const haitatsuRequired = computed(
 const REQUIRED_MSG = '必須項目です。';
 const HIRAGANA_RE = /^[ぁ-ゖー\s]+$/u;
 const HIRAGANA_MSG = 'ひらがなで入力してください。';
-// 氏名 (氏/名) は漢字・ひらがな・カタカナを許容（顧客要件 2026-07 緩和）。
-// CJK統合漢字 + 々 + 〇 + CJK互換漢字(﨑/髙等) + ひらがな + 全角カタカナ(長音符ー・
-// 中点・含む). 半角カナ/英数字は不可。空白は氏名のトークン区切りとして許容。
+// 氏名 (氏/名) は漢字・ひらがな・カタカナ・アルファベットを許容（顧客要件 2026-07）。
+// CJK統合漢字 + 々 + 〇 + CJK互換漢字(﨑/髙等) + ひらがな + 全角カタカナ(長音符ー・中点・
+// 含む) + 半角英字(A-Za-z) + 全角英字(Ａ-Ｚ/ａ-ｚ). 半角カナ・数字は不可。空白は氏名の
+// トークン区切りとして許容。購読者氏名(氏/名)・配達先氏名(氏/名)の4項目に適用。
 // BE 側 KANJI_NAME_RE (create-dokusya.dto.ts) と同一文字集合 — 両方同時更新。
-const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿ\s]+$/u;
-const KANJI_MSG = '漢字・ひらがな・カタカナで入力してください。';
+const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿA-Za-zＡ-Ｚａ-ｚ\s]+$/u;
+const KANJI_MSG = '漢字・ひらがな・カタカナ・アルファベットで入力してください。';
 const POSTAL_MSG = '郵便番号は半角数字7桁で入力してください。';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
@@ -1199,6 +1311,11 @@ function validateAddressCluster(errs: Record<string, string>): void {
 
 /** Required FK dropdowns (clearable selects → `== null` for safety). */
 function validateFkDropdowns(errs: Record<string, string>): void {
+  // 管理支店 は必須（画面上 * 表示）。未選択のまま submit すると BE で
+  // kanri_shiten_id=0 → m_kanri_shiten への FK 違反(500)になるため、ここで
+  // 必ず required を検証する。購読種別切替の watcher が取扱いフラグ外の
+  // 管理支店を null にクリアするケースもここで捕捉される。
+  if (formState.kanri_shiten_id == null) errs.kanri_shiten_id = REQUIRED_MSG;
   // 支店 は任意（顧客要件 2026-07：必須を解除）。未選択(null)を許容する。
   if (formState.hanbaiten_id == null) errs.hanbaiten_id = REQUIRED_MSG;
   if (formState.tanka_id == null) errs.tanka_id = REQUIRED_MSG;
@@ -1292,6 +1409,11 @@ function validateMisc(errs: Record<string, string>): void {
   if (formState.biko && formState.biko.length > BIKO_MAX) {
     errs.biko = BIKO_MSG;
   }
+  // 電子版・併読は読者属性(dokusyaso_bunrui)を1つ以上選択（紙版は任意・顧客要件）。
+  // email 必須と同じ電子版判定 (isDigitalOrBoth) を用いる。BE も同条件で再検証。
+  if (isDigitalOrBoth.value && !formState.dokusyaso_bunrui?.trim()) {
+    errs.dokusyaso_bunrui = REQUIRED_MSG;
+  }
   // 購読部数: 解約以外は 1 以上（解約 (手続種類=0) は §8 で 0 固定・readonly）。
   if (!isCancelTetsuzuki.value && Number(formState.dokusya_busu) <= 0) {
     errs.dokusya_busu = BUSU_MIN_MSG;
@@ -1367,6 +1489,53 @@ function validateTekiyoDates(errs: Record<string, string>): void {
   validateJohoTekiyoDate(errs, ctx);
 }
 
+// フォーム項目の DOM 出現順（テンプレート順）。submit で最初にエラーになった
+// 項目へフォーカス・スクロールするために使う（`.claude/rules/vue.md §Auto-focus
+// the first error on submit`）。バリデータはエラーを任意順で push するため、
+// 表示順で先頭のエラー項目を決めるにはこの並びが必要。
+const FIELD_ORDER: readonly string[] = [
+  'dokusya_shubetsu',
+  'tetsuzuki_shurui',
+  'kanri_shiten_id',
+  'shiten_id',
+  'kumiaiin_code',
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
+  'dokusya_busu',
+  'tanka_id',
+  'yubin_no',
+  'todofuken_code',
+  'shikuchoson',
+  'chome_banchi',
+  'tatemono_mei',
+  'renrakusaki_1',
+  'renrakusaki_2',
+  'email',
+  'birth_year',
+  'haitatsu_yubin_no',
+  'haitatsu_todofuken_code',
+  'haitatsu_shikuchoson',
+  'haitatsu_chome_banchi',
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+  'hanbaiten_id',
+  'shiharai_hoho',
+  'bank_shiten_id',
+  'hikiotoshi_yokin_shubetsu',
+  'hikiotoshi_koza_no',
+  'hikiotoshi_koza_meigi',
+  'dokusyaso_bunrui',
+  'nogyosya_bunrui',
+  'dokusya_kaishi_date',
+  'dokusya_chushi_date',
+  'joho_henko_tekiyo_date',
+  'biko',
+];
+
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
   validateNameCluster(errs);
@@ -1439,7 +1608,7 @@ function buildRequestBody(): CreateDokusyaRequest {
       : formState.dokusya_chushi_date,
     // 情報変更適用日は編集時にユーザー入力（未来日のみ）。販売店・支払方法を含む
     // 全変更の唯一の適用日（顧客要件 2026-07: 販売店適用日を廃止し joho に統一）。
-    // 新規登録では null（UI 非表示）。hanbaiten_tekiyo_date は送信しない。
+    // 新規登録では null（UI 非表示）。販売店適用日(hanbaiten_tekiyo_date)は廃止（顧客要件2026-07）。
     joho_henko_tekiyo_date: formState.joho_henko_tekiyo_date,
     seikyu_kaishi_month: isDigitalCreate.value
       ? ''
@@ -1462,6 +1631,7 @@ function handleServerError(err: unknown): void {
   if (data?.error_code === 'DUPLICATE_EMAIL') {
     // ACSMS-MSG-011-009: このメールアドレスは既に登録されています。
     fieldErrors.value = { email: data.message ?? 'このメールアドレスは既に登録されています。' };
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
     return;
   }
   if (data && Array.isArray(data.errors) && data.errors.length > 0) {
@@ -1473,6 +1643,7 @@ function handleServerError(err: unknown): void {
         )
         .map((e) => [e.field, e.message]),
     );
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // サーバ側検証エラーも先頭項目へフォーカス
   }
   // 500 / generic 400 — global axios interceptor toasts; view stays put.
 }
@@ -1510,14 +1681,18 @@ async function onSubmit(): Promise<void> {
   }
   // 氏名系8項目は登録・更新前に前後空白を除去（バリデーション前）。
   trimNameFields();
-  if (!validateClient()) return;
+  if (!validateClient()) {
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // 最初のエラー項目へフォーカス
+    return;
+  }
   if (submitting.value) return;
   submitting.value = true;
   try {
     if (isEdit.value && dokusyaId.value !== null) {
       // Edit + 承認待ち → submit performs approve. Otherwise: regular update.
       if (isPending.value) {
-        await approveDokusya(dokusyaId.value);
+        // 承認待ちは単価のみ編集可 → 編集後の単価を承認時に保存する。
+        await approveDokusya(dokusyaId.value, formState.tanka_id ?? undefined);
         notify.success('承認しました。');
       } else {
         // 購読中止日（解約予約）は本APIでは送らない（顧客要件 2026-07 改訂）。
@@ -1557,7 +1732,8 @@ async function onApproveClick(): Promise<void> {
   if (submitting.value) return;
   submitting.value = true;
   try {
-    await approveDokusya(dokusyaId.value);
+    // 承認待ちは単価のみ編集可 → 編集後の単価を承認時に保存する。
+    await approveDokusya(dokusyaId.value, formState.tanka_id ?? undefined);
     notify.success('承認しました。');
     await router.push({ name: 'DokusyaList' });
   } catch (err) {
@@ -1766,7 +1942,17 @@ watch(dokusyaId, () => {
 });
 
 // Expose state for the spec's `fillForm` helper.
-defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
+defineExpose({
+  formState,
+  fieldErrors,
+  viewMode,
+  selectMode,
+  canSelectMode,
+  reservedJohoModalOpen,
+  reservedJohoInput,
+  reservedJohoError,
+  confirmReservedJoho,
+});
 </script>
 
 <template>
@@ -1832,11 +2018,45 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
       </div>
     </div>
 
+    <!-- 予約変更 適用日ポップアップ (B案) — 適用日(未来日)を確定してから
+         その時点で有効な履歴行(predecessor)をフォームへロードする。 -->
+    <a-modal
+      :open="reservedJohoModalOpen"
+      title="予約変更 — 情報変更適用日"
+      :confirm-loading="reservedJohoLoading"
+      ok-text="次へ"
+      cancel-text="キャンセル"
+      data-test="reserved-joho-modal"
+      @ok="confirmReservedJoho"
+      @cancel="reservedJohoModalOpen = false"
+    >
+      <p class="text-text-description text-sm mb-3">
+        変更を適用する未来日を指定してください。指定日時点で有効な内容を読み込みます。
+      </p>
+      <a-form-item
+        :validate-status="reservedJohoError ? 'error' : ''"
+        :help="reservedJohoError"
+      >
+        <template #label>
+          <span>情報変更適用日</span>
+          <span class="text-error ml-1">*</span>
+        </template>
+        <a-date-picker
+          v-model:value="reservedJohoInput"
+          format="YYYY/MM/DD"
+          value-format="YYYY-MM-DD"
+          placeholder="YYYY/MM/DD"
+          class="w-full"
+          data-test="reserved-joho-input"
+          :disabled-date="isTodayOrPastDayTokyo"
+        />
+      </a-form-item>
+    </a-modal>
 
     <a-form
       layout="vertical"
       :model="formState"
-      :disabled="isRecordReadOnly || isCancelledLocked || isReferenceMode"
+      :disabled="readOnlyForm"
       class="space-y-6"
       @keydown="preventEnterImplicitSubmit"
       @finish="onSubmit"
@@ -1885,7 +2105,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                   :value="Number(opt.value)"
                   :disabled="
                     !isEdit &&
-                    (Number(opt.value) === 3 ||
+                    (Number(opt.value) === DokusyaShubetsu.BOTH ||
                       !isShubetsuAllowed(Number(opt.value)))
                   "
                 >
@@ -1918,7 +2138,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                   v-for="opt in tetsuzukiShuruiOptions"
                   :key="opt.value"
                   :value="Number(opt.value)"
-                  :disabled="!isEdit && Number(opt.value) === 0"
+                  :disabled="!isEdit && Number(opt.value) === TetsuzukiShurui.KAIYAKU"
                 >
                   {{ opt.label }}
                 </a-radio>
@@ -2118,11 +2338,14 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
               <!-- ラベル = 単価名 + 半角スペース + 金額（¥表記・顧客要件）。金額は
                    BE がログイン中 JA の税区分 (zei_kubun=1→税込 / =2→税抜) で解決
                    した `kingaku` を用いる。 -->
+              <!-- 承認待ち(電子版)は単価のみ編集可 → formLocked（承認待ちを含まない）を
+                   用い、他項目がロックされる中でも単価だけ操作可能にする。 -->
               <a-select
                 v-model:value="formState.tanka_id"
                 :options="tankaOptions.map((t) => ({ value: t.tanka_id, label: `${t.tanka_name} ${formatYen(t.kingaku)}` }))"
                 placeholder="選択してください"
                 allow-clear
+                :disabled="formLocked"
               />
             </a-form-item>
           </div>
@@ -2421,7 +2644,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 :help="fieldErrors.haitatsu_shimei_sei"
               >
                 <template #label>
-                  <span>配達先苗字（漢字）</span>
+                  <span>配達先苗字</span>
                   <span v-if="haitatsuRequired" class="text-error ml-1">*</span>
                 </template>
                 <a-input v-model:value="formState.haitatsu_shimei_sei" :maxlength="50" />
@@ -2433,7 +2656,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 :help="fieldErrors.haitatsu_shimei_mei"
               >
                 <template #label>
-                  <span>配達先名前(漢字)</span>
+                  <span>配達先名前</span>
                   <span v-if="haitatsuRequired" class="text-error ml-1">*</span>
                 </template>
                 <a-input v-model:value="formState.haitatsu_shimei_mei" :maxlength="50" />
@@ -2650,7 +2873,10 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
             :validate-status="fieldErrors.dokusyaso_bunrui ? 'error' : ''"
             :help="fieldErrors.dokusyaso_bunrui"
           >
-            <template #label><span>読者属性</span></template>
+            <template #label>
+              <span>読者属性</span>
+              <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
+            </template>
             <a-checkbox-group
               v-model:value="dokusyaSoBunruiArr"
               :options="dokusyaSoBunruiOptions"
@@ -2729,7 +2955,13 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
               />
             </a-form-item>
 
+            <!-- 購読中止日は編集モードで、かつ中止日(値)がある場合のみ表示。
+                 新規作成は中止日を持たない（=null・入力不可）ためフォームから撤去。
+                 編集でも中止日が null（未解約・再購読で null に戻った等）なら項目ごと
+                 非表示にする（顧客要件 2026-07 改訂）。停止（解約予約）は一覧画面の
+                 「購読を停止する」で行う。 -->
             <a-form-item
+              v-if="isEdit && !!formState.dokusya_chushi_date"
               name="dokusya_chushi_date"
               :validate-status="fieldErrors.dokusya_chushi_date ? 'error' : ''"
               :help="fieldErrors.dokusya_chushi_date"
@@ -2738,17 +2970,19 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 <span>購読中止日</span>
                 <span v-if="isCancelTetsuzuki" class="text-error ml-1">*</span>
               </template>
-              <!--
-                ① 電子版 (create): 読取専用・空欄で「月末で終了」を
-                   placeholder 表示。submit は null (値があれば YYYY/MM 表示)。
-                ② 電子版+クレカ / 併読 (update): 読取専用で月 YYYY/MM を表示し
-                   suffix に「月末で終了」。formState の元値はそのまま保持・送信。
-                ③ それ以外: 従来の a-date-picker (編集可能)。
+              <!-- 購読中止日はどの分岐でも入力不可（disabled）。中止＝解約予約は
+                   一覧画面(SCR-014)の「購読を停止する」ボタンで行うため、本フォーム
+                   では現在の解約予定日を表示するのみ（顧客要件 2026-07）。
+                ① 電子版 (create): 空欄で「月末で終了」を placeholder 表示。
+                   submit は null (値があれば YYYY/MM 表示)。
+                ② 電子版+クレカ / 併読 (update): 月 YYYY/MM を表示し suffix に
+                   「月末で終了」。formState の元値はそのまま保持・送信。
+                ③ それ以外: a-date-picker(disabled)。
               -->
               <a-input
                 v-if="isDigitalCreate"
                 :value="chushiMonthDisplay"
-                readonly
+                disabled
                 placeholder="月末で終了"
                 class="w-full"
               />
@@ -2756,7 +2990,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 v-else-if="chushiReadonlyMonthEdit"
                 class="flex items-center gap-2"
               >
-                <a-input :value="chushiMonthDisplay" readonly class="flex-1" />
+                <a-input :value="chushiMonthDisplay" disabled class="flex-1" />
                 <span class="text-text-description text-sm whitespace-nowrap">月末で終了</span>
               </div>
               <!-- 購読中止日は読取専用（顧客要件 2026-07 改訂）。停止（解約予約）は
@@ -2840,7 +3074,7 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
                 value-format="YYYY-MM-DD"
                 placeholder="YYYY/MM/DD"
                 class="w-full"
-                :disabled="!johoEditable"
+                :disabled="!johoEditable || isPending || isDenshiRejected"
                 :disabled-date="isTodayOrPastDayTokyo"
               />
             </a-form-item>
@@ -2876,18 +3110,22 @@ defineExpose({ formState, fieldErrors, viewMode, selectMode, canSelectMode });
            非活性となり、実質読み取り専用になる（権限が無い購読種別は
            登録/更新ボタンを非活性にするのみで、警告文は出さない）。 -->
       <div class="flex justify-start gap-2 pt-4">
+          <!-- 明示 :disabled を持たせ、a-form の disabled コンテキスト（承認待ちは
+               readOnlyForm=true）に飲まれてボタンが無効化されるのを防ぐ。 -->
           <a-button
             v-if="isPending && canDenshi"
             type="primary"
             :loading="submitting"
+            :disabled="submitting"
             @click="onApproveClick"
           >
             承認・登録
           </a-button>
 
-          <!-- 参照モードでは submit を出さない（モードバーで編集モードを選ぶ）。 -->
+          <!-- 参照モードでは submit を出さない（モードバーで編集モードを選ぶ）。
+               否認(電子版)は読取専用のため更新ボタンも出さない（戻るのみ）。 -->
           <a-button
-            v-else-if="!isReferenceMode"
+            v-else-if="!isReferenceMode && !isDenshiRejected"
             type="primary"
             html-type="submit"
             :loading="submitting"

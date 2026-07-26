@@ -52,6 +52,8 @@ import {
   type Ref,
 } from 'vue';
 
+import { DROPDOWN_MAX_PAGE_SIZE } from '@/constants/pagination';
+
 export interface EntityDropdownMeta {
   total?: number;
   page?: number;
@@ -378,7 +380,7 @@ export function useEntityDropdown<
   // で全ページを走査して全 ID を返す。取得行は options へマージ（タグのラベル表示のため）。
   // buildExtraParams のスコープ（ja_id 等）はそのまま効くので権限スコープ内の全件。
   // 安全のため最大ページ数で打ち切る。
-  const LOAD_ALL_PER_PAGE = 100; // BE dropdown DTO の per_page 上限に合わせる
+  const LOAD_ALL_PER_PAGE = DROPDOWN_MAX_PAGE_SIZE; // BE dropdown DTO の per_page 上限に合わせる
   const LOAD_ALL_MAX_PAGES = 200; // 最大 20,000 件で打ち切り
   async function loadAll(): Promise<number[]> {
     const mySeq = ++requestSeq;

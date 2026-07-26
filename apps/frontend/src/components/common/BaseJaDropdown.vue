@@ -21,6 +21,7 @@ import {
   type JaDropdownQuery,
 } from '@/api/ja/ja';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /**
@@ -60,7 +61,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: 'JAを選択',
   allowClear: true,
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
   labelFormat: 'code-name',
   searchField: 'both',
   todofukenCode: null,

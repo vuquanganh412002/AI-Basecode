@@ -149,14 +149,11 @@ export class CreateHanbaitenDto {
   @MaxLength(50, { message: '所長名は最大50文字で指定してください。' })
   shocho_name?: string;
 
-  @ApiPropertyOptional({
-    description: '委託区分（m_code.code_category=ITAKU_KUBUN）',
-    nullable: true,
-  })
-  @IsOptional()
+  @ApiProperty({ description: '委託区分（m_code.code_category=ITAKU_KUBUN）' })
   @Type(() => Number)
+  @IsNotEmpty({ message: '委託区分は必須です。' })
   @IsInt({ message: '委託区分は整数で指定してください。' })
-  itaku_kubun?: number | null;
+  itaku_kubun!: number;
 
   @ApiPropertyOptional({
     description: '配達手数料単価ID（FK:m_tanka）',
@@ -176,14 +173,13 @@ export class CreateHanbaitenDto {
   @IsInt({ message: '配達手数料支払サイクルは整数で指定してください。' })
   haitatsuryo_shiharai_cycle?: number | null;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: '振込手数料負担区分（m_code.code_category=TESURYO_KUBUN）',
-    nullable: true,
   })
-  @IsOptional()
   @Type(() => Number)
+  @IsNotEmpty({ message: '振込手数料負担区分は必須です。' })
   @IsInt({ message: '振込手数料負担区分は整数で指定してください。' })
-  furikomi_tesuryo_futan_kubun?: number | null;
+  furikomi_tesuryo_futan_kubun!: number;
 
   @ApiPropertyOptional({ description: '振込手数料（≧0）', nullable: true })
   @IsOptional()

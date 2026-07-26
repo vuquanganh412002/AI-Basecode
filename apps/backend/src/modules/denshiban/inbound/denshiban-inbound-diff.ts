@@ -69,6 +69,11 @@ export const COMPARABLE_FIELDS = [
 
   // Attributes (No 23-25, 48-49).
   'mailMagazineFlg',
+  // 本紙購読フラグ ← users.subscribe_flg. Safe to diff: denshiban is
+  // authoritative AND the outbound payload echoes this same column back
+  // (toSubscribeFlg reads honshiKodokuFlg), so cloud and denshiban cannot
+  // disagree just because the cloud edited first.
+  'honshiKodokuFlg',
   'birthYear',
   'gender',
   'dokusyasoBunrui',

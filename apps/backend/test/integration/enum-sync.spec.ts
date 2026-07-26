@@ -48,6 +48,7 @@ const PAIRS: EnumPair[] = [
   { name: 'ShiharaiHoho', beFile: 'shiharai-hoho.enum', feFile: 'shiharai-hoho', beEnum: backendEnums.ShiharaiHoho },
   { name: 'ItakuKubun', beFile: 'itaku-kubun.enum', feFile: 'itaku-kubun', beEnum: backendEnums.ItakuKubun },
   { name: 'TetsuzukiShurui', beFile: 'tetsuzuki-shurui.enum', feFile: 'tetsuzuki-shurui', beEnum: backendEnums.TetsuzukiShurui },
+  { name: 'DenshiShoninStatus', beFile: 'denshi-shonin-status.enum', feFile: 'denshi-shonin-status', beEnum: backendEnums.DenshiShoninStatus },
 ];
 
 /**

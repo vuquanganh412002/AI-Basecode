@@ -14,7 +14,14 @@ import {
 import { applyBranchScope, applyShitenScope } from '@/common/utils/data-scope';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
-import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
+import {
+  AuditOperation,
+  DokusyaShubetsu,
+  LogType,
+  ResultStatus,
+  ShiharaiHoho,
+} from '@/common/enums';
+import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -56,6 +63,7 @@ const SORT_COLUMN_MAP: Record<string, string> = {
   shiten_id: 'd.shiten_id',
   kumiaiin_code: 'd.kumiaiin_code',
   hanbaiten_id: 'd.hanbaiten_id',
+  hanbaiten_code: 'h.hanbaiten_code',
   shoki_dokusya_kaishi_date: 'd.shoki_dokusya_kaishi_date',
   dokusya_chushi_date: 'd.dokusya_chushi_date',
   updated_at: 'd.updated_at',
@@ -340,10 +348,12 @@ export class DokusyaSearchService {
         "(d.shimei_kana_sei || ' ' || d.shimei_kana_mei) AS full_name_kana",
         'd.renrakusaki_1 AS renrakusaki_1',
         'd.renrakusaki_2 AS renrakusaki_2',
+        'd.haitatsu_renrakusaki_1 AS haitatsu_renrakusaki_1',
         "(d.haitatsu_shimei_sei || ' ' || d.haitatsu_shimei_mei) AS haitatsu_full_name",
         'd.haitatsu_yubin_no AS haitatsu_yubin_no',
         "(COALESCE(t.todofuken_name, '') || d.haitatsu_shikuchoson || d.haitatsu_chome_banchi || d.haitatsu_tatemono_mei) AS haitatsu",
         'd.hanbaiten_id AS hanbaiten_id',
+        'h.hanbaiten_code AS hanbaiten_code',
         'h.hanbaiten_name AS hanbaiten_name',
         'd.dokusya_shubetsu AS dokusya_shubetsu',
         'd.tetsuzuki_shurui AS tetsuzuki_shurui',
@@ -351,7 +361,7 @@ export class DokusyaSearchService {
         'd.denshi_shonin_status AS denshi_shonin_status',
         'd.shoki_dokusya_kaishi_date AS shoki_dokusya_kaishi_date',
         'd.dokusya_chushi_date AS dokusya_chushi_date',
-        '((d.dokusya_shubetsu = 2 AND d.shiharai_hoho = 6) OR d.dokusya_shubetsu = 3) AS is_read_only',
+        `((d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL} AND d.shiharai_hoho = ${ShiharaiHoho.CREDIT_CARD}) OR d.dokusya_shubetsu = ${DokusyaShubetsu.BOTH}) AS is_read_only`,
       ])
       .where('d.deleted_at IS NULL');
 
@@ -419,7 +429,7 @@ export class DokusyaSearchService {
       qb.innerJoin(
         'm_tanka',
         'mti',
-        'mti.tanka_id = d.tanka_id AND mti.tanka_type = 1 AND mti.deleted_at IS NULL AND mti.active_flg = :activeTankaFlg',
+        `mti.tanka_id = d.tanka_id AND mti.tanka_type = ${TANKA_TYPE_KODOKU} AND mti.deleted_at IS NULL AND mti.active_flg = :activeTankaFlg`,
         { activeTankaFlg: query.active_tanka_flg },
       );
     }
@@ -436,18 +446,13 @@ export class DokusyaSearchService {
         { kumiaiin_code: query.kumiaiin_code },
       );
     }
-    if (query.jastem_toriatsukai_tenpo_code) {
+    // 引落元口座支店: コード + 名称を横断して部分一致 OR 検索する（物理カラムは
+    // bank_branch_code / bank_branch_name のレガシー名）。
+    if (query.bank_branch) {
       qb.andWhere(
-        "d.bank_branch_code ILIKE '%' || :jastem_toriatsukai_tenpo_code || '%'",
-        {
-          jastem_toriatsukai_tenpo_code: query.jastem_toriatsukai_tenpo_code,
-        },
-      );
-    }
-    if (query.jastem_tenpo_name) {
-      qb.andWhere(
-        "d.bank_branch_name ILIKE '%' || :jastem_tenpo_name || '%'",
-        { jastem_tenpo_name: query.jastem_tenpo_name },
+        "(d.bank_branch_code ILIKE '%' || :bank_branch || '%' " +
+          "OR d.bank_branch_name ILIKE '%' || :bank_branch || '%')",
+        { bank_branch: query.bank_branch },
       );
     }
     if (query.full_name) {
@@ -471,12 +476,14 @@ export class DokusyaSearchService {
         { full_name_kana: query.full_name_kana },
       );
     }
-    if (query.renrakusaki_1) {
-      // 連絡先１: 購読者連絡先１ + 配達先連絡先１ を部分一致 OR。
+    if (query.renrakusaki) {
+      // 連絡先: 購読者連絡先1/2 + 配達先連絡先1/2 を横断して部分一致 OR。
       qb.andWhere(
-        "(d.renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%' " +
-          "OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki_1 || '%')",
-        { renrakusaki_1: query.renrakusaki_1 },
+        "(d.renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +
+          "OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +
+          "OR d.renrakusaki_2 ILIKE '%' || :renrakusaki || '%' " +
+          "OR d.haitatsu_renrakusaki_2 ILIKE '%' || :renrakusaki || '%')",
+        { renrakusaki: query.renrakusaki },
       );
     }
     if (query.haitatsu) {
@@ -493,14 +500,38 @@ export class DokusyaSearchService {
         { haitatsu: query.haitatsu },
       );
     }
+    // 郵送区分: m_code YUBIN_KUBUN の完全一致（物理カラムは VARCHAR '0'/'1'）。
+    if (query.yubin_kubun) {
+      qb.andWhere('d.yubin_kubun = :yubin_kubun', {
+        yubin_kubun: query.yubin_kubun,
+      });
+    }
+    // 新聞単価: tanka_id の完全一致。
+    if (query.tanka_id != null) {
+      qb.andWhere('d.tanka_id = :tanka_id', { tanka_id: query.tanka_id });
+    }
+    // 備考: 部分一致 ILIKE。
+    if (query.biko) {
+      qb.andWhere("d.biko ILIKE '%' || :biko || '%'", { biko: query.biko });
+    }
     if (query.email) {
       qb.andWhere("d.email ILIKE '%' || :email || '%'", { email: query.email });
     }
-    if (query.seikyu_kaishi_month) {
-      qb.andWhere(
-        "d.seikyu_kaishi_month ILIKE '%' || :seikyu_kaishi_month || '%'",
-        { seikyu_kaishi_month: query.seikyu_kaishi_month },
-      );
+    // 請求開始月: YYYYMM の範囲検索（from ≦ 月 ≦ to）。6桁固定なので辞書順比較で
+    // 数値順と一致する。未設定（空文字）の購読者は課金未開始とみなし範囲検索から
+    // 除外する（from/to いずれか指定時に seikyu_kaishi_month <> '' を要求）。
+    if (query.seikyu_kaishi_month_from || query.seikyu_kaishi_month_to) {
+      qb.andWhere("d.seikyu_kaishi_month <> ''");
+      if (query.seikyu_kaishi_month_from) {
+        qb.andWhere('d.seikyu_kaishi_month >= :seikyu_from', {
+          seikyu_from: query.seikyu_kaishi_month_from,
+        });
+      }
+      if (query.seikyu_kaishi_month_to) {
+        qb.andWhere('d.seikyu_kaishi_month <= :seikyu_to', {
+          seikyu_to: query.seikyu_kaishi_month_to,
+        });
+      }
     }
   }
 

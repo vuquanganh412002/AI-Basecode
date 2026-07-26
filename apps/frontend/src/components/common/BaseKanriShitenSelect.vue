@@ -19,6 +19,7 @@ import {
   useEntityDropdown,
   type EntityDropdownResult,
 } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 import {
   useSelectAllSentinel,
   withAllOption,
@@ -40,7 +41,7 @@ const props = withDefaults(defineProps<Props>(), {
   value: () => [],
   disabled: false,
   placeholder: '管理支店を選択（未選択＝全件）',
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
   allowSelectAll: false,
 });
 

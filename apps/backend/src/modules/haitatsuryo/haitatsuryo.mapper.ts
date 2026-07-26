@@ -7,6 +7,9 @@
 // parameterized raw SQL string (positional `$1..$5`, NEVER string-interpolated
 // user input) and run via `dataSource.query(sql, params)`.
 
+import { TetsuzukiShurui } from '@/common/enums';
+import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
+import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
 
 /** A SessionPayload-shaped subset used for DataScope. */
@@ -117,7 +120,7 @@ export function buildHaitatsuryoSql(
              d.joho_henko_tekiyo_date
         FROM t_dokusya d
        WHERE d.deleted_at IS NULL
-         AND d.tetsuzuki_shurui = 1
+         AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
          AND d.joho_henko_tekiyo_date
              <= DATE_TRUNC('month', $1::date) + INTERVAL '1 month' - INTERVAL '1 day'
          AND d.ja_id = $2
@@ -132,11 +135,11 @@ export function buildHaitatsuryoSql(
            h.hanbaiten_name,
            SUM(ld.dokusya_busu)                       AS total_busu,
            SUM(ld.dokusya_busu * CASE
-                WHEN $4::int = 1 THEN t.kingaku_zeikomi
+                WHEN $4::int = ${ZEI_KUBUN_UCHIZEI} THEN t.kingaku_zeikomi
                 ELSE t.kingaku_zeinuki
            END)                                       AS total_kingaku,
            MAX(CASE
-                WHEN $4::int = 1 THEN t.kingaku_zeikomi
+                WHEN $4::int = ${ZEI_KUBUN_UCHIZEI} THEN t.kingaku_zeikomi
                 ELSE t.kingaku_zeinuki
            END)                                       AS tesuryo,
            h.haitatsuryo_shiharai_cycle,
@@ -156,7 +159,7 @@ export function buildHaitatsuryoSql(
        AND h.haiten_flg = FALSE
       INNER JOIN m_tanka t
         ON t.tanka_id = h.haitatsuryo_tanka_id
-       AND t.tanka_type = 2
+       AND t.tanka_type = ${TANKA_TYPE_HAITATSURYO}
        AND t.deleted_at IS NULL
        AND t.active_flg = TRUE
      WHERE ($5::int IS NULL OR h.haitatsuryo_shiharai_cycle = $5::int)
@@ -215,7 +218,7 @@ export function buildInactiveHaitatsuryoTankaSql(
              d.joho_henko_tekiyo_date
         FROM t_dokusya d
        WHERE d.deleted_at IS NULL
-         AND d.tetsuzuki_shurui = 1
+         AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
          AND d.joho_henko_tekiyo_date
              <= DATE_TRUNC('month', $1::date) + INTERVAL '1 month' - INTERVAL '1 day'
          AND d.ja_id = $2
@@ -237,7 +240,7 @@ export function buildInactiveHaitatsuryoTankaSql(
        AND h.haiten_flg = FALSE
       INNER JOIN m_tanka t
         ON t.tanka_id = h.haitatsuryo_tanka_id
-       AND t.tanka_type = 2
+       AND t.tanka_type = ${TANKA_TYPE_HAITATSURYO}
        AND t.deleted_at IS NULL
        AND t.active_flg = FALSE          -- ← 失効単価のみ
      WHERE ($4::int IS NULL OR h.haitatsuryo_shiharai_cycle = $4::int)

@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-05-07
 created_date: 2026/05/07
 created_by: Tran Duc Tuyen
-updated_date: 2026/05/29
+updated_date: 2026/07/24
 updated_by: Tran Duc Tuyen
 ---
 
@@ -27,6 +27,8 @@ updated_by: Tran Duc Tuyen
 | 8   | 2026/07/16 | 1.7  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：更新(API-011-003)で **電子版（dokusya_shubetsu=2）は当日変更のみ**とし、`change_mode='reserved'`（予約変更）を `VALIDATION_ERROR`(field=`change_mode`)で拒否（再購読は例外）。紙版のみ当日変更／予約変更の2モードを保持。FEは電子版で編集画面のモードバーを非表示にし当日変更固定で開く。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 9   | 2026/07/17 | 1.8  | Tran Duc Tuyen | 不具合修正（増減報告フラグ）：更新時の `zougen_hokoku_flg` 判定が購読者住所しか見ておらず、`haitatsu_same_flg=FALSE` で別配達先住所を入力しても FALSE のままだった。**実効配達先住所**（same_flg=TRUE→購読者住所 / FALSE→配達先住所）の変更、および `haitatsu_same_flg` の切替を増減トリガに追加し、配達先変更が正しく TRUE になるよう修正（BE: computeZougen）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 10  | 2026/07/17 | 1.9  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：氏名（購読者氏名_氏 `shimei_sei`・購読者氏名_名 `shimei_mei`・配達先氏名 `haitatsu_shimei_sei`/`haitatsu_shimei_mei`）の形式チェックを **漢字のみ → 漢字・ひらがな・カタカナ許容** に緩和（ひらがな/カタカナ表記の氏名の方に対応）。半角カナ・英数字は引き続き不可。形式不正メッセージを「漢字で入力してください。」→「漢字・ひらがな・カタカナで入力してください。」に変更。かな項目（`shimei_kana_*`）の全角ひらがな形式は変更なし。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 11  | 2026/07/23 | 1.10 | Tran Duc Tuyen | 顧客要件 2026-07：氏名4項目（`shimei_sei`/`shimei_mei`/`haitatsu_shimei_sei`/`haitatsu_shimei_mei`）の形式チェックを **漢字・ひらがな・カタカナ → 漢字・ひらがな・カタカナ・アルファベット許容** に拡張（半角A-Za-z・全角Ａ-Ｚ/ａ-ｚ可、半角カナ・数字不可）。メッセージを「漢字・ひらがな・カタカナ・アルファベットで入力してください。」に変更。かな項目は変更なし。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 12  | 2026/07/24 | 1.11 | Tran Duc Tuyen | 顧客要件 2026-07：電子版承認(API-011-004)にリクエストボディ任意 `tanka_id` を追加。承認待ち画面では新聞単価のみ編集可のため、承認時に編集後の単価を保存してから `denshi_shonin_status=1` へ確定する。指定時はテナント跨ぎ FK 検証（`m_tanka` 存在＋自JA）を行う（他JA単価は `DATA_SCOPE_VIOLATION`）。あわせて電子版の編集画面挙動を承認ステータス別に明記：承認待ち(0)=単価のみ編集可＋承認/否認ボタン、承認済(1)=通常編集、否認(2)=全項目読取専用（紙版は本ワークフロー対象外）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -673,8 +675,8 @@ Content-Type: application/json
 
 - リクエストボディの検証：
   - dokusya_shubetsu：必須。**3:併読（紙版＋電子版）は新規登録不可**（顧客要件）。併読データは外部の電子版読者管理システムがバッチ連携で管理するため、本システムでは作成・編集・停止・削除いずれも不可。作成は `VALIDATION_ERROR`（field=`dokusya_shubetsu`、メッセージ「併読（紙版＋電子版）はバッチ連携で管理されるため、新規登録できません。」）、編集/停止/削除は `DOKUSYA_READ_ONLY`（403）、Excel取込は取込不可。FEは新規作成モードで併読ラジオを非活性化。
-  - shimei_sei / shimei_mei：必須、最大50文字、**漢字・ひらがな・カタカナ形式**（半角カナ・英数字不可。顧客要件 2026-07 でひらがな/カタカナ表記の氏名に対応するため漢字のみから緩和）。形式不正時は `VALIDATION_ERROR`（メッセージ「漢字・ひらがな・カタカナで入力してください。」）
-  - haitatsu_shimei_sei / haitatsu_shimei_mei：haitatsu_same_flg=false 時必須、shimei_sei/mei と同じ漢字・ひらがな・カタカナ形式
+  - shimei_sei / shimei_mei：必須、最大50文字、**漢字・ひらがな・カタカナ・アルファベット形式**（半角英字A-Za-z・全角英字Ａ-Ｚ/ａ-ｚ可、半角カナ・数字不可。顧客要件 2026-07 でひらがな/カタカナ/アルファベット表記の氏名に対応）。形式不正時は `VALIDATION_ERROR`（メッセージ「漢字・ひらがな・カタカナ・アルファベットで入力してください。」）
+  - haitatsu_shimei_sei / haitatsu_shimei_mei：haitatsu_same_flg=false 時必須、shimei_sei/mei と同じ漢字・ひらがな・カタカナ・アルファベット形式
   - shimei_kana_sei / shimei_kana_mei：必須、最大100文字、ひらがな/カタカナ形式
   - dokusya_busu：必須、半角数字。解約時は0
   - yubin_no：必須、半角数字7桁
@@ -815,7 +817,7 @@ INSERT INTO t_dokusya_rireki (
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id, zenkai_dokusya_busu, zenkai_yubin_no,
   zenkai_todofuken_code, zenkai_shikuchoson, zenkai_chome_banchi,
-  zenkai_tatemono_mei, denshi_shonin_status, hanbaiten_tekiyo_date,
+  zenkai_tatemono_mei, denshi_shonin_status,
   created_at, created_by
 ) VALUES (
   :dokusya_id, 1, :ja_id, :kanri_shiten_id, :shiten_id, :kumiaiin_code,
@@ -838,7 +840,7 @@ INSERT INTO t_dokusya_rireki (
   TRUE, TRUE, :shinki_flg, :kaiyaku_flg,
   NULL, NULL, NULL,
   NULL, NULL, NULL,
-  NULL, NULL, NULL,
+  NULL, NULL,
   NOW(), :user_account_id
 )
 ```
@@ -1257,7 +1259,7 @@ INSERT INTO t_dokusya_rireki (
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id, zenkai_dokusya_busu, zenkai_yubin_no,
   zenkai_todofuken_code, zenkai_shikuchoson, zenkai_chome_banchi,
-  zenkai_tatemono_mei, denshi_shonin_status, hanbaiten_tekiyo_date,
+  zenkai_tatemono_mei, denshi_shonin_status,
   created_at, created_by
 ) VALUES (
   :dokusya_id, :new_rireki_no, :ja_id, :kanri_shiten_id, :shiten_id, :kumiaiin_code,
@@ -1280,7 +1282,7 @@ INSERT INTO t_dokusya_rireki (
   TRUE, :zougen_hokoku_flg, :shinki_flg, :kaiyaku_flg,
   :zenkai_hanbaiten_id, :zenkai_dokusya_busu, :zenkai_yubin_no,
   :zenkai_todofuken_code, :zenkai_shikuchoson, :zenkai_chome_banchi,
-  :zenkai_tatemono_mei, :denshi_shonin_status, NULL,
+  :zenkai_tatemono_mei, :denshi_shonin_status,
   NOW(), :user_account_id
 )
 ```
@@ -1402,19 +1404,20 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 項目                   | 内容                                                                                                                                                                                                                                                              |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Approve Denshi Dokusya                                                                                                                                                                                                                                            |
-| 概要                   | 電子版申込の購読者を承認する（denshi_shonin_status 0→1）。新規履歴レコードを作成。                                                                                                                                                                                |
+| 概要                   | 電子版申込の購読者を承認する（denshi_shonin_status 0→1）。承認待ち画面で編集した新聞単価（tanka_id）を任意で同時保存してから承認確定する。                                                                                                                                                                                |
 | URI                    | /api/v1/dokusya/{dokusya_id}/approve                                                                                                                                                                                                                              |
 | メソッド               | PUT                                                                                                                                                                                                                                                               |
-| リクエストボディー     | なし                                                                                                                                                                                                                                                              |
+| リクエストボディー     | JSON（任意）。承認待ち画面は新聞単価のみ編集可のため、編集された tanka_id を送信する（省略時は単価変更なし）。 |
 | リクエストパラメーター | dokusya_id（パスパラメータ）                                                                                                                                                                                                                                      |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                              |
 | HTTPレスポンスコード   | 200:正常に承認しました, 400:承認待ちの読者ではありません, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された購読者が見つかりません, 500:システムエラーが発生しました                                    |
 
 ## リクエストパラメータ
 
-| #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                  |
-| --- | -------------- | ------ | -------- | ---- | ------ | ------ | ------------------------------------- |
-| 1   | dokusya_id     | Number | -        | 〇   |        |        | 承認対象の dokusya_id（パスパラメータ） |
+| #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                     |
+| --- | -------------- | ------ | -------- | ---- | ------ | ------ | ---------------------------------------------------------------------------------------- |
+| 1   | dokusya_id     | Number | -        | 〇   |        |        | 承認対象の dokusya_id（パスパラメータ）                                                   |
+| 2   | tanka_id       | Number | -        | -    |        |        | 新聞単価ID（リクエストボディ・任意）。指定時のみ承認と同時に単価を更新する。1以上の整数。 |
 
 ## レスポンスデータ
 
@@ -1424,6 +1427,11 @@ ACSMS-API-011-002のレスポンスデータと同一構造（denshi_shonin_stat
 
 ```
 PUT /api/v1/dokusya/100/approve
+Content-Type: application/json
+
+{
+  "tanka_id": 5
+}
 ```
 
 ## レスポンス成功例
@@ -1497,6 +1505,7 @@ PUT /api/v1/dokusya/100/approve
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：dokusya_id 数値型チェック、必須
+- リクエストボディ `tanka_id`（任意）：指定時は整数・1以上。形式不正は HTTP 400 (`VALIDATION_ERROR`, field=`tanka_id`)。
 - 不正なパラメータが存在する場合：HTTP 400 (`BAD_REQUEST`)
 
 ### 4.2 認証・認可チェック
@@ -1523,6 +1532,7 @@ WHERE dokusya_id = :dokusya_id
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
 - denshi_shonin_status が 0 でない場合：HTTP 400 (`INVALID_STATUS`)
+- リクエストボディに `tanka_id` が指定された場合、承認前にテナント跨ぎ FK 検証を行う（`m_tanka` に存在し、かつ対象レコードの `ja_id` に属すること）。存在しない → HTTP 400、他 JA の単価 → HTTP 403 (`DATA_SCOPE_VIOLATION`)。
 
 ### 4.4 ステータス更新（履歴追記方式）
 
@@ -1566,6 +1576,7 @@ INSERT INTO t_dokusya_rireki (
 ```sql
 UPDATE t_dokusya
 SET denshi_shonin_status = 1,
+    tanka_id = :tanka_id,          -- リクエストボディに tanka_id 指定時のみ更新（未指定は据置）
     rireki_no = :new_rireki_no,
     updated_at = NOW(),
     updated_by = :user_account_id
@@ -1574,6 +1585,9 @@ WHERE dokusya_id = :dokusya_id
   AND deleted_at IS NULL
 RETURNING *
 ```
+
+> `tanka_id` はリクエストボディに指定があった場合のみ SET する（現行履歴レコードの
+> `tanka_id` も同時に更新）。未指定時は単価を変更しない。
 
 ### 4.5 操作ログ記録
 

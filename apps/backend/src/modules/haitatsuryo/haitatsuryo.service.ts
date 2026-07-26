@@ -10,6 +10,7 @@ import { CodeService } from '@/modules/code/code.service';
 import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
+import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
 import { AuditOperation, DownloadType, LogType } from '@/common/enums';
 
 import { InactiveTankaReferencedException } from '@/common/exceptions/inactive-tanka-referenced.exception';
@@ -203,12 +204,12 @@ export class HaitatsuryoService {
     );
   }
 
-  /** ログインユーザーの所属 JA の税区分を取得する（4.3。未取得時は内税=1）。 */
+  /** ログインユーザーの所属 JA の税区分を取得する（4.3。未取得時は内税）。 */
   private async fetchZeiKubun(session: SessionPayload): Promise<number> {
     const ja = await this.jaRepo.findOne({
       where: { jaId: session.ja_id as number, deletedAt: IsNull() },
     });
-    return ja?.zeiKubun ?? 1;
+    return ja?.zeiKubun ?? ZEI_KUBUN_UCHIZEI;
   }
 
   /** 集計データ（販売店ごと）を取得する（4.4。DataScope は SQL に内包）。 */

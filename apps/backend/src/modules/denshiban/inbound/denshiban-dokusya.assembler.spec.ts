@@ -60,6 +60,7 @@ function inboundRow(overrides: Partial<DenshibanInboundRow> = {}): DenshibanInbo
     tel2: '',
     email: 'taro@example.jp',
     melmaga: '1',
+    subscribe_flg: '0',
     birthyear: '1990',
     sex: '1',
     member_type: '2',

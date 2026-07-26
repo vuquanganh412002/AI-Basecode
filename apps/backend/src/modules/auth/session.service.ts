@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { RedisService } from '@/modules/redis/redis.service';
+import { DEFAULT_SESSION_TTL_SECONDS } from '@/config/config-defaults.constant';
 
 export interface SessionPayload {
   account_id: number;
@@ -42,7 +43,9 @@ export class SessionService {
     private readonly redis: RedisService,
     private readonly configService: ConfigService,
   ) {
-    this.ttlSeconds = this.configService.get<number>('session.ttlSeconds') ?? 24 * 60 * 60;
+    this.ttlSeconds =
+      this.configService.get<number>('session.ttlSeconds') ??
+      DEFAULT_SESSION_TTL_SECONDS;
   }
 
   /** Create a new session and return its opaque ID (UUID v4). */

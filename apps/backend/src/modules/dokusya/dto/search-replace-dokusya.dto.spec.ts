@@ -16,27 +16,58 @@ import { buildReplaceSearchQuery } from '@test/fixtures/dokusya.factory';
 
 describe('SearchReplaceDokusyaDto', () => {
   // ─── Happy path ─────────────────────────────────────────────────────────
-  it('should pass validation when only the required 適用日 is supplied (other filters optional)', async () => {
+  it('should pass validation when only the required 適用日 + 購読種別 are supplied (other filters optional)', async () => {
     const dto = plainToInstance(SearchReplaceDokusyaDto, {
-      hanbaiten_tekiyo_date: '2099-12-31',
+      joho_henko_tekiyo_date: '2099-12-31',
+      dokusya_shubetsu: 1,
     });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
 
-  // ─── hanbaiten_tekiyo_date (required, YYYY-MM-DD) — 顧客要件 2026-07 ────────
-  it('should FAIL when hanbaiten_tekiyo_date is missing (now required)', async () => {
-    const dto = plainToInstance(SearchReplaceDokusyaDto, {});
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(true);
-  });
-
-  it('should FAIL when hanbaiten_tekiyo_date is not YYYY-MM-DD', async () => {
+  // ─── dokusya_shubetsu (required, 1:紙版 / 2:電子版 のみ) — 顧客要件 2026-07 ──
+  it('should FAIL when dokusya_shubetsu is missing (now required)', async () => {
     const dto = plainToInstance(SearchReplaceDokusyaDto, {
-      hanbaiten_tekiyo_date: '2099/12/31',
+      joho_henko_tekiyo_date: '2099-12-31',
     });
     const errors = await validate(dto);
-    expect(errors.some((e) => e.property === 'hanbaiten_tekiyo_date')).toBe(true);
+    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
+  });
+
+  it.each([1, 2])(
+    'should pass when dokusya_shubetsu is %s (紙版/電子版)',
+    async (shubetsu) => {
+      const dto = plainToInstance(
+        SearchReplaceDokusyaDto,
+        buildReplaceSearchQuery({ dokusya_shubetsu: shubetsu }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
+    },
+  );
+
+  it('should FAIL when dokusya_shubetsu is 3 (併読 — not allowed for replace)', async () => {
+    const dto = plainToInstance(
+      SearchReplaceDokusyaDto,
+      buildReplaceSearchQuery({ dokusya_shubetsu: 3 }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
+  });
+
+  // ─── joho_henko_tekiyo_date (required, YYYY-MM-DD) — 顧客要件 2026-07 ────────
+  it('should FAIL when joho_henko_tekiyo_date is missing (now required)', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, { dokusya_shubetsu: 1 });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'joho_henko_tekiyo_date')).toBe(true);
+  });
+
+  it('should FAIL when joho_henko_tekiyo_date is not YYYY-MM-DD', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {
+      joho_henko_tekiyo_date: '2099/12/31',
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'joho_henko_tekiyo_date')).toBe(true);
   });
 
   it('should pass validation when every documented field has a valid value', async () => {

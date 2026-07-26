@@ -15,7 +15,7 @@
  * tanka_code is immutable on edit per api.md §API-003-003 footnote
  * (画面側でdisabled、 PUT body omits it).
  */
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import dayjs, { type Dayjs } from 'dayjs';
 import { message } from 'ant-design-vue';
@@ -36,6 +36,7 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import {
   createTanka,
   getTanka,
@@ -369,51 +370,6 @@ const FIELD_ORDER: ReadonlyArray<keyof TankaFormState> = [
   'biko',
 ];
 
-function focusFirstError(errors: Record<string, string>): void {
-  const first = FIELD_ORDER.find((f) => errors[f]);
-  if (!first) return;
-
-  void nextTick(() => {
-    let target: HTMLElement | null = document.getElementById(first);
-    if (!target) {
-      target = document.querySelector<HTMLElement>(
-        `[id$="_${first}"], [id="${first}"]`,
-      );
-    }
-    if (!target) {
-      const items = document.querySelectorAll<HTMLElement>('.ant-form-item');
-      for (const item of items) {
-        if (item.querySelector(`[name="${first}"], #${first}`)) {
-          target = item;
-          break;
-        }
-      }
-    }
-    if (!target) return;
-
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target instanceof HTMLButtonElement
-    ) {
-      target.focus();
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    const inner =
-      target.querySelector<HTMLElement>('.ant-select-selector') ??
-      target.querySelector<HTMLElement>(
-        'input, textarea, select, [tabindex]:not([tabindex="-1"])',
-      ) ??
-      target;
-    if (typeof (inner as HTMLElement).focus === 'function') {
-      (inner as HTMLElement).focus();
-    }
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-}
-
 /**
  * Programmatic submit — exposed so the spec can drive the form without
  * reaching into antd's internal form state. The real UX submit handler
@@ -423,7 +379,7 @@ async function submitWith(form: TankaFormState): Promise<void> {
   const errs = validateClient(form);
   clientErrors.value = errs;
   if (Object.keys(errs).length > 0) {
-    focusFirstError(errs);
+    focusFirstError(FIELD_ORDER, errs);
     return;
   }
 
@@ -471,7 +427,7 @@ async function submitWith(form: TankaFormState): Promise<void> {
   // After the round-trip, server-side VALIDATION_ERROR fields are now
   // in fieldErrors (via useApiForm). Focus the first one too.
   if (Object.keys(fieldErrors.value).length > 0) {
-    focusFirstError(fieldErrors.value);
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
 }
 

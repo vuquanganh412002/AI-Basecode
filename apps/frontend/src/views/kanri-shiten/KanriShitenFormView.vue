@@ -15,7 +15,7 @@
  *   docs/design/ACSMS-SCR-009/index.html.
  * - API contract from docs/design/ACSMS-SCR-009/ACSMS-SCR-009-api.md.
  */
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 
@@ -27,6 +27,7 @@ import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
 import { RoleCode } from '@/constants/enums';
 import {
@@ -265,47 +266,11 @@ const FIELD_ORDER: ReadonlyArray<keyof CreateKanriShitenRequest> = [
   'biko',
 ];
 
-function focusFirstError(errors: Record<string, string>): void {
-  const first = FIELD_ORDER.find((f) => errors[f]);
-  if (!first) return;
-
-  void nextTick(() => {
-    let target: HTMLElement | null = document.getElementById(first as string);
-    if (!target) {
-      target = document.querySelector<HTMLElement>(
-        `[id$="_${first as string}"], [id="${first as string}"]`,
-      );
-    }
-    if (!target) return;
-
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target instanceof HTMLButtonElement
-    ) {
-      target.focus();
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    const inner =
-      target.querySelector<HTMLElement>('.ant-select-selector') ??
-      target.querySelector<HTMLElement>(
-        'input, textarea, select, [tabindex]:not([tabindex="-1"])',
-      ) ??
-      target;
-    if (typeof (inner as HTMLElement).focus === 'function') {
-      (inner as HTMLElement).focus();
-    }
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-}
-
 async function submitWith(form: FormState): Promise<void> {
   const errs = validateClient(form);
   clientErrors.value = errs;
   if (Object.keys(errs).length > 0) {
-    focusFirstError(errs);
+    focusFirstError(FIELD_ORDER, errs);
     return;
   }
 
@@ -333,7 +298,7 @@ async function submitWith(form: FormState): Promise<void> {
   });
 
   if (Object.keys(fieldErrors.value).length > 0) {
-    focusFirstError(fieldErrors.value);
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
 }
 

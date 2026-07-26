@@ -6,6 +6,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { useNotify } from '@/composables/useNotify';
+import { DokusyaShubetsu } from '@/constants/enums';
 import {
   previewMeibo,
   exportMeibo,
@@ -73,7 +74,7 @@ const shiharaiHohoOptions = computed(() => codes.options('SHIHARAI_HOHO'));
 
 // 購読種別は m_code DOKUSYA_SHUBETSU。併読(3)は本帳票では除外（画面項目No.5）。
 const shubetsuOptions = computed(() =>
-  codes.options('DOKUSYA_SHUBETSU').filter((o) => Number(o.value) !== 3),
+  codes.options('DOKUSYA_SHUBETSU').filter((o) => Number(o.value) !== DokusyaShubetsu.BOTH),
 );
 
 // previewData は fetch 成功時のみ設定（帳票種別変更・エラー時は null に戻す）ため、

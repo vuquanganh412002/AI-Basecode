@@ -2,7 +2,7 @@
 // ACSMS-SCR-014 — 購読者明細検索画面.
 //
 // Lists records from `GET /api/v1/dokusya` with pagination, sort,
-// filter (12 common-area fields + 7 詳細検索 fields). 削除 fires
+// filter (12 common-area fields + 6 詳細検索 fields). 削除 fires
 // soft-delete via DELETE /api/v1/dokusya/:id. Excel出力 streams a
 // blob from /api/v1/dokusya/export (filter-only payload — no
 // page/sort).
@@ -31,6 +31,7 @@ import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
 import BaseKanriShitenDropdown from '@/components/common/BaseKanriShitenDropdown.vue';
 import BaseShitenDropdown from '@/components/common/BaseShitenDropdown.vue';
 import BaseHanbaitenDropdown from '@/components/common/BaseHanbaitenDropdown.vue';
+import BaseTankaDropdown from '@/components/common/BaseTankaDropdown.vue';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
@@ -79,15 +80,19 @@ interface DokusyaFilters {
   dokusya_chushi_date_to: string;
   dokusya_shubetsu: number | undefined;
   denshi_shonin_status: number | undefined;
-  // 詳細検索エリア (7 fields, hidden behind toggle).
-  jastem_toriatsukai_tenpo_code: string;
-  jastem_tenpo_name: string;
-  renrakusaki_1: string;
+  // 詳細検索エリア (6 fields, hidden behind toggle).
+  bank_branch: string;
+  renrakusaki: string;
   email: string;
-  seikyu_kaishi_month: string;
+  seikyu_kaishi_month_from: string;
+  seikyu_kaishi_month_to: string;
   joho_henko_tekiyo_date_from: string;
   joho_henko_tekiyo_date_to: string;
   shiharai_hoho: number | undefined;
+  // 郵送区分（m_code YUBIN_KUBUN: '0':空 / '1':郵送）・新聞単価(tanka_id)・備考。
+  yubin_kubun: string | undefined;
+  tanka_id: number | undefined;
+  biko: string;
   // 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。
   active_tanka_flg: ActiveFlgFilter;
 }
@@ -107,14 +112,17 @@ const DEFAULT_FILTERS: DokusyaFilters = {
   dokusya_chushi_date_to: '',
   dokusya_shubetsu: undefined,
   denshi_shonin_status: undefined,
-  jastem_toriatsukai_tenpo_code: '',
-  jastem_tenpo_name: '',
-  renrakusaki_1: '',
+  bank_branch: '',
+  renrakusaki: '',
   email: '',
-  seikyu_kaishi_month: '',
+  seikyu_kaishi_month_from: '',
+  seikyu_kaishi_month_to: '',
   joho_henko_tekiyo_date_from: '',
   joho_henko_tekiyo_date_to: '',
   shiharai_hoho: undefined,
+  yubin_kubun: undefined,
+  tanka_id: undefined,
+  biko: '',
   active_tanka_flg: '',
 };
 
@@ -235,6 +243,12 @@ const columns: TableColumnsType = [
     width: 140,
   },
   {
+    title: '配送先連絡先1',
+    dataIndex: 'haitatsu_renrakusaki_1',
+    key: 'haitatsu_renrakusaki_1',
+    width: 140,
+  },
+  {
     title: '配達先氏名',
     dataIndex: 'haitatsu_full_name',
     key: 'haitatsu_full_name',
@@ -254,8 +268,8 @@ const columns: TableColumnsType = [
   },
   {
     title: '販売店コード',
-    dataIndex: 'hanbaiten_id',
-    key: 'hanbaiten_id',
+    dataIndex: 'hanbaiten_code',
+    key: 'hanbaiten_code',
     sorter: true,
     width: 130,
   },
@@ -347,6 +361,15 @@ function validateFilters(f: DokusyaFilters): boolean {
     validationError.value = MSG_DATE_RANGE_INVALID;
     return false;
   }
+  // 請求開始月: from ≦ to（YYYYMM 6桁は辞書順比較が数値順と一致する）。
+  if (
+    f.seikyu_kaishi_month_from &&
+    f.seikyu_kaishi_month_to &&
+    f.seikyu_kaishi_month_from > f.seikyu_kaishi_month_to
+  ) {
+    validationError.value = MSG_DATE_RANGE_INVALID;
+    return false;
+  }
   return true;
 }
 
@@ -370,6 +393,7 @@ function applyNumberFilters(
   if (f.denshi_shonin_status !== undefined)
     params.denshi_shonin_status = f.denshi_shonin_status;
   if (f.shiharai_hoho !== undefined) params.shiharai_hoho = f.shiharai_hoho;
+  if (f.tanka_id != null) params.tanka_id = f.tanka_id;
   // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
   const activeTanka = toBoolean(f.active_tanka_flg);
   if (activeTanka !== undefined) params.active_tanka_flg = activeTanka;
@@ -384,12 +408,16 @@ function applyTextFilters(
   if (f.full_name) params.full_name = f.full_name;
   if (f.full_name_kana) params.full_name_kana = f.full_name_kana;
   if (f.haitatsu) params.haitatsu = f.haitatsu;
-  if (f.jastem_toriatsukai_tenpo_code)
-    params.jastem_toriatsukai_tenpo_code = f.jastem_toriatsukai_tenpo_code;
-  if (f.jastem_tenpo_name) params.jastem_tenpo_name = f.jastem_tenpo_name;
-  if (f.renrakusaki_1) params.renrakusaki_1 = f.renrakusaki_1;
+  if (f.bank_branch) params.bank_branch = f.bank_branch;
+  if (f.renrakusaki) params.renrakusaki = f.renrakusaki;
   if (f.email) params.email = f.email;
-  if (f.seikyu_kaishi_month) params.seikyu_kaishi_month = f.seikyu_kaishi_month;
+  // 郵送区分は '0'/'1' の非空文字列（'0' も truthy なので単純判定で可）。
+  if (f.yubin_kubun) params.yubin_kubun = f.yubin_kubun;
+  if (f.biko) params.biko = f.biko;
+  if (f.seikyu_kaishi_month_from)
+    params.seikyu_kaishi_month_from = f.seikyu_kaishi_month_from;
+  if (f.seikyu_kaishi_month_to)
+    params.seikyu_kaishi_month_to = f.seikyu_kaishi_month_to;
 }
 
 /** Date-range filters — copied when non-empty. */
@@ -493,13 +521,13 @@ function trimTextFilters(): void {
   f.full_name = f.full_name.trim();
   f.full_name_kana = f.full_name_kana.trim();
   f.haitatsu = f.haitatsu.trim();
-  f.jastem_toriatsukai_tenpo_code = f.jastem_toriatsukai_tenpo_code.trim();
-  f.jastem_tenpo_name = f.jastem_tenpo_name.trim();
-  f.renrakusaki_1 = f.renrakusaki_1.trim();
+  f.bank_branch = f.bank_branch.trim();
+  f.renrakusaki = f.renrakusaki.trim();
   f.email = f.email.trim();
-  // seikyu_kaishi_month は <a-date-picker> 由来の YYYYMM 文字列で空白を含まない。
-  // クリア時に antd が undefined をセットするため .trim() すると TypeError →
-  // 検索ボタンで「エラーが発生しました」トーストになる。trim 対象外とする。
+  f.biko = f.biko.trim();
+  // seikyu_kaishi_month_from/to は <a-date-picker> 由来の YYYYMM 文字列で空白を
+  // 含まない。クリア時に antd が undefined をセットするため .trim() すると
+  // TypeError → 検索ボタンで「エラーが発生しました」トーストになる。trim 対象外。
 }
 
 // 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
@@ -811,12 +839,12 @@ defineExpose({ state });
         />
       </div>
 
-      <!-- 6. 配達先住所 -->
+      <!-- 6. 住所（配達先住所4項目 + 購読者住所4項目を部分一致 OR 検索） -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">配達先住所</span>
+        <span class="whitespace-nowrap">住所</span>
         <a-input
           v-model:value="state.filters.haitatsu"
-          placeholder="配達先住所"
+          placeholder="住所"
           allow-clear
           class="flex-1"
         />
@@ -956,34 +984,24 @@ defineExpose({ state });
 
       <!-- 詳細検索エリア — collapsed by default. -->
       <template v-if="showAdvanced">
-        <!-- 13. 引落元口座支店コード -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">引落元口座支店コード</span>
+        <!-- 13. 引落元口座支店（コード・名称を横断部分一致検索）。
+             4カラムグリッドで半行占有（lg で 2/4 カラム）。 -->
+        <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap">引落元口座支店</span>
           <a-input
-            v-model:value="state.filters.jastem_toriatsukai_tenpo_code"
-            placeholder="引落元口座支店コード"
+            v-model:value="state.filters.bank_branch"
+            placeholder="引落元口座支店コード・名称"
             allow-clear
             class="flex-1"
           />
         </div>
 
-        <!-- 14. 引落元口座支店名 -->
+        <!-- 15. 連絡先（購読者連絡先1/2・配達先連絡先1/2を横断部分一致検索） -->
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">引落元口座支店名</span>
+          <span class="whitespace-nowrap">連絡先</span>
           <a-input
-            v-model:value="state.filters.jastem_tenpo_name"
-            placeholder="引落元口座支店名"
-            allow-clear
-            class="flex-1"
-          />
-        </div>
-
-        <!-- 15. 連絡先1 -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">連絡先1</span>
-          <a-input
-            v-model:value="state.filters.renrakusaki_1"
-            placeholder="連絡先1"
+            v-model:value="state.filters.renrakusaki"
+            placeholder="連絡先"
             allow-clear
             class="flex-1"
           />
@@ -1003,11 +1021,21 @@ defineExpose({ state });
         <!-- 17+18. 請求開始月 + 適用日 — 2-col sub-grid (col-span-full)
              so each field takes half the row. -->
         <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
-          <!-- 請求開始月 (month picker → YYYYMM) -->
+          <!-- 請求開始月 (month range → YYYYMM 〜 YYYYMM) -->
           <div class="flex items-center gap-2 text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">請求開始月</span>
             <a-date-picker
-              v-model:value="state.filters.seikyu_kaishi_month"
+              v-model:value="state.filters.seikyu_kaishi_month_from"
+              picker="month"
+              value-format="YYYYMM"
+              format="YYYYMM"
+              placeholder="YYYYMM"
+              allow-clear
+              class="flex-1"
+            />
+            <span class="text-text-description">-</span>
+            <a-date-picker
+              v-model:value="state.filters.seikyu_kaishi_month_to"
               picker="month"
               value-format="YYYYMM"
               format="YYYYMM"
@@ -1057,6 +1085,48 @@ defineExpose({ state });
               {{ opt.label }}
             </a-radio>
           </a-radio-group>
+        </div>
+
+        <!-- 20. 郵送区分 (dropdown, m_code YUBIN_KUBUN: 0:空 / 1:郵送) -->
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap">郵送区分</span>
+          <a-select
+            v-model:value="state.filters.yubin_kubun"
+            placeholder="郵送区分"
+            allow-clear
+            class="flex-1"
+          >
+            <a-select-option
+              v-for="opt in codes.options('YUBIN_KUBUN')"
+              :key="String(opt.value)"
+              :value="String(opt.value)"
+            >
+              {{ opt.label }}
+            </a-select-option>
+          </a-select>
+        </div>
+
+        <!-- 21. 新聞単価 (dropdown, tanka_id — JA スコープでカスケード) -->
+        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap">新聞単価</span>
+          <BaseTankaDropdown
+            v-model:value="state.filters.tanka_id"
+            :ja-id="filterJaId"
+            placeholder="新聞単価"
+            allow-clear
+            class="flex-1"
+          />
+        </div>
+
+        <!-- 22. 備考 (text, 部分一致検索)。4カラムグリッドで半行占有（lg で 2/4）。 -->
+        <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap">備考</span>
+          <a-input
+            v-model:value="state.filters.biko"
+            placeholder="備考"
+            allow-clear
+            class="flex-1"
+          />
         </div>
 
         <!-- 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧
@@ -1168,7 +1238,7 @@ defineExpose({ state });
         </template>
         <template v-else-if="column.key === 'actions'">
           <div class="flex justify-center items-center gap-3">
-            <!-- 購読停止（解約予約）— 削除の前に配置。更新権限なし / 編集不可
+            <!-- 購読中止（解約予約）— 削除リンクの前に配置。更新権限なし / 編集不可
                  (併読・電子版クレカ) / 既に解約済み のとき非活性。 -->
             <button
               type="button"
@@ -1177,7 +1247,7 @@ defineExpose({ state });
               data-test="stop-button"
               @click="openStopModal(record as DokusyaListItem)"
             >
-              購読停止
+              購読中止
             </button>
             <!-- 削除 visible-but-disabled when:
                    (a) the row carries is_read_only=true, OR
@@ -1203,8 +1273,8 @@ defineExpose({ state });
          ポップアップ内にフィールドエラーとして表示する。 -->
     <a-modal
       v-model:open="stopModalOpen"
-      title="購読を停止する"
-      ok-text="購読を停止する"
+      title="購読中止"
+      ok-text="確認"
       ok-type="danger"
       cancel-text="キャンセル"
       :confirm-loading="stopSubmitting"

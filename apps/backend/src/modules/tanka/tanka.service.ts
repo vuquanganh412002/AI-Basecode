@@ -17,6 +17,7 @@ import {
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
+import { ZEI_KUBUN_SOTOZEI } from '@/common/constants/zei-kubun.constant';
 import { assertJaScope, applyJaScope } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
 import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
@@ -614,7 +615,7 @@ export class TankaService {
         tanka_type: r.tankaType,
         kingaku_zeikomi: zeikomi,
         kingaku_zeinuki: zeinuki,
-        kingaku: effectiveZeiKubun === 2 ? zeinuki : zeikomi,
+        kingaku: effectiveZeiKubun === ZEI_KUBUN_SOTOZEI ? zeinuki : zeikomi,
       };
     });
 

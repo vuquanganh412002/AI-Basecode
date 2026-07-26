@@ -3,7 +3,8 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 
-import { AuditOperation } from '@/common/enums';
+import { AuditOperation, ItakuKubun } from '@/common/enums';
+import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
@@ -53,7 +54,6 @@ const TABLE_NAME = 'm_hanbaiten';
  * fields and surface English class-validator messages on partial
  * inputs).
  */
-const ITAKU_KUBUN_FURIKOMI = 1;
 const CONDITIONAL_REQUIRED_FIELDS: ReadonlyArray<{
   key:
     | 'bank_code'
@@ -83,7 +83,7 @@ const CONDITIONAL_REQUIRED_FIELDS: ReadonlyArray<{
 function assertConditionalRequired(
   dto: CreateHanbaitenDto | UpdateHanbaitenDto,
 ): void {
-  if (dto.itaku_kubun !== ITAKU_KUBUN_FURIKOMI) return;
+  if (dto.itaku_kubun !== ItakuKubun.FURIKOMI) return;
   const missing: { field: string; message: string }[] = [];
   for (const { key, label } of CONDITIONAL_REQUIRED_FIELDS) {
     const v = (dto as unknown as Record<string, unknown>)[key];
@@ -325,7 +325,7 @@ export class HanbaitenService {
       qb.andWhere(
         `m.haitatsuryo_tanka_id IN (
           SELECT mti.tanka_id FROM m_tanka mti
-           WHERE mti.tanka_type = 2
+           WHERE mti.tanka_type = ${TANKA_TYPE_HAITATSURYO}
              AND mti.deleted_at IS NULL
              AND mti.active_flg = :activeTankaFlg
         )`,

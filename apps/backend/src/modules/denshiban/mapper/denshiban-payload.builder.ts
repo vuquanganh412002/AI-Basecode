@@ -165,12 +165,22 @@ const REMARKS_MAX = 255;
 // ─── Unit conversions (each tested independently) ──────────────────────────
 
 /**
- * Subscriber type → `subscribe_flg` (whether the paper edition is subscribed).
- * Both → '1', digital-only → '0'. The type code is m_code `DOKUSYA_SHUBETSU`
- * (Group A) → {@link DokusyaShubetsu}.
+ * 本紙購読フラグ → `subscribe_flg` (whether the paper edition is subscribed).
+ *
+ * Reads `t_dokusya.honshi_kodoku_flg` — the column the INBOUND sync fills from
+ * this very same `users.subscribe_flg` — so the value round-trips unchanged.
+ *
+ * ⚠️ Do NOT derive this from `dokusya_shubetsu` again (the previous
+ * implementation returned `'1'` only for 併読(3)). The outbound gate
+ * ({@link @/common/utils/denshiban-sync-gate}) only lets 電子版(2) through, so
+ * that version emitted a hard-coded `'0'` on every request — wiping the flag in
+ * denshiban the first time an operator edited the subscriber in the cloud.
+ * 顧客決定 2026-07: `honshi_kodoku_flg` is the single source for this field.
  */
-export function toSubscribeFlg(dokusyaShubetsu: number): string {
-  return dokusyaShubetsu === DokusyaShubetsu.BOTH ? '1' : '0';
+export function toSubscribeFlg(
+  honshiKodokuFlg: boolean | null | undefined,
+): string {
+  return honshiKodokuFlg === true ? '1' : '0';
 }
 
 /**
@@ -286,8 +296,20 @@ function splitCsv(csv: string): string[] {
 /**
  * Assembles every profile field from one subscriber (with the key-dropping rule
  * already applied). create uses it as-is; update diffs it against before first.
+ *
+ * `opts.lenient` — used ONLY for the update diff's **before** snapshot. The before
+ * row is compared against, never sent, so a value the old record can't express
+ * (profession unselected / multi-selected / unknown label) must NOT abort the
+ * update: the *after* value is what we're sending. In lenient mode a
+ * {@link DenshibanMappingError} from the profession/products conversion is
+ * swallowed and the group is simply left out of the before-fields — so the
+ * (valid) after value shows up as "changed" and is sent. The after build stays
+ * strict, so genuinely invalid NEW data still throws.
  */
-function buildProfileFields(d: Dokusya): Record<string, string> {
+function buildProfileFields(
+  d: Dokusya,
+  opts: { lenient?: boolean } = {},
+): Record<string, string> {
   const out: Record<string, string> = {};
 
   // Required — sent even when empty so assertPayload can reject them (never
@@ -306,7 +328,7 @@ function buildProfileFields(d: Dokusya): Record<string, string> {
   out.city = d.chomeBanchi ?? '';
   out.tel = toTel(d.renrakusaki1);
   out.email = d.email ?? '';
-  out.subscribe_flg = toSubscribeFlg(d.dokusyaShubetsu);
+  out.subscribe_flg = toSubscribeFlg(d.honshiKodokuFlg);
   out.melmaga = String(d.mailMagazineFlg ?? 0);
 
   // Optional — empties are dropped key and all.
@@ -320,12 +342,19 @@ function buildProfileFields(d: Dokusya): Record<string, string> {
   // `profession_and_ja` / `profession_and_agri` have no corresponding cloud column
   // either, so they aren't sent (§D-3 / awaiting QnA 10).
 
-  const profession = toProfession(d.dokusyasoBunrui ?? '');
-  Object.assign(out, profession);
+  try {
+    const profession = toProfession(d.dokusyasoBunrui ?? '');
+    Object.assign(out, profession);
 
-  // products can only be sent when profession = 0 (farmer) (§B condition table).
-  if (profession.profession === '0') {
-    Object.assign(out, toProducts(d.nogyosyaBunrui ?? ''));
+    // products can only be sent when profession = 0 (farmer) (§B condition table).
+    if (profession.profession === '0') {
+      Object.assign(out, toProducts(d.nogyosyaBunrui ?? ''));
+    }
+  } catch (err) {
+    // Lenient before-diff only: an unmappable old value doesn't block a valid
+    // new one. Leave the profession group out → after's value diffs as changed.
+    // Any non-mapping error, or the strict (after / create) path, still throws.
+    if (!opts.lenient || !(err instanceof DenshibanMappingError)) throw err;
   }
 
   return out;
@@ -380,7 +409,9 @@ export function buildUpdatePayload(
   ctx: BuildCtx,
   mode: 'update' | 'reread',
 ): DenshibanPayload {
-  const beforeFields = buildProfileFields(before);
+  // before is diff-only → lenient (an unmappable old profession must not block a
+  // valid new one). after stays strict so invalid new data still throws.
+  const beforeFields = buildProfileFields(before, { lenient: true });
   const afterFields = buildProfileFields(after);
 
   const changed: Record<string, string> = {};

@@ -51,12 +51,20 @@ function buildDenshiDokusya(overrides = {}) {
 
 describe('単位変換', () => {
   describe('toSubscribeFlg', () => {
-    it('併読 (3) は紙版購読あり → 1', () => {
-      expect(toSubscribeFlg(3)).toBe('1');
+    // 顧客決定 2026-07: honshi_kodoku_flg が唯一の情報源。dokusya_shubetsu から
+    // 導出していた旧実装は、送信ゲートが電子版(2)のみ通すため常に '0' を送り、
+    // インバウンドで受け取った本紙購読フラグを毎回消していた。
+    it('本紙購読あり (true) → 1', () => {
+      expect(toSubscribeFlg(true)).toBe('1');
     });
 
-    it('電子版 (2) は紙版購読なし → 0', () => {
-      expect(toSubscribeFlg(2)).toBe('0');
+    it('本紙購読なし (false) → 0', () => {
+      expect(toSubscribeFlg(false)).toBe('0');
+    });
+
+    it('null / undefined は購読なし扱い → 0', () => {
+      expect(toSubscribeFlg(null)).toBe('0');
+      expect(toSubscribeFlg(undefined)).toBe('0');
     });
   });
 
@@ -305,8 +313,18 @@ describe('buildCreatePayload', () => {
     expect(payload).not.toHaveProperty('profession_and_agri');
   });
 
-  it('併読 (3) は subscribe_flg=1', () => {
-    const d = buildDenshiDokusya({ dokusyaShubetsu: 3 });
+  it('本紙購読フラグ true は subscribe_flg=1', () => {
+    const d = buildDenshiDokusya({ honshiKodokuFlg: true });
+    expect(buildCreatePayload(d, ctx()).subscribe_flg).toBe('1');
+  });
+
+  // 回帰ガード: 旧実装は dokusya_shubetsu から導出していたため、送信対象で
+  // ある電子版(2)の購読者は本紙購読フラグに関わらず常に '0' になっていた。
+  it('購読者種別ではなく本紙購読フラグを見る（電子版(2)でも true なら 1）', () => {
+    const d = buildDenshiDokusya({
+      dokusyaShubetsu: 2,
+      honshiKodokuFlg: true,
+    });
     expect(buildCreatePayload(d, ctx()).subscribe_flg).toBe('1');
   });
 
@@ -337,6 +355,25 @@ describe('buildUpdatePayload', () => {
       notify_flg: '0',
       email: 'new@example.com',
     });
+  });
+
+  it('before の読者属性が空でも after が有効なら profession を送る（before は差分用のみ）', () => {
+    // 電子版で cloud 側が dokusyaso_bunrui 未選択のまま作られた既存行を編集し、
+    // 今回「学生」を付与するケース。before は map 不可でも update を止めない。
+    const before = buildDenshiDokusya({ dokusyasoBunrui: '' });
+    const after = buildDenshiDokusya({ ...before, dokusyasoBunrui: '学生' });
+
+    const payload = buildUpdatePayload(before, after, ctx(), 'update');
+    expect(payload.profession).toBe('3');
+    expect(() => assertPayload(payload)).not.toThrow();
+  });
+
+  it('after の読者属性が空なら投げる（送信データは厳格）', () => {
+    const before = buildDenshiDokusya();
+    const after = buildDenshiDokusya({ ...before, dokusyasoBunrui: '' });
+    expect(() => buildUpdatePayload(before, after, ctx(), 'update')).toThrow(
+      DenshibanMappingError,
+    );
   });
 
   it('reread も同じシグネチャ（action_kbn だけ違う）', () => {

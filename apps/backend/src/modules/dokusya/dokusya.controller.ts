@@ -29,6 +29,7 @@ import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
+import { ApproveDokusyaDto } from './dto/approve-dokusya.dto';
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
 import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
@@ -243,6 +244,27 @@ export class DokusyaController {
     return { data };
   }
 
+  // ─── API-011-004 ────────────────────────────────────────────────────
+  @Get(':dokusya_id/effective-at')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('dokusya.view')
+  @ApiOperation({
+    summary: '購読者情報登録画面 — 指定適用日(joho)時点で有効な履歴行を取得',
+  })
+  @ApiQuery({ name: 'joho', required: true, description: '情報変更適用日 (YYYY-MM-DD)' })
+  @ApiResponse({ status: 200, type: DokusyaResponseEnvelopeDto })
+  @ApiResponse({ status: 400, description: '情報変更適用日の形式が不正です。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  @ApiResponse({ status: 404, description: '指定された購読者が見つかりません。' })
+  async getEffectiveAt(
+    @Param('dokusya_id', ParseIntPipe) dokusyaId: number,
+    @Query('joho') joho: string,
+    @Req() req: Request & { user: SessionPayload },
+  ) {
+    const data = await this.service.getEffectiveAt(dokusyaId, joho, req.user);
+    return { data };
+  }
+
   // ─── API-011-002 ────────────────────────────────────────────────────
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -291,9 +313,10 @@ export class DokusyaController {
   @ApiResponse({ status: 404, description: '指定された購読者が見つかりません。' })
   async approve(
     @Param('dokusya_id', ParseIntPipe) dokusyaId: number,
+    @Body() dto: ApproveDokusyaDto,
     @Req() req: Request & { user: SessionPayload },
   ) {
-    return this.service.approve(dokusyaId, req.user, req);
+    return this.service.approve(dokusyaId, req.user, req, dto.tanka_id);
   }
 
   // ─── API-011-005 ────────────────────────────────────────────────────

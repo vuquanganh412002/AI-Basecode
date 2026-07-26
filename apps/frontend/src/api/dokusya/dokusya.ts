@@ -242,6 +242,23 @@ export async function getDokusya(dokusyaId: number): Promise<DokusyaEnvelope> {
   return res.data;
 }
 
+/**
+ * GET /api/v1/dokusya/:id/effective-at?joho=YYYY-MM-DD — ACSMS-API-011-004.
+ * 予約変更(未来日)編集の基準行: 指定 joho 時点で有効な履歴行(findBefore)を
+ * 詳細レスポンス形で返す。フォームは予約変更モードでこれをロードし、editGuard の
+ * baseline にする（BE の timeline-diff と一致させ、直前行と異なる変更だけ検出）。
+ */
+export async function getDokusyaEffectiveAt(
+  dokusyaId: number,
+  joho: string,
+): Promise<DokusyaEnvelope> {
+  const res = await axiosInstance.get<DokusyaEnvelope>(
+    `/api/v1/dokusya/${dokusyaId}/effective-at`,
+    { params: { joho } },
+  );
+  return res.data;
+}
+
 /** POST /api/v1/dokusya — ACSMS-API-011-002. */
 export async function createDokusya(
   body: CreateDokusyaRequest,
@@ -286,12 +303,17 @@ export async function stopDokusya(
   return res.data;
 }
 
-/** PUT /api/v1/dokusya/:id/approve — ACSMS-API-011-004 (電子版承認). */
+/**
+ * PUT /api/v1/dokusya/:id/approve — ACSMS-API-011-004 (電子版承認).
+ * 承認待ち画面で編集した新聞単価(tankaId) を任意で同時保存する（省略時は変更なし）。
+ */
 export async function approveDokusya(
   dokusyaId: number,
+  tankaId?: number,
 ): Promise<DokusyaMutationEnvelope> {
   const res = await axiosInstance.put<DokusyaMutationEnvelope>(
     `/api/v1/dokusya/${dokusyaId}/approve`,
+    tankaId != null ? { tanka_id: tankaId } : undefined,
   );
   return res.data;
 }
@@ -338,11 +360,14 @@ export interface DokusyaListItem {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）. */
+  haitatsu_renrakusaki_1: string;
   /** 配達先氏名 — haitatsu_shimei_sei + haitatsu_shimei_mei (concat, trimmed). */
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;
+  hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
   shiharai_hoho: number;
@@ -358,15 +383,18 @@ export interface DokusyaSearchParams {
   kanri_shiten_id?: number;
   shiten_id?: number;
   kumiaiin_code?: string;
-  jastem_toriatsukai_tenpo_code?: string;
-  jastem_tenpo_name?: string;
+  bank_branch?: string;
   full_name?: string;
   full_name_kana?: string;
-  renrakusaki_1?: string;
+  renrakusaki?: string;
   haitatsu?: string;
   hanbaiten_id?: number;
   email?: string;
-  seikyu_kaishi_month?: string;
+  yubin_kubun?: string;
+  tanka_id?: number;
+  biko?: string;
+  seikyu_kaishi_month_from?: string;
+  seikyu_kaishi_month_to?: string;
   shoki_dokusya_kaishi_date_from?: string;
   shoki_dokusya_kaishi_date_to?: string;
   dokusya_chushi_date_from?: string;
@@ -640,8 +668,10 @@ export interface ReplaceSearchParams {
   hanbaiten_id?: number;
   dokusya_kaishi_date_from?: string;
   dokusya_kaishi_date_to?: string;
-  /** 販売店適用日（必須・未来日のみ）。この日付で置換可能な購読者のみ返る。 */
-  hanbaiten_tekiyo_date: string;
+  /** 情報変更適用日（必須）。紙版=未来日のみ／電子版=本日のみ。この日付で置換可能な購読者のみ返る。 */
+  joho_henko_tekiyo_date: string;
+  /** 購読種別（必須・1:紙版 / 2:電子版）。この種別で購読者を絞り込む。 */
+  dokusya_shubetsu: number;
   page?: number;
   per_page?: number;
   sort_by?: 'kanri_shiten_name' | 'shiten_name' | 'kumiaiin_code' | 'hanbaiten_code';
@@ -670,8 +700,10 @@ export interface ReplaceSearchResponse {
 export interface ReplaceHanbaitenRequest {
   dokusya_ids: number[];
   new_hanbaiten_id: number;
-  /** YYYY-MM-DD — 当日以降の日付のみ可. */
-  hanbaiten_tekiyo_date: string;
+  /** YYYY-MM-DD — 紙版=未来日のみ／電子版=本日のみ（種別依存）. */
+  joho_henko_tekiyo_date: string;
+  /** 購読種別（1:紙版 / 2:電子版）。適用日ルール判定 + 候補整合チェック用. */
+  dokusya_shubetsu: number;
   [key: string]: unknown;
 }
 

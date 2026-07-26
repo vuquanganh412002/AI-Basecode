@@ -45,8 +45,8 @@ export class Dokusya {
   @Column({ name: 'ja_id', type: 'bigint' })
   jaId: number;
 
-  @Column({ name: 'kanri_shiten_id', type: 'bigint' })
-  kanriShitenId: number;
+  @Column({ name: 'kanri_shiten_id', type: 'bigint', nullable: true })
+  kanriShitenId: number | null;
 
   @Column({ name: 'shiten_id', type: 'bigint', nullable: true })
   shitenId: number | null;
@@ -187,11 +187,11 @@ export class Dokusya {
   })
   haitatsuShimeiKanaMei: string;
 
-  @Column({ name: 'hanbaiten_id', type: 'bigint' })
-  hanbaitenId: number;
+  @Column({ name: 'hanbaiten_id', type: 'bigint', nullable: true })
+  hanbaitenId: number | null;
 
-  @Column({ name: 'tanka_id', type: 'bigint' })
-  tankaId: number;
+  @Column({ name: 'tanka_id', type: 'bigint', nullable: true })
+  tankaId: number | null;
 
   @Column({ name: 'yubin_kubun', type: 'varchar', length: 1, default: '0' })
   yubinKubun: string;
@@ -285,6 +285,14 @@ export class Dokusya {
    */
   @Column({ name: 'denshi_kaiin_id', type: 'bigint', nullable: true })
   denshiKaiinId: number | null;
+
+  /**
+   * 本紙購読フラグ。電子版読者管理システムの `users.subscribe_flg`
+   * (0:未購読, 1:購読) を連携（0→FALSE, 1→TRUE）。購読種別=電子版のときのみ
+   * 画面に「紙版購読状況有り」と表示する。DEFAULT FALSE。
+   */
+  @Column({ name: 'honshi_kodoku_flg', type: 'boolean', default: false })
+  honshiKodokuFlg: boolean;
 
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;

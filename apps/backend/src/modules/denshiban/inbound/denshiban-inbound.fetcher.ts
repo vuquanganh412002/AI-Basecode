@@ -28,8 +28,11 @@ export class DenshibanInboundFetcher {
 
   /**
    * All `users` rows currently in scope for the sync — i.e. `collecting = '1'`
-   * (the customer's "in-sync" flag). No `deleted_at` filter: a cancelled member
-   * (`status = 9`) must still flow through so the sync records the cancellation.
+   * (the customer's "in-sync" flag) OR `treatment = 1 AND payment_id = 6`
+   * (口座振替 members that must be synced even when not yet flagged `collecting`),
+   * **minus** campaign members (`campagna_flg = 1`, 顧客決定 2026-07).
+   * No `deleted_at` filter: a cancelled member (`status = 9`) must still flow
+   * through so the sync records the cancellation.
    *
    * @throws when `denshiban.enabled = false` (via `withConnection`).
    */
@@ -46,14 +49,33 @@ type RawUsersRow = Record<string, unknown>;
 
 /**
  * The `users` columns the mapping consumes. `activated_at` / `deleted_at` are
- * date-formatted; every other column is selected verbatim. `WHERE collecting =
- * '1'` — the column is `VARCHAR`, so compare against the string literal.
+ * date-formatted; every other column is selected verbatim.
+ *
+ * Scope — an INCLUDE term AND an EXCLUDE term:
+ *
+ *   - INCLUDE: `collecting = '1'` (VARCHAR — compare against the string literal)
+ *     OR the 口座振替 pair `treatment = 1 AND payment_id = 6` (INT columns) so
+ *     those members sync even before they are flagged `collecting`.
+ *   - EXCLUDE: campaign members (`campagna_flg = 1`) never enter the cloud
+ *     (顧客決定 2026-07). This mirrors the OUTBOUND campaign gate
+ *     (`m_tanka.campaign_flg`, see `@/common/utils/denshiban-sync-gate`) so a
+ *     campaign contract is invisible in BOTH directions.
+ *
+ * ⚠️ The denshiban column is spelled **`campagna_flg`** — NOT `campaign_flg`
+ * like the cloud-side `m_tanka` column. Confirmed with the customer 2026-07;
+ * do not "fix" the spelling.
+ *
+ * `COALESCE(campagna_flg, 0) <> 1` rather than `campagna_flg <> 1` because a
+ * bare `<>` is NULL (→ falsy) for NULL rows, which would silently drop every
+ * member whose flag is unset. The COALESCE also makes the comparison
+ * type-agnostic: MySQL coerces a VARCHAR `'1'` to numeric 1, so this holds
+ * whether the column is INT or VARCHAR.
  */
 const FETCH_COLLECTING_SQL = `
   SELECT
     id, first_name, last_name, first_kana, last_kana,
     zip1, zip2, pref_id, addr, city, building, tel1, tel2, email,
-    melmaga, birthyear, sex,
+    melmaga, birthyear, sex, subscribe_flg,
     member_type, status, approval,
     payment_cycle, payment_start_ym,
     profession, others_profession, products, others_products,
@@ -63,7 +85,11 @@ const FETCH_COLLECTING_SQL = `
     DATE_FORMAT(deleted_at, '%Y-%m-%d')   AS deleted_at,
     JACd, ShopCd, payment_id
   FROM users
-  WHERE collecting = '1'
+  WHERE COALESCE(campagna_flg, 0) <> 1
+    AND (
+      collecting = '1'
+      OR (treatment = 1 AND payment_id = 6)
+    )
 `;
 
 /** null/undefined → null; anything else → its string form. */
@@ -91,6 +117,7 @@ function normalizeRow(r: RawUsersRow): DenshibanInboundRow {
     melmaga: toStr(r.melmaga),
     birthyear: toStr(r.birthyear),
     sex: toStr(r.sex),
+    subscribe_flg: toStr(r.subscribe_flg),
     member_type: toStr(r.member_type),
     status: toStr(r.status),
     approval: toStr(r.approval),

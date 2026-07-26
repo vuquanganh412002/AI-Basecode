@@ -102,13 +102,15 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 
 | No | 項目名 | 項目ID | 項目タイプ | 入力/出力 | 必須 | 入力データ型 | 最小桁数 | 最大桁数 | 文字揃え | フォーマット | テーブル名（論理名） | テーブル名（物理名） | カラム名（論理名） | カラム名（物理名） | 表示条件 | デフォルト値 | 備考 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 13 | 引落元口座支店コード | jastem_toriatsukai_tenpo_code | ドロップダウン | 入力 | - | VARCHAR | - | 3 | 左 | - | 購読者テーブル | t_dokusya | - | bank_branch_code | 常時表示 | - | 部分一致検索 |
-| 14 | 引落元口座支店名 | jastem_tenpo_name | ドロップダウン | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | - | bank_branch_name | 常時表示 | - | 部分一致検索 |
-| 15 | 連絡先１ | renrakusaki_1 | テキストボックス | 入力 | - | VARCHAR | - | 15 | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 / haitatsu_renrakusaki_1 | 常時表示 | - | 部分一致検索。連絡先１と配達先連絡先１の各カラムにOR部分一致 |
+| 13 | 引落元口座支店 | bank_branch | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | - | bank_branch_code / bank_branch_name | 常時表示 | - | コード・名称を横断した OR 部分一致検索 |
+| 15 | 連絡先 | renrakusaki | テキストボックス | 入力 | - | VARCHAR | - | 15 | 左 | - | 購読者テーブル | t_dokusya | 連絡先 | renrakusaki_1 / haitatsu_renrakusaki_1 / renrakusaki_2 / haitatsu_renrakusaki_2 | 常時表示 | - | 部分一致検索。購読者連絡先1/2と配達先連絡先1/2の各カラムにOR部分一致 |
 | 16 | メールアドレス | email | テキストボックス | 入力 | - | VARCHAR | - | 100 | 左 | - | 購読者テーブル | t_dokusya | メールアドレス | email | 常時表示 | - | 部分一致検索 |
-| 17 | 請求開始月 | seikyu_kaishi_month | テキストボックス | 入力 | - | VARCHAR | - | 6 | 右 | - | 購読者テーブル | t_dokusya | 請求開始月 | seikyu_kaishi_month | 常時表示 | - | 部分一致検索 |
+| 17 | 請求開始月 | seikyu_kaishi_month_from / seikyu_kaishi_month_to | 月選択（YYYYMM）×2 | 入力 | - | VARCHAR | - | 6 | 右 | - | 購読者テーブル | t_dokusya | 請求開始月 | seikyu_kaishi_month | 常時表示 | - | 範囲検索（開始月〜終了月、YYYYMM）。相関チェック：開始月 ≦ 終了月。未設定（空文字）の購読者は除外 |
 | 18 | 適用日 | joho_henko_tekiyo_date | カレンダー | 入力 | - | Date | - | - | 右 | - | 購読者テーブル | t_dokusya | 適用日 | joho_henko_tekiyo_date | 常時表示 | - | 適用日が空欄なら購読者データの最新データフラグが１のものを抽出する。適用日が入力されているなら購読者データの変更適用日 <= 画面条件の適用日のものを抽出する。購読者データの変更適用日が画面条件の適用日以前のものを抽出する。 |
 | 19 | 支払方法 | shiharai_hoho | ラジオボタン | 入力 | - | INTEGER | - | - | 左 | - | 購読者テーブル | t_dokusya | 支払方法 | shiharai_hoho | 常時表示 | - | 支払方法（1:口座引落、2:現金集金、3:振込集金、4:JA施設等、5:給与天引き、6:クレジットカード、9:その他） |
+| 19.1 | 郵送区分 | yubin_kubun | プルダウン | 入力 | - | VARCHAR | - | - | 左 | - | 購読者テーブル | t_dokusya | 郵送区分 | yubin_kubun | 常時表示 | - | m_code YUBIN_KUBUN（0:空 / 1:郵送）の完全一致 |
+| 19.2 | 新聞単価 | tanka_id | プルダウン | 入力 | - | BIGINT | - | - | 左 | - | 購読者テーブル | t_dokusya | 新聞単価ID | tanka_id | 常時表示 | - | 単価名で表示・キーは tanka_id。完全一致（JA スコープでカスケード） |
+| 19.3 | 備考 | biko | テキストボックス | 入力 | - | TEXT | - | 500 | 左 | - | 購読者テーブル | t_dokusya | 備考 | biko | 常時表示 | - | 部分一致検索 |
 
 ### アクションボタン
 
@@ -130,10 +132,11 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
 | 28 | 手続種類 | tetsuzuki_shurui | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 手続種類 | tetsuzuki_shurui | 常時表示 | - | m_code(TETSUZUKI_SHURUI)のラベルを表示 |
 | 29 | 購読種別 | dokusya_shubetsu | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読種別 | dokusya_shubetsu | 常時表示 | - | m_code(DOKUSYA_SHUBETSU)のラベルを表示 |
 | 30 | 連絡先１ | renrakusaki_1 | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 連絡先１ | renrakusaki_1 | 常時表示 | - |  |
+| 30.5 | 配送先連絡先１ | haitatsu_renrakusaki_1 | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配送先連絡先１ | haitatsu_renrakusaki_1 | 常時表示 | - |  |
 | 31 | 配達先氏名 | haitatsu_full_name | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先氏名 | haitatsu_shimei_sei + haitatsu_shimei_mei | 常時表示 | - |  |
 | 32 | 配達先郵便 | haitatsu_yubin_no | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先郵便 | haitatsu_yubin_no | 常時表示 | - |  |
 | 33 | 配達先住所 | haitatsu | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達先住所 | haitatsu_todofuken_code/haitatsu_shikuchoson/haitatsu_chome_banchi/haitatsu_tatemono_mei | 常時表示 | - |  |
-| 34 | 販売店コード | hanbaiten_id | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 配達販売店 | hanbaiten_id | 常時表示 | - |  |
+| 34 | 販売店コード | hanbaiten_code | ラベル | 出力 | - | - | - | - | 左 | - | 販売店マスタ | m_hanbaiten | 販売店コード | hanbaiten_code | 常時表示 | - | m_hanbaiten を hanbaiten_id で JOIN して表示 |
 | 35 | 販売店名 | hanbaiten_name | ラベル | 出力 | - | - | - | - | 左 | - | 販売店マスタ | m_hanbaiten | 販売店名 | hanbaiten_name | 常時表示 | - |  |
 | 36 | 支払方法 | shiharai_hoho | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 支払方法 | shiharai_hoho | 常時表示 | - | m_code(SHIHARAI_HOHO)のラベルを表示 |
 | 37 | 購読開始日 | shoki_dokusya_kaishi_date | ラベル | 出力 | - | - | - | - | 左 | - | 購読者テーブル | t_dokusya | 購読開始日 | shoki_dokusya_kaishi_date | 常時表示 | - |  |
@@ -194,12 +197,11 @@ ACSMS-SCR-014_購読者明細検索画面_画面イメージ
   - ・購読種別（dokusya_shubetsu）
   - ・電子承認ステータス（denshi_shonin_status）
   - ‣詳細検索
-  - ・引落元口座支店コード（jastem_toriatsukai_tenpo_code）
-  - ・引落元口座支店名 (jastem_tenpo_name)
-  - ・連絡先１（renrakusaki_1）
+  - ・引落元口座支店（bank_branch）：コード（bank_branch_code）・名称（bank_branch_name）を横断した OR 部分一致
+  - ・連絡先（renrakusaki）：購読者連絡先1/2・配達先連絡先1/2を横断した OR 部分一致
   - ・適用日（joho_henko_tekiyo_date）（相関チェック：Startdate ≦ Enddate）
   - ・メールアドレス（email）（形式チャック有り）。メール形式が不正の場合、ACSMS-MSG-014-008を表示する
-  - ・請求開始月（seikyu_kaishi_month）
+  - ・請求開始月（seikyu_kaishi_month_from / seikyu_kaishi_month_to）（範囲検索・相関チェック：開始月 ≦ 終了月）
   - ・支払方法 (shiharai_hoho)
   - ・検索結果一覧は常に最新順で表示される。
   - ・検索結果がない場合 → ACSMS-MSG-014-002 を表示する。

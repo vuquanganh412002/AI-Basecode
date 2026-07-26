@@ -84,6 +84,23 @@ export class DenshibanInboundSyncService {
     this.logger.log({ event: 'denshiban_inbound.start' });
 
     const rows = await this.fetcher.fetchCollectingRows();
+
+    // ⚠️ TEMP/PII — 取込対象として拾えた行数と会員IDの一覧、および取得した生データ
+    // をログに出す（inbound がそもそも読者を見つけられているかの確認用）。読者の
+    // 個人情報を含むので検証用のみ・本番禁止・確認後に削除すること。
+    this.logger.log({
+      event: 'denshiban_inbound.fetched',
+      count: rows.length,
+      denshiKaiinIds: rows.map((r) => r.id),
+    });
+    for (const row of rows) {
+      this.logger.log({
+        event: 'denshiban_inbound.fetched_row',
+        denshiKaiinId: row.id,
+        row,
+      });
+    }
+
     const syncDate = todayIsoJst();
     const summary: InboundSyncSummary = {
       fetched: rows.length,
@@ -139,6 +156,20 @@ export class DenshibanInboundSyncService {
         where: { denshiKaiinId },
       });
       const decision = classifyInbound(draft, existing);
+
+      // ⚠️ TEMP/PII — この会員IDでクラウド側の読者が見つかったか（matched）と、
+      // 差分判定の結果（create=新規 / update=更新 / skip=変更なし）を出す。
+      // update の場合は変更されるカラム名も出して「何が更新されるか」を確認できる。
+      // 確認後に削除すること。
+      this.logger.log({
+        event: 'denshiban_inbound.decision',
+        denshiKaiinId,
+        matched: existing != null,
+        dokusyaId: existing?.dokusyaId ?? null,
+        decision: decision.kind,
+        changedFields:
+          decision.kind === 'update' ? Object.keys(decision.changes) : [],
+      });
 
       if (decision.kind === 'skip') return 'skipped';
 
@@ -222,10 +253,16 @@ export class DenshibanInboundSyncService {
       reason: SYNC_REASON,
     });
 
+    // `updated_by` は rireki に無い master 専用列で recompute の対象外（mapRirekiToMaster
+    // が createdBy/updatedBy を除外するため）。applyChange 後に明示スタンプする＝UI update
+    // が `manager.update(Dokusya, …, { updatedBy: session.account_id })` するのと同じ扱い。
+    // これを省くと同期更新でも master の updated_by が前回値のまま残る（README §10 の既知ギャップ）。
+    await manager.update(Dokusya, { dokusyaId }, { updatedBy: SYNC_ACTOR });
+
     await this.auditLog.logUpdate(
       this.auditCtx(jaId, dokusyaId),
       result.before,
-      result.after,
+      { ...result.after, updatedBy: SYNC_ACTOR },
       manager,
     );
   }

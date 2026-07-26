@@ -20,6 +20,9 @@ import { normalizeDbDate } from '@/common/utils/datetime';
 export const SHUBETSU_MSG = {
   /** 電子版・併読は email 必須。 */
   EMAIL_REQUIRED_DIGITAL: 'メールアドレスは電子版・併読の場合は必須です。',
+  /** 電子版・併読は読者属性を1つ以上選択。 */
+  DOKUSYASO_BUNRUI_REQUIRED_DIGITAL:
+    '読者属性は電子版・併読の場合は1つ以上選択してください。',
   /** 電子版は購読部数=1固定。 */
   DIGITAL_BUSU: '電子版の購読部数は1で登録してください。',
   /** 紙版の帳票影響項目を当日反映しようとした。 */

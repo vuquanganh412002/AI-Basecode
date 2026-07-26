@@ -171,11 +171,18 @@ describe('CreateHanbaitenDto', () => {
       expect(errs.some((e) => e.property === 'itaku_kubun')).toBe(false);
     });
 
-    it('should accept when itaku_kubun is omitted', async () => {
-      // The m_code allow-list check lives in the service layer
-      // (CodeService.has) — DTO layer is shape-only.
+    it('should reject when itaku_kubun is omitted (必須・顧客要件)', async () => {
       const { itaku_kubun: _drop, ...without } = VALID;
-      expect((await check(without)).some((e) => e.property === 'itaku_kubun')).toBe(false);
+      expect((await check(without)).some((e) => e.property === 'itaku_kubun')).toBe(true);
+    });
+
+    it('should reject when furikomi_tesuryo_futan_kubun is omitted (必須・顧客要件)', async () => {
+      const { furikomi_tesuryo_futan_kubun: _drop, ...without } = VALID;
+      expect(
+        (await check(without)).some(
+          (e) => e.property === 'furikomi_tesuryo_futan_kubun',
+        ),
+      ).toBe(true);
     });
 
     it('should reject when itaku_kubun is a non-numeric string', async () => {

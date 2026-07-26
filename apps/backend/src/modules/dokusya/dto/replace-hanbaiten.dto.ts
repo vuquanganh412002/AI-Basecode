@@ -4,12 +4,15 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsPositive,
   IsString,
   Matches,
 } from 'class-validator';
+
+import { DokusyaShubetsu } from '@/common/enums';
 
 /**
  * Request body for `POST /api/v1/dokusya/replace-hanbaiten`
@@ -36,11 +39,23 @@ export class ReplaceHanbaitenDto {
   @IsPositive({ message: '置換先販売店IDは正の整数で指定してください。' })
   new_hanbaiten_id: number;
 
-  @ApiProperty({ description: '販売店適用日（YYYY-MM-DD、当日以降）', example: '2026-06-01' })
-  @IsNotEmpty({ message: '販売店適用日を入力してください。' })
-  @IsString({ message: '販売店適用日は文字列で指定してください。' })
+  @ApiProperty({ description: '情報変更適用日（YYYY-MM-DD）。紙版=未来日のみ／電子版=本日のみ（種別依存・サービス層）。販売店適用日は廃止し joho に一本化（顧客要件 2026-07）', example: '2026-06-01' })
+  @IsNotEmpty({ message: '適用日を入力してください。' })
+  @IsString({ message: '適用日は文字列で指定してください。' })
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: '販売店適用日はYYYY-MM-DDの形式で指定してください。',
+    message: '適用日はYYYY-MM-DDの形式で指定してください。',
   })
-  hanbaiten_tekiyo_date: string;
+  joho_henko_tekiyo_date: string;
+
+  @ApiProperty({
+    description: '購読種別（1:紙版, 2:電子版）。適用日ルール（紙版=未来 / 電子版=当日）の判定と候補種別の整合チェックに用いる。',
+    enum: [DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL],
+    example: DokusyaShubetsu.PAPER,
+  })
+  @Type(() => Number)
+  @IsInt({ message: '購読種別は整数で指定してください。' })
+  @IsIn([DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL], {
+    message: '購読種別は紙版または電子版で指定してください。',
+  })
+  dokusya_shubetsu: number;
 }

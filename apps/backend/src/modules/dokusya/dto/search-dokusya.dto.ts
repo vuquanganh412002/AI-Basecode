@@ -43,6 +43,7 @@ const ALLOWED_SORT_COLUMNS = [
   'shiten_id',
   'kumiaiin_code',
   'hanbaiten_id',
+  'hanbaiten_code',
   'shoki_dokusya_kaishi_date',
   'dokusya_chushi_date',
   'updated_at',
@@ -100,24 +101,15 @@ export class SearchDokusyaDto {
   kumiaiin_code?: string;
 
   @ApiPropertyOptional({
-    description: '引落元口座支店コード（部分一致）。物理カラムは bank_branch_code（レガシー名）',
-    maxLength: 3,
-  })
-  @Transform(blankToUndef)
-  @IsOptional()
-  @IsString({ message: '引落元口座支店コードは文字列で指定してください。' })
-  @MaxLength(3, { message: '引落元口座支店コードは最大3文字で指定してください。' })
-  jastem_toriatsukai_tenpo_code?: string;
-
-  @ApiPropertyOptional({
-    description: '引落元口座支店名（部分一致）。物理カラムは bank_branch_name（レガシー名）',
+    description:
+      '引落元口座支店（部分一致）。コード・名称を横断検索する。物理カラムは bank_branch_code / bank_branch_name（レガシー名）',
     maxLength: 100,
   })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '引落元口座支店名は文字列で指定してください。' })
-  @MaxLength(100, { message: '引落元口座支店名は最大100文字で指定してください。' })
-  jastem_tenpo_name?: string;
+  @IsString({ message: '引落元口座支店は文字列で指定してください。' })
+  @MaxLength(100, { message: '引落元口座支店は最大100文字で指定してください。' })
+  bank_branch?: string;
 
   @ApiPropertyOptional({ description: '氏名（shimei_sei + shimei_mei）部分一致', maxLength: 100 })
   @Transform(blankToUndef)
@@ -133,12 +125,16 @@ export class SearchDokusyaDto {
   @MaxLength(100, { message: 'かな氏名は最大100文字で指定してください。' })
   full_name_kana?: string;
 
-  @ApiPropertyOptional({ description: '連絡先１（部分一致）', maxLength: 15 })
+  @ApiPropertyOptional({
+    description:
+      '連絡先（部分一致）。購読者連絡先1/2・配達先連絡先1/2を横断して OR 検索',
+    maxLength: 15,
+  })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '連絡先１は文字列で指定してください。' })
-  @MaxLength(15, { message: '連絡先１は最大15文字で指定してください。' })
-  renrakusaki_1?: string;
+  @IsString({ message: '連絡先は文字列で指定してください。' })
+  @MaxLength(15, { message: '連絡先は最大15文字で指定してください。' })
+  renrakusaki?: string;
 
   @ApiPropertyOptional({ description: '配達先住所（部分一致）', maxLength: 200 })
   @Transform(blankToUndef)
@@ -155,12 +151,41 @@ export class SearchDokusyaDto {
   @IsEmail({}, { message: '正しいメール形式を入力してください。' })
   email?: string;
 
-  @ApiPropertyOptional({ description: '請求開始月（YYYYMM、部分一致）', maxLength: 6 })
+  @ApiPropertyOptional({
+    description: '郵送区分（m_code YUBIN_KUBUN: 0:空 / 1:郵送）。完全一致',
+  })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '請求開始月は文字列で指定してください。' })
-  @MaxLength(6, { message: '請求開始月は最大6文字で指定してください。' })
-  seikyu_kaishi_month?: string;
+  @IsString({ message: '郵送区分は文字列で指定してください。' })
+  yubin_kubun?: string;
+
+  @ApiPropertyOptional({ description: '新聞単価ID（完全一致）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '新聞単価IDは整数で指定してください。' })
+  tanka_id?: number;
+
+  @ApiPropertyOptional({ description: '備考（部分一致）', maxLength: 500 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '備考は文字列で指定してください。' })
+  @MaxLength(500, { message: '備考は最大500文字で指定してください。' })
+  biko?: string;
+
+  @ApiPropertyOptional({ description: '請求開始月（範囲開始）YYYYMM' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '請求開始月（FROM）は文字列で指定してください。' })
+  @Matches(/^\d{6}$/, { message: '請求開始月はYYYYMMの形式で指定してください。' })
+  seikyu_kaishi_month_from?: string;
+
+  @ApiPropertyOptional({ description: '請求開始月（範囲終了）YYYYMM ※from ≦ to' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '請求開始月（TO）は文字列で指定してください。' })
+  @Matches(/^\d{6}$/, { message: '請求開始月はYYYYMMの形式で指定してください。' })
+  seikyu_kaishi_month_to?: string;
 
   // ─── Date ranges ───────────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '購読開始日（範囲開始）YYYY/MM/DD' })

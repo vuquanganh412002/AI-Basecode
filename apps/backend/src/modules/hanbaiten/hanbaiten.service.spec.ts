@@ -1993,11 +1993,20 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         // the empty-string default, while selected columns keep their value.
         await service.importExcel(
           buildImportRequestNEW({
-            selected_columns: ['hanbaiten_code', 'hanbaiten_name'],
+            // 委託区分 / 振込手数料負担区分 は必須（顧客要件）→ selected + 値必須。
+            // itaku_kubun=2(日農委託) で bank 必須の連鎖を避ける。
+            selected_columns: [
+              'hanbaiten_code',
+              'hanbaiten_name',
+              'itaku_kubun',
+              'furikomi_tesuryo_futan_kubun',
+            ],
             rows: [
               {
                 hanbaiten_code: 'H001',
                 hanbaiten_name: '販売店A',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
                 tel: '0312345678',
                 biko: 'メモ',
               },
@@ -2013,6 +2022,29 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         // … unselected columns fall back to the empty default.
         expect(created.tel).toBe('');
         expect(created.biko).toBe('');
+      });
+
+      it('should throw IMPORT_VALIDATION_ERROR when itaku_kubun / furikomi_tesuryo_futan_kubun are blank in NEW (必須・顧客要件)', async () => {
+        // 委託区分 / 振込手数料負担区分 は必須。NEW で未選択（＝空）なら行エラー。
+        const body = buildImportRequestNEW({
+          selected_columns: ['hanbaiten_code', 'hanbaiten_name'],
+          rows: [{ hanbaiten_code: 'H001', hanbaiten_name: '販売店A' }],
+        });
+
+        await expect(
+          service.importExcel(body, importerSession(), baseReq),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            error_code: 'IMPORT_VALIDATION_ERROR',
+            errors: expect.arrayContaining([
+              expect.objectContaining({ row: 2, field: 'itaku_kubun' }),
+              expect.objectContaining({
+                row: 2,
+                field: 'furikomi_tesuryo_futan_kubun',
+              }),
+            ]),
+          }),
+        });
       });
 
       it('should throw IMPORT_VALIDATION_ERROR listing the 6 bank fields (not koza_meigi) when itaku_kubun=1 but bank fields are blank (NEW)', async () => {
@@ -2443,7 +2475,16 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       beforeEach(() => {
         dataSource.query = jest.fn(async (sql: string) => {
           if (/m_hanbaiten/i.test(sql)) {
-            return [{ hanbaiten_id: 1, hanbaiten_code: 'H001' }];
+            // 既存行は 委託区分 / 振込手数料負担区分 を保持（必須・未選択列は
+            // 既存値を維持するため effective がこの値になる）。
+            return [
+              {
+                hanbaiten_id: 1,
+                hanbaiten_code: 'H001',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
+              },
+            ];
           }
           return [];
         });

@@ -15,6 +15,7 @@ import {
   ResultStatus,
   TetsuzukiShurui,
 } from '@/common/enums';
+import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -459,7 +460,7 @@ export class DokusyaImportService {
         : await this.dataSource.query(
             `SELECT tanka_id, tanka_code FROM m_tanka
               WHERE ja_id = $1 AND tanka_code = ANY($2::text[])
-                AND tanka_type = 1 AND deleted_at IS NULL`,
+                AND tanka_type = ${TANKA_TYPE_KODOKU} AND deleted_at IS NULL`,
             [jaId, tankaCodes],
           );
     const tankaCodeSet = new Set(tankaRows.map((r) => String(r.tanka_code)));
@@ -826,8 +827,9 @@ export class DokusyaImportService {
    * forward by applyChange. Edit-immutable columns
    * ({@link IMPORT_EDIT_IMMUTABLE_COLUMNS}) and `dokusya_id` (key) are never
    * written. FK code columns resolve to the physical *_id and are set only
-   * when present (blank → keep existing). `joho_henko_tekiyo_date` /
-   * `hanbaiten_tekiyo_date` are applied-date parameters, not business values.
+   * when present (blank → keep existing). `joho_henko_tekiyo_date` is the
+   * applied-date parameter, not a business value.（販売店適用日
+   * hanbaiten_tekiyo_date は廃止・顧客要件 2026-07）
    */
   private buildUpdatePartialValues(
     selectedColumns: string[],

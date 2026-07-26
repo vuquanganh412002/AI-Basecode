@@ -16,10 +16,15 @@ const { submitting, submit } = useApiForm();
 const otp = ref('');
 const resending = ref(false);
 
+/** OTP は 6 桁・有効期限 5 分・再送クールダウン 60 秒（security.md）。 */
+const OTP_LENGTH = 6;
+const OTP_EXPIRY_SECONDS = 300;
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+
 /** Current mfa_token (rotates on resend). */
 const mfaToken = ref<string>(String(route.query.mfa_token ?? ''));
-const expiresIn = ref<number>(300);
-const resendCooldown = ref<number>(60);
+const expiresIn = ref<number>(OTP_EXPIRY_SECONDS);
+const resendCooldown = ref<number>(OTP_RESEND_COOLDOWN_SECONDS);
 
 let countdownTimer: number | undefined;
 let cooldownTimer: number | undefined;
@@ -40,7 +45,7 @@ onUnmounted(() => {
 
 const expired = computed(() => expiresIn.value <= 0);
 
-function startCountdown(seconds = 300): void {
+function startCountdown(seconds = OTP_EXPIRY_SECONDS): void {
   expiresIn.value = seconds;
   if (countdownTimer !== undefined) window.clearInterval(countdownTimer);
   countdownTimer = window.setInterval(() => {
@@ -66,7 +71,7 @@ function formatCountdown(sec: number): string {
 
 async function verify(value?: string): Promise<void> {
   const code = value ?? otp.value;
-  if (code.length !== 6 || !mfaToken.value || expired.value) return;
+  if (code.length !== OTP_LENGTH || !mfaToken.value || expired.value) return;
   await submit(async () => {
     await authStore.verifyMfa(mfaToken.value, code);
     message.success('ログインしました。');
@@ -139,7 +144,7 @@ function backToLogin(): void {
           <a-button
             type="primary"
             :loading="submitting"
-            :disabled="otp.length !== 6 || expired"
+            :disabled="otp.length !== OTP_LENGTH || expired"
             block
             size="large"
             class="mb-6 font-bold"

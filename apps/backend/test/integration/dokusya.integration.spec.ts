@@ -729,7 +729,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
     it('should write exactly ONE rireki row (joho=販売店適用日) when 販売店+情報 changed together — 1更新1レコード (顧客要件 2026-07)', async () => {
       // 顧客要件 2026-07: 画面編集(UI)は販売店適用日を廃止し joho に統一。販売店と
       // その他情報を同時に変えても履歴は1件だけ追加され、販売店を変えた行の
-      // hanbaiten_tekiyo_date は joho と同値になる（別日付の2行分割はしない）。
+      // 販売店変更も適用日は joho に一本化（別日付の2行分割はしない・顧客要件2026-07）。
       const { id, sid } = await seed();
       await http()
         .put(apiUrl(`dokusya/${id}`))
@@ -744,7 +744,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .expect(200);
 
       const rireki = await ctx.dataSource.query(
-        `SELECT rireki_no, hanbaiten_id, joho_henko_tekiyo_date, hanbaiten_tekiyo_date
+        `SELECT rireki_no, hanbaiten_id, joho_henko_tekiyo_date
            FROM t_dokusya_rireki WHERE dokusya_id = $1 ORDER BY rireki_no`,
         [id],
       );
@@ -753,11 +753,6 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       const added = rireki[1];
       expect(Number(added.rireki_no)).toBe(2);
       expect(Number(added.hanbaiten_id)).toBe(1); // 新販売店
-      // 販売店適用日 = 情報変更適用日(joho)。
-      expect(added.hanbaiten_tekiyo_date).not.toBeNull();
-      expect(String(added.hanbaiten_tekiyo_date)).toBe(
-        String(added.joho_henko_tekiyo_date),
-      );
     });
 
     it('should REJECT dokusya_chushi_date in the update body with 400 (停止は専用API — 顧客要件 2026-07 改訂)', async () => {
@@ -960,10 +955,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .expect(200);
 
       // 履歴: 新規(再購読)行は「初回新規作成と同じ形」。適用日(joho)=購読開始日、
-      // hanbaiten_tekiyo_date・zenkai_* は null。
+      // zenkai_* は null。
       const [row] = await ctx.dataSource.query(
         `SELECT tetsuzuki_shurui, shinki_flg, kaiyaku_flg, dokusya_kaishi_date,
-                joho_henko_tekiyo_date, hanbaiten_tekiyo_date,
+                joho_henko_tekiyo_date,
                 zenkai_hanbaiten_id, zenkai_dokusya_busu
            FROM t_dokusya_rireki
           WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
@@ -975,18 +970,21 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(String(row.dokusya_kaishi_date).slice(0, 10)).toBe('2027-12-01');
       // joho = 購読開始日（初回新規作成と同じ）。
       expect(String(row.joho_henko_tekiyo_date).slice(0, 10)).toBe('2027-12-01');
-      expect(row.hanbaiten_tekiyo_date).toBeNull(); // 販売店適用日なし（新規作成同様）
       expect(row.zenkai_hanbaiten_id).toBeNull(); // zenkai は継承しない
       expect(row.zenkai_dokusya_busu).toBeNull();
 
       // t_dokusya は即時 購読中(tetsuzuki=1)。有効な解約行があっても再購読が勝つ。
       const [master] = await ctx.dataSource.query(
-        `SELECT tetsuzuki_shurui, dokusya_kaishi_date
+        `SELECT tetsuzuki_shurui, dokusya_kaishi_date, dokusya_chushi_date
            FROM t_dokusya WHERE dokusya_id = $1`,
         [id],
       );
       expect(Number(master.tetsuzuki_shurui)).toBe(1);
       expect(String(master.dokusya_kaishi_date).slice(0, 10)).toBe('2027-12-01');
+      // 再購読で購読中止日は null に戻る（旧ライフサイクルの解約日を残さない・
+      // 顧客要件 2026-07）。loadScheduledChushiDate を現ライフサイクルに限定した
+      // ことで、旧解約行(rireki_no < 再購読行)の中止日は master へ復元されない。
+      expect(master.dokusya_chushi_date).toBeNull();
     });
 
     it('should return 403 DOKUSYA_READ_ONLY when updating a 併読(3) record (any account)', async () => {

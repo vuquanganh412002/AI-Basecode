@@ -110,9 +110,17 @@ export const ZOUGEN_NICHINO_PER_PAGE = 28;
 const num = (v: RawNullableNum | undefined): number => Number(v ?? 0);
 const str = (v: string | null | undefined): string => v ?? '';
 
+/**
+ * 増減通知書の「委託」欄マーカー。帳票固有の 2 文字固定の短縮表記であり、
+ * m_code ITAKU_KUBUN=2 のラベル（'日農委託'）とは意図的に異なる。正式帳票の
+ * レイアウト上この欄は「委託」で確定のため、CodeService から引かず定数で保持
+ * する（顧客が m_code ラベルを変更しても本欄は変わらない）。
+ */
+const NICHINO_ITAKU_MARK = '委託';
+
 /** 委託欄：日農委託(itaku_kubun=2) のみ「委託」、振込/その他は空文字。 */
 function itakuLabel(itakuKubun: number): string {
-  return itakuKubun === ItakuKubun.NICHINO_ITAKU ? '委託' : '';
+  return itakuKubun === ItakuKubun.NICHINO_ITAKU ? NICHINO_ITAKU_MARK : '';
 }
 
 /** 免税販売店（torihikisaki_no が空）は販売店名の先頭に「（免）」を付与。 */

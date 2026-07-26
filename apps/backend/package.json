@@ -22,12 +22,22 @@
     "seed:prod": "ts-node -r tsconfig-paths/register scripts/seed.ts",
     "seed:dev": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
     "seed:dev:prod": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
-    "dokusya:sync": "ts-node -r tsconfig-paths/register scripts/batch/dokusya-sync.ts"
+    "dokusya:sync": "ts-node -r tsconfig-paths/register src/batch/dokusya-sync.main.ts",
+    "dokusya:sync:prod": "node dist/batch/dokusya-sync.main.js",
+    "tanka:expire": "ts-node -r tsconfig-paths/register src/batch/tanka-expire.main.ts",
+    "tanka:expire:prod": "node dist/batch/tanka-expire.main.js",
+    "log:cleanup": "ts-node -r tsconfig-paths/register src/batch/log-cleanup.main.ts",
+    "log:cleanup:prod": "node dist/batch/log-cleanup.main.js",
+    "file:cleanup": "ts-node -r tsconfig-paths/register src/batch/file-cleanup.main.ts",
+    "file:cleanup:prod": "node dist/batch/file-cleanup.main.js",
+    "dokusya:apply-due": "ts-node -r tsconfig-paths/register src/batch/dokusya-apply-due.main.ts",
+    "dokusya:apply-due:prod": "node dist/batch/dokusya-apply-due.main.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",
     "@aws-sdk/client-ses": "^3.1037.0",
     "@aws-sdk/s3-request-presigner": "^3.1037.0",
+    "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.1.19",
     "@nestjs/config": "^4.0.4",

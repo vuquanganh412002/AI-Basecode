@@ -10,7 +10,13 @@ import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { AuditOperation, DownloadType } from '@/common/enums';
+import {
+  AuditOperation,
+  DownloadType,
+  ShiharaiHoho,
+  TetsuzukiShurui,
+} from '@/common/enums';
+import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
@@ -503,7 +509,7 @@ const KOZA_FURIKAE_AGG_SQL = `
      AND h.deleted_at IS NULL
     INNER JOIN m_tanka t
       ON t.tanka_id = d.tanka_id
-     AND t.tanka_type = 1
+     AND t.tanka_type = ${TANKA_TYPE_KODOKU}
      AND t.deleted_at IS NULL
      AND t.active_flg = TRUE
     LEFT JOIN m_shiten s
@@ -512,8 +518,8 @@ const KOZA_FURIKAE_AGG_SQL = `
      AND s.kinyu_shiten_flg = TRUE
      AND s.deleted_at IS NULL
    WHERE d.deleted_at IS NULL
-     AND d.shiharai_hoho = 1
-     AND d.tetsuzuki_shurui = 1
+     AND d.shiharai_hoho = ${ShiharaiHoho.KOZA_HIKIOTOSHI}
+     AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
      AND d.dokusya_kaishi_date <= $1
      AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > $1)
      AND d.ja_id = $2
@@ -542,7 +548,7 @@ const KOZA_FURIKAE_INACTIVE_TANKA_SQL = `
      AND h.deleted_at IS NULL
     INNER JOIN m_tanka t
       ON t.tanka_id = d.tanka_id
-     AND t.tanka_type = 1
+     AND t.tanka_type = ${TANKA_TYPE_KODOKU}
      AND t.deleted_at IS NULL
      AND t.active_flg = FALSE
     LEFT JOIN m_shiten s
@@ -551,8 +557,8 @@ const KOZA_FURIKAE_INACTIVE_TANKA_SQL = `
      AND s.kinyu_shiten_flg = TRUE
      AND s.deleted_at IS NULL
    WHERE d.deleted_at IS NULL
-     AND d.shiharai_hoho = 1
-     AND d.tetsuzuki_shurui = 1
+     AND d.shiharai_hoho = ${ShiharaiHoho.KOZA_HIKIOTOSHI}
+     AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
      AND d.dokusya_kaishi_date <= $1
      AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > $1)
      AND d.ja_id = $2

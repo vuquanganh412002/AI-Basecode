@@ -18,6 +18,7 @@ import {
   useEntityDropdown,
   type EntityDropdownResult,
 } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /** Selected shiten_id (`null`/`undefined` = nothing selected). */
@@ -36,7 +37,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '選択してください',
   allowClear: true,
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
 });
 
 const emit = defineEmits<{ 'update:value': [v: number | null] }>();

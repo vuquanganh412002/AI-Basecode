@@ -68,7 +68,16 @@
       "Bash(echo \"---exit $?---\")",
       "Bash(npx tsc *)",
       "Bash(echo \"=== TSC EXIT: $? ===\")",
-      "Bash(npx jest *)"
+      "Bash(npx jest *)",
+      "Bash(awk '/^  minio:/,/^  [a-z-]+:$/' docker-compose.yml)",
+      "Bash(docker stop *)",
+      "Bash(docker compose *)",
+      "Bash(curl -s -o /dev/null -w \"GET /health → HTTP %{http_code}\\\\n\" http://localhost:3000/health)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(curl -s -o /dev/null -w \"\\\\nfrontend :5173 → HTTP %{http_code}\\\\n\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"minio :9000 → HTTP %{http_code}\\\\n\" http://localhost:9000/minio/health/live)",
+      "Bash(curl -s -o /dev/null -w \"GET /api/v1/codes → HTTP %{http_code}\\\\n\" http://localhost:3000/api/v1/codes)",
+      "Bash(curl -s -o /dev/null -w \"GET /api/docs → HTTP %{http_code}\\\\n\" http://localhost:3000/api/docs)"
     ],
     "additionalDirectories": [
       "/tmp",

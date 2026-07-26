@@ -2,7 +2,10 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import type Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
+import { REDIS_CLIENT } from '@/modules/redis/redis.service';
 import { nodeEnv } from './common/utils/env';
 import configuration from './config/configuration';
 import { DatabaseModule } from './database/database.module';
@@ -15,6 +18,10 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { CodeModule } from './modules/code/code.module';
 import { DenshibanDbModule } from './modules/denshiban/denshiban-db.module';
 import { DokusyaSyncModule } from './modules/batch/dokusya-sync/dokusya-sync.module';
+import { TankaExpireModule } from './modules/batch/tanka-expire/tanka-expire.module';
+import { LogCleanupModule } from './modules/batch/log-cleanup/log-cleanup.module';
+import { FileCleanupModule } from './modules/batch/file-cleanup/file-cleanup.module';
+import { DokusyaApplyDueModule } from './modules/batch/dokusya-apply-due/dokusya-apply-due.module';
 import { DokusyaModule } from './modules/dokusya/dokusya.module';
 import { FileDownloadModule } from './modules/file-download/file-download.module';
 import { FileUploadModule } from './modules/file-upload/file-upload.module';
@@ -43,12 +50,29 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
       envFilePath,
       load: [configuration],
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // Rate-limit counters live in Redis (shared) — NOT the default in-memory
+    // storage. Prod runs ≥2 ECS tasks (Multi-AZ); in-memory buckets are
+    // per-instance, so the ALB spreads N requests across tasks and the real
+    // limit becomes `limit × task_count` — the @Throttle('login', 10/min)
+    // brute-force guard effectively never trips. A single Redis-backed store
+    // makes the per-endpoint limits hold cluster-wide. RedisModule is @Global
+    // so REDIS_CLIENT is injectable here.
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS_CLIENT],
+      useFactory: (redis: Redis) => ({
+        throttlers: [{ ttl: 60000, limit: 100 }],
+        storage: new ThrottlerStorageRedisService(redis),
+      }),
+    }),
     RedisModule,
     QueueModule,
     DatabaseModule,
     DenshibanDbModule,
     DokusyaSyncModule,
+    TankaExpireModule,
+    LogCleanupModule,
+    FileCleanupModule,
+    DokusyaApplyDueModule,
     AuditLogModule,
     CodeModule,
     MailModule,

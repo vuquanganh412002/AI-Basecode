@@ -758,10 +758,12 @@ export interface DokusyaListRow {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  haitatsu_renrakusaki_1: string;
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;
+  hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
   shiharai_hoho: number;
@@ -804,10 +806,12 @@ export function buildDokusyaListRow(
     tetsuzuki_shurui: 1,
     renrakusaki_1: '03-1234-5678',
     renrakusaki_2: '',
+    haitatsu_renrakusaki_1: '090-1111-2222',
     haitatsu_full_name: '山田 花子',
     haitatsu_yubin_no: '1500001',
     haitatsu: '東京都渋谷区神宮前1-1-1 渋谷マンション101',
     hanbaiten_id: 501,
+    hanbaiten_code: 'HB501',
     hanbaiten_name: '渋谷販売店',
     dokusya_shubetsu: 1,
     shiharai_hoho: 1,

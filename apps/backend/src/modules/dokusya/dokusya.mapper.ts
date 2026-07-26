@@ -177,11 +177,14 @@ export interface DokusyaListItem {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
+  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）. */
+  haitatsu_renrakusaki_1: string;
   /** 配達先氏名 — haitatsu_shimei_sei + ' ' + haitatsu_shimei_mei (concat, trimmed). */
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
   hanbaiten_id: number;
+  hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
   shiharai_hoho: number;
@@ -243,11 +246,13 @@ export function toDokusyaListItem(
     tetsuzuki_shurui: coerceNumber(row.tetsuzuki_shurui as number | string),
     renrakusaki_1: stringOrEmpty(row.renrakusaki_1),
     renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
+    haitatsu_renrakusaki_1: stringOrEmpty(row.haitatsu_renrakusaki_1),
     // 配達先氏名 concat — trim so an empty 配達先氏名 renders '' (not a lone space).
     haitatsu_full_name: stringOrEmpty(row.haitatsu_full_name).trim(),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu: stringOrEmpty(row.haitatsu),
     hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
+    hanbaiten_code: stringOrEmpty(row.hanbaiten_code),
     hanbaiten_name: stringOrEmpty(row.hanbaiten_name),
     dokusya_shubetsu: dokusyaShubetsu,
     shiharai_hoho: shiharaiHoho,
@@ -323,7 +328,7 @@ export function toDokusyaExcelRow(
     item.haitatsu_full_name,
     item.haitatsu_yubin_no,
     item.haitatsu,
-    String(item.hanbaiten_id),
+    item.hanbaiten_code,
     item.hanbaiten_name,
     labels.shiharai_hoho,
     item.shoki_dokusya_kaishi_date,

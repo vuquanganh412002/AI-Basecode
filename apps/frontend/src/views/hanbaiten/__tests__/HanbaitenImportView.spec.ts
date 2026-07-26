@@ -427,8 +427,14 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
     await selectAll.setValue(false);
     await flushPromises();
     // Default mode is 新規登録 (NEW) → the locked set is hanbaiten_code +
-    // hanbaiten_name; both stay checked. Every other column flips off.
-    const lockedInNew = ['hanbaiten_code', 'hanbaiten_name'];
+    // hanbaiten_name + itaku_kubun + furikomi_tesuryo_futan_kubun (必須);
+    // all stay checked. Every other column flips off.
+    const lockedInNew = [
+      'hanbaiten_code',
+      'hanbaiten_name',
+      'itaku_kubun',
+      'furikomi_tesuryo_futan_kubun',
+    ];
     const allCols = wrapper.findAll('input[type="checkbox"][name="col"]');
     for (const cb of allCols) {
       const value = (cb.element as HTMLInputElement).value;

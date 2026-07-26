@@ -76,6 +76,4 @@ export interface ApplyChangeResult {
 export interface ChangeEvent {
   joho: DateOnly;
   values: DokusyaFields;
-  /** `true` = this event changes `hanbaiten_id` (sets `hanbaiten_tekiyo_date`). */
-  isHanbaiten: boolean;
 }

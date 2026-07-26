@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/06/16 | 1.1  | Tran Duc Tuyen | 不具合修正：UPDATE_ALL / UPDATE_PARTIAL の更新カラム欠落を修正。`UPDATE_ALL` は §4.4.2 の全項目（email / 郵便番号 / 都道府県 / 住所 / 配達先 / 口座 / 単価・販売店 等）を更新するよう実装を是正（旧実装は7列のみ）。`UPDATE_PARTIAL` の更新可能カラムを取込テンプレート全項目（FKコード列 hanbaiten_code→hanbaiten_id / tanka_code→tanka_id 解決含む）へ拡張。NOT NULL の FK・参照列（管理支店 / 支店 / 販売店 / 単価 / 購読種別 / 手続種類 / 支払方法）は空欄上書きで制約違反にならないよう `COALESCE(:値, 既存値)` で既存値を維持。購読開始日(初回・shoki_dokusya_kaishi_date)は不変のため更新対象外。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/06/25 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06：(1) **手続種類カラムをテンプレート/取込列から削除**。取込で解約は扱わず、NEW は `tetsuzuki_shurui=1`（新規）固定、UPDATE は手続種類を変更しない（既存値維持）。(2) **販売店適用日カラムを追加**（テンプレート末尾）。(3) UPDATE は読者情報変更適用日が必須、販売店が変わる行は販売店適用日が必須（IMPORT_VALIDATION_ERROR）。(4) **UPDATE で情報変更と販売店変更が同時のとき履歴を2件に分割**（情報イベント: hanbaiten_tekiyo_date=NULL / 販売店イベント: hanbaiten_tekiyo_date=joho_henko=販売店適用日。適用日が早い方を先・遅い方を saishin_data_flg=true。UI 編集 SCR-011/013 §14.3 と同一ロジック）。旧 §4.4.4 一括中止（解約）は廃止。(5) **「購読者情報と同じ」(haitatsu_same_flg) 列を追加**（配達先列の直前）。TRUE なら配達先＝購読者住所で配達先列は空でよい。BE は推論せず列値を採用（列が空欄の行のみ従来の自動判定）。取込列上限は 49→50 に拡張。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/13 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07：**販売店適用日カラムを廃止**し、適用日を読者情報変更適用日(joho_henko_tekiyo_date)に統一（販売店・支払方法を含む全変更の唯一の適用日）。取込 UPDATE も **1更新1レコード**（情報+販売店を同時に変えても履歴は1件。UI編集 SCR-011/013・一括置換 SCR-015 と同一ロジックに完全統一）。v1.2 の「2件分割」と「販売店が変わる行は販売店適用日が必須」を撤廃。取込列上限は 50→49、テンプレート・列パネルから販売店適用日を除去。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/07/18 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：購読種別依存のバリデーションを共通モジュール(`dokusya-shubetsu.rules.ts`)に集約し UI編集(SCR-011)/一括置換(SCR-015)/取込(本画面)で統一。(1) **取込 UPDATE で当日変更を許可**（従来 v1.3 は一律「未来日のみ」）。電子版=当日のみ、紙版=当日/未来だが帳票影響項目(部数/販売店/住所)を当日変更した場合は予約変更（未来日）を要求。(2) **電子版の購読部数=1 を取込でも検証**（従来 未チェックのバグを修正）。(3) 併読・電子版クレカ の取込不可は据え置き（読取専用＝第3システム同期）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -272,7 +273,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 11  | →shimei_mei                   | String  | -        | -    | 0      | 50     | 氏名（名・漢字）                                                                                                                                            |
 | 12  | →shimei_kana_sei              | String  | -        | -    | 0      | 100    | 氏名かな（姓）                                                                                                                                              |
 | 13  | →shimei_kana_mei              | String  | -        | -    | 0      | 100    | 氏名かな（名）                                                                                                                                              |
-| 14  | →dokusya_busu                 | Number  | -        | -    | -      | -      | 購読部数。`NEW`：> 0、解約時：= 0。                                                                                                                          |
+| 14  | →dokusya_busu                 | Number  | -        | -    | -      | -      | 購読部数。`NEW`：> 0、解約時：= 0。**電子版(2)は 1 固定**（v1.4・UI/一括置換と統一）。                                                                        |
 | 15  | →tanka_code                   | String  | -        | -    | 0      | 10     | 新聞単価コード（m_tanka の tanka_code・tanka_type=1 で解決）。`NEW` モードは必須。                                                                          |
 | 16  | →email                        | String  | -        | -    | 0      | 100    | メールアドレス。メール形式チェック。                                                                                                                        |
 | 17  | →mail_magazine_flg            | Number  | -        | -    | -      | -      | メールマガジン ※m_code.code_category='MAIL_MAGAZINE_FLG'を参照（0:配信しない, 1:配信する）                                                                  |
@@ -310,7 +311,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 49  | →dokusya_kaishi_date          | String  | -        | -    | -      | 10     | 購読開始日（YYYY-MM-DD）。`NEW` モードは必須。                                                                                                              |
 | 50  | →dokusya_chushi_date          | String  | -        | -    | -      | 10     | 購読中止日（YYYY-MM-DD）                                                                                                                                    |
 | 51  | →biko                         | String  | -        | -    | -      | -      | 備考                                                                                                                                                        |
-| 52  | →joho_henko_tekiyo_date       | String  | -        | -    | -      | 10     | 読者情報変更適用日（YYYY-MM-DD）                                                                                                                            |
+| 52  | →joho_henko_tekiyo_date       | String  | -        | -    | -      | 10     | 読者情報変更適用日（YYYY-MM-DD）。UPDATE 必須。日付ルールは種別依存（v1.4）：紙版=当日/未来（帳票影響項目は未来のみ）、電子版=当日のみ。                     |
 
 ※ rows 配列内の各行は `selected_columns` に含まれる項目のみ有効値として扱う。
 ※ 未選択列の扱いは以下のとおり。
@@ -531,13 +532,16 @@ Content-Type: application/json
     - `todofuken_code` / `haitatsu_todofuken_code`：2桁の都道府県コード
     - `email`：メールアドレス形式チェック
     - `birth_year`：1900〜現在年
-    - `dokusya_busu`：1 以上（v1.2 — 解約は取込対象外のため 0 入力なし）
-    - `joho_henko_tekiyo_date`：UPDATE では必須・未来日のみ（販売店・支払方法を含む全変更の唯一の適用日。v1.3 — 販売店適用日を廃止し joho に統一）
+    - `dokusya_busu`：1 以上（v1.2 — 解約は取込対象外のため 0 入力なし）。**電子版(2)は 1 固定**（1以外はエラー「電子版の購読部数は1で登録してください。」— v1.4・UI/一括置換と統一）
+    - `joho_henko_tekiyo_date`：UPDATE では必須。**日付ルールは購読種別依存（v1.4 改訂・UI編集/一括置換と統一）**：過去日不可（当日以降）。電子版(2)は**当日のみ**（未来 joho は「電子版は当日のみ変更できます。予約変更（未来日）はできません。」エラー）。紙版(1)は**当日変更 + 予約変更（未来日）可**だが、**帳票影響項目（部数/販売店/購読者住所/配達先住所）を当日変更した場合は「帳票に影響する変更は予約変更（未来日を指定）で行ってください。」エラー**（該当項目に付与）。※従来 v1.3 は UPDATE 一律「未来日のみ」だったが、UI と揃えて当日変更を許可。
     - `dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date`：`YYYY-MM-DD` 形式
     - `renrakusaki_1` / `renrakusaki_2`：数字のみ保存
     - `hikiotoshi_koza_meigi`：全角カナ→半角カナ変換
-- 業務ルールチェック：
-  - 電子版（`dokusya_shubetsu`=2）かつクレジットカード決済（`shiharai_hoho`=6）の組み合わせは取込不可 → エラー（理由：電子版かつクレカ決済取込不可のため）
+- 業務ルールチェック（v1.4 — 共通モジュール `dokusya-shubetsu.rules.ts` に集約し UI/取込/一括置換で統一）：
+  - 併読（`dokusya_shubetsu`=3）は取込不可 → エラー「購読種別が3:併読のためExcel取込みできません。」（第3システム同期のため読取専用）
+  - 電子版（`dokusya_shubetsu`=2）かつクレジットカード決済（`shiharai_hoho`=6）の組み合わせは取込不可 → エラー（理由：電子版かつクレカ決済取込不可のため。読取専用）
+  - 電子版の購読部数=1（上記 `dokusya_busu` 参照）
+  - 種別依存の適用日ルール（上記 `joho_henko_tekiyo_date` 参照）
 - トップレベルのバリデーションエラー：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 - 行レベルのバリデーションエラー：HTTP 400 (`IMPORT_VALIDATION_ERROR`) + errors配列（row番号含む。最大10件まで返却）
 
@@ -786,7 +790,7 @@ RETURNING *
 - 履歴No（`rireki_no`）は `t_dokusya.rireki_no` の値を引き継ぐ。
 - `saishin_data_flg` は新規追加レコードのみ TRUE、既存履歴は FALSE に更新する。
 - **v1.3（顧客要件 2026-07）— UPDATE は1更新1レコード**: 販売店適用日を廃止し、適用日は `joho_henko_tekiyo_date` に統一。情報変更（購読部数/住所等）と販売店変更が同一行で同時に起きても履歴は **1件**にまとめる（UI編集 SCR-011/013・一括置換 SCR-015 と同一ロジック・共通実装）。旧 v1.2 の「適用日順に2件分割」は廃止。
-  - 追加レコード: `joho_henko_tekiyo_date`=読者情報変更適用日。販売店を変更した行は `hanbaiten_tekiyo_date = joho_henko_tekiyo_date`（同値）、変更しない行は `hanbaiten_tekiyo_date=NULL`。
+  - 追加レコード: `joho_henko_tekiyo_date`=読者情報変更適用日（販売店・支払方法を含む全変更の唯一の適用日。専用の販売店適用日列は持たない）。
   - `saishin_data_flg` は当日基準の再計算（recomputeMaster）で確定。`zenkai_*` / `zougen_hokoku_flg` は直前状態との差分で算出。
   - 取込で解約は扱わないため `kaiyaku_flg` は常に FALSE。`shinki_flg` は NEW かつ手続種類=新規(1) のときのみ TRUE。
 
@@ -816,7 +820,6 @@ INSERT INTO t_dokusya_rireki (
   zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id, zenkai_dokusya_busu, zenkai_yubin_no,
   zenkai_todofuken_code, zenkai_shikuchoson, zenkai_chome_banchi, zenkai_tatemono_mei,
-  hanbaiten_tekiyo_date,
   created_at, created_by
 )
 VALUES (
@@ -837,9 +840,6 @@ VALUES (
   :zougen_hokoku_flg, :shinki_flg, :kaiyaku_flg,
   :zenkai_hanbaiten_id, :zenkai_dokusya_busu, :zenkai_yubin_no,
   :zenkai_todofuken_code, :zenkai_shikuchoson, :zenkai_chome_banchi, :zenkai_tatemono_mei,
-  -- 販売店を変更した行のみ joho_henko_tekiyo_date と同値、変更しない行は NULL
-  -- （v1.3: 販売店適用日は入力列を廃止し joho から導出）
-  CASE WHEN :hanbaiten_changed THEN :joho_henko_tekiyo_date ELSE NULL END,
   NOW(), :user_account_id
 )
 ```

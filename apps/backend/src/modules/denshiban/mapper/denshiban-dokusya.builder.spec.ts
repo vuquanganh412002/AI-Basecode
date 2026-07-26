@@ -51,6 +51,7 @@ function buildUserRow(overrides: Partial<DenshibanUserRow> = {}): DenshibanUserR
     tel2: '0900000000',
     email: 'x@agrinews.co.jp',
     melmaga: '1',
+    subscribe_flg: '0',
     birthyear: '1990',
     sex: '1',
     member_type: '2',
@@ -242,6 +243,27 @@ describe('単位変換 (逆方向)', () => {
   });
 });
 
+describe('honshi_kodoku_flg ← subscribe_flg', () => {
+  it("'1' は本紙購読あり → true", () => {
+    const draft = buildDokusyaFromDenshiban(
+      buildUserRow({ subscribe_flg: '1' }),
+      ctx(),
+    );
+    expect(draft.honshiKodokuFlg).toBe(true);
+  });
+
+  it.each([['0'], [''], [null], ['2']])(
+    '%p は本紙購読なし → false（列は NOT NULL なので必ず真偽値）',
+    (value) => {
+      const draft = buildDokusyaFromDenshiban(
+        buildUserRow({ subscribe_flg: value as string | null }),
+        ctx(),
+      );
+      expect(draft.honshiKodokuFlg).toBe(false);
+    },
+  );
+});
+
 describe('buildDokusyaFromDenshiban', () => {
   it('電子版レコードの全項目を組み立てる', () => {
     const draft = buildDokusyaFromDenshiban(buildUserRow(), ctx());
@@ -276,6 +298,7 @@ describe('buildDokusyaFromDenshiban', () => {
       email: 'x@agrinews.co.jp',
       // attributes
       mailMagazineFlg: 1,
+      honshiKodokuFlg: false,
       birthYear: 1990,
       gender: 1,
       dokusyasoBunrui: '農業者',

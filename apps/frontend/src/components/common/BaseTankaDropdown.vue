@@ -24,6 +24,7 @@ import {
   type TankaDropdownQuery,
 } from '@/api/tanka/tanka';
 import { useEntityDropdown } from '@/composables/useEntityDropdown';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /** Currently-selected tanka_id (`null`/`undefined` = nothing selected). */
@@ -51,7 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '配達手数料単価を選択',
   allowClear: true,
-  perPage: 50,
+  perPage: DROPDOWN_PAGE_SIZE,
 });
 
 const emit = defineEmits<{

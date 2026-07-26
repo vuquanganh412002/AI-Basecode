@@ -2,10 +2,10 @@ import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
 
+import { TetsuzukiShurui } from '@/common/enums';
 import {
   DIFF_EXCLUDE_FIELDS,
   HAITATSU_ADDRESS_FIELDS,
-  HANBAITEN_FIELD,
   KODOKU_ADDRESS_FIELDS,
   MASTER_EXCLUDE_FIELDS,
   TORIKESHI_HENKO_RIYU,
@@ -142,11 +142,12 @@ function pick(values: DokusyaFields, keys: string[]): DokusyaFields {
  * (joho) に統一。**UI編集・Excel取込・一括置換のすべてで 1更新1レコード**（変更を
  * 適用日で分割しない）。
  *
- * - CREATE → 全変更を1件（`hanbaiten_id` は初期値なので `hanbaiten_tekiyo_date`
- *   は NULL）。
- * - UPDATE → 全変更を単一の適用日(johoDate)で1件。販売店を変更した行は
- *   `isHanbaiten=true` となり `buildRirekiRow` が `hanbaiten_tekiyo_date=joho` を
- *   設定する（＝販売店適用日＝読者情報変更適用日）。
+ * - CREATE → 全変更を1件。
+ * - UPDATE → 全変更を単一の適用日(johoDate)で1件。
+ *
+ * 顧客要件 2026-07: 販売店適用日(hanbaiten_tekiyo_date)は廃止し、適用日は
+ * 読者情報変更適用日(joho_henko_tekiyo_date)に一本化した。販売店変更も joho で
+ * 適用される（＝販売店適用日は joho と同一だったため専用列を撤去）。
  */
 export function splitEvents(
   mode: 'CREATE' | 'UPDATE',
@@ -159,7 +160,6 @@ export function splitEvents(
     {
       joho: johoDate,
       values: pick(values, changed),
-      isHanbaiten: mode === 'UPDATE' && changed.includes(HANBAITEN_FIELD),
     },
   ];
 }
@@ -199,7 +199,6 @@ export function buildRirekiRow(
   row.dokusyaId = ctx.dokusyaId;
   row.rirekiNo = ctx.rirekiNo;
   row.johoHenkoTekiyoDate = event.joho;
-  row.hanbaitenTekiyoDate = event.isHanbaiten ? event.joho : null;
   row.createdBy = ctx.actor;
   row.henkoRiyu = ctx.reason;
 
@@ -262,11 +261,10 @@ export function buildKaiyakuRow(
 
   row.dokusyaId = ctx.dokusyaId;
   row.rirekiNo = ctx.rirekiNo;
-  row.tetsuzukiShurui = 0;
+  row.tetsuzukiShurui = TetsuzukiShurui.KAIYAKU;
   row.dokusyaBusu = 0; // 解約 = 部数なし
   row.dokusyaChushiDate = ctx.chushiDate;
   row.johoHenkoTekiyoDate = ctx.kaiyakuJoho;
-  row.hanbaitenTekiyoDate = null;
   row.createdBy = ctx.createdBy ?? 'batch';
   row.henkoRiyu = '';
 
@@ -347,8 +345,7 @@ export function buildKaiyakuReservationRow(
  * （新 購読開始日・部数など）。
  *
  * 履歴行は「初回新規作成と同じ形」にする（顧客要件 2026-07）: zenkai_* は全て null
- * （前回値を継承しない＝新規作成 before=null 相当）、hanbaiten_tekiyo_date は null
- * （販売店適用日は編集時の変更概念で再購読では持たない）。See §5.2.
+ * （前回値を継承しない＝新規作成 before=null 相当）。See §5.2.
  */
 export function buildResubscribeRow(
   before: DokusyaRireki,
@@ -356,17 +353,12 @@ export function buildResubscribeRow(
   ctx: BuildRowContext,
   kaishiJoho: DateOnly,
 ): DokusyaRireki {
-  const built = buildRirekiRow(
-    before,
-    { joho: kaishiJoho, values, isHanbaiten: false },
-    ctx,
-  );
+  const built = buildRirekiRow(before, { joho: kaishiJoho, values }, ctx);
   const r = built as unknown as Record<string, unknown>;
-  r.tetsuzukiShurui = 1; // 購読中へ復帰
+  r.tetsuzukiShurui = TetsuzukiShurui.SHINKI; // 購読中へ復帰
   r.kaiyakuFlg = false;
   r.shinkiFlg = true; // 解約→再購読 は新規フラグ (DB設計)
   r.dokusyaChushiDate = null;
-  r.hanbaitenTekiyoDate = null; // 再購読は販売店適用日を持たない（新規作成同様）
   r.zougenHokokuFlg = true; // 再加入 = 増の増減報告対象
   r.shokiDokusyaKaishiDate = before.shokiDokusyaKaishiDate; // 初回は不変
   // zenkai_* は初回新規作成と同じく全て null にする（前回値を継承しない）。
@@ -416,7 +408,7 @@ export function buildCounterRow(
   row.createdBy = ctx.actor;
 
   if (target.kaiyakuFlg) {
-    row.tetsuzukiShurui = 1; // restore 購読中 (shoki_dokusya_kaishi_date unchanged)
+    row.tetsuzukiShurui = TetsuzukiShurui.SHINKI; // restore 購読中 (shoki_dokusya_kaishi_date unchanged)
     row.kaiyakuFlg = false;
   }
 

@@ -556,15 +556,28 @@ describeRealPg(
       expect(fields).toContain('joho_henko_tekiyo_date');
     });
 
-    it('should return 400 IMPORT_VALIDATION_ERROR (joho=当日) on UPDATE import — 未来日のみ (顧客要件 2026-07)', async () => {
-      // §4.1 適用日整合性 — 読者情報変更適用日は未来日のみ（当日・過去日 不可）。
+    it('should return 400 IMPORT_VALIDATION_ERROR when 紙版 UPDATE changes a 帳票影響項目 (dokusya_busu) with joho=当日 — 予約変更が必要 (顧客要件 2026-07 改訂)', async () => {
+      // §4.1 種別依存の適用日ルール（UI/取込/置換で統一）: 紙版は当日変更可だが
+      // 帳票影響項目（部数/販売店/住所）は当日反映不可 → 未来日（予約変更）を要求する。
       const sid = await asJaHonten(1);
       const cookie = [buildSessionCookie(ctx.app, sid)];
+      // NEW（紙版・busu=1）で作成。
       await http()
         .post(apiUrl('dokusya/import'))
         .set('Cookie', cookie)
-        .send(buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KDATE0' })] }))
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KDATE0', dokusya_busu: 1 })],
+          }),
+        )
         .expect(200);
+      // 購読開始日を過去へ（NEW は未来日で作成されるため、当日 joho が
+      // 購読開始日以降となるよう調整。相対チェックではなく当日ルールを検証する）。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_kaishi_date = '2020-01-01'
+           WHERE ja_id = 1 AND kumiaiin_code = 'KDATE0'`,
+      );
+      // UPDATE で部数(帳票影響項目)を当日変更 → 拒否。
       const res = await http()
         .post(apiUrl('dokusya/import'))
         .set('Cookie', cookie)
@@ -575,7 +588,7 @@ describeRealPg(
             rows: [
               buildImportRow({
                 kumiaiin_code: 'KDATE0',
-                dokusya_busu: 5,
+                dokusya_busu: 9, // 1 → 9（帳票影響項目の変更）
                 joho_henko_tekiyo_date: todayIsoJst(),
               }),
             ],
@@ -584,8 +597,15 @@ describeRealPg(
         .expect(400);
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
-      expect(fields).toContain('joho_henko_tekiyo_date');
+      // 当日は許容されるが帳票影響項目の変更で dokusya_busu にエラー。
+      expect(fields).toContain('dokusya_busu');
     });
+
+    // NOTE: 「紙版 当日 + 非帳票項目 → 200」の正常系は、取込 NEW が購読開始日を
+    // 未来日で作るため過去開始日の購読者を取込だけで用意できず（raw 更新は
+    // master/履歴の整合を崩し書込経路が別要因で失敗する）、統合では検証しない。
+    // ルール自体は dokusya-shubetsu.rules.spec.ts（collectTodayModeReportViolations
+    // が非帳票項目で空を返す）+ UI 当日変更モードの単体テストで担保する。
 
     it('should return 400 IMPORT_VALIDATION_ERROR (購読開始日=当日) on NEW import — 未来日のみ (顧客要件 2026-07)', async () => {
       // §4.1 — NEW取込の購読開始日(=情報変更適用日)は未来日のみ（当日・過去日 不可）。
@@ -697,14 +717,13 @@ describeRealPg(
       expect(master.joho_henko_tekiyo_date).toEqual(master.dokusya_kaishi_date);
 
       const [rireki] = await ctx.dataSource.query(
-        `SELECT joho_henko_tekiyo_date, hanbaiten_tekiyo_date
+        `SELECT joho_henko_tekiyo_date
            FROM t_dokusya_rireki
            WHERE dokusya_id = $1 AND rireki_no = 1`,
         [master.dokusya_id],
       );
-      // rireki #1: joho = 購読開始日、販売店適用日は NULL のまま
+      // rireki #1: joho = 購読開始日
       expect(rireki.joho_henko_tekiyo_date).toEqual(master.dokusya_kaishi_date);
-      expect(rireki.hanbaiten_tekiyo_date).toBeNull();
     });
   },
 );

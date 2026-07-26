@@ -28,7 +28,9 @@ import { useNotify } from '@/composables/useNotify';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { ItakuKubun } from '@/constants/enums';
+import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import { HALF_WIDTH_KATAKANA_RE, kanaFormatMessage } from '@/utils/kana';
 import {
   getHanbaiten,
@@ -84,6 +86,10 @@ interface HanbaitenFormState {
   biko: string;
 }
 
+// 振込手数料負担区分の既定 = JA（m_code TESURYO_KUBUN=1）。TESURYO_KUBUN は
+// Group B（拡張可・enum なし）のため値をリテラルで持つ。
+const TESURYO_KUBUN_JA = 1;
+
 /** Blank create-mode defaults — single source for init + reset. */
 function defaultFormState(): HanbaitenFormState {
   return {
@@ -98,10 +104,10 @@ function defaultFormState(): HanbaitenFormState {
     tel: '',
     fax: '',
     shocho_name: '',
-    itaku_kubun: null,
+    itaku_kubun: ItakuKubun.FURIKOMI,
     haitatsuryo_tanka_id: null,
     haitatsuryo_shiharai_cycle: null,
-    furikomi_tesuryo_futan_kubun: null,
+    furikomi_tesuryo_futan_kubun: TESURYO_KUBUN_JA,
     furikomi_tesuryo: null,
     bank_code: '',
     bank_name: '',
@@ -227,7 +233,7 @@ function onJaSelect(item: JaDropdownItem | null): void {
  */
 async function resolveTodofukenForJa(jaId: number): Promise<void> {
   try {
-    const resp = await getJaDropdown({ include_id: jaId, per_page: 50 });
+    const resp = await getJaDropdown({ include_id: jaId, per_page: DROPDOWN_PAGE_SIZE });
     const match = resp.data.find((j) => j.ja_id === jaId);
     formState.todofuken_code = match?.todofuken_code ?? '';
   } catch {
@@ -384,6 +390,31 @@ function collectBankClusterErrors(errs: Record<string, string>): void {
   }
 }
 
+// フォーム項目の DOM 出現順（submit エラー時に先頭のエラー項目へフォーカスする）。
+const FIELD_ORDER: readonly string[] = [
+  'ja_id',
+  'hanbaiten_code',
+  'hanbaiten_name',
+  'hanbaiten_name_kana',
+  'yubin_no',
+  'address',
+  'tel',
+  'fax',
+  'shocho_name',
+  'haitatsuryo_tanka_id',
+  'torihikisaki_no',
+  'itaku_kubun',
+  'bank_code',
+  'bank_name',
+  'bank_branch_code',
+  'bank_branch_name',
+  'yokin_shubetsu',
+  'koza_no',
+  'koza_meigi',
+  'furikomi_tesuryo',
+  'furikomi_tesuryo_futan_kubun',
+];
+
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
 
@@ -400,6 +431,15 @@ function validateClient(): boolean {
   }
   if (!formState.hanbaiten_name?.trim()) {
     errs.hanbaiten_name = REQUIRED_MSG;
+  }
+
+  // 委託区分 / 振込手数料負担区分 は必須（顧客要件）。既定値あり(振込 / JA)だが
+  // ユーザーがクリアした場合に検証する。
+  if (formState.itaku_kubun == null) {
+    errs.itaku_kubun = REQUIRED_MSG;
+  }
+  if (formState.furikomi_tesuryo_futan_kubun == null) {
+    errs.furikomi_tesuryo_futan_kubun = REQUIRED_MSG;
   }
 
   // Format — half-width katakana (only when value present; optional field).
@@ -512,6 +552,7 @@ function handleServerError(err: unknown): void {
         )
         .map((e) => [e.field, e.message]),
     );
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
   }
   // Non-field-level errors (500, generic 400) are toasted by the
   // global axios interceptor — view must NOT re-toast.
@@ -520,7 +561,10 @@ function handleServerError(err: unknown): void {
 // ─── Submit pipeline ───────────────────────────────────────────────
 
 async function onSubmit(): Promise<void> {
-  if (!validateClient()) return;
+  if (!validateClient()) {
+    focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
+    return;
+  }
   // 編集で何も変更していなければ更新（PUT・監査ログ）をスキップ。
   if (isEdit.value && hanbaitenId.value !== null && editGuard.isPristine()) {
     message.info('変更がありません。');
@@ -769,8 +813,11 @@ defineExpose({ formState, fieldErrors });
             name="itaku_kubun"
             :validate-status="fieldErrors.itaku_kubun ? 'error' : ''"
             :help="fieldErrors.itaku_kubun"
-            label="委託区分"
           >
+            <template #label>
+              <span>委託区分</span>
+              <span class="text-error ml-1">*</span>
+            </template>
             <a-radio-group v-model:value="formState.itaku_kubun">
               <a-radio
                 v-for="opt in codes.options('ITAKU_KUBUN')"
@@ -944,8 +991,11 @@ defineExpose({ formState, fieldErrors });
             name="furikomi_tesuryo_futan_kubun"
             :validate-status="fieldErrors.furikomi_tesuryo_futan_kubun ? 'error' : ''"
             :help="fieldErrors.furikomi_tesuryo_futan_kubun"
-            label="振込手数料負担区分"
           >
+            <template #label>
+              <span>振込手数料負担区分</span>
+              <span class="text-error ml-1">*</span>
+            </template>
             <a-radio-group v-model:value="formState.furikomi_tesuryo_futan_kubun">
               <a-radio
                 v-for="opt in codes.options('TESURYO_KUBUN')"

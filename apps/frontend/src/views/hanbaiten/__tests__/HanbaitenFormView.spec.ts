@@ -86,6 +86,8 @@ interface RenderOptions {
    * `globalThis.history.state.jaId` (set by HanbaitenListView.goCreate).
    */
   jaState?: number;
+  /** Attach to document.body so document-based focus (focusFirstError) is observable. */
+  attach?: boolean;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -127,6 +129,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
   }
 
   const wrapper = mount(HanbaitenFormView, {
+    ...(opts.attach ? { attachTo: document.body } : {}),
     global: {
       plugins: [
         router,
@@ -447,6 +450,40 @@ describe('HanbaitenFormView — required field validation (機能定義 3.1)', (
 // ───────────────────────────────────────────────────────────────────────
 // 4. 委託区分による条件付き必須 (画面設計書 v1.2 §3.1 + api.md §4.1)
 // ───────────────────────────────────────────────────────────────────────
+describe('HanbaitenFormView — 委託区分 / 振込手数料負担区分 必須・既定 (顧客要件)', () => {
+  it('create mode 既定: itaku_kubun=1 (振込), furikomi_tesuryo_futan_kubun=1 (JA)', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    expect(vm.formState.itaku_kubun).toBe(1);
+    expect(vm.formState.furikomi_tesuryo_futan_kubun).toBe(1);
+  });
+
+  it('should block submit + show 必須項目です。 when itaku_kubun is cleared', async () => {
+    const { wrapper } = await renderView();
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateHanbaitenForm({ itaku_kubun: null }));
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('必須項目です。');
+    expect(createHanbaiten).not.toHaveBeenCalled();
+  });
+
+  it('should block submit + show 必須項目です。 when furikomi_tesuryo_futan_kubun is cleared', async () => {
+    const { wrapper } = await renderView();
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      buildCreateHanbaitenForm({ furikomi_tesuryo_futan_kubun: null }),
+    );
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('必須項目です。');
+    expect(createHanbaiten).not.toHaveBeenCalled();
+  });
+});
+
 describe('HanbaitenFormView — itaku_kubun=1 conditional-required (No.17-23)', () => {
   it('should show 必須項目です。 when itaku_kubun=1 and bank_code is empty and 登録 is clicked', async () => {
     const { wrapper } = await renderView();
@@ -1114,5 +1151,21 @@ describe('HanbaitenFormView — route reuse (edit → create reset)', () => {
 
     // The id-change must trigger a fresh load for the new record.
     expect(getHanbaiten).toHaveBeenLastCalledWith(8);
+  });
+});
+
+describe('HanbaitenFormView — focus first error on submit', () => {
+  it('should focus the first errored field when submit hits a validation error', async () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    // attach=true で document へマウントし focusFirstError の document 検索を有効化。
+    const { wrapper } = await renderView({ attach: true }); // 新規（必須未入力）
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(createHanbaiten).mockClear();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await flushPromises(); // nextTick(focusFirstError) を待つ
+    expect(createHanbaiten).not.toHaveBeenCalled(); // 検証で送信ブロック
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
   });
 });

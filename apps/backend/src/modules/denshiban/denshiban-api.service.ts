@@ -3,7 +3,7 @@ import { Injectable, Logger, OnApplicationBootstrap, Optional } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import type { EntityManager } from 'typeorm';
 
-import { DokusyaShubetsu } from '@/common/enums';
+import { isDenshibanSubscriber } from '@/common/utils/denshiban-sync-gate';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 
 // ⚠️ Value import (not `import type`) — Nest's DI reads the runtime value via
@@ -57,7 +57,9 @@ export class DenshibanApiService implements OnApplicationBootstrap {
    * **Synchronous send** — call from inside the caller's transaction, before COMMIT.
    *
    * 1. **Gate**: only digital-only (2) subscribers sync. Both (3) and paper-only
-   *    (1) return `null` without touching the API.
+   *    (1) return `null` without touching the API. The campaign-tanka exclusion
+   *    is enforced upstream in `DokusyaService.denshibanApiFor` — see the note at
+   *    the gate below before adding a new caller.
    * 2. **Assemble** the payload — reads `m_kanri_shiten` on the caller's `manager`
    *    connection, resolves `payment_start` against the clock, validates.
    * 3. **{@link send}** it (encrypt + POST). On a denshiban error the exception
@@ -79,9 +81,18 @@ export class DenshibanApiService implements OnApplicationBootstrap {
   ): Promise<DenshibanApiResult | null> {
     const { dokusya, mode } = input;
 
-    // ── Gate: only digital-only (2) subscribers sync ─────────────────────────
-    // Both (3) and paper-only (1) are not synced (customer decision — "both"
-    // members are registered separately on the denshiban side).
+    // ── Gate (partial): digital-only (2) subscribers ─────────────────────────
+    // Shared definition — `@/common/utils/denshiban-sync-gate`. Both (3) and
+    // paper-only (1) are not synced (customer decision: "both" members are
+    // registered on the denshiban side separately).
+    //
+    // ⚠️ The campaign-tanka half of the gate is NOT re-checked here. It needs an
+    // `m_tanka` read, and this method's contract treats `manager` as an opaque
+    // handle it forwards to the assembler — it may legitimately be absent. The
+    // full gate (`resolveDenshibanSyncGate`) runs in `DokusyaService.
+    // denshibanApiFor` before the flow is entered. A new caller that skips it
+    // can push a campaign contract; route every caller through DokusyaService's
+    // helper, or evaluate the gate yourself before calling.
     if (!isDenshibanSubscriber(dokusya.dokusyaShubetsu)) {
       this.logger.debug({
         event: 'denshiban.sync.skip.not_digital_only',
@@ -161,15 +172,6 @@ export class DenshibanApiService implements OnApplicationBootstrap {
     };
     const plaintext = JSON.stringify(plainObj);
     const encrypted = this.encrypt(plaintext, rawKey);
-
-    // ⚠️ TEMPORARY — for eyeballing what gets sent (requested 2026-07-16).
-    // The plaintext carries name / address / email / phone = PII. This flatly
-    // contradicts security.md's "never log PII", so **it MUST be removed before
-    // this goes to production**. It is console.log rather than Logger to avoid
-    // mixing PII into structured-log JSON that CloudWatch retains permanently
-    // (the intent is to keep it on stdout).
-    console.log('[denshiban] plain :', JSON.stringify(plainObj, null, 2));
-    console.log('[denshiban] cipher:', encrypted);
 
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -429,14 +431,6 @@ export interface DenshibanSyncInput {
   before?: Dokusya;
 }
 
-/**
- * Which subscriber types sync to denshiban — **digital-only (DIGITAL=2) only**.
- *
- * Both (BOTH=3) and paper-only (PAPER=1) do not sync (customer decision).
- * "Both" members are registered on the denshiban side through another route, so
- * cloud does not push them. The type code is m_code `DOKUSYA_SHUBETSU`
- * (Group A) → {@link DokusyaShubetsu}.
- */
-export function isDenshibanSubscriber(dokusyaShubetsu: number): boolean {
-  return dokusyaShubetsu === DokusyaShubetsu.DIGITAL;
-}
+// NOTE: the eligibility predicates that used to live here now belong to
+// `@/common/utils/denshiban-sync-gate` so DokusyaService can evaluate the same
+// rules before entering the outbound flow. Import them from there.

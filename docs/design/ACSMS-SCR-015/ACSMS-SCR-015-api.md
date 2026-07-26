@@ -20,6 +20,9 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                                                                | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/02 | 1.1  | Tran Duc Tuyen | 共用ドロップダウンAPIを実装済みの共通エンドポイント仕様に整合：COMMON-007 検索パラメータ `search`→`q`・`ja_id`/`page`/`per_page`・`meta` 追加・レスポンスから `ja_id` 削除、COMMON-006 に `q`/`ja_id`/`page`/`per_page`・`meta` 追加 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/13 | 1.2  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API に `hanbaiten_tekiyo_date`（販売店適用日）を**必須・未来日のみ**で追加。指定適用日時点で置換可能な購読者のみ返す置換可能条件（`購読開始日 <= 適用日` かつ `解約予定日が無い/適用日より後`）を §4.3・§4.4・§4.5 に追記。初期表示は購読者を自動読込しない運用に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/07/18 | 1.3  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：検索・置換実行 両 API に `dokusya_shubetsu`（購読種別・**必須・1:紙版 / 2:電子版 のみ**）を追加。適用日ルールを種別依存に変更（**紙版=未来日のみ／電子版=当日のみ**）。検索は種別で絞り込み、置換実行は全候補が同一種別であることを整合チェック。UI は種別未選択時に適用日を非活性、電子版選択時は当日を自動セット | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/07/22 | 1.4  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：**電子版(2) を本画面（販売店一括置換）の対象外**に変更。検索・置換実行 両 API とも `dokusya_shubetsu=2` は日付に関係なく HTTP 400 (`VALIDATION_ERROR`, `{ field: "dokusya_shubetsu", message: "電子版は本画面では対象外です。" }`／ACSMS-MSG-015-009) を返す（候補取得より前に拒否・FE の検索ボタン無効化に対する防御的ガード）。電子版=電子配信で販売店を持たないため一括置換できない。※1.3 の「電子版=当日置換」は撤回。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6   | 2026/07/23 | 1.5  | Tran Duc Tuyen | 顧客要件（2026-07）：`t_dokusya_rireki.hanbaiten_tekiyo_date`（販売店適用日）カラムを廃止。検索・置換実行 両 API のリクエスト項目 `hanbaiten_tekiyo_date` を `joho_henko_tekiyo_date`（適用日）へ改名し、適用日を読者情報変更適用日に一本化（販売店のみ変更でも同一適用日で履歴1件・専用の販売店適用日列は持たない）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -73,7 +76,7 @@ updated_by: Tran Duc Tuyen
 | 項目                   | 内容                                                                                                                                                                                                                  |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Search Dokusya for Hanbaiten Replacement                                                                                                                                                                              |
-| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`tetsuzuki_shurui=1`（購読中）のみ返却。`hanbaiten_tekiyo_date`（販売店適用日）は**必須**で、その適用日時点で置換可能な購読者のみ返却する（顧客要件 2026-07：画面初期表示では検索しない・適用日を入力して検索する運用）。 |
+| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`tetsuzuki_shurui=1`（購読中）のみ返却。`joho_henko_tekiyo_date`（適用日）は**必須**で、その適用日時点で置換可能な購読者のみ返却する（顧客要件 2026-07：画面初期表示では検索しない・適用日を入力して検索する運用）。 |
 | URI                    | /api/v1/dokusya/replace-hanbaiten/search                                                                                                                                                                              |
 | メソッド               | GET                                                                                                                                                                                                                   |
 | リクエストボディー     | なし                                                                                                                                                                                                                  |
@@ -94,8 +97,9 @@ updated_by: Tran Duc Tuyen
 | 7   | hanbaiten_id              | Number  | -    | -      | -      | 配達販売店ID（完全一致）                                                                            |
 | 8   | dokusya_kaishi_date_from  | String  | -    | -      | 10     | 購読開始日（開始）YYYY-MM-DD。`shoki_dokusya_kaishi_date >= :date_from` で範囲検索                  |
 | 9   | dokusya_kaishi_date_to    | String  | -    | -      | 10     | 購読開始日（終了）YYYY-MM-DD。`shoki_dokusya_kaishi_date <= :date_to` で範囲検索                    |
-| 10  | hanbaiten_tekiyo_date     | String  | ○    | -      | 10     | 販売店適用日 YYYY-MM-DD。**必須・未来日のみ（`> CURRENT_DATE`、当日・過去日不可）**。この適用日時点で置換可能な購読者のみ返却する（後述 §置換可能条件）。置換実行 API の適用日と同一基準 |
-| 11  | page                      | Number  | -    | -      | -      | ページ番号（デフォルト: 1）                                                                         |
+| 10  | joho_henko_tekiyo_date     | String  | ○    | -      | 10     | 適用日 YYYY-MM-DD。**必須**。**紙版=未来日のみ（`> 当日`）**（顧客要件 2026-07 改訂）。この適用日時点で置換可能な購読者のみ返却する（後述 §置換可能条件）。置換実行 API の適用日と同一基準 |
+| 11  | dokusya_shubetsu          | Number  | ○    | -      | -      | 購読種別（**必須・1:紙版 / 2:電子版**。3:併読 は対象外）。この種別で購読者を絞り込む（`d.dokusya_shubetsu = :dokusya_shubetsu`）。**電子版(2) は本画面の対象外** → 日付に関係なく `VALIDATION_ERROR`（`電子版は本画面では対象外です。`／ACSMS-MSG-015-009・顧客要件 2026-07 改訂） |
+| 12  | page                      | Number  | -    | -      | -      | ページ番号（デフォルト: 1）                                                                         |
 | 12  | per_page                  | Number  | -    | -      | -      | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
 | 13  | sort_by                   | String  | -    | -      | -      | ソートカラム（許可: `kanri_shiten_name` / `shiten_name` / `kumiaiin_code` / `hanbaiten_code`。デフォルト: `kumiaiin_code`） |
 | 14  | sort_order                | String  | -    | -      | -      | ソート順（asc / desc、デフォルト: asc）                                                             |
@@ -130,7 +134,7 @@ updated_by: Tran Duc Tuyen
 ## リクエスト例
 
 ```
-GET /api/v1/dokusya/replace-hanbaiten/search?hanbaiten_tekiyo_date=2026-08-01&kanri_shiten_id=10&kumiaiin_code=10001&page=1&per_page=20&sort_by=kumiaiin_code&sort_order=asc
+GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&kanri_shiten_id=10&kumiaiin_code=10001&page=1&per_page=20&sort_by=kumiaiin_code&sort_order=asc
 ```
 
 ## レスポンス成功例
@@ -263,12 +267,16 @@ GET /api/v1/dokusya/replace-hanbaiten/search?hanbaiten_tekiyo_date=2026-08-01&ka
 
 ### 4.3 データ取得条件の設定
 
-- **入力チェック（必須・未来日）**：`hanbaiten_tekiyo_date` は必須。未入力の場合 HTTP 400 (`VALIDATION_ERROR`, `{ field: "hanbaiten_tekiyo_date", message: "適用日を入力してください。" }`)。形式（YYYY-MM-DD）不正も 400。値が**当日以下**（`hanbaiten_tekiyo_date <= 当日(JST)`）の場合 HTTP 400 (`DATE_RANGE_INVALID`, message `販売店適用日は本日より後の日付を入力してください。`)。当日判定は `todayIsoJst()`（Asia/Tokyo）で行い、置換実行 API の適用日チェックと同一基準。
+- **入力チェック（購読種別・必須）**：`dokusya_shubetsu` は必須で **1:紙版 / 2:電子版 のみ**。未入力・3(併読)・範囲外は HTTP 400 (`VALIDATION_ERROR`, `{ field: "dokusya_shubetsu", message: "購読種別は紙版または電子版で指定してください。" }`)。
+- **入力チェック（適用日・種別依存／顧客要件 2026-07 改訂）**：`joho_henko_tekiyo_date` は必須。未入力は HTTP 400 (`VALIDATION_ERROR`, `適用日を入力してください。`)、形式（YYYY-MM-DD）不正も 400。日付ルールは `dokusya_shubetsu` 依存で判定する（当日判定は `todayIsoJst()` = Asia/Tokyo、置換実行 API と同一基準）：
+  - **紙版(1)**：**未来日のみ**（`> 当日`）。当日以下は HTTP 400 (`DATE_RANGE_INVALID`, `紙版の適用日は本日より後の日付を入力してください。`)。
+  - **電子版(2)**：**本画面（販売店一括置換）の対象外**。日付に関係なく HTTP 400 (`VALIDATION_ERROR`, `{ field: "dokusya_shubetsu", message: "電子版は本画面では対象外です。" }`／ACSMS-MSG-015-009)。電子版=電子配信で販売店を持たないため一括置換できない（顧客要件 2026-07 改訂で「電子版=当日置換」を撤回）。UI は電子版選択時にトーストでこのメッセージを通知し検索ボタンを非活性化する（インラインメッセージは表示しない）。
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
 - DataScope を role_code により適用する（4.2 参照）。
-- **置換可能条件（顧客要件 2026-07）**：指定した `hanbaiten_tekiyo_date`（販売店適用日）時点で置換可能な購読者のみに絞り込む。置換実行 API の集約チェック（`assertReplaceTekiyoDate`）と同一境界を per-row で適用するため、返却された任意の部分集合を選択しても実行時チェックが必ず通る：
-  - `d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date`（購読開始日が適用日以前）
-  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)`（解約予定日が無い、または適用日より後）
+- **購読種別の絞り込み（顧客要件 2026-07）**：`d.dokusya_shubetsu = :dokusya_shubetsu`（必須・1 or 2）で対象種別のみに絞る。
+- **置換可能条件（顧客要件 2026-07）**：指定した `joho_henko_tekiyo_date`（適用日）時点で置換可能な購読者のみに絞り込む。置換実行 API の集約チェック（`assertReplaceTekiyoDate`）と同一境界を per-row で適用するため、返却された任意の部分集合を選択しても実行時チェックが必ず通る：
+  - `d.dokusya_kaishi_date <= :joho_henko_tekiyo_date`（購読開始日が適用日以前）
+  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)`（解約予定日が無い、または適用日より後）
 - 検索条件を追加する：
   - kanri_shiten_id 指定時：`d.kanri_shiten_id = :kanri_shiten_id`
   - shiten_id 指定時：`d.shiten_id = :shiten_id`
@@ -282,8 +290,8 @@ GET /api/v1/dokusya/replace-hanbaiten/search?hanbaiten_tekiyo_date=2026-08-01&ka
 - 固定条件：
   - `d.tetsuzuki_shurui = 1`（購読中の購読者のみ）
   - `d.deleted_at IS NULL`（論理削除除外）
-  - `d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date`（置換可能条件）
-  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)`（置換可能条件）
+  - `d.dokusya_kaishi_date <= :joho_henko_tekiyo_date`（置換可能条件）
+  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)`（置換可能条件）
 
 ### 4.4 データ件数の取得
 
@@ -294,8 +302,8 @@ LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
 WHERE d.tetsuzuki_shurui = 1
   AND d.deleted_at IS NULL
   /* 置換可能条件（適用日時点で置換可能な購読者のみ） */
-  AND d.dokusya_kaishi_date <= :hanbaiten_tekiyo_date
-  AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :hanbaiten_tekiyo_date)
+  AND d.dokusya_kaishi_date <= :joho_henko_tekiyo_date
+  AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)
   /* DataScope: JA_KANRI_SHITEN */
   AND d.kanri_shiten_id = :user_kanri_shiten_id
   /* DataScope: JA_HONTEN / CHUOKAI */
@@ -369,7 +377,8 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | 1   | dokusya_ids            | Array   | ○    | 1      | 1000   | 置換対象購読者IDの配列                                                              |
 | 2   | →(item)                | Number  | ○    | -      | -      | 購読者ID                                                                            |
 | 3   | new_hanbaiten_id       | Number  | ○    | -      | -      | 置換先配達販売店ID。現在の販売店と異なる必要がある                                  |
-| 4   | hanbaiten_tekiyo_date  | String  | ○    | -      | 10     | 販売店適用日（YYYY-MM-DD）。当日以降の日付のみ可                                    |
+| 4   | joho_henko_tekiyo_date  | String  | ○    | -      | 10     | 適用日（YYYY-MM-DD）。**紙版=未来日のみ**（顧客要件 2026-07 改訂） |
+| 5   | dokusya_shubetsu       | Number  | ○    | -      | -      | 購読種別（**必須・1:紙版 / 2:電子版**）。全候補が同一種別であることの整合チェックに用いる。**電子版(2) は本画面の対象外** → `VALIDATION_ERROR`（`電子版は本画面では対象外です。`／ACSMS-MSG-015-009・顧客要件 2026-07 改訂） |
 
 ## レスポンスデータ
 
@@ -392,7 +401,7 @@ Content-Type: application/json
 {
   "dokusya_ids": [5001, 5002, 5003],
   "new_hanbaiten_id": 201,
-  "hanbaiten_tekiyo_date": "2026-06-01"
+  "joho_henko_tekiyo_date": "2026-06-01"
 }
 ```
 
@@ -421,7 +430,7 @@ Content-Type: application/json
   "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
     { "field": "new_hanbaiten_id", "message": "必須項目です。" },
-    { "field": "hanbaiten_tekiyo_date", "message": "必須項目です。" }
+    { "field": "joho_henko_tekiyo_date", "message": "必須項目です。" }
   ]
 }
 ```
@@ -504,7 +513,10 @@ Content-Type: application/json
 - リクエストボディの検証：
   - dokusya_ids：必須、配列、1件以上、1000件以下
   - new_hanbaiten_id：必須、数値型、正の整数
-  - hanbaiten_tekiyo_date：必須、YYYY-MM-DD 形式、当日以降の日付（`tekiyo_date >= CURRENT_DATE`）
+  - dokusya_shubetsu：必須、**1:紙版 / 2:電子版 のみ**（3:併読 は対象外・顧客要件 2026-07）
+  - dokusya_shubetsu：**電子版(2) は本画面の対象外** → 日付に関係なく HTTP 400 (`VALIDATION_ERROR`, `{ field: "dokusya_shubetsu", message: "電子版は本画面では対象外です。" }`／ACSMS-MSG-015-009・顧客要件 2026-07 改訂)。候補取得(find)より前に拒否する。
+  - joho_henko_tekiyo_date：必須、YYYY-MM-DD 形式。**紙版=未来日のみ**（`> 当日`、`DATE_RANGE_INVALID` `紙版の適用日は本日より後の日付を入力してください。`）。当日判定は `todayIsoJst()`（Asia/Tokyo）
+- **候補種別の整合チェック（顧客要件 2026-07）**：選択された全候補の `dokusya_shubetsu` が指定の `dokusya_shubetsu` と一致すること（検索で種別絞り込み済みだが、id 改竄・不整合を防ぐ防御）。不一致は HTTP 400 (`DATE_RANGE_INVALID`, `選択した購読者に指定の購読種別と異なる購読者が含まれています。`)。併読・電子版クレカは従来どおり ineligible（4.3）
 - 不正な場合：HTTP 400 (`VALIDATION_ERROR`)
 
 ### 4.2 認証・認可チェック
@@ -557,7 +569,7 @@ WHERE hanbaiten_id = :new_hanbaiten_id
 ```sql
 UPDATE t_dokusya
 SET hanbaiten_id = :new_hanbaiten_id,
-    joho_henko_tekiyo_date = :hanbaiten_tekiyo_date,  -- 顧客要件 2026-06: 販売店適用日に揃える
+    joho_henko_tekiyo_date = :joho_henko_tekiyo_date,  -- 顧客要件 2026-06: 適用日に揃える
     rireki_no = rireki_no + 1,
     updated_at = NOW(),
     updated_by = :user_account_id
@@ -597,7 +609,7 @@ INSERT INTO t_dokusya_rireki (
   shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date, joho_henko_tekiyo_date,
   seikyu_kaishi_month, biko, henko_riyu,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
-  zenkai_hanbaiten_id, hanbaiten_tekiyo_date,
+  zenkai_hanbaiten_id,
   created_at, created_by
 )
 SELECT
@@ -613,10 +625,10 @@ SELECT
   d.hanbaiten_id, d.tanka_id, d.yubin_kubun, d.shiharai_hoho, d.dokusyaryo_shiharai_cycle,
   d.bank_branch_code, d.bank_branch_name, d.hikiotoshi_yokin_shubetsu, d.hikiotoshi_koza_no, d.hikiotoshi_koza_meigi,
   d.dokusyaso_bunrui, d.nogyosya_bunrui,
-  d.shoki_dokusya_kaishi_date, d.dokusya_kaishi_date, d.dokusya_chushi_date, :hanbaiten_tekiyo_date,
+  d.shoki_dokusya_kaishi_date, d.dokusya_kaishi_date, d.dokusya_chushi_date, :joho_henko_tekiyo_date,
   d.seikyu_kaishi_month, d.biko, '販売店一括置換',
   TRUE, TRUE, FALSE, FALSE,
-  :zenkai_hanbaiten_id_per_dokusya, :hanbaiten_tekiyo_date,
+  :zenkai_hanbaiten_id_per_dokusya,
   NOW(), :user_account_id
 FROM t_dokusya d
 WHERE d.dokusya_id = :dokusya_id
@@ -625,8 +637,7 @@ WHERE d.dokusya_id = :dokusya_id
 - `henko_riyu`：`'販売店一括置換'` を設定する。
 - `zougen_hokoku_flg`：販売店変更のため `TRUE`（増減報告対象）。
 - `zenkai_hanbaiten_id`：更新前の `t_dokusya.hanbaiten_id`（4.3 で取得した値）を設定する。
-- `hanbaiten_tekiyo_date`：リクエストの `hanbaiten_tekiyo_date` を設定する。
-- `joho_henko_tekiyo_date`（顧客要件 2026-06）：**販売店のみ変更イベントのため `hanbaiten_tekiyo_date` と同じ適用日を設定する**（`hanbaiten_tekiyo_date = joho_henko_tekiyo_date`。UI 編集 Rule2 / SCR-011 §8.1・§14.3 と同一）。マスタ側 `t_dokusya.joho_henko_tekiyo_date` も同日に更新し、最新履歴（saishin）と整合させる。
+- `joho_henko_tekiyo_date`：リクエストの `joho_henko_tekiyo_date` を設定する（販売店のみ変更イベント。専用の適用日列は廃止し適用日を joho に一本化・顧客要件 2026-07。UI 編集 Rule2 / SCR-011 §8.1・§14.3 と同一）。マスタ側 `t_dokusya.joho_henko_tekiyo_date` も同日に更新し、最新履歴（saishin）と整合させる。
 
 ### 4.6 操作ログ記録
 
@@ -644,7 +655,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
 ```
 
 - `before_value`：置換前データのサマリ JSON `{ "dokusya_ids": [...], "previous_hanbaiten_ids": {dokusya_id: hanbaiten_id, ...} }`
-- `after_value`：置換結果サマリ JSON `{ "total_count", "new_hanbaiten_id", "hanbaiten_tekiyo_date", "rireki_count" }`
+- `after_value`：置換結果サマリ JSON `{ "total_count", "new_hanbaiten_id", "joho_henko_tekiyo_date", "rireki_count" }`
 - パスワード等の機密情報は含めないこと。
 
 **after_value 例:**
@@ -654,7 +665,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "total_count": 3,
   "replaced_count": 3,
   "new_hanbaiten_id": 201,
-  "hanbaiten_tekiyo_date": "2026-06-01",
+  "joho_henko_tekiyo_date": "2026-06-01",
   "rireki_count": 3,
   "dokusya_ids": [5001, 5002, 5003]
 }

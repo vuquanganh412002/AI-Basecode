@@ -57,10 +57,6 @@ services:
     build:
       context: ./backend
       dockerfile: ../docker/backend/Dockerfile
-    # 電子版 API (DENSHIBAN_API_URL) はホスト側で動くため、コンテナから
-    # `host.docker.internal` で到達できるようにする（Linux では既定で解決しない）。
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend/src:/app/src
       - ./backend/test:/app/test

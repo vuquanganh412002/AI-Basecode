@@ -81,24 +81,23 @@ describe('splitEvents', () => {
       {
         joho: '2026-07-01',
         values: { dokusyaBusu: 8, shikuchoson: 'Minato-ku', hanbaitenId: 460 },
-        isHanbaiten: false,
       },
     ]);
   });
 
   // 顧客要件 2026-07: 販売店適用日を廃止し joho に統一 → UPDATE は常に1イベント
   // （UI/取込/置換で共通・1更新1レコード）。
-  it('UPDATE information only → one event, isHanbaiten=false', () => {
+  it('UPDATE information only → one event (1更新1レコード)', () => {
     const events = splitEvents('UPDATE', ['dokusyaBusu'], values, '2026-07-01');
     expect(events).toEqual([
-      { joho: '2026-07-01', values: { dokusyaBusu: 8 }, isHanbaiten: false },
+      { joho: '2026-07-01', values: { dokusyaBusu: 8 } },
     ]);
   });
 
-  it('UPDATE hanbaiten only → one event at johoDate, isHanbaiten=true', () => {
+  it('UPDATE hanbaiten only → one event at johoDate', () => {
     const events = splitEvents('UPDATE', ['hanbaitenId'], values, '2026-07-01');
     expect(events).toEqual([
-      { joho: '2026-07-01', values: { hanbaitenId: 460 }, isHanbaiten: true },
+      { joho: '2026-07-01', values: { hanbaitenId: 460 } },
     ]);
   });
 
@@ -113,7 +112,6 @@ describe('splitEvents', () => {
       {
         joho: '2026-07-01',
         values: { dokusyaBusu: 8, hanbaitenId: 460 },
-        isHanbaiten: true, // 販売店を含むので hanbaiten_tekiyo_date=joho
       },
     ]);
   });
@@ -285,7 +283,6 @@ describe('buildRirekiRow', () => {
     const event: ChangeEvent = {
       joho: '2026-07-01',
       values: { dokusyaBusu: 4, hanbaitenId: 459 },
-      isHanbaiten: false,
     };
     const r = buildRirekiRow(null, event, {
       dokusyaId: 1001,
@@ -299,7 +296,6 @@ describe('buildRirekiRow', () => {
     expect(r.torikeshiFlg).toBe(false);
     expect(r.saishinDataFlg).toBe(false);
     expect(r.johoHenkoTekiyoDate).toBe('2026-07-01');
-    expect(r.hanbaitenTekiyoDate).toBeNull();
     expect(r.rirekiNo).toBe(1);
     expect(r.dokusyaId).toBe(1001);
     expect(r.dokusyaBusu).toBe(4);
@@ -320,7 +316,6 @@ describe('buildRirekiRow', () => {
     const event: ChangeEvent = {
       joho: '2026-07-05',
       values: { dokusyaBusu: 8 },
-      isHanbaiten: false,
     };
     const r = buildRirekiRow(before, event, ctx);
     expect(r.dokusyaBusu).toBe(8); // applied
@@ -328,7 +323,6 @@ describe('buildRirekiRow', () => {
     expect(r.shikuchoson).toBe('Chiyoda-ku'); // carried
     expect(r.shinkiFlg).toBe(false);
     expect(r.zougenHokokuFlg).toBe(true); // busu 6→8
-    expect(r.hanbaitenTekiyoDate).toBeNull();
     expect(r.zenkaiDokusyaBusu).toBe(6);
     expect(r.zenkaiHanbaitenId).toBe(459);
     expect(r.dokusyaRirekiId).toBeUndefined(); // PK cleared → INSERTs
@@ -336,16 +330,14 @@ describe('buildRirekiRow', () => {
     expect(r.rirekiNo).toBe(3);
   });
 
-  it('UPDATE hanbaiten event → hanbaiten_tekiyo_date = joho, zougen true', () => {
+  it('UPDATE hanbaiten event → joho 適用日, zougen true', () => {
     const before = row({ dokusyaBusu: 6, hanbaitenId: 459 });
     const event: ChangeEvent = {
       joho: '2026-08-01',
       values: { hanbaitenId: 460 },
-      isHanbaiten: true,
     };
     const r = buildRirekiRow(before, event, ctx);
     expect(r.hanbaitenId).toBe(460);
-    expect(r.hanbaitenTekiyoDate).toBe('2026-08-01');
     expect(r.zougenHokokuFlg).toBe(true);
     expect(r.zenkaiHanbaitenId).toBe(459);
     expect(r.dokusyaBusu).toBe(6); // carried
@@ -356,7 +348,6 @@ describe('buildRirekiRow', () => {
     const event: ChangeEvent = {
       joho: '2026-07-05',
       values: { hikiotoshiKozaNo: '222' },
-      isHanbaiten: false,
     };
     const r = buildRirekiRow(before, event, ctx);
     expect(r.hikiotoshiKozaNo).toBe('222');
@@ -373,7 +364,6 @@ describe('mapRirekiToMaster', () => {
     hanbaitenId: 460,
     shikuchoson: 'Minato-ku',
     tetsuzukiShurui: 1,
-    hanbaitenTekiyoDate: '2026-07-01',
     henkoRiyu: 'r',
     saishinDataFlg: true,
     zougenHokokuFlg: true,
@@ -405,7 +395,6 @@ describe('mapRirekiToMaster', () => {
       'shinkiFlg',
       'kaiyakuFlg',
       'torikeshiFlg',
-      'hanbaitenTekiyoDate',
       'henkoRiyu',
     ]) {
       expect(m).not.toHaveProperty(k);
@@ -451,7 +440,6 @@ describe('buildKaiyakuRow', () => {
     expect(r.kaiyakuFlg).toBe(true);
     expect(r.johoHenkoTekiyoDate).toBe('2026-07-15');
     expect(r.createdBy).toBe('42'); // actor override (UI 解約予約)
-    expect(r.hanbaitenTekiyoDate).toBeNull();
     expect(r.dokusyaChushiDate).toBe('2026-07-15'); // from ctx.chushiDate
     expect(r.dokusyaBusu).toBe(0); // 解約 = 部数なし (forced)
     expect(r.zougenHokokuFlg).toBe(true); // 解約は常に増減報告対象 (forced)
@@ -561,7 +549,6 @@ describe('buildResubscribeRow', () => {
     expect(Number(r.tetsuzukiShurui)).toBe(1);
     expect(r.zougenHokokuFlg).toBe(true);
     expect(r.dokusyaChushiDate).toBeNull();
-    expect(r.hanbaitenTekiyoDate).toBeNull(); // 販売店適用日 なし
     // 業務新値は values 由来。
     expect(r.hanbaitenId).toBe(460);
     expect(Number(r.dokusyaBusu)).toBe(2);

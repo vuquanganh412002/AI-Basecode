@@ -89,7 +89,7 @@ import { CodeService } from '@/modules/code/code.service';
 import { MailModule } from '@/modules/mail/mail.module';
 import { MailService } from '@/modules/mail/mail.service';
 import { RedisModule } from '@/modules/redis/redis.module';
-import { RedisService } from '@/modules/redis/redis.service';
+import { REDIS_CLIENT, RedisService } from '@/modules/redis/redis.service';
 import { SessionService, SessionPayload } from '@/modules/auth/session.service';
 import { GlobalExceptionFilter } from '@/common/filters/global-exception.filter';
 
@@ -381,7 +381,12 @@ async function bootApp(
       MailModule,
       AuthModule,
       ...(options.modules ?? []),
-      // Opt-in throttler — see `enableThrottler` doc on CreateIntegrationOptions.
+      // Opt-in throttler. Uses the default in-memory store (per-process) — the
+      // 429 behaviour is faithfully exercised in a single test process. NOTE:
+      // production (app.module.ts) uses Redis-backed storage so counters are
+      // shared across the ≥2 ECS tasks; ioredis-mock can't run the throttler's
+      // Lua script reliably, so we keep in-memory here and verify the Redis
+      // wiring manually / via the app.module config.
       ...(options.enableThrottler
         ? [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }])]
         : []),
@@ -393,6 +398,15 @@ async function bootApp(
 
   // Replace RedisService with ioredis-mock-backed shim
   builder = builder.overrideProvider(RedisService).useValue(redisServiceMock);
+
+  // Replace the REDIS_CLIENT factory too. Left un-overridden, RedisModule's
+  // useFactory opens a REAL ioredis connection to `redis:6379` (never
+  // reachable in tests) that retries in the background and is never closed —
+  // producing the `getaddrinfo ENOTFOUND redis` errors, a leaked open handle
+  // ("worker failed to exit gracefully"), and nondeterministic event-loop
+  // churn that is a source of rare cross-suite flakiness. Point it at the
+  // same ioredis-mock the RedisService shim uses so no real socket is opened.
+  builder = builder.overrideProvider(REDIS_CLIENT).useValue(redis);
 
   // Stub MailService — AuthService.login/forgot-password call sendOtp/
   // sendPasswordReset; we don't want a real SMTP/SES connection in tests.
@@ -434,34 +448,6 @@ async function bootApp(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { StorageService } = require('@/modules/storage/storage.service');
   builder = builder.overrideProvider(StorageService).useValue(storageMock);
-
-  // Stub DenshibanApiService — DokusyaService.create/update/stop/approve/reject
-  // call sendNow() in-transaction to sync DIGITAL(2) subscribers out to the
-  // 電子版 `updateUserInfo` API. Integration tests must not reach that external
-  // endpoint, so a no-op shim returns `null` (sendNow's out-of-scope value):
-  // subscribers persist without an outbound POST and denshi_kaiin_id is left
-  // untouched (matching pre-feature behavior). Resolved lazily so module trees
-  // without DenshibanDbModule don't need the import — overrideProvider is a
-  // no-op when the token isn't in the graph, same as StorageService above.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { DenshibanApiService } = require('@/modules/denshiban/denshiban-api.service');
-  builder = builder
-    .overrideProvider(DenshibanApiService)
-    .useValue({ sendNow: async () => null });
-
-  // Stub DenshibanDbService — its onApplicationBootstrap() opens a short-lived
-  // MySQL connection to the 電子版 DB as a connectivity check. Integration tests
-  // must stay hermetic (no real network), so replace it with a no-op shim: no
-  // bootstrap connection, and withConnection() throws if a batch path reaches
-  // for it. Same lazy-require + no-op-when-absent pattern as above.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { DenshibanDbService } = require('@/modules/denshiban/denshiban-db.service');
-  builder = builder.overrideProvider(DenshibanDbService).useValue({
-    onApplicationBootstrap: async () => undefined,
-    withConnection: async () => {
-      throw new Error('DenshibanDbService is stubbed in integration tests');
-    },
-  });
 
   if (options.customize) builder = options.customize(builder);
 

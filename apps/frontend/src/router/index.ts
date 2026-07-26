@@ -1,6 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { message } from 'ant-design-vue';
 import { useAuthStore } from '@/stores/auth.store';
+import { pageTitleFromMatched } from '@/composables/useBreadcrumb';
+
+/**
+ * ブランド名（index.html の初期 <title> と同じ VITE_APP_TITLE、未設定時は
+ * agrinews）。タブタイトルは基本ページ名のみで、パンくずが無い画面のみ
+ * このブランド名にフォールバックする。
+ */
+const APP_TITLE = import.meta.env.VITE_APP_TITLE || 'agrinews';
 
 const routes: RouteRecordRaw[] = [
   // ─── Auth (AuthLayout is applied inside each view) ─────────────────
@@ -581,6 +589,13 @@ router.beforeEach((to) => {
   }
 
   return true;
+});
+
+// ブラウザタブのタイトルをページごとに更新する。ページ名はパンくずの
+// leaf ラベル（画面ヘッダと同一ソース = meta.breadcrumb）を再利用するため、
+// ヘッダ表示とタブタイトルが常に一致する。ページ名が無い画面のみブランド名。
+router.afterEach((to) => {
+  document.title = pageTitleFromMatched(to.matched) ?? APP_TITLE;
 });
 
 export default router;
