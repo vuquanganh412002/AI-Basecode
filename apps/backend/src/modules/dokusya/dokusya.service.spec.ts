@@ -25,7 +25,6 @@ import { DokusyaImportValidator } from '@/modules/dokusya/dokusya-import-validat
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
 import { DokusyaSearchService } from '@/modules/dokusya/dokusya-search.service';
 import { DokusyaReplaceService } from '@/modules/dokusya/dokusya-replace.service';
-import { Dokusya } from '@/database/entities/dokusya.entity';
 import {
   NotFoundException,
   DataScopeViolationException,
@@ -267,6 +266,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
   });
 
@@ -3431,8 +3431,9 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
-    it('should set denshi_shonin_status=1 directly on t_dokusya + saishin row (no future history row — 顧客要件 2026-07)', async () => {
-      // 承認/否認は即時ワークフロー。未来日の履歴行は追加せず、t_dokusya と現行行を直接更新。
+    it('should insert one 承認 history row (denshi_shonin_status=1), promote it to saishin, and reflect it on t_dokusya', async () => {
+      // 顧客要件: 承認/否認時も履歴(t_dokusya_rireki)に 1 レコード残す。現行行を起点に
+      // 承認イベント行を追加し、その行を saishin に昇格して t_dokusya へ即時反映する。
       const before = buildDokusya({
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
@@ -3444,20 +3445,32 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         baseReq,
       );
 
-      // applyChange は呼ばれない（未来日の履歴行を作らない）。
+      // recomputeMaster 経由の applyChange は使わない（当日基準だと未来開始日で壊れる）。
       expect(applyChangeSpy).not.toHaveBeenCalled();
-      // t_dokusya を denshi_shonin_status=1 で直接更新。
+      // 承認イベントの履歴行を 1 件 INSERT（denshi_shonin_status=1・saishin=true）。
+      const insertedRow = txManager.save.mock.calls
+        .map((c: any[]) => c[1] ?? c[0])
+        .find(
+          (v: any) =>
+            v && typeof v === 'object' && v.denshiShoninStatus === 1 &&
+            'rirekiNo' in v,
+        );
+      expect(insertedRow).toBeDefined();
+      expect(insertedRow.saishinDataFlg).toBe(true);
+      // 電子版は適用日が常に当日 → 承認イベント行の joho も当日に揃える。
+      expect(insertedRow.johoHenkoTekiyoDate).toBe(todayIsoJst());
+      // 旧 saishin 行を降格する（saishin=true → false）。
+      const demote = txManager.update.mock.calls.find(
+        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
+      );
+      expect(demote?.[2].saishinDataFlg).toBe(false);
+      // t_dokusya へ denshi_shonin_status=1 を即時反映。
       const dokusyaUpdate = txManager.update.mock.calls.find(
         (c: any[]) =>
           c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
           c[1]?.dokusyaId === 100,
       );
       expect(dokusyaUpdate?.[2].denshiShoninStatus).toBe(1);
-      // 現行 (saishin=true) 履歴行も同ステータスへ。
-      const rirekiUpdate = txManager.update.mock.calls.find(
-        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
-      );
-      expect(rirekiUpdate?.[2].denshiShoninStatus).toBe(1);
     });
 
     it('should wrap status update + audit log in a single transaction', async () => {
@@ -3630,7 +3643,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       });
     });
 
-    it('should set denshi_shonin_status=2 directly on t_dokusya + saishin row (no future history row — 顧客要件 2026-07)', async () => {
+    it('should insert one 否認 history row (denshi_shonin_status=2), promote it to saishin, and reflect it on t_dokusya', async () => {
       const before = buildDokusya({
         dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
       });
@@ -3643,16 +3656,27 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       );
 
       expect(applyChangeSpy).not.toHaveBeenCalled();
+      const insertedRow = txManager.save.mock.calls
+        .map((c: any[]) => c[1] ?? c[0])
+        .find(
+          (v: any) =>
+            v && typeof v === 'object' && v.denshiShoninStatus === 2 &&
+            'rirekiNo' in v,
+        );
+      expect(insertedRow).toBeDefined();
+      expect(insertedRow.saishinDataFlg).toBe(true);
+      // 電子版は適用日が常に当日 → 否認イベント行の joho も当日に揃える。
+      expect(insertedRow.johoHenkoTekiyoDate).toBe(todayIsoJst());
+      const demote = txManager.update.mock.calls.find(
+        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
+      );
+      expect(demote?.[2].saishinDataFlg).toBe(false);
       const dokusyaUpdate = txManager.update.mock.calls.find(
         (c: any[]) =>
           c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
           c[1]?.dokusyaId === 100,
       );
       expect(dokusyaUpdate?.[2].denshiShoninStatus).toBe(2);
-      const rirekiUpdate = txManager.update.mock.calls.find(
-        (c: any[]) => c[1] && c[1].saishinDataFlg === true,
-      );
-      expect(rirekiUpdate?.[2].denshiShoninStatus).toBe(2);
     });
 
     it('should wrap status update + audit log in a single transaction', async () => {
@@ -4005,6 +4029,7 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
   });
 
@@ -5349,6 +5374,7 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
   });
 
@@ -5795,6 +5821,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
 
     // 一括置換は各購読者を applyChange(UPDATE) で置換する。CREATE/UPDATE の履歴
@@ -5967,12 +5994,17 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       });
     });
 
-    it('should filter eligible 購読者 by joho_henko_tekiyo_date (dokusya_kaishi_date <= 適用日 AND (chushi IS NULL OR chushi > 適用日))', async () => {
-      // COVERS: §4.3 置換可能条件（顧客要件 2026-07）— 適用日で置換可能な購読者のみ返す。
+    it('should resolve candidates via the as-of 適用日 history subquery (置換元 = effective hanbaiten, active at 適用日)', async () => {
+      // COVERS: §4.3 置換可能条件（顧客要件 2026-07 改訂・as-of 適用日）—
+      // 適用日時点で有効な履歴レコード（joho ≦ 適用日 の最大）の販売店 = 置換元、
+      // かつ適用日時点で購読中の購読者のみを候補にする。
       primeSearchRows([]);
 
       await service.searchForReplace(
-        buildReplaceSearchQuery({ joho_henko_tekiyo_date: '2099-12-31' }),
+        buildReplaceSearchQuery({
+          joho_henko_tekiyo_date: '2099-12-31',
+          hanbaiten_id: 200,
+        }),
         buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
       );
 
@@ -5982,8 +6014,15 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       ]
         .map(([sql]: any[]) => (typeof sql === 'string' ? sql : ''))
         .join(' || ');
-      expect(/dokusya_kaishi_date\s*<=\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
-      expect(/dokusya_chushi_date IS NULL OR d\.dokusya_chushi_date\s*>\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
+      // 候補は master ではなく履歴の as-of 有効レコードで解決する。
+      expect(/d\.dokusya_id IN \(/i.test(sqlBlobs)).toBe(true);
+      expect(/DISTINCT ON \(r\.dokusya_id\)/i.test(sqlBlobs)).toBe(true);
+      expect(/r\.joho_henko_tekiyo_date\s*<=\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
+      // 有効レコードの販売店 = 置換元 かつ ≠ 置換先、適用日時点で購読中。
+      expect(/eff\.hanbaiten_id\s*=\s*:rkSourceHanbaiten/i.test(sqlBlobs)).toBe(true);
+      expect(/eff\.hanbaiten_id\s*<>\s*:rkDestHanbaiten/i.test(sqlBlobs)).toBe(true);
+      expect(/eff\.dokusya_kaishi_date\s*<=\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
+      expect(/eff\.dokusya_chushi_date IS NULL OR eff\.dokusya_chushi_date\s*>\s*:rkApplied/i.test(sqlBlobs)).toBe(true);
     });
 
     it('should filter 購読開始日 range on shoki_dokusya_kaishi_date (NOT dokusya_kaishi_date)', async () => {
@@ -6900,6 +6939,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
 
     // NEW 取込は applyChange(CREATE) を通る。CREATE の master/履歴生成を writer に
@@ -7081,26 +7121,38 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       // 顧客要件: Excel一括取込の電子版(2)は承認済(1)で登録する（職員操作のため）。
       // 紙版(1)は電子申請ワークフロー対象外なので null。NEW は applyChange(CREATE)
       // 経由になったので、渡す values.denshiShoninStatus を検証する。
+      // 購読種別は画面ラジオで一括指定する単一ソースのため、電子版バッチと
+      // 紙版バッチをそれぞれ取り込んで検証する（混在バッチは仕様上ない）。
       primeImport();
-
       await service.importExcel(
         buildImportBody({
           import_mode: 'NEW',
-          rows: [
-            buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1' }),
-            buildImportRow({ dokusya_shubetsu: 1, shiharai_hoho: 1, kumiaiin_code: 'P1' }),
-          ],
+          dokusya_shubetsu: 2,
+          rows: [buildImportRow({ shiharai_hoho: 2, kumiaiin_code: 'D1' })],
         }),
         buildJaHontenSession({ ja_id: 1, account_id: 11 }),
         baseReq,
       );
+      const denshiInputs = applyChangeInputs();
+      expect(denshiInputs).toHaveLength(1);
+      expect(denshiInputs[0].mode).toBe('CREATE');
+      expect(denshiInputs[0].values.denshiShoninStatus).toBe(1);
 
-      const inputs = applyChangeInputs();
-      expect(inputs).toHaveLength(2);
-      inputs.forEach((i) => expect(i.mode).toBe('CREATE'));
-      // 電子版 → 承認(1)。紙版 → null。
-      expect(inputs[0].values.denshiShoninStatus).toBe(1);
-      expect(inputs[1].values.denshiShoninStatus).toBeNull();
+      applyChangeSpy.mockClear();
+      primeImport();
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'NEW',
+          dokusya_shubetsu: 1,
+          rows: [buildImportRow({ shiharai_hoho: 1, kumiaiin_code: 'P1' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+      const paperInputs = applyChangeInputs();
+      expect(paperInputs).toHaveLength(1);
+      expect(paperInputs[0].mode).toBe('CREATE');
+      expect(paperInputs[0].values.denshiShoninStatus).toBeNull();
     });
   });
 
@@ -7145,7 +7197,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
 
       await expect(
         service.importExcel(
-          buildImportBody({ rows: [buildImportRow({ dokusya_shubetsu: 3 })] }),
+          buildImportBody({ dokusya_shubetsu: 3, rows: [buildImportRow({})] }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
@@ -7159,7 +7211,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       let caught: any;
       try {
         await service.importExcel(
-          buildImportBody({ rows: [buildImportRow({ dokusya_shubetsu: 3 })] }),
+          buildImportBody({ dokusya_shubetsu: 3, rows: [buildImportRow({})] }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         );
@@ -7207,7 +7259,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       await expect(
         service.importExcel(
           buildImportBody({
-            rows: [buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 6 })],
+            dokusya_shubetsu: 2,
+            rows: [buildImportRow({ shiharai_hoho: 6 })],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -7223,7 +7276,8 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       try {
         await service.importExcel(
           buildImportBody({
-            rows: [buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, email: '' })],
+            dokusya_shubetsu: 2,
+            rows: [buildImportRow({ shiharai_hoho: 2, email: '' })],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -7261,9 +7315,10 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       try {
         await service.importExcel(
           buildImportBody({
+            dokusya_shubetsu: 2,
             rows: [
-              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'same@example.com' }),
-              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D2', email: 'same@example.com' }),
+              buildImportRow({ shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'same@example.com' }),
+              buildImportRow({ shiharai_hoho: 2, kumiaiin_code: 'D2', email: 'same@example.com' }),
             ],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
@@ -7298,8 +7353,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       try {
         await service.importExcel(
           buildImportBody({
+            dokusya_shubetsu: 2,
             rows: [
-              buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'taken@example.com' }),
+              buildImportRow({ shiharai_hoho: 2, kumiaiin_code: 'D1', email: 'taken@example.com' }),
             ],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
@@ -7312,6 +7368,46 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       const errors = body?.errors ?? caught?.errors ?? [];
       expect(
         errors.some((e: Record<string, unknown>) => e.field === 'email'),
+      ).toBe(true);
+    });
+
+    it('should throw IMPORT_VALIDATION_ERROR (field=dokusya_shubetsu) when an UPDATE row targets a subscriber whose 購読種別 differs from the selected radio', async () => {
+      // 顧客要件 2026-07: 購読種別は画面ラジオで一括指定する単一ソース。更新対象の
+      // 既存購読者が選択した購読種別と異なる場合はモード不一致として弾く。
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 7001,
+            kumiaiin_code: 'K00001',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+            dokusya_shubetsu: 2, // 既存は電子版
+          },
+        ],
+      });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 1, // 画面ラジオは紙版 → 不一致
+            selected_columns: ['dokusya_id', 'biko'],
+            rows: [buildImportRow({ dokusya_id: 7001, biko: 'x' })],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeDefined();
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some(
+          (e: Record<string, unknown>) => e.field === 'dokusya_shubetsu',
+        ),
       ).toBe(true);
     });
 
@@ -8221,6 +8317,7 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
   });
 
@@ -8465,6 +8562,7 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       rireki,
       searchService,
       replaceService,
+      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
     );
   });
 
@@ -8566,216 +8664,5 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
 
     expect(ui!.zougenHokokuFlg).toBe(false);
     expect(imp!.zougenHokokuFlg).toBe(ui!.zougenHokokuFlg);
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════
-// 電子版 upsert 同期フォールバック（未同期 → create） — 顧客決定 2026-07
-// syncDenshibanUpsert: 未同期(denshi_kaiin_id NULL)の電子版会員を編集したら
-// update ではなく create で会員IDを採番してリンクする。既に id があれば差分 update。
-// 他の依存を使わないため denshibanApi 以外は undefined の最小構成で組む
-// （constructor は代入のみ）。
-// ════════════════════════════════════════════════════════════════════════
-describe('DokusyaService — 電子版 upsert 同期フォールバック', () => {
-  function buildServiceWithDenshiban(sendNow: jest.Mock): any {
-    const denshibanApi = { sendNow } as unknown;
-    return new (DokusyaService as any)(
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      denshibanApi,
-    );
-  }
-  /**
-   * `denshibanApiFor` のゲートが `manager.getRepository(Tanka).findOne` で
-   * キャンペーン単価を判定するため、update だけのモックでは足りない。
-   * @param campaignFlg 適用単価の m_tanka.campaign_flg（既定 false = 送信対象）
-   */
-  function buildManager(campaignFlg = false): any {
-    return {
-      update: jest.fn(),
-      getRepository: jest.fn().mockReturnValue({
-        findOne: jest.fn().mockResolvedValue({ tankaId: 1, campaignFlg }),
-      }),
-    };
-  }
-
-  it('未同期（denshi_kaiin_id NULL）の編集は update ではなく create を送り、採番IDを保存する', async () => {
-    const sendNow = jest.fn().mockResolvedValue({ id: '55555', statusCode: '0' });
-    const svc = buildServiceWithDenshiban(sendNow);
-    const manager = buildManager();
-    const after = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
-    const before = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
-
-    await svc.syncDenshibanUpsert(manager, after, before, 42);
-
-    expect(sendNow).toHaveBeenCalledTimes(1);
-    expect(sendNow.mock.calls[0][0]).toMatchObject({ dokusya: after, mode: 'create' });
-    expect(after.denshiKaiinId).toBe(55555);
-    expect(manager.update).toHaveBeenCalledWith(
-      Dokusya,
-      { dokusyaId: 42 },
-      { denshiKaiinId: 55555 },
-    );
-  });
-
-  it('同期済み（denshi_kaiin_id あり）の編集は通常どおり差分 update を送る', async () => {
-    const sendNow = jest.fn().mockResolvedValue({ id: null, statusCode: '0' });
-    const svc = buildServiceWithDenshiban(sendNow);
-    const manager = buildManager();
-    const after = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999;
-    const before = buildDokusya({ dokusyaId: 42, dokusyaShubetsu: 2 });
-
-    await svc.syncDenshibanUpsert(manager, after, before, 42);
-
-    expect(sendNow).toHaveBeenCalledTimes(1);
-    expect(sendNow.mock.calls[0][0]).toMatchObject({
-      dokusya: after,
-      mode: 'update',
-      before,
-    });
-    expect(manager.update).not.toHaveBeenCalled();
-  });
-
-  it('denshibanApi 未配線なら何もしない（skip）', async () => {
-    const svc = new (DokusyaService as any)(
-      undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined,
-      // denshibanApi 省略
-    );
-    const manager = buildManager();
-    const after = buildDokusya({ dokusyaId: 42 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
-    const before = buildDokusya({ dokusyaId: 42 });
-
-    await expect(
-      svc.syncDenshibanUpsert(manager, after, before, 42),
-    ).resolves.toBeUndefined();
-    expect(manager.update).not.toHaveBeenCalled();
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════════
-// アウトバウンド送信ゲート（denshibanApiFor） — 顧客決定 2026-07
-// 電子版(2) かつ 非キャンペーン単価 のみ outbound フローに入る。対象外は
-// sendNow を「呼ばない」— sendNow 内の gate 任せにせず呼び出し側で弾く。
-// ════════════════════════════════════════════════════════════════════════
-describe('DokusyaService — アウトバウンド送信ゲート', () => {
-  function buildServiceWithDenshiban(sendNow: jest.Mock): any {
-    const denshibanApi = { sendNow } as unknown;
-    return new (DokusyaService as any)(
-      undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined,
-      denshibanApi,
-    );
-  }
-  function buildManager(campaignFlg = false): any {
-    return {
-      update: jest.fn(),
-      getRepository: jest.fn().mockReturnValue({
-        findOne: jest.fn().mockResolvedValue({ tankaId: 1, campaignFlg }),
-      }),
-    };
-  }
-
-  it('電子版(2)＋非キャンペーン単価 は create を送信する', async () => {
-    const sendNow = jest.fn().mockResolvedValue({ id: '77', statusCode: '0' });
-    const svc = buildServiceWithDenshiban(sendNow);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
-
-    await svc.syncDenshibanCreate(buildManager(false), after, 1);
-
-    expect(sendNow).toHaveBeenCalledTimes(1);
-    expect(sendNow.mock.calls[0][0]).toMatchObject({ mode: 'create' });
-  });
-
-  it('電子版(2) でもキャンペーン単価なら sendNow を呼ばない', async () => {
-    const sendNow = jest.fn();
-    const svc = buildServiceWithDenshiban(sendNow);
-    const manager = buildManager(true); // m_tanka.campaign_flg = true
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
-
-    await svc.syncDenshibanCreate(manager, after, 1);
-
-    expect(sendNow).not.toHaveBeenCalled();
-    // 会員ID採番も走らないこと（送信していないので確定する id が無い）。
-    expect(manager.update).not.toHaveBeenCalled();
-  });
-
-  it('紙版(1) は単価を読むまでもなく sendNow を呼ばない（安いチェックが先）', async () => {
-    const sendNow = jest.fn();
-    const svc = buildServiceWithDenshiban(sendNow);
-    const manager = buildManager(false);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 1, tankaId: 1 });
-
-    await svc.syncDenshibanCreate(manager, after, 1);
-
-    expect(sendNow).not.toHaveBeenCalled();
-    expect(manager.getRepository).not.toHaveBeenCalled();
-  });
-
-  it('併読(3) は sendNow を呼ばない（denshiban 側で別経路登録される）', async () => {
-    const sendNow = jest.fn();
-    const svc = buildServiceWithDenshiban(sendNow);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 3, tankaId: 1 });
-
-    await svc.syncDenshibanCreate(buildManager(false), after, 1);
-
-    expect(sendNow).not.toHaveBeenCalled();
-  });
-
-  it('キャンペーン単価の電子版は update 経路でも sendNow を呼ばない', async () => {
-    const sendNow = jest.fn();
-    const svc = buildServiceWithDenshiban(sendNow);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999; // 同期済み
-    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
-
-    await svc.syncDenshibanUpsert(buildManager(true), after, before, 1);
-
-    expect(sendNow).not.toHaveBeenCalled();
-  });
-
-  it('ゲートは after で判定する — 電子版→紙版 変更は送信しない', async () => {
-    const sendNow = jest.fn();
-    const svc = buildServiceWithDenshiban(sendNow);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 1, tankaId: 1 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = 9999;
-    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
-
-    await svc.syncDenshibanUpsert(buildManager(false), after, before, 1);
-
-    expect(sendNow).not.toHaveBeenCalled();
-  });
-
-  it('update フォールバック（未同期）でもゲートは一度しか単価を読まない', async () => {
-    const sendNow = jest.fn().mockResolvedValue({ id: '77', statusCode: '0' });
-    const svc = buildServiceWithDenshiban(sendNow);
-    const manager = buildManager(false);
-    const after = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2, tankaId: 1 });
-    (after as { denshiKaiinId: number | null }).denshiKaiinId = null;
-    const before = buildDokusya({ dokusyaId: 1, dokusyaShubetsu: 2 });
-
-    await svc.syncDenshibanUpsert(manager, after, before, 1);
-
-    expect(sendNow).toHaveBeenCalledTimes(1);
-    expect(sendNow.mock.calls[0][0]).toMatchObject({ mode: 'create' });
-    // create フォールバックがゲートを再実行すると 2 回になる。
-    expect(manager.getRepository).toHaveBeenCalledTimes(1);
   });
 });

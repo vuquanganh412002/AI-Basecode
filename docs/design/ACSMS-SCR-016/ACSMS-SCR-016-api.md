@@ -22,6 +22,7 @@ updated_by: Tran Duc Tuyen
 | 3   | 2026/06/25 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-06：(1) **手続種類カラムをテンプレート/取込列から削除**。取込で解約は扱わず、NEW は `tetsuzuki_shurui=1`（新規）固定、UPDATE は手続種類を変更しない（既存値維持）。(2) **販売店適用日カラムを追加**（テンプレート末尾）。(3) UPDATE は読者情報変更適用日が必須、販売店が変わる行は販売店適用日が必須（IMPORT_VALIDATION_ERROR）。(4) **UPDATE で情報変更と販売店変更が同時のとき履歴を2件に分割**（情報イベント: hanbaiten_tekiyo_date=NULL / 販売店イベント: hanbaiten_tekiyo_date=joho_henko=販売店適用日。適用日が早い方を先・遅い方を saishin_data_flg=true。UI 編集 SCR-011/013 §14.3 と同一ロジック）。旧 §4.4.4 一括中止（解約）は廃止。(5) **「購読者情報と同じ」(haitatsu_same_flg) 列を追加**（配達先列の直前）。TRUE なら配達先＝購読者住所で配達先列は空でよい。BE は推論せず列値を採用（列が空欄の行のみ従来の自動判定）。取込列上限は 49→50 に拡張。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/13 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07：**販売店適用日カラムを廃止**し、適用日を読者情報変更適用日(joho_henko_tekiyo_date)に統一（販売店・支払方法を含む全変更の唯一の適用日）。取込 UPDATE も **1更新1レコード**（情報+販売店を同時に変えても履歴は1件。UI編集 SCR-011/013・一括置換 SCR-015 と同一ロジックに完全統一）。v1.2 の「2件分割」と「販売店が変わる行は販売店適用日が必須」を撤廃。取込列上限は 50→49、テンプレート・列パネルから販売店適用日を除去。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/18 | 1.4  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：購読種別依存のバリデーションを共通モジュール(`dokusya-shubetsu.rules.ts`)に集約し UI編集(SCR-011)/一括置換(SCR-015)/取込(本画面)で統一。(1) **取込 UPDATE で当日変更を許可**（従来 v1.3 は一律「未来日のみ」）。電子版=当日のみ、紙版=当日/未来だが帳票影響項目(部数/販売店/住所)を当日変更した場合は予約変更（未来日）を要求。(2) **電子版の購読部数=1 を取込でも検証**（従来 未チェックのバグを修正）。(3) 併読・電子版クレカ の取込不可は据え置き（読取専用＝第3システム同期）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6   | 2026/07/27 | 1.5  | Tran Duc Tuyen | 顧客要件 2026-07：取込を**紙版/電子版の2モードに分離**。(1) 「購読種別」を Excel テンプレート列から**撤去**（49→48列）し、画面ラジオ（紙版/電子版）で選択して全取込行へ一律適用する **top-level パラメータ `dokusya_shubetsu`（1/2、必須・`@IsIn([1,2])`）** に変更（単一ソース。行データ・selected_columns からは除外）。(2) 3:併読はラジオに出さず取込不可（据え置き）。(3) UPDATE では既存購読者の購読種別が選択値と異なる行を `IMPORT_VALIDATION_ERROR`（field=dokusya_shubetsu）で弾く。(4) 電子版クレカ禁止・電子版メール必須/一意 等の種別依存ルールはラジオ値で判定。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -71,7 +72,7 @@ updated_by: Tran Duc Tuyen
 | 項目                   | 内容                                                                                                                                                                                                  |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Download Dokusya Import Template                                                                                                                                                                      |
-| 概要                   | 購読者Excelデータ取込用のテンプレートファイル（49列固定）を生成しダウンロードする。                                                                                                                   |
+| 概要                   | 購読者Excelデータ取込用のテンプレートファイル（48列固定）を生成しダウンロードする。                                                                                                                   |
 | URI                    | /api/v1/dokusya/import/template                                                                                                                                                                       |
 | メソッド               | GET                                                                                                                                                                                                   |
 | リクエストボディー     | なし                                                                                                                                                                                                  |
@@ -99,12 +100,12 @@ updated_by: Tran Duc Tuyen
 ### テンプレートファイル仕様
 
 - シート名：`購読者`
-- 1行目：ヘッダー行（49列を以下の順序で設定）
+- 1行目：ヘッダー行（48列を以下の順序で設定）
 
 | 列 | ヘッダー名                       | 論理カラム                 | 物理カラム                 | データ型      | 桁数 |
 | -- | -------------------------------- | -------------------------- | -------------------------- | ------------- | ---- |
 | 1  | ID                               | 購読者ID                   | dokusya_id                 | BIGINT        | -    |
-| 2  | 購読種別                         | 購読種別                   | dokusya_shubetsu           | INTEGER       | -    |
+| -  | ~~購読種別~~（**列から撤去** v1.5）| ~~購読種別~~              | ~~dokusya_shubetsu~~       | -             | -    |
 | 3  | ~~手続種類~~（**削除** v1.2）    | ~~手続種類~~               | ~~tetsuzuki_shurui~~       | -             | -    |
 | 4  | 管理支店                         | 管理支店コード             | kanri_shiten_code          | VARCHAR       | 20   |
 | 5  | 支店                             | 支店コード                 | shiten_code                | VARCHAR       | 20   |
@@ -155,6 +156,8 @@ updated_by: Tran Duc Tuyen
 | 49 | 読者情報変更適用日               | 読者情報変更適用日         | joho_henko_tekiyo_date     | DATE          | -    |
 
 > v1.3（顧客要件 2026-07）: 「販売店適用日」列を**廃止**し、適用日は「読者情報変更適用日」(joho_henko_tekiyo_date) に統一（販売店・支払方法を含む全変更の唯一の適用日）。取込 UPDATE も **1更新1レコード**（情報+販売店を同時に変えても履歴は1件。UI編集/一括置換と同一ロジック）。取込列は 50→49。実カラム順の正準は BE `IMPORT_TEMPLATE_HEADERS`。
+>
+> v1.5（顧客要件 2026-07）: 取込を**紙版/電子版の2モードに分離**。「購読種別」を Excel 列から**撤去**し、画面ラジオ（紙版/電子版）で選択して全取込行へ一律適用する top-level パラメータ `dokusya_shubetsu`（1/2）に変更（単一ソース）。取込列は 49→48。3:併読はラジオに出さず取込不可。UPDATE では既存購読者の購読種別が選択値と異なる行を弾く。
 > **NEW（新規登録）モードでは「読者情報変更適用日」は対象外**（履歴の変更イベント日であり新規登録に概念が無いため。取込列パネルでは未チェック＋disable、保存時は購読開始日に揃える）。UPDATE でのみ使用する。
 
 ## リクエスト例
@@ -221,8 +224,8 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 
 - ExcelJSライブラリを使用して新規ワークブックを生成する。
 - シート名：`購読者`
-- 1行目に49列のヘッダー文字列を以下の順序で書き込む。
-  - 「ID」「購読種別」「手続種類」「管理支店」「支店」「組合員コード」「購読者苗字（漢字）」「購読者名前（漢字）」「購読者苗字（かな）」「購読者名前（かな）」「購読部数」「新聞単価」「メールアドレス」「メールマガジン」「生年（西暦）」「性別」「郵便番号」「都道府県」「市町村郡」「丁目番地」「マンション・アパート名」「連絡先１」「連絡先２」「郵便番号(配達先)」「都道府県(配達先)」「市町村郡(配達先)」「丁目番地(配達先)」「ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)」「連絡先１(配達先)」「連絡先２(配達先)」「配達先苗字（漢字）」「配達先名前（漢字）」「配達先苗字（かな）」「配達先名前（かな）」「販売店コード」「郵送区分」「支払方法」「購読料支払サイクル（月数）」「引落口座貯金種目」「引落口座支店コード」「引落口座支店名」「引落口座番号」「引落口座名義」「購読者層分類」「農業者分類」「購読開始日」「購読中止日」「備考」「読者情報変更適用日」
+- 1行目に48列のヘッダー文字列を以下の順序で書き込む（購読種別は画面ラジオの単一ソースのため列に含めない・v1.5）。
+  - 「ID」「管理支店」「支店」「組合員コード」「購読者苗字（漢字）」「購読者名前（漢字）」「購読者苗字（かな）」「購読者名前（かな）」「購読部数」「新聞単価」「メールアドレス」「メールマガジン」「生年（西暦）」「性別」「郵便番号」「都道府県」「市町村郡」「丁目番地」「マンション・アパート名」「連絡先１」「連絡先２」「郵便番号(配達先)」「都道府県(配達先)」「市町村郡(配達先)」「丁目番地(配達先)」「ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)」「連絡先１(配達先)」「連絡先２(配達先)」「配達先苗字（漢字）」「配達先名前（漢字）」「配達先苗字（かな）」「配達先名前（かな）」「販売店コード」「郵送区分」「支払方法」「購読料支払サイクル（月数）」「引落口座貯金種目」「引落口座支店コード」「引落口座支店名」「引落口座番号」「引落口座名義」「購読者層分類」「農業者分類」「購読開始日」「購読中止日」「備考」「読者情報変更適用日」
 - ヘッダー行はボールドスタイル、背景色を設定する。
 - 2行目に書式見本となるサンプルデータ行を1行書き込む（紙版(1)/新規(1)、購読部数>0、性別1、かなはひらがな、郵便番号7桁、連絡先は半角数字、支払方法は現金集金(2)で引落口座不要、購読開始日は YYYY-MM-DD）。管理支店・支店・新聞単価・販売店コード等のFKコード列は自組織固有のため空欄とし、備考欄に「インポート前に書き換えてください。」と明記する。
 - 各列の幅を項目内容に合わせて自動調整する。
@@ -260,11 +263,12 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 
 | #   | パラメーターID                | タイプ  | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                                                                                       |
 | --- | ----------------------------- | ------- | -------- | ---- | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | import_mode                   | String  | -        | ○    |        |        | 取込モード（`NEW`:新規登録, `UPDATE_ALL`:全項目更新, `UPDATE_PARTIAL`:入力箇所のみ更新）                                                                  |
-| 2   | selected_columns              | Array   | 〇       | ○    | 1      | 49     | 取込対象の列（物理カラム名）配列。新規登録モードでは必須列を必ず含むこと。                                                                                 |
+| 1   | import_mode                   | String  | -        | ○    |        |        | 取込モード（`NEW`:新規登録, `UPDATE`:更新）                                                                                                                |
+| 1a  | dokusya_shubetsu              | Number  | -        | ○    | -      | -      | **購読種別（top-level・v1.5 顧客要件 2026-07）**。画面ラジオで選択し全取込行へ一律適用する単一ソース（Excel の列ではない）。**1:紙版 / 2:電子版 のみ**。3:併読は取込不可（`@IsIn([1,2])`）。 |
+| 2   | selected_columns              | Array   | 〇       | ○    | 1      | 48     | 取込対象の列（物理カラム名）配列。新規登録モードでは必須列を必ず含むこと。                                                                                 |
 | 3   | rows                          | Array   | 〇       | ○    | 1      | 30000  | 取込データ行の配列。30000件を超える場合は `ROW_LIMIT_EXCEEDED` を返却する。                                                                                |
-| 4   | →dokusya_id                   | Number  | -        | -    | -      | -      | 購読者ID。`UPDATE_ALL` / `UPDATE_PARTIAL` モード（組合員コード未指定時）はキー項目として必須。`NEW` モードは無視する。                                     |
-| 5   | →dokusya_shubetsu             | Number  | -        | -    | -      | -      | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。Excel取込みは 1/2 のみ受付。3 はエラー。                              |
+| 4   | →dokusya_id                   | Number  | -        | -    | -      | -      | 購読者ID。`UPDATE` モード（組合員コード未指定時）はキー項目として必須。`NEW` モードは無視する。                                                            |
+| 5   | ~~→dokusya_shubetsu~~（**列から撤去** v1.5） | -  | -   | -   | -   | -   | 購読種別は行データではなく top-level `dokusya_shubetsu`（#1a）で一律指定する（画面ラジオの単一ソース）。UPDATE では既存購読者の購読種別が選択値と異なる行を `IMPORT_VALIDATION_ERROR`（field=dokusya_shubetsu）で弾く。 |
 | 6   | →tetsuzuki_shurui             | Number  | -        | -    | -      | -      | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                  |
 | 7   | →kanri_shiten_code            | String  | -        | -    | 0      | 20     | 管理支店コード。自JA内の m_kanri_shiten.kanri_shiten_code を解決し t_dokusya.kanri_shiten_id へ保存。`NEW` モードは必須。                                    |
 | 8   | →shiten_code                  | String  | -        | -    | 0      | 20     | 支店コード。自JA内の m_shiten.shiten_code を解決し t_dokusya.shiten_id へ保存。                                                                              |
@@ -342,9 +346,8 @@ Content-Type: application/json
 
 {
   "import_mode": "NEW",
+  "dokusya_shubetsu": 1,
   "selected_columns": [
-    "dokusya_shubetsu",
-    "tetsuzuki_shurui",
     "kanri_shiten_code",
     "shiten_code",
     "shimei_sei",
@@ -362,8 +365,6 @@ Content-Type: application/json
   ],
   "rows": [
     {
-      "dokusya_shubetsu": 1,
-      "tetsuzuki_shurui": 1,
       "kanri_shiten_code": "KS001",
       "shiten_code": "SH001",
       "shimei_sei": "山田",
@@ -380,8 +381,6 @@ Content-Type: application/json
       "dokusya_kaishi_date": "2026-05-01"
     },
     {
-      "dokusya_shubetsu": 1,
-      "tetsuzuki_shurui": 1,
       "kanri_shiten_code": "KS001",
       "shiten_code": "SH001",
       "shimei_sei": "鈴木",
@@ -441,7 +440,7 @@ Content-Type: application/json
   "error_code": "IMPORT_VALIDATION_ERROR",
   "message": "Excel取込データにエラーがあります。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "row": 2, "field": "dokusya_shubetsu", "message": "購読種別が3:併読のためExcel取込みできません。" },
+    { "row": 2, "field": "dokusya_shubetsu", "message": "選択した購読種別と異なる購読者が含まれています。" },
     { "row": 3, "field": "shiharai_hoho", "message": "電子版かつクレジットカード決済の組み合わせは取込みできません。" },
     { "row": 5, "field": "tanka_code", "message": "指定された新聞単価コードが見つかりません。" },
     { "row": 7, "field": "dokusya_busu", "message": "新規登録の場合、購読部数は0より大きい値を指定してください。" },
@@ -515,13 +514,13 @@ Content-Type: application/json
 - リクエストボディの検証：
   - `import_mode`：必須、`NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のいずれか
   - `selected_columns`：必須、配列、1件以上
-    - `NEW` モードでは、新規登録必須項目（dokusya_shubetsu, kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと（手続種類はシステムが新規(1)を設定するため対象外。v1.2）
+    - `NEW` モードでは、新規登録必須項目（kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと（手続種類はシステムが新規(1)を設定するため対象外。v1.2。購読種別は top-level `dokusya_shubetsu` で一律指定するため selected_columns 対象外。v1.5）
   - `rows`：必須、配列、1件以上、30000件以下
     - 30000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
   - 各行 `rows[i]` の検証（`selected_columns` 対象列のみ）：
     - 文字列項目：最大桁数チェック
     - 数値項目：型チェック、範囲チェック
-    - `dokusya_shubetsu`：1 / 2 のみ受付。3 はエラー（電子版連携のみで、Excel取込み対象外）
+    - `dokusya_shubetsu`（top-level・画面ラジオの単一ソース・v1.5）：1:紙版 / 2:電子版 のみ受付（`@IsIn([1,2])`）。3:併読はエラー（電子版連携のみで、Excel取込み対象外）。UPDATE では更新対象の既存購読者の購読種別が選択値と異なる行を `IMPORT_VALIDATION_ERROR`（field=dokusya_shubetsu, message=「選択した購読種別と異なる購読者が含まれています。」）で弾く。
     - `tetsuzuki_shurui`：取込対象外（v1.2 — テンプレートから削除。NEW=新規(1)固定・UPDATE=変更不可）
     - `gender`：1 / 2 / 9 のいずれか、または文言「男性」「女性」「回答しない」を数値に変換して取込
     - `hikiotoshi_yokin_shubetsu`：1 / 2 のいずれか、または文言「普通」「当座」を数値に変換して取込

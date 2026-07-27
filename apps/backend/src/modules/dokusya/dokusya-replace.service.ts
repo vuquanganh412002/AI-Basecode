@@ -137,26 +137,56 @@ export class DokusyaReplaceService {
     qb.leftJoin('m_hanbaiten', 'h', 'h.hanbaiten_id = d.hanbaiten_id');
     qb.leftJoin('m_todofuken', 't', 't.todofuken_code = d.haitatsu_todofuken_code');
 
-    // §4.3 固定条件 — 購読中 only, exclude soft-deleted.
-    qb.where(`d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}`);
-    qb.andWhere('d.deleted_at IS NULL');
+    // §4.3 固定条件 — soft-delete を除外（購読中/種別/適用日/販売店は as-of 履歴で判定）。
+    qb.where('d.deleted_at IS NULL');
 
-    // §4.3 購読種別で絞り込む（必須・1:紙版 / 2:電子版・顧客要件 2026-07）。
-    qb.andWhere('d.dokusya_shubetsu = :rkShubetsu', {
-      rkShubetsu: query.dokusya_shubetsu,
-    });
-
-    // §4.3 適用日(joho)で「置換可能」な購読者のみに絞る（顧客要件 2026-07）。
-    // 置換の実行時チェック(assertReplaceTekiyoDate)と同一の境界を per-row で適用:
-    //   購読開始日 <= 適用日  かつ  (解約予定日が無い OR 解約予定日 > 適用日)。
-    // これで返る各行は個別に適用日で置換可能 → 任意の部分集合を選択しても実行時の
-    // 集約チェックが必ず通る。
-    qb.andWhere('d.dokusya_kaishi_date <= :rkApplied', {
-      rkApplied: query.joho_henko_tekiyo_date,
-    });
+    // §4.3 置換対象の候補集合（顧客要件 2026-07 改訂・as-of 適用日）:
+    //   各購読者の「適用日時点で有効な履歴レコード」= joho_henko_tekiyo_date が
+    //   適用日以下で最大（同 joho は rireki_no 最大）の t_dokusya_rireki 行。
+    //   その有効レコードが
+    //     - 配達販売店 = 置換元(hanbaiten_id)
+    //     - 購読中 (tetsuzuki_shurui = 新規)
+    //     - 指定購読種別 (紙版/電子版)
+    //     - 適用日時点で購読中: dokusya_kaishi_date ≦ 適用日 かつ
+    //       (dokusya_chushi_date が無い OR > 適用日)
+    //   を満たす購読者のみ返す。未来の適用日でも、その時点で有効な履歴で判定する
+    //   （現行 master の販売店ではなく、適用日時点の販売店で置換元を突き合わせる）。
+    // 置換元(hanbaiten_id) は任意（顧客要件 2026-07 改訂）。指定時のみ「有効レコードの
+    // 配達販売店 = 置換元」で追加絞り込みする。置換先(new_hanbaiten_id) は必須で、
+    // 「≠ 置換先」を常に適用し、既に置換先を配達している購読者を除外する。
+    const sourceClause =
+      query.hanbaiten_id != null
+        ? 'AND eff.hanbaiten_id = :rkSourceHanbaiten\n          '
+        : '';
     qb.andWhere(
-      '(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :rkApplied)',
-      { rkApplied: query.joho_henko_tekiyo_date },
+      `d.dokusya_id IN (
+        SELECT eff.dokusya_id FROM (
+          SELECT DISTINCT ON (r.dokusya_id)
+                 r.dokusya_id,
+                 r.hanbaiten_id,
+                 r.tetsuzuki_shurui,
+                 r.dokusya_shubetsu,
+                 r.dokusya_kaishi_date,
+                 r.dokusya_chushi_date
+          FROM t_dokusya_rireki r
+          WHERE r.joho_henko_tekiyo_date IS NOT NULL
+            AND r.joho_henko_tekiyo_date <= :rkApplied
+          ORDER BY r.dokusya_id, r.joho_henko_tekiyo_date DESC, r.rireki_no DESC
+        ) eff
+        WHERE eff.hanbaiten_id <> :rkDestHanbaiten
+          ${sourceClause}AND eff.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
+          AND eff.dokusya_shubetsu = :rkShubetsu
+          AND eff.dokusya_kaishi_date <= :rkApplied
+          AND (eff.dokusya_chushi_date IS NULL OR eff.dokusya_chushi_date > :rkApplied)
+      )`,
+      {
+        rkApplied: query.joho_henko_tekiyo_date,
+        rkDestHanbaiten: query.new_hanbaiten_id,
+        rkShubetsu: query.dokusya_shubetsu,
+        ...(query.hanbaiten_id != null
+          ? { rkSourceHanbaiten: query.hanbaiten_id }
+          : {}),
+      },
     );
 
     // §4.2 DataScope.
@@ -178,11 +208,8 @@ export class DokusyaReplaceService {
     if (query.shiten_id !== undefined) {
       qb.andWhere('d.shiten_id = :rkShitenId', { rkShitenId: query.shiten_id });
     }
-    if (query.hanbaiten_id !== undefined) {
-      qb.andWhere('d.hanbaiten_id = :rkHanbaitenId', {
-        rkHanbaitenId: query.hanbaiten_id,
-      });
-    }
+    // 置換元(hanbaiten_id) は上の as-of 候補サブクエリで適用済み（master の
+    // 現行 hanbaiten では絞らない）。
     if (query.kumiaiin_code) {
       qb.andWhere('d.kumiaiin_code ILIKE :rkKumiaiin', {
         rkKumiaiin: `%${query.kumiaiin_code}%`,

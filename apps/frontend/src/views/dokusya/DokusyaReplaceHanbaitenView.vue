@@ -70,6 +70,9 @@ interface ReplaceFilters {
   dokusya_shubetsu: number | undefined;
   /** 情報変更適用日（必須）。紙版=未来日のみ／電子版=本日のみ。置換可能な購読者のみ検索。 */
   joho_henko_tekiyo_date: string;
+  /** 置換先配達販売店（必須）。検索では「有効レコードの販売店 ≠ 置換先」で絞り、
+   *  置換実行のターゲットにもなる（顧客要件 2026-07）。未選択は undefined。 */
+  new_hanbaiten_id: number | undefined;
 }
 
 const DEFAULT_FILTERS: ReplaceFilters = {
@@ -84,6 +87,7 @@ const DEFAULT_FILTERS: ReplaceFilters = {
   dokusya_kaishi_date_to: '',
   dokusya_shubetsu: undefined,
   joho_henko_tekiyo_date: '',
+  new_hanbaiten_id: undefined,
 };
 
 const authStore = useAuthStore();
@@ -102,14 +106,6 @@ const {
 
 const rows = ref<ReplaceSearchItem[]>([]);
 const selectedRowKeys = ref<number[]>([]);
-
-/** Staged replace form — revealed once ≥1 row is checked. 適用日 は検索条件へ
- * 移動したため（顧客要件）、post-selection では 置換先(new_hanbaiten_id) のみ選ぶ。 */
-const replaceForm = ref<{
-  new_hanbaiten_id: number | undefined;
-}>({
-  new_hanbaiten_id: undefined,
-});
 
 /** 検索を1回でも実行したか（初期表示は自動検索しない → 未検索時は空文言を出さない）。 */
 const searched = ref(false);
@@ -169,6 +165,10 @@ const isTekiyoDateDisabled = computed(
 
 /** 検索エリアの購読種別/適用日バリデーションメッセージ。 */
 const searchError = ref<string>('');
+/** 購読種別 直下に出す検索バリデーションメッセージ（未選択）。 */
+const shubetsuError = ref<string>('');
+/** 置換先配達販売店 直下に出す検索バリデーションメッセージ（必須／置換元と同一）。 */
+const destError = ref<string>('');
 
 /** 電子版は本画面（販売店一括置換）の対象外である旨のメッセージ（顧客要件 2026-07 改訂・
  *  ACSMS-MSG-015-009）。電子版=電子配信で販売店を持たないため一括置換できない。 */
@@ -186,6 +186,8 @@ watch(
   (shubetsu) => {
     state.filters.joho_henko_tekiyo_date = '';
     searchError.value = '';
+    shubetsuError.value = '';
+    destError.value = '';
     if (shubetsu === DokusyaShubetsu.DIGITAL) {
       message.warning(MSG_DIGITAL_UNSUPPORTED); // トーストのみ（顧客要件 2026-07）
     }
@@ -290,9 +292,10 @@ function buildSearchParams(): ReplaceSearchParams {
     per_page: state.per_page,
     sort_by: state.sort_by as ReplaceSearchParams['sort_by'],
     sort_order: state.sort_order,
-    // 適用日 + 購読種別 は必須（検索前に validateSearch で担保）。
+    // 適用日 + 購読種別 + 置換元 + 置換先 は必須（検索前に validateSearch で担保）。
     joho_henko_tekiyo_date: f.joho_henko_tekiyo_date,
     dokusya_shubetsu: f.dokusya_shubetsu as number,
+    new_hanbaiten_id: f.new_hanbaiten_id as number,
   };
   // 管理支店 / 販売店 は Base*Dropdown が未選択時 null を emit（!= null で両対応）。
   if (f.kanri_shiten_id != null) params.kanri_shiten_id = f.kanri_shiten_id;
@@ -301,6 +304,7 @@ function buildSearchParams(): ReplaceSearchParams {
   if (f.shimei) params.shimei = f.shimei;
   if (f.shimei_kana) params.shimei_kana = f.shimei_kana;
   if (f.haitatsu_address) params.haitatsu_address = f.haitatsu_address;
+  // 配達販売店（置換元）は任意 — 指定時のみ絞り込みに送る。
   if (f.hanbaiten_id != null) params.hanbaiten_id = f.hanbaiten_id;
   if (f.dokusya_kaishi_date_from)
     params.dokusya_kaishi_date_from = f.dokusya_kaishi_date_from;
@@ -357,9 +361,9 @@ const { onSearch: runSearch, onClear: runClear } = searchActions({
   fetchList,
   beforeSearch: trimTextFilters,
   beforeClear() {
+    // 置換先を含む全フィルタは resetFilters が DEFAULT_FILTERS へ戻す。
     selectedRowKeys.value = [];
     shitenOptions.value = [];
-    replaceForm.value = { new_hanbaiten_id: undefined };
     replaceError.value = '';
   },
 });
@@ -369,25 +373,51 @@ const { onSearch: runSearch, onClear: runClear } = searchActions({
  *   （通常は検索ボタンが無効化されるが、防御的に validateSearch でも弾く）。 */
 function validateSearch(): boolean {
   searchError.value = '';
-  if (state.filters.dokusya_shubetsu === undefined) {
-    searchError.value = '購読種別を選択してください。';
-    return false;
-  }
+  shubetsuError.value = '';
+  destError.value = '';
+
+  // 電子版は本画面の対象外（ACSMS-MSG-015-009）。トーストで通知済みのため、他項目は
+  // 検証せず即ブロックする（インラインメッセージは出さない）。
   if (isDigitalShubetsu.value) {
-    // 電子版は本画面の対象外（ACSMS-MSG-015-009）。通知はトースト（種別選択時に
-    // 発火済み）で行い、インラインメッセージは出さないため検索を止めるだけ。
     return false;
   }
+
+  // 顧客要件: submit 時に全必須項目を一度に検証し、該当メッセージを各フィールド
+  // 直下へまとめて表示する（1件ずつ順番に出さない）。
+  let ok = true;
+
+  // 購読種別（必須）— メッセージは購読種別フィールド直下。
+  if (state.filters.dokusya_shubetsu === undefined) {
+    shubetsuError.value = '購読種別を選択してください。';
+    ok = false;
+  }
+
+  // 適用日（必須・紙版は未来日のみ）— メッセージは適用日フィールド直下。
   const d = state.filters.joho_henko_tekiyo_date;
   if (!d?.trim()) {
     searchError.value = '適用日を入力してください。'; // ACSMS-MSG-015-004
-    return false;
-  }
-  if (d <= todayIsoTokyo()) {
+    ok = false;
+  } else if (d <= todayIsoTokyo()) {
     searchError.value = '紙版の適用日は本日より後の日付を入力してください。';
-    return false;
+    ok = false;
   }
-  return true;
+
+  // 置換先配達販売店（必須）+ 配達販売店（任意）と同一チェック — メッセージは
+  // 置換先フィールド直下。置換先は「有効履歴の販売店 ≠ 置換先」で絞り、置換実行の
+  // ターゲットにもなる（顧客要件 2026-07）。配達販売店（置換元）は任意。
+  if (state.filters.new_hanbaiten_id == null) {
+    destError.value = '置換先配達販売店を選択してください。';
+    ok = false;
+  } else if (
+    state.filters.hanbaiten_id != null &&
+    state.filters.hanbaiten_id === state.filters.new_hanbaiten_id
+  ) {
+    destError.value =
+      '配達販売店と置換先配達販売店が同じです。異なる販売店を選択してください。';
+    ok = false;
+  }
+
+  return ok;
 }
 
 /** 検索 — 適用日を検証してから searchActions.onSearch を実行する。 */
@@ -400,6 +430,8 @@ function onSearch(): void {
  * 適用日が空になるため runClear 内の fetchList は空ガードで API を呼ばず空状態に戻る。 */
 function onClear(): void {
   searchError.value = '';
+  shubetsuError.value = '';
+  destError.value = '';
   runClear();
   rows.value = [];
   total.value = 0;
@@ -416,7 +448,6 @@ watch(
       total.value = 0;
       searched.value = false;
       selectedRowKeys.value = [];
-      replaceForm.value = { new_hanbaiten_id: undefined };
       replaceError.value = '';
     }
   },
@@ -447,14 +478,14 @@ const selectedRows = computed(() =>
  */
 function validateReplace(): boolean {
   replaceError.value = '';
-  const form = replaceForm.value;
-  // 置換先 required.（適用日は検索条件で入力済み・検証済みのためここでは不要）
-  if (form.new_hanbaiten_id === undefined || form.new_hanbaiten_id === null) {
+  // 置換先は検索条件（必須）で入力・検証済み。防御的に未選択を弾く。
+  const newHanbaitenId = state.filters.new_hanbaiten_id;
+  if (newHanbaitenId === undefined || newHanbaitenId === null) {
     replaceError.value = MSG_REQUIRED;
     return false;
   }
   // 置換先 ≠ a selected row's current 販売店.
-  if (selectedRows.value.some((r) => r.hanbaiten_id === form.new_hanbaiten_id)) {
+  if (selectedRows.value.some((r) => r.hanbaiten_id === newHanbaitenId)) {
     replaceError.value = MSG_SAME_HANBAITEN;
     return false;
   }
@@ -473,21 +504,20 @@ function validateReplace(): boolean {
 }
 
 async function runReplace(): Promise<void> {
-  const form = replaceForm.value;
-  if (form.new_hanbaiten_id === undefined) return;
+  const newHanbaitenId = state.filters.new_hanbaiten_id;
+  if (newHanbaitenId === undefined) return;
   submitting.value = true;
   try {
     await replaceDokusyaHanbaiten({
       dokusya_ids: [...selectedRowKeys.value],
-      new_hanbaiten_id: form.new_hanbaiten_id,
-      // 適用日・購読種別は検索条件の値をそのまま使う（検索で入力・検証済み）。
+      // 置換先・適用日・購読種別は検索条件の値をそのまま使う（検索で入力・検証済み）。
+      new_hanbaiten_id: newHanbaitenId,
       joho_henko_tekiyo_date: state.filters.joho_henko_tekiyo_date,
       dokusya_shubetsu: state.filters.dokusya_shubetsu as number,
     });
     // Custom copy (subject-bearing) — verb-only notify helpers don't fit.
     message.success(MSG_SUCCESS);
     selectedRowKeys.value = [];
-    replaceForm.value = { new_hanbaiten_id: undefined };
     replaceError.value = '';
     await fetchList();
   } catch {
@@ -516,7 +546,6 @@ function onExecuteReplace(): void {
 // Expose reactive state the spec drives / reads.
 defineExpose({
   state,
-  replaceForm,
   selectedRowKeys,
   rows,
   submitting,
@@ -532,6 +561,7 @@ defineExpose({
       :loading="loading"
       :disable-submit="hasSelection || isDigitalShubetsu"
       :columns="4"
+      align-start
       @search="onSearch"
       @clear="onClear"
     >
@@ -609,7 +639,8 @@ defineExpose({
         />
       </div>
 
-      <!-- 配達販売店 -->
+      <!-- 配達販売店（任意）— 指定時のみ「適用日時点の有効履歴の配達販売店 = この値」で
+           追加絞り込みする（置換元の絞り込み。未指定なら置換先以外の全販売店が対象）。 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
         <BaseHanbaitenDropdown
@@ -643,22 +674,31 @@ defineExpose({
 
       <!-- 購読種別 (必須・紙版/電子版のみ) — 対象種別で購読者を絞り込む。選択するまで
            適用日は入力不可（顧客要件 2026-07）。電子版=当日のみ / 紙版=未来日のみ。 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">購読種別</span>
-        <span class="text-error">*</span>
-        <a-radio-group
-          v-model:value="state.filters.dokusya_shubetsu"
-          data-test="replace-shubetsu"
-          class="flex-1"
-        >
-          <a-radio
-            v-for="opt in shubetsuOptions"
-            :key="opt.value"
-            :value="Number(opt.value)"
+      <div class="text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2">
+          <span class="whitespace-nowrap">購読種別</span>
+          <span class="text-error">*</span>
+          <a-radio-group
+            v-model:value="state.filters.dokusya_shubetsu"
+            data-test="replace-shubetsu"
+            class="flex-1"
           >
-            {{ opt.label }}
-          </a-radio>
-        </a-radio-group>
+            <a-radio
+              v-for="opt in shubetsuOptions"
+              :key="opt.value"
+              :value="Number(opt.value)"
+            >
+              {{ opt.label }}
+            </a-radio>
+          </a-radio-group>
+        </div>
+        <p
+          v-if="shubetsuError"
+          class="text-error text-sm font-normal mt-1"
+          data-test="replace-shubetsu-error"
+        >
+          {{ shubetsuError }}
+        </p>
       </div>
 
       <!-- 適用日 (必須) — 購読種別 選択後に有効化。紙版=未来日のみ（カレンダー入力）／
@@ -689,20 +729,26 @@ defineExpose({
         </p>
       </div>
 
-      <!-- 置換先配達販売店 — revealed once ≥1 row selected (機能定義 5.x)。
-           適用日は上の検索条件で入力済みのため、ここでは置換先のみ選ぶ。
-           適用日と同じ 1 セル幅で並べてレイアウトを揃える。 -->
-      <div
-        v-if="hasSelection"
-        class="flex items-center gap-2 text-sm font-medium text-text-main"
-      >
-        <span class="whitespace-nowrap">置換先配達販売店</span>
-        <span class="text-error">*</span>
-        <BaseHanbaitenDropdown
-          v-model:value="replaceForm.new_hanbaiten_id"
-          :ja-id="filterJaId"
-          class="flex-1"
-        />
+      <!-- 置換先配達販売店（必須・顧客要件 2026-07）— 適用日の直後に配置。検索では
+           「適用日時点の有効履歴の販売店 ≠ 置換先」で絞り込み（= 置換元 かつ ≠ 置換先）、
+           置換実行のターゲットにもなる。 -->
+      <div class="text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2">
+          <span class="whitespace-nowrap">置換先配達販売店</span>
+          <span class="text-error">*</span>
+          <BaseHanbaitenDropdown
+            v-model:value="state.filters.new_hanbaiten_id"
+            :ja-id="filterJaId"
+            class="flex-1"
+          />
+        </div>
+        <p
+          v-if="destError"
+          class="text-error text-sm font-normal mt-1"
+          data-test="replace-dest-error"
+        >
+          {{ destError }}
+        </p>
       </div>
 
       <!-- 置換処理実行 — enabled once ≥1 row selected. -->

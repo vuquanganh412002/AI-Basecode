@@ -16,7 +16,6 @@
  */
 export const PHYSICAL_COLUMNS = [
   'dokusya_id',
-  'dokusya_shubetsu',
   'kanri_shiten_code',
   'shiten_code',
   'kumiaiin_code',
@@ -70,7 +69,6 @@ export type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 /** Japanese display headers — must match BE template column order. */
 export const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_id: 'ID',
-  dokusya_shubetsu: '購読種別',
   kanri_shiten_code: '管理支店',
   shiten_code: '支店',
   kumiaiin_code: '組合員コード',
@@ -144,7 +142,6 @@ export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
  * mode = 新規登録 (NEW). Mirrors api.md §4.1 NEW-mode required list.
  */
 export const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
-  'dokusya_shubetsu',
   'kanri_shiten_code',
   'shiten_code',
   'shimei_sei',
@@ -169,11 +166,11 @@ export const KEY_COLUMN: PhysicalColumn = 'dokusya_id';
 
 /**
  * 入力箇所のみ更新（UPDATE_PARTIAL）で「編集不可」の項目。
- * 購読種別 / 氏名4項目 / 購読開始日 はフォーム編集でも不変のため、
- * 部分更新でも未チェック＋disable にして更新対象から外す。
+ * 氏名4項目 / 購読開始日 はフォーム編集でも不変のため、部分更新でも
+ * 未チェック＋disable にして更新対象から外す。購読種別は画面ラジオで
+ * 一括指定する単一ソース（Excel 列ではない）ため対象外。
  */
 export const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
-  'dokusya_shubetsu',
   'shimei_sei',
   'shimei_mei',
   'shimei_kana_sei',

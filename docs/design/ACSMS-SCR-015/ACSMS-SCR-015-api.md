@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-05-15
 created_date: 2026/05/15
 created_by: Tran Duc Tuyen
-updated_date: 2026/06/02
+updated_date: 2026/07/24
 updated_by: Tran Duc Tuyen
 ---
 
@@ -23,6 +23,9 @@ updated_by: Tran Duc Tuyen
 | 4   | 2026/07/18 | 1.3  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：検索・置換実行 両 API に `dokusya_shubetsu`（購読種別・**必須・1:紙版 / 2:電子版 のみ**）を追加。適用日ルールを種別依存に変更（**紙版=未来日のみ／電子版=当日のみ**）。検索は種別で絞り込み、置換実行は全候補が同一種別であることを整合チェック。UI は種別未選択時に適用日を非活性、電子版選択時は当日を自動セット | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/22 | 1.4  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：**電子版(2) を本画面（販売店一括置換）の対象外**に変更。検索・置換実行 両 API とも `dokusya_shubetsu=2` は日付に関係なく HTTP 400 (`VALIDATION_ERROR`, `{ field: "dokusya_shubetsu", message: "電子版は本画面では対象外です。" }`／ACSMS-MSG-015-009) を返す（候補取得より前に拒否・FE の検索ボタン無効化に対する防御的ガード）。電子版=電子配信で販売店を持たないため一括置換できない。※1.3 の「電子版=当日置換」は撤回。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 6   | 2026/07/23 | 1.5  | Tran Duc Tuyen | 顧客要件（2026-07）：`t_dokusya_rireki.hanbaiten_tekiyo_date`（販売店適用日）カラムを廃止。検索・置換実行 両 API のリクエスト項目 `hanbaiten_tekiyo_date` を `joho_henko_tekiyo_date`（適用日）へ改名し、適用日を読者情報変更適用日に一本化（販売店のみ変更でも同一適用日で履歴1件・専用の販売店適用日列は持たない）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 7   | 2026/07/24 | 1.6  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API の `hanbaiten_id`（**置換元配達販売店**）を**必須**化。置換対象の判定を現行 master の販売店から **as-of 適用日** に変更：各購読者の「適用日時点で有効な履歴レコード」（`t_dokusya_rireki` で `joho_henko_tekiyo_date ≦ 適用日` の最大 joho・`DISTINCT ON(dokusya_id)`）の配達販売店 = 置換元、かつ適用日時点で購読中（購読中/種別/`kaishi ≦ 適用日 < chushi`）の購読者のみ返す。未来の適用日でもその時点の販売店で母集合を確定する。§4.3 §4.4 §4.5・リクエストパラメータ No.7 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 8   | 2026/07/24 | 1.7  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API に `new_hanbaiten_id`（**置換先配達販売店**）を**必須**追加。検索は「= 置換元 かつ ≠ 置換先」で絞り込み（as-of 有効レコードの配達販売店に `eff.hanbaiten_id <> :new_hanbaiten_id` を追加）、既に置換先を配達している購読者を除外する（置換元 = 置換先 は 0 件・FE で事前弾き）。FE は置換先を検索エリア（適用日の直後）へ移動し、選択後の置換先入力欄を廃止して検索条件の値を置換実行にそのまま用いる。リクエストパラメータ No.7.5・§概要・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 9   | 2026/07/25 | 1.8  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：`hanbaiten_id`（配達販売店）を**必須→任意**へ戻す（ラベルも「置換元配達販売店」→「配達販売店」）。指定時のみ `eff.hanbaiten_id = :hanbaiten_id` で追加絞り込み、未指定なら「置換先以外の全販売店」が対象。`new_hanbaiten_id`（置換先）は引き続き必須で `≠ 置換先` を常に適用。§概要・リクエストパラメータ No.7・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -76,7 +79,7 @@ updated_by: Tran Duc Tuyen
 | 項目                   | 内容                                                                                                                                                                                                                  |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Search Dokusya for Hanbaiten Replacement                                                                                                                                                                              |
-| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`tetsuzuki_shurui=1`（購読中）のみ返却。`joho_henko_tekiyo_date`（適用日）は**必須**で、その適用日時点で置換可能な購読者のみ返却する（顧客要件 2026-07：画面初期表示では検索しない・適用日を入力して検索する運用）。 |
+| 概要                   | 販売店一括置換対象の購読者を検索する（検索条件 + DataScope + ページネーション対応）。`joho_henko_tekiyo_date`（適用日）・`new_hanbaiten_id`（**置換先**）は**必須**、`hanbaiten_id`（配達販売店）は**任意**。適用日時点で有効な履歴レコード（as-of 適用日）の配達販売店が **置換先と一致せず**（配達販売店を指定した場合はさらに **その値と一致**）、その時点で購読中の購読者のみ返却する（顧客要件 2026-07：画面初期表示では検索しない・適用日＋置換先を入力して検索する運用）。 |
 | URI                    | /api/v1/dokusya/replace-hanbaiten/search                                                                                                                                                                              |
 | メソッド               | GET                                                                                                                                                                                                                   |
 | リクエストボディー     | なし                                                                                                                                                                                                                  |
@@ -94,7 +97,8 @@ updated_by: Tran Duc Tuyen
 | 4   | shimei                    | String  | -    | -      | 100    | 氏名（`shimei_sei + shimei_mei` を連結した値で部分一致 LIKE）                                       |
 | 5   | shimei_kana               | String  | -    | -      | 200    | かな氏名（`shimei_kana_sei + shimei_kana_mei` を連結した値で部分一致 LIKE）                         |
 | 6   | haitatsu_address          | String  | -    | -      | 300    | 配達先住所（都道府県名＋市区町村郡＋丁目番地＋建物名を連結した値で部分一致 LIKE）                   |
-| 7   | hanbaiten_id              | Number  | -    | -      | -      | 配達販売店ID（完全一致）                                                                            |
+| 7   | hanbaiten_id              | Number  | -    | -      | -      | 配達販売店ID（**任意**）。指定時のみ、適用日時点で有効な履歴（`joho_henko_tekiyo_date ≦ 適用日` の最大 joho）の配達販売店がこの値の購読者に追加で絞り込む（後述 §置換可能条件・as-of 適用日）。未指定なら置換先以外の全販売店が対象 |
+| 7.5 | new_hanbaiten_id          | Number  | ○    | -      | -      | 置換先配達販売店ID（**必須**）。検索では有効履歴の配達販売店がこの値**でない**購読者に絞る（= 置換元 かつ ≠ 置換先）。置換元と同一だと 0 件（FE で事前バリデーション）。置換実行 API の `new_hanbaiten_id` と同一値。未選択は HTTP 400（`置換先配達販売店を選択してください。`） |
 | 8   | dokusya_kaishi_date_from  | String  | -    | -      | 10     | 購読開始日（開始）YYYY-MM-DD。`shoki_dokusya_kaishi_date >= :date_from` で範囲検索                  |
 | 9   | dokusya_kaishi_date_to    | String  | -    | -      | 10     | 購読開始日（終了）YYYY-MM-DD。`shoki_dokusya_kaishi_date <= :date_to` で範囲検索                    |
 | 10  | joho_henko_tekiyo_date     | String  | ○    | -      | 10     | 適用日 YYYY-MM-DD。**必須**。**紙版=未来日のみ（`> 当日`）**（顧客要件 2026-07 改訂）。この適用日時点で置換可能な購読者のみ返却する（後述 §置換可能条件）。置換実行 API の適用日と同一基準 |
@@ -274,9 +278,14 @@ GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&k
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
 - DataScope を role_code により適用する（4.2 参照）。
 - **購読種別の絞り込み（顧客要件 2026-07）**：`d.dokusya_shubetsu = :dokusya_shubetsu`（必須・1 or 2）で対象種別のみに絞る。
-- **置換可能条件（顧客要件 2026-07）**：指定した `joho_henko_tekiyo_date`（適用日）時点で置換可能な購読者のみに絞り込む。置換実行 API の集約チェック（`assertReplaceTekiyoDate`）と同一境界を per-row で適用するため、返却された任意の部分集合を選択しても実行時チェックが必ず通る：
-  - `d.dokusya_kaishi_date <= :joho_henko_tekiyo_date`（購読開始日が適用日以前）
-  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)`（解約予定日が無い、または適用日より後）
+- **置換可能条件（顧客要件 2026-07 改訂・as-of 適用日）**：現行 master ではなく、各購読者の「適用日時点で有効な履歴レコード」で置換元販売店・購読状態を判定する。有効レコード = `t_dokusya_rireki` のうち `joho_henko_tekiyo_date ≦ :joho_henko_tekiyo_date` かつ `joho_henko_tekiyo_date` が最大（同日は `rireki_no` 最大）の行（`DISTINCT ON (dokusya_id)`）。その有効レコードが次を満たす購読者のみ返す：
+  - `eff.hanbaiten_id <> :new_hanbaiten_id`（既に置換先を配達している購読者を除外・必須）
+  - `hanbaiten_id`（配達販売店）を指定した場合のみ追加：`eff.hanbaiten_id = :hanbaiten_id`（適用日時点の配達販売店 = 指定値）。配達販売店 = 置換先 のときは 0 件
+  - `eff.tetsuzuki_shurui = 1`（購読中）
+  - `eff.dokusya_shubetsu = :dokusya_shubetsu`（指定種別）
+  - `eff.dokusya_kaishi_date <= :joho_henko_tekiyo_date`（購読開始日が適用日以前）
+  - `(eff.dokusya_chushi_date IS NULL OR eff.dokusya_chushi_date > :joho_henko_tekiyo_date)`（解約予定日が無い、または適用日より後）
+  - 未来の適用日でも、その時点で有効な履歴で判定するため、現行 master の販売店が既に変わっていても正しい母集合を返す。表示・DataScope・その他検索条件は master(`d`) 側で適用する。
 - 検索条件を追加する：
   - kanri_shiten_id 指定時：`d.kanri_shiten_id = :kanri_shiten_id`
   - shiten_id 指定時：`d.shiten_id = :shiten_id`
@@ -284,14 +293,12 @@ GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&k
   - shimei 指定時：`CONCAT(d.shimei_sei, d.shimei_mei) LIKE :shimei_like`（部分一致）
   - shimei_kana 指定時：`CONCAT(d.shimei_kana_sei, d.shimei_kana_mei) LIKE :shimei_kana_like`（部分一致）
   - haitatsu_address 指定時：`CONCAT(t.todofuken_name, d.haitatsu_shikuchoson, d.haitatsu_chome_banchi, d.haitatsu_tatemono_mei) LIKE :haitatsu_like`（部分一致）
-  - hanbaiten_id 指定時：`d.hanbaiten_id = :hanbaiten_id`
+  - hanbaiten_id（置換元・必須）：master ではなく上記 as-of 有効レコードの `eff.hanbaiten_id = :hanbaiten_id` で判定（§置換可能条件）
   - dokusya_kaishi_date_from 指定時：`d.shoki_dokusya_kaishi_date >= :date_from`
   - dokusya_kaishi_date_to 指定時：`d.shoki_dokusya_kaishi_date <= :date_to`
 - 固定条件：
-  - `d.tetsuzuki_shurui = 1`（購読中の購読者のみ）
-  - `d.deleted_at IS NULL`（論理削除除外）
-  - `d.dokusya_kaishi_date <= :joho_henko_tekiyo_date`（置換可能条件）
-  - `(d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)`（置換可能条件）
+  - `d.deleted_at IS NULL`（論理削除除外・master 側）
+  - `d.dokusya_id IN (…as-of 有効レコードのサブクエリ…)`（購読中/種別/適用日/置換元は上記 §置換可能条件のサブクエリで判定）
 
 ### 4.4 データ件数の取得
 

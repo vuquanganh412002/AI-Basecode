@@ -26,8 +26,13 @@ import {
   deleteFile,
   listFiles,
   uploadFiles,
+  getFilePreview,
+  downloadFile,
+  downloadFilesAsZip,
   type FileUploadListItem,
 } from '@/api/file-upload/file-upload';
+import { useFileDelivery } from '@/composables/useFileDelivery';
+import FilePreviewModal from '@/components/common/FilePreviewModal.vue';
 import {
   getJaDropdown,
   type JaDropdownItem,
@@ -169,6 +174,32 @@ const historyColumns: TableColumnsType = [
   { title: '削除日', key: 'deleted_at', width: 140 },
   { title: '操作', key: 'actions', width: 100, align: 'center' },
 ];
+
+// ──────────────────── 選択 / プレビュー / ダウンロード（共通 composable）──────
+/** 削除済み（deleted_at あり）は選択・プレビュー・DL 対象外。 */
+function isRowDisabled(row: FileUploadListItem): boolean {
+  return row.deleted_at != null;
+}
+
+const {
+  selectedIds,
+  rowSelectionConfig,
+  previewOpen,
+  previewUrl,
+  previewFileName,
+  isImagePreview,
+  isPreviewable,
+  canPreviewSelected,
+  onPreview,
+  onPreviewRow,
+  onDownload,
+} = useFileDelivery<FileUploadListItem>({
+  rows,
+  idOf: (r) => r.file_upload_id,
+  fileNameOf: (r) => r.file_name,
+  isRowDisabled,
+  api: { getFilePreview, downloadFile, downloadFilesAsZip },
+});
 
 // ──────────────────── Initial fetch ────────────────────
 async function fetchTodofukenOptions(): Promise<void> {
@@ -429,6 +460,15 @@ defineExpose({
   removeFile,
   askDelete,
   isDeletable,
+  // selection / preview / download
+  selectedIds,
+  rowSelectionConfig,
+  previewOpen,
+  previewUrl,
+  canPreviewSelected,
+  onPreview,
+  onPreviewRow,
+  onDownload,
   // history
   fetchHistory,
 });
@@ -614,10 +654,51 @@ defineExpose({
       :per-page="perPage"
       :total="total"
       row-key="file_upload_id"
+      :row-selection="rowSelectionConfig"
       @change="onPageChange"
     >
+      <template #headerActions>
+        <a-button :disabled="!canPreviewSelected" @click="onPreview">
+          <template #icon>
+            <span class="material-icons text-sm mr-1">visibility</span>
+          </template>
+          プレビュー
+        </a-button>
+        <a-button
+          type="primary"
+          :disabled="selectedIds.length === 0"
+          @click="onDownload"
+        >
+          <template #icon>
+            <span class="material-icons text-sm mr-1">download</span>
+          </template>
+          ダウンロード実行
+        </a-button>
+      </template>
+
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'ja'">
+        <template v-if="column.key === 'file_name'">
+          <!-- プレビュー可能形式（画像/PDF）はクリックでプレビュー。削除済み・
+               非対応形式はプレーンテキスト。 -->
+          <span
+            v-if="isRowDisabled(record as FileUploadListItem)"
+            class="text-text-disabled line-through"
+          >
+            {{ (record as FileUploadListItem).file_name }}
+          </span>
+          <a
+            v-else-if="isPreviewable((record as FileUploadListItem).file_name)"
+            href="#"
+            class="text-primary hover:underline cursor-pointer"
+            @click.prevent="onPreviewRow(record as FileUploadListItem)"
+          >
+            {{ (record as FileUploadListItem).file_name }}
+          </a>
+          <span v-else class="text-text-main">
+            {{ (record as FileUploadListItem).file_name }}
+          </span>
+        </template>
+        <template v-else-if="column.key === 'ja'">
           {{ formatJa(record as FileUploadListItem) }}
         </template>
         <template v-else-if="column.key === 'file_size'">
@@ -653,5 +734,12 @@ defineExpose({
         </template>
       </template>
     </BaseDataTable>
+
+    <FilePreviewModal
+      v-model:open="previewOpen"
+      :file-name="previewFileName"
+      :url="previewUrl"
+      :is-image="isImagePreview"
+    />
   </div>
 </template>

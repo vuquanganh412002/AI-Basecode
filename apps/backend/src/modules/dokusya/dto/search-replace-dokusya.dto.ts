@@ -61,12 +61,31 @@ export class SearchReplaceDokusyaDto {
   @IsInt({ message: '支店IDは整数で指定してください。' })
   shiten_id?: number;
 
-  @ApiPropertyOptional({ description: '配達販売店ID' })
+  // ─── 配達販売店（任意・顧客要件 2026-07 改訂）────────────────────────────
+  // 指定時のみ、適用日時点で有効な履歴レコード（joho_henko_tekiyo_date ≦ 適用日 の
+  // 最大 joho）の hanbaiten がこの値と一致する購読者へ追加で絞り込む（as-of 解決）。
+  @ApiPropertyOptional({
+    description:
+      '配達販売店ID（任意）。指定時は適用日時点の有効履歴の配達販売店がこの値の購読者に絞る。',
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: '販売店IDは整数で指定してください。' })
+  @IsInt({ message: '配達販売店IDは整数で指定してください。' })
   hanbaiten_id?: number;
+
+  // ─── 置換先配達販売店（必須・顧客要件 2026-07）────────────────────────────
+  // 置換のターゲット。検索では「適用日時点の有効レコードの配達販売店 ≠ 置換先」で
+  // 絞り込み、既に置換先を配達している購読者を除外する（置換元と置換先が同一なら
+  // 該当なし）。置換実行 API の new_hanbaiten_id と同一値。
+  @ApiProperty({
+    description:
+      '置換先配達販売店ID（必須）。検索では有効レコードの配達販売店がこの値でない購読者に絞る（= 置換元 かつ ≠ 置換先）。',
+  })
+  @Type(() => Number)
+  @IsInt({ message: '置換先配達販売店を選択してください。' })
+  @Min(1, { message: '置換先配達販売店を選択してください。' })
+  new_hanbaiten_id!: number;
 
   // ─── Partial-match filters ────────────────────────────────────────────
   @ApiPropertyOptional({ description: '組合員コード（部分一致）', maxLength: 20 })

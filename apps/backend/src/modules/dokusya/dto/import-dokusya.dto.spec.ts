@@ -78,6 +78,32 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
     });
   });
 
+  describe('dokusya_shubetsu (top-level, required, 1|2 — 顧客要件 2026-07)', () => {
+    // 購読種別は画面ラジオで一括指定する単一ソース（Excel 列ではない）。
+    // 紙版(1) / 電子版(2) のみ許可。3:併読 は取込不可。
+    it('should pass when dokusya_shubetsu is 1 (紙版)', async () => {
+      const errors = await validateBody(buildImportBody({ dokusya_shubetsu: 1 }));
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
+    });
+
+    it('should pass when dokusya_shubetsu is 2 (電子版)', async () => {
+      const errors = await validateBody(buildImportBody({ dokusya_shubetsu: 2 }));
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(false);
+    });
+
+    it('should fail when dokusya_shubetsu is 3 (併読 — 取込不可)', async () => {
+      const errors = await validateBody(buildImportBody({ dokusya_shubetsu: 3 }));
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
+    });
+
+    it('should fail when dokusya_shubetsu is missing', async () => {
+      const body = buildImportBody();
+      delete body.dokusya_shubetsu;
+      const errors = await validateBody(body);
+      expect(errors.some((e) => e.property === 'dokusya_shubetsu')).toBe(true);
+    });
+  });
+
   describe('selected_columns (#2, required, array 1..49)', () => {
     it('should pass when selected_columns has the 13 required NEW columns', async () => {
       const errors = await validateBody(buildImportBody());

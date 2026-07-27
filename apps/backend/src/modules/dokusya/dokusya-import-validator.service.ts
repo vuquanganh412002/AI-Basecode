@@ -78,11 +78,11 @@ function fieldValidationError(
 }
 
 /**
- * SCR-016 — the 13 physical columns NEW mode REQUIRES in
- * `selected_columns` (api.md §4.1).
+ * SCR-016 — the physical columns NEW mode REQUIRES in `selected_columns`
+ * (api.md §4.1). 購読種別 は画面ラジオ（紙版/電子版）で選ぶ取込モードへ移動した
+ * ため、Excel の必須列からは外した（顧客要件 2026-07）。
  */
 const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
-  'dokusya_shubetsu',
   'kanri_shiten_code',
   'shiten_code',
   'dokusya_busu',
@@ -107,7 +107,6 @@ const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
  * IMPORT_VALIDATION_ERROR).
  */
 const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
-  dokusya_shubetsu: '購読種別',
   kanri_shiten_code: '管理支店',
   shiten_code: '支店',
   dokusya_busu: '購読部数',
@@ -177,6 +176,7 @@ export class DokusyaImportValidator {
       const rowNo = index + 1;
       this.validateImportRowRequired(row, rowNo, dto, errors);
       this.validateImportRowRules(row, rowNo, dto, errors);
+      this.validateImportRowShubetsuMatch(row, rowNo, dto, lookups, errors);
       this.validateImportRowTekiyoDates(row, rowNo, dto, lookups, errors);
       this.validateImportRowRefs(row, rowNo, lookups, errors);
       this.validateImportRowEmail(
@@ -299,6 +299,39 @@ export class DokusyaImportValidator {
    *     - 読者情報変更適用日 >= 購読開始日 / 販売店適用日 < 解約予定日（既存レコード基準）
    * 既存行が見つからないケースは classifyImportRow が別途「購読者が見つかりません」を出す。
    */
+  /**
+   * 顧客要件 2026-07 — 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード。
+   * UPDATE では既存レコードの購読種別が選択モードと一致することを検証する
+   * （購読種別は編集不可のため、モードと異なる既存購読者は対象外）。NEW は
+   * 新規レコードへモードの購読種別を設定するだけなので照合不要。
+   */
+  private validateImportRowShubetsuMatch(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    dto: ImportDokusyaDto,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    if (dto.import_mode !== 'UPDATE') return;
+    const existing = this.resolveExistingRow(
+      row,
+      lookups.existingById,
+      lookups.existingByKumiaiin,
+    );
+    // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
+    if (!existing) return;
+    // 既存レコードは実クエリで dokusya_shubetsu を必ず SELECT する。値が取れない
+    // ケース（不完全なモック等）は照合対象外にする（本番では必ず値が入る）。
+    if (existing.dokusya_shubetsu == null) return;
+    if (Number(existing.dokusya_shubetsu) !== Number(dto.dokusya_shubetsu)) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'dokusya_shubetsu',
+        message: '選択した購読種別と異なる購読者が含まれています。',
+      });
+    }
+  }
+
   private validateImportRowTekiyoDates(
     row: ImportDokusyaRowDto,
     rowNo: number,

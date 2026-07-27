@@ -3,6 +3,7 @@
 // Mirrors docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md.
 
 import axiosInstance from '@/api/axios-instance';
+import { parseContentDispositionFilename } from '@/utils/download';
 
 /** Row shape returned by `GET /api/v1/file-download`. */
 export interface FileDownloadListItem {
@@ -103,21 +104,6 @@ export async function downloadFilesAsZip(
   const disposition = String(res.headers['content-disposition'] ?? '');
   return {
     blob: res.data,
-    filename: parseContentDispositionFilename(disposition),
+    filename: parseContentDispositionFilename(disposition, 'download.zip'),
   };
-}
-
-/** Content-Disposition の filename*（UTF-8）→ 通常 filename の順で解決する。 */
-function parseContentDispositionFilename(disposition: string): string {
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-  if (star?.[1]) {
-    try {
-      return decodeURIComponent(star[1].trim());
-    } catch {
-      // Malformed percent-encoding — fall through to the ASCII form.
-    }
-  }
-  const plain = /filename="?([^";]+)"?/i.exec(disposition);
-  if (plain?.[1]) return plain[1].trim();
-  return 'download.zip';
 }

@@ -25,6 +25,10 @@ import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { PaginatedResponse } from '@/common/utils/paginate';
+import {
+  sendBinaryAttachment,
+  type DownloadResult,
+} from '@/common/utils/file-delivery';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { DownloadZipDto } from './dto/download-zip.dto';
@@ -122,28 +126,10 @@ export class FileDownloadController {
   }
 
   /**
-   * バイナリ添付レスポンスを送出する。日本語ファイル名は RFC 5987 の
-   * filename* に載せ、ASCII フォールバックは多バイト文字を除去する
-   * （Node の HTTP 層が非 ASCII ヘッダ値を拒否するため）。
+   * バイナリ添付レスポンスは共通ユーティリティ `sendBinaryAttachment` に集約
+   * （SCR-023 アップロード画面と同一処理）。
    */
-  private sendBinary(
-    res: Response,
-    result: {
-      body: Buffer;
-      contentType: string;
-      contentLength: number;
-      fileName: string;
-    },
-  ): void {
-    const encodedName = encodeURIComponent(result.fileName);
-    const asciiFallback = result.fileName.replaceAll(/[^\x20-\x7e]/g, '_');
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`,
-    );
-    res.setHeader('Content-Length', String(result.contentLength));
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(200).send(result.body);
+  private sendBinary(res: Response, result: DownloadResult): void {
+    sendBinaryAttachment(res, result);
   }
 }

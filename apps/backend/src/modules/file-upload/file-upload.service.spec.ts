@@ -1086,3 +1086,89 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
     });
   });
 });
+
+describe('FileUploadService — SCR-023 (preview + download + zip)', () => {
+  let service: FileUploadService;
+  let repo: any;
+  let dataSource: any;
+  let auditLog: any;
+  let storage: any;
+  const baseReq = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as any;
+
+  beforeEach(() => {
+    repo = { findOne: jest.fn(), find: jest.fn() };
+    dataSource = {};
+    auditLog = { logOperation: jest.fn(), logError: jest.fn() };
+    storage = {
+      getSignedUrl: jest.fn(async () => 'https://s3.example.com/signed'),
+      download: jest.fn(async () => Buffer.from('binary content')),
+    };
+    service = new FileUploadService(repo, dataSource, auditLog, storage);
+  });
+
+  describe('getPreview', () => {
+    it('returns preview_url + file_name for an in-scope row', async () => {
+      repo.findOne.mockResolvedValue(
+        buildFileUpload({ fileUploadId: 101, jaId: 1, fileName: 'a.pdf', filePath: 'ja-1/a.pdf' }),
+      );
+      const result = await service.getPreview(101, buildJaHontenSession({ ja_id: 1 }));
+      expect(storage.getSignedUrl).toHaveBeenCalledWith('ja-1/a.pdf', expect.any(Number));
+      expect(result.data).toEqual({ preview_url: 'https://s3.example.com/signed', file_name: 'a.pdf' });
+    });
+
+    it('throws NotFound when the row is missing (or deleted)', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.getPreview(999, buildJaHontenSession({ ja_id: 1 }))).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('masks out-of-scope row as 404 (JA role, other JA)', async () => {
+      repo.findOne.mockResolvedValue(buildFileUpload({ fileUploadId: 101, jaId: 2 }));
+      await expect(service.getPreview(101, buildJaHontenSession({ ja_id: 1 }))).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('download', () => {
+    it('returns binary + content-type + writes a DOWNLOAD audit log', async () => {
+      repo.findOne.mockResolvedValue(
+        buildFileUpload({ fileUploadId: 101, jaId: 1, fileName: 'a.pdf', filePath: 'ja-1/a.pdf', fileSize: null }),
+      );
+      const result = await service.download(101, buildJaHontenSession({ ja_id: 1 }), baseReq);
+      expect(storage.download).toHaveBeenCalledWith('ja-1/a.pdf');
+      expect(result.contentType).toBe('application/pdf');
+      expect(result.fileName).toBe('a.pdf');
+      expect(result.body).toBeInstanceOf(Buffer);
+      expect(auditLog.logOperation).toHaveBeenCalled();
+    });
+
+    it('masks out-of-scope download as 404', async () => {
+      repo.findOne.mockResolvedValue(buildFileUpload({ fileUploadId: 101, jaId: 2 }));
+      await expect(
+        service.download(101, buildJaHontenSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('downloadZip', () => {
+    it('bundles selected files into one zip (application/zip)', async () => {
+      repo.find.mockResolvedValue([
+        buildFileUpload({ fileUploadId: 101, jaId: 1, fileName: 'a.pdf', filePath: 'ja-1/a.pdf' }),
+        buildFileUpload({ fileUploadId: 102, jaId: 1, fileName: 'b.pdf', filePath: 'ja-1/b.pdf' }),
+      ]);
+      const result = await service.downloadZip([101, 102], buildJaHontenSession({ ja_id: 1 }), baseReq);
+      expect(result.contentType).toBe('application/zip');
+      expect(result.fileName).toMatch(/^一括ダウンロード_\d{14}\.zip$/);
+      expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws NotFound when a requested id is missing', async () => {
+      repo.find.mockResolvedValue([buildFileUpload({ fileUploadId: 101, jaId: 1 })]);
+      await expect(
+        service.downloadZip([101, 999], buildJaHontenSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+});

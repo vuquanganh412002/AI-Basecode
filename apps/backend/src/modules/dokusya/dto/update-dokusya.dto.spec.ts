@@ -33,10 +33,19 @@ describe('UpdateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_sei')).toBe(true);
   });
 
-  it('should validate shimei_mei on update when it contains digits (non-漢字)', async () => {
+  it('should accept shimei_mei with digits on update (顧客要件 2026-07 再緩和: 数字許容)', async () => {
     const dto = plainToInstance(
       UpdateDokusyaDto,
       buildUpdateDokusyaBody({ shimei_mei: '太郎12' }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'shimei_mei')).toBe(false);
+  });
+
+  it('should validate shimei_mei on update when it contains a symbol (記号は不可)', async () => {
+    const dto = plainToInstance(
+      UpdateDokusyaDto,
+      buildUpdateDokusyaBody({ shimei_mei: '太郎!' }),
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'shimei_mei')).toBe(true);

@@ -16,13 +16,36 @@ import { buildReplaceSearchQuery } from '@test/fixtures/dokusya.factory';
 
 describe('SearchReplaceDokusyaDto', () => {
   // ─── Happy path ─────────────────────────────────────────────────────────
-  it('should pass validation when only the required 適用日 + 購読種別 are supplied (other filters optional)', async () => {
+  it('should pass validation when only the required 適用日 + 購読種別 + 置換元 + 置換先 are supplied (other filters optional)', async () => {
     const dto = plainToInstance(SearchReplaceDokusyaDto, {
       joho_henko_tekiyo_date: '2099-12-31',
       dokusya_shubetsu: 1,
+      hanbaiten_id: 200,
+      new_hanbaiten_id: 201,
     });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  // ─── hanbaiten_id (配達販売店・任意) / new_hanbaiten_id (置換先・必須) — 顧客要件 2026-07 ─
+  it('should PASS when hanbaiten_id (配達販売店) is missing (now optional)', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {
+      joho_henko_tekiyo_date: '2099-12-31',
+      dokusya_shubetsu: 1,
+      new_hanbaiten_id: 201,
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('should FAIL when new_hanbaiten_id (置換先) is missing (now required)', async () => {
+    const dto = plainToInstance(SearchReplaceDokusyaDto, {
+      joho_henko_tekiyo_date: '2099-12-31',
+      dokusya_shubetsu: 1,
+      hanbaiten_id: 200,
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'new_hanbaiten_id')).toBe(true);
   });
 
   // ─── dokusya_shubetsu (required, 1:紙版 / 2:電子版 のみ) — 顧客要件 2026-07 ──

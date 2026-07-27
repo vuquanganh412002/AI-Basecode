@@ -735,6 +735,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 70 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
 | 71 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
 | 72 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
+| 73 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
 
 ## Chỉ mục
 

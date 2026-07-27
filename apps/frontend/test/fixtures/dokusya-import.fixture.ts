@@ -5,22 +5,22 @@
 // Mirrors docs/design/ACSMS-SCR-016/ACSMS-SCR-016-api.md:
 //   - API-016-001: GET /api/v1/dokusya/import/template (binary XLSX)
 //   - API-016-002: POST /api/v1/dokusya/import (3 import modes)
-// And the 49-column physical layout from §テンプレートファイル仕様.
+// And the 48-column physical layout from §テンプレートファイル仕様
+// （購読種別は画面ラジオの単一ソースで列から撤去・顧客要件 2026-07）.
 //
 // The default auth user + m_code seed reuse test/fixtures/dokusya.fixture.ts
 // (buildAuthUser / buildCodesSeed) — this file only adds the import-specific
 // row / column / response builders.
 
-// ─── 49-column shared layout ──────────────────────────────────────────
+// ─── 48-column shared layout ──────────────────────────────────────────
 
 /**
  * Japanese display headers in the canonical order (template row 1 +
  * column-selector checkbox labels). Matches index.html column panel
- * (49 labels) and screen-design §4.1 template order 1-for-1.
+ * (48 labels) and screen-design §4.1 template order 1-for-1.
  */
 export const DOKUSYA_IMPORT_JP_HEADERS = [
   'ID',
-  '購読種別',
   '管理支店',
   '支店',
   '組合員コード',
@@ -78,7 +78,6 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
  */
 export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'dokusya_id',
-  'dokusya_shubetsu',
   'kanri_shiten_code',
   'shiten_code',
   'kumiaiin_code',
@@ -136,7 +135,6 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
  * NEW-mode required list.
  */
 export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
-  'dokusya_shubetsu',
   'kanri_shiten_code',
   'shiten_code',
   'shimei_sei',
@@ -192,7 +190,8 @@ export function buildImportRow(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    dokusya_shubetsu: 1, // 紙版
+    // 購読種別は画面ラジオで一括指定する単一ソース（Excel 列ではない・顧客要件
+    // 2026-07）。行データには含めない — buildImportRequest が top-level で送る。
     kanri_shiten_code: 'KS001',
     shiten_code: 'SH001',
     kumiaiin_code: 'K0001',
@@ -226,6 +225,7 @@ export function buildImportRequest(
 ): Record<string, unknown> {
   return {
     import_mode: 'NEW',
+    dokusya_shubetsu: 1, // 紙版（画面ラジオの単一ソース）
     selected_columns: [...DOKUSYA_IMPORT_PHYSICAL_COLUMNS],
     rows: [
       buildImportRow({ shimei_sei: '山田', shimei_mei: '太郎' }),

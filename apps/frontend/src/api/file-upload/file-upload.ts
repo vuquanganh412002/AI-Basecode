@@ -4,6 +4,7 @@
 //         docs/design/ACSMS-SCR-023/ACSMS-SCR-023-api.md.
 
 import axiosInstance from '@/api/axios-instance';
+import { parseContentDispositionFilename } from '@/utils/download';
 
 /**
  * Row shape returned by `GET /api/v1/file-upload`.
@@ -162,4 +163,46 @@ export async function deleteFile(fileUploadId: number): Promise<DeleteFileRespon
     `/api/v1/file-upload/${fileUploadId}`,
   );
   return res.data;
+}
+
+// ── プレビュー / ダウンロード（SCR-022 と同方式）──────────────────────
+
+export interface FilePreviewResponse {
+  data: { preview_url: string; file_name: string };
+}
+
+/** GET /api/v1/file-upload/{id}/preview — 署名付きプレビュー URL を取得。 */
+export async function getFilePreview(
+  fileUploadId: number,
+): Promise<FilePreviewResponse> {
+  const res = await axiosInstance.get<FilePreviewResponse>(
+    `/api/v1/file-upload/${fileUploadId}/preview`,
+  );
+  return res.data;
+}
+
+/** GET /api/v1/file-upload/{id}/download — バイナリ(Blob)を取得。 */
+export async function downloadFile(fileUploadId: number): Promise<Blob> {
+  const res = await axiosInstance.get<Blob>(
+    `/api/v1/file-upload/${fileUploadId}/download`,
+    { responseType: 'blob' },
+  );
+  return res.data;
+}
+
+/** POST /api/v1/file-upload/download-zip — 複数選択を ZIP でまとめて取得。
+ *  Blob + サーバ命名のファイル名（一括ダウンロード_yyyyMMddHHmmss.zip）を返す。 */
+export async function downloadFilesAsZip(
+  fileUploadIds: number[],
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await axiosInstance.post<Blob>(
+    '/api/v1/file-upload/download-zip',
+    { file_upload_ids: fileUploadIds },
+    { responseType: 'blob' },
+  );
+  const disposition = String(res.headers['content-disposition'] ?? '');
+  return {
+    blob: res.data,
+    filename: parseContentDispositionFilename(disposition, 'download.zip'),
+  };
 }

@@ -46,20 +46,20 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_sei')).toBe(true);
   });
 
-  it('should fail with the name message when shimei_sei has 半角数字 (アルファベットは許容・数字は不可)', async () => {
+  it('should fail with the name message when shimei_sei has a symbol (かな・英数字は許容・記号は不可)', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ shimei_sei: 'Yamada12' }), // 英字OKだが数字12が不可
+      buildCreateDokusyaBody({ shimei_sei: '山田!' }), // 記号 ! は不可
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'shimei_sei');
     expect(e?.constraints?.matches).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。',
     );
   });
 
-  // 顧客要件 2026-07: 氏名は漢字・ひらがな・カタカナに加えアルファベットも許容。
-  it.each(['山田', 'やまだ', 'ヤマダ', '田中 マリー', 'Abe', 'ABE 美咲', 'Ａｂｅ'])(
+  // 顧客要件 2026-07 再緩和: 氏名は漢字・かな・カナ(全/半)・英字・数字(全/半)を許容。
+  it.each(['山田', 'やまだ', 'ヤマダ', '田中 マリー', 'Abe', 'ABE 美咲', 'Ａｂｅ', 'Yamada12', '山田123', 'ﾔﾏﾀﾞ', '１２３'])(
     'should accept shimei_sei = %s (kanji/hiragana/katakana)',
     async (value) => {
       const dto = plainToInstance(
@@ -90,20 +90,20 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'shimei_mei')).toBe(true);
   });
 
-  it('should fail with the name message when shimei_mei has 半角数字 (アルファベットは許容・数字は不可)', async () => {
+  it('should fail with the name message when shimei_mei has a symbol (かな・英数字は許容・記号は不可)', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ shimei_mei: 'Taro123' }), // 英字OKだが数字が不可
+      buildCreateDokusyaBody({ shimei_mei: '太郎@' }), // 記号 @ は不可
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'shimei_mei');
     expect(e?.constraints?.matches).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。',
     );
   });
 
-  // 顧客要件 2026-07: 氏名は漢字・ひらがな・カタカナに加えアルファベットも許容。
-  it.each(['太郎', 'たろう', 'タロウ', 'Taro', 'Misaki'])(
+  // 顧客要件 2026-07 再緩和: 氏名は漢字・かな・カナ(全/半)・英字・数字(全/半)を許容。
+  it.each(['太郎', 'たろう', 'タロウ', 'Taro', 'Misaki', 'Taro123', '太郎2', 'ﾀﾛｳ'])(
     'should accept shimei_mei = %s (kanji/hiragana/katakana)',
     async (value) => {
       const dto = plainToInstance(
@@ -753,32 +753,32 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'haitatsu_shimei_sei')).toBe(true);
   });
 
-  it('should fail with the name message when haitatsu_shimei_sei has 半角数字 (アルファベットは許容・数字は不可)', async () => {
+  it('should fail with the name message when haitatsu_shimei_sei has a symbol (数字は許容・記号は不可)', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'Suzuki123' }),
+      buildCreateDokusyaBody({ haitatsu_shimei_sei: 'Suzuki!' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'haitatsu_shimei_sei');
     expect(e?.constraints?.matches).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。',
     );
   });
 
-  it('should fail with the name message when haitatsu_shimei_mei has 半角数字 (アルファベットは許容・数字は不可)', async () => {
+  it('should fail with the name message when haitatsu_shimei_mei has a symbol (数字は許容・記号は不可)', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ haitatsu_shimei_mei: 'Hanako123' }),
+      buildCreateDokusyaBody({ haitatsu_shimei_mei: 'Hanako@' }),
     );
     const errors = await validate(dto);
     const e = errors.find((x) => x.property === 'haitatsu_shimei_mei');
     expect(e?.constraints?.matches).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。',
     );
   });
 
   // 顧客要件 2026-07: 配達先氏名も漢字・ひらがな・カタカナ・アルファベットを許容。
-  it.each(['スズキ', 'Suzuki', 'SUZUKI 花子'])(
+  it.each(['スズキ', 'Suzuki', 'SUZUKI 花子', 'Suzuki12', 'ｽｽﾞｷ', '鈴木2'])(
     'should accept haitatsu_shimei_sei = %s (katakana / alphabet)',
     async (value) => {
       const dto = plainToInstance(

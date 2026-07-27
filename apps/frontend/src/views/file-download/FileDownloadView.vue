@@ -14,7 +14,8 @@ import { useCodesStore } from '@/stores/codes.store';
 import { RoleCode } from '@/constants/enums';
 import { useTableQuery } from '@/composables/useTableQuery';
 import { formatDateTime } from '@/utils/formatters';
-import { downloadBlob } from '@/utils/download';
+import { useFileDelivery } from '@/composables/useFileDelivery';
+import FilePreviewModal from '@/components/common/FilePreviewModal.vue';
 import {
   listFiles,
   getFilePreview,
@@ -59,15 +60,6 @@ const {
 const rows = ref<FileDownloadListItem[]>([]);
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-/** Selected file_download_id list. Bound to the table's row-selection. */
-const selectedIds = ref<number[]>([]);
-
-/** Preview modal state. `previewUrl` is the S3 presigned URL the iframe loads. */
-const previewOpen = ref(false);
-const previewUrl = ref('');
-const previewFileName = ref('');
-const previewContentType = ref('');
-
 // [deleted-row] 論理削除済み (deleted_at が立っている) ファイルはダウンロード／
 // プレビュー対象外。一覧には表示するが、選択チェックボックスを disabled にし、
 // ファイル名はリンクではなくグレーの取り消し線テキストにする。
@@ -94,50 +86,35 @@ function isRowDisabled(row: FileDownloadListItem): boolean {
   return isDeleted(row) || isNichinoBlocked(row);
 }
 
-// [row-selection] Bind a stable computed config object so the inline
-// template doesn't try to reassign `selectedIds` (a ref — `selectedIds
-// = ...` would shadow the binding, not mutate the underlying value).
-const rowSelectionConfig = computed(() => ({
-  selectedRowKeys: selectedIds.value,
-  onChange: (keys: (string | number)[]) => {
-    selectedIds.value = keys.map(Number);
-  },
-  // 削除済み or 日農DL不可 のファイルは選択不可（チェックボックス disabled）。
-  getCheckboxProps: (record: FileDownloadListItem) => ({
-    disabled: isRowDisabled(record),
-  }),
-}));
-
-// [previewable-types] Inline preview only supports formats the browser
-// can render natively: images (<img>) and PDF (<iframe>). Everything
-// else (csv / zip / xlsx / pptx / txt / docx …) has no inline viewer,
-// so the プレビュー button is disabled and the filename is shown as
-// plain text — those files are downloaded via ダウンロード実行 instead.
-const PREVIEWABLE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|svg|pdf)$/i;
-function isPreviewable(fileName: string): boolean {
-  return PREVIEWABLE_EXTENSIONS.test(fileName);
+/** 404 NOT_FOUND を ACSMS-MSG-022-003 に写像する（composable の onError へ渡す）。 */
+function handleFileError(err: unknown): void {
+  const e = err as { response?: { status?: number; data?: { error_code?: string } } };
+  if (e?.response?.status === 404 || e?.response?.data?.error_code === 'NOT_FOUND') {
+    message.error('ファイルが存在していません。');
+  }
 }
 
-// [preview-single-only] The preview modal renders one file at a time
-// (no carousel UX). Enabled only when exactly one row is checked AND
-// that file is a previewable type (image / PDF). The filename-link
-// path mirrors the same gate (non-previewable names are plain text).
-const canPreviewSelected = computed(() => {
-  if (selectedIds.value.length !== 1) return false;
-  const row = rows.value.find((r) => r.file_download_id === selectedIds.value[0]);
-  return !!row && !isRowDisabled(row) && isPreviewable(row.file_name);
-});
-
-// [image-preview] Render <img> instead of <iframe> when the file is
-// an image. Inspect BOTH the content_type returned by the preview API
-// AND the filename extension — the BE's content-type mapper may not
-// cover every image format the user can upload (.jpg/.jpeg/.png/.gif/
-// .webp/.bmp/.svg). Falling back to filename ensures images uploaded
-// with a generic application/octet-stream still preview correctly.
-const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|svg)$/i;
-const isImagePreview = computed(() => {
-  if (previewContentType.value.startsWith('image/')) return true;
-  return IMAGE_EXTENSIONS.test(previewFileName.value);
+// 選択 + プレビュー + ダウンロード は共通 composable に集約（SCR-023 と同一挙動）。
+const {
+  selectedIds,
+  rowSelectionConfig,
+  previewOpen,
+  previewUrl,
+  previewFileName,
+  isImagePreview,
+  isPreviewable,
+  canPreviewSelected,
+  onPreview,
+  onPreviewRow,
+  onDownload,
+  clearSelection,
+} = useFileDelivery<FileDownloadListItem>({
+  rows,
+  idOf: (r) => r.file_download_id,
+  fileNameOf: (r) => r.file_name,
+  isRowDisabled,
+  api: { getFilePreview, downloadFile, downloadFilesAsZip },
+  onError: handleFileError,
 });
 
 const columns: TableColumnsType = [
@@ -237,95 +214,6 @@ const { onSearch, onClear } = searchActions({
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
   void fetchList();
-}
-
-/** Helper — maps the 404 NOT_FOUND error to ACSMS-MSG-022-003. */
-function handleFileError(err: unknown): boolean {
-  const e = err as { response?: { status?: number; data?: { error_code?: string } } };
-  if (e?.response?.status === 404 || e?.response?.data?.error_code === 'NOT_FOUND') {
-    message.error('ファイルが存在していません。');
-    return true;
-  }
-  return false;
-}
-
-// ──────────────── 機能定義 4.x — プレビュー ────────────────
-async function openPreviewById(id: number): Promise<void> {
-  try {
-    const resp = await getFilePreview(id);
-    previewUrl.value = resp.data.preview_url;
-    previewFileName.value = resp.data.file_name;
-    previewContentType.value = '';
-    previewOpen.value = true;
-  } catch (err: unknown) {
-    if (handleFileError(err)) return;
-    // [interceptor-handled] 401 / 403 / 500 toasted by global axios
-    // interceptor — view must NOT re-toast.
-  }
-}
-
-async function onPreview(): Promise<void> {
-  if (selectedIds.value.length === 0) {
-    message.warning('ファイルを選択してください。');
-    return;
-  }
-  // Preview targets the FIRST selected file. screen-design.md doesn't
-  // describe multi-preview UX (no tabs / carousel), so single-file is
-  // the safe default.
-  await openPreviewById(selectedIds.value[0]);
-}
-
-/** Direct preview from a filename click — bypasses row selection.
- *  Only previewable types reach here (the template renders other
- *  filenames as plain text), but guard defensively. */
-async function onPreviewRow(row: FileDownloadListItem): Promise<void> {
-  if (isRowDisabled(row) || !isPreviewable(row.file_name)) return;
-  await openPreviewById(row.file_download_id);
-}
-
-// ──────────────── 機能定義 5.x — ダウンロード実行 ────────────────
-async function onDownload(): Promise<void> {
-  if (selectedIds.value.length === 0) {
-    message.warning('ファイルを選択してください。');
-    return;
-  }
-
-  // 機能定義 8.x — 複数ファイル選択時は ZIP に1つにまとめてダウンロードする
-  // （ファイル名：一括ダウンロード_yyyyMMddHHmmss.zip。サーバが生成・命名）。
-  if (selectedIds.value.length > 1) {
-    try {
-      const { blob, filename } = await downloadFilesAsZip([
-        ...selectedIds.value,
-      ]);
-      downloadBlob(blob, filename);
-      // ACSMS-MSG-022-005 — verb-specific copy ("完了" not "開始").
-      message.success('ダウンロードが完了しました。');
-    } catch (err: unknown) {
-      // 一括は all-or-nothing。NOT_FOUND → MSG-022-003、その他（401/403/500）
-      // は global axios interceptor が処理する。
-      handleFileError(err);
-    }
-    return;
-  }
-
-  // 単一選択時は元ファイルをそのままダウンロードする（ZIP 化しない）。
-  const id = selectedIds.value[0];
-  const row = rows.value.find((r) => r.file_download_id === id);
-  const fallbackName = row?.file_name ?? `file_${id}`;
-  try {
-    const blob = await downloadFile(id);
-    downloadBlob(blob, fallbackName);
-    message.success('ダウンロードが完了しました。');
-  } catch (err: unknown) {
-    handleFileError(err);
-  }
-}
-
-// ──────────────── 機能定義 6.x — クリア（下） ────────────────
-function clearSelection(): void {
-  selectedIds.value = [];
-  previewOpen.value = false;
-  previewUrl.value = '';
 }
 
 function formatBytes(bytes: number | null): string {
@@ -511,31 +399,11 @@ defineExpose({
       </template>
     </BaseDataTable>
 
-    <!-- プレビューモーダル — render <img> for image MIME types so the
-         browser displays them natively (iframe with image src tries to
-         render as HTML and just shows the binary). PDFs and CSVs work
-         via iframe + the S3-provided Content-Type. -->
-    <a-modal
+    <FilePreviewModal
       v-model:open="previewOpen"
-      :title="previewFileName || 'プレビュー'"
-      :footer="null"
-      :width="900"
-      destroy-on-close
-    >
-      <template v-if="previewUrl">
-        <img
-          v-if="isImagePreview"
-          :src="previewUrl"
-          :alt="previewFileName"
-          class="w-full max-h-[70vh] object-contain bg-bg-layout"
-        />
-        <iframe
-          v-else
-          :src="previewUrl"
-          class="w-full h-[70vh] border-0"
-          :title="previewFileName"
-        />
-      </template>
-    </a-modal>
+      :file-name="previewFileName"
+      :url="previewUrl"
+      :is-image="isImagePreview"
+    />
   </div>
 </template>

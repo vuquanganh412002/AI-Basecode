@@ -27,6 +27,9 @@ vi.mock('@/api/file-upload/file-upload', () => ({
   listFiles: vi.fn(),
   uploadFiles: vi.fn(),
   deleteFile: vi.fn(),
+  getFilePreview: vi.fn(),
+  downloadFile: vi.fn(),
+  downloadFilesAsZip: vi.fn(),
 }));
 
 vi.mock('@/api/ja/ja', () => ({
@@ -741,4 +744,79 @@ describe('FileUploadView — notification status badge', () => {
       expect(wrapper.text()).toContain(label);
     },
   );
+});
+
+describe('FileUploadView — SCR-023 プレビュー / ダウンロード', () => {
+  it('should call getFilePreview and open the modal when a selected file is previewed', async () => {
+    const { getFilePreview } = await import('@/api/file-upload/file-upload');
+    vi.mocked(getFilePreview).mockResolvedValue({
+      data: { preview_url: 'https://s3.example.com/signed', file_name: 'a.pdf' },
+    } as any);
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [101];
+    await vm.onPreview();
+    await flushPromises();
+    expect(vi.mocked(getFilePreview)).toHaveBeenCalledWith(101);
+    expect(vm.previewOpen).toBe(true);
+    expect(vm.previewUrl).toBe('https://s3.example.com/signed');
+  });
+
+  it('should warn and NOT call preview when nothing is selected', async () => {
+    const { getFilePreview } = await import('@/api/file-upload/file-upload');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [];
+    await vm.onPreview();
+    expect(vi.mocked(getFilePreview)).not.toHaveBeenCalled();
+    expect(vi.mocked(message.warning)).toHaveBeenCalledWith('ファイルを選択してください。');
+  });
+
+  it('should download a single selected file via downloadFile', async () => {
+    const { downloadFile, downloadFilesAsZip } = await import('@/api/file-upload/file-upload');
+    vi.mocked(downloadFile).mockResolvedValue(new Blob(['x']) as any);
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [101];
+    await vm.onDownload();
+    await flushPromises();
+    expect(vi.mocked(downloadFile)).toHaveBeenCalledWith(101);
+    expect(vi.mocked(downloadFilesAsZip)).not.toHaveBeenCalled();
+  });
+
+  it('should bundle multiple selected files into a ZIP via downloadFilesAsZip', async () => {
+    const { downloadFile, downloadFilesAsZip } = await import('@/api/file-upload/file-upload');
+    vi.mocked(downloadFilesAsZip).mockResolvedValue({
+      blob: new Blob(['x']) as any,
+      filename: '一括ダウンロード_20260727123456.zip',
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [101, 102];
+    await vm.onDownload();
+    await flushPromises();
+    expect(vi.mocked(downloadFilesAsZip)).toHaveBeenCalledWith([101, 102]);
+    expect(vi.mocked(downloadFile)).not.toHaveBeenCalled();
+  });
+
+  it('should warn and NOT call download when nothing is selected', async () => {
+    const { downloadFile } = await import('@/api/file-upload/file-upload');
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.selectedIds = [];
+    await vm.onDownload();
+    expect(vi.mocked(downloadFile)).not.toHaveBeenCalled();
+    expect(vi.mocked(message.warning)).toHaveBeenCalledWith('ファイルを選択してください。');
+  });
+
+  it('should disable row selection for a deleted (deleted_at) row', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    const props = vm.rowSelectionConfig.getCheckboxProps({
+      file_upload_id: 999,
+      file_name: 'x.pdf',
+      deleted_at: '2026-05-01T00:00:00+09:00',
+    });
+    expect(props.disabled).toBe(true);
+  });
 });

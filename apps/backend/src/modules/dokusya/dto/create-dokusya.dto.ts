@@ -68,8 +68,9 @@ export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
  * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
  * 片方を変えたら両方更新すること。
  */
-const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿA-Za-zＡ-Ｚａ-ｚ\s]+$/u;
-const KANJI_NAME_MSG = '漢字・ひらがな・カタカナ・アルファベットで入力してください。';
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
+const KANJI_NAME_MSG =
+  '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。';
 
 /**
  * Body for POST /api/v1/dokusya (ACSMS-API-011-002).

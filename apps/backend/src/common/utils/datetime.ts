@@ -78,20 +78,6 @@ export function dateOnlyIsoJst(
 }
 
 /**
- * 年月を Asia/Tokyo の `YYYYMM`（6桁）で返す。既定は現在時刻。電子版アウトバウンド
- * の payment_start（翌月1日算出）等で使う。`getUTCMonth()` 系は JST 早朝/月初に
- * 1か月ずれるため、必ず本ヘルパー（`jstParts` 経由）で JST 暦月を得る。
- *
- * @example
- * // 2026-07-21 12:00 JST → '202607'
- * yearMonthJst(new Date('2026-07-21T03:00:00Z'));
- */
-export function yearMonthJst(date: Date = new Date()): string {
-  const p = jstParts(date);
-  return `${p.year}${p.month}`;
-}
-
-/**
  * ダウンロードファイル名用のタイムスタンプ `YYYYMMDD_HHmmss`（Asia/Tokyo）。
  * 既定は現在時刻。全出力サービス共通フォーマット（旧 `jstTimestamp` /
  * `timestampForFilename`）。

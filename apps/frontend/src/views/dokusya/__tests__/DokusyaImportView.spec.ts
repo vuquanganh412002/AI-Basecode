@@ -193,6 +193,21 @@ async function uploadFile(
   await flushPromises();
 }
 
+/**
+ * Select the 購読種別 radio (1:紙版 / 2:電子版). 購読種別 is a single-source
+ * screen radio (顧客要件 2026-07) applied uniformly to every imported row —
+ * it is NOT an Excel column, so digital-only rules are driven by this.
+ */
+async function setShubetsu(
+  wrapper: ReturnType<typeof mount>,
+  value: 1 | 2,
+): Promise<void> {
+  const radio = wrapper.find(`[data-test="import-shubetsu-${value}"]`);
+  expect(radio.exists()).toBe(true);
+  await radio.setValue();
+  await flushPromises();
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   xlsxMock.read.mockReset();
@@ -208,10 +223,10 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     const { wrapper } = await renderView();
     // 機能 1.1 — 取込列パネルは展開済み。新規登録では変更イベント日
     // （読者情報変更適用日）は対象外でチェックボックスを出さずグレー表示にする
-    // （49列中1列を除く48列がチェックボックス＋全選択済み。販売店適用日は廃止・
-    // 顧客要件 2026-07）。
+    // （48列中1列を除く47列がチェックボックス＋全選択済み。購読種別は画面ラジオ
+    // で指定する単一ソースのため列に無い・顧客要件 2026-07）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes).toHaveLength(48);
+    expect(colCheckboxes).toHaveLength(47);
     for (const cb of colCheckboxes) {
       const el = cb.element as HTMLInputElement;
       expect(el.value).not.toBe('joho_henko_tekiyo_date');
@@ -306,9 +321,9 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     expect((idCb.element as HTMLInputElement).checked).toBe(true);
     expect((idCb.element as HTMLInputElement).disabled).toBe(true);
 
-    // 編集不可項目（購読種別 / 氏名4 / 購読開始日）→ チェックボックスを描画しない
+    // 編集不可項目（氏名4 / 購読開始日）→ チェックボックスを描画しない
+    // （購読種別は画面ラジオで指定する単一ソースのため列に無い）。
     for (const col of [
-      'dokusya_shubetsu',
       'shimei_sei',
       'shimei_mei',
       'shimei_kana_sei',
@@ -465,12 +480,23 @@ describe('DokusyaImportView (ACSMS-SCR-016) — file selection + preview', () =>
     expect(head.text()).not.toContain('備考');
   });
 
-  it('should lock the required 購読種別 column (checked + disabled) in 新規登録 mode so the user cannot deselect it', async () => {
+  it('should render the 購読種別 radio (紙版 / 電子版) with 紙版 checked by default and NO 併読 option', async () => {
+    // 顧客要件 2026-07: 購読種別は画面ラジオで一括指定する単一ソース（紙版/電子版
+    // の2モード）。Excel 列ではないためチェックボックスは無い。併読(3) は取込不可。
     const { wrapper } = await renderView();
-    const cb = wrapper.find('input[type="checkbox"][value="dokusya_shubetsu"]');
-    // disabled なので実ユーザーはクリックで外せない（これが唯一の保証）。
-    expect((cb.element as HTMLInputElement).disabled).toBe(true);
-    expect((cb.element as HTMLInputElement).checked).toBe(true);
+    const group = wrapper.find('[data-test="import-shubetsu"]');
+    expect(group.exists()).toBe(true);
+    const paper = wrapper.find('[data-test="import-shubetsu-1"]');
+    const digital = wrapper.find('[data-test="import-shubetsu-2"]');
+    expect(paper.exists()).toBe(true);
+    expect(digital.exists()).toBe(true);
+    expect(wrapper.find('[data-test="import-shubetsu-3"]').exists()).toBe(false);
+    // 既定は 紙版(1)。
+    expect((paper.element as HTMLInputElement).checked).toBe(true);
+    // 購読種別のチェックボックス列は撤去済み。
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_shubetsu"]').exists(),
+    ).toBe(false);
   });
 });
 
@@ -617,12 +643,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
   });
 
   it('should block submit and NOT call the API when a row is 電子版 with クレジットカード payment', async () => {
-    // 機能 8.1 — 電子版(dokusya_shubetsu=2) かつ クレカ(shiharai_hoho=6)
+    // 機能 8.1 — 電子版(画面ラジオ=2) かつ クレカ(shiharai_hoho=6)
     // は取込不可 → ACSMS-MSG-016-005.
     const { wrapper } = await renderView();
-    await uploadFile(wrapper, [
-      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 6 }),
-    ]);
+    await setShubetsu(wrapper, 2);
+    await uploadFile(wrapper, [buildImportRow({ shiharai_hoho: 6 })]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
@@ -630,9 +655,8 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
 
   it('should show the 電子版クレカ row error literal when a 電子版 クレカ row is submitted', async () => {
     const { wrapper } = await renderView();
-    await uploadFile(wrapper, [
-      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 6 }),
-    ]);
+    await setShubetsu(wrapper, 2);
+    await uploadFile(wrapper, [buildImportRow({ shiharai_hoho: 6 })]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     // ACSMS-MSG-016-005 — 行別エラー表示 (理由: 電子版かつクレカ決済取込不可).
@@ -645,10 +669,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
   });
 
   it('should block submit when a 新規 電子版 row has a blank email (email required for 電子版/併読)', async () => {
-    // 顧客要件 — メールは電子版(2)・併読(3) で必須。
+    // 顧客要件 — メールは電子版(画面ラジオ=2)・併読 で必須。
     const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
     await uploadFile(wrapper, [
-      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: '' }),
+      buildImportRow({ shiharai_hoho: 1, email: '' }),
     ]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
@@ -659,9 +684,10 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
   it('should block submit when two 新規 電子版 rows share the same email (uniqueness among 電子版/併読)', async () => {
     // 顧客要件 — メール一意性は電子版/併読間で担保（バッチ内重複も検知）。
     const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
     await uploadFile(wrapper, [
-      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K1' }),
-      buildImportRow({ dokusya_shubetsu: 2, shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K2' }),
+      buildImportRow({ shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K1' }),
+      buildImportRow({ shiharai_hoho: 1, email: 'dup@example.com', kumiaiin_code: 'K2' }),
     ]);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
@@ -669,11 +695,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
   });
 
   it('should allow submit when two 新規 紙版 rows share the same email (紙版 not checked for uniqueness)', async () => {
-    // 顧客要件 — 紙版(1) は重複可。
+    // 顧客要件 — 紙版(1・既定ラジオ) は重複可。
     const { wrapper } = await renderView();
     await uploadFile(wrapper, [
-      buildImportRow({ dokusya_shubetsu: 1, email: 'paper@example.com', kumiaiin_code: 'K1' }),
-      buildImportRow({ dokusya_shubetsu: 1, email: 'paper@example.com', kumiaiin_code: 'K2' }),
+      buildImportRow({ email: 'paper@example.com', kumiaiin_code: 'K1' }),
+      buildImportRow({ email: 'paper@example.com', kumiaiin_code: 'K2' }),
     ]);
     vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
@@ -748,9 +774,29 @@ describe('DokusyaImportView (ACSMS-SCR-016) — confirm modal + submit', () => {
     expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
     const body = vi.mocked(importDokusyaExcel).mock.calls[0][0] as Record<string, unknown>;
     expect(body.import_mode).toBe('NEW');
+    // 購読種別は top-level（画面ラジオの単一ソース）で送る。既定は 紙版(1)。
+    expect(body.dokusya_shubetsu).toBe(1);
     expect(Array.isArray(body.rows)).toBe(true);
     expect(body.rows as unknown[]).toHaveLength(2);
     expect(Array.isArray(body.selected_columns)).toBe(true);
+  });
+
+  it('should send dokusya_shubetsu=2 (電子版) at the top level when the 電子版 radio is selected', async () => {
+    // 顧客要件 2026-07: 購読種別は画面ラジオで一括指定し top-level で送る。
+    const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
+    await uploadFile(wrapper, [
+      buildImportRow({ email: 'denshi@example.com' }),
+    ]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0][0] as Record<string, unknown>;
+    expect(body.dokusya_shubetsu).toBe(2);
+    // 購読種別は rows[i] のキーには含めない（列ではないため）。
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).not.toHaveProperty('dokusya_shubetsu');
   });
 
   it('should always include the NEW-mode required columns in selected_columns when submitting in 新規登録 mode', async () => {

@@ -17,6 +17,10 @@ import { buildAuditCtx } from '@/common/utils/audit-context';
 import { compactTimestampJst } from '@/common/utils/datetime';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { buildZipArchive } from '@/common/utils/zip';
+import {
+  contentTypeFor,
+  type DownloadResult,
+} from '@/common/utils/file-delivery';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -48,25 +52,6 @@ interface JoinedRow {
   created_by: string;
   created_by_name: string | null;
   created_at: Dateish;
-}
-
-interface DownloadResult {
-  body: Buffer;
-  contentType: string;
-  contentLength: number;
-  fileName: string;
-}
-
-/** 拡張子から Content-Type を導出（不明は octet-stream）。 */
-function contentTypeFor(fileName: string): string {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.csv')) return 'text/csv';
-  if (lower.endsWith('.txt')) return 'text/plain';
-  if (lower.endsWith('.xlsx')) {
-    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-  }
-  return 'application/octet-stream';
 }
 
 /** Date / pg-mem 文字列 → ISO 8601（+09:00）。null は null のまま。 */

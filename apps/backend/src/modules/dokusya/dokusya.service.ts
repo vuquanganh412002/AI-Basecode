@@ -1,13 +1,6 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import {
-  DataSource,
-  EntityManager,
-  IsNull,
-  LessThanOrEqual,
-  Not,
-  Repository,
-} from 'typeorm';
+import { DataSource, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { Dokusya } from '@/database/entities/dokusya.entity';
@@ -22,7 +15,6 @@ import {
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { resolveDenshibanSyncGate } from '@/common/utils/denshiban-sync-gate';
 import {
   todayIsoJst,
   normalizeDbDate,
@@ -47,11 +39,6 @@ import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
-// ⚠️ Value import (not `import type`) — Nest DI reads the runtime value via
-// `design:paramtypes`; a type-only import is erased and the ctor param loses
-// its injectable type. Outbound denshiban sync (電子版) entry point.
-import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
-import type { DenshibanMode } from '@/modules/denshiban/mapper/denshiban-payload.builder';
 
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
 import {
@@ -82,8 +69,12 @@ import {
   insertResubscribe,
   insertScheduledKaiyaku,
 } from './dokusya-history.writer';
-import { loadEffectiveRow } from './dokusya-history.query';
-import { mapRirekiToMaster } from './dokusya-history.builder';
+import {
+  loadEffectiveRow,
+  nextRirekiNo,
+  insertRow,
+} from './dokusya-history.query';
+import { mapRirekiToMaster, buildRirekiRow } from './dokusya-history.builder';
 import {
   collectTekiyoDateViolations,
   collectChushiViolations,
@@ -92,6 +83,7 @@ import {
 } from './dokusya-tekiyo-date.rules';
 import { DokusyaSearchService } from './dokusya-search.service';
 import { DokusyaReplaceService } from './dokusya-replace.service';
+import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
 import {
   DokusyaJoinFields,
@@ -246,7 +238,6 @@ function fieldValidationError(
  */
 @Injectable()
 export class DokusyaService {
-  private readonly logger = new Logger(DokusyaService.name);
 
   constructor(
     @InjectRepository(Dokusya)
@@ -270,13 +261,7 @@ export class DokusyaService {
     private readonly rireki: DokusyaRirekiService,
     private readonly searchService: DokusyaSearchService,
     private readonly replaceService: DokusyaReplaceService,
-    // 電子版アウトバウンド同期（cloud → denshiban `updateUserInfo`）。DIGITAL(2)
-    // 購読者の作成/更新/解約/承認/否認をトランザクション内・COMMIT 前に同期する
-    // （outbound/PORTING.md §5）。`@Optional()`: 本サービスを positional `new(...)`
-    // で組み立てる単体テストは注入しない — 実アプリでは @Global な DenshibanDbModule
-    // が常に提供する。**直接触らず必ず {@link denshibanApiFor} を経由すること** —
-    // 未注入(テスト) と 送信対象外(紙版/併読/キャンペーン単価) の両方をそこで弾く。
-    @Optional() private readonly denshibanApi?: DenshibanApiService,
+    private readonly denshiPush: DenshibanPushService,
   ) {}
 
   // ════════════════════════════════════════════════════════════════════
@@ -557,12 +542,13 @@ export class DokusyaService {
           reason: '',
         });
 
-        // 電子版同期（outbound/PORTING.md §5.1）。DIGITAL(2) のみ発火し、denshiban が
-        // 発番した会員 id を同一トランザクション内で t_dokusya.denshi_kaiin_id に確定
-        // する（inbound が突合する 1:1 リンク）。gate 外（BOTH/PAPER）は null 返却で
-        // if を素通り。denshiban がエラー(statusCode != '0')なら例外が伝播し tx は
-        // ロールバックする（catch が logError を残して再送出）。
-        await this.syncDenshibanCreate(manager, result.after, result.dokusyaId);
+        // cloud → 電子版 push（対象会員のみ・同期 Saga）。失敗すると throw され
+        // この tx 全体がロールバックする（cloud 側書き込みも取り消し）。
+        // create は電子版が採番した会員IDを master に書き戻し in-memory にも反映。
+        if (await this.denshiPush.isTarget(manager, result.after, 'UI')) {
+          const kaiinId = await this.denshiPush.push(manager, 'create', result.after);
+          if (kaiinId != null) result.after.denshiKaiinId = kaiinId;
+        }
 
         await this.auditLog.logCreate(
           auditCtxFactory(result.dokusyaId),
@@ -844,11 +830,10 @@ export class DokusyaService {
             { dokusyaId: id },
             { updatedBy: String(session.account_id) },
           );
-          // 電子版同期（outbound/PORTING.md §5, #2 再購読）。mode は 'reread' ではなく
-          // 'update'（reread は予約モードでカレントの caller なし）。差分送信のため
-          // `before`（適用前スナップショット）を渡す。DIGITAL(2) のみ発火。未同期
-          // （denshi_kaiin_id NULL）なら create にフォールバックして会員IDを採番する。
-          await this.syncDenshibanUpsert(manager, result.after, before, id);
+          // 再購読は電子版では reread（解約済み会員の再有効化）。同期 Saga。
+          if (await this.denshiPush.isTarget(manager, result.after, 'UI')) {
+            await this.denshiPush.push(manager, 'reread', result.after);
+          }
           await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
           return result.after;
         }
@@ -905,10 +890,10 @@ export class DokusyaService {
           { updatedBy: String(session.account_id) },
         );
 
-        // 電子版同期（outbound/PORTING.md §5, #3 情報変更）。差分送信のため
-        // `before`（適用前スナップショット）を渡す。DIGITAL(2) のみ発火。未同期
-        // （denshi_kaiin_id NULL）なら create にフォールバックして会員IDを採番する。
-        await this.syncDenshibanUpsert(manager, result.after, before, id);
+        // cloud → 電子版 push（情報変更）。対象会員のみ・同期 Saga。失敗で全ロールバック。
+        if (await this.denshiPush.isTarget(manager, result.after, 'UI')) {
+          await this.denshiPush.push(manager, 'update', result.after);
+        }
 
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
@@ -1040,20 +1025,6 @@ export class DokusyaService {
           { dokusyaId: id },
           { updatedBy: String(session.account_id) },
         );
-        // 電子版同期（outbound/PORTING.md §5.2 解約）。cancel_ym = 中止日(chushi:
-        // YYYY-MM-DD)の YYYYMM。送信対象（電子版(2) かつ 非キャンペーン単価）の
-        // 判定は denshibanApiFor が行い、対象外はここで送信自体をスキップする。
-        const denshiban = await this.denshibanApiFor(manager, result.after);
-        if (denshiban) {
-          await denshiban.sendNow(
-            {
-              dokusya: result.after,
-              mode: 'cancel',
-              cancelYm: chushi.slice(0, 4) + chushi.slice(5, 7),
-            },
-            manager,
-          );
-        }
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
       });
@@ -1080,7 +1051,6 @@ export class DokusyaService {
       henkoRiyu: '電子版承認',
       message: '承認しました。',
       tankaId,
-      denshibanMode: 'approve',
     });
   }
 
@@ -1096,7 +1066,6 @@ export class DokusyaService {
       newStatus: DenshiShoninStatus.REJECTED,
       henkoRiyu: '電子版否認',
       message: '否認しました。',
-      denshibanMode: 'unapprove',
     });
   }
 
@@ -1377,109 +1346,6 @@ export class DokusyaService {
     assertBranchScope(row.jaId, row.kanriShitenId, session, '購読者');
     assertShitenScope(row.shitenId, session, '購読者');
     return row;
-  }
-
-  /**
-   * アウトバウンド同期の**入口ゲート**。送信対象なら API インスタンスを、対象外なら
-   * `undefined` を返す。全 `sendNow` 呼び出しは必ずここを通すこと。
-   *
-   * 二つの条件をまとめて見る:
-   * 1. **未注入** — `@Optional()` の `denshibanApi` を持たない単体テスト環境。
-   * 2. **送信対象外** — {@link resolveDenshibanSyncGate}（電子版(2) かつ
-   *    非キャンペーン単価）。判定式は common に一本化してある。
-   *
-   * boolean ではなくインスタンスを返すのは、呼び出し側で TypeScript の絞り込みが
-   * 効き `this.denshibanApi!` のような非 null 断言が要らなくなるため。
-   *
-   * `manager` は呼び出し元トランザクションのものを渡す — キャンペーン判定が読む
-   * `m_tanka` を同一接続で見せるため（同トランザクション内の単価変更も反映される）。
-   */
-  private async denshibanApiFor(
-    manager: EntityManager,
-    after: Dokusya,
-  ): Promise<DenshibanApiService | undefined> {
-    if (!this.denshibanApi) return undefined;
-
-    const gate = await resolveDenshibanSyncGate(after, { manager });
-    if (!gate.eligible) {
-      this.logger.debug({
-        event: `denshiban.sync.skip.${gate.reason}`,
-        dokusya_id: after.dokusyaId,
-        dokusya_shubetsu: after.dokusyaShubetsu,
-        tanka_id: after.tankaId,
-      });
-      return undefined;
-    }
-    return this.denshibanApi;
-  }
-
-  /**
-   * 電子版 create 同期 + 会員ID採番結果を `t_dokusya.denshi_kaiin_id` に確定する。
-   * 新規登録フローと、未同期の既存行を編集したときの update フォールバック
-   * （{@link syncDenshibanUpsert}）で共有する。送信対象外（BOTH/PAPER/キャンペーン
-   * 単価）は {@link denshibanApiFor} が undefined を返すので送信自体を行わない。
-   * denshiban 側エラーは例外が伝播し呼び出し元トランザクションをロールバックさせる。
-   */
-  private async syncDenshibanCreate(
-    manager: EntityManager,
-    after: Dokusya,
-    dokusyaId: number,
-  ): Promise<void> {
-    const denshiban = await this.denshibanApiFor(manager, after);
-    if (!denshiban) return;
-    await this.sendDenshibanCreate(denshiban, manager, after, dokusyaId);
-  }
-
-  /**
-   * create 送信 + 会員ID確定の実処理。**ゲート通過済みが前提**。
-   *
-   * {@link syncDenshibanUpsert} の create フォールバックから直接呼べるように
-   * ゲートと分離してある（分離しないとフォールバック経路でゲートが二度走り、
-   * `m_tanka` を無駄に二回読む）。
-   */
-  private async sendDenshibanCreate(
-    denshiban: DenshibanApiService,
-    manager: EntityManager,
-    after: Dokusya,
-    dokusyaId: number,
-  ): Promise<void> {
-    const dsResult = await denshiban.sendNow(
-      { dokusya: after, mode: 'create' },
-      manager,
-    );
-    if (dsResult?.id) {
-      const denshiKaiinId = Number(dsResult.id);
-      // in-memory の after も更新する — 後続の監査ログがこの object を使うため、
-      // DB だけ更新すると監査ログに null が残る。
-      after.denshiKaiinId = denshiKaiinId;
-      await manager.update(Dokusya, { dokusyaId }, { denshiKaiinId });
-    }
-  }
-
-  /**
-   * 電子版 upsert 同期（編集フロー）。会員IDが未採番（`denshi_kaiin_id` NULL ＝
-   * 未同期）の電子版会員を編集した場合は、update ではなく create で会員IDを採番して
-   * からリンクする（顧客決定 2026-07: 「Fallback sang create」）。理由:
-   * seed/取込で直接投入された行や、denshiban 未配線時に作成された行は create 同期を
-   * 経ておらず id を持たない。既に会員IDがあれば通常どおり差分 update を送る。
-   *
-   * `after.denshiKaiinId` は recomputeMaster 後に DB 再取得した master 値（recompute
-   * は部分 UPDATE で denshi_kaiin_id を触らないため保持される）＝ 実際の同期状態を
-   * 正しく反映する。
-   */
-  private async syncDenshibanUpsert(
-    manager: EntityManager,
-    after: Dokusya,
-    before: Dokusya,
-    dokusyaId: number,
-  ): Promise<void> {
-    const denshiban = await this.denshibanApiFor(manager, after);
-    if (!denshiban) return;
-    if (after.denshiKaiinId === null || after.denshiKaiinId === undefined) {
-      await this.sendDenshibanCreate(denshiban, manager, after, dokusyaId);
-      return;
-    }
-    await denshiban.sendNow({ dokusya: after, mode: 'update', before }, manager);
   }
 
   /**
@@ -2104,7 +1970,6 @@ export class DokusyaService {
       henkoRiyu: string;
       message: string;
       tankaId?: number;
-      denshibanMode: DenshibanMode;
     },
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     const before = await this.fetchInScope(id, session);
@@ -2135,24 +2000,68 @@ export class DokusyaService {
     let refreshed: Dokusya;
     try {
       refreshed = await this.dataSource.transaction(async (manager) => {
+        // rireki_no 採番の直列化（同一購読者への同時 approve/update 競合を防ぐ）。
+        await this.rireki.lockDokusyaRow(manager, id);
+
         // 承認/否認 は即時のワークフロー状態変更。顧客要件 2026-07 の「情報変更適用日は
-        // 未来日のみ」は情報変更に対する制約であり、承認状態には適用しない。よって未来日の
-        // 履歴行は追加せず、t_dokusya と現行 (saishin_data_flg=true) 履歴行の
-        // denshi_shonin_status を直接更新して即時確定する（未来 購読開始日 の独者でも可）。
-        await manager.update(
-          Dokusya,
-          { dokusyaId: id },
-          {
-            denshiShoninStatus: options.newStatus,
-            updatedBy: String(session.account_id),
-            ...tankaPatch,
-          },
-        );
-        await manager.update(
-          DokusyaRireki,
-          { dokusyaId: id, saishinDataFlg: true },
-          { denshiShoninStatus: options.newStatus, ...tankaPatch },
-        );
+        // 未来日のみ」は情報変更に対する制約であり、承認状態には適用しない。よって
+        // recomputeMaster の当日基準ではなく、現行 (saishin_data_flg=true) 履歴行を
+        // 起点に「承認/否認イベント」を 1 件履歴へ追加し、その行を即 saishin に昇格して
+        // t_dokusya へ反映する（未来 購読開始日 の購読者でも即時確定できる）。
+        const patch: Record<string, unknown> = {
+          denshiShoninStatus: options.newStatus,
+          ...tankaPatch,
+        };
+
+        // 現行の有効履歴行（master が指す行）。不変条件により 1 行だけ存在する。
+        const currentSaishin = await manager.findOne(DokusyaRireki, {
+          where: { dokusyaId: id, saishinDataFlg: true },
+        });
+
+        if (currentSaishin) {
+          // 承認/否認イベント行を現行行から carry-forward で組み立てる（適用日は
+          // 現行行と同じ＝情報変更ではないため。zenkai_* は buildRirekiRow が補填し、
+          // 業務項目に変化が無いので zougen_hokoku_flg=false になる）。
+          const no = await nextRirekiNo(manager, id);
+          const eventRow = buildRirekiRow(
+            currentSaishin,
+            {
+              // 承認/否認は電子版(dokusya_shubetsu=2)専用ワークフロー。電子版は適用日
+              // (joho)が常に当日のため、承認/否認イベント行の適用日も当日に揃える
+              // （現行行の joho を carry-forward しない）。電子版の joho は常に <= 当日
+              // なので、当日・最大 rireki_no のこの行が到来日バッチ後も有効行のまま。
+              joho: todayIsoJst(),
+              values: patch,
+            },
+            {
+              dokusyaId: id,
+              rirekiNo: no,
+              actor: String(session.account_id),
+              reason: options.henkoRiyu,
+            },
+          );
+          // 承認/否認は即時反映 → 旧 saishin を降格し、この行を saishin に昇格する。
+          await manager.update(
+            DokusyaRireki,
+            { dokusyaId: id, saishinDataFlg: true },
+            { saishinDataFlg: false },
+          );
+          eventRow.saishinDataFlg = true;
+          const saved = await insertRow(manager, eventRow);
+          // master へ即時反映（承認状態 + 承認時は単価 + 有効履歴行ポインタ rireki_no）。
+          await manager.update(
+            Dokusya,
+            { dokusyaId: id },
+            { ...patch, rirekiNo: saved.rirekiNo, updatedBy: String(session.account_id) },
+          );
+        } else {
+          // 履歴行が無い異常系（通常発生しない）— master のみ即時更新して確定する。
+          await manager.update(
+            Dokusya,
+            { dokusyaId: id },
+            { ...patch, updatedBy: String(session.account_id) },
+          );
+        }
 
         // 変更後スナップショット = before に新ステータス（＋承認時は単価）を重ねたもの。
         const after = {
@@ -2161,18 +2070,17 @@ export class DokusyaService {
           updatedBy: String(session.account_id),
           ...tankaPatch,
         } as Dokusya;
-        // 電子版同期（outbound/PORTING.md §5.3 承認/否認）。mode は options 由来
-        // （approve → 'approve' / reject → 'unapprove'）。assembler が payment_start
-        // をクロックから解決するため before/cancelYm 不要。承認/否認は電子版
-        // ワークフロー専用なので基本 DIGITAL(2) だが、キャンペーン単価の可能性が
-        // あるため他フローと同じく denshibanApiFor でゲートする。
-        const denshiban = await this.denshibanApiFor(manager, after);
-        if (denshiban) {
-          await denshiban.sendNow(
-            { dokusya: after, mode: options.denshibanMode },
-            manager,
-          );
+
+        // cloud → 電子版 push（承認=approve / 否認=unapprove）。同期 Saga。
+        // campaign 単価で承認した会員は isTarget が false になり push しない。
+        if (await this.denshiPush.isTarget(manager, after, 'UI')) {
+          const pushAction =
+            options.newStatus === DenshiShoninStatus.APPROVED
+              ? 'approve'
+              : 'unapprove';
+          await this.denshiPush.push(manager, pushAction, after);
         }
+
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
         return after;
       });

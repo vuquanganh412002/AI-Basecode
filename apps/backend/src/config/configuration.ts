@@ -197,6 +197,15 @@ export default () => {
       // ログに出す（NAT whitelist + TLS + 共通鍵での復号が通るか確認）。
       // 既定 OFF。疎通確認が済んだら本フラグごと削除する。
       apiPing: toBoolean(process.env.DENSHIBAN_API_PING),
+      // cloud → 電子版 push（updateUserInfo 呼び出し）の有効化フラグ。既定 OFF。
+      // ローカルは擬似デモ（denshiban-demo, http://host.docker.internal:4000/
+      // readermanage/updateUserInfo）を DENSHIBAN_API_URL に設定し true にする。
+      // 本番(AWS)は URL だけ差し替える。false のときは push をスキップし cloud の
+      // 書き込みのみ行う（電子版連携なしで動作確認できる）。
+      pushEnabled: toBoolean(process.env.DENSHIBAN_PUSH_ENABLED ?? 'false'),
+      // dokusya-sync バッチの全件リコンサイルモード。true のとき watermark を
+      // 無視して users 全件を走査する（夜間の取りこぼし対策・§2.3）。既定 OFF＝増分。
+      fullSync: toBoolean(process.env.DENSHIBAN_FULL_SYNC),
     },
     mail: {
       // Optional explicit override. When unset, MailService selects the provider

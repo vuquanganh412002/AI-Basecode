@@ -18,6 +18,7 @@ import type { Server } from 'http';
 import request from 'supertest';
 
 import { DokusyaModule } from '@/modules/dokusya/dokusya.module';
+import { todayIsoJst } from '@/common/utils/datetime';
 import {
   buildSessionCookie,
   createIntegrationTestApp,
@@ -1113,7 +1114,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       return { id, sid };
     }
 
-    it('should set denshi_shonin_status=1 immediately (no future history row) + return 承認 message', async () => {
+    it('should set denshi_shonin_status=1 immediately, write one 承認 history row (saishin), + return 承認 message', async () => {
       const { id, sid } = await seedPending();
       const res = await http()
         .put(apiUrl(`dokusya/${id}/approve`))
@@ -1123,10 +1124,27 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(res.body.message).toBe('承認しました。');
 
       const [persisted] = await ctx.dataSource.query(
-        `SELECT denshi_shonin_status FROM t_dokusya WHERE dokusya_id = $1`,
+        `SELECT denshi_shonin_status, rireki_no FROM t_dokusya WHERE dokusya_id = $1`,
         [id],
       );
       expect(Number(persisted.denshi_shonin_status)).toBe(1);
+
+      // 顧客要件: 承認時も履歴(t_dokusya_rireki)へ 1 レコード追記する。
+      // 作成行(rireki_no=1) + 承認行 の計2行になり、承認行が saishin=true。
+      const rireki = await ctx.dataSource.query(
+        `SELECT rireki_no, denshi_shonin_status, saishin_data_flg, joho_henko_tekiyo_date
+           FROM t_dokusya_rireki WHERE dokusya_id = $1 ORDER BY rireki_no`,
+        [id],
+      );
+      expect(rireki.length).toBeGreaterThanOrEqual(2);
+      const latest = rireki[rireki.length - 1];
+      expect(Number(latest.denshi_shonin_status)).toBe(1);
+      expect(latest.saishin_data_flg).toBe(true);
+      expect(Number(persisted.rireki_no)).toBe(Number(latest.rireki_no));
+      // 電子版は適用日が常に当日 → 承認イベント行の joho も当日。
+      expect(String(latest.joho_henko_tekiyo_date).slice(0, 10)).toBe(todayIsoJst());
+      // saishin=true は最新行のみ。
+      expect(rireki.filter((r: any) => r.saishin_data_flg === true).length).toBe(1);
     });
 
     it('should return 400 INVALID_STATUS when target is already approved (status != 0)', async () => {
@@ -1187,7 +1205,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       return { id, sid };
     }
 
-    it('should set denshi_shonin_status=2 immediately (no future history row) + return 否認 message', async () => {
+    it('should set denshi_shonin_status=2 immediately, write one 否認 history row (saishin), + return 否認 message', async () => {
       const { id, sid } = await seedPending();
       const res = await http()
         .put(apiUrl(`dokusya/${id}/reject`))
@@ -1197,10 +1215,25 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(res.body.message).toBe('否認しました。');
 
       const [persisted] = await ctx.dataSource.query(
-        `SELECT denshi_shonin_status FROM t_dokusya WHERE dokusya_id = $1`,
+        `SELECT denshi_shonin_status, rireki_no FROM t_dokusya WHERE dokusya_id = $1`,
         [id],
       );
       expect(Number(persisted.denshi_shonin_status)).toBe(2);
+
+      // 顧客要件: 否認時も履歴へ 1 レコード追記し、否認行を saishin=true にする。
+      const rireki = await ctx.dataSource.query(
+        `SELECT rireki_no, denshi_shonin_status, saishin_data_flg, joho_henko_tekiyo_date
+           FROM t_dokusya_rireki WHERE dokusya_id = $1 ORDER BY rireki_no`,
+        [id],
+      );
+      expect(rireki.length).toBeGreaterThanOrEqual(2);
+      const latest = rireki[rireki.length - 1];
+      expect(Number(latest.denshi_shonin_status)).toBe(2);
+      expect(latest.saishin_data_flg).toBe(true);
+      expect(Number(persisted.rireki_no)).toBe(Number(latest.rireki_no));
+      // 電子版は適用日が常に当日 → 否認イベント行の joho も当日。
+      expect(String(latest.joho_henko_tekiyo_date).slice(0, 10)).toBe(todayIsoJst());
+      expect(rireki.filter((r: any) => r.saishin_data_flg === true).length).toBe(1);
     });
 
     it('should return 400 INVALID_STATUS when target is not in 承認待ち state', async () => {

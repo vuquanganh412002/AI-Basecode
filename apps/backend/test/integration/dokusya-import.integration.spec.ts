@@ -261,11 +261,11 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
 
       const header = (sheet.getRow(1).values as unknown[]).slice(1);
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
-      // v1.3（顧客要件 2026-07）: 販売店適用日を廃止し、適用日は読者情報変更適用日に
-      // 統一（50 → 49 列。1更新1レコード・UI/置換と同一）。
-      expect(header).toHaveLength(49);
-      // Sample demonstrates a valid 紙版 / 新規 format example.
-      expect(Number(sample[header.indexOf('購読種別')])).toBe(1);
+      // v1.4（顧客要件 2026-07）: 購読種別は画面ラジオ（紙版/電子版）で一括指定する
+      // 単一ソースにしたため Excel 列から撤去（49 → 48 列）。v1.3 で販売店適用日を
+      // 廃止し適用日を読者情報変更適用日に統一済み（1更新1レコード・UI/置換と同一）。
+      expect(header).toHaveLength(48);
+      expect(header).not.toContain('購読種別'); // 撤去（画面ラジオで一括指定）
       expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）
       expect(header).toContain('購読者情報と同じ');
       expect(header).not.toContain('販売店適用日'); // 廃止（joho に統一）

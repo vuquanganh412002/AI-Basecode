@@ -11,6 +11,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -26,17 +27,22 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import { decodeMultipartFilename } from '@/common/utils/multipart-filename';
 import type { PaginatedResponse } from '@/common/utils/paginate';
+import {
+  sendBinaryAttachment,
+  type DownloadResult,
+} from '@/common/utils/file-delivery';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { SuccessMessageDto } from '@/common/dto/responses.dto';
 import { SearchFileUploadDto } from './dto/search-file-upload.dto';
+import { UploadDownloadZipDto } from './dto/download-zip.dto';
 import { UploadFileUploadDto } from './dto/upload-file-upload.dto';
 import {
   FileUploadCreatedItemDto,
@@ -172,5 +178,75 @@ export class FileUploadController {
     @Req() req: Request & { user?: SessionPayload },
   ): Promise<{ message: string }> {
     return this.service.remove(fileUploadId, req.user as SessionPayload, req);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // SCR-023 — GET /api/v1/file-upload/:id/preview
+  // ══════════════════════════════════════════════════════════════
+  @Get(':file_upload_id/preview')
+  @Permissions('file.download')
+  @ApiOperation({ summary: 'プレビュー用署名付き URL を取得する' })
+  async getPreview(
+    @Param('file_upload_id', new ParseIntPipe()) fileUploadId: number,
+    @Req() req: Request & { user?: SessionPayload },
+  ): Promise<{ data: { preview_url: string; file_name: string } }> {
+    return this.service.getPreview(fileUploadId, req.user as SessionPayload);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // SCR-023 — GET /api/v1/file-upload/:id/download
+  // ══════════════════════════════════════════════════════════════
+  @Get(':file_upload_id/download')
+  @Permissions('file.download')
+  @ApiOperation({ summary: 'アップロード済みファイルをダウンロードする' })
+  @ApiResponse({
+    status: 200,
+    description: 'File binary as attachment.',
+    content: { 'application/octet-stream': {} },
+  })
+  async download(
+    @Param('file_upload_id', new ParseIntPipe()) fileUploadId: number,
+    @Req() req: Request & { user?: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.service.download(
+      fileUploadId,
+      req.user as SessionPayload,
+      req,
+    );
+    this.sendBinary(res, result);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // SCR-023 — POST /api/v1/file-upload/download-zip
+  // ══════════════════════════════════════════════════════════════
+  @Post('download-zip')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('file.download')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary: '選択した複数ファイルを ZIP に1つにまとめてダウンロードする',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'ZIP (application/zip) を attachment で返す。',
+    content: { 'application/zip': {} },
+  })
+  async downloadZip(
+    @Body() dto: UploadDownloadZipDto,
+    @Req() req: Request & { user?: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const result = await this.service.downloadZip(
+      dto.file_upload_ids,
+      req.user as SessionPayload,
+      req,
+    );
+    this.sendBinary(res, result);
+  }
+
+  /** バイナリ添付レスポンスは共通ユーティリティ `sendBinaryAttachment` に集約。 */
+  private sendBinary(res: Response, result: DownloadResult): void {
+    sendBinaryAttachment(res, result);
   }
 }

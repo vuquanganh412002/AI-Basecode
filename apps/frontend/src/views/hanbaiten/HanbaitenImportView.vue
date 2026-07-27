@@ -517,9 +517,11 @@ function renderCell(value: unknown): string {
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
       <form class="space-y-4" @submit.prevent>
-        <!-- Row 1: file | mode | template -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-4 items-start">
-          <div>
+        <!-- Row 1（lg・5カラム）: [file ×2] [空き] [取込モード] [テンプレート右]。
+             購読者取込(SCR-016)と同一グリッド（購読種別カラムは空きにする）にし、
+             Excelファイル名入力の幅を SCR-016 と完全一致させる。 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-4 items-start">
+          <div class="md:col-span-2 lg:col-span-2">
             <label
               class="block text-sm font-semibold text-text-main mb-1.5"
               for="file-input"
@@ -565,6 +567,7 @@ function renderCell(value: unknown): string {
               id="import-mode-label"
             >
               取込モード
+              <span class="text-error ml-1">*</span>
             </span>
             <!-- [import-mode-radio] Customer 2026-05-27 — switched
                  from a native dropdown to inline radios for one-click
@@ -595,8 +598,12 @@ function renderCell(value: unknown): string {
             </div>
           </div>
 
+          <!-- 取込モードをファイル入力の直後に置き、テンプレートは右端に残すための
+               空きカラム（lg のみ占有）。 -->
+          <div class="hidden lg:block" aria-hidden="true"></div>
+
           <div
-            class="flex flex-col items-start md:items-end justify-end h-full md:pt-6"
+            class="md:col-span-2 lg:col-span-1 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
           >
             <button
               data-test="template-download-btn"

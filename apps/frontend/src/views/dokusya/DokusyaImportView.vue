@@ -17,6 +17,7 @@ import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
 import { useAuthStore } from '@/stores/auth.store';
+import { useCodesStore } from '@/stores/codes.store';
 import { useNotify } from '@/composables/useNotify';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/constants/enums';
 import {
@@ -70,12 +71,30 @@ const MSG_016_006 =
 // m_code values for the 電子版クレカ guard (seeder §5).
 
 const authStore = useAuthStore();
+const codes = useCodesStore();
 const notify = useNotify();
 const canImport = computed(() => authStore.hasPermission('dokusya.import'));
 
 // ─── form state ──────────────────────────────────────────────────────
 
 const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
+
+// 購読種別（紙版/電子版）は画面ラジオで一括指定する単一ソース。全取込行へ一律適用
+// し、電子版クレカ禁止 / 電子版メール必須 等のルール判定に使う（顧客要件 2026-07:
+// 取込を紙版/電子版の2モードに分離。3:併読はラジオに出さず取込不可）。
+const dokusyaShubetsuFe = ref<number>(DokusyaShubetsu.PAPER);
+
+// ラベルは m_code(DOKUSYA_SHUBETSU) から取得（ハードコード禁止・vue.md §m_code）。
+// 紙版(1)・電子版(2) のみ（併読(3) は取込対象外）。
+const shubetsuOptions = computed(() =>
+  codes
+    .options('DOKUSYA_SHUBETSU')
+    .filter(
+      (o) =>
+        Number(o.value) === DokusyaShubetsu.PAPER ||
+        Number(o.value) === DokusyaShubetsu.DIGITAL,
+    ),
+);
 
 /** Selected columns — every physical column starts checked. */
 const selected = reactive<Record<PhysicalColumn, boolean>>(
@@ -130,8 +149,8 @@ function isLocked(col: PhysicalColumn): boolean {
 
 /**
  * 強制 未チェック＋disable（forced OFF）になる列か。
- * 更新モードの編集不可項目（購読種別 / 手続種類 / 氏名4 / 購読開始日）は
- * 更新対象外なので未チェック＋disable。
+ * 更新モードの編集不可項目（氏名4 / 購読開始日）は更新対象外なので
+ * 未チェック＋disable（購読種別は画面ラジオで指定する単一ソースのため列に無い）。
  */
 function isForcedUnchecked(col: PhysicalColumn): boolean {
   // 新規登録: 読者情報変更適用日 / 販売店適用日 は対象外（UPDATE 専用の変更イベント日）。
@@ -300,12 +319,14 @@ function validateBeforeSubmit(): string | null {
 
   const errors: RowError[] = [];
   const isNew = importModeFe.value === 'new';
+  // 購読種別は画面ラジオで一括指定する単一ソース（全行共通）。
+  const shubetsu = dokusyaShubetsuFe.value;
+  const isDigitalBatch = isDigitalOrBoth(shubetsu);
   // 新規取込時の電子版/併読メール重複検知用（メール → 初出の行番号）。
   // 既存DBとの重複はBEが判定する（ここはバッチ内の素早いフィードバック）。
   const batchDigitalEmail = new Map<string, number>();
   parsedRows.value.forEach((row, idx) => {
     const rowNo = idx + 2; // +2: row 1 is the header, data starts at 2.
-    const shubetsu = Number(row.dokusya_shubetsu);
     const shiharai = Number(row.shiharai_hoho);
     const busu = Number(row.dokusya_busu);
     const email = String(row.email ?? '').trim();
@@ -324,7 +345,7 @@ function validateBeforeSubmit(): string | null {
     // 顧客要件 — メールは電子版(2)・併読(3) で必須かつ電子版/併読間で一意。
     // 新規取込は行の購読種別が確定値（更新は購読種別変更不可のためBEが既存値で
     // 判定）。新規モードでのみFE側でも検証し、即時フィードバックする。
-    if (isNew && isDigitalOrBoth(shubetsu)) {
+    if (isNew && isDigitalBatch) {
       if (email) {
         const first = batchDigitalEmail.get(email);
         if (first === undefined) {
@@ -421,6 +442,7 @@ async function runImport(): Promise<void> {
 
     const body = {
       import_mode: MODE_TO_BE[importModeFe.value],
+      dokusya_shubetsu: dokusyaShubetsuFe.value,
       selected_columns: selectedCols,
       rows,
     };
@@ -501,9 +523,9 @@ function renderCell(value: unknown): string {
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
       <form class="space-y-4" @submit.prevent>
-        <!-- Row 1: file | mode | template -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-4 items-start">
-          <div>
+        <!-- Row 1（lg・5カラム）: [file ×2] [購読種別] [取込モード] [テンプレート右] -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-4 items-start">
+          <div class="md:col-span-2 lg:col-span-2">
             <label
               class="block text-sm font-semibold text-text-main mb-1.5"
               for="file-input"
@@ -545,10 +567,43 @@ function renderCell(value: unknown): string {
 
           <div>
             <span
+              id="import-shubetsu-label"
+              class="block text-sm font-semibold text-text-main mb-1.5"
+            >
+              購読種別
+              <span class="text-error ml-1">*</span>
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="import-shubetsu-label"
+              data-test="import-shubetsu"
+              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
+            >
+              <label
+                v-for="opt in shubetsuOptions"
+                :key="opt.value"
+                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+              >
+                <input
+                  v-model.number="dokusyaShubetsuFe"
+                  type="radio"
+                  name="import-shubetsu"
+                  :value="Number(opt.value)"
+                  :data-test="`import-shubetsu-${opt.value}`"
+                  class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                />
+                {{ opt.label }}
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <span
               id="import-mode-label"
               class="block text-sm font-semibold text-text-main mb-1.5"
             >
               取込モード
+              <span class="text-error ml-1">*</span>
             </span>
             <div
               role="radiogroup"
@@ -574,7 +629,9 @@ function renderCell(value: unknown): string {
             </div>
           </div>
 
-          <div class="flex flex-col items-start md:items-end justify-end h-full md:pt-6">
+          <div
+            class="md:col-span-2 lg:col-span-1 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
+          >
             <button
               data-test="template-download-btn"
               type="button"

@@ -1584,7 +1584,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1, hanbaiten_id: 200, new_hanbaiten_id: 201 })
         .expect(200);
 
       expect(res.body.data).toEqual(expect.any(Array));
@@ -1605,7 +1605,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001', joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
+        .query({ kanri_shiten_id: 10, kumiaiin_code: '10001', joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1, hanbaiten_id: 200, new_hanbaiten_id: 201 })
         .expect(200);
 
       expect(service.searchForReplace).toHaveBeenCalledWith(
@@ -1649,6 +1649,8 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
           dokusya_kaishi_date_to: '2026-01-01',
           joho_henko_tekiyo_date: '2099-12-31',
           dokusya_shubetsu: 1,
+          hanbaiten_id: 200,
+          new_hanbaiten_id: 201,
         })
         .expect(400);
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
@@ -1685,7 +1687,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1, hanbaiten_id: 200, new_hanbaiten_id: 201 })
         .expect(403);
       expect(res.body.error_code).toBe('DATA_SCOPE_VIOLATION');
     });
@@ -1694,7 +1696,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
       service.searchForReplace.mockRejectedValue(new Error('DB exploded'));
       const res = await http()
         .get(apiUrl('dokusya/replace-hanbaiten/search'))
-        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1 })
+        .query({ joho_henko_tekiyo_date: '2099-12-31', dokusya_shubetsu: 1, hanbaiten_id: 200, new_hanbaiten_id: 201 })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });

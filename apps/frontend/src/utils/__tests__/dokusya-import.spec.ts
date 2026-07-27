@@ -14,8 +14,11 @@ import {
 // したため、そのテストは utils/__tests__/datetime.spec.ts 側にある。
 
 describe('dokusya-import — column model', () => {
-  it('has 49 physical columns (v1.3: 販売店適用日 廃止・適用日は joho に統一)', () => {
-    expect(PHYSICAL_COLUMNS).toHaveLength(49);
+  it('has 48 physical columns (v1.4: 購読種別は画面ラジオの単一ソースで列から撤去)', () => {
+    // v1.4（顧客要件 2026-07）: 購読種別を Excel 列から撤去し画面ラジオで一括指定
+    // （紙版/電子版の2モード）。v1.3 で販売店適用日を廃止し joho に統一済み。
+    expect(PHYSICAL_COLUMNS).toHaveLength(48);
+    expect(PHYSICAL_COLUMNS).not.toContain('dokusya_shubetsu' as never);
     expect(PHYSICAL_COLUMNS).not.toContain('tetsuzuki_shurui' as never);
     expect(PHYSICAL_COLUMNS).toContain('haitatsu_same_flg');
     expect(PHYSICAL_COLUMNS).not.toContain('hanbaiten_tekiyo_date' as never);

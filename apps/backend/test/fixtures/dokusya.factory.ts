@@ -615,6 +615,10 @@ export function buildReplaceSearchQuery(
     joho_henko_tekiyo_date: '2099-12-31',
     // 購読種別は必須（1:紙版 / 2:電子版・顧客要件 2026-07）。既定は紙版=未来日と整合。
     dokusya_shubetsu: 1,
+    // 置換元配達販売店は必須（顧客要件 2026-07）。適用日時点の履歴でこの販売店を突合。
+    hanbaiten_id: 200,
+    // 置換先配達販売店も必須。検索では ≠ 置換先で絞る（置換元 200 と異なる値）。
+    new_hanbaiten_id: 201,
     ...overrides,
   };
 }
@@ -686,7 +690,6 @@ export function buildReplaceCandidateRow(
  */
 export function buildImportRequiredColumns(): string[] {
   return [
-    'dokusya_shubetsu',
     'tetsuzuki_shurui',
     'kanri_shiten_code',
     'shiten_code',
@@ -771,6 +774,8 @@ export function buildImportBody(
 ): Record<string, unknown> {
   return {
     import_mode: 'NEW',
+    // 購読種別は画面ラジオで選ぶ取込モード（顧客要件 2026-07・既定は紙版=1）。
+    dokusya_shubetsu: 1,
     selected_columns: buildImportRequiredColumns(),
     rows: [buildImportRow()],
     ...overrides,

@@ -12,12 +12,21 @@ interface Props {
    * the user can't re-query and lose their selection.
    */
   disableSubmit?: boolean;
+  /**
+   * Align grid cells to the top instead of vertically centering them.
+   * Use when fields can show an inline validation message below the input
+   * (e.g. SCR-015): with the default `items-center`, one cell growing to fit
+   * a message vertically re-centers the sibling cells and misaligns their
+   * labels. `items-start` keeps every label pinned to the top row.
+   */
+  alignStart?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
   columns: 4,
   disableSubmit: false,
+  alignStart: false,
 });
 
 const emit = defineEmits<{
@@ -40,7 +49,7 @@ const gridClass: Record<number, string> = {
       class="space-y-4"
       @submit.prevent="emit('search')"
     >
-      <div :class="['grid gap-x-4 gap-y-3 items-center', gridClass[props.columns]]">
+      <div :class="['grid gap-x-4 gap-y-3', props.alignStart ? 'items-start' : 'items-center', gridClass[props.columns]]">
         <slot />
       </div>
 

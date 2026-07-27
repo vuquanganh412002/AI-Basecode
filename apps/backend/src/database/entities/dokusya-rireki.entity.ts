@@ -359,6 +359,14 @@ export class DokusyaRireki {
   @Column({ name: 'denshi_shonin_status', type: 'int', nullable: true })
   denshiShoninStatus: number | null;
 
+  /**
+   * 本紙購読フラグのスナップショット。電子版読者管理システムの
+   * `users.subscribe_flg` (0:未購読, 1:購読) を連携（0→FALSE, 1→TRUE）。
+   * t_dokusya と同じ値を履歴行にも保持する。DEFAULT FALSE。
+   */
+  @Column({ name: 'honshi_kodoku_flg', type: 'boolean', default: false })
+  honshiKodokuFlg: boolean;
+
   // 販売店適用日 (hanbaiten_tekiyo_date) は廃止（顧客要件 2026-07）。適用日は
   // 読者情報変更適用日 (joho_henko_tekiyo_date) に一本化した。
 

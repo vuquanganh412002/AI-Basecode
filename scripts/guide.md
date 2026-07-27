@@ -123,34 +123,6 @@ python3 screen_excel_to_md.py <input.xlsx> <output_dir>
 
 ---
 
-### 5. Design Notes / Change Matrix: Markdown -> Excel
-
-#### `matrix_md_to_excel.py` — Markdown -> Excel
-
-Convert a design-note Markdown file (headings + GFM tables + prose + code
-blocks) to a styled workbook. Written for the 27-column
-`docs/design-vi/dokusya-change-matrix.md`, but the parser is generic.
-
-```bash
-python3 matrix_md_to_excel.py <input.md>
-python3 matrix_md_to_excel.py <input.md> <output.xlsx>
-python3 matrix_md_to_excel.py <input.md> --split-level 3
-python3 matrix_md_to_excel.py <input.md> --no-color
-```
-
-- If output is not specified, the `.xlsx` file is created next to the input.
-- One sheet per `##` heading by default; content above the first one goes to a
-  leading `Tổng quan` sheet with the source path and export timestamp.
-  `--split-level 3` also breaks on `###`, `--split-level 1` keeps a single sheet.
-- Tables with >= 10 columns get frozen panes (header row + first column) so the
-  field-name column stays visible while scrolling through mode columns.
-- `**bold**` and `` `code` `` are preserved as Excel rich text — in the change
-  matrix, bold marks "this value actually changed".
-- Legend glyphs are colour-coded unless `--no-color`: `✓ ✅` green, `✗ ❌` red,
-  `⧗` amber, `— ↩` muted grey. Rows shaped like `━━ section ━━` become bands.
-
----
-
 ## Examples
 
 ```bash
@@ -168,9 +140,6 @@ python3 scripts/db_md_to_excel.py docs/database/database-design.md --author "Tra
 
 # Convert all requirement Excel files to Markdown
 python3 scripts/req_excel_to_md.py docs/requirements/*.xlsx -o docs/requirements/md
-
-# Convert the subscriber change matrix to Excel
-python3 scripts/matrix_md_to_excel.py docs/design-vi/dokusya-change-matrix.md
 
 # Convert screen design Excel to Markdown
 python3 scripts/screen_excel_to_md.py "docs/design/ACSMS-SCR-001/【日本農業新聞様】VTIジャパン_クラウド版購読者管理システム_画面設計書_ログイン画面_v1.1.xlsx"

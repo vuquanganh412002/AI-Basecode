@@ -1268,14 +1268,13 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should VALIDATE 氏名 on edit and block update when non-conforming — 顧客要件 2026-07 (氏名編集可)', async () => {
-    // 氏名は編集で変更可（顧客要件 2026-07）。作成と同じく 氏/名は漢字・かなは
-    // 全角ひらがなを検証するため、旧取込等で "太郎12"（数字混じり）やカタカナの
-    // かなが残っている場合は、修正するまで更新できない。
+  it('should VALIDATE 氏名 on edit and block update when it contains a symbol — 顧客要件 2026-07 (氏名編集可)', async () => {
+    // 氏名は編集で変更可（顧客要件 2026-07）。数字・全/半角カナは許容だが記号は不可
+    // （再緩和）。記号混じりのまま更新しようとすると弾かれる。
     const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
       data: buildDokusyaDetail({
-        shimei_mei: '太郎12',
+        shimei_mei: '太郎!',
         shimei_kana_sei: 'ゾウゲン',
       }),
     });
@@ -1289,8 +1288,8 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('漢字・ひらがな・カタカナ・アルファベットで入力してください。');
-    expect(wrapper.text()).toContain('ひらがなで入力してください');
+    expect(wrapper.text()).toContain('漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。');
+    expect(wrapper.text()).toContain('ひらがな・数字で入力してください');
     expect(updateDokusya).not.toHaveBeenCalled();
   });
 
@@ -1338,19 +1337,34 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should show ひらがなで入力してください。 when shimei_kana_sei is katakana (ACSMS-MSG-011-002)', async () => {
-    // 画面項目定義 No.12 — 全角ひらがなのみ (電子版仕様).
+  it('should accept ひらがな + 数字 in shimei_kana_sei (顧客要件 2026-07: かなは数字も可)', async () => {
+    // かな欄は ひらがな + 数字 のみ許容。数字混じり "やまだ12" は通る。
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({ shimei_kana_sei: 'やまだ12' }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('ひらがな・数字で入力してください');
+  });
+
+  it('should reject katakana / latin in shimei_kana_sei (ひらがな・数字のみ)', async () => {
     const { wrapper } = await renderView();
     const { createDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(createDokusya).mockClear();
 
     const vm = wrapper.vm as any;
+    // カタカナ・ラテン文字は不可（"1a" の a も弾く）。
     await fillForm(vm, buildCreateDokusyaForm({ shimei_kana_sei: 'ヤマダ' }));
-
     await wrapper.find('form').trigger('submit');
     await flushPromises();
+    expect(wrapper.text()).toContain('ひらがな・数字で入力してください');
 
-    expect(wrapper.text()).toContain('ひらがなで入力してください');
+    await fillForm(vm, buildCreateDokusyaForm({ shimei_kana_sei: '1a' }));
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('ひらがな・数字で入力してください');
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
@@ -1917,7 +1931,7 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     expect(createDokusya).not.toHaveBeenCalled();
   });
 
-  it('should reject 配達先苗字/名前（漢字） when 半角数字 — 漢字・かな・アルファベット許容/数字不可 (顧客要件 2026-07)', async () => {
+  it('should accept 配達先苗字/名前 with 半角数字 but reject a symbol (顧客要件 2026-07 再緩和)', async () => {
     const { wrapper } = await renderView();
     const { createDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(createDokusya).mockClear();
@@ -1930,10 +1944,9 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
       haitatsu_todofuken_code: '13',
       haitatsu_shikuchoson: '渋谷区',
       haitatsu_chome_banchi: '神宮前1-1',
-      // 半角数字 → 氏名チェックで弾く（漢字・ひらがな・カタカナ・アルファベットは可、
-      // 数字は不可）。かなは正しいひらがな。
+      // 数字は許容（再緩和）。名は記号 ! で弾かれることを確認。
       haitatsu_shimei_sei: 'Suzuki12',
-      haitatsu_shimei_mei: 'Hanako12',
+      haitatsu_shimei_mei: 'Hanako!',
       haitatsu_shimei_kana_sei: 'すずき',
       haitatsu_shimei_kana_mei: 'はなこ',
     }));
@@ -1941,11 +1954,10 @@ describe('DokusyaFormView — haitatsu_same_flg toggle (機能定義 9.x)', () =
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
-    expect(vm.fieldErrors.haitatsu_shimei_sei).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
-    );
+    // 数字を含む 苗字 は通る、記号を含む 名前 は弾く。
+    expect(vm.fieldErrors.haitatsu_shimei_sei).toBeFalsy();
     expect(vm.fieldErrors.haitatsu_shimei_mei).toBe(
-      '漢字・ひらがな・カタカナ・アルファベットで入力してください。',
+      '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。',
     );
     expect(createDokusya).not.toHaveBeenCalled();
   });

@@ -1,4 +1,5 @@
 <script setup lang="ts" generic="T extends Record<string, unknown>">
+import { computed } from 'vue';
 import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue';
 import BaseCard from './BaseCard.vue';
 
@@ -35,6 +36,20 @@ const props = withDefaults(defineProps<Props>(), {
   rowSelection: undefined,
 });
 
+/**
+ * 操作列（key='actions'）は横スクロール時も常に見えるよう右端に固定する
+ * （プロジェクト共通・全 BaseDataTable に一律適用）。呼び出し側で明示的に
+ * `fixed` を指定した場合はそれを尊重する。fixed 右寄せは antd の仕様上 `width`
+ * が必要なため、未指定なら既定幅を補う。
+ */
+const displayColumns = computed<TableColumnsType>(() =>
+  props.columns.map((col) => {
+    const c = col as Record<string, unknown>;
+    if (c.key !== 'actions' || c.fixed !== undefined) return col;
+    return { ...col, fixed: 'right', width: (c.width as number) ?? 100 };
+  }),
+);
+
 type SorterShape = { field?: string; order?: 'ascend' | 'descend' };
 
 const emit = defineEmits<{
@@ -66,7 +81,7 @@ function handleChange(
     </div>
 
     <a-table
-      :columns="props.columns"
+      :columns="displayColumns"
       :data-source="props.rows"
       :loading="props.loading"
       :row-key="props.rowKey"

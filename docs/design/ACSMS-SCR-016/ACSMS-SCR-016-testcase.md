@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-04 | 1.0 | Kieu Thi Diem | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026-07-27 | 1.1 | Tran Duc Tuyen | 顧客要件 2026-07：取込を紙版/電子版の2モードに分離。購読種別を Excel 列から撤去し画面ラジオ（紙版/電子版）の top-level パラメータに変更（49→48列）。TC-016-023 を top-level `@IsIn([1,2])` 防御確認に、TC-016-031 を電子版ラジオ選択前提に更新。必須列リスト・列数(48)・購読種別チェックボックス言及を全 TC で修正。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 
 ## システム概要
@@ -399,7 +400,7 @@ URL `/dokusya/import` にアクセス
 Excelファイル選択欄にボタン「ファイルを選択」とプレースホルダ「ファイルが選択されていません」が表示されていること、取込モードラジオで「新規登録」が選択済みであること、テンプレートボタンが表示されていること、取込列パネルが表示されていること、プレビューエリアが非表示であること
 
 ステップ3：
-49列すべてのチェックボックスが表示されていること、新規登録モードでは必須列（`dokusya_shubetsu`／`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`）が無効（非活性）かつチェック済みであること
+48列すべてのチェックボックスが表示されていること、新規登録モードでは必須列（`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`）が無効（非活性）かつチェック済みであること
 
 補足：
 ・初期状態は新規登録モード、必須列は常にチェック済みで選択不可
@@ -486,7 +487,7 @@ URL `/dokusya/import` にアクセス、取込モードラジオグループを�
 
 (なし)
 
-## ACSMS-TC-016-008 — 取込列パネル — 49列チェックボックスの表示確認
+## ACSMS-TC-016-008 — 取込列パネル — 48列チェックボックスの表示確認
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -508,16 +509,16 @@ URL `/dokusya/import` にアクセス、取込モードラジオグループを�
 ### 期待結果
 
 ステップ1：
-取込列パネルが表示されること、全49列のチェックボックスが表示されること
+取込列パネルが表示されること、全48列のチェックボックスが表示されること
 
 ステップ2：
-新規登録モードでは必須列（`dokusya_shubetsu`／`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`）が無効かつチェック済みで表示されていること
+新規登録モードでは必須列（`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`）が無効かつチェック済みで表示されていること
 
 ステップ3：
 列ラベルが `screen-design.md §画面項目定義` および `api.md` テンプレート列定義の順序で表示されていること
 
 補足：
-・列順序はテンプレートファイル（49列固定）と一致すること
+・列順序はテンプレートファイル（48列固定）と一致すること
 ・「すべて選択／解除」チェックボックスがパネルヘッダー右側に表示されていること
 
 ### テスト結果（1回目）
@@ -938,7 +939,7 @@ Spaceキー押下でチェックボックスが切り替わること（新規登
 - 前提条件:
   - ・role: JA_HONTEN
   - ・ログイン済 + MFA認証済
-  - ・テストファイル：購読者3行を含む `.xlsx`、シート名「購読者」、49列ヘッダ
+  - ・テストファイル：購読者3行を含む `.xlsx`、シート名「購読者」、48列ヘッダ
 
 ### 手順
 
@@ -1055,7 +1056,7 @@ Excelファイル選択ボタン押下、テストファイルを選択（拡張
 ### 手順
 
 ステップ1：
-プレビュー初期表示で全49列が表示されていることを確認
+プレビュー初期表示で全48列が表示されていることを確認
 
 ステップ2：
 「住所（市町村郡）」「連絡先2」「備考」など任意の3列のチェックを外す
@@ -1066,7 +1067,7 @@ Excelファイル選択ボタン押下、テストファイルを選択（拡張
 ### 期待結果
 
 ステップ1：
-プレビューに49列分のヘッダと3行のデータが表示されること
+プレビューに48列分のヘッダと3行のデータが表示されること
 
 ステップ2：
 チェックボックスがチェック解除されること
@@ -1116,7 +1117,7 @@ Excelファイル選択ボタン押下、テストファイルを選択（拡張
 `/dokusya/import` にアクセス、取込モード「新規登録」を選択
 
 ステップ2：
-取込列パネルで購読種別（`dokusya_shubetsu`）など必須列のチェックボックスを操作
+取込列パネルで備考（`biko`）など任意列のチェックボックスを操作（購読種別は画面ラジオの単一ソースで列に無い・v1.6）
 
 ステップ3：
 DevTools の HTML 属性を確認
@@ -1133,7 +1134,7 @@ DevTools の HTML 属性を確認
 チェックボックスが選択不可（無効状態）かつチェック済みで表示されること
 
 補足：
-・新規登録モードの必須列：`dokusya_shubetsu`／`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`
+・新規登録モードの必須列：`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`
 ・サーバー側でも `selected_columns` に必須列が含まれない場合は入力値検証エラーを返す
 
 ### テスト結果（1回目）
@@ -1325,33 +1326,33 @@ HTTPステータスコード400が返却されること（`error_code: IMPORT_VA
 
 (なし)
 
-## ACSMS-TC-016-023 — 購読種別=3（併読）はExcel取込不可
+## ACSMS-TC-016-023 — 購読種別=3（併読）はExcel取込不可（top-level・v1.6）
 
 - 観点ID: VP-C-03
 - 種類: Abnormal (異常)
 - 前提条件:
   - ・role: JA_HONTEN（ja_id=1）
   - ・ログイン済 + MFA認証済
-  - ・テストファイル：`dokusya_shubetsu`=3（併読）の行を含むファイル
+  - ・購読種別は画面ラジオ（紙版/電子版）で一律指定する top-level パラメータ（v1.6）。UI では併読はラジオに出さないため選択不可。API 直呼びで `dokusya_shubetsu`=3 を送った場合の防御確認。
 
 ### 手順
 
 ステップ1：
-ファイルアップロード、取込モード「新規登録」
+画面上：購読種別ラジオに 併読 の選択肢が表示されないこと（紙版 / 電子版 のみ）を確認する。
 
 ステップ2：
-取込開始ボタン押下 → 確認ダイアログ「実行」
+API 直呼びで top-level `dokusya_shubetsu`=3（併読）を送信する。
 
 ### 期待結果
 
 ステップ1：
-プレビューが表示されること
+購読種別ラジオは 紙版 / 電子版 の2択のみで、併読は選べないこと。
 
 ステップ2：
-HTTPステータスコード400が返却されること（`error_code: IMPORT_VALIDATION_ERROR`）、`errors` 配列に `{ row: N, field: 'dokusya_shubetsu', message: '併読はExcel取込できません' }` 相当が含まれること、トースト `取込み処理にエラーが発生しました。「行{N}: {項目名} — {エラー理由}」` が表示されること（ACSMS-MSG-016-005）、全件ロールバックされ DB に登録されないこと
+HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、`errors` に `{ field: 'dokusya_shubetsu' }` を含む — DTO `@IsIn([1,2])`）、DB に登録されないこと。
 
 補足：
-・購読種別=3（併読）は画面取込の対象外（業務ルール）
+・購読種別=3（併読）は画面取込の対象外（業務ルール・第3システム同期のため読取専用）
 ・併読の登録は別画面の手入力で行う
 
 ### テスト結果（1回目）
@@ -1467,10 +1468,10 @@ DevTools の Network タブで GET リクエストを確認
 GET `/api/v1/dokusya/import/template` が呼ばれ、HTTPステータスコード200が返却されること、`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`、`Content-Disposition: attachment; filename="購読者Excelデータ取込_テンプレート.xlsx"` が含まれること
 
 ステップ3：
-シート名が「購読者」であること、1行目に49列のヘッダーが含まれていること
+シート名が「購読者」であること、1行目に48列のヘッダーが含まれていること
 
 補足：
-・列順は `screen-design.md §3.1` および `api.md §テンプレートファイル仕様` に従う（49列固定）
+・列順は `screen-design.md §3.1` および `api.md §テンプレートファイル仕様` に従う（48列固定）
 
 ### テスト結果（1回目）
 
@@ -1496,7 +1497,7 @@ GET `/api/v1/dokusya/import/template` が呼ばれ、HTTPステータスコー�
 
 (なし)
 
-## ACSMS-TC-016-026 — テンプレート — 49列ヘッダーの順序・列数確認
+## ACSMS-TC-016-026 — テンプレート — 48列ヘッダーの順序・列数確認
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1511,15 +1512,15 @@ GET `/api/v1/dokusya/import/template` が呼ばれ、HTTPステータスコー�
 ダウンロードしたテンプレートを開き、1行目を確認
 
 ステップ2：
-49列分のヘッダー文字列と列数を確認
+48列分のヘッダー文字列と列数を確認
 
 ### 期待結果
 
 ステップ1：
-シート「購読者」の1行目に49列のヘッダーが表示されていること
+シート「購読者」の1行目に48列のヘッダーが表示されていること
 
 ステップ2：
-ヘッダーが `screen-design.md §画面項目定義` および `api.md §テンプレートファイル仕様` の定義順で並んでいること、列数がちょうど49列であること
+ヘッダーが `screen-design.md §画面項目定義` および `api.md §テンプレートファイル仕様` の定義順で並んでいること、列数がちょうど48列であること
 
 補足：
 ・ヘッダー行はボールド、背景色が設定されていること（api.md §テンプレートファイル仕様）
@@ -1789,12 +1790,13 @@ HTTPステータスコード400が返却されること（`error_code: IMPORT_VA
 - 種類: Abnormal (異常)
 - 前提条件:
   - ・role: JA_HONTEN（ja_id=1）
-  - ・テストファイル：`dokusya_shubetsu`=2（電子版）かつ `shiharai_hoho`=クレジットカードの行を含むファイル
+  - ・購読種別ラジオ＝電子版（top-level `dokusya_shubetsu`=2・v1.6）
+  - ・テストファイル：`shiharai_hoho`=クレジットカードの行を含むファイル
 
 ### 手順
 
 ステップ1：
-ファイルアップロード、取込モード「新規登録」
+購読種別ラジオ「電子版」を選択し、ファイルアップロード、取込モード「新規登録」
 
 ステップ2：
 取込開始ボタン押下 → 確認ダイアログ「実行」
@@ -2530,7 +2532,7 @@ DevTools で POST `/api/v1/dokusya/import` を `import_mode` 未指定かつ `se
 HTTPステータスコード400が返却されること（`error_code: VALIDATION_ERROR`、メッセージ `入力値が不正です。詳細はerrorsフィールドを確認してください。`）、`errors` 配列に `{ field: 'import_mode', message: '取込モードは必須です。' }` および `{ field: 'selected_columns', message: '取込対象列を1つ以上選択してください。' }` が含まれること、DB が変更されないこと
 
 補足：
-・`import_mode` は `NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のみ許容、`selected_columns` は1〜49の物理カラム名配列で必須
+・`import_mode` は `NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のみ許容、`selected_columns` は1〜48の物理カラム名配列で必須
 
 ### テスト結果（1回目）
 

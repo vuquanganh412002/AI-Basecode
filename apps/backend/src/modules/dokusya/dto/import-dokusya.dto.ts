@@ -7,6 +7,7 @@ import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -442,6 +443,19 @@ export class ImportDokusyaDto {
     message: '取込モードの値が不正です。',
   })
   import_mode!: 'NEW' | 'UPDATE';
+
+  // 購読種別は画面のラジオ（紙版/電子版）で選ぶ取込モード（顧客要件 2026-07）。
+  // Excel の列ではなく UI から受け取り、全行へ一律適用する。3:併読は選択不可。
+  @ApiProperty({
+    description:
+      '購読種別（**1:紙版 / 2:電子版**）。画面ラジオで選択し全取込行へ一律適用する。' +
+      'Excel の列ではない（3:併読は取込不可）。',
+    enum: [1, 2],
+  })
+  @Type(() => Number)
+  @IsInt({ message: '購読種別を選択してください。' })
+  @IsIn([1, 2], { message: '購読種別は紙版または電子版で指定してください。' })
+  dokusya_shubetsu!: number;
 
   @ApiProperty({
     description: '取込対象の列（物理カラム名）配列',

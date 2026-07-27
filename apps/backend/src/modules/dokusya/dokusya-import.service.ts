@@ -75,13 +75,14 @@ interface ImportRowLookups {
 type MCodeInput = number | string | undefined;
 
 /**
- * SCR-016 — 49-column import template header order (api.md §テンプレート
+ * SCR-016 — 48-column import template header order (api.md §テンプレート
  * ファイル仕様). Each entry is the Japanese ヘッダー名 the FE / customer
- * sees in row 1 of the generated workbook.
+ * sees in row 1 of the generated workbook. 購読種別 is chosen on the screen
+ * radio (紙版/電子版) and applied uniformly to every row, so it is NOT an
+ * Excel column (顧客要件 2026-07: 取込を紙版/電子版の2モードに分離).
  */
 const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   'ID',
-  '購読種別',
   '管理支店',
   '支店',
   '組合員コード',
@@ -144,7 +145,6 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
  */
 const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '', // ID (UPDATE_* キー — 新規は空)
-  1, // 購読種別 (1:紙版)
   '', // 管理支店 (FK code — 自組織の管理支店コードに書き換え)
   '', // 支店 (FK code — 自組織の支店コードに書き換え)
   'SAMPLE001', // 組合員コード (サンプル — 既存コードと衝突しない値)
@@ -317,6 +317,14 @@ export class DokusyaImportService {
     // 紙版・電子版いずれの取扱い権限も無いアカウントはExcel取込不可
     // (account_concept.md §139-145).
     await this.accountFlags.assertAnyDokusyaFlag(session);
+
+    // 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード（顧客要件 2026-07）。Excel の
+    // 列ではないため、全取込行へ一律適用してから検証・登録する（既存の per-row shubetsu
+    // ロジック＝検証/entity build/部数固定 をそのまま活かす）。NEW は新規レコードへ
+    // この種別を設定、UPDATE は種別が既存の値と一致することを検証する。
+    for (const row of dto.rows) {
+      row.dokusya_shubetsu = dto.dokusya_shubetsu;
+    }
 
     // §4.1 — row-limit (defence-in-depth; DTO @ArrayMaxSize also guards).
     if (dto.rows.length > IMPORT_MAX_ROWS) {

@@ -11,6 +11,7 @@ import { Account } from '@/database/entities/account.entity';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { CodeModule } from '@/modules/code/code.module';
+import { DenshibanDbModule } from '@/modules/denshiban/denshiban-db.module';
 
 import { DokusyaController } from './dokusya.controller';
 import { DokusyaService } from './dokusya.service';
@@ -48,6 +49,9 @@ import { DokusyaReplaceService } from './dokusya-replace.service';
     AuthModule,
     AuditLogModule,
     CodeModule,
+    // cloud → 電子版 push（DenshibanPushService）。@Global だが、統合テストが
+    // DokusyaModule を単独 boot するため明示 import して自己完結にする（CodeModule と同方針）。
+    DenshibanDbModule,
   ],
   controllers: [DokusyaController],
   providers: [

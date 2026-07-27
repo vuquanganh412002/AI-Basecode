@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import {
   AuditOperation,
@@ -21,9 +21,15 @@ import {
 } from '@/common/utils/audit-context';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
+  compactTimestampJst,
   dateOnlyIsoJst,
   todayIsoJst,
 } from '@/common/utils/datetime';
+import { buildZipArchive } from '@/common/utils/zip';
+import {
+  contentTypeFor,
+  type DownloadResult,
+} from '@/common/utils/file-delivery';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -842,6 +848,143 @@ export class FileUploadService {
       // tenant-id enumeration hardening.
       throw new DataScopeViolationException();
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Preview / Download（SCR-022 と同方針。t_file_upload のファイルを
+  // プレビュー用署名URL / バイナリで返す。削除済み・スコープ外は対象外）
+  // ──────────────────────────────────────────────────────────────
+
+  /** プレビュー用の署名付き URL を返す（画像/PDF は FE がインライン表示）。 */
+  async getPreview(
+    fileUploadId: number,
+    session: SessionPayload,
+  ): Promise<{ data: { preview_url: string; file_name: string } }> {
+    const row = await this.repo.findOne({
+      where: { fileUploadId, deletedAt: IsNull() },
+    });
+    if (!row) throw new NotFoundException('ファイル');
+    this.assertScope(row, session);
+    const previewUrl = await this.storage.getSignedUrl(
+      row.filePath,
+      PREVIEW_TTL_SECONDS,
+    );
+    return { data: { preview_url: previewUrl, file_name: row.fileName } };
+  }
+
+  /** 単一ファイルをバイナリでダウンロード（証跡は t_log DOWNLOAD のみ）。 */
+  async download(
+    fileUploadId: number,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<DownloadResult> {
+    const row = await this.repo.findOne({
+      where: { fileUploadId, deletedAt: IsNull() },
+    });
+    if (!row) throw new NotFoundException('ファイル');
+    this.assertScope(row, session);
+
+    const body = await this.storage.download(row.filePath);
+    const contentType = contentTypeFor(row.fileName);
+    const fileSize =
+      row.fileSize == null ? Buffer.byteLength(body) : Number(row.fileSize);
+
+    const ctx = buildAuditCtx(
+      session,
+      req,
+      SCR023_SCREEN,
+      TABLE_NAME,
+      Number(row.fileUploadId),
+    );
+    try {
+      await this.auditLog.logOperation({
+        logType: LogType.FILE_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: AuditOperation.DOWNLOAD,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue: JSON.stringify({
+          file_upload_id: Number(row.fileUploadId),
+          file_name: row.fileName,
+          file_size: fileSize,
+          ja_id: row.jaId,
+        }),
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+    } catch (err) {
+      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
+      throw err;
+    }
+
+    return { body, contentType, contentLength: fileSize, fileName: row.fileName };
+  }
+
+  /** 複数選択を ZIP 1つにまとめてダウンロード（一括ダウンロード_yyyyMMddHHmmss.zip）。 */
+  async downloadZip(
+    fileUploadIds: number[],
+    session: SessionPayload,
+    req: Request,
+  ): Promise<DownloadResult> {
+    const rows = await this.repo.find({
+      where: { fileUploadId: In(fileUploadIds), deletedAt: IsNull() },
+    });
+    const byId = new Map(rows.map((r) => [Number(r.fileUploadId), r]));
+    const ordered: FileUpload[] = [];
+    for (const id of fileUploadIds) {
+      const row = byId.get(id);
+      if (!row) throw new NotFoundException('ファイル');
+      this.assertScope(row, session);
+      ordered.push(row);
+    }
+
+    const fetched = await Promise.all(
+      ordered.map(async (row) => ({
+        row,
+        body: await this.storage.download(row.filePath),
+      })),
+    );
+    const zipBuffer = await buildZipArchive(
+      fetched.map((f) => ({ name: f.row.fileName, body: f.body })),
+    );
+    const fileName = `一括ダウンロード_${compactTimestampJst()}.zip`;
+
+    const ctx = buildAuditCtx(session, req, SCR023_SCREEN, TABLE_NAME, null);
+    try {
+      await this.auditLog.logOperation({
+        logType: LogType.FILE_OPERATION,
+        accountId: ctx.accountId,
+        jaId: ctx.jaId,
+        gamenName: ctx.screen,
+        operation: AuditOperation.DOWNLOAD,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: ctx.targetId,
+        targetTable: ctx.table,
+        beforeValue: '',
+        afterValue: JSON.stringify({
+          bulk: true,
+          zip_file_name: fileName,
+          file_count: fetched.length,
+          file_upload_ids: ordered.map((r) => Number(r.fileUploadId)),
+        }),
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      });
+    } catch (err) {
+      await this.auditLog.logError(ctx, AuditOperation.DOWNLOAD, err as Error);
+      throw err;
+    }
+
+    return {
+      body: zipBuffer,
+      contentType: 'application/zip',
+      contentLength: zipBuffer.length,
+      fileName,
+    };
   }
 
   // ──────────────────────────────────────────────────────────────

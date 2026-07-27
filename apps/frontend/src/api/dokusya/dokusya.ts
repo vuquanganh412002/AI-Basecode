@@ -665,7 +665,10 @@ export interface ReplaceSearchParams {
   shimei?: string;
   shimei_kana?: string;
   haitatsu_address?: string;
+  /** 配達販売店（任意）。指定時のみ有効履歴の販売店 = この値で追加絞り込み（置換元）。 */
   hanbaiten_id?: number;
+  /** 置換先配達販売店（必須）。有効履歴の販売店 ≠ この値で絞り、置換ターゲットにもなる。 */
+  new_hanbaiten_id: number;
   dokusya_kaishi_date_from?: string;
   dokusya_kaishi_date_to?: string;
   /** 情報変更適用日（必須）。紙版=未来日のみ／電子版=本日のみ。この日付で置換可能な購読者のみ返る。 */
@@ -768,6 +771,12 @@ export type ImportDokusyaRow = Record<string, unknown>;
 
 export interface ImportDokusyaBody {
   import_mode: DokusyaImportMode;
+  /**
+   * 購読種別（1:紙版 / 2:電子版）。画面ラジオで選択し全取込行へ一律適用する
+   * 単一ソース（Excel の列ではない。顧客要件 2026-07: 取込を紙版/電子版の
+   * 2モードに分離）。3:併読は取込不可。
+   */
+  dokusya_shubetsu: number;
   selected_columns: string[];
   rows: ImportDokusyaRow[];
   /**
