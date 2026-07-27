@@ -77,7 +77,10 @@
       "Bash(curl -s -o /dev/null -w \"\\\\nfrontend :5173 → HTTP %{http_code}\\\\n\" http://localhost:5173)",
       "Bash(curl -s -o /dev/null -w \"minio :9000 → HTTP %{http_code}\\\\n\" http://localhost:9000/minio/health/live)",
       "Bash(curl -s -o /dev/null -w \"GET /api/v1/codes → HTTP %{http_code}\\\\n\" http://localhost:3000/api/v1/codes)",
-      "Bash(curl -s -o /dev/null -w \"GET /api/docs → HTTP %{http_code}\\\\n\" http://localhost:3000/api/docs)"
+      "Bash(curl -s -o /dev/null -w \"GET /api/docs → HTTP %{http_code}\\\\n\" http://localhost:3000/api/docs)",
+      "Bash(docker exec agrinews-postgres-1 psql -U postgres -d agrinews_dev -P pager=off -c ' *)",
+      "Bash(python3 -c \"import openpyxl; print\\(openpyxl.__version__\\)\")",
+      "Bash(python3 scripts/matrix_md_to_excel.py docs/design-vi/dokusya-change-matrix.md)"
     ],
     "additionalDirectories": [
       "/tmp",
