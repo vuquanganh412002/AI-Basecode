@@ -1,11 +1,9 @@
 /**
- * Outcome stored in `t_log.result_status` (and similar columns).
+ * 処理結果。`t_log.result_status` 等。
+ * Mirror of `m_code.code_category = 'RESULT_STATUS'`。label は `m_code` で
+ * runtime 編集可、値は BE 分岐ロジックのため固定。
  *
- * Mirror of `m_code.code_category = 'RESULT_STATUS'`. Display label is
- * editable at runtime via `m_code`; the integer values below are fixed
- * because BE has branching logic on them.
- *
- * Keep in sync with `apps/frontend/src/constants/enums/result-status.ts`.
+ * `apps/frontend/src/constants/enums/result-status.ts` と同期。
  */
 export const ResultStatus = {
   SUCCESS: 1,

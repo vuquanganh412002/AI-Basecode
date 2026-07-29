@@ -3,12 +3,10 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 /**
- * Query DTO for `GET /api/v1/oshirase/login` (ACSMS-API-001-006).
- *
- * The login-screen banner is unauthenticated and always hits
- * publish_location=1 — there's no need for a query param to switch
- * locations. The menu-screen variant lives at
- * `GET /api/v1/oshirase/menu` (SCR-010 API-010-001).
+ * GET /api/v1/oshirase/login (ACSMS-API-001-006) の Query DTO。
+ * ログイン画面バナー（未認証）は常に publish_location=1 のため場所切替
+ * パラメータ不要。メニュー画面版は GET /api/v1/oshirase/menu
+ * (SCR-010 API-010-001)。
  */
 export class LoginOshiraseQueryDto {
   @ApiPropertyOptional({

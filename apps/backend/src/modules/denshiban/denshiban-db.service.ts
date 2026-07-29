@@ -3,14 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 /**
- * 顧客システム「電子版」のDB（読み取り専用 / MySQL）への副接続サービス。
- *
- * 電子版DBは「一部のバッチ」でのみ参照するため、メイン業務DB
- * （PostgreSQL, `DatabaseModule`）のように常時接続プールを保持しない。
- * 代わりに `withConnection()` で呼ばれるたびに短命接続を開き、処理後に
- * 必ず閉じる（接続のライフサイクル = バッチの実行中だけ）。常時 idle conn を
- * 抱えないので wait_timeout / NAT idle 切断・stale conn 問題が原理的に発生しない。
- * `denshiban.enabled=false` なら接続しない（`withConnection` が例外を投げる）。
+ * 電子版DB（読み取り専用 MySQL）への副接続サービス。バッチでのみ参照するため常時
+ * プールを持たず、`withConnection()` ごとに短命接続を開いて必ず閉じる（idle conn を
+ * 抱えず wait_timeout/NAT 切断問題を回避）。`denshiban.enabled=false` なら接続しない。
  */
 @Injectable()
 export class DenshibanDbService {
@@ -55,14 +50,7 @@ export class DenshibanDbService {
   }
 
   /**
-   * バッチ用途のエントリポイント。呼ぶたびに短命接続を開き、`fn` 実行後に
-   * 必ず閉じる（成功・失敗にかかわらず destroy）。常時接続は保持しない。
-   *
-   * @example
-   *   const rows = await denshibanDb.withConnection((ds) =>
-   *     ds.query('SELECT * FROM t_dokusya WHERE updated_at > ?', [since]),
-   *   );
-   *
+   * バッチ用エントリ。呼ぶたびに短命接続を開き `fn` 実行後に必ず閉じる（成否問わず destroy）。
    * @throws `denshiban.enabled=false` のとき。
    */
   async withConnection<T>(fn: (ds: DataSource) => Promise<T>): Promise<T> {

@@ -6,8 +6,8 @@ import {
 } from '@/common/dto/responses.dto';
 
 /**
- * List row shape (SCR-024). Mirrors `AccountListItem` in accounts.mapper.ts.
- * Nullability follows DB schema (todofuken/ja/kanri_shiten nullable per role).
+ * 一覧行の形状（SCR-024）。accounts.mapper.ts の `AccountListItem` をミラー。
+ * null 許容は DB スキーマ準拠（役職により todofuken/ja/kanri_shiten が null）。
  */
 export class AccountListItemDto {
   @ApiProperty() account_id: number;
@@ -48,7 +48,7 @@ export class AccountListResponseDto {
   meta: PaginationMetaDto;
 }
 
-/** Detail row (SCR-025). Adds `biko`; everything else mirrors list shape. */
+/** 詳細行（SCR-025）。`biko` を追加、他は一覧形状をミラー。 */
 export class AccountDetailDto extends AccountListItemDto {
   @ApiProperty() biko: string;
 }
@@ -69,7 +69,7 @@ export class AccountMutationResponseDto {
   message: string;
 }
 
-/** Slim dropdown row (COMMON-005). */
+/** スリム dropdown 行（COMMON-005）。 */
 export class AccountDropdownItemDto {
   @ApiProperty() account_id: number;
   @ApiProperty() login_id: string;
@@ -86,7 +86,7 @@ export class AccountDropdownResponseDto {
   meta: DropdownMetaDto;
 }
 
-/** Self-service MFA toggle response (PATCH /account/me/mfa). */
+/** 自己 MFA トグル応答（PATCH /account/me/mfa）。 */
 export class ToggleMfaResultDto {
   @ApiProperty() mfa_enable_flg: boolean;
   @ApiProperty({ description: 'Japanese literal confirming the new state.' })

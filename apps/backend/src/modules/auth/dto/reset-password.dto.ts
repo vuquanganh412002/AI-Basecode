@@ -9,26 +9,17 @@ import {
   MinLength,
 } from 'class-validator';
 
-/**
- * Half-width-only regex (printable ASCII excluding space). Same rule as
- * `LoginDto.password` — `パスワードは半角文字のみで入力してください。`
- * fires for full-width / space input.
- */
+// 半角のみ regex(空白除く印字可能 ASCII)。`LoginDto.password` と同一 —
+// 全角/空白入力で `パスワードは半角文字のみで入力してください。`。
 const HALFWIDTH_RE = /^[\x21-\x7E]+$/;
 
 /**
- * Request body for ACSMS-API-012-003 — POST /api/v1/auth/reset-password.
- *
- * Validation is split across DTO + service for clear, single-concern
- * messages (priority picker only emits ONE message per field):
- *   DTO  : required → length 8-32 → half-width
- *   Service: ≥2 of 3 categories (alpha/digit/symbol) — see
- *           `AuthService.assertNewPasswordCategories`
- *           confirm_password === new_password match
+ * ACSMS-API-012-003 — POST /api/v1/auth/reset-password リクエストボディ。
+ * 検証は DTO + service に分割し1フィールド1メッセージ化(priority picker は1件のみ emit):
+ *   DTO   : required → length 8-32 → 半角
+ *   Service: 3種のうち2種以上(英字/数字/記号) / confirm_password === new_password /
  *           new_password ≠ login_id
- *
- * This mirrors `LoginDto`'s decorator chain so SCR-001 and SCR-012 emit
- * the same half-width / length error literals for the password field.
+ * LoginDto の decorator chain をミラーし SCR-001/SCR-012 で同一の半角/長さエラー文言。
  */
 export class ResetPasswordDto {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000', minLength: 36, maxLength: 36 })

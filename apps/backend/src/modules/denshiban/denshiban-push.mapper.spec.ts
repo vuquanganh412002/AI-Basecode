@@ -2,7 +2,6 @@ import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaShubetsu } from '@/common/enums';
 
 import {
-  isDenshiShubetsu,
   toApprovePayload,
   toCancelPayload,
   toCreatePayload,
@@ -83,21 +82,81 @@ describe('denshiban-push.mapper', () => {
       expect(p.melmaga).toBe('0');
     });
 
-    it('profession が 0 を含むときだけ products を送る（条件付き項目）', () => {
+    it('products キーは常に載せる。値を持てるのは profession が 0 を含むときだけ', () => {
       // profession=0 → products 許可
       expect(toCreatePayload(buildDokusya(), '1301002001').products).toBe('1');
-      // profession=1（0 を含まない）→ products は載せない
+      // profession=1（0 を含まない）→ キーは載せるが値は ''（V29 回避）
       const p = toCreatePayload(
         buildDokusya({ dokusyasoBunrui: '1', nogyosyaBunrui: '1' }),
         '1301002001',
       );
-      expect(p).not.toHaveProperty('products');
+      expect(p).toHaveProperty('products');
+      expect(p.products).toBe('');
     });
 
-    it('dokusyaso_bunrui 空 → profession は 0(農業者) にフォールバック', () => {
+    it('農業者だが 主な生産物 未選択 → products は空文字で送る', () => {
+      const p = toCreatePayload(
+        buildDokusya({ dokusyasoBunrui: '0', nogyosyaBunrui: '' }),
+        '1301002001',
+      );
+      expect(p.products).toBe('');
+    });
+
+    it('update payload にも products キーを含める', () => {
+      const p = toUpdatePayload(
+        buildDokusya({ dokusyasoBunrui: '1', nogyosyaBunrui: '' }),
+        '1301002001',
+        555,
+      );
+      expect(p.products).toBe('');
+    });
+
+    it('dokusyaso_bunrui 空 → profession は 999(その他) にフォールバック（0農業者へ誤分類しない）', () => {
       expect(
         toCreatePayload(buildDokusya({ dokusyasoBunrui: '' }), '1301002001').profession,
-      ).toBe('0');
+      ).toBe('999');
+    });
+
+    /**
+     * 分類は画面・pull バッチ・Excel 取込のいずれも**電子版と同じコード**で保存する
+     * （顧客要件 2026-07。旧ラベルデータは 1784100000000 マイグレーションで変換済み）。
+     * 未知値は落として 999(その他) にフォールバックし、電子版の V29 を避ける。
+     */
+    describe('分類コードの変換', () => {
+      const professionOf = (bunrui: string): string =>
+        toCreatePayload(buildDokusya({ dokusyasoBunrui: bunrui }), '1301002001')
+          .profession;
+
+      it.each([
+        ['0', '0'],
+        ['1', '1'],
+        ['2', '2'],
+        ['3', '3'],
+        ['999', '999'],
+      ])('読者属性コード %s → profession %s', (input, code) => {
+        expect(professionOf(input)).toBe(code);
+      });
+
+      it('複数選択も CSV のまま送る', () => {
+        expect(professionOf('0,3')).toBe('0,3');
+      });
+
+      it('0(農業者) のとき 主な生産物コードも products として送る', () => {
+        const p = toCreatePayload(
+          buildDokusya({ dokusyasoBunrui: '0', nogyosyaBunrui: '0,1' }),
+          '1301002001',
+        );
+        expect(p.profession).toBe('0');
+        expect(p.products).toBe('0,1');
+      });
+
+      it('ラベル保存の旧データは未知値として落とし 999 にフォールバックする', () => {
+        expect(professionOf('農業者')).toBe('999');
+      });
+
+      it('未知の値は落として 999 にフォールバックする', () => {
+        expect(professionOf('謎の分類')).toBe('999');
+      });
     });
 
     it('備考 255 文字超は切り詰め・改行は空白へ', () => {
@@ -105,7 +164,7 @@ describe('denshiban-push.mapper', () => {
       const p = toCreatePayload(buildDokusya({ biko: `1行目\n2行目` }), '1301002001');
       expect(p.remarks1).toBe('1行目 2行目');
       const p2 = toCreatePayload(buildDokusya({ biko: long }), '1301002001');
-      expect((p2.remarks1 ?? '').length).toBe(255);
+      expect(p2.remarks1 ?? '').toHaveLength(255);
     });
   });
 
@@ -136,12 +195,4 @@ describe('denshiban-push.mapper', () => {
     });
   });
 
-  describe('isDenshiShubetsu', () => {
-    it('電子版(2)/併読(3) は true、紙版(1)/null は false', () => {
-      expect(isDenshiShubetsu(DokusyaShubetsu.DIGITAL)).toBe(true);
-      expect(isDenshiShubetsu(DokusyaShubetsu.BOTH)).toBe(true);
-      expect(isDenshiShubetsu(DokusyaShubetsu.PAPER)).toBe(false);
-      expect(isDenshiShubetsu(null)).toBe(false);
-    });
-  });
 });

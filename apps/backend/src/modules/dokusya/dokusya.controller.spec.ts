@@ -672,7 +672,6 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
           {
             dokusya_rireki_id: 200, dokusya_id: 100, rireki_no: 2,
             tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
-            henko_riyu: '住所変更',
             saishin_data_flg: true, shinki_flg: false, kaiyaku_flg: false,
             zougen_hokoku_flg: true, denshi_shonin_status: null,
             created_at: '2026-05-07T14:30:00.000Z', created_by: 'user01',
@@ -680,7 +679,6 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
           {
             dokusya_rireki_id: 100, dokusya_id: 100, rireki_no: 1,
             tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
-            henko_riyu: '',
             saishin_data_flg: false, shinki_flg: true, kaiyaku_flg: false,
             zougen_hokoku_flg: true, denshi_shonin_status: null,
             created_at: '2026-04-01T10:00:00.000Z', created_by: 'user01',
@@ -702,7 +700,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
           {
             dokusya_rireki_id: 100, dokusya_id: 100, rireki_no: 1,
             tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
-            henko_riyu: '', saishin_data_flg: true, shinki_flg: true,
+            saishin_data_flg: true, shinki_flg: true,
             kaiyaku_flg: false, zougen_hokoku_flg: true,
             denshi_shonin_status: null,
             created_at: '2026-04-01T10:00:00.000Z', created_by: 'user01',

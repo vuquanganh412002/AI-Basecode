@@ -5,8 +5,8 @@ import { PaginationMetaDto } from '@/common/dto/responses.dto';
 import { HanbaitenResponseDto } from './hanbaiten-response.dto';
 
 /**
- * Slim row shape returned by GET /api/v1/hanbaiten — mirrors
- * `HanbaitenListItem` in hanbaiten.mapper.ts.
+ * GET /api/v1/hanbaiten が返すスリムな行の形 — hanbaiten.mapper.ts の
+ * `HanbaitenListItem` と同一。
  */
 export class HanbaitenListItemDto {
   @ApiProperty() hanbaiten_id: number;
@@ -39,13 +39,13 @@ export class HanbaitenListResponseDto {
   meta: PaginationMetaDto;
 }
 
-/** Single-resource envelope (GET /:hanbaiten_id). */
+/** 単一リソースのエンベロープ（GET /:hanbaiten_id）。 */
 export class HanbaitenDetailEnvelopeDto {
   @ApiProperty({ type: HanbaitenResponseDto })
   data: HanbaitenResponseDto;
 }
 
-/** Mutation success envelope (POST + PUT). */
+/** 更新系の成功エンベロープ（POST + PUT）。 */
 export class HanbaitenMutationResponseDto {
   @ApiProperty({ type: HanbaitenResponseDto })
   data: HanbaitenResponseDto;
@@ -58,8 +58,7 @@ export class HanbaitenMutationResponseDto {
 }
 
 /**
- * POST /api/v1/hanbaiten/import response — summary of the Excel
- * import outcome.
+ * POST /api/v1/hanbaiten/import のレスポンス — Excel 取込結果の要約。
  */
 export class HanbaitenImportResultDto {
   @ApiProperty({ description: '1=full overwrite, 2=upsert (incremental)' })

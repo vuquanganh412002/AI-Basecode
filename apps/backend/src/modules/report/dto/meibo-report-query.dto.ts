@@ -16,10 +16,9 @@ import {
 const TEKIYO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Coerce a query value into a number array. Query strings arrive as a
- * single value (`?hanbaiten_ids=1`) or an array (`?hanbaiten_ids=1&…=2`);
- * normalise both to `number[]` so `@IsInt({ each: true })` can validate.
- * Non-numeric members become `NaN` → rejected by `@IsInt`.
+ * クエリ値を number 配列へ正規化する。単一値（`?hanbaiten_ids=1`）でも配列
+ * （`?hanbaiten_ids=1&…=2`）でも `number[]` に揃え、`@IsInt({ each: true })` で
+ * 検証できるようにする。数値化できない要素は `NaN` → `@IsInt` で弾かれる。
  */
 const toNumberArray = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null) return value;
@@ -28,7 +27,7 @@ const toNumberArray = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Shared query DTO for both 購読者名簿 endpoints:
+ * 購読者名簿の両エンドポイント共通のクエリDTO:
  *   - GET /api/v1/report/meibo/preview  (ACSMS-API-026-001)
  *   - GET /api/v1/report/meibo/export   (ACSMS-API-026-002)
  *

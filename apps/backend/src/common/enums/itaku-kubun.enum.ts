@@ -1,11 +1,10 @@
 /**
- * Consignment kind stored in `m_hanbaiten.itaku_kubun`.
+ * 委託区分。`m_hanbaiten.itaku_kubun`。
+ * Mirror of `m_code.code_category = 'ITAKU_KUBUN'`。Group A: code が値で分岐
+ * (振込(=1) は銀行口座群を必須化、日農委託/その他 は不要) —
+ * HanbaitenFormView / hanbaiten.service。
  *
- * Mirror of `m_code.code_category = 'ITAKU_KUBUN'`. Group A because the code
- * branches on the value: 振込 (=1) makes the bank-account cluster required;
- * 日農委託 / その他 do not — see HanbaitenFormView / hanbaiten.service.
- *
- * Keep in sync with `apps/frontend/src/constants/enums/itaku-kubun.ts`.
+ * `apps/frontend/src/constants/enums/itaku-kubun.ts` と同期。
  */
 export const ItakuKubun = {
   /** 振込 */

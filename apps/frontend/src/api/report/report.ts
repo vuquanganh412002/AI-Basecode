@@ -1,5 +1,5 @@
-// Hand-written wrapper around the /api/v1/report/meibo endpoints
-// (ACSMS-SCR-026). Mirrors docs/design/ACSMS-SCR-026/ACSMS-SCR-026-api.md.
+// /api/v1/report/meibo 用の手書き wrapper（ACSMS-SCR-026）。
+// docs/design/ACSMS-SCR-026/ACSMS-SCR-026-api.md に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 
@@ -108,7 +108,7 @@ export interface MeiboPreviewData {
   group_total_pages?: number;
 }
 
-/** Single-object envelope `{ data: … }` from the BE controller. */
+/** BE controller の単一オブジェクト envelope `{ data: … }`。 */
 export interface MeiboPreviewEnvelope {
   data: MeiboPreviewData;
 }
@@ -134,7 +134,7 @@ export async function exportMeibo(query: MeiboReportQuery): Promise<Blob> {
 }
 
 // ─── 増減連絡票（販売店） (ACSMS-SCR-028) ───────────────────────────────
-// Mirrors docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md (API-028-001 / 002).
+// docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md（API-028-001 / 002）に準拠。
 
 /** Query DTO shared by preview + PDF export (singular ids per BE DTO). */
 export interface ZougenHanbaitenQuery {
@@ -204,7 +204,7 @@ export interface ZougenPreviewData {
   group_total_pages?: number;
 }
 
-/** Single-object envelope `{ data: … }` from the BE controller. */
+/** BE controller の単一オブジェクト envelope `{ data: … }`。 */
 export interface ZougenPreviewEnvelope {
   data: ZougenPreviewData;
 }
@@ -344,7 +344,7 @@ export interface ZougenNichinoPreviewData {
   group_total_pages?: number;
 }
 
-/** Single-object envelope `{ data: … }` from the BE controller. */
+/** BE controller の単一オブジェクト envelope `{ data: … }`。 */
 export interface ZougenNichinoPreviewEnvelope {
   data: ZougenNichinoPreviewData;
 }

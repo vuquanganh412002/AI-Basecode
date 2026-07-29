@@ -15,20 +15,18 @@ export interface UseTableQueryOptions<F extends object> {
   defaultSortBy?: string;
   defaultSortOrder?: 'asc' | 'desc';
   defaultPerPage?: number;
-  /** If true, sync state to URL query so URL is shareable. */
+  /** true で state を URL クエリに同期し URL を共有可能に。 */
   syncUrl?: boolean;
 }
 
 /**
- * Normalize a filter value for "did the user change it?" comparison so that
- * every "empty" representation collapses to the same thing: `null`,
- * `undefined`, `''` and whitespace-only strings ALL become `undefined`.
+ * 「ユーザーが変更したか」比較用にフィルタ値を正規化。全ての「空」表現を統一
+ * （`null` / `undefined` / `''` / 空白のみ文字列 → すべて `undefined`）。
  *
- * This matters because the empty state of a control is not consistent across
- * the codebase — a cleared `<a-select>` may yield `undefined` OR `''`, while
- * the filter's default might be `null`. Without collapsing, a select whose
- * default is `null` but which clears to `''` would read as "changed" and the
- * empty-form 検索 would keep hitting the API. Other types pass through.
+ * コントロールの空状態はコードベース全体で不統一なため重要 — クリアした
+ * `<a-select>` は `undefined` か `''` を返し得るがフィルタ既定は `null` かも。
+ * 正規化しないと既定 `null` だが `''` にクリアされる select が「変更」と読まれ、
+ * 空フォームの検索が API を叩き続ける。他の型は素通し。
  */
 function normalizeFilterValue(v: unknown): unknown {
   if (v == null) return undefined;
@@ -36,7 +34,7 @@ function normalizeFilterValue(v: unknown): unknown {
   return v;
 }
 
-/** Equality for two filter values after normalization (handles arrays). */
+/** 正規化後の 2 フィルタ値の等価判定（配列対応）。 */
 function filterValuesEqual(a: unknown, b: unknown): boolean {
   const na = normalizeFilterValue(a);
   const nb = normalizeFilterValue(b);
@@ -46,7 +44,7 @@ function filterValuesEqual(a: unknown, b: unknown): boolean {
   return na === nb;
 }
 
-/** Equality for two whole filter records (key-by-key, normalized). */
+/** 2 つのフィルタレコード全体の等価判定（キー毎・正規化済み）。 */
 function filterRecordsEqual(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
@@ -59,12 +57,12 @@ function filterRecordsEqual(
 }
 
 /**
- * Reusable table query state: pagination + sort + filter.
+ * 再利用可能なテーブルクエリ状態: pagination + sort + filter。
  *
- * Pairs with `BaseDataTable`. Pass the returned `state` to your API call,
- * wire `onChange` to the table, and `resetFilters` to the 検索クリア button.
+ * `BaseDataTable` と対。返る `state` を API 呼び出しに渡し、`onChange` を
+ * テーブルに、`resetFilters` を検索クリアボタンに配線する。
  *
- * Example:
+ * 例:
  * ```ts
  * const { state, onChange, applyFilters, resetFilters, total, loading, rows } =
  *   useTableQuery({
@@ -90,13 +88,11 @@ export function useTableQuery<F extends object>(
   const loading = ref(false);
   const total = ref(0);
 
-  // Snapshot of the filters that produced the currently-displayed list. The
-  // initial onMounted fetch in every view runs with the defaults, so the
-  // applied state starts at the defaults. Updated whenever the query actually
-  // changes (applyFilters / resetFilters). Used by isPristine() so 検索クリア
-  // can skip a redundant fetch when the screen is already showing the default
-  // list, WITHOUT losing the ability to reset after the user manually emptied
-  // the inputs (form blank but list still filtered).
+  // 現在表示中の一覧を生成したフィルタのスナップショット。各 view の初回
+  // onMounted fetch は既定で走るので applied state も既定から開始。クエリが
+  // 実際に変化（applyFilters / resetFilters）する度に更新。isPristine() が
+  // 使用し、既定一覧表示中の検索クリアで冗長 fetch を回避しつつ、手動で入力を
+  // 空にした後（フォーム空だが一覧はまだ絞り込み済み）のリセット能力は保持。
   let appliedFilters: Record<string, unknown> = {
     ...(opts.defaultFilters as Record<string, unknown>),
   };
@@ -112,14 +108,12 @@ export function useTableQuery<F extends object>(
   ): void {
     state.page = pagination.current ?? 1;
     state.per_page = pagination.pageSize ?? state.per_page;
-    // [sorter-key-priority] When a column has dataIndex ≠ key (e.g.
-    // SCR-008 account list 都道府県: dataIndex=todofuken_name for
-    // display, key=todofuken_code for the BE sort whitelist), antd's
-    // sorter callback emits BOTH `field` (= dataIndex) and `columnKey`
-    // (= key). The BE whitelists the column NAME, so prefer columnKey.
-    // Falling back to field keeps every existing screen working (where
-    // dataIndex === key) and avoids forcing a `key:` declaration on
-    // every column.
+    // [sorter-key-priority] dataIndex ≠ key の列（例 SCR-008 アカウント一覧
+    // 都道府県: 表示は dataIndex=todofuken_name、BE ソート whitelist は
+    // key=todofuken_code）では antd の sorter が `field`(=dataIndex) と
+    // `columnKey`(=key) 両方を emit。BE は列名を whitelist するので columnKey 優先。
+    // field へのフォールバックで既存画面（dataIndex === key）を維持し、全列への
+    // `key:` 宣言強制を回避。
     const sortKey =
       sorter.columnKey ??
       (Array.isArray(sorter.field) ? sorter.field.join('.') : sorter.field);
@@ -138,18 +132,15 @@ export function useTableQuery<F extends object>(
   }
 
   /**
-   * True when at least one filter differs from its default value — i.e. the
-   * user has actually entered/changed a search criterion.
+   * 少なくとも 1 つのフィルタが既定値と異なる時 true — ユーザーが実際に
+   * 検索条件を入力/変更した状態。
    *
-   * List views call this in `onSearch` to skip a redundant API call when the
-   * form is still at its defaults — the initial `onMounted` fetch already
-   * shows that (unfiltered) result set, so re-querying would return the same
-   * data. 検索クリア (`resetFilters` + fetch) remains the way to reset back to
-   * the full list after a narrowed search.
+   * 一覧 view が `onSearch` で呼び、フォームが既定のままなら冗長 API 呼び出しを
+   * スキップ（初回 onMounted fetch が既にその未絞り込み結果を表示済み）。
+   * 絞り込み後の全件復帰は検索クリア（`resetFilters` + fetch）が担う。
    *
-   * Comparing against the defaults (rather than just "is the value blank")
-   * correctly handles sentinel defaults like `kinyu_shiten_flg: 'all'` or a
-   * pre-selected radio — those count as "unchanged", not "active".
+   * 「値が空か」でなく既定値と比較することで、`kinyu_shiten_flg: 'all'` 等の
+   * sentinel 既定や事前選択ラジオを正しく「未変更」扱いにできる。
    */
   function hasActiveFilters(): boolean {
     const current = state.filters as Record<string, unknown>;
@@ -160,18 +151,15 @@ export function useTableQuery<F extends object>(
   }
 
   /**
-   * True when the current form filters differ from the ones that produced the
-   * currently-displayed list — i.e. pressing 検索 now would actually change
-   * the result set.
+   * 現フォームフィルタが現在表示中の一覧を生成したものと異なる時 true —
+   * 今検索を押せば実際に結果セットが変わる状態。
    *
-   * Views call this in `onSearch` so a 検索 press is a no-op ONLY when it would
-   * return the exact rows already on screen. This still skips the fresh-screen
-   * empty search (form == applied == defaults), AND it correctly fires the one
-   * fetch needed to restore the full list after the user cleared a search by
-   * emptying the inputs by hand (form back to defaults, but the displayed list
-   * is still filtered). After that single fetch, further empty 検索 presses are
-   * no-ops again. Compare to `hasActiveFilters` (vs defaults), which could not
-   * tell "empty form, default list" from "empty form, still-filtered list".
+   * view が `onSearch` で呼び、既に画面表示中の行と同一を返す時のみ検索を
+   * no-op にする。新規画面の空検索（form == applied == defaults）はスキップし、
+   * かつ手動で入力を空にして検索解除した後（form は既定だが表示一覧はまだ
+   * 絞り込み済み）の全件復帰に必要な 1 回の fetch は正しく発火。その後の空検索は
+   * 再び no-op。`hasActiveFilters`（vs 既定）では「空フォーム・既定一覧」と
+   * 「空フォーム・絞り込み一覧」を区別できない。
    */
   function filtersChangedSinceApplied(): boolean {
     return !filterRecordsEqual(
@@ -181,17 +169,16 @@ export function useTableQuery<F extends object>(
   }
 
   /**
-   * True when 検索クリア would be a no-op: the form is already at its defaults
-   * AND the currently-displayed list is already the default (unfiltered) set.
+   * 検索クリアが no-op になる時 true: フォームが既定かつ現在表示中の一覧も
+   * 既定（未絞り込み）セットである状態。
    *
-   * Views call this in `onClear` to skip the redundant reset+fetch on a
-   * pristine screen. It deliberately stays false when the form is blank but
-   * the displayed list is still filtered (user emptied the inputs by hand
-   * after a search) — there 検索クリア must still fetch to restore the full
-   * list, and must still wipe any unsearched text left in the inputs.
+   * view が `onClear` で呼び、pristine な画面での冗長 reset+fetch をスキップ。
+   * フォームが空でも表示一覧がまだ絞り込み済み（検索後に手動で入力を空にした）
+   * の時は意図的に false のまま — その場合の検索クリアは全件復帰の fetch と
+   * 入力欄に残る未検索テキストの消去が必要。
    */
   function isPristine(): boolean {
-    if (hasActiveFilters()) return false; // unsearched input in the form
+    if (hasActiveFilters()) return false; // フォームに未検索の入力あり
     return filterRecordsEqual(
       appliedFilters,
       opts.defaultFilters as Record<string, unknown>,
@@ -208,47 +195,45 @@ export function useTableQuery<F extends object>(
   }
 
   /**
-   * Configuration for {@link searchActions} — the shared 検索 / 検索クリア
-   * handler pair every list screen wires to `<BaseSearchForm @search @clear>`.
+   * {@link searchActions} 用設定 — 各一覧画面が `<BaseSearchForm @search @clear>`
+   * に配線する共通の検索 / 検索クリアハンドラ対。
    */
   interface SearchActionsConfig {
-    /** The view's list fetch. Run after applyFilters (検索) and after reset (クリア). */
+    /** view の一覧 fetch。applyFilters（検索）後と reset（クリア）後に実行。 */
     fetchList: () => void | Promise<void>;
     /**
-     * Run at the start of 検索, BEFORE the changed-since-applied guard. Use to
-     * trim text filters in place / validate. Return `false` to abort the search
-     * (validation failed, a required-field guard, etc.).
+     * 検索の冒頭、changed-since-applied ガードの前に実行。テキストフィルタの
+     * in-place トリム/検証に使用。`false` を返すと検索を中断（検証失敗、必須ガード等）。
      */
     beforeSearch?: () => boolean | void;
     /**
-     * Run at the start of 検索クリア, ALWAYS (even on a pristine screen). Use to
-     * clear local-only UI that the table-query state doesn't own — row
-     * selection, a staged bulk-action form, dependent dropdown options.
+     * 検索クリアの冒頭で常に実行（pristine 画面でも）。table-query state が
+     * 所有しないローカル UI（行選択、staged 一括操作フォーム、依存ドロップダウン
+     * option）のクリアに使用。
      */
     beforeClear?: () => void;
     /**
-     * Run AFTER resetFilters() on 検索クリア, only when an actual reset happens
-     * (screen was not pristine). Use for local resets that only matter when the
-     * filters really changed (e.g. clearing a cascaded dropdown's options).
+     * 検索クリアで resetFilters() 後、実際に reset が起きた時（非 pristine）のみ実行。
+     * フィルタが実変化した時のみ意味を持つローカルリセット（カスケード
+     * ドロップダウンの option クリア等）に使用。
      */
     afterReset?: () => void;
-    /** Fetch used by 検索クリア — defaults to {@link SearchActionsConfig.fetchList}. */
+    /** 検索クリアが使う fetch — 既定は {@link SearchActionsConfig.fetchList}。 */
     clearFetch?: () => void | Promise<void>;
   }
 
   /**
-   * Build the canonical 検索 / 検索クリア handlers with the redundant-call
-   * guards baked in, so every list screen behaves identically and pressing
-   * either button repeatedly with no change does NOT re-hit the API:
+   * 冗長呼び出しガードを組み込んだ標準の検索 / 検索クリアハンドラを構築。
+   * 全一覧画面が同一挙動になり、無変化でボタンを連打しても API を再度叩かない:
    *
-   * - `onSearch`: run `beforeSearch` (trim/validate; `false` aborts), then skip
-   *   when the form matches the displayed list (`filtersChangedSinceApplied`),
-   *   else `applyFilters` + `fetchList`.
-   * - `onClear`: run `beforeClear` (always — clears local UI), then skip the
-   *   reset+refetch when already pristine (`isPristine`), else `resetFilters`,
-   *   `afterReset`, and fetch (via `clearFetch ?? fetchList`).
+   * - `onSearch`: `beforeSearch`（トリム/検証、`false` で中断）実行後、フォームが
+   *   表示一覧と一致（`filtersChangedSinceApplied`）ならスキップ、
+   *   さもなくば `applyFilters` + `fetchList`。
+   * - `onClear`: `beforeClear`（常時 — ローカル UI クリア）実行後、既に pristine
+   *   （`isPristine`）なら reset+refetch をスキップ、さもなくば `resetFilters`、
+   *   `afterReset`、fetch（`clearFetch ?? fetchList`）。
    *
-   * Wire to the template: `<BaseSearchForm @search="onSearch" @clear="onClear">`.
+   * テンプレート配線: `<BaseSearchForm @search="onSearch" @clear="onClear">`。
    */
   function searchActions(cfg: SearchActionsConfig): {
     onSearch: () => void;
@@ -283,7 +268,7 @@ export function useTableQuery<F extends object>(
     });
   }
 
-  // Initialize page/sort from URL (one-shot on mount).
+  // URL から page/sort を初期化（マウント時に一度だけ）。
   if (opts.syncUrl) {
     const q = route.query;
     if (q.page) state.page = Number(q.page) || 1;

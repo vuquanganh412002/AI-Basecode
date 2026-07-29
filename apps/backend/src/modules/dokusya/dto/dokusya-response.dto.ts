@@ -1,23 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Response shape for `GET /api/v1/dokusya/:dokusya_id` and the
- * `data` field of `POST` / `PUT /:dokusya_id` (ACSMS-API-011-001 / 002 /
- * 003).
+ * `GET /api/v1/dokusya/:dokusya_id` と `POST` / `PUT /:dokusya_id` の `data`
+ * フィールドのレスポンス形状 (ACSMS-API-011-001 / 002 / 003)。
  *
- * Field names mirror `t_dokusya` columns in snake_case + a handful of
- * JOIN-resolved labels (`hanbaiten_name`, `tanka_name`,
- * `jastem_toriatsukai_tenpo_code`, `jastem_tenpo_name`) the form needs
- * to hydrate dropdowns without a second round-trip.
+ * フィールド名は `t_dokusya` 列の snake_case を反映し、加えてフォームが2回目の
+ * 往復なしでドロップダウンを埋めるための JOIN 解決ラベル数点（`hanbaiten_name`・
+ * `tanka_name`・`jastem_toriatsukai_tenpo_code`・`jastem_tenpo_name`）を持つ。
  *
- * Nullable columns map to `T | null` (NEVER `T | undefined`) so the
- * client sees a stable JSON shape — see
- * `.claude/rules/nestjs.md §Nullable field serialization`.
+ * nullable 列は `T | null`（`T | undefined` は不可）にマップし、クライアントが
+ * 安定した JSON 形状を見られるようにする — `.claude/rules/nestjs.md
+ * §Nullable field serialization` 参照。
  *
- * **m_code label policy** (per `.claude/rules/nestjs.md §m_code response
- * serialization`): no `*_label` fields here. The FE looks up labels via
- * `useCodesStore().label(category, value)` against its own m_code cache.
- * Embedding labels would diverge from runtime DB edits on rename.
+ * **m_code ラベル方針**（`.claude/rules/nestjs.md §m_code response serialization`）:
+ * ここに `*_label` フィールドは持たない。FE は自身の m_code キャッシュに対し
+ * `useCodesStore().label(category, value)` でラベルを引く。ラベルを埋め込むと
+ * リネーム時のランタイム DB 編集と乖離する。
  */
 export class DokusyaResponseDto {
   @ApiProperty() dokusya_id: number;
@@ -110,16 +108,16 @@ export class DokusyaResponseDto {
 }
 
 /**
- * Envelope DTO for the controller-level Swagger annotation.
- * `{ data: DokusyaResponseDto }` per project convention.
+ * コントローラ層 Swagger アノテーション用のエンベロープ DTO。
+ * プロジェクト規約に従い `{ data: DokusyaResponseDto }`。
  */
 export class DokusyaResponseEnvelopeDto {
   @ApiProperty({ type: DokusyaResponseDto }) data: DokusyaResponseDto;
 }
 
 /**
- * Envelope DTO for mutation endpoints (`POST` / `PUT`) — adds the
- * `message` toast string alongside the response data.
+ * 更新系エンドポイント（`POST` / `PUT`）用のエンベロープ DTO —
+ * レスポンスデータに加えて `message` トースト文字列を持つ。
  */
 export class DokusyaMutationResponseDto {
   @ApiProperty({ type: DokusyaResponseDto }) data: DokusyaResponseDto;

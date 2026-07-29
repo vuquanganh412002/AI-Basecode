@@ -17,7 +17,7 @@ export interface KozaFurikaeInitialData {
   jastem_koza_no: string;
 }
 
-/** Top-level envelope — `{ data }`. */
+/** トップレベル envelope — `{ data }`。 */
 export interface KozaFurikaeInitialEnvelope {
   data: KozaFurikaeInitialData;
 }
@@ -83,7 +83,7 @@ export interface KozaFurikaeErrorDetail {
 }
 
 /**
- * A normalized non-axios error carrying the screen-specific error_code.
+ * 画面固有 error_code を運ぶ、正規化された非 axios エラー。
  * INACTIVE_TANKA_REFERENCED のときは `errors[]`（該当購読者一覧）と `message`
  * を伴い、view が Excel取込画面と同様のインラインエラー一覧で提示する。
  */

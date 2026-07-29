@@ -5,12 +5,11 @@ import { useCodesStore } from '@/stores/codes.store';
 import type { User } from '@/types';
 
 /**
- * Auth store.
+ * 認証ストア。
  *
- * Authentication is handled entirely by the HTTP-only session cookie issued
- * by the backend (Redis-backed, 24h sliding TTL). The session ID is not
- * accessible from JavaScript, so this store only keeps the decoded `user`
- * object — `isAuthenticated` is derived from its presence.
+ * 認証は BE 発行の HTTP-only セッション cookie（Redis 管理、24h スライド TTL）が
+ * 全て担う。セッション ID は JS から読めないため、当ストアはデコード済み `user`
+ * オブジェクトのみ保持し、`isAuthenticated` はその有無から導出。
  */
 export type LoginOutcome =
   | { mfa_required: true; mfa_token: string; expires_in: number }
@@ -33,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
         expires_in: data.expires_in,
       };
     }
-    // Session cookie set by the server; we only cache the user info.
+    // セッション cookie はサーバーが設定。ここでは user 情報のみキャッシュ。
     user.value = data.user;
     await useCodesStore().loadAll();
     return { mfa_required: false, user: data.user };
@@ -51,17 +50,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Extend the session TTL and rehydrate the cached user payload.
+   * セッション TTL を延長し、キャッシュ済み user ペイロードを再水和。
    *
-   * Called on:
-   *  - App boot (main.ts) — cookie exists but Pinia is empty, need to
-   *    ask the backend "who am I?" before the SPA can decide where to route.
-   *  - Explicit re-sync when permissions/role may have changed server-side.
+   * 呼び出し時:
+   *  - アプリ起動時（main.ts）— cookie はあるが Pinia が空。ルーティング判断前に
+   *    BE へ「自分は誰か」を問う必要がある。
+   *  - 権限/ロールがサーバー側で変わり得る際の明示的な再同期。
    *
-   * NOT called on 401: with an HTTP-only session cookie there is no
-   * recoverable state to refresh — the error handler redirects to /login
-   * directly. Returns false if the session has already expired so the
-   * boot path can send the user to /login.
+   * 401 では呼ばない: HTTP-only セッション cookie では復元可能な状態が無く、
+   * error handler が直接 /login へリダイレクトする。セッション失効時は false を
+   * 返し、起動パスが /login へ送れるように。
    */
   async function refreshSession(): Promise<boolean> {
     try {
@@ -84,15 +82,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Drop all client-side session state. Called by:
-   *   - `logout` (user-initiated)
-   *   - `refreshSession` catch path (boot probe fails)
-   *   - the axios error handler on 401 outside auth endpoints
+   * クライアント側セッション状態を全破棄。呼び出し元:
+   *   - `logout`（ユーザー起点）
+   *   - `refreshSession` の catch パス（起動プローブ失敗）
+   *   - auth エンドポイント外での 401 時の axios error handler
    *
-   * Always resets `codes.store` alongside `user` — without this, a fresh
-   * login on the same tab would render labels from the previous user's
-   * cached m_code rows (the codes store guards `loadAll` so it would
-   * skip refetching while `all !== null`).
+   * 常に `user` と併せて `codes.store` をリセット — これが無いと同一タブでの
+   * 再ログインが前ユーザーのキャッシュ済み m_code 行からラベルを描画する
+   * （codes store は `all !== null` の間 `loadAll` を skip するガードのため）。
    */
   function clearSession(): void {
     user.value = null;
@@ -100,10 +97,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * Toggle the caller's own MFA flag. Updates `user.mfa_enable_flg`
-   * on success so the header switch UI reflects the new state without
-   * a full session refresh. Errors propagate to the caller; the global
-   * axios interceptor toasts.
+   * 呼び出し元自身の MFA フラグをトグル。成功時に `user.mfa_enable_flg` を更新し、
+   * 完全なセッション更新無しでヘッダーのスイッチ UI に新状態を反映。
+   * エラーは呼び出し元へ伝播し、グローバル axios interceptor がトースト表示。
    */
   async function toggleMfa(enabled: boolean): Promise<boolean> {
     const result = await authApi.toggleMfa(enabled);

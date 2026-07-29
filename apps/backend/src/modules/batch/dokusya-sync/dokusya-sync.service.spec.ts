@@ -214,6 +214,77 @@ describe('DokusyaSyncService', () => {
     expect(patch.lastSourceUpdatedAt).toBeInstanceOf(Date);
   });
 
+  // 2026-07-29 実データ検証で判明した恒久 miss の再発防止。単純 max() だと失敗行より
+  // 後ろの成功行が watermark を追い越し、失敗行が二度と差分に乗らなくなる。
+  it('does NOT advance the watermark past a failed row (later successes must not overtake it)', async () => {
+    const { service, stateRepo } = buildService({
+      deltaRows: [
+        buildUser({ id: 1001, chg_ts: '2026-04-01 00:00:00' }),
+        buildUser({ id: 1002, chg_ts: '2026-04-02 00:00:00' }), // ここで失敗
+        buildUser({ id: 1003, chg_ts: '2026-04-03 00:00:00' }), // 後続は成功
+      ],
+    });
+    mockApplyChange
+      .mockResolvedValueOnce({ dokusyaId: 1, insertedRirekiIds: [1] })
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ dokusyaId: 3, insertedRirekiIds: [3] });
+
+    await service.run();
+
+    const patch = stateRepo.update.mock.calls[0][1];
+    // 失敗した 1002 の手前（1001）で止まる → 次回実行が 1002 から読み直す。
+    expect(String(patch.lastSourceId)).toBe('1001');
+  });
+
+  it('skips (not fails) a CREATE row that has no 購読開始日 at all', async () => {
+    const { service } = buildService({
+      deltaRows: [
+        buildUser({
+          id: 1001,
+          activated_at: null,
+          application_date: null,
+          created_at: null,
+        }),
+      ],
+    });
+    await service.run();
+    // master の NOT NULL 制約で必ず落ちる行なので applyChange を呼ばずに skip する。
+    expect(mockApplyChange).not.toHaveBeenCalled();
+  });
+
+  it('falls back 購読開始日 to application_date when activated_at is empty', async () => {
+    const { service } = buildService({
+      deltaRows: [
+        buildUser({
+          id: 1001,
+          activated_at: null,
+          application_date: '2026-03-15 09:00:00',
+          created_at: '2026-01-05 09:00:00',
+        }),
+      ],
+    });
+    await service.run();
+    const input = mockApplyChange.mock.calls[0][1];
+    expect(input.values.shokiDokusyaKaishiDate).toBe('2026-03-15');
+    expect(input.values.dokusyaKaishiDate).toBe('2026-03-15');
+  });
+
+  it('falls back 購読開始日 to created_at when activated_at と application_date が空', async () => {
+    const { service } = buildService({
+      deltaRows: [
+        buildUser({
+          id: 1001,
+          activated_at: null,
+          application_date: null,
+          created_at: '2026-01-05 09:00:00',
+        }),
+      ],
+    });
+    await service.run();
+    const input = mockApplyChange.mock.calls[0][1];
+    expect(input.values.shokiDokusyaKaishiDate).toBe('2026-01-05');
+  });
+
   it('UPDATE preserves cloud-owned tanka_id (never overwrites — omitted from values)', async () => {
     const { service } = buildService({
       existing: { dokusyaId: 77, denshiShoninStatus: DenshiShoninStatus.APPROVED },
@@ -251,5 +322,20 @@ describe('DokusyaSyncService', () => {
     const sql = denshibanQuery.mock.calls[0][0] as string;
     expect(sql).not.toContain('id > ?');
     expect(sql).toContain('Campagna_flg'); // キャンペーン除外は常に適用
+  });
+
+  it('取込対象条件（collecting=1 or (treatment=1 and payment_id=6)）を常に適用する', async () => {
+    // full-sync / 差分どちらの SELECT にも eligibility フィルタが入ること。
+    const full = buildService({ fullSync: true });
+    await full.service.run();
+    const fullSql = full.denshibanQuery.mock.calls[0][0] as string;
+    expect(fullSql).toContain('collecting = 1');
+    expect(fullSql).toContain('treatment = 1 AND payment_id = 6');
+
+    const delta = buildService({ deltaRows: [] });
+    await delta.service.run();
+    const deltaSql = delta.denshibanQuery.mock.calls[0][0] as string;
+    expect(deltaSql).toContain('collecting = 1');
+    expect(deltaSql).toContain('treatment = 1 AND payment_id = 6');
   });
 });

@@ -1,25 +1,17 @@
 /**
- * Notice type discriminator stored in `t_oshirase.oshirase_type`.
+ * お知らせ種別。`t_oshirase.oshirase_type`。
+ * Mirror of `m_code.code_category = 'OSHIRASE_TYPE'` (seeder.md §5.13)。
+ * Group B → A へ昇格: 値 4 (`DEADLINE`) が 3 箇所で必須分岐を駆動する:
+ *   - 締め切り時間 は `publish_location = MENU_DEADLINE` と 1:1
+ *     (`assertDeadlineLocationPairing` in oshirase.service.ts)。
+ *   - 締め切り時間 row はシステム全体で1件のみ (uniqueness check)。
+ *   - 締め切り時間 row は削除不可 (FE 削除 link 無効化、BE DELETE→HTTP 400)。
  *
- * Mirror of `m_code.code_category = 'OSHIRASE_TYPE'` (seeder.md §5.13).
- * Promoted from Group B → Group A because value 4 (`DEADLINE`) drives
- * mandatory business branching in 3 places:
+ * label (システム/重要/一般/締め切り時間) は `m_code.code_name` で runtime 編集可、
+ * 値のみ固定。
  *
- *   - 締め切り時間 must pair 1:1 with `publish_location = MENU_DEADLINE`
- *     (`assertDeadlineLocationPairing` in oshirase.service.ts).
- *   - Only ONE 締め切り時間 row may exist system-wide (uniqueness check).
- *   - 締め切り時間 rows are NOT deletable (FE disables 削除 link, BE
- *     rejects DELETE with HTTP 400).
- *
- * Display labels (`システム` / `重要` / `一般` / `締め切り時間`) live in
- * `m_code.code_name` and can be edited at runtime by the customer
- * without redeploy — only the VALUES are fixed here.
- *
- * Naming convention: PascalCase identifier + UPPER_SNAKE_CASE members
- * (project's `naming-conventions.md` for fixed-constant values).
- *
- * Keep in sync with `apps/frontend/src/constants/enums/oshirase-type.ts`.
- * The integration test `enum-sync.spec.ts` fails CI if they drift.
+ * `apps/frontend/src/constants/enums/oshirase-type.ts` と同期。
+ * `enum-sync.spec.ts` が drift 時 CI fail。
  */
 export const OshiraseType = {
   /** システム */

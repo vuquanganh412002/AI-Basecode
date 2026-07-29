@@ -18,25 +18,21 @@ import {
 /**
  * ACSMS-SCR-016 — 購読者Excelデータ取込画面.
  *
- * Top-level import request (POST /api/v1/dokusya/import — API-016-002).
- * The DTO enforces the SHAPE contract only (import_mode enum,
- * selected_columns + rows array bounds, per-row max-lengths). All
- * BUSINESS validation (3:併読 reject, 電子版×クレカ, FK lookups,
- * mode-conditional required, dokusya_busu rules, 文言→code mapping)
- * lives in `DokusyaService.importExcel` so the same rule set can be
- * applied per-row and aggregated into one `IMPORT_VALIDATION_ERROR`.
+ * 取込リクエストのトップレベル (POST /api/v1/dokusya/import — API-016-002)。
+ * DTO は形式契約のみ強制する（import_mode enum、selected_columns + rows 配列の
+ * 境界、行ごとの最大長）。業務検証（3:併読 拒否、電子版×クレカ、FK 逆引き、
+ * モード条件付き必須、dokusya_busu ルール、文言→code マッピング）は
+ * `DokusyaService.importExcel` に置き、同一ルールを行ごとに適用して
+ * 単一の `IMPORT_VALIDATION_ERROR` に集約できるようにする。
  */
 
 /**
- * Coerce blank strings to undefined so `@IsOptional()` skips them, AND a
- * JS `number` to `string`. Excel stores numeric-looking cells (郵便番号,
- * 組合員コード, 引落口座番号, …) as numbers, so `sheet_to_json` hands them
- * to the DTO as `number`. These columns are VARCHAR on the BE (leading
- * zeros / fixed widths matter), so a bare `@IsString` would reject the
- * row — and because the failure is a nested-row error it collapses to a
- * single generic line. Stringifying here lets a numeric cell pass
- * `@IsString`; the downstream `@MaxLength` / format checks still catch
- * genuinely malformed values. Use on STRING fields only.
+ * 空文字を undefined に（`@IsOptional()` がスキップするよう）、かつ JS `number` を
+ * `string` に変換する。Excel は数値らしいセル（郵便番号・組合員コード・引落口座番号・…）
+ * を数値で保持するため `sheet_to_json` は DTO に `number` で渡す。これらの列は BE 側で
+ * VARCHAR（先頭ゼロ・固定桁が重要）なので、素の `@IsString` は行を弾く — しかも
+ * ネスト行エラーは単一の汎用行に潰れる。ここで文字列化すれば数値セルが `@IsString` を
+ * 通り、後続の `@MaxLength`／形式チェックが真に不正な値を捕捉する。文字列フィールド専用。
  */
 const blankToUndef = ({ value }: { value: unknown }): unknown => {
   if (typeof value === 'number') return String(value);
@@ -44,14 +40,12 @@ const blankToUndef = ({ value }: { value: unknown }): unknown => {
 };
 
 /**
- * Numeric variant for `@IsNumber` fields. Replaces the
- * `@Type(() => Number) + @Transform(blankToUndef)` combo — `@Type` turns
- * `''` into `0` (defeating the blank check), and the number-stringifying
- * `blankToUndef` above would push a numeric cell back to a string. Single
- * pass:
- *   - blank / null / undefined → undefined (so `@IsOptional` skips)
- *   - non-blank string         → Number(s) when finite, else the string
- *   - already numeric          → pass through
+ * `@IsNumber` フィールド用の数値版。`@Type(() => Number) + @Transform(blankToUndef)`
+ * の組み合わせを置き換える — `@Type` は `''` を `0` にしてしまい（空チェックを無効化）、
+ * 上の数値→文字列化する `blankToUndef` は数値セルを文字列に戻してしまう。単一パス:
+ *   - 空／null／undefined → undefined（`@IsOptional` がスキップ）
+ *   - 非空の文字列         → 有限なら Number(s)、そうでなければ文字列のまま
+ *   - 既に数値            → そのまま通す
  */
 const blankOrNumber = ({ value }: { value: unknown }): unknown => {
   if (value === null || value === undefined) return undefined;
@@ -80,11 +74,10 @@ const blankOrBool = ({ value }: { value: unknown }): unknown => {
 };
 
 /**
- * One import row. Every field is OPTIONAL at the DTO level — the
- * service applies mode-conditional required checks. Numeric fields use
- * `blankOrNumber` (blank → undefined, string → number); string fields use
- * `blankToUndef` (blank → undefined, number → string) and carry the
- * api.md §リクエストパラメータ max-lengths.
+ * 取込1行。全フィールドは DTO 層では任意 — モード条件付き必須チェックはサービスが行う。
+ * 数値フィールドは `blankOrNumber`（空→undefined、文字列→数値）、文字列フィールドは
+ * `blankToUndef`（空→undefined、数値→文字列）を使い、api.md §リクエストパラメータ の
+ * 最大長を持つ。
  */
 export class ImportDokusyaRowDto {
   @ApiPropertyOptional({ description: '購読者ID（UPDATE_* キー）' })

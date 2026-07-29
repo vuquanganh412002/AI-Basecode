@@ -41,62 +41,53 @@ import {
   DokusyaFields,
 } from './dokusya-history.types';
 
-// Digital subscriber types (電子版=2, 併読=3) — sync 電子版 on either.
-// Set<number> annotation: enum members are literal-typed (2 | 3), but
-// `.has()` is called with a general `number`, so widen explicitly.
+// 電子版=2 / 併読=3 → どちらも電子版同期対象。
+// Set<number>: enum は 2|3 リテラル型だが `.has()` に一般 number を渡すため明示的に広げる。
 const DENSHI_SHUBETSU = new Set<number>([
   DokusyaShubetsu.DIGITAL,
   DokusyaShubetsu.BOTH,
 ]);
 
 /**
- * Bitemporal history writer — orchestration over the query + builder
- * helpers. Plain functions over an `EntityManager` (caller owns the
- * transaction). See docs/dokusya-rireki-common-functions.md §4.
+ * Bitemporal 履歴ライタ — query/builder ヘルパの orchestration。EntityManager 上の
+ * 純関数（tx は caller 所有）。docs/dokusya-rireki-common-functions.md §4。
  */
 
 /**
- * Single entry point for create / update / import / replace. Writes the
- * history row(s) + recomputes the master, all on the caller's `m`
- * (transaction). Does NOT write audit or call external systems — the
- * caller owns those (audit inside the tx via `before`/`after`; 電子版
- * sync AFTER commit when `denshiSync`). See §4.1.
+ * create / update / import / replace の単一入口。caller の `m`(tx) 上で履歴行を書き
+ * master を再計算する。監査・外部連携は行わない（監査は tx 内で before/after を使い
+ * caller が、電子版同期は denshiSync 時に commit 後）。§4.1。
  */
 export async function applyChange(
   m: EntityManager,
   input: ApplyChangeInput,
 ): Promise<ApplyChangeResult> {
-  const { mode, values, johoDate, actor, reason } = input;
+  const { mode, values, johoDate, actor } = input;
 
   let dokusyaId: number;
   let beforeMaster: Dokusya | null;
 
   if (mode === 'CREATE') {
-    dokusyaId = await ensureMaster(m, values as Partial<Dokusya>);
+    dokusyaId = await ensureMaster(m, values as Partial<Dokusya>, actor);
     beforeMaster = null;
   } else {
     if (input.dokusyaId == null) {
       throw new Error('applyChange(UPDATE): dokusyaId is required');
     }
     dokusyaId = input.dokusyaId;
-    beforeMaster = await loadMaster(m, dokusyaId); // 監査 result.before 用スナップショット
+    beforeMaster = await loadMaster(m, dokusyaId); // 監査 result.before 用
   }
 
-  // 変更検出は「タイムライン上の直前行 findBefore(joho)」基準で行う（顧客要件
-  // 改訂 2026-07：予約変更を積み重ねられるようにする）。適用日 joho は必ず当日
-  // 以降（電子版=当日 / 紙版>=当日、過去日は service のガードで拒否）なので、
-  // 直前行 = その joho 時点で有効な行 = 新規行が実効値を carry-forward する元。
-  //
-  // 旧・master 基準だと未来予約行が存在するとき master と直前行が乖離し、
-  // 「直前行とは異なるが master とは同値」の変更（例: 予約 false@22 の後に
-  // 07-23 で true へ戻す）が未検出となり履歴が作られなかった。直前行基準にする
-  // ことで、各履歴行に埋める値・zenkai_*・後続行 cascade も同じ findBefore から
-  // 取る設計と一貫する。CREATE は直前行なし(null)＝全項目を変更扱い（従来同）。
+  // 変更検出は直前行 findBefore(joho) 基準（顧客要件2026-07：予約変更を積み重ね可に）。
+  // joho は必ず当日以降（過去日は service ガードで拒否）なので直前行=joho時点の有効行=
+  // carry-forward 元。master 基準だと未来予約行があると「直前行と異なるが master と同値」
+  // の変更が未検出になり履歴が作られなかった。zenkai_*・cascade も同じ findBefore 起点で一貫。
+  // CREATE は直前行なし(null)＝全項目を変更扱い。
   const diffBase =
     mode === 'CREATE' ? null : await findBefore(m, dokusyaId, johoDate);
   const changed = diffChangedFields(diffBase, values);
-  // [1更新1レコード] 販売店・支払方法の変更日を廃止し、全変更を joho で1件の履歴行に
-  // まとめる（顧客要件 2026-07）。UI編集・Excel取込・一括置換で統一（source 分岐なし）。
+  // [1更新1レコード] 全変更を joho で1件の履歴行にまとめる（顧客要件2026-07）。
+  // UI編集・Excel取込・一括置換で統一（source 分岐なし）。
   const events = splitEvents(mode, changed, values, johoDate);
 
   const insertedRirekiIds: number[] = [];
@@ -107,20 +98,18 @@ export async function applyChange(
       dokusyaId,
       rirekiNo: no,
       actor,
-      reason,
     });
-    // Excel取込で配達先データありの行は増減報告対象にする（顧客要件 — 配達先
-    // 列は標準の増減トリガではないため force で明示的に立てる）。
+    // Excel取込で配達先データありの行は増減報告対象に（顧客要件 — 配達先列は標準の
+    // 増減トリガではないため force で明示的に立てる）。
     if (input.forceZougen) row.zougenHokokuFlg = true;
     const saved = await insertRow(m, row);
     insertedRirekiIds.push(saved.dokusyaRirekiId);
     await recomputeAfterChain(m, dokusyaId, saved, before, Object.keys(e.values));
   }
 
-  // 再計算基準日は常に当日。未来日レコードは当日時点では有効化されない（夜間バッチ
-  // が到来日に有効化）。ただし全行が未来（未来 購読開始日 の新規）の場合、
-  // recomputeMaster が最早行へ fallback して saishin=true を保証する（顧客要件
-  // 2026-07: 新規は saishin=true・バッチで後日変わる）。
+  // 再計算基準日は常に当日。未来日レコードは当日時点で有効化されない（夜間バッチが
+  // 到来日に有効化）。ただし全行が未来（未来 購読開始日 の新規）の場合、recomputeMaster が
+  // 最早行へ fallback し saishin=true を保証（顧客要件2026-07: 新規は saishin=true）。
   await recomputeMaster(m, dokusyaId, todayIsoJst());
   const after = await loadMaster(m, dokusyaId);
 
@@ -134,21 +123,18 @@ export async function applyChange(
 }
 
 /**
- * Recompute `t_dokusya` and `saishin_data_flg` for one dokusya as of `asOf`,
- * scoped to the CURRENT lifecycle (rows from the latest 新規行 onward — see
- * {@link loadCurrentLifecycleEffectiveRow}).
+ * `t_dokusya` と `saishin_data_flg` を asOf 時点で再計算。現ライフサイクル（最新の
+ * 新規行以降 — {@link loadCurrentLifecycleEffectiveRow}）に限定する。
  *
- * Enforces the invariant `t_dokusya ⇔ 常に 1 行 saishin_data_flg=TRUE`（履歴が
- * 1 行以上あれば）:
+ * 不変条件 `t_dokusya ⇔ 常に 1 行 saishin_data_flg=TRUE`（履歴が1行以上あれば）を担保:
  * - 現ライフサイクル内で `joho <= asOf` の最大 `(joho, rireki_no)` が有効行；
- * - 無ければ（現ライフサイクルが全て未来 = 未来 購読開始日 の新規/再購読）**最新の
- *   新規行**へ fallback し、master を即その内容にする（新規作成の即時反映と同じ）。
+ * - 無ければ（全て未来 = 未来開始日の新規/再購読）最新の新規行へ fallback し master を
+ *   即その内容にする（新規作成の即時反映と同じ）。
  *
- * これにより 再購読 は初回新規作成と同じく即 購読中 になり（joho=新開始日でも）、
- * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=asOf まで有効化され
- * ず到来日バッチ任せのまま。単一ライフサイクル（再購読なし）は従来と同一挙動。
+ * これにより再購読は初回新規と同じく即 購読中 になる。update/解約（同一LC内の未来 joho 行）は
+ * joho<=asOf まで有効化されず到来日バッチ任せ。単一LC（再購読なし）は従来と同一挙動。
  *
- * Idempotent: full recompute, safe to run repeatedly (save / batch).
+ * 冪等: フル再計算。save / batch で繰り返し実行可。
  */
 export async function recomputeMaster(
   m: EntityManager,
@@ -163,11 +149,10 @@ export async function recomputeMaster(
   await setSaishinFlags(m, dokusyaId, effectiveRow?.dokusyaRirekiId ?? null);
   if (effectiveRow) {
     const masterFields = mapRirekiToMaster(effectiveRow);
-    // [scheduled-chushi] 予約中の解約予定日(購読中止日)を master へ即時反映する
-    // （顧客要件2026-07）。予約行は未来日で effective ではないため通常は master に
-    // 反映されないが、購読中止日だけは予約時点から一覧(SCR-014)/詳細(SCR-011)に
-    // 表示したい。取消済みなら null が返り、master 側もクリアされる。effective 行
-    // が既に中止日を持つ（バッチ確定後など）場合も同じ値が返り整合する。
+    // [scheduled-chushi] 予約中の解約予定日(購読中止日)を master へ即時反映（顧客要件
+    // 2026-07）。予約行は未来日で effective でないため通常 master 未反映だが、中止日だけは
+    // 予約時点から一覧(SCR-014)/詳細(SCR-011)に表示したい。取消済みなら null → master も
+    // クリア。effective 行が既に中止日を持つ（バッチ確定後等）場合も同値が返り整合。
     const scheduledChushi = await loadScheduledChushiDate(m, dokusyaId);
     if (scheduledChushi != null) {
       masterFields.dokusyaChushiDate = scheduledChushi;
@@ -177,19 +162,13 @@ export async function recomputeMaster(
 }
 
 /**
- * NOTE(未実装バッチ用): 到来日バッチ（日次 cron）から呼ばれる想定の関数。バッチ本体は
- * 未実装のため現状 production の呼び出し元は無く unit test のみが対象（意図的な pending・
- * 孤立コードではない）。バッチ実装時にスケジューラから配線する。
+ * NOTE(未実装バッチ用): 到来日バッチ（日次 cron）から呼ぶ想定。バッチ本体は未実装のため
+ * 現状 production 呼出し元は無く unit test のみ対象（意図的な pending・孤立コードではない）。
  *
- * Batch 解約: append one cancellation row for a subscriber whose
- * `dokusya_chushi_date` has arrived, then reflect it into `t_dokusya`.
- *
- * - Applied date = `dokusya_chushi_date` (紙版=1) or `+1 day` (電子版=2).
- * - `before` = effective row AS OF the cancellation date (G3) so a future
- *   change activated the same night is inherited (case D). NOT `INFINITY`.
- * - Idempotent: skips when there is no chushi date or it is already
- *   cancelled. Scope (excluding 併読 / 電子版クレカ) is the batch's job.
- * See §4.3.
+ * Batch 解約: `dokusya_chushi_date` が到来した購読者に解約行を1件 append し t_dokusya へ反映。
+ * - 適用日 = 中止日(紙版=1) または +1日(電子版=2)。
+ * - `before` = 解約日時点の有効行(G3, NOT INFINITY) — 同夜有効化の未来変更を継承(case D)。
+ * - 冪等: 中止日なし or 解約済みならスキップ。対象範囲(併読/電子版クレカ除外)はバッチの責務。§4.3。
  */
 export async function insertKaiyaku(
   m: EntityManager,
@@ -199,7 +178,7 @@ export async function insertKaiyaku(
   const ref = await loadEffectiveRow(m, dokusyaId, asOf);
   if (ref?.dokusyaChushiDate == null || ref.kaiyakuFlg) return;
 
-  const isDenshi = ref.dokusyaShubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1 day
+  const isDenshi = ref.dokusyaShubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1日
   const kaiyakuJoho = isDenshi
     ? addDaysIso(ref.dokusyaChushiDate, 1)
     : ref.dokusyaChushiDate;
@@ -219,14 +198,13 @@ export async function insertKaiyaku(
 }
 
 /**
- * UI 解約予約（Phase 1・顧客要件2026-07 の2フェーズ化）: 編集画面で購読中止日を入力
- * した時点で**予約行**を1件追加する（継続情報行ではない）。予約行は最小限のみ override
- * （`部数=0`・`zougen=true`・`中止日`・`適用日=中止日`・`kaiyaku_flg=false`・
- * `saishin=false`）し、`buildKaiyakuReservationRow` が build する。実際の解約確定
- * （`tetsuzuki=0`・`kaiyaku_flg=true`・saishin 反映・電子版は適用日+1）は **Phase 2 の
- * 到来日バッチ `insertKaiyaku`** が別レコードで行う（docs/dokusya-kaiyaku-phase2-plan.md）。
- * 予約行は未来日（saishin=false）なので到来まで master 未反映。Returns the same
- * `ApplyChangeResult` shape as `applyChange` so the caller writes audit uniformly.
+ * UI 解約予約（Phase 1・顧客要件2026-07 の2フェーズ化）: 編集画面で購読中止日を入力した
+ * 時点で予約行を1件追加（継続情報行ではない）。予約行は最小限のみ override（部数=0・
+ * zougen=true・中止日・適用日=中止日・kaiyaku_flg=false・saishin=false）— build は
+ * `buildKaiyakuReservationRow`。実際の解約確定（tetsuzuki=0・kaiyaku_flg=true・saishin
+ * 反映・電子版は適用日+1）は Phase 2 の到来日バッチ `insertKaiyaku` が別レコードで行う
+ * （docs/dokusya-kaiyaku-phase2-plan.md）。予約行は未来日（saishin=false）で到来まで master
+ * 未反映。返り値は applyChange と同じ ApplyChangeResult（caller が監査を統一的に書ける）。
  */
 export async function insertScheduledKaiyaku(
   m: EntityManager,
@@ -240,8 +218,8 @@ export async function insertScheduledKaiyaku(
   const { dokusyaId, chushiDate, actor } = input;
   const beforeMaster = await loadMaster(m, dokusyaId);
 
-  // Phase 1: 予約行の適用日 = 中止日（紙版/電子版とも。電子版の +1 は Phase 2 バッチで）。
-  // predecessor = 適用日(中止日)時点の有効行。zenkai_* と継承業務項目の基準。
+  // Phase 1: 予約行の適用日 = 中止日（紙版/電子版とも。電子版の +1 は Phase 2 バッチ）。
+  // predecessor = 中止日時点の有効行。zenkai_* と継承業務項目の基準。
   const before = await findBefore(m, dokusyaId, chushiDate);
   if (!before) {
     throw new Error('insertScheduledKaiyaku: predecessor row not found');
@@ -270,17 +248,15 @@ export async function insertScheduledKaiyaku(
 }
 
 /**
- * 再購読 (resubscribe): a 解約済み subscriber re-registers with a new 購読開始日
- * from the edit screen (手続種類=新規). Appends a 新規(再購読) row — `shinki_flg=true`,
- * `tetsuzuki=1`, `kaiyaku_flg=false`, new `dokusya_kaishi_date`, `chushi=null` —
- * carried forward from the tail (解約行). `values` is the new business state.
+ * 再購読: 解約済み購読者が編集画面(手続種類=新規)で新しい購読開始日を指定して再加入。
+ * 新規(再購読)行を append — shinki_flg=true・tetsuzuki=1・kaiyaku_flg=false・新
+ * dokusya_kaishi_date・chushi=null — tail(解約行) から状態継承。`values` は再購読後の新値。
  *
- * 適用日(joho) = 新 購読開始日（新規作成と同じ＝初回作成行と同じ形）。即時反映は
- * `recomputeMaster` が「現ライフサイクル(最新の新規行以降)」で有効行を選ぶことで
- * 担保する: 新開始日が未来でも現ライフサイクルの有効行が無ければ最新の新規(=この
- * 再購読)行へ fallback し master が即 購読中 になる（新規作成の未来開始日と同じ挙動）。
- * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=当日 まで有効化され
- * ないので従来どおり到来日バッチ任せ。Returns the same `ApplyChangeResult` shape.
+ * 適用日(joho) = 新 購読開始日（初回作成行と同じ形）。即時反映は recomputeMaster が
+ * 現ライフサイクル(最新の新規行以降)で有効行を選ぶことで担保: 新開始日が未来でも有効行が
+ * 無ければ最新の新規(=この再購読)行へ fallback し master が即 購読中（新規の未来開始日と同じ）。
+ * update/解約（同一LC内の未来 joho 行）は joho<=当日 まで有効化されず到来日バッチ任せ。
+ * 返り値は ApplyChangeResult。
  */
 export async function insertResubscribe(
   m: EntityManager,
@@ -294,7 +270,7 @@ export async function insertResubscribe(
   const { dokusyaId, kaishiDate, values, actor } = input;
   const beforeMaster = await loadMaster(m, dokusyaId);
 
-  // predecessor は新開始日時点の有効行（＝解約行）から状態継承。無ければ最早行。
+  // predecessor は新開始日時点の有効行(=解約行)から状態継承。無ければ最早行。
   const before =
     (await findBefore(m, dokusyaId, kaishiDate)) ??
     (await loadEarliestRow(m, dokusyaId));
@@ -306,8 +282,8 @@ export async function insertResubscribe(
   const row = buildResubscribeRow(
     before,
     values,
-    { dokusyaId, rirekiNo: no, actor, reason: '再購読' },
-    kaishiDate, // joho = 新 購読開始日（初回作成と同じ）
+    { dokusyaId, rirekiNo: no, actor },
+    kaishiDate, // joho = 新 購読開始日
   );
   const saved = await insertRow(m, row);
 
@@ -323,21 +299,19 @@ export async function insertResubscribe(
   };
 }
 
-// Far-future sentinel to fetch the chain tail regardless of today/future.
+// today/future を問わずチェーン末尾を取るための遠未来 sentinel。
 const CHAIN_TAIL_ASOF = '9999-12-31';
 
 /**
- * Whether `target` may be cancelled (取消可否, G1・顧客要件2026-07):
- * - 紙版(dokusya_shubetsu=1)のみ → 電子版(2)・併読(3) は電子版読者管理システムへ
- *   即時連携されるため取消不可;
- * - `shinki_flg` (新規 / 解約→再購読, both flagged per DB design) → no;
- * - already `torikeshi_flg` → no;
- * - 適用日が未来 (本日 < joho_henko_tekiyo_date, JST) → 適用日到来済み（反映・報告済み）
- *   は取消不可。紙版の解約行は joho = 購読中止日 なので「解約バッチ前まで取消可」も
- *   この一条件で満たす（電子版のみ joho = 中止日+1 だが、そもそも電子版は取消不可）;
- * - must be the TAIL of the (joho, rireki_no) chain among `flag=0` rows
- *   (LIFO) — a 中間 row with a later un-cancelled row → no.
- * 紙版・末尾・適用日未来の 解約 / 通常変更 → yes.
+ * `target` を取消できるか（取消可否, G1・顧客要件2026-07）:
+ * - 紙版(1)のみ → 電子版(2)・併読(3) は電子版読者管理システムへ即時連携のため取消不可;
+ * - `shinki_flg`（新規/解約→再購読, DB設計で両方 flagged）→ no;
+ * - 既に `torikeshi_flg` → no;
+ * - 適用日が未来(本日 < joho, JST) でなければ no（到来済み＝反映・報告済み）。紙版の解約行は
+ *   joho=購読中止日 なので「解約バッチ前まで取消可」もこの一条件で満たす（電子版は joho=中止日+1
+ *   だがそもそも取消不可）;
+ * - `flag=0` 行の (joho, rireki_no) チェーン末尾(LIFO)であること — 後続の未取消行がある中間行→no。
+ * 紙版・末尾・適用日未来の 解約/通常変更 → yes。
  */
 export async function canTorikeshi(
   m: EntityManager,
@@ -348,9 +322,8 @@ export async function canTorikeshi(
   if (target.dokusyaShubetsu !== DokusyaShubetsu.PAPER) return false;
   // 3+4. 新規/再購読・取消済は取消不可。
   if (target.shinkiFlg || target.torikeshiFlg) return false;
-  // 7. 適用日が未来（本日 < 適用日, JST）でなければ取消不可（適用日到来済み＝反映済み）。
-  //    joho_henko_tekiyo_date は DATE（'YYYY-MM-DD'）— ISO 文字列比較で日付順が保たれる。
-  //    null（理論上あり得ない）も未来ではないので取消不可扱い。
+  // 7. 適用日が未来(本日 < 適用日, JST) でなければ取消不可（到来済み＝反映済み）。
+  //    joho は DATE('YYYY-MM-DD') — ISO 文字列比較で日付順保持。null も未来でないので取消不可扱い。
   if (
     target.johoHenkoTekiyoDate == null ||
     target.johoHenkoTekiyoDate <= todayIsoJst()
@@ -359,15 +332,13 @@ export async function canTorikeshi(
   }
   // 5. 末尾（適用日チェーンの有効レコード）でなければ取消不可（LIFO）。
   const tail = await loadEffectiveRow(m, dokusyaId, CHAIN_TAIL_ASOF);
-  // tail が null なら optional chain で undefined ⇒ 一致せず false（従来の
-  // `tail != null && ...` と等価）。
+  // tail が null なら optional chain で undefined ⇒ 一致せず false。
   return target.dokusyaRirekiId === tail?.dokusyaRirekiId;
 }
 
 /**
- * 取消 (赤伝): void a wrongly-registered change without deleting. Flags the
- * target row and appends a reversing row (both `torikeshi_flg=1`), then
- * recomputes the master over the remaining `flag=0` rows. See §4.4.
+ * 取消(赤伝): 誤登録の変更を削除せず無効化。対象行にフラグを立て打ち消し行を append
+ * （両方 torikeshi_flg=1）、残る flag=0 行で master 再計算。§4.4。
  */
 export async function applyTorikeshi(
   m: EntityManager,
@@ -388,26 +359,21 @@ export async function applyTorikeshi(
 }
 
 /**
- * After inserting `inserted` between two existing rows, update ONLY the
- * immediate successor (直後行): relink its `zenkai_*` to the newly-inserted
- * row and recompute its `zougen_hokoku_flg`. This is the「B-thuần」policy
- * requested by the customer (顧客要件 2026-07):
+ * `inserted` を既存2行の間に挿入した後、直後行1件だけを更新する: `zenkai_*` を挿入行へ
+ * relink し `zougen_hokoku_flg` を再計算。顧客要件2026-07「B-thuần」方針:
  *
- *  - 挿入行の直後行 1件だけを更新する。
- *  - 直後行の `zenkai_*` は `fillZenkai(after, inserted)` で新しい直前行
- *    (=挿入行)へ付け替える。住所 zenkai は `fillZenkai` が実効配達先住所
- *    (haitatsu_same_flg 依存)を入れる。
- *  - 直後行の業務項目 current 値（`dokusya_busu`・`biko`・住所・
- *    `haitatsu_same_flg` 等）は一切変更しない。
- *  - 直後行より後ろの行へは cascade しない（過去の carry-forward 伝播は廃止）。
+ *  - 直後行 1件だけ更新。
+ *  - 直後行の `zenkai_*` は `fillZenkai(after, inserted)` で新しい直前行(=挿入行)へ付け替え。
+ *    住所 zenkai は fillZenkai が実効配達先住所(haitatsu_same_flg 依存)を入れる。
+ *  - 直後行の業務項目 current 値（dokusya_busu・biko・住所・haitatsu_same_flg 等）は不変。
+ *  - 直後行より後ろへは cascade しない（過去の carry-forward 伝播は廃止）。
  *
- * 注意: この方針では、挿入行が carry-forward された値項目(busu 等)を変えても
- * 直後行の current 値は据え置くため、直後行が有効化された時点の master がその
- * 値に戻る（顧客が明示的に選択したトレードオフ — full snapshot な予約行前提）。
+ * 注意: 挿入行が carry-forward 値項目(busu 等)を変えても直後行の current 値は据え置くため、
+ * 直後行が有効化された時点の master がその値に戻る（顧客が選んだトレードオフ — full snapshot な予約行前提）。
  *
  * - CREATE / no change → 直後行なし（返る）。
- * - `findNext` は `torikeshi_flg=1` 行をスキップするため取消行は読まない。
- * - `changed` は現状ガード用途のみ（伝播はしない）。
+ * - `findNext` は torikeshi_flg=1 行をスキップ（取消行は読まない）。
+ * - `changed` は現状ガード用途のみ（伝播しない）。
  */
 export async function recomputeAfterChain(
   m: EntityManager,
@@ -427,7 +393,7 @@ export async function recomputeAfterChain(
   if (after === null) return;
 
   // 直後行のみ: zenkai を挿入行へ relink（住所は実効配達先住所）+ zougen 再計算。
-  // current 値・haitatsu_same_flg は据え置き。後続行へは伝播しない。
+  // current 値・haitatsu_same_flg は据え置き。後続行へ伝播しない。
   fillZenkai(after, inserted);
   after.zougenHokokuFlg = computeZougen(after, inserted);
   await m.save(DokusyaRireki, after);

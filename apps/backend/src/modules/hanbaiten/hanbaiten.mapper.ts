@@ -1,23 +1,20 @@
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 
 /**
- * Snake-cased list-row shape returned by `GET /api/v1/hanbaiten`.
- * Defined inline (rather than as a separate `*-response.dto.ts`) because
- * SCR-018 only emits this one response shape — the future SCR-017
- * detail / create / update endpoints will own their own DTO file.
+ * `GET /api/v1/hanbaiten` が返す snake_case 一覧行の形。SCR-018 はこの1形のみ
+ * 返すため別 `*-response.dto.ts` にせずインライン定義（SCR-017 の詳細/作成/更新は
+ * 各自の DTO ファイルを持つ予定）。
  *
- * `furikomi_tesuryo` and `haitatsuryo_tanka_id` are NUMERIC / BIGINT in
- * Postgres; TypeORM surfaces them as `string` even though the entity
- * declares `number`. The mapper coerces both back to `number` (or
- * `null`) so the API response keeps the JSON shape promised by the
- * spec.
+ * `furikomi_tesuryo` / `haitatsuryo_tanka_id` は Postgres の NUMERIC / BIGINT で、
+ * エンティティが `number` 宣言でも TypeORM は `string` で返す。mapper で `number`
+ * （または `null`）へ戻し、spec の JSON 形を保つ。
  */
 export interface HanbaitenListItem {
   hanbaiten_id: number;
   ja_id: number;
-  /** Joined from m_ja.ja_code (batch-looked-up after the main query). */
+  /** m_ja.ja_code から結合（本クエリ後に一括ルックアップ）。 */
   ja_code: string;
-  /** Joined from m_ja.ja_name (batch-looked-up after the main query). */
+  /** m_ja.ja_name から結合（本クエリ後に一括ルックアップ）。 */
   ja_name: string;
   hanbaiten_code: string;
   hanbaiten_name: string;
@@ -45,13 +42,12 @@ function coerceNullableNumber(value: number | string | null | undefined): number
 }
 
 /**
- * Map a `Hanbaiten` entity (camelCase columns) to the snake_case
- * list-row shape the API returns. Caller passes the resolved
- * `todofuken_name` (batch-looked-up after the main query) so this
- * mapper stays pure — no Nest DI, no IO.
+ * `Hanbaiten` エンティティ（camelCase 列）を API が返す snake_case 一覧行へ変換。
+ * 解決済みの `todofuken_name`（本クエリ後に一括ルックアップ）は呼出側が渡すため、
+ * mapper は純関数のまま（Nest DI / IO なし）。
  *
- * Pure-fn convention matches `ShitenService.findAll` →
- * `toShitenListItem` (see `src/modules/shiten/shiten.mapper.ts`).
+ * 純関数の方針は `ShitenService.findAll` → `toShitenListItem`
+ * （`src/modules/shiten/shiten.mapper.ts`）に一致。
  */
 export function toHanbaitenListItem(
   row: Hanbaiten,

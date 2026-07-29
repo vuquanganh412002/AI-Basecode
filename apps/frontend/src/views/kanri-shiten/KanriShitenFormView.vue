@@ -2,18 +2,15 @@
 /**
  * 管理支店マスタ登録画面 (ACSMS-SCR-009).
  *
- * Single view that handles BOTH create and edit flows:
- *   /kanri-shiten/create     (POST) — NICHINO_ADMIN only
- *   /kanri-shiten/:id/edit   (PUT)  — NICHINO_ADMIN edits everything;
- *                                     CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
- *                                     edit only yubin_no, address, tel,
- *                                     fax, biko (Layer 3 field restriction).
+ * 登録・編集を兼ねる単一ビュー:
+ *   /kanri-shiten/create     (POST) — NICHINO_ADMIN のみ
+ *   /kanri-shiten/:id/edit   (PUT)  — NICHINO_ADMIN は全編集可、
+ *                                     CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は
+ *                                     yubin_no, address, tel, fax, biko のみ編集可
+ *                                     （Layer 3 フィールド制限）。
  *
- * - Validation rules + error message text from
- *   docs/design/ACSMS-SCR-009/screen-design.md (メッセージ情報).
- * - DOM structure / Japanese button copy from
- *   docs/design/ACSMS-SCR-009/index.html.
- * - API contract from docs/design/ACSMS-SCR-009/ACSMS-SCR-009-api.md.
+ * バリデーション・メッセージ: screen-design.md（メッセージ情報）
+ * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-009-api.md。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -54,10 +51,9 @@ const authStore = useAuthStore();
 const { fieldErrors, submitting, submit } = useApiForm();
 
 /**
- * Field-level restriction per api.md §4.5. Non-admin roles see all
- * fields except yubin_no/address/tel/fax/biko disabled in edit mode.
- * Backend silently drops out-of-scope keys (Layer 3 in security.md);
- * the FE :disabled is UX hint only.
+ * フィールドレベル制限（api.md §4.5）。非 admin ロールは編集モードで
+ * yubin_no/address/tel/fax/biko 以外を disabled にする。BE はスコープ外キーを
+ * 無言で落とす（security.md Layer 3）。FE の :disabled は UX ヒントのみ。
  */
 const RESTRICTED_EDITOR_ROLES: ReadonlySet<string> = new Set([
   RoleCode.CHUOKAI,
@@ -70,7 +66,7 @@ const isRestrictedEditor = computed(
     RESTRICTED_EDITOR_ROLES.has(authStore.user?.role_code ?? ''),
 );
 
-/** Numeric id from the path, or undefined for create mode. */
+/** パスの数値 id。登録モードでは undefined。 */
 const kanriShitenIdParam = computed<number | undefined>(() => {
   const raw = route.params.id;
   if (raw === undefined || raw === '') return undefined;
@@ -82,12 +78,10 @@ const isEdit = computed(() => kanriShitenIdParam.value !== undefined);
 
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-// ja_id is typed as number on the request DTO, but the create form
-// must start UNSET so antd's <a-select> shows the placeholder
-// ("JAを選択してください") instead of a literal "0". `validateClient`
-// rejects a null/0 ja_id before the API call. `null` (not `undefined`)
-// matches BaseJaDropdown's emit shape, so we can use plain
-// `v-model:value` without a ?? bridge.
+// ja_id は request DTO では number 型だが、登録フォームは未設定で始め antd の
+// <a-select> が "0" ではなく placeholder（"JAを選択してください"）を表示するように
+// する。`validateClient` が API 前に null/0 の ja_id を弾く。`null`（undefined
+// ではない）は BaseJaDropdown の emit 形に合い、?? ブリッジなしで v-model:value を使える。
 type FormState = Omit<CreateKanriShitenRequest, 'ja_id'> & {
   ja_id: number | null;
 };
@@ -112,27 +106,24 @@ const editGuard = useEditGuard(() => formState);
 
 /**
  * [ja-name-fallback]
- * JA_KANRI_SHITEN doesn't hold the `ja.view` permission, so calling
- * /api/v1/ja/dropdown 403s. The detail endpoint now returns `ja_name`
- * directly — render it as plain disabled text for users without
- * ja.view; render the dropdown (the previous behaviour) for everyone
- * else. The dropdown is `:disabled="isEdit"` for all roles anyway,
- * so the only operational difference is that we skip the dropdown
- * API call.
+ * JA_KANRI_SHITEN は `ja.view` 権限を持たないため /api/v1/ja/dropdown が 403。
+ * detail エンドポイントは `ja_name` を直接返すので、ja.view のないユーザーには
+ * disabled テキストで表示し、他は従来通り dropdown を表示する。dropdown は
+ * どのみち全ロール `:disabled="isEdit"` なので、違いは dropdown API 呼び出しを
+ * 省くことだけ。
  */
 const canViewJaDropdown = computed(() =>
   authStore.hasPermission('ja.view'),
 );
 const jaNameDisplay = ref('');
 
-/* ─── Lifecycle ────────────────────────────────────────────────────── */
+/* ─── ライフサイクル ───────────────────────────────────────────────── */
 
 onMounted(async () => {
-  // BaseJaDropdown self-hydrates via GET /api/v1/ja/dropdown — no
-  // listJa() pre-fetch needed here. The component handles
-  // search / infinite scroll / edit-mode include_id internally.
+  // BaseJaDropdown は GET /api/v1/ja/dropdown で自己 hydrate — ここで listJa()
+  // 事前取得は不要。検索 / 無限スクロール / edit-mode include_id は内部処理。
 
-  // Prefecture dropdown options.
+  // 都道府県 dropdown options。
   try {
     const resp = await getTodofukenList();
     todofukenOptions.value = resp.data;
@@ -140,7 +131,7 @@ onMounted(async () => {
     todofukenOptions.value = [];
   }
 
-  // Edit-mode preload.
+  // 編集モードの事前ロード。
   if (kanriShitenIdParam.value !== undefined) {
     try {
       const resp = await getKanriShiten(kanriShitenIdParam.value);
@@ -161,18 +152,18 @@ onMounted(async () => {
       });
       await editGuard.capture();
     } catch {
-      // 404 / 403 — axios interceptor toasts; bounce so we don't leave
-      // the user staring at an empty edit form.
+      // 404 / 403 — axios interceptor がトースト。空の編集フォームを見せないよう
+      // 遷移させる。
       try {
         await router.push({ name: 'Dashboard' });
       } catch {
-        /* test routers may not declare Dashboard — ignore */
+        /* テスト用ルーターは Dashboard 未定義の場合あり — 無視 */
       }
     }
   }
 });
 
-/* ─── Validation (per screen-design.md §3.1) ──────────────────────── */
+/* ─── 検証（screen-design.md §3.1 に準拠） ─────────────────────────── */
 
 const REQUIRED_MSG = '必須項目です。';
 const POSTAL_DIGITS_ONLY_MSG = '郵便番号は半角数字のみ（ハイフンなし）入力可能です。';
@@ -186,7 +177,7 @@ function validateOptionalFormatFields(
   form: FormState,
   errs: Record<string, string>,
 ): void {
-  // ─── Format checks (skip for required-empty fields). ────────────
+  // ─── 形式チェック（必須で空の項目はスキップ）。 ────────────────────
   if (
     form.kanri_shiten_name_kana &&
     !HALF_WIDTH_KATAKANA_RE.test(form.kanri_shiten_name_kana)
@@ -207,9 +198,8 @@ function validateOptionalFormatFields(
 function validateClient(form: FormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
-  // ─── Required checks. Optional chaining (?.trim()) is mandatory
-  //     because antd's <a-select allow-clear> sets v-model to
-  //     `undefined` (not "") on × click. See vue.md §Validation.
+  // ─── 必須チェック。`?.trim()` は必須 — antd `<a-select allow-clear>` は
+  //     × クリックで v-model を `undefined`（""ではない）にする。vue.md §Validation。
   // ──────────────────────────────────────────────────────────────
   if (!isEdit.value && (!form.ja_id || form.ja_id === 0)) {
     errs.ja_id = REQUIRED_MSG;
@@ -224,9 +214,8 @@ function validateClient(form: FormState): Record<string, string> {
     errs.todofuken_code = REQUIRED_MSG;
   }
 
-  // ─── Format check for kanri_shiten_code on create.
-  //     Edit drops the field server-side so no need to validate then.
-  //     Required check above already short-circuits empty input.
+  // ─── 登録時の kanri_shiten_code 形式チェック。
+  //     編集は BE がこの項目を落とすため検証不要。空入力は上の必須チェックで短絡。
   // ──────────────────────────────────────────────────────────────
   if (
     !isEdit.value &&
@@ -249,7 +238,7 @@ const allFieldErrors = computed<Record<string, string>>(() => ({
   ...fieldErrors.value,
 }));
 
-/* ─── Submit pipeline ─────────────────────────────────────────────── */
+/* ─── Submit パイプライン ─────────────────────────────────────────── */
 
 const FIELD_ORDER: ReadonlyArray<keyof CreateKanriShitenRequest> = [
   'ja_id',
@@ -276,11 +265,11 @@ async function submitWith(form: FormState): Promise<void> {
 
   await submit(async () => {
     if (kanriShitenIdParam.value === undefined) {
-      // validateClient has already guaranteed ja_id is set for create mode.
+      // validateClient が登録モードで ja_id 設定済みを既に保証。
       await createKanriShiten(form as CreateKanriShitenRequest);
       notify.created();
     } else {
-      // PUT body drops ja_id + kanri_shiten_code (immutable after create).
+      // PUT body は ja_id + kanri_shiten_code を落とす（作成後 immutable）。
       const {
         ja_id: _drop1,
         kanri_shiten_code: _drop2,
@@ -303,21 +292,16 @@ async function submitWith(form: FormState): Promise<void> {
 }
 
 /**
- * Live auto-hyphen as the user types. Maintains the canonical
- * `XXX-XXXX-XXX` shape with trailing hyphens inserted at segment
- * boundaries (after 3rd char → `1AA-`, after 7th bare char →
- * `1AA-BBBB-`). Detects backspace via InputEvent.inputType so the
- * trailing hyphen is NOT re-inserted when the user is deleting
- * across a segment boundary — otherwise the input would feel "sticky"
- * and the user could never delete past the dash.
+ * 入力中のライブ自動ハイフン。正準形 `XXX-XXXX-XXX` を維持し、区切り境界で
+ * 末尾ハイフンを挿入する（3文字後→`1AA-`、bare 7文字後→`1AA-BBBB-`）。
+ * InputEvent.inputType で backspace を検出し、区切りを跨いで削除中は末尾
+ * ハイフンを再挿入しない — さもないと入力が「ねばつき」ダッシュを越えて削除できない。
  */
 /**
- * First-line defence — preventDefault when the user types a non-digit,
- * non-hyphen character. Hyphens are allowed even though the auto-format
- * inserts them automatically, because pasting an already-dashed code
- * (`113-3300-001`) shouldn't be rejected here. The view's @input
- * handler below normalises any remaining stray chars (e.g. macOS
- * autocorrect insertions that bypass beforeinput).
+ * 第一防御線 — 数字・ハイフン以外の文字入力を preventDefault。auto-format が
+ * 自動挿入するがハイフンは許可する（既にダッシュ済みコード `113-3300-001` の
+ * ペーストをここで弾かないため）。beforeinput を回避する残りの異物（macOS
+ * オートコレクト挿入等）は下の @input ハンドラが正規化する。
  */
 function onKanriShitenCodeBeforeInput(e: Event): void {
   if (isEdit.value) return;
@@ -353,9 +337,8 @@ function onKanriShitenCodeInput(e: Event): void {
 }
 
 /**
- * Auto-format kanri_shiten_code one more time on blur, covering the
- * paste-then-tab case where @input may have left the value un-dashed.
- * The submit handler also re-formats as a final safety net.
+ * blur 時にもう一度 kanri_shiten_code を自動整形。@input がダッシュなしのまま
+ * 残しうる paste-then-tab ケースをカバー。submit ハンドラも最終安全網として再整形する。
  */
 function onKanriShitenCodeBlur(): void {
   if (isEdit.value || !formState.kanri_shiten_code) return;
@@ -370,10 +353,9 @@ async function onFormSubmit(): Promise<void> {
     message.info('変更がありません。');
     return;
   }
-  // Auto-format kanri_shiten_code one more time on submit in case the
-  // user pasted-and-submitted without ever firing @blur (paste with
-  // Enter, or programmatic fill). Belt-and-suspenders with the blur
-  // handler above.
+  // @blur を発火させずに paste-and-submit された場合（Enter でのペースト、
+  // プログラム的 fill）に備え submit 時にも kanri_shiten_code を自動整形。
+  // 上の blur ハンドラとの二重の備え。
   if (!isEdit.value && formState.kanri_shiten_code) {
     formState.kanri_shiten_code = formatKanriShitenCode(
       formState.kanri_shiten_code,
@@ -383,9 +365,8 @@ async function onFormSubmit(): Promise<void> {
 }
 
 /**
- * Back button — straight navigation to the list view (no confirm modal,
- * per user feedback). Screen-design.md §4.1 originally specified a
- * confirmation popup but the customer opted to drop it.
+ * 戻るボタン — 一覧へ直接遷移（確認モーダルなし、顧客フィードバック）。
+ * screen-design.md §4.1 は当初確認ポップアップを指定したが顧客が廃止を選択。
  */
 function onBack(): void {
   router.push({ name: 'KanriShitenList' });
@@ -413,7 +394,7 @@ defineExpose({
         @keydown="preventEnterImplicitSubmit"
         @finish="onFormSubmit"
       >
-        <!-- Row 1: JA select (full width) -->
+        <!-- 行1: JA 選択（全幅） -->
         <a-form-item
           name="ja_id"
           :validate-status="allFieldErrors.ja_id ? 'error' : ''"
@@ -423,10 +404,10 @@ defineExpose({
             <span>JA名</span>
             <span class="text-error ml-1">*</span>
           </template>
-          <!-- [ja-name-fallback] — JA_KANRI_SHITEN lacks ja.view so it
-               can't hit /api/v1/ja/dropdown. Detail response carries
-               ja_name; show it as a disabled <a-input> for those users.
-               Other roles keep BaseJaDropdown (read-only on edit). -->
+          <!-- [ja-name-fallback] — JA_KANRI_SHITEN は ja.view がなく
+               /api/v1/ja/dropdown を叩けない。detail は ja_name を持つので
+               そのユーザーには disabled <a-input> で表示。他ロールは
+               BaseJaDropdown（edit で read-only）のまま。 -->
           <BaseJaDropdown
             v-if="canViewJaDropdown"
             v-model:value="formState.ja_id"
@@ -441,7 +422,7 @@ defineExpose({
           />
         </a-form-item>
 
-        <!-- Row 2: kanri_shiten_code / name / name kana -->
+        <!-- 行2: 管理支店コード / 管理支店名 / 管理支店名(カナ) -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="kanri_shiten_code"
@@ -452,14 +433,11 @@ defineExpose({
               <span>管理支店コード</span>
               <span v-if="!isEdit" class="text-error ml-1">*</span>
             </template>
-            <!-- Bypass BaseCodeInput here because BaseCodeInput is a Vue
-                 component wrapping <a-input> and the @input listener
-                 doesn't fall through cleanly — onKanriShitenCodeInput
-                 never fired, so letters typed by the user weren't being
-                 stripped. Use <a-input> directly with @beforeinput as
-                 the first line of defence, plus the existing @input
-                 auto-formatter as the second. Customer spec: digits
-                 + hyphens only. -->
+            <!-- ここでは BaseCodeInput を使わない。BaseCodeInput は <a-input> を
+                 ラップする Vue コンポーネントで @input が綺麗に伝播せず
+                 onKanriShitenCodeInput が発火せずユーザー入力の英字が除去されなかった。
+                 <a-input> を直接使い、@beforeinput を第一防御、既存の @input
+                 auto-formatter を第二とする。顧客仕様: 数字 + ハイフンのみ。 -->
             <a-input
               v-model:value="formState.kanri_shiten_code"
               :disabled="isEdit"
@@ -504,7 +482,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 3: postal / prefecture -->
+        <!-- 行3: 郵便番号 / 都道府県 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             label="郵便番号"
@@ -539,7 +517,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 4: address / tel / fax -->
+        <!-- 行4: 住所 / 電話番号 / FAX -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item label="住所" name="address">
             <a-input v-model:value="formState.address" :maxlength="200" />
@@ -570,7 +548,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 5: paper / denshi flags -->
+        <!-- 行5: 紙版 / 電子版 フラグ -->
         <div class="flex items-center gap-6 pt-2">
           <a-checkbox
             v-model:checked="formState.paper_flg"
@@ -586,7 +564,7 @@ defineExpose({
           </a-checkbox>
         </div>
 
-        <!-- Row 6: biko -->
+        <!-- 行6: 備考 -->
         <a-form-item
           label="備考"
           name="biko"

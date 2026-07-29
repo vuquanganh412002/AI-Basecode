@@ -11,9 +11,8 @@ interface Props {
   items: NoticeItem[];
   title?: string;
   /**
-   * Rows shown before the list becomes scrollable (default 5). When the
-   * notice count exceeds this, the list keeps every item but caps its
-   * height and scrolls — so the login banner never pushes the form down.
+   * スクロール開始前に表示する行数（既定 5）。お知らせ件数がこれを超えると、
+   * 全項目を保持したまま高さを制限してスクロールする — ログインバナーがフォームを押し下げない。
    */
   maxVisible?: number;
 }
@@ -23,10 +22,9 @@ const props = withDefaults(defineProps<Props>(), {
   maxVisible: 5,
 });
 
-// `max-h-52` (13rem) ≈ five text-xs rows; the 6th peeks in to signal the
-// scroll. Approximate by design — long titles wrap, which is fine for a
-// notice banner. Tied to the default maxVisible=5; callers overriding
-// maxVisible only change the scroll threshold, not the pixel cap.
+// `max-h-52`（13rem）≈ text-xs 5 行分。6 行目が少し覗いてスクロールを示唆する。
+// 設計上の近似 — 長いタイトルは折り返すがお知らせバナーなら問題ない。既定 maxVisible=5 に
+// 連動。maxVisible を上書きしてもスクロール閾値が変わるだけでピクセル上限は不変。
 const isScrollable = computed(() => props.items.length > props.maxVisible);
 </script>
 

@@ -1,14 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-/**
- * JA response DTO — shape returned by GET /api/v1/ja/:ja_id,
- * POST /api/v1/ja, and PUT /api/v1/ja/:ja_id.
- *
- * Nullable policy (`.claude/rules/nestjs.md §Nullable field serialization`):
- *   - m_ja columns are NOT NULL (empty strings for unfilled) → plain `string`, emit `""`
- *   - jastem_* columns are now NOT NULL DEFAULT '' (※空文字許容) → plain `string`, emit `""`
- *   - updated_at is nullable per api.md contract
- */
+// JA response DTO — GET/POST/PUT /api/v1/ja(/:ja_id) の返却形。
+// Nullable方針(.claude/rules/nestjs.md §Nullable field serialization)：
+//   - m_ja 列は NOT NULL(未入力は空文字)→ string、"" を出力
+//   - jastem_* 列は NOT NULL DEFAULT ''(※空文字許容)→ string、"" を出力
+//   - updated_at は api.md 契約通り nullable
 export class JaResponseDto {
   @ApiProperty({ example: 1 })
   ja_id!: number;

@@ -2,11 +2,9 @@ import type { CodeService } from '@/modules/code/code.service';
 import { ValidationException } from '@/common/exceptions/common.exceptions';
 
 /**
- * Mirror of `CodeService.normalizeValue`: integer-shaped strings ("0",
- * "1", "12") become numbers; everything else stays a string. Kept
- * in-file rather than imported from CodeService so the helper doesn't
- * grow a runtime dependency on a class instance — `assertMCodeValues`
- * unit tests mock `CodeService` as `{ has, getLabel, reload }` only.
+ * `CodeService.normalizeValue` の写し: 整数形の文字列は数値化、他は文字列のまま。
+ * ランタイム依存を避けインライン保持（単体テストは CodeService を
+ * `{ has, getLabel, reload }` のみモックするため）。
  */
 function normalizeForCache(value: number | string): number | string {
   if (typeof value === 'number') return value;
@@ -28,21 +26,15 @@ export interface MCodeCheck {
 }
 
 /**
- * Runtime-validate each m_code-referenced field against the cached
- * `CodeService`. Skips fields whose value is `undefined` so the same
- * call works for both CREATE (full payload) and UPDATE (partial).
+ * m_code 参照フィールドをキャッシュ済 `CodeService` で実行時検証。undefined は
+ * スキップ（1 呼び出しで CREATE 全件 / UPDATE 部分の両対応）。不正フィールドを
+ * errors[] に集約し ONE `VALIDATION_ERROR` を throw（ValidationPipe と同形状 →
+ * FE useApiForm が両経路を `<a-form-item :help>` に統一マップ）。
  *
- * Throws ONE `VALIDATION_ERROR` with `errors[]` aggregating every bad
- * field — same shape as `ValidationPipe` produces for DTO failures, so
- * the FE `useApiForm` composable maps both paths uniformly to
- * `<a-form-item :help>` field-level errors.
+ * DTO 外に置く理由: class-validator デコレータは Nest DI 前に走り CodeService を
+ * inject 不可。かつ allow-list は実行時編集可（顧客が m_code 行を無再デプロイで追加）で
+ * ハードコード `@IsIn([1,2])` だと固定化してしまう。
  *
- * Why this lives outside the DTO: `class-validator` decorators run
- * before Nest DI is wired, so they can't inject `CodeService`. And
- * the allow-list is runtime-editable (customer can add `m_code` rows
- * without redeploy) — hardcoded `@IsIn([1, 2])` would lock the set.
- *
- * Usage:
  * ```ts
  * assertMCodeValues(this.codeService, [
  *   { field: 'tanka_type', value: dto.tanka_type, category: 'TANKA_TYPE', label: '単価種別' },
@@ -58,21 +50,17 @@ export function assertMCodeValues(
   for (const c of checks) {
     if (c.value === undefined || c.value === null) continue;
     if (typeof c.value !== 'string' && typeof c.value !== 'number') continue;
-    // Cache 側は `CodeService.normalizeValue` で数値化済 (e.g.
-    // YUBIN_KUBUN={0,1}). 呼び出し側は DTO の string バインドのまま
-    // 来ることがある (yubin_kubun: '0') ため, 比較前に同じ正規化を
-    // 通して cache 値と型を一致させる。ロジックを CodeService に
-    // 依存させずインラインで持っているのは, 単体テストが CodeService
-    // を `{ has, getLabel, reload }` だけでモックしているため
-    // (normalize メソッドを生やすと既存 spec が壊れる)。
+    // Cache は normalizeValue で数値化済 (e.g. YUBIN_KUBUN={0,1}) だが
+    // 呼び出し側は DTO string バインドのまま来る (yubin_kubun: '0') ため
+    // 比較前に同じ正規化で型を揃える。CodeService 非依存でインライン保持なのは
+    // 単体テストが `{ has, getLabel, reload }` だけモックするため。
     const normalized = normalizeForCache(c.value);
     if (!codeService.has(c.category, normalized)) {
       errors.push({ field: c.field, message: `${c.label}の値が不正です。` });
     }
   }
   if (errors.length === 0) return;
-  // プロジェクト標準の例外を使用（common.exceptions）。body 形状は従来の
-  // 手組み HttpException と同一（{ error_code, message, errors }）で、
+  // 標準例外 (common.exceptions)。body 形状 { error_code, message, errors } は
   // ValidationPipe ファクトリ + 他サービスの assertMCodeValues と揃う。
   throw new ValidationException(errors);
 }

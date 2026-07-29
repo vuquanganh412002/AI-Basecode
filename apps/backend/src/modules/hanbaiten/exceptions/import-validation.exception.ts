@@ -5,18 +5,15 @@ import {
 } from '@/common/constants/error-codes.constant';
 
 /**
- * Aggregates row-level errors from a bulk Excel import into one
- * 400 IMPORT_VALIDATION_ERROR response. Each entry in `errors`
- * names the offending row (1-indexed Excel row, header counts as
- * row 1) + field + Japanese message so the FE can render the
- * grid annotations per row.
+ * 一括 Excel 取込の行単位エラーを 1 つの 400 IMPORT_VALIDATION_ERROR レスポンスに
+ * 集約する。`errors` の各要素は該当行（1始まり・ヘッダを行1とする）+ field + 日本語
+ * メッセージを持ち、FE が行ごとにグリッド注釈を描画できる。
  *
- * Extends `HttpException` directly (NOT `DomainException`) because
- * the body shape includes the variable-length `errors[]` array;
- * `GlobalExceptionFilter` reads `code` / `error_code` / `errors` off
- * the HttpException response object verbatim.
+ * `DomainException` でなく `HttpException` を直接継承するのは、ボディ形が可変長の
+ * `errors[]` を含むため。`GlobalExceptionFilter` が HttpException のレスポンス
+ * オブジェクトから `code` / `error_code` / `errors` をそのまま読む。
  *
- * See docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md §エラー一覧.
+ * ACSMS-SCR-019-api.md §エラー一覧 参照。
  */
 export class ImportValidationException extends HttpException {
   constructor(

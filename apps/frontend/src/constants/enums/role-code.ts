@@ -1,15 +1,12 @@
 /**
- * Account role discriminator. Mirror of
- * `apps/backend/src/common/enums/role-code.enum.ts`.
+ * アカウントのロール判別子。`apps/backend/src/common/enums/role-code.enum.ts` のミラー。
  *
- * Replaces magic-string comparisons (`'NICHINO_ADMIN'`,
- * `'CHUOKAI'`, …) that used to be scattered across views like
- * `RoleManagementView`, `JaFormView`, `KanriShitenFormView`,
- * `ShitenFormView`, `AccountsListView`, `AccountFormView`.
+ * `RoleManagementView` / `JaFormView` / `KanriShitenFormView` / `ShitenFormView` /
+ * `AccountsListView` / `AccountFormView` 等のビューに散在していたマジック文字列比較
+ * （`'NICHINO_ADMIN'`, `'CHUOKAI'`, …）を置き換える。
  *
- * Display label (`日農（管理者）` etc.) comes from the auth user's
- * `role_name` (joined from `m_roles` on the BE side) or the
- * `/api/v1/roles/dropdown` payload — NEVER hardcode in templates.
+ * 表示ラベル（`日農（管理者）` 等）は auth ユーザーの `role_name`（BE 側で `m_roles` を結合）
+ * または `/api/v1/roles/dropdown` ペイロードから取得 — テンプレートにハードコードしない。
  */
 export const RoleCode = {
   NICHINO_ADMIN: 'NICHINO_ADMIN',

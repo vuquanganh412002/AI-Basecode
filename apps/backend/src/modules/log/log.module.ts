@@ -12,7 +12,7 @@ import { LogService } from './log.service';
   imports: [
     TypeOrmModule.forFeature([Log]),
     AuditLogModule,
-    AuthModule, // for SessionAuthGuard
+    AuthModule, // SessionAuthGuard 用
   ],
   controllers: [LogController],
   providers: [LogService],

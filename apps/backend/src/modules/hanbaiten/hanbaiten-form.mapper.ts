@@ -1,18 +1,16 @@
-// Pure transform from the raw joined m_hanbaiten row (SELECT * + ISO
-// dates per SCR-017 api.md §4.3) into the snake_case detail-response
-// shape returned by GET/POST/PUT endpoints. No Nest DI, no repo —
-// importable from anywhere (service, tests).
+// 結合済みの m_hanbaiten raw 行（SELECT * + ISO 日付・SCR-017 api.md §4.3）を、
+// GET/POST/PUT が返す snake_case 詳細レスポンス形へ変換する純関数。Nest DI /
+// repo を持たず、service からもテストからも import できる。
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
 
-/** Numeric column coming from pg as number-or-string, nullable. */
+/** pg から number/string で届く数値列（NULL 許容）。 */
 type NumOrStringNull = number | string | null;
 
 /**
- * Raw row shape produced by HanbaitenService.buildDetailQuery(...).
- * Numeric BIGINT / NUMERIC columns may come back as string from pg
- * even when the entity declares `number`; coerce in the mapper so the
- * response JSON keeps the contract.
+ * HanbaitenService.buildDetailQuery(...) が返す raw 行の形。BIGINT / NUMERIC 列は
+ * エンティティが `number` 宣言でも pg が string で返す場合があるため、mapper 側で
+ * 数値化してレスポンス JSON の契約を保つ。
  */
 export interface HanbaitenDetailRow {
   hanbaiten_id: number | string;
@@ -45,7 +43,7 @@ export interface HanbaitenDetailRow {
   updated_at: Date | string | null;
 }
 
-/** Snake-cased detail-response shape (mirrors api.md §3). */
+/** snake_case 詳細レスポンス形（api.md §3 準拠）。 */
 export interface HanbaitenDetailResponse {
   hanbaiten_id: number;
   ja_id: number;
@@ -77,13 +75,12 @@ export interface HanbaitenDetailResponse {
   updated_at: string | null;
 }
 
-// `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers`.
+// `toIso` / `toNumber` は `@/common/utils/mapper-helpers` へ移動。
 
 /**
- * Map a raw joined row → SCR-017 detail-response shape. NOT NULL columns
- * surface as `""` when the source is null (project policy — see
- * `.claude/rules/nestjs.md §Nullable field serialization`). Nullable
- * columns surface as `null`.
+ * 結合済み raw 行 → SCR-017 詳細レスポンス形へ変換。NOT NULL 列は元が null なら
+ * `""`、NULL 許容列は `null` を返す（プロジェクト方針・
+ * `.claude/rules/nestjs.md §Nullable field serialization`）。
  */
 export function toHanbaitenDetail(
   row: HanbaitenDetailRow,

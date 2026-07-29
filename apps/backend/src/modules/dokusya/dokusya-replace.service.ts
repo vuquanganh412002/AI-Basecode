@@ -8,7 +8,6 @@ import {
   NotFoundException,
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
-import { TetsuzukiShurui } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { todayIsoJst, normalizeDbDate } from '@/common/utils/datetime';
 import {
@@ -18,8 +17,8 @@ import {
   assertShitenScopeViolation,
   assertJaScopeViolation,
 } from '@/common/utils/data-scope';
-import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
-import { AuditOperation, DokusyaShubetsu } from '@/common/enums';
+import { paginate, clampPerPage, type PaginatedResponse } from '@/common/utils/paginate';
+import { AuditOperation, DokusyaShubetsu, TetsuzukiShurui } from '@/common/enums';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
@@ -40,29 +39,21 @@ import {
 } from './dokusya.mapper';
 import { isBoth, isDigitalCreditCard } from './dokusya-shubetsu.rules';
 
-/**
- * SCR-015 — 購読者販売店一括置換画面 audit-context label. core 側
- * DokusyaService と同一値だが、本サービス内で完結させるため複製して保持する。
- */
+/** SCR-015 監査ラベル。core DokusyaService と同一値だが自己完結のため複製。 */
 const SCREEN_NAME_SCR015 = '購読者販売店一括置換画面 (ACSMS-SCR-015)';
 
-/**
- * SCR-015 監査ログ用テーブル名（t_log.target_table）。core 側 DokusyaService と
- * 同一値だが、本サービス内で完結させるため複製して保持する。
- */
+/** SCR-015 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
- * 電子版は本画面（販売店一括置換）の対象外である旨のメッセージ（ACSMS-MSG-015-009・
- * 顧客要件 2026-07 改訂）。電子版=電子配信で販売店を持たないため一括置換できない。
- * FE の同一文言（DokusyaReplaceHanbaitenView `MSG_DIGITAL_UNSUPPORTED`）と一致させる。
+ * 電子版は本画面対象外の文言（ACSMS-MSG-015-009・顧客要件 2026-07）。電子版は
+ * 販売店を持たず一括置換不可。FE `MSG_DIGITAL_UNSUPPORTED` と一致させる。
  */
 const REPLACE_DIGITAL_UNSUPPORTED_MSG = '電子版は本画面では対象外です。';
 
 /**
- * Sort-by allow-list for the SCR-015 replace search. Mirrors the
- * `SearchReplaceDokusyaDto` `@IsIn` allow-list — both sides MUST agree.
- * Maps the FE identifier → fully-qualified column on the joined query.
+ * SCR-015 置換検索の sort_by 許可リスト。`SearchReplaceDokusyaDto` の `@IsIn` と
+ * 一致必須。FE 識別子 → JOIN 済み完全修飾カラム。
  */
 const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
   kanri_shiten_name: 'ks.kanri_shiten_name',
@@ -72,11 +63,9 @@ const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
 };
 
 /**
- * SCR-015 — 購読者販売店一括置換画面.
- *
- * 一括置換 concern（候補検索 + 一括置換 + 候補事前検証）を core
- * DokusyaService から切り出した leaf サービス。facade（DokusyaService）が
- * controller 互換のため薄く委譲する。挙動は分離前と byte-identical。
+ * SCR-015 — 購読者販売店一括置換画面。
+ * 一括置換 concern（候補検索・置換・事前検証）を core DokusyaService から切り出した
+ * leaf サービス。facade が薄く委譲。挙動は分離前と byte-identical。
  */
 @Injectable()
 export class DokusyaReplaceService {
@@ -92,16 +81,13 @@ export class DokusyaReplaceService {
 
   // ─── API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search ─────────
   /**
-   * Search candidate 購読者 for the bulk-replace screen.
-   *
+   * 一括置換画面の候補購読者を検索。
    * Flow (api.md §API-015-001):
-   *   §4.1 date_from > date_to → DATE_RANGE_INVALID.
-   *   §4.2 DataScope: CHUOKAI/JA_HONTEN narrow by ja_id, JA_KANRI_SHITEN
-   *        narrows by kanri_shiten_id, NICHINO_* bypass.
-   *   §4.3 固定条件 — d.tetsuzuki_shurui = 1 AND d.deleted_at IS NULL.
-   *   §4.4/§4.5 joined SELECT (m_kanri_shiten, m_shiten, m_hanbaiten,
-   *        m_todofuken) with COUNT(*) via getCount().
-   *   §4.6 row mapping (shimei + haitatsu_address concat) + paginate().
+   *   §4.1 date_from > date_to → DATE_RANGE_INVALID。
+   *   §4.2 DataScope: CHUOKAI/JA_HONTEN→ja_id、JA_KANRI_SHITEN→kanri_shiten_id、NICHINO_*=bypass。
+   *   §4.3 固定条件 tetsuzuki_shurui=1 AND deleted_at IS NULL。
+   *   §4.4/§4.5 JOIN SELECT + getCount()。
+   *   §4.6 行マッピング（shimei/住所 concat）+ paginate()。
    */
   async searchForReplace(
     query: SearchReplaceDokusyaDto,
@@ -115,16 +101,15 @@ export class DokusyaReplaceService {
       throw new DateRangeInvalidException();
     }
 
-    // §4.1 適用日ルールは購読種別依存（顧客要件 2026-07 改訂）:
-    //   紙版=未来日のみ（予約置換）／電子版=当日のみ（即時反映・未来予約不可）。
-    // 置換の実行時チェックと同一基準を検索段でも適用する。
+    // §4.1 適用日ルールは購読種別依存（顧客要件 2026-07）。実行時チェックと同一基準を
+    // 検索段でも適用する（詳細は assertTekiyoDateForShubetsu）。
     this.assertTekiyoDateForShubetsu(
       query.dokusya_shubetsu,
       query.joho_henko_tekiyo_date,
     );
 
     const page = Math.max(1, Number(query.page ?? 1));
-    const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
+    const perPage = clampPerPage(query.per_page);
     const sortColumn =
       REPLACE_SORT_COLUMN_MAP[query.sort_by ?? 'kumiaiin_code'] ??
       'd.kumiaiin_code';
@@ -137,23 +122,16 @@ export class DokusyaReplaceService {
     qb.leftJoin('m_hanbaiten', 'h', 'h.hanbaiten_id = d.hanbaiten_id');
     qb.leftJoin('m_todofuken', 't', 't.todofuken_code = d.haitatsu_todofuken_code');
 
-    // §4.3 固定条件 — soft-delete を除外（購読中/種別/適用日/販売店は as-of 履歴で判定）。
+    // §4.3 固定条件 — soft-delete 除外（購読中/種別/適用日/販売店は as-of 履歴で判定）。
     qb.where('d.deleted_at IS NULL');
 
-    // §4.3 置換対象の候補集合（顧客要件 2026-07 改訂・as-of 適用日）:
-    //   各購読者の「適用日時点で有効な履歴レコード」= joho_henko_tekiyo_date が
-    //   適用日以下で最大（同 joho は rireki_no 最大）の t_dokusya_rireki 行。
-    //   その有効レコードが
-    //     - 配達販売店 = 置換元(hanbaiten_id)
-    //     - 購読中 (tetsuzuki_shurui = 新規)
-    //     - 指定購読種別 (紙版/電子版)
-    //     - 適用日時点で購読中: dokusya_kaishi_date ≦ 適用日 かつ
-    //       (dokusya_chushi_date が無い OR > 適用日)
-    //   を満たす購読者のみ返す。未来の適用日でも、その時点で有効な履歴で判定する
-    //   （現行 master の販売店ではなく、適用日時点の販売店で置換元を突き合わせる）。
-    // 置換元(hanbaiten_id) は任意（顧客要件 2026-07 改訂）。指定時のみ「有効レコードの
-    // 配達販売店 = 置換元」で追加絞り込みする。置換先(new_hanbaiten_id) は必須で、
-    // 「≠ 置換先」を常に適用し、既に置換先を配達している購読者を除外する。
+    // §4.3 候補集合（顧客要件 2026-07・as-of 適用日）: 各購読者の「適用日時点で有効な
+    //   履歴」= joho_henko_tekiyo_date が適用日以下で最大（同 joho は rireki_no 最大）の
+    //   t_dokusya_rireki 行。その有効レコードが 購読中(tetsuzuki_shurui=新規)・指定種別・
+    //   適用日時点で購読中(kaishi ≦ 適用日 かつ chushi 無 or > 適用日) を満たす購読者を返す。
+    //   未来適用日でも as-of の履歴（現行 master ではなく適用日時点の販売店）で判定。
+    // 置換元(hanbaiten_id) は任意 — 指定時のみ「有効レコードの販売店 = 置換元」で追加絞込。
+    // 置換先(new_hanbaiten_id) は必須で常に「≠ 置換先」を適用（既に置換先の購読者を除外）。
     const sourceClause =
       query.hanbaiten_id != null
         ? 'AND eff.hanbaiten_id = :rkSourceHanbaiten\n          '
@@ -208,8 +186,7 @@ export class DokusyaReplaceService {
     if (query.shiten_id !== undefined) {
       qb.andWhere('d.shiten_id = :rkShitenId', { rkShitenId: query.shiten_id });
     }
-    // 置換元(hanbaiten_id) は上の as-of 候補サブクエリで適用済み（master の
-    // 現行 hanbaiten では絞らない）。
+    // 置換元(hanbaiten_id) は上の as-of サブクエリで適用済み（現行 master では絞らない）。
     if (query.kumiaiin_code) {
       qb.andWhere('d.kumiaiin_code ILIKE :rkKumiaiin', {
         rkKumiaiin: `%${query.kumiaiin_code}%`,
@@ -233,8 +210,8 @@ export class DokusyaReplaceService {
         { rkHaitatsu: `%${query.haitatsu_address}%` },
       );
     }
-    // 購読開始日 の検索は初期購読開始日列（shoki_dokusya_kaishi_date）を対象とする
-    // （SCR-014 通常検索と同一列。dokusya_kaishi_date ではない）。
+    // 購読開始日検索は shoki_dokusya_kaishi_date 列（SCR-014 通常検索と同一。
+    // dokusya_kaishi_date ではない）。
     if (query.dokusya_kaishi_date_from) {
       qb.andWhere('d.shoki_dokusya_kaishi_date >= :rkKaishiFrom', {
         rkKaishiFrom: query.dokusya_kaishi_date_from,
@@ -282,18 +259,14 @@ export class DokusyaReplaceService {
 
   // ─── API-015-002 — POST /api/v1/dokusya/replace-hanbaiten ───────────────
   /**
-   * Bulk-replace the 配達販売店 of many 購読者 in one transaction.
-   *
+   * 多数の購読者の配達販売店を単一トランザクションで一括置換。
    * Flow (api.md §API-015-002):
-   *   §4.1 tekiyo_date >= 当日 (JST) else reject.
-   *   §4.3 candidate fetch (raw SELECT) → NOT_FOUND for missing ids,
-   *        DATA_SCOPE_VIOLATION for out-of-scope rows, SAME_HANBAITEN
-   *        when already on the target, INELIGIBLE_DOKUSYA (errors[]) for
-   *        併読 / 電子版クレカ rows.
-   *   §4.4 new_hanbaiten validation → NOT_FOUND / DATA_SCOPE_VIOLATION.
-   *   §4.5/§4.6 single tx: bulk UPDATE t_dokusya, toggle rireki
-   *        saishin_data_flg + INSERT new rireki, audit row (logUpdate).
-   *   §4.8 error log written OUTSIDE the rolled-back tx (logError).
+   *   §4.1 tekiyo_date >= 当日(JST) 以外は拒否。
+   *   §4.3 候補取得 → 欠番 id=NOT_FOUND、範囲外=DATA_SCOPE_VIOLATION、
+   *        置換先と同一=SAME_HANBAITEN、併読/電子版クレカ=INELIGIBLE_DOKUSYA。
+   *   §4.4 new_hanbaiten 検証 → NOT_FOUND / DATA_SCOPE_VIOLATION。
+   *   §4.5/§4.6 単一 tx: bulk UPDATE + rireki saishin 切替/INSERT + 監査(logUpdate)。
+   *   §4.8 エラーログは rollback 後の tx 外で記録(logError)。
    */
   async replaceHanbaiten(
     dto: ReplaceHanbaitenDto,
@@ -309,12 +282,10 @@ export class DokusyaReplaceService {
     };
     message: string;
   }> {
-    // 紙版・電子版いずれの取扱い権限も無いアカウントは一括置換不可
-    // (account_concept.md §139-145).
+    // 取扱い権限（紙版/電子版）が無いアカウントは一括置換不可 (account_concept.md §139-145)。
     await this.accountFlags.assertAnyDokusyaFlag(session);
 
-    // §4.1 — 適用日ルールは購読種別依存（顧客要件 2026-07 改訂）:
-    //   紙版=未来日のみ（予約置換）／電子版=当日のみ（即時反映・未来予約不可）。
+    // §4.1 適用日ルールは購読種別依存（顧客要件 2026-07）。詳細は assertTekiyoDateForShubetsu。
     this.assertTekiyoDateForShubetsu(
       dto.dokusya_shubetsu,
       dto.joho_henko_tekiyo_date,
@@ -322,16 +293,14 @@ export class DokusyaReplaceService {
 
     const ids = dto.dokusya_ids;
 
-    // §4.3 — fetch candidate rows as FULL entities (not a partial raw
-    // SELECT) so the history snapshot can reuse the SAME
-    // `buildHistoryFromEntity` mapper as create/update — single source of
-    // truth for the t_dokusya_rireki row shape (no duplicated column list).
+    // §4.3 候補は FULL entity で取得（partial raw SELECT ではない）。履歴スナップショットが
+    // create/update と同じ `buildHistoryFromEntity` を再利用でき、t_dokusya_rireki 行形状の
+    // single source of truth を保つ（列リスト重複なし）。
     const candidates = await this.dokusyaRepo.find({
       where: { dokusyaId: In(ids), deletedAt: IsNull() },
     });
 
-    // §4.3 — 全候補が要求された購読種別と一致することを保証（検索で種別絞り込み
-    // 済みだが、改竄・不整合な id 混入を防ぐ防御。顧客要件 2026-07）。
+    // §4.3 全候補が要求種別と一致することを保証（改竄・不整合 id 混入への防御。顧客要件 2026-07）。
     const hasShubetsuMismatch = candidates.some(
       (c) => Number(c.dokusyaShubetsu) !== Number(dto.dokusya_shubetsu),
     );
@@ -343,13 +312,12 @@ export class DokusyaReplaceService {
 
     this.validateReplaceCandidates(candidates, ids, dto.new_hanbaiten_id, session);
 
-    // §4.1 — 適用日(joho)の整合性（顧客要件 2026-07）。単一の適用日を全候補へ
-    // 適用するため「候補全体で最も遅い購読開始日以降 かつ 最も早い解約予定日
-    // より前」であること。参照は各候補の現行有効レコード(before)。UI/取込の
-    // 単票チェックと同じルールだが、置換は複数候補の境界を集約して判定する。
+    // §4.1 適用日(joho)整合性（顧客要件 2026-07）。単一適用日を全候補へ適用するため
+    // 「最も遅い購読開始日以降 かつ 最も早い解約予定日より前」。参照は各候補の有効
+    // レコード(before)。UI/取込の単票チェックと同ルールを候補境界に集約して判定。
     this.assertReplaceTekiyoDate(candidates, dto.joho_henko_tekiyo_date);
 
-    // §4.4 — validate the replace target hanbaiten exists + is in scope.
+    // §4.4 置換先 hanbaiten の存在 + スコープ検証。
     const targetRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
         `SELECT hanbaiten_id, ja_id FROM m_hanbaiten
@@ -359,9 +327,8 @@ export class DokusyaReplaceService {
     if (!targetRows[0]) {
       throw new NotFoundException('販売店');
     }
-    // §4.4 — the replace target is JA-level (m_hanbaiten has no
-    // kanri_shiten_id), so every restricted role is scoped by ja_id.
-    // Existence already confirmed above → 403, not 404.
+    // §4.4 置換先は JA レベル（m_hanbaiten は kanri_shiten_id 無）ゆえ ja_id でスコープ。
+    // 存在は上で確認済 → 404 ではなく 403。
     assertJaScopeViolation(
       targetRows[0].ja_id == null ? null : Number(targetRows[0].ja_id),
       session,
@@ -378,12 +345,11 @@ export class DokusyaReplaceService {
 
     try {
       const summary = await this.dataSource.transaction(async (manager) => {
-        // §4.5 — 各購読者を共通ライタ applyChange(UPDATE) で置換 (Pha3)。販売店
-        // (hanbaiten_id) のみ変更する UPDATE。適用日は読者情報変更適用日(joho)に
-        // 統一され（顧客要件 2026-07: 販売店適用日を廃止）、置換画面の適用日を
-        // johoDate として渡す＝1更新1レコード（UI/取込と同一ロジック）。applyChange
-        // が差分→履歴INSERT→recomputeMaster まで担い、saishin 無効化・rireki_no
-        // 採番・zenkai_hanbaiten_id 退避・増減報告フラグを一元処理する。
+        // §4.5 各購読者を共通ライタ applyChange(UPDATE) で置換。hanbaiten_id のみ変更。
+        // 適用日は joho に統一（顧客要件 2026-07: 販売店適用日を廃止）、置換画面の適用日を
+        // johoDate として渡す＝1更新1レコード（UI/取込と同一）。applyChange が差分→履歴INSERT
+        // →recomputeMaster、saishin 無効化・rireki_no 採番・zenkai_hanbaiten_id 退避・
+        // 増減報告フラグを一元処理。
         let rirekiCount = 0;
         for (const before of candidates) {
           const dokusyaId = Number(before.dokusyaId);
@@ -396,7 +362,6 @@ export class DokusyaReplaceService {
             johoDate: dto.joho_henko_tekiyo_date,
             source: 'REPLACE_HANBAITEN',
             actor: String(session.account_id),
-            reason: '販売店一括置換',
           });
           rirekiCount += result.insertedRirekiIds.length;
         }
@@ -434,14 +399,12 @@ export class DokusyaReplaceService {
   }
 
   /**
-   * SCR-015 §4.3 pre-checks for the bulk-replace candidates:
-   *   - NOT_FOUND when any requested id is missing.
-   *   - DataScope: every candidate must be in scope. Unlike the
-   *     single-record URL lookup (404 mask), the candidates are an
-   *     explicit caller-supplied id array, so an out-of-scope hit is an
-   *     explicit DATA_SCOPE_VIOLATION (403) per api.md §4.3.
-   *   - SAME_HANBAITEN business rule.
-   *   - INELIGIBLE business rule (併読 / 電子版クレカ).
+   * SCR-015 §4.3 一括置換候補の事前チェック:
+   *   - 欠番 id → NOT_FOUND。
+   *   - DataScope: 全候補がスコープ内必須。候補は caller 指定の id 配列ゆえ範囲外は
+   *     404 マスクではなく明示 DATA_SCOPE_VIOLATION(403)（api.md §4.3）。
+   *   - SAME_HANBAITEN ルール。
+   *   - INELIGIBLE ルール（併読 / 電子版クレカ）。
    */
   private validateReplaceCandidates(
     candidates: Dokusya[],
@@ -494,13 +457,11 @@ export class DokusyaReplaceService {
   }
 
   /**
-   * §4.1 購読種別に応じた適用日ルール（顧客要件 2026-07 改訂）:
-   *   - 紙版(1): 未来日のみ（当日・過去日不可）。予約置換。
-   *   - 電子版(2): 本画面（販売店一括置換）の対象外 → 検索・置換とも拒否。
-   *     電子版=電子配信で販売店を持たないため一括置換できない
-   *     （ACSMS-MSG-015-009・顧客要件 2026-07 改訂で「電子版=当日置換」を撤回）。
-   * 検索段・置換実行段の双方で同一基準を適用する（FE の検索ボタン無効化に対する
-   * 防御的サーバ側ガード）。
+   * §4.1 購読種別別の適用日ルール（顧客要件 2026-07）:
+   *   - 紙版(1): 未来日のみ（当日・過去不可）。予約置換。
+   *   - 電子版(2): 本画面対象外 → 検索・置換とも拒否（ACSMS-MSG-015-009。販売店を
+   *     持たず一括置換不可、「電子版=当日置換」を撤回）。
+   * 検索段・置換段の双方で同一基準を適用（FE の検索ボタン無効化への防御的サーバガード）。
    */
   private assertTekiyoDateForShubetsu(shubetsu: number, date: string): void {
     if (Number(shubetsu) === DokusyaShubetsu.DIGITAL) {
@@ -517,11 +478,10 @@ export class DokusyaReplaceService {
   }
 
   /**
-   * §4.1 適用日(joho)の整合性（一括置換）。単一の適用日を全候補へ適用するので、
-   * 候補全体で「最も遅い購読開始日(maxKaishi)以降」かつ「最も早い解約予定日
-   * (minChushi)より前」であること（解約予定日が設定済みの候補がある場合のみ）。
-   * 参照は各候補の現行有効レコード(before)。過去日(today基準)は呼び出し側で確認済み。
-   * メッセージは違反の境界日を提示し、顧客が有効な日付を選べるようにする。
+   * §4.1 適用日(joho)整合性（一括置換）。単一適用日を全候補へ適用するため
+   * 「最も遅い購読開始日(maxKaishi)以降」かつ「最も早い解約予定日(minChushi)より前」
+   * （解約予定日設定済み候補がある場合のみ）。過去日(today基準)は呼び出し側で確認済。
+   * メッセージに違反の境界日を提示し有効な日付を選べるようにする。
    */
   private assertReplaceTekiyoDate(candidates: Dokusya[], date: string): void {
     const applied = normalizeDbDate(date);

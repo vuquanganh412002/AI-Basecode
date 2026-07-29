@@ -16,8 +16,11 @@ import {
   TetsuzukiShurui,
 } from '@/common/enums';
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
+import { MAIL_MAGAZINE_FLG_OFF } from '@/common/constants/mail-magazine-flg.constant';
+import { YUBIN_KUBUN_NASHI } from '@/common/constants/yubin-kubun.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
+import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ImportDokusyaDto, ImportDokusyaRowDto } from './dto/import-dokusya.dto';
@@ -28,30 +31,25 @@ import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
 import { DokusyaImportValidator } from './dokusya-import-validator.service';
 import { applyChange } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
+import { isDigitalOrBoth } from './dokusya-shubetsu.rules';
 
-/** SCR-016 — 購読者Excelデータ取込画面 audit-context label. */
+/** SCR-016 — 監査コンテキストの画面名ラベル。 */
 const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)';
 
-/**
- * SCR-016 監査ログ用テーブル名（t_log.target_table）。core 側 DokusyaService と
- * 同一値だが、本サービス内で完結させるため複製して保持する。
- */
+/** SCR-016 監査ログ用テーブル名（t_log.target_table）。DokusyaService と同値だが自己完結のため複製。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
- * Narrow a raw `getRawMany()` column (always scalar at runtime) to a
- * primitive so String() can't hit the `[object Object]` path. The
- * assertion is required — the `string | number` receiver does not accept
- * `unknown` without it.
+ * getRawMany() の列（実行時は常にスカラ）を primitive に絞り込む。
+ * String() の `[object Object]` を防ぐ。unknown を受けるためアサーション必須。
  */
 function asScalar(value: unknown): string | number {
   return value as string | number;
 }
 
 /**
- * Pre-fetched lookup sets/maps shared by the per-row Excel-import
- * validators. Built once in `importExcel` before the row loop so each
- * row check is O(1) against in-memory structures, not a per-row query.
+ * 行バリデーション共用の事前ロード lookup。importExcel の行ループ前に一度だけ
+ * 構築し、各行チェックを per-row クエリでなく O(1) のメモリ参照にする。
  */
 interface ImportRowLookups {
   existingById: Map<number, Record<string, unknown>>;
@@ -75,11 +73,10 @@ interface ImportRowLookups {
 type MCodeInput = number | string | undefined;
 
 /**
- * SCR-016 — 48-column import template header order (api.md §テンプレート
- * ファイル仕様). Each entry is the Japanese ヘッダー名 the FE / customer
- * sees in row 1 of the generated workbook. 購読種別 is chosen on the screen
- * radio (紙版/電子版) and applied uniformly to every row, so it is NOT an
- * Excel column (顧客要件 2026-07: 取込を紙版/電子版の2モードに分離).
+ * SCR-016 — 取込テンプレート48列のヘッダー順（api.md §テンプレートファイル仕様）。
+ * 各要素は生成ブックの1行目に出る日本語ヘッダー名。購読種別は画面ラジオ（紙版/
+ * 電子版）で選び全行へ一律適用するため Excel 列ではない（顧客要件 2026-07: 取込を
+ * 紙版/電子版の2モードに分離）。
  */
 const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   'ID',
@@ -133,75 +130,75 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
 ] as const;
 
 /**
- * One illustrative sample row shipped in the template (row 2), in the
- * exact IMPORT_TEMPLATE_HEADERS order. It demonstrates the expected format
- * per column — 紙版(1) / 新規(1) so no 電子版×クレカ or 併読 block, dokusya_busu
- * > 0, gender 1, hiragana kana, 7-digit yubin, digits-only 連絡先, date as
- * YYYY-MM-DD, 現金集金(2) so no 引落口座 required. FK columns (管理支店 / 支店 /
- * 新聞単価 / 販売店コード) are left BLANK because their valid codes are
- * tenant-specific — the customer fills them with their own master codes.
- * The 備考 cell flags it as a placeholder. Length is asserted to equal the
- * header count in the spec so the two never drift.
+ * テンプレート同梱のサンプル行（2行目、IMPORT_TEMPLATE_HEADERS 順）。全列の期待
+ * フォーマットを示す完全記入例 — 新規(NEW)、口座引落(1)+引落口座一式、購読者情報と
+ * 同じ=FALSE+配達先一式、email あり（紙版/電子版とも有効）、ひらがなかな、郵便番号
+ * 7桁、連絡先は数字のみ、日付は YYYY-MM-DD。
+ * 購読種別（電子版/紙版）は画面ラジオで選ぶ取込モードのため列は無い。
+ * 意図的に空欄（空が正しい値）:
+ *   - ID       : UPDATE のキー。新規は必ず空。
+ *   - 購読中止日 : 新規の有効会員は空（値を入れると解約予約になる）。
+ * FK コード列（管理支店/支店/新聞単価/販売店コード）は placeholder コード。顧客が
+ * 自組織のマスタコード（IDでなく）に書き換えてから取込む。備考にも記載。
  */
 const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
-  '', // ID (UPDATE_* キー — 新規は空)
-  '', // 管理支店 (FK code — 自組織の管理支店コードに書き換え)
-  '', // 支店 (FK code — 自組織の支店コードに書き換え)
+  '', // ID (UPDATE のキー — 新規は空のまま)
+  'KS01', // 管理支店 (管理支店コード — 自組織のコードに書き換え)
+  'SH01', // 支店 (支店コード — 自組織のコードに書き換え)
   'SAMPLE001', // 組合員コード (サンプル — 既存コードと衝突しない値)
   '農業', // 購読者氏名_氏
   '太郎', // 購読者氏名_名
-  'のうぎょう', // 購読者かな_氏
-  'たろう', // 購読者かな_名
+  'のうぎょう', // 購読者かな_氏 (ひらがな)
+  'たろう', // 購読者かな_名 (ひらがな)
   1, // 購読部数
-  '', // 新聞単価 (FK code — 自組織の値に書き換え)
-  '', // メールアドレス
-  0, // メールマガジン (0:配信しない)
+  'TANKA01', // 新聞単価 (単価コード — 自組織のコードに書き換え)
+  'taro@example.com', // メールアドレス (電子版・併読は必須)
+  1, // メールマガジン (1:配信する)
   1980, // 生年（西暦）
-  1, // 性別 (1:男性)
-  '1000001', // 郵便番号 (7桁)
-  '13', // 都道府県 (コード)
+  1, // 性別 (1:男性 / 2:女性 / 9:回答しない)
+  '1000001', // 郵便番号 (半角数字7桁・ハイフンなし)
+  '13', // 都道府県 (JISコード 01〜47)
   '千代田区', // 市町村郡
-  '千代田1-1', // 丁目番地
-  '', // マンション・アパート名
-  '0312345678', // 連絡先１ (半角数字)
-  '', // 連絡先２
-  'TRUE', // 購読者情報と同じ (true: 配達先＝購読者住所。配達先列は空でよい)
-  '', // 郵便番号(配達先)
-  '', // 都道府県(配達先)
-  '', // 市町村郡(配達先)
-  '', // 丁目番地(配達先)
-  '', // ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)
-  '', // 連絡先１(配達先)
-  '', // 連絡先２(配達先)
-  '', // 配達先苗字（漢字）
-  '', // 配達先名前（漢字）
-  '', // 配達先苗字（かな）
-  '', // 配達先名前（かな）
-  '', // 販売店コード (FK code — 自組織の値に書き換え)
-  '0', // 郵送区分
-  2, // 支払方法 (2:現金集金 — 引落口座不要)
+  '千代田1-1-1', // 丁目番地
+  'サンプルマンション101', // マンション・アパート名
+  '0312345678', // 連絡先１ (半角数字・ハイフンなし)
+  '09012345678', // 連絡先２ (半角数字・ハイフンなし)
+  'FALSE', // 購読者情報と同じ (FALSE:配達先を別途入力 / TRUE:配達先列は空でよい)
+  '1500001', // 郵便番号(配達先) (7桁)
+  '13', // 都道府県(配達先)
+  '渋谷区', // 市町村郡(配達先)
+  '神宮前1-1-1', // 丁目番地(配達先)
+  'サンプルビル201', // ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)
+  '0311112222', // 連絡先１(配達先)
+  '09033334444', // 連絡先２(配達先)
+  '配達', // 配達先苗字（漢字）
+  '花子', // 配達先名前（漢字）
+  'はいたつ', // 配達先苗字（かな・ひらがな）
+  'はなこ', // 配達先名前（かな・ひらがな）
+  'HAN01', // 販売店コード (販売店コード — 自組織のコードに書き換え)
+  '1', // 郵送区分 (0:空 / 1:郵送)
+  1, // 支払方法 (1:口座引落 / 2:現金集金 / 3:振込集金 …)
   1, // 購読料支払サイクル（月数）
-  '', // 引落口座貯金種目
-  '', // 引落口座支店コード
-  '', // 引落口座支店名
-  '', // 引落口座番号
-  '', // 引落口座名義
-  '', // 購読者層分類
-  '', // 農業者分類
+  1, // 引落口座貯金種目 (1:普通 / 2:当座)
+  '001', // 引落口座支店コード (半角数字3桁)
+  'サンプル支店', // 引落口座支店名
+  '1234567', // 引落口座番号
+  'ノウギョウ タロウ', // 引落口座名義
+  '0', // 購読者層分類 (自組織の分類コード)
+  '0', // 農業者分類 (自組織の分類コード)
   '2026-04-01', // 購読開始日 (YYYY-MM-DD)
-  '', // 購読中止日
-  'サンプル行です。管理支店・支店はID(数値)、新聞単価・販売店コードは自組織のコードに書き換えてからインポートしてください。', // 備考
-  '', // 読者情報変更適用日（販売店を含む全変更の唯一の適用日）
+  '', // 購読中止日 (新規の有効会員は空。値を入れると解約予約になる)
+  'サンプル行です。管理支店・支店・新聞単価・販売店コードは自組織のマスタコードに書き換えてからインポートしてください。', // 備考
+  '2026-04-01', // 読者情報変更適用日（販売店を含む全変更の唯一の適用日。新規は購読開始日と同一でよい）
 ] as const;
 
 /** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
 const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレート.xlsx';
 
 /**
- * SCR-016 — 更新モードで編集不可の物理カラム。
- * 購読種別・氏名（4 列）・購読開始日 は登録時のみ設定でき、更新では既存値を
- * 維持する（SCR-011 編集画面の pin と同じ業務ルール）。FE はこの列を更新モードで
- * 未チェック＋disable にし、BE は selected_columns から除外する。
+ * SCR-016 — 更新モードで編集不可の物理カラム。購読種別・氏名(4列)・購読開始日は
+ * 登録時のみ設定可、更新では既存値維持（SCR-011 編集画面の pin と同ルール）。
+ * FE は更新モードで未チェック＋disable、BE は selected_columns から除外。
  */
 const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_shubetsu',
@@ -212,10 +209,10 @@ const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_kaishi_date',
 ]);
 
-/** SCR-016 — row-error cap returned to the client (api.md §4.1). */
+/** SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
 const IMPORT_ERROR_CAP = 10;
 
-/** SCR-016 — max import rows (api.md §4.1). */
+/** SCR-016 — 取込最大行数（api.md §4.1）。 */
 const IMPORT_MAX_ROWS = 30000;
 
 /**
@@ -224,25 +221,23 @@ const IMPORT_MAX_ROWS = 30000;
  */
 const IMPORT_OPERATION_BY_MODE: Record<'NEW' | 'UPDATE', AuditOperation> = {
   NEW: AuditOperation.IMPORT_NEW,
-  // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存の
-  // IMPORT_UPDATE_PARTIAL を再利用する（過去ログとの互換のため enum は変えない）。
+  // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存
+  // IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換のため enum は変えない）。
   UPDATE: AuditOperation.IMPORT_UPDATE_PARTIAL,
 };
 
 
 /**
- * SCR-016 — 購読者Excelデータ取込（テンプレートDL + 一括取込）を担うサービス。
+ * SCR-016 — 購読者Excelデータ取込（テンプレートDL + 一括取込）サービス。
  *
- * 肥大化した `DokusyaService` から Excel-IMPORT concern を切り出したもの。
- * 取込専用のメソッド（テンプレート生成・行バリデーション・INSERT/UPDATE・
- * 履歴スナップショット）を集約し、`DokusyaService` は本サービスへ薄く委譲する
- * facade として `downloadImportTemplate` / `importExcel` を公開する。
+ * DokusyaService から Excel-IMPORT concern を切り出したもの。取込専用処理
+ * （テンプレート生成・行バリデーション・INSERT/UPDATE・履歴スナップショット）を
+ * 集約し、DokusyaService は facade として本サービスへ薄く委譲する。
  *
- * rireki（履歴）まわりの共通ヘルパー（lockDokusyaRow / nextRirekiNo /
- * writeRirekiSplit）は UI 登録/更新フロー（DokusyaService）と完全に共有する。
- * step C でこれらを共有リーフサービス `DokusyaRirekiService` へ切り出したため、
- * 本サービスは同サービスを直接 inject して呼び出す（取込と UI で履歴の作り方を
- * 1 ミリも違わせないため）。これにより step B の facade↔取込 `forwardRef` 循環は解消。
+ * rireki 共通ヘルパー（lockDokusyaRow / nextRirekiNo / writeRirekiSplit）は UI
+ * 登録/更新フロー（DokusyaService）と完全共有。step C で共有リーフサービス
+ * DokusyaRirekiService へ切り出し直接 inject（取込と UI で履歴生成を完全一致させる
+ * ため）。step B の facade↔取込 forwardRef 循環もこれで解消。
  */
 @Injectable()
 export class DokusyaImportService {
@@ -256,6 +251,7 @@ export class DokusyaImportService {
     private readonly accountFlags: DokusyaAccountFlagService,
     private readonly rireki: DokusyaRirekiService,
     private readonly validator: DokusyaImportValidator,
+    private readonly denshiPush: DenshibanPushService,
   ) {}
 
   async downloadImportTemplate(
@@ -265,8 +261,7 @@ export class DokusyaImportService {
     workbook.creator = 'agrinews';
     const sheet = workbook.addWorksheet('購読者');
     sheet.addRow([...IMPORT_TEMPLATE_HEADERS]);
-    // Row 2 — one illustrative sample row (customer edits before real use;
-    // FK code columns are blank since their valid values are tenant-specific).
+    // 2行目 — サンプル行（顧客が実利用前に書き換え。FK コードの有効値はテナント依存）。
     sheet.addRow([...IMPORT_TEMPLATE_SAMPLE_ROW]);
     const headerRow = sheet.getRow(1);
     headerRow.font = { bold: true };
@@ -278,24 +273,22 @@ export class DokusyaImportService {
 
   // ─── API-016-002 — POST /api/v1/dokusya/import ──────────────────────────
   /**
-   * Bulk-import 購読者 rows in one transaction (api.md §4.4).
+   * 購読者行を1トランザクションで一括取込（api.md §4.4）。
    *
-   * Modes: NEW (INSERT each row), UPDATE (only `selected_columns` — blank
-   * cells are skipped; select all columns to update everything), and
-   * 一括中止 (per-row tetsuzuki_shurui=0 + kumiaiin_code → 解約).
+   * モード: NEW（各行 INSERT）、UPDATE（selected_columns のみ・空欄はスキップ、
+   * 全列指定で全更新）、一括中止（tetsuzuki_shurui=0 + kumiaiin_code → 解約）。
    *
-   * Validation order (all PRE-transaction):
-   *   §4.1 top-level — import_mode / NEW required columns / row-limit.
-   *   §4.1 per-row — dokusya_shubetsu 1|2, 電子版×クレカ, dokusya_busu,
-   *        gender / yokin 文言→code.
-   *   §4.3 pre-checks via dataSource.query — tanka_code, hanbaiten_code,
-   *        kanri_shiten / shiten existence, existing dokusya for UPDATE_*
-   *        / 一括中止 (errors capped at 10 → IMPORT_VALIDATION_ERROR).
-   *   §4.2/§4.3 DataScope — out-of-scope existing record → 403.
+   * バリデーション順（全てトランザクション前）:
+   *   §4.1 top-level — import_mode / NEW 必須列 / 行数上限。
+   *   §4.1 per-row — dokusya_shubetsu 1|2、電子版×クレカ、dokusya_busu、
+   *        gender / yokin 文言→code。
+   *   §4.3 事前チェック（dataSource.query）— tanka/hanbaiten/kanri_shiten/shiten
+   *        存在、UPDATE_* / 一括中止 の既存 dokusya（エラーは10件で丸め →
+   *        IMPORT_VALIDATION_ERROR）。
+   *   §4.2/§4.3 DataScope — スコープ外の既存レコード → 403。
    *
-   * After pre-checks: one `dataSource.transaction(...)` wraps every
-   * INSERT/UPDATE + the rireki rows + a single audit row (bare 'CREATE'
-   * operation). Error log fires OUTSIDE the rolled-back tx.
+   * 事前チェック後: 1 dataSource.transaction で全 INSERT/UPDATE + rireki 行 +
+   * 監査1行（bare 'CREATE'）を包む。エラーログはロールバック外で出す。
    */
   async importExcel(
     dto: ImportDokusyaDto,
@@ -318,20 +311,19 @@ export class DokusyaImportService {
     // (account_concept.md §139-145).
     await this.accountFlags.assertAnyDokusyaFlag(session);
 
-    // 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード（顧客要件 2026-07）。Excel の
-    // 列ではないため、全取込行へ一律適用してから検証・登録する（既存の per-row shubetsu
-    // ロジック＝検証/entity build/部数固定 をそのまま活かす）。NEW は新規レコードへ
-    // この種別を設定、UPDATE は種別が既存の値と一致することを検証する。
+    // 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード（顧客要件 2026-07）。Excel 列
+    // ではないため全行へ一律適用してから検証・登録（既存の per-row shubetsu ロジック=
+    // 検証/entity build/部数固定 を流用）。NEW は種別を設定、UPDATE は既存値と一致検証。
     for (const row of dto.rows) {
       row.dokusya_shubetsu = dto.dokusya_shubetsu;
     }
 
-    // §4.1 — row-limit (defence-in-depth; DTO @ArrayMaxSize also guards).
+    // §4.1 — 行数上限（多層防御。DTO @ArrayMaxSize でも防ぐ）。
     if (dto.rows.length > IMPORT_MAX_ROWS) {
       throw new DokusyaRowLimitExceededException();
     }
 
-    // §4.1 — NEW mode must carry the 13 required columns.
+    // §4.1 — NEW モードは必須13列を含むこと。
     this.validator.assertNewModeRequiredColumns(dto);
 
     const jaId = Number(session.ja_id ?? 0);
@@ -351,9 +343,8 @@ export class DokusyaImportService {
     );
 
     if (errors.length > 0) {
-      // 取込バリデーション失敗の内訳をログに残す（どの行・項目で弾かれたか
-      // を運用ログから追えるようにする。errors[] はレスポンスにも返るが、
-      // 画面側で握りつぶされた場合の調査用）。
+      // バリデーション失敗の内訳をログに残す（どの行・項目で弾かれたかを運用ログ
+      // から追える。errors[] はレスポンスにも返るが画面で握りつぶされた場合の調査用）。
       this.logger.warn({
         event: 'import.validation_failed',
         import_mode: dto.import_mode,
@@ -373,10 +364,9 @@ export class DokusyaImportService {
     );
     const importedAt = new Date().toISOString();
 
-    // 取込はバッチ操作 — 操作種別はモード別の prefixed ラベル
-    // (IMPORT_NEW / IMPORT_UPDATE_PARTIAL) を使う。bare-verb ルールの例外
-    // （api.md §4.5。単一 INSERT と一括取込を t_log で区別するため）。UPDATE は
-    // partial 相当のため既存 IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換）。
+    // 取込はバッチ操作 — モード別 prefixed ラベル（IMPORT_NEW / IMPORT_UPDATE_PARTIAL）。
+    // bare-verb ルールの例外（api.md §4.5。単一 INSERT と一括取込を t_log で区別）。
+    // UPDATE は partial 相当のため既存 IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換）。
     const importOperation = IMPORT_OPERATION_BY_MODE[dto.import_mode];
 
     try {
@@ -385,7 +375,7 @@ export class DokusyaImportService {
           await this.applyImportRow(manager, dto, row, session, fkMaps);
         }
 
-        // §4.5 — one summary audit row per import call, joined to the tx.
+        // §4.5 — 取込1回につき集約監査1行、tx に参加。
         await this.auditLog.logOperation(
           {
             logType: LogType.USER_OPERATION,
@@ -411,8 +401,7 @@ export class DokusyaImportService {
         );
       });
     } catch (err) {
-      // §4.7 — error log on the standalone connection (NO manager) so it
-      // survives the rollback.
+      // §4.7 — エラーログは standalone 接続（manager なし）でロールバックを生き残らせる。
       await this.auditLog.logError(auditCtx, importOperation, err as Error);
       throw err;
     }
@@ -472,8 +461,8 @@ export class DokusyaImportService {
             [jaId, tankaCodes],
           );
     const tankaCodeSet = new Set(tankaRows.map((r) => String(r.tanka_code)));
-    // code → id maps so the NEW INSERT can persist the resolved FK ids
-    // (t_dokusya stores tanka_id / hanbaiten_id, not the codes).
+    // code → id マップ。NEW INSERT が解決済み FK id を保存（t_dokusya は
+    // tanka_id / hanbaiten_id を持ちコードは持たない）。
     const tankaIdByCode = new Map(
       tankaRows.map((r) => [String(r.tanka_code), Number(r.tanka_id)]),
     );
@@ -509,8 +498,8 @@ export class DokusyaImportService {
     const kanriShitenCodeSet = new Set(
       kanriShitenRows.map((r) => String(r.kanri_shiten_code)),
     );
-    // code → id map so the INSERT/UPDATE can persist kanri_shiten_id
-    // (t_dokusya stores the id FK, the import carries the code).
+    // code → id マップ。INSERT/UPDATE が kanri_shiten_id を保存（t_dokusya は
+    // id FK、取込はコードを持つ）。
     const kanriShitenIdByCode = new Map(
       kanriShitenRows.map((r) => [
         String(r.kanri_shiten_code),
@@ -534,8 +523,8 @@ export class DokusyaImportService {
       shitenRows.map((r) => [String(r.shiten_code), Number(r.shiten_id)]),
     );
 
-    // §4.3.4 — existing dokusya (UPDATE_* / 一括中止). Keyed by
-    // dokusya_id OR kumiaiin_code, scoped by ja_id.
+    // §4.3.4 — 既存 dokusya（UPDATE_* / 一括中止）。dokusya_id or kumiaiin_code キー、
+    // ja_id スコープ。
     const existingRows: Array<Record<string, unknown>> =
       dokusyaIds.length === 0 && kumiaiinCodes.length === 0
         ? []
@@ -550,10 +539,9 @@ export class DokusyaImportService {
                 AND deleted_at IS NULL`,
             [jaId, dokusyaIds, kumiaiinCodes],
           );
-    // 顧客要件 — メール一意性は電子版(2)・併読(3) のレコード間でのみ担保する
-    // ため、JA 全件の電子版/併読 email を email → dokusya_id 群で引けるよう
-    // 事前ロードする（紙版は重複可なので対象外）。NEW 行が既存の電子版メール
-    // を再利用するケースも検知できるよう、取込対象行に限らず全件を読む。
+    // 顧客要件 — メール一意性は電子版(2)・併読(3) レコード間のみ担保するため、JA
+    // 全件の電子版/併読 email を email → dokusya_id 群で事前ロード（紙版は重複可で対象外）。
+    // NEW 行が既存電子版メールを再利用するケースも検知できるよう全件読む。
     const digitalEmailRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
         `SELECT dokusya_id, email
@@ -575,9 +563,8 @@ export class DokusyaImportService {
 
     const existingById = new Map<number, Record<string, unknown>>();
     const existingByKumiaiin = new Map<string, Record<string, unknown>>();
-    // 組合員コードは重複可。kumiaiin_code をキーに更新/解約する際、複数件
-    // ヒットすると一括で誤更新してしまうため、件数を数えて 2 件以上なら
-    // 行エラーにする（ID 指定を促す）。
+    // 組合員コードは重複可。kumiaiin_code キーで更新/解約時に複数ヒットすると
+    // 一括誤更新するため、件数を数え 2 件以上なら行エラー（ID 指定を促す）。
     const kumiaiinCounts = new Map<string, number>();
     for (const row of existingRows) {
       existingById.set(Number(row.dokusya_id), row);
@@ -613,14 +600,14 @@ export class DokusyaImportService {
 
   // ─── private helpers (SCR-016) ───────────────────────────────────────
 
-  /** Unique non-blank strings from a column projection. */
+  /** 列投影からユニークな非空文字列。 */
   private uniqueStrings(values: Array<string | undefined>): string[] {
     return Array.from(
       new Set(values.filter((v): v is string => typeof v === 'string' && v !== '')),
     );
   }
 
-  /** Unique defined numbers from a column projection. */
+  /** 列投影からユニークな有効数値。 */
   private uniqueNumbers(values: Array<number | undefined>): number[] {
     return Array.from(
       new Set(
@@ -632,11 +619,10 @@ export class DokusyaImportService {
   }
 
   /**
-   * Convert a row's m_code field (numeric code OR the customer-editable
-   * Japanese label) to the stored numeric code. Resolves the label via
-   * CodeService so a renamed `m_code.code_name` keeps importing without a
-   * code change — no hardcoded label→code map. Returns null when blank;
-   * falls back to Number(value) when the cell already holds the code.
+   * 行の m_code 項目（数値コード or 顧客編集可の日本語ラベル）を保存用の数値コードへ
+   * 変換。ラベルは CodeService で解決するため m_code.code_name を改名してもコード改修
+   * なしで取込継続（ハードコード label→code マップ無し）。空欄は null、既にコードなら
+   * そのまま Number(value)。
    */
   private toMCodeValue(
     category: string,
@@ -658,14 +644,11 @@ export class DokusyaImportService {
   }
 
   /**
-   * Extract `dokusya_id` from a raw `manager.query(… RETURNING dokusya_id)`
-   * result. TypeORM の `query()` は INSERT…RETURNING では行配列をそのまま
-   * 返すが、UPDATE/DELETE…RETURNING では `[行配列, 影響件数]` の2要素配列を
-   * 返す。そのため UPDATE / 解約 では `result[0]` が
-   * 「行」ではなく「行配列」になり、`result[0].dokusya_id` が undefined →
-   * affectedDokusyaId が null → writeRirekiSnapshot がスキップされ、マスタは
-   * 更新されるのに履歴(t_dokusya_rireki)が作成されない不具合になっていた。
-   * 両方の戻り値形状を吸収し、UPDATE が1件でもヒットすれば必ず履歴を作る。
+   * manager.query(… RETURNING dokusya_id) の結果から dokusya_id を取り出す。
+   * TypeORM query() は INSERT…RETURNING で行配列、UPDATE/DELETE…RETURNING で
+   * [行配列, 影響件数] を返す。後者では result[0] が「行」でなく「行配列」になり
+   * result[0].dokusya_id が undefined → 履歴(t_dokusya_rireki)が作られない不具合が
+   * あった。両形状を吸収し UPDATE が1件でもヒットすれば必ず履歴を作る。
    */
   private extractReturnedDokusyaId(result: unknown): number | null {
     if (!Array.isArray(result)) return null;
@@ -678,13 +661,12 @@ export class DokusyaImportService {
   }
 
   /**
-   * 配達先(delivery destination)7項目のいずれかに値があるかを判定する。
-   * 取込テンプレートに「配達先＝購読者住所と同じか」を表す per-row flag が
-   * 無いため、これらの配達先項目に入力があれば「別住所」とみなす:
-   *   - haitatsu_same_flg を false（配達先 ≠ 購読者住所）に下ろす
-   *   - zougen_hokoku_flg を true（配達先変更は増減報告対象）に立てる
-   * `selectedColumns` 指定時（UPDATE）は選択された列のみを対象に
-   * 判定する — 未選択＝DBへ書き込まれない配達先列を誤検知しないため。
+   * 配達先7項目のいずれかに値があるかを判定。取込テンプレートに「配達先＝購読者
+   * 住所と同じか」の per-row flag が無いため、配達先項目に入力があれば「別住所」とみなす:
+   *   - haitatsu_same_flg を false（配達先 ≠ 購読者住所）
+   *   - zougen_hokoku_flg を true（配達先変更は増減報告対象）
+   * selectedColumns 指定時（UPDATE）は選択列のみ判定 — 未選択＝未書込みの配達先列の
+   * 誤検知を防ぐため。
    */
   private hasHaitatsuDeliveryData(
     row: ImportDokusyaRowDto,
@@ -708,11 +690,10 @@ export class DokusyaImportService {
   }
 
   /**
-   * Build the CREATE `values` for a NEW import row (mirrors the create
-   * flow's column set — see DokusyaService.buildInsertPayload). FK code
-   * columns are resolved to physical *_id via the pre-built maps; blank
-   * varchar → '' (NOT NULL), blank int/FK → null. `joho_henko_tekiyo_date`
-   * は購読開始日に揃える（顧客要件 — UI create と異なり当日ではない）。
+   * NEW 取込行の CREATE `values` を構築（create フロー列集合の写し — 参照
+   * DokusyaService.buildInsertPayload）。FK コード列は事前マップで物理 *_id へ解決。
+   * 空欄 varchar → ''（NOT NULL）、空欄 int/FK → null。joho_henko_tekiyo_date は
+   * 購読開始日に揃える（顧客要件 — UI create と異なり当日ではない）。
    */
   private buildNewImportValues(
     row: ImportDokusyaRowDto,
@@ -753,7 +734,7 @@ export class DokusyaImportService {
       renrakusaki1: str(row.renrakusaki_1),
       renrakusaki2: str(row.renrakusaki_2),
       email: str(row.email),
-      mailMagazineFlg: Number(row.mail_magazine_flg ?? 0),
+      mailMagazineFlg: Number(row.mail_magazine_flg ?? MAIL_MAGAZINE_FLG_OFF),
       birthYear: intOrNull(row.birth_year),
       gender: this.toGenderCode(row.gender),
       haitatsuSameFlg: sameFlg,
@@ -771,7 +752,7 @@ export class DokusyaImportService {
       hanbaitenId:
         fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null,
       tankaId: fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
-      yubinKubun: row.yubin_kubun ?? '0',
+      yubinKubun: row.yubin_kubun ?? YUBIN_KUBUN_NASHI,
       shiharaiHoho: intOrNull(row.shiharai_hoho),
       dokusyaryoShiharaiCycle: intOrNull(row.dokusyaryo_shiharai_cycle),
       bankBranchCode: str(row.bank_branch_code),
@@ -794,19 +775,17 @@ export class DokusyaImportService {
           : null,
       createdBy: updatedBy,
     };
-    // updated_by は t_dokusya の NOT NULL 列だが DokusyaRireki には無いため
-    // DokusyaFields 型には載らない。ensureMaster の master INSERT で必要なので
-    // runtime に付与する（UI create の buildInsertPayload と同じ扱い）。
+    // updated_by は t_dokusya の NOT NULL 列だが DokusyaRireki には無く DokusyaFields
+    // 型に載らない。ensureMaster の master INSERT で必要なため runtime 付与（UI create
+    // の buildInsertPayload と同扱い）。
     (values as Record<string, unknown>).updatedBy = updatedBy;
     return { values, johoDate: kaishiDate };
   }
 
   /**
-   * Resolve the target dokusya_id for an UPDATE import row within the
-   * caller's JA, matching by `dokusya_id` (preferred) or `kumiaiin_code`.
-   * Returns `null` when no row matches (→ history is skipped, mirroring the
-   * previous `RETURNING`-null behaviour). Row-existence is validated
-   * upstream so a miss is not the normal path.
+   * UPDATE 取込行の対象 dokusya_id を呼出元 JA 内で解決（dokusya_id 優先、なければ
+   * kumiaiin_code）。該当なしは null（履歴スキップ＝旧 RETURNING null と同義）。
+   * 行存在は上流で検証済みのため miss は通常経路でない。
    */
   private async resolveImportTargetId(
     manager: EntityManager,
@@ -829,15 +808,12 @@ export class DokusyaImportService {
   }
 
   /**
-   * Build the UPDATE `values` for an UPDATE import row (api.md
-   * §4.4.3): ONLY the columns in `selected_columns` (that map to a writable
-   * physical column) appear — unselected columns are omitted and carried
-   * forward by applyChange. Edit-immutable columns
-   * ({@link IMPORT_EDIT_IMMUTABLE_COLUMNS}) and `dokusya_id` (key) are never
-   * written. FK code columns resolve to the physical *_id and are set only
-   * when present (blank → keep existing). `joho_henko_tekiyo_date` is the
-   * applied-date parameter, not a business value.（販売店適用日
-   * hanbaiten_tekiyo_date は廃止・顧客要件 2026-07）
+   * UPDATE 取込行の UPDATE `values` を構築（api.md §4.4.3）。書込み可能な物理列に
+   * 対応する selected_columns のみ載せ、未選択列は省略＝applyChange が前値を維持。
+   * 編集不可列（{@link IMPORT_EDIT_IMMUTABLE_COLUMNS}）と dokusya_id（キー）は書かない。
+   * FK コード列は物理 *_id へ解決し値がある時のみ設定（空欄→既存維持）。
+   * joho_henko_tekiyo_date は適用日パラメータで業務値ではない（販売店適用日
+   * hanbaiten_tekiyo_date は廃止・顧客要件 2026-07）。
    */
   private buildUpdatePartialValues(
     selectedColumns: string[],
@@ -880,7 +856,7 @@ export class DokusyaImportService {
       renrakusaki_1: { field: 'renrakusaki1', value: str_('renrakusaki_1') },
       renrakusaki_2: { field: 'renrakusaki2', value: str_('renrakusaki_2') },
       email: { field: 'email', value: str_('email') },
-      mail_magazine_flg: { field: 'mailMagazineFlg', value: () => Number(row.mail_magazine_flg ?? 0) },
+      mail_magazine_flg: { field: 'mailMagazineFlg', value: () => Number(row.mail_magazine_flg ?? MAIL_MAGAZINE_FLG_OFF) },
       birth_year: { field: 'birthYear', value: () => intOrNull(row.birth_year) },
       gender: { field: 'gender', value: () => this.toGenderCode(row.gender) },
       haitatsu_yubin_no: { field: 'haitatsuYubinNo', value: str_('haitatsu_yubin_no') },
@@ -904,7 +880,7 @@ export class DokusyaImportService {
         value: () => fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
         optionalFk: true,
       },
-      yubin_kubun: { field: 'yubinKubun', value: () => row.yubin_kubun ?? '0' },
+      yubin_kubun: { field: 'yubinKubun', value: () => row.yubin_kubun ?? YUBIN_KUBUN_NASHI },
       shiharai_hoho: { field: 'shiharaiHoho', value: () => intOrNull(row.shiharai_hoho), optionalFk: true },
       dokusyaryo_shiharai_cycle: { field: 'dokusyaryoShiharaiCycle', value: () => intOrNull(row.dokusyaryo_shiharai_cycle) },
       bank_branch_code: { field: 'bankBranchCode', value: str_('bank_branch_code') },
@@ -921,7 +897,7 @@ export class DokusyaImportService {
     const values: DokusyaFields = {};
     const out = values as Record<string, unknown>;
     for (const col of selectedColumns) {
-      if (col === 'dokusya_id') continue; // key, not written
+      if (col === 'dokusya_id') continue; // キー、書込まない
       if (IMPORT_EDIT_IMMUTABLE_COLUMNS.has(col)) continue; // 編集不可 → 既存値維持
       const entry = MAP[col];
       if (!entry) continue; // joho/hanbaiten 適用日など values 対象外の列
@@ -943,10 +919,9 @@ export class DokusyaImportService {
   }
 
   /**
-   * Apply one import row inside the open transaction. Dispatches by mode
-   * + 一括中止 to a raw INSERT / UPDATE on `t_dokusya`, then toggles the
-   * prior rireki saishin flag + INSERTs one `t_dokusya_rireki` row. SQL
-   * shapes match the unit spec's `manager.query` regex router.
+   * 開いた tx 内で取込1行を適用。モード + 一括中止 で t_dokusya への INSERT/UPDATE
+   * を振り分け、前 rireki の saishin フラグを落として t_dokusya_rireki を1行 INSERT。
+   * SQL 形状は unit spec の manager.query 正規表現ルータに一致させる。
    */
   private async applyImportRow(
     manager: EntityManager,
@@ -962,29 +937,27 @@ export class DokusyaImportService {
   ): Promise<void> {
     const updatedBy = String(session.account_id);
     const jaId = Number(session.ja_id ?? 0);
-    // 配達先(delivery)7項目に入力があれば「別住所」扱い: haitatsu_same_flg を
-    // false に下ろし、zougen_hokoku_flg を true に立てる（NEW は全配達先列を
-    // 書込むため row 単位で判定。UPDATE は選択列のみ）。
+    // 配達先7項目に入力があれば「別住所」扱い: haitatsu_same_flg を false、
+    // zougen_hokoku_flg を true（NEW は全配達先列書込みのため row 単位、UPDATE は選択列のみ）。
     const hasHaitatsuData =
       dto.import_mode === 'UPDATE'
         ? this.hasHaitatsuDeliveryData(row, dto.selected_columns)
         : this.hasHaitatsuDeliveryData(row);
-    // 「購読者情報と同じ」(haitatsu_same_flg) は列で明示指定されたらそれを採用
-    // （顧客要件 2026-06 — BE は配達先データ有無から推論しない）。列が未指定
-    // （空欄）の行のみ、従来どおり配達先入力の有無から導出する。
+    // 「購読者情報と同じ」(haitatsu_same_flg) は列で明示指定されればそれを採用
+    // （顧客要件 2026-06 — BE は配達先データ有無から推論しない）。未指定の行のみ
+    // 従来どおり配達先入力の有無から導出。
     const sameFlg =
       row.haitatsu_same_flg === undefined
         ? !hasHaitatsuData
         : Boolean(row.haitatsu_same_flg);
-    // UPDATE が影響した dokusya_id を RETURNING から受け取り、履歴スナップショットは
-    // この 1 件の dokusya_id だけをキーに作成する（kumiaiin は重複可のため曖昧キーに
-    // しない）。NEW は下の分岐で applyChange を呼んで return 済み。
+    // UPDATE が影響した dokusya_id を RETURNING で受け取り、履歴スナップショットは
+    // この1件の dokusya_id だけをキーに作成（kumiaiin は重複可で曖昧キーにしない）。
+    // NEW は下の分岐で applyChange を呼び return 済み。
 
     if (dto.import_mode === 'NEW') {
-      // NEW は共通ライタ applyChange(CREATE) に集約 (S3.2)。master 作成 +
-      // rireki #1 (shinki) + recomputeMaster(当日) を1トランザクションで実行し、
-      // UI create と履歴の作り方を統一する。joho は購読開始日に揃える（顧客要件
-      // — UI create の当日基準とは異なり、既存データ取込のため実際の開始日）。
+      // NEW は共通ライタ applyChange(CREATE) に集約 (S3.2)。master 作成 + rireki #1
+      // (shinki) + recomputeMaster(当日) を1 tx で実行し UI create と履歴生成を統一。
+      // joho は購読開始日に揃える（顧客要件 — UI create の当日基準と異なり実開始日）。
       const { values, johoDate } = this.buildNewImportValues(
         row,
         session,
@@ -992,41 +965,61 @@ export class DokusyaImportService {
         sameFlg,
         updatedBy,
       );
-      await applyChange(manager, {
+      const createResult = await applyChange(manager, {
         mode: 'CREATE',
         values,
         johoDate: johoDate || todayIsoJst(),
         source: 'IMPORT',
         actor: updatedBy,
-        reason: 'Excel取込',
       });
+      // cloud → 電子版 push（新規会員）。紙版は呼ばない。同期 Saga。取込は全行を1 tx
+      // で包むため push 失敗時は取込全体がロールバック（cloud 側は整合）。ただし同一取込
+      // で先行行が電子版へ create 済みなら電子版側に孤児が残りうる → per-record atomic 化
+      // と孤児 reconcile は follow-up・§4.4/§6。
+      if (isDigitalOrBoth(createResult.after.dokusyaShubetsu)) {
+        await this.denshiPush.pushOnWrite(manager, {
+          action: 'create',
+          after: createResult.after,
+          source: 'IMPORT',
+        });
+      }
       // 履歴は applyChange が書いたので writeRirekiSnapshot はスキップ。
       // updated_by は values に載せているので ensureMaster の INSERT で確定済み。
       return;
     }
 
-    // UPDATE — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象 dokusya_id を
-    // 解決し、選択された編集可能列だけを values に載せる（未選択列は省略＝
-    // predecessor 値を維持、空欄はスキップ）。全列更新は FE が全列を selected_columns
-    // に含めることで実現する。販売店を含む全変更は単一の適用日(joho)で1件の履歴行に
-    // まとめる（顧客要件 2026-07: 販売店適用日を廃止・UI/置換と同一ロジック）。配達先
-    // データあり(hasHaitatsuData)は forceZougen で増減報告対象にする。NEW は上で return 済み。
+    // UPDATE — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象 dokusya_id を解決し
+    // 選択された編集可能列だけ values に載せる（未選択列は省略＝前値維持、空欄はスキップ）。
+    // 全列更新は FE が全列を selected_columns に含めて実現。販売店含む全変更は単一適用日
+    // (joho) で1履歴行にまとめる（顧客要件 2026-07: 販売店適用日を廃止・UI/置換と同ロジック）。
+    // 配達先データあり(hasHaitatsuData)は forceZougen で増減報告対象。NEW は上で return 済み。
     const dokusyaId = await this.resolveImportTargetId(manager, jaId, row);
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。
     await this.rireki.lockDokusyaRow(manager, dokusyaId);
-    await applyChange(manager, {
+    const updateJoho = dbDateOrNull(row.joho_henko_tekiyo_date) ?? todayIsoJst();
+    const updateResult = await applyChange(manager, {
       mode: 'UPDATE',
       dokusyaId,
       values: this.buildUpdatePartialValues(dto.selected_columns, row, fkMaps),
-      johoDate: dbDateOrNull(row.joho_henko_tekiyo_date) ?? todayIsoJst(),
+      johoDate: updateJoho,
       source: 'IMPORT',
       actor: updatedBy,
-      reason: 'Excel取込',
       forceZougen: hasHaitatsuData,
     });
     // updated_by は rireki に無い列で recompute 対象外 → master へ明示スタンプ。
     await manager.update(Dokusya, { dokusyaId }, { updatedBy });
+
+    // cloud → 電子版 push（情報変更）。紙版は push を呼ばない。当日適用のみ即 push
+    // （未来適用の併読予約は到来日に recompute バッチが反映）。UI update と同一方針。
+    if (isDigitalOrBoth(updateResult.after.dokusyaShubetsu)) {
+      await this.denshiPush.pushOnWrite(manager, {
+        action: 'update',
+        after: updateResult.after,
+        source: 'IMPORT',
+        immediateJohoDate: updateJoho,
+      });
+    }
   }
 
 }

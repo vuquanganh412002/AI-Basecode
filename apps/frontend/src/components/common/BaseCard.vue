@@ -1,23 +1,20 @@
 <script setup lang="ts">
 interface Props {
   /**
-   * Elevation level (matches the project's 3-level ladder — see
-   * styles/tailwind.css):
-   *   - `card` (default): on-canvas surfaces — lists, forms, panels.
-   *   - `flat`:           border only, no shadow (nested panels inside
-   *                       a parent card).
-   * Floating UI (modal, drawer, popover) uses AntD components, which
-   * read `boxShadowSecondary` via ConfigProvider — no variant here.
+   * 影の段階（プロジェクトの 3 段階に対応 — styles/tailwind.css 参照）:
+   *   - `card`（既定）: キャンバス上の面 — 一覧・フォーム・パネル。
+   *   - `flat`:         枠線のみ・影なし（親カード内のネストパネル）。
+   * フローティング UI（modal, drawer, popover）は AntD コンポーネントを使い、
+   * ConfigProvider 経由で `boxShadowSecondary` を読む — ここにバリアントは無い。
    */
   variant?: 'card' | 'flat';
   /**
-   * Inner padding preset:
-   *   - `none`        Custom header/body inside (form view headers,
-   *                   tables — caller adds its own padding).
-   *   - `md` (default) Standard card body — `p-4`.
-   *   - `lg`          Comfortable padding for landing / access-denied
-   *                   panels — `p-6`.
-   *   - `responsive`  Compact on mobile, comfortable on ≥sm — `p-4 sm:p-6`.
+   * 内側 padding プリセット:
+   *   - `none`        内部にカスタムのヘッダ/ボディ（フォームビューのヘッダ・テーブル —
+   *                   呼び出し側が padding を付ける）。
+   *   - `md`（既定）   標準カードボディ — `p-4`。
+   *   - `lg`          ランディング / アクセス拒否パネル向けのゆったり padding — `p-6`。
+   *   - `responsive`  モバイルで詰めて ≥sm でゆったり — `p-4 sm:p-6`。
    */
   padding?: 'none' | 'md' | 'lg' | 'responsive';
 }

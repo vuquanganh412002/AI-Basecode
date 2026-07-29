@@ -11,7 +11,7 @@ import { pageTitleFromMatched } from '@/composables/useBreadcrumb';
 const APP_TITLE = import.meta.env.VITE_APP_TITLE || 'agrinews';
 
 const routes: RouteRecordRaw[] = [
-  // ─── Auth (AuthLayout is applied inside each view) ─────────────────
+  // ─── 認証（AuthLayout は各 view 内で適用） ─────────────────
   {
     path: '/login',
     name: 'Login',
@@ -24,14 +24,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/MfaVerifyView.vue'),
     meta: { requiresAuth: false },
   },
-  // SCR-012 — パスワードの再設定 (request reset email)
+  // SCR-012 — パスワードの再設定（リセットメール要求）
   {
     path: '/forgot-password',
     name: 'ForgotPassword',
     component: () => import('@/views/auth/ForgotPasswordView.vue'),
     meta: { requiresAuth: false },
   },
-  // SCR-012 — パスワードの変更 (consume token + set new password)
+  // SCR-012 — パスワードの変更（トークン消費 + 新パスワード設定）
   {
     path: '/reset-password',
     name: 'ResetPassword',
@@ -39,7 +39,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false },
   },
 
-  // ─── Main app (MainLayout wraps everything) ────────────────────────
+  // ─── メインアプリ（MainLayout が全体をラップ） ────────────────────────
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
@@ -53,17 +53,17 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'メニュー画面' },
       },
 
-      // ─── Breadcrumb convention (project-wide) ───────────────────────
-      // List view: 2 levels — `ホーム > {Module}一覧` (entered from
-      // sidebar / dashboard, no intermediate "マスタ管理" group label).
-      // Create / Edit view: 3 levels — `ホーム > {Module}一覧 > {form-title}`
-      // — array form makes the middle node a clickable link back to list.
-      // The wrapper parent route therefore carries NO breadcrumb of its
-      // own (it's just a path prefix; users never visit `/ja` literally).
+      // ─── パンくず規約（プロジェクト共通） ───────────────────────
+      // 一覧 view: 2階層 — `ホーム > {Module}一覧`（sidebar / dashboard から入る。
+      // 中間の「マスタ管理」グループラベルは持たない）。
+      // 登録/編集 view: 3階層 — `ホーム > {Module}一覧 > {form-title}`。
+      // 配列形式で中間ノードを一覧へ戻るリンクにする。
+      // よって wrapper 親 route はパンくずを持たない（単なるパス接頭辞で、
+      // ユーザーは `/ja` を直接訪れない）。
       // ────────────────────────────────────────────────────────────────
 
-      // JAマスタ (ACSMS-SCR-004 list / -005 form). Form view shared
-      // between create & edit.
+      // JAマスタ（ACSMS-SCR-004 一覧 / -005 フォーム）。フォーム view は
+      // 登録・編集で共用。
       {
         path: 'ja',
         children: [
@@ -100,11 +100,11 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // 管理支店マスタ (ACSMS-SCR-008 list, ACSMS-SCR-009 form).
-      // KanriShitenCreate / KanriShitenEdit point at a TODO placeholder
-      // until SCR-009 ships — see src/views/kanri-shiten/KanriShitenFormView.vue.
-      // Registered now so the list view's `router.push({ name:
-      // 'KanriShitenCreate' })` resolves at runtime instead of silent-failing.
+      // 管理支店マスタ（ACSMS-SCR-008 一覧、ACSMS-SCR-009 フォーム）。
+      // KanriShitenCreate / KanriShitenEdit は SCR-009 出荷まで TODO placeholder
+      // を指す — src/views/kanri-shiten/KanriShitenFormView.vue 参照。
+      // 一覧 view の `router.push({ name: 'KanriShitenCreate' })` が無音失敗せず
+      // 実行時に解決するよう今登録しておく。
       {
         path: 'kanri-shiten',
         children: [
@@ -144,11 +144,11 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // 販売店マスタ (ACSMS-SCR-018 list, ACSMS-SCR-017 form).
-      // HanbaitenCreate / HanbaitenEdit point at a TODO placeholder until
-      // SCR-017 ships — see src/views/hanbaiten/HanbaitenFormView.vue.
-      // Registered now so the list view's `router.push({ name:
-      // 'HanbaitenCreate' })` resolves at runtime instead of silent-failing.
+      // 販売店マスタ（ACSMS-SCR-018 一覧、ACSMS-SCR-017 フォーム）。
+      // HanbaitenCreate / HanbaitenEdit は SCR-017 出荷まで TODO placeholder
+      // を指す — src/views/hanbaiten/HanbaitenFormView.vue 参照。
+      // 一覧 view の `router.push({ name: 'HanbaitenCreate' })` が無音失敗せず
+      // 実行時に解決するよう今登録しておく。
       {
         path: 'hanbaiten',
         children: [
@@ -158,9 +158,9 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/hanbaiten/HanbaitenListView.vue'),
             meta: {
               breadcrumb: '販売店明細検索',
-              // [perm-any-of] NICHINO_STAFF holds `hanbaiten.daiko_input`
-              // (代行入力) but not `hanbaiten.view`; the search screen
-              // unifies both flows behind a role-aware JA filter.
+              // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input`（代行入力）を
+              // 持つが `hanbaiten.view` は持たない。検索画面はロール対応の JA フィルタで
+              // 両フローを統合する。
               permission: ['hanbaiten.view', 'hanbaiten.daiko_input'],
             },
           },
@@ -173,9 +173,8 @@ const routes: RouteRecordRaw[] = [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
                 { label: '販売店情報登録画面' },
               ],
-              // [perm-any-of] see HanbaitenList — NICHINO_STAFF creates
-              // via `hanbaiten.daiko_input`, other JA roles via
-              // `hanbaiten.create`.
+              // [perm-any-of] HanbaitenList 参照 — NICHINO_STAFF は
+              // `hanbaiten.daiko_input`、他の JA ロールは `hanbaiten.create` で作成。
               permission: ['hanbaiten.create', 'hanbaiten.daiko_input'],
             },
           },
@@ -188,12 +187,12 @@ const routes: RouteRecordRaw[] = [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
                 { label: '販売店情報編集画面' },
               ],
-              // [perm-any-of] NICHINO_STAFF edits via `hanbaiten.daiko_input`,
-              // other JA roles via `hanbaiten.update`.
+              // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input`、
+              // 他の JA ロールは `hanbaiten.update` で編集。
               permission: ['hanbaiten.update', 'hanbaiten.daiko_input'],
             },
           },
-          // ACSMS-SCR-019 — 販売店Excelデータ取込画面.
+          // ACSMS-SCR-019 — 販売店Excelデータ取込画面。
           {
             path: 'import',
             name: 'HanbaitenImport',
@@ -206,7 +205,7 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // 支店マスタ (ACSMS-SCR-006 list, ACSMS-SCR-007 form).
+      // 支店マスタ（ACSMS-SCR-006 一覧、ACSMS-SCR-007 フォーム）。
       {
         path: 'shiten',
         children: [
@@ -246,12 +245,12 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // アカウントマスタ (ACSMS-SCR-024 list, ACSMS-SCR-025 form).
-      // NICHINO_ADMIN-only (`account.view` per seeder.md §3). AccountCreate
-      // / AccountEdit point at a TODO placeholder until SCR-025 ships —
-      // see src/views/account/AccountFormView.vue. Registered now so the
-      // list view's `router.push({ name: 'AccountCreate' })` resolves
-      // at runtime instead of silently skipping.
+      // アカウントマスタ（ACSMS-SCR-024 一覧、ACSMS-SCR-025 フォーム）。
+      // NICHINO_ADMIN 専用（seeder.md §3 の `account.view`）。AccountCreate /
+      // AccountEdit は SCR-025 出荷まで TODO placeholder を指す —
+      // src/views/account/AccountFormView.vue 参照。一覧 view の
+      // `router.push({ name: 'AccountCreate' })` が無音スキップせず実行時に
+      // 解決するよう今登録しておく。
       {
         path: 'accounts',
         children: [
@@ -291,12 +290,11 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // ロール管理画面 (ACSMS-SCR-027). Single view hosts both list AND
-      // inline edit form per screen-design.md — no separate create/edit
-      // route. NICHINO_ADMIN-only; the view itself enforces role check
-      // (ACSMS-MSG-027-006). No `meta.permission` because seeder.md has
-      // no dedicated role.* permission_code — adding one is BE work and
-      // would risk hiding the menu from NICHINO_ADMIN if seeded wrong.
+      // ロール管理画面（ACSMS-SCR-027）。screen-design.md に従い単一 view が
+      // 一覧とインライン編集フォームの両方を担う（登録/編集の別 route なし）。
+      // NICHINO_ADMIN 専用で、view 自体がロールチェック（ACSMS-MSG-027-006）を行う。
+      // seeder.md に専用の role.* permission_code が無いため `meta.permission` なし
+      // — 追加は BE 作業で、誤シードすると NICHINO_ADMIN からメニューを隠す恐れ。
       {
         path: 'roles',
         name: 'RoleList',
@@ -304,8 +302,8 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ロール管理画面' },
       },
 
-      // ログ参照画面 (ACSMS-SCR-030). Read-only list + CSV export.
-      // All 5 roles hold `log.view`; DataScope is enforced server-side.
+      // ログ参照画面（ACSMS-SCR-030）。読み取り専用一覧 + CSV 出力。
+      // 全5ロールが `log.view` を持つ。DataScope はサーバ側で強制。
       {
         path: 'log',
         name: 'LogList',
@@ -382,9 +380,9 @@ const routes: RouteRecordRaw[] = [
         },
       },
 
-      // ファイルダウンロード画面 (ACSMS-SCR-022). Read-only list +
-      // preview (S3 presigned URL) + binary download. All 5 roles hold
-      // `file.download`; DataScope is enforced server-side.
+      // ファイルダウンロード画面（ACSMS-SCR-022）。読み取り専用一覧 +
+      // プレビュー（S3 署名付き URL）+ バイナリダウンロード。全5ロールが
+      // `file.download` を持つ。DataScope はサーバ側で強制。
       {
         path: 'file-download',
         name: 'FileDownload',
@@ -392,10 +390,10 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ファイルダウンロード', permission: 'file.download' },
       },
 
-      // ファイルアップロード画面 (ACSMS-SCR-023). Multi-JA × multi-file
-      // upload with notification queue + soft delete. 2026-06 以降は日農
-      // (NICHINO_ADMIN / NICHINO_STAFF) のみが `file.upload` を保持する
-      // (migration 1711900900020); DataScope is enforced server-side.
+      // ファイルアップロード画面（ACSMS-SCR-023）。複数JA × 複数ファイルの
+      // アップロード + 通知キュー + 論理削除。2026-06 以降は日農
+      // （NICHINO_ADMIN / NICHINO_STAFF）のみが `file.upload` を保持
+      // （migration 1711900900020）。DataScope はサーバ側で強制。
       {
         path: 'file-upload',
         name: 'FileUpload',
@@ -403,11 +401,10 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'ファイルアップロード', permission: 'file.upload' },
       },
 
-      // お知らせ一覧画面 (ACSMS-SCR-031). Single view hosts list + create/edit
-      // form per screen-design.md (no separate create/edit route). NICHINO_ADMIN-
-      // only via `oshirase.view` permission per seeder.md §3. The view itself
-      // re-checks the permission so a non-admin landing on the URL sees
-      // ACSMS-MSG-031-006 instead of firing the API.
+      // お知らせ一覧画面（ACSMS-SCR-031）。screen-design.md に従い単一 view が
+      // 一覧 + 登録/編集フォームを担う（登録/編集の別 route なし）。seeder.md §3 の
+      // `oshirase.view` 権限で NICHINO_ADMIN 専用。view 自体が権限を再チェックし、
+      // 非 admin が URL に来ても API を叩かず ACSMS-MSG-031-006 を表示する。
       {
         path: 'oshirase',
         name: 'OshiraseList',
@@ -415,12 +412,11 @@ const routes: RouteRecordRaw[] = [
         meta: { breadcrumb: 'お知らせ一覧', permission: 'oshirase.view' },
       },
 
-      // 購読者マスタ (ACSMS-SCR-011 form). DokusyaList / DokusyaImport /
-      // DokusyaReplaceHanbaiten target TODO placeholder views until
-      // their dedicated SCRs ship — registered now so MENU_SECTIONS
-      // entries (購読者明細検索 / 購読者Excelデータ取込 / 購読者販売店
-      // 一括置換) resolve at runtime via `router.hasRoute(name)` instead
-      // of silently no-op'ing on click.
+      // 購読者マスタ（ACSMS-SCR-011 フォーム）。DokusyaList / DokusyaImport /
+      // DokusyaReplaceHanbaiten は専用 SCR 出荷まで TODO placeholder view を指す。
+      // MENU_SECTIONS エントリ（購読者明細検索 / 購読者Excelデータ取込 /
+      // 購読者販売店一括置換）がクリック時に無音失敗せず `router.hasRoute(name)`
+      // で実行時解決するよう今登録しておく。
       {
         path: 'dokusya',
         children: [
@@ -458,7 +454,7 @@ const routes: RouteRecordRaw[] = [
             },
           },
           {
-            // ACSMS-SCR-013 — 購読者履歴情報画面 (read-only history list).
+            // ACSMS-SCR-013 — 購読者履歴情報画面（読み取り専用の履歴一覧）。
             path: ':id/rireki',
             name: 'DokusyaRireki',
             component: () => import('@/views/dokusya/DokusyaRirekiView.vue'),
@@ -491,11 +487,11 @@ const routes: RouteRecordRaw[] = [
         ],
       },
 
-      // 単価マスタ (ACSMS-SCR-002 list, ACSMS-SCR-003 form). TankaCreate
-      // / TankaEdit point at a TODO placeholder until SCR-003 ships —
-      // see src/views/tanka/TankaFormView.vue. Registered now so the
-      // list view's `router.push({ name: 'TankaCreate' })` resolves at
-      // runtime instead of silent-failing with "no match for route".
+      // 単価マスタ（ACSMS-SCR-002 一覧、ACSMS-SCR-003 フォーム）。TankaCreate /
+      // TankaEdit は SCR-003 出荷まで TODO placeholder を指す —
+      // src/views/tanka/TankaFormView.vue 参照。一覧 view の
+      // `router.push({ name: 'TankaCreate' })` が「no match for route」で
+      // 無音失敗せず実行時に解決するよう今登録しておく。
       {
         path: 'tanka',
         children: [
@@ -538,10 +534,9 @@ const routes: RouteRecordRaw[] = [
   },
 
   // ─── Catch-all ─────────────────────────────────────────────────────
-  // No standalone /403 or /404 pages — both flow back to the dashboard.
-  // Permission-denied is handled by the global guard below (toast +
-  // redirect). Unknown paths silently redirect (no toast — user typed
-  // a junk URL, no need to lecture them about it).
+  // /403 や /404 の専用ページは持たず、どちらも dashboard へ戻す。
+  // 権限拒否は下のグローバルガードが処理（トースト + 遷移）。不明なパスは
+  // 無音でリダイレクト（トーストなし — ユーザーが打った不正 URL を咎めない）。
   {
     path: '/:pathMatch(.*)*',
     redirect: { name: 'Dashboard' },
@@ -553,13 +548,12 @@ const router = createRouter({
   routes,
 });
 
-// Modern vue-router API — return a route target (or `true` to proceed)
-// instead of calling next(). The next() callback is deprecated in
-// vue-router 4.x.
+// vue-router 4.x の API — next() を呼ばず route ターゲット（または続行なら
+// `true`）を返す。next() コールバックは 4.x で非推奨。
 router.beforeEach((to) => {
   const authStore = useAuthStore();
 
-  // Already-authenticated users should skip the login / mfa screens.
+  // 認証済みユーザーは login / mfa 画面をスキップする。
   if (
     authStore.isAuthenticated &&
     (to.name === 'Login' || to.name === 'MfaVerify')
@@ -571,18 +565,17 @@ router.beforeEach((to) => {
     return { name: 'Login', query: { redirect: to.fullPath } };
   }
 
-  // [permission-any-of] meta.permission accepts either a single perm
-  // string OR a string[] for "any-of" semantics. Used by routes that
-  // unify two roles' entry points — e.g. HanbaitenList accepts both
-  // `hanbaiten.view` (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) and
-  // `hanbaiten.daiko_input` (NICHINO_STAFF 代行入力).
+  // [permission-any-of] meta.permission は単一 perm 文字列、または「いずれか」
+  // 意味の string[] を受ける。2ロールの入口を統合する route が使う — 例:
+  // HanbaitenList は `hanbaiten.view`（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）と
+  // `hanbaiten.daiko_input`（NICHINO_STAFF 代行入力）の両方を受け入れる。
   if (to.meta.permission) {
     const required = to.meta.permission as string | string[];
     const perms = Array.isArray(required) ? required : [required];
     const allowed = perms.some((p) => authStore.hasPermission(p));
     if (!allowed) {
-      // No /403 page — toast + bounce to dashboard. Avoids leaving the
-      // user on a dead-end error screen; they always have a place to go.
+      // /403 ページなし — トースト + dashboard へ戻す。行き止まりのエラー画面に
+      // 留めず、常に行き先を用意する。
       message.error('この画面へのアクセス権限がありません。');
       return { name: 'Dashboard' };
     }

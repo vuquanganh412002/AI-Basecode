@@ -391,7 +391,6 @@ export class KozaFurikaeService {
     throw new InactiveTankaReferencedException(errors, total);
   }
 
-  /** 全銀フォーマット CSV（ヘッダ/データ/トレーラ/エンド）を組み立てる（4.4）。 */
   /**
    * 全銀フォーマット（種別91・預金口座振替）固定長テキストを生成する（4.4）。
    * 1レコード=120バイト、順序 1:ヘッダ→2:データ×N→8:トレーラ→9:エンド、末尾CRLF。

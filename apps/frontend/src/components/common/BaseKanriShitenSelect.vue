@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable **multi-select** 管理支店 dropdown.
+ * サーバーページング + 検索対応の **複数選択** 管理支店ドロップダウン。
  *
- * Multi-select sibling of the SCR-007/024/025 single-select cascade.
- * Reuses {@link useEntityDropdown} (page-50 load, debounced search,
- * infinite scroll). Search matches 管理支店コード OR 名称
- * (`match_field='both'`). Requires `jaId` — the BE scopes by JA.
+ * SCR-007/024/025 の単一選択カスケードの複数選択版。{@link useEntityDropdown} を再利用
+ * （50件/page・デバウンス検索・無限スクロール）。検索は 管理支店コード OR 名称
+ * （`match_field='both'`）。`jaId` 必須 — BE が JA でスコープする。
  *
- * Used by SCR-028 増減連絡票（販売店）の管理支店フィルタ（複数選択・未選択＝全件）。
+ * SCR-028 増減連絡票（販売店）の管理支店フィルタ（複数選択・未選択＝全件）で使用。
  */
 import { computed, ref, toRef } from 'vue';
 import {
@@ -26,14 +25,14 @@ import {
 } from '@/composables/useSelectAllSentinel';
 
 interface Props {
-  /** Selected kanri_shiten_id list (v-model:value). */
+  /** 選択中の kanri_shiten_id 配列（v-model:value）。 */
   value?: number[];
-  /** JA scope (required — BE filters m_kanri_shiten by this JA). */
+  /** JA スコープ（必須 — BE が m_kanri_shiten をこの JA で絞る）。 */
   jaId: number;
   disabled?: boolean;
   placeholder?: string;
   perPage?: number;
-  /** Add a 「全て」 option at the top of the list (選択すると入力欄に「全て」タグ=全件選択)。 */
+  /** リスト先頭に「全て」オプションを追加（選択すると入力欄に「全て」タグ=全件選択）。 */
   allowSelectAll?: boolean;
 }
 
@@ -51,9 +50,9 @@ const perPageRef = toRef(props, 'perPage');
 const jaIdRef = toRef(props, 'jaId');
 const selected = ref<number | null>(null);
 
-// kanri-shiten dropdown is keyed by ja_id; wrap so the fetcher matches
-// the (params) => Promise<{ data, meta }> shape useEntityDropdown wants.
-// The wrapper's `meta` is optional (legacy callers); default has_more=false.
+// kanri-shiten ドロップダウンは ja_id キー。useEntityDropdown が要求する
+// (params) => Promise<{ data, meta }> 形にラップする。meta は任意（旧呼び出し側）、
+// 既定 has_more=false。
 async function fetcher(
   params: KanriShitenDropdownQuery,
 ): Promise<EntityDropdownResult<KanriShitenDropdownItem>> {
@@ -86,7 +85,7 @@ const {
   selected,
   perPage: perPageRef,
   buildExtraParams: () => ({ ja_id: props.jaId }),
-  // Reload page 1 when the parent JA changes (NICHINO 代行入力 etc.).
+  // 親 JA が変わったら 1ページ目を再読込（NICHINO 代行入力 等）。
   resetTriggers: [jaIdRef],
   resetMode: 'hard',
 });

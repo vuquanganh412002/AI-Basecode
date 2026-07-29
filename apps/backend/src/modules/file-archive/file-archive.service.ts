@@ -19,11 +19,10 @@ export interface FileArchiveParams {
   /** タイムスタンプ・拡張子を除いたファイル名の基底（例: `販売店別購読者名簿_2026年01月`）。 */
   baseName: string;
   /**
-   * DB `t_file_download.file_name`（＝ダウンロード時の表示名）に用いる、拡張子を
-   * 除いた基底名。省略時は `baseName` と同じ（＝S3キーと同じくタイムスタンプ付き）。
-   * 指定時のみ「S3キーは baseName＋タイムスタンプで一意」「DB/DL表示名は displayName
-   * でタイムスタンプ無し」に分離する（顧客要件2026-07・SCR-029: 増減通知の表示名を
-   * `増減通知_JA名_JAコード_適用日.pdf` に統一しつつ、S3上書きを避ける）。
+   * DB `t_file_download.file_name`（DL表示名）用の拡張子除く基底名。省略時は
+   * baseName と同じ（タイムスタンプ付き）。指定時のみ S3キー=baseName+TS で一意、
+   * DB/DL表示名=displayName（TS無し）に分離（顧客要件2026-07・SCR-029: 増減通知の
+   * 表示名を `増減通知_JA名_JAコード_適用日.pdf` に統一しつつ S3上書き回避）。
    */
   displayName?: string;
   /** S3 パスの帳票カテゴリ区分（例: `meibo`）。 */
@@ -68,16 +67,13 @@ export interface FileArchiveParams {
 }
 
 /**
- * 帳票出力結果を S3 にアーカイブし、`t_file_upload`（FileUpload）へ登録する
- * 共通サービス。SCR-026 購読者名簿だけでなく、他の帳票出力画面からも再利用できる
- * よう汎用化している（メール送信は行わない）。
+ * 帳票出力結果を S3 にアーカイブし `t_file_download` へ登録する共通サービス
+ * （SCR-026 名簿に限らず他の帳票出力画面からも再利用可。メール送信はしない）。
  *
  * S3 キー: `reports/{category}/{ja_code}/{subFolder}/{year}/{filename}`
- * （subFolder 省略時は `reports/{category}/{ja_code}/{year}/{filename}`）。
- * ファイル名: `{baseName}_{yyyyMMddHHmmss}{extension}`（タイムスタンプは JST 14桁）。
- *
- * ※ controller へ返すダウンロード用ファイル名（タイムスタンプ無し）とは別物で、
- * 本サービスは S3 保管用にタイムスタンプを付与する。
+ * （subFolder 省略時は subFolder 抜き）。
+ * ファイル名: `{baseName}_{yyyyMMddHHmmss}{extension}`（TS は JST 14桁）。
+ * ※ controller へ返す DL 名（TS無し）とは別物。本サービスは S3 保管用に TS 付与。
  */
 @Injectable()
 export class FileArchiveService {
@@ -101,11 +97,9 @@ export class FileArchiveService {
   ): Promise<{ key: string; filename: string; fileDownloadId: number }> {
     const now = new Date();
     const extension = params.extension ?? '.xlsx';
-    // S3 キー用ファイル名は必ずタイムスタンプ付きで一意にする（同条件の再出力で
-    // 既存オブジェクトを上書きしない）。
+    // S3 キー名は TS 付きで一意化（同条件の再出力で既存オブジェクトを上書きしない）。
     const storageFilename = `${params.baseName}_${compactTimestampJst(now)}${extension}`;
-    // DB / ダウンロード表示名。displayName 指定時はタイムスタンプ無しの表示名、
-    // 省略時は従来どおり S3 と同じタイムスタンプ付き名。
+    // DB/DL 表示名。displayName 指定時は TS 無し、省略時は S3 と同じ TS 付き名。
     const displayFilename =
       params.displayName != null
         ? `${params.displayName}${extension}`
@@ -147,8 +141,7 @@ export class FileArchiveService {
       nichinoDownloadAllowedFlg: params.nichinoDownloadAllowedFlg ?? false,
     });
 
-    // `filename` は表示名（displayName 指定時はタイムスタンプ無し）を返す。
-    // メール本文・監査ログ・レスポンスはこの表示名を使う。
+    // `filename` は表示名（メール本文・監査ログ・レスポンスで使用）。
     return { key, filename: displayFilename, fileDownloadId: saved.fileDownloadId };
   }
 

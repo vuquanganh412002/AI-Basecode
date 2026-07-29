@@ -9,16 +9,15 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/** Coerce blank strings to `undefined` BEFORE `@IsOptional` runs. */
+/** `@IsOptional` の前に空文字を `undefined` に変換。 */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Request body for PUT /api/v1/roles/{role_id} (ACSMS-API-027-003).
- *
- * `role_code` is intentionally NOT declared — `forbidNonWhitelisted: true`
- * on the global `ValidationPipe` will reject a body that smuggles it in.
- * See api.md §3 注記: "role_code は更新不可（画面側でdisabled）"。
+ * PUT /api/v1/roles/{role_id} のボディ（ACSMS-API-027-003）。
+ * `role_code` は意図的に未宣言 — グローバル `ValidationPipe` の
+ * `forbidNonWhitelisted: true` が紛れ込みを拒否。api.md §3 注記:
+ * 「role_code は更新不可（画面側でdisabled）」。
  */
 export class UpdateRoleDto {
   @ApiProperty({ description: 'ロール名称', maxLength: 20 })

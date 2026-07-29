@@ -19,21 +19,17 @@ import {
 } from 'class-validator';
 
 /**
- * Coerce blank cells (`""` after xlsx sheet_to_json with `defval: ''`)
- * to `undefined` so `@IsOptional` actually short-circuits the
- * downstream length / format validators. Per `.claude/rules/nestjs.md
- * §DTO validation gotchas #1`. Wire BEFORE `@IsOptional()` so the
- * coerced `undefined` reaches it.
+ * 空セル（xlsx sheet_to_json の `defval: ''` で `""`）を `undefined` に変換し、
+ * `@IsOptional` が後続の length / format バリデータを確実に短絡できるようにする
+ * （`.claude/rules/nestjs.md §DTO validation gotchas #1`）。coerce した `undefined`
+ * が届くよう `@IsOptional()` の前に置く。
  *
- * Also coerce a JS `number` → `string`. Excel stores numeric-looking
- * cells (郵便番号, 金融機関コード, 口座番号, 口座支店コード, …) as numbers,
- * so `sheet_to_json` hands them to the DTO as `number`. These columns
- * are VARCHAR on the BE (leading zeros / fixed widths matter), so a bare
- * `@IsString` would reject the whole row — and because the failure is a
- * nested-row error it collapses to a single generic
- * "取込データ / 入力値が不正です" line. Stringifying here lets a numeric
- * cell pass `@IsString`, and the downstream `@Length` / `@Matches` still
- * catch genuinely malformed values with their field-level message.
+ * JS `number` → `string` も変換する。Excel は数値的セル（郵便番号・金融機関コード・
+ * 口座番号・口座支店コード…）を数値で保持し `sheet_to_json` が `number` で渡すが、
+ * これらは BE では VARCHAR（先頭ゼロ / 固定幅が重要）。素の `@IsString` だと行全体を
+ * 弾き、ネスト行エラーは汎用1行「取込データ / 入力値が不正です」に潰れる。ここで
+ * 文字列化すれば数値セルが `@IsString` を通り、真に不正な値は後続の `@Length` /
+ * `@Matches` が項目別メッセージで捕捉する。
  */
 const blankToUndef = ({ value }: { value: unknown }) => {
   if (typeof value === 'number') return String(value);
@@ -41,14 +37,13 @@ const blankToUndef = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Numeric variant — replaces the `@Type(() => Number) + @Transform(blankToUndef)`
- * combo for optional numeric fields. `@Type(() => Number)` runs at the
- * class-transformer step and turns `""` into `0`, defeating the blank
- * transform downstream. This single-pass version handles BOTH coercions:
- *   - blank string / null / undefined → undefined  (so @IsOptional skips)
- *   - non-blank string                → Number(s)  (so @IsInt passes)
- *   - already numeric                 → pass through
- * Use INSTEAD of `@Type(() => Number)` on optional numeric DTO fields.
+ * 数値版 — 任意数値項目で `@Type(() => Number) + @Transform(blankToUndef)` の
+ * 組合せを置き換える。`@Type(() => Number)` は class-transformer 段で `""` を `0`
+ * にしてしまい後段の blank 変換を無効化する。本版は1パスで両方を処理:
+ *   - 空文字 / null / undefined → undefined（@IsOptional がスキップ）
+ *   - 非空文字               → Number(s)（@IsInt が通る）
+ *   - 既に数値               → そのまま
+ * 任意数値 DTO 項目では `@Type(() => Number)` の代わりに使う。
  */
 const blankOrNumber = ({ value }: { value: unknown }) => {
   if (value === null || value === undefined) return undefined;
@@ -62,22 +57,19 @@ const blankOrNumber = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Half-width katakana regex — mirrors create-hanbaiten.dto.ts (kept inline
- * per `.claude/rules/vue.md §Kana` so the FE/BE contract stays grep-able).
- * Range `ｦ-ﾟ` (U+FF66-FF9F) = letters + prolonged mark + dakuten/handakuten;
- * `\s` already includes the full-width space U+3000. Half-width digits are
- * allowed (店名 may carry a 半角 number).
+ * 半角カタカナ regex — create-hanbaiten.dto.ts と同一（FE/BE 契約を grep 可能に
+ * 保つためインライン維持・`.claude/rules/vue.md §Kana`）。範囲 `ｦ-ﾟ`(U+FF66-FF9F)
+ * ＝ 文字 + 長音符 + 濁点/半濁点。`\s` は全角スペース U+3000 を含む。半角数字も許可
+ * （店名に半角数字が入りうる）。
  */
 const HALF_WIDTH_KATAKANA_RE = /^[ｦ-ﾟ\s0-9]+$/u;
 
 /**
- * Excel-friendly boolean coercion for 廃店フラグ. xlsx cells reach the DTO
- * as a JS boolean, a number, or a string ('TRUE' / '1' / '○' / …) depending
- * on how the user typed the cell — a bare `@IsBoolean` would 400 the whole
- * import on a perfectly intended `1`. Maps the common truthy/falsy forms;
- * blank → undefined (so `@IsOptional` skips, service defaults to false); an
- * unrecognised value passes through unchanged so `@IsBoolean` rejects it
- * with the field-level message.
+ * 廃店フラグ 用の Excel 向け boolean 変換。xlsx セルは入力次第で boolean / number /
+ * 文字列（'TRUE' / '1' / '○' …）で DTO に届き、素の `@IsBoolean` だと妥当な `1` でも
+ * 取込全体を 400 にする。よくある真偽形をマップし、空→undefined（`@IsOptional` が
+ * スキップし service が false 既定）、未知値はそのまま通し `@IsBoolean` が項目別
+ * メッセージで弾く。
  */
 const TRUE_TOKENS = new Set(['true', '1', '○', '〇', '◯', '✓', 'yes', 'y']);
 const FALSE_TOKENS = new Set(['false', '0', '×', '✕', 'no', 'n']);
@@ -95,23 +87,18 @@ const excelToBool = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Body of POST /api/v1/hanbaiten/import (ACSMS-API-019-002).
+ * POST /api/v1/hanbaiten/import のボディ (ACSMS-API-019-002)。
+ * バリデーション規則は ACSMS-SCR-019-api.md §4.1 準拠。
+ * - `import_mode` ∈ { NEW, UPDATE }（顧客要件 2026-07：全項目更新を廃止し更新1本に
+ *   統合。UPDATE は selected_columns の列のみ更新、全列更新は全列を含める）
+ * - `selected_columns` は物理列名 1..23 件。service 層が多層防御として
+ *   `hanbaiten_code` 含有を再検証（規則が「selected_columns に hanbaiten_code 必須」に
+ *   帰着するため DTO 層の相関チェックは不要）。
+ * - `rows` は 1..500 件。将来クライアントが DTO 上限をバイパスしても
+ *   ROW_LIMIT_EXCEEDED を返せるよう service で再度上限を課す。
  *
- * Validation rules per docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md §4.1.
- * - `import_mode` ∈ { NEW, UPDATE }（顧客要件 2026-07：全項目更新を廃止し
- *   更新1本に統合。UPDATE は selected_columns の列のみ更新、全列更新は全列を
- *   selected_columns に含める）
- * - `selected_columns` carries 1..23 physical column names; the service
- *   layer re-asserts the `hanbaiten_code` membership for defence-in-depth
- *   (no DTO-level cross-field check is necessary since the rule
- *   collapses to "selected_columns must include hanbaiten_code").
- * - `rows` carries 1..500 row payloads. Cap is enforced again in the
- *   service to surface ROW_LIMIT_EXCEEDED with the project's error code
- *   when a future client bypasses the DTO max.
- *
- * m_code allow-list validation (itaku_kubun / furikomi_tesuryo_futan_kubun /
- * yokin_shubetsu) is the service layer's responsibility because
- * `class-validator` runs before Nest DI is wired.
+ * m_code の allow-list 検証（itaku_kubun / furikomi_tesuryo_futan_kubun /
+ * yokin_shubetsu）は `class-validator` が Nest DI 前に走るため service 層の責務。
  */
 
 const IMPORT_MODES = ['NEW', 'UPDATE'] as const;

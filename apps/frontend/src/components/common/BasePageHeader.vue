@@ -3,7 +3,7 @@ import { useBreadcrumb } from '@/composables/useBreadcrumb';
 
 interface Props {
   title: string;
-  /** Override auto breadcrumb if provided. */
+  /** 指定時は自動パンくずを上書き。 */
   breadcrumb?: { label: string; to?: string }[];
 }
 
@@ -46,7 +46,7 @@ const { items } = useBreadcrumb();
         </ol>
       </nav>
     </div>
-    <!-- Optional right-side actions (e.g. primary "新規登録" button) -->
+    <!-- 右側の任意アクション（例: 主ボタン「新規登録」） -->
     <div class="flex items-center gap-2">
       <slot name="actions" />
     </div>

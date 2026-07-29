@@ -1,13 +1,9 @@
 import { Account } from '@/database/entities/account.entity';
 
 /**
- * アカウントごとに登録された最大4つのメールアドレス
- * （`email` 通知先 + `sub_email_1/2/3` サブ）を全件横断で収集し、
- * 空白を除去・重複排除した宛先一覧を返す共通ユーティリティ。
- *
- * - 1つの物理メールボックスが複数スロットに重複していても、Set で
- *   一意化するため送信は1回だけになる。
- * - SCR-023 ファイルアップロード通知 / SCR-029 帳票出力通知の双方で利用する。
+ * 各アカウントの最大4宛先（`email` + `sub_email_1/2/3`）を横断収集し、
+ * 空白除去・重複排除した一覧を返す。Set で一意化するため同一メールは1回のみ。
+ * SCR-023 アップロード通知 / SCR-029 帳票出力通知で利用。
  */
 export function collectAccountEmails(
   accounts: Array<

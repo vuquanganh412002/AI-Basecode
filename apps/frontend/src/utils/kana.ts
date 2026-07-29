@@ -1,35 +1,30 @@
 /**
- * Half-width katakana validation shared by every `*_name_kana` form
- * field (JA, 管理支店, 支店, …). Downstream Zengin CSV / PDF exports
- * mandate half-width per spec — see `.claude/rules/vue.md §Kana fields`.
+ * 全 `*_name_kana` フォームフィールド（JA, 管理支店, 支店, …）共通の半角カタカナ検証。
+ * 下流の Zengin CSV / PDF エクスポートは仕様上半角必須 — `.claude/rules/vue.md §Kana fields` 参照。
  *
- * Single source of truth so the regex + canonical message wording stay
- * identical across screens. Mirrors the BE `@Matches(/^[ｦ-ﾟ\s]+$/u)` in
- * each `*_kana` DTO field.
+ * 正規表現 + 標準メッセージ文言を画面間で一致させるための唯一の情報源。各 `*_kana` DTO の
+ * BE `@Matches(/^[ｦ-ﾟ\s]+$/u)` のミラー。
  */
 
 /**
- * U+FF66 ｦ – U+FF9F ﾟ covers letters ｦ-ﾝ, the prolonged sound mark ｰ
- * (U+FF70), and dakuten/handakuten ﾞ ﾟ. `\s` already includes the
- * full-width space U+3000, so we do NOT add `　` to the character class
- * (SonarLint flags it as a duplicate).
+ * U+FF66 ｦ – U+FF9F ﾟ は文字 ｦ-ﾝ、長音符 ｰ（U+FF70）、濁点/半濁点 ﾞ ﾟ を含む。
+ * `\s` は既に全角スペース U+3000 を含むため、文字クラスに `　` を追加しない
+ * （SonarLint が重複として指摘する）。
  *
- * `0-9` was added 2026-05-21 — customer reported that real-world JA /
- * 支店 / 販売店 names carry branch numbering suffixes (e.g.
- * `ﾃｽﾄ123`, `ｾﾝﾀｰ2`). The Zengin / JASTEM export-side accepts these as
- * long as they're half-width, so loosening the regex is safe.
+ * `0-9` は 2026-05-21 に追加 — 実際の JA / 支店 / 販売店 名に支店番号サフィックス
+ * （例 `ﾃｽﾄ123`, `ｾﾝﾀｰ2`）が付くと顧客報告。Zengin / JASTEM エクスポート側は
+ * 半角である限り受理するため、正規表現を緩めても安全。
  */
 export const HALF_WIDTH_KATAKANA_RE = /^[ｦ-ﾟ\s0-9]+$/u;
 
 /**
- * Build the canonical error message for an invalid `*_name_kana` field.
+ * 不正な `*_name_kana` フィールド向けの標準エラーメッセージを組み立てる。
  *
  *   kanaFormatMessage('JA名')           -> 'JA名(カナ)は半角カタカナ・半角数字で入力してください。'
  *   kanaFormatMessage('管理支店名')     -> '管理支店名(カナ)は半角カタカナ・半角数字で入力してください。'
  *   kanaFormatMessage('支店名')         -> '支店名(カナ)は半角カタカナ・半角数字で入力してください。'
  *
- * Keep the wording in sync with the BE DTO `@Matches` message so both
- * layers surface the same text via `<a-form-item :help>`.
+ * BE DTO の `@Matches` メッセージと文言を同期させ、両層が `<a-form-item :help>` に同じ文を表示するようにする。
  */
 export function kanaFormatMessage(fieldLabel: string): string {
   return `${fieldLabel}(カナ)は半角カタカナ・半角数字で入力してください。`;

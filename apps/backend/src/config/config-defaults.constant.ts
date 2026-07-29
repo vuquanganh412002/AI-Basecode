@@ -1,13 +1,11 @@
 /**
- * Default fallback values for OPTIONAL config keys — the single source of
- * truth so the `configuration.ts` factory default and any consumer-side
- * `?? fallback` never drift apart.
+ * Default fallbacks for OPTIONAL config keys — single source of truth so the
+ * `configuration.ts` factory default and any consumer-side `?? fallback`
+ * never drift.
  *
- * Consumers fall back to these only when ConfigService can't supply a value
- * (e.g. AuthService injects ConfigService as `@Optional()` for unit tests;
- * MailService reads keys that the factory already defaults). Keeping the
- * literal in ONE place means a change here updates both the factory and the
- * consumer at once.
+ * Consumers use these only when ConfigService can't supply a value (e.g.
+ * AuthService injects ConfigService as `@Optional()` in unit tests;
+ * MailService reads factory-defaulted keys). One place = one change.
  */
 /** Public base URL of the SPA (Vite dev server origin in local). */
 export const DEFAULT_FRONTEND_URL = 'http://localhost:5173';

@@ -1,6 +1,4 @@
-// Pure response-shaping for the 増減連絡票（販売店）report (ACSMS-SCR-028).
-// No Nest DI / repo / service — only flat-row → grouped-DTO transforms,
-// importable from anywhere (service + unit tests).
+// 増減連絡票（販売店）(ACSMS-SCR-028) の純変換（生行→グループ化DTO。DI/repo なし・service + test 共用）。
 
 import type {
   Content,
@@ -15,7 +13,7 @@ import { DokusyaShubetsu } from '@/common/enums';
 /** getRawMany() の数値カラムは driver により number / 文字列で届くため両対応。 */
 type RawNullableNum = number | string | null;
 
-/** Flat row returned by the 増減連絡票 QueryBuilder `.getRawMany()`. */
+/** 増減連絡票 QueryBuilder .getRawMany() の生行。 */
 export interface ZougenRawRow {
   dokusya_rireki_id: number | string;
   // 同一購読者の同日複数履歴を累計するためのキー（dokusya_id, rireki_no昇順）。
@@ -76,7 +74,7 @@ export interface ZougenRawRow {
   biko: string;
 }
 
-// ─── response row shapes (api.md §レスポンスデータ) ─────────────────────
+// ─── レスポンス行の型（api.md §レスポンスデータ）─────────────────────
 export interface ZougenEntry {
   busu: string; // "{前} → {後}"
   address: string;
@@ -707,7 +705,7 @@ function reportContent(
 }
 
 /**
- * Build the pdfmake document definition for the 増減連絡票（販売店）PDF.
+ * 増減連絡票（販売店）PDF の pdfmake document definition を組む。
  *
  * **プレビューと同じ改ページ**：販売店+管理支店(combo)ごとに独立ページ（顧客要件
  * 2026-07・SCR-026/029 と同方針）。各ページ先頭で改ページ（`pageBreak: 'before'`）。

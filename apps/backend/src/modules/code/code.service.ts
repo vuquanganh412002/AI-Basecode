@@ -66,12 +66,10 @@ export class CodeService implements OnModuleInit {
   }
 
   /**
-   * Reverse of {@link getLabel} — resolve a code's VALUE from its label
-   * (`m_code.code_name`). Returns null when no code in the category carries
-   * that label. Used e.g. by the Excel import, where a cell may hold the
-   * customer-editable Japanese label (「男性」) instead of the numeric code.
-   * Tracking the live m_code labels means a customer-renamed label keeps
-   * resolving without a code change — never hardcode a label→code map.
+   * {@link getLabel} の逆 — ラベル (m_code.code_name) から VALUE を解決。カテゴリ内に
+   * そのラベルが無ければ null。Excel import 等でセルが数値コードでなく顧客編集可能な
+   * 日本語ラベル(「男性」)を持つ場合に使用。live な m_code ラベルを参照するため、
+   * 顧客がラベルを改名してもコード変更なしで解決可 — label→code マップをハードコードしない。
    */
   getValueByLabel(category: string, label: string): number | string | null {
     return (

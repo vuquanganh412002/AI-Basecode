@@ -3,21 +3,19 @@ import BaseCard from './BaseCard.vue';
 
 interface Props {
   loading?: boolean;
-  /** Number of columns in the inputs grid. Default 4 (for the SCR-004 JA list).
-      SCR-002 Tanka list uses 5 columns to fit 種別 / 名 / 開始日 / 終了日 / フラグ. */
+  /** 入力グリッドの列数。既定 4（SCR-004 JA一覧）。
+      SCR-002 単価一覧は 種別 / 名 / 開始日 / 終了日 / フラグ を収めるため 5 列。 */
   columns?: 1 | 2 | 3 | 4 | 5;
   /**
-   * Disable the 検索 submit button independently of `loading`. SCR-015
-   * disables search while a bulk-replace is staged (≥1 row checked) so
-   * the user can't re-query and lose their selection.
+   * `loading` とは独立に 検索 ボタンを無効化。SCR-015 は一括置換をステージ中（1行以上チェック）に
+   * 検索を無効化し、再クエリで選択を失わないようにする。
    */
   disableSubmit?: boolean;
   /**
-   * Align grid cells to the top instead of vertically centering them.
-   * Use when fields can show an inline validation message below the input
-   * (e.g. SCR-015): with the default `items-center`, one cell growing to fit
-   * a message vertically re-centers the sibling cells and misaligns their
-   * labels. `items-start` keeps every label pinned to the top row.
+   * グリッドセルを縦中央でなく上揃えにする。入力下にインラインバリデーションメッセージを
+   * 表示し得るフィールド（例: SCR-015）で使う。既定の `items-center` では 1 セルが
+   * メッセージで縦に伸びると兄弟セルが再中央寄せされラベルがずれる。`items-start` は
+   * 全ラベルを上段に固定する。
    */
   alignStart?: boolean;
 }
@@ -69,7 +67,7 @@ const gridClass: Record<number, string> = {
         >
           検索クリア
         </a-button>
-        <!-- Extra buttons e.g. CSV出力 -->
+        <!-- 追加ボタン（例: CSV出力） -->
         <slot name="extra" />
       </div>
     </form>

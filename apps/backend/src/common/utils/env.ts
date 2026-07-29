@@ -7,13 +7,13 @@ export function toBoolean(value: string | boolean | undefined): boolean {
 }
 
 /**
- * Normalized `NODE_ENV` (trimmed + lowercased; '' when unset).
+ * 正規化済み `NODE_ENV`（trim + 小文字化。未設定時は ''）。
  *
- * This is the SINGLE bootstrap-time reader of `process.env.NODE_ENV` for
- * the Nest app — `app.module.ts` (env-file selection) and `isNodeEnv()`
- * route through here so no other `src/**` file touches `process.env`
- * directly (see `.claude/rules/nestjs.md §Configuration` — env.ts is the
- * named config-path exception alongside data-source.ts / scripts).
+ * `process.env.NODE_ENV` を読む唯一のブートストラップ時リーダー — ConfigModule
+ * 生成前（app.module.ts の env ファイル選択）に必要。app.module.ts と
+ * `isNodeEnv()` はここを経由し、他の `src/**` は `process.env` を直接触らない
+ * （.claude/rules/nestjs.md §Configuration — env.ts は data-source.ts / scripts と
+ * 並ぶ明示的例外）。
  */
 export function nodeEnv(): string {
   return process.env.NODE_ENV?.trim().toLowerCase() ?? '';

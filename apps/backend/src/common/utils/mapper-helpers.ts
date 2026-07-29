@@ -1,20 +1,15 @@
 /**
- * Shared value normalisers for response-DTO mappers. Every CRUD module's
- * mapper used to declare its own `toIso` + `toNumber` (4 copies between
- * account-form / accounts / hanbaiten-form mappers + file-upload service);
- * Sonar counted those declarations as duplicate blocks. Centralised here.
+ * レスポンス DTO マッパー用の共通値正規化。Sonar が指摘した4つの重複
+ * `toIso`/`toNumber`（account-form / accounts / hanbaiten-form マッパー +
+ * file-upload サービス）を集約。
  *
- * Behavior matches the (safer) hanbaiten-form variant: `toNumber` returns
- * `null` when the input parses as NaN, not the raw `NaN`. The account
- * mappers' previous variant produced `NaN` on bad input which would then
- * serialize as `null` in JSON anyway, so the unification is observably
- * identical for production callers.
+ * より安全な hanbaiten-form 版に合わせ、`toNumber` は NaN 時に生の `NaN` でなく
+ * `null` を返す — `NaN` は JSON で `null` にシリアライズされるため観測上は同一。
  */
 
 /**
- * Normalise a TIMESTAMPTZ value (TypeORM round-trips `Date` in production,
- * `string` under pg-mem in tests) to an ISO 8601 string. Preserves
- * `null` / `undefined` as `null` so callers don't need to guard.
+ * TIMESTAMPTZ（本番は Date、pg-mem では string）→ ISO 8601 文字列。
+ * `null` / `undefined` は `null` のまま保持。
  */
 export function toIso(v: Date | string | null | undefined): string | null {
   if (v === null || v === undefined) return null;
@@ -23,9 +18,8 @@ export function toIso(v: Date | string | null | undefined): string | null {
 }
 
 /**
- * Normalise a BIGINT-as-string (TypeORM's BIGINT round-trip default) to
- * a JS `number`. Preserves `null` / `undefined` as `null`. Returns
- * `null` for non-numeric strings rather than `NaN`.
+ * BIGINT 文字列（TypeORM 既定）→ JS `number`。`null` / `undefined` は `null` の
+ * まま保持。非数値文字列は `NaN` でなく `null` にする。
  */
 export function toNumber(v: number | string | null | undefined): number | null {
   if (v === null || v === undefined) return null;

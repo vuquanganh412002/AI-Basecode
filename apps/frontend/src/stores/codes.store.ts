@@ -3,18 +3,18 @@ import { defineStore } from 'pinia';
 import { getCodes, type CodeItem, type CodeMap } from '@/api/codes/codes';
 
 /**
- * Code master store.
+ * コードマスタストア。
  *
- * Mirrors the backend `m_code` table (21 categories) in a single HTTP call
- * after login. All dropdowns / label mappings read from this cache — no
- * component calls the API directly.
+ * ログイン後の 1 回の HTTP 呼び出しで BE `m_code` テーブル（21 カテゴリ）を
+ * ミラー。全ドロップダウン/ラベル対応はこのキャッシュから読み、
+ * コンポーネントは API を直接呼ばない。
  *
- * Lifecycle:
- *   - login / MFA verify success / app boot (refreshSession) → loadAll()
- *   - logout → reset() clears cache so the next user refetches
+ * ライフサイクル:
+ *   - login / MFA verify 成功 / アプリ起動（refreshSession）→ loadAll()
+ *   - logout → reset() でキャッシュ破棄し次ユーザーが再取得
  *
- * m_code values rarely change at runtime; this store has no TTL. If an
- * admin screen mutates m_code later, call `reload()` to refetch.
+ * m_code 値は実行時にほぼ変わらないため TTL 無し。管理画面が後で m_code を
+ * 変更した場合は `reload()` で再取得。
  */
 export const useCodesStore = defineStore('codes', () => {
   const all = ref<CodeMap | null>(null);
@@ -41,18 +41,18 @@ export const useCodesStore = defineStore('codes', () => {
     }
   }
 
-  /** Options for `<a-select :options="…">` (value + label pairs). */
+  /** `<a-select :options="…">` 用の option（value + label ペア）。 */
   function options(category: string): CodeItem[] {
     return all.value?.[category] ?? [];
   }
 
-  /** Look up display label for a stored code value. */
+  /** 保存済みコード値の表示ラベルを引く。 */
   function label(category: string, value: number | string | null | undefined): string {
     if (value === null || value === undefined) return '';
     return all.value?.[category]?.find((x) => x.value === value)?.label ?? '';
   }
 
-  /** Short display label (used in tables where column width is tight). */
+  /** 短縮表示ラベル（列幅が狭いテーブルで使用）。 */
   function labelShort(category: string, value: number | string | null | undefined): string {
     if (value === null || value === undefined) return '';
     return all.value?.[category]?.find((x) => x.value === value)?.label_short ?? '';

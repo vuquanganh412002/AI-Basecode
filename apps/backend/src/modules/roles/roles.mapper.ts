@@ -1,7 +1,7 @@
 import type { Role } from '@/database/entities/role.entity';
 import type { Permission } from '@/database/entities/permission.entity';
 
-/** Listing item (API-027-001) — 4 fields, no timestamps. */
+/** 一覧アイテム（API-027-001）— 4項目、timestamp なし。 */
 export interface RoleListItem {
   role_id: number;
   role_code: string;
@@ -9,20 +9,19 @@ export interface RoleListItem {
   description: string | null;
 }
 
-/** Detail item (API-027-002 / API-027-003) — adds permission_ids + timestamps. */
+/** 詳細アイテム（API-027-002 / API-027-003）— permission_ids + timestamp を追加。 */
 export interface RoleDetailResponse extends RoleListItem {
   permission_ids: number[];
   /**
-   * Subset of `permission_ids` whose `m_roles_permissions.locked = TRUE`
-   * (seeded baseline). FE renders these checkboxes disabled. BE rejects
-   * any PATCH that drops one of these IDs.
+   * `permission_ids` のうち `m_roles_permissions.locked = TRUE`（seed ベースライン）の
+   * 部分集合。FE は該当チェックボックスを disabled にし、BE はこれを外す PATCH を拒否。
    */
   locked_permission_ids: number[];
   created_at: string | null;
   updated_at: string | null;
 }
 
-/** Permission list item (API-027-004). */
+/** 権限一覧アイテム（API-027-004）。 */
 export interface PermissionListItem {
   permission_id: number;
   permission_code: string;
@@ -30,7 +29,7 @@ export interface PermissionListItem {
   description: string | null;
 }
 
-/** Map a Role entity row to the SCR-027 list shape. */
+/** Role entity → SCR-027 一覧形状へ変換。 */
 export function toRoleListItem(role: Role): RoleListItem {
   return {
     role_id: Number(role.roleId),
@@ -40,7 +39,7 @@ export function toRoleListItem(role: Role): RoleListItem {
   };
 }
 
-/** Map a Role entity + its sorted permission_ids to the detail shape. */
+/** Role entity + ソート済み permission_ids → 詳細形状へ変換。 */
 export function toRoleDetailResponse(
   role: Role,
   permissionIds: number[],
@@ -55,7 +54,7 @@ export function toRoleDetailResponse(
   };
 }
 
-/** Map a Permission entity row to the SCR-027 list shape. */
+/** Permission entity → SCR-027 一覧形状へ変換。 */
 export function toPermissionListItem(p: Permission): PermissionListItem {
   return {
     permission_id: Number(p.permissionId),

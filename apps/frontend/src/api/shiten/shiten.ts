@@ -3,12 +3,11 @@ import axiosInstance from '@/api/axios-instance';
 // ─── ACSMS-SCR-006 — 支店マスタ明細検索画面 ────────────────────────────
 
 /**
- * Row shape returned by `GET /api/v1/shiten` (ACSMS-API-006-001).
- * Mirrors `docs/design/ACSMS-SCR-006/ACSMS-SCR-006-api.md §レスポンスデータ`.
+ * `GET /api/v1/shiten`（ACSMS-API-006-001）の行の形。
+ * `docs/design/ACSMS-SCR-006/ACSMS-SCR-006-api.md §レスポンスデータ` 準拠。
  *
- * Adds `kanri_shiten_name` over `ShitenDetail` — the list response
- * batch-joins from `m_kanri_shiten` so the table can show the parent
- * branch name without an extra round-trip per row.
+ * `ShitenDetail` に `kanri_shiten_name` を追加 — 一覧レスポンスは
+ * `m_kanri_shiten` から一括 JOIN し、行ごとの追加往復なしに親支店名を表示できる。
  */
 export interface ShitenListItem {
   shiten_id: number;
@@ -40,22 +39,22 @@ export interface ShitenListResponse {
   meta: ShitenListMeta;
 }
 
-/** Query-string DTO for `GET /api/v1/shiten`. */
+/** `GET /api/v1/shiten` のクエリDTO。 */
 export interface ListShitenQuery {
   shiten_name?: string;
   shiten_code?: string;
   kanri_shiten_id?: number;
   jastem_toriatsukai_tenpo_code?: string;
-  /** undefined = 全選択 (no filter), true = 金融機関支店, false = 金融機関支店以外. */
+  /** undefined = 全選択（フィルタなし）、true = 金融機関支店、false = 金融機関支店以外。 */
   kinyu_shiten_flg?: boolean;
   page?: number;
   per_page?: number;
-  /** Sortable columns: 2 local (画面定義§8.1) + 1 joined (kanri_shiten_name). */
+  /** ソート可能列: ローカル2列（画面定義§8.1）+ JOIN 1列（kanri_shiten_name）。 */
   sort_by?: 'shiten_code' | 'shiten_name' | 'kanri_shiten_name';
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response from `DELETE /api/v1/shiten/:shiten_id`. */
+/** `DELETE /api/v1/shiten/:shiten_id` のレスポンス。 */
 export interface ShitenDeleteResponse {
   message: string;
 }
@@ -81,12 +80,10 @@ export async function removeShiten(
 // ─── ACSMS-API-COMMON — 支店 dropdown (consumed by SCR-011) ────────────
 
 /**
- * Minimal projection used by 引落口座支店 / 配達先支店 dropdowns. The
- * form view filters client-side by `kinyu_shiten_flg=true` for the
- * 口座引落 cluster (画面設計書 SCR-011 §10.1: 「支店マスタの金融機関
- * 支店フラグ=1」のもののみ表示). `kanri_shiten_id` is included so the
- * dropdown can chain off the parent 管理支店 selection without a
- * second round-trip.
+ * 引落口座支店 / 配達先支店 dropdown 用の最小 projection。フォーム view は
+ * 口座引落クラスタ向けにクライアント側で `kinyu_shiten_flg=true` で絞る
+ * （画面設計書 SCR-011 §10.1:「支店マスタの金融機関支店フラグ=1」のもののみ表示）。
+ * `kanri_shiten_id` を含め、追加往復なしに親 管理支店 選択に連鎖できる。
  */
 export interface ShitenDropdownItem {
   shiten_id: number;
@@ -95,9 +92,8 @@ export interface ShitenDropdownItem {
   kanri_shiten_id: number;
   kinyu_shiten_flg: boolean;
   /**
-   * Optional — BE includes these when the response is consumed by the
-   * 引落口座支店 picker that auto-fills the JASTEM 店舗 fields. The
-   * dropdown for non-kinyu shiten omits them.
+   * 任意 — JASTEM 店舗 項目を自動補完する 引落口座支店 picker がレスポンスを
+   * 使う場合に BE が含める。非金融機関支店の dropdown では省略される。
    */
   jastem_toriatsukai_tenpo_code?: string;
   jastem_tenpo_name?: string;
@@ -106,23 +102,22 @@ export interface ShitenDropdownItem {
 export interface ShitenDropdownEnvelope {
   data: ShitenDropdownItem[];
   /**
-   * Optional cursor-pagination meta. Older callers expect just
-   * `{ data }`; newer dropdown views (SCR-011) consume `has_more` to
-   * drive infinite scroll. The field stays optional so both shapes
-   * type-check.
+   * 任意のカーソルページング meta。旧呼び出し元は `{ data }` のみを期待し、
+   * 新しい dropdown view（SCR-011）は無限スクロール用に `has_more` を使う。
+   * 両形が型チェックを通るよう optional のまま。
    */
   meta?: { total: number; page: number; per_page: number; has_more: boolean };
 }
 
 export interface ShitenDropdownQuery {
-  /** Optional JA filter (NICHINO_* 代行入力 only — JA-scoped roles let session.ja_id win). */
+  /** 任意の JA フィルタ（NICHINO_* 代行入力のみ — JA スコープのロールは session.ja_id 優先）。 */
   ja_id?: number;
-  /** true = 金融機関支店のみ (引落口座支店 picker); false / undefined = all. */
+  /** true = 金融機関支店のみ（引落口座支店 picker）、false / undefined = 全件。 */
   kinyu_shiten_flg?: boolean;
   /**
-   * 管理支店IDで絞込み (ACSMS-API-COMMON-006). SCR-015 chains the 支店
-   * dropdown off the chosen 管理支店. BE asserts it is within the
-   * caller's session scope (query tampering guard).
+   * 管理支店IDで絞込み（ACSMS-API-COMMON-006）。SCR-015 は選択した 管理支店 に
+   * 支店 dropdown を連鎖させる。BE が呼び出し元のセッションスコープ内かを
+   * 検証する（クエリ改ざんガード）。
    */
   kanri_shiten_id?: number;
   q?: string;
@@ -131,10 +126,9 @@ export interface ShitenDropdownQuery {
 }
 
 /**
- * GET /api/v1/shiten/dropdown — Shared dropdown lookup for SCR-011
- * (購読者情報登録). Returns minimal projections so the dropdown
- * component can render thousands of rows without overweighting the
- * payload.
+ * GET /api/v1/shiten/dropdown — SCR-011（購読者情報登録）共通 dropdown
+ * ルックアップ。最小 projection を返し、dropdown が数千行を payload を
+ * 重くせず描画できるようにする。
  */
 export async function getShitenDropdown(
   query: ShitenDropdownQuery = {},
@@ -146,7 +140,7 @@ export async function getShitenDropdown(
   return res.data;
 }
 
-// ─── ACSMS-API-COMMON-008 — Get Koza Shiten Dropdown (定義元: ACSMS-SCR-020) ──
+// ─── ACSMS-API-COMMON-008 — 口座支店 dropdown 取得（定義元: ACSMS-SCR-020） ──
 
 /** 口座支店ドロップダウンの1行（金融機関支店フラグ=TRUE のみ）。 */
 export interface KozaShitenDropdownItem {
@@ -187,9 +181,8 @@ export async function getKozaShitenDropdown(
 // ─── ACSMS-SCR-007 — 支店マスタ登録画面 ──────────────────────────────
 
 /**
- * Full detail returned by `GET /api/v1/shiten/:id` and the body of
- * POST/PUT responses. Mirrors
- * `docs/design/ACSMS-SCR-007/ACSMS-SCR-007-api.md §レスポンスデータ`.
+ * `GET /api/v1/shiten/:id` および POST/PUT レスポンスの body が返す完全な詳細。
+ * `docs/design/ACSMS-SCR-007/ACSMS-SCR-007-api.md §レスポンスデータ` 準拠。
  */
 export interface ShitenDetail {
   shiten_id: number;
@@ -198,8 +191,8 @@ export interface ShitenDetail {
   shiten_name: string;
   shiten_name_kana: string;
   kinyu_shiten_flg: boolean;
-  // JASTEM 店舗単位 4 列 (database-design.md §m_shiten rows 7-10,
-  // ※空文字許容 — BE serializes '' for missing values, never null).
+  // JASTEM 店舗単位 4 列（database-design.md §m_shiten rows 7-10、
+  // ※空文字許容 — BE は未設定値を null ではなく '' でシリアライズ）。
   jastem_toriatsukai_tenpo_code: string;
   jastem_tenpo_name: string;
   jastem_tyokin_shubetsu: string;
@@ -210,7 +203,7 @@ export interface ShitenDetail {
   updated_at: string | null;
 }
 
-/** POST /api/v1/shiten request body. */
+/** POST /api/v1/shiten のリクエスト body。 */
 export interface CreateShitenRequest {
   shiten_code: string;
   shiten_name: string;
@@ -225,8 +218,8 @@ export interface CreateShitenRequest {
 }
 
 /**
- * PUT /api/v1/shiten/:id — drops `shiten_code` (immutable after create)
- * per api.md §3 注記. `ja_id` is also not in the body (derived from session).
+ * PUT /api/v1/shiten/:id — api.md §3 注記に従い `shiten_code`（作成後は不変）を除く。
+ * `ja_id` も body に含めない（セッションから導出）。
  */
 export type UpdateShitenRequest = Omit<CreateShitenRequest, 'shiten_code'>;
 

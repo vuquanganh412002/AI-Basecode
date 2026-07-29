@@ -119,7 +119,7 @@ export class AuthController {
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const sessionId = this.readSessionId(req);
     const user = await this.authService.refreshSession(sessionId);
-    // Re-issue the cookie so the browser extends its Max-Age too.
+    // cookie を再発行しブラウザ側 Max-Age も延長。
     if (sessionId) this.setSessionCookie(res, sessionId);
     return { data: { user } };
   }
@@ -198,9 +198,8 @@ export class AuthController {
   }
 
   private cookieOptions(): CookieOptions {
-    // Inherit the project-wide hardening flags (HttpOnly + Secure +
-    // SameSite=Strict + Path=/); add the session-specific `signed`
-    // tamper-detection and 24h Max-Age on top.
+    // 共通ハードニング(HttpOnly + Secure + SameSite=Strict + Path=/)を継承し、
+    // session 固有の `signed` 改竄検知と 24h Max-Age を追加。
     return {
       ...baseCookieOptions(this.nodeEnv),
       signed: true,

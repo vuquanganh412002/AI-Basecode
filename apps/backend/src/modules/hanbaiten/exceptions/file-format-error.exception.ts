@@ -6,11 +6,9 @@ import {
 } from '@/common/constants/error-codes.constant';
 
 /**
- * Thrown when the import payload can't be interpreted as the
- * canonical 23-column structure (e.g. numeric column carries a
- * non-numeric string that slipped past the DTO). Maps to
- * `FILE_FORMAT_ERROR` per docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md
- * §エラー一覧.
+ * 取込ペイロードが正準 23 列構造として解釈できないときに送出（例: DTO をすり抜けた
+ * 非数値文字列を持つ数値列）。ACSMS-SCR-019-api.md §エラー一覧 の
+ * `FILE_FORMAT_ERROR` に対応。
  */
 export class FileFormatErrorException extends DomainException {
   constructor(message: string = ErrorMessage.FILE_FORMAT_ERROR) {

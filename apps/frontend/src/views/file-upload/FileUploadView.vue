@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// ACSMS-SCR-023 — ファイルアップロード画面.
-// Mirrors docs/design/ACSMS-SCR-023/screen-design.md (機能定義 1.x〜8.x) +
-// docs/design/ACSMS-SCR-023/ACSMS-SCR-023-api.md (API-023-001〜004).
+// ACSMS-SCR-023 — ファイルアップロード画面。
+// screen-design.md（機能定義 1.x〜8.x）+ API-023-001〜004 に準拠。
 
 import { computed, onMounted, ref, watch } from 'vue';
 import {
@@ -43,15 +42,13 @@ import {
   type TodofukenItem,
 } from '@/api/todofuken/todofuken';
 
-// ──────────────────── Constants ────────────────────
-const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB per screen-design 機能定義 4.2
+// ──────────────────── 定数 ────────────────────
+const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB（機能定義 4.2）
 
-// [allowed-extensions] Customer review 2026-05 — closed whitelist of
-// 12 extensions. Keep in sync with BE `ALLOWED_EXTENSIONS` in
-// apps/backend/src/modules/file-upload/file-upload.service.ts.
-// FE side: drives the <input accept=...> (OS file picker filter) +
-// the addFile() rejection toast. BE is the authoritative gate (FE
-// is UX hint only — a power user could bypass `accept=`).
+// [allowed-extensions] 顧客レビュー 2026-05 — 12拡張子のクローズドホワイトリスト。
+// BE file-upload.service.ts の ALLOWED_EXTENSIONS と同期させること。
+// FE: <input accept=...>（OS ファイルピッカー）+ addFile() 拒否トースト。
+// BE が正規のゲート（FE は UX ヒントのみ・accept= はバイパス可能）。
 const ALLOWED_EXTENSIONS = [
   '.xlsx', '.xls',
   '.pdf',
@@ -64,7 +61,7 @@ const ALLOWED_EXTENSIONS = [
 ];
 const ACCEPT_ATTR = ALLOWED_EXTENSIONS.join(',');
 
-// ──────────────────── Form state ────────────────────
+// ──────────────────── フォーム状態 ────────────────────
 interface TargetJa {
   ja_id: number;
   ja_code: string;
@@ -154,7 +151,7 @@ watch(scheduledDeleteDate, (v) => {
 
 const uploading = ref(false);
 
-// ──────────────────── History table state ────────────────────
+// ──────────────────── 履歴テーブル状態 ────────────────────
 const rows = ref<FileUploadListItem[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -166,9 +163,8 @@ const historyColumns: TableColumnsType = [
   { title: 'JA', key: 'ja', width: 220 },
   { title: 'サイズ', key: 'file_size', width: 120 },
   { title: '通知ステータス', key: 'notification_status', width: 140 },
-  // [notified-at] Stamp from worker when the row leaves 送信中 (2).
-  // Sits next to 通知ステータス so an operator can see both
-  // "what state" and "when it landed there" at a glance.
+  // [notified-at] 送信中(2) を抜けた時刻を worker が刻む。通知ステータスの隣に
+  // 置き、「どの状態か」と「いつ遷移したか」を一目で確認できるようにする。
   { title: '通知日時', key: 'notified_at', width: 160 },
   { title: '削除予定日', key: 'scheduled_delete_date', width: 140 },
   { title: '削除日', key: 'deleted_at', width: 140 },
@@ -201,13 +197,13 @@ const {
   api: { getFilePreview, downloadFile, downloadFilesAsZip },
 });
 
-// ──────────────────── Initial fetch ────────────────────
+// ──────────────────── 初期取得 ────────────────────
 async function fetchTodofukenOptions(): Promise<void> {
   try {
     const resp = await getTodofukenList();
     todofukenOptions.value = resp.data;
   } catch {
-    // [interceptor-handled] global axios interceptor toasted.
+    // [interceptor-handled] global axios interceptor がトースト済み。
     todofukenOptions.value = [];
   }
 }
@@ -224,7 +220,7 @@ async function fetchHistory(): Promise<void> {
     rows.value = resp.data;
     total.value = resp.meta.total;
   } catch {
-    // [interceptor-handled] global axios interceptor toasts on 403/500.
+    // [interceptor-handled] global axios interceptor が 403/500 をトースト。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -253,7 +249,7 @@ function removeJa(jaId: number): void {
   jaPickerValue.value = jaPickerValue.value.filter((s) => s.value !== jaId);
 }
 
-// ──────────────────── 機能定義 4.x — file selection ────────────────────
+// ──────────────────── 機能定義 4.x — ファイル選択 ────────────────────
 function isAllowedFileFormat(fileName: string): boolean {
   const lower = fileName.toLowerCase();
   const dotIdx = lower.lastIndexOf('.');
@@ -267,11 +263,9 @@ function addFile(file: File): void {
     message.error(`ファイルサイズが30MBを超えています。(${file.name})`);
     return;
   }
-  // [format-gate] Customer review 2026-05 — closed whitelist. The OS
-  // file picker's `accept=` already filters most picks, but drag&drop
-  // bypasses that, and `accept=` is advisory on macOS Safari. Recheck
-  // here so the rejection toast fires before we add to the staging
-  // list (and matches the BE FileUploadFormatException copy).
+  // [format-gate] 顧客レビュー 2026-05 — クローズドホワイトリスト。OS ピッカーの
+  // accept= は大半を弾くが drag&drop はバイパスし、macOS Safari では advisory。
+  // ステージング追加前に再チェックし、BE FileUploadFormatException と同じ文言で拒否。
   if (!isAllowedFileFormat(file.name)) {
     message.error(`許可されていないファイル形式です。(${file.name})`);
     return;
@@ -285,7 +279,7 @@ function onFilesPicked(event: Event): void {
   for (const file of Array.from(target.files)) {
     addFile(file);
   }
-  // Reset input so the same file can be re-picked after removal.
+  // 削除後に同じファイルを再選択できるよう input をリセット。
   target.value = '';
 }
 
@@ -293,9 +287,9 @@ function removeFile(index: number): void {
   selectedFiles.value.splice(index, 1);
 }
 
-// ──────────────────── 機能定義 6.x — upload submit ────────────────────
+// ──────────────────── 機能定義 6.x — アップロード送信 ────────────────────
 function onUploadClick(): void {
-  // 機能定義 6.2 — required-field gate (ACSMS-MSG-023-001).
+  // 機能定義 6.2 — 必須チェック（ACSMS-MSG-023-001）。
   let blocked = false;
   // 削除予定日 未入力 → 項目直下にインラインエラー（トーストは出さない）。
   if (!scheduledDeleteDate.value) {
@@ -309,7 +303,7 @@ function onUploadClick(): void {
   }
   if (blocked) return;
 
-  // 機能定義 6.3 — confirmation dialog (ACSMS-MSG-023-008).
+  // 機能定義 6.3 — 確認ダイアログ（ACSMS-MSG-023-008）。
   Modal.confirm({
     title: 'アップロード確認',
     content: 'このファイルをアップロードしますか？',
@@ -329,14 +323,14 @@ async function doUpload(): Promise<void> {
       files: [...selectedFiles.value],
       scheduled_delete_date: scheduledDeleteDate.value ?? undefined,
     });
-    // ACSMS-MSG-023-006 — direct literal (different from useNotify().uploaded())
+    // ACSMS-MSG-023-006 — 直接リテラル（useNotify().uploaded() とは別文言）
     message.success('ファイルのアップロードが完了しました。');
-    // 機能定義 6.6 — clear form, refetch history
+    // 機能定義 6.6 — フォームをクリアし履歴を再取得
     clearForm();
     void fetchHistory();
   } catch (err: unknown) {
-    // 機能定義 6.6 — API error case → ACSMS-MSG-023-005.
-    // Interceptor handles 401/403; 500-class with no specific code lands here.
+    // 機能定義 6.6 — API エラー → ACSMS-MSG-023-005。
+    // 401/403 は interceptor が処理。コード無しの 500 系はここに来る。
     const e = err as { response?: { data?: { error_code?: string } } };
     if (e?.response?.data?.error_code !== 'UNAUTHORIZED' && e?.response?.data?.error_code !== 'FORBIDDEN') {
       message.error('アップロードに失敗しました。しばらくしてから再度お試しください。');
@@ -353,7 +347,7 @@ function clearForm(): void {
   dateError.value = null;
 }
 
-// ──────────────────── 機能定義 7.x — clear button ────────────────────
+// ──────────────────── 機能定義 7.x — クリアボタン ────────────────────
 function onClearClick(): void {
   if (selectedFiles.value.length === 0 && targetJas.value.length === 0) {
     clearForm();
@@ -371,9 +365,9 @@ function onClearClick(): void {
   });
 }
 
-// ──────────────────── 機能定義 8.x — delete uploaded file ──────────
+// ──────────────────── 機能定義 8.x — アップロード済ファイル削除 ──────────
 function isDeletable(row: FileUploadListItem): boolean {
-  // 画面項目定義 No.18 — disable when deleted_at IS NOT NULL
+  // 画面項目定義 No.18 — deleted_at が NOT NULL のとき無効化
   return row.deleted_at == null;
 }
 
@@ -385,12 +379,12 @@ function askDelete(row: FileUploadListItem): void {
       message.success('削除しました。');
       await fetchHistory();
     } catch {
-      // [interceptor-handled] 401/403/500 toasted by global interceptor.
+      // [interceptor-handled] 401/403/500 は global interceptor がトースト済み。
     }
   });
 }
 
-// ──────────────────── Formatting helpers ────────────────────
+// ──────────────────── 表示整形ヘルパー ────────────────────
 function formatBytes(bytes: number | null): string {
   if (bytes == null) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -399,18 +393,17 @@ function formatBytes(bytes: number | null): string {
 }
 
 /**
- * JA cell — `JAコード JA名`. Global uploads (ja_id NULL → ja_code/ja_name
- * null) show 全JA向け.
+ * JA セル — `JAコード JA名`。全JA向けアップロード（ja_id NULL →
+ * ja_code/ja_name null）は「全JA向け」を表示。
  */
 function formatJa(row: FileUploadListItem): string {
   const parts = [row.ja_code, row.ja_name].filter(Boolean);
   return parts.length > 0 ? parts.join(' ') : '全JA向け';
 }
 
-// Display via the shared Asia/Tokyo-pinned formatters so dates render in
-// JST regardless of the viewer's browser timezone (a previous browser-local
-// formatter showed 削除予定日 one day early for +07:00 users). Keep the
-// '-' placeholder for null per screen-design.
+// Asia/Tokyo 固定フォーマッタで表示し、閲覧者のブラウザ TZ に依存せず JST で
+// 描画する（旧ローカル TZ 実装は +07:00 で削除予定日が1日早く出た）。
+// null は screen-design 通り '-' プレースホルダを維持。
 function formatDate(iso: string | null | undefined): string {
   return iso ? formatDateTokyo(iso) : '-';
 }
@@ -420,7 +413,7 @@ function formatDateTime(iso: string | null | undefined): string {
 }
 
 function notificationStatusLabel(status: number): string {
-  // m_code-driven; customer can rename labels via reload without redeploy.
+  // m_code 駆動。顧客は reload でラベル改称可能（再デプロイ不要）。
   return codes.label('NOTIFICATION_STATUS', status) || String(status);
 }
 
@@ -443,24 +436,24 @@ function onPageChange(pagination: TablePaginationConfig): void {
   void fetchHistory();
 }
 
-// [spec-internals] FileUploadView.spec.ts drives vm directly — defineExpose
-// gives the spec hands-on access without depending on antd-internal events.
+// [spec-internals] FileUploadView.spec.ts が vm を直接操作する。defineExpose で
+// antd 内部イベントに依存せずスペックからアクセスできるようにする。
 defineExpose({
-  // form state
+  // フォーム状態
   selectedTodofukenCode,
   targetJas,
   jaPickerValue,
   selectedJaIds,
   selectedFiles,
   scheduledDeleteDate,
-  // actions
+  // アクション
   onJaChange,
   removeJa,
   addFile,
   removeFile,
   askDelete,
   isDeletable,
-  // selection / preview / download
+  // 選択 / プレビュー / ダウンロード
   selectedIds,
   rowSelectionConfig,
   previewOpen,
@@ -469,7 +462,7 @@ defineExpose({
   onPreview,
   onPreviewRow,
   onDownload,
-  // history
+  // 履歴
   fetchHistory,
 });
 </script>

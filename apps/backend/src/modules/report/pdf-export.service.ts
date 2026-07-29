@@ -3,10 +3,9 @@ import { join } from 'node:path';
 import PdfPrinterImport from 'pdfmake';
 import type { TDocumentDefinitions, TFontDictionary } from 'pdfmake/interfaces';
 
-// pdfmake's node entry (src/printer.js) `module.exports` the PdfPrinter
-// constructor, but @types/pdfmake only types the browser build — so we
-// re-type the default import as the node constructor to keep the call site
-// type-safe without an untyped `require`.
+// pdfmake の node エントリ(src/printer.js)は PdfPrinter コンストラクタを module.exports
+// するが @types/pdfmake は browser 版のみ型付け。untyped require を避けつつ型安全にするため
+// default import を node コンストラクタとして再型付けする。
 interface PdfKitDoc {
   on(event: 'data', cb: (chunk: Buffer) => void): void;
   on(event: 'end', cb: () => void): void;
@@ -18,13 +17,11 @@ interface Printer {
 }
 const PdfPrinter = PdfPrinterImport as unknown as new (fonts: TFontDictionary) => Printer;
 
-// Font assets are copied to dist/modules/report/assets by nest-cli
-// (`compilerOptions.assets` in nest-cli.json), so __dirname resolves both
-// under ts-node (src/) and the compiled build (dist/).
+// フォントは nest-cli(nest-cli.json compilerOptions.assets)が dist/modules/report/assets へ
+// コピーするため、__dirname は ts-node(src/) / ビルド(dist/) 両方で解決できる。
 const FONT_FILE = join(__dirname, 'assets', 'ipaexg.ttf');
 const FONTS: TFontDictionary = {
-  // IPAexGothic ships a single weight — map every variant to it so pdfmake
-  // accepts `bold` styling (rendered at regular weight).
+  // IPAexGothic は単一ウェイト — 全 variant を割当てて pdfmake の bold 指定を許容（実描画は通常）。
   IPAexGothic: {
     normal: FONT_FILE,
     bold: FONT_FILE,
@@ -34,16 +31,15 @@ const FONTS: TFontDictionary = {
 };
 
 /**
- * Server-side PDF generation via pdfmake with an embedded Japanese font
- * (IPAexGothic). Callers build a pdfmake document definition (e.g.
- * `buildZougenDocDefinition` for ACSMS-SCR-028) and this service streams it
- * into a Buffer. No headless browser required.
+ * 日本語フォント(IPAexGothic)埋込の pdfmake によるサーバ側PDF生成。呼び出し側が
+ * document definition（例: SCR-028 の buildZougenDocDefinition）を組み、本サービスが
+ * Buffer へストリームする。ヘッドレスブラウザ不要。
  */
 @Injectable()
 export class PdfExportService {
   private readonly printer: Printer = new PdfPrinter(FONTS);
 
-  /** Render a pdfmake document definition to a PDF Buffer. */
+  /** pdfmake の document definition を PDF Buffer に描画する。 */
   async generatePdf(docDefinition: TDocumentDefinitions): Promise<Buffer> {
     const finalDoc: TDocumentDefinitions = {
       ...docDefinition,

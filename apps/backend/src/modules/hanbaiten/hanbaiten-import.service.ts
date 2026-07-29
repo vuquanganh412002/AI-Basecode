@@ -31,21 +31,19 @@ import {
   IMPORT_TEMPLATE_SAMPLE_ROW,
 } from './dto/import-template.constants';
 
-/** SCR-019 — 販売店Excelデータ取込画面 audit-context label. */
+/** SCR-019 — 販売店Excelデータ取込画面。監査コンテキストのラベル。 */
 const SCR019_SCREEN_NAME = '販売店Excelデータ取込画面 (ACSMS-SCR-019)';
 
 /**
- * SCR-019 監査ログ用テーブル名（t_log.target_table）。core 側
- * HanbaitenService と同一値だが、本サービス内で完結させるため複製して保持する。
+ * SCR-019 監査ログ用テーブル名（t_log.target_table）。core 側と同値だが本
+ * サービス内で完結させるため複製して保持。
  */
 const TABLE_NAME = 'm_hanbaiten';
 
 /**
- * SCR-019 import — bank fields that become REQUIRED when the EFFECTIVE
- * itaku_kubun of a row is 1 (振込). Per api.md §4.1 this list is SIX
- * fields and deliberately EXCLUDES koza_meigi — narrower than the
- * SCR-017 create form's 7-field `CONDITIONAL_REQUIRED_FIELDS` (spec
- * decision; bulk import does not force the account holder name).
+ * SCR-019 取込 — 行の EFFECTIVE itaku_kubun が 1（振込）のとき必須になる銀行項目。
+ * api.md §4.1 では 6 項目で、koza_meigi を意図的に除外 — SCR-017 作成フォームの
+ * 7 項目 `CONDITIONAL_REQUIRED_FIELDS` より狭い（spec 判断：一括取込は口座名義を強制しない）。
  */
 const IMPORT_FURIKOMI_REQUIRED_FIELDS: ReadonlyArray<{
   key:
@@ -66,11 +64,9 @@ const IMPORT_FURIKOMI_REQUIRED_FIELDS: ReadonlyArray<{
 ];
 
 /**
- * Existing-row shape fetched in the import existence pre-check — carries
- * the columns the conditional-required guard needs to compute the
- * EFFECTIVE post-import value of a row in UPDATE mode (TC-019-040:
- * an unselected bank field that is already blank in the DB must still
- * trip the 振込 check).
+ * 取込の存在 pre-check で取得する既存行の形 — UPDATE モードで行の EFFECTIVE
+ * 取込後値を算出するのに conditional-required ガードが必要とする列を持つ
+ * （TC-019-040：DB で既に空の未選択銀行項目も 振込 チェックを発火させる）。
  */
 interface ImportExistingRow {
   hanbaiten_id: number;
@@ -106,24 +102,19 @@ export class HanbaitenImportService {
 
   // ─── ACSMS-API-019-001 — GET /api/v1/hanbaiten/import/template ────────
   /**
-   * Canonical 23-column header list — also referenced by integration
-   * specs to assert the template payload. Public so the controller-
-   * and integration-layer tests can assert against the same source.
+   * 正準 23 列ヘッダ一覧（integration spec もテンプレート検証に参照）。
+   * controller/integration テストが同一ソースを検証できるよう public。
    */
   getImportTemplateColumns(): string[] {
     return [...IMPORT_TEMPLATE_COLUMNS];
   }
 
   /**
-   * Generate the Excel template — 1 worksheet, 1 header row carrying
-   * the 23 Japanese column names in canonical order. Read-only
-   * operation (no audit log written) per api.md §4 — template
-   * download is a discovery action, not a state change.
+   * Excel テンプレート生成 — 1 worksheet・正準順の 23 日本語列名を持つヘッダ 1 行。
+   * 読取専用（監査ログ無し・api.md §4 — テンプレDLは状態変更でなく discovery）。
    *
-   * `session` is unused in body but kept on the signature so the
-   * spec contract stays explicit about who is permitted to call
-   * (guard handles the permission, this method assumes the caller
-   * has already passed the gate).
+   * `session` は body 未使用だが、呼出許可者を spec 契約で明示するため signature に保持
+   * （許可は guard 担当・本メソッドは通過済みを前提）。
    */
   async downloadImportTemplate(_session: SessionPayload): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
@@ -133,17 +124,15 @@ export class HanbaitenImportService {
     sheet.addRow(headers);
     const headerRow = sheet.getRow(1);
     headerRow.font = { bold: true };
-    // [sample-row] Ship one ready-to-import sample row (row 2) in header
-    // order so users see the expected shape and can import immediately
-    // (edit before real use). See IMPORT_TEMPLATE_SAMPLE_ROW for why it's
-    // dependency-free (itaku_kubun=2 → no bank fields, no 単価コード).
+    // [sample-row] ヘッダ順で即取込可能なサンプル行(row 2)を同梱し、期待形を提示
+    // （実利用前に編集）。依存無しの理由は IMPORT_TEMPLATE_SAMPLE_ROW 参照
+    // （itaku_kubun=2 → 銀行項目・単価コード不要）。
     sheet.addRow(
       IMPORT_TEMPLATE_PHYSICAL_COLUMNS.map(
         (col) => IMPORT_TEMPLATE_SAMPLE_ROW[col] ?? '',
       ),
     );
-    // Give every column a readable default width — exact 16 chars is
-    // wide enough for the longest column name '配達手数料支払サイクル' (12 JP chars).
+    // 全列に読みやすい既定幅 16 — 最長列名 '配達手数料支払サイクル'(12 文字)に十分。
     sheet.columns = headers.map(() => ({ width: 16 }));
     const buf = await workbook.xlsx.writeBuffer();
     return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
@@ -151,37 +140,27 @@ export class HanbaitenImportService {
 
   // ─── ACSMS-API-019-002 — POST /api/v1/hanbaiten/import ────────────────
   /**
-   * Bulk-import 販売店 rows. Two modes (api.md §4.4, 顧客要件 2026-07):
-   *   NEW    — INSERT each row; rejects on existing hanbaiten_code within
-   *            the caller's JA.
-   *   UPDATE — UPDATE only `selected_columns` (unselected columns keep their
-   *            existing DB value); rejects on missing hanbaiten_code. 全列
-   *            更新は全列を selected_columns に含める。旧 UPDATE_ALL は廃止。
+   * 販売店を一括取込。2 モード（api.md §4.4, 顧客要件 2026-07）:
+   *   NEW    — 各行 INSERT。自 JA 内で既存 hanbaiten_code は拒否。
+   *   UPDATE — `selected_columns` の列のみ UPDATE（未選択列は既存 DB 値を維持）、
+   *            hanbaiten_code 不在は拒否。全列更新は全列を selected_columns に
+   *            含める。旧 UPDATE_ALL は廃止。
    *
-   * Validation order (all PRE-transaction so a single failed row
-   * short-circuits before any DB write):
-   *   1. [row-limit-guard]        — 501+ rows → ROW_LIMIT_EXCEEDED.
-   *   2. [partial-key-guard]      — UPDATE must include
-   *                                  hanbaiten_code in selected_columns.
-   *   3. [data-scope]             — session.ja_id is authoritative;
-   *                                  null (NICHINO_STAFF) rejected.
+   * 検証順（全て PRE-transaction。1 行失敗で DB 書込前に短絡）:
+   *   1. [row-limit-guard]        — 501 行以上 → ROW_LIMIT_EXCEEDED。
+   *   2. [partial-key-guard]      — UPDATE は selected_columns に hanbaiten_code 必須。
+   *   3. [data-scope]             — session.ja_id が権威。null(NICHINO_STAFF)は拒否。
    *   4. [m-code-validation]      — itaku_kubun / furikomi_tesuryo_futan_kubun /
-   *                                  yokin_shubetsu via CodeService.
-   *   5. [batch-duplicate-guard]  — within-batch hanbaiten_code clash.
-   *   6. [type-guard]             — furikomi_tesuryo-style fields that
-   *                                  survived DTO as non-numeric strings
-   *                                  (FILE_FORMAT-shaped).
-   *   7. [existence-precheck]     — NEW: must NOT exist; UPDATE: MUST
-   *                                  exist. Single SELECT via ANY().
-   *   8. [tanka-fk-resolution]    — haitatsuryo_tanka_code → tanka_id,
-   *                                  filtered by ja_id (Layer 4 guard).
+   *                                  yokin_shubetsu を CodeService で検証。
+   *   5. [batch-duplicate-guard]  — バッチ内 hanbaiten_code 衝突。
+   *   6. [type-guard]             — DTO を非数値文字列で通過した furikomi_tesuryo 系
+   *                                  (FILE_FORMAT 形)。
+   *   7. [existence-precheck]     — NEW: 非存在必須、UPDATE: 存在必須。ANY() で 1 SELECT。
+   *   8. [tanka-fk-resolution]    — haitatsuryo_tanka_code → tanka_id、ja_id 絞込(Layer 4)。
    *
-   * After all pre-checks pass: one `dataSource.transaction(...)` wraps
-   * every INSERT/UPDATE + a single audit-log row (`IMPORT_NEW` /
-   * `IMPORT_UPDATE_PARTIAL`). Mid-batch failures
-   * roll back atomically; the error-log row is written AFTER the
-   * rollback on the standalone connection so the failure trace
-   * survives.
+   * 全 pre-check 通過後、1 つの `dataSource.transaction(...)` が全 INSERT/UPDATE +
+   * 監査 1 行（`IMPORT_NEW` / `IMPORT_UPDATE_PARTIAL`）を包む。途中失敗は原子的に
+   * ロールバック。エラーログ行はロールバック後に standalone 接続で書きトレースを残す。
    */
   async importExcel(
     body: ImportHanbaitenDto,
@@ -198,16 +177,14 @@ export class HanbaitenImportService {
     };
     message: string;
   }> {
-    // [row-limit-guard] — defence-in-depth; DTO @ArrayMaxSize(500)
-    // catches this for normal clients.
+    // [row-limit-guard] — 多層防御。通常クライアントは DTO @ArrayMaxSize(500) で捕捉。
     if (body.rows.length > IMPORT_MAX_ROWS) {
       throw new RowLimitExceededException();
     }
 
-    // [partial-key-guard] — UPDATE must carry hanbaiten_code in
-    // selected_columns; without it the SET clause has nothing to anchor on.
-    // Surface as VALIDATION_ERROR (not IMPORT_VALIDATION_ERROR) because the
-    // failure is on the top-level array, not a row.
+    // [partial-key-guard] — UPDATE は selected_columns に hanbaiten_code 必須
+    // （無いと SET 句の基点が無い）。失敗は行でなくトップ配列なので
+    // VALIDATION_ERROR（IMPORT_VALIDATION_ERROR でなく）で返す。
     if (
       body.import_mode === 'UPDATE' &&
       !body.selected_columns.includes('hanbaiten_code')
@@ -220,15 +197,12 @@ export class HanbaitenImportService {
       ]);
     }
 
-    // [data-scope] — session.ja_id is authoritative; a JA-less session
-    // cannot import. Defense-in-depth: NICHINO_STAFF and NICHINO_ADMIN
-    // (both ja_id null) do NOT hold `hanbaiten.import` — it was revoked
-    // from NICHINO_STAFF on 2026-06 (migration 1711900900017) and never
-    // granted to NICHINO_ADMIN — so the controller's @Permissions gate
-    // already 403s them. Only the 3 JA-scoped roles (CHUOKAI / JA_HONTEN
-    // / JA_KANRI_SHITEN) reach here and they always carry a ja_id. This
-    // guard stays as a backstop against a future mis-grant; 販売店
-    // Excel取込 is NOT a 代行入力 feature (confirmed 2026-06).
+    // [data-scope] — session.ja_id が権威。JA 無しセッションは取込不可。多層防御:
+    // NICHINO_STAFF / NICHINO_ADMIN（共に ja_id null）は `hanbaiten.import` を持たない
+    // — NICHINO_STAFF は 2026-06 に剥奪(migration 1711900900017)、NICHINO_ADMIN には
+    // 未付与 — なので controller の @Permissions が既に 403。ここに到達するのは JA
+    // スコープ 3 役(CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN)のみで常に ja_id を持つ。
+    // 本ガードは将来の誤付与への backstop。販売店 Excel取込 は 代行入力 機能ではない(2026-06 確認)。
     if (session.ja_id == null) {
       throw new DataScopeViolationException();
     }
@@ -239,9 +213,8 @@ export class HanbaitenImportService {
     this.collectBatchDuplicateCodeErrors(body.rows, errors);
     this.collectImportRowMcodeErrors(body.rows, errors);
 
-    // [existence-precheck] — fetch any rows whose hanbaiten_code matches
-    // in the caller's JA. NEW mode treats a hit as "duplicate"; UPDATE_*
-    // mode treats a miss as "not found".
+    // [existence-precheck] — 自 JA 内で hanbaiten_code が一致する行を取得。
+    // NEW は hit を「重複」、UPDATE_* は miss を「not found」扱い。
     const codes = Array.from(
       new Set(body.rows.map((r) => r.hanbaiten_code).filter(Boolean)),
     );
@@ -259,8 +232,8 @@ export class HanbaitenImportService {
     const existingMap = new Map(
       existingRows.map((r) => [r.hanbaiten_code, Number(r.hanbaiten_id)]),
     );
-    // Full-row map keyed by code — the conditional-required guard merges
-    // these existing values with the Excel cells for UPDATE.
+    // code キーの全行マップ — conditional-required ガードが UPDATE で
+    // これら既存値と Excel セルをマージする。
     const existingDataMap = new Map(
       existingRows.map((r) => [r.hanbaiten_code, r]),
     );
@@ -281,43 +254,38 @@ export class HanbaitenImportService {
       errors,
     );
 
-    // [tanka-fk-resolution] — resolve haitatsuryo_tanka_code → tanka_id.
-    // Cross-tenant tankas are rejected the same way as missing ones
-    // (Layer 4 guard). Extracted helper handles both the resolution and
-    // the "not found" row errors.
+    // [tanka-fk-resolution] — haitatsuryo_tanka_code → tanka_id 解決。他テナントの
+    // tanka は不在と同様に拒否(Layer 4)。抽出 helper が解決と "not found" 行エラー両方を担当。
     const tankaIdMap = await this.resolveImportTankaIds(
       body.rows,
       targetJaId,
       errors,
     );
 
-    // Short-circuit — if anything failed pre-check, throw BEFORE
-    // dataSource.transaction opens (api.md §4.3 — pre-check phase
-    // strictly precedes §4.4 transaction phase).
+    // 短絡 — pre-check 失敗があれば dataSource.transaction を開く前に throw
+    // （api.md §4.3 — pre-check フェーズは §4.4 transaction フェーズに厳密に先行）。
     if (errors.length > 0) {
       throw new ImportValidationException(errors);
     }
 
-    // [todofuken-default] — m_hanbaiten.todofuken_code is NOT NULL with
-    // FK to m_todofuken. The Excel template does not carry 都道府県
-    // (api.md §テンプレートファイル仕様), so default to the caller's
-    // JA prefecture. Lookup happens once per import (one row).
+    // [todofuken-default] — m_hanbaiten.todofuken_code は NOT NULL・m_todofuken への FK。
+    // Excel テンプレートは 都道府県 を持たない(api.md §テンプレートファイル仕様)ので
+    // 呼出者の JA 都道府県を既定に。取込毎に 1 回ルックアップ。
     const jaTodofuken = await this.dataSource.query<Array<{ todofuken_code: string }>>(
       `SELECT todofuken_code FROM m_ja WHERE ja_id = $1 AND deleted_at IS NULL`,
       [targetJaId],
     );
     const defaultTodofukenCode = jaTodofuken[0]?.todofuken_code ?? '';
 
-    // [transaction-phase] — all DML + a single audit row commit (or
-    // roll back) together. Error log lives OUTSIDE so the failure
-    // trace survives any rollback.
+    // [transaction-phase] — 全 DML + 監査 1 行を一緒に commit/rollback。
+    // エラーログは外でロールバック後もトレースを残す。
     const importedAt = new Date().toISOString();
     let createdCount = 0;
     let updatedCount = 0;
     const createdIds: number[] = [];
 
     // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存の
-    // IMPORT_UPDATE_PARTIAL を再利用する（過去ログ互換のため enum は変えない）。
+    // IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換のため enum を変えない）。
     const operation =
       body.import_mode === 'NEW' ? 'IMPORT_NEW' : 'IMPORT_UPDATE_PARTIAL';
 
@@ -340,7 +308,7 @@ export class HanbaitenImportService {
             createdIds.push(Number(saved.hanbaitenId));
           } else {
             // UPDATE — 選択列のみ更新（未選択列は既存DB値を維持）。全列更新は
-            // selected_columns に全列が含まれる形で実現する。
+            // 全列を selected_columns に含める形で実現。
             await this.applyImportRowUpdatePartial(manager, row, {
               existingMap,
               selectedColumns: body.selected_columns,
@@ -351,8 +319,8 @@ export class HanbaitenImportService {
           }
         }
 
-        // [audit-log-in-tx] — one summary row per import call. Atomicity
-        // holds because the INSERT goes through `manager`.
+        // [audit-log-in-tx] — 取込 1 回につき要約 1 行。INSERT が `manager` 経由で
+        // 原子性を保つ。
         const ctx = buildAuditCtx(
           session,
           req,
@@ -368,11 +336,10 @@ export class HanbaitenImportService {
           created_ids: createdIds,
           imported_at: importedAt,
         };
-        // 取込はバッチ操作なので「1回の取込につき監査ログ1行」。操作種別は
-        // 非標準ラベル (IMPORT_NEW / IMPORT_UPDATE_PARTIAL)
-        // を logOperation で直接記録する。以前は spec を通すために logCreate /
-        // logUpdate も併発しており t_log が1取込で2行（CREATE + IMPORT_NEW 等）
-        // になっていた — その重複を排除し logOperation 1本に統一。
+        // 取込はバッチ操作なので「1取込につき監査ログ1行」。非標準ラベル
+        // (IMPORT_NEW / IMPORT_UPDATE_PARTIAL) を logOperation で直接記録。以前は
+        // spec を通すため logCreate/logUpdate も併発し t_log が1取込2行になっていた —
+        // その重複を排除し logOperation 1本に統一。
         if (body.import_mode === 'NEW') {
           await this.auditLog.logOperation(
             {
@@ -415,7 +382,7 @@ export class HanbaitenImportService {
         }
       });
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back transaction.
+      // [audit-error-log] — ロールバック外。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCR019_SCREEN_NAME, TABLE_NAME, null),
         operation,
@@ -437,18 +404,9 @@ export class HanbaitenImportService {
     };
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // SCR-019 import — batch-duplicate guard. Same hanbaiten_code
-  //                  appearing twice in one upload is a row-level error
-  //                  rather than a DB constraint violation. Extracted
-  //                  from importExcel to keep that function's complexity
-  //                  below the Sonar S3776 threshold.
-  // ──────────────────────────────────────────────────────────────
-  // SCR-019 import — existence-check vs import_mode:
-  //   NEW → existing code is a duplicate-error;
-  //   UPDATE_* → missing code is a not-found-error.
-  // Extracted from importExcel to keep S3776 below threshold.
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — 存在チェック vs import_mode：
+  //   NEW → 既存コードは重複エラー、UPDATE_* → 不在コードは not-found エラー。
+  // importExcel から抽出（Sonar S3776 の複雑度閾値を下げる）。
   private collectExistenceErrors(
     rows: ImportHanbaitenRowDto[],
     importMode: ImportHanbaitenDto['import_mode'],
@@ -469,11 +427,8 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — fetch tanka_id for every haitatsuryo_tanka_code
-  // referenced by the batch (filtered by jaId for Layer 4) and report
-  // rows whose code didn't resolve. Returns the lookup map for the
-  // INSERT/UPDATE phase to consume.
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — バッチが参照する全 haitatsuryo_tanka_code の tanka_id を取得
+  // (jaId で絞込・Layer 4)し、未解決の行を報告。INSERT/UPDATE 用のルックアップ map を返す。
   private async resolveImportTankaIds(
     rows: ImportHanbaitenRowDto[],
     targetJaId: number,
@@ -532,19 +487,15 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — pre-check m_code values + numeric-only type
-  //                  guard per row. Extracted from `importExcel` to
-  //                  keep that function's complexity below threshold.
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — 行毎の m_code 値 pre-check + 数値限定 type ガード。
+  // importExcel から抽出（複雑度を閾値以下に）。
   private collectImportRowMcodeErrors(
     rows: ImportHanbaitenRowDto[],
     errors: Array<{ row: number; field: string; message: string }>,
   ): void {
     // [m-code-validation] — itaku_kubun / furikomi_tesuryo_futan_kubun / yokin_shubetsu
-    // values must be present in m_code (or be omitted). CodeService is
-    // optional on the service constructor; without it skip the check
-    // (the spec's SCR-018 4-arg constructor leaves it undefined, but
-    // SCR-019 always wires it through `requireCodeService`).
+    // の値は m_code に存在（または省略）必須。CodeService は任意注入で、無ければ
+    // スキップ（SCR-018 4引数構築では undefined、SCR-019 は常に `requireCodeService` 経由で配線）。
     const cs = this.codeService;
     rows.forEach((row, idx) => {
       const rowNo = idx + 2;
@@ -569,11 +520,9 @@ export class HanbaitenImportService {
           message: '口座種別の値が不正です。',
         });
       }
-      // [type-guard] — Numeric-only fields that may have slipped past the
-      // DTO (`@IsInt()` does NOT fire when caller bypasses the
-      // ValidationPipe — e.g. service-direct test calls). Surface as
-      // an IMPORT_VALIDATION_ERROR field so the FE can highlight the
-      // offending row + column.
+      // [type-guard] — DTO をすり抜けうる数値限定項目（呼出者が ValidationPipe を
+      // バイパスすると `@IsInt()` が発火しない・例：service 直呼テスト）。FE が該当
+      // 行+列をハイライトできるよう IMPORT_VALIDATION_ERROR 項目で返す。
       if (
         row.furikomi_tesuryo != null &&
         typeof row.furikomi_tesuryo !== 'number'
@@ -587,15 +536,11 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — conditional-required guard (api.md §4.1): when a
-  //                  row's EFFECTIVE itaku_kubun is 1 (振込), the 6 bank
-  //                  fields must be non-blank. "Effective" merges the
-  //                  Excel cell with the existing DB row per mode:
-  //                    NEW            — selected ? cell : default(blank)
-  //                    UPDATE — selected ? cell : existing DB value
-  //                  (TC-019-040: an unselected, already-blank bank field
-  //                   still trips the check). koza_meigi excluded per spec.
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — conditional-required ガード(api.md §4.1)：行の EFFECTIVE
+  //   itaku_kubun が 1(振込)なら 6 銀行項目は非空必須。"Effective" はモード毎に
+  //   Excel セルと既存 DB 行をマージ：NEW=selected?cell:default(空)、
+  //   UPDATE=selected?cell:既存DB値（TC-019-040：未選択で既に空の銀行項目も発火）。
+  //   koza_meigi は spec により除外。
   private collectImportConditionalRequiredErrors(
     rows: ImportHanbaitenRowDto[],
     importMode: ImportHanbaitenDto['import_mode'],
@@ -609,10 +554,10 @@ export class HanbaitenImportService {
       const existing = existingDataMap.get(row.hanbaiten_code) as
         | Record<string, unknown>
         | undefined;
-      // Effective post-import value of a column for this row + mode.
+      // この行+モードでの列の取込後 EFFECTIVE 値。
       const effective = (field: string): unknown => {
         if (importMode === 'NEW') return sel.has(field) ? cell[field] : undefined;
-        // UPDATE — keep the existing DB value for unselected columns.
+        // UPDATE — 未選択列は既存 DB 値を維持。
         return sel.has(field) ? cell[field] : existing?.[field];
       };
 
@@ -635,12 +580,9 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — 委託区分 / 振込手数料負担区分 は必須（顧客要件・作成/更新
-  //                  画面と同方針）。EFFECTIVE 値が空なら必須エラー。
-  //                    NEW    — selected ? cell : blank（＝未選択は必須違反）
-  //                    UPDATE — selected ? cell : existing DB value
-  //                  （未選択で既存DBに値があれば維持・エラーにしない）。
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — 委託区分 / 振込手数料負担区分 は必須（顧客要件・作成/更新画面と
+  //   同方針）。EFFECTIVE 値が空なら必須エラー。NEW=selected?cell:空（未選択は違反）、
+  //   UPDATE=selected?cell:既存DB値（未選択で既存値あれば維持）。
   private collectImportRequiredKubunErrors(
     rows: ImportHanbaitenRowDto[],
     importMode: ImportHanbaitenDto['import_mode'],
@@ -679,10 +621,7 @@ export class HanbaitenImportService {
     });
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // SCR-019 import — per-row INSERT/UPDATE branches (extracted from
-  //                  the transaction callback to keep complexity low)
-  // ──────────────────────────────────────────────────────────────
+  // SCR-019 import — 行毎の INSERT/UPDATE 分岐（transaction callback から抽出・複雑度低減）。
   private async applyImportRowNew(
     manager: EntityManager,
     row: ImportHanbaitenRowDto,
@@ -696,15 +635,12 @@ export class HanbaitenImportService {
   ): Promise<Hanbaiten> {
     const { targetJaId, defaultTodofukenCode, tankaId, session, selectedColumns } =
       ctx;
-    // [selected-columns-honoured] api.md §4.4.1 — columns NOT in
-    // selected_columns are written with their default value (空文字 /
-    // NULL / false), NOT the Excel cell. Mirrors the FE 取込列 toggle:
-    // unchecking an optional column in 新規登録 means "insert the default
-    // for it". hanbaiten_code (key) + todofuken_code (auto-derived from
-    // the JA, not a template column) are always written.
+    // [selected-columns-honoured] api.md §4.4.1 — selected_columns に無い列は
+    // Excel セルでなく既定値（空文字 / NULL / false）で書く。FE 取込列トグルの反映：
+    // 新規登録で任意列を外す = 「その列は既定を挿入」。hanbaiten_code(key) +
+    // todofuken_code(JA から自動導出・テンプレ列でない)は常に書く。
     const sel = new Set(selectedColumns);
-    // `pick(col, value, dflt)` — keep the Excel value when the column is
-    // selected, otherwise fall back to the column's empty default.
+    // `pick(col, value, dflt)` — 列が選択されていれば Excel 値、なければ空既定に fallback。
     const pick = <T>(col: string, value: T, dflt: T): T =>
       sel.has(col) ? value : dflt;
     const entity = manager.create(Hanbaiten, {
@@ -775,9 +711,8 @@ export class HanbaitenImportService {
       const entityField = IMPORT_COLUMN_TO_FIELD[col];
       if (!entityField) continue;
       const raw = (row as unknown as Record<string, unknown>)[col];
-      // For empty cells, fall back to the column's NOT NULL default
-      // (empty string / false). Nullable columns (numeric / enum) are
-      // not in the map so they pass through as null.
+      // 空セルは列の NOT NULL 既定（空文字 / false）に fallback。nullable 列
+      // （numeric / enum）は map に無いので null で通過。
       const fallback = Object.hasOwn(IMPORT_FIELD_EMPTY_DEFAULT, entityField)
         ? IMPORT_FIELD_EMPTY_DEFAULT[entityField]
         : null;

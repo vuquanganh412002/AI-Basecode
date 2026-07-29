@@ -63,11 +63,10 @@ const SCR025_SCREEN_NAME = 'アカウントマスタ登録画面 (ACSMS-SCR-025)
 const BCRYPT_SALT_ROUNDS = 10;
 
 /**
- * Subset of m_account columns exposed in audit before/after_value JSON.
- * password_hash, mfa_enable_flg and login_failure_count remain EXCLUDED
- * — see api.md §4.5 注記 (パスワード等の機密情報は含めないこと).
- * account_lock_flg IS included so the admin unlock action via SCR-025
- * edit form leaves a clear before/after audit trail.
+ * audit before/after_value JSON に載せる m_account 列のサブセット。
+ * password_hash / mfa_enable_flg / login_failure_count は除外（api.md §4.5 注記:
+ * パスワード等の機密情報は含めないこと）。account_lock_flg は SCR-025 の admin 解除で
+ * 明確な before/after 監査証跡を残すため含める。
  */
 function buildAccountAuditSnapshot(account: Account): Record<string, unknown> {
   return {
@@ -92,16 +91,12 @@ function buildAccountAuditSnapshot(account: Account): Record<string, unknown> {
 }
 
 /**
- * Roles whose accounts must NOT carry scope columns (per api.md §4.4
- * 注記). 日農 roles (NICHINO_ADMIN / NICHINO_STAFF) have no JA scope,
- * so `todofuken_code` / `ja_id` / `kanri_shiten_id` are forced to null
- * at create/update time.
- *
- * Branches on `role_code` rather than `role_id` so the check is stable
- * against any future re-seed / reorder of `m_roles` (role_id is
- * BIGSERIAL — values come from INSERT order; role_code is a fixed
- * string identifier customers reference everywhere else). Resolution
- * `role_id → role_code` happens via `resolveRoleCode()` on the service.
+ * スコープ列を持ってはいけない役職（api.md §4.4 注記）。日農役職(NICHINO_ADMIN /
+ * NICHINO_STAFF)は JA スコープを持たないので create/update 時に todofuken_code /
+ * ja_id / kanri_shiten_id を null に強制。
+ * role_id ではなく role_code で分岐 — m_roles の再seed/並替に対し安定（role_id は
+ * BIGSERIAL で INSERT 順依存、role_code は固定文字列識別子）。role_id→role_code は
+ * service の resolveRoleCode() で解決。
  */
 const NICHINO_ROLE_CODES: ReadonlySet<string> = new Set<string>([
   RoleCode.NICHINO_ADMIN,
@@ -188,17 +183,12 @@ export class AccountService {
   }
 
   /**
-   * Resolve `role_id` (DTO input, FK to m_roles.role_id) → `role_code`
-   * by hitting the m_roles table. Used by create/update to branch on
-   * 日農 vs JA without depending on the numeric value of role_id (which
-   * is BIGSERIAL — drift-prone across seed reorders / re-seeds).
-   *
-   * Doubles as a FK existence check: throws `VALIDATION_ERROR` if
-   * `role_id` doesn't match any (non-deleted) m_roles row, matching
-   * the canonical FE-displayable shape that `useApiForm` parses.
-   *
-   * m_roles is a 5-row append-only table indexed by PK — the lookup
-   * is ~0.1ms; no need for a separate cache layer.
+   * role_id(DTO入力, FK to m_roles.role_id) → role_code を m_roles 参照で解決。
+   * create/update が role_id の数値に依存せず 日農 vs JA 分岐するため（role_id は
+   * BIGSERIAL で drift しやすい）。
+   * FK 存在チェックも兼ねる: 非削除 m_roles に一致なしなら VALIDATION_ERROR
+   * （useApiForm がパースする FE 表示形状）。m_roles は PK indexed の5行 append-only で
+   * ~0.1ms、キャッシュ層は不要。
    */
   private async resolveRoleCode(roleId: number): Promise<string> {
     const role = await this.roleRepo.findOne({
@@ -214,14 +204,10 @@ export class AccountService {
   }
 
   /**
-   * Toggle the caller's own MFA flag. The caller's `account_id` MUST
-   * come from the authenticated session — this service does NOT
-   * accept arbitrary IDs as a defence-in-depth check (the controller
-   * is the only sanctioned caller).
-   *
-   * Wraps the UPDATE + audit log in a single transaction so the audit
-   * trail can never disagree with persisted state. On failure emits an
-   * additional log_type=3 row OUTSIDE the rolled-back transaction.
+   * 呼出者自身の MFA フラグを切替。account_id は認証済セッション由来必須 —
+   * 任意 ID は受けない（多層防御、controller が唯一の正規呼出者）。
+   * UPDATE + audit log を単一 transaction で包み監査証跡が状態と乖離しないようにする。
+   * 失敗時は rolled-back tx 外に log_type=3 行を emit。
    */
   async toggleMfa(
     accountId: number,
@@ -254,12 +240,11 @@ export class AccountService {
           { accountId },
           { mfaEnableFlg: enabled, updatedBy: String(accountId) },
         );
-        // logUpdate must run inside the same tx so a failure here
-        // rolls back the m_account write too.
+        // logUpdate は同一 tx 内で実行（失敗時に m_account 書込もロールバック）。
         await this.auditLog.logUpdate(auditCtx, before, after, manager);
       });
     } catch (err) {
-      // Error log outside the rolled-back tx so it survives.
+      // Error log は rolled-back tx 外で存続させる。
       await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
       throw err;
     }
@@ -281,8 +266,8 @@ export class AccountService {
     const sortOrder: 'ASC' | 'DESC' =
       (query.sort_order ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // joined SELECT with LEFT JOIN m_roles / m_todofuken / m_ja /
-    // m_kanri_shiten. NICHINO_ADMIN bypasses DataScope (api.md §4.3).
+    // LEFT JOIN m_roles / m_todofuken / m_ja / m_kanri_shiten の join SELECT。
+    // NICHINO_ADMIN は DataScope をバイパス（api.md §4.3）。
     const qb = this.accountRepo
       .createQueryBuilder('a')
       .leftJoin('m_roles', 'r', 'a.role_id = r.role_id AND r.deleted_at IS NULL')
@@ -326,21 +311,19 @@ export class AccountService {
 
     this.applyAccountSearchFilters(qb, query);
 
-    // Defensive — sortBy is already validated by the DTO @IsIn but
-    // double-check before interpolating into the ORDER BY clause.
-    // `role_name` lives on the joined m_roles row (alias r); every other
-    // whitelisted key lives on m_account (alias a). Anything outside the
-    // whitelist falls back to a.created_at.
+    // 防御的 — sortBy は DTO @IsIn で検証済みだが ORDER BY 補間前に再確認。
+    // role_name は join した m_roles(alias r)、他の許可キーは m_account(alias a)。
+    // 許可外は a.created_at に fallback。
     const sortColumn = this.resolveAccountSortColumn(sortBy);
-    // limit/offset (NOT take/skip): take/skip only paginate getMany() — they
-    // are IGNORED by getRawMany() below, so the page returned EVERY account
-    // row. countQb.getCount() is a separate query, so meta totals stay right.
+    // limit/offset(take/skip ではない): take/skip は getMany() のみページング — 下の
+    // getRawMany() では無視され全行返してしまう。countQb.getCount() は別クエリなので
+    // meta 合計は正しいまま。
     qb.orderBy(sortColumn, sortOrder)
       .limit(perPage)
       .offset((page - 1) * perPage);
 
-    // Count uses the same WHERE chain via a separate QB so the raw
-    // joined SELECT can be returned without paying double DataScope cost.
+    // Count は別 QB で同一 WHERE を再利用 — DataScope コストを二重払いせず raw join
+    // SELECT を返せる。
     const countQb = this.accountRepo
       .createQueryBuilder('a')
       .where('a.deleted_at IS NULL');
@@ -356,10 +339,9 @@ export class AccountService {
   }
 
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────────
-  // Defined alongside SCR-030 (ログ参照画面) but consumed by any screen
-  // that needs an account picker. DataScope auto-applied by role.
-  // Server-side paginated + searchable (default 50/page) so callers
-  // can drive a `<BaseAccountDropdown>` with infinite scroll.
+  // SCR-030(ログ参照画面)と併設だがアカウント picker が要る全画面で使用。DataScope は
+  // 役職ごとに自動適用。サーバ側ページング+検索(既定50/page)で `<BaseAccountDropdown>`
+  // の無限スクロールを駆動可能。
   async getAccountDropdown(
     query: AccountDropdownQueryDto,
     session: SessionPayload,
@@ -376,8 +358,8 @@ export class AccountService {
         .innerJoin('m_roles', 'r', 'r.role_id = a.role_id AND r.deleted_at IS NULL')
         .where('a.deleted_at IS NULL');
 
-      // [data-scope] CHUOKAI / JA_HONTEN see own JA's accounts;
-      // JA_KANRI_SHITEN sees own kanri_shiten only. NICHINO_* bypass.
+      // [data-scope] CHUOKAI / JA_HONTEN は自 JA、JA_KANRI_SHITEN は自 kanri_shiten
+      // のみ。NICHINO_* はバイパス。
       applyBranchScope(
         qb,
         'a',
@@ -400,10 +382,9 @@ export class AccountService {
       .offset((page - 1) * per_page);
 
     if (query.q) {
-      // [match-field] 'name' = account_name only (SCR-030 log view's
-      // field label is ユーザ名 and matching login_id would surface
-      // hits the user can't read by the column they searched).
-      // Default 'both' preserves legacy login_id OR account_name.
+      // [match-field] 'name' = account_name のみ（SCR-030 ログ画面の項目は ユーザ名 で、
+      // login_id 一致だと検索列と読めない列でヒットする）。既定 'both' は従来の
+      // login_id OR account_name を維持。
       if (query.match_field === 'name') {
         qb.andWhere('a.account_name ILIKE :q', { q: `%${query.q}%` });
       } else {
@@ -414,8 +395,8 @@ export class AccountService {
       }
     }
 
-    // Count via a separate scoped query — re-applies the same q filter
-    // so total reflects the filtered result set, not the whole table.
+    // Count は別 scoped クエリで同一 q filter を再適用 — total が全テーブルでなく
+    // 絞込結果を反映する。
     const countQb = buildScopedQb();
     if (query.q) {
       if (query.match_field === 'name') {
@@ -441,9 +422,8 @@ export class AccountService {
 
     const pageIds = new Set(raw.map((r) => Number(r.account_id)));
 
-    // [include-id] Prepend the pre-selected account_id when it survives
-    // DataScope but lives outside the current page slice — mirrors the
-    // JA dropdown's edit-form-pre-selection escape hatch.
+    // [include-id] 選択済み account_id が DataScope は通るが現ページ外にある場合に
+    // 先頭付加 — JA dropdown の編集フォーム事前選択 escape hatch と同様。
     let pinned: typeof raw[number] | undefined;
     if (query.include_id && !pageIds.has(query.include_id)) {
       const pinnedQb = buildScopedQb()
@@ -486,7 +466,7 @@ export class AccountService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    // [fetch-target] — existence check.
+    // [fetch-target] — 存在チェック。
     const existing = await this.accountRepo.findOne({
       where: { accountId, deletedAt: IsNull() },
     });
@@ -502,9 +482,8 @@ export class AccountService {
       accountId,
     );
 
-    // [fk-conflict-check] — related-data check (active MFA OTP rows). Block delete so
-    // the audit trail can't reference an account that's mid-flow on
-    // password / MFA verification.
+    // [fk-conflict-check] — 関連データ(有効 MFA OTP 行)チェック。パスワード/MFA 検証
+    // 途中のアカウントを監査証跡が参照しないよう削除をブロック。
     const relatedRows = await this.dataSource.query(
       `SELECT COUNT(*) AS related_count
          FROM t_mfa_otp
@@ -518,7 +497,7 @@ export class AccountService {
       throw new ConflictException();
     }
 
-    // never persist password_hash in the audit before_value.
+    // audit before_value に password_hash を残さない。
     const beforeSnapshot = {
       account_id: Number(existing.accountId),
       login_id: existing.loginId,
@@ -535,7 +514,7 @@ export class AccountService {
 
     try {
       await this.dataSource.transaction(async (manager) => {
-        // [soft-delete] — logical delete.
+        // [soft-delete] — 論理削除。
         await manager.update(
           Account,
           { accountId },
@@ -545,34 +524,30 @@ export class AccountService {
           },
         );
 
-        // [audit-log-in-tx] — INSIDE the transaction so business write +
-        // audit row commit or roll back together. `manager` MUST be
-        // passed so the INSERT joins this tx (not the standalone repo).
+        // [audit-log-in-tx] — tx 内なので業務書込 + 監査行が一括 commit/rollback。
+        // INSERT をこの tx に載せるため `manager` 必須（standalone repo でなく）。
         await this.auditLog.logDelete(auditCtx, beforeSnapshot, manager);
       });
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back transaction so the
-      // failure trace survives. NEVER pass `manager` here.
+      // [audit-error-log] — rolled-back tx 外で失敗トレースを存続。ここで `manager`
+      // は絶対渡さない。
       await this.auditLog.logError(auditCtx, AuditOperation.DELETE, err as Error);
       throw err;
     }
 
-    // [session-revoke] — 削除したアカウントの有効セッションを全破棄する
-    // (セキュリティ: de-provisioning)。cookie を保持したままの退職者/無効化
-    // アカウントが権限を持ち続けるのを防ぐ。削除自体は既にコミット済みなので
-    // Redis 障害でも応答は成功のまま（失敗は warn ログのみ）。
+    // [session-revoke] — 削除アカウントの有効セッションを全破棄（セキュリティ:
+    // de-provisioning）。cookie 保持のまま退職者/無効化アカウントが権限を持ち続けるのを
+    // 防ぐ。削除は commit 済みなので Redis 障害でも応答成功のまま（失敗は warn のみ）。
     await this.revokeSessionsSafely(accountId, 'account_deleted');
 
     return { message: '削除しました。' };
   }
 
   /**
-   * Best-effort destruction of ALL Redis sessions for an account. Called
-   * after de-provisioning writes (delete / lock / password / role / scope
-   * change) COMMIT, so a stale `session_id` cookie can't outlive the change.
-   * A Redis failure MUST NOT fail the already-committed business write —
-   * log a warning and move on (sessions still expire within their 24h TTL,
-   * and the change is durably persisted).
+   * account の全 Redis セッションを best-effort 破棄。de-provisioning 書込
+   * (delete/lock/password/role/scope 変更)の commit 後に呼び、古い session_id cookie が
+   * 変更より長生きしないようにする。Redis 障害は commit 済み業務書込を失敗させてはならず
+   * warn ログのみ（セッションは 24h TTL 内に失効し、変更は永続化済み）。
    */
   private async revokeSessionsSafely(
     accountId: number,
@@ -614,11 +589,9 @@ export class AccountService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ data: AccountDetail; message: string }> {
-    // [uniqueness-check] — duplicate-login_id guard (UNIQUE constraint
-    // mirror). `withDeleted: true` — login_id reuse is forbidden across
-    // lifetime (a login_id is reserved for the row even after logical
-    // delete), matching the DB UNIQUE INDEX which does not filter on
-    // deleted_at.
+    // [uniqueness-check] — login_id 重複ガード(UNIQUE 制約ミラー)。`withDeleted: true` —
+    // login_id は論理削除後も行に予約され再利用禁止。deleted_at で絞らない DB UNIQUE
+    // INDEX に一致。
     const dupes = await this.accountRepo.count({
       where: { loginId: dto.login_id },
       withDeleted: true,
@@ -627,21 +600,19 @@ export class AccountService {
       throw new DuplicateCodeException('ログインID', dto.login_id);
     }
 
-    // bcrypt-hash the password before persisting so the
-    // plaintext never lands in the DB. Salt rounds match the project's
-    // existing auth flow (apps/backend/src/modules/auth/auth.service.ts).
+    // 永続化前に bcrypt-hash し平文を DB に落とさない。salt rounds は既存 auth flow
+    // (apps/backend/src/modules/auth/auth.service.ts)と一致。
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
-    // 日農 accounts (NICHINO_ADMIN / NICHINO_STAFF) MUST have no JA
-    // scope. Resolve role_id → role_code via m_roles so we don't depend
-    // on the numeric value of role_id (BIGSERIAL — drift-prone). The
-    // lookup also acts as FK existence check for role_id.
+    // 日農アカウント(NICHINO_ADMIN / NICHINO_STAFF)は JA スコープを持ってはならない。
+    // role_id→role_code を m_roles で解決し role_id の数値(BIGSERIAL, drift)に依存しない。
+    // この lookup は role_id の FK 存在チェックも兼ねる。
     const roleCode = await this.resolveRoleCode(dto.role_id);
     const stripScope = isNichinoRole(roleCode);
     const isKanriShitenRole = roleCode === RoleCode.JA_KANRI_SHITEN;
 
-    // FK guard + Layer 4 DataScope — kanri_shiten must belong to the
-    // account's JA (whether scoped or 代行入力 from NICHINO_STAFF).
+    // FK guard + Layer 4 DataScope — kanri_shiten はアカウントの JA に属す必要あり
+    // (scoped でも NICHINO_STAFF の代行入力でも)。
     if (
       !stripScope &&
       dto.kanri_shiten_id !== undefined &&
@@ -659,8 +630,8 @@ export class AccountService {
       }
     }
 
-    // 所属支店(shiten_id)は JA管理支店アカウントのみ設定可・アカウントの管理支店配下
-    // でなければならない（顧客要件 2026-07）。
+    // 所属支店(shiten_id)は JA管理支店アカウントのみ設定可・管理支店配下必須（顧客要件
+    // 2026-07）。
     if (isKanriShitenRole && dto.shiten_id != null) {
       await this.assertShitenBelongsToKanriShiten(
         dto.shiten_id,
@@ -673,7 +644,7 @@ export class AccountService {
       loginId: dto.login_id,
       passwordHash,
       ...this.buildAccountSharedPartial(dto, stripScope, isKanriShitenRole),
-      // Initial security state per §4.4 注記.
+      // 初期セキュリティ状態（§4.4 注記）。
       loginFailureCount: 0,
       accountLockFlg: false,
       mfaEnableFlg: false,
@@ -687,14 +658,13 @@ export class AccountService {
     let savedId: number;
     try {
       savedId = await this.dataSource.transaction(async (manager) => {
-        // [business-insert] — INSERT m_account. `manager.save(Entity, value)` returns
-        // the hydrated row with the IDENTITY-generated account_id.
+        // [business-insert] — INSERT m_account。`manager.save(Entity, value)` は
+        // IDENTITY 生成の account_id を持つ hydrated 行を返す。
         const saved = await manager.save(Account, newRow);
         const insertedId = Number(saved.accountId);
 
-        // [audit-log-in-tx] — INSIDE the tx so business write + audit row
-        // commit (or roll back) together. `manager` MUST be passed to
-        // join the same transaction.
+        // [audit-log-in-tx] — tx 内で業務書込 + 監査行を一括 commit/rollback。同一 tx に
+        // 載せるため `manager` 必須。
         await this.auditLog.logCreate(
           auditCtxFactory(insertedId),
           buildAccountAuditSnapshot(saved),
@@ -704,27 +674,23 @@ export class AccountService {
         return insertedId;
       });
     } catch (err) {
-      // Race-condition safety net: 2 concurrent CREATE requests can
-      // both pass the pre-check, then the second INSERT hits the DB
-      // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
-      // letting it bubble as 500.
+      // 競合セーフティネット: 同時 CREATE 2件が pre-check を通過し2件目の INSERT が DB
+      // UNIQUE INDEX に当たる。その 23505 を 500 に流さず clean 400 に変換。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(auditCtxFactory(null), AuditOperation.CREATE, err as Error);
         throw new DuplicateCodeException('ログインID', dto.login_id);
       }
-      // [audit-error-log] — OUTSIDE the rolled-back tx so the failure
-      // trace survives.
+      // [audit-error-log] — rolled-back tx 外で失敗トレースを存続。
       await this.auditLog.logError(auditCtxFactory(null), AuditOperation.CREATE, err as Error);
       throw err;
     }
 
-    // [reread-after-write] — re-read the joined row so the response carries
-    // role_name / todofuken_name / ja_name / kanri_shiten_name.
+    // [reread-after-write] — join 行を再読込し応答に role_name / todofuken_name /
+    // ja_name / kanri_shiten_name を載せる。
     const row = await this.buildDetailQuery(savedId).getRawOne<AccountDetailRow>();
     if (!row) {
-      // Defensive — would only fire if the inserted row was deleted
-      // between commit and SELECT (race). Surface as 404 rather than
-      // crash on undefined.
+      // 防御的 — commit と SELECT の間で挿入行が削除された競合時のみ発火。undefined で
+      // クラッシュせず 404 として返す。
       throw new NotFoundException('アカウント');
     }
     return { data: toAccountDetail(row), message: '登録しました。' };
@@ -737,7 +703,7 @@ export class AccountService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ data: AccountDetail; message: string }> {
-    // [fetch-target] — existence check.
+    // [fetch-target] — 存在チェック。
     const before = await this.accountRepo.findOne({
       where: { accountId, deletedAt: IsNull() },
     });
@@ -745,16 +711,14 @@ export class AccountService {
       throw new NotFoundException('アカウント');
     }
 
-    // role_code-driven scope check — same rationale as createAccount.
+    // role_code 駆動の scope チェック — createAccount と同じ根拠。
     const roleCode = await this.resolveRoleCode(dto.role_id);
     const stripScope = isNichinoRole(roleCode);
     const isKanriShitenRole = roleCode === RoleCode.JA_KANRI_SHITEN;
 
-    // FK guard + Layer 4 DataScope — new kanri_shiten (when provided)
-    // must exist AND belong to the SAME JA as the existing account
-    // (before.jaId). For restricted roles this equals session.ja_id;
-    // for NICHINO_* operating on an arbitrary JA's account it stays
-    // bound to that JA.
+    // FK guard + Layer 4 DataScope — 新 kanri_shiten(指定時)は存在し、かつ既存アカウントと
+    // 同一 JA(before.jaId)に属す必要あり。制限役職では session.ja_id と一致、NICHINO_* が
+    // 任意 JA のアカウントを操作する場合もその JA に束縛される。
     if (
       !stripScope &&
       dto.kanri_shiten_id !== undefined &&
@@ -775,6 +739,7 @@ export class AccountService {
     // 所属支店(shiten_id)は JA管理支店アカウントのみ・実効管理支店配下（顧客要件
     // 2026-07）。実効管理支店 = dto.kanri_shiten_id ?? before.kanriShitenId。
     if (isKanriShitenRole && dto.shiten_id != null) {
+      // (以下同一)
       await this.assertShitenBelongsToKanriShiten(
         dto.shiten_id,
         dto.kanri_shiten_id ?? before.kanriShitenId,
@@ -802,8 +767,7 @@ export class AccountService {
       await this.dataSource.transaction(async (manager) => {
         await manager.update(Account, { accountId }, updatePartial);
 
-        // Re-read INSIDE the tx so the audit after_value reflects the
-        // post-update state with the same isolation level as the write.
+        // tx 内で再読込 — audit after_value を書込と同一分離レベルの更新後状態にする。
         const refreshed = await manager.findOne(Account, {
           where: { accountId, deletedAt: IsNull() },
         });
@@ -841,37 +805,34 @@ export class AccountService {
   }
 
   /**
-   * True when an update changes a field that a live session freezes at login
-   * time — password, lock (→ true), role, or organizational scope
-   * (ja/kanri_shiten/shiten). Such changes require destroying existing
-   * sessions so the change takes effect immediately rather than after the
-   * ≤24h TTL. Unlock (account_lock_flg=false), email, biko, name, etc. are
-   * NOT security-sensitive and do not trigger revocation.
+   * セッションがログイン時に固定する項目（パスワード / ロック(→true) / ロール /
+   * 所属スコープ ja・kanri_shiten・shiten）を変更する更新なら true。該当時は既存
+   * セッションを破棄し ≤24h TTL を待たず即時反映させる。ロック解除
+   * (account_lock_flg=false)・email・biko・名称等は非機密で破棄対象外。
    */
   private isSecuritySensitiveUpdate(
     before: Account,
     updatePartial: Partial<Account>,
   ): boolean {
-    // Password rotated (admin-forced reset).
+    // パスワード変更（admin 強制リセット）。
     if (updatePartial.passwordHash !== undefined) return true;
-    // Account locked (true only — unlock must NOT kill the admin's own view).
+    // ロック（true のみ — 解除は admin 自身のセッションを切ってはならない）。
     if (updatePartial.accountLockFlg === true) return true;
-    // Role (privilege set) changed.
+    // ロール（権限セット）変更。
     if (
       updatePartial.roleId !== undefined &&
       Number(updatePartial.roleId) !== Number(before.roleId)
     ) {
       return true;
     }
-    // Organizational scope changed — session ja_id/kanri_shiten_id are frozen.
-    // Normalize undefined↔null on BOTH sides: `undefined` means the field was
-    // not part of this update (or absent on the entity), which is equivalent
-    // to `null` (no scope) — only a real value transition counts as a change.
+    // 所属スコープ変更 — session の ja_id/kanri_shiten_id は固定されている。
+    // 両辺で undefined↔null を正規化: undefined は「この更新に含まれない」で
+    // null（スコープなし）と等価。実際の値遷移のみを変更とみなす。
     const scopeChanged = (
       next: number | null | undefined,
       prev: bigint | number | null | undefined,
     ): boolean => {
-      if (next === undefined) return false; // field not in the update partial
+      if (next === undefined) return false; // 更新 partial に含まれない
       const n = next === null ? null : Number(next);
       const p = prev === null || prev === undefined ? null : Number(prev);
       return n !== p;
@@ -940,19 +901,14 @@ export class AccountService {
   }
 
   /**
-   * The 12 columns BOTH `createAccount` and `updateAccount` write
-   * verbatim from the incoming DTO. Extracted so each caller can
-   * `...spread` it instead of restating the mapping — Sonar previously
-   * counted the two blocks as a 12-line duplication.
+   * createAccount / updateAccount が DTO からそのまま書く12列。両者で `...spread`
+   * して重複記述を避ける（Sonar が12行重複と検出していた）。
    *
-   * `stripScope=true` zeroes the JA / kanri-shiten / 都道府県 tuple for
-   * NICHINO_* accounts (役職 1, 2) per api.md §4.4 — scope is implicit
-   * "all" for those roles, so storing values would lie about reality.
+   * stripScope=true は NICHINO_*(役職 1,2)の JA/kanri_shiten/都道府県 を null 化
+   * （api.md §4.4 — これらの役職はスコープが暗黙「全件」で値保存は実態と矛盾）。
    *
-   * Input type is the structural intersection of the relevant fields
-   * on `CreateAccountDto` / `UpdateAccountDto` so both DTOs are
-   * assignable without an explicit cast. Email defaults to '' rather
-   * than null because the entity column is NOT NULL.
+   * 入力型は Create/Update 両 DTO の該当フィールドの構造的積集合でキャスト不要。
+   * email は entity 列が NOT NULL のため null でなく '' を既定にする。
    */
   private buildAccountSharedPartial(
     dto: {
@@ -1003,16 +959,12 @@ export class AccountService {
       updatedBy: String(session.account_id),
     };
 
-    // account_lock_flg is admin-only — present only when the caller
-    // explicitly toggles it from the SCR-025 edit form. Setting it to
-    // false (unlock) MUST also reset:
-    //   - login_failure_count to 0 (otherwise the next failed attempt
-    //     re-trips the threshold — auth.service.ts increments + re-locks
-    //     at LOGIN_FAILURE_LOCK_THRESHOLD).
-    //   - account_lock_at to null (auth.service.ts stamped it with NOW()
-    //     at lock time; leaving the stale timestamp would falsely tell
-    //     ops "this account is still under the 2026-05-25 lock"; the
-    //     column is the canonical "currently-locked-since" pointer).
+    // account_lock_flg は admin 専用 — SCR-025 編集フォームで明示切替時のみ存在。
+    // false(解除)時は次も必ずリセット:
+    //   - login_failure_count=0（残すと次の失敗で auth.service.ts が
+    //     LOGIN_FAILURE_LOCK_THRESHOLD で再ロック）。
+    //   - account_lock_at=null（ロック時 auth.service.ts が NOW() を刻む。残すと
+    //     「まだロック中」と誤認。この列が「ロック開始時刻」の正）。
     if (dto.account_lock_flg !== undefined) {
       updatePartial.accountLockFlg = dto.account_lock_flg;
       if (dto.account_lock_flg === false) {
@@ -1021,9 +973,8 @@ export class AccountService {
       }
     }
 
-    // password is OPTIONAL on update. Only hash + persist when
-    // the caller actually submitted a new value; an empty / undefined
-    // input means "leave password alone".
+    // password は更新時 任意。新しい値が送られた時のみ hash+保存。空/undefined は
+    // 「パスワード変更なし」。
     if (dto.password !== undefined && dto.password !== '') {
       updatePartial.passwordHash = await bcrypt.hash(
         dto.password,
@@ -1036,9 +987,8 @@ export class AccountService {
   }
 
   private buildDetailQuery(accountId: number) {
-    // joined SELECT used by GET detail, create-then-read,
-    // and update-then-read. Filters deleted_at IS NULL so soft-deleted
-    // rows surface as "not found".
+    // GET 詳細 / 登録後読込 / 更新後読込 で使う join SELECT。deleted_at IS NULL で
+    // 絞り論理削除行は「not found」扱い。
     return this.accountRepo
       .createQueryBuilder('a')
       .leftJoin('m_roles', 'r', 'a.role_id = r.role_id AND r.deleted_at IS NULL')

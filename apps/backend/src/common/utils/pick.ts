@@ -1,9 +1,7 @@
 /**
- * Type-safe value extractors for the "loose object" pattern used after
- * `filterAllowedFields()` returns a `Record<string, unknown>` of fields
- * the caller is allowed to update.
+ * `filterAllowedFields()` が返す緩い object（ロールが更新可のフィールド）用の
+ * 型安全エクストラクタ。
  *
- * Usage in an UPDATE service method:
  * ```ts
  * const filtered = filterAllowedFields(dto, 'ja', session.role_code);
  * const next = manager.create(Ja, {
@@ -14,29 +12,20 @@
  * });
  * ```
  *
- * Why per-field pickers instead of a bulk merge: snake_case DTO keys
- * → camelCase entity fields require a per-field mapping anyway. The
- * pickers narrow `unknown` to the expected primitive type and silently
- * fall back when a key is absent (role couldn't edit it) or holds the
- * wrong type (malformed payload).
+ * snake_case DTO → camelCase entity のマッピングが要るためフィールド毎（一括 merge
+ * ではない）。unknown を narrow し、キー不在（ロール編集不可）や型不正時は元値へ fallback。
  */
 export function pickString(
   obj: Record<string, unknown>,
   key: string,
   fallback: string,
 ): string {
-  // 1. Key explicitly present with a string value → use it (incl. empty
-  //    string — empty means "FE wants to clear this NOT NULL column").
-  // 2. Key explicitly present with `undefined` / `null` → also clear.
-  //    Happens when the DTO had `@Transform(blankToUndef)` on a regex-
-  //    validated optional field: the FE posted `""`, the transform
-  //    flipped it to `undefined` so `@Matches(...)` doesn't fire, but
-  //    the property still exists on the instance with value `undefined`.
-  //    Distinguishing "key present but undefined" from "key truly
-  //    absent" is the only way to honour the FE's clear-intent.
-  // 3. Key truly absent (e.g. role-restricted field dropped by
-  //    filterAllowedFields, or PATCH-style partial body) → keep the
-  //    existing entity value.
+  // 1. string で存在 → 採用（"" = この NOT NULL 列をクリア含む）。
+  // 2. undefined/null で存在 → クリア。`@Transform(blankToUndef)` 付き optional で
+  //    FE が "" を送り undefined 化（@Matches スキップ）してもキーは残る。「存在するが
+  //    undefined」と「真に不在」の区別が FE のクリア意図を汲む唯一の手段。
+  // 3. 真に不在（filterAllowedFields がロール制限で除去、または PATCH 部分 body）→
+  //    既存の entity 値を維持。
   if (Object.hasOwn(obj, key)) {
     const v = obj[key];
     if (typeof v === 'string') return v;

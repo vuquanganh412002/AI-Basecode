@@ -12,11 +12,10 @@ import {
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
- * Whitelist of sortable columns. Originally `shiten_code` / `shiten_name`
- * per 画面定義§8.1; extended with `kanri_shiten_name` (joined from
- * `m_kanri_shiten`) since the parent-branch name is now the leading
- * context column. Service maps each value to a typed QueryBuilder
- * reference; `@IsIn` blocks SQL injection via user-supplied `sort_by`.
+ * ソート可能列の allow-list（画面定義§8.1）。shiten_code / shiten_name に加え
+ * kanri_shiten_name（m_kanri_shiten JOIN — 親支店名が先頭コンテキスト列）。
+ * service が各値を typed QueryBuilder 参照へマップ。@IsIn が sort_by 経由の
+ * SQL インジェクションを防ぐ。
  */
 export const SHITEN_SEARCH_SORT_BY = [
   'shiten_code',
@@ -30,14 +29,9 @@ const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Query-string DTO for `GET /api/v1/shiten` (ACSMS-API-006-001).
- *
- * All fields optional; class-transformer applies defaults below so the
- * service always sees a fully-populated object.
- *
- * Inherits page/per_page from {@link PaginationDto}. The runtime default
- * (page=1, per_page=20) is applied by the service layer via `?? 1` /
- * `?? 20` because query params arrive as `undefined` when omitted.
+ * GET /api/v1/shiten (ACSMS-API-006-001) クエリ DTO。全項目任意。
+ * page/per_page は {@link PaginationDto} 継承。既定 (page=1, per_page=20) は
+ * 未指定時 undefined で届くため service 側で `?? 1` / `?? 20` を適用。
  */
 export class SearchShitenDto extends PaginationDto {
   @ApiPropertyOptional({ description: '支店名（部分一致検索）', maxLength: 100 })

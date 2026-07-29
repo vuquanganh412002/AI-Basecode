@@ -15,19 +15,19 @@ import {
 
 import { IsStrongPassword } from '@/common/decorators/strong-password.decorator';
 
-/** Empty-string → undefined (see create-account.dto.ts for rationale). */
+/** 空文字 → undefined（理由は create-account.dto.ts 参照）。 */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Body for PUT /api/v1/accounts/{account_id} (ACSMS-API-025-003).
+ * PUT /api/v1/accounts/{account_id} のボディ（ACSMS-API-025-003）。
  *
- * `login_id` is intentionally NOT declared — `forbidNonWhitelisted: true`
- * on the global ValidationPipe rejects a body that smuggles it in
- * (api.md §3 注記: login_id は更新不可、画面側でdisabled).
+ * `login_id` は意図的に未宣言 — グローバル ValidationPipe の
+ * `forbidNonWhitelisted: true` が紛れ込みを拒否（api.md §3 注記: login_id は
+ * 更新不可、画面側でdisabled）。
  *
- * `password` is OPTIONAL (空欄可) — empty/undefined means "no change".
- * When non-empty, the project's strong-password policy applies.
+ * `password` は任意（空欄可）— 空/undefined は「変更なし」。非空時は
+ * strong-password ポリシー適用。
  */
 export class UpdateAccountDto {
   @ApiPropertyOptional({
@@ -84,10 +84,9 @@ export class UpdateAccountDto {
   @MaxLength(50, { message: 'アカウント名は最大50文字で指定してください。' })
   account_name!: string;
 
-  // [email-required] QA review 2026-05 — primary 通知先メールアドレス is now
-  // mandatory on UPDATE as well. Keep it `string` (not `?: string`) so the
-  // service's `email: dto.email ?? ''` fallback never accidentally clears
-  // the column. Sub-mails stay optional.
+  // [email-required] QA review 2026-05 — 更新でも主 通知先メールアドレスを必須化。
+  // `?: string` でなく `string` に保ち、service の `email: dto.email ?? ''` が列を
+  // 誤って空にしないようにする。サブメールは任意のまま。
   @ApiProperty({ description: 'メールアドレス（最大100桁）', maxLength: 100 })
   @IsString({ message: 'メールアドレスは文字列で指定してください。' })
   @IsNotEmpty({ message: 'メールアドレスは必須です。' })

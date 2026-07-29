@@ -13,25 +13,23 @@ import {
   Min,
 } from 'class-validator';
 
-/** Empty-string → undefined (see create-hanbaiten.dto.ts for rationale). */
+/** 空文字 → undefined（理由は create-hanbaiten.dto.ts 参照）。 */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/** Half-width katakana (see create-hanbaiten.dto.ts). */
+/** 半角カタカナ（create-hanbaiten.dto.ts 参照）。 */
 const HALF_WIDTH_KATAKANA_RE = /^[ｦ-ﾟ\s0-9]+$/u;
 
 /**
- * Body for PUT /api/v1/hanbaiten/{hanbaiten_id} (ACSMS-API-017-003).
+ * PUT /api/v1/hanbaiten/{hanbaiten_id} のボディ (ACSMS-API-017-003)。
  *
- * `hanbaiten_code` is intentionally NOT declared — `forbidNonWhitelisted:
- * true` on the global ValidationPipe rejects a body that smuggles it in
- * (api.md §3 注記: hanbaiten_code は更新不可、画面側でdisabled). NOT using
- * `PartialType(CreateHanbaitenDto)` because we want `hanbaiten_name` to
- * stay REQUIRED on update.
+ * `hanbaiten_code` は意図的に宣言しない — グローバル ValidationPipe の
+ * `forbidNonWhitelisted: true` が混入したボディを弾く（api.md §3 注記:
+ * hanbaiten_code は更新不可・画面側で disabled）。`hanbaiten_name` を更新でも必須に
+ * したいため `PartialType(CreateHanbaitenDto)` は使わない。
  *
- * Cross-field conditional-required rule on No.17~23 (when itaku_kubun
- * = 1) + m_code allow-list checks live in the service layer
- * (HanbaitenService).
+ * No.17〜23 の条件付き必須（itaku_kubun = 1 のとき）＋ m_code allow-list 検証は
+ * service 層（HanbaitenService）にある。
  */
 export class UpdateHanbaitenDto {
   @ApiProperty({ description: '販売店名', minLength: 1, maxLength: 100 })

@@ -5,12 +5,12 @@ import { REDIS_CLIENT, RedisService } from './redis.service';
 import { toBoolean } from '@/common/utils/env';
 
 /**
- * Global Redis module — single ioredis client shared by every feature
- * module (session store, OTP, rate limiting).
+ * Global Redis モジュール — 全機能モジュール（セッションストア、OTP、
+ * レート制限）で共有する単一 ioredis クライアント。
  *
- * Local dev: connects to the `redis` service in docker-compose.
- * Production: set `REDIS_URL` to the AWS ElastiCache primary endpoint
- * (plus `REDIS_TLS=true` when in-transit encryption is enabled).
+ * ローカル: docker-compose の `redis` サービスへ接続。
+ * 本番: `REDIS_URL` を AWS ElastiCache primary endpoint に設定
+ * （in-transit 暗号化時は `REDIS_TLS=true`）。
  */
 @Global()
 @Module({
@@ -33,17 +33,17 @@ import { toBoolean } from '@/common/utils/env';
           maxRetriesPerRequest: 3,
           enableReadyCheck: true,
           keyPrefix,
-          // AUTH token. ElastiCache requires AUTH; the rediss:// URL carries
-          // no password, so it MUST be supplied here for the URL branch too
-          // (otherwise "NOAUTH Authentication required").
+          // AUTH token。ElastiCache は AUTH 必須。rediss:// URL はパスワードを
+          // 持たないため URL 分岐でもここで供給 MUST（無いと "NOAUTH
+          // Authentication required"）。
           password,
         };
         if (tls) {
           options.tls = {};
         }
 
-        // Endpoint label for logs — derived from REDIS_URL host when set,
-        // otherwise the host/port pair. Never includes the password.
+        // ログ用エンドポイントラベル — REDIS_URL 設定時はその host、他は
+        // host/port。パスワードは含めない。
         const endpoint = url ? url.replace(/\/\/[^@]*@/, '//') : `${host}:${port}`;
 
         const client = url
@@ -51,8 +51,8 @@ import { toBoolean } from '@/common/utils/env';
           : new Redis({ host, port, ...options });
 
         client.on('connect', () => logger.log({ event: 'redis.connect' }));
-        // `ready` fires once the connection is usable (post-AUTH / readiness
-        // check). Emit one clear line (visible in ECS / CloudWatch).
+        // `ready` は接続が使用可能（post-AUTH / readiness check）で発火。
+        // ECS / CloudWatch で見える 1 行を出力。
         client.on('ready', () =>
           logger.log(`✅ Redis connected — ${endpoint}${tls ? ' (TLS)' : ''}`),
         );

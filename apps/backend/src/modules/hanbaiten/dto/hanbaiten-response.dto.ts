@@ -1,15 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * Detail-shape response returned by SCR-017 endpoints
+ * SCR-017 エンドポイントが返す詳細形レスポンス
  *   - ACSMS-API-017-001 GET /api/v1/hanbaiten/:hanbaiten_id
  *   - ACSMS-API-017-002 POST /api/v1/hanbaiten
  *   - ACSMS-API-017-003 PUT /api/v1/hanbaiten/:hanbaiten_id
  *
- * Mirrors api.md §3 レスポンスデータ verbatim — snake_case fields, nullable
- * markers preserved per database-design.md §m_hanbaiten NULL許容 column.
- * NOT NULL string columns serialize as `""` when empty (project policy —
- * see `.claude/rules/nestjs.md §Nullable field serialization`).
+ * api.md §3 レスポンスデータに忠実 — snake_case 項目。NULL 許容マーカーは
+ * database-design.md §m_hanbaiten NULL許容 列に従う。NOT NULL 文字列列は空のとき
+ * `""` でシリアライズ（プロジェクト方針・`.claude/rules/nestjs.md §Nullable field serialization`）。
  */
 export class HanbaitenResponseDto {
   @ApiProperty({ description: '販売店ID' })

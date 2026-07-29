@@ -9,11 +9,10 @@ import {
 } from 'typeorm';
 
 /**
- * TypeORM entity for `m_kanri_shiten` (管理支店マスタ).
- *
- * Mirrors `docs/database/database-design.md §m_kanri_shiten`. All
- * timestamp columns are TIMESTAMPTZ per project policy (JST operation —
- * see `.claude/rules/nestjs.md §Timestamp policy`).
+ * `m_kanri_shiten`（管理支店マスタ）エンティティ。
+ * `docs/database/database-design.md §m_kanri_shiten` に準拠。
+ * タイムスタンプ列は全て TIMESTAMPTZ（JST 運用 — `.claude/rules/nestjs.md
+ * §Timestamp policy`）。
  */
 @Entity('m_kanri_shiten')
 @Index('UQ_m_kanri_shiten_code', ['kanriShitenCode'], { unique: true })

@@ -6,10 +6,9 @@ export interface LoginRequest {
   password: string;
 }
 
-// Auth uses HTTP-only Cookie session (Redis-backed, 24h sliding TTL).
-// The session ID lives in the cookie — never in response bodies or
-// localStorage. These response types intentionally only carry the
-// user object.
+// 認証は HTTP-only Cookie セッション（Redis, 24h スライディングTTL）。
+// セッションIDは cookie 内のみで、レスポンス body や localStorage には持たない。
+// これらレスポンス型は意図的に user オブジェクトのみを運ぶ。
 
 export type LoginResponse =
   | {
@@ -104,8 +103,8 @@ export interface ToggleMfaResponse {
 }
 
 /**
- * Self-service: toggle the caller's own MFA flag. account_id is read
- * from the authenticated session on the server — never from the URL.
+ * セルフ操作: 自分の MFA フラグを切り替える。account_id は URL ではなく
+ * サーバ側の認証セッションから読む。
  */
 export async function toggleMfa(enabled: boolean): Promise<ToggleMfaResponse['data']> {
   const res = await axiosInstance.patch<ToggleMfaResponse>(
@@ -118,13 +117,12 @@ export async function toggleMfa(enabled: boolean): Promise<ToggleMfaResponse['da
 // ─── SCR-012 password reset / change password ────────────────────────────
 
 /**
- * ACSMS-API-012-001 — request a password reset email.
+ * ACSMS-API-012-001 — パスワードリセットメール要求。
  *
- * Takes BOTH login_id and email — the service narrows by the pair so a
- * non-unique email doesn't reset an arbitrary account. Always resolves
- * with the same success message whether the pair matches an account or
- * not (server-side account enumeration prevention). Unwraps the BE
- * envelope so the view sees `{ message }` directly.
+ * login_id と email の両方を取り、ペアで絞ることで非ユニークな email が
+ * 任意アカウントをリセットしないようにする。ペアが一致してもしなくても常に
+ * 同じ成功メッセージを返す（サーバ側アカウント列挙防止）。BE envelope を
+ * ほどき view には `{ message }` を直接渡す。
  */
 export async function forgotPassword(
   loginId: string,
@@ -138,9 +136,9 @@ export async function forgotPassword(
 }
 
 /**
- * ACSMS-API-012-002 — verify a reset token without consuming it.
- * Resolves with `{ valid: true }` for usable tokens; rejects with
- * INVALID_RESET_TOKEN / EXPIRED_RESET_TOKEN otherwise (axios shape).
+ * ACSMS-API-012-002 — リセットトークンを消費せず検証する。
+ * 有効なトークンは `{ valid: true }`、無効時は INVALID_RESET_TOKEN /
+ * EXPIRED_RESET_TOKEN で reject（axios 形）。
  */
 export async function verifyResetToken(token: string): Promise<{ valid: true }> {
   const res = await axiosInstance.post<{ data: { valid: true } }>(
@@ -157,9 +155,9 @@ export interface ResetPasswordRequest {
 }
 
 /**
- * ACSMS-API-012-003 — consume the reset token and set a new password.
- * Server destroys all existing Redis sessions for this account on
- * success so a stolen cookie stops working immediately.
+ * ACSMS-API-012-003 — リセットトークンを消費し新パスワードを設定。
+ * 成功時サーバは当該アカウントの既存 Redis セッションを全破棄し、盗まれた
+ * cookie が即座に無効になる。
  */
 export async function resetPassword(
   body: ResetPasswordRequest,

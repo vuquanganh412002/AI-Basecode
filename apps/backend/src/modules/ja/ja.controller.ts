@@ -56,17 +56,15 @@ export class JaController {
     return this.service.findAll(query, req.user);
   }
 
-  // NOTE: must come BEFORE `@Get(':id')` — otherwise the dynamic
-  // route swallows `/dropdown` as a ParseIntPipe-failed id.
+  // `@Get(':id')` より前に置くこと — でないと動的ルートが /dropdown を
+  // ParseIntPipe 失敗の id として飲み込む。
   @Get('dropdown')
-  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. This is
-  // a form-facing shared dropdown: many screens with different permission
-  // gates embed it (JA / dokusya / hanbaiten 代行 / account / ファイル
-  // アップロード …). Gating it by any single CRUD permission would lock
-  // out a consuming screen's role (e.g. JA_KANRI_SHITEN holds file.upload
-  // but not ja.view — the file-upload screen broke). The data boundary is
-  // `JaService.dropdown` → `applyJaScope` (JA roles see only their own JA);
-  // screen access is enforced by each route's own guard.
+  // [shared-dropdown-rule] 認証のみ・@Permissions なし。異なる権限ゲートの
+  // 多画面(JA/dokusya/hanbaiten代行/account/ファイルアップロード…)が埋め込む
+  // フォーム用共通dropdown。単一CRUD権限で塞ぐと呼び元画面のロールを締め出す
+  // (例: JA_KANRI_SHITEN は file.upload はあるが ja.view なし)。データ境界は
+  // JaService.dropdown→applyJaScope(JAロールは自JAのみ)、画面アクセスは各
+  // ルート自身の guard が担保。
   @ApiOperation({
     summary:
       'JA共通ドロップダウン — フォーム用のページング付き検索可能リスト',

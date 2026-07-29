@@ -53,10 +53,8 @@ export class LogController {
   @HttpCode(HttpStatus.OK)
   @Permissions('log.view')
   @ApiOperation({ summary: '操作ログCSV出力 — ACSMS-API-030-002' })
-  // CSV download — binary body, no typed JSON. Orval emits `void` for
-  // the return type, which is correct: the FE wrapper consumes the
-  // response as a Blob and triggers a download. Don't decorate with a
-  // `type:` here — there's nothing JSON-shaped to model.
+  // CSV ダウンロード — バイナリ body、型付き JSON なし。FE wrapper は
+  // response を Blob として消費しダウンロードを起動するため `type:` は付けない。
   @ApiResponse({
     status: 200,
     description: 'CSV file (text/csv; charset=utf-8) as attachment.',
@@ -64,8 +62,8 @@ export class LogController {
   })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
-  // Export mirrors the on-screen page — same filters/sort/page/per_page as
-  // GET /log — so it uses SearchLogDto (no all-data export, no row cap).
+  // Export は画面ページを反映 — GET /log と同じ filters/sort/page/per_page
+  // のため SearchLogDto を使用（全件エクスポート・行数上限なし）。
   async exportLogCsv(
     @Query() query: SearchLogDto,
     @Req() req: Request & { user?: SessionPayload },

@@ -16,7 +16,7 @@ export class TodofukenService {
     private readonly repo: Repository<Todofuken>,
   ) {}
 
-  /** API ACSMS-API-COMMON-001 — return all prefectures ordered by code. */
+  /** ACSMS-API-COMMON-001 — 全都道府県をコード順で返す。 */
   async list(): Promise<TodofukenListItem[]> {
     const rows = await this.repo.find({
       order: { todofukenCode: 'ASC' },

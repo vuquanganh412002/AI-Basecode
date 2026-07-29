@@ -1,53 +1,50 @@
 /**
- * Design tokens — single source of truth for the project's visual
- * language. Both Ant Design Vue (via ConfigProvider in App.vue) and
- * Tailwind v4 (via @theme in src/styles/tailwind.css) must agree
- * with the values defined here.
+ * デザイントークン — プロジェクトのビジュアル言語の単一ソース。
+ * Ant Design Vue（App.vue の ConfigProvider 経由）と Tailwind v4
+ * （src/styles/tailwind.css の @theme 経由）の両方がここの値と一致する必要がある。
  *
- * Why this file exists:
- *   - AntD components read their theme from JS (ConfigProvider).
- *   - Tailwind v4 reads its theme from CSS (@theme block).
- *   - We can't import TS values into CSS, so the same numbers/colors
- *     have to appear in two places. This file is the canonical copy;
- *     when you change a value here, mirror it in tailwind.css.
+ * このファイルの存在理由:
+ *   - AntD コンポーネントはテーマを JS（ConfigProvider）から読む。
+ *   - Tailwind v4 はテーマを CSS（@theme ブロック）から読む。
+ *   - TS の値を CSS に import できないため、同じ数値/色が2箇所に現れる。
+ *     ここが正本で、値を変えたら tailwind.css にも反映する。
  *
- * Color palette is Ant Design v5's default semantic palette, chosen
- * because it's the de-facto standard for Japanese enterprise web
- * (青=情報, 緑=成功, 黄=警告, 赤=エラー).
+ * カラーパレットは Ant Design v5 の既定セマンティックパレット。日本の
+ * エンタープライズ web の事実上の標準のため採用（青=情報, 緑=成功, 黄=警告, 赤=エラー）。
  *
- * To recolor the entire app for a new client, change the values here
- * AND mirror them in src/styles/tailwind.css. No template files need
- * to be touched — every screen reads from these tokens.
+ * 新規クライアント向けにアプリ全体を配色し直すには、ここの値を変更し
+ * src/styles/tailwind.css にも反映する。全画面がこのトークンを読むため、
+ * template ファイルには触れる必要がない。
  */
 
 export const designTokens = {
-  /* ── Brand & semantic colors ─────────────────────────────────────── */
+  /* ── ブランド & セマンティックカラー ─────────────────────────────────────── */
   colors: {
-    /** Primary action color (button type="primary", links, focus rings). */
+    /** 主要アクションの色（button type="primary"、リンク、focus リング）。 */
     primary: '#1677ff',
-    /** Hover/active shade of primary. */
+    /** primary の hover/active の色味。 */
     primaryHover: '#4096ff',
 
-    /** Default form-input border color (matches AntD v5). */
+    /** フォーム入力の既定ボーダー色（AntD v5 準拠）。 */
     borderBase: '#d9d9d9',
 
-    /** Status palette — matches AntD v5 defaults. */
-    success: '#52c41a', // 成功 - save, complete
+    /** ステータスパレット — AntD v5 既定準拠。 */
+    success: '#52c41a', // 成功 - 保存, 完了
     successHover: '#389e0d',
-    warning: '#faad14', // 警告 - confirm
+    warning: '#faad14', // 警告 - 確認
     warningHover: '#d48806',
-    error: '#ff4d4f', // エラー - delete, validation
+    error: '#ff4d4f', // エラー - 削除, バリデーション
     errorHover: '#d9363e',
-    info: '#1677ff', // 情報 - notice
+    info: '#1677ff', // 情報 - お知らせ
     infoHover: '#4096ff',
   },
 
-  /* ── Text color hierarchy (alpha-based, flips for dark mode) ─────
-     Matches Ant Design v5's text-token ladder:
-        main        ↔ AntD `colorText`            (body, headings)
-        description ↔ AntD `colorTextSecondary`   (form labels, help)
-        secondary   ↔ AntD `colorTextTertiary`    (captions, fine print)
-        disabled    ↔ AntD `colorTextQuaternary`  (disabled state) */
+  /* ── テキスト色の階層（アルファ値ベース・ダークモードで反転） ─────
+     Ant Design v5 のテキストトークン階層に一致:
+        main        ↔ AntD `colorText`            (本文, 見出し)
+        description ↔ AntD `colorTextSecondary`   (フォームラベル, ヘルプ)
+        secondary   ↔ AntD `colorTextTertiary`    (キャプション, 細字)
+        disabled    ↔ AntD `colorTextQuaternary`  (無効状態) */
   text: {
     light: {
       main: 'rgba(0, 0, 0, 0.88)',
@@ -63,12 +60,12 @@ export const designTokens = {
     },
   },
 
-  /* ── Surfaces (background colors) ────────────────────────────────
-        layout      page background (under cards)
-        card        primary surface — content cards, modals, sidebars
-        cardSubtle  secondary surface — card header bars, banners
-        hover       hover state for clickable rows / list items
-        active      selected/active row (typically primary tint) */
+  /* ── サーフェス（背景色） ────────────────────────────────
+        layout      ページ背景（カードの下）
+        card        主サーフェス — コンテンツカード, モーダル, サイドバー
+        cardSubtle  副サーフェス — カードヘッダバー, バナー
+        hover       クリック可能な行 / リスト項目の hover 状態
+        active      選択/アクティブ行（通常 primary の淡色） */
   surfaces: {
     light: {
       layout: '#f5f5f5',
@@ -90,9 +87,9 @@ export const designTokens = {
     },
   },
 
-  /* ── Borders / dividers ──────────────────────────────────────────
-        default  card / page-section borders
-        strong   form-input borders, table cell borders */
+  /* ── ボーダー / 区切り線 ──────────────────────────────────────────
+        default  カード / ページセクションのボーダー
+        strong   フォーム入力のボーダー, テーブルセルのボーダー */
   borders: {
     light: {
       default: '#e2e8f0', // slate-200
@@ -104,8 +101,8 @@ export const designTokens = {
     },
   },
 
-  /* ── Status background tints (for alert badges, banners) ─────────
-     E.g. `bg-error-subtle text-error` for the 承認待ちあり badge. */
+  /* ── ステータス背景の淡色（アラートバッジ, バナー用） ─────────
+     例: 承認待ちあり バッジの `bg-error-subtle text-error`。 */
   statusSubtle: {
     light: {
       success: 'rgba(82, 196, 26, 0.1)',
@@ -121,42 +118,42 @@ export const designTokens = {
     },
   },
 
-  /* ── Icon color (sidebar nav, dashboard menu cards, etc.) ───────── */
+  /* ── アイコン色（サイドバーナビ, ダッシュボードメニューカード等） ───────── */
   icon: {
     light: '#64748b', // slate-500
     dark: '#94a3b8', // slate-400
   },
 
-  /* ── Typography ──────────────────────────────────────────────────── */
+  /* ── タイポグラフィ ──────────────────────────────────────────────────── */
   font: {
-    /** Base font stack — Noto Sans JP first for full kanji/kana glyphs. */
+    /** ベースフォントスタック — 漢字/かなグリフのため Noto Sans JP を先頭に。 */
     display: "'Noto Sans JP', Inter, sans-serif",
   },
 
-  /* ── Sub-xs font sizes ──────────────────────────────────────────────
-     Tailwind's `text-xs` floor is 12px. Some slots — contact-card
-     subtext, footer micro-copy, badge labels — need finer print.
-     Keep in sync with --text-xxs / --text-2xs in styles/tailwind.css. */
+  /* ── xs 未満のフォントサイズ ──────────────────────────────────────────────
+     Tailwind の `text-xs` は下限 12px。連絡先カードの補足, フッターの
+     マイクロコピー, バッジラベルなど一部はより細字が必要。
+     styles/tailwind.css の --text-xxs / --text-2xs と同期を保つ。 */
   textSize: {
-    /** 10px — ultra-fine (footer notes, parenthetical asides). */
+    /** 10px — 極細（フッター注記, 括弧内補足）。 */
     xxs: '0.625rem',
-    /** 11px — fine print (contact card body, role-summary inline). */
+    /** 11px — 細字（連絡先カード本文, ロール要約インライン）。 */
     twoXs: '0.6875rem',
   },
 
-  /* ── Shape ───────────────────────────────────────────────────────── */
+  /* ── シェイプ ───────────────────────────────────────────────────────── */
   radius: {
-    /** Default corner rounding for cards, inputs, buttons (matches AntD). */
+    /** カード, 入力, ボタンの既定角丸（AntD 準拠）。 */
     ant: 6,
   },
 
-  /* ── Elevation ladder — 3 levels ────────────────────────────────────
-     Keep in sync with the same-named CSS vars in styles/tailwind.css.
-       card        Default surface elevation (BaseCard, panels, list rows).
-       cardHover   Hover state for interactive cards.
-       overlay     Floating UI — wired into AntD's boxShadowSecondary so
-                   Modal / Drawer / Popover / Dropdown / Tooltip pick it
-                   up automatically via ConfigProvider. */
+  /* ── エレベーション階層 — 3段階 ────────────────────────────────────
+     styles/tailwind.css の同名 CSS 変数と同期を保つ。
+       card        既定サーフェスのエレベーション（BaseCard, パネル, リスト行）。
+       cardHover   インタラクティブなカードの hover 状態。
+       overlay     フローティング UI — AntD の boxShadowSecondary に接続し、
+                   Modal / Drawer / Popover / Dropdown / Tooltip が
+                   ConfigProvider 経由で自動的に拾う。 */
   shadow: {
     card:
       '0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px 0 rgba(0, 0, 0, 0.02)',

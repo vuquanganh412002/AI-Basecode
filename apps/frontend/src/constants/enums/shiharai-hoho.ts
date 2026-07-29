@@ -1,9 +1,9 @@
 /**
- * Mirror of `apps/backend/src/common/enums/shiharai-hoho.enum.ts`
- * (`m_code.code_category = 'SHIHARAI_HOHO'`).
+ * `apps/backend/src/common/enums/shiharai-hoho.enum.ts` のミラー
+ * （`m_code.code_category = 'SHIHARAI_HOHO'`）。
  *
- * Group A: used for branching (口座引落 makes the bank cluster required,
- * etc.). Labels come from `useCodesStore().label(...)`.
+ * Group A: 分岐に使用（口座引落 が銀行群を必須にする 等）。
+ * ラベルは `useCodesStore().label(...)` から取得。
  */
 export const ShiharaiHoho = {
   /** 口座引落 */

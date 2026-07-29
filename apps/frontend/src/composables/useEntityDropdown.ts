@@ -1,48 +1,24 @@
 /**
- * Shared state machine for the server-side-paginated + searchable
- * "entity dropdown" pattern used by {@link BaseJaDropdown},
- * {@link BaseAccountDropdown}, and {@link BaseTankaDropdown}.
+ * サーバーページング + 検索対応「エンティティドロップダウン」の共通状態機械。
+ * {@link BaseJaDropdown} / {@link BaseAccountDropdown} / {@link BaseTankaDropdown}
+ * で共有（修正を一箇所に集約するため抽出）。
  *
- * Behavior (identical across all three call sites — extracted here so
- * any fix lands in one place):
+ * 挙動:
+ *   - onMounted で page 1（perPage 既定 50 件）を初期ロード。
+ *   - 検索は 300ms デバウンス。`q` 入力で page 1 にリセット。
+ *   - 無限スクロール: 下端 80px 手前で page +1 を追記。`meta.has_more` が false で停止。
+ *   - 編集モード事前選択: マウント時の `selected` が page 1 に無ければ BE が
+ *     `include_id` で先頭付加し、二度目の往復無しでラベル表示。
+ *   - stale-response ガード: 単調増加 `requestSeq` で、"a"→"ab" の順序逆転時に
+ *     古い ("a") 応答を破棄し新しい ("ab") を上書きさせない。
+ *   - unmount 時にデバウンス取消 — teardown 後の検索は no-op（Vitest の
+ *     unhandled rejection ノイズ回避）。
+ *   - 再オープン時は `lastFetchedQ` !== 現 `q` の場合のみ再取得。無入力の
+ *     open/close/reopen では往復しない。
+ *   - @change 時に内部 `q` を '' にリセット（antd は検索入力欄を自動クリアするが
+ *     @search を発火しない）。option 一覧の更新は次回オープンまで遅延。
  *
- *   - Initial load of `perPage` (default 50) items (page 1) onMounted.
- *   - Search debounced 300 ms — typing `q` resets to page 1.
- *   - Infinite scroll — popup-scroll near the bottom (80 px threshold)
- *     loads page +1 and appends. Stops when `meta.has_more` is false.
- *   - Edit-mode pre-selection — if `selected.value` is set on mount and
- *     the chosen id is not in page 1, the BE prepends it via
- *     `include_id` so the label renders correctly without a second
- *     round-trip.
- *   - Stale-response guard via a monotonic `requestSeq`: typing "a" →
- *     "ab" issues two requests; if the network reorders them the
- *     earlier ("a") response is dropped so it can't clobber the newer
- *     ("ab") cache.
- *   - Debounce cancelled on unmount — pending search after teardown
- *     becomes a no-op, avoiding Vitest "unhandled rejection" noise.
- *   - On reopen, refetch only if the cached options reflect a stale
- *     query (`lastFetchedQ` !== current `q`). Skips the round-trip
- *     when the user just opens / closes / reopens without typing.
- *   - On @change, internal `q` is reset to `''` (antd auto-clears the
- *     visible search input but does NOT fire @search) — refresh of the
- *     option list is deferred to the next dropdown open so users who
- *     just pick + move on don't pay for an unused request.
- *
- * Variations between call sites live in `UseEntityDropdownOpts`:
- *   - `fetcher` — the API call.
- *   - `idField` — which key on the row is the primary identifier.
- *   - `buildExtraParams` — module-specific query params
- *     (todofuken_code, tanka_type, ja_id, match_field, …).
- *   - `resetTriggers` — refs that, when changed, reset the option list
- *     to page 1 (e.g. todofukenCode for JA, jaId for tanka).
- *   - `onResetTrigger` — optional callback fired when a reset trigger
- *     changes. Tanka uses this to clear the parent's `value` (a
- *     tanka_id picked under JA A wouldn't survive the BE scope filter
- *     under JA B).
- *   - `onSelect` — optional callback fired alongside change with the
- *     resolved row object from the cached page (or null on clear).
- *     File-upload's "対象JA" multi-select chip list uses this so it
- *     can grab ja_code without a follow-up GET.
+ * 呼び出し側ごとの差異は `UseEntityDropdownOpts` に集約。
  */
 import {
   onBeforeUnmount,
@@ -70,80 +46,60 @@ export interface UseEntityDropdownOpts<
   TItem extends object,
   TQuery extends object,
 > {
-  /** API call. Receives the composed query params; returns `{ data, meta }`. */
+  /** API 呼び出し。合成済みクエリを受け取り `{ data, meta }` を返す。 */
   fetcher: (params: TQuery) => Promise<EntityDropdownResult<TItem>>;
-  /** Primary-key field name on the row (e.g. `'ja_id'`, `'account_id'`, `'tanka_id'`). */
+  /** 行の主キーフィールド名（`'ja_id'` / `'account_id'` / `'tanka_id'` 等）。 */
   idField: keyof TItem;
   /**
-   * Current v-model selection (ref to `props.value`). `null` /
-   * `undefined` both mean "nothing selected" so callers can pass
-   * either filter state (`number | null`) or form state
-   * (`number | undefined`) without a ?? bridge.
+   * 現在の v-model 選択（`props.value` への ref）。`null`/`undefined` は共に
+   * 「未選択」。filter state（`number | null`）でも form state
+   * （`number | undefined`）でも ?? 橋渡し無しで渡せる。
    */
   selected: Ref<number | null | undefined>;
-  /**
-   * Page size. Default 50. Pass a ref so a prop change live-updates
-   * the next fetch (rare — kept for parity with the original code).
-   */
+  /** ページサイズ。既定 50。ref 渡しで prop 変更が次回 fetch に反映。 */
   perPage: Ref<number>;
   /**
-   * Build module-specific params (todofuken_code, tanka_type, ja_id,
-   * match_field, …). Called on every fetch — must read reactive refs
-   * directly so the latest values are picked up.
+   * モジュール固有パラメータ（todofuken_code, tanka_type, ja_id, match_field 等）を構築。
+   * fetch 毎に呼ばれるので reactive ref を直接読むこと。
    */
   buildExtraParams?: () => Partial<TQuery>;
   /**
-   * Refs that, when changed, reset the dropdown to page 1. Composable
-   * wires the watcher; component just lists which refs to watch.
+   * 変更時にドロップダウンを page 1 にリセットする ref 群。watcher は composable が配線。
    *
-   * Two reset modes are supported (preserves the difference between
-   * the JA + tanka cascades):
-   *
-   *   - `'soft'` (default — used by BaseJaDropdown.todofukenCode):
-   *     just resets `page` + `hasMore` and refetches. The existing
-   *     `options` list stays visible until the new fetch resolves
-   *     (no flash of empty); `q` is preserved across the trigger
-   *     change; parent's selection is NOT cleared. The narrowed
-   *     fetch's results overwrite `options` on success.
-   *
-   *   - `'hard'` (used by BaseTankaDropdown.jaId): clears `options`
-   *     immediately, resets `q`, drops `lastFetchedQ`, then refetches.
-   *     If `clearValueOnReset` is also true, the parent's selection
-   *     is emitted as `null` before the refetch — a tanka_id picked
-   *     under JA A wouldn't survive the BE scope filter under JA B.
+   * 2 つのリセットモード（JA と tanka のカスケードの差異を保持）:
+   *   - `'soft'`（既定 — BaseJaDropdown.todofukenCode）: `page`+`hasMore` のみ
+   *     リセットして再取得。既存 `options` は新 fetch 解決まで表示（空フラッシュ無し）。
+   *     `q` は保持、親選択は非クリア。
+   *   - `'hard'`（BaseTankaDropdown.jaId）: `options` 即クリア、`q` リセット、
+   *     `lastFetchedQ` 破棄後に再取得。`clearValueOnReset` も true なら再取得前に
+   *     親選択を null で emit（JA A で選んだ tanka_id は JA B の BE スコープで生き残らない）。
    */
   resetTriggers?: Array<Ref<unknown>>;
-  /** See `resetTriggers`. Default `'soft'`. */
+  /** `resetTriggers` 参照。既定 `'soft'`。 */
   resetMode?: 'soft' | 'hard';
   /**
-   * If true, when a reset trigger fires AND the current selection is
-   * non-null, the composable calls `onResetTrigger` (which should
-   * emit `update:value` = null) BEFORE refetching. Used by the tanka
-   * jaId cascade to clear the parent's form-state.
+   * true なら reset trigger 発火かつ現選択が非 null の時、再取得前に
+   * `onResetTrigger`（`update:value`=null を emit すべき）を呼ぶ。
+   * tanka jaId カスケードが親 form-state クリアに使用。
    */
   clearValueOnReset?: boolean;
   /**
-   * Fired when ANY ref in `resetTriggers` changes — typically used to
-   * emit `update:value` = null when `clearValueOnReset` is true.
-   * Only invoked when the current selection is non-null.
+   * `resetTriggers` のいずれかが変化時に発火。`clearValueOnReset` が true の時に
+   * `update:value`=null を emit する用途。現選択が非 null の時のみ呼ばれる。
    */
   onResetTrigger?: () => void;
   /**
-   * Fired on `@change` alongside the value emit, with the row object
-   * resolved from the cached page (or `null` on clear). Lets callers
-   * grab full row metadata (ja_code, todofuken_code, …) without a
-   * follow-up GET.
+   * `@change` の value emit と併せて発火。キャッシュ済みページから解決した行オブジェクト
+   * （クリア時 null）を渡す。追加 GET 無しで行メタ（ja_code, todofuken_code 等）を取得可能。
    */
   onSelect?: (value: number | null, item: TItem | null) => void;
 }
 
-// 300 ms — collapses fast typing into one request while staying
-// responsive (~human-noticed delay threshold). Matches GitHub /
-// Material UI Autocomplete defaults.
+// 300ms — 高速入力を 1 リクエストに集約しつつ応答性を維持。
+// GitHub / Material UI Autocomplete の既定値に一致。
 const SEARCH_DEBOUNCE_MS = 300;
 
-// Trigger ~80 px before the bottom so the next batch is rendered
-// before the user hits the empty space.
+// 下端 80px 手前で発火し、空白に達する前に次バッチを描画。
 const SCROLL_THRESHOLD_PX = 80;
 
 export function useEntityDropdown<
@@ -157,23 +113,17 @@ export function useEntityDropdown<
   const q = ref('');
 
   /**
-   * Last query the cached `options` reflect. `null` until the first
-   * fetch resolves. Used to (a) skip duplicate requests when the
-   * debounced query equals what's already loaded, and (b) decide on
-   * dropdown re-open whether the option list is stale and needs a
-   * refresh.
+   * キャッシュ済み `options` が反映するクエリ。初回 fetch 解決まで `null`。
+   * (a) デバウンス後クエリがロード済みと同一なら重複リクエストを回避、
+   * (b) 再オープン時に option 一覧が stale で更新要かを判断、に使用。
    */
   const lastFetchedQ = ref<string | null>(null);
 
   /**
-   * Monotonic request counter. Every `fetchPage` invocation captures
-   * the current value; when the response resolves we ignore it if the
-   * counter has advanced (= a newer request was issued meanwhile).
-   *
-   * Protects against the classic stale-response race: typing "a" then
-   * quickly "ab" issues two requests, and if the network reorders
-   * them the first ("a") response would otherwise clobber the second
-   * ("ab") and leave the user looking at wrong results.
+   * 単調増加リクエストカウンタ。`fetchPage` 毎に現在値を捕捉し、応答解決時に
+   * カウンタが進んでいれば（= より新しいリクエストが発行済み）無視する。
+   * stale-response レース対策: "a"→"ab" の順序逆転で古い応答が新しい結果を
+   * 上書きするのを防ぐ。
    */
   let requestSeq = 0;
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -185,10 +135,8 @@ export function useEntityDropdown<
       per_page: opts.perPage.value,
     };
     if (q.value) base.q = q.value;
-    // include_id only matters on the first hydration when the parent
-    // arrives with a pre-selected id. After that the user controls
-    // navigation via search / scroll. `!= null` catches both undefined
-    // and null since `selected` can be either.
+    // include_id は親が事前選択 id を持って来る初回 hydration のみ有効。
+    // 以降はユーザーが検索/スクロールで操作。`!= null` で undefined と null 両方を捕捉。
     if (reset && nextPage === 1 && opts.selected.value != null && !q.value) {
       base.include_id = opts.selected.value;
     }
@@ -209,9 +157,8 @@ export function useEntityDropdown<
   }
 
   async function fetchPage(p: { reset: boolean }): Promise<void> {
-    // Reset always wins — even if a page-N append is in flight, the
-    // newer search/reset must supersede it. Scroll-append bails out
-    // when a reset is happening or another append is already loading.
+    // reset は常に優先 — page-N append 実行中でも新しい検索/reset が優先。
+    // scroll-append は reset 中または別 append ロード中なら中断。
     if (!p.reset && loading.value) return;
     if (!p.reset && !hasMore.value) return;
 
@@ -221,8 +168,7 @@ export function useEntityDropdown<
       const { nextPage, params } = buildParams(p.reset);
       const res = await opts.fetcher(params);
 
-      // Stale-response guard: a newer request was issued meanwhile →
-      // drop the response entirely so it can't clobber fresher data.
+      // stale-response ガード: より新しいリクエストが発行済みなら応答を破棄。
       if (mySeq !== requestSeq) return;
 
       page.value = nextPage;
@@ -230,24 +176,22 @@ export function useEntityDropdown<
       mergePage(p.reset, res.data);
       if (p.reset) lastFetchedQ.value = q.value;
     } finally {
-      // Only the latest request flips loading off — a stale finisher
-      // must not clear the spinner the newer request is still showing.
+      // 最新リクエストのみ loading を解除 — stale な終了処理が
+      // 新リクエストのスピナーを消さないように。
       if (mySeq === requestSeq) loading.value = false;
     }
   }
 
   function onSearch(input: string): void {
-    // Trim so paste artifacts / IME-confirmed spaces don't alter the
-    // ILIKE pattern (BE wraps with `%…%`, but `%  東京  %` won't match
-    // rows whose name has no surrounding spaces).
+    // trim して paste 由来/IME 確定の空白が ILIKE パターンを変えないように
+    // （BE は `%…%` で囲むが `%  東京  %` は前後空白の無い行にマッチしない）。
     const trimmed = input.trim();
     q.value = trimmed;
     if (searchDebounce) clearTimeout(searchDebounce);
     searchDebounce = setTimeout(() => {
       searchDebounce = null;
-      // Skip the network round-trip when the debounced query equals
-      // what's already loaded — common after typing then deleting back
-      // to the same prefix, or antd echoing the same value twice.
+      // デバウンス後クエリがロード済みと同一なら往復を回避
+      // （入力→同一 prefix まで削除、や antd の二重 echo で頻発）。
       if (trimmed === lastFetchedQ.value) return;
       void fetchPage({ reset: true });
     }, SEARCH_DEBOUNCE_MS);
@@ -263,21 +207,16 @@ export function useEntityDropdown<
     }
   }
 
-  // Default param `= null` does the antd-undefined → null normalisation
-  // in the signature itself (Sonar S7760 — prefer default parameter over
-  // a `?? null` reassignment inside the body). JS substitutes the default
-  // when the caller passes `undefined`, which is exactly what antd's
-  // `@change` event does on X-clear.
+  // 既定引数 `= null` でシグネチャ側の antd-undefined → null 正規化
+  // （Sonar S7760 — body 内 `?? null` 再代入より既定引数を推奨）。antd の
+  // `@change` は X-clear 時に undefined を渡すので JS が既定値を代入する。
   function onChange(v: number | null = null): number | null {
-    // Antd auto-clears the visible search input on select / X-clear,
-    // but does NOT fire `@search` — sync our internal `q` so the next
-    // dropdown open's stale-check sees a clean query. We DON'T refetch
-    // here: the refresh is deferred to `onDropdownVisibleChange` below
-    // so users who just pick + move on don't pay for an unused request.
+    // antd は select/X-clear 時に検索入力欄を自動クリアするが `@search` を
+    // 発火しない — 内部 `q` を同期し次回オープンの stale-check がクリーンな
+    // クエリを見るように。ここでは再取得せず、更新は onDropdownVisibleChange に遅延。
     q.value = '';
-    // Resolve the picked option from the cached page so callers that
-    // need extra row fields (chip lists, audit log payloads) can grab
-    // them without a follow-up GET. Null on X-clear.
+    // 追加行フィールド（chip リスト, 監査ログペイロード）を追加 GET 無しで
+    // 取得できるよう、キャッシュ済みページから選択 option を解決。X-clear 時 null。
     const picked =
       v == null
         ? null
@@ -287,11 +226,10 @@ export function useEntityDropdown<
   }
 
   function onDropdownVisibleChange(visible: boolean): void {
-    // On open: if the cached options reflect a previous search query
-    // that no longer matches `q.value` (= user typed before, then
-    // selected / cleared / closed without retyping), reload page 1.
-    // `lastFetchedQ === null` only on first mount before initial load
-    // completes — skip then, the onMounted fetch handles it.
+    // オープン時: キャッシュ済み options が現 `q.value` と不一致な過去の検索クエリを
+    // 反映（= 過去に入力後、再入力せず選択/クリア/クローズ）していれば page 1 を再読込。
+    // `lastFetchedQ === null` は初回マウントの初期ロード完了前のみ — その時は
+    // onMounted の fetch に任せてスキップ。
     if (!visible) return;
     if (lastFetchedQ.value === null) return;
     if (lastFetchedQ.value === q.value) return;
@@ -302,12 +240,9 @@ export function useEntityDropdown<
     void fetchPage({ reset: true });
   });
 
-  // Cancel any pending debounce when the component unmounts. The
-  // fetchPage callback is then a no-op even if the timer hadn't fired
-  // yet — avoids spurious requests + Vitest "unhandled rejection"
-  // noise when a spec tears down mid-debounce. In-flight requests are
-  // naturally orphaned (requestSeq bump on the next mount won't match
-  // the old promise) so the stale-guard inside fetchPage drops them.
+  // unmount 時に保留中のデバウンスを取消。タイマー未発火でも fetchPage は no-op に
+  // なり、spec が debounce 中に teardown する際の無駄なリクエスト + Vitest
+  // unhandled rejection ノイズを回避。実行中リクエストは自然に孤立し stale-guard が破棄。
   onBeforeUnmount(() => {
     if (searchDebounce) {
       clearTimeout(searchDebounce);
@@ -315,35 +250,30 @@ export function useEntityDropdown<
     }
   });
 
-  // If the parent swaps `selected` to an id we have not loaded yet
-  // (e.g. programmatic edit-form hydration after mount), refetch with
-  // include_id so the label resolves.
+  // 親が未ロードの id に `selected` を切替（マウント後の編集フォーム
+  // プログラム的 hydration 等）した場合、include_id 付きで再取得しラベルを解決。
   watch(
     () => opts.selected.value,
     (newVal) => {
-      // `== null` catches both undefined and null — "no selection" in
-      // either representation means nothing to fetch.
+      // `== null` で undefined と null 両方を捕捉 — どちらも「未選択」で fetch 不要。
       if (newVal == null) return;
       if (options.value.some((o) => o[opts.idField] === newVal)) return;
       void fetchPage({ reset: true });
     },
   );
 
-  // Cascade reset for module-specific narrowing refs (todofukenCode
-  // for JA — soft; jaId for tanka — hard). Bumps requestSeq
-  // implicitly via fetchPage so any in-flight unfiltered response
-  // gets dropped by the stale-guard.
+  // モジュール固有の絞り込み ref のカスケードリセット（JA=todofukenCode は soft、
+  // tanka=jaId は hard）。fetchPage 経由で requestSeq を暗黙に進め、実行中の
+  // 未絞り込み応答を stale-guard が破棄。
   if (opts.resetTriggers && opts.resetTriggers.length > 0) {
     const mode = opts.resetMode ?? 'soft';
     watch(
-      // Spread the triggers into a tuple so each ref is tracked
-      // individually. Returning the array of values lets Vue diff
-      // them element-wise and call us back on any change.
+      // 各 ref を個別追跡するため triggers をタプルに展開。値の配列を返すと
+      // Vue が要素単位で diff し変化時にコールバックする。
       opts.resetTriggers.map((r) => () => r.value),
       (next, prev) => {
-        // Cheap shallow-equal guard: watcher is sometimes called
-        // with identical values on parent re-render with the same
-        // prop. Bail out so we don't issue a no-op refetch.
+        // 安価な shallow-equal ガード: 同一 prop での親再描画時に同値で
+        // 呼ばれることがあるため、no-op 再取得を回避。
         if (
           Array.isArray(next) &&
           Array.isArray(prev) &&
@@ -353,8 +283,8 @@ export function useEntityDropdown<
           return;
         }
         if (mode === 'hard') {
-          // Hard reset (tanka cascade): clear options + q + memo so
-          // the new tenant's data doesn't blend with the previous.
+          // hard reset（tanka カスケード）: options+q+memo をクリアし
+          // 新テナントのデータが前と混ざらないように。
           options.value = [];
           page.value = 1;
           hasMore.value = true;
@@ -364,10 +294,8 @@ export function useEntityDropdown<
             opts.onResetTrigger?.();
           }
         } else {
-          // Soft reset (JA todofukenCode cascade): keep current
-          // options visible until the new fetch resolves, preserve
-          // `q` so the user's search persists across the narrowing
-          // change, don't touch parent selection.
+          // soft reset（JA todofukenCode カスケード）: 現 options を新 fetch
+          // 解決まで表示、`q` を保持し絞り込み変更後も検索を維持、親選択は非変更。
           page.value = 1;
           hasMore.value = true;
         }
@@ -396,7 +324,7 @@ export function useEntityDropdown<
         };
         const extra = opts.buildExtraParams?.() ?? {};
         const res = await opts.fetcher({ ...base, ...extra } as TQuery);
-        if (mySeq !== requestSeq) return []; // superseded by a newer request
+        if (mySeq !== requestSeq) return []; // より新しいリクエストに置換された
         acc.push(...res.data);
         more = res.meta.has_more;
         p += 1;

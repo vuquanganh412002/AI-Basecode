@@ -9,14 +9,10 @@ import { Request } from 'express';
 import { SessionService, SessionPayload } from '@/modules/auth/session.service';
 
 /**
- * Validates the `session_id` cookie against Redis on every request.
- *
- * Flow:
- * 1. Read the signed cookie (set by express cookie-parser with
- *    `SESSION_SECRET`) — `req.signedCookies[cookieName]`.
- * 2. Look up the session payload in Redis. Missing / expired → 401.
- * 3. Refresh the TTL (sliding 24h window) and attach the decoded payload
- *    to `req.user` so controllers can read it via `@Req()`.
+ * 全リクエストで `session_id` cookie を Redis 照合。
+ * 1. signed cookie (`SESSION_SECRET` の cookie-parser 発行) を読む。
+ * 2. Redis で payload 参照。無し/期限切れ → 401。
+ * 3. TTL 更新 (sliding 24h) し payload を `req.user` へ付与 (controller が `@Req()` で参照)。
  */
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
@@ -42,9 +38,8 @@ export class SessionAuthGuard implements CanActivate {
   }
 
   private readSessionId(req: Request): string | undefined {
-    // Prefer signed cookies; fall back to plain (dev scenarios without a
-    // configured SESSION_SECRET — still rejected by touch() if the value
-    // doesn't match a real Redis key).
+    // signed cookie 優先、無ければ plain (SESSION_SECRET 未設定の dev 用。
+    // 値が実在 Redis key に一致しなければ touch() が却下)。
     const signed = req.signedCookies?.[this.cookieName];
     if (typeof signed === 'string') return signed;
     const plain = req.cookies?.[this.cookieName];

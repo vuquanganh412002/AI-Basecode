@@ -1,11 +1,11 @@
-// Hand-written wrapper around the /api/v1/file-download endpoints
-// (ACSMS-SCR-022 ファイルダウンロード画面). Data source = t_file_download.
-// Mirrors docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md.
+// /api/v1/file-download 用の手書き wrapper
+// （ACSMS-SCR-022 ファイルダウンロード画面）。データソース = t_file_download。
+// docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 import { parseContentDispositionFilename } from '@/utils/download';
 
-/** Row shape returned by `GET /api/v1/file-download`. */
+/** `GET /api/v1/file-download` の行の形。 */
 export interface FileDownloadListItem {
   file_download_id: number;
   ja_id: number | null;
@@ -46,7 +46,7 @@ export interface FilePreviewResponse {
   data: FilePreviewData;
 }
 
-/** Query DTO for `GET /api/v1/file-download` (ACSMS-API-022-001). */
+/** `GET /api/v1/file-download` のクエリDTO（ACSMS-API-022-001）。 */
 export interface ListFilesQuery {
   file_name?: string;
   todofuken_code?: string;
@@ -79,9 +79,9 @@ export async function getFilePreview(
   return res.data;
 }
 
-/** GET /api/v1/file-download/{id}/download — ACSMS-API-022-003.
- *  Returns a Blob (binary) so the caller can build an object URL + anchor
- *  click for the browser save dialog. */
+/** GET /api/v1/file-download/{id}/download — ACSMS-API-022-003。
+ *  Blob（バイナリ）を返し、呼び出し元がオブジェクト URL + anchor クリックで
+ *  ブラウザの保存ダイアログを出せるようにする。 */
 export async function downloadFile(fileDownloadId: number): Promise<Blob> {
   const res = await axiosInstance.get<Blob>(
     `/api/v1/file-download/${fileDownloadId}/download`,
@@ -90,9 +90,9 @@ export async function downloadFile(fileDownloadId: number): Promise<Blob> {
   return res.data;
 }
 
-/** POST /api/v1/file-download/download-zip — ACSMS-API-022-004.
- *  Bundles the selected files server-side into one ZIP. Returns the Blob
- *  plus the server-provided filename (一括ダウンロード_yyyyMMddHHmmss.zip). */
+/** POST /api/v1/file-download/download-zip — ACSMS-API-022-004。
+ *  選択ファイルをサーバ側で1つの ZIP にまとめる。Blob + サーバ提供の
+ *  ファイル名（一括ダウンロード_yyyyMMddHHmmss.zip）を返す。 */
 export async function downloadFilesAsZip(
   fileDownloadIds: number[],
 ): Promise<{ blob: Blob; filename: string }> {

@@ -15,10 +15,9 @@ import {
 } from 'class-validator';
 
 /**
- * Empty-string → undefined transformer. `@IsOptional()` only skips
- * `null` / `undefined`, NOT `""`. Form GET requests serialise blank
- * inputs as `?email=` — without this, `@IsEmail` rejects them at 400.
- * See `.claude/rules/nestjs.md §DTO validation gotchas`.
+ * 空文字 → undefined 変換。`@IsOptional()` は `null`／`undefined` のみスキップし
+ * `""` は対象外。GET リクエストは空入力を `?email=` でシリアライズするため、
+ * これが無いと `@IsEmail` が 400 で弾く。`.claude/rules/nestjs.md §DTO validation gotchas` 参照。
  */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
@@ -36,7 +35,7 @@ const stringToBool = ({ value }: { value: unknown }): unknown => {
   return value;
 };
 
-/** Allow-list of columns the FE can sort by (api.md §4.1 sort_by). */
+/** FE がソート可能な列の allow-list（api.md §4.1 sort_by）。 */
 const ALLOWED_SORT_COLUMNS = [
   'dokusya_id',
   'kanri_shiten_id',
@@ -49,28 +48,26 @@ const ALLOWED_SORT_COLUMNS = [
   'updated_at',
 ] as const;
 
-/** YYYY/MM/DD literal — matches `'2026/01/01'` format. */
+/** YYYY/MM/DD リテラル — `'2026/01/01'` 形式にマッチ。 */
 const DATE_FORMAT_RE = /^\d{4}\/\d{2}\/\d{2}$/;
 const DATE_FORMAT_MSG = '日付はYYYY/MM/DDの形式で指定してください。';
 
 /**
- * Query DTO for both:
- *   - GET /api/v1/dokusya          (list search — pagination + sort applied)
- *   - GET /api/v1/dokusya/export   (Excel export — page/per_page/sort_by/sort_order ignored)
+ * 以下両方のクエリ DTO:
+ *   - GET /api/v1/dokusya          （一覧検索 — ページネーション + ソート適用）
+ *   - GET /api/v1/dokusya/export   （Excel 出力 — page/per_page/sort_by/sort_order 無視）
  *
- * Both endpoints reuse the same DTO; the export controller drops the
- * pagination fields after binding. The DTO models FIELD-level validation;
- * date-range from ≦ to correlation is enforced via class-validator's
- * `@ValidateIf` on the `*_to` side so the spec's "either side carries
- * the error" assertion holds.
+ * 両エンドポイントが同一 DTO を再利用し、export コントローラはバインド後に
+ * ページネーション項目を捨てる。DTO はフィールド単位の検証を担う。日付範囲の
+ * from ≦ to 相関は `*_to` 側の `@ValidateIf` で強制し、spec の「どちらか一方が
+ * エラーを持つ」アサーションが成立するようにする。
  *
- * sort_by allow-list is enforced HERE (not in the service) so the
- * search-dokusya.dto.ts.spec assertion sees a property-level error.
- * The service still re-validates the column against the SORT_COLUMN_MAP
- * to keep the SQL safe — belt-and-braces.
+ * sort_by allow-list はサービスではなくここで強制し、search-dokusya.dto.ts.spec の
+ * アサーションがプロパティ単位のエラーを見られるようにする。サービスも
+ * SORT_COLUMN_MAP で列を再検証し SQL を安全に保つ — 二重防御。
  */
 export class SearchDokusyaDto {
-  // ─── Equality filters ──────────────────────────────────────────────────
+  // ─── 完全一致フィルタ ──────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '管理支店ID' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -92,7 +89,7 @@ export class SearchDokusyaDto {
   @IsInt({ message: '販売店IDは整数で指定してください。' })
   hanbaiten_id?: number;
 
-  // ─── Partial-match filters ────────────────────────────────────────────
+  // ─── 部分一致フィルタ ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '組合員コード（部分一致）', maxLength: 20 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -187,7 +184,7 @@ export class SearchDokusyaDto {
   @Matches(/^\d{6}$/, { message: '請求開始月はYYYYMMの形式で指定してください。' })
   seikyu_kaishi_month_to?: string;
 
-  // ─── Date ranges ───────────────────────────────────────────────────────
+  // ─── 日付範囲 ───────────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '購読開始日（範囲開始）YYYY/MM/DD' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -257,7 +254,7 @@ export class SearchDokusyaDto {
   })
   joho_henko_tekiyo_date_to?: string;
 
-  // ─── m_code-bound integers (shape check only — value validated in service) ─
+  // ─── m_code 連動の整数（形式チェックのみ — 値はサービスで検証） ─
   @ApiPropertyOptional({ description: '購読種別（1:紙版, 2:電子版, 3:併読）' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -308,7 +305,7 @@ export class SearchDokusyaDto {
   @IsBoolean({ message: '有効単価フラグの値が不正です。' })
   active_tanka_flg?: boolean;
 
-  // ─── Pagination + sort ────────────────────────────────────────────────
+  // ─── ページネーション + ソート ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1 })
   @Transform(blankToUndef)
   @IsOptional()

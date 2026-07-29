@@ -3,10 +3,10 @@ import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 /**
- * Query DTO for `GET /api/v1/kanri-shiten/dropdown` (ACSMS-API-COMMON-004).
- * `ja_id` is required — the BE filters m_kanri_shiten by this JA only.
- * 検索（q）/ ページング（page・per_page）/ 編集ピン（include_id）は任意。ページング
- * は **opt-in**（page 未指定なら全件・has_more=false）で既存呼び出し元と後方互換。
+ * GET /api/v1/kanri-shiten/dropdown (ACSMS-API-COMMON-004) クエリ DTO。
+ * ja_id 必須 — BE は此の JA のみで m_kanri_shiten を絞る。検索 (q) / ページング
+ * (page・per_page) / 編集ピン (include_id) は任意。ページングは opt-in（page 未指定なら
+ * 全件・has_more=false）で既存呼び出し元と後方互換。
  * Spec: docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md §ACSMS-API-COMMON-004.
  */
 export class KanriShitenDropdownQueryDto {
@@ -49,13 +49,13 @@ export class KanriShitenDropdownQueryDto {
   include_id?: number;
 }
 
-/** Single row in the dropdown response. */
+/** dropdown 応答の 1 行。 */
 export class KanriShitenDropdownItemDto {
   @ApiProperty() kanri_shiten_id!: number;
   @ApiProperty() kanri_shiten_code!: string;
   @ApiProperty() kanri_shiten_name!: string;
-  // 顧客要件2026-07: 購読者登録画面(SCR-011)で 購読種別（紙版/電子版）に応じて
-  // 管理支店ドロップダウンを絞り込むためのフラグ（m_kanri_shiten.paper_flg/denshi_flg）。
+  // 顧客要件2026-07: SCR-011 で購読種別（紙版/電子版）に応じ管理支店ドロップダウンを
+  // 絞り込むためのフラグ（m_kanri_shiten.paper_flg/denshi_flg）。
   @ApiProperty({ description: '紙版取扱フラグ' }) paper_flg!: boolean;
   @ApiProperty({ description: '電子版取扱フラグ' }) denshi_flg!: boolean;
 }

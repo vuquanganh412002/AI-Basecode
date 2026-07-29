@@ -1,6 +1,6 @@
 /**
- * Pagination shape for list endpoints — frozen project convention
- * (see `.claude/rules/nestjs.md` Response Format).
+ * リストエンドポイントのページング形状 — 固定のプロジェクト規約
+ * （.claude/rules/nestjs.md Response Format 参照）。
  */
 export interface PageMeta {
   total: number;
@@ -14,16 +14,28 @@ export interface PaginatedResponse<T> {
   meta: PageMeta;
 }
 
+/** `per_page` の上限（`PaginationDto` 等の `@Max` と同値）。 */
+export const PER_PAGE_MAX = 100;
+
 /**
- * Build the standard `{ data, meta }` response for paginated list
- * endpoints. Use whenever a service returns a page of rows so all
- * list endpoints stay structurally identical (FE Orval client + every
- * `useTableQuery` consumer rely on this exact shape).
+ * `per_page` を [1, PER_PAGE_MAX] にクランプする（未指定・非数値は `fallback`）。
+ * DTO の `@Max(100)` を通らない経路（内部呼び出し・生クエリ）でも
+ * 上限なし SELECT にならないための二重化。各 service が
+ * `Math.max(1, Math.min(100, …))` を書き写していたのを集約したもの。
+ */
+export function clampPerPage(value: unknown, fallback = 20): number {
+  const n = Number(value ?? fallback);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(PER_PAGE_MAX, n));
+}
+
+/**
+ * ページング系リストエンドポイントの標準 `{ data, meta }` — 構造を完全に統一する
+ * （FE クライアント + 全 `useTableQuery` がこの形状に依存）。
  *
  *   return paginate(rows, total, page, per_page);
  *
- * `total_pages` is derived; clamps to 0 when `per_page` is 0 or
- * negative so a malformed query never throws on division.
+ * `per_page` <= 0 のとき `total_pages` は 0 にクランプし、不正クエリでもゼロ除算しない。
  */
 export function paginate<T>(
   data: T[],
@@ -43,10 +55,9 @@ export function paginate<T>(
 }
 
 /**
- * Cursor-style meta for infinite-scroll dropdown endpoints. Instead of
- * `total_pages` it exposes `has_more` (is there a next page to fetch?),
- * which the FE `useEntityDropdown` composable reads to decide whether to
- * keep paging on scroll.
+ * 無限スクロールドロップダウン用のカーソル式 meta: `total_pages` の代わりに
+ * `has_more`（次ページの有無）を公開。FE `useEntityDropdown` がスクロール時に
+ * ページングを続けるか判断するのに読む。
  */
 export interface CursorPageMeta {
   total: number;
@@ -61,10 +72,8 @@ export interface CursorPaginatedResponse<T> {
 }
 
 /**
- * Build the `{ data, meta }` response for cursor/infinite-scroll dropdown
- * endpoints (JA / account / tanka `*Dropdown`). Centralizes the
- * `has_more = page * per_page < total` computation so all dropdown
- * endpoints stay structurally identical.
+ * カーソル/無限スクロールドロップダウン用の `{ data, meta }`（JA / account /
+ * tanka の `*Dropdown`）。`has_more = page * per_page < total` を集約。
  *
  *   return paginateCursor(rows, total, page, per_page);
  */

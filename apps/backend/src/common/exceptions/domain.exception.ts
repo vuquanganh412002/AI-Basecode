@@ -2,15 +2,12 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { ErrorCode } from '@/common/constants/error-codes.constant';
 
 /**
- * Base class for all application-level (business) exceptions.
- *
- * The response body contains both `code` (read by GlobalExceptionFilter
- * internally) and `error_code` (the public HTTP field name, also used by
- * tests that introspect `exception.response.error_code`). Keeping both
- * keys avoids an impedance mismatch between the filter's internal model
- * and the public API surface.
+ * 全業務例外の基底クラス。
+ * body は `code` (GlobalExceptionFilter が内部で読む) と `error_code`
+ * (公開 HTTP フィールド名。`exception.response.error_code` を見るテストでも使用)
+ * の両方を持つ — filter 内部モデルと公開 API のインピーダンス不整合を回避。
  */
-/** Field-level validation detail surfaced to the client in `errors[]`. */
+/** クライアントへ `errors[]` で返すフィールド単位の validation detail。 */
 export interface ValidationErrorDetail {
   field: string;
   message: string;
@@ -22,16 +19,14 @@ export class DomainException extends HttpException {
     public readonly code: ErrorCode | string,
     status: HttpStatus = HttpStatus.INTERNAL_SERVER_ERROR,
     /**
-     * Optional field-level details (VALIDATION_ERROR). When present they are
-     * serialized as `errors[]` by GlobalExceptionFilter so the FE
-     * `useApiForm` can map them to `<a-form-item :help>`.
+     * VALIDATION_ERROR のフィールド詳細。GlobalExceptionFilter が `errors[]` に
+     * serialize → FE `useApiForm` が `<a-form-item :help>` にマップ。
      */
     public readonly errors?: ValidationErrorDetail[],
     /**
-     * Optional total count for list-style errors whose `errors[]` is capped
-     * (e.g. SCR-020 INACTIVE_TANKA_REFERENCED returns the first 15 rows but
-     * the true total). Serialized as `total` by GlobalExceptionFilter so the
-     * FE can show "該当 N 件中 15 件を表示".
+     * `errors[]` を打ち切る list 系エラーの総件数 (例 SCR-020
+     * INACTIVE_TANKA_REFERENCED は先頭15件+真の総数)。filter が `total` に
+     * serialize → FE が「該当 N 件中 15 件を表示」を表示。
      */
     public readonly total?: number,
   ) {

@@ -1,12 +1,10 @@
 /**
- * Notice publish location stored in `t_oshirase.publish_location`.
+ * お知らせ掲載場所。`t_oshirase.publish_location`。
+ * Mirror of `m_code.code_category = 'PUBLISH_LOCATION'`。未認証 login 画面向け
+ * と login 後 menu 画面向けを区別 — audience/threat model が異なる
+ * (login 画面のお知らせは public)。
  *
- * Mirror of `m_code.code_category = 'PUBLISH_LOCATION'`. Distinguishes
- * notices intended for the unauthenticated login screen vs the
- * post-login menu screen — they have different audiences and threat
- * models (login-screen notices are public).
- *
- * Keep in sync with `apps/frontend/src/constants/enums/publish-location.ts`.
+ * `apps/frontend/src/constants/enums/publish-location.ts` と同期。
  */
 export const PublishLocation = {
   /** ログイン画面（未認証ユーザに公開） */

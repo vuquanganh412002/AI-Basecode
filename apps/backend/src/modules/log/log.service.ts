@@ -41,13 +41,13 @@ const CSV_HEADER = [
   'IPアドレス',
 ];
 
-/** Numeric column coming from pg as number-or-string, nullable. */
+/** pg から number または string で来る nullable な数値カラム。 */
 type NumOrStringNull = number | string | null;
 
-// [no-labels-policy] Authenticated endpoint — `log_type_label` /
-// `result_status_label` removed per `.claude/rules/nestjs.md
-// §Response serialization`. FE resolves via
-// `useCodesStore().label('LOG_TYPE', value)`.
+// [no-labels-policy] 認証エンドポイント — `log_type_label` /
+// `result_status_label` は削除（`.claude/rules/nestjs.md
+// §Response serialization`）。FE が useCodesStore().label('LOG_TYPE', value)
+// で解決。
 export interface LogListItem {
   log_id: number;
   log_type: number;
@@ -109,9 +109,9 @@ export class LogService {
     @InjectRepository(Log) private readonly logRepo: Repository<Log>,
     private readonly auditLog: AuditLogService,
     @InjectDataSource() private readonly dataSource: DataSource,
-    // CodeService is @Global, used here for CSV export label resolution
-    // (LOG_TYPE / RESULT_STATUS). The list response itself drops *_label
-    // fields per the project rule; FE resolves via useCodesStore().
+    // CodeService（@Global）は CSV export のラベル解決用（LOG_TYPE /
+    // RESULT_STATUS）。list 応答自体はプロジェクト規約により *_label を
+    // 落とし FE が useCodesStore() で解決。
     private readonly codeService: CodeService,
   ) {}
 
@@ -152,10 +152,10 @@ export class LogService {
     this.applyScope(qb, session);
     this.applyFilters(qb, query);
 
-    // limit/offset (NOT take/skip): take/skip only paginate getMany() entity
-    // results — they are IGNORED by getRawMany(), so the page query returned
-    // EVERY matching log row. countQb.getCount() is unaffected (separate
-    // COUNT query), so the meta totals stay correct.
+    // limit/offset を使う（take/skip 不可）: take/skip は getMany() の entity
+    // 結果のみページングし getRawMany() では無視される → ページクエリが全
+    // 該当行を返してしまう。countQb.getCount() は別 COUNT クエリなので meta
+    // 合計は正しい。
     qb.orderBy(`l.${sortBy}`, sortOrder)
       .limit(perPage)
       .offset((page - 1) * perPage);
@@ -182,11 +182,10 @@ export class LogService {
   ): Promise<ExportLogResult> {
     this.assertDateRange(query.date_from, query.date_to);
 
-    // Export ONLY the records on the current screen page — same filters,
-    // sort, page and per_page as the list query. The CSV mirrors exactly
-    // what the user sees (customer request 2026-06), NOT the whole filtered
-    // dataset. A page is bounded by per_page (≤100), so no export hard-cap
-    // is needed.
+    // 現在の画面ページのレコードのみ export — list クエリと同じ filters,
+    // sort, page, per_page。CSV はユーザーに見えるものを正確に反映（顧客
+    // 要望 2026-06）で、フィルタ済み全データではない。ページは per_page
+    // (≤100) で上限されるため export ハードキャップ不要。
     const page = query.page ?? 1;
     const perPage = query.per_page ?? 20;
     const sortBy = query.sort_by ?? 'log_datetime';
@@ -213,7 +212,7 @@ export class LogService {
         .where('1 = 1');
       this.applyScope(qb, session);
       this.applyFilters(qb, query);
-      // limit/offset (NOT take/skip — ignored by getRawMany) → current page.
+      // limit/offset を使う（take/skip は getRawMany で無視）→ 現在ページ。
       qb.orderBy(`l.${sortBy}`, sortOrder)
         .limit(perPage)
         .offset((page - 1) * perPage);
@@ -260,7 +259,7 @@ export class LogService {
     if (!from || !to) return;
     const fromDate = parseDatetimeJst(from);
     const toDate = parseDatetimeJst(to);
-    if (!fromDate || !toDate) return; // DTO validator already rejected malformed values
+    if (!fromDate || !toDate) return; // 不正値は DTO validator が既に拒否済み
     if (fromDate.getTime() > toDate.getTime()) {
       throw new DateRangeInvalidException();
     }
@@ -270,13 +269,12 @@ export class LogService {
   }
 
   /**
-   * DataScope for the SCR-030 ログ参照画面 list/export.
+   * SCR-030 ログ参照画面 list/export の DataScope。
    *
-   * `t_log.ja_id` (alias `l`) and `m_account.kanri_shiten_id` (alias
-   * `a`, joined from `t_log.account_id`) sit on different tables — the
-   * cross-alias case the generic `applyBranchScope()` doesn't cover.
-   * Delegate to `applyBranchScopeWithJoinAlias()` so the role/field
-   * matrix stays consistent with every other DataScope call site.
+   * `t_log.ja_id`（alias `l`）と `m_account.kanri_shiten_id`（alias `a`、
+   * t_log.account_id から join）は別テーブル — 汎用 `applyBranchScope()` が
+   * カバーしないクロス alias ケース。`applyBranchScopeWithJoinAlias()` に委譲し
+   * role/field マトリクスを他の DataScope 呼出と一貫させる。
    */
   private applyScope(
     qb: SelectQueryBuilder<Log>,
@@ -356,18 +354,17 @@ export class LogService {
       );
     }
     const body = lines.join('\r\n') + '\r\n';
-    // UTF-8 BOM for Excel compatibility.
+    // Excel 互換のための UTF-8 BOM。
     return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(body, 'utf8')]);
   }
 
   private csvEscape(value: string): string {
-    // [csv-formula-injection] — Excel/LibreOffice evaluate a cell whose text
-    // begins with = + - @ (or a leading TAB/CR) as a formula, even when the
-    // field is CSV-quoted (the parser strips the quotes first). Some columns
-    // (e.g. ip_address, sourced from the unvalidated X-Forwarded-For header)
-    // are attacker-influenceable and land in t_log, so a later CSV export
-    // opened by an admin would execute the payload (DDE / data exfiltration).
-    // Neutralize by prefixing a single quote, which forces the cell to text.
+    // [csv-formula-injection] — Excel/LibreOffice は = + - @（や先頭 TAB/CR）
+    // で始まるセルを CSV クオート済みでも数式評価する（パーサが先にクオートを
+    // 剥がす）。一部カラム（例: 未検証の X-Forwarded-For 由来の ip_address）は
+    // 攻撃者が操作可能で t_log に入るため、後で admin が開いた CSV export が
+    // ペイロードを実行しうる（DDE / データ流出）。先頭に単一引用符を付与し
+    // セルをテキスト強制して無害化。
     const neutralized = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
     return `"${neutralized.replaceAll('"', '""')}"`;
   }

@@ -1,6 +1,6 @@
 import axiosInstance from '@/api/axios-instance';
 
-/** Response shape from `GET /api/v1/ja/:ja_id` (and the body of POST/PUT). */
+/** `GET /api/v1/ja/:ja_id`（および POST/PUT の body）のレスポンス形。 */
 export interface JaDetail {
   ja_id: number;
   ja_code: string;
@@ -26,7 +26,7 @@ export interface JaDetail {
   updated_at: string | null;
 }
 
-/** POST /api/v1/ja request body. */
+/** POST /api/v1/ja のリクエスト body。 */
 export interface CreateJaRequest {
   ja_code: string;
   ja_name: string;
@@ -48,7 +48,7 @@ export interface CreateJaRequest {
   biko?: string;
 }
 
-/** PUT /api/v1/ja/:ja_id — same as CreateJaRequest minus the immutable ja_code. */
+/** PUT /api/v1/ja/:ja_id — CreateJaRequest から不変の ja_code を除いた形。 */
 export type UpdateJaRequest = Omit<CreateJaRequest, 'ja_code'>;
 
 export interface JaEnvelope {
@@ -81,8 +81,8 @@ export async function updateJa(
 // ─── ACSMS-SCR-004 — JAマスタ明細検索画面 ────────────────────────────
 
 /**
- * Row shape returned by `GET /api/v1/ja` (ACSMS-API-004-001). Subset of
- * `JaDetail` per `docs/design/ACSMS-SCR-004/ACSMS-SCR-004-api.md` §レスポンスデータ.
+ * `GET /api/v1/ja`（ACSMS-API-004-001）の行の形。`JaDetail` の部分集合
+ * （`docs/design/ACSMS-SCR-004/ACSMS-SCR-004-api.md` §レスポンスデータ 準拠）。
  */
 export interface JaListItem {
   ja_id: number;
@@ -113,11 +113,11 @@ export interface JaListResponse {
   meta: JaListMeta;
 }
 
-/** Query-string DTO for `GET /api/v1/ja`. */
+/** `GET /api/v1/ja` のクエリDTO。 */
 export interface ListJaQuery {
   ja_code?: string;
   ja_name?: string;
-  /** m_todofuken.code (2 chars). Sourced from ACSMS-API-COMMON-001 dropdown. */
+  /** m_todofuken.code（2文字）。ACSMS-API-COMMON-001 dropdown から取得。 */
   todofuken_code?: string;
   page?: number;
   per_page?: number;
@@ -125,7 +125,7 @@ export interface ListJaQuery {
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response shape from `DELETE /api/v1/ja/:ja_id`. */
+/** `DELETE /api/v1/ja/:ja_id` のレスポンス形。 */
 export interface JaDeleteResponse {
   message: string;
 }
@@ -140,7 +140,7 @@ export async function removeJa(jaId: number): Promise<JaDeleteResponse> {
   return res.data;
 }
 
-/** Slim row shape returned by `GET /api/v1/ja/dropdown` (ACSMS-API-COMMON-003). */
+/** `GET /api/v1/ja/dropdown`（ACSMS-API-COMMON-003）の軽量な行の形。 */
 export interface JaDropdownItem {
   ja_id: number;
   ja_code: string;
@@ -154,22 +154,22 @@ export interface JaDropdownResponse {
   meta: { total: number; page: number; per_page: number; has_more: boolean };
 }
 
-/** Query-string DTO for `GET /api/v1/ja/dropdown`. */
+/** `GET /api/v1/ja/dropdown` のクエリDTO。 */
 export interface JaDropdownQuery {
-  /** Partial match on ja_code OR ja_name (ILIKE) — see `match_field`. */
+  /** ja_code OR ja_name の部分一致（ILIKE）。`match_field` 参照。 */
   q?: string;
   /**
-   * 'both' (default) = ja_code OR ja_name; 'name' = ja_name only.
-   * SCR-024 account list uses 'name' since it hides ja_code in the UI.
+   * 'both'（既定）= ja_code OR ja_name、'name' = ja_name のみ。
+   * SCR-024 アカウント一覧は UI で ja_code を隠すため 'name' を使う。
    */
   match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
-  /** Edit-form escape hatch — BE prepends this ja_id if not in page 1. */
+  /** 編集フォーム用の抜け道 — page 1 に無い場合 BE がこの ja_id を先頭に付加。 */
   include_id?: number;
-  /** Cascading filter — exact match on m_ja.todofuken_code. */
+  /** カスケードフィルタ — m_ja.todofuken_code の完全一致。 */
   todofuken_code?: string;
-  /** Cascading filter — 3:chuokai_flg=TRUE, 4|5:chuokai_flg=FALSE. */
+  /** カスケードフィルタ — 3:chuokai_flg=TRUE、4|5:chuokai_flg=FALSE。 */
   role_id?: number;
 }
 

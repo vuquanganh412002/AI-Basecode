@@ -1,8 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Single row in `GET /api/v1/kanri-shiten` response data array.
- * Shape mirrors ACSMS-SCR-008-api.md §3 レスポンスデータ.
+ * GET /api/v1/kanri-shiten の data 配列 1 行。
+ * 形状は ACSMS-SCR-008-api.md §3 レスポンスデータをミラー。
  */
 export class KanriShitenListItemDto {
   @ApiProperty({ description: '管理支店ID' })

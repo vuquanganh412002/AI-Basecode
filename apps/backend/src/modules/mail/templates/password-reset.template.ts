@@ -1,10 +1,8 @@
 /**
- * パスワードリセットメール — テンプレート (customer-confirmed plain text).
- *
- * `expiryMinutes` は `auth.service.ts` の `RESET_TOKEN_EXPIRY_MINUTES`
- * からそのまま受け取り、表示文字列を 60 の倍数なら「N時間」、それ
- * 以外は「N分」へフォーマットする。これにより constant を変えるだけで
- * メール本文の有効期限ラベルも追従する。
+ * パスワードリセットメールテンプレート（顧客確認済みプレーンテキスト）。
+ * `expiryMinutes` は `auth.service.ts` の `RESET_TOKEN_EXPIRY_MINUTES` を
+ * 受け取り、60 の倍数なら「N時間」、他は「N分」表示。constant 変更だけで
+ * 本文の有効期限も追従する。
  */
 
 interface PasswordResetTemplateInput {

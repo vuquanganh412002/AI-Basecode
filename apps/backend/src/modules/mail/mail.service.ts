@@ -21,20 +21,17 @@ export class MailService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit() {
-    // Provider selection is driven by NODE_ENV: every environment except `local`
-    // sends via the SES API (the ECS task role authenticates the SDK), while
-    // `local` uses SMTP/Mailhog. An explicit MAIL_PROVIDER overrides this —
-    // docker-compose sets MAIL_PROVIDER=smtp to keep Mailhog under
-    // NODE_ENV=development without flipping the rest of the local config.
+    // NODE_ENV で選択: `local` 以外は SES API（ECS task role で認証）、
+    // `local` は SMTP/Mailhog。MAIL_PROVIDER 明示指定が優先（docker-compose は
+    // NODE_ENV=development のまま Mailhog を使うため smtp を指定）。
     const explicitProvider = this.configService.get<string>('mail.provider');
     const nodeEnv = this.configService.get<string>('nodeEnv') ?? 'development';
     const useSes = explicitProvider
       ? explicitProvider === 'ses'
       : nodeEnv.trim().toLowerCase() !== 'local';
 
-    // 受信トレイに表示される送信者名。MAIL_FROM はアドレスのみを保持し、
-    // 表示名は MAIL_FROM_NAME（既定 'AGRINEWS'）で付与する。既に MAIL_FROM が
-    // "Name <addr>" 形式（'<' を含む）の場合はそのまま尊重する。
+    // 送信者名。MAIL_FROM はアドレスのみ、表示名は MAIL_FROM_NAME（既定
+    // 'AGRINEWS'）で付与。既に "Name <addr>" 形式（'<' 含む）ならそのまま。
     const fromAddress = this.configService.get<string>('mail.from') ?? DEFAULT_MAIL_FROM;
     const fromName = this.configService.get<string>('mail.fromName') ?? DEFAULT_MAIL_FROM_NAME;
     this.mailFrom =
@@ -61,7 +58,7 @@ export class MailService implements OnModuleInit {
     }
   }
 
-  /** Send the 6-digit MFA OTP. Template lives in `templates/otp.template.ts`. */
+  /** 6桁 MFA OTP 送信。文面は `templates/otp.template.ts`。 */
   async sendOtp(
     email: string,
     accountName: string,
@@ -73,10 +70,10 @@ export class MailService implements OnModuleInit {
   }
 
   /**
-   * Send the password reset link. Template lives in
-   * `templates/password-reset.template.ts`. `expiryMinutes` flows from
-   * `auth.service.ts` (`RESET_TOKEN_EXPIRY_MINUTES`) so the body label
-   * stays in sync with the real token TTL.
+   * パスワードリセットリンク送信。文面は
+   * `templates/password-reset.template.ts`。`expiryMinutes` は
+   * `auth.service.ts` の `RESET_TOKEN_EXPIRY_MINUTES` から渡り、本文の
+   * 有効期限表示が実 TTL と同期する。
    */
   async sendPasswordReset(
     email: string,
@@ -94,10 +91,9 @@ export class MailService implements OnModuleInit {
   }
 
   /**
-   * SCR-023 — ファイルアップロード完了通知メール。Worker
-   * (`file-upload-notification.worker.ts`) が、対象 JA に紐付く
-   * `m_account.email` および `sub_email_1/2/3` 全てに対して 1 回ずつ
-   * 呼び出す（重複排除は worker 側で実施）。
+   * SCR-023 ファイルアップロード完了通知。Worker
+   * (`file-upload-notification.worker.ts`) が対象 JA の `m_account.email`
+   * + `sub_email_1/2/3` 各宛先へ 1 回ずつ呼ぶ（重複排除は worker 側）。
    */
   async sendFileUploadNotification(
     email: string,
@@ -118,9 +114,9 @@ export class MailService implements OnModuleInit {
   }
 
   /**
-   * 汎用通知メール。件名は呼び出し側が完成形で渡す（システム名プレフィックスは
-   * 付与しない）。SCR-029 増減通知では件名に【都道府県】【発行アカウント】を含め、
-   * システム名【クラウド版購読者管理システム】は本文先頭に置く（顧客要件2026-07）。
+   * 汎用通知メール。件名は呼び出し側が完成形で渡す（システム名プレフィックス
+   * 無し）。SCR-029 増減通知は件名に【都道府県】【発行アカウント】、システム名
+   * 【クラウド版購読者管理システム】は本文先頭（顧客要件2026-07）。
    */
   async sendNotification(email: string, subject: string, content: string): Promise<void> {
     await this.provider.sendMail({

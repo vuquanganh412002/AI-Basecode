@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable **single-select** 管理支店 dropdown.
+ * サーバーページング + 検索対応の **単一選択** 管理支店ドロップダウン。
  *
- * Single-select sibling of {@link BaseKanriShitenSelect} (multi). Reuses
- * {@link useEntityDropdown} (page-50 load, 300ms debounced search on
- * コード OR 名称, infinite scroll, edit-mode include_id pin). Requires
- * `jaId` — the BE scopes m_kanri_shiten by JA.
+ * {@link BaseKanriShitenSelect}（複数選択）の単一選択版。{@link useEntityDropdown} を再利用
+ * （50件/page・コード OR 名称 の 300ms デバウンス検索・無限スクロール・編集時 include_id ピン）。
+ * `jaId` 必須 — BE が m_kanri_shiten を JA でスコープする。
  *
- * Used by 購読者一覧 / 販売店一括置換 の管理支店フィルタ。
+ * 購読者一覧 / 販売店一括置換 の管理支店フィルタで使用。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -22,9 +21,9 @@ import {
 import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
-  /** Selected kanri_shiten_id (`null`/`undefined` = nothing selected). */
+  /** 選択中の kanri_shiten_id（`null`/`undefined` = 未選択）。 */
   value?: number | null;
-  /** JA scope (required — BE filters m_kanri_shiten by this JA). */
+  /** JA スコープ（必須 — BE が m_kanri_shiten をこの JA で絞る）。 */
   jaId: number;
   disabled?: boolean;
   placeholder?: string;
@@ -45,8 +44,8 @@ const selected = toRef(props, 'value');
 const perPageRef = toRef(props, 'perPage');
 const jaIdRef = toRef(props, 'jaId');
 
-// kanri-shiten envelope's meta is optional (legacy callers) — default
-// has_more=false so useEntityDropdown stops paging.
+// kanri-shiten エンベロープの meta は任意（旧呼び出し側）— 既定 has_more=false で
+// useEntityDropdown のページングを止める。
 async function fetcher(
   params: KanriShitenDropdownQuery,
 ): Promise<EntityDropdownResult<KanriShitenDropdownItem>> {

@@ -17,14 +17,12 @@ import {
 } from '@/common/constants/error-codes.constant';
 
 /**
- * Catches every unhandled exception and converts it into the project's
- * standard JSON error body: `{ error_code, message, errors? }`.
- *
- * Priority:
- *  1. DomainException → uses its code + message verbatim.
- *  2. HttpException (from NestJS / ValidationPipe) → extracts `code`/`errors` from body
- *     or maps the HTTP status to a common ErrorCode.
- *  3. Anything else → 500 INTERNAL_SERVER_ERROR with a generic message.
+ * 全未処理例外を標準 JSON body `{ error_code, message, errors? }` へ変換。
+ * 優先順位:
+ *  1. DomainException → code + message をそのまま使用。
+ *  2. HttpException (NestJS / ValidationPipe) → body から `code`/`errors` 抽出、
+ *     無ければ HTTP status を共通 ErrorCode にマップ。
+ *  3. その他 → 500 INTERNAL_SERVER_ERROR + 汎用メッセージ。
  */
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -41,12 +39,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   };
 
   /**
-   * Resolve status/code/message + optional errors/total from an
-   * HttpException. Split out of `catch` to keep that method's cognitive
-   * complexity low. Handles both object-response (project-thrown, carrying
-   * `code` + localized `message`) and string-response (framework default)
-   * exceptions, always preferring the project's localized ErrorMessage over
-   * a framework English default.
+   * HttpException から status/code/message + 任意の errors/total を解決
+   * (`catch` の複雑度を下げるため分離)。object-response (プロジェクト送出、
+   * `code` + localized `message`) と string-response (framework 既定) の両方を扱い、
+   * 常に framework の英語既定より localized ErrorMessage を優先。
    */
   private resolveHttpException(exception: HttpException): {
     status: number;
@@ -79,8 +75,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         total: obj.total as number | undefined,
       };
     }
-    // String-response HttpException (framework default). Prefer the
-    // localized message for a mapped status, else fall back.
+    // String-response HttpException (framework 既定)。mapped status は
+    // localized message を優先、無ければ fallback。
     const code = GlobalExceptionFilter.STATUS_TO_CODE[status] ?? `HTTP_${status}`;
     return {
       status,
@@ -122,14 +118,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       userId: req.user
         ? (req.user as Record<string, unknown>)?.accountId
         : undefined,
-      // Surface the original exception stack so 500s aren't opaque.
+      // 500 を不透明にしないため元例外の stack を出力。
       stack:
         status === HttpStatus.INTERNAL_SERVER_ERROR && exception instanceof Error
           ? exception.stack
           : undefined,
     });
 
-    // Never leak internal details to the client on 500.
+    // 500 で内部詳細をクライアントに漏らさない。
     if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
       message = ErrorMessage.INTERNAL_SERVER_ERROR;
     }

@@ -3,24 +3,20 @@ import { Transform, Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 /**
- * YYYY/MM/DD HH:mm:ss format used by both date_from and date_to.
- * Exported so SearchLogDto (and any future date-range DTO) can reuse
- * the same regex literal — the duplicate `const DATETIME_RE = …` in
- * search-log.dto.ts is now gone.
+ * date_from / date_to 共通の YYYY/MM/DD HH:mm:ss 形式。SearchLogDto（や
+ * 将来の date-range DTO）が同一 regex を再利用できるよう export。
  */
 export const LOG_DATETIME_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/;
 
-/** `@IsOptional` only skips null/undefined — strip blank strings first. */
+/** `@IsOptional` は null/undefined のみスキップ — 先に空文字を除去。 */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Query DTO for `GET /api/v1/log/export` (ACSMS-API-030-002).
- *
- * Carries ONLY the 4 filter fields shared with the list endpoint —
- * `SearchLogDto` extends this class and adds `page`/`per_page`/
- * `sort_by`/`sort_order`. The Sonar duplication detector previously
- * counted the 4 filter blocks twice; centralising here eliminates that.
+ * GET /api/v1/log/export (ACSMS-API-030-002) の Query DTO。
+ * list エンドポイントと共有する4フィルタのみ保持 — SearchLogDto が本クラスを
+ * extends し page/per_page/sort_by/sort_order を追加。ここに集約し Sonar の
+ * 重複検知（4フィルタ二重計上）を解消。
  */
 export class ExportLogDto {
   @ApiPropertyOptional({

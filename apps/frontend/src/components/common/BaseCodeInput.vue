@@ -1,28 +1,23 @@
 <script setup lang="ts">
-// BaseCodeInput — wraps <a-input> with 4 layers of whitespace defence
-// for code-style fields (ja_code, tanka_code, login_id, bank_code,
-// yubin_no, …). Codes are alphanumeric identifiers; whitespace must
-// never reach the BE because:
-//   - UNIQUE indexes treat `'T001'` and `'T001 '` as distinct rows
-//   - bank/Zengin CSV exports reject leading/trailing whitespace
-//   - macOS "double-space → period" substitution silently injects `.`
-//     into a code field, which is the trigger for this component.
+// BaseCodeInput — コード系フィールド（ja_code, tanka_code, login_id, bank_code,
+// yubin_no …）向けに <a-input> を空白防御 4 層でラップ。コードは英数字の識別子で、
+// 空白を BE に届けてはならない理由:
+//   - UNIQUE インデックスが `'T001'` と `'T001 '` を別行として扱う
+//   - bank/Zengin CSV エクスポートは前後空白を拒否
+//   - macOS「ダブルスペース→ピリオド」変換が `.` を混入させる（本コンポーネントの発端）
 //
-// Defence layers (in order of fire):
-//   1. autocorrect/autocapitalize/spellcheck off — disables OS-level
-//      text replacement for this field. Best-effort hint to the
-//      browser; not 100% on macOS.
-//   2. @beforeinput — preventDefault when InputEvent.data contains
-//      whitespace, OR when inputType matches /Replace/i (catches
-//      macOS double-space-to-period which fires as
-//      "insertReplacementText" AFTER keydown.prevent).
-//   3. @keydown.space.prevent — clean block at the keystroke layer
-//      so no cursor flicker on each typed space.
-//   4. @update:value sanitiser — final \s strip from paste / IME /
-//      anything that bypassed the above.
+// 防御層（発火順）:
+//   1. autocorrect/autocapitalize/spellcheck off — OS レベルのテキスト置換を無効化。
+//      ブラウザへのベストエフォートなヒントで macOS では 100% ではない。
+//   2. @beforeinput — InputEvent.data に空白が含まれる、または inputType が /Replace/i に
+//      一致するとき preventDefault（keydown.prevent の後に "insertReplacementText" として
+//      発火する macOS ダブルスペース→ピリオドを捕捉）。
+//   3. @keydown.space.prevent — キーストローク層でクリーンにブロックしカーソルの
+//      ちらつきを防ぐ。
+//   4. @update:value サニタイザ — paste / IME / 上記をすり抜けたものから \s を最終除去。
 //
-// Pass-through props: value (v-model), maxlength, disabled,
-// placeholder, id. Add new props only when a form actually needs them.
+// パススルー props: value (v-model), maxlength, disabled, placeholder, id。
+// 新規 props はフォームが実際に必要とするときのみ追加。
 
 interface Props {
   value?: string;

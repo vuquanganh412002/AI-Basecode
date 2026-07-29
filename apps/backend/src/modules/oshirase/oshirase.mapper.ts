@@ -1,12 +1,11 @@
-// Pure entity → response DTO mappers for the SCR-031 admin endpoints.
-// No Nest DI, no repo, no service — importable from anywhere.
+// SCR-031 管理エンドポイント用の純粋な entity → response DTO マッパー。
+// Nest DI / repo / service なし — どこからでも import 可。
 //
-// [no-labels-policy] Authenticated endpoints must NOT serialize
-// `*_label` fields per `.claude/rules/nestjs.md §Response serialization`.
-// The FE resolves labels via `useCodesStore().label('CATEGORY', value)`
-// from its in-memory m_code cache — that way customer-edited m_code
-// labels flow into the UI on reload without an FE redeploy AND the API
-// response stays a small, stable contract.
+// [no-labels-policy] 認証エンドポイントは `*_label` を返さない
+// （`.claude/rules/nestjs.md §Response serialization`）。ラベルは FE が
+// m_code キャッシュから `useCodesStore().label('CATEGORY', value)` で解決。
+// 顧客が編集した m_code ラベルが FE 再デプロイなしで反映され、API 応答も
+// 小さく安定した契約に保たれる。
 
 import type { Oshirase } from '@/database/entities/oshirase.entity';
 import { formatDateTimeMinutesJst } from '@/common/utils/datetime';
@@ -14,9 +13,9 @@ import { formatDateTimeMinutesJst } from '@/common/utils/datetime';
 export interface OshiraseListItem {
   oshirase_id: number;
   ja_id: number | null;
-  // [ja-name-join] Resolved from m_ja via leftJoin in OshiraseService.getList.
-  // null when ja_id is null (= 全JA向け) OR when the referenced JA was
-  // hard-deleted. FE renders '全JA向け' for null in the table cell.
+  // [ja-name-join] OshiraseService.getList の leftJoin で m_ja から解決。
+  // ja_id が null（= 全JA向け）または参照先 JA が物理削除済みなら null。
+  // FE は null を表セルで '全JA向け' と描画。
   ja_name: string | null;
   oshirase_type: number;
   publish_location: number;

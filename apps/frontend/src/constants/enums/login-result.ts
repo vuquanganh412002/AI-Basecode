@@ -1,6 +1,6 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/login-result.enum.ts`.
- * Display labels come from `useCodesStore().label('LOGIN_RESULT', value)`.
+ * `apps/backend/src/common/enums/login-result.enum.ts` の FE ミラー。
+ * 表示ラベルは `useCodesStore().label('LOGIN_RESULT', value)` から取得。
  */
 export const LoginResult = {
   SUCCESS: 1,

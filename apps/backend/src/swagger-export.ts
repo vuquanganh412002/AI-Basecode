@@ -1,17 +1,11 @@
-// Standalone OpenAPI dumper invoked by `npm run swagger:export`.
+// `npm run swagger:export` で起動する OpenAPI ダンパー。
+// Nest アプリを init のみ（listen なし）で起動し、SwaggerModule.createDocument
+// で生成した OpenAPI を apps/backend/swagger.json に書き出して終了する。
 //
-// Builds the Nest app in init-only mode (no `listen` call so no port is
-// bound), generates the OpenAPI document via `SwaggerModule.createDocument`,
-// writes it to `apps/backend/swagger.json`, and exits.
-//
-// Output is intentionally LOCAL to the backend (`apps/backend/swagger.json`)
-// — the frontend does NOT consume this file (FE wrappers are hand-written
-// axios calls, no Orval). Useful for:
-//   - Offline API docs (load into Postman/Insomnia/etc.)
-//   - Stable snapshot for review in PRs that change endpoint shape
-//   - Future contract-test tooling that compares two snapshots
-// The live Swagger UI at GET /api/docs is served at runtime by
-// `SwaggerModule.setup` in main.ts — independent of this file.
+// 出力は BE ローカル固定。FE はこのファイルを参照しない（FE ラッパーは手書き
+// axios、Orval なし）。用途: オフライン API ドキュメント / エンドポイント形状を
+// 変える PR のレビュー用スナップショット / 将来のスナップショット比較契約テスト。
+// 実行時の Swagger UI（GET /api/docs）は main.ts の SwaggerModule.setup が別途配信。
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -37,9 +31,9 @@ async function exportSwagger(): Promise<void> {
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  // Output goes BE-local (apps/backend/swagger.json). FE doesn't consume
-  // it; this is for offline docs / PR snapshots. Override via SWAGGER_OUT
-  // env if CI needs a different path.
+  // 出力は BE ローカル（apps/backend/swagger.json）。FE は参照しない。
+  // オフラインドキュメント / PR スナップショット用。CI が別パスを要る場合は
+  // SWAGGER_OUT 環境変数で上書き。
   const out =
     process.env.SWAGGER_OUT ?? resolve(__dirname, '../swagger.json');
   writeFileSync(out, JSON.stringify(document, null, 2));

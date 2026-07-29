@@ -2,13 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 
 import { ShitenDetailDto } from './shiten-detail.dto';
 
-/** Single-resource envelope (GET /:id). */
+/** 単一リソース envelope (GET /:id)。 */
 export class ShitenDetailEnvelopeDto {
   @ApiProperty({ type: ShitenDetailDto })
   data: ShitenDetailDto;
 }
 
-/** Mutation success envelope (POST + PUT). */
+/** 更新成功 envelope (POST + PUT)。 */
 export class ShitenMutationResponseDto {
   @ApiProperty({ type: ShitenDetailDto })
   data: ShitenDetailDto;

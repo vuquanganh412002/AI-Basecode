@@ -1,15 +1,13 @@
 <script setup lang="ts">
-// ACSMS-SCR-013 — 購読者履歴情報画面.
+// ACSMS-SCR-013 — 購読者履歴情報画面。
 //
-// Read-only paginated history list for a single 購読者. The dokusya_id
-// comes from the route param `:id`; on mount the view fetches
-// GET /api/v1/dokusya/:id/rireki (newest 履歴番号 first) and renders the
-// 履歴一覧 table. m_code columns (mail_magazine_flg / gender /
-// tetsuzuki_shurui / hikiotoshi_yokin_shubetsu) resolve to labels via
-// useCodesStore — the BE returns code values only.
+// 単一購読者の読取専用・ページング履歴一覧。dokusya_id は route param `:id`。
+// mount 時に GET /api/v1/dokusya/:id/rireki（履歴番号降順）を取得し履歴一覧を描画。
+// m_code 列（mail_magazine_flg / gender / tetsuzuki_shurui /
+// hikiotoshi_yokin_shubetsu）は useCodesStore でラベル解決（BE はコード値のみ返す）。
 //
-// 前の画面に戻る returns to the previous screen (購読者情報登録画面)
-// with no confirm dialog (screen-design 機能定義 2.1).
+// 前の画面に戻る は確認ダイアログ無しで前画面（購読者情報登録画面）へ戻る
+// （screen-design 機能定義 2.1）。
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -21,6 +19,10 @@ import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import { formatDate, formatYen } from '@/utils/formatters';
+import {
+  dokusyaSoBunruiLabel,
+  nogyosyaBunruiLabel,
+} from '@/constants/dokusya-bunrui';
 import {
   getDokusyaRirekiList,
   torikeshiDokusyaRireki,
@@ -37,7 +39,7 @@ const notify = useNotify();
 // disable する（BE も PermissionsGuard で再検証）。
 const canUpdate = computed(() => authStore.hasPermission('dokusya.update'));
 
-/** dokusya_id from the route path param `:id`. */
+/** route path param `:id` から得る dokusya_id。 */
 const dokusyaId = computed(() => Number(route.params.id));
 
 const { state, loading, total, onChange } = useTableQuery<Record<string, never>>(
@@ -51,9 +53,8 @@ const { state, loading, total, onChange } = useTableQuery<Record<string, never>>
 
 const rows = ref<DokusyaRirekiItem[]>([]);
 
-// Only columns whose key is in the BE sort allow-list
-// (api.md §4.1 — {rireki_no, dokusya_kaishi_date, joho_henko_tekiyo_date,
-// created_at}) carry `sorter: true`.
+// BE のソート許可リスト（api.md §4.1 — {rireki_no, dokusya_kaishi_date,
+// joho_henko_tekiyo_date, created_at}）にある列のみ sorter: true。
 const columns: TableColumnsType = [
   { title: '履歴番号', dataIndex: 'rireki_no', key: 'rireki_no', sorter: true, width: 90 },
   // 購読種別 を 履歴番号 の直後に追加、手続種別 をその直後へ移動（顧客要件 SCR-013）。
@@ -179,12 +180,10 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: the global axios interceptor in
-    // src/api/error-handler.ts already toasted FORBIDDEN / 500 /
-    // ACSMS-MSG-013-002. Re-throwing would surface an unhandled
-    // rejection in onMounted's fire-and-forget invocation. This is the
-    // "expected and intentionally ignored" exception from
-    // .claude/rules/vue.md §Error Handling Architecture.
+    // 想定内・無視: global axios interceptor が FORBIDDEN / 500 /
+    // ACSMS-MSG-013-002 をトースト済み。再 throw は onMounted の
+    // fire-and-forget で unhandled rejection になる。.claude/rules/vue.md
+    // §Error Handling Architecture の「想定内で意図的に無視」ケース。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -350,6 +349,13 @@ async function confirmTorikeshi(): Promise<void> {
         </template>
         <template v-else-if="column.key === 'dokusya_shubetsu'">
           {{ codes.label('DOKUSYA_SHUBETSU', (record as DokusyaRirekiItem).dokusya_shubetsu) }}
+        </template>
+        <!-- 分類はコード保存 (電子版 profession/products と 1:1) → ラベル表示。 -->
+        <template v-else-if="column.key === 'dokusyaso_bunrui'">
+          {{ dokusyaSoBunruiLabel((record as DokusyaRirekiItem).dokusyaso_bunrui) }}
+        </template>
+        <template v-else-if="column.key === 'nogyosya_bunrui'">
+          {{ nogyosyaBunruiLabel((record as DokusyaRirekiItem).nogyosya_bunrui) }}
         </template>
         <template v-else-if="column.key === 'tanka'">
           {{ tankaLabel(record as DokusyaRirekiItem) }}

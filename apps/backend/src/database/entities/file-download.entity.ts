@@ -8,12 +8,11 @@ import {
 } from 'typeorm';
 
 /**
- * `t_file_download` — every successful file download writes one row.
- * SCR-022 §4.5 inserts here inside the same tx as the audit log
- * (`t_log`) so the per-download history and the audit trail commit
- * atomically.
+ * `t_file_download` — ダウンロード成功ごとに1行記録。SCR-022 §4.5 は監査ログ
+ * （`t_log`）と同一トランザクションで INSERT し、ダウンロード履歴と監査証跡を
+ * 原子的にコミットする。
  *
- * Nullability per `docs/database/database-design.md`:
+ * NULL許容（`docs/database/database-design.md`）:
  *   - ja_id                        NOT NULL (NICHINO_* + global file writes NULL)
  *   - target_month                 nullable
  *   - created_at                   nullable
@@ -27,9 +26,9 @@ export class FileDownload {
   @PrimaryGeneratedColumn({ name: 'file_download_id', type: 'bigint' })
   fileDownloadId: number;
 
-  // Schema says NOT NULL but api.md §4.5 footnote permits NICHINO_* +
-  // global file (ja_id IS NULL) to write NULL here. Mark nullable so
-  // TypeORM doesn't reject the insert.
+  // スキーマ上は NOT NULL だが、api.md §4.5 脚注により NICHINO_* + 全体向け
+  // ファイル（ja_id IS NULL）は NULL 書き込みを許容。TypeORM が INSERT を
+  // 拒否しないよう nullable にする。
   @Column({ name: 'ja_id', type: 'bigint', nullable: true })
   jaId: number | null;
 

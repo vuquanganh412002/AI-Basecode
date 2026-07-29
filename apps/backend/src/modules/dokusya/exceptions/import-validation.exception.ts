@@ -5,21 +5,19 @@ import {
 } from '@/common/constants/error-codes.constant';
 
 /**
- * ACSMS-SCR-016 — aggregates row-level import errors into one
- * 400 IMPORT_VALIDATION_ERROR response. Each `errors[]` entry names
- * the offending row (1-indexed) + field + Japanese message so the FE
- * can annotate the grid per row. Capped at 10 entries by the caller.
+ * ACSMS-SCR-016 — 行単位の取込エラーを単一の 400 IMPORT_VALIDATION_ERROR
+ * レスポンスに集約する。各 `errors[]` エントリは該当行（1始まり）+ フィールド +
+ * 日本語メッセージを持ち、FE が行ごとにグリッドへ注記できる。呼び出し側で10件に制限。
  *
- * Extends `HttpException` directly (NOT `DomainException`) because the
- * body shape carries the variable-length `errors[]` array;
- * `GlobalExceptionFilter` reads `code` / `error_code` / `errors`
- * verbatim off the response object.
+ * `DomainException` ではなく `HttpException` を直接継承する — ボディ形状が可変長の
+ * `errors[]` 配列を持つため。`GlobalExceptionFilter` はレスポンスオブジェクトから
+ * `code` / `error_code` / `errors` をそのまま読む。
  */
 export class DokusyaImportValidationException extends HttpException {
   /**
-   * Top-level `code` mirror — the body already carries `code` /
-   * `error_code`, but service unit tests assert `err.code` directly
-   * (not `err.response.code`), so expose it as an own property too.
+   * トップレベル `code` のミラー — ボディは既に `code` / `error_code` を持つが、
+   * サービス単体テストが `err.code` を直接（`err.response.code` ではなく）
+   * アサートするため、自身のプロパティとしても公開する。
    */
   public readonly code: string = ErrorCode.IMPORT_VALIDATION_ERROR;
 

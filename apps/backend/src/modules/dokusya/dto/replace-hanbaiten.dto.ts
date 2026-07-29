@@ -15,10 +15,10 @@ import {
 import { DokusyaShubetsu } from '@/common/enums';
 
 /**
- * Request body for `POST /api/v1/dokusya/replace-hanbaiten`
- * (ACSMS-API-015-002). The "当日以降の日付のみ可" (>= today) check on
- * `hanbaiten_tekiyo_date` is a SERVICE-level business rule (api.md §4.1)
- * — this DTO enforces required + YYYY-MM-DD format only.
+ * `POST /api/v1/dokusya/replace-hanbaiten` のリクエストボディ
+ * （ACSMS-API-015-002）。`hanbaiten_tekiyo_date` の「当日以降の日付のみ可」
+ * （>= today）チェックはサービス層の業務ルール（api.md §4.1）—
+ * この DTO は必須 + YYYY-MM-DD 形式のみ強制する。
  */
 export class ReplaceHanbaitenDto {
   @ApiProperty({

@@ -3,11 +3,10 @@ import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 /**
- * Allow-list of columns the FE can sort the 履歴一覧 by
- * (api.md §API-013-001 §4.1 sort_by 許可リスト). Enforced HERE at the
- * DTO so the spec sees a property-level error; the service maps the
- * value to a fully-qualified column via its own SORT_COLUMN_MAP
- * (belt-and-braces against SQL injection).
+ * FE が 履歴一覧 をソート可能な列の allow-list
+ * （api.md §API-013-001 §4.1 sort_by 許可リスト）。spec がプロパティ単位の
+ * エラーを見られるよう DTO でここで強制する。サービスは自身の SORT_COLUMN_MAP で
+ * 値を完全修飾列にマップする（SQL インジェクションへの二重防御）。
  */
 const ALLOWED_SORT_COLUMNS = [
   'rireki_no',
@@ -17,13 +16,13 @@ const ALLOWED_SORT_COLUMNS = [
 ] as const;
 
 /**
- * Query DTO for `GET /api/v1/dokusya/:dokusya_id/rireki`
- * (ACSMS-SCR-013 — 購読者履歴情報画面).
+ * `GET /api/v1/dokusya/:dokusya_id/rireki` のクエリ DTO
+ * （ACSMS-SCR-013 — 購読者履歴情報画面）。
  *
- * Only pagination + sort. `dokusya_id` is a PATH param (ParseIntPipe in
- * the controller), NOT part of this DTO. Defaults mirror api.md §4.1:
- * `page=1`, `per_page=20`, `sort_by=rireki_no`, `sort_order=desc`
- * (機能定義 1.2 — 履歴番号降順 / 最新レコード先頭).
+ * ページネーション + ソートのみ。`dokusya_id` はパスパラメータ（コントローラの
+ * ParseIntPipe）で、この DTO には含まれない。デフォルトは api.md §4.1 に準拠:
+ * `page=1`・`per_page=20`・`sort_by=rireki_no`・`sort_order=desc`
+ * （機能定義 1.2 — 履歴番号降順／最新レコード先頭）。
  */
 export class DokusyaRirekiQueryDto {
   @ApiPropertyOptional({ default: 1, description: 'ページ番号（1始まり）' })

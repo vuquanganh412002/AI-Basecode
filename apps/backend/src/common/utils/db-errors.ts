@@ -1,25 +1,16 @@
-// DB-error inspection helpers.
-//
-// The driver-specific error shape (`err.driverError`) is the canonical
-// path for distinguishing kinds of `QueryFailedError`. Keep type checks
-// here so individual services don't have to hand-roll the cast.
+// DB エラー判定ヘルパー。`QueryFailedError` の型チェック（`err.driverError`
+// 経由）を集約し、各サービスでのキャスト手書きを不要にする。
 
 import { QueryFailedError } from 'typeorm';
 
 /**
- * Returns `true` when the error is a PostgreSQL UNIQUE constraint
- * violation (SQLSTATE 23505). Use this in service create/update flows
- * as the race-condition safety net: a pre-check (`findOne({...})`) can
- * miss a concurrent INSERT, so the DML still needs a catch path that
- * converts the resulting 500 into a clean `DuplicateCodeException`
- * (400 with the canonical Japanese duplicate-code message).
+ * PostgreSQL の UNIQUE 違反（SQLSTATE 23505）なら `true`。create/update での
+ * 競合対策の安全網: `findOne` 事前チェックは並行 INSERT を取りこぼすため、DML の
+ * catch で 500 を `DuplicateCodeException`（400, 正準の重複コードメッセージ）に変換する。
  *
- * The check covers both routes the error shape can take:
- *   - `err.driverError.code === '23505'` — when TypeORM nests the
- *     driver error (typical when using a connection pool).
- *   - `(err as any).code === '23505'` — when the error is raised
- *     directly from the `pg` driver (older versions / certain edge
- *     paths).
+ * 両方のエラー形状に対応:
+ *   - `err.driverError.code === '23505'` — TypeORM ネスト（コネクションプール）
+ *   - `(err as any).code === '23505'` — `pg` から直接送出
  */
 export function isUniqueViolation(err: unknown): boolean {
   if (!(err instanceof QueryFailedError)) return false;

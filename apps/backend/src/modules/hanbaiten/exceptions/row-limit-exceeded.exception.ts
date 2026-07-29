@@ -6,10 +6,9 @@ import {
 } from '@/common/constants/error-codes.constant';
 
 /**
- * Thrown when the import payload exceeds the 500-row cap. The DTO's
- * `@ArrayMaxSize(500)` catches this for normal clients; this service-
- * layer rethrow provides defence-in-depth (and the project-canonical
- * `ROW_LIMIT_EXCEEDED` code) for any client that bypasses the DTO.
+ * 取込ペイロードが 500 行上限を超えたときに送出。通常クライアントは DTO の
+ * `@ArrayMaxSize(500)` が捕捉する。この service 層の再送出は DTO をバイパスする
+ * クライアント向けの多層防御（かつ正準の `ROW_LIMIT_EXCEEDED` コード）を提供する。
  */
 export class RowLimitExceededException extends DomainException {
   constructor(message: string = ErrorMessage.ROW_LIMIT_EXCEEDED) {

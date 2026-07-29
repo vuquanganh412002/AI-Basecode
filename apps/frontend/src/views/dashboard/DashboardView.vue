@@ -25,19 +25,18 @@ import {
 import { getPendingApprovalCount } from '@/api/dokusya/dokusya';
 import { linkifyParts } from '@/utils/linkify';
 
-// [m_code-driven] お知らせ種別 label resolved client-side
-// (BE menu list is authenticated and no longer emits `oshirase_type_label`).
+// [m_code-driven] お知らせ種別ラベルは FE 側で解決
+// （認証済みメニュー一覧は oshirase_type_label を返さないため）。
 const codes = useCodesStore();
 
 const router = useRouter();
 
-// excludeRoot: skip the rootless "メニュー画面" entry — we don't show a
-// "go to dashboard" card while already on the dashboard.
+// excludeRoot: rootless「メニュー画面」を除外（ダッシュボード上で
+// 「ダッシュボードへ」カードは出さない）。
 const { visibleSections } = useMenu({ excludeRoot: true });
 
 function goTo(name?: string): void {
-  // Many routes aren't registered yet; skip silently rather than
-  // triggering a vue-router warning for unknown routes.
+  // 未登録ルートが多いため、警告を出さず静かにスキップする。
   if (!name || !router.hasRoute(name)) return;
   router.push({ name });
 }
@@ -71,12 +70,12 @@ const deadlineNotice = ref<MenuOshiraseItem | null>(null);
 const announcementsLoading = ref(false);
 const selectedAnnouncement = ref<MenuOshiraseItem | null>(null);
 
-/** BE returns publish_start_date already in `YYYY/MM/DD HH:mm`; trim time for the list. */
+/** BE の publish_start_date（YYYY/MM/DD HH:mm）から一覧用に時刻を落とす。 */
 function formatAnnouncementDate(value: string): string {
   return value.slice(0, 10);
 }
 
-/** Chip text — falls back to a static placeholder when no deadline notice exists. */
+/** チップ表示文言 — 締切お知らせが無ければ空。 */
 const deadlineChipText = computed(() => deadlineNotice.value?.title ?? '');
 
 function openAnnouncement(item: MenuOshiraseItem): void {
@@ -100,8 +99,8 @@ onMounted(async () => {
     announcements.value = resp.data.oshirase_list;
     deadlineNotice.value = resp.data.deadline_notice;
   } catch {
-    // Global axios interceptor toasts 401 / 500. Render empty list on
-    // failure so the rest of the dashboard stays usable.
+    // 401 / 500 は global axios interceptor がトースト済み。失敗時は空一覧で
+    // 描画し、ダッシュボードの他部分を使用可能に保つ。
     announcements.value = [];
     deadlineNotice.value = null;
   } finally {
@@ -146,15 +145,14 @@ onMounted(async () => {
       </button>
     </BaseCard>
 
-    <!-- Announcements Section -->
+    <!-- お知らせセクション -->
     <BaseCard padding="none">
       <div
         class="px-4 sm:px-6 py-3 sm:py-4 bg-surface-card-subtle border-b border-border flex items-center justify-between gap-2 flex-wrap"
       >
         <h3 class="font-bold text-text-main">お知らせ</h3>
-        <!-- Header chip — populated from deadline_notice (oshirase_type=4)
-             when one exists. Hidden when the BE returns null. Click
-             opens the same detail dialog as the list rows. -->
+        <!-- ヘッダーチップ — deadline_notice (oshirase_type=4) がある時のみ表示。
+             null なら非表示。クリックで一覧行と同じ詳細ダイアログを開く。 -->
         <button
           v-if="deadlineNotice"
           type="button"
@@ -164,9 +162,8 @@ onMounted(async () => {
           {{ deadlineChipText }}
         </button>
       </div>
-      <!-- Show ~5 rows (text-sm + py-3 ≈ 2.75rem each → max-h-56 ≈ 5 rows),
-           then scroll. overflow-y-auto only renders the bar when content
-           exceeds the cap, so ≤5 notices show no scrollbar. -->
+      <!-- 約5行（1行≈2.75rem → max-h-56≈5行）を超えたらスクロール。
+           overflow-y-auto は超過時のみバー表示（≤5件はバー無し）。 -->
       <div class="divide-y divide-border max-h-56 overflow-y-auto">
         <p
           v-if="announcementsLoading"
@@ -227,9 +224,8 @@ onMounted(async () => {
       </div>
     </BaseCard>
 
-    <!-- Menu Cards Grid — 1 col on mobile → 2 on sm → 3 on lg → 4 on xl.
-         Permission-filtered via useMenu(); empty role sees only the
-         banner + announcements above. -->
+    <!-- メニューカードグリッド — mobile 1列 → sm 2 → lg 3 → xl 4。
+         useMenu() で権限フィルタ済み。権限なしはバナー+お知らせのみ表示。 -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
       <BaseCard
         v-for="section in visibleSections"

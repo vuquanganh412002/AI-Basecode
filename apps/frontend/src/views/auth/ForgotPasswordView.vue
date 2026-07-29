@@ -34,8 +34,7 @@ const SUCCESS_MSG =
  */
 function validateClient(): Record<string, string> {
   const errs: Record<string, string> = {};
-  // login_id — required only (mirrors LoginView; BE checks 半角/長さ format
-  // and returns the field error which useApiForm maps back to fieldErrors).
+  // login_id は必須チェックのみ（半角/長さは BE が検証しフィールドエラーを返す）。
   if (!form.login_id?.trim()) errs.login_id = LOGIN_ID_REQUIRED_MSG;
   if (!form.email?.trim()) errs.email = REQUIRED_MSG;
   if (!errs.email && form.email && !EMAIL_RE.test(form.email)) {
@@ -53,15 +52,14 @@ async function onSubmit(): Promise<void> {
 
   await submit(async () => {
     await forgotPassword(form.login_id, form.email);
-    // screen-design SCR-012 §3.3 — hide the form. §3.4 — show ACSMS-SCR-012-003.
-    // Same message regardless of whether the email exists (BE handles
-    // account-enumeration prevention; FE just renders what comes back).
+    // SCR-012 §3.3 フォーム非表示・§3.4 ACSMS-SCR-012-003 表示。
+    // メール有無に関わらず同一メッセージ（列挙対策は BE 側）。
     sent.value = true;
   });
 }
 
 function goLogin(): void {
-  // screen-design SCR-012 §4.2 — clear input data on navigate-back.
+  // SCR-012 §4.2 — 戻る時に入力値をクリア。
   form.login_id = '';
   form.email = '';
   router.push({ name: 'Login' });
@@ -86,7 +84,7 @@ function goLogin(): void {
             パスワードの再設定
           </h2>
 
-          <!-- Sent — hide the form entirely, show success message. -->
+          <!-- 送信済み — フォームを隠して成功メッセージを表示。 -->
           <div
             v-if="sent"
             class="text-center"
@@ -107,7 +105,7 @@ function goLogin(): void {
             </div>
           </div>
 
-          <!-- Not yet sent — show the form. -->
+          <!-- 未送信 — フォームを表示。 -->
           <template v-else>
             <p class="text-sm text-text-description leading-relaxed text-center mb-6">
               ユーザーIDと登録済みのメールアドレスを入力してください。<br>
@@ -142,10 +140,8 @@ function goLogin(): void {
                   <span>メールアドレス</span>
                   <span class="text-error ml-1">*</span>
                 </template>
-                <!-- Plain text input — NEVER type="email" per
-                     `vue.md §NEVER use HTML5 native input types for validation`.
-                     HTML5 `type="email"` triggers a browser-locale tooltip
-                     that bypasses our Japanese error messages. -->
+                <!-- text 入力必須。type="email" 禁止（vue.md §HTML5 native input types）
+                     — ブラウザ標準ツールチップが日本語エラーを迂回するため。 -->
                 <a-input
                   v-model:value="form.email"
                   size="large"

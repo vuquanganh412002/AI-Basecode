@@ -1,22 +1,13 @@
 /**
- * Recover a UTF-8 multipart upload filename mangled by Busboy's default
- * `latin1` header decoding.
+ * Busboy の既定 `latin1` ヘッダデコードで壊れた UTF-8 マルチパートファイル名を復元する。
  *
- * When `@nestjs/platform-express`'s `FilesInterceptor` parses
- * `multipart/form-data`, Busboy decodes each part's `filename` from the
- * `Content-Disposition` header using its default `defParamCharset =
- * 'latin1'`. Browsers send the bare `filename="…"` as raw UTF-8 bytes,
- * so a Japanese / Vietnamese name (`最新…`, `Một số`) arrives in
- * `file.originalname` as those UTF-8 bytes reinterpreted one-byte-per-
- * codepoint — e.g. `Một số` → `Má»™t sá»‘`. That mangled string then
- * flows into the S3 object key and the `t_file_upload.file_name`
- * column, so the corruption is persisted.
+ * `FilesInterceptor`（Busboy `defParamCharset='latin1'`）は
+ * `Content-Disposition` のファイル名を latin1 でデコードするが、ブラウザは生の
+ * UTF-8 バイトを送るため `Một số` → `Má»™t sá»‘` となり、その破損が S3 キー +
+ * `t_file_upload.file_name` まで残る。
  *
- * `Buffer.from(name, 'latin1')` reverses the latin1 decode back to the
- * exact original bytes, then `.toString('utf8')` decodes them correctly.
- * The round-trip is a no-op for pure-ASCII names (identical in latin1
- * and utf8), so it is safe to apply unconditionally to every uploaded
- * file.
+ * `Buffer.from(name, 'latin1').toString('utf8')` で latin1 デコードを逆変換する。
+ * 純 ASCII 名では no-op なので無条件適用で安全。
  */
 export function decodeMultipartFilename(originalName: string): string {
   return Buffer.from(originalName, 'latin1').toString('utf8');

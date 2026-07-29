@@ -41,12 +41,10 @@ import { UpdateOshiraseDto } from './dto/update-oshirase.dto';
 import { OshiraseService } from './oshirase.service';
 
 /**
- * Controller covers two distinct surfaces:
- *
- *  - `/api/v1/oshirase/public` — unauthenticated login-screen banner
- *    (SCR-001). NO guards.
- *  - `/api/v1/oshirase[/:id]` — authenticated admin CRUD (SCR-031).
- *    `@UseGuards` declared at method level so the public route stays open.
+ * 2つの面をカバーする:
+ *  - /api/v1/oshirase/public — 未認証のログイン画面バナー（SCR-001）。ガードなし。
+ *  - /api/v1/oshirase[/:id] — 認証済み管理 CRUD（SCR-031）。公開ルートを
+ *    開けておくため `@UseGuards` はメソッド単位で宣言。
  */
 @ApiTags('oshirase')
 @Controller('oshirase')

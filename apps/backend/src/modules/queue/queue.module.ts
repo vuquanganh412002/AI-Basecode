@@ -6,16 +6,14 @@ import { toBoolean } from '@/common/utils/env';
 import { QUEUE_FILE_UPLOAD_NOTIFICATION } from './queue-names.constants';
 
 /**
- * Global BullMQ wiring. Feature modules import the resulting queue via
- * `@InjectQueue(QUEUE_FILE_UPLOAD_NOTIFICATION)` (producer) or attach a
- * `@Processor(QUEUE_FILE_UPLOAD_NOTIFICATION)` worker class — both pick up
- * the connection options configured here.
+ * BullMQ のグローバル配線。feature module は producer が
+ * `@InjectQueue(QUEUE_FILE_UPLOAD_NOTIFICATION)`、worker が
+ * `@Processor(QUEUE_FILE_UPLOAD_NOTIFICATION)` でここの接続設定を共有する。
  *
- * BullMQ requires a DEDICATED Redis connection (not the session-store one
- * in `RedisModule`) because workers issue blocking commands (BRPOPLPUSH)
- * that conflict with `maxRetriesPerRequest: 3` on the shared client.
- * BullMQ's own ioredis instance forces `maxRetriesPerRequest: null` —
- * we just hand it host/port/password and let it manage the socket.
+ * BullMQ は専用 Redis 接続が必須（RedisModule のセッション用は流用不可）。
+ * worker のブロッキングコマンド(BRPOPLPUSH)が共有クライアントの
+ * `maxRetriesPerRequest: 3` と衝突するため。BullMQ 自身の ioredis は
+ * `maxRetriesPerRequest: null` を強制するので host/port/password だけ渡す。
  */
 @Global()
 @Module({
@@ -25,20 +23,16 @@ import { QUEUE_FILE_UPLOAD_NOTIFICATION } from './queue-names.constants';
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('redis.url');
         const useTls = toBoolean(config.get<string | boolean>('redis.tls'));
-        // AUTH token — ElastiCache requires AUTH and the rediss:// URL carries
-        // no password, so it MUST be supplied explicitly or BullMQ's Redis
-        // connection fails with "NOAUTH Authentication required". Mirrors the
-        // RedisModule (session store) fix.
+        // AUTH token — ElastiCache は AUTH 必須だが rediss:// URL には
+        // password が乗らないため明示指定しないと "NOAUTH Authentication
+        // required" で失敗。RedisModule(セッションストア)と同じ対処。
         const password = config.get<string>('redis.password') || undefined;
 
-        // Resolve discrete host/port/tls. BullMQ passes this options object
-        // straight to ioredis, and ioredis does NOT read a `url` field from an
-        // options object (unlike `new Redis(url)` where the URL is a positional
-        // arg). The previous `{ url, tls }` branch therefore (a) dropped the
-        // AUTH token and (b) didn't reliably point ioredis at the ElastiCache
-        // endpoint — so BullMQ silently failed on AWS while local (no REDIS_URL)
-        // kept working. Parse REDIS_URL ourselves instead of trusting a `url`
-        // key.
+        // host/port/tls を個別に解決。BullMQ はこの options を ioredis へ
+        // そのまま渡すが、ioredis は options 内の `url` フィールドを読まない
+        // (`new Redis(url)` の位置引数とは別)。旧 `{ url, tls }` は AUTH token を
+        // 落とし ElastiCache endpoint も確実に指せず、AWS で silent 失敗・
+        // local(REDIS_URL 無し)のみ動作していた。`url` に頼らず自前で parse。
         let host = config.get<string>('redis.host');
         let port = config.get<number>('redis.port');
         let tls = useTls;
@@ -56,8 +50,8 @@ import { QUEUE_FILE_UPLOAD_NOTIFICATION } from './queue-names.constants';
             password,
             tls: tls ? {} : undefined,
           },
-          // Project-wide defaults — individual queues / job options can
-          // still override (e.g. urgent jobs may set attempts=1).
+          // プロジェクト共通の既定値。個別キュー/ジョブで上書き可
+          // (例: 緊急ジョブは attempts=1)。
           defaultJobOptions: {
             attempts: 5,
             backoff: { type: 'exponential', delay: 5000 },

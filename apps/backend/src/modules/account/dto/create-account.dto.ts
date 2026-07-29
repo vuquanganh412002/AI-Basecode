@@ -17,18 +17,16 @@ import {
 import { IsStrongPassword } from '@/common/decorators/strong-password.decorator';
 
 /**
- * Empty-string → undefined transformer. `@IsOptional()` only skips
- * `null` / `undefined`, NOT `""`. Form posts send `email: ""` for
- * blank inputs — without this, `@IsEmail` rejects them at 400.
- * See `.claude/rules/nestjs.md §DTO validation gotchas`.
+ * 空文字 → undefined 変換。`@IsOptional()` は null/undefined のみスキップし "" は
+ * 通さないため、フォームが送る `email: ""` を `@IsEmail` が 400 で弾くのを防ぐ。
+ * `.claude/rules/nestjs.md §DTO validation gotchas` 参照。
  */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Body for POST /api/v1/accounts (ACSMS-API-025-002).
- *
- * Field rules sourced from docs/design/ACSMS-SCR-025 api.md §4.1.
+ * POST /api/v1/accounts のボディ（ACSMS-API-025-002）。
+ * フィールド規則は docs/design/ACSMS-SCR-025 api.md §4.1 に準拠。
  */
 export class CreateAccountDto {
   @ApiProperty({ description: 'ログインID（半角英数字+_）', maxLength: 20 })
@@ -89,10 +87,9 @@ export class CreateAccountDto {
   @MaxLength(50, { message: 'アカウント名は最大50文字で指定してください。' })
   account_name!: string;
 
-  // [email-required] QA review 2026-05 — primary 通知先メールアドレス is now
-  // mandatory; SCR-023's notification worker drops a recipient when this
-  // is blank, so creating an account without one means the user silently
-  // never receives notifications. Sub-mails stay optional.
+  // [email-required] QA review 2026-05 — 主 通知先メールアドレスを必須化。空だと
+  // SCR-023 の通知ワーカーが宛先を落とし、当該ユーザは通知を受け取れないため。
+  // サブメールは任意のまま。
   @ApiProperty({ description: 'メールアドレス（最大100桁）', maxLength: 100 })
   @IsString({ message: 'メールアドレスは文字列で指定してください。' })
   @IsNotEmpty({ message: 'メールアドレスは必須です。' })

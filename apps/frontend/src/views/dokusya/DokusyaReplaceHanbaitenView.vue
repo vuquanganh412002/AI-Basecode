@@ -1,36 +1,32 @@
 <script setup lang="ts">
-// ACSMS-SCR-015 — 購読者販売店一括置換画面.
+// ACSMS-SCR-015 — 購読者販売店一括置換画面。
 //
-// Searches 購読中 (tetsuzuki_shurui=1) subscribers via
-// GET /api/v1/dokusya/replace-hanbaiten/search, lets the user check ≥1
-// row, then bulk-replaces their 配達販売店 via
-// POST /api/v1/dokusya/replace-hanbaiten.
+// GET /api/v1/dokusya/replace-hanbaiten/search で購読中 (tetsuzuki_shurui=1) を
+// 検索し、≥1行チェック後に POST /api/v1/dokusya/replace-hanbaiten で
+// 配達販売店を一括置換する。
 //
 // 機能定義 (screen-design.md §機能定義):
-//   1.x  initial render — 支店 disabled until 管理支店 chosen; 適用日 は検索
-//        エリアの必須項目（常時表示）; 置換先配達販売店 hidden until ≥1 row
-//        selected; 置換処理実行 disabled; 購読者一覧は自動読込しない（顧客要件）.
-//   2.x  search — 適用日(必須・未来日) + filters → searchDokusyaForReplace;
-//        その適用日で置換可能な購読者のみ返る; empty → MSG-015-001.
-//   3.x  検索クリア — reset filters(適用日含む) + result list + selection +
-//        hide 置換先.
-//   4.1  validation — 置換先 required (MSG-015-004; 適用日は検索で入力・検証
-//        済み); 置換先 ≠ 現在の販売店 (MSG-015-005); 併読 (dokusya_shubetsu=3) or 電子版
-//        クレカ (dokusya_shubetsu=2 && shiharai_hoho=6) ineligible
-//        (MSG-015-006). On failure: surface message + do NOT call API.
-//   4.2/4.3 confirm (MSG-015-007) → replaceDokusyaHanbaiten → success
-//        toast (MSG-015-008) + clear selection + refresh list.
-//   7.x  管理支店 change → reset 支店 + load getShitenDropdown(kanri_shiten_id);
-//        clear 管理支店 → disable/empty 支店.
+//   1.x  初期表示 — 管理支店選択まで 支店 disabled; 適用日は検索エリアの必須
+//        項目（常時表示）; ≥1行選択まで 置換先配達販売店 非表示; 置換処理実行
+//        disabled; 購読者一覧は自動読込しない（顧客要件）。
+//   2.x  検索 — 適用日(必須・未来日) + filters → searchDokusyaForReplace;
+//        その適用日で置換可能な購読者のみ返る; empty → MSG-015-001。
+//   3.x  検索クリア — filters(適用日含む) + 結果一覧 + 選択をリセット、置換先を隠す。
+//   4.1  検証 — 置換先必須 (MSG-015-004; 適用日は検索で入力・検証済み);
+//        置換先 ≠ 現在の販売店 (MSG-015-005); 併読 (dokusya_shubetsu=3) /
+//        電子版クレカ (dokusya_shubetsu=2 && shiharai_hoho=6) は対象外
+//        (MSG-015-006)。失敗時: メッセージ表示 + API 呼ばない。
+//   4.2/4.3 確認 (MSG-015-007) → replaceDokusyaHanbaiten → 成功トースト
+//        (MSG-015-008) + 選択解除 + 一覧再取得。
+//   7.x  管理支店変更 → 支店リセット + getShitenDropdown(kanri_shiten_id);
+//        管理支店クリア → 支店を disable/空に。
 //
-// Permission: dokusya.replace_hanbaiten (CHUOKAI / JA_HONTEN /
-// JA_KANRI_SHITEN) — gated at the route guard (meta.permission).
+// 権限: dokusya.replace_hanbaiten (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN)
+// — route guard (meta.permission) でゲート。
 //
-// Server-side errors (SAME_HANBAITEN / INELIGIBLE_DOKUSYA /
-// DATE_RANGE_INVALID) are toasted centrally by the global axios
-// interceptor (.claude/rules/vue.md §Error Handling Architecture); the
-// view pre-flights them client-side (§4.1) and, on a server reject,
-// only resets local submitting state (no re-toast).
+// サーバーエラー (SAME_HANBAITEN / INELIGIBLE_DOKUSYA / DATE_RANGE_INVALID) は
+// global axios interceptor が集中トースト。view は §4.1 でクライアント事前検証し、
+// サーバー拒否時はローカル submitting のみリセット（再トーストしない）。
 
 import { computed, ref, watch } from 'vue';
 import { Modal, message, type TableColumnsType } from 'ant-design-vue';
@@ -112,7 +108,7 @@ const searched = ref(false);
 
 const submitting = ref(false);
 
-/** Validation message surfaced inside the search card (置換 pre-flight). */
+/** 検索カード内に表示する検証メッセージ（置換の事前検証）。 */
 const replaceError = ref<string>('');
 
 // ─── Dropdown lookups ────────────────────────────────────────────────
@@ -129,13 +125,13 @@ const shitenOptions = ref<ShitenOption[]>([]);
 /** Base*Dropdown の JA スコープ（セッションの JA）。 */
 const filterJaId = computed(() => authStore.user?.ja_id ?? 0);
 
-/** 機能定義 1.1 — 支店 is disabled until a 管理支店 is chosen. */
+/** 機能定義 1.1 — 管理支店が選ばれるまで 支店 は disabled。 */
 const isShitenDisabled = computed(
   () => state.filters.kanri_shiten_id === undefined ||
     state.filters.kanri_shiten_id === null,
 );
 
-/** ≥1 row checked reveals 置換先 + enables 置換処理実行（適用日は検索条件で常時表示）. */
+/** ≥1行チェックで 置換先 を表示し 置換処理実行 を有効化（適用日は検索条件で常時表示）。 */
 const hasSelection = computed(() => selectedRowKeys.value.length > 0);
 
 const codes = useCodesStore();
@@ -194,7 +190,7 @@ watch(
   },
 );
 
-/** 機能定義 7.x — load 支店 list scoped to the chosen 管理支店. */
+/** 機能定義 7.x — 選択した管理支店にスコープした 支店 一覧を読込む。 */
 async function fetchShitenDropdown(kanriShitenId: number): Promise<void> {
   try {
     const res = await getShitenDropdown({ kanri_shiten_id: kanriShitenId });
@@ -223,7 +219,7 @@ watch(
   },
 );
 
-// ─── Columns (per index.html 検索結果テーブル) ──────────────────────────
+// ─── 列（index.html 検索結果テーブル準拠） ──────────────────────────
 
 const columns: TableColumnsType = [
   {
@@ -275,7 +271,7 @@ const columns: TableColumnsType = [
   },
 ];
 
-/** a-table row-selection config — checkbox column + select-all. */
+/** a-table 行選択設定 — チェックボックス列 + 全選択。 */
 const rowSelection = computed(() => ({
   selectedRowKeys: selectedRowKeys.value,
   onChange: (keys: (string | number)[]): void => {
@@ -329,8 +325,8 @@ async function fetchList(): Promise<void> {
     total.value = res.meta.total;
     searched.value = true;
   } catch {
-    // Expected & ignored: the global axios interceptor already toasted
-    // FORBIDDEN / 500 (.claude/rules/vue.md §List view rule 5).
+    // 想定内・無視: global axios interceptor が FORBIDDEN / 500 を
+    // トースト済み（.claude/rules/vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
     searched.value = true;
@@ -458,7 +454,7 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
   void fetchList();
 }
 
-// ─── Replace validation messages (literals from screen-design.md §MSG) ─
+// ─── 置換の検証メッセージ（screen-design.md §MSG のリテラル） ─
 
 const MSG_REQUIRED = '必須項目です。'; // ACSMS-MSG-015-004
 const MSG_SAME_HANBAITEN = '現在の販売店と同じ販売店は選択できません。'; // ACSMS-MSG-015-005
@@ -466,15 +462,14 @@ const MSG_INELIGIBLE = '電子版クレカ決済者・併読者は編集・削�
 const MSG_CONFIRM = '選択した購読者の販売店を置換します。よろしいでしょうか？'; // ACSMS-MSG-015-007
 const MSG_SUCCESS = '置換処理が完了しました。'; // ACSMS-MSG-015-008
 
-/** Rows currently checked. */
+/** 現在チェック済みの行。 */
 const selectedRows = computed(() =>
   rows.value.filter((r) => selectedRowKeys.value.includes(r.dokusya_id)),
 );
 
 /**
- * 機能定義 4.1 — pre-flight client-side validation. Returns true when
- * every check passes; sets `replaceError` to the first violation
- * otherwise.
+ * 機能定義 4.1 — クライアント事前検証。全チェック通過で true、違反時は
+ * replaceError に最初の違反を設定して false を返す。
  */
 function validateReplace(): boolean {
   replaceError.value = '';
@@ -484,12 +479,12 @@ function validateReplace(): boolean {
     replaceError.value = MSG_REQUIRED;
     return false;
   }
-  // 置換先 ≠ a selected row's current 販売店.
+  // 置換先 ≠ 選択行の現在の販売店。
   if (selectedRows.value.some((r) => r.hanbaiten_id === newHanbaitenId)) {
     replaceError.value = MSG_SAME_HANBAITEN;
     return false;
   }
-  // 併読 / 電子版クレカ are ineligible.
+  // 併読 / 電子版クレカ は対象外。
   const ineligible = selectedRows.value.some(
     (r) =>
       r.dokusya_shubetsu === DokusyaShubetsu.BOTH ||
@@ -515,15 +510,15 @@ async function runReplace(): Promise<void> {
       joho_henko_tekiyo_date: state.filters.joho_henko_tekiyo_date,
       dokusya_shubetsu: state.filters.dokusya_shubetsu as number,
     });
-    // Custom copy (subject-bearing) — verb-only notify helpers don't fit.
+    // 主語付きのカスタム文言 — 動詞のみの notify ヘルパーでは不足。
     message.success(MSG_SUCCESS);
     selectedRowKeys.value = [];
     replaceError.value = '';
     await fetchList();
   } catch {
-    // Server rejects (SAME_HANBAITEN / INELIGIBLE_DOKUSYA /
-    // DATE_RANGE_INVALID) are toasted by the global axios interceptor;
-    // the view only resets submitting state — no re-toast, no success.
+    // サーバー拒否 (SAME_HANBAITEN / INELIGIBLE_DOKUSYA / DATE_RANGE_INVALID) は
+    // global axios interceptor がトースト。view は submitting のみリセット
+    // （再トースト・成功表示なし）。
   } finally {
     submitting.value = false;
   }
@@ -543,7 +538,7 @@ function onExecuteReplace(): void {
   });
 }
 
-// Expose reactive state the spec drives / reads.
+// スペックが操作・参照するリアクティブ状態を公開。
 defineExpose({
   state,
   selectedRowKeys,
@@ -751,7 +746,7 @@ defineExpose({
         </p>
       </div>
 
-      <!-- 置換処理実行 — enabled once ≥1 row selected. -->
+      <!-- 置換処理実行 — ≥1行選択で有効化。 -->
       <template #extra>
         <a-button
           html-type="button"

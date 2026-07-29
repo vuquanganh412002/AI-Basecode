@@ -49,9 +49,8 @@ const TABLE_NAME = 't_dokusya_rireki';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '購読者名簿';
-// 出力種別は DownloadType enum を直接使用（MEIBO=5 / ZOUGEN=3 /
-// ZOUGEN_NICHINO=4）。併読(DokusyaShubetsu.BOTH)は本帳票では常に除外
-// （画面項目No.5）、新規(TetsuzukiShurui.SHINKI)のみ対象（解約=0は除外）。
+// 出力種別は DownloadType.MEIBO。併読(DokusyaShubetsu.BOTH)は常に除外（画面項目No.5）、
+// 新規(TetsuzukiShurui.SHINKI)のみ対象（解約=0除外）。
 
 export interface ExportMeiboResult {
   buffer: Buffer;
@@ -87,10 +86,9 @@ export class MeiboReportService {
     session: SessionPayload,
   ): Promise<MeiboPreviewData> {
     this.assertConditionalRequired(query);
-    // 動的ページング（顧客要件 2026-07）: 販売店/管理支店ごとに独立A4ページ + 明細の
-    // 高さ(氏名/住所の折返しで可変)を積算して A4 1ページに収まる範囲で改ページする。
-    // 全件取得 → グループ化 → buildMeiboDocPages で文書ページ化。preview と Excel が
-    // 同じ関数を共有するのでページ構成は必ず一致する（BE が唯一の真実源）。
+    // 動的ページング（顧客要件 2026-07）: 販売店/管理支店ごと独立A4ページ + 明細の可変高を
+    // 積算し A4 1ページに収まる範囲で改ページ。全件取得→グループ化→buildMeiboDocPages。
+    // preview と Excel が同じ関数を共有するのでページ構成は一致（BE が唯一の真実源）。
     const rows = await this.fetchRows(query, session);
     const full = this.buildPreview(query, rows);
     const pages = buildMeiboDocPages(full);
@@ -259,15 +257,11 @@ export class MeiboReportService {
   ];
 
   /**
-   * 行集合を決める JOIN(必須) + WHERE + DataScope を組み立てた QueryBuilder を返す
-   * （SELECT・並び順・ページングは含めない）。明細クエリ（全件/ページ）が共通の
-   * 土台にすることでフィルタのドリフトを防ぐ。
-   *
-   * 適用日時点の最新スナップショット（各 dokusya_id で
-   * `joho_henko_tekiyo_date <= :tekiyo_date` を満たす最大 rireki_no）を対象。
-   * m_hanbaiten / m_ja は INNER JOIN（deleted_at IS NULL）で行集合に影響するため
-   * ここに含める。名称用の m_kanri_shiten / m_shiten は LEFT JOIN なので明細
-   * SELECT 側で付与する。
+   * 行集合を決める JOIN(必須) + WHERE + DataScope の QueryBuilder（SELECT/並び順/ページング
+   * なし）。全件/ページの明細クエリが共通の土台にしてフィルタのドリフトを防ぐ。
+   * 対象は適用日時点の最新スナップショット（各 dokusya_id で joho <= :tekiyo_date の最大行）。
+   * m_hanbaiten / m_ja は行集合に影響するため INNER JOIN、名称用の m_kanri_shiten /
+   * m_shiten は LEFT JOIN で明細 SELECT 側に付与する。
    */
   private meiboBaseQuery(
     query: MeiboReportQueryDto,
@@ -288,9 +282,8 @@ export class MeiboReportService {
       // 取消(赤伝)済みの行は名簿の現在行として選ばない（履歴刷新 Pha5）。
       .andWhere('r.torikeshi_flg = false')
       .andWhere(
-        // as-of-date の現在行は (joho, rireki_no) 最大の行で選ぶ。MAX(rireki_no)
-        // 単独ではバックデート時に joho の小さい行を誤選択するため不可。取消済
-        // (torikeshi_flg=true) はスナップショット候補から除外する。
+        // 現在行は (joho, rireki_no) 最大の行。MAX(rireki_no)単独はバックデート時に
+        // joho の小さい行を誤選択するため不可。取消済(torikeshi_flg=true)は候補から除外。
         '(r.joho_henko_tekiyo_date, r.rireki_no) = (' +
           'SELECT r2.joho_henko_tekiyo_date, r2.rireki_no FROM t_dokusya_rireki r2 ' +
           'WHERE r2.dokusya_id = r.dokusya_id ' +
@@ -303,8 +296,7 @@ export class MeiboReportService {
       })
       .andWhere('r.dokusya_shubetsu <> :heiyo', { heiyo: DokusyaShubetsu.BOTH });
 
-    // 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(denshi_shonin_status=1)のみ
-    // 集計対象とする。承認待ち(0)/否認(2)の電子版は名簿から除外する。紙版は対象外。
+    // 電子版(DIGITAL=2)は承認済(denshi_shonin_status=1)のみ対象。承認待ち(0)/否認(2)は除外。紙版は対象外。
     qb.andWhere(
       '(r.dokusya_shubetsu <> :denshiShubetsu OR r.denshi_shonin_status = :denshiApproved)',
       {
@@ -328,8 +320,7 @@ export class MeiboReportService {
       });
     }
     if (query.shiharai_hoho != null) {
-      // 支払方法（m_code SHIHARAI_HOHO）で絞り込む。旧「支払区分（支払サイクル）」
-      // フィルタから変更（dokusyaryo_shiharai_cycle → shiharai_hoho）。
+      // 支払方法（m_code SHIHARAI_HOHO）で絞込。旧支払区分（dokusyaryo_shiharai_cycle）から変更。
       qb.andWhere('r.shiharai_hoho = :shiharaiHoho', {
         shiharaiHoho: query.shiharai_hoho,
       });
@@ -360,11 +351,7 @@ export class MeiboReportService {
       .select(MeiboReportService.MEIBO_SELECT);
   }
 
-  /**
-   * 並び順。グループのネスト順と一致させる（オフセット境界がグループ境界と
-   * 整合するように）：販売店別 = 販売店→管理支店→購読者、管理支店別 =
-   * 管理支店→購読者。
-   */
+  /** 並び順（グループのネスト順と一致）。販売店別=販売店→管理支店→購読者、管理支店別=管理支店→購読者。 */
   private applyMeiboOrder(
     qb: SelectQueryBuilder<DokusyaRireki>,
     reportType: 'hanbaiten' | 'kanri_shiten',
@@ -469,10 +456,9 @@ export class MeiboReportService {
   }
 
   /**
-   * 明細行の高さを内容に合わせて自動調整する（Excel は生成ファイルの折返し行を
-   * 自動フィットしないため、明示的に高さを計算して切れないようにする・顧客要件
-   * 2026-07）。各セルの明示改行(\n)に加え、列幅からの折返し行数も概算し、最大行数
-   * ×1行高で設定する。全角(日本語)は幅2、半角は幅1として概算。
+   * 明細行の高さを内容に合わせて自動調整（Excel は生成ファイルの折返し行を自動フィット
+   * しないため明示計算・顧客要件2026-07）。明示改行(\n)+列幅からの折返し行数を概算し
+   * 最大行数×1行高で設定。全角=幅2、半角=幅1として概算。
    */
   private autoFitRowHeight(
     sheet: ExcelJS.Worksheet,
@@ -480,9 +466,8 @@ export class MeiboReportService {
     cols: number,
     minHeightPt = 0,
   ): void {
-    // 動的ページングの分割見積り(estimateMeiboRowHeightPt)と同一ロジックで行高を
-    // 決める。両者が一致することで「preview/Excel のページ構成」と「実際の行高」が
-    // 整合し、A4 からのはみ出しを防ぐ。
+    // 分割見積り(estimateMeiboRowHeightPt)と同一ロジックで行高を決める。両者一致で
+    // preview/Excel のページ構成と実行高が整合し A4 のはみ出しを防ぐ。
     const texts: string[] = [];
     const widths: number[] = [];
     for (let c = 1; c <= cols; c++) {
@@ -497,15 +482,11 @@ export class MeiboReportService {
   }
 
   /**
-   * 1シートを A4縦・印刷向けにセットアップする。
-   * - `fitToWidth: 1` … 列を1ページ幅(A4)に収める（横にはみ出さない）。
-   * - `fitToHeight: 0` … 行は縦に連続させ、手動改ページ位置で各A4へ分ける。
-   *
-   * ページ区切りは「文書ページ」単位の**手動改ページ**（addPageBreak）で行い、各
-   * ページ先頭にヘッダ（タイトル＋組合情報＋ページ数 k/M）を**セルに直接**書く。
-   * よって Excel を開いた時点（標準ビュー）で、複数ページがヘッダ付き・ページ番号
-   * 付きで縦に並んで見え、そのまま印刷すれば各A4に1ページずつ出力される。
-   * （printTitlesRow / フッタ &P は使わない＝ヘッダ二重表示・番号不一致を避ける）
+   * 1シートを A4縦・印刷向けにセットアップ。fitToWidth:1（列を1ページ幅に収める）/
+   * fitToHeight:0（行は縦連続、手動改ページで各A4へ分割）。
+   * ページ区切りは文書ページ単位の手動改ページ(addPageBreak)、各ページ先頭にヘッダ
+   * （タイトル＋組合情報＋ページ数 k/M）をセルに直接書く。標準ビューでも縦に並び、印刷で
+   * 各A4に1ページずつ出る。printTitlesRow/フッタ &P は不使用（ヘッダ二重・番号不一致回避）。
    */
   private applyA4PageSetup(sheet: ExcelJS.Worksheet): void {
     sheet.pageSetup = {
@@ -527,9 +508,8 @@ export class MeiboReportService {
   }
 
   /**
-   * 帳票ヘッダ（タイトル・チェック日/確認印・販売店/組合情報）を描く。
-   * `showCheckBox=false` でチェック日/確認印ボックスを省略する（管理支店別は
-   * 手書きチェック欄が無いため出さない）。
+   * 帳票ヘッダ（タイトル・チェック日/確認印・販売店/組合情報）を描く。showCheckBox=false で
+   * チェック日/確認印ボックスを省略（管理支店別は手書きチェック欄が無いため）。
    */
   private writeReportHeader(
     sheet: ExcelJS.Worksheet,
@@ -543,9 +523,7 @@ export class MeiboReportService {
     const midCol = String.fromCodePoint(64 + Math.ceil(cols / 2));
     const nextMid = String.fromCodePoint(64 + Math.ceil(cols / 2) + 1);
 
-    // チェック日 / 確認印（右上）— ヘッダ行 + 手書き用の空欄ボックス。
-    // 見出し行の下に枠線付きの空セルを数行積み、手書きで日付・確認印を
-    // 記入できるようにする（販売店別のみ。管理支店別は省略）。
+    // チェック日 / 確認印（右上）— 見出し行 + 手書き用の枠線付き空欄ボックス（販売店別のみ）。
     if (showCheckBox) {
       const CHECK_BOX_BLANK_ROWS = 3;
       const chkHeader = sheet.addRow([]);
@@ -556,8 +534,7 @@ export class MeiboReportService {
         chkHeader.getCell(c).alignment = { horizontal: 'center' };
         chkHeader.getCell(c).font = { bold: true };
       }
-      // 空欄（手書き記入エリア）— 複数行を縦結合して 1 列につき 1 つの
-      // 背の高いボックスにする（チェック日 / 確認印 をそれぞれ手書き）。
+      // 空欄（手書き記入エリア）— 複数行を縦結合し 1列1つの背の高いボックスにする。
       const firstBlank = chkHeader.number + 1;
       for (let i = 0; i < CHECK_BOX_BLANK_ROWS; i++) {
         const blank = sheet.addRow([]);
@@ -599,25 +576,22 @@ export class MeiboReportService {
   }
 
   /**
-   * 販売店別: 1シートを「文書ページ」単位に出力する。各ページ先頭に帳票ヘッダ
-   * （ページ数 k/M をセルに直接）を書き、明細 N 行ごとに手動改ページを入れる。
-   * グループがページをまたぐときは見出し帯に「（続き）」を付け、小計はグループの
-   * 最終行が載るページに出す。Excel を開いた時点で各ページがヘッダ付き・番号付き
-   * で縦に並ぶ。
+   * 販売店別: 1シートを文書ページ単位に出力。各ページ先頭に帳票ヘッダ（ページ数 k/M を
+   * セルに直接）、明細 N 行ごとに手動改ページ。ページをまたぐグループは見出しに「（続き）」、
+   * 小計はグループ最終行が載るページに出す。
    */
   private fillHanbaitenSheet(
     sheet: ExcelJS.Worksheet,
     data: MeiboPreviewData,
   ): void {
     const COLS = 7;
-    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有 — 改ページ位置一致のため。
+    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有（改ページ位置一致のため）。
     sheet.columns = MEIBO_COL_WIDTHS.hanbaiten.map((width) => ({ width }));
     const outDate = nowDateJst();
     const outTime = nowTimeJst(); // 全ページ同一時刻（ページ毎の再評価でズレない）
 
-    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書
-    // ページ化（各販売店 独立A4ページ + 明細高さ積算で A4 に収める）。ページ数は
-    // 販売店ごとに 1..N（ヘッダ）。見出し帯・全体合計は廃止（小計のみ）。
+    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書ページ化
+    // （各販売店 独立A4ページ + 明細高さ積算）。ページ数は販売店ごと 1..N。全体合計は廃止（小計のみ）。
     const pages = buildMeiboDocPages(data);
     pages.forEach((page, idx) => {
       const hg = page.hanbaiten_groups[0];
@@ -660,8 +634,8 @@ export class MeiboReportService {
     hg: HanbaitenGroup,
     ctx: MeiboPageCtx,
   ): void {
-    // 販売店別は1ページに複数の管理支店(支所)が載りうるため、代表1件をヘッダに出すのは
-    // 誤解を招く → 支所行は表示しない（顧客要件 2026-07・preview と同一）。
+    // 販売店別は1ページに複数管理支店が載りうるため代表1件のヘッダ表示は誤解を招く →
+    // 支所行は非表示（顧客要件 2026-07・preview と同一）。
     this.writeReportHeader(
       sheet,
       ctx.cols,
@@ -718,13 +692,13 @@ export class MeiboReportService {
     data: MeiboPreviewData,
   ): void {
     const COLS = 7;
-    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有 — 改ページ位置一致のため。
+    // 列幅は mapper の見積り(estimateMeiboRowHeightPt)と共有（改ページ位置一致のため）。
     sheet.columns = MEIBO_COL_WIDTHS.kanri_shiten.map((width) => ({ width }));
     const outDate = nowDateJst();
     const outTime = nowTimeJst();
 
-    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書
-    // ページ化（管理支店ごと独立A4ページ + 明細高さ積算で A4 に収める）。合計行は廃止。
+    // 動的ページング（顧客要件 2026-07）: preview と同じ buildMeiboDocPages で文書ページ化
+    // （管理支店ごと独立A4ページ + 明細高さ積算）。合計行は廃止。
     const pages = buildMeiboDocPages(data);
     pages.forEach((page, idx) => {
       const kg = page.kanri_shiten_groups[0];
@@ -804,12 +778,7 @@ export class MeiboReportService {
     return `〒${m[1].slice(0, 3)}-${m[1].slice(3)}\n${m[2]}`;
   }
 
-  /**
-   * {販売店別|管理支店別}購読者名簿_{YYYY年MM月}.xlsx（適用日
-   * tekiyo_date=YYYY-MM-DD に基づく）。prefix は帳票種別で切替
-   * （hanbaiten=販売店別 / kanri_shiten=管理支店別）。
-   * 例: 販売店別購読者名簿_2026年01月.xlsx
-   */
+  /** {販売店別|管理支店別}購読者名簿_{YYYY年MM月}.xlsx（適用日基準）。例: 販売店別購読者名簿_2026年01月.xlsx */
   private buildFilename(
     tekiyoDate: string,
     reportType: 'hanbaiten' | 'kanri_shiten',
@@ -817,10 +786,7 @@ export class MeiboReportService {
     return `${this.buildBaseName(tekiyoDate, reportType)}.xlsx`;
   }
 
-  /**
-   * 拡張子を除いたファイル名の基底（例: 販売店別購読者名簿_2026年01月）。
-   * ダウンロード名・S3 アーカイブ名の両方の土台にする。
-   */
+  /** 拡張子なしのファイル名基底（例: 販売店別購読者名簿_2026年01月）。DL名・S3名の土台。 */
   private buildBaseName(
     tekiyoDate: string,
     reportType: 'hanbaiten' | 'kanri_shiten',
@@ -830,11 +796,7 @@ export class MeiboReportService {
     return `${prefix}${SHEET_NAME}_${y}年${m}月`;
   }
 
-  /**
-   * ASCII別名：meibo_{report_type}_{YYYYMM}.xlsx（Content-Disposition
-   * filename 用）。日本語の表示名は filename* に置く。
-   * 例: meibo_hanbaiten_202601.xlsx
-   */
+  /** ASCII別名 meibo_{report_type}_{YYYYMM}.xlsx（Content-Disposition filename 用）。例: meibo_hanbaiten_202601.xlsx */
   private buildMeiboAsciiFilename(
     tekiyoDate: string,
     reportType: 'hanbaiten' | 'kanri_shiten',

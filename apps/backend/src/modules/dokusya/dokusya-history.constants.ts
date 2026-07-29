@@ -1,18 +1,18 @@
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
 /**
- * Constants for the bitemporal history writer (dokusya-history.*).
- * See docs/dokusya-rireki-common-functions.md §3.
+ * bitemporal 履歴ライター (dokusya-history.*) 用の定数。
+ * docs/dokusya-rireki-common-functions.md §3 参照。
  */
 
 /**
- * ORDER BY for the bitemporal chain, as `[expression, direction]` tuples
- * applied via `.orderBy(...).addOrderBy(...)`. The "current / effective"
- * row is the greatest `(joho, rireki_no)`.
+ * bitemporal チェーンの ORDER BY。`[式, 方向]` タプルを
+ * `.orderBy(...).addOrderBy(...)` で適用する。「現在／実効」行は最大の
+ * `(joho, rireki_no)`。
  *
- * NOTE: never fold both columns into a single `.orderBy('a DESC, b DESC')`
- * string — TypeORM treats the whole string as one expression and appends
- * its default direction, emitting the invalid `... DESC, b DESC ASC`.
+ * 注意: 両列を単一の `.orderBy('a DESC, b DESC')` にまとめないこと。TypeORM は
+ * 文字列全体を1式とみなしデフォルト方向を付与し、不正な `... DESC, b DESC ASC`
+ * を吐く。
  */
 export const SORT_CHAIN_DESC: ReadonlyArray<readonly [string, 'DESC']> = [
   ['r.joho_henko_tekiyo_date', 'DESC'],
@@ -68,8 +68,8 @@ export const ZENKAI_ADDRESS_ZCOLS = [
 ] as const satisfies readonly (keyof DokusyaRireki)[];
 
 /**
- * Business field -> its `zenkai_*` (previous-value) counterpart. Filled
- * on every row so 増減連絡票 / 増減通知 can diff current vs previous.
+ * 業務項目 → その `zenkai_*`（前回値）列。全行に設定され、増減連絡票／
+ * 増減通知が現在値と前回値を差分表示できるようにする。
  */
 export const ZENKAI_FIELD_MAP = {
   hanbaitenId: 'zenkaiHanbaitenId',
@@ -82,18 +82,14 @@ export const ZENKAI_FIELD_MAP = {
 } as const satisfies Partial<Record<keyof DokusyaRireki, keyof DokusyaRireki>>;
 
 /**
- * Rireki columns NOT copied into `t_dokusya` when recomputing the master
- * from the effective row (`mapRirekiToMaster`). Everything else common to
- * both entities is copied (full recompute). Groups:
- *  - rireki-only columns absent on master (PK, `zenkai_*`, history flags,
- *    `henko_riyu`);
- *  - common columns the master keeps its own (`created_at/by`) or that are
- *    the update key (`dokusya_id`).
- * NOTE: keep in sync when adding a rireki-only column.
+ * 実効行から master (`t_dokusya`) を再計算 (`mapRirekiToMaster`) する際に
+ * コピーしない rireki 列。それ以外の共通列は全てコピー（フル再計算）。分類:
+ *  - master に無い rireki 専用列（PK・`zenkai_*`・履歴フラグ）
+ *  - master 側の値を維持する共通列 (`created_at/by`)・更新キー (`dokusya_id`)
+ * 注意: rireki 専用列を追加したら同期すること。
  */
 export const MASTER_EXCLUDE_FIELDS = [
   'dokusyaRirekiId',
-  'henkoRiyu',
   'saishinDataFlg',
   'zougenHokokuFlg',
   'shinkiFlg',
@@ -131,9 +127,3 @@ export const DIFF_EXCLUDE_FIELDS = [
   'dokusyaId',
 ] as const;
 
-/**
- * `henko_riyu` label written on 取消 (赤伝) rows — the operation type, not the
- * reason. The cancellation REASON goes into `biko` (顧客要件). Kept as a
- * constant so the target row's flag update and the counter row agree.
- */
-export const TORIKESHI_HENKO_RIYU = '取消';

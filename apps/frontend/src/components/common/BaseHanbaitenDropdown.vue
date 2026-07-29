@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable **single-select** 販売店 dropdown.
+ * サーバーページング + 検索対応の **単一選択** 販売店ドロップダウン。
  *
- * Single-select sibling of {@link BaseHanbaitenSelect} (multi). Reuses
- * {@link useEntityDropdown} (page-50 load, debounced search on コード OR
- * 名称, infinite scroll, edit-mode include_id pin). `jaId` is only needed
- * for the NICHINO_* 代行入力 flow; scoped roles let session.ja_id win.
+ * {@link BaseHanbaitenSelect}（複数選択）の単一選択版。{@link useEntityDropdown} を再利用
+ * （50件/page・コード OR 名称 のデバウンス検索・無限スクロール・編集時 include_id ピン）。
+ * `jaId` は NICHINO_* 代行入力 フローでのみ必要、スコープ付きロールは session.ja_id 優先。
  *
- * Used by 購読者一覧 の配達販売店フィルタ等。
+ * 購読者一覧 の配達販売店フィルタ等で使用。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -19,9 +18,9 @@ import { useEntityDropdown } from '@/composables/useEntityDropdown';
 import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
-  /** Selected hanbaiten_id (`null`/`undefined` = nothing selected). */
+  /** 選択中の hanbaiten_id（`null`/`undefined` = 未選択）。 */
   value?: number | null;
-  /** Explicit JA filter (NICHINO_* 代行入力). Scoped roles let session win. */
+  /** 明示的な JA フィルタ（NICHINO_* 代行入力）。スコープ付きロールは session 優先。 */
   jaId?: number | null;
   disabled?: boolean;
   placeholder?: string;

@@ -7,10 +7,9 @@ import { SORT_CHAIN_ASC, SORT_CHAIN_DESC } from './dokusya-history.constants';
 import { DateOnly, DokusyaSnapshot } from './dokusya-history.types';
 
 /**
- * Apply a multi-column chain ordering as consecutive `orderBy`/`addOrderBy`
- * calls. Never pass a composite `'a DESC, b DESC'` string to a single
- * `.orderBy()` — TypeORM appends its default direction and emits invalid
- * `... DESC ASC` SQL.
+ * 複数列のチェーン順序を orderBy/addOrderBy の連続呼出しで適用。合成文字列
+ * `'a DESC, b DESC'` を単一 `.orderBy()` に渡さないこと — TypeORM が既定方向を付け
+ * 不正な `... DESC ASC` SQL を吐く。
  */
 function applyChainOrder(
   qb: SelectQueryBuilder<DokusyaRireki>,
@@ -23,16 +22,14 @@ function applyChainOrder(
 }
 
 /**
- * Query helpers for the bitemporal history writer (dokusya-history.*).
- * Plain functions over an `EntityManager` so the caller controls the
- * transaction. Raw WHERE/ORDER strings use snake_case DB column names
- * (repo convention). See docs/dokusya-rireki-common-functions.md §5.1.
+ * bitemporal 履歴ライタ(dokusya-history.*) の query ヘルパ。EntityManager 上の純関数で
+ * caller が tx を制御。生 WHERE/ORDER 文字列は snake_case DB 列名(repo 規約)。
+ * docs/dokusya-rireki-common-functions.md §5.1。
  */
 
 /**
- * Effective row as of `asOf`: the greatest `(joho, rireki_no)` among
- * rows with `joho <= asOf` and `torikeshi_flg = false`. Returns `null`
- * when only future rows exist (or none). Read-only.
+ * asOf 時点の有効行: `joho <= asOf` かつ `torikeshi_flg = false` の中で最大
+ * `(joho, rireki_no)`。未来行のみ(または皆無)なら null。読取専用。
  */
 export function loadEffectiveRow(
   m: EntityManager,
@@ -52,11 +49,10 @@ export function loadEffectiveRow(
 }
 
 /**
- * 現ライフサイクルの起点 — 最新の新規/再購読行（`shinki_flg=true`・取消除外の
- * 最大 `(joho, rireki_no)`）。全購読者に最低1つ（作成行）存在する。再購読すると
- * この行が再購読行へ進むため、これを境界に「現ライフサイクル = rireki_no >= 起点」を
- * 定義できる。{@link loadCurrentLifecycleEffectiveRow} /
- * {@link loadScheduledChushiDate} が共有する。無ければ null（履歴なし）。
+ * 現ライフサイクルの起点 — 最新の新規/再購読行（shinki_flg=true・取消除外の最大
+ * (joho, rireki_no)）。全購読者に最低1つ(作成行)存在。再購読でこの行が進むため、これを
+ * 境界に「現LC = rireki_no >= 起点」を定義できる。{@link loadCurrentLifecycleEffectiveRow} /
+ * {@link loadScheduledChushiDate} が共有。無ければ null（履歴なし）。
  */
 function loadLatestShinki(
   m: EntityManager,
@@ -75,17 +71,14 @@ function loadLatestShinki(
 }
 
 /**
- * 予約中の解約予定日(購読中止日) — **現ライフサイクル**（最新の新規/再購読行以降）で
- * 取消されていない `dokusya_chushi_date` が入った最新 `(joho, rireki_no)` 行の中止日。
- * 予約行は未来日で effective ではないが、購読中止日だけは予約時点から master(t_dokusya)
- * に反映して一覧(SCR-014)/詳細(SCR-011)に即時表示するため `recomputeMaster` が参照する
- * （顧客要件 2026-07）。無ければ null。
+ * 予約中の解約予定日(購読中止日) — 現LC(最新の新規/再購読行以降)で取消されていない
+ * `dokusya_chushi_date` を持つ最新 (joho, rireki_no) 行の中止日。予約行は未来日で
+ * effective でないが、中止日だけは予約時点から master(t_dokusya) に反映して
+ * 一覧(SCR-014)/詳細(SCR-011)に即時表示するため recomputeMaster が参照（顧客要件2026-07）。無ければ null。
  *
- * **ライフサイクル限定が重要**（顧客要件 2026-07）: 解約確定 → 再購読 すると、旧
- * ライフサイクルの解約予約/確定行には中止日が残るが、それらは `rireki_no` が
- * 再購読行より小さいため除外される。これにより再購読後は master の購読中止日が
- * null に戻る（現ライフサイクルに予約が無いため）。予約を取消(torikeshi)した場合も
- * 該当行が除外され null に戻り、master 側もクリアされる。
+ * LC限定が重要（顧客要件2026-07）: 解約確定→再購読 すると旧LCの解約予約/確定行に中止日が
+ * 残るが rireki_no が再購読行より小さいため除外 → 再購読後は master の中止日が null に戻る。
+ * 予約を取消(torikeshi)した場合も該当行が除外され null に戻り master もクリア。
  */
 export async function loadScheduledChushiDate(
   m: EntityManager,
@@ -109,12 +102,10 @@ export async function loadScheduledChushiDate(
 }
 
 /**
- * Earliest row in the chain (MIN `(joho, rireki_no)`, `torikeshi_flg = false`).
- * Used by `recomputeMaster` as the master-effective fallback when NO row is
- * `joho <= asOf` (i.e. every row is future — a subscriber created with a
- * future 購読開始日). Keeps the invariant `t_dokusya ⇔ 1 行 saishin=true` even
- * before the start date arrives（バッチが到来日に有効行を進める）。NOT used by
- * findBefore（挿入時の直前行は「今日より前」しか見ない）。
+ * チェーン最早行（MIN (joho, rireki_no), torikeshi_flg = false）。recomputeMaster が
+ * `joho <= asOf` の行が皆無（全行未来 = 未来購読開始日の新規）のとき master-effective
+ * fallback に使う。開始日到来前でも不変条件 `t_dokusya ⇔ 1 行 saishin=true` を維持
+ * （バッチが到来日に有効行を進める）。findBefore では未使用（挿入時の直前行は今日より前のみ見る）。
  */
 export function loadEarliestRow(
   m: EntityManager,
@@ -132,21 +123,18 @@ export function loadEarliestRow(
 }
 
 /**
- * Effective row for `t_dokusya` scoped to the CURRENT lifecycle — the rows
- * from the latest 新規(`shinki_flg=true`, 取消除外) onward. This makes 再購読
- * behave like a fresh 新規作成: even when the new 購読開始日 is in the future,
- * the current-lifecycle effective row is absent so we fall back to the latest
- * 新規(=再購読)行 → master が即 購読中 になる（初回作成の未来開始日と同じ）。
+ * 現LC（最新の新規 shinki_flg=true・取消除外 以降）に限定した t_dokusya 用有効行。これで
+ * 再購読を新規作成と同じ挙動にする: 新開始日が未来でも現LCの有効行が無ければ最新の
+ * 新規(=再購読)行へ fallback → master が即 購読中（初回作成の未来開始日と同じ）。
  *
- * - `latestShinki` = greatest `(joho, rireki_no)` with `shinki_flg = true`,
- *   `torikeshi_flg = false`（作成行 or 再購読行）。全購読者に最低1つ存在（作成行）。
- * - effective = greatest `(joho, rireki_no)` with `torikeshi_flg = false`,
- *   `rireki_no >= latestShinki.rireki_no`, `joho <= asOf`。無ければ latestShinki。
+ * - `latestShinki` = shinki_flg=true・torikeshi_flg=false の最大 (joho, rireki_no)
+ *   （作成行 or 再購読行）。全購読者に最低1つ(作成行)存在。
+ * - effective = torikeshi_flg=false・rireki_no >= latestShinki.rireki_no・joho <= asOf の
+ *   最大 (joho, rireki_no)。無ければ latestShinki。
  *
- * 単一ライフサイクル（再購読なし）では latestShinki=作成行(最小 rireki_no) なので
- * 従来の「loadEffectiveRow(asOf) ?? loadEarliestRow」と同一挙動（後方互換）。
- * update / 解約（同一ライフサイクル内の未来 joho 行）は joho<=asOf まで有効化され
- * ないので到来日バッチ任せのまま。
+ * 単一LC（再購読なし）では latestShinki=作成行(最小 rireki_no) なので従来の
+ * 「loadEffectiveRow(asOf) ?? loadEarliestRow」と同一挙動（後方互換）。update/解約
+ * （同一LC内の未来 joho 行）は joho<=asOf まで有効化されず到来日バッチ任せ。
  */
 export async function loadCurrentLifecycleEffectiveRow(
   m: EntityManager,
@@ -171,10 +159,8 @@ export async function loadCurrentLifecycleEffectiveRow(
 }
 
 /**
- * Immediate predecessor (by date) of a row about to be inserted at
- * `joho`. Same query as {@link loadEffectiveRow} — the predecessor is
- * the effective row as of `joho` (the new row is not yet persisted).
- * Read-only; source of the new row's `zenkai_*`.
+ * `joho` に挿入予定の行の直前行(日付順)。{@link loadEffectiveRow} と同じクエリ —
+ * 直前行 = joho 時点の有効行（新行は未 persist）。読取専用；新行の zenkai_* の元。
  */
 export function findBefore(
   m: EntityManager,
@@ -185,9 +171,8 @@ export function findBefore(
 }
 
 /**
- * Immediate successor in `(joho, rireki_no)` order strictly after the
- * given position, `torikeshi_flg = false`. Used to recompute the
- * following row when inserting in the middle of the chain.
+ * 指定位置より厳密に後の直後行（(joho, rireki_no) 順・torikeshi_flg=false）。
+ * チェーン中間へ挿入時に直後行を再計算するのに使う。
  */
 export function findNext(
   m: EntityManager,
@@ -211,9 +196,8 @@ export function findNext(
 }
 
 /**
- * Next `rireki_no` for a dokusya: `COALESCE(MAX(rireki_no), 0) + 1`.
- * Counts ALL rows (including `torikeshi_flg = true`) so reversing rows
- * never collide on `(dokusya_id, rireki_no)`.
+ * 次の rireki_no: `COALESCE(MAX(rireki_no), 0) + 1`。全行(torikeshi_flg=true 含む)を
+ * 数えるので打ち消し行が (dokusya_id, rireki_no) で衝突しない。
  */
 export async function nextRirekiNo(
   m: EntityManager,
@@ -227,7 +211,7 @@ export async function nextRirekiNo(
   return Number(row?.next ?? 1);
 }
 
-/** Persist a built history row and return it with its generated id. */
+/** 構築済み履歴行を保存し、採番済み id 付きで返す。 */
 export function insertRow(
   m: EntityManager,
   row: Partial<DokusyaRireki>,
@@ -236,20 +220,16 @@ export function insertRow(
 }
 
 /**
- * Set `saishin_data_flg = TRUE` on the effective row and `FALSE` on every
- * other `torikeshi_flg = false` row of the dokusya. Pass `null` when
- * there is no effective row (only future rows) → all become `FALSE`.
- * Keeps the invariant `t_dokusya ⇔ saishin_data_flg = TRUE`.
+ * 有効行に saishin_data_flg=TRUE、他の torikeshi_flg=false 行は全て FALSE。有効行が無い
+ * （未来行のみ）なら null を渡す → 全て FALSE。不変条件 `t_dokusya ⇔ saishin_data_flg=TRUE`。
  */
 export async function setSaishinFlags(
   m: EntityManager,
   dokusyaId: number,
   effectiveRirekiId: number | null,
 ): Promise<void> {
-  // Cast the bound params to int explicitly: the pg wire protocol sends
-  // them as text and COALESCE(text, -1) can't unify with the int literal
-  // (fails under pg-mem; brittle on strict PG). $1::int handles the NULL
-  // (no effective row) case cleanly too.
+  // bind param を明示 int cast: pg wire は text 送信で COALESCE(text, -1) が int リテラルと
+  // 統一できない（pg-mem で失敗・strict PG で脆い）。$1::int は NULL(有効行なし)も綺麗に処理。
   await m.query(
     `UPDATE t_dokusya_rireki
         SET saishin_data_flg = (dokusya_rireki_id = COALESCE($1::int, -1))
@@ -259,9 +239,8 @@ export async function setSaishinFlags(
 }
 
 /**
- * Flag a history row as 取消 (red-slip). Does not delete. The cancellation
- * reason is written into the target row's `biko` (顧客要件 — 取消理由は対象行と
- * 打ち消し行の両方の備考に記録する).
+ * 履歴行を 取消(赤伝) にフラグ。削除はしない。取消理由は対象行の biko に記録
+ * （顧客要件 — 取消理由は対象行と打ち消し行の両方の備考に記録）。
  */
 export async function markTorikeshi(
   m: EntityManager,
@@ -276,20 +255,32 @@ export async function markTorikeshi(
 }
 
 /**
- * Insert the master (`t_dokusya`) shell for a CREATE and return its
- * generated `dokusya_id`. The row is immediately overwritten by
- * `recomputeMaster` from the first rireki row, so only the columns
- * needed to obtain a PK are required here.
+ * CREATE 用に master(t_dokusya) の shell を INSERT し採番済み dokusya_id を返す。
+ * 行は直後に recomputeMaster が最初の rireki 行から上書きするため、ここでは PK 取得に
+ * 必要な列だけあればよい。
  */
 export async function ensureMaster(
   m: EntityManager,
   values: Partial<Dokusya>,
+  actor: string,
 ): Promise<number> {
-  const saved = await m.save(Dokusya, m.create(Dokusya, values));
+  // created_by / updated_by は t_dokusya の NOT NULL 列（DB 側 DEFAULT なし。entity の
+  // `default: 'SYSTEM'` は DDL 生成用メタデータで INSERT 時には効かない）。UI create /
+  // Excel取込は values に載せてくるが、履歴業務項目だけを組み立てる呼出元
+  // （dokusya-sync バッチの DokusyaFields）には監査列が無く NULL 違反で落ちる。
+  // 呼出元共通の actor を最終フォールバックにして同じ罠を踏まないようにする。
+  const saved = await m.save(
+    Dokusya,
+    m.create(Dokusya, {
+      ...values,
+      createdBy: values.createdBy ?? actor,
+      updatedBy: values.updatedBy ?? actor,
+    }),
+  );
   return saved.dokusyaId;
 }
 
-/** Read the current master snapshot (throws if missing — must exist post-write). */
+/** 現 master スナップショットを読む（無ければ throw — 書込み後は必ず存在）。 */
 export async function loadMaster(
   m: EntityManager,
   dokusyaId: number,
@@ -301,7 +292,7 @@ export async function loadMaster(
   return row;
 }
 
-/** Read one history row by its PK (throws if missing). Used by 取消. */
+/** 履歴行を PK で1件読む（無ければ throw）。取消 で使用。 */
 export async function loadRireki(
   m: EntityManager,
   dokusyaRirekiId: number,

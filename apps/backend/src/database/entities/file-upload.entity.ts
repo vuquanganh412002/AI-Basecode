@@ -8,11 +8,11 @@ import {
 } from 'typeorm';
 
 /**
- * `t_file_upload` — uploaded file metadata. SCR-022 (file download list /
- * preview / download) reads this table; uploads are written by SCR-021
- * / 取込画面 series.
+ * `t_file_upload`（アップロードファイルのメタデータ）。SCR-022（ファイル
+ * ダウンロード一覧／プレビュー／ダウンロード）が参照。書き込みは SCR-021 /
+ * 取込画面シリーズ。
  *
- * Nullability per `docs/database/database-design.md`:
+ * NULL許容（`docs/database/database-design.md`）:
  *   - ja_id              nullable  (NULL = 全 JA 向けファイル)
  *   - scheduled_delete_date nullable
  *   - file_size          nullable
@@ -37,11 +37,10 @@ export class FileUpload {
   @Column({ name: 'upload_datetime', type: 'timestamptz' })
   uploadDatetime: Date;
 
-  // 削除予定日 is a pure calendar DATE (no time / no timezone) per
-  // screen-design 画面項目定義 No.7 — stored as `date` so 2026-06-30 reads
-  // identically in any client/TZ. A timestamptz at JST-midnight rendered
-  // through a +07:00 client showed 2026-06-29 (reported off-by-one).
-  // TypeORM returns `date` columns as 'YYYY-MM-DD' strings.
+  // 削除予定日は時刻・TZ を持たない純粋な暦日（screen-design 画面項目定義
+  // No.7）。`date` 保存で 2026-06-30 が任意のクライアント/TZ で同一に見える。
+  // JST 深夜の timestamptz は +07:00 クライアントで 2026-06-29 とずれた（off-by-one）。
+  // TypeORM は `date` 列を 'YYYY-MM-DD' 文字列で返す。
   @Column({ name: 'scheduled_delete_date', type: 'date', nullable: true })
   scheduledDeleteDate: string | null;
 

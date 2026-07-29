@@ -1,9 +1,7 @@
 export interface MailProvider {
   /**
-   * `text` is the plain-text fallback that mail clients without HTML
-   * rendering (or anti-phishing previews) will display. Setting both
-   * `text` and `html` produces a proper multipart/alternative email.
-   * Pass only `html` for HTML-only sends; pass only `text` for plain.
+   * `text` は HTML 非対応クライアント向けフォールバック。両方指定で
+   * multipart/alternative になる。片方のみの指定も可。
    */
   sendMail(options: {
     to: string;

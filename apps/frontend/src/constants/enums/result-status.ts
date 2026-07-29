@@ -1,6 +1,6 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/result-status.enum.ts`.
- * Display labels come from `useCodesStore().label('RESULT_STATUS', value)`.
+ * `apps/backend/src/common/enums/result-status.enum.ts` の FE ミラー。
+ * 表示ラベルは `useCodesStore().label('RESULT_STATUS', value)` から取得。
  */
 export const ResultStatus = {
   SUCCESS: 1,

@@ -57,11 +57,9 @@ export class KanriShitenController {
   }
 
   // ─── ACSMS-API-COMMON-004 — Get Kanri Shiten Dropdown ────────────────
-  // Must be declared BEFORE `@Get(':id')` so Nest's pattern
-  // matcher doesn't treat `dropdown` as an id. Per spec §4.2 the endpoint
-  // is authenticated-only — no `@Permissions(...)`, so PermissionsGuard
-  // passes (empty required list). The caller's screen-level guard is the
-  // permission boundary; SessionAuthGuard enforces login here.
+  // Nest のパターンマッチが `dropdown` を id 扱いしないよう @Get(':id') より前に宣言。
+  // spec §4.2 で認証済みのみ — @Permissions なしで PermissionsGuard は素通り（必須空）。
+  // 権限境界は呼び出し元画面の guard、此処は SessionAuthGuard がログインを強制。
   @Get('dropdown')
   @ApiOperation({ summary: '共通API — 管理支店プルダウン (ACSMS-API-COMMON-004)' })
   @ApiResponse({ status: 200, type: KanriShitenDropdownResponseDto })

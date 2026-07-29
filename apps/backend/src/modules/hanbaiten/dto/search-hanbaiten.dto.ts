@@ -13,17 +13,15 @@ import {
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
- * Whitelist of sortable columns. Per 画面設計書 v1.2 §8.1 only the two
- * local columns are exposed; this `@IsIn` guard blocks SQL-injection
- * attempts via user-supplied `sort_by`.
+ * ソート可能列のホワイトリスト。画面設計書 v1.2 §8.1 ではローカル2列のみ公開。
+ * この `@IsIn` ガードがユーザー指定 `sort_by` 経由の SQL インジェクションを防ぐ。
  */
 export const HANBAITEN_SEARCH_SORT_BY = [
   'hanbaiten_code',
   'hanbaiten_name',
-  // Default landing order — most-recently-touched first. Not a clickable
-  // column in the UI (画面設計書 §8.1 exposes only code / name as sort
-  // headers); it is the implicit default so a freshly created, imported OR
-  // UPDATED 販売店 lands at the top (updated_at is bumped on every write).
+  // 既定の表示順 — 最終更新が新しい順。UI ではクリック可能な列ではない（画面設計書
+  // §8.1 は code / name のみソートヘッダに公開）。暗黙の既定で、作成/取込/更新した
+  // 販売店が先頭に来る（updated_at は書込毎に更新される）。
   'updated_at',
 ] as const;
 export type HanbaitenSearchSortBy =
@@ -33,10 +31,9 @@ const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Coerce stringified booleans ('true' / 'false') into real booleans —
- * Express query parsing always produces strings. Anything else is
- * returned unchanged so the downstream `@IsBoolean()` decorator can
- * reject it with a proper validation error.
+ * 文字列化された boolean（'true' / 'false'）を実 boolean に変換する — Express の
+ * クエリ解析は常に文字列を生む。それ以外はそのまま返し、後続の `@IsBoolean()` が
+ * 妥当なバリデーションエラーで弾けるようにする。
  */
 const stringToBoolean = ({ value }: { value: unknown }) => {
   if (typeof value === 'boolean') return value;
@@ -49,14 +46,13 @@ const stringToBoolean = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Query-string DTO for `GET /api/v1/hanbaiten` (ACSMS-API-018-001).
+ * `GET /api/v1/hanbaiten` のクエリ文字列 DTO (ACSMS-API-018-001)。
  *
- * All fields optional; class-transformer applies defaults below so the
- * service always sees a fully-populated object.
+ * 全項目任意。class-transformer が下記の既定を適用するので service は常に
+ * 充填済みオブジェクトを見る。
  *
- * Inherits page/per_page from {@link PaginationDto}. The runtime default
- * (page=1, per_page=20) is applied by the service layer via `?? 1` /
- * `?? 20` because query params arrive as `undefined` when omitted.
+ * page/per_page は {@link PaginationDto} から継承。省略時クエリは `undefined` で届くため、
+ * 実行時既定（page=1, per_page=20）は service 層が `?? 1` / `?? 20` で適用する。
  */
 export class SearchHanbaitenDto extends PaginationDto {
   @ApiPropertyOptional({ description: '販売店コード（部分一致検索）', maxLength: 10 })
@@ -101,11 +97,9 @@ export class SearchHanbaitenDto extends PaginationDto {
   @MaxLength(50, { message: '所長名は最大50文字で指定してください。' })
   shocho_name?: string;
 
-  // [staff-ja-filter] Explicit JA filter — for NICHINO_STAFF 代行入力
-  // flow where the user picks a JA up-front via <BaseJaDropdown>.
-  // Session-scoped roles ignore this (applyJaScope already pins
-  // session.ja_id); the service applies it ONLY when session.ja_id
-  // is null (NICHINO_*).
+  // [staff-ja-filter] 明示 JA フィルタ — ユーザーが <BaseJaDropdown> で先に JA を選ぶ
+  // NICHINO_STAFF 代行入力 フロー用。セッションスコープ役は無視（applyJaScope が
+  // 既に session.ja_id を固定）。service は session.ja_id が null(NICHINO_*)のときのみ適用。
   @ApiPropertyOptional({
     description: 'JA絞り込み (NICHINO_STAFF 代行入力 専用)。',
   })
@@ -120,12 +114,10 @@ export class SearchHanbaitenDto extends PaginationDto {
       '廃店フラグ（true:廃店も含む, false:廃店を除外）。省略時は false。',
     type: Boolean,
   })
-  // `enableImplicitConversion: true` would coerce ANY non-empty string
-  // to `true` via Boolean() before @Transform runs — including 'false'.
-  // Forcing @Type(() => String) tells class-transformer to skip that
-  // primitive coercion and leave the raw string in place, so the
-  // stringToBoolean transform below can map 'true'/'false' correctly
-  // and leave 'maybe' untouched for @IsBoolean to reject.
+  // `enableImplicitConversion: true` だと @Transform 前に Boolean() で任意の非空文字列
+  // （'false' 含む）が `true` に変換されてしまう。@Type(() => String) を強制すると
+  // class-transformer はその原始変換をスキップし raw 文字列を残すので、下の
+  // stringToBoolean が 'true'/'false' を正しくマップし、'maybe' は @IsBoolean が弾く。
   @Type(() => String)
   @Transform(stringToBoolean)
   @IsOptional()

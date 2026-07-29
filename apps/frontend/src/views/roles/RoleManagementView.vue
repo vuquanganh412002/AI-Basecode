@@ -48,9 +48,8 @@ const formState = ref({
   description: '',
   permission_ids: [] as number[],
 });
-// [locked-permissions] IDs whose checkbox renders disabled — seeded
-// baseline permissions that BE rejects removing. Populated from
-// `getRole(...).data.locked_permission_ids` on enter-edit-mode.
+// [locked-permissions] チェックボックスを disabled にする ID 群 — BE が削除を
+// 拒否するシード基盤権限。編集開始時に getRole().data.locked_permission_ids から設定。
 const lockedPermissionIds = ref<number[]>([]);
 const fieldErrors = ref<{
   role_name?: string;
@@ -60,9 +59,8 @@ const submitting = ref(false);
 
 const notify = useNotify();
 
-// Action column is first (matches OshiraseManagementView convention). The
-// header is '編集' rather than '操作' because this list only exposes the
-// 編集 action — no 削除 — so '操作' would over-promise.
+// 操作列を先頭に配置（OshiraseManagementView 準拠）。この一覧は編集のみ
+// （削除なし）のため、ヘッダーは '操作' ではなく '編集' とする。
 const columns: TableColumnsType = [
   { title: '編集', key: 'actions', align: 'center', width: 80 },
   { title: 'ロールコード', dataIndex: 'role_code', key: 'role_code', width: 220 },
@@ -77,9 +75,8 @@ async function fetchRoles(): Promise<void> {
     const res = await listRoles();
     roles.value = res.data;
   } catch {
-    // Expected & ignored — global axios interceptor (src/api/error-handler.ts)
-    // already toasted UNAUTHORIZED / FORBIDDEN / 500. Re-throwing would
-    // surface as an unhandled rejection in onMounted's fire-and-forget path.
+    // 想定内・無視 — global axios interceptor が UNAUTHORIZED / FORBIDDEN / 500 を
+    // トースト済み。再 throw は onMounted の fire-and-forget で unhandled rejection になる。
     roles.value = [];
   } finally {
     loading.value = false;
@@ -91,7 +88,7 @@ async function fetchPermissions(): Promise<void> {
     const res = await listPermissions();
     permissions.value = res.data;
   } catch {
-    // Same rationale as fetchRoles — interceptor handled.
+    // fetchRoles と同理由 — interceptor が処理済み。
     permissions.value = [];
   }
 }
@@ -103,10 +100,8 @@ onMounted(() => {
   void fetchPermissions();
 });
 
-// Row-class hook used by BaseDataTable to highlight the row currently
-// being edited (matches the form-on-top, list-below pattern). The class
-// resolves to `bg-surface-active` — same semantic tint used for selected
-// row state across the design system.
+// BaseDataTable で編集中の行をハイライトする行クラスフック（フォーム上部・
+// 一覧下部パターン）。クラスは bg-surface-active（選択行と同じ意味色）に解決される。
 function rowClassForEdit(row: Record<string, unknown>): string {
   return (row as unknown as RoleListItem).role_id === editingRoleId.value
     ? 'role-row-active'
@@ -114,10 +109,9 @@ function rowClassForEdit(row: Record<string, unknown>): string {
 }
 
 // ─── 編集 row click handler (機能定義 2.1) ────────────────────────────
-// Pre-fill basic fields from the row immediately so the form is populated
-// even before getRole resolves — the list endpoint (API-027-001) already
-// carries role_code / role_name / description; only permission_ids need a
-// dedicated fetch via API-027-002.
+// getRole 解決前でもフォームが埋まるよう、行の基本項目を即時反映する。
+// 一覧 API-027-001 は role_code / role_name / description を持つため、
+// permission_ids のみ API-027-002 で個別取得する。
 async function onEdit(row: RoleListItem): Promise<void> {
   formState.value = {
     role_code: row.role_code,
@@ -152,10 +146,9 @@ function isPermissionLocked(id: number): boolean {
 }
 
 function togglePermission(id: number, checked: boolean): void {
-  // [locked-guard] BE rejects unchecking locked permissions; the
-  // checkbox is rendered :disabled so this branch shouldn't fire,
-  // but defend in case of programmatic input. Match the BE
-  // VALIDATION_ERROR semantics by silently ignoring the toggle.
+  // [locked-guard] BE はロック権限の解除を拒否する。checkbox は :disabled の
+  // ため通常発火しないが、プログラム入力に備えて防御。BE の VALIDATION_ERROR
+  // と揃え、トグルを黙って無視する。
   if (isPermissionLocked(id)) return;
   if (checked) {
     if (!formState.value.permission_ids.includes(id)) {
@@ -182,9 +175,7 @@ function toggleSelectAll(checked: boolean): void {
       .map((p) => p.permission_id)
       .sort((a, b) => a - b);
   } else {
-    // [locked-guard] Even on "clear all", locked permissions stay
-    // checked — they can't be removed regardless of how the user
-    // got there.
+    // [locked-guard]「全解除」でもロック権限はチェックのまま残す（削除不可）。
     formState.value.permission_ids = [...lockedPermissionIds.value].sort(
       (a, b) => a - b,
     );
@@ -204,17 +195,14 @@ const DESC_LENGTH_MSG = '説明は200文字以内で入力してください。'
 
 function validateClient(): boolean {
   const errs: typeof fieldErrors.value = {};
-  // role_name: required (max 20). Both empty AND >20-char failures
-  // surface the same ACSMS-MSG-027-004 「必須項目です。」 per the
-  // customer-signed spec — over-length is treated as a same-bucket
-  // required-shape error, not a distinct length-overflow message.
-  // `?.trim()` (not `.trim()`) guards against a future migration to a
-  // clearable control (undefined v-model) crashing with TypeError.
+  // role_name: 必須（最大20）。空も20文字超も同じ ACSMS-MSG-027-004
+  //「必須項目です。」を表示（顧客承認仕様。超過は長さ超過ではなく必須形式扱い）。
+  // `?.trim()` は将来 clearable 化（undefined v-model）で TypeError にならぬよう。
   const name = formState.value.role_name;
   if (!name?.trim() || name.length > 20) {
     errs.role_name = REQUIRED_MSG;
   }
-  // description: optional, max 200.
+  // description: 任意・最大200。
   if (formState.value.description && formState.value.description.length > 200) {
     errs.description = DESC_LENGTH_MSG;
   }
@@ -241,8 +229,8 @@ async function onSubmit(): Promise<void> {
     await fetchRoles();
     resetForm();
   } catch {
-    // Interceptor toasts NOT_FOUND / 500. Stay in edit mode so the
-    // user can retry without losing their work.
+    // interceptor が NOT_FOUND / 500 をトースト。編集モードを維持し、
+    // 入力を失わず再試行できるようにする。
   } finally {
     submitting.value = false;
   }
@@ -294,9 +282,8 @@ function resetForm(): void {
   fieldErrors.value = {};
 }
 
-// Re-validate description on input change so the help message clears
-// as soon as the user trims it back under 200 chars (rather than
-// requiring another submit click).
+// description を入力変更時に再検証し、200文字以内に戻した時点で
+// help メッセージを消す（再送信を待たない）。
 watch(
   () => formState.value.description,
   (v) => {
@@ -437,7 +424,7 @@ watch(
           </div>
         </div>
 
-        <!-- Footer buttons — primary action LEFT (vue.md §Form footer). -->
+        <!-- フッターボタン — 主アクションを左（vue.md §Form footer）。 -->
         <div
           class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2"
         >
@@ -449,9 +436,8 @@ watch(
       </a-form>
     </BaseCard>
 
-    <!-- ロール一覧 table (常時表示). Pagination props are required by
-         BaseDataTable but the role list is bounded to 5 seeded rows
-         per docs/database/seeder.md §3 — page/perPage are nominal. -->
+    <!-- ロール一覧 table（常時表示）。ページング props は BaseDataTable の
+         必須項目だが、ロールは seeder §3 の5行に固定のため page/perPage は名目値。 -->
     <BaseDataTable
       title="ロール一覧"
       :columns="columns"
@@ -476,9 +462,8 @@ watch(
 </template>
 
 <style scoped>
-/* Highlight the row currently being edited. Antd paints its own `<td>`
-   backgrounds (hover, zebra), so target the cells directly with the
-   semantic `--surface-active` token (same tint as selected row state). */
+/* 編集中の行をハイライト。Antd は td 背景（hover/zebra）を自前で塗るため、
+   セルを直接 --surface-active トークン（選択行と同じ色）で指定する。 */
 :deep(.role-row-active > td) {
   background-color: var(--surface-active) !important;
 }

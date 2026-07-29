@@ -44,21 +44,14 @@ const SCREEN_NAME_SCR007 = '支店マスタ登録画面 (ACSMS-SCR-007)';
 const TABLE_NAME = 'm_shiten';
 
 /**
- * Field-level restriction table per `.claude/rules/security.md` §Layer 3.
- *
- * Customer policy 2026-05: every role except JA_KANRI_SHITEN may freely
- * change any column on PUT — `['*']`. JA_KANRI_SHITEN can edit the same
- * shiten row but `kanri_shiten_id` is read-only (the row's "parent
- * kanri-shiten" assignment is owned by higher roles). The FE mirrors
- * this with `:disabled` on the 管理支店 select in ShitenFormView.vue
- * (`[role5-locked-fields]`); this BE table is the authoritative gate —
- * a curl bypass that smuggles `kanri_shiten_id` past the FE still has
- * the key silently dropped here.
- *
- * Roles not listed (= NICHINO_ADMIN / NICHINO_STAFF in production today)
- * have no `shiten.update` permission and never reach this filter — the
- * controller guard rejects them first. Listing CHUOKAI / JA_HONTEN with
- * `['*']` makes the policy intent grep-able alongside JA_KANRI_SHITEN.
+ * Field-level 制限テーブル (.claude/rules/security.md §Layer 3)。
+ * 顧客要件 2026-05: JA_KANRI_SHITEN 以外は PUT で全列変更可 (`['*']`)。
+ * JA_KANRI_SHITEN は同 shiten を編集できるが kanri_shiten_id は read-only
+ * （親 kanri-shiten 割当は上位ロール所有）。FE は ShitenFormView.vue の 管理支店
+ * select を :disabled でミラー (`[role5-locked-fields]`)。この BE テーブルが
+ * 正の gate — curl で kanri_shiten_id を smuggle しても此処で silent drop。
+ * 未記載ロール（本番の NICHINO_ADMIN/STAFF）は shiten.update 権限なく guard で
+ * 先に弾かれる。CHUOKAI/JA_HONTEN を `['*']` で列挙するのは意図を grep 可能にするため。
  */
 const FIELD_RESTRICTIONS: FieldRestrictionTable = {
   shiten: {
@@ -75,34 +68,30 @@ const FIELD_RESTRICTIONS: FieldRestrictionTable = {
       'jastem_tyokin_shubetsu',
       'jastem_koza_no',
       'biko',
-      // `kanri_shiten_id` deliberately absent — read-only for role 5.
+      // kanri_shiten_id は意図的に除外 — role 5 は read-only。
     ],
   },
 };
 
 /**
- * Sort-by allow-list. `shiten_code` / `shiten_name` are local columns
- * (alias `m`); `kanri_shiten_name` lives on `m_kanri_shiten` (alias
- * `ks`) and triggers a LEFT JOIN in `findAll`. `@IsIn` on the DTO
- * already rejects unknown keys; this map adds a static-typing guard
- * against `ORDER BY ${user_input}` injection.
+ * Sort-by allow-list。shiten_code / shiten_name は local 列 (alias `m`)、
+ * kanri_shiten_name は m_kanri_shiten (alias `ks`) にあり findAll で LEFT JOIN。
+ * DTO の @IsIn が不明キーを弾き、この map が `ORDER BY ${user_input}` 注入への
+ * static-typing ガードを追加。
  */
 const SORT_COLUMN_MAP: Record<ShitenSearchSortBy, string> = {
   shiten_code: 'm.shiten_code',
   shiten_name: 'm.shiten_name',
-  // Property name (camelCase) — the alias `ks` is the KanriShiten
-  // entity, so TypeORM's metadata resolution needs the property name,
-  // not the underlying snake_case DB column. The DISTINCT-subquery
-  // wrapper that take()/skip() generates fails the metadata lookup
-  // otherwise.
+  // camelCase プロパティ名 — alias `ks` は KanriShiten エンティティなので
+  // TypeORM のメタデータ解決には snake_case DB 列でなくプロパティ名が要る
+  // （take()/skip() が生成する DISTINCT サブクエリで解決失敗するため）。
   kanri_shiten_name: 'ks.kanriShitenName',
   updated_at: 'm.updated_at',
 };
 
 /**
- * Tables whose presence of a non-soft-deleted row referencing the
- * shiten blocks DELETE (ACSMS-SCR-006-api.md §4.4 — currently only
- * t_dokusya.shiten_id). Add more here as new dependent tables ship.
+ * shiten を参照する未削除行があると DELETE をブロックするテーブル
+ * (ACSMS-SCR-006-api.md §4.4 — 現状 t_dokusya.shiten_id のみ)。依存追加時に列挙。
  */
 const RELATED_TABLES: readonly string[] = ['t_dokusya'];
 
@@ -122,15 +111,12 @@ export class ShitenService {
 
   // ─── API-006-001 — GET /api/v1/shiten ────────────────────────────────
   /**
-   * Paginated search across `m_shiten`. Applies §4.3 DataScope at JA
-   * level for EVERY restricted role: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
-   * all scoped by `ja_id = session.ja_id`; NICHINO_* unrestricted
-   * (handled at guard layer in practice — not granted `shiten.view`).
-   *
-   * 顧客要件 2026-06: JA_KANRI_SHITEN は **閲覧のみ** 自管理支店配下に
-   * 限定せず同一 JA の全支店を一覧できる（kanri_shiten_id で絞らない）。
-   * 更新/削除は従来どおり自管理支店配下のみ（update/remove の
-   * assertBranchScopeViolation で担保）。
+   * m_shiten のページ検索。§4.3 DataScope を全制限ロール JA レベルで適用:
+   * CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は ja_id = session.ja_id で絞る。
+   * NICHINO_* は無制限（実務では shiten.view 未付与で guard 層が弾く）。
+   * 顧客要件 2026-06: JA_KANRI_SHITEN は閲覧のみ同一 JA 全支店を一覧可
+   * （kanri_shiten_id で絞らない）。更新/削除は自管理支店配下のみ
+   * （update/remove の assertBranchScopeViolation で担保）。
    */
   async findAll(
     query: SearchShitenDto,
@@ -138,10 +124,8 @@ export class ShitenService {
   ): Promise<PaginatedResponse<ShitenListItemDto>> {
     const page = query.page ?? 1;
     const per_page = query.per_page ?? 20;
-    // Default sort puts the most-recently-updated rows first so the row
-    // a user just created / edited appears at the top of the list. The
-    // 画面定義§8.1 columns (shiten_code / shiten_name / kanri_shiten_name)
-    // remain available via clicking a header.
+    // 既定ソートは更新降順（直近作成/編集行を先頭に）。画面定義§8.1 の列
+    // (shiten_code / shiten_name / kanri_shiten_name) はヘッダクリックで利用可。
     const sort_by: ShitenSearchSortBy =
       (query.sort_by as ShitenSearchSortBy) ?? 'updated_at';
     const sort_order = (query.sort_order ?? 'desc').toUpperCase() as 'ASC' | 'DESC';
@@ -152,16 +136,13 @@ export class ShitenService {
     qb.where('m.deleted_at IS NULL');
 
     // [data-scope] 閲覧スコープは全制限ロール JA レベル:
-    //   NICHINO_*                          → no filter
-    //   CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN → ja_id = session.ja_id
+    //   NICHINO_* → 絞らない / CHUOKAI・JA_HONTEN・JA_KANRI_SHITEN → ja_id = session.ja_id
     // （JA_KANRI_SHITEN も kanri_shiten_id で絞らない — 顧客要件 2026-06。
-    //   更新/削除の権限境界は update/remove 側で kanri_shiten_id 判定）。
+    //   更新/削除の権限境界は update/remove 側で判定）。
     applyJaScope(qb, 'm', 'jaId', session);
 
-    // [filter-conditions] — partial-match (ILIKE) for text inputs, exact
-    // for kanri_shiten_id / kinyu_shiten_flg. kinyu_shiten_flg=undefined
-    // means "全選択" (no filter) — only when explicitly true or false
-    // should we constrain the result set.
+    // [filter-conditions] — テキストは部分一致 (ILIKE)、kanri_shiten_id /
+    // kinyu_shiten_flg は完全一致。kinyu_shiten_flg=undefined は「全選択」で絞らない。
     if (query.shiten_name) {
       qb.andWhere('m.shiten_name ILIKE :shiten_name', {
         shiten_name: `%${query.shiten_name}%`,
@@ -191,13 +172,10 @@ export class ShitenService {
       });
     }
 
-    // Sorting by the joined column requires the JOINed column to live
-    // in the SELECT — TypeORM's take()/skip() wraps the query in a
-    // DISTINCT subquery, and the outer ORDER BY can only reference
-    // columns that the subquery exposed. `leftJoinAndSelect` (rather
-    // than `leftJoin`) populates `ks.*` in the SELECT, which lets
-    // `ORDER BY ks.kanri_shiten_name` resolve cleanly.
-    // Skip the JOIN when sorting by a local column to keep that path cheap.
+    // JOIN 列でのソートは JOIN 列が SELECT に居る必要がある — take()/skip() が
+    // クエリを DISTINCT サブクエリで包み、外側 ORDER BY はサブクエリが露出した列しか
+    // 参照できない。leftJoinAndSelect（leftJoin でなく）で ks.* を SELECT に入れ
+    // ORDER BY ks.kanri_shiten_name を解決させる。local 列ソート時は JOIN 省略で軽量化。
     if (sort_by === 'kanri_shiten_name') {
       qb.leftJoinAndSelect('m.kanriShiten', 'ks');
     }
@@ -210,9 +188,7 @@ export class ShitenService {
 
     const [rows, total] = await qb.getManyAndCount();
 
-    // Batch-fetch kanri_shiten_name in one round-trip — same pattern as
-    // KanriShitenListView resolves todofuken_name. Cheaper than a JOIN
-    // per row, and the parent rows are bounded by the page size.
+    // kanri_shiten_name を 1 往復でバッチ取得（行毎 JOIN より安価、親行はページ数で有界）。
     const ksIds = [...new Set(rows.map((r) => Number(r.kanriShitenId)))];
     const ksRows =
       ksIds.length > 0
@@ -233,34 +209,30 @@ export class ShitenService {
 
   // ─── API-006-002 — DELETE /api/v1/shiten/:id ─────────────────────────
   /**
-   * Logical delete. §4.3 combined existence + DataScope SELECT
-   * (out-of-scope rows return null → masked as NotFound). §4.4 blocks
-   * the delete when any related table (t_dokusya) still references the
-   * shiten. §4.5 sets `deleted_at = NOW()` + writes audit log inside
-   * the same transaction; §4.8 emits an error log (log_type=3) OUTSIDE
-   * the rolled-back transaction on failure.
+   * 論理削除。§4.3 存在 + DataScope SELECT（範囲外は null → NotFound で秘匿）。
+   * §4.4 関連テーブル (t_dokusya) が参照中なら削除ブロック。§4.5 deleted_at=NOW()
+   * + 同一トランザクションで audit log。§4.8 失敗時は rollback 外で error log (log_type=3)。
    */
   async remove(
     id: number,
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    // [fetch-target] — also serves as before_value in audit log.
+    // [fetch-target] — audit log の before_value も兼ねる。
     const before = await this.repo.findOne({
       where: { shitenId: id, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('支店');
     // [data-scope] 顧客要件 2026-06 — 2段階:
     //   1) 別 JA は 404（存在を秘匿）。
-    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行を削除しよう
-    //      とした場合は 403（一覧で閲覧可能な行なので 404 で隠さず明示拒否）。
+    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行は 403
+    //      （一覧で閲覧可能な行なので 404 で隠さず明示拒否）。
     //      CHUOKAI / JA_HONTEN は ja_id 判定なので同一 JA 内は素通り。
     assertJaScope(before.jaId, session, '支店');
     assertBranchScopeViolation(before.jaId, before.kanriShitenId, session);
 
-    // [fk-conflict-check] — conflict check on t_dokusya. Thrown ConflictException
-    // bypasses the try/catch below by design — it's a user-fixable
-    // 409, not an internal failure that warrants an error log.
+    // [fk-conflict-check] — t_dokusya の競合チェック。ConflictException は
+    // 意図的に下の try/catch を素通り — ユーザ修正可能な 409 であり error log 不要。
     await assertNoRelatedRows(this.dataSource, RELATED_TABLES, 'shiten_id', id);
 
     try {
@@ -275,7 +247,7 @@ export class ShitenService {
           },
         );
 
-        // [audit-log-in-tx] — inside the same tx so atomicity holds.
+        // [audit-log-in-tx] — 同一 tx で atomicity 担保。
         await this.auditLog.logDelete(
           buildAuditCtx(session, req, SCREEN_NAME_SCR006, TABLE_NAME, id),
           before,
@@ -285,8 +257,7 @@ export class ShitenService {
 
       return { message: '削除しました。' };
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back tx so the trace
-      // survives even when the business write was discarded.
+      // [audit-error-log] — rollback 外なので業務書込みが破棄されても trace が残る。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR006, TABLE_NAME, id),
         AuditOperation.DELETE,
@@ -298,13 +269,11 @@ export class ShitenService {
 
   // ─── ACSMS-API-COMMON — Shiten dropdown (SCR-011) ───────────────────
   /**
-   * Minimal dropdown projection consumed by 購読者情報登録 (SCR-011)'s
-   * 引落口座支店 picker と アカウント登録 (SCR-025)'s 所属支店 picker.
-   * Optional filters: `kanri_shiten_id`（選択した管理支店配下のみ・顧客要件
-   * 2026-07）、`kinyu_shiten_flg`（金融機関支店のみ・口座引落用）。
-   * Scoped by `applyBranchScope`; NICHINO_* see all JAs unless `ja_id`
-   * is supplied, JA_KANRI_SHITEN is narrowed to its own kanri_shiten_id.
-   * Soft-deleted rows excluded. `q` partial-matches shiten_name (ILIKE).
+   * 購読者情報登録 (SCR-011) の 引落口座支店 picker と アカウント登録 (SCR-025) の
+   * 所属支店 picker が使う最小 dropdown 投影。任意フィルタ: kanri_shiten_id
+   * （選択管理支店配下のみ・顧客要件 2026-07）、kinyu_shiten_flg（金融機関支店のみ・口座引落用）。
+   * applyBranchScope でスコープ制御。NICHINO_* は ja_id 指定なければ全 JA、
+   * JA_KANRI_SHITEN は自 kanri_shiten_id に限定。削除行除外。q は shiten_name 部分一致 (ILIKE)。
    */
   async listDropdown(
     query: {
@@ -337,8 +306,8 @@ export class ShitenService {
     if (session.ja_id == null && query.ja_id !== undefined) {
       qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
     }
-    // 管理支店で絞り込む（顧客要件2026-07）。applyBranchScope で権限境界は担保済み、
-    // これは選択した管理支店配下のみに絞る UI 用フィルタ。
+    // 管理支店で絞り込む（顧客要件2026-07）。権限境界は applyBranchScope 済み、
+    // これは選択管理支店配下のみに絞る UI 用フィルタ。
     if (query.kanri_shiten_id !== undefined) {
       qb.andWhere('m.kanri_shiten_id = :qks', { qks: query.kanri_shiten_id });
     }
@@ -365,9 +334,9 @@ export class ShitenService {
 
   // ─── ACSMS-API-COMMON-008 — GET /api/v1/shiten/koza-dropdown ─────────
   /**
-   * 口座支店（金融機関支店フラグ=TRUE）のプルダウン (定義元: ACSMS-SCR-020)。
+   * 口座支店（金融機関支店フラグ=TRUE）プルダウン (ACSMS-SCR-020)。
    * DataScope: ja_id = user.ja_id（JA_KANRI_SHITEN は kanri_shiten_id も絞込）。
-   * 任意の kanri_shiten_ids でさらに絞り込む。
+   * 任意 kanri_shiten_ids でさらに絞込。
    */
   async getKozaDropdown(
     query: { kanri_shiten_ids?: number[] },
@@ -420,22 +389,18 @@ export class ShitenService {
 
   // ─── API-007-001 — GET /api/v1/shiten/:id ────────────────────────────
   /**
-   * Detail view for the edit form. Applies §4.3 DataScope (combined
-   * existence + scope SELECT — out-of-scope rows return null which the
-   * caller masks as NotFound, preventing existence leaks).
-   *
-   * §1.2 (screen-design) + 顧客要件 2026-06: JA_KANRI_SHITEN sees any
-   * own-JA shiten (閲覧のみ — not narrowed to own-kanri-shiten). Scope is
-   * ja_id only; out-of-JA masks as 404. The edit form opened from a
-   * non-own branch is read-only on the FE, and update/remove reject it
-   * with 403 server-side (assertBranchScopeViolation).
+   * 編集フォーム用詳細。§4.3 DataScope（存在 + scope SELECT — 範囲外は null →
+   * NotFound で秘匿）。§1.2 (screen-design) + 顧客要件 2026-06: JA_KANRI_SHITEN は
+   * 自 JA の任意支店を閲覧のみ可（自 kanri-shiten に限定しない）。scope は ja_id のみ、
+   * 別 JA は 404。非自支店から開いた編集フォームは FE で read-only、update/remove は
+   * assertBranchScopeViolation で 403。
    */
   async findById(
     id: number,
     session: SessionPayload,
   ): Promise<ShitenDetailDto> {
-    // [data-scope] (画面定義§1.2) — fetch unscoped, then assert by ja_id
-    // (out-of-JA masks as 404). NICHINO_* bypass inside the helper.
+    // [data-scope] (画面定義§1.2) — unscoped 取得後 ja_id で assert（別 JA は 404）。
+    // NICHINO_* は helper 内で bypass。
     const row = await this.repo.findOne({
       where: { shitenId: id, deletedAt: IsNull() },
     });
@@ -447,15 +412,11 @@ export class ShitenService {
 
   // ─── API-007-002 — POST /api/v1/shiten ───────────────────────────────
   /**
-   * Create a new shiten. §4.3 enforces uniqueness on (ja_id, shiten_code);
-   * also validates `kanri_shiten_id` exists in m_kanri_shiten (FK guard).
-   * INSERT + audit log share one transaction; on failure an error log
-   * is emitted OUTSIDE the rolled-back tx.
-   *
-   * `ja_id` is sourced from the session — body has no ja_id field per
-   * api.md §リクエストパラメータ. NICHINO_ADMIN / NICHINO_STAFF are
-   * blocked at the permission layer; the JA-scoped roles always carry
-   * a non-null session.ja_id.
+   * shiten 新規作成。§4.3 (ja_id, shiten_code) の一意性を強制、kanri_shiten_id の
+   * m_kanri_shiten 存在も検証 (FK guard)。INSERT + audit log は 1 トランザクション、
+   * 失敗時は rollback 外で error log。ja_id は session 由来（body に ja_id なし・
+   * api.md §リクエストパラメータ）。NICHINO_ADMIN/STAFF は権限層で弾かれ、
+   * JA スコープロールは常に非 null の session.ja_id を持つ。
    */
   async create(
     dto: CreateShitenDto,
@@ -467,10 +428,9 @@ export class ShitenService {
       throw new BadRequestException('JA IDが取得できません。');
     }
 
-    // FK guard + Layer 4 DataScope — kanri_shiten must exist AND belong
-    // to the caller's JA. Without the scope check, a CHUOKAI user could
-    // forge kanri_shiten_id of a different JA's branch into the body,
-    // creating cross-tenant data corruption.
+    // FK guard + Layer 4 DataScope — kanri_shiten は存在かつ呼び出し元 JA 所属必須。
+    // scope チェックなしだと CHUOKAI が別 JA の kanri_shiten_id を body に偽装し
+    // cross-tenant データ破壊を起こせる。
     await fetchFkInJa(
       this.kanriShitenRepo,
       'kanriShitenId',
@@ -479,14 +439,11 @@ export class ShitenService {
       '管理支店',
     );
 
-    // [uniqueness-check] — (ja_id, shiten_code). Includes soft-deleted
-    // rows: a code is reserved for the lifetime of the row, even after
-    // logical delete. Matches the DB UNIQUE INDEX which also does not
-    // filter on deleted_at, so Service intent + DB constraint agree
-    // (commit history: previously the check filtered `deletedAt: IsNull`
-    // which let a "delete then re-create" INSERT slip past Service and
-    // hit the DB UNIQUE constraint → 500). Customer policy: code reuse
-    // is forbidden across all master tables.
+    // [uniqueness-check] — (ja_id, shiten_code)。soft-delete 行も含む
+    // （コードは論理削除後も行の生存期間中は予約）。deleted_at で絞らない DB
+    // UNIQUE INDEX と一致（以前 deletedAt: IsNull で絞り「削除→再作成」INSERT が
+    // Service を素通り DB UNIQUE 制約 → 500 となった）。顧客ポリシー: 全マスタで
+    // コード再利用禁止。
     const dup = await this.repo.findOne({
       where: { jaId: sessionJaId, shitenCode: dto.shiten_code },
       withDeleted: true,
@@ -504,9 +461,8 @@ export class ShitenService {
           shitenName: dto.shiten_name,
           shitenNameKana: dto.shiten_name_kana ?? '',
           kinyuShitenFlg: dto.kinyu_shiten_flg ?? false,
-          // JASTEM 店舗単位 4 列 — DTO drops blank strings to undefined
-          // via `@Transform(blankToUndef)` on optional fields without one;
-          // here we keep `?? ''` so missing keys map to empty (NOT NULL).
+          // JASTEM 店舗単位 4 列 — DTO は @Transform(blankToUndef) で空文字を
+          // undefined 化。ここは ?? '' で欠損キーを空文字にマップ (NOT NULL)。
           jastemToriatsukaiTenpoCode: dto.jastem_toriatsukai_tenpo_code ?? '',
           jastemTenpoName: dto.jastem_tenpo_name ?? '',
           jastemTyokinShubetsu: dto.jastem_tyokin_shubetsu ?? '',
@@ -518,7 +474,7 @@ export class ShitenService {
         });
         const created = await manager.save(entity);
 
-        // [audit-log-in-tx] — same tx so atomicity holds.
+        // [audit-log-in-tx] — 同一 tx で atomicity 担保。
         await this.auditLog.logCreate(
           buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, created.shitenId),
           created,
@@ -532,10 +488,8 @@ export class ShitenService {
         message: '登録しました。',
       };
     } catch (err) {
-      // Race-condition safety net: 2 concurrent CREATE requests can
-      // both pass the pre-check, then the second INSERT hits the DB
-      // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
-      // letting it bubble as 500.
+      // 競合対策: 同時 CREATE 2 件が両方 pre-check を通過し 2 件目の INSERT が
+      // DB UNIQUE INDEX に当たる。その 23505 を 500 でなく clean な 400 に変換。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, null),
@@ -544,7 +498,7 @@ export class ShitenService {
         );
         throw new DuplicateCodeException('支店コード', dto.shiten_code);
       }
-      // [audit-error-log] — OUTSIDE the rolled-back tx.
+      // [audit-error-log] — rollback 外。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, null),
         AuditOperation.CREATE,
@@ -556,13 +510,10 @@ export class ShitenService {
 
   // ─── API-007-003 — PUT /api/v1/shiten/:id ────────────────────────────
   /**
-   * Update an existing row. §4.3 combined existence + DataScope SELECT
-   * (out-of-scope rows mask as NotFound). `shiten_code` is immutable —
-   * the UpdateShitenDto omits it and any smuggled value is rejected at
-   * the ValidationPipe (forbidNonWhitelisted: true).
-   *
-   * UPDATE + audit log share one transaction; error log emitted OUTSIDE
-   * the rolled-back tx.
+   * 既存行の更新。§4.3 存在 + DataScope SELECT（範囲外は NotFound で秘匿）。
+   * shiten_code は変更不可 — UpdateShitenDto は省略し smuggle 値は ValidationPipe
+   * (forbidNonWhitelisted: true) で拒否。UPDATE + audit log は 1 トランザクション、
+   * error log は rollback 外。
    */
   async update(
     id: number,
@@ -570,12 +521,10 @@ export class ShitenService {
     session: SessionPayload,
     req: Request,
   ): Promise<ShitenDetailDto & { message: string }> {
-    // [fetch-target] existence + [data-scope] — fetch unscoped, then
-    // assert. 顧客要件 2026-06 — 2段階:
+    // [fetch-target] 存在 + [data-scope] — unscoped 取得後 assert。顧客要件 2026-06 — 2段階:
     //   1) 別 JA は 404（存在を秘匿）。
-    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行を更新しよう
-    //      とした場合は 403（一覧で閲覧可能な行なので明示拒否）。CHUOKAI /
-    //      JA_HONTEN は ja_id 判定なので同一 JA 内は素通り。
+    //   2) JA_KANRI_SHITEN が同一 JA でも自管理支店配下でない行は 403（明示拒否）。
+    //      CHUOKAI / JA_HONTEN は ja_id 判定なので同一 JA 内は素通り。
     const before = await this.repo.findOne({
       where: { shitenId: id, deletedAt: IsNull() },
     });
@@ -583,11 +532,11 @@ export class ShitenService {
     assertJaScope(before.jaId, session, '支店');
     assertBranchScopeViolation(before.jaId, before.kanriShitenId, session);
 
-    // [kinyu-immutable] 金融機関支店フラグは作成後に変更不可（顧客要件 2026-07）。
-    // 引落口座支店として t_dokusya.bank_branch_code から参照される shiten の
-    // 種別を後から変えると、既存購読者との紐付け（引落口座）が壊れるため固定する。
-    // FE も編集画面で当該チェックボックスを disabled にする（二重防御）。DTO では
-    // JASTEM 必須判定に kinyu_shiten_flg を使うため受け取りは残し、値の変更のみ拒否。
+    // [kinyu-immutable] 金融機関支店フラグは作成後変更不可（顧客要件 2026-07）。
+    // 引落口座支店として t_dokusya.bank_branch_code から参照される shiten の種別を
+    // 後から変えると既存購読者の引落口座紐付けが壊れるため固定。FE も編集画面で
+    // 当該チェックボックスを disabled（二重防御）。DTO は JASTEM 必須判定に使うため
+    // 受け取りは残し値の変更のみ拒否。
     if (
       dto.kinyu_shiten_flg !== undefined &&
       dto.kinyu_shiten_flg !== before.kinyuShitenFlg
@@ -600,10 +549,9 @@ export class ShitenService {
       ]);
     }
 
-    // FK guard + Layer 4 DataScope — new kanri_shiten must exist AND
-    // belong to the SAME JA as the existing shiten (before.jaId). For
-    // restricted roles this equals session.ja_id; for NICHINO_*
-    // operating on an arbitrary JA's row it stays bound to that JA.
+    // FK guard + Layer 4 DataScope — 新 kanri_shiten は存在かつ既存 shiten と
+    // 同一 JA (before.jaId) 所属必須。制限ロールでは session.ja_id と一致、
+    // NICHINO_* が任意 JA の行を操作しても其の JA に束縛される。
     if (dto.kanri_shiten_id !== undefined) {
       await fetchFkInJa(
         this.kanriShitenRepo,
@@ -614,13 +562,10 @@ export class ShitenService {
       );
     }
 
-    // [role-allow-list] — silent-drop disallowed columns per
-    // FIELD_RESTRICTIONS. Today the only role with a narrower allow-list
-    // is JA_KANRI_SHITEN, which cannot touch `kanri_shiten_id`; every
-    // other role gets `['*']` (full passthrough). The `pickXxx(...)`
-    // helpers below fall back to the existing `before.*` value when a
-    // key is missing from `filtered`, so a dropped column simply
-    // preserves its prior value instead of writing null.
+    // [role-allow-list] — FIELD_RESTRICTIONS に従い不許可列を silent-drop。
+    // 現状 narrower allow-list は JA_KANRI_SHITEN のみで kanri_shiten_id 不可、
+    // 他ロールは `['*']`（全通過）。下の pickXxx(...) は filtered に無いキーで
+    // before.* にフォールバックするため、drop された列は null でなく従前値を維持。
     const filtered = filterAllowedFields(
       dto as unknown as Record<string, unknown>,
       'shiten',
@@ -634,12 +579,10 @@ export class ShitenService {
         const updatePayload = {
           shitenName: pickString(filtered, 'shiten_name', before.shitenName),
           shitenNameKana: pickString(filtered, 'shiten_name_kana', before.shitenNameKana),
-          // [kinyu-immutable] 作成後は変更不可のため常に既存値を維持する
-          // （上の guard で変更要求は 400 で弾かれる）。
+          // [kinyu-immutable] 作成後変更不可のため常に既存値を維持（変更要求は上の guard で 400）。
           kinyuShitenFlg: before.kinyuShitenFlg,
-          // JASTEM 店舗単位 4 列 — pickString falls back to the existing
-          // value when DTO key is missing, so partial PATCH-style PUTs
-          // keep prior JASTEM data intact.
+          // JASTEM 店舗単位 4 列 — pickString は DTO キー欠損時に既存値へフォールバックし
+          // partial PATCH 形式の PUT でも従前 JASTEM データを維持。
           jastemToriatsukaiTenpoCode: pickString(
             filtered,
             'jastem_toriatsukai_tenpo_code',
@@ -659,12 +602,11 @@ export class ShitenService {
         };
         await manager.update(Shiten, { shitenId: id }, updatePayload);
 
-        // Project the merged row in-memory; TypeORM's manager.update
-        // doesn't refresh the entity, and a re-read would round-trip
-        // for no benefit since we already know the payload that won.
+        // マージ行をメモリ上で構築。manager.update はエンティティを refresh せず、
+        // 適用済み payload は既知なので再読込は無駄な往復。
         after = { ...before, ...updatePayload, shitenId: id };
 
-        // [audit-log-in-tx] — UPDATE with before/after JSON.
+        // [audit-log-in-tx] — before/after JSON 付き UPDATE。
         await this.auditLog.logUpdate(
           buildAuditCtx(session, req, SCREEN_NAME_SCR007, TABLE_NAME, id),
           before,

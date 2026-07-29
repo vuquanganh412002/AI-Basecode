@@ -42,33 +42,24 @@ import { RedisService } from '@/modules/redis/redis.service';
 
 const SALT_ROUNDS = 10;
 const OTP_EXPIRY_MINUTES = 5;
-// Redis key prefix for the short-lived mfa_token → otp_id binding. Stored in
-// Redis (not in-process) so the verify/resend request can land on a different
-// ECS task than the one that issued the token (multi-instance correctness).
+// mfa_token→otp_id binding の Redis キー接頭辞。in-process ではなく Redis 保存 —
+// verify/resend が発行時と別 ECS task に着弾しうるため（マルチインスタンス整合）。
 const MFA_TOKEN_PREFIX = 'mfa_token:';
 const OTP_MAX_VERIFY_ATTEMPTS = 5;
 const OTP_MAX_RESEND = 3;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
-/**
- * Threshold for auto-locking an account after consecutive failed password
- * attempts. Counter resets to 0 on any successful login (see §4.3 of
- * api.md), so this is "consecutive failures" by construction. Once locked,
- * only an admin can unlock — password reset does NOT clear the flag.
- */
+// 連続ログイン失敗の自動ロック閾値。成功で 0 リセット（api.md §4.3）=「連続失敗」。
+// ロック解除は admin のみ — パスワードリセットではフラグは解除されない。
 const LOGIN_FAILURE_LOCK_THRESHOLD = 5;
 
 // SCR-012 — password reset
 const RESET_TOKEN_EXPIRY_MINUTES = 60;
-/** PASSWORD_RESET per `docs/database/seeder.md §5 OTP_TYPE`. Aliased here
- *  for readability at call sites that previously held the magic number. */
+// PASSWORD_RESET（docs/database/seeder.md §5 OTP_TYPE）。マジックナンバー回避の別名。
 const PASSWORD_RESET_OTP_TYPE = OtpType.PASSWORD_RESET;
-/**
- * Cooldown per `security.md §"Reset Token Rules"`: only one reset email
- * per email address may be issued every `PASSWORD_RESET_COOLDOWN_MINUTES`.
- * Measured by `t_mfa_otp.created_at` (rows persist after invalidation),
- * so the prior-token-invalidation step (4.5a) does NOT reset the cooldown.
- */
+// クールダウン（security.md §"Reset Token Rules"）: 同一メール宛の再設定メールは
+// PASSWORD_RESET_COOLDOWN_MINUTES ごと1通。t_mfa_otp.created_at で計測（無効化後も
+// 行は残る）ため、事前トークン無効化(4.5a)ではクールダウンはリセットされない。
 const PASSWORD_RESET_COOLDOWN_MINUTES = 5;
 const SCREEN_NAME_SCR012 = 'パスワード再設定画面 (ACSMS-SCR-012)';
 const TABLE_M_ACCOUNT = 'm_account';
@@ -80,13 +71,9 @@ export interface LoginContext {
 }
 
 /**
- * Result of a login attempt. On success we return the session ID
- * (for the controller to set as an HTTP-only cookie) plus the user
- * object — we do NOT issue any JWT / bearer token.
- *
- * Renamed from `LoginResult` to `LoginOutcome` to avoid shadowing the
- * `LoginResult` enum (`@/common/enums`) used for `t_login_log.login_result`
- * audit values.
+ * ログイン結果。成功時は session ID（controller が HttpOnly cookie に設定）+ user を返す。
+ * JWT / bearer token は発行しない。
+ * `LoginResult` enum（`@/common/enums`, t_login_log.login_result 用）との名前衝突回避で改名。
  */
 export type LoginOutcome =
   | {
@@ -104,9 +91,8 @@ export type LoginOutcome =
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  // mfa_token (UUID) → otp_id lives in Redis (`mfa_token:{token}`, TTL 5min),
-  // NOT in process memory: login can issue the token on one ECS task while the
-  // verify/resend request lands on another, so the binding MUST be shared.
+  // mfa_token(UUID)→otp_id は Redis（`mfa_token:{token}`, TTL 5min）に保存。
+  // 発行と verify/resend が別 ECS task になりうるため共有必須。
 
   constructor(
     private readonly mailService: MailService,
@@ -119,15 +105,12 @@ export class AuthService {
     private readonly rolePermRepo: Repository<RolePermission>,
     @InjectRepository(Permission)
     private readonly permRepo: Repository<Permission>,
-    // Shared store for the mfa_token → otp_id binding (multi-instance safe).
+    // mfa_token→otp_id binding の共有ストア（マルチインスタンス安全）。
     private readonly redis: RedisService,
-    // SCR-012 password reset wraps DML + audit log inside a transaction.
-    // `@Optional()` keeps SCR-001's plain `new AuthService(...8 args)` specs
-    // type-checking after their banner is later removed — DI still injects
-    // the real DataSource at runtime.
+    // SCR-012 は DML + audit log を transaction で包む。`@Optional()` は SCR-001 の
+    // `new AuthService(...8 args)` specs を型維持させるため（実行時は DI が注入）。
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
-    // `@Optional()` so SCR-001 unit specs (`new AuthService(...8 args)`)
-    // don't have to pass a ConfigService — falls back to a safe dev default.
+    // `@Optional()`: SCR-001 unit specs が ConfigService を渡さなくて済む（dev 既定に fallback）。
     @Optional() private readonly configService?: ConfigService,
   ) {}
 
@@ -151,10 +134,8 @@ export class AuthService {
       throw new InvalidCredentialsException();
     }
 
-    // Already-locked account: reject before bcrypt with a dedicated message.
-    // Per project spec (screen-design.md §4.6 v1.2): once `account_lock_flg`
-    // is true the only path back is an admin unlock — password reset does
-    // not clear it.
+    // ロック済みは bcrypt 前に専用メッセージで拒否。screen-design.md §4.6 v1.2:
+    // account_lock_flg=true は admin 解除のみ、パスワードリセットでは解除されない。
     if (account.accountLockFlg) {
       await this.auditLogService.logLogin({
         accountId: Number(account.accountId),
@@ -169,11 +150,8 @@ export class AuthService {
 
     const passwordMatch = await bcrypt.compare(dto.password, account.passwordHash);
     if (!passwordMatch) {
-      // Atomic: increment login_failure_count AND set account_lock_flg=true
-      // when the post-increment value reaches LOGIN_FAILURE_LOCK_THRESHOLD.
-      // A single SQL statement (CASE expression on the same row) avoids the
-      // read-modify-write race that two concurrent failed attempts would
-      // hit if we did SELECT-then-UPDATE in app code.
+      // アトミック: login_failure_count を +1、閾値到達で account_lock_flg=true。
+      // 単一 SQL（同一行の CASE 式）で SELECT-then-UPDATE の read-modify-write 競合を回避。
       await this.accountRepo
         .createQueryBuilder()
         .update(Account)
@@ -188,10 +166,8 @@ export class AuthService {
         .where('account_id = :id', { id: account.accountId })
         .andWhere('deleted_at IS NULL')
         .execute();
-      // The 5th wrong attempt itself still surfaces as INVALID_CREDENTIALS —
-      // the lock flag is now set, so attempt #6 will hit the branch above
-      // and receive ACCOUNT_LOCKED. This matches the requirement: the lock
-      // message is only shown from the 6th failed attempt onward.
+      // 5回目の失敗自体は INVALID_CREDENTIALS を返す（ロックは設定済みなので6回目が
+      // 上の分岐で ACCOUNT_LOCKED）。仕様: ロックメッセージは6回目以降のみ表示。
       await this.auditLogService.logLogin({
         accountId: Number(account.accountId),
         loginId: dto.login_id,
@@ -203,13 +179,13 @@ export class AuthService {
       throw new InvalidCredentialsException();
     }
 
-    // Spec 4.3: reset failure count + update last_login_at on success.
+    // 仕様 4.3: 成功時に失敗回数リセット + last_login_at 更新。
     await this.accountRepo.update(
       { accountId: account.accountId },
       { loginFailureCount: 0, lastLoginAt: new Date() },
     );
 
-    // Spec 4.4: branch on mfa_enable_flg.
+    // 仕様 4.4: mfa_enable_flg で分岐。
     if (account.mfaEnableFlg) {
       const { mfaToken } = await this.issueOtp(
         Number(account.accountId),
@@ -243,10 +219,8 @@ export class AuthService {
     return this.buildSessionResponse(account);
   }
 
-  /**
-   * Resolve the otp_id bound to an mfa_token from Redis. Returns undefined
-   * when the key is absent/expired (→ INVALID_MFA_TOKEN at the call site).
-   */
+  // mfa_token に紐づく otp_id を Redis から解決。キー不在/期限切れは undefined
+  // （呼出側で INVALID_MFA_TOKEN）。
   private async lookupOtpId(mfaToken: string): Promise<number | undefined> {
     const raw = await this.redis.get(MFA_TOKEN_PREFIX + mfaToken);
     return raw ? Number(raw) : undefined;
@@ -341,7 +315,7 @@ export class AuthService {
     });
     if (!account) throw new InvalidMfaTokenException();
 
-    // Invalidate old OTP, issue new one with incremented resend_count.
+    // 旧 OTP を無効化し、resend_count を+1して新規発行。
     await this.otpRepo.update({ otpId }, { usedFlg: true });
     await this.redis.del(MFA_TOKEN_PREFIX + mfaToken);
 
@@ -361,10 +335,7 @@ export class AuthService {
     };
   }
 
-  /**
-   * Extend the sliding session window and return the refreshed user
-   * payload. Controller calls this from `POST /auth/refresh`.
-   */
+  // スライディングセッションを延長し refreshed user を返す（`POST /auth/refresh`）。
   async refreshSession(sessionId: string | undefined): Promise<AuthUserDto> {
     if (!sessionId) throw new UnauthorizedException();
 
@@ -375,7 +346,7 @@ export class AuthService {
       where: { accountId: payload.account_id, deletedAt: IsNull() },
     });
     if (!account || account.accountLockFlg) {
-      // Destroy the now-invalid session so the cookie stops working.
+      // 無効化されたセッションを破棄し cookie を失効させる。
       await this.sessionService.destroy(sessionId);
       throw new UnauthorizedException();
     }
@@ -393,15 +364,11 @@ export class AuthService {
   // ─── SCR-012 password reset / change password ────────────────────────────
 
   /**
-   * ACSMS-API-012-001 — request a password reset email.
-   *
-   * Account enumeration prevention: returns the same success message
-   * whether the email exists or not. Token is bcrypt-hashed and stored
-   * with `otp_type=2` (PASSWORD_RESET) and a 1-hour expiry.
-   *
-   * Atomicity: OTP save + audit log share one transaction. Email is
-   * sent AFTER successful commit so a rolled-back transaction never
-   * leaks a working reset link to the user.
+   * ACSMS-API-012-001 — パスワード再設定メール要求。
+   * enumeration 対策: メール存在有無に関わらず同一成功メッセージ。トークンは
+   * bcrypt-hash し otp_type=2(PASSWORD_RESET)・1時間期限で保存。
+   * atomicity: OTP save + audit log は同一 transaction。メールは commit 成功後に送信し
+   * ロールバック時に有効リンクが漏れないようにする。
    */
   async forgotPassword(
     loginId: string,
@@ -411,29 +378,24 @@ export class AuthService {
     const successMessage =
       'パスワード再設定用のメールを送信しました。メールを確認してください。';
 
-    // Narrow by (login_id AND email). `email` is not unique in m_account
-    // (通知先メールアドレス, ※空文字許容), so matching by email alone would
-    // pick an arbitrary account among duplicates and leave the others
-    // unable to reset. `login_id` is the unique key, so the pair targets
-    // exactly one account.
+    // (login_id AND email) で絞る。email は m_account で一意でない（通知先メールアドレス,
+    // ※空文字許容）ため email 単独では重複中の任意行を拾い他が再設定不能になる。
+    // login_id は一意キーなのでペアで正確に1件を狙う。
     const account = await this.accountRepo.findOne({
       where: { loginId, email, deletedAt: IsNull() },
     });
     if (!account) {
-      // §セキュリティ #1 — same response when the login_id/email pair
-      // matches no account (unknown OR mismatched), identical to a wrong
-      // email. No enumeration signal either way.
+      // §セキュリティ #1 — ペアが1件も一致しない（不明 OR 不一致）場合も同一応答。
+      // enumeration シグナルを出さない。
       this.logger.log({ event: 'auth.forgot_password.unknown_account' });
       return { message: successMessage };
     }
 
     const accountId = Number(account.accountId);
 
-    // Cooldown (security.md): one reset email per email address every 5 min.
-    // Counted by created_at over ALL otp_type=2 rows (including invalidated
-    // ones from the prior-token-invalidation step below) — so resubmitting
-    // within the window is rejected even though the earlier token has been
-    // invalidated, preventing an "infinite resend" loop.
+    // クールダウン(security.md): 同一メール宛 5分に1通。全 otp_type=2 行の created_at で
+    // 計測（下の事前無効化行も含む）ため、窓内の再送は旧トークン無効化後も拒否され
+    // 「無限 resend」ループを防ぐ。
     const cooldownStart = new Date(
       Date.now() - PASSWORD_RESET_COOLDOWN_MINUTES * 60_000,
     );
@@ -459,10 +421,8 @@ export class AuthService {
 
     try {
       await this.requireDataSource().transaction(async (manager) => {
-        // Invalidate every previously-issued, still-active reset token for
-        // this account. Same pattern as MFA OTP issuance — guarantees that
-        // re-submitting the email kills the prior link the moment the new
-        // one is generated, instead of leaving N parallel valid links.
+        // このアカウントの既発行・有効な再設定トークンを全無効化。MFA OTP 発行と同じ
+        // パターン — 再送時に新リンク生成の瞬間に旧リンクを失効させ、有効リンクを1本に保つ。
         await manager.update(
           MfaOtp,
           { accountId, otpType: PASSWORD_RESET_OTP_TYPE, usedFlg: false },
@@ -493,7 +453,7 @@ export class AuthService {
         }, manager);
       });
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back tx so the trace survives.
+      // [audit-error-log] — ロールバック済み tx の外。トレースを残す。
       await this.auditLogService.logError(
         {
           accountId,
@@ -510,8 +470,7 @@ export class AuthService {
       throw err;
     }
 
-    // Post-commit dispatch — email goes out only after the OTP row is
-    // durably persisted (api.md §4.6 — fire-and-forget if mail fails).
+    // commit 後に送信 — OTP 行が永続化されてから（api.md §4.6 — 送信失敗は fire-and-forget）。
     const frontendUrl =
       this.configService?.get<string>('app.frontendUrl') ??
       DEFAULT_FRONTEND_URL;
@@ -526,10 +485,7 @@ export class AuthService {
     return { message: successMessage };
   }
 
-  /**
-   * ACSMS-API-012-002 — verify a reset token without consuming it.
-   * Used by the FE on page-load to decide whether to render the form.
-   */
+  // ACSMS-API-012-002 — トークンを消費せず検証。FE がページ読込時にフォーム表示可否を判定。
   async verifyResetToken(token: string): Promise<{ valid: true }> {
     const matched = await this.findResetTokenOtp(token);
     if (!matched) throw new InvalidResetTokenException();
@@ -543,22 +499,13 @@ export class AuthService {
   }
 
   /**
-   * ACSMS-API-012-003 — consume the reset token and update the password.
-   *
-   * Order:
-   *   1. Find OTP via bcrypt.compare iteration; reject INVALID/EXPIRED.
-   *   2. Load the target account (must not be soft-deleted).
-   *   3. Validate confirm_password match.
-   *   4. Validate new_password ≠ login_id.
-   *   5. Inside dataSource.transaction:
-   *        - UPDATE m_account.password_hash, password_updated_at, updated_at
-   *        - UPDATE t_mfa_otp.used_flg=true
-   *        - audit log (operation='PASSWORD_RESET')
-   *   6. After commit: destroy all Redis sessions for the account so the
-   *      attacker (if the cookie was stolen) is force-logged-out everywhere.
-   *
-   * On failure inside the transaction, the audit log still emits a
-   * `log_type=3` row OUTSIDE the rolled-back tx via `logError`.
+   * ACSMS-API-012-003 — トークンを消費しパスワードを更新。
+   * 順序: 1.bcrypt.compare 反復で OTP 検索(INVALID/EXPIRED 拒否) → 2.対象アカウント
+   * ロード(soft-delete 不可) → 3.confirm_password 一致検証 → 4.new_password≠login_id →
+   * 5.transaction 内: m_account(password_hash等) UPDATE / t_mfa_otp.used_flg=true /
+   * audit log(operation='PASSWORD_RESET') → 6.commit 後: 当該アカウントの全 Redis
+   * セッションを破棄し、cookie 窃取時も全所で強制ログアウトさせる。
+   * transaction 内失敗時も logError が log_type=3 行を tx 外に emit する。
    */
   async resetPassword(
     dto: ResetPasswordDto,
@@ -577,10 +524,8 @@ export class AuthService {
     });
     if (!account) throw new InvalidResetTokenException();
 
-    // §パスワード形式要件: ≥2 of 3 character categories. DTO already
-    // ensured length 8-32 + half-width-only, so the only remaining
-    // category check lives here. Same regex set as the FE (mirror of
-    // PASSWORD_FORMAT_RE in ResetPasswordView.vue).
+    // §パスワード形式要件: 3種のうち2種以上。長さ8-32・半角のみは DTO で担保済みなので
+    // ここは種別チェックのみ。FE の PASSWORD_FORMAT_RE(ResetPasswordView.vue) と同一。
     if (!this.hasAtLeastTwoCategories(dto.new_password)) {
       throw this.passwordValidationError(
         'new_password',
@@ -652,22 +597,18 @@ export class AuthService {
       throw err;
     }
 
-    // [session-purge] — destroy ALL Redis sessions for this account so cookies stolen
-    // before the reset stop working immediately. Outside the tx so a
-    // partial Redis failure can't roll the password write back.
+    // [session-purge] — 当該アカウントの全 Redis セッションを破棄し、再設定前に窃取された
+    // cookie を即失効。Redis 部分障害でパスワード書込がロールバックしないよう tx 外。
     await this.sessionService.destroyAllForAccount(accountId);
 
     return { message: 'パスワードを更新しました。ログイン画面に移動します。' };
   }
 
   /**
-   * Iterate active otp_type=2 rows and bcrypt-compare the raw token to
-   * each `otp_code_hash`. Returns the first match or `null`.
-   *
-   * The api.md `WHERE otp_type = 2` query is intentionally broad — token
-   * values are bcrypt-hashed at rest so a direct lookup by hash is
-   * impossible. Iteration is bounded by simultaneous-active-token volume
-   * (≤ a few dozen even for a busy install).
+   * otp_type=2 の行を反復し raw token を各 otp_code_hash と bcrypt.compare。
+   * 最初の一致 or null。api.md の `WHERE otp_type = 2` が広いのはトークンが
+   * bcrypt-hash 保存でハッシュ直引き不可なため。反復数は同時有効トークン数（多忙な
+   * 環境でも数十件）で頭打ち。
    */
   private async findResetTokenOtp(token: string): Promise<MfaOtp | null> {
     const candidates = await this.otpRepo.find({
@@ -682,13 +623,9 @@ export class AuthService {
   }
 
   /**
-   * Mirror the FE `PASSWORD_FORMAT_RE` category check. Returns true when
-   * the password contains at least 2 of {alpha, digit, symbol}. Length
-   * and half-width validity are already enforced at the DTO level
-   * (`@MinLength`, `@MaxLength`, `@Matches(HALFWIDTH_RE)`) — this method
-   * intentionally does NOT re-check those.
-   *
-   * Symbol set: !@#$%^&*()_+-=[]{}|;:,.<>? per api.md example list.
+   * FE の PASSWORD_FORMAT_RE 種別チェックのミラー。{英字,数字,記号} のうち2種以上で true。
+   * 長さ・半角は DTO(`@MinLength`/`@MaxLength`/`@Matches(HALFWIDTH_RE)`)で担保済みなので
+   * ここでは再チェックしない。記号セット: !@#$%^&*()_+-=[]{}|;:,.<>?（api.md 例）。
    */
   private hasAtLeastTwoCategories(password: string): boolean {
     const hasAlpha = /[A-Za-z]/.test(password);
@@ -698,10 +635,8 @@ export class AuthService {
     return matched >= 2;
   }
 
-  /**
-   * Build a `VALIDATION_ERROR` HttpException matching the FE contract
-   * (`useApiForm` expects `response.errors[].field` per `vue.md`).
-   */
+  // FE 契約(`useApiForm` が `response.errors[].field` を期待, vue.md)に合わせた
+  // VALIDATION_ERROR HttpException を構築。
   private passwordValidationError(field: string, message: string): HttpException {
     return new HttpException(
       {
@@ -714,11 +649,8 @@ export class AuthService {
     );
   }
 
-  /**
-   * `dataSource` is `@Optional()` to keep SCR-001 specs (`new AuthService(...8 args)`)
-   * type-checking. SCR-012 endpoints require it — at runtime DI always
-   * provides it. Throw a clear error if a test forgot to wire one.
-   */
+  // `dataSource` は SCR-001 specs(`new AuthService(...8 args)`)の型維持のため `@Optional()`。
+  // SCR-012 では必須（実行時は DI が常に注入）。未配線テストには明示エラー。
   private requireDataSource(): DataSource {
     if (!this.dataSource) {
       throw new Error(
@@ -732,12 +664,9 @@ export class AuthService {
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
   /**
-   * Build the MFA-free login response: fetch role + permissions, create a
-   * Redis session, return `{ session_id, user }`.
-   *
-   * When `reuseSessionId` is provided (refresh path) we skip session
-   * creation — the caller's existing session is already valid and its TTL
-   * was just extended by `SessionService.touch()`.
+   * MFA なしログイン応答を構築: role + permissions 取得、Redis セッション作成、
+   * `{ session_id, user }` を返す。`reuseSessionId` 指定時(refresh path)はセッション
+   * 作成をスキップ — 既存セッションは有効で TTL は SessionService.touch() で延長済み。
    */
   private async buildSessionResponse(
     account: Account,
@@ -799,10 +728,7 @@ export class AuthService {
     return rows.map((r) => r.permission_code);
   }
 
-  /**
-   * Invalidate prior OTPs for this account, issue a new one, email it, and
-   * register the mfa_token → otp_id mapping.
-   */
+  // 当該アカウントの旧 OTP を無効化し、新規発行・メール送信・mfa_token→otp_id 登録。
   private async issueOtp(
     accountId: number,
     email: string,
@@ -846,7 +772,7 @@ export class AuthService {
       await this.mailService.sendOtp(email, accountName, otpCode);
     } catch (error) {
       this.logger.error({ event: 'auth.mfa.send_failed', error: String(error) });
-      // Keep OTP; user can retry via resend. Spec §4.4 doesn't require rollback.
+      // OTP は保持（resend で再試行可）。仕様 §4.4 はロールバック不要。
     }
 
     return { mfaToken, otpId: Number(saved.otpId) };

@@ -31,19 +31,18 @@ import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken'
 
 interface AccountFilters {
   login_id: string;
-  /** Role ID 1..5 — empty number coerces to undefined on the wire. */
+  /** ロール ID 1..5 — 空は wire で undefined に変換。 */
   role_id: number | null;
-  /** 都道府県コード (2桁) — cascades to narrow the JA dropdown. */
+  /** 都道府県コード（2桁）。 */
   todofuken_code: string | null;
   ja_id: number | null;
   kanri_shiten_id: number | null;
 }
 
-// ─── Access control (機能定義 1.2) ──────────────────────────────────
-// api.md §4.2 — accounts endpoints are NICHINO_ADMIN-only.
-// View enforces role check in addition to router guard / BE permission
-// so a non-admin landing on the URL sees ACSMS-MSG-024-006 instead of
-// firing the API.
+// ─── アクセス制御（機能定義 1.2） ─────────────────────────────────────
+// api.md §4.2 — accounts エンドポイントは NICHINO_ADMIN 専用。
+// router guard / BE 権限に加え view でもロールチェックし、非 admin が URL に
+// 着地したら API を叩かず ACSMS-MSG-024-006 を表示する。
 const authStore = useAuthStore();
 const isAdmin = computed(
   () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
@@ -71,17 +70,17 @@ const {
 
 const rows = ref<AccountListItem[]>([]);
 
-// Dropdown options. JA list is served by <BaseJaDropdown> (server-side
-// paginated + searchable, 50/page with infinite scroll) — no local ref.
+// dropdown options。JA 一覧は <BaseJaDropdown>（サーバ側ページング + 検索、
+// 50/page 無限スクロール）が提供 — ローカル ref なし。
 const roleOptions = ref<RoleDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-// Column order per ACSMS-SCR-024 v1.x customer spec:
+// 列順は ACSMS-SCR-024 v1.x 顧客仕様:
 // ログインID → アカウント名 → 管理者区分 → 都道府県 → JA → 管理支店 →
-// 通知先メールアドレス → サブメール1/2/3 → 紙版 → 電子版 → ロック → 操作.
-// Sortable: ログインID / アカウント名 / 管理者区分 (role_name) / 都道府県
-// (todofuken_code).
+// 通知先メールアドレス → サブメール1/2/3 → 紙版 → 電子版 → ロック → 操作。
+// ソート可能: ログインID / アカウント名 / 管理者区分（role_name）/
+// 都道府県（todofuken_code）。
 const columns: TableColumnsType = [
   { title: 'ログインID', dataIndex: 'login_id', key: 'login_id', sorter: true, width: 160 },
   { title: 'アカウント名', dataIndex: 'account_name', key: 'account_name', sorter: true, width: 200 },
@@ -118,10 +117,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Global axios interceptor already toasted FORBIDDEN / 500 — view
-    // only clears local state so onMounted's fire-and-forget invocation
-    // doesn't surface an unhandled rejection. Per .claude/rules/vue.md
-    // §List view rule 5.
+    // axios interceptor が FORBIDDEN / 500 を既にトースト済み — view はローカル
+    // 状態をクリアするだけで onMounted の fire-and-forget が unhandled rejection を
+    // 出さないようにする（vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -160,12 +158,11 @@ async function fetchTodofukenOptions(): Promise<void> {
 // (BE applyAccountSearchFilters が両方を andWhere)。都道府県を変えても
 // JA選択はリセットしない — 互いに関連付けない仕様。
 
-// 機能定義 8 — JA selection cascades to 管理支店. JA未選択 → 管理支店リセット.
+// 機能定義 8 — JA 選択が 管理支店 へカスケード。JA未選択 → 管理支店リセット。
 watch(
   () => state.filters.ja_id,
   (newJaId, oldJaId) => {
-    // Clear the current kanri_shiten_id selection so a stale value from
-    // the previous JA doesn't leak into the new fetch.
+    // 前 JA の古い kanri_shiten_id が新 fetch に漏れないよう現在の選択をクリア。
     if (newJaId !== oldJaId) {
       state.filters.kanri_shiten_id = null;
     }
@@ -182,17 +179,17 @@ onMounted(() => {
   void fetchList();
   void fetchRoleOptions();
   void fetchTodofukenOptions();
-  // JA dropdown self-hydrates via <BaseJaDropdown>'s onMounted hook.
+  // JA dropdown は <BaseJaDropdown> の onMounted で自己 hydrate。
 });
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim the text filter; role_id / ja_id / kanri_shiten_id come from selects.
+  // テキストフィルタを trim。role_id / ja_id / kanri_shiten_id は select 由来。
   beforeSearch() {
     state.filters.login_id = state.filters.login_id.trim();
   },
-  // On an actual reset, also clear the cascaded 管理支店 dropdown options.
+  // 実リセット時はカスケードした 管理支店 dropdown options もクリア。
   afterReset() {
     kanriShitenOptions.value = [];
   },
@@ -218,9 +215,9 @@ function askDelete(row: AccountListItem): void {
       notify.deleted();
       await fetchList();
     } catch {
-      // Global interceptor toasts CONFLICT (ACSMS-MSG-024-003) and
-      // 500 (ACSMS-MSG-024-002) — view must NOT re-toast per
-      // .claude/rules/vue.md §Error Handling Architecture.
+      // interceptor が CONFLICT（ACSMS-MSG-024-003）と 500
+      // （ACSMS-MSG-024-002）をトースト — view で再トーストしない
+      // （vue.md §Error Handling Architecture）。
     }
   });
 }
@@ -233,7 +230,7 @@ function askDelete(row: AccountListItem): void {
   </BaseCard>
 
   <div v-else class="space-y-6">
-    <!-- 検索エリア — 4-column grid; the 4 fields fill the row. -->
+    <!-- 検索エリア — 4列グリッドで4フィールドが行を埋める。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
@@ -290,10 +287,10 @@ function askDelete(row: AccountListItem): void {
       </label>
       <label for="accounts-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">JA名</span>
-        <!-- BaseJaDropdown: server-side paginated (50/page) + infinite
-             scroll. Account screen hides ja_code from option labels and
-             scopes ILIKE to ja_name only (label-format + search-field).
-             都道府県 とは独立 — 全JAを表示し、両方選択時は AND 絞り込み。 -->
+        <!-- BaseJaDropdown: サーバ側ページング（50/page）+ 無限スクロール。
+             アカウント画面は option ラベルから ja_code を隠し ILIKE を ja_name のみに
+             スコープ（label-format + search-field）。都道府県 とは独立 —
+             全JAを表示し、両方選択時は AND 絞り込み。 -->
         <div class="flex-1">
           <BaseJaDropdown
             id="accounts-filter-3"
@@ -325,9 +322,9 @@ function askDelete(row: AccountListItem): void {
       </label>
     </BaseSearchForm>
 
-    <!-- ACSMS-MSG-024-001 — empty-result message rendered separately
-         (a-table's emptyText slot is not safely forwardable through
-         BaseDataTable's dynamic slot loop). -->
+    <!-- ACSMS-MSG-024-001 — 空結果メッセージは別描画
+         （a-table の emptyText slot は BaseDataTable の動的 slot ループで
+         安全に転送できない）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"

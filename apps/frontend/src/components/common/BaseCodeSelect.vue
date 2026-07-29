@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * `<a-select>` bound to an m_code category from the codes store.
- * Removes the boilerplate of importing `useCodesStore` and passing
- * `:options="codes.options('CATEGORY')"` in every form.
+ * codes ストアの m_code カテゴリに紐付く `<a-select>`。
+ * 各フォームで `useCodesStore` を import して
+ * `:options="codes.options('CATEGORY')"` を渡すボイラープレートを不要にする。
  *
- * Examples:
+ * 例:
  * ```vue
  * <BaseCodeSelect
  *   v-model:value="form.tanka_type"
@@ -19,24 +19,23 @@
  * />
  * ```
  *
- * Use `short` to render `label_short` instead of `label` (handy in
- * narrow form rows or table inline-edits).
+ * `short` で `label` の代わりに `label_short` を表示（狭いフォーム行やテーブル inline 編集に便利）。
  */
 import { computed } from 'vue';
 import { useCodesStore } from '@/stores/codes.store';
 
 interface Props {
-  /** Stored code value. Number for INTEGER columns, string for VARCHAR. */
+  /** 格納コード値。INTEGER 列は number、VARCHAR 列は string。 */
   value?: number | string | null;
-  /** m_code.code_category — see docs/database/seeder.md §5. */
+  /** m_code.code_category — docs/database/seeder.md §5 参照。 */
   category: string;
   placeholder?: string;
-  /** AntD select size; matches form-item size. */
+  /** AntD select サイズ。form-item のサイズに合わせる。 */
   size?: 'small' | 'middle' | 'large';
-  /** Allow clearing the selection. */
+  /** 選択のクリアを許可。 */
   allowClear?: boolean;
   disabled?: boolean;
-  /** Use `label_short` instead of `label`. */
+  /** `label` の代わりに `label_short` を使う。 */
   short?: boolean;
 }
 

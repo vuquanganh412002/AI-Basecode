@@ -21,9 +21,8 @@ import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken'
 interface KanriShitenFilters {
   kanri_shiten_code: string;
   kanri_shiten_name: string;
-  // `undefined` (vs `''`) lets the <a-select> render its placeholder when
-  // no prefecture is chosen. antd treats '' as a selected value and
-  // would suppress the placeholder.
+  // `undefined`（''ではない）で都道府県未選択時に <a-select> の placeholder を
+  // 表示させる。antd は '' を選択値として扱い placeholder を抑制する。
   todofuken_code: string | undefined;
   tel: string;
   fax: string;
@@ -33,19 +32,17 @@ const router = useRouter();
 const notify = useNotify();
 const authStore = useAuthStore();
 
-// Permission gates per docs/database/seeder.md §3 kanri_shiten.* matrix
-// + ACSMS-SCR-008 画面定義§1.3 (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
-// can VIEW their own scope but only NICHINO_ADMIN can create / delete).
-// Buttons stay visible but `:disabled` for non-admin roles so the UX
-// signals "feature exists, your role can't use it" instead of hiding
-// the affordance entirely (vue.md §Permission-aware list buttons).
+// 権限ゲート（seeder.md §3 kanri_shiten.* マトリクス + ACSMS-SCR-008
+// 画面定義§1.3）。CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は自スコープを閲覧可、
+// create / delete は NICHINO_ADMIN のみ。ボタンは非 admin でも表示のまま
+// `:disabled` にし「機能はあるがこのロールでは使えない」ことを示す
+// （vue.md §Permission-aware list buttons）。
 const canCreate = computed(() => authStore.hasPermission('kanri_shiten.create'));
 const canUpdate = computed(() => authStore.hasPermission('kanri_shiten.update'));
 const canDelete = computed(() => authStore.hasPermission('kanri_shiten.delete'));
 
-// Default sort is `updated_at DESC` so a newly created / updated record
-// surfaces at the top of the list on the next render. The 3 sortable
-// column headers from 画面定義§8.1 still override this when clicked.
+// 既定ソートは `updated_at DESC` で、作成/更新したレコードが次回描画時に先頭へ。
+// 画面定義§8.1 の3つのソート可能列はクリック時にこれを上書きする。
 const {
   state, loading, total, onChange, searchActions,
 } =
@@ -63,12 +60,11 @@ const {
 
 const rows = ref<KanriShitenListItem[]>([]);
 
-/** Prefecture options for the search dropdown. Fetched once on mount. */
+/** 検索 dropdown 用の都道府県 options。mount 時に一度取得。 */
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-// Columns mirror docs/design/ACSMS-SCR-008/screen-design.md
-// §画面項目定義 §検索結果テーブル. Sortable columns restricted to the 3
-// listed in §機能定義§8.1.
+// 列は screen-design.md §画面項目定義 §検索結果テーブルをミラー。
+// ソート可能列は §機能定義§8.1 の3列に限定。
 const columns: TableColumnsType = [
   { title: '管理支店コード', dataIndex: 'kanri_shiten_code', key: 'kanri_shiten_code', sorter: true, width: 160 },
   { title: '管理支店名', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', sorter: true, width: 220 },
@@ -86,9 +82,9 @@ const columns: TableColumnsType = [
 async function fetchList(): Promise<void> {
   loading.value = true;
   try {
-    // 都道府県 column displays `todofuken_name` (dataIndex) but BE's
-    // sort whitelist is keyed by `todofuken_code`. Antd's sorter.field
-    // comes from dataIndex, so map it back here.
+    // 都道府県列は `todofuken_name`（dataIndex）を表示するが BE のソート
+    // whitelist は `todofuken_code` がキー。antd の sorter.field は dataIndex
+    // 由来なのでここで戻す。
     const sortBy =
       state.sort_by === 'todofuken_name' ? 'todofuken_code' : state.sort_by;
     const params: ListKanriShitenQuery = {
@@ -106,9 +102,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: global axios interceptor already toasted
-    // FORBIDDEN / 500. Re-throwing would surface an unhandled rejection
-    // in onMounted's fire-and-forget. See vue.md §List view rules #5.
+    // 想定内・無視: axios interceptor が FORBIDDEN / 500 を既にトースト済み。
+    // 再throw は onMounted の fire-and-forget で unhandled rejection になる
+    // （vue.md §List view rules #5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -119,11 +115,11 @@ async function fetchList(): Promise<void> {
 async function fetchTodofuken(): Promise<void> {
   try {
     const resp = await getTodofukenList();
-    // BE envelope is `{ data: TodofukenItem[] }`. Spec mocks may pass a
-    // plain array directly (buildTodofukenList helper) — accept both.
+    // BE envelope は `{ data: TodofukenItem[] }`。spec mock は素の配列を直接
+    // 渡す場合あり（buildTodofukenList）— 両形を受理。
     todofukenOptions.value = Array.isArray(resp) ? resp : resp.data;
   } catch {
-    // Dropdown is non-critical — keep view functional even if fetch fails.
+    // dropdown は非致命的 — 取得失敗でも view を機能させる。
     todofukenOptions.value = [];
   }
 }
@@ -133,11 +129,11 @@ onMounted(() => {
   void fetchTodofuken();
 });
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim text filters so paste artifacts / IME spaces don't widen the ILIKE
-  // pattern. todofuken_code comes from a select — no whitespace to trim.
+  // paste/IME 空白で ILIKE を広げないようテキストフィルタを trim。
+  // todofuken_code は select 由来で trim 対象なし。
   beforeSearch() {
     state.filters.kanri_shiten_code = state.filters.kanri_shiten_code.trim();
     state.filters.kanri_shiten_name = state.filters.kanri_shiten_name.trim();
@@ -167,8 +163,8 @@ function askDelete(row: KanriShitenListItem): void {
       notify.deleted(); // ACSMS-MSG-008-006 '削除しました。' (verb-only)
       await fetchList();
     } catch {
-      // Global interceptor handled 409 CONFLICT (ACSMS-MSG-008-004) /
-      // 500 (ACSMS-MSG-008-003); view must NOT re-toast.
+      // interceptor が 409 CONFLICT（ACSMS-MSG-008-004）/ 500
+      // （ACSMS-MSG-008-003）を処理。view で再トーストしない。
     }
   });
 }
@@ -176,8 +172,8 @@ function askDelete(row: KanriShitenListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 5 fields laid out on a 4-column grid so the
-         prefecture dropdown + 4 text fields wrap naturally to 2 rows. -->
+    <!-- 検索エリア — 5フィールドを4列グリッドに配置し、都道府県 dropdown +
+         テキスト4項目が自然に2行へ折り返す。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
@@ -244,9 +240,9 @@ function askDelete(row: KanriShitenListItem): void {
       </label>
     </BaseSearchForm>
 
-    <!-- ACSMS-MSG-008-001 — empty-result message rendered separately
-         (a-table's emptyText slot is not safely forwardable through
-         BaseDataTable's dynamic slot loop). -->
+    <!-- ACSMS-MSG-008-001 — 空結果メッセージは別描画
+         （a-table の emptyText slot は BaseDataTable の動的 slot ループで
+         安全に転送できない）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"
@@ -277,9 +273,8 @@ function askDelete(row: KanriShitenListItem): void {
 
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'kanri_shiten_code'">
-          <!-- Code is the edit entry point. Anchor only when the user
-               has update permission; otherwise plain text avoids a
-               dead-end click. -->
+          <!-- コードが編集の入口。update 権限があるときのみアンカー化、
+               なければプレーンテキストで行き止まりクリックを避ける。 -->
           <a
             v-if="canUpdate"
             class="text-primary hover:underline"

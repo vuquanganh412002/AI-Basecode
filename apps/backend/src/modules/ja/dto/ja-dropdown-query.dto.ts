@@ -7,34 +7,20 @@ import { BaseDropdownQueryDto } from '@/common/dto/base-dropdown-query.dto';
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/**
- * Query-string DTO for `GET /api/v1/ja/dropdown` (ACSMS-API-COMMON-003).
- *
- * Extends {@link BaseDropdownQueryDto} for the standard shape
- * (`q`/`page`/`per_page`/`include_id`) and adds JA-specific filters:
- *
- *   1. Form free-text + infinite scroll (SCR-009 管理支店 create etc.).
- *      `q` matches `ja_code OR ja_name` by default; `match_field='name'`
- *      narrows to ja_name only (for SCR-024 account list, where ja_code
- *      is hidden in the UI).
- *
- *   2. Cascading filter (SCR-024 account search / SCR-025 register):
- *      pass `todofuken_code` and/or `role_id`; the BE maps
- *      `role_id ∈ {3}` → `chuokai_flg=TRUE`, `role_id ∈ {4, 5}` →
- *      `chuokai_flg=FALSE`, others fall through.
- *
- * Returns a slimmed-down row shape — `{ja_id, ja_code, ja_name,
- * todofuken_code, chuokai_flg}` — no address/bank/etc payload bloat.
- * Sort is always `ja_code ASC` (predictable scroll, no per-call
- * sort_by/sort_order params unlike `SearchJaDto`).
- */
+// `GET /api/v1/ja/dropdown` 用 DTO (ACSMS-API-COMMON-003)。
+// {@link BaseDropdownQueryDto}(q/page/per_page/include_id)を継承し、
+// JA固有フィルタを追加：
+//   1. フォーム free-text + 無限スクロール(SCR-009 管理支店 create等)。
+//      q は既定で ja_code OR ja_name、match_field='name' で ja_name のみ
+//      (ja_code 非表示の SCR-024 account list 向け)。
+//   2. カスケード絞込み(SCR-024 検索 / SCR-025 登録)：todofuken_code /
+//      role_id を渡す。role_id∈{3}→chuokai_flg=TRUE、{4,5}→FALSE、他は素通り。
+// 返却は slim 行 {ja_id, ja_code, ja_name, todofuken_code, chuokai_flg}。
+// ソートは常に ja_code ASC(SearchJaDto と違い sort パラメータなし)。
 export class JaDropdownQueryDto extends BaseDropdownQueryDto {
-  // [match-field] Opt-in name-only search for callers that hide ja_code
-  // in the UI (SCR-024 account list). Default 'both' preserves the
-  // legacy behavior (ja_code OR ja_name) so existing call sites are
-  // unaffected. Unknown values rejected by @IsIn rather than silently
-  // falling through to 'both' — typo'd value would otherwise leak past
-  // validation and confuse callers.
+  // [match-field] ja_code 非表示の呼び元(SCR-024)向け name-only 検索の
+  // opt-in。既定 'both'(ja_code OR ja_name)で既存呼び元は不変。不正値は
+  // @IsIn で拒否(素通りさせず typo を検知)。
   @ApiPropertyOptional({
     description:
       '検索対象フィールド。"both"=ja_code OR ja_name (既定)、"name"=ja_nameのみ。',

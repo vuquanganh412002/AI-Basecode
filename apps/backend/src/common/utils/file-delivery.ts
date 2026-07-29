@@ -1,12 +1,10 @@
 import type { Response } from 'express';
 
 /**
- * ファイル配信（プレビュー / ダウンロード / ZIP）の共通ユーティリティ。
- *
- * ファイルダウンロード画面(SCR-022, t_file_download) と ファイルアップロード画面
- * (SCR-023, t_file_upload) は「拡張子→Content-Type 導出」「バイナリ添付レスポンス
- * 送出」「DownloadResult の形」が同一のため、ここに集約して両モジュールで再利用する。
- * DataScope / 監査ログ / 対象エンティティは各サービス側に残す（画面ごとに異なるため）。
+ * ファイル配信（プレビュー / ダウンロード / ZIP）共通ユーティリティ。
+ * SCR-022(t_file_download) と SCR-023(t_file_upload) で「拡張子→Content-Type」
+ * 「バイナリ添付送出」「DownloadResult 形」が同一のため集約。
+ * DataScope / 監査ログ / 対象エンティティは画面ごとに異なるため各サービスに残す。
  */
 
 /** ダウンロード結果（バイナリ + メタ）。 */
@@ -33,9 +31,8 @@ export function contentTypeFor(fileName: string): string {
 }
 
 /**
- * バイナリ添付レスポンスを送出する。日本語ファイル名は RFC 5987 の filename* に
- * 載せ、ASCII フォールバックは多バイト文字を除去する（Node の HTTP 層が非 ASCII
- * ヘッダ値を拒否するため）。
+ * バイナリ添付を送出。日本語名は RFC 5987 filename* に載せ、ASCII フォールバックは
+ * 多バイト文字を除去（Node の HTTP 層が非 ASCII ヘッダ値を拒否するため）。
  */
 export function sendBinaryAttachment(res: Response, result: DownloadResult): void {
   const encodedName = encodeURIComponent(result.fileName);

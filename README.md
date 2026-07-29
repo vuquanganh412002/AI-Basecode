@@ -15,13 +15,80 @@
 | **UI** | Ant Design Vue 4 + Tailwind CSS |
 | **State** | Pinia (Setup Store) |
 | **API Client** | Hand-written axios wrappers per BE tag (`src/api/<tag>/<tag>.ts`) |
-| **ORM** | TypeORM + PostgreSQL (RDS) |
+| **ORM** | TypeORM + PostgreSQL (RDS / Aurora) |
+| **External DB** | MySQL — customer 電子版 system, read-only secondary connection |
 | **Auth** | HTTP-only Cookie session (Redis-backed, 24h sliding TTL) + bcrypt + RBAC (model.action) |
 | **Cache / Session store** | Redis (ioredis + ElastiCache) |
-| **Infra** | Terraform + AWS (ECS Fargate, RDS, ElastiCache, S3, CloudFront) |
+| **Object storage** | S3 (AWS) / MinIO (local) |
+| **Mail** | SES (AWS) / MailHog (local) |
+| **Infra** | Terraform + AWS (ECS Fargate, RDS, ElastiCache, S3, CloudFront, EventBridge) — separate `agrinews-terraform` repo |
 | **CI/CD** | GitLab CI/CD |
-| **Testing** | Vitest (98% effective coverage target) + Vue Test Utils + Playwright |
+| **Testing** | **Jest** (backend) + **Vitest** + Vue Test Utils (frontend) + Playwright (E2E) |
 | **Monitoring** | CloudWatch (Logs, Metrics, Alarms) |
+
+Backend and frontend deliberately use different test runners — Jest is the NestJS
+default and emits decorator metadata natively, Vitest shares the Vite transform
+pipeline with the SPA. See `.claude/rules/testing.md`.
+
+---
+
+## Quick Start (local)
+
+Prerequisites: Docker, Node 20+, `mkcert`, `openssl`.
+
+```bash
+# 1. Map agrinews.jp → 127.0.0.1 (the local stack is served over HTTPS via nginx)
+./scripts/setup-hosts.sh          # requires sudo
+
+# 2. Generate local TLS certificates
+./scripts/generate-certs.sh       # requires mkcert
+
+# 3. Env files — the defaults already match the docker-compose topology
+cp apps/.env.example          apps/.env      # docker compose ${...} interpolation
+cp apps/backend/.env.example  apps/backend/.env
+cp apps/frontend/.env.example apps/frontend/.env
+
+# 4. Bring the stack up
+docker compose -f apps/docker-compose.yml up -d
+
+# 5. Schema + master data + the first admin account
+docker compose -f apps/docker-compose.yml exec backend npm run migration:run
+docker compose -f apps/docker-compose.yml exec backend \
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'   # prints the password ONCE
+docker compose -f apps/docker-compose.yml exec backend npm run seed:dev   # sample data
+
+# 6. Open the app — OTP mail lands in MailHog
+open https://agrinews.jp/login
+open http://localhost:8025
+```
+
+To wipe and rebuild the dev database in one step (drop → migrate → seed → seed:dev):
+
+```bash
+./scripts/reset-dev-db.sh
+```
+
+### Local services
+
+| Service | URL / Port | Notes |
+| --- | --- | --- |
+| App (nginx) | https://agrinews.jp | 80 → 443 redirect; proxies FE + BE |
+| Backend | http://localhost:3000 | Swagger UI at `/api/docs` |
+| Frontend (Vite) | http://localhost:5173 | |
+| MailHog | http://localhost:8025 | catches every outgoing mail (OTP, password reset) |
+| MinIO console | http://localhost:9001 | S3-compatible storage; credentials are `STORAGE_ACCESS_KEY` / `STORAGE_SECRET_KEY` from `apps/.env` |
+| PostgreSQL | localhost:5432 | main business DB |
+| Redis | localhost:6379 | session + rate-limit store |
+| 電子版 MySQL (mock) | localhost:3307 | local stand-in for the customer system |
+
+### Tests
+
+```bash
+cd apps/backend  && npm test              # Jest — unit + integration (pg-mem)
+cd apps/backend  && npm run test:pg       # integration against a real Postgres
+cd apps/frontend && npm test              # Vitest
+cd apps/frontend && npm run test:coverage # FE gate: 90% lines/statements, 85% branches/functions
+```
 
 ---
 
@@ -30,29 +97,34 @@
 ```
 AgriNews_ACSMS/
 ├── .claude/                    # Claude Code AI configuration
-│   ├── agents/                 # Reserved
 │   ├── commands/               # Legacy slash commands (migrating to skills)
 │   ├── rules/                  # 11 mandatory coding rules
-│   ├── skills/                 # gen-api-doc, gen-ut-*, gen-code-*, scaffold
+│   ├── skills/                 # gen-api-doc, gen-testcase-doc, gen-ut-*, gen-code-*, scaffold
 │   ├── settings.json
 │   └── CLAUDE.md
 │
 ├── apps/
-│   ├── backend/                # NestJS backend (domain modules)
+│   ├── backend/                # NestJS — domain modules under src/modules/,
+│   │   │                       #   entities under src/database/entities/,
+│   │   │                       #   batch entrypoints under src/batch/
+│   │   └── .env.example        # copy to .env — defaults run as-is
 │   ├── frontend/               # Vue 3 SPA
-│   ├── docker/
+│   ├── docker/                 # Dockerfiles + nginx config
 │   └── docker-compose.yml
 │
 ├── docs/
 │   ├── database/               # Schema design + seeder definitions
 │   ├── design/                 # Screen designs (ACSMS-SCR-001 ~ 031)
 │   ├── design-vi/              # Vietnamese translations
-│   └── requirement/            # Requirements (Japanese → Markdown)
+│   ├── requirement/            # Requirements (Japanese → Markdown)
+│   └── deploy-aws.md           # Deploy runbook
 │
-├── scripts/                    # Excel ↔ Markdown conversion tools
-├── .gitignore
+├── scripts/                    # Excel ↔ Markdown converters, deploy, local setup
 └── README.md
 ```
+
+Terraform lives in the separate **`agrinews-terraform`** repository — this repo
+has no `infra/` directory.
 
 ---
 
@@ -66,7 +138,40 @@ AgriNews_ACSMS/
 | JA本店 | `JA_HONTEN` | JA headquarters — own JA data |
 | JA管理支店 | `JA_KANRI_SHITEN` | JA branch — own branch data |
 
-Authorization: 3-layer model (Permission Guard → DataScope Filter → Field-Level Restriction)
+Authorization is a 4-layer model, each layer guarding a different surface:
+
+1. **Permission Guard** (controller) — `@Permissions('model.action')`
+2. **DataScope Filter** (service) — restricts rows by the role's org hierarchy
+3. **Field-Level Restriction** (service) — per-role column allow-list on update
+4. **FK Reference Guard** (service) — validates FK ids in the request body belong
+   to the caller's tenant, blocking cross-tenant injection
+
+Details in `.claude/rules/security.md`.
+
+---
+
+## Batch Jobs
+
+Run as ECS one-off tasks, scheduled by EventBridge rules defined in
+`agrinews-terraform`. Each has a local (`ts-node`) and a `:prod` (compiled) script.
+
+| Job | Schedule (JST) | Purpose |
+| --- | --- | --- |
+| `npm run dokusya:sync` | every 10 min | Pull 電子版 `users` → `t_dokusya` (incremental; nightly full reconcile via `DENSHIBAN_FULL_SYNC=true`) |
+| `npm run dokusya:apply-due` | daily | Finalise subscriptions whose 購読中止日 has arrived; apply scheduled info changes |
+| `npm run tanka:expire` | 00:05 | Flip `m_tanka.active_flg` to FALSE once `tekiyo_end_date` has passed |
+| `npm run log:cleanup` | 23:00 | Hard-delete `t_log` / `t_login_log` older than `LOG_RETENTION_YEARS` (default 5) |
+| `npm run file:cleanup` | daily | Delete S3 objects past `scheduled_delete_date`; soft-delete the DB rows |
+
+## 電子版 Integration
+
+Two-way link with the customer's existing 電子版 system:
+
+- **Pull** — `dokusya-sync` reads the 電子版 MySQL DB (read-only user) and maps
+  rows into `t_dokusya` / `t_dokusya_rireki`. Toggle with `DENSHIBAN_DB_ENABLED`.
+- **Push** — subscriber changes are sent to the 電子版 `updateUserInfo` API
+  (AES-256-GCM signed with a shared key). Toggle with `DENSHIBAN_PUSH_ENABLED`;
+  off by default so the cloud side can run standalone.
 
 ---
 
@@ -78,6 +183,8 @@ Authorization: 3-layer model (Permission Guard → DataScope Filter → Field-Le
 | Database Schema | `docs/database/database-design.md` |
 | Seeder Data | `docs/database/seeder.md` |
 | Screen Designs | `docs/design/ACSMS-SCR-*` |
+| Deploy Runbook | `docs/deploy-aws.md` |
+| API (live) | `http://localhost:3000/api/docs` — or `npm run swagger:export` for a snapshot |
 
 ---
 
@@ -89,10 +196,11 @@ Authorization: 3-layer model (Permission Guard → DataScope Filter → Field-Le
 | --- | --- |
 | `/scaffold [project_name]` | One-time — scaffold fullstack monorepo (NestJS + Vue 3 + Docker) |
 | `/gen-api-doc ACSMS-SCR-XXX` | Generate API設計書 from screen design + DB schema |
-| `/gen-ut-backend ACSMS-SCR-XXX` | Generate failing NestJS unit + integration tests (TDD red) — 98% coverage target |
-| `/gen-ut-frontend ACSMS-SCR-XXX` | Generate failing Vue 3 / Pinia tests (TDD red) — 98% coverage target |
-| `/gen-code-backend ACSMS-SCR-XXX` | Generate NestJS source (entity / DTO / service / controller / module) that satisfies the BE spec. Auto-removes `@ts-nocheck` after `tsc --noEmit` passes |
-| `/gen-code-frontend ACSMS-SCR-XXX` | Generate Vue 3 source (types / store / view + router entry) that satisfies the FE spec. Auto-removes `@ts-nocheck` after `vue-tsc --noEmit` passes |
+| `/gen-testcase-doc ACSMS-SCR-XXX` | Generate the test-case document (テストケース) for a screen |
+| `/gen-ut-backend ACSMS-SCR-XXX` | Generate failing NestJS unit + integration tests (TDD red) |
+| `/gen-ut-frontend ACSMS-SCR-XXX` | Generate failing Vue 3 / Pinia tests (TDD red) |
+| `/gen-code-backend ACSMS-SCR-XXX` | Generate NestJS source (entity / DTO / service / controller / module) satisfying the BE spec. Auto-removes `@ts-nocheck` after `tsc --noEmit` passes |
+| `/gen-code-frontend ACSMS-SCR-XXX` | Generate Vue 3 source (types / store / view + router entry) satisfying the FE spec. Auto-removes `@ts-nocheck` after `vue-tsc --noEmit` passes |
 
 ### Legacy commands (`.claude/commands/` — migrating to skills)
 
@@ -116,24 +224,24 @@ npm run migration:generate -- -n <Name> && npm run migration:run
 /gen-ut-frontend    ACSMS-SCR-XXX   → (review FE specs)            [RED]
 /gen-code-frontend  ACSMS-SCR-XXX                                 [FE src/ GREEN]
        ↓
-cd apps/backend && npm test     # verify BE green
-cd apps/frontend && npm test    # verify FE green
+cd apps/backend && npm test     # verify BE green (Jest)
+cd apps/frontend && npm test    # verify FE green (Vitest)
        ↓
 /review  → /fix-issue  → /deploy
 ```
 
 **Step summary**:
 1. **Spec** — `/gen-api-doc` reads screen design + DB schema, emits `docs/design/ACSMS-SCR-XXX/ACSMS-SCR-XXX-api.md`.
-2. **RED tests** — `/gen-ut-*` emit `*.spec.ts` with a `// @ts-nocheck — TDD red phase` banner so vitest fails red but tsc still passes. **Read the generated specs before moving on** — that's where TDD earns its keep.
+2. **RED tests** — `/gen-ut-*` emit `*.spec.ts` with a `// @ts-nocheck — TDD red phase` banner so the suite fails red but the type-checker still passes. **Read the generated specs before moving on** — that's where TDD earns its keep.
 3. **GREEN source** — `/gen-code-*` read the matching specs (immutable contract), emit source, then run the type-checker. On pass they strip the banner; on fail they keep it and print the first 30 error lines.
 4. **Verify** — user runs `npm test` manually; iterate if still red.
 
 **Order rules**:
-- **FE depends on BE when the screen has API calls**: `/gen-code-frontend` writes a hand-written wrapper at `apps/frontend/src/api/<tag>/<tag>.ts` mirroring the BE response shape. Run `/gen-code-backend` first so the response DTO is settled before mirroring it. FE-only screens (dashboard / 404 / static) can skip the BE leg entirely.
+- **FE depends on BE when the screen has API calls**: `/gen-code-frontend` writes a hand-written wrapper at `apps/frontend/src/api/<tag>/<tag>.ts` mirroring the BE response shape. Run `/gen-code-backend` first so the response DTO is settled before mirroring it. FE-only screens (dashboard / static) can skip the BE leg entirely.
 - **Migration is not automatic**: `/gen-code-backend` emits the `@Entity` but migration files need a human-chosen name via `npm run migration:generate -- -n <Name>`.
 - **Specs are immutable** to `/gen-code-*`. The skill treats them as the contract and won't edit them.
 - **Stale-contract guard**: if `api.md` or `screen-design.md` mtime is newer than spec mtime, `/gen-code-*` aborts and asks to rerun `/gen-ut-*` first.
-- **One-shot**: no vitest-until-green loop. Fix-and-rerun is manual.
+- **One-shot**: no test-until-green loop. Fix-and-rerun is manual.
 
 ---
 
@@ -148,7 +256,30 @@ cp apps/frontend/.env.deploy.example apps/frontend/.env.deploy
 ./scripts/deploy-aws.sh
 ```
 
+The deploy script sorts keys into three classes: **deploy-managed** (ECR / ECS
+targets, never injected into the container), **secret-managed** (stripped from
+plaintext — AWS Secrets Manager supplies them via the task definition `secrets`
+block), and **plaintext** (merged into the task definition as-is). Both
+`.env.deploy.example` files document which key falls where.
+
 Env variables, migration/seed flow, and troubleshooting: **[docs/deploy-aws.md](docs/deploy-aws.md)**.
+
+### Env file conventions
+
+There are three env scopes, each with a tracked `.example` template:
+
+| File | Consumed by |
+| --- | --- |
+| `apps/.env` | docker compose `${...}` interpolation only (container init values) |
+| `apps/backend/.env` | the backend container (`env_file`) and `npm run start:dev` |
+| `apps/frontend/.env` | Vite at build/dev time (`VITE_*`) |
+
+Section and key order is identical across `.env`, `.env.example`, and
+`.env.deploy` so a local config can be diffed against a deployed one directly.
+`.env.example` ships working local defaults — `cp .env.example .env` boots
+without edits. Production refuses to start on those defaults: `configuration.ts`
+runs `assertProductionSecrets()` when `NODE_ENV=production` and crashes if
+`SESSION_SECRET` / `DB_PASSWORD` / `STORAGE_*` are unset or still at a dev value.
 
 ---
 
@@ -160,22 +291,15 @@ All secrets via AWS Secrets Manager. See `.claude/rules/security.md`.
 
 ### First-deploy admin bootstrap
 
-The initial `NICHINO_ADMIN` account is **not** auto-seeded by migrations. After `npm run migration:run` on a fresh environment, run `npm run seed` explicitly. The seed is idempotent (skips if `login_id='admin'` exists), sets `mfa_enable_flg=true`, and never writes cleartext password anywhere.
+The initial `NICHINO_ADMIN` account is **not** auto-seeded by migrations. After `npm run migration:run` on a fresh environment, run `npm run seed` explicitly. The seed is idempotent (skips if `login_id='admin'` exists), sets `mfa_enable_flg=true`, and never writes a cleartext password anywhere.
 
 #### Local dev
 
 ```bash
-# 1. Bring stack up + run schema migrations
-docker compose -f apps/docker-compose.yml up -d
-docker compose -f apps/docker-compose.yml exec backend npm run migration:run
-
-# 2. Create admin — password generated + printed to stdout ONCE
+# Create admin — password generated + printed to stdout ONCE
 docker compose -f apps/docker-compose.yml exec backend \
   sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'
 # → copy the printed password into your password manager
-
-# 3. Login at https://agrinews.jp/login (login_id=admin) — OTP arrives in MailHog
-open http://localhost:8025
 ```
 
 To set a password yourself instead of letting the script generate one:

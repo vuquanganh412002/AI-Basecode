@@ -8,13 +8,14 @@ import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.se
 import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DenshiSyncState } from '@/database/entities/denshi-sync-state.entity';
-import { DenshiShoninStatus } from '@/common/enums';
+import { DenshiShoninStatus, ShiharaiHoho } from '@/common/enums';
 import { todayIsoJst } from '@/common/utils/datetime';
 import type { BatchJob } from '@/batch/batch-job.interface';
 import type { DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
 
 import {
   mapUserToDokusyaFields,
+  DENSHI_STATUS_KAIYAKU,
   type DenshiUserRow,
   type DenshiFkResolution,
 } from './dokusya-sync.mapper';
@@ -25,8 +26,6 @@ const SYNC_LOCK_KEY = 4210010;
 const BATCH_NAME = 'dokusya-sync';
 /** 1 実行で処理する最大件数（安全上限。超過分は次回/夜間全件で追従）。 */
 const MAX_ROWS_PER_RUN = 50_000;
-/** 電子版 status（T_会員情報）: 9=解約。 */
-const STATUS_KAIYAKU = 9;
 
 interface SyncCounts {
   read: number;
@@ -44,16 +43,11 @@ type KanriShitenMap = Map<string, { kanriShitenId: number; jaId: number }>;
 type HanbaitenMap = Map<string, number>;
 
 /**
- * 読者（独：dokusya）同期バッチのドメインサービス。
- *
- * 電子版（顧客 CMS の read-replica MySQL, `cmsDB.users`）の差分を取得し、自社の
- * `t_dokusya` / `t_dokusya_rireki` に取り込む（pull 片方向）。突合キーは
- * `users.id ↔ t_dokusya.denshi_kaiin_id`。履歴は共通ライタ `applyChange`
- * （source='BATCH', joho=当日）に集約する。設計の正典は
- * docs/dokusya-sync-implementation-plan.md。
- *
- * 10分間隔で EventBridge → ECS RunTask が `run()` を1回起動する。多重起動は
- * PostgreSQL advisory lock で自衛する（前回実行中なら skip）。
+ * 読者同期バッチ（電子版 → cloud, pull 片方向）。電子版 `cmsDB.users` の差分を取得し
+ * `t_dokusya`/`t_dokusya_rireki` に取り込む。突合キー: `users.id ↔ denshi_kaiin_id`。
+ * 履歴は共通ライタ `applyChange`（source='BATCH', joho=当日）に集約。
+ * 10分間隔で EventBridge → ECS RunTask が `run()` を起動。多重起動は PostgreSQL
+ * advisory lock で自衛（前回実行中なら skip）。plan: dokusya-sync-implementation-plan.md。
  */
 @Injectable()
 export class DokusyaSyncService implements BatchJob {
@@ -132,24 +126,36 @@ export class DokusyaSyncService implements BatchJob {
     };
     let maxId = Number(state.lastSourceId ?? 0);
     let maxTs = state.lastSourceUpdatedAt ?? new Date(0);
+    // 最初の失敗行以降は watermark を進めない。rows は (chg_ts, id) 昇順なので、
+    // 「失敗行の手前まで」で止めれば次回実行が必ずその行から読み直す。
+    //
+    // ⚠️ 単純な max() ではダメ（2026-07-29 実データ検証で判明）: 失敗行より後ろの行が
+    // 1つでも成功/skip すると watermark がそれを追い越し、失敗行は id も chg_ts も
+    // watermark 以下になって**二度と差分に乗らない**（電子版側で更新されない限り恒久
+    // miss）。実際 95 件が summary 上 failed→次回 0 件と消え、cloud に存在しないまま
+    // になっていた。skip 行は業務判断で取り込まないと決めた行なので進めてよい
+    // （マスタ整備後の取り込みは全件同期で拾う）。
+    let blocked = false;
 
     for (const u of rows) {
       counts.read++;
       try {
         await this.upsertOne(u, kanriMap, hanbaitenMap, counts);
-        // 成功した行までしか watermark を進めない（失敗行を飛ばして恒久 miss しない）。
-        const id = Number(u.id);
-        const ts = this.chgTs(u);
-        if (Number.isFinite(id) && id > maxId) maxId = id;
-        if (ts && ts.getTime() > maxTs.getTime()) maxTs = ts;
       } catch (err) {
         counts.failed++;
+        blocked = true;
         this.logger.error({
           event: 'dokusya_sync.record_error',
           denshi_kaiin_id: u.id,
           message: (err as Error).message,
         });
+        continue;
       }
+      if (blocked) continue; // 失敗行を追い越さない
+      const id = Number(u.id);
+      const ts = this.chgTs(u);
+      if (Number.isFinite(id) && id > maxId) maxId = id;
+      if (ts && ts.getTime() > maxTs.getTime()) maxTs = ts;
     }
 
     await this.saveState(maxId, maxTs);
@@ -234,6 +240,15 @@ export class DokusyaSyncService implements BatchJob {
   ): Promise<DenshiUserRow[]> {
     // キャンペーン読者（Campagna_flg が立つ）は取込除外（顧客要件 2026-07）。
     const campaignFilter = `(Campagna_flg IS NULL OR Campagna_flg IN ('', '0'))`;
+    // 取込対象条件（顧客要件）: 収集中(collecting=1) または
+    // treatment=1 かつ クレジットカード払い の会員のみ同期する。
+    // どちらにも該当しない会員は取り込まない。
+    // ※ 電子版 payment_id は cloud の支払方法コードと同一体系（mapper の
+    //   mapShiharai と同じ前提）なので ShiharaiHoho をそのまま使える。
+    const eligibilityFilter =
+      `(collecting = 1 OR (treatment = 1 AND payment_id = ${ShiharaiHoho.CREDIT_CARD}))`;
+    // 全クエリ共通の抽出条件（キャンペーン除外 AND 取込対象条件）。
+    const baseFilter = `${campaignFilter} AND ${eligibilityFilter}`;
     const chg = 'COALESCE(updated_at, created_at)';
 
     if (fullSync) {
@@ -241,7 +256,7 @@ export class DokusyaSyncService implements BatchJob {
       return this.denshibanDb.withConnection((ds) =>
         ds.query(
           `SELECT *, ${chg} AS chg_ts FROM users
-             WHERE ${campaignFilter}
+             WHERE ${baseFilter}
              ORDER BY ${chg} ASC, id ASC
              LIMIT ?`,
           [MAX_ROWS_PER_RUN],
@@ -257,7 +272,7 @@ export class DokusyaSyncService implements BatchJob {
       ds.query(
         `SELECT *, ${chg} AS chg_ts FROM users
            WHERE ( id > ? OR ${chg} > ? )
-             AND ${campaignFilter}
+             AND ${baseFilter}
            ORDER BY ${chg} ASC, id ASC
            LIMIT ?`,
         [wId, wTs, MAX_ROWS_PER_RUN],
@@ -309,7 +324,7 @@ export class DokusyaSyncService implements BatchJob {
       });
 
       // ── 解約（status=9）─────────────────────────────────────────────
-      if (status === STATUS_KAIYAKU) {
+      if (status === DENSHI_STATUS_KAIYAKU) {
         if (!existing) {
           counts.skipped++; // 未存在の解約は無意味
           return;
@@ -324,7 +339,6 @@ export class DokusyaSyncService implements BatchJob {
           johoDate,
           source: 'BATCH',
           actor,
-          reason: '電子版同期(解約)',
         });
         // master 論理削除（購読中止日は values.dokusyaChushiDate に反映済み）。
         await m.softDelete(Dokusya, existing.dokusyaId);
@@ -343,7 +357,6 @@ export class DokusyaSyncService implements BatchJob {
           johoDate,
           source: 'BATCH',
           actor,
-          reason: '電子版同期(更新)',
         });
         if (res.insertedRirekiIds.length > 0) counts.updated++;
         else counts.unchanged++;
@@ -351,13 +364,24 @@ export class DokusyaSyncService implements BatchJob {
       }
 
       // ── CREATE（新規）──────────────────────────────────────────────
+      // 購読開始日が全フォールバック（activated_at→application_date→created_at）
+      // でも取れない行は master の NOT NULL 制約で必ず落ちる。例外にすると
+      // watermark が止まり後続の正常行まで巻き添えになるため、理由を明示して skip。
+      if (!values.shokiDokusyaKaishiDate) {
+        counts.skipped++;
+        this.logger.warn({
+          event: 'dokusya_sync.skip_no_kaishi_date',
+          denshi_kaiin_id: denshiKaiinId,
+          note: 'activated_at / application_date / created_at がすべて空',
+        });
+        return;
+      }
       const res = await applyChange(m, {
         mode: 'CREATE',
         values,
         johoDate,
         source: 'BATCH',
         actor,
-        reason: '電子版同期(新規)',
       });
       // denshi_kaiin_id は履歴に無く master 専用列 → 作成後に直接 set する。
       await m.update(Dokusya, { dokusyaId: res.dokusyaId }, { denshiKaiinId });
@@ -398,7 +422,7 @@ export class DokusyaSyncService implements BatchJob {
 
 /** JACd / 管理支店コードのハイフン等を除去して突合キーに正規化する。 */
 function normalizeJacd(code: string): string {
-  return code.replace(/-/g, '').trim();
+  return code.replaceAll('-', '').trim();
 }
 
 /** 文字列/日付が「値あり」か（空・null・undefined でない）。 */

@@ -3,11 +3,8 @@ import { ShitenDetailDto } from './dto/shiten-detail.dto';
 import { ShitenListItemDto } from './dto/shiten-list-item.dto';
 
 /**
- * Map a `Shiten` entity (camelCase columns) to the snake_case
- * `ShitenDetailDto` shape the API returns.
- *
- * Pure: no Nest DI, no IO. Service calls `toShitenDetail(saved)` after
- * the INSERT/UPDATE/SELECT to project camelCase → snake_case.
+ * Shiten エンティティ (camelCase) → API 応答 ShitenDetailDto (snake_case)。
+ * 純粋関数（Nest DI/IO なし）。service が INSERT/UPDATE/SELECT 後に呼ぶ。
  */
 export function toShitenDetail(shiten: Shiten): ShitenDetailDto {
   return {
@@ -17,9 +14,8 @@ export function toShitenDetail(shiten: Shiten): ShitenDetailDto {
     shiten_name: shiten.shitenName,
     shiten_name_kana: shiten.shitenNameKana,
     kinyu_shiten_flg: shiten.kinyuShitenFlg,
-    // JASTEM 店舗単位 4 列 (NOT NULL DEFAULT '' — never returns null;
-    // `?? ''` guards legacy rows where TypeORM might return undefined
-    // for a column not present in older entity hydrates).
+    // JASTEM 店舗単位 4 列 (NOT NULL DEFAULT '')。?? '' は旧エンティティ
+    // hydrate で列が undefined になる場合のガード。
     jastem_toriatsukai_tenpo_code: shiten.jastemToriatsukaiTenpoCode ?? '',
     jastem_tenpo_name: shiten.jastemTenpoName ?? '',
     jastem_tyokin_shubetsu: shiten.jastemTyokinShubetsu ?? '',
@@ -32,10 +28,9 @@ export function toShitenDetail(shiten: Shiten): ShitenDetailDto {
 }
 
 /**
- * List-row mapping for SCR-006 GET /api/v1/shiten. Same columns as
- * `ShitenDetailDto` PLUS `kanri_shiten_name` joined from
- * `m_kanri_shiten` by the service. Caller passes the resolved name
- * (batch-looked-up after the main query) so this mapper stays pure.
+ * SCR-006 GET /api/v1/shiten の list 行。ShitenDetailDto の列 +
+ * kanri_shiten_name（service が m_kanri_shiten から解決した名前を渡す）。
+ * mapper は純粋を保つ。
  */
 export function toShitenListItem(
   shiten: Shiten,

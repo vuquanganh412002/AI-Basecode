@@ -1,8 +1,8 @@
 /**
- * Mirror of `apps/backend/src/common/enums/oshirase-type.enum.ts`.
+ * `apps/backend/src/common/enums/oshirase-type.enum.ts` のミラー。
  *
- * Display labels come from `useCodesStore().label('OSHIRASE_TYPE', ...)`
- * — NEVER hardcode in templates.
+ * 表示ラベルは `useCodesStore().label('OSHIRASE_TYPE', ...)` から取得 —
+ * テンプレートにハードコードしない。
  */
 export const OshiraseType = {
   SYSTEM: 1,

@@ -3,25 +3,22 @@ import { handleApiError } from './error-handler';
 import type { ApiErrorResponse } from '@/constants/error-codes';
 
 /**
- * HTTP client.
+ * HTTP クライアント。
  *
- * Auth uses an HTTP-only session cookie (Redis-backed, 24h sliding TTL).
- * `withCredentials: true` tells the browser to send that cookie on every
- * request automatically — there is no token to read from JS and no
- * `Authorization` header to set. The backend CORS config must allow the
- * frontend origin with `credentials: true` for cross-origin dev.
+ * 認証は HTTP-only セッション cookie（Redis, 24h スライディングTTL）。
+ * `withCredentials: true` でブラウザが毎リクエストに cookie を自動送信する
+ * （JS から読むトークンも Authorization ヘッダもなし）。クロスオリジン開発では
+ * BE の CORS が frontend origin を `credentials: true` で許可する必要あり。
  */
 const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
-  // Serialize array query params as repeated keys WITHOUT brackets
-  // (`ids=1&ids=2`), not the axios default `ids[]=1`. The NestJS
-  // ValidationPipe runs `forbidNonWhitelisted`, and the bracketed form
-  // parses to a literal key `ids[]` on the server → "property ids[]
-  // should not exist" 400. Repeat form parses to an `ids` array under
-  // the DTO's declared property name. Single-value arrays arrive as a
-  // scalar and each list DTO normalises them via @Transform → number[].
+  // 配列クエリを bracket なしの繰り返しキー（`ids=1&ids=2`）で送る。
+  // axios 既定の `ids[]=1` は NestJS ValidationPipe の forbidNonWhitelisted で
+  // リテラルキー `ids[]` と解釈され 400（property ids[] should not exist）。
+  // 繰り返し形式なら DTO 宣言名の `ids` 配列になる。単一要素はスカラで届き
+  // 各 list DTO が @Transform で number[] に正規化する。
   paramsSerializer: { indexes: null },
 });
 

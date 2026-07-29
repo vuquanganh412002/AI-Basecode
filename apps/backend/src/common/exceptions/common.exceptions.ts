@@ -3,9 +3,8 @@ import { ErrorCode, ErrorMessage } from '@/common/constants/error-codes.constant
 import { DomainException, type ValidationErrorDetail } from './domain.exception';
 
 /**
- * Common exceptions for cross-cutting concerns.
- * Prefer these over hardcoding `new DomainException(...)` inline.
- * For screen-specific 404/409/validation, extend DomainException or pass a resource label.
+ * 横断的な共通例外。inline の `new DomainException(...)` より優先。
+ * 画面固有の 404/409/validation は DomainException を継承 or resource label を渡す。
  */
 
 export class BadRequestException extends DomainException {
@@ -33,10 +32,7 @@ export class DataScopeViolationException extends DomainException {
 }
 
 export class NotFoundException extends DomainException {
-  /**
-   * @param resource Japanese label of the resource (e.g. '単価', 'アカウント')
-   * to produce a descriptive message. Falls back to the generic NOT_FOUND message.
-   */
+  /** @param resource 資源の日本語ラベル (例 '単価', 'アカウント')。省略時は既定 NOT_FOUND 文言。 */
   constructor(resource?: string) {
     const message = resource
       ? `指定された${resource}が見つかりません。`
@@ -47,12 +43,9 @@ export class NotFoundException extends DomainException {
 
 export class DuplicateCodeException extends DomainException {
   /**
-   * Pass `value` to surface the actual code in the error toast — much
-   * easier for the user to spot the dup row in a long screen than the
-   * generic "同一のXが既に登録" message:
-   *   `JAコード「002001」はすでに登録されています。`
-   * Omit `value` for callers that don't have it handy (legacy or when
-   * the duplicate is on a non-public field).
+   * `value` を渡すと実コードをトーストに表示（例
+   * `JAコード「002001」はすでに登録されています。`）→ 重複行を特定しやすい。
+   * 手元に値が無い/非公開フィールドの重複時は省略可。
    */
   constructor(resource: string = 'コード', value?: string) {
     const message = value
@@ -75,11 +68,10 @@ export class TooManyRequestsException extends DomainException {
 }
 
 /**
- * Field-level validation failure (HTTP 400). Carries `errors[]` so the FE
- * `useApiForm` maps each to `<a-form-item :help>`. Use this instead of
- * hand-building `new HttpException({ code: 'VALIDATION_ERROR', errors }, …)`
- * so every screen emits the identical body shape (same as the ValidationPipe
- * factory + `assertMCodeValues`).
+ * フィールド単位の VALIDATION_ERROR (HTTP 400)。`errors[]` を持ち FE `useApiForm`
+ * が `<a-form-item :help>` にマップ。手組み `new HttpException({ code:
+ * 'VALIDATION_ERROR', errors }, …)` の代わりに使い、全画面で同一 body 形状
+ * (ValidationPipe factory + `assertMCodeValues` と同じ) を保証。
  *
  * ```ts
  * throw new ValidationException([

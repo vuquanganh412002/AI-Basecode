@@ -2815,12 +2815,13 @@ describe('DokusyaFormView — 引落口座支店 dropdown (機能定義 10.1)', 
 // ═══════════════════════════════════════════════════════════════════════
 describe('DokusyaFormView — 購読者層分類 conditional 主な生産物 (機能定義 11.x)', () => {
   it('should clear nogyosya_bunrui when 農業者 is unchecked from dokusyaso_bunrui (機能定義 11.2)', async () => {
-    // 機能定義 11.2 — 農業者を外すと nogyosya_bunrui をクリア.
+    // 機能定義 11.2 — 農業者(コード 0) を外すと nogyosya_bunrui をクリア.
+    // 分類はラベルでなく電子版と同じコードで保存する（顧客要件 2026-07）。
     const { wrapper } = await renderView();
     const vm = wrapper.vm as any;
     await fillForm(vm, buildCreateDokusyaForm({
-      dokusyaso_bunrui: '農業者',
-      nogyosya_bunrui: '水稲,野菜',
+      dokusyaso_bunrui: '0',
+      nogyosya_bunrui: '0,1',
     }));
 
     // Remove 農業者 from dokusyaso_bunrui.

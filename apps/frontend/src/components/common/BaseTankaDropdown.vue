@@ -1,21 +1,17 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable tanka dropdown.
+ * サーバーページング + 検索対応の単価ドロップダウン。
  *
- * Mirrors {@link BaseJaDropdown} / {@link BaseAccountDropdown}: 50/page
- * initial load, 300 ms debounced search on `tanka_name`, popup-scroll
- * appends next page, edit-form `include_id` pin. State-machine lives
- * in {@link useEntityDropdown}; this file binds tanka-specific knobs
- * (fetcher, idField, label composer + ¥ price suffix, `tanka_type`
- * filter, hard `jaId` cascade).
+ * {@link BaseJaDropdown} / {@link BaseAccountDropdown} と同構造（初回50件/page・
+ * `tanka_name` の 300ms デバウンス検索・popup-scroll で次ページ追加・編集時 include_id ピン）。
+ * 状態機械は {@link useEntityDropdown}、本ファイルは単価固有設定（fetcher / idField /
+ * label + ¥価格サフィックス / `tanka_type` フィルタ / hard な `jaId` カスケード）を束ねる。
  *
- * Cascades on `jaId` — when the parent picks a different JA (only
- * relevant for the NICHINO_STAFF 代行入力 flow), the option list resets
- * AND the current selection clears so a price from JA A doesn't leak
- * into a hanbaiten being created under JA B (hard reset).
+ * `jaId` でカスケード — 親が別 JA を選ぶと（NICHINO_STAFF 代行入力 フローのみ関係）
+ * option リストをリセットし現在の選択もクリアする。JA A の価格が JA B 配下で作成中の
+ * 販売店に紛れ込まないようにする（hard リセット）。
  *
- * Server-side filter is opt-in (`filter-option={false}`) so antd
- * doesn't also client-side filter the visible option list.
+ * サーバー側フィルタは opt-in（`filter-option={false}`）なので antd はクライアント側で絞り込まない。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -27,24 +23,23 @@ import { useEntityDropdown } from '@/composables/useEntityDropdown';
 import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
-  /** Currently-selected tanka_id (`null`/`undefined` = nothing selected). */
+  /** 選択中の tanka_id（`null`/`undefined` = 未選択）。 */
   value?: number | null;
   /**
-   * m_code.code_category=TANKA_TYPE value used to filter the list.
-   * SCR-017 hanbaiten create passes `2` (配達手数料).
+   * リスト絞り込み用の m_code.code_category=TANKA_TYPE 値。
+   * SCR-017 販売店作成は `2`（配達手数料）を渡す。
    */
   tankaType?: number;
   /**
-   * Explicit JA filter — supplied by NICHINO_STAFF 代行入力 flow
-   * where the form picked a JA up-front. For session-scoped roles
-   * (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) the BE auto-resolves
-   * from the session and this prop can be left undefined.
+   * 明示的な JA フィルタ — フォームが先に JA を選ぶ NICHINO_STAFF 代行入力 フローで指定。
+   * session スコープ付きロール（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）は BE が
+   * session から自動解決するため undefined でよい。
    */
   jaId?: number | null;
   disabled?: boolean;
   placeholder?: string;
   allowClear?: boolean;
-  /** Override page size. Default 50. */
+  /** ページサイズ上書き。既定 50。 */
   perPage?: number;
 }
 
@@ -56,8 +51,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  // Always emits `null` for "cleared" so callers get one canonical
-  // "nothing selected" representation, matching BaseJaDropdown.
+  // クリア時は常に `null` を emit（BaseJaDropdown と同じ「未選択」の統一表現）。
   'update:value': [v: number | null];
 }>();
 
@@ -88,12 +82,10 @@ const {
     return extra;
   },
   resetTriggers: [jaIdRef],
-  // [cascade-on-ja] Tanka cascade is "hard": when the parent's JA
-  // changes (NICHINO_STAFF flow), the previously-loaded tanka list
-  // belongs to a different JA. Clear the option list, reset paging,
-  // and clear the current selection so the caller's form-state
-  // doesn't keep a tanka_id from the wrong JA — it wouldn't survive
-  // the BE scope filter anyway.
+  // [cascade-on-ja] 単価カスケードは "hard"：親 JA 変更時（NICHINO_STAFF フロー）、
+  // 読込済み単価リストは別 JA のもの。option リスト・ページング・現在選択をクリアし、
+  // 呼び出し側 form-state に誤った JA の tanka_id を残さない（BE スコープフィルタで
+  // どのみち通らない）。
   resetMode: 'hard',
   clearValueOnReset: true,
   onResetTrigger: () => {
@@ -105,9 +97,8 @@ const {
 });
 
 /**
- * Antd `<a-select>` label. Show tanka_name + the price in parens so
- * the staff can confirm which line item they're picking when there
- * are multiple delivery-fee plans with similar names.
+ * antd `<a-select>` ラベル。tanka_name + 括弧内の価格を表示 — 似た名称の
+ * 配達手数料プランが複数あるとき、担当者がどの明細を選んでいるか確認できるようにする。
  */
 const selectOptions = computed(() =>
   options.value.map((o) => ({
@@ -124,7 +115,7 @@ function onChange(v: number | undefined): void {
   composableOnChange(v);
 }
 
-// Re-expose internal state for tests.
+// テスト用に内部状態を公開。
 defineExpose({ fetchPage, options, page, hasMore, q });
 </script>
 

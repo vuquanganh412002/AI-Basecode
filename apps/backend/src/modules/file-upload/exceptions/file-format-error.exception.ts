@@ -4,13 +4,11 @@ import { ErrorCode } from '@/common/constants/error-codes.constant';
 import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
- * SCR-023 — 許可されていないファイル形式 (extension whitelist breach).
+ * SCR-023 — 許可されていないファイル形式（拡張子ホワイトリスト違反）。
  *
- * Shares the `FILE_FORMAT_ERROR` code with SCR-019's Excel import but
- * uses a different default Japanese message (per api.md §エラー一覧
- * row 10). We override the default message here rather than touching
- * the shared `ErrorMessage.FILE_FORMAT_ERROR` to avoid breaking the
- * existing SCR-019 wording.
+ * `FILE_FORMAT_ERROR` コードは SCR-019 の Excel import と共有するが、既定の
+ * 日本語メッセージは別(api.md §エラー一覧 row 10)。SCR-019 の文言を壊さない
+ * よう、共有 `ErrorMessage.FILE_FORMAT_ERROR` を触らずここで既定を上書きする。
  */
 export class FileUploadFormatException extends DomainException {
   constructor(message: string = '許可されていないファイル形式です。') {

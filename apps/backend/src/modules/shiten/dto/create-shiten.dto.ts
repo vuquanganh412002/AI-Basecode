@@ -11,28 +11,19 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-/**
- * Coerce blank strings to `undefined` BEFORE `@IsOptional` runs.
- * See `.claude/rules/nestjs.md §DTO validation gotchas`.
- */
+// 空文字→undefined（@IsOptional 前に実行）。.claude/rules/nestjs.md §DTO validation gotchas
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/**
- * 金融機関支店フラグ (kinyu_shiten_flg) = true のとき、JASTEM 4項目
- * （データ送信取扱店舗コード / 店舗名 / 貯金種別 / 口座番号）は必須。
- * 各フィールドは `@ValidateIf(isJastemRequired || 値が指定されている)` で
- * gate し、`@IsNotEmpty` を効かせる（blankToUndef で空文字は undefined 化済み）。
- */
+// kinyu_shiten_flg=true のとき JASTEM 4項目（取扱店舗コード/店舗名/貯金種別/口座番号）は必須。
+// 各項目を @ValidateIf(isJastemRequired || 値指定あり) で gate し @IsNotEmpty を効かせる。
 const isJastemRequired = (o: { kinyu_shiten_flg?: boolean }): boolean =>
   o.kinyu_shiten_flg === true;
 
 /**
- * Request body for ACSMS-API-007-002 — POST /api/v1/shiten.
- *
- * Field constraints mirror api.md §リクエストパラメータ + §4.1.
- * `shiten_code` is fixed half-width 3-digit per screen-design §3.1.
- * `kinyu_shiten_flg` defaults to `false` per database-design §m_shiten.
+ * POST /api/v1/shiten (ACSMS-API-007-002) リクエストボディ。
+ * 制約は api.md §リクエストパラメータ + §4.1。shiten_code は半角3桁固定
+ * (screen-design §3.1)、kinyu_shiten_flg 既定 false (database-design §m_shiten)。
  */
 export class CreateShitenDto {
   @ApiProperty({ description: '支店コード（半角数字3桁固定）', minLength: 3, maxLength: 3 })
@@ -52,8 +43,7 @@ export class CreateShitenDto {
   @IsOptional()
   @IsString({ message: '支店名（カナ）は文字列で入力してください。' })
   @MaxLength(100, { message: '支店名（カナ）は最大100文字で入力してください。' })
-  // Half-width katakana — downstream Zengin CSV / PDF exports require it.
-  // ｦ-ﾟ covers letters ｦ-ﾝ + prolonged mark ｰ + dakuten/handakuten ﾞ ﾟ.
+  // 半角カタカナ（Zengin CSV / PDF 出力が要求）。ｦ-ﾟ = 文字ｦ-ﾝ + 長音ｰ + 濁点/半濁点ﾞﾟ。
   @Matches(/^[ｦ-ﾟ\s0-9]+$/u, {
     message: '支店名(カナ)は半角カタカナ・半角数字で入力してください。',
   })
@@ -69,7 +59,7 @@ export class CreateShitenDto {
   @IsBoolean({ message: '金融機関支店フラグはブール値で指定してください。' })
   kinyu_shiten_flg?: boolean;
 
-  // データ送信取扱店舗コード — half-width digits, no space allowed.
+  // データ送信取扱店舗コード — 半角数字のみ（スペース不可）。
   @ApiPropertyOptional({
     description: 'JASTEM_データ送信取扱店舗コード ※空文字許容',
     maxLength: 3,
@@ -88,8 +78,8 @@ export class CreateShitenDto {
   })
   jastem_toriatsukai_tenpo_code?: string;
 
-  // 店舗名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
-  // FE: utils/kana.ts JASTEM_NAME_RE と一致。
+  // 店舗名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25、漢字/ひらがな/全角不可）。
+  // FE utils/kana.ts JASTEM_NAME_RE と一致。
   @ApiPropertyOptional({ description: 'JASTEM_店舗名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
   @ValidateIf((o) => isJastemRequired(o) || o.jastem_tenpo_name !== undefined)
@@ -102,10 +92,8 @@ export class CreateShitenDto {
   })
   jastem_tenpo_name?: string;
 
-  // 貯金種別 — 1=普通貯金 / 2=当座貯金 / 9=その他.
-  // Stored as a single-char code; the import flow translates label
-  // strings ('普通貯金' / '当座貯金' / 'その他') to '1' / '2' / '9'
-  // before persisting. Form input is the code only.
+  // 貯金種別 — 1=普通貯金 / 2=当座貯金 / 9=その他。1文字コードで保存。
+  // import 時はラベル文字列を '1'/'2'/'9' に変換して永続化。フォーム入力はコードのみ。
   @ApiPropertyOptional({
     description: 'JASTEM_貯金種別 ※空文字許容（1=普通貯金, 2=当座貯金, 9=その他）',
     maxLength: 1,
@@ -122,7 +110,7 @@ export class CreateShitenDto {
   })
   jastem_tyokin_shubetsu?: string;
 
-  // 口座番号 — half-width digits.
+  // 口座番号 — 半角数字。
   @ApiPropertyOptional({ description: 'JASTEM_口座番号 ※空文字許容', maxLength: 7 })
   @Transform(blankToUndef)
   @ValidateIf((o) => isJastemRequired(o) || o.jastem_koza_no !== undefined)

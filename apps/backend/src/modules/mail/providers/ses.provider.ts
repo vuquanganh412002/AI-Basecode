@@ -5,11 +5,9 @@ interface SesConfig {
   region: string;
   from: string;
   /**
-   * SES configuration set applied to every send. Attributes the message to the
-   * set so its CloudWatch event destination + SNS bounce/complaint/reject
-   * notifications (provisioned in Terraform module.ses) capture this traffic,
-   * and the set's suppression list is honoured. Undefined → SES sends without a
-   * configuration set (no per-set metrics).
+   * 全送信に付与する SES configuration set。set の CloudWatch イベント宛先 +
+   * SNS bounce/complaint/reject 通知（Terraform module.ses）と suppression list
+   * が有効化される。Undefined → set 無しで送信（per-set メトリクス無し）。
    */
   configurationSet?: string;
 }
@@ -42,7 +40,7 @@ export class SesMailProvider implements MailProvider {
           Subject: { Data: options.subject, Charset: 'UTF-8' },
           Body: body,
         },
-        // Undefined when no set is configured — the SDK omits the field entirely.
+        // Undefined 時は SDK がフィールドを省略。
         ConfigurationSetName: this.configurationSet,
       }),
     );

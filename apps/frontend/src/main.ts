@@ -1,10 +1,10 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import Antd, { message } from 'ant-design-vue';
-// Antd reset is imported INSIDE styles/tailwind.css with `layer(antd)` so
-// Tailwind utilities (in layer(utilities), declared later) win the cascade.
-// Importing reset.css directly here would put it unlayered, which wins
-// over every layer per the CSS spec.
+// Antd reset は styles/tailwind.css 内で `layer(antd)` として import する。
+// これにより Tailwind ユーティリティ（後で宣言する layer(utilities)）が
+// カスケードで勝つ。ここで reset.css を直接 import すると unlayered になり、
+// CSS 仕様上あらゆる layer に勝ってしまう。
 import './styles/tailwind.css';
 import App from './App.vue';
 import router from './router';
@@ -16,22 +16,21 @@ async function bootstrap() {
   app.use(pinia);
 
   /**
-   * Global handler for Vue render / setup / lifecycle / async errors that
-   * escape any local try/catch and any onErrorCaptured boundary.
-   * `App.vue`'s onErrorCaptured already shows a toast for typical render
-   * errors; this is the truly-last fallback (e.g. unhandled promise
-   * rejection inside a setup() block) so the user always sees something
-   * and the error is logged for debugging.
+   * ローカルの try/catch と onErrorCaptured 境界をすり抜けた Vue の
+   * render / setup / lifecycle / async エラーのグローバルハンドラ。
+   * 典型的な render エラーには `App.vue` の onErrorCaptured が既にトーストを出す。
+   * これは真の最終フォールバック（例: setup() 内の未処理 promise reject）で、
+   * ユーザーに必ず何か見せ、デバッグ用にエラーをログする。
    */
   app.config.errorHandler = (err, _vm, info) => {
-    // Avoid pulling in useNotify here — at this point Vue may be in a
-    // partial state. Use antd's global `message` API directly (statically
-    // imported above; Antd is already in the main bundle via `app.use`).
+    // ここで useNotify を持ち込まない — この時点で Vue は部分状態のことがある。
+    // antd のグローバル `message` API を直接使う（上で静的 import 済み。Antd は
+    // `app.use` で既にメインバンドルに入っている）。
     message.error('予期しないエラーが発生しました。');
     console.error('[Vue errorHandler]', err, info);
   };
 
-  // Try to restore session via refresh_token cookie BEFORE mounting router guards.
+  // router ガードをマウントする前に refresh_token cookie でセッション復元を試みる。
   const authStore = useAuthStore();
   await authStore.refreshSession();
 

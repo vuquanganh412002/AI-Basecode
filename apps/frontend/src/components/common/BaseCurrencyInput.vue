@@ -1,35 +1,29 @@
 <script setup lang="ts">
-// BaseCurrencyInput — text input for monetary integers (JPY).
+// BaseCurrencyInput — 金額整数（JPY）用のテキスト入力。
 //
-// Display UX (per customer spec for 単価 / 配達手数料 / 税抜金額 etc.):
-//   - User types: raw digits `1234567` — no symbol, no separator.
-//   - On blur:    formatted `¥1,234,567` (yen symbol + comma thousand-
-//                 separator). Empty stays empty.
-//   - On focus:   reverts to raw `1234567` so the user can edit without
-//                 fighting the formatting.
+// 表示 UX（単価 / 配達手数料 / 税抜金額 等の顧客仕様）:
+//   - 入力中: 生の数字 `1234567`（記号・区切りなし）。
+//   - blur:   整形 `¥1,234,567`（円記号 + カンマ桁区切り）。空は空のまま。
+//   - focus:  生の `1234567` に戻し、整形と戦わずに編集できるようにする。
 //
-// v-model emits `number | null`:
-//   - Empty input → null
-//   - "0"         → 0 (legitimate value)
+// v-model は `number | null` を emit:
+//   - 空入力 → null
+//   - "0"         → 0（正当な値）
 //   - "1234567"   → 1234567
 //
-// BE shape stays integer — the formatting is purely UI; submit payload
-// is the raw number (`form.kingaku_zeikomi ?? undefined` upstream).
+// BE の形は整数のまま — 整形は純粋に UI。送信ペイロードは生の数値
+// （上流で `form.kingaku_zeikomi ?? undefined`）。
 //
-// Defence layers mirror [[BaseDigitsInput]]:
-//   1. autocorrect / autocapitalize / spellcheck off — kill OS-level
-//      text substitution (macOS double-space → period etc.).
-//   2. @beforeinput — preventDefault non-digit data; preventDefault
-//      OS replacement events (inputType /Replace/i).
-//   3. @keydown.space.prevent — clean block on typed space.
-//   4. @update:value sanitiser — strip every non-digit and emit
-//      `number | null`.
+// 防御層は [[BaseDigitsInput]] と同様:
+//   1. autocorrect / autocapitalize / spellcheck off — OS レベルのテキスト置換を無効化
+//      （macOS ダブルスペース→ピリオド 等）。
+//   2. @beforeinput — 非数字 data を preventDefault。OS 置換イベント（inputType /Replace/i）を preventDefault。
+//   3. @keydown.space.prevent — 入力スペースをクリーンにブロック。
+//   4. @update:value サニタイザ — 全非数字を除去し `number | null` を emit。
 //
-// `maxlength` applies to the RAW digit count (e.g. 10 = 9,999,999,999).
-// When blurred the formatted string can be wider (14 chars including
-// commas + ¥); we drop maxlength on blur to avoid antd silently
-// clipping the formatted display. Re-applied on focus so typing
-// respects the cap.
+// `maxlength` は生の桁数に適用（例: 10 = 9,999,999,999）。blur 時の整形文字列は
+// より長くなり得る（カンマ + ¥ 込みで 14 文字）ため、antd が整形表示を黙って切り詰めないよう
+// blur で maxlength を外し、focus で再適用して入力は上限を守らせる。
 
 import { computed, ref } from 'vue';
 
@@ -57,9 +51,8 @@ const isFocused = ref(false);
 const displayValue = computed(() => {
   if (props.value === null || props.value === undefined) return '';
   if (isFocused.value) return String(props.value);
-  // toLocaleString('en-US') gives Western thousand separators (commas
-  // + dot). For Japanese yen we use the same comma separator — same
-  // glyph the design mockup ships, and customer-confirmed.
+  // toLocaleString('en-US') は欧米式の桁区切り（カンマ + ドット）。日本円も同じ
+  // カンマ区切りを使う — デザインモックと同じ字形で顧客確認済み。
   return `¥${props.value.toLocaleString('en-US')}`;
 });
 

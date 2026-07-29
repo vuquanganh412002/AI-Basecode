@@ -52,8 +52,7 @@ export class RolesService {
   }
 
   // ─── ACSMS-API-COMMON-002 — GET /api/v1/roles/dropdown ──────────────
-  // Slim list for screens that need only the 3 fields (role_id /
-  // role_code / role_name). Authenticated-only — no role gate.
+  // 3項目(role_id/role_code/role_name)のみ要る画面向けスリム版。認証のみ、role gate なし。
   async listRolesDropdown(): Promise<{
     data: Array<{ role_id: number; role_code: string; role_name: string }>;
   }> {
@@ -94,9 +93,8 @@ export class RolesService {
     session: SessionPayload,
     req: Request,
   ): Promise<{ data: RoleDetailResponse; message: string }> {
-    // [fetch-target] — confirm the role exists BEFORE the validation hop (so a
-    // bogus role_id with a bad permission list still returns 404, not
-    // 400). Also captured for before_value in the audit log.
+    // [fetch-target] — 検証前に存在確認（不正 role_id + 不正 permission でも 400 でなく
+    // 404 を返す）。audit の before_value にも使用。
     const before = await this.roleRepo.findOne({
       where: { roleId, deletedAt: IsNull() },
     });
@@ -104,9 +102,8 @@ export class RolesService {
       throw new NotFoundException('ロール');
     }
 
-    // [code-master-check] — every permission_id in the body must exist in m_permissions.
-    // Reject as VALIDATION_ERROR so the FE useApiForm composable maps the
-    // error to the permission_ids field (BAD_REQUEST would just toast).
+    // [code-master-check] — body の全 permission_id は m_permissions に存在必須。
+    // VALIDATION_ERROR で返し FE useApiForm が permission_ids に紐付ける（BAD_REQUEST は toast のみ）。
     if (dto.permission_ids.length > 0) {
       const validCount = await this.permissionRepo.count({
         where: { permissionId: In(dto.permission_ids), deletedAt: IsNull() },
@@ -118,9 +115,8 @@ export class RolesService {
       }
     }
 
-    // [single-snapshot] One find() gives us BOTH the before-snapshot for
-    // the audit log AND the locked map for the guard below — saves a
-    // duplicate query and keeps spec mocking simple.
+    // [single-snapshot] 1回の find() で audit の before スナップショットと下の guard 用
+    // locked マップ両方を得る — 重複クエリ回避、spec mock も簡潔。
     const currentAllocations = await this.rolePermissionRepo.find({
       where: { roleId, deletedAt: IsNull() },
       order: { permissionId: 'ASC' },
@@ -129,12 +125,10 @@ export class RolesService {
       .map((r) => Number(r.permissionId))
       .sort((a, b) => a - b);
 
-    // [locked-guard] — snapshot which currently-active rows are locked
-    // (= seeded baseline; see migration 1711900900012). Rejection
-    // happens BEFORE the transaction so the audit log never records a
-    // half-attempt. Preservation map gets reused below when re-
-    // inserting so the locked flag survives the soft-delete + insert
-    // cycle (would otherwise reset to default FALSE on every PATCH).
+    // [locked-guard] — 現在有効な行のうち locked を取得（seed ベースライン,
+    // migration 1711900900012）。tx 前に拒否し audit に中途半端を残さない。
+    // このマップは下の再 INSERT で再利用し soft-delete+insert で locked を維持
+    // （さもないと PATCH 毎に既定 FALSE に戻る）。
     const lockedByPermId = new Map<number, boolean>(
       currentAllocations.map((r) => [Number(r.permissionId), r.locked]),
     );
@@ -158,7 +152,7 @@ export class RolesService {
 
     try {
       const result = await this.dataSource.transaction(async (manager) => {
-        // [partial-update] — update role basic info.
+        // [partial-update] — ロール基本情報を更新。
         await manager.update(
           Role,
           { roleId },
@@ -169,17 +163,16 @@ export class RolesService {
           },
         );
 
-        // [soft-delete] — soft-delete every existing allocation for this role.
+        // [soft-delete] — このロールの既存割当を全て論理削除。
         await manager.update(
           RolePermission,
           { roleId, deletedAt: IsNull() },
           { deletedAt: new Date(), updatedBy: String(session.account_id) },
         );
 
-        // [business-insert] — INSERT new allocations (only when array is non-empty).
-        // Preserve `locked` from the snapshot above; freshly-added
-        // permission_ids that weren't in the current set default to
-        // FALSE (admin-added permissions are never locked).
+        // [business-insert] — 新規割当を INSERT（配列が空でない時のみ）。上の
+        // スナップショットの locked を維持。現集合になかった新規 permission_id は
+        // FALSE 既定（admin 追加権限は locked にならない）。
         if (dto.permission_ids.length > 0) {
           const newRows = dto.permission_ids.map((permissionId) =>
             manager.create(RolePermission, {
@@ -193,17 +186,16 @@ export class RolesService {
           await manager.save(RolePermission, newRows);
         }
 
-        // [reread-after-write] — RETURNING * equivalent — re-read the row inside the tx.
+        // [reread-after-write] — RETURNING * 相当 — tx 内で行を再読込。
         const refreshed = await manager.findOne(Role, {
           where: { roleId, deletedAt: IsNull() },
         });
         if (!refreshed) {
-          // Defensive: row was deleted concurrently between [fetch-target] and now.
+          // 防御的: [fetch-target] 以降に行が並行削除された場合。
           throw new NotFoundException('ロール');
         }
 
-        // [audit-log-in-tx] — INSIDE the transaction so business write +
-        // audit row commit together or rollback together.
+        // [audit-log-in-tx] — tx 内で業務書込 + 監査行を一括 commit/rollback。
         await this.auditLog.logUpdate(
           buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, roleId),
           {
@@ -226,13 +218,10 @@ export class RolesService {
         return refreshed;
       });
 
-      // After the transaction commits, the active allocations equal the
-      // input dto.permission_ids (we soft-deleted everything and inserted
-      // the new set). Returning the dto directly avoids an extra round
-      // trip to the DB and keeps unit-spec mocks deterministic — the
-      // active list is sorted ASC to match api.md §3 example ordering.
-      // Locked subset comes from the pre-tx snapshot (lockedByPermId)
-      // intersected with the now-active set.
+      // commit 後、有効割当は入力 dto.permission_ids と一致（全削除+新集合 INSERT）。
+      // dto を直接返し DB 往復を省き unit-spec mock も決定的に。有効一覧は api.md §3 の
+      // 例順に合わせ ASC ソート。locked 部分集合は tx 前スナップショット(lockedByPermId)と
+      // 現有効集合の積。
       const refreshedPermissionIds = [...dto.permission_ids].sort(
         (a, b) => a - b,
       );
@@ -248,8 +237,8 @@ export class RolesService {
         message: '更新しました。',
       };
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back transaction so the failure
-      // trace survives. Do NOT pass manager here.
+      // [audit-error-log] — ロールバック済み tx の外で失敗トレースを残す。ここで
+      // manager は渡さない。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, roleId),
         AuditOperation.UPDATE,
@@ -274,19 +263,17 @@ export class RolesService {
       where: { roleId, deletedAt: IsNull() },
       order: { permissionId: 'ASC' },
     });
-    // Sort explicitly — TypeORM applies `order:` at the DB layer; unit
-    // tests that mock `repo.find` ignore that option, so a defensive
-    // in-memory sort keeps both paths consistent.
+    // 明示ソート — TypeORM の `order:` は DB 層適用で、repo.find を mock する unit test
+    // は無視するため、防御的にメモリ内ソートし両経路を一致させる。
     return rows
       .map((r) => Number(r.permissionId))
       .sort((a, b) => a - b);
   }
 
   /**
-   * Subset of active permission_ids whose row has `locked = true`
-   * (seeded baseline). FE disables matching checkboxes; BE rejects
-   * PATCH that drops any of them. See migration
-   * 1711900900012-AlterMRolesPermissionsAddLocked.
+   * 有効 permission_ids のうち行が locked=true（seed ベースライン）の部分集合。FE は
+   * 該当チェックボックスを disabled にし、BE はこれを外す PATCH を拒否。
+   * migration 1711900900012-AlterMRolesPermissionsAddLocked 参照。
    */
   private async findLockedPermissionIds(roleId: number): Promise<number[]> {
     const rows = await this.rolePermissionRepo.find({

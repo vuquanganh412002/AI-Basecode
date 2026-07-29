@@ -3,7 +3,7 @@ import { IsIn, IsOptional } from 'class-validator';
 
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
-/** Whitelist of sortable columns per api.md §4.1 of API-031-001. */
+/** ソート可能カラムの許可リスト（API-031-001 api.md §4.1）。 */
 export const OSHIRASE_SEARCH_SORT_BY = [
   'oshirase_id',
   'title',
@@ -15,12 +15,11 @@ export const OSHIRASE_SEARCH_SORT_BY = [
 export type OshiraseSearchSortBy = (typeof OSHIRASE_SEARCH_SORT_BY)[number];
 
 /**
- * Query DTO for `GET /api/v1/oshirase` (ACSMS-API-031-001).
- *
- * Inherits `page` / `per_page` from {@link PaginationDto} (canonical
- * defaults: page=1, per_page=20, max 100, Japanese error messages).
- * Adds an `OSHIRASE_SEARCH_SORT_BY`-whitelisted `sort_by` + `sort_order`
- * — the enum varies per search endpoint so those two fields stay local.
+ * GET /api/v1/oshirase (ACSMS-API-031-001) の Query DTO。
+ * page / per_page は {@link PaginationDto} を継承（既定 page=1,
+ * per_page=20, max 100, 日本語エラー）。sort_by / sort_order は
+ * エンドポイント毎に enum が異なるためローカル定義
+ * （`OSHIRASE_SEARCH_SORT_BY` で許可制）。
  */
 export class SearchOshiraseDto extends PaginationDto {
   @ApiPropertyOptional({

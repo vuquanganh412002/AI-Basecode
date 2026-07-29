@@ -14,41 +14,34 @@ import {
 } from 'class-validator';
 
 /**
- * Empty-string → undefined transformer. `@IsOptional()` only skips
- * `null` / `undefined`, NOT `""`. Form posts send blank optional inputs
- * as `""` — without this, `@Matches` / `@MaxLength` would reject. See
- * `.claude/rules/nestjs.md §DTO validation gotchas`.
+ * 空文字 → undefined 変換。`@IsOptional()` は `null` / `undefined` のみスキップし
+ * `""` はスキップしない。フォームは空の任意入力を `""` で送るため、これが無いと
+ * `@Matches` / `@MaxLength` が弾く（`.claude/rules/nestjs.md §DTO validation gotchas`）。
  */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Half-width katakana regex. Project convention — half-width only
- * (Zengin / bank-CSV compatibility — see `.claude/rules/vue.md §Kana`).
- * Range `ｦ-ﾟ` (U+FF66-FF9F) covers letters + prolonged sound mark
- * + dakuten / handakuten. `\s` already includes the full-width space
- * U+3000, no need to add it explicitly.
+ * 半角カタカナ regex。プロジェクト規約で半角のみ（Zengin / 銀行 CSV 互換・
+ * `.claude/rules/vue.md §Kana`）。範囲 `ｦ-ﾟ`(U+FF66-FF9F)＝文字 + 長音符 +
+ * 濁点/半濁点。`\s` は全角スペース U+3000 を含むため明示追加は不要。
  */
 const HALF_WIDTH_KATAKANA_RE = /^[ｦ-ﾟ\s0-9]+$/u;
 
 /**
- * Body for POST /api/v1/hanbaiten (ACSMS-API-017-002).
+ * POST /api/v1/hanbaiten のボディ (ACSMS-API-017-002)。
  *
- * Field rules sourced from docs/design/ACSMS-SCR-017 api.md §4.1
- * + 画面設計書 v1.2 §3.1. The conditional-required rule on No.17~23
- * (when itaku_kubun = 1) is a CROSS-FIELD check and lives in the
- * service layer (HanbaitenService.assertConditionalRequired), not here.
- * The m_code allow-list checks on itaku_kubun / furikomi_tesuryo_futan_kubun /
- * yokin_shubetsu also live in the service (CodeService.has) since
- * `class-validator` runs before Nest DI is wired.
+ * 項目規則は ACSMS-SCR-017 api.md §4.1 + 画面設計書 v1.2 §3.1 由来。No.17〜23 の
+ * 条件付き必須（itaku_kubun = 1 のとき）は相関チェックのため service 層
+ * （HanbaitenService.assertConditionalRequired）にあり、ここには無い。
+ * itaku_kubun / furikomi_tesuryo_futan_kubun / yokin_shubetsu の m_code allow-list
+ * 検証も、`class-validator` が Nest DI 前に走るため service（CodeService.has）にある。
  */
 export class CreateHanbaitenDto {
-  // [staff-ja-id] NICHINO_STAFF 代行入力 sends ja_id explicitly via the
-  // form's <BaseJaDropdown> — session.ja_id is null for that role, so
-  // the service falls back to this body field. Session-scoped roles
-  // (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) may also send it; the
-  // service ignores it and uses session.ja_id instead, so cross-tenant
-  // injection isn't possible.
+  // [staff-ja-id] NICHINO_STAFF 代行入力 はフォームの <BaseJaDropdown> で ja_id を
+  // 明示送信する — この役は session.ja_id が null のため service はこのボディ項目に
+  // フォールバックする。セッションスコープ役（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）も
+  // 送りうるが service は無視して session.ja_id を使うため、クロステナント注入は不可。
   @ApiPropertyOptional({
     description: 'JA ID (NICHINO_STAFF 代行入力 専用)。',
   })

@@ -36,14 +36,12 @@ const route = useRoute();
 const notify = useNotify();
 const authStore = useAuthStore();
 
-// Permission gates per docs/database/seeder.md §3 shiten.* matrix +
-// ACSMS-SCR-006 api.md §4.2. The three JA-level roles (CHUOKAI /
-// JA_HONTEN / JA_KANRI_SHITEN) all carry shiten.view / .create /
-// .update / .delete; we still guard the UI so a future role-perm
-// edit can't accidentally surface forbidden actions. Buttons stay
-// visible but `:disabled` for roles missing the perm so the UX
-// signals "feature exists, your role can't use it" instead of
-// hiding the affordance entirely (vue.md §Permission-aware list buttons).
+// 権限ゲート（seeder.md §3 shiten.* マトリクス + ACSMS-SCR-006 api.md §4.2）。
+// JA レベル3ロール（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）は全て
+// shiten.view / .create / .update / .delete を持つが、将来の権限編集で禁止操作が
+// 誤って露出しないよう UI もガードする。権限のないロールでもボタンは表示のまま
+// `:disabled` にし「機能はあるがこのロールでは使えない」ことを示す
+// （vue.md §Permission-aware list buttons）。
 const canCreate = computed(() => authStore.hasPermission('shiten.create'));
 const canUpdate = computed(() => authStore.hasPermission('shiten.update'));
 const canDelete = computed(() => authStore.hasPermission('shiten.delete'));
@@ -70,9 +68,8 @@ const {
 } =
   useTableQuery<ShitenFilters>({
     defaultFilters: { ...DEFAULT_FILTERS },
-    // Default sort puts the most-recently-updated rows first so the row
-    // a user just created / edited appears at the top of the list.
-    // The 画面定義§8.1 columns stay available via header clicks.
+    // 既定ソートは最終更新順で、作成/編集した行が一覧先頭に来る。
+    // 画面定義§8.1 の列はヘッダクリックで引き続き利用可。
     defaultSortBy: 'updated_at',
     defaultSortOrder: 'desc',
   });
@@ -80,11 +77,10 @@ const {
 const rows = ref<ShitenListItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 
-// Columns mirror docs/design/ACSMS-SCR-006/screen-design.md
-// §画面項目定義 §検索結果テーブル + index.html, with 管理支店名 added
-// as the leading context column (joined from m_kanri_shiten by the BE).
-// Sortable columns: 支店コード / 支店名 per §機能定義§8.1, plus 管理支店名
-// (joined; BE adds a LEFT JOIN only when this sort is requested).
+// 列は screen-design.md §画面項目定義 §検索結果テーブル + index.html をミラーし、
+// 先頭に文脈列として 管理支店名（BE が m_kanri_shiten から JOIN）を追加。
+// ソート可能列: 支店コード / 支店名（§機能定義§8.1）と 管理支店名
+// （JOIN。BE はこのソート要求時のみ LEFT JOIN を足す）。
 const columns: TableColumnsType = [
   { title: '支店コード', dataIndex: 'shiten_code', key: 'shiten_code', sorter: true, width: 160 },
   { title: '管理支店名', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', sorter: true, width: 200 },
@@ -100,13 +96,11 @@ const columns: TableColumnsType = [
 
 /**
  * [highlight-on-return]
- * After a successful create/update, ShitenFormView pushes back here
- * with `?highlight=:shiten_id`. Hoist that row to the top of the
- * fetched page so the user sees the change without scrolling the
- * code-sorted list. The query param is consumed once — we clear it
- * via router.replace so a page refresh doesn't keep pinning the row.
- * If the touched row isn't on the current page (e.g. user paginated
- * before returning), the hoist is a no-op — no fetch-extra needed.
+ * 作成/更新成功後、ShitenFormView が `?highlight=:shiten_id` でここへ戻る。
+ * その行を取得ページの先頭へ引き上げ、コード順一覧をスクロールせず変更を見せる。
+ * query param は1回だけ消費 — router.replace でクリアし、リフレッシュしても
+ * 固定し続けないようにする。対象行が現ページになければ（例: 戻る前にページ送り）
+ * 引き上げは no-op — 追加 fetch は不要。
  */
 function hoistHighlight(): void {
   const raw = route.query.highlight;
@@ -118,8 +112,8 @@ function hoistHighlight(): void {
     const [pinned] = rows.value.splice(idx, 1);
     rows.value.unshift(pinned);
   }
-  // Clear the query param so subsequent navigations / refreshes
-  // don't re-pin. Use replace so it doesn't add a history entry.
+  // 以降のナビゲーション / リフレッシュで再固定しないよう query param をクリア。
+  // 履歴を増やさないよう replace を使う。
   void router.replace({ query: { ...route.query, highlight: undefined } });
 }
 
@@ -132,7 +126,7 @@ async function fetchList(): Promise<void> {
       kanri_shiten_id: state.filters.kanri_shiten_id,
       jastem_toriatsukai_tenpo_code:
         state.filters.jastem_toriatsukai_tenpo_code || undefined,
-      // 'all' → undefined (no filter). 'true' / 'false' → boolean.
+      // 'all' → undefined（フィルタなし）。'true' / 'false' → boolean。
       kinyu_shiten_flg:
         state.filters.kinyu_shiten_flg === 'all'
           ? undefined
@@ -147,9 +141,9 @@ async function fetchList(): Promise<void> {
     total.value = res.meta.total;
     hoistHighlight();
   } catch {
-    // Expected & ignored: global axios interceptor already toasted
-    // FORBIDDEN / 500. Re-throwing would surface an unhandled rejection
-    // in onMounted's fire-and-forget. See vue.md §List view rules #5.
+    // 想定内・無視: axios interceptor が FORBIDDEN / 500 を既にトースト済み。
+    // 再throw は onMounted の fire-and-forget で unhandled rejection になる
+    // （vue.md §List view rules #5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -158,9 +152,9 @@ async function fetchList(): Promise<void> {
 }
 
 async function loadKanriShitenOptions(): Promise<void> {
-  // 管理支店 dropdown via ACSMS-API-COMMON-004 — scoped to caller's JA.
-  // NICHINO_* roles have ja_id = null but they don't carry shiten.view
-  // (router guard rejects), so they never reach this view.
+  // 管理支店 dropdown（ACSMS-API-COMMON-004）— 呼び出し元の JA にスコープ。
+  // NICHINO_* は ja_id = null だが shiten.view を持たず（router guard が拒否）
+  // この view に到達しない。
   const jaId = authStore.user?.ja_id;
   if (jaId === null || jaId === undefined) {
     kanriShitenOptions.value = [];
@@ -170,7 +164,7 @@ async function loadKanriShitenOptions(): Promise<void> {
     const resp = await getKanriShitenDropdown(jaId);
     kanriShitenOptions.value = resp.data;
   } catch {
-    // Axios interceptor already toasted on 403 / 500.
+    // axios interceptor が 403 / 500 を既にトースト済み。
     kanriShitenOptions.value = [];
   }
 }
@@ -180,10 +174,10 @@ onMounted(() => {
   void loadKanriShitenOptions();
 });
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim text filters so paste artifacts / IME spaces don't widen the ILIKE pattern.
+  // paste/IME 空白で ILIKE を広げないようテキストフィルタを trim。
   beforeSearch() {
     state.filters.shiten_name = state.filters.shiten_name.trim();
     state.filters.shiten_code = state.filters.shiten_code.trim();
@@ -213,8 +207,8 @@ function askDelete(row: ShitenListItem): void {
       notify.deleted(); // '削除しました。' (verb-only — vue.md §useNotify)
       await fetchList();
     } catch {
-      // Global interceptor handled 409 CONFLICT (ACSMS-MSG-006-006) /
-      // 500 (ACSMS-MSG-006-004); view must NOT re-toast.
+      // interceptor が 409 CONFLICT（ACSMS-MSG-006-006）/ 500
+      // （ACSMS-MSG-006-004）を処理。view で再トーストしない。
     }
   });
 }
@@ -222,11 +216,11 @@ function askDelete(row: ShitenListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 5 filters per customer request 2026-05-21:
-         支店コード / 支店名 / 管理支店 (dropdown) /
-         データ送信取扱店舗コード / 金融機関支店フラグ (radio).
-         4-col grid spreads filters across 2 rows; the radio group spans
-         2 cols so all 3 options stay on one line. -->
+    <!-- 検索エリア — 顧客要望 2026-05-21 の5フィルタ:
+         支店コード / 支店名 / 管理支店（dropdown）/
+         データ送信取扱店舗コード / 金融機関支店フラグ（radio）。
+         4列グリッドでフィルタを2行に広げ、radio group は2列分を占めて
+         3選択肢を1行に収める。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
@@ -298,9 +292,9 @@ function askDelete(row: ShitenListItem): void {
       </div>
     </BaseSearchForm>
 
-    <!-- Empty-result message rendered as a sibling <p> — a-table's
-         emptyText slot is not safely forwardable through BaseDataTable's
-         dynamic slot loop. (vue.md §List view rules #4) -->
+    <!-- 空結果メッセージは兄弟 <p> で描画 — a-table の emptyText slot は
+         BaseDataTable の動的 slot ループで安全に転送できない
+         （vue.md §List view rules #4）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"
@@ -331,9 +325,8 @@ function askDelete(row: ShitenListItem): void {
 
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'shiten_code'">
-          <!-- Code is the edit entry point. Anchor only when the user
-               has update permission; otherwise plain text avoids a
-               dead-end click. -->
+          <!-- コードが編集の入口。update 権限があるときのみアンカー化、
+               なければプレーンテキストで行き止まりクリックを避ける。 -->
           <a
             v-if="canUpdate"
             class="text-primary hover:underline"

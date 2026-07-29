@@ -425,11 +425,6 @@ export class ZougenReportService {
 
   // ─── ACSMS-SCR-028 private helpers ─────────────────────────────────
 
-  /**
-   * 適用日に変更があった増減対象レコードを取得する（api.md §4.4 のSQLと同一）。
-   *   joho_henko_tekiyo_date = :tekiyo_date / zougen_hokoku_flg = true /
-   *   h.haiten_flg = false（廃店・電子版ダミー販売店を除外）/ DataScope適用。
-   */
   /** 明細行の SELECT 列（全件export・ページ行取得 共通）。 */
   private static readonly ZOUGEN_SELECT: string[] = [
     'r.dokusya_rireki_id AS dokusya_rireki_id',
@@ -488,9 +483,9 @@ export class ZougenReportService {
   ];
 
   /**
-   * 行集合を決める INNER JOIN(廃店除外) + WHERE + DataScope を組み立てた
-   * QueryBuilder を返す（SELECT・並び順なし）。count / ページID / 明細行 の
-   * 各クエリが共通の土台にすることでフィルタのドリフトを防ぐ。
+   * 行集合を決める INNER JOIN(廃店除外) + WHERE + DataScope の QueryBuilder（SELECT/並び順
+   * なし。api.md §4.4 と同一: joho=:tekiyo_date / zougen_hokoku_flg=true / h.haiten_flg=false）。
+   * 各クエリが共通の土台にしてフィルタのドリフトを防ぐ。
    */
   private zougenBaseQuery(
     query: ZougenHanbaitenQueryDto,
@@ -615,11 +610,6 @@ export class ZougenReportService {
 
   // ─── ACSMS-SCR-029 private helpers ─────────────────────────────────
 
-  /**
-   * 適用日に増減があった増減対象レコードを取得する（api.md §4.5 のSQLと同一）。
-   *   joho_henko_tekiyo_date = :tekiyo_date / zougen_hokoku_flg = true /
-   *   h.haiten_flg = false / 現在部数=0 かつ 新部数=0 を除外 / DataScope適用。
-   */
   /** 明細行の SELECT 列（全件export・ページ行取得 共通）。 */
   private static readonly NICHINO_SELECT: string[] = [
     'r.dokusya_rireki_id AS dokusya_rireki_id',

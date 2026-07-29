@@ -3,12 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * Single row in `GET /api/v1/shiten` response data array.
- * Shape mirrors ACSMS-SCR-006-api.md §レスポンスデータ.
- *
- * Same column set as `ShitenDetailDto`; kept separate so the list and
- * detail endpoints can evolve independently (e.g. list may strip biko
- * later, or detail may gain joined fields).
+ * GET /api/v1/shiten の data 配列 1 行（ACSMS-SCR-006-api.md §レスポンスデータ）。
+ * 列は ShitenDetailDto と同じだが、list と detail を独立に進化させるため別クラス。
  */
 export class ShitenListItemDto {
   @ApiProperty({ description: '支店ID' })
@@ -57,7 +53,7 @@ export class ShitenListItemDto {
   updated_at: string | null;
 }
 
-/** Wrapper for GET /api/v1/shiten paginated response. */
+/** GET /api/v1/shiten ページ応答のラッパー。 */
 export class ShitenListResponseDto {
   @ApiProperty({ type: [ShitenListItemDto] })
   data: ShitenListItemDto[];

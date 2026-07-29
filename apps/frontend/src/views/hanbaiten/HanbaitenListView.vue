@@ -35,16 +35,14 @@ interface HanbaitenFilters {
   fax: string;
   address: string;
   shocho_name: string;
-  /** Default false — 廃店フラグの立つレコードを除外する。 */
+  /** 既定 false — 廃店フラグの立つレコードを除外する。 */
   haiten_flg: boolean;
   /** 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。 */
   active_tanka_flg: ActiveFlgFilter;
   /**
-   * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) selects a
-   * JA via BaseJaDropdown before any search runs. Null means "no JA
-   * picked yet" — the list stays empty for staff until a JA is
-   * chosen. Non-staff roles ignore this field; the BE uses
-   * session.ja_id for them.
+   * [staff-ja-filter] NICHINO_STAFF（session.ja_id == null）は検索前に
+   * BaseJaDropdown で JA を選ぶ。null = 未選択で、選ぶまで一覧は空。
+   * 非 staff ロールは無視し、BE は session.ja_id を使う。
    */
   ja_id: number | null;
 }
@@ -55,12 +53,11 @@ const notify = useNotify();
 const authStore = useAuthStore();
 const codes = useCodesStore();
 
-// Permission gates per seeder.md §3 hanbaiten matrix.
-// CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN hold {view, create, update, delete}.
-// NICHINO_STAFF holds only `hanbaiten.daiko_input` (代行入力) — it can
-// reach this screen via the menu entry that targets the same route, and
-// gets create / update through the daiko_input permission. Delete stays
-// off for staff (代行入力 doesn't include removal authority).
+// 権限ゲート（seeder.md §3 hanbaiten マトリクス）。
+// CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は {view, create, update, delete}。
+// NICHINO_STAFF は `hanbaiten.daiko_input`（代行入力）のみ — 同じルートの
+// メニューでこの画面に到達し、daiko_input で create / update 可。
+// 削除は staff 不可（代行入力に削除権限は含まれない）。
 const canCreate = computed(
   () =>
     authStore.hasPermission('hanbaiten.create') ||
@@ -73,10 +70,9 @@ const canUpdate = computed(
 );
 const canDelete = computed(() => authStore.hasPermission('hanbaiten.delete'));
 
-// [staff-ja-filter] NICHINO_STAFF has no session.ja_id — every search /
-// list call must carry an explicit ja_id from the BaseJaDropdown above
-// the search form. Detected via the dedicated daiko_input permission so
-// we don't accidentally branch on role_code strings.
+// [staff-ja-filter] NICHINO_STAFF は session.ja_id を持たない — 検索/一覧の
+// 各呼び出しは検索フォーム上部の BaseJaDropdown からの明示 ja_id を伴う。
+// role_code 文字列で分岐しないよう daiko_input 権限で判定する。
 const isStaff = computed(() =>
   authStore.hasPermission('hanbaiten.daiko_input'),
 );
@@ -96,22 +92,21 @@ const {
       active_tanka_flg: '',
       ja_id: null,
     },
-    // Default landing order is updated_at desc (most-recently-touched first)
-    // so a freshly created, imported OR updated 販売店 appears at the top.
-    // hanbaiten_code / hanbaiten_name stay clickable column sorts
-    // (画面設計書 §8.1); clearing a column sort falls back to this default.
+    // 既定は updated_at desc（最終更新順）で、新規作成・インポート・更新された
+    // 販売店が先頭に来る。hanbaiten_code / hanbaiten_name は列ソート可
+    // （画面設計書 §8.1）。列ソート解除でこの既定に戻る。
     defaultSortBy: 'updated_at',
     defaultSortOrder: 'desc',
   });
 
 const rows = ref<HanbaitenListItem[]>([]);
 
-// Column order per index.html + screen-design.md v1.2 §検索結果テーブル:
+// 列順は index.html + screen-design.md v1.2 §検索結果テーブルに準拠:
 // 販売店コード / 販売店名 / JA(コード+名称) / 都道府県 / 郵便番号 / 住所 /
 // 電話番号 / FAX / 所長名 / 委託区分 / 配達手数料支払サイクル /
-// 振込手数料負担区分 / 廃店フラグ / 操作.
-// Sortable per 機能定義 8.1: hanbaiten_code, hanbaiten_name ONLY.
-// Explicit widths keep the layout stable when the sort icon appears.
+// 振込手数料負担区分 / 廃店フラグ / 操作。
+// ソート可能は 機能定義 8.1 の hanbaiten_code, hanbaiten_name のみ。
+// ソートアイコン出現時もレイアウトを安定させるため width を明示。
 const columns: TableColumnsType = [
   { title: '販売店コード', dataIndex: 'hanbaiten_code', key: 'hanbaiten_code', sorter: true, width: 140 },
   { title: '販売店名', dataIndex: 'hanbaiten_name', key: 'hanbaiten_name', sorter: true, width: 200 },
@@ -146,14 +141,13 @@ async function fetchList(): Promise<void> {
       fax: state.filters.fax || undefined,
       address: state.filters.address || undefined,
       shocho_name: state.filters.shocho_name || undefined,
-      // When true, include 廃店 rows. When false, BE applies default
-      // (exclude 廃店). Pass-through both states explicitly so the
-      // spec can assert `haiten_flg: true` was sent.
+      // true で廃店行を含む。false は BE 既定（廃店を除外）。spec が
+      // `haiten_flg: true` の送信を検証できるよう両状態を明示送信。
       haiten_flg: state.filters.haiten_flg,
       // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
       active_tanka_flg: toBoolean(state.filters.active_tanka_flg),
-      // [staff-ja-filter] only sent when set — non-staff omit the key
-      // and the BE falls back to session.ja_id.
+      // [staff-ja-filter] 設定時のみ送信 — 非 staff はキーを省略し
+      // BE は session.ja_id にフォールバック。
       ja_id: state.filters.ja_id ?? undefined,
       page: state.page,
       per_page: state.per_page,
@@ -164,11 +158,10 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: the global axios interceptor in
-    // src/api/error-handler.ts already toasted FORBIDDEN / 500
-    // (ACSMS-MSG-018-002 / ACSMS-MSG-018-003). Re-throwing would surface
-    // an unhandled rejection in onMounted's fire-and-forget invocation.
-    // Per .claude/rules/vue.md §List view rule 5.
+    // 想定内・無視: error-handler.ts が FORBIDDEN / 500
+    // （ACSMS-MSG-018-002 / ACSMS-MSG-018-003）を既にトースト済み。再throw は
+    // onMounted の fire-and-forget で unhandled rejection になる
+    // （vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -176,21 +169,19 @@ async function fetchList(): Promise<void> {
   }
 }
 
-// [staff-ja-required] For NICHINO_STAFF, JA is a REQUIRED search condition.
-// The list starts empty and only populates after a JA is picked — never
-// auto-load every tenant. While no JA is selected, show the prompt instead
-// of the "no results" message. Non-staff roles are unaffected (session.ja_id
-// scopes them, list auto-loads on mount as before).
+// [staff-ja-required] NICHINO_STAFF では JA が必須検索条件。一覧は空で始まり
+// JA 選択後に初めて表示 — 全テナントの自動ロードはしない。未選択の間は
+// 「結果なし」でなくプロンプトを表示。非 staff は影響なし（session.ja_id で
+// スコープされ、従来通り mount 時に自動ロード）。
 const staffMustPickJa = computed(
   () => isStaff.value && state.filters.ja_id == null,
 );
 
-// Field-level required error on the staff JA dropdown. Set when staff runs
-// 検索 without a JA picked; cleared once a JA is chosen / filters reset.
+// staff の JA ドロップダウンのフィールド必須エラー。JA 未選択で検索したとき set、
+// JA 選択 / フィルタリセットで解除。
 const jaRequiredError = ref(false);
 
-// Run a search, but for staff short-circuit to an empty list when no JA is
-// picked (JA is required). Non-staff always fetch.
+// 検索を実行。staff は JA 未選択なら空リストで短絡（JA 必須）。非 staff は常に fetch。
 function runSearch(): void {
   if (staffMustPickJa.value) {
     rows.value = [];
@@ -208,27 +199,26 @@ onMounted(() => {
     state.filters.active_tanka_flg = '0';
     applyFilters({ ...state.filters });
   }
-  // Staff: keep the list empty until a JA is chosen (機能: 代行検索は
-  // JA選択が前提). Non-staff: auto-load their scoped list as before.
+  // staff: JA 選択まで一覧を空に保つ（代行検索は JA 選択が前提）。
+  // 非 staff: 従来通りスコープ済み一覧を自動ロード。
   if (!isStaff.value) void fetchList();
 });
 
 function onJaFilterChange(v: number | null): void {
-  // [staff-ja-filter] Pin the new JA into the filter state and refetch
-  // immediately so staff don't need a 検索 click after switching JA.
-  // Clearing the JA (v === null) drops back to the empty prompt state.
+  // [staff-ja-filter] 新しい JA をフィルタに固定し即再取得 — JA 切替後に
+  // 検索クリック不要。JA クリア（v === null）で空プロンプト状態に戻る。
   state.filters.ja_id = v;
-  // Picking a JA satisfies the requirement → clear the field error.
+  // JA 選択で必須を満たす → フィールドエラー解除。
   if (v != null) jaRequiredError.value = false;
   applyFilters({ ...state.filters });
   runSearch();
 }
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim text filters (haiten_flg is a checkbox). 代行検索は JA選択が前提 —
-  // staff with no JA flags the field as required and aborts (return false).
+  // テキストフィルタを trim（haiten_flg は checkbox）。代行検索は JA選択が前提 —
+  // JA なしの staff はフィールドを必須にして中断（return false）。
   beforeSearch() {
     state.filters.hanbaiten_code = state.filters.hanbaiten_code.trim();
     state.filters.hanbaiten_name = state.filters.hanbaiten_name.trim();
@@ -244,8 +234,8 @@ const { onSearch, onClear } = searchActions({
     }
     jaRequiredError.value = false;
   },
-  // On an actual reset: clear the required-field flag. Staff → ja_id null so
-  // runSearch keeps the list empty + shows the JA prompt; non-staff reloads.
+  // 実リセット時: 必須フラグを解除。staff は ja_id null なので runSearch が
+  // 一覧を空に保ち JA プロンプト表示、非 staff は再ロード。
   afterReset() {
     jaRequiredError.value = false;
   },
@@ -258,12 +248,11 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
 }
 
 function goCreate(): void {
-  // [staff-ja-prefill] When NICHINO_STAFF has a JA selected in the search
-  // filter, forward it to the create form via Vue Router HISTORY STATE
-  // (window.history.state.jaId) — NOT a query param, so the URL stays clean
-  // `/hanbaiten/create` (customer decision 2026-06). The form pre-selects
-  // it; staff can still change it. JA-scoped roles don't carry it — the BE
-  // binds session.ja_id for them.
+  // [staff-ja-prefill] NICHINO_STAFF が検索フィルタで JA 選択済みのとき、
+  // その JA を Vue Router の history state（window.history.state.jaId）で
+  // 登録フォームへ渡す — query param ではなく URL を `/hanbaiten/create` に
+  // 保つため（顧客決定 2026-06）。フォームは事前選択、staff は変更可。
+  // JA スコープのロールは渡さず BE が session.ja_id を使う。
   if (isStaff.value && state.filters.ja_id != null) {
     void router.push({
       name: 'HanbaitenCreate',
@@ -283,13 +272,13 @@ function askDelete(row: HanbaitenListItem): void {
   confirmDelete('この販売店を削除してもよろしいですか？', async () => {
     try {
       await removeHanbaiten(row.hanbaiten_id);
-      // notify.deleted() emits '削除しました。' (ACSMS-MSG-018-006).
+      // notify.deleted() は '削除しました。'（ACSMS-MSG-018-006）を出す。
       notify.deleted();
       await fetchList();
     } catch {
-      // The global axios interceptor handles 409 CONFLICT
-      // (ACSMS-MSG-018-004) and 500 (ACSMS-MSG-018-003); view must
-      // NOT re-toast — see .claude/rules/vue.md §Error Handling Architecture.
+      // axios interceptor が 409 CONFLICT（ACSMS-MSG-018-004）と 500
+      // （ACSMS-MSG-018-003）を処理。view で再トーストしない
+      // （vue.md §Error Handling Architecture）。
     }
   });
 }
@@ -297,12 +286,10 @@ function askDelete(row: HanbaitenListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 4-col grid; the 7 fields wrap onto 2 rows.
-         [staff-ja-filter] NICHINO_STAFF gets an 8th cell (JA picker)
-         appended at the END of the form so the search panel reads as
-         one consistent block. The JA picker triggers an immediate
-         refetch on change (no 検索 click required) because the rest
-         of the form is empty by design when staff first lands here. -->
+    <!-- 検索エリア — 4列グリッド。7フィールドが2行に折り返す。
+         [staff-ja-filter] NICHINO_STAFF はフォーム末尾に8番目のセル
+         （JA picker）が付き、検索パネルが一貫したブロックになる。JA picker は
+         変更時に即再取得（検索クリック不要） — staff の初回着地時は他が空のため。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
@@ -370,10 +357,9 @@ function askDelete(row: HanbaitenListItem): void {
         />
       </label>
       <div class="flex items-center gap-2">
-        <!-- Invisible spacer label matches the natural label column
-             width of other cells (販売店コード / 電話番号 / 住所 …) so
-             the checkbox aligns with the input boxes above instead
-             of hugging the cell's left edge. -->
+        <!-- 不可視スペーサーラベルで他セル（販売店コード / 電話番号 / 住所 …）の
+             ラベル列幅に合わせ、checkbox を上の入力ボックスと揃える
+             （セル左端に寄せない）。 -->
         <span
           class="text-sm font-medium whitespace-nowrap invisible"
           aria-hidden="true"
@@ -400,10 +386,9 @@ function askDelete(row: HanbaitenListItem): void {
           <a-radio value="0">無効</a-radio>
         </a-radio-group>
       </div>
-      <!-- [staff-ja-required] Last cell for NICHINO_STAFF 代行検索.
-           JA is a REQUIRED condition: the list starts empty and only
-           populates after a JA is picked (picking one refetches scoped
-           to that tenant). The * marker signals the requirement. -->
+      <!-- [staff-ja-required] NICHINO_STAFF 代行検索の末尾セル。
+           JA は必須条件: 一覧は空で始まり JA 選択後に表示（選択でそのテナントに
+           スコープして再取得）。* マーカーが必須を示す。 -->
       <div
         v-if="isStaff"
         class="flex items-start gap-2 text-sm font-medium text-text-main"
@@ -436,10 +421,9 @@ function askDelete(row: HanbaitenListItem): void {
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-018-001 — 検索結果が見つかりませんでした。
-         Rendered outside the table because a-table's #emptyText slot is
-         not safely forwardable through BaseDataTable's dynamic slot loop.
-         Suppressed for staff who haven't picked a JA yet (no search has
-         run) — the required field handles that state instead. -->
+         a-table の #emptyText slot は BaseDataTable の動的 slot ループで
+         安全に転送できないためテーブル外で描画。JA 未選択の staff（検索未実行）
+         では抑制 — その状態は必須フィールドが担う。 -->
     <p
       v-if="!loading && total === 0 && !staffMustPickJa"
       class="text-text-description text-sm"
@@ -460,9 +444,8 @@ function askDelete(row: HanbaitenListItem): void {
       @change="onPageChange"
     >
       <template #headerActions>
-        <!-- 販売店情報登録 stays visible for every role; greyed-out
-             when the user lacks the create capability. Staff without
-             a JA filter picks one inside the create form itself. -->
+        <!-- 販売店情報登録 は全ロールで表示、create 権限がないとき無効化。
+             JA フィルタなしの staff は登録フォーム内で選択する。 -->
         <a-button
           type="primary"
           :disabled="!canCreate"
@@ -477,10 +460,9 @@ function askDelete(row: HanbaitenListItem): void {
 
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'hanbaiten_code'">
-          <!-- hanbaiten_code is the click target for "open edit form". Only
-               render as anchor when the user has hanbaiten.update — otherwise
-               plain text so they don't get a dead link that would land on a
-               403-rebound dashboard. -->
+          <!-- hanbaiten_code が編集フォームを開くクリック対象。hanbaiten.update
+               があるときのみアンカー化 — なければプレーンテキスト
+               （403リバウンドの dead link を避ける）。 -->
           <a
             v-if="canUpdate"
             class="text-primary hover:underline"
@@ -509,9 +491,8 @@ function askDelete(row: HanbaitenListItem): void {
           <span v-if="(record as HanbaitenListItem).haiten_flg">廃店</span>
         </template>
         <template v-else-if="column.key === 'actions'">
-          <!-- 編集 link intentionally hidden — edit entry is the
-               clickable hanbaiten_code cell above. 削除 stays visible but
-               disabled when hanbaiten.delete is missing (NICHINO_STAFF). -->
+          <!-- 編集リンクは意図的に非表示 — 入口は上の hanbaiten_code セル。
+               削除は hanbaiten.delete がないとき表示のまま無効化（NICHINO_STAFF）。 -->
           <BaseActionColumn
             :can-edit="false"
             :disable-delete="!canDelete"

@@ -1,12 +1,10 @@
 /**
- * Notice publication status stored in `t_oshirase.status`.
+ * お知らせ公開ステータス。`t_oshirase.status`。
+ * Mirror of `m_code.code_category = 'OSHIRASE_STATUS'`。login (SCR-001) と menu
+ * (SCR-002) が `WHERE status = PUBLIC` で filter — SQL と同期しないと未公開
+ * draft が login 画面に漏れる。
  *
- * Mirror of `m_code.code_category = 'OSHIRASE_STATUS'`. The login screen
- * (SCR-001) and menu screen (SCR-002) both filter `WHERE status = PUBLIC`
- * — keep this constant in sync with the SQL filter, otherwise unpublished
- * drafts could leak to the login page.
- *
- * Keep in sync with `apps/frontend/src/constants/enums/oshirase-status.ts`.
+ * `apps/frontend/src/constants/enums/oshirase-status.ts` と同期。
  */
 export const OshiraseStatus = {
   DRAFT: 1,

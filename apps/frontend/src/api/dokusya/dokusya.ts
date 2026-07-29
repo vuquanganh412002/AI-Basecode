@@ -1,6 +1,6 @@
-// Hand-written API wrapper for the /api/v1/dokusya endpoints.
+// /api/v1/dokusya 用の手書き API wrapper。
 //
-// SCR-011 ships 6 endpoints (api.md §1):
+// SCR-011 は 6 endpoint を提供（api.md §1）:
 //   GET  /:id           → getDokusya         (API-011-001)
 //   POST /              → createDokusya      (API-011-002)
 //   PUT  /:id           → updateDokusya      (API-011-003)
@@ -8,16 +8,15 @@
 //   PUT  /:id/reject    → rejectDokusya      (API-011-005)
 //   GET  /:id/history   → getDokusyaHistory  (API-011-006)
 //
-// Shapes mirror apps/backend/src/modules/dokusya/dto/* — when the BE
-// response changes, update this file by hand. The integration spec
-// at apps/backend/test/integration/dokusya.integration.spec.ts is the
-// living reference for the exact JSON shape.
+// 型は apps/backend/src/modules/dokusya/dto/* に準拠 — BE レスポンス変更時は
+// このファイルを手動更新する。正確な JSON 形は integration spec
+// apps/backend/test/integration/dokusya.integration.spec.ts が現行の参照。
 
 import axiosInstance from '@/api/axios-instance';
 
 /**
- * Full detail returned by `GET /api/v1/dokusya/:id` and the `data`
- * field of POST/PUT/approve/reject responses.
+ * `GET /api/v1/dokusya/:id` および POST/PUT/approve/reject レスポンスの
+ * `data` フィールドが返す完全な詳細。
  */
 export interface DokusyaDetail {
   dokusya_id: number;
@@ -70,7 +69,7 @@ export interface DokusyaDetail {
   /** m_code.code_category='SHIHARAI_HOHO' — 1=口座引落, 2=現金集金, etc. */
   shiharai_hoho: number;
   dokusyaryo_shiharai_cycle: number | null;
-  /** Resolved via m_shiten reverse-lookup when shiharai_hoho=1. */
+  /** shiharai_hoho=1 の時 m_shiten の逆引きで解決。 */
   bank_shiten_id: number | null;
   jastem_toriatsukai_tenpo_code: string;
   jastem_tenpo_name: string;
@@ -86,15 +85,15 @@ export interface DokusyaDetail {
   shoki_dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
   dokusya_kaishi_date: string;
-  /** YYYY-MM-DD — null when not 解約. */
+  /** YYYY-MM-DD — 解約でない時は null。 */
   dokusya_chushi_date: string | null;
-  /** YYYY-MM-DD — null when not set. Must be future-date when present. */
+  /** YYYY-MM-DD — 未設定は null。設定時は未来日必須。 */
   joho_henko_tekiyo_date: string | null;
-  /** YYYYMM — '' when not set. */
+  /** YYYYMM — 未設定は ''。 */
   seikyu_kaishi_month: string;
   biko: string;
   rireki_no: number;
-  /** denshi_shonin_status — null=non-digital, 0=承認待ち, 1=承認, 2=否認. */
+  /** denshi_shonin_status — null=非電子版, 0=承認待ち, 1=承認, 2=否認。 */
   denshi_shonin_status: number | null;
   /**
    * 電子版会員ID — 外部システムの会員ID。外部連携機能（後続開発）が設定する
@@ -117,11 +116,10 @@ export interface DokusyaDetail {
 }
 
 /**
- * POST /api/v1/dokusya request body (ACSMS-API-011-002).
+ * POST /api/v1/dokusya のリクエスト body（ACSMS-API-011-002）。
  *
- * `ja_id` and `dokusya_id` are intentionally absent — `ja_id` is
- * derived server-side from the session, `dokusya_id` is auto-assigned.
- * The BE strips/rejects them via `forbidNonWhitelisted`.
+ * `ja_id` と `dokusya_id` は意図的に含めない — `ja_id` はサーバ側でセッションから
+ * 導出、`dokusya_id` は自動採番。BE は `forbidNonWhitelisted` で除去/拒否する。
  */
 export interface CreateDokusyaRequest {
   kanri_shiten_id?: number | null;
@@ -162,7 +160,7 @@ export interface CreateDokusyaRequest {
   yubin_kubun?: string;
   shiharai_hoho: number;
   dokusyaryo_shiharai_cycle?: number | null;
-  /** Required when shiharai_hoho=1 (口座引落). */
+  /** shiharai_hoho=1（口座引落）の時は必須。 */
   bank_shiten_id?: number | null;
   hikiotoshi_yokin_shubetsu?: number | null;
   hikiotoshi_koza_no?: string;
@@ -199,26 +197,25 @@ export type UpdateDokusyaRequest = Omit<
   change_mode?: 'today' | 'reserved';
 };
 
-/** Envelope for GET-detail responses — `{ data: DokusyaDetail }`. */
+/** GET 詳細レスポンスの envelope — `{ data: DokusyaDetail }`。 */
 export interface DokusyaEnvelope {
   data: DokusyaDetail;
 }
 
-/** Envelope for POST/PUT/approve/reject responses — adds `message`. */
+/** POST/PUT/approve/reject レスポンスの envelope — `message` を追加。 */
 export interface DokusyaMutationEnvelope {
   data: DokusyaDetail;
   message: string;
 }
 
-/** One row of `GET /api/v1/dokusya/:id/history` (ACSMS-API-011-006). */
+/** `GET /api/v1/dokusya/:id/history`（ACSMS-API-011-006）の1行。 */
 export interface DokusyaHistoryItem {
   dokusya_rireki_id: number;
   dokusya_id: number;
   rireki_no: number;
   tetsuzuki_shurui: number;
-  /** Resolved by CodeService.getLabel('TETSUZUKI_SHURUI', value). */
+  /** CodeService.getLabel('TETSUZUKI_SHURUI', value) で解決。 */
   tetsuzuki_shurui_label: string;
-  henko_riyu: string;
   saishin_data_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
@@ -340,12 +337,12 @@ export async function getDokusyaHistory(
 
 // ─── ACSMS-SCR-014 — 購読者明細検索画面 ──────────────────────────────
 //
-// 3 endpoints (api.md ACSMS-SCR-014):
+// 3 endpoint（api.md ACSMS-SCR-014）:
 //   GET    /api/v1/dokusya            → listDokusya         (API-014-001)
 //   DELETE /api/v1/dokusya/:id        → removeDokusya       (API-014-002)
 //   GET    /api/v1/dokusya/export     → exportDokusyaExcel  (API-014-003)
 
-/** One row of `GET /api/v1/dokusya` response — per api.md §レスポンスデータ. */
+/** `GET /api/v1/dokusya` レスポンスの1行 — api.md §レスポンスデータ 準拠。 */
 export interface DokusyaListItem {
   dokusya_id: number;
   ja_id: number;
@@ -360,9 +357,9 @@ export interface DokusyaListItem {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
-  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）. */
+  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）。 */
   haitatsu_renrakusaki_1: string;
-  /** 配達先氏名 — haitatsu_shimei_sei + haitatsu_shimei_mei (concat, trimmed). */
+  /** 配達先氏名 — haitatsu_shimei_sei + haitatsu_shimei_mei（連結・trim）。 */
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
@@ -374,11 +371,11 @@ export interface DokusyaListItem {
   denshi_shonin_status: number | null;
   shoki_dokusya_kaishi_date: string;
   dokusya_chushi_date: string | null;
-  /** True when the row may not be edited/deleted (CC/併読/海外配送 etc.). */
+  /** 編集/削除不可の行の時 true（CC/併読/海外配送 等）。 */
   is_read_only: boolean;
 }
 
-/** Search + pagination + sort params for `GET /api/v1/dokusya`. */
+/** `GET /api/v1/dokusya` の検索 + ページング + ソートパラメータ。 */
 export interface DokusyaSearchParams {
   kanri_shiten_id?: number;
   shiten_id?: number;
@@ -417,7 +414,7 @@ export interface DokusyaSearchParams {
   sort_order?: 'asc' | 'desc';
 }
 
-/** Filter-only params for `GET /api/v1/dokusya/export` (no page/sort). */
+/** `GET /api/v1/dokusya/export` のフィルタのみパラメータ（page/sort なし）。 */
 export type DokusyaExportParams = Omit<
   DokusyaSearchParams,
   'page' | 'per_page' | 'sort_by' | 'sort_order'
@@ -444,7 +441,7 @@ export async function listDokusya(
   return res.data;
 }
 
-/** DELETE /api/v1/dokusya/:id — ACSMS-API-014-002 (論理削除). */
+/** DELETE /api/v1/dokusya/:id — ACSMS-API-014-002（論理削除）。 */
 export async function removeDokusya(
   dokusyaId: number,
 ): Promise<{ message: string }> {
@@ -455,12 +452,12 @@ export async function removeDokusya(
 }
 
 /**
- * GET /api/v1/dokusya/export — ACSMS-API-014-003.
+ * GET /api/v1/dokusya/export — ACSMS-API-014-003。
  *
- * Returns the raw Blob so the caller can hand it to `URL.createObjectURL`
- * and trigger a browser download. The wrapper does NOT forward
- * page / per_page / sort_by / sort_order — those are intentionally
- * stripped at the call site per api.md §014-003 (BE ignores them anyway).
+ * 生の Blob を返し、呼び出し元が `URL.createObjectURL` に渡してブラウザ
+ * ダウンロードを起こせるようにする。wrapper は page / per_page / sort_by /
+ * sort_order を転送しない — api.md §014-003 に従い呼び出し側で意図的に除去
+ * （BE も無視する）。
  */
 export async function exportDokusyaExcel(
   params: DokusyaExportParams = {},
@@ -474,16 +471,16 @@ export async function exportDokusyaExcel(
 
 // ─── ACSMS-SCR-013 — 購読者履歴情報画面 ──────────────────────────────
 //
-// 1 endpoint (api.md ACSMS-API-013-001):
+// 1 endpoint（api.md ACSMS-API-013-001）:
 //   GET /api/v1/dokusya/:id/rireki → getDokusyaRirekiList
 //
-// Full paginated history list — distinct from getDokusyaHistory
-// (SCR-011 /history, lighter + label-bearing). Returns CODE VALUES ONLY
-// (no *_label); the view resolves labels via useCodesStore.
+// 完全なページング履歴リスト — getDokusyaHistory（SCR-011 /history、軽量 +
+// ラベル付き）とは別物。コード値のみ返す（*_label なし）。view が
+// useCodesStore でラベル解決。
 
 /**
- * One row of `GET /api/v1/dokusya/:id/rireki` — per api.md §レスポンスデータ
- * #2-#61. Nullability mirrors the api.md "Nullable" column (`〇` → `| null`).
+ * `GET /api/v1/dokusya/:id/rireki` の1行 — api.md §レスポンスデータ #2-#61 準拠。
+ * null 許容は api.md の「Nullable」列（`〇` → `| null`）に一致。
  */
 export interface DokusyaRirekiItem {
   dokusya_rireki_id: number;
@@ -546,9 +543,9 @@ export interface DokusyaRirekiItem {
   shoki_dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
   dokusya_kaishi_date: string;
-  /** YYYY-MM-DD — null when not 解約. */
+  /** YYYY-MM-DD — 解約でない時は null。 */
   dokusya_chushi_date: string | null;
-  /** YYYY-MM-DD — null when not set. */
+  /** YYYY-MM-DD — 未設定は null。 */
   joho_henko_tekiyo_date: string | null;
   saishin_data_flg: boolean;
   zougen_hokoku_flg: boolean;
@@ -579,7 +576,7 @@ export interface DokusyaRirekiItem {
   created_by: string;
 }
 
-/** Pagination + sort params for `GET /api/v1/dokusya/:id/rireki`. */
+/** `GET /api/v1/dokusya/:id/rireki` のページング + ソートパラメータ。 */
 export interface DokusyaRirekiParams {
   page?: number;
   per_page?: number;
@@ -628,16 +625,15 @@ export async function torikeshiDokusyaRireki(
 
 // ─── ACSMS-SCR-015 — 購読者販売店一括置換画面 ────────────────────────
 //
-// 2 endpoints (api.md ACSMS-SCR-015):
+// 2 endpoint（api.md ACSMS-SCR-015）:
 //   GET  /api/v1/dokusya/replace-hanbaiten/search → searchDokusyaForReplace (API-015-001)
 //   POST /api/v1/dokusya/replace-hanbaiten        → replaceDokusyaHanbaiten  (API-015-002)
 //
-// Shapes mirror docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md. The
-// search response returns CODE VALUES ONLY (dokusya_shubetsu /
-// shiharai_hoho) — used by the FE to filter 併読 / 電子版クレカ rows
-// (機能定義 4.1), not for display.
+// 型は docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md に準拠。検索レスポンスは
+// コード値のみ（dokusya_shubetsu / shiharai_hoho）— 表示用ではなく FE が
+// 併読 / 電子版クレカ 行を除外するため（機能定義 4.1）に使う。
 
-/** One row of `GET /api/v1/dokusya/replace-hanbaiten/search` — API-015-001. */
+/** `GET /api/v1/dokusya/replace-hanbaiten/search` の1行 — API-015-001。 */
 export interface ReplaceSearchItem {
   dokusya_id: number;
   kanri_shiten_id: number | null;
@@ -657,7 +653,7 @@ export interface ReplaceSearchItem {
   shiharai_hoho: number;
 }
 
-/** Search + pagination + sort params for the replace search endpoint. */
+/** 置換検索 endpoint の検索 + ページング + ソートパラメータ。 */
 export interface ReplaceSearchParams {
   kanri_shiten_id?: number;
   shiten_id?: number;
@@ -692,13 +688,12 @@ export interface ReplaceSearchResponse {
 }
 
 /**
- * POST /api/v1/dokusya/replace-hanbaiten request body — API-015-002.
+ * POST /api/v1/dokusya/replace-hanbaiten のリクエスト body — API-015-002。
  *
- * The index signature keeps the body assignable to
- * `Record<string, unknown>` so the SCR-015 spec can introspect the
- * captured mock-call argument (`mock.calls[0][0] as Record<…>`) — every
- * required property has a fixed type, which TS otherwise treats as
- * non-overlapping with `Record<string, unknown>`.
+ * index signature により body を `Record<string, unknown>` に代入可能に保つ。
+ * これにより SCR-015 spec が捕捉した mock 呼び出し引数（`mock.calls[0][0] as
+ * Record<…>`）を検査できる — 全必須プロパティが固定型で、無いと TS は
+ * `Record<string, unknown>` と非オーバーラップ扱いにするため。
  */
 export interface ReplaceHanbaitenRequest {
   dokusya_ids: number[];
@@ -746,26 +741,25 @@ export async function replaceDokusyaHanbaiten(
 
 // ─── ACSMS-SCR-016 — 購読者Excelデータ取込画面 ───────────────────────
 //
-// 2 endpoints (api.md ACSMS-SCR-016):
+// 2 endpoint（api.md ACSMS-SCR-016）:
 //   GET  /api/v1/dokusya/import/template → downloadDokusyaImportTemplate (API-016-001)
 //   POST /api/v1/dokusya/import          → importDokusyaExcel            (API-016-002)
 //
-// Shapes mirror docs/design/ACSMS-SCR-016/ACSMS-SCR-016-api.md. The FE
-// parses the .xlsx client-side, lets the user pick a column subset, and
-// posts the parsed rows + the chosen import mode.
+// 型は docs/design/ACSMS-SCR-016/ACSMS-SCR-016-api.md に準拠。FE が .xlsx を
+// クライアント側でパースし、ユーザーが列のサブセットを選び、パース済み行 +
+// 選択した取込モードを POST する。
 
 /**
- * Import mode wire values — FE radios (new/update) map to these.
+ * 取込モードのワイヤ値 — FE ラジオ（new/update）がこれにマップ。
  * UPDATE は選択列のみ更新（空欄はスキップ）。全列更新したい時は「すべて選択」で
  * 全列をチェックする。旧 UPDATE_ALL（空欄→NULL）は廃止（顧客要件 2026-07）。
  */
 export type DokusyaImportMode = 'NEW' | 'UPDATE';
 
 /**
- * One parsed Excel row sent to the BE. Keys are the 49 physical column
- * names (snake_case) from api.md §テンプレートファイル仕様; every column
- * is optional because the FE only forwards the cells present in the
- * uploaded file (and only for the columns the user kept checked).
+ * BE へ送る、パース済み Excel の1行。キーは api.md §テンプレートファイル仕様の
+ * 49 物理列名（snake_case）。FE はアップロードファイルに存在するセルだけ
+ * （かつユーザーがチェックを残した列だけ）転送するため、全列が optional。
  */
 export type ImportDokusyaRow = Record<string, unknown>;
 
@@ -780,9 +774,9 @@ export interface ImportDokusyaBody {
   selected_columns: string[];
   rows: ImportDokusyaRow[];
   /**
-   * Index signature so the spec can introspect a captured mock-call
-   * argument via `mock.calls[0][0] as Record<string, unknown>` without
-   * a non-overlap cast error (mirrors SCR-015 ReplaceHanbaitenRequest).
+   * spec が捕捉した mock 呼び出し引数を `mock.calls[0][0] as
+   * Record<string, unknown>` で非オーバーラップの cast エラーなく検査できる
+   * ようにする index signature（SCR-015 ReplaceHanbaitenRequest と同様）。
    */
   [key: string]: unknown;
 }
@@ -802,7 +796,7 @@ export interface ImportDokusyaResult {
   message: string;
 }
 
-/** GET /api/v1/dokusya/import/template — ACSMS-API-016-001 (binary XLSX). */
+/** GET /api/v1/dokusya/import/template — ACSMS-API-016-001（バイナリ XLSX）。 */
 export async function downloadDokusyaImportTemplate(): Promise<Blob> {
   const res = await axiosInstance.get<Blob>('/api/v1/dokusya/import/template', {
     responseType: 'blob',

@@ -2,14 +2,12 @@ import { HttpStatus } from '@nestjs/common';
 import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
- * Raised by `DokusyaService.exportExcel` when the filtered count
- * exceeds 30,000. api.md §エラー一覧 #11 + §4.3 (30,000件上限).
+ * 絞り込み件数が 30,000 を超えたとき `DokusyaService.exportExcel` が送出。
+ * api.md §エラー一覧 #11 + §4.3（30,000件上限）。
  *
- * Note — the SCR-030 (ログ参照画面) module has its own
- * `ExportLimitExceededException` with a 5,000-row limit and a
- * different message; that module-local exception is reused there.
- * Different limit + different copy → separate class here so each
- * module's contract stays self-contained.
+ * 注意 — SCR-030（ログ参照画面）モジュールは 5,000 行上限＋別メッセージの
+ * 独自 `ExportLimitExceededException` を持ち、そちらで再利用される。上限と文言が
+ * 異なる → 各モジュールの契約を自己完結させるため、ここは別クラスにする。
  */
 export class ExportLimitExceededException extends DomainException {
   constructor() {

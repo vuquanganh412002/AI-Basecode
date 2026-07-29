@@ -1,26 +1,19 @@
 /**
- * Shared Swagger response DTOs.
+ * Swagger 共通レスポンス DTO。
  *
- * These exist as `class` declarations (not interfaces) so
- * `@nestjs/swagger`'s reflection can introspect their shape and Orval
- * can emit proper TypeScript types in the FE client. Plain interfaces
- * (e.g. `PageMeta` in `common/utils/paginate.ts`) are invisible to
- * Swagger.
+ * interface でなく `class` にしているのは、`@nestjs/swagger` の reflection が形状を
+ * 読み取り FE 型を生成できるようにするため。素の interface（例: paginate.ts の
+ * `PageMeta`）は Swagger から見えない。
  *
- * Project response conventions enforced here:
- *   - List endpoints: `{ data: T[], meta: PaginationMetaDto }` —
- *     see `.claude/rules/nestjs.md §Response Format`.
- *   - Dropdown endpoints: `{ data: T[], meta: DropdownMetaDto }` —
- *     uses `has_more` (cursor-style) instead of `total_pages` so
- *     infinite-scroll callers don't have to derive it.
- *   - Mutation success: `{ message: string }` via SuccessMessageDto —
- *     verb-only literal (`'登録しました。'` / `'更新しました。'` /
- *     `'削除しました。'`) per the BE message convention.
+ * ここで統一する規約:
+ *   - List:     `{ data: T[], meta: PaginationMetaDto }` — .claude/rules/nestjs.md §Response Format
+ *   - Dropdown: `{ data: T[], meta: DropdownMetaDto }` — `has_more`（カーソル式）で
+ *     無限スクロール側が導出不要
+ *   - Mutation: SuccessMessageDto の `{ message }` — 動詞のみリテラル
+ *     （`'登録しました。'` / `'更新しました。'` / `'削除しました。'`）
  *
- * Per-resource list responses are concrete subclasses (e.g.
- * `TankaListResponseDto extends PaginatedResponseDto<TankaResponseDto>`)
- * — Swagger does not introspect generics, so each resource declares
- * its own list response class with `data: ConcreteItemDto[]`.
+ * リソース別 List レスポンスは具象サブクラス（Swagger はジェネリクスを読めない）で、
+ * 各々 `data: ConcreteItemDto[]` を宣言する。
  */
 import { ApiProperty } from '@nestjs/swagger';
 

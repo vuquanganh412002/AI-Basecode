@@ -6,7 +6,7 @@ import { KanriShitenDetailDto } from './kanri-shiten-detail.dto';
 import { KanriShitenDropdownItemDto } from './kanri-shiten-dropdown-query.dto';
 import { KanriShitenListItemDto } from './kanri-shiten-list-item.dto';
 
-/** GET /api/v1/kanri-shiten — paginated list response. */
+/** GET /api/v1/kanri-shiten — ページ一覧応答。 */
 export class KanriShitenListResponseDto {
   @ApiProperty({ type: [KanriShitenListItemDto] })
   data: KanriShitenListItemDto[];
@@ -16,21 +16,21 @@ export class KanriShitenListResponseDto {
 }
 
 /**
- * GET /api/v1/kanri-shiten/dropdown — flat list (no pagination).
- * The dropdown is JA-scoped so result sets are small.
+ * GET /api/v1/kanri-shiten/dropdown — フラットリスト（ページングなし）。
+ * dropdown は JA スコープなので結果セットは小さい。
  */
 export class KanriShitenDropdownResponseDto {
   @ApiProperty({ type: [KanriShitenDropdownItemDto] })
   data: KanriShitenDropdownItemDto[];
 }
 
-/** Single-resource envelope (GET /:id). */
+/** 単一リソース envelope (GET /:id)。 */
 export class KanriShitenDetailEnvelopeDto {
   @ApiProperty({ type: KanriShitenDetailDto })
   data: KanriShitenDetailDto;
 }
 
-/** Mutation success envelope (POST + PUT). */
+/** 更新成功 envelope (POST + PUT)。 */
 export class KanriShitenMutationResponseDto {
   @ApiProperty({ type: KanriShitenDetailDto })
   data: KanriShitenDetailDto;

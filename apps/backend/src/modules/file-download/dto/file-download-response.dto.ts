@@ -3,11 +3,11 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * Row shape for `GET /api/v1/file-download` (SCR-022 一覧). Sourced from
- * `t_file_download`. 帳票各画面が生成したダウンロード対象ファイルを一覧表示する
+ * `GET /api/v1/file-download`(SCR-022 一覧)の行形状。データ元は
+ * `t_file_download`。帳票各画面が生成したダウンロード対象ファイルを一覧表示する
  * （t_file_download への INSERT は各帳票画面が行う。本画面は読み取り＋DL専用）。
  *
- * Nullability は t_file_download スキーマ準拠:
+ * nullable は t_file_download スキーマ準拠:
  *   - ja_id / target_month / scheduled_delete_date / deleted_at / created_at: nullable
  *   - download_datetime / download_type / file_name / file_size /
  *     record_count / nichino_download_allowed_flg / created_by: NOT NULL

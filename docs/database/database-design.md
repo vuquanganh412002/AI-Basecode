@@ -626,8 +626,8 @@ updated_by: Tran Duc Tuyen
 | 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
 | 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
 | 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
-| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容 |
+| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容 |
 | 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
 | 50 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
 | 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
@@ -712,31 +712,30 @@ updated_by: Tran Duc Tuyen
 | 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
 | 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
 | 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（複数カンマ区切り）※空文字許容 |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り）※空文字許容 |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容 |
+| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容 |
 | 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
 | 52 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
 | 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
 | 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
 | 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
 | 56 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 57 | henko_riyu |  | TEXT |  |  |  | 変更理由※空文字許容 |
-| 58 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
-| 59 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
-| 60 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
-| 61 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
-| 62 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
-| 63 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
-| 64 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
-| 65 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
-| 66 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
-| 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
-| 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
-| 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 70 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
-| 71 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
-| 72 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
-| 73 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。t_dokusya.honshi_kodoku_flg の履歴スナップショット。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。 |
+| 57 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
+| 58 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
+| 59 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
+| 60 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
+| 61 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
+| 62 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
+| 63 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
+| 64 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
+| 65 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
+| 66 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
+| 67 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
+| 68 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 69 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
+| 70 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
+| 71 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
+| 72 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。t_dokusya.honshi_kodoku_flg の履歴スナップショット。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。 |
 
 ## インデックス
 

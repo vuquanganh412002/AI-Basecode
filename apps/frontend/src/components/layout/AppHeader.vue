@@ -14,17 +14,16 @@ const { items: breadcrumbs } = useBreadcrumb();
 const { open: sidebarOpen, toggle: toggleSidebar } = useSidebar();
 const notify = useNotify();
 
-/** Page title = the last breadcrumb segment (e.g. 単価マスタ登録画面). */
+/** ページタイトル = パンくずの末尾セグメント（例: 単価マスタ登録画面）。 */
 const pageTitle = computed(() => breadcrumbs.value.at(-1)?.label ?? '');
 
 /**
- * Show the breadcrumb when the page has any non-home segment, EXCEPT on
- * the dashboard (which IS the home target — `ホーム > メニュー画面`
- * would be self-referential).
+ * ホーム以外のセグメントがあればパンくずを表示。ただしダッシュボードは除く
+ * （ホームそのものなので `ホーム > メニュー画面` は自己参照になる）。
  *
- * Per the project breadcrumb convention (`.claude/rules/vue.md`), list
- * pages have 2 levels (`ホーム > Xマスタ一覧`) and create/edit pages
- * have 3 (`ホーム > Xマスタ一覧 > Xマスタ登録画面`); both should show.
+ * プロジェクトのパンくず規約（`.claude/rules/vue.md`）では一覧ページは 2 階層
+ * （`ホーム > Xマスタ一覧`）、新規/編集ページは 3 階層（`ホーム > Xマスタ一覧 > Xマスタ登録画面`）。
+ * いずれも表示する。
  */
 const showBreadcrumb = computed(
   () => breadcrumbs.value.length > 1 && route.name !== 'Dashboard',
@@ -42,15 +41,13 @@ async function handleLogout(): Promise<void> {
 }
 
 /**
- * Self-service MFA toggle. Opens a confirm modal so the click on the
- * switch isn't a one-tap accident — disabling MFA in particular is a
- * security-relevant action.
+ * セルフサービスの MFA 切替。スイッチのワンタップ誤操作を防ぐため確認モーダルを開く
+ * — 特に MFA 無効化はセキュリティ上重要な操作。
  *
- * NOTE: This is the v1 simple flow agreed with product — no OTP /
- * password re-verification. If the session cookie is stolen, an
- * attacker CAN disable MFA on the victim's account. Tracked as a
- * known limitation; v2 should require password-on-disable +
- * OTP-on-enable per industry standard (Google/GitHub/AWS pattern).
+ * NOTE: これはプロダクトと合意した v1 の簡易フロー — OTP / パスワード再認証なし。
+ * セッション Cookie を盗まれると攻撃者は被害者アカウントの MFA を無効化できる。既知の制約として
+ * 管理中。v2 では業界標準（Google/GitHub/AWS パターン）に従い、無効化時パスワード +
+ * 有効化時 OTP を要求すべき。
  */
 const mfaEnabled = computed(() => user.value?.mfa_enable_flg ?? false);
 
@@ -67,16 +64,14 @@ function onMfaSwitchClick(): void {
     async onOk() {
       try {
         await toggleMfa(next);
-        // Custom copy — `notify.updated()` would toast the generic
-        // '更新しました。' which loses the on/off outcome the user
-        // just confirmed. Per vue.md §useNotify exceptions, use
-        // `success(text)` for state-changing toggles where the
-        // direction is meaningful.
+        // カスタム文言 — `notify.updated()` は汎用の '更新しました。' を出し、ユーザーが
+        // 確認した on/off の結果が失われる。vue.md §useNotify 例外に従い、方向が意味を持つ
+        // 状態切替では `success(text)` を使う。
         notify.success(
           next ? '2段階認証を有効にしました。' : '2段階認証を無効にしました。',
         );
       } catch {
-        // Global axios interceptor already toasted (500 / network).
+        // グローバル axios インターセプタがトースト済み（500 / ネットワーク）。
       }
     },
   });
@@ -89,10 +84,9 @@ function onMfaSwitchClick(): void {
        │ ☰  JAマスタ登録画面            🔔  ⊕ admin:日農（管理者） │
        │    ホーム ▶ マスタ管理 ▶ JAマスタ登録画面                 │
        ──────────────────────────────────────────────────────────────
-       Hamburger sits at the far left as its own flex item. Title +
-       breadcrumb live inside ONE shared column to guarantee they
-       start at the same X (no manual padding to chase). Right group
-       (bell + user) sits at the far right. -->
+       ハンバーガーは独立した flex 要素として左端に配置。タイトル + パンくずは
+       同じ X 座標から始まるよう 1 つの共有カラム内に置く（手動 padding 調整不要）。
+       右グループ（ベル + ユーザー）は右端に配置。 -->
   <header class="flex justify-between items-start gap-4">
     <button
       type="button"
@@ -104,8 +98,8 @@ function onMfaSwitchClick(): void {
       <span class="material-icons">{{ sidebarOpen ? 'menu_open' : 'menu' }}</span>
     </button>
 
-    <!-- Shared column: title (row 1) + breadcrumb (row 2) — both flush
-         to the left of this container, so they perfectly line up. -->
+    <!-- 共有カラム: タイトル（1 行目）+ パンくず（2 行目）— 両方このコンテナの
+         左端に揃うので位置が完全に一致する。 -->
     <div class="min-w-0 flex-1">
       <h2 v-if="pageTitle" class="text-2xl font-bold truncate">
         {{ pageTitle }}
@@ -178,13 +172,11 @@ function onMfaSwitchClick(): void {
                   <span class="material-icons text-base mr-2">security</span>
                   2段階認証
                 </span>
-                <!-- :checked is one-way bound; the modal-confirm flow in
-                     onMfaSwitchClick decides whether the store value
-                     actually flips. NO @click handler on the switch
-                     itself — antd-switch emits a custom (not DOM) event
-                     so @click.stop would crash on the missing
-                     stopPropagation. The bubbled DOM click reaches the
-                     a-menu-item handler above. -->
+                <!-- :checked は一方向バインド。実際に store 値を反転するかは
+                     onMfaSwitchClick のモーダル確認フローが決める。スイッチ自体に
+                     @click ハンドラは付けない — antd-switch は DOM でなくカスタムイベントを
+                     emit するため @click.stop は stopPropagation 欠如でクラッシュする。
+                     バブリングした DOM click が上の a-menu-item ハンドラに届く。 -->
                 <a-switch
                   :checked="mfaEnabled"
                   size="small"

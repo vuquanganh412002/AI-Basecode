@@ -9,7 +9,7 @@ import { AuthModule } from '@/modules/auth/auth.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Todofuken]),
-    AuthModule, // SessionAuthGuard depends on SessionService
+    AuthModule, // SessionAuthGuard は SessionService に依存
   ],
   controllers: [TodofukenController],
   providers: [TodofukenService],

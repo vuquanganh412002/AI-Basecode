@@ -1,6 +1,6 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/publish-location.enum.ts`.
- * Display labels come from `useCodesStore().label('PUBLISH_LOCATION', value)`.
+ * `apps/backend/src/common/enums/publish-location.enum.ts` の FE ミラー。
+ * 表示ラベルは `useCodesStore().label('PUBLISH_LOCATION', value)` から取得。
  */
 export const PublishLocation = {
   LOGIN: 1,

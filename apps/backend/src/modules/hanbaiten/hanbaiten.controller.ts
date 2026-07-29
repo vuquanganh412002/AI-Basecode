@@ -43,16 +43,13 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 /**
  * ACSMS-SCR-018 — 販売店明細検索画面.
  *
- * Two endpoints:
- *   - GET    /api/v1/hanbaiten             search + paginate
- *   - DELETE /api/v1/hanbaiten/:id         soft-delete with FK guard
+ * 主エンドポイント：GET /api/v1/hanbaiten（検索+ページング）、
+ * DELETE /api/v1/hanbaiten/:id（FK ガード付きソフト削除）。
  *
- * Both endpoints sit behind `SessionAuthGuard` + `PermissionsGuard`; the
- * `@Permissions(...)` decorator names the `model.action` row each role
- * must hold (seeder.md §3). NICHINO_STAFF / CHUOKAI / JA_HONTEN /
- * JA_KANRI_SHITEN all have `hanbaiten.view`; only CHUOKAI / JA_HONTEN /
- * JA_KANRI_SHITEN have `hanbaiten.delete` (NICHINO_STAFF deliberately
- * does NOT — it's a 代行入力 role, not an editorial one).
+ * 各エンドポイントは `SessionAuthGuard` + `PermissionsGuard` 配下。`@Permissions(...)`
+ * が各役の必要 `model.action`(seeder.md §3)を指定。NICHINO_STAFF / CHUOKAI /
+ * JA_HONTEN / JA_KANRI_SHITEN は全て `hanbaiten.view` を持つ。`hanbaiten.delete` は
+ * CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN のみ（NICHINO_STAFF は 代行入力 役で編集役でないため意図的に無し）。
  */
 @ApiTags('hanbaiten')
 @ApiCookieAuth('session_id')
@@ -62,10 +59,8 @@ export class HanbaitenController {
   constructor(private readonly service: HanbaitenService) {}
 
   @Get()
-  // [perm-any-of] OR semantics — NICHINO_STAFF carries
-  // `hanbaiten.daiko_input` (代行入力) but not `hanbaiten.view`; the
-  // search list is shared across both flows behind a role-aware JA
-  // filter on the FE.
+  // [perm-any-of] OR 意味 — NICHINO_STAFF は `hanbaiten.daiko_input`(代行入力)を
+  // 持つが `hanbaiten.view` は持たない。検索一覧は FE の役対応 JA フィルタ配下で両フロー共有。
   @Permissions('hanbaiten.view', 'hanbaiten.daiko_input')
   @ApiOperation({ summary: '販売店明細検索画面 — 販売店一覧取得' })
   @ApiResponse({ status: 200, type: HanbaitenListResponseDto })
@@ -78,17 +73,14 @@ export class HanbaitenController {
 
   // ─── ACSMS-API-COMMON — GET /api/v1/hanbaiten/dropdown (SCR-011) ─────
   //
-  // Consumed by the 購読者情報登録 (SCR-011) form's 販売店コード picker.
-  // Minimal projection — just (hanbaiten_id, hanbaiten_code,
-  // hanbaiten_name). Scoped to the caller's JA in the service via
-  // `applyJaScope`; NICHINO_* see all JAs unless `ja_id` is supplied.
-  //
-  // Declared BEFORE `@Get(':hanbaiten_id')` so the static path wins.
+  // 購読者情報登録(SCR-011)フォームの 販売店コード picker が利用。最小射影
+  // (hanbaiten_id / code / name)。service の `applyJaScope` で自 JA に限定、
+  // NICHINO_* は `ja_id` 指定時のみ絞込。
+  // 静的パス優先のため `@Get(':hanbaiten_id')` より前に宣言。
   @Get('dropdown')
   @HttpCode(HttpStatus.OK)
-  // Authenticated-only — any logged-in user with a screen-level
-  // permission that needs a 販売店 picker can call. Specific permission
-  // gates live on the screen routes, not this shared dropdown.
+  // 認証済みのみ — 販売店 picker が必要な画面権限を持つログインユーザーが呼べる。
+  // 個別権限ゲートは画面ルート側で、共有 dropdown には掛けない。
   @ApiOperation({ summary: '販売店プルダウン (SCR-011 用)' })
   @ApiResponse({ status: 200, description: 'Dropdown projection.' })
   async listHanbaitenDropdown(
@@ -132,19 +124,17 @@ export class HanbaitenController {
 
   // ─── ACSMS-API-019-001 — GET /api/v1/hanbaiten/import/template ───────
   //
-  // Declared BEFORE `@Get(':hanbaiten_id')` so the static path wins; if
-  // ordering flips, NestJS treats `import` as a numeric :hanbaiten_id
-  // and ParseIntPipe 400's the request.
+  // 静的パス優先のため `@Get(':hanbaiten_id')` より前に宣言。順序が逆だと
+  // NestJS が `import` を数値 :hanbaiten_id と見なし ParseIntPipe が 400 になる。
   @Get('import/template')
   @HttpCode(HttpStatus.OK)
   @Permissions('hanbaiten.import')
   @ApiOperation({
     summary: '販売店Excelデータ取込画面 — テンプレートDL (ACSMS-API-019-001)',
   })
-  // XLSX binary download — no typed JSON body. Orval emits `void` for
-  // the return; FE wrapper consumes as Blob and triggers attachment
-  // save. Decorate with explicit content type so swagger.json docs the
-  // mime-type without claiming a JSON schema.
+  // XLSX バイナリ DL — 型付き JSON body 無し。Orval は返り値 `void`、FE wrapper は
+  // Blob として消費し添付保存。明示 content type で swagger.json が JSON schema を
+  // 主張せず mime-type を記す。
   @ApiResponse({
     status: 200,
     description: 'XLSX file (xlsx) as attachment.',
@@ -160,12 +150,10 @@ export class HanbaitenController {
   ): Promise<void> {
     const buffer = await this.service.downloadImportTemplate(req.user);
     // [content-disposition-encoding]
-    // Node's HTTP `validateHeader` rejects literal non-ASCII chars in
-    // header values (CRLF / 0x80-0xFF blocked). The Japanese filename
-    // therefore goes ONLY through the RFC 6266 `filename*=UTF-8''…`
-    // percent-encoded form. The `filename="..."` fallback uses an ASCII
-    // approximation so legacy clients still get a sensible attachment
-    // name instead of nothing.
+    // Node の HTTP `validateHeader` はヘッダ値のリテラル非 ASCII を拒否
+    // (CRLF / 0x80-0xFF)。日本語ファイル名は RFC 6266 `filename*=UTF-8''…`
+    // percent-encoded 形のみで渡す。`filename="..."` fallback は ASCII 近似で
+    // レガシークライアントも無名でなく妥当な添付名を得る。
     const filename = '販売店Excelデータ取込_テンプレート.xlsx';
     const utf8Filename = encodeURIComponent(filename);
     const asciiFallback = 'hanbaiten_import_template.xlsx';
@@ -180,17 +168,15 @@ export class HanbaitenController {
 
   // ─── ACSMS-API-019-002 — POST /api/v1/hanbaiten/import ───────────────
   //
-  // Declared BEFORE `@Post()` for SCR-017 isn't strictly necessary
-  // because POST '/' and POST '/import' don't collide, but keeping the
-  // SCR-019 pair adjacent matches the SCR-018 / SCR-017 / SCR-019
-  // documentation grouping.
+  // POST '/' と POST '/import' は衝突しないため `@Post()`(SCR-017) より前に置く
+  // 必要はないが、SCR-019 のペアを隣接させ SCR-018 / SCR-017 / SCR-019 の
+  // ドキュメント区分に合わせる。
   @Post('import')
   @HttpCode(HttpStatus.OK)
   @Permissions('hanbaiten.import')
-  // [throttle-import] WAF body inspection is bypassed for this path (large
-  // free-text JSON rows false-positive on managed rules — see .claude/rules/
-  // nestjs.md §WAF body-inspection bypass), so it lost the edge rate-limit.
-  // Cap at 10/min/IP.
+  // [throttle-import] このパスは WAF のボディ検査をバイパスする（大量の自由記述
+  // JSON 行が managed ルールに誤検知するため — .claude/rules/nestjs.md §WAF
+  // body-inspection bypass）ため、エッジのレート制限を失う。10/分/IP に制限。
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: '販売店Excelデータ取込画面 — Excel取込 (ACSMS-API-019-002)',
@@ -209,8 +195,8 @@ export class HanbaitenController {
   // ─── ACSMS-API-017-001 — GET /api/v1/hanbaiten/:hanbaiten_id ─────────
   @Get(':hanbaiten_id')
   @HttpCode(HttpStatus.OK)
-  // [perm-any-of] Edit form needs to hydrate from detail too — same
-  // dual-perm rationale as the list endpoint above.
+  // [perm-any-of] 編集フォームも詳細から hydrate する — 上の一覧エンドポイントと
+  // 同じ二重権限の理由。
   @Permissions('hanbaiten.view', 'hanbaiten.daiko_input')
   @ApiOperation({ summary: '販売店情報登録画面 — 販売店詳細取得 (ACSMS-API-017-001)' })
   @ApiResponse({ status: 200, type: HanbaitenDetailEnvelopeDto })
@@ -227,7 +213,7 @@ export class HanbaitenController {
   // ─── ACSMS-API-017-002 — POST /api/v1/hanbaiten ──────────────────────
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  // [perm-any-of] NICHINO_STAFF creates hanbaiten via `hanbaiten.daiko_input`.
+  // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input`(代行入力)で販売店を登録する。
   @Permissions('hanbaiten.create', 'hanbaiten.daiko_input')
   @ApiOperation({ summary: '販売店情報登録画面 — 販売店登録 (ACSMS-API-017-002)' })
   @ApiResponse({ status: 201, type: HanbaitenMutationResponseDto })
@@ -244,7 +230,7 @@ export class HanbaitenController {
   // ─── ACSMS-API-017-003 — PUT /api/v1/hanbaiten/:hanbaiten_id ─────────
   @Put(':hanbaiten_id')
   @HttpCode(HttpStatus.OK)
-  // [perm-any-of] NICHINO_STAFF updates hanbaiten via `hanbaiten.daiko_input`.
+  // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input`(代行入力)で販売店を更新する。
   @Permissions('hanbaiten.update', 'hanbaiten.daiko_input')
   @ApiOperation({ summary: '販売店情報登録画面 — 販売店更新 (ACSMS-API-017-003)' })
   @ApiResponse({ status: 200, type: HanbaitenMutationResponseDto })

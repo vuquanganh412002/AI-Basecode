@@ -1,16 +1,14 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/index.ts`.
+ * `apps/backend/src/common/enums/index.ts` の FE ミラー。
  *
- * Each file here must keep its values in lockstep with the matching
- * BE file at `apps/backend/src/common/enums/<name>.enum.ts`. The CI
- * test `apps/backend/test/integration/enum-sync.spec.ts` parses both
- * sides and fails if any value drifts.
+ * ここの各ファイルは対応する BE ファイル `apps/backend/src/common/enums/<name>.enum.ts` と
+ * 値を完全一致させること。CI テスト `apps/backend/test/integration/enum-sync.spec.ts` が
+ * 両側をパースし、値がずれると失敗する。
  *
- * Style: PascalCase identifier + UPPER_SNAKE_CASE members + `as const`.
+ * スタイル: PascalCase 識別子 + UPPER_SNAKE_CASE メンバー + `as const`。
  *
- * Display labels (内税 / 外税 / 成功 / 失敗 / …) intentionally do NOT
- * live here — they come from `useCodesStore().label('<CATEGORY>', value)`
- * which reads the editable `m_code` master cache.
+ * 表示ラベル（内税 / 外税 / 成功 / 失敗 / …）は意図的にここに置かない —
+ * 編集可能な `m_code` マスタキャッシュを読む `useCodesStore().label('<CATEGORY>', value)` から取得する。
  */
 export { LogType } from './log-type';
 export { ResultStatus } from './result-status';

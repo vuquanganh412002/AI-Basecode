@@ -17,51 +17,32 @@ import { NotificationStatus } from './notification-status.constant';
 import type { FileUploadNotificationJob } from './notification-queue.service';
 
 /**
- * SCR-023 §6.5 — file-upload notification worker (consumer).
+ * SCR-023 §6.5 — ファイルアップロード通知 worker(consumer)。
  *
- * Drains the `file-upload-notification` BullMQ queue. Each job
- * corresponds to ONE file × ONE JA (split by producer); see
- * `notification-queue.service.ts` for the reasoning behind the
- * per-JA split (retry isolation).
+ * `file-upload-notification` BullMQ キューを処理。1 ジョブ = 1 file × 1 JA
+ * (producer が分割。per-JA 分割=リトライ隔離の理由は notification-queue.service.ts)。
  *
- * State machine on `t_file_upload.notification_status`:
+ * `t_file_upload.notification_status` 状態遷移:
+ *   [1]未送信 → worker 取得 → [2]送信中 → 全成功 [3]完了(+notified_at)
+ *                                        → 一部失敗 [4]一部失敗(+notified_at, 失敗毎に t_log(3))
+ *                                        → 全失敗 throw → BullMQ リトライ(status は 2 維持)
  *
- *      [1] 未送信  ──┐ worker picks job
- *                    ▼
- *      [2] 送信中  ──┐ try recipients
- *                    │
- *                    ├──► all ok ─────► [3] 完了    + notified_at = NOW()
- *                    │
- *                    ├──► some fail ──► [4] 一部失敗 + notified_at = NOW()
- *                    │                                  + per-failure log to t_log (3)
- *                    │
- *                    └──► all fail ───► throw → BullMQ retries (status stays 2)
+ * 冪等性 [resume-after-crash]: status=3 での再入は short-circuit。最後のメール
+ * 送信後 BullMQ ack 前に worker crash した場合の再送を防ぐ。
  *
- * Idempotency [resume-after-crash]: re-entry to a job already at
- * `notification_status = 3` short-circuits — handles the edge where
- * a worker crashes after sending the last mail but before ack'ing
- * BullMQ; on resume we must NOT re-send the whole list.
+ * 宛先(spec §6.5): ja_id 紐づく active m_account 各行が最大 4 アドレス
+ * (email, sub_email_1..3)を寄与。全アドレス union-dedupe で 1 受信箱 1 通。
  *
- * Recipient lookup (spec §6.5): every active `m_account` row tied
- * to `ja_id` contributes up to 4 addresses (`email`, `sub_email_1`,
- * `sub_email_2`, `sub_email_3`). All addresses union-deduped — one
- * physical inbox gets exactly one mail regardless of how many of
- * those slots happen to repeat it.
- *
- * `concurrency: 5` — five jobs in flight at once. Per-JA serial
- * order isn't required (the §6.5 wording was about NOT batching
- * many JAs into one mailgun call, not about strict global serial).
- * If SES throttling shows up in CloudWatch, drop to 1-2 — the value
- * is intentionally a knob.
+ * `concurrency: 5` — 同時 5 ジョブ。per-JA 直列順は不要(§6.5 は多 JA を 1 mail
+ * 呼び出しにまとめない意図で、厳密グローバル直列ではない)。CloudWatch で SES
+ * throttle が出たら 1-2 へ下げる調整ノブ。
  */
 @Processor(QUEUE_FILE_UPLOAD_NOTIFICATION, { concurrency: 5 })
 export class FileUploadNotificationWorker extends WorkerHost {
   private readonly logger = new Logger(FileUploadNotificationWorker.name);
 
-  // [audit-screen-name] Matches the SCR-023 screen identifier used by
-  // the upload controller's own audit rows, so a t_log query filtered
-  // by gamen_name correlates upload + notification phases of the
-  // same business action.
+  // [audit-screen-name] upload controller の監査行と同じ SCR-023 画面識別子。
+  // gamen_name で絞れば upload + notification フェーズを相関できる。
   private static readonly SCREEN_NAME = 'ファイルアップロード画面 (ACSMS-SCR-023)';
   private static readonly TABLE_NAME = 't_file_upload';
 
@@ -82,9 +63,8 @@ export class FileUploadNotificationWorker extends WorkerHost {
     const { file_upload_id, ja_id, uploaded_by } = job.data;
     const ctx = { jobId: job.id, file_upload_id, ja_id };
 
-    // [load-row] Soft-deleted rows must be skipped — operator may
-    // have deleted the upload between enqueue and processing. Ack
-    // (no throw) so BullMQ doesn't retry forever.
+    // [load-row] soft-delete 行はスキップ(enqueue〜処理間に operator が削除した
+    // 可能性)。無限リトライを避けるため throw せず ack。
     const row = await this.fileUploadRepo.findOne({
       where: { fileUploadId: file_upload_id, deletedAt: IsNull() },
     });
@@ -93,25 +73,22 @@ export class FileUploadNotificationWorker extends WorkerHost {
       return;
     }
 
-    // [idempotency] Re-entry to a completed row: short-circuit.
-    // Status 3 means a prior worker run finished the job; the BullMQ
-    // ACK simply never landed (crash, network blip). Re-sending
-    // would spam every recipient.
+    // [idempotency] 完了行への再入は short-circuit。status=3 は前回完了済で
+    // BullMQ ACK が届かなかった(crash/network)だけ。再送は全宛先へスパムになる。
     if (row.notificationStatus === NotificationStatus.COMPLETE) {
       this.logger.log({ event: 'notification.skip.already_complete', ...ctx });
       return;
     }
 
-    // [status-2-marker] Flip to 送信中 so the UI badge updates while
-    // the worker grinds through recipients. A list-screen reload
-    // mid-job shows "送信中" rather than the stale "未送信".
+    // [status-2-marker] 送信中 へ更新し、処理中に UI バッジを反映
+    // (途中リロードで stale "未送信" でなく "送信中" 表示)。
     await this.fileUploadRepo.update(
       { fileUploadId: file_upload_id },
       { notificationStatus: NotificationStatus.SENDING },
     );
 
-    // [ja-lookup] template needs ja_name; JA missing means data
-    // corruption (FK broken) — record + throw to surface in alarms.
+    // [ja-lookup] template に ja_name 必要。JA 欠落は FK 破損=データ破損 →
+    // 記録 + throw で alarm に上げる。
     const ja = await this.jaRepo.findOne({
       where: { jaId: ja_id, deletedAt: IsNull() },
     });
@@ -121,27 +98,24 @@ export class FileUploadNotificationWorker extends WorkerHost {
       throw new Error(`JA ${ja_id} not found for file_upload_id ${file_upload_id}`);
     }
 
-    // [recipients] Each m_account row contributes up to 4 emails —
-    // primary + 3 sub. Filter blanks, dedupe via the shared util.
+    // [recipients] 各 m_account 行が最大 4 email(primary + sub 3)を寄与。
+    // 空除外・dedupe は共有 util。
     const accounts = await this.accountRepo.find({
       where: { jaId: ja_id, deletedAt: IsNull() },
     });
     const recipients = collectAccountEmails(accounts);
 
     if (recipients.length === 0) {
-      // [no-recipients] Defensive — a JA with zero subscribers
-      // shouldn't normally trip this branch, but we treat it as
-      // "vacuously complete" rather than a failure so the row exits
-      // 送信中 immediately. Operator can re-seed accounts and resend
-      // manually if needed.
+      // [no-recipients] 防御的。宛先 0 の JA は通常起きないが、失敗でなく
+      // "vacuously complete" 扱いにし 送信中 を即抜ける。必要なら operator が
+      // account 再投入 + 手動再送。
       this.logger.warn({ event: 'notification.no_recipients', ...ctx });
       await this.markComplete(file_upload_id);
       return;
     }
 
-    // [uploader-lookup] best-effort — uploader may have been
-    // deactivated; fall back to login_id literal so the mail body
-    // still names a real source.
+    // [uploader-lookup] best-effort。uploader が無効化済でも login_id へ
+    // フォールバックし mail 本文が実在の送信元を示す。
     const uploader = await this.accountRepo.findOne({
       where: { accountId: uploaded_by },
     });
@@ -149,9 +123,8 @@ export class FileUploadNotificationWorker extends WorkerHost {
     // 件名に ログインID + アカウント名 を表示する（顧客要件2026-07）。
     const uploaderAccountName = uploader?.accountName ?? '';
 
-    // [send-loop] Serial within a job so SES isn't slammed by a
-    // single JA with hundreds of recipients. BullMQ concurrency
-    // covers parallelism across jobs (= across JAs).
+    // [send-loop] ジョブ内は直列。1 JA に数百宛先でも SES を叩き潰さない。
+    // ジョブ間(=JA 間)の並列は BullMQ concurrency が担当。
     const failedEmails: string[] = [];
     for (const email of recipients) {
       try {
@@ -178,18 +151,15 @@ export class FileUploadNotificationWorker extends WorkerHost {
     const allFailed = failed === total;
 
     if (allFailed) {
-      // [all-failed] Let BullMQ retry the WHOLE job — likely a
-      // transient SMTP / SES outage. Status stays 2 (送信中) so the
-      // UI keeps showing "in progress" rather than flapping to 4
-      // between retry attempts.
+      // [all-failed] BullMQ にジョブ全体をリトライさせる(一時的 SMTP/SES 障害の
+      // 可能性)。status は 2(送信中)維持で、リトライ間に 4 へちらつかせない。
       this.logger.error({ event: 'notification.all_failed', ...ctx, total });
       throw new Error(`All ${total} recipients failed for file_upload_id ${file_upload_id}`);
     }
 
     if (failed > 0) {
-      // [partial-failure] 4 = 一部失敗. Record the per-recipient
-      // failures into t_log (log_type=3) so operators can see WHICH
-      // addresses bounced without scraping CloudWatch.
+      // [partial-failure] 4 = 一部失敗。宛先毎の失敗を t_log(log_type=3)へ記録し、
+      // CloudWatch を漁らずどのアドレスが bounce したか分かるように。
       await this.markPartial(file_upload_id);
       await this.auditLog.logError(
         {
@@ -238,7 +208,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
     );
   }
 
-  /** Used when JA lookup fails — mark partial + let BullMQ retry. */
+  /** JA lookup 失敗時 — partial にして BullMQ にリトライさせる。 */
   private async markFailed(fileUploadId: number): Promise<void> {
     await this.markPartial(fileUploadId);
   }

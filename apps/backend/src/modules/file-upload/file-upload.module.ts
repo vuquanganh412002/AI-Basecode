@@ -16,12 +16,12 @@ import { NotificationQueueService } from './notification-queue.service';
 
 @Module({
   imports: [
-    // Account + Ja are consumed by FileUploadNotificationWorker for
-    // recipient lookup (m_account) and template ja_name (m_ja).
+    // Account + Ja は FileUploadNotificationWorker が宛先取得(m_account)と
+    // template の ja_name(m_ja)に使用。
     TypeOrmModule.forFeature([FileUpload, Account, Ja]),
     AuditLogModule,
-    AuthModule, // [auth-guard] SessionAuthGuard depends on SessionService
-    MailModule, // [worker-mail] FileUploadNotificationWorker uses MailService
+    AuthModule, // [auth-guard] SessionAuthGuard が SessionService に依存
+    MailModule, // [worker-mail] FileUploadNotificationWorker が MailService を使用
     StorageModule,
   ],
   controllers: [FileUploadController],

@@ -17,10 +17,9 @@ import {
 const TEKIYO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Coerce a query/body value into a number array. Query strings arrive as a
- * single value (`?kanri_shiten_id=20`) or an array; normalise both to
- * `number[]` so `@IsInt({ each: true })` can validate. Non-numeric members
- * become `NaN` → rejected by `@IsInt`.
+ * クエリ/body 値を number 配列へ正規化する。単一値（`?kanri_shiten_id=20`）でも
+ * 配列でも `number[]` に揃え、`@IsInt({ each: true })` で検証できるようにする。
+ * 数値化できない要素は `NaN` → `@IsInt` で弾かれる。
  */
 const toNumberArray = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null) return value;
@@ -46,7 +45,7 @@ export class ZougenNichinoRemarkDto {
 }
 
 /**
- * Shared query/body DTO for both 増減通知（日本農業新聞） endpoints:
+ * 増減通知（日本農業新聞）の両エンドポイント共通のクエリ/body DTO:
  *   - GET  /api/v1/report/zougen-nichino/preview (ACSMS-API-029-001)
  *   - POST /api/v1/report/zougen-nichino/export  (ACSMS-API-029-002)
  *

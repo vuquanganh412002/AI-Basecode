@@ -11,20 +11,17 @@ interface Props {
   page: number;
   perPage: number;
   total: number;
-  /** Title shown above the table (e.g. 単価一覧). Omit to hide the header bar. */
+  /** テーブル上部のタイトル（例: 単価一覧）。省略でヘッダバー非表示。 */
   title?: string;
   /**
-   * Optional per-row class hook — forwarded to a-table's `row-class-name`.
-   * Use for highlighting the row currently being edited (form-on-top
-   * list-below screens) or for selection state. Return `''` for no class.
+   * 任意の行クラスフック — a-table の `row-class-name` に転送。編集中の行の
+   * ハイライト（フォーム上・一覧下の画面）や選択状態に使う。クラス無しは `''` を返す。
    */
   rowClassName?: (row: T, index: number) => string;
   /**
-   * Optional row-selection config forwarded to a-table — enables the
-   * checkbox column (multi-select) or radio column (single-select).
-   * Pass `{ selectedRowKeys, onChange }` for controlled multi-select.
-   * See `apps/frontend/src/views/file-download/FileDownloadView.vue`
-   * for canonical usage.
+   * 任意の行選択設定 — a-table に転送し、チェックボックス列（複数選択）または
+   * ラジオ列（単一選択）を有効化する。制御された複数選択は `{ selectedRowKeys, onChange }` を渡す。
+   * 標準的な使い方は `apps/frontend/src/views/file-download/FileDownloadView.vue` 参照。
    */
   rowSelection?: Record<string, unknown>;
 }
@@ -67,7 +64,7 @@ function handleChange(
 
 <template>
   <BaseCard padding="none">
-    <!-- Optional table header -->
+    <!-- 任意のテーブルヘッダ -->
     <div
       v-if="props.title || $slots.headerActions"
       class="p-4 border-b border-border flex items-center justify-between gap-4"
@@ -95,17 +92,15 @@ function handleChange(
         showSizeChanger: true,
         pageSizeOptions: ['10', '20', '50', '100'],
         showTotal: (t: number) => `全 ${t} 件`,
-        /* Always render the pagination bar — customer wants the
-           size-changer + '全 N 件' total visible even with a single
-           row of results. Antd's default IS to render-when-single, so
-           we just don't pass `hideOnSinglePage: true`. */
-        /* Project convention — left-aligned pagination per the screen
-           mockups (cf. docs/design/ACSMS-SCR-004/index.html). Antd's
-           default is bottomRight. */
+        /* ページネーションバーを常に表示 — 顧客要件で結果が 1 行でも size-changer +
+           '全 N 件' 総数を見せる。antd の既定は単一ページでも表示なので
+           `hideOnSinglePage: true` を渡さないだけでよい。 */
+        /* プロジェクト規約 — 画面モック（docs/design/ACSMS-SCR-004/index.html）に従い
+           左寄せページネーション。antd の既定は bottomRight。 */
         position: ['bottomLeft'],
-        /* jaJP locale renders the page-size dropdown as '20 件 / ページ'
-           but the design specifies '20 / 頁'. Override only items_per_page
-           so every other pagination locale string keeps jaJP defaults. */
+        /* jaJP ロケールは page-size ドロップダウンを '20 件 / ページ' で表示するが
+           デザインは '20 / 頁' 指定。items_per_page のみ上書きし、他のページネーション
+           ロケール文字列は jaJP 既定を保つ。 */
         locale: { items_per_page: '/ 頁' },
       }"
       size="middle"
@@ -123,11 +118,10 @@ function handleChange(
 </template>
 
 <style scoped>
-/* Both the pagination row AND the first/last body cells use the SAME padding
-   so the table's content edge lines up with the title bar's `p-4`.
-   Using `padding` (not `margin`) on the pagination is what makes the first
-   pagination element ("全 N 件") start at exactly the same x-coordinate as
-   the first column's content. */
+/* ページネーション行と最初/最後のボディセルに同じ padding を使い、テーブルの
+   コンテンツ端がタイトルバーの `p-4` に揃うようにする。ページネーションに
+   （margin でなく）padding を使うことで、先頭要素（"全 N 件"）が最初の列コンテンツと
+   同じ x 座標から始まる。 */
 :deep(.ant-table-pagination.ant-table-pagination-left) {
   padding-left: 1rem;
   padding-right: 1rem;
@@ -135,12 +129,10 @@ function handleChange(
   margin-right: 0;
 }
 
-/* Antd's `size="middle"` cells use 8px horizontal padding by default, so
-   the first column would stick 8px from the card edge while the rest of
-   the page sits at p-4 (16px). Bump the first / last cells (header + body)
-   so the column-content edge matches everything else.
-   `!important` is needed because antd's runtime style injection has higher
-   specificity than scoped Vue styles. */
+/* antd の `size="middle"` セルは既定で 8px の水平 padding。放置すると最初の列が
+   カード端から 8px の位置になり、ページ他要素の p-4（16px）とずれる。最初/最後のセル
+   （ヘッダ + ボディ）を広げて列コンテンツ端を他と揃える。antd のランタイムスタイル注入は
+   scoped Vue スタイルより詳細度が高いため `!important` が必要。 */
 :deep(.ant-table-thead > tr > .ant-table-cell:first-child),
 :deep(.ant-table-tbody > tr > .ant-table-cell:first-child) {
   padding-left: 1rem !important;
@@ -150,10 +142,9 @@ function handleChange(
   padding-right: 1rem !important;
 }
 
-/* Antd's sortable column header uses `.ant-table-column-title { flex: auto }`
-   which stretches the title to fill the cell, pushing the sort arrows to
-   the far right. Anchor the title to its natural width so the sort icon
-   sits right next to the text. */
+/* antd のソート可能な列ヘッダは `.ant-table-column-title { flex: auto }` で
+   タイトルをセル一杯に伸ばし、ソート矢印を右端へ押しやる。タイトルを自然幅に固定し、
+   ソートアイコンがテキストのすぐ隣に来るようにする。 */
 :deep(.ant-table-column-sorters) {
   justify-content: flex-start !important;
   gap: 0.25rem;

@@ -2,19 +2,15 @@
 /**
  * JAマスタ登録画面 (ACSMS-SCR-005).
  *
- * Single view that handles BOTH the create and edit flows:
- *   /ja          (POST)  -- create mode
- *   /ja/:id/edit (PUT)   -- edit mode (preloads via GET /api/v1/ja/:id)
+ * 登録・編集を兼ねる単一ビュー:
+ *   /ja          (POST)  -- 登録モード
+ *   /ja/:id/edit (PUT)   -- 編集モード（GET /api/v1/ja/:id で事前ロード）
  *
- * - Validation rules + error message text from
- *   docs/design/ACSMS-SCR-005/screen-design.md (メッセージ情報).
- * - DOM structure / Japanese button copy from
- *   docs/design/ACSMS-SCR-005/index.html.
- * - API contract from docs/design/ACSMS-SCR-005/ACSMS-SCR-005-api.md.
+ * バリデーション・メッセージ: screen-design.md（メッセージ情報）
+ * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-005-api.md。
  *
- * Field-level role restrictions (CHUOKAI / JA_HONTEN can only edit a
- * subset per api.md §4.4) are enforced server-side; the FE submits
- * everything and the backend ignores out-of-scope keys.
+ * フィールドレベルのロール制限（CHUOKAI / JA_HONTEN は api.md §4.4 の一部のみ
+ * 編集可）はサーバ側で強制。FE は全項目を送り BE がスコープ外キーを無視する。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -57,12 +53,10 @@ const codes = useCodesStore();
 const { fieldErrors, submitting, submit } = useApiForm();
 
 /**
- * Field-level restriction (edit mode only) per
- * `.claude/rules/security.md §"Field-Level Restriction"` and
- * `account_concept.md §JAマスタ`. CHUOKAI and JA_HONTEN can only edit
- * the contact-info subset of m_ja; everything else is read-only.
- * NICHINO_ADMIN edits everything; create mode is admin-only via
- * `ja.create` so this gate never trips there.
+ * フィールドレベル制限（編集モードのみ、security.md §Field-Level Restriction +
+ * account_concept.md §JAマスタ）。CHUOKAI / JA_HONTEN は m_ja の連絡先サブセットのみ
+ * 編集可、他は read-only。NICHINO_ADMIN は全編集可。登録モードは `ja.create` で
+ * admin 専用のためここは発火しない。
  */
 const RESTRICTED_EDITOR_ROLES: ReadonlySet<string> = new Set([
   RoleCode.CHUOKAI,
@@ -74,7 +68,7 @@ const isRestrictedEditor = computed(
     RESTRICTED_EDITOR_ROLES.has(authStore.user?.role_code ?? ''),
 );
 
-/** Numeric id from the path, or undefined for create mode. */
+/** パスの数値 id。登録モードでは undefined。 */
 const jaIdParam = computed<number | undefined>(() => {
   const raw = route.params.id;
   if (raw === undefined || raw === '') return undefined;
@@ -110,19 +104,19 @@ const formState = reactive<CreateJaRequest>({
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
 
-/* ─── Lifecycle ────────────────────────────────────────────────────── */
+/* ─── ライフサイクル ───────────────────────────────────────────────── */
 
 onMounted(async () => {
-  // Prefecture dropdown options (§API-COMMON-001).
+  // 都道府県 dropdown options（§API-COMMON-001）。
   try {
     const resp = await getTodofukenList();
     todofukenOptions.value = resp.data;
   } catch {
-    // axios interceptor already toasted the error.
+    // axios interceptor が既にエラーをトースト済み。
     todofukenOptions.value = [];
   }
 
-  // Edit-mode preload.
+  // 編集モードの事前ロード。
   if (jaIdParam.value !== undefined) {
     try {
       const resp = await getJa(jaIdParam.value);
@@ -139,11 +133,9 @@ onMounted(async () => {
         email: resp.data.email,
         tanto_busho: resp.data.tanto_busho,
         tanto_name: resp.data.tanto_name,
-        // BE returns zei_kubun as a number (1 = 内税, 2 = 外税) per
-        // m_code.code_category='ZEI_KUBUN'. The form uses string radio
-        // values ('1'/'2'), so coerce here — without this the radio's
-        // strict-equality check fails (`'1' !== 1`) and edit mode shows
-        // nothing selected.
+        // BE は zei_kubun を number（1=内税, 2=外税、m_code ZEI_KUBUN）で返すが、
+        // フォームは string radio ('1'/'2')。ここで変換しないと radio の
+        // strict-equal（`'1' !== 1`）で edit モードが未選択表示になる。
         zei_kubun: String(resp.data.zei_kubun ?? ''),
         jastem_itakusha_code: resp.data.jastem_itakusha_code,
         jastem_itakusha_name: resp.data.jastem_itakusha_name,
@@ -153,18 +145,18 @@ onMounted(async () => {
       });
       await editGuard.capture();
     } catch {
-      // 404 / 403 — let the global axios interceptor handle redirect.
-      // Drop back to the dashboard so we don't render an empty edit form.
+      // 404 / 403 — axios interceptor がリダイレクトを処理。空の編集フォームを
+      // 描画しないよう dashboard へ戻す。
       try {
         await router.push({ name: 'Dashboard' });
       } catch {
-        /* no-match in some test routers — ignore */
+        /* 一部テスト用ルーターは no-match — 無視 */
       }
     }
   }
 });
 
-/* ─── Validation (per screen-design.md メッセージ情報) ────────────── */
+/* ─── 検証（screen-design.md メッセージ情報に準拠） ────────────────── */
 
 const REQUIRED_MSG = '必須項目です。';
 const POSTAL_DIGITS_ONLY_MSG = '郵便番号は半角数字のみ（ハイフンなし）入力可能です。';
@@ -173,8 +165,8 @@ const FAX_DIGITS_ONLY_MSG = 'FAXは半角数字のみ（ハイフンなし）入
 const EMAIL_INVALID_MSG = '有効なメールアドレスを入力してください。';
 const KANA_FORMAT_MSG = kanaFormatMessage('JA名');
 
-// JASTEM fields — mirror BE @Matches regexes 1:1 so the user gets
-// instant feedback without a server round-trip.
+// JASTEM 項目 — BE @Matches の regex を 1:1 でミラーし、サーバ往復なしで
+// 即時フィードバックを得る。
 const ITAKUSHA_CODE_FORMAT_MSG =
   '委託者コードは半角英数字で入力してください（スペース不可）。';
 // 委託者名・農協名 — カタカナ/英数字は半角、漢字・ひらがなは可（JASTEM_NAME_RE）。
@@ -187,16 +179,12 @@ const DIGITS_RE = /^\d+$/;
 function validateClient(form: CreateJaRequest): Record<string, string> {
   const errs: Record<string, string> = {};
 
-  // ─── Required-field checks (apply first; format check below only
-  //     fires when the field is non-empty so the user sees one error
-  //     at a time per spec).
+  // ─── 必須チェック（先に実施。下の形式チェックは非空のときのみ発火し
+  //     ユーザーは一度に1エラーを見る）。
   //
-  //     Optional chaining `?.trim()` is required because antd's
-  //     `<a-select allow-clear>` sets the v-model to `undefined` (not
-  //     `""`) when the × clear icon is clicked. Calling `.trim()` on
-  //     undefined would throw and bubble up to the global error
-  //     handler ("エラーが発生しました。ページを更新してください。"),
-  //     masking what is really a required-field violation.
+  //     `?.trim()` は必須 — `<a-select allow-clear>` は × クリアで v-model を
+  //     `undefined`（""ではない）にする。undefined への `.trim()` は throw し
+  //     グローバルエラーハンドラ（「エラーが発生しました…」）に届き、必須違反を隠す。
   // ──────────────────────────────────────────────────────────────
   if (!isEdit.value && !form.ja_code?.trim()) errs.ja_code = REQUIRED_MSG;
   if (!form.ja_name?.trim()) errs.ja_name = REQUIRED_MSG;
@@ -205,8 +193,7 @@ function validateClient(form: CreateJaRequest): Record<string, string> {
     errs.zei_kubun = REQUIRED_MSG;
   }
 
-  // ─── Format checks (only for non-empty values; required fields
-  //     above short-circuit for empties). ─────────────────────────
+  // ─── 形式チェック（非空の値のみ。空は上の必須チェックで短絡）。 ────────
   if (form.yubin_no && !/^[0-9]+$/.test(form.yubin_no)) {
     errs.yubin_no = POSTAL_DIGITS_ONLY_MSG;
   }
@@ -223,7 +210,7 @@ function validateClient(form: CreateJaRequest): Record<string, string> {
     errs.ja_name_kana = KANA_FORMAT_MSG;
   }
 
-  // JASTEM 4 fields — format checks only when non-empty (Optional).
+  // JASTEM 4項目 — 非空のときのみ形式チェック（任意）。
   if (form.jastem_itakusha_code && !ITAKUSHA_CODE_RE.test(form.jastem_itakusha_code)) {
     errs.jastem_itakusha_code = ITAKUSHA_CODE_FORMAT_MSG;
   }
@@ -247,13 +234,12 @@ const allFieldErrors = computed<Record<string, string>>(() => ({
   ...fieldErrors.value,
 }));
 
-/* ─── Submit pipeline ─────────────────────────────────────────────── */
+/* ─── Submit パイプライン ─────────────────────────────────────────── */
 
 /**
- * DOM order of form fields. Used to pick "the first input with an
- * error" for auto-focus after a failed submit, regardless of the
- * order the validator pushed errors into the map. Keep in sync with
- * the template below.
+ * フォーム項目の DOM 順。submit 失敗後の自動フォーカスで「先頭のエラー入力」を
+ * 選ぶのに使う（validator がエラーを push した順に依存しない）。下のテンプレートと
+ * 同期を保つこと。
  */
 const FIELD_ORDER: ReadonlyArray<keyof CreateJaRequest> = [
   'ja_code',
@@ -277,9 +263,8 @@ const FIELD_ORDER: ReadonlyArray<keyof CreateJaRequest> = [
 ];
 
 /**
- * Programmatic submit — exposed so the spec can drive the form without
- * reaching into antd's internal form state. The real UX submit handler
- * funnels through this same path on `<form @submit>`.
+ * プログラム的 submit — antd 内部フォーム状態に触れず spec から駆動できるよう公開。
+ * 実UXの submit ハンドラも `<form @submit>` から同じ経路を通る。
  */
 async function submitWith(form: CreateJaRequest): Promise<void> {
   const errs = validateClient(form);
@@ -299,16 +284,14 @@ async function submitWith(form: CreateJaRequest): Promise<void> {
       await createJa(form);
       notify.created();
     }
-    // Inside the callback so it only fires when the API call resolved
-    // without throwing — `submit()` swallows the error and toasts via
-    // the axios interceptor, so on failure we stay on the form.
+    // コールバック内なので API が例外なく解決したときのみ発火 — `submit()` は
+    // エラーを飲み込み axios interceptor がトーストするので失敗時はフォームに留まる。
     await router.push({ name: 'JaList' });
   });
 
-  // After the round-trip, server-side VALIDATION_ERROR fields are now
-  // in fieldErrors (via useApiForm). Focus the first one too so the
-  // back-end checks (e.g. duplicate ja_code) feel as snappy as the
-  // client-side ones.
+  // ラウンドトリップ後、サーバ側 VALIDATION_ERROR が fieldErrors に入る。
+  // その先頭にもフォーカスし、BE チェック（例: ja_code 重複）もクライアント側
+  // 同様に軽快に感じさせる。
   if (Object.keys(fieldErrors.value).length > 0) {
     focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
@@ -332,8 +315,8 @@ defineExpose({ submitWith });
 
 <template>
   <div class="space-y-6">
-    <!-- Page title + breadcrumb are rendered by AppHeader (in MainLayout)
-         based on route meta — do NOT duplicate here. -->
+    <!-- ページタイトル・パンくずは route meta を元に AppHeader（MainLayout）が
+         描画する — ここで重複させない。 -->
 
     <BaseCard padding="none">
       <div class="px-4 py-4 border-b border-border">
@@ -347,7 +330,7 @@ defineExpose({ submitWith });
         @keydown="preventEnterImplicitSubmit"
         @finish="onFormSubmit"
       >
-        <!-- Row 1: JA code / name / name kana -->
+        <!-- 行1: JAコード / JA名 / JA名(カナ) -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="ja_code"
@@ -393,7 +376,7 @@ defineExpose({ submitWith });
           </a-form-item>
         </div>
 
-        <!-- Row 2: Prefecture / postal / address -->
+        <!-- 行2: 都道府県 / 郵便番号 / 住所 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="todofuken_code"
@@ -427,7 +410,7 @@ defineExpose({ submitWith });
           </a-form-item>
         </div>
 
-        <!-- Row 3: Phone / FAX / Email -->
+        <!-- 行3: 電話番号 / FAX / メールアドレス -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             label="電話番号"
@@ -459,11 +442,10 @@ defineExpose({ submitWith });
             :validate-status="allFieldErrors.email ? 'error' : ''"
             :help="allFieldErrors.email"
           >
-            <!-- type="text" (NOT "email") so the browser's native HTML5
-                 validation tooltip ("Please include an '@'…") doesn't fire.
-                 The project uses its own client-side check
-                 (`validateClient()` runs the EMAIL_INVALID_MSG regex) and
-                 surfaces errors through `<a-form-item :help>` in Japanese. -->
+            <!-- type="text"（"email" ではない）でブラウザ native HTML5 検証
+                 ツールチップ（"Please include an '@'…"）を出さない。プロジェクトは
+                 独自のクライアント検証（`validateClient()` の EMAIL_INVALID_MSG regex）を
+                 使い `<a-form-item :help>` に日本語でエラーを出す。 -->
             <a-input
               v-model:value="formState.email"
               :maxlength="100"
@@ -472,9 +454,8 @@ defineExpose({ submitWith });
           </a-form-item>
         </div>
 
-        <!-- Row 4: Department (1/3) / Contact (1/3) / Tax + Central-union
-             flag share the last 1/3 (each radio group is compact enough
-             to fit ~half of one column). -->
+        <!-- 行4: 担当部署（1/3）/ 担当者（1/3）/ 税区分 + 中央会フラグ が
+             最後の 1/3 を分け合う（各 radio group が半列に収まる）。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item label="担当部署名" name="tanto_busho">
             <a-input v-model:value="formState.tanto_busho" :maxlength="100" />
@@ -519,7 +500,7 @@ defineExpose({ submitWith });
           </div>
         </div>
 
-        <!-- Row 5: JASTEM settlement metadata (optional, ※空文字許容). -->
+        <!-- 行5: JASTEM 決済メタデータ（任意、※空文字許容）。 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <a-form-item
             label="委託者コード"
@@ -567,7 +548,7 @@ defineExpose({ submitWith });
           </a-form-item>
         </div>
 
-        <!-- Row 7: Notes -->
+        <!-- 行7: 備考 -->
         <a-form-item label="備考" name="biko">
           <a-textarea v-model:value="formState.biko" :rows="3" :maxlength="500" />
         </a-form-item>

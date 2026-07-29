@@ -19,10 +19,10 @@ export class RolePermission {
   permissionId: number;
 
   /**
-   * TRUE when this row was seeded as part of the role's baseline
-   * (`1711900900003-SeedMRolesPermissions.ts`). FE renders the
-   * checkbox `disabled`; BE rejects PATCH that drops the row.
-   * FALSE for any row added later via the SCR-027 admin UI.
+   * ロール基準権限としてシードされた行で TRUE
+   * （`1711900900003-SeedMRolesPermissions.ts`）。FE はチェックボックスを
+   * `disabled` 表示し、BE はこの行を外す PATCH を拒否する。
+   * SCR-027 管理 UI で後から追加された行は FALSE。
    */
   @Column({ name: 'locked', type: 'boolean', default: false })
   locked: boolean;

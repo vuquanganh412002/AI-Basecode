@@ -1,11 +1,9 @@
 /**
- * Payment method stored in `t_dokusya_rireki.shiharai_hoho`.
+ * 支払方法。`t_dokusya_rireki.shiharai_hoho`。
+ * Mirror of `m_code.code_category = 'SHIHARAI_HOHO'`。Group A: code が値で分岐
+ * (口座引落→銀行群必須、クレジットカード→JA role では読取専用 等)。
  *
- * Mirror of `m_code.code_category = 'SHIHARAI_HOHO'`. Group A because the
- * code branches on the value (口座引落 makes the bank cluster required,
- * クレジットカード is read-only for JA roles, etc.).
- *
- * Keep in sync with `apps/frontend/src/constants/enums/shiharai-hoho.ts`.
+ * `apps/frontend/src/constants/enums/shiharai-hoho.ts` と同期。
  */
 export const ShiharaiHoho = {
   /** 口座引落 */

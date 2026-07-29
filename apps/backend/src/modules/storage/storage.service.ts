@@ -17,9 +17,8 @@ export class StorageService implements OnModuleInit, StorageProvider {
     const region = this.configService.get<string>('storage.region') ?? 'ap-northeast-1';
     const config = {
       endpoint,
-      // [public-endpoint] Defaults to the internal endpoint when unset.
-      // Browsers receive this hostname in presigned URLs instead of the
-      // Docker-internal `minio:9000`.
+      // [public-endpoint] 未設定時は内部 endpoint を既定に。ブラウザは
+      // presigned URL で Docker 内部の `minio:9000` でなくこのホスト名を受け取る。
       publicEndpoint:
         this.configService.get<string>('storage.publicEndpoint') ?? endpoint,
       region,

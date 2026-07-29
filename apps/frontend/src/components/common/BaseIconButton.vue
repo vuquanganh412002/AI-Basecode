@@ -1,10 +1,10 @@
 <script setup lang="ts">
 interface Props {
-  /** Material icon name (from `material-icons` font). */
+  /** Material アイコン名（`material-icons` フォント）。 */
   icon: string;
   ariaLabel: string;
   size?: 'sm' | 'md' | 'lg';
-  /** Show a red dot indicator (for notifications etc.). */
+  /** 赤ドットインジケータを表示（通知など）。 */
   badge?: boolean;
   disabled?: boolean;
 }

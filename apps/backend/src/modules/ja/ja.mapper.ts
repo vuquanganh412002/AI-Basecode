@@ -1,19 +1,10 @@
 import { Ja } from '@/database/entities/ja.entity';
 import { JaResponseDto } from './dto/ja-response.dto';
 
-/**
- * Map a `Ja` entity (camelCase columns) to the snake_case
- * `JaResponseDto` shape that the API serializes.
- *
- * `todofukenName` is hydrated separately by the service (joined or
- * batch-looked-up against `m_todofuken`) because the entity carries
- * only `todofuken_code` — keeps the entity unbound from the prefecture
- * lookup table and lets the service decide JOIN vs batch fetch per
- * use case.
- *
- * Pure: no Nest DI, no IO. Easy to unit-test in isolation and reuse
- * across the controller / service / spec layers if needed.
- */
+// Ja エンティティ(camelCase)→ API 用 snake_case JaResponseDto へマップ。
+// todofukenName は service が別途注入(entity は todofuken_code のみ持つ)。
+// entity を m_todofuken に縛らず、JOIN/batch を用途ごとに service が選べる。
+// 純関数：Nest DI/IO なし。単体テストしやすく各層で再利用可。
 export function toJaResponse(ja: Ja, todofukenName: string): JaResponseDto {
   return {
     ja_id: Number(ja.jaId),

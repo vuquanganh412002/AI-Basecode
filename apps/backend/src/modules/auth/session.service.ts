@@ -18,21 +18,18 @@ export interface SessionPayload {
   shiten_id: number | null;
   permissions: string[];
   created_at: string;      // ISO-8601
-  last_activity_at: string; // ISO-8601 — updated on each successful request
+  last_activity_at: string; // ISO-8601 — 成功リクエストごとに更新
 }
 
 const SESSION_PREFIX = 'session:';
 const ACCOUNT_INDEX_PREFIX = 'account_sessions:';
 
 /**
- * Stores authenticated sessions in Redis.
- *
- * Layout:
- *   session:{session_id}              → JSON payload (EX = ttlSeconds)
- *   account_sessions:{account_id}     → Set of session_ids (same TTL)
- *
- * The per-account index lets us destroy all sessions at once on password
- * reset (SCR-012 §4.8) without scanning the entire keyspace.
+ * 認証済みセッションを Redis に保存。
+ *   session:{session_id}          → JSON payload (EX = ttlSeconds)
+ *   account_sessions:{account_id} → session_ids の Set（同 TTL）
+ * account 単位 index により、パスワードリセット時(SCR-012 §4.8)に keyspace 全走査なしで
+ * 全セッションを一括破棄できる。
  */
 @Injectable()
 export class SessionService {
@@ -48,7 +45,7 @@ export class SessionService {
       DEFAULT_SESSION_TTL_SECONDS;
   }
 
-  /** Create a new session and return its opaque ID (UUID v4). */
+  // 新規セッションを作成し opaque ID(UUID v4)を返す。
   async create(payload: Omit<SessionPayload, 'created_at' | 'last_activity_at'>): Promise<string> {
     const sessionId = randomUUID();
     const now = new Date().toISOString();
@@ -73,23 +70,20 @@ export class SessionService {
     return sessionId;
   }
 
-  /** Fetch the session payload; `null` if missing or expired. */
+  // セッション payload を取得。不在/期限切れは null。
   async get(sessionId: string): Promise<SessionPayload | null> {
     const raw = await this.redis.get(SESSION_PREFIX + sessionId);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as SessionPayload;
     } catch {
-      // Corrupt payload — destroy it.
+      // 破損 payload — 破棄。
       await this.destroy(sessionId).catch(() => undefined);
       return null;
     }
   }
 
-  /**
-   * Refresh the session's TTL to another full window (sliding expiration).
-   * Also stamps `last_activity_at`. No-op if the session has already expired.
-   */
+  // TTL を1窓分延長(スライディング)し last_activity_at を更新。期限切れ済みなら no-op。
   async touch(sessionId: string): Promise<SessionPayload | null> {
     const payload = await this.get(sessionId);
     if (!payload) return null;
@@ -103,7 +97,7 @@ export class SessionService {
     return payload;
   }
 
-  /** Destroy a single session. */
+  // 単一セッションを破棄。
   async destroy(sessionId: string): Promise<void> {
     const payload = await this.get(sessionId);
     if (payload) {
@@ -113,10 +107,7 @@ export class SessionService {
     this.logger.log({ event: 'session.destroyed', sessionId: this.mask(sessionId) });
   }
 
-  /**
-   * Destroy every session belonging to an account — used on password reset
-   * and when an admin wants to force-revoke a user's access.
-   */
+  // account の全セッションを破棄 — パスワードリセット時、admin による強制失効時に使用。
   async destroyAllForAccount(accountId: number): Promise<number> {
     const indexKey = ACCOUNT_INDEX_PREFIX + accountId;
     const sessionIds = await this.redis.smembers(indexKey);
@@ -134,7 +125,7 @@ export class SessionService {
     return sessionIds.length;
   }
 
-  /** Session IDs are secrets; only show the first 8 chars in logs. */
+  // session ID は機密。ログには先頭8文字のみ表示。
   private mask(sessionId: string): string {
     return sessionId.slice(0, 8) + '…';
   }

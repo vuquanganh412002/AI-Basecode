@@ -5,34 +5,27 @@ import { Log } from '@/database/entities/log.entity';
 import { LoginLog } from '@/database/entities/login-log.entity';
 import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
 
-// `LogType` / `ResultStatus` used to live in this file (inline `as const`
-// objects) and the canonical home moved to `@/common/enums`. The previous
-// commit kept a `export { … } from '@/common/enums'` re-export here as a
-// migration alias, but no caller imports them from this path — every
-// consumer (`auth.service`, `ja.service`, `account.service`) only takes
-// `AuditLogService` + `AuditOperationContext` from here, and the enum
-// imports go straight to `@/common/enums`. The re-export was also
-// triggering a TS 5.x watch-mode crash
-// (`Cannot read properties of undefined (reading 'checkJsDirective')` in
-// `trySubstituteClassAlias`) when the same identifier was imported above
-// for use in this file. Removing the re-export resolves both problems.
+// `LogType` / `ResultStatus` の正典は `@/common/enums`。以前あった
+// 移行用 re-export はどの caller も使わず（consumer は本ファイルから
+// `AuditLogService` + `AuditOperationContext` のみ取得）、かつ同一識別子を
+// 上で import すると TS 5.x watch-mode がクラッシュ
+// (`checkJsDirective` in `trySubstituteClassAlias`) するため削除済み。
 
 /**
- * Common context fields needed for every audit-log call. Modules build
- * one of these once per request (using `extractAuditContext(req)` to
- * fill `ipAddress` + `userAgent`) and pass it to `logCreate/Update/
- * Delete/Error` to avoid retyping the same six fields.
+ * 全 audit-log 呼び出し共通の context。リクエスト毎に 1 つ構築し
+ * (`extractAuditContext(req)` で `ipAddress` + `userAgent` を充填)、
+ * `logCreate/Update/Delete/Error` へ渡して同じ 6 フィールドの再記述を省く。
  */
 export interface AuditOperationContext {
-  /** Authenticated account from session — `null` for unauthenticated logs. */
+  /** セッションの認証済アカウント — 未認証ログは `null`。 */
   accountId: number | null;
-  /** JA scope on the operating user (drives DataScope on log queries). */
+  /** 操作ユーザーの JA スコープ（ログ検索の DataScope に使用）。 */
   jaId: number | null;
-  /** Screen label. Convention: `${画面名} (ACSMS-SCR-XXX)`. */
+  /** 画面ラベル。規約: `${画面名} (ACSMS-SCR-XXX)`。 */
   screen: string;
-  /** Target table name (`m_ja`, `m_tanka`, ...). */
+  /** 対象テーブル名（`m_ja`, `m_tanka`, ...）。 */
   table: string;
-  /** Primary key of the affected row. */
+  /** 対象行の主キー。 */
   targetId: number | null;
   ipAddress: string;
   userAgent: string;
@@ -48,15 +41,12 @@ export class AuditLogService {
   ) {}
 
   /**
-   * Audit a successful CREATE.
+   * CREATE 成功の記録。
    *
-   * `manager` is OPTIONAL but the project rule (`nestjs.md` §"Audit
-   * Log" MANDATORY) is to pass it from inside `dataSource.transaction(
-   * async (manager) => {...})` so the audit INSERT joins the same
-   * transaction as the business write. If the surrounding tx rolls
-   * back, the audit row rolls back atomically. Omit only when the
-   * caller intentionally wants a standalone row (very rare for
-   * success paths).
+   * `manager` は任意だが、規約（`nestjs.md` §"Audit Log" MANDATORY）は
+   * `dataSource.transaction(async (manager) => {...})` 内から渡すこと。
+   * audit INSERT を業務書き込みと同一 tx に載せ、ロールバック時は audit 行も
+   * 原子的にロールバックする。省略は独立行が欲しい稀なケースのみ。
    */
   async logCreate(
     ctx: AuditOperationContext,
@@ -81,7 +71,7 @@ export class AuditLogService {
     );
   }
 
-  /** Audit a successful UPDATE — captures both before- and after-states. */
+  /** UPDATE 成功の記録 — before/after 両状態を保存。 */
   async logUpdate(
     ctx: AuditOperationContext,
     before: unknown,
@@ -108,13 +98,11 @@ export class AuditLogService {
   }
 
   /**
-   * Audit a successful export/output operation (帳票・ファイル出力).
-   * The before-state is irrelevant for an export, so only `afterValue`
-   * (JSON of the output conditions + counts, never PII) is recorded.
-   * `operation` / `logType` vary by screen (EXPORT_PDF for PDF reports,
-   * CREATE + FILE_OPERATION for Excel/CSV file outputs), so both are
-   * passed by the caller. `manager` joins the audit INSERT to the
-   * caller's transaction when the export writes inside one.
+   * export/出力操作（帳票・ファイル出力）成功の記録。before 状態は不要のため
+   * `afterValue`（出力条件 + 件数の JSON、PII は含めない）のみ保存。
+   * `operation` / `logType` は画面毎に異なる（PDF は EXPORT_PDF、Excel/CSV は
+   * CREATE + FILE_OPERATION）ため caller が渡す。`manager` は export が tx 内で
+   * 書く場合に audit INSERT を同 tx へ載せる。
    */
   async logExport(
     ctx: AuditOperationContext,
@@ -144,7 +132,7 @@ export class AuditLogService {
     );
   }
 
-  /** Audit a successful DELETE — captures the row state before deletion. */
+  /** DELETE 成功の記録 — 削除前の行状態を保存。 */
   async logDelete(
     ctx: AuditOperationContext,
     before: unknown,
@@ -169,21 +157,18 @@ export class AuditLogService {
   }
 
   /**
-   * Audit a FAILED operation. By design, this MUST run on the
-   * standalone connection (no `manager` parameter) — by the time
-   * the caller's catch block executes, the surrounding transaction
-   * has already rolled back, so a row written via `manager` would
-   * also vanish. The standalone INSERT survives the rollback so the
-   * failure trace persists for debugging. See `nestjs.md` §"Audit
-   * Log" for the canonical pattern.
+   * 失敗操作の記録。設計上、独立接続で実行 MUST（`manager` を取らない）—
+   * caller の catch 実行時には既に tx がロールバック済みで、`manager`
+   * 経由の行も消えるため。独立 INSERT はロールバックを生き延び、失敗トレースが
+   * デバッグ用に残る。正典パターンは `nestjs.md` §"Audit Log"。
    */
   async logError(
     ctx: AuditOperationContext,
     operation: string,
     err: Error,
   ): Promise<void> {
-    // Wrap in try/catch so a failure to write the error log itself
-    // never masks the original error the caller is about to re-throw.
+    // エラーログ自身の書き込み失敗が、caller が再 throw する元エラーを
+    // 隠さないよう try/catch で包む。
     try {
       await this.logOperation({
         logType: LogType.ERROR,
@@ -205,15 +190,13 @@ export class AuditLogService {
   }
 
   /**
-   * Lowest-level audit write.
+   * 最下層の audit 書き込み。
    *
-   * @param manager Optional EntityManager. When passed the INSERT runs
-   *   against `manager.getRepository(Log)` so it participates in the
-   *   caller's transaction. When omitted, falls back to the module
-   *   repository (standalone connection) — used by `logError` and any
-   *   non-transactional caller. Exceptions BUBBLE so the surrounding
-   *   transaction can roll back; callers that intentionally want to
-   *   swallow (e.g. `logError`) must do so themselves.
+   * @param manager 任意の EntityManager。渡すと INSERT は
+   *   `manager.getRepository(Log)` で実行され caller の tx に参加。省略時は
+   *   モジュール repository（独立接続）— `logError` や非トランザクション caller が
+   *   使用。例外は BUBBLE させ tx がロールバックできるようにする。握り潰しは
+   *   caller 側の責務（例: `logError`）。
    */
   async logOperation(
     params: {
@@ -221,9 +204,8 @@ export class AuditLogService {
       accountId: number | null;
       jaId: number | null;
       gamenName: string;
-      // Open string vocabulary — `AuditOperation` lists the canonical verbs
-      // but some callers compute it dynamically (hanbaiten IMPORT_*). Prefer
-      // an AuditOperation member; raw strings still accepted.
+      // 開いた文字列語彙 — 正典動詞は `AuditOperation`。動的計算する caller も
+      // ある（hanbaiten IMPORT_*）。AuditOperation メンバー推奨、生文字列も可。
       operation: string;
       resultStatus: number;
       targetId?: number | null;
@@ -258,10 +240,9 @@ export class AuditLogService {
   }
 
   /**
-   * Login/logout/MFA-attempt log. Separate table (`t_login_log`) and
-   * intentionally non-transactional — login attempt records must
-   * survive any subsequent failure (locked account, invalid OTP, etc.)
-   * so security analysts can audit attack patterns.
+   * ログイン/ログアウト/MFA 試行ログ。別テーブル（`t_login_log`）で意図的に
+   * 非トランザクション — 後続失敗（アカウントロック、OTP 不正等）でも試行記録を
+   * 残し、攻撃パターンを監査できるようにする。
    */
   async logLogin(params: {
     accountId?: number | null;

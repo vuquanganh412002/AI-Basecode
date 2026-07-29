@@ -17,9 +17,9 @@ interface JaFilters {
   ja_code: string;
   ja_name: string;
   /**
-   * Prefecture code (2 chars). `undefined` = no filter (default state —
-   * the antd <a-select allow-clear placeholder> renders the placeholder
-   * instead of a "すべて" sentinel option). Cleared via the × icon.
+   * 都道府県コード（2文字）。`undefined` = フィルタなし（既定状態 —
+   * <a-select allow-clear placeholder> が「すべて」sentinel でなく placeholder を
+   * 表示）。× アイコンでクリア。
    */
   todofuken_code: string | undefined;
 }
@@ -28,14 +28,14 @@ const router = useRouter();
 const notify = useNotify();
 const authStore = useAuthStore();
 
-// Permission gates per docs/database/seeder.md §3 ja.* matrix:
-//   role 1 NICHINO_ADMIN : create / view / update / delete  (all 4)
-//   role 3 CHUOKAI       : view / update  (no create / delete)
-//   role 4 JA_HONTEN     : view / update  (no create / delete)
-//   role 5 JA_KANRI_SHITEN: none — already filtered out at the router
-//                            guard via `meta.permission: 'ja.view'`.
-// Buttons / clickable cells must respect these flags so non-admin
-// users don't see actions that the BE would 403 anyway.
+// 権限ゲート（seeder.md §3 ja.* マトリクス）:
+//   role 1 NICHINO_ADMIN : create / view / update / delete（全4）
+//   role 3 CHUOKAI       : view / update（create / delete なし）
+//   role 4 JA_HONTEN     : view / update（create / delete なし）
+//   role 5 JA_KANRI_SHITEN: なし — router guard の `meta.permission: 'ja.view'`
+//                            で既に除外。
+// ボタン / クリック可能セルはこれらのフラグに従い、BE がどのみち 403 にする
+// アクションを非 admin に見せない。
 const canCreate = computed(() => authStore.hasPermission('ja.create'));
 const canUpdate = computed(() => authStore.hasPermission('ja.update'));
 const canDelete = computed(() => authStore.hasPermission('ja.delete'));
@@ -45,24 +45,21 @@ const {
 } =
   useTableQuery<JaFilters>({
     defaultFilters: { ja_code: '', ja_name: '', todofuken_code: undefined },
-    // Newest write (created or updated) appears first so users see
-    // what they just changed at row 1. BE whitelist + default match
-    // (ja.service.ts SORT_COLUMN_MAP + sort_by fallback).
+    // 最新の書込み（作成/更新）が先頭に来て、変更したものが行1に見える。
+    // BE whitelist + 既定に一致（ja.service.ts SORT_COLUMN_MAP + sort_by fallback）。
     defaultSortBy: 'updated_at',
     defaultSortOrder: 'desc',
   });
 
 const rows = ref<JaListItem[]>([]);
 
-/** 都道府県 dropdown options (ACSMS-API-COMMON-001). Fetched once on mount. */
+/** 都道府県 dropdown options（ACSMS-API-COMMON-001）。mount 時に一度取得。 */
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
-// All columns carry an explicit width so adding sort icons does not
-// reshape the table. Antd's default `tableLayout: 'auto'` divides leftover
-// space among flex columns, so a sort arrow appearing on a sortable column
-// makes other (widthless) columns shrink. Pinning every column's width and
-// letting BaseDataTable's `scroll: { x: 'max-content' }` handle overflow
-// keeps the layout stable on every sort click.
+// 全列に width を明示し、ソートアイコン追加でテーブルが崩れないようにする。
+// antd 既定 `tableLayout: 'auto'` は余白を flex 列に分配するため、ソート矢印が
+// 出ると width 未指定列が縮む。全列に width を固定し、BaseDataTable の
+// `scroll: { x: 'max-content' }` にオーバーフローを任せてソート毎に安定させる。
 const columns: TableColumnsType = [
   { title: 'JAコード', dataIndex: 'ja_code', key: 'ja_code', sorter: true, width: 140 },
   { title: 'JA名', dataIndex: 'ja_name', key: 'ja_name', width: 220 },
@@ -95,12 +92,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: the global axios interceptor in
-    // src/api/error-handler.ts already toasted FORBIDDEN / 500.
-    // Re-throwing would surface an unhandled rejection in onMounted's
-    // fire-and-forget invocation. Per .claude/rules/vue.md, this is
-    // an "expected and intentionally ignored" case — see fetch-on-mount
-    // pattern.
+    // 想定内・無視: error-handler.ts が FORBIDDEN / 500 を既にトースト済み。
+    // 再throw は onMounted の fire-and-forget で unhandled rejection になる
+    // （vue.md の「想定して意図的に無視」ケース）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -111,13 +105,13 @@ async function fetchList(): Promise<void> {
 async function fetchTodofuken(): Promise<void> {
   try {
     const resp = await getTodofukenList();
-    // BE envelope is `{ data: TodofukenItem[] }`. Spec fixtures may
-    // pass a plain array directly (buildTodofukenList helper) — accept both.
+    // BE envelope は `{ data: TodofukenItem[] }`。spec fixture は素の配列を
+    // 直接渡す場合あり（buildTodofukenList）— 両形を受理。
     todofukenOptions.value = Array.isArray(resp)
       ? (resp as unknown as TodofukenItem[])
       : resp.data;
   } catch {
-    // Non-critical — leave dropdown empty if lookup fails.
+    // 非致命的 — 取得失敗なら dropdown を空のままにする。
     todofukenOptions.value = [];
   }
 }
@@ -127,11 +121,11 @@ onMounted(() => {
   void fetchTodofuken();
 });
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim text filters so paste artifacts / IME spaces don't alter the ILIKE
-  // pattern. todofuken_code comes from a select — no whitespace to trim.
+  // paste/IME 空白で ILIKE を変えないようテキストフィルタを trim。
+  // todofuken_code は select 由来で trim 対象なし。
   beforeSearch() {
     state.filters.ja_code = state.filters.ja_code.trim();
     state.filters.ja_name = state.filters.ja_name.trim();
@@ -158,10 +152,9 @@ function askDelete(row: JaListItem): void {
       notify.deleted();
       await fetchList();
     } catch {
-      // The global axios interceptor handles 409 CONFLICT
-      // (ACSMS-MSG-004-003) and 500 (ACSMS-MSG-004-005); the view
-      // must not re-toast — see .claude/rules/vue.md
-      // §Error Handling Architecture.
+      // axios interceptor が 409 CONFLICT（ACSMS-MSG-004-003）と 500
+      // （ACSMS-MSG-004-005）を処理。view で再トーストしない
+      // （vue.md §Error Handling Architecture）。
     }
   });
 }
@@ -169,8 +162,8 @@ function askDelete(row: JaListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 4-column grid so the 2 fields occupy only the
-         left half of the card (per design feedback). -->
+    <!-- 検索エリア — 4列グリッドで2フィールドがカード左半分を占める
+         （デザインフィードバックに従う）。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
@@ -218,9 +211,9 @@ function askDelete(row: JaListItem): void {
     </BaseSearchForm>
 
     <!-- 一覧テーブル -->
-    <!-- ACSMS-MSG-004-001 — empty-result message rendered separately
-         (a-table's emptyText slot is not safely forwardable through
-         BaseDataTable's dynamic slot loop). -->
+    <!-- ACSMS-MSG-004-001 — 空結果メッセージは別描画
+         （a-table の emptyText slot は BaseDataTable の動的 slot ループで
+         安全に転送できない）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"
@@ -241,9 +234,8 @@ function askDelete(row: JaListItem): void {
       @change="onPageChange"
     >
       <template #headerActions>
-        <!-- 新規登録 stays visible for every role; the button is just
-             greyed-out when the user lacks ja.create. Same UX rule for
-             削除 in the actions column below. -->
+        <!-- 新規登録 は全ロールで表示、ja.create がないとき無効化。
+             下の操作列の 削除 も同じ UX。 -->
         <a-button
           type="primary"
           :disabled="!canCreate"
@@ -258,10 +250,8 @@ function askDelete(row: JaListItem): void {
 
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'ja_code'">
-          <!-- ja_code is the click target for "open edit form". Only
-               render as anchor when the user has ja.update — otherwise
-               plain text so they don't get a dead link that would land
-               on a 403-rebound dashboard. -->
+          <!-- ja_code が編集フォームを開くクリック対象。ja.update があるときのみ
+               アンカー化 — なければプレーンテキスト（403リバウンドの dead link を避ける）。 -->
           <a
             v-if="canUpdate"
             class="text-primary hover:underline"
@@ -275,9 +265,8 @@ function askDelete(row: JaListItem): void {
           {{ (record as JaListItem).chuokai_flg ? '中央会' : 'JA' }}
         </template>
         <template v-else-if="column.key === 'actions'">
-          <!-- 編集 link intentionally hidden — edit entry is the
-               clickable ja_code cell above. 削除 stays visible but
-               disabled when ja.delete is missing. -->
+          <!-- 編集リンクは意図的に非表示 — 入口は上の ja_code セル。
+               削除は ja.delete がないとき表示のまま無効化。 -->
           <BaseActionColumn
             :can-edit="false"
             :disable-delete="!canDelete"

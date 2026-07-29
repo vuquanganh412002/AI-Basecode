@@ -9,23 +9,20 @@ import {
 } from 'typeorm';
 
 /**
- * TypeORM entity for `t_dokusya` (購読者マスタ).
+ * `t_dokusya`（購読者マスタ）エンティティ。
+ * `docs/database/database-design.md §t_dokusya` に準拠。
  *
- * Mirrors `docs/database/database-design.md §t_dokusya`. All timestamp
- * columns are TIMESTAMPTZ per project policy (JST operation — see
- * `.claude/rules/nestjs.md §Timestamp policy`).
+ * タイムスタンプ列は全て TIMESTAMPTZ（JST 運用 — `.claude/rules/nestjs.md
+ * §Timestamp policy`）。
  *
- * Date-only columns (`shoki_dokusya_kaishi_date`, `dokusya_kaishi_date`,
- * `dokusya_chushi_date`, `joho_henko_tekiyo_date`) are stored as
- * `DATE` and surfaced as ISO `YYYY-MM-DD` strings — the spec contract +
- * the integration spec compare against literal date strings, never
- * `Date` objects. `seikyu_kaishi_month` stays `varchar(6)` because
- * the value is a `YYYYMM` token (no day component).
+ * 日付のみ列（`shoki_dokusya_kaishi_date`・`dokusya_kaishi_date`・
+ * `dokusya_chushi_date`・`joho_henko_tekiyo_date`）は ISO `YYYY-MM-DD`
+ * 文字列として扱う（spec・結合テストが Date でなく文字列で比較するため）。
+ * `seikyu_kaishi_month` は `YYYYMM` トークンなので varchar(6)。
  *
- * `rireki_no` is the CURRENT history number on the master row — the
- * UPDATE flow bumps it to `MAX(rireki_no) + 1` then mirrors that into
- * the new `t_dokusya_rireki` row so the master always points at the
- * latest history snapshot.
+ * `rireki_no` はマスタ行の現行履歴番号。UPDATE 時に `MAX(rireki_no)+1` へ
+ * 更新し、新しい `t_dokusya_rireki` 行へも写すことで、マスタが常に最新の
+ * 履歴スナップショットを指す。
  */
 @Entity('t_dokusya')
 @Index('IX_t_dokusya_ja_id', ['jaId'])
@@ -233,10 +230,9 @@ export class Dokusya {
   @Column({ name: 'nogyosya_bunrui', type: 'varchar', length: 50, default: '' })
   nogyosyaBunrui: string;
 
-  // Date-only columns — pg-mem doesn't always round-trip Date objects
-  // cleanly through `DATE`; storing as varchar(10) keeps the YYYY-MM-DD
-  // contract grep-able in SQL and matches the api.md response shape
-  // exactly (no timezone confusion via TIMESTAMP cast).
+  // 日付のみ列 — pg-mem は DATE 経由で Date を正しく往復できない場合がある。
+  // varchar(10) 保存で YYYY-MM-DD 契約を SQL 上で grep 可能にし、api.md の
+  // レスポンス形状に完全一致させる（TIMESTAMP キャストによる TZ 混乱を回避）。
   @Column({
     name: 'shoki_dokusya_kaishi_date',
     type: 'varchar',

@@ -1,28 +1,27 @@
 <script setup lang="ts">
-// ACSMS-SCR-011 — 購読者情報登録画面.
+// ACSMS-SCR-011 — 購読者情報登録画面。
 //
-// Single component for both CREATE (route `DokusyaCreate`) and EDIT
-// (route `DokusyaEdit`, `:id` path param). Backed by the 6 SCR-011
-// endpoints in `@/api/dokusya/dokusya`:
+// CREATE（route DokusyaCreate）と EDIT（route DokusyaEdit、:id path param）を
+// 兼ねる単一コンポーネント。@/api/dokusya/dokusya の SCR-011 6エンドポイントを利用:
 //   - getDokusya(id)        → ACSMS-API-011-001
 //   - createDokusya(body)   → ACSMS-API-011-002
 //   - updateDokusya(id, …)  → ACSMS-API-011-003
 //   - approveDokusya(id)    → ACSMS-API-011-004
 //   - rejectDokusya(id)     → ACSMS-API-011-005
 //
-// 履歴表示ボタン (edit only) は購読者履歴情報画面 (ACSMS-SCR-013,
-// DokusyaRireki route) へ遷移する — 旧インライン履歴 (getDokusyaHistory)
+// 履歴表示ボタン（編集のみ）は購読者履歴情報画面（ACSMS-SCR-013,
+// DokusyaRireki route）へ遷移する — 旧インライン履歴（getDokusyaHistory）
 // は SCR-013 のフル履歴一覧に置き換えた。
 //
-// Conditional rules (screen-design.md §機能定義):
-//   §7   購読種別=電子版/併読 → email required + hide 配達先 section
-//   §8   解約 (tetsuzuki_shurui=0) → dokusya_busu forced to 0
-//   §9   配達先=購読者情報と同じ チェック → clear haitatsu_* + skip required
-//   §10  支払方法=口座引落 (1) → bank cluster required
-//   §11  購読者層=農業者 → 主な生産物 (nogyosya_bunrui) visible
+// 条件付きルール（screen-design.md §機能定義）:
+//   §7   購読種別=電子版/併読 → email 必須 + 配達先セクション非表示
+//   §8   解約 (tetsuzuki_shurui=0) → dokusya_busu を0に強制
+//   §9   配達先=購読者情報と同じ チェック → haitatsu_* クリア + 必須スキップ
+//   §10  支払方法=口座引落 (1) → 銀行クラスタ必須
+//   §11  購読者層=農業者 → 主な生産物 (nogyosya_bunrui) 表示
 //
-// In edit mode + denshi_shonin_status=0 (承認待ち), the submit button
-// triggers `approveDokusya` instead of `updateDokusya` per §3.3.
+// 編集モード + denshi_shonin_status=0（承認待ち）では、submit ボタンが
+// §3.3 に従い updateDokusya ではなく approveDokusya を発火する。
 
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { AxiosError } from 'axios';
@@ -71,6 +70,12 @@ import {
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/constants/enums';
+import {
+  DOKUSYASO_BUNRUI_OPTIONS,
+  DokusyaSoBunrui,
+  NOGYOSYA_BUNRUI_OPTIONS,
+  splitBunruiCsv,
+} from '@/constants/dokusya-bunrui';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { focusFirstError } from '@/utils/form-focus';
 import type { Dayjs } from 'dayjs';
@@ -83,12 +88,11 @@ import {
 } from '@/utils/datetime';
 import { formatYearMonth, formatYen } from '@/utils/formatters';
 
-// ─── Form state ────────────────────────────────────────────────────
+// ─── フォーム状態 ────────────────────────────────────────────────────
 //
-// Field names mirror the API request body 1:1 so the spec's
-// `buildCreateDokusyaForm` payload maps via `Object.assign` without
-// any field-name translation. `defineExpose({ formState })` at the
-// bottom hands the reactive object to the spec's `fillForm` helper.
+// フィールド名は API リクエストボディと 1:1。スペックの buildCreateDokusyaForm
+// ペイロードが名前変換なしで Object.assign できる。末尾の defineExpose({ formState })
+// でこのリアクティブオブジェクトをスペックの fillForm ヘルパーへ渡す。
 
 interface DokusyaFormState {
   kanri_shiten_id: number | null;
@@ -145,7 +149,7 @@ interface DokusyaFormState {
   biko: string;
 }
 
-/** Blank create-mode defaults — single source for init + reset. */
+/** 新規作成モードの初期値 — init + reset の単一ソース。 */
 function defaultFormState(): DokusyaFormState {
   return {
     kanri_shiten_id: null,
@@ -250,7 +254,7 @@ const sessionJaId = computed<number | null>(() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
-// ─── Route-driven mode ─────────────────────────────────────────────
+// ─── ルート駆動モード ─────────────────────────────────────────────
 
 const dokusyaId = computed<number | null>(() => {
   const raw = route.params.id;
@@ -314,7 +318,7 @@ const isRecordReadOnly = computed(
         Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD)),
 );
 
-// Display-only state derived from the loaded detail (edit mode).
+// 読込んだ詳細から導出する表示専用状態（編集モード）。
 const detailRireki = ref<number | null>(null);
 // DB 登録時の購読部数（編集モードで 解約→0 にした後、新規 に戻したとき復元する）。
 const originalDokusyaBusu = ref<number>(1);
@@ -353,7 +357,7 @@ const isDenshiRejected = computed(
     detailDenshiShoninStatus.value === DenshiShoninStatus.REJECTED,
 );
 
-// ─── Dropdown options ──────────────────────────────────────────────
+// ─── ドロップダウン選択肢 ──────────────────────────────────────────────
 
 const todofukenOptions = ref<TodofukenItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
@@ -446,7 +450,7 @@ async function fetchTodofukenOptions(): Promise<void> {
       ? (resp as unknown as TodofukenItem[])
       : resp.data;
   } catch {
-    // Global axios interceptor already toasted — keep blank list.
+    // global axios interceptor がトースト済み — 空リストのまま。
     todofukenOptions.value = [];
   }
 }
@@ -511,7 +515,7 @@ async function fetchTankaOptions(): Promise<void> {
   }
 }
 
-// ─── Edit-mode hydrate ─────────────────────────────────────────────
+// ─── 編集モードのハイドレート ─────────────────────────────────────────────
 
 const isHydrating = ref(false);
 const notFoundMessage = ref<string>('');
@@ -609,26 +613,24 @@ async function loadDetail(id: number): Promise<void> {
     const ax = err as AxiosError<{ error_code?: string; message?: string }>;
     const code = ax?.response?.data?.error_code;
     if (code === 'NOT_FOUND') {
-      // ACSMS-MSG-011-016 — surface the not-found copy in the view so
-      // the spec assertion `wrapper.text().toContain('見つかりません')`
-      // passes (the global axios interceptor toast is separate).
+      // ACSMS-MSG-011-016 — スペックの wrapper.text().toContain('見つかりません')
+      // が通るよう not-found 文言を view に表示（interceptor トーストとは別）。
       notFoundMessage.value =
         `購読者ID #${dokusyaId.value ?? ''} が見つかりません。`;
     }
-    // Other codes (403 / 500) are toasted by the global axios
-    // interceptor — leave the form blank rather than redirecting.
+    // 他コード（403 / 500）は global axios interceptor がトースト — リダイレクト
+    // せずフォームを空のままにする。
   }
 }
 
-// ─── Conditional rules (機能定義 §7-§11) ────────────────────────────
+// ─── 条件付きルール（機能定義 §7-§11） ────────────────────────────
 
 // §8 — 手続種類 changes drive 購読部数:
 //   解約 (=0) → 0 部（解約は部数なし）。
 //   新規 (=1) → 新規作成のみ既定 1 部。編集では既存部数を保持（1 に戻さない）。
 // 解約は CREATE では disabled、EDIT でのみ選択可。EDIT で 解約→新規 と
 // 切替えても数量は維持し、0 へ落とすのは「解約」を選んだときだけ。
-// Skipped while hydrating an existing record so edit-mode keeps the
-// saved 部数.
+// 既存レコードのハイドレート中はスキップし、編集モードで保存済み部数を保持する。
 watch(
   () => formState.tetsuzuki_shurui,
   (next) => {
@@ -1059,7 +1061,7 @@ function disabledKaishiDate(current: Dayjs | null): boolean {
     : isPastDayTokyo(current);
 }
 
-// §9 — When haitatsu_same_flg flips to true, clear every haitatsu_* field.
+// §9 — haitatsu_same_flg が true になったら全 haitatsu_* をクリア。
 watch(
   () => formState.haitatsu_same_flg,
   (next) => {
@@ -1082,21 +1084,17 @@ watch(
 
 // §11 — 農業者 unchecked → clear 主な生産物 (nogyosya_bunrui).
 const hasNogyosha = computed(() =>
-  formState.dokusyaso_bunrui.split(',').map((s) => s.trim()).includes('農業者'),
+  splitBunruiCsv(formState.dokusyaso_bunrui).includes(DokusyaSoBunrui.NOGYOSYA),
 );
 
 /**
- * 購読者層分類 (画面項目定義 No.50) — multi-select stored as comma-
- * separated VARCHAR. Bind `<a-checkbox-group>` to this getter/setter
- * computed so the array<->csv conversion is invisible at the template
- * level.
+ * 購読者層分類 (画面項目定義 No.50) — カンマ区切り VARCHAR で保存する複数選択。
+ * 保存値は電子版と同じコード ('0'|'1'|'2'|'3'|'999') — ラベルは保存しない。
+ * この getter/setter computed に <a-checkbox-group> をバインドし、
+ * 配列⇔csv 変換をテンプレート層から隠す。
  */
 const dokusyaSoBunruiArr = computed<string[]>({
-  get: () =>
-    formState.dokusyaso_bunrui
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
+  get: () => splitBunruiCsv(formState.dokusyaso_bunrui),
   set: (next: string[]) => {
     formState.dokusyaso_bunrui = next.join(',');
   },
@@ -1104,37 +1102,19 @@ const dokusyaSoBunruiArr = computed<string[]>({
 
 /**
  * 主な生産物 (画面項目定義 No.51) — agrarian sub-category, same
- * comma-separated storage convention as 購読者層分類.
+ * comma-separated code storage convention as 購読者層分類.
  */
 const nogyosyaBunruiArr = computed<string[]>({
-  get: () =>
-    formState.nogyosya_bunrui
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
+  get: () => splitBunruiCsv(formState.nogyosya_bunrui),
   set: (next: string[]) => {
     formState.nogyosya_bunrui = next.join(',');
   },
 });
 
-/** 読者属性 options — 画面 mockup (index.html). */
-const dokusyaSoBunruiOptions = [
-  { value: '農業者', label: '農業者' },
-  { value: '企業・団体', label: '企業・団体' },
-  { value: 'その他', label: 'その他' },
-  { value: 'JAグループ役職員', label: 'JAグループ役職員' },
-  { value: '学生', label: '学生' },
-] as const;
+/** 読者属性 / 主な生産物 の選択肢（コード値＋表示ラベル）。 */
+const dokusyaSoBunruiOptions = DOKUSYASO_BUNRUI_OPTIONS;
+const nogyosyaBunruiOptions = NOGYOSYA_BUNRUI_OPTIONS;
 
-/** 主な生産物 options — 画面 mockup (index.html). */
-const nogyosyaBunruiOptions = [
-  { value: '米', label: '米' },
-  { value: '野菜', label: '野菜' },
-  { value: '果実', label: '果実' },
-  { value: '花', label: '花' },
-  { value: '畜産', label: '畜産' },
-  { value: 'その他', label: 'その他' },
-] as const;
 watch(hasNogyosha, (next) => {
   if (isHydrating.value) return;
   if (next === false) {
@@ -1147,6 +1127,27 @@ const isDigitalOrBoth = computed(
   () => Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL ||
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH,
 );
+
+/**
+ * 読者属性 — 電子版/併読 は単一選択（ラジオ）。電子版 API の profession は
+ * 1 値運用のため、複数選択を許すと push 時に丸められる（顧客要件 2026-07）。
+ * 紙版は従来どおり複数選択（チェックボックス）なので、保存形式は共通の
+ * カンマ区切り VARCHAR のまま。
+ */
+const dokusyaSoBunruiSingle = computed<string>({
+  get: () => dokusyaSoBunruiArr.value[0] ?? '',
+  set: (next: string) => {
+    formState.dokusyaso_bunrui = next;
+  },
+});
+
+// 紙版（複数選択）→ 電子版/併読（単一選択）へ切り替えたとき、先頭 1 件だけ残す。
+watch(isDigitalOrBoth, (next) => {
+  if (isHydrating.value) return;
+  if (next) {
+    formState.dokusyaso_bunrui = dokusyaSoBunruiArr.value[0] ?? '';
+  }
+});
 
 // ─── 購読開始日・中止日 — create-mode 電子版 の特例 ──────────────────
 //
@@ -1239,7 +1240,7 @@ const HIRAGANA_MSG = 'ひらがな・数字で入力してください。';
 // 含む) + 半角英字(A-Za-z) + 全角英字(Ａ-Ｚ/ａ-ｚ) + 半角カタカナ(ｦ-ﾟ) + 数字(半角0-9/全角０-９)。空白は氏名の
 // トークン区切りとして許容。購読者氏名(氏/名)・配達先氏名(氏/名)の4項目に適用。
 // BE 側 KANJI_NAME_RE (create-dokusya.dto.ts) と同一文字集合 — 両方同時更新。
-const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
+const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
 const KANJI_MSG = '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。';
 const POSTAL_MSG = '郵便番号は半角数字7桁で入力してください。';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1309,7 +1310,7 @@ function validateAddressCluster(errs: Record<string, string>): void {
   if (!formState.renrakusaki_1?.trim()) errs.renrakusaki_1 = REQUIRED_MSG;
 }
 
-/** Required FK dropdowns (clearable selects → `== null` for safety). */
+/** 必須 FK ドロップダウン（clearable select → 安全のため == null で判定）。 */
 function validateFkDropdowns(errs: Record<string, string>): void {
   // 管理支店 は必須（画面上 * 表示）。未選択のまま submit すると BE で
   // kanri_shiten_id=0 → m_kanri_shiten への FK 違反(500)になるため、ここで
@@ -1549,7 +1550,7 @@ function validateClient(): boolean {
   return Object.keys(errs).length === 0;
 }
 
-// ─── Build request bodies ──────────────────────────────────────────
+// ─── リクエストボディ構築 ──────────────────────────────────────────
 
 function buildRequestBody(): CreateDokusyaRequest {
   return {
@@ -1617,7 +1618,7 @@ function buildRequestBody(): CreateDokusyaRequest {
   };
 }
 
-// ─── Server-error handling ──────────────────────────────────────────
+// ─── サーバーエラー処理 ──────────────────────────────────────────
 
 interface ServerErrorPayload {
   error_code?: string;
@@ -1645,10 +1646,10 @@ function handleServerError(err: unknown): void {
     );
     focusFirstError(FIELD_ORDER, fieldErrors.value); // サーバ側検証エラーも先頭項目へフォーカス
   }
-  // 500 / generic 400 — global axios interceptor toasts; view stays put.
+  // 500 / 一般的な 400 — global axios interceptor がトースト。view は留まる。
 }
 
-// ─── Submit pipeline ────────────────────────────────────────────────
+// ─── 送信パイプライン ────────────────────────────────────────────────
 
 /**
  * 登録・更新時に氏名系8項目（購読者氏名 漢字/かな・配達先氏名 漢字/かな）の
@@ -1723,10 +1724,9 @@ async function onSubmit(): Promise<void> {
 
 // ─── 承認 (機能定義 §3.x) ────────────────────────────────────────────
 //
-// Distinct from `onSubmit` — fires from the dedicated 承認・登録 button
-// click (not the form's @finish) because jsdom doesn't propagate
-// html-type=submit clicks into form submission. Calls approveDokusya
-// directly, toasts on success, navigates to the list.
+// onSubmit とは別 — jsdom が html-type=submit クリックをフォーム送信へ伝播
+// しないため、専用の 承認・登録 ボタンクリック（form の @finish ではない）から
+// 発火する。approveDokusya を直接呼び、成功トースト後に一覧へ遷移する。
 async function onApproveClick(): Promise<void> {
   if (dokusyaId.value === null) return;
   if (submitting.value) return;
@@ -1760,7 +1760,7 @@ function onClickReject(): void {
         notify.success('否認しました。');
         await router.push({ name: 'DokusyaList' });
       } catch {
-        // Global interceptor toasts; view stays put.
+        // global interceptor がトースト。view は留まる。
       }
     },
   });
@@ -1781,7 +1781,7 @@ function goRireki(): void {
   void router.push({ name: 'DokusyaRireki', params: { id: dokusyaId.value } });
 }
 
-// ─── m_code helpers (Group B — labels editable at runtime) ──────────
+// ─── m_code ヘルパー（Group B — ラベルは実行時編集可能） ──────────
 
 const dokusyaShubetsuOptions = computed(() => codes.options('DOKUSYA_SHUBETSU'));
 const tetsuzukiShuruiOptions = computed(() => codes.options('TETSUZUKI_SHURUI'));
@@ -1808,9 +1808,8 @@ const shiharaiHohoOptions = computed<
   return all;
 });
 
-// When 購読種別 switches to 電子版 in create mode, drop a 支払方法 value
-// that is no longer selectable (クレジットカードのみ除外) so the field
-// never keeps a stale/invalid 選択.
+// 新規作成で 購読種別 を 電子版 に切替えた際、選択不可になった 支払方法
+//（クレジットカードのみ除外）を落とし、無効な選択が残らないようにする。
 watch(
   () => formState.dokusya_shubetsu,
   () => {
@@ -1842,16 +1841,16 @@ watch(
 const yubinKubunOptions = computed(() => codes.options('YUBIN_KUBUN'));
 const genderOptions = computed(() => codes.options('GENDER'));
 const mailMagazineOptions = computed(() => codes.options('MAIL_MAGAZINE_FLG'));
-// Display-only (edit mode, disabled). Labels come from m_code so a customer
-// rename of 有料/無料 reflects without an FE redeploy.
+// 表示専用（編集モード・非活性）。ラベルは m_code 由来のため、顧客が 有料/無料 を
+// 改称しても FE 再デプロイなしで反映される。
 const denshiDokusyaShubetsuOptions = computed(() =>
   codes.options('DENSHI_DOKUSYA_SHUBETSU'),
 );
 const yokinShubetsuOptions = computed(() => codes.options('YOKIN_SHUBETSU'));
 
-// ─── Lifecycle ──────────────────────────────────────────────────────
+// ─── ライフサイクル ──────────────────────────────────────────────────────
 
-/** Reset every field + edit-only display state back to create-mode blanks. */
+/** 全フィールド + 編集専用の表示状態を新規作成モードの初期値へ戻す。 */
 function resetFormState(): void {
   Object.assign(formState, defaultFormState());
   fieldErrors.value = {};
@@ -1862,9 +1861,8 @@ function resetFormState(): void {
 }
 
 /**
- * Apply create / edit mode from the current route. Always resets the
- * form FIRST so navigating edit→create (or edit-id→other-edit-id) does
- * not leak the previously loaded record's data.
+ * 現在のルートから作成 / 編集モードを適用する。必ず先にフォームをリセットし、
+ * edit→create（や edit-id→別 edit-id）遷移で前レコードのデータが漏れないようにする。
  */
 async function applyRouteMode(): Promise<void> {
   resetFormState();
@@ -1910,18 +1908,17 @@ async function applyRouteMode(): Promise<void> {
       });
     }
     if (!canPaper.value && canDenshi.value) {
-      // Create — preselect the only 購読種別 this account may use so the
-      // default radio isn't a disabled option. paper-only / both keep the
-      // default 紙版(1); denshi-only switches to 電子版(2); no-flag keeps the
-      // default and the submit button stays disabled (account_concept §139-145).
+      // 新規 — このアカウントが使える唯一の 購読種別 を既定選択し、既定ラジオが
+      // 非活性オプションにならないようにする。紙版のみ/両方は既定 紙版(1)、電子版
+      // のみは 電子版(2) に切替、フラグ無しは既定のまま submit ボタンは非活性
+      //（account_concept §139-145）。
       formState.dokusya_shubetsu = DokusyaShubetsu.DIGITAL;
     }
   }
 }
 
 onMounted(() => {
-  // Fan out the dropdown lookups in parallel — none of them depend
-  // on each other.
+  // ドロップダウン取得を並列展開 — 相互依存はない。
   void fetchTodofukenOptions();
   void fetchKanriShitenOptions();
   void fetchShitenOptions();
@@ -1931,17 +1928,16 @@ onMounted(() => {
   void applyRouteMode();
 });
 
-// [route-reuse] vue-router REUSES this component instance because both
-// the create (`/dokusya/create`) and edit (`/dokusya/:id/edit`) routes
-// resolve to DokusyaFormView — so `onMounted` does NOT re-run when the
-// user jumps edit→create via the menu. Without re-applying the route
-// mode here, the create form keeps showing the edit record's data
-// (reported bug). Re-init whenever the :id segment changes.
+// [route-reuse] create（/dokusya/create）と edit（/dokusya/:id/edit）が共に
+// DokusyaFormView に解決するため、vue-router はこのコンポーネントインスタンスを
+// 再利用する — メニューから edit→create したとき onMounted は再実行されない。
+// ここで route モードを再適用しないと、作成フォームが編集レコードのデータを
+// 表示し続ける（報告済みバグ）。:id セグメント変化のたびに再初期化する。
 watch(dokusyaId, () => {
   void applyRouteMode();
 });
 
-// Expose state for the spec's `fillForm` helper.
+// スペックの fillForm ヘルパー用に state を公開。
 defineExpose({
   formState,
   fieldErrors,
@@ -2867,7 +2863,10 @@ defineExpose({
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読者層分類</h3>
 
         <div class="space-y-6">
-          <!-- 読者属性 — 複数選択 (CSV stored in dokusyaso_bunrui) -->
+          <!--
+            読者属性 — 電子版/併読 は単一選択(ラジオ)、紙版は複数選択
+            (チェックボックス)。いずれも CSV で dokusyaso_bunrui に保存。
+          -->
           <a-form-item
             name="dokusyaso_bunrui"
             :validate-status="fieldErrors.dokusyaso_bunrui ? 'error' : ''"
@@ -2877,7 +2876,14 @@ defineExpose({
               <span>読者属性</span>
               <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
             </template>
+            <a-radio-group
+              v-if="isDigitalOrBoth"
+              v-model:value="dokusyaSoBunruiSingle"
+              :options="dokusyaSoBunruiOptions"
+              class="flex flex-wrap gap-x-6 gap-y-2"
+            />
             <a-checkbox-group
+              v-else
               v-model:value="dokusyaSoBunruiArr"
               :options="dokusyaSoBunruiOptions"
               class="flex flex-wrap gap-x-6 gap-y-2"
@@ -3091,8 +3097,8 @@ defineExpose({
         </div>
       </section>
 
-      <!-- ─── Action buttons ───────────────────────────────────────
-        Button visibility rules (機能定義 §3.x §4.1 + 画面項目定義 No.58-62):
+      <!-- ─── アクションボタン ───────────────────────────────────────
+        ボタン表示ルール（機能定義 §3.x §4.1 + 画面項目定義 No.58-62）:
           - プライマリ — 状態でラベル切替:
                isPending (edit + status=0) → 承認・登録 (approveDokusya)
                isEdit && !isPending        → 更新     (updateDokusya)
@@ -3102,7 +3108,7 @@ defineExpose({
           - 前の画面に戻る — 常時表示。
 
         index.html mockup は 3 ボタンを並べているが、これは「edit +
-        status=0」状態を例示しているもので, それ以外の状態では spec
+        status=0」状態を例示しているもので、それ以外の状態では spec
         通り 2 ボタン構成になる。
       -->
       <!-- 承認/否認 は電子版ワークフロー → denshi_flg 必須 (§143). flag が

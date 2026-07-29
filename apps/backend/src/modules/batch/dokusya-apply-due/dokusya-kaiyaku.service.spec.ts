@@ -13,17 +13,23 @@ const mockInsertKaiyaku = insertKaiyaku as jest.Mock;
 describe('DokusyaKaiyakuService', () => {
   let service: DokusyaKaiyakuService;
   let db: { query: jest.Mock; transaction: jest.Mock };
-  const managerMock = {};
+  let managerMock: { findOne: jest.Mock };
+  let denshiPush: { pushOnBatch: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockInsertKaiyaku.mockResolvedValue(undefined);
+    managerMock = { findOne: jest.fn().mockResolvedValue(null) };
     db = {
       query: jest.fn().mockResolvedValue([]),
       // transaction(cb) は cb(manager) を実行してその結果(promise)を返す。
       transaction: jest.fn((cb: (m: unknown) => unknown) => cb(managerMock)),
     };
-    service = new DokusyaKaiyakuService(db as unknown as DataSource);
+    denshiPush = { pushOnBatch: jest.fn().mockResolvedValue(undefined) };
+    service = new DokusyaKaiyakuService(
+      db as unknown as DataSource,
+      denshiPush as never,
+    );
   });
 
   it('should extract paper(<=today) + digital(<=yesterday, non credit-card), excluding 併読', async () => {
@@ -75,5 +81,31 @@ describe('DokusyaKaiyakuService', () => {
     await service.run();
 
     expect(mockInsertKaiyaku).not.toHaveBeenCalled();
+  });
+
+  it('解約確定後、cancel を pushOnBatch（cancel_ym=中止日のYYYYMM。対象判定はファサード内）', async () => {
+    db.query.mockResolvedValue([{ dokusya_id: '4' }]);
+    managerMock.findOne.mockResolvedValue({
+      dokusyaId: 4,
+      dokusyaShubetsu: DokusyaShubetsu.DIGITAL,
+      dokusyaChushiDate: '2026-08-31',
+    });
+
+    await service.run();
+
+    expect(denshiPush.pushOnBatch).toHaveBeenCalledWith(managerMock, {
+      action: 'cancel',
+      after: expect.objectContaining({ dokusyaId: 4 }),
+      cancelYm: '202608',
+    });
+  });
+
+  it('master が見つからなければ pushOnBatch を呼ばない', async () => {
+    db.query.mockResolvedValue([{ dokusya_id: '4' }]);
+    managerMock.findOne.mockResolvedValue(null);
+
+    await service.run();
+
+    expect(denshiPush.pushOnBatch).not.toHaveBeenCalled();
   });
 });

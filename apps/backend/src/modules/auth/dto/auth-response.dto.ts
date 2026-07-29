@@ -71,13 +71,11 @@ export class LoginMfaRequiredDto {
 }
 
 /**
- * `POST /auth/login` response — union of two shapes:
- *   - MFA branch: { data: { mfa_required: true, mfa_token, expires_in } }
- *   - Direct success: { data: { mfa_required: false, user } } (cookie set)
- *
- * Swagger doesn't introspect TS unions cleanly so we declare a permissive
- * envelope with both shapes' fields marked optional. Orval surfaces the
- * `mfa_required` boolean as the discriminator the FE narrows on.
+ * `POST /auth/login` 応答 — 2形態の union:
+ *   - MFA: { data: { mfa_required: true, mfa_token, expires_in } }
+ *   - 直接成功: { data: { mfa_required: false, user } }（cookie 設定）
+ * Swagger は TS union を綺麗に扱えないため両形態のフィールドを optional にした
+ * 寛容な envelope を宣言。FE は `mfa_required` boolean を判別子に絞る。
  */
 export class LoginResponseDataDto {
   @ApiProperty({
@@ -107,19 +105,19 @@ export class LoginResponseDto {
   data: LoginResponseDataDto;
 }
 
-/** Inner shape for {@link AuthUserEnvelopeDto}. */
+// {@link AuthUserEnvelopeDto} の内側形状。
 export class AuthUserPayloadDto {
   @ApiProperty({ type: AuthUserDto })
   user: AuthUserDto;
 }
 
-/** Authenticated-user envelope — used by mfa/verify and refresh. */
+// 認証済みユーザ envelope — mfa/verify・refresh で使用。
 export class AuthUserEnvelopeDto {
   @ApiProperty({ type: AuthUserPayloadDto })
   data: AuthUserPayloadDto;
 }
 
-/** POST /auth/mfa/resend payload. */
+// POST /auth/mfa/resend payload。
 export class MfaResendResultDto {
   @ApiProperty() mfa_token: string;
   @ApiProperty() expires_in: number;
@@ -132,7 +130,7 @@ export class MfaResendResponseDto {
   data: MfaResendResultDto;
 }
 
-/** POST /auth/reset-password/verify payload. */
+// POST /auth/reset-password/verify payload。
 export class VerifyResetTokenResultDto {
   @ApiProperty({ example: true })
   valid: true;
@@ -143,5 +141,5 @@ export class VerifyResetTokenResponseDto {
   data: VerifyResetTokenResultDto;
 }
 
-/** Re-export shared message envelope for auth surfaces (logout / forgot / reset). */
+// 共通メッセージ envelope の再エクスポート（logout / forgot / reset 用）。
 export { SuccessMessageDto } from '@/common/dto/responses.dto';

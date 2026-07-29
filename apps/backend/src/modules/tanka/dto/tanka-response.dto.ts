@@ -3,14 +3,11 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * Item shape for tanka endpoints (GET detail, POST body, PUT body).
- * Subset shown in list endpoint via TankaListItemDto below.
- *
- * Nullability follows `m_tanka` DB schema (per `.claude/rules/nestjs.md
- * §Nullable field serialization`):
- *   - `tekiyo_end_date` NULLABLE → emit `null` when無期限
- *   - `updated_at` NULLABLE per project convention (created vs updated)
- *   - everything else NOT NULL → emit `""` / number / boolean
+ * tanka エンドポイント (GET詳細/POST/PUT body) の項目形。一覧は下の TankaListItemDto。
+ * Nullability は m_tanka スキーマ準拠 (.claude/rules/nestjs.md §Nullable field serialization):
+ *   - `tekiyo_end_date` NULLABLE → 無期限は null
+ *   - `updated_at` NULLABLE (プロジェクト規約: created vs updated)
+ *   - 他は NOT NULL → "" / number / boolean
  */
 export class TankaResponseDto {
   @ApiProperty() tanka_id: number;
@@ -34,9 +31,8 @@ export class TankaResponseDto {
 }
 
 /**
- * Slim row shape returned by the list endpoint — service projects only
- * the columns the table actually displays (no biko, no created/updated,
- * no JA-id since the list is already JA-scoped).
+ * 一覧エンドポイントが返す slim 行 — 表示カラムのみ射影 (biko / created・updated /
+ * ja_id は無し。一覧は既に JA スコープ済み)。
  */
 export class TankaListItemDto {
   @ApiProperty() tanka_id: number;
@@ -62,13 +58,13 @@ export class TankaListResponseDto {
   meta: PaginationMetaDto;
 }
 
-/** Single-resource envelope (GET /:id). */
+/** 単一リソースエンベロープ (GET /:id)。 */
 export class TankaDetailEnvelopeDto {
   @ApiProperty({ type: TankaResponseDto })
   data: TankaResponseDto;
 }
 
-/** Mutation success envelope (POST + PUT). */
+/** 更新系成功エンベロープ (POST + PUT)。 */
 export class TankaMutationResponseDto {
   @ApiProperty({ type: TankaResponseDto })
   data: TankaResponseDto;

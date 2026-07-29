@@ -110,69 +110,69 @@ updated_by: Tran Duc Tuyen
 | #   | 項目ID                       | タイプ  | 繰り返し | フォーマット | Nullable | 説明                                                                                                                                                          |
 | --- | ---------------------------- | ------- | -------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | data                         | Object  | -        |              | -        | 購読者データ                                                                                                                                                  |
-| 2   | →dokusya_id                  | Number  | -        |              | -        | 購読者ID                                                                                                                                                      |
-| 3   | →ja_id                       | Number  | -        |              | -        | JA ID                                                                                                                                                         |
-| 4   | →kanri_shiten_id             | Number  | -        |              | 〇       | 管理支店ID                                                                                                                                                    |
-| 5   | →shiten_id                   | Number  | -        |              | 〇       | 支店ID                                                                                                                                                        |
-| 6   | →kumiaiin_code               | String  | -        |              |          | 組合員コード（空文字許容）                                                                                                                                    |
-| 7   | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）                                                                            |
-| 8   | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                     |
-| 9   | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別 ※m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'を参照（0:無料, 1:有料）                                                                        |
-| 10  | →shimei_sei                  | String  | -        |              | -        | 氏名（姓）                                                                                                                                                    |
-| 11  | →shimei_mei                  | String  | -        |              | -        | 氏名（名）                                                                                                                                                    |
-| 12  | →shimei_kana_sei             | String  | -        |              | -        | 氏名かな（姓）                                                                                                                                                |
-| 13  | →shimei_kana_mei             | String  | -        |              | -        | 氏名かな（名）                                                                                                                                                |
-| 14  | →dokusya_busu                | Number  | -        |              | -        | 購読部数                                                                                                                                                      |
-| 15  | →yubin_no                    | String  | -        |              | -        | 郵便番号                                                                                                                                                      |
-| 16  | →todofuken_code              | String  | -        |              | -        | 都道府県コード                                                                                                                                                |
-| 17  | →shikuchoson                 | String  | -        |              | -        | 市町村郡                                                                                                                                                      |
-| 18  | →chome_banchi                | String  | -        |              | -        | 丁目番地                                                                                                                                                      |
-| 19  | →tatemono_mei                | String  | -        |              |          | マンション名等（空文字許容）                                                                                                                                  |
-| 20  | →renrakusaki_1               | String  | -        |              |          | 連絡先１（空文字許容）                                                                                                                                        |
-| 21  | →renrakusaki_2               | String  | -        |              |          | 連絡先２（空文字許容）                                                                                                                                        |
-| 22  | →email                       | String  | -        |              |          | メールアドレス（空文字許容）                                                                                                                                  |
-| 23  | →mail_magazine_flg           | Number  | -        |              | -        | メールマガジン ※m_code.code_category='MAIL_MAGAZINE_FLG'を参照（0:配信しない, 1:配信する）                                                                    |
-| 24  | →birth_year                  | Number  | -        |              | 〇       | 生年（西暦）                                                                                                                                                  |
-| 25  | →gender                      | Number  | -        |              | 〇       | 性別 ※m_code.code_category='GENDER'を参照（1:男性, 2:女性, 9:回答しない）                                                                                     |
-| 26  | →haitatsu_same_flg           | Boolean | -        |              | -        | 配達先情報指定（true:購読者と同じ）                                                                                                                           |
-| 27  | →haitatsu_yubin_no           | String  | -        |              |          | 配達先郵便番号（空文字許容）                                                                                                                                  |
-| 28  | →haitatsu_todofuken_code     | String  | -        |              |          | 配達先都道府県コード（空文字許容）                                                                                                                            |
-| 29  | →haitatsu_shikuchoson        | String  | -        |              |          | 配達先市町村郡（空文字許容）                                                                                                                                  |
-| 30  | →haitatsu_chome_banchi       | String  | -        |              |          | 配達先丁目番地（空文字許容）                                                                                                                                  |
-| 31  | →haitatsu_tatemono_mei       | String  | -        |              |          | 配達先建物名（空文字許容）                                                                                                                                    |
-| 32  | →haitatsu_renrakusaki_1      | String  | -        |              |          | 配達先連絡先１（空文字許容）                                                                                                                                  |
-| 33  | →haitatsu_renrakusaki_2      | String  | -        |              |          | 配達先連絡先２（空文字許容）                                                                                                                                  |
-| 34  | →haitatsu_shimei_sei         | String  | -        |              |          | 配達先氏名（姓・漢字）（空文字許容）                                                                                                                          |
-| 35  | →haitatsu_shimei_mei         | String  | -        |              |          | 配達先氏名（名・漢字）（空文字許容）                                                                                                                          |
-| 36  | →haitatsu_shimei_kana_sei    | String  | -        |              |          | 配達先氏名かな（姓）（空文字許容）                                                                                                                            |
-| 37  | →haitatsu_shimei_kana_mei    | String  | -        |              |          | 配達先氏名かな（名）（空文字許容）                                                                                                                            |
-| 38  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                                                                                                      |
-| 39  | →hanbaiten_name              | String  | -        |              | -        | 販売店名（m_hanbaiten結合取得）                                                                                                                               |
-| 40  | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
-| 41  | →tanka_name                  | String  | -        |              | -        | 単価名（m_tanka結合取得）                                                                                                                                     |
-| 42  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。デフォルト: '0'                                                                           |
-| 43  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）             |
-| 44  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
-| 45  | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（m_shiten.shiten_id を `kinyu_shiten_flg=TRUE` で絞り込んだ値。プルダウン再ハイドレーション用）。口座引落以外の場合は null                     |
-| 46  | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                  |
-| 47  | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                      |
-| 48  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_toriatsukai_tenpo_code から非正規化保存）                                        |
-| 49  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_tenpo_name から非正規化保存）                                                        |
-| 50  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                               |
-| 51  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
-| 52  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
-| 53  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（カンマ区切り、空文字許容）                                                                                                                      |
-| 54  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（カンマ区切り、空文字許容）                                                                                                                        |
-| 55  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
-| 56  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
-| 57  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
-| 58  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
-| 59  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
-| 60  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
-| 61  | →rireki_no                   | Number  | -        |              | -        | 履歴No（最新の履歴番号）                                                                                                                                      |
-| 62  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:承認待ち, 1:承認済み, 2:否認）                                                                                                      |
-| 63  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 64  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 2  | →dokusya_id                  | Number  | -        |              | -        | 購読者ID                                                                                                                                                      |
+| 3  | →ja_id                       | Number  | -        |              | -        | JA ID                                                                                                                                                         |
+| 4  | →kanri_shiten_id             | Number  | -        |              | 〇       | 管理支店ID                                                                                                                                                    |
+| 5  | →shiten_id                   | Number  | -        |              | 〇       | 支店ID                                                                                                                                                        |
+| 6  | →kumiaiin_code               | String  | -        |              |          | 組合員コード（空文字許容）                                                                                                                                    |
+| 7  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）                                                                            |
+| 7  | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                     |
+| 8  | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別 ※m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'を参照（0:無料, 1:有料）                                                                        |
+| 9  | →shimei_sei                  | String  | -        |              | -        | 氏名（姓）                                                                                                                                                    |
+| 10 | →shimei_mei                  | String  | -        |              | -        | 氏名（名）                                                                                                                                                    |
+| 11 | →shimei_kana_sei             | String  | -        |              | -        | 氏名かな（姓）                                                                                                                                                |
+| 12 | →shimei_kana_mei             | String  | -        |              | -        | 氏名かな（名）                                                                                                                                                |
+| 13 | →dokusya_busu                | Number  | -        |              | -        | 購読部数                                                                                                                                                      |
+| 14 | →yubin_no                    | String  | -        |              | -        | 郵便番号                                                                                                                                                      |
+| 15 | →todofuken_code              | String  | -        |              | -        | 都道府県コード                                                                                                                                                |
+| 16 | →shikuchoson                 | String  | -        |              | -        | 市町村郡                                                                                                                                                      |
+| 17 | →chome_banchi                | String  | -        |              | -        | 丁目番地                                                                                                                                                      |
+| 18 | →tatemono_mei                | String  | -        |              |          | マンション名等（空文字許容）                                                                                                                                  |
+| 19 | →renrakusaki_1               | String  | -        |              |          | 連絡先１（空文字許容）                                                                                                                                        |
+| 20 | →renrakusaki_2               | String  | -        |              |          | 連絡先２（空文字許容）                                                                                                                                        |
+| 21 | →email                       | String  | -        |              |          | メールアドレス（空文字許容）                                                                                                                                  |
+| 22 | →mail_magazine_flg           | Number  | -        |              | -        | メールマガジン ※m_code.code_category='MAIL_MAGAZINE_FLG'を参照（0:配信しない, 1:配信する）                                                                    |
+| 23 | →birth_year                  | Number  | -        |              | 〇       | 生年（西暦）                                                                                                                                                  |
+| 24 | →gender                      | Number  | -        |              | 〇       | 性別 ※m_code.code_category='GENDER'を参照（1:男性, 2:女性, 9:回答しない）                                                                                     |
+| 25 | →haitatsu_same_flg           | Boolean | -        |              | -        | 配達先情報指定（true:購読者と同じ）                                                                                                                           |
+| 26 | →haitatsu_yubin_no           | String  | -        |              |          | 配達先郵便番号（空文字許容）                                                                                                                                  |
+| 27 | →haitatsu_todofuken_code     | String  | -        |              |          | 配達先都道府県コード（空文字許容）                                                                                                                            |
+| 28 | →haitatsu_shikuchoson        | String  | -        |              |          | 配達先市町村郡（空文字許容）                                                                                                                                  |
+| 29 | →haitatsu_chome_banchi       | String  | -        |              |          | 配達先丁目番地（空文字許容）                                                                                                                                  |
+| 30 | →haitatsu_tatemono_mei       | String  | -        |              |          | 配達先建物名（空文字許容）                                                                                                                                    |
+| 31 | →haitatsu_renrakusaki_1      | String  | -        |              |          | 配達先連絡先１（空文字許容）                                                                                                                                  |
+| 32 | →haitatsu_renrakusaki_2      | String  | -        |              |          | 配達先連絡先２（空文字許容）                                                                                                                                  |
+| 33 | →haitatsu_shimei_sei         | String  | -        |              |          | 配達先氏名（姓・漢字）（空文字許容）                                                                                                                          |
+| 34 | →haitatsu_shimei_mei         | String  | -        |              |          | 配達先氏名（名・漢字）（空文字許容）                                                                                                                          |
+| 35 | →haitatsu_shimei_kana_sei    | String  | -        |              |          | 配達先氏名かな（姓）（空文字許容）                                                                                                                            |
+| 36 | →haitatsu_shimei_kana_mei    | String  | -        |              |          | 配達先氏名かな（名）（空文字許容）                                                                                                                            |
+| 37 | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                                                                                                      |
+| 38 | →hanbaiten_name              | String  | -        |              | -        | 販売店名（m_hanbaiten結合取得）                                                                                                                               |
+| 39 | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
+| 40 | →tanka_name                  | String  | -        |              | -        | 単価名（m_tanka結合取得）                                                                                                                                     |
+| 41 | →yubin_kubun                 | String  | -        |              | -        | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）。デフォルト: '0'                                                                           |
+| 42 | →shiharai_hoho               | Number  | -        |              | -        | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）             |
+| 43 | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
+| 44 | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（m_shiten.shiten_id を `kinyu_shiten_flg=TRUE` で絞り込んだ値。プルダウン再ハイドレーション用）。口座引落以外の場合は null                     |
+| 45 | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                  |
+| 46 | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、bank_shiten_id 選択後の自動表示用ラベル、空文字許容）                                                                      |
+| 47 | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_toriatsukai_tenpo_code から非正規化保存）                                        |
+| 48 | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列。bank_shiten_id 選択時に m_shiten.jastem_tenpo_name から非正規化保存）                                                        |
+| 49 | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目 ※m_code.code_category='YOKIN_SHUBETSU'を参照（1:普通, 2:当座）                                                                               |
+| 50 | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
+| 51 | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
+| 52 | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（カンマ区切り、空文字許容）                                                                                                                      |
+| 53 | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（カンマ区切り、空文字許容）                                                                                                                        |
+| 54 | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
+| 55 | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
+| 56 | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
+| 57 | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
+| 58 | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
+| 59 | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
+| 60 | →rireki_no                   | Number  | -        |              | -        | 履歴No（最新の履歴番号）                                                                                                                                      |
+| 61 | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:承認待ち, 1:承認済み, 2:否認）                                                                                                      |
+| 62 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 63 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
 
 ## リクエスト例
 
@@ -425,67 +425,67 @@ WHERE d.dokusya_id = :dokusya_id
 | #   | 項目ID                       | タイプ  | 繰り返し | フォーマット | Nullable | 説明                                                                                                                                                          |
 | --- | ---------------------------- | ------- | -------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | data                         | Object  | -        |              | -        | 登録された購読者データ                                                                                                                                        |
-| 2   | →dokusya_id                  | Number  | -        |              | -        | 購読者ID                                                                                                                                                      |
-| 3   | →ja_id                       | Number  | -        |              | -        | JA ID                                                                                                                                                         |
-| 4   | →kanri_shiten_id             | Number  | -        |              | 〇       | 管理支店ID                                                                                                                                                    |
-| 5   | →shiten_id                   | Number  | -        |              | 〇       | 支店ID                                                                                                                                                        |
-| 6   | →kumiaiin_code               | String  | -        |              |          | 組合員コード（空文字許容）                                                                                                                                    |
-| 7   | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別                                                                                                                                                      |
-| 8   | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類                                                                                                                                                      |
-| 9   | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別                                                                                                                                                |
-| 10  | →shimei_sei                  | String  | -        |              | -        | 氏名（姓）                                                                                                                                                    |
-| 11  | →shimei_mei                  | String  | -        |              | -        | 氏名（名）                                                                                                                                                    |
-| 12  | →shimei_kana_sei             | String  | -        |              | -        | 氏名かな（姓）                                                                                                                                                |
-| 13  | →shimei_kana_mei             | String  | -        |              | -        | 氏名かな（名）                                                                                                                                                |
-| 14  | →dokusya_busu                | Number  | -        |              | -        | 購読部数                                                                                                                                                      |
-| 15  | →yubin_no                    | String  | -        |              | -        | 郵便番号                                                                                                                                                      |
-| 16  | →todofuken_code              | String  | -        |              | -        | 都道府県コード                                                                                                                                                |
-| 17  | →shikuchoson                 | String  | -        |              | -        | 市町村郡                                                                                                                                                      |
-| 18  | →chome_banchi                | String  | -        |              | -        | 丁目番地                                                                                                                                                      |
-| 19  | →tatemono_mei                | String  | -        |              |          | マンション名等（空文字許容）                                                                                                                                  |
-| 20  | →renrakusaki_1               | String  | -        |              |          | 連絡先１（空文字許容）                                                                                                                                        |
-| 21  | →renrakusaki_2               | String  | -        |              |          | 連絡先２（空文字許容）                                                                                                                                        |
-| 22  | →email                       | String  | -        |              |          | メールアドレス（空文字許容）                                                                                                                                  |
-| 23  | →mail_magazine_flg           | Number  | -        |              | -        | メールマガジン                                                                                                                                                |
-| 24  | →birth_year                  | Number  | -        |              | 〇       | 生年（西暦）                                                                                                                                                  |
-| 25  | →gender                      | Number  | -        |              | 〇       | 性別                                                                                                                                                          |
-| 26  | →haitatsu_same_flg           | Boolean | -        |              | -        | 配達先情報指定                                                                                                                                                |
-| 27  | →haitatsu_yubin_no           | String  | -        |              |          | 配達先郵便番号（空文字許容）                                                                                                                                  |
-| 28  | →haitatsu_todofuken_code     | String  | -        |              |          | 配達先都道府県コード（空文字許容）                                                                                                                            |
-| 29  | →haitatsu_shikuchoson        | String  | -        |              |          | 配達先市町村郡（空文字許容）                                                                                                                                  |
-| 30  | →haitatsu_chome_banchi       | String  | -        |              |          | 配達先丁目番地（空文字許容）                                                                                                                                  |
-| 31  | →haitatsu_tatemono_mei       | String  | -        |              |          | 配達先建物名（空文字許容）                                                                                                                                    |
-| 32  | →haitatsu_renrakusaki_1      | String  | -        |              |          | 配達先連絡先１（空文字許容）                                                                                                                                  |
-| 33  | →haitatsu_renrakusaki_2      | String  | -        |              |          | 配達先連絡先２（空文字許容）                                                                                                                                  |
-| 34  | →haitatsu_shimei_sei         | String  | -        |              |          | 配達先氏名（姓・漢字）（空文字許容）                                                                                                                          |
-| 35  | →haitatsu_shimei_mei         | String  | -        |              |          | 配達先氏名（名・漢字）（空文字許容）                                                                                                                          |
-| 36  | →haitatsu_shimei_kana_sei    | String  | -        |              |          | 配達先氏名かな（姓）（空文字許容）                                                                                                                            |
-| 37  | →haitatsu_shimei_kana_mei    | String  | -        |              |          | 配達先氏名かな（名）（空文字許容）                                                                                                                            |
-| 38  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                                                                                                      |
-| 39  | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
-| 40  | →yubin_kubun                 | String  | -        |              | -        | 郵送区分（0:空, 1:郵送）                                                                                                                                      |
-| 41  | →shiharai_hoho               | Number  | -        |              | -        | 支払方法                                                                                                                                                      |
-| 42  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
-| 43  | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（プルダウン再ハイドレーション用）。口座引落以外の場合は null                                                                                   |
-| 44  | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                          |
-| 45  | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                              |
-| 46  | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列）                                                                                                                        |
-| 47  | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列）                                                                                                                            |
-| 48  | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目                                                                                                                                              |
-| 49  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
-| 50  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
-| 51  | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（空文字許容）                                                                                                                                    |
-| 52  | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（空文字許容）                                                                                                                                      |
-| 53  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
-| 54  | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
-| 55  | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
-| 56  | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
-| 57  | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
-| 58  | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
-| 59  | →rireki_no                   | Number  | -        |              | -        | 履歴No                                                                                                                                                        |
-| 60  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス                                                                                                                                        |
-| 61  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 62  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 2  | →dokusya_id                  | Number  | -        |              | -        | 購読者ID                                                                                                                                                      |
+| 3  | →ja_id                       | Number  | -        |              | -        | JA ID                                                                                                                                                         |
+| 4  | →kanri_shiten_id             | Number  | -        |              | 〇       | 管理支店ID                                                                                                                                                    |
+| 5  | →shiten_id                   | Number  | -        |              | 〇       | 支店ID                                                                                                                                                        |
+| 6  | →kumiaiin_code               | String  | -        |              |          | 組合員コード（空文字許容）                                                                                                                                    |
+| 7  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別                                                                                                                                                      |
+| 7  | →tetsuzuki_shurui            | Number  | -        |              | -        | 手続種類                                                                                                                                                      |
+| 8  | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別                                                                                                                                                |
+| 9  | →shimei_sei                  | String  | -        |              | -        | 氏名（姓）                                                                                                                                                    |
+| 10 | →shimei_mei                  | String  | -        |              | -        | 氏名（名）                                                                                                                                                    |
+| 11 | →shimei_kana_sei             | String  | -        |              | -        | 氏名かな（姓）                                                                                                                                                |
+| 12 | →shimei_kana_mei             | String  | -        |              | -        | 氏名かな（名）                                                                                                                                                |
+| 13 | →dokusya_busu                | Number  | -        |              | -        | 購読部数                                                                                                                                                      |
+| 14 | →yubin_no                    | String  | -        |              | -        | 郵便番号                                                                                                                                                      |
+| 15 | →todofuken_code              | String  | -        |              | -        | 都道府県コード                                                                                                                                                |
+| 16 | →shikuchoson                 | String  | -        |              | -        | 市町村郡                                                                                                                                                      |
+| 17 | →chome_banchi                | String  | -        |              | -        | 丁目番地                                                                                                                                                      |
+| 18 | →tatemono_mei                | String  | -        |              |          | マンション名等（空文字許容）                                                                                                                                  |
+| 19 | →renrakusaki_1               | String  | -        |              |          | 連絡先１（空文字許容）                                                                                                                                        |
+| 20 | →renrakusaki_2               | String  | -        |              |          | 連絡先２（空文字許容）                                                                                                                                        |
+| 21 | →email                       | String  | -        |              |          | メールアドレス（空文字許容）                                                                                                                                  |
+| 22 | →mail_magazine_flg           | Number  | -        |              | -        | メールマガジン                                                                                                                                                |
+| 23 | →birth_year                  | Number  | -        |              | 〇       | 生年（西暦）                                                                                                                                                  |
+| 24 | →gender                      | Number  | -        |              | 〇       | 性別                                                                                                                                                          |
+| 25 | →haitatsu_same_flg           | Boolean | -        |              | -        | 配達先情報指定                                                                                                                                                |
+| 26 | →haitatsu_yubin_no           | String  | -        |              |          | 配達先郵便番号（空文字許容）                                                                                                                                  |
+| 27 | →haitatsu_todofuken_code     | String  | -        |              |          | 配達先都道府県コード（空文字許容）                                                                                                                            |
+| 28 | →haitatsu_shikuchoson        | String  | -        |              |          | 配達先市町村郡（空文字許容）                                                                                                                                  |
+| 29 | →haitatsu_chome_banchi       | String  | -        |              |          | 配達先丁目番地（空文字許容）                                                                                                                                  |
+| 30 | →haitatsu_tatemono_mei       | String  | -        |              |          | 配達先建物名（空文字許容）                                                                                                                                    |
+| 31 | →haitatsu_renrakusaki_1      | String  | -        |              |          | 配達先連絡先１（空文字許容）                                                                                                                                  |
+| 32 | →haitatsu_renrakusaki_2      | String  | -        |              |          | 配達先連絡先２（空文字許容）                                                                                                                                  |
+| 33 | →haitatsu_shimei_sei         | String  | -        |              |          | 配達先氏名（姓・漢字）（空文字許容）                                                                                                                          |
+| 34 | →haitatsu_shimei_mei         | String  | -        |              |          | 配達先氏名（名・漢字）（空文字許容）                                                                                                                          |
+| 35 | →haitatsu_shimei_kana_sei    | String  | -        |              |          | 配達先氏名かな（姓）（空文字許容）                                                                                                                            |
+| 36 | →haitatsu_shimei_kana_mei    | String  | -        |              |          | 配達先氏名かな（名）（空文字許容）                                                                                                                            |
+| 37 | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                                                                                                      |
+| 38 | →tanka_id                    | Number  | -        |              | -        | 単価ID                                                                                                                                                        |
+| 39 | →yubin_kubun                 | String  | -        |              | -        | 郵送区分（0:空, 1:郵送）                                                                                                                                      |
+| 40 | →shiharai_hoho               | Number  | -        |              | -        | 支払方法                                                                                                                                                      |
+| 41 | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数）                                                                                                                                    |
+| 42 | →bank_shiten_id              | Number  | -        |              | 〇       | 引落口座支店ID（プルダウン再ハイドレーション用）。口座引落以外の場合は null                                                                                   |
+| 43 | →jastem_toriatsukai_tenpo_code | String | -        |              |          | 引落元口座店舗コード（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                          |
+| 44 | →jastem_tenpo_name           | String  | -        |              |          | 引落元口座店舗名（m_shiten結合取得、自動表示ラベル、空文字許容）                                                                                              |
+| 45 | →bank_branch_code            | String  | -        |              | -        | 引落口座支店コード（t_dokusya 永続列）                                                                                                                        |
+| 46 | →bank_branch_name            | String  | -        |              | -        | 引落口座支店名（t_dokusya 永続列）                                                                                                                            |
+| 47 | →hikiotoshi_yokin_shubetsu   | Number  | -        |              | 〇       | 引落口座貯金種目                                                                                                                                              |
+| 48 | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                                                                    |
+| 49 | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                                                                    |
+| 50 | →dokusyaso_bunrui            | String  | -        |              |          | 購読者層分類（空文字許容）                                                                                                                                    |
+| 51 | →nogyosya_bunrui             | String  | -        |              |          | 農業者分類（空文字許容）                                                                                                                                      |
+| 52 | →shoki_dokusya_kaishi_date   | String  | -        | YYYY-MM-DD   | -        | 初回購読開始日                                                                                                                                                |
+| 53 | →dokusya_kaishi_date         | String  | -        | YYYY-MM-DD   | -        | 購読開始日                                                                                                                                                    |
+| 54 | →dokusya_chushi_date         | String  | -        | YYYY-MM-DD   | 〇       | 購読中止日                                                                                                                                                    |
+| 55 | →joho_henko_tekiyo_date      | String  | -        | YYYY-MM-DD   | 〇       | 読者情報変更適用日                                                                                                                                            |
+| 56 | →seikyu_kaishi_month         | String  | -        | YYYYMM       |          | 請求開始月（空文字許容）                                                                                                                                      |
+| 57 | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
+| 58 | →rireki_no                   | Number  | -        |              | -        | 履歴No                                                                                                                                                        |
+| 59 | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス                                                                                                                                        |
+| 60 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 61 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
 
 ## リクエスト例
 
@@ -814,7 +814,7 @@ INSERT INTO t_dokusya_rireki (
   hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
   dokusyaso_bunrui, nogyosya_bunrui,
   shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
-  joho_henko_tekiyo_date, seikyu_kaishi_month, biko, henko_riyu,
+  joho_henko_tekiyo_date, seikyu_kaishi_month, biko,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id, zenkai_dokusya_busu, zenkai_yubin_no,
   zenkai_todofuken_code, zenkai_shikuchoson, zenkai_chome_banchi,
@@ -837,7 +837,7 @@ INSERT INTO t_dokusya_rireki (
   :hikiotoshi_yokin_shubetsu, :hikiotoshi_koza_no, :hikiotoshi_koza_meigi,
   :dokusyaso_bunrui, :nogyosya_bunrui,
   :dokusya_kaishi_date, :dokusya_kaishi_date, :dokusya_chushi_date,
-  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko, '',
+  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko,
   TRUE, TRUE, :shinki_flg, :kaiyaku_flg,
   NULL, NULL, NULL,
   NULL, NULL, NULL,
@@ -1256,7 +1256,7 @@ INSERT INTO t_dokusya_rireki (
   hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
   dokusyaso_bunrui, nogyosya_bunrui,
   shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
-  joho_henko_tekiyo_date, seikyu_kaishi_month, biko, henko_riyu,
+  joho_henko_tekiyo_date, seikyu_kaishi_month, biko,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id, zenkai_dokusya_busu, zenkai_yubin_no,
   zenkai_todofuken_code, zenkai_shikuchoson, zenkai_chome_banchi,
@@ -1279,7 +1279,7 @@ INSERT INTO t_dokusya_rireki (
   :hikiotoshi_yokin_shubetsu, :hikiotoshi_koza_no, :hikiotoshi_koza_meigi,
   :dokusyaso_bunrui, :nogyosya_bunrui,
   :shoki_dokusya_kaishi_date, :dokusya_kaishi_date, :dokusya_chushi_date,
-  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko, :henko_riyu,
+  :joho_henko_tekiyo_date, :seikyu_kaishi_month, :biko,
   TRUE, :zougen_hokoku_flg, :shinki_flg, :kaiyaku_flg,
   :zenkai_hanbaiten_id, :zenkai_dokusya_busu, :zenkai_yubin_no,
   :zenkai_todofuken_code, :zenkai_shikuchoson, :zenkai_chome_banchi,
@@ -1563,13 +1563,11 @@ INSERT INTO t_dokusya_rireki (
   dokusya_id, rireki_no, ja_id, ...,  -- 4.3 で取得した現データを全コピー
   denshi_shonin_status,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
-  henko_riyu,
   created_at, created_by
 ) VALUES (
   :dokusya_id, :new_rireki_no, :ja_id, ...,
   1,
   TRUE, FALSE, FALSE, FALSE,
-  '電子版承認',
   NOW(), :user_account_id
 )
 ```
@@ -1791,13 +1789,11 @@ INSERT INTO t_dokusya_rireki (
   dokusya_id, rireki_no, ja_id, ...,  -- 4.3 で取得した現データを全コピー
   denshi_shonin_status,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
-  henko_riyu,
   created_at, created_by
 ) VALUES (
   :dokusya_id, :new_rireki_no, :ja_id, ...,
   2,
   TRUE, FALSE, FALSE, FALSE,
-  '電子版否認',
   NOW(), :user_account_id
 )
 ```
@@ -1886,19 +1882,18 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | #   | 項目ID                  | タイプ  | 繰り返し | フォーマット | Nullable | 説明                                                          |
 | --- | ----------------------- | ------- | -------- | ------------ | -------- | ------------------------------------------------------------- |
 | 1   | data                    | Array   | 〇       |              | -        | 履歴一覧（rireki_no DESC）                                    |
-| 2   | →dokusya_rireki_id      | Number  | -        |              | -        | 購読者履歴ID                                                  |
-| 3   | →dokusya_id             | Number  | -        |              | -        | 購読者ID                                                      |
-| 4   | →rireki_no              | Number  | -        |              | -        | 履歴No                                                        |
-| 5   | →tetsuzuki_shurui       | Number  | -        |              | -        | 手続種類（0:解約, 1:新規）                                    |
-| 6   | →tetsuzuki_shurui_label | String  | -        |              | -        | 手続種類ラベル                                                |
-| 7   | →henko_riyu             | String  | -        |              |          | 変更理由（空文字許容）                                        |
-| 8   | →saishin_data_flg       | Boolean | -        |              | -        | 最新データフラグ                                              |
-| 9   | →shinki_flg             | Boolean | -        |              | -        | 新規フラグ                                                    |
-| 10  | →kaiyaku_flg            | Boolean | -        |              | -        | 解約フラグ                                                    |
-| 11  | →zougen_hokoku_flg      | Boolean | -        |              | -        | 増減報告フラグ                                                |
-| 12  | →denshi_shonin_status   | Number  | -        |              | 〇       | 電子申込承認ステータス                                        |
-| 13  | →created_at             | String  | -        | ISO8601      | -        | 作成日時（履歴登録日時）                                      |
-| 14  | →created_by             | String  | -        |              | -        | 作成者（履歴登録者）                                          |
+| 2  | →dokusya_rireki_id      | Number  | -        |              | -        | 購読者履歴ID                                                  |
+| 3  | →dokusya_id             | Number  | -        |              | -        | 購読者ID                                                      |
+| 4  | →rireki_no              | Number  | -        |              | -        | 履歴No                                                        |
+| 5  | →tetsuzuki_shurui       | Number  | -        |              | -        | 手続種類（0:解約, 1:新規）                                    |
+| 6  | →tetsuzuki_shurui_label | String  | -        |              | -        | 手続種類ラベル                                                |
+| 7  | →saishin_data_flg       | Boolean | -        |              | -        | 最新データフラグ                                              |
+| 8  | →shinki_flg             | Boolean | -        |              | -        | 新規フラグ                                                    |
+| 9  | →kaiyaku_flg            | Boolean | -        |              | -        | 解約フラグ                                                    |
+| 10 | →zougen_hokoku_flg      | Boolean | -        |              | -        | 増減報告フラグ                                                |
+| 11 | →denshi_shonin_status   | Number  | -        |              | 〇       | 電子申込承認ステータス                                        |
+| 12 | →created_at             | String  | -        | ISO8601      | -        | 作成日時（履歴登録日時）                                      |
+| 13 | →created_by             | String  | -        |              | -        | 作成者（履歴登録者）                                          |
 
 ## リクエスト例
 
@@ -1917,7 +1912,6 @@ GET /api/v1/dokusya/100/history
       "rireki_no": 2,
       "tetsuzuki_shurui": 1,
       "tetsuzuki_shurui_label": "新規",
-      "henko_riyu": "住所変更",
       "saishin_data_flg": true,
       "shinki_flg": false,
       "kaiyaku_flg": false,
@@ -1932,7 +1926,6 @@ GET /api/v1/dokusya/100/history
       "rireki_no": 1,
       "tetsuzuki_shurui": 1,
       "tetsuzuki_shurui_label": "新規",
-      "henko_riyu": "",
       "saishin_data_flg": false,
       "shinki_flg": true,
       "kaiyaku_flg": false,
@@ -2019,7 +2012,7 @@ WHERE dokusya_id = :dokusya_id
 
 ```sql
 SELECT dokusya_rireki_id, dokusya_id, rireki_no,
-       tetsuzuki_shurui, henko_riyu,
+       tetsuzuki_shurui,
        saishin_data_flg, shinki_flg, kaiyaku_flg, zougen_hokoku_flg,
        denshi_shonin_status,
        created_at, created_by

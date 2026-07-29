@@ -1,34 +1,25 @@
 /**
- * Tokyo-pinned datetime helpers — every form that validates dates against
- * "now", parses a `YYYY/MM/DD HH:mm` string the user typed, or compares
- * two pickerd Dayjs values MUST go through this file. The system is JST-
- * only operationally (`.claude/rules/nestjs.md §Timestamp policy`), so we
- * pin every "what is now" / "what is today" calculation to Asia/Tokyo
- * regardless of the developer or admin's browser timezone.
+ * Tokyo 固定の日時ヘルパ — 「now」との日付検証、ユーザー入力の `YYYY/MM/DD HH:mm`
+ * パース、picker の Dayjs 同士の比較を行う全フォームは必ず本ファイルを経由すること。
+ * システムは運用上 JST 専用（`.claude/rules/nestjs.md §Timestamp policy`）なので、
+ * 開発者/管理者のブラウザ TZ に依らず「今」「今日」の計算をすべて Asia/Tokyo に固定する。
  *
- * Why a dedicated file:
- * - `dayjs()` (no args) reads the browser's local TZ — a developer in
- *   Vietnam (UTC+7) would see different validation pass/fail than an
- *   admin in Japan (UTC+9). That's a 2-hour drift on past-date checks.
- * - `new Date(y, mo-1, d, h, mi)` constructor is hard-wired to the
- *   browser's local TZ — `parseDatetime("2026/05/28 14:00")` in Vietnam
- *   yields 14:00 VN (= 16:00 Tokyo), not the 14:00 Tokyo the user
- *   intended.
- * - The fix is uniform: every "now" / "today" / parse helper goes
- *   through `dayjs.tz(..., 'Asia/Tokyo')`. We expose just enough
- *   ergonomic helpers that callers never reach for raw `dayjs()` or
- *   `new Date(y, mo-1, ...)` again.
+ * 専用ファイルにする理由:
+ * - `dayjs()`（引数なし）はブラウザのローカル TZ を読む — ベトナム（UTC+7）の開発者と
+ *   日本（UTC+9）の管理者で検証の合否が変わる。過去日チェックで 2 時間ズレる。
+ * - `new Date(y, mo-1, d, h, mi)` はブラウザのローカル TZ 固定 —
+ *   ベトナムでの `parseDatetime("2026/05/28 14:00")` は 14:00 VN（= 16:00 Tokyo）になり、
+ *   ユーザーが意図した 14:00 Tokyo にならない。
+ * - 対策は統一: 「now」「today」「parse」の各ヘルパはすべて `dayjs.tz(..., 'Asia/Tokyo')` を通す。
+ *   呼び出し側が生の `dayjs()` や `new Date(y, mo-1, ...)` に手を出さなくて済むだけのヘルパを提供する。
  *
- * Display-only formatting (e.g. `formatDate`, `formatDateTime` rendered
- * from an ISO string returned by the BE) lives in `formatters.ts` and
- * already uses `dayjs.tz.setDefault('Asia/Tokyo')`. This file covers
- * the harder case: arithmetic + comparisons + parsing user input back
- * into a JS Date.
+ * 表示専用の整形（BE の ISO 文字列から描画する `formatDate` / `formatDateTime` 等）は
+ * `formatters.ts` にあり、既に `dayjs.tz.setDefault('Asia/Tokyo')` を使う。本ファイルは
+ * より難しいケース（演算 + 比較 + ユーザー入力の JS Date への再パース）を扱う。
  *
- * Plugin extension: `formatters.ts` imports + `dayjs.extend(utc)` +
- * `dayjs.extend(timezone)` at module load. We re-import the plugins
- * here too so this module is usable in isolation (test files that
- * mock formatters, for example).
+ * プラグイン拡張: `formatters.ts` がモジュール読込時に `dayjs.extend(utc)` +
+ * `dayjs.extend(timezone)` を import する。本モジュール単体でも使えるよう（formatters を
+ * モックするテストファイル等）、ここでもプラグインを再 import する。
  */
 
 import dayjs, { type Dayjs } from 'dayjs';

@@ -1982,7 +1982,7 @@ Chạy query sau trong DB, xác nhận status và lịch sử
 ```sql
 SELECT denshi_shonin_status, rireki_no FROM t_dokusya WHERE dokusya_id = 200;
 
-SELECT rireki_no, denshi_shonin_status, saishin_data_flg, henko_riyu
+SELECT rireki_no, denshi_shonin_status, saishin_data_flg
 FROM t_dokusya_rireki
 WHERE dokusya_id = 200
 ORDER BY rireki_no DESC;
@@ -1997,7 +1997,7 @@ Xử lý duyệt được thực hiện
 Trả về HTTP 200 (`data.denshi_shonin_status = 1`), message `承認しました。` được hiển thị
 
 ステップ3：
-denshi_shonin_status của t_dokusya được update thành 1, lịch sử mới (denshi_shonin_status=1, saishin_data_flg=true, henko_riyu=`電子版承認`) được追記 vào t_dokusya_rireki
+denshi_shonin_status của t_dokusya được update thành 1, lịch sử mới (denshi_shonin_status=1, saishin_data_flg=true) được追記 vào t_dokusya_rireki
 
 補足：
 ・Click button「承認」thì API đặt denshi_shonin_status=1 (đã duyệt) và tạo record lịch sử mới (機能定義 §3.3)
@@ -2052,7 +2052,7 @@ Chạy query sau trong DB, xác nhận status và lịch sử
 ```sql
 SELECT denshi_shonin_status FROM t_dokusya WHERE dokusya_id = 201;
 
-SELECT denshi_shonin_status, henko_riyu
+SELECT denshi_shonin_status
 FROM t_dokusya_rireki
 WHERE dokusya_id = 201 AND saishin_data_flg = TRUE;
 ```
@@ -2069,7 +2069,7 @@ Dialog xác nhận từ chối được hiển thị (message `電子版読者�
 Trả về HTTP 200 (`data.denshi_shonin_status = 2`), message `否認しました。` được hiển thị, chuyển về màn hình 購読者明細検索
 
 ステップ4：
-denshi_shonin_status của t_dokusya được update thành 2, lịch sử mới nhất của t_dokusya_rireki ghi denshi_shonin_status=2, henko_riyu=`電子版否認`
+denshi_shonin_status của t_dokusya được update thành 2, lịch sử mới nhất của t_dokusya_rireki ghi denshi_shonin_status=2
 
 補足：
 ・Chỉ khi denshi_shonin_status=0 mới hiển thị button「承認しない」(機能定義 §4.1)
@@ -2177,7 +2177,7 @@ Mở màn hình đăng ký thông tin độc giả ở chế độ sửa, click 
 Xác nhận response của GET `/api/v1/dokusya/100/history` qua tab Network của DevTools
 
 ステップ3：
-Xác nhận thứ tự sắp xếp danh sách lịch sử và項目 từng dòng (rireki_no・tetsuzuki_shurui_label・henko_riyu・saishin_data_flg)
+Xác nhận thứ tự sắp xếp danh sách lịch sử và項目 từng dòng (rireki_no・tetsuzuki_shurui_label・saishin_data_flg)
 
 ### 期待結果
 
@@ -2188,7 +2188,7 @@ Màn hình thông tin lịch sử độc giả (danh sách lịch sử thay đ�
 Trả về HTTP 200 (mảng `data` chứa record lịch sử)
 
 ステップ3：
-Danh sách lịch sử hiển thị theo thứ tự giảm dần của rireki_no, từng dòng hiển thị label loại thủ tục (tetsuzuki_shurui_label)・lý do thay đổi (henko_riyu)・cờ dữ liệu mới nhất (saishin_data_flg)
+Danh sách lịch sử hiển thị theo thứ tự giảm dần của rireki_no, từng dòng hiển thị label loại thủ tục (tetsuzuki_shurui_label)・cờ dữ liệu mới nhất (saishin_data_flg)
 
 補足：
 ・Click button「履歴表示」thì chuyển về màn hình thông tin lịch sử độc giả (ACSMS-SCR-013) (機能定義 §5.1)

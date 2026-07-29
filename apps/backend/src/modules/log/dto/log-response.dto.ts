@@ -3,13 +3,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * Item shape for SCR-030 ログ参照画面 list (API-030-001).
- * Mirrors `LogListItem` in log.service.ts.
+ * SCR-030 ログ参照画面 list（API-030-001）の項目形。
+ * log.service.ts の `LogListItem` と一致。
  */
 export class LogListItemDto {
   @ApiProperty() log_id: number;
-  // [no-labels-policy] Authenticated endpoint — code values only; FE resolves
-  // log_type / result_status labels via useCodesStore().label(...).
+  // [no-labels-policy] 認証エンドポイント — コード値のみ。log_type /
+  // result_status ラベルは FE が useCodesStore().label(...) で解決。
   @ApiProperty({ description: '1=user_operation, 2=system, 3=error, 4=file_upload' })
   log_type: number;
   @ApiProperty({ description: 'ISO 8601 (TIMESTAMPTZ)' }) log_datetime: string;

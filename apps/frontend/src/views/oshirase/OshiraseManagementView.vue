@@ -38,14 +38,12 @@ import { OshiraseStatus, OshiraseType, PublishLocation } from '@/constants/enums
 const codes = useCodesStore();
 const notify = useNotify();
 
-// 締め切り時間 (OshiraseType.DEADLINE) is the special slot that drives
-// the 1:1 pairing with PublishLocation.MENU_DEADLINE + system-wide
-// uniqueness + delete-not-allowed. Used in several computeds /
-// watchers below; reference the enum directly rather than aliasing.
+// 締め切り時間 (OshiraseType.DEADLINE) は PublishLocation.MENU_DEADLINE との
+// 1:1 ペアリング・システム全体で一意・削除不可を駆動する特殊スロット。
+// 下の computed / watcher で使用。別名を作らず enum を直接参照する。
 
 interface OshiraseFilters {
-  // No search filters on this screen; useTableQuery still needs a shape.
-  // Reserved for future filter additions.
+  // この画面に検索フィルタは無いが useTableQuery が型を要求する。将来拡張用。
   _placeholder?: never;
 }
 
@@ -57,7 +55,7 @@ interface OshiraseFormState {
   publish_end_date: string;
   ja_id: number | null;
   oshirase_type: number | null;
-  target_kanri_kubun_codes: string[]; // multi-select; joined to CSV on submit
+  target_kanri_kubun_codes: string[]; // multi-select、送信時に CSV へ結合
   content: string;
 }
 
@@ -68,9 +66,8 @@ const PAST_DATE_MSG = '過去日は選択できません。';
 const ACCESS_DENIED_MSG = 'アクセス権がありません。';
 const DELETE_CONFIRM_CONTENT = 'このお知らせを削除してもよろしいですか？';
 
-// 機能定義 1.x — access control. View enforces role check in addition to
-// router guard / BE permission so a non-admin sees ACSMS-MSG-031-006
-// instead of firing the API.
+// 機能定義 1.x — アクセス制御。router guard / BE 権限に加え view でも役割チェックし、
+// 非管理者には API を呼ばず ACSMS-MSG-031-006 を表示する。
 const authStore = useAuthStore();
 const canView = computed(() =>
   authStore.user?.permissions?.includes('oshirase.view') ?? false,
@@ -84,7 +81,7 @@ const { state, loading, total, onChange } = useTableQuery<OshiraseFilters>({
 
 const rows = ref<OshiraseListItem[]>([]);
 
-// Form state — edit mode is derived from `editingId`.
+// フォーム状態 — 編集モードは editingId から導出する。
 const editingId = ref<number | null>(null);
 const isEdit = computed(() => editingId.value !== null);
 
@@ -193,10 +190,9 @@ function buildDisabledTimeFor(threshold: Dayjs) {
  */
 function disabledStartTime(current: Dayjs | null) {
   if (!current) return {};
-  // `current` is the picker's Dayjs (browser-local TZ). Re-interpret its
-  // wall-clock numbers as Asia/Tokyo so the comparison against
-  // `nowTokyo()` is frame-consistent — see `.claude/rules/vue.md
-  // §Date/Time`.
+  // `current` はピッカーの Dayjs（ブラウザ local TZ）。その壁時計値を
+  // Asia/Tokyo として再解釈し、nowTokyo() との比較の TZ フレームを揃える
+  // （.claude/rules/vue.md §Date/Time）。
   const currentTokyo = pickerToTokyoWallclock(current);
   const now = nowTokyo();
   if (!currentTokyo.isSame(now, 'day')) return {};
@@ -294,9 +290,9 @@ const TARGET_KANRI_KUBUN_OPTIONS = [
   { value: '5', label: 'JA管理支店' },
 ];
 
-// Column order matches docs/design/ACSMS-SCR-031/index.html mockup:
+// 列順は ACSMS-SCR-031/index.html モックアップに一致:
 // 編集 / 場所 / 状態 / お知らせタイトル / 表示期間 / JA名 / お知らせ種別 /
-// 対象管理者区分 / 操作(削除).
+// 対象管理者区分 / 操作(削除)。
 const columns: TableColumnsType = [
   { title: '編集', key: 'edit', align: 'center', width: 80 },
   { title: '公開場所', key: 'publish_location', width: 130 },
@@ -321,10 +317,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Global axios interceptor toasts FORBIDDEN / 500 — view only clears
-    // local state so onMounted's fire-and-forget invocation doesn't
-    // surface an unhandled rejection. Per .claude/rules/vue.md
-    // §List view rule 5.
+    // global axios interceptor が FORBIDDEN / 500 をトースト。view はローカル
+    // 状態のみクリアし、onMounted の fire-and-forget で unhandled rejection を
+    // 出さない（.claude/rules/vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -335,9 +330,8 @@ async function fetchList(): Promise<void> {
 onMounted(() => {
   if (!canView.value) return;
   void fetchList();
-  // JA dropdown self-hydrates inside <BaseJaDropdown>. Table-cell
-  // ja_name comes from the BE list response (leftJoin m_ja) — no
-  // separate fetch needed.
+  // JA ドロップダウンは <BaseJaDropdown> 内で自己読込。表セルの ja_name は
+  // BE 一覧レスポンス（leftJoin m_ja）由来で別途取得不要。
 });
 
 function clearFieldErrors(): void {
@@ -364,11 +358,9 @@ function validateStartDateNotPast(): void {
 }
 
 function validateDateOrder(): void {
-  // Date-order check (only when both are present + parseable). End must
-  // be STRICTLY after start — `end <= start` (both same value and end
-  // before start) surfaces the same `終了日は開始日より後にしてください。`
-  // copy. 顧客レビュー 2026-05-29 — 「重複」専用 message を廃止し、すべて
-  // 順序違反として扱う。
+  // 日付順チェック（両方あり・解析可能な時のみ）。終了は開始より厳密に後で
+  // なければならず、end <= start は同一「終了日は開始日より後にしてください。」を
+  // 表示。顧客レビュー 2026-05-29 —「重複」専用 message を廃止し全て順序違反扱い。
   if (
     fieldErrors.publish_start_date ||
     !formState.publish_start_date ||
@@ -428,10 +420,9 @@ function applyServerErrors(err: unknown): boolean {
   const data = ax?.response?.data;
   if (!data) return false;
 
-  // DEADLINE_NOTICE_DUPLICATE has user-actionable copy — surface as toast.
-  // The global axios interceptor lists this code in VIEW_HANDLED_CODES
-  // (see api/error-handler.ts) and skips its default toast so this view
-  // is the single source of the user-visible banner — no duplicate toasts.
+  // DEADLINE_NOTICE_DUPLICATE はユーザーが対処できる文言なのでトースト表示。
+  // このコードは axios interceptor の VIEW_HANDLED_CODES にあり既定トーストを
+  // スキップするため、この view が唯一の表示元となり二重表示しない。
   if (data.error_code === 'DEADLINE_NOTICE_DUPLICATE' && data.message) {
     notify.error(data.message);
     return true;
@@ -474,7 +465,7 @@ async function onSubmit(): Promise<void> {
   }
 }
 
-/** Reset the form + return to create mode. */
+/** フォームをリセットして新規作成モードへ戻す。 */
 function resetForm(): void {
   Object.assign(formState, initialFormState());
   editingId.value = null;
@@ -483,9 +474,8 @@ function resetForm(): void {
 }
 
 /**
- * Detects user-entered data on the form. Compares each field to its
- * `initialFormState()` baseline; in edit mode the form is pre-populated
- * from `getOshirase`, so `editingId !== null` also counts as dirty.
+ * フォームに入力があるか判定。各項目を initialFormState() の基準値と比較する。
+ * 編集モードは getOshirase で事前入力済みのため editingId !== null も dirty 扱い。
  */
 function isFormDirty(): boolean {
   if (editingId.value !== null) return true;
@@ -540,8 +530,8 @@ function scrollToForm(): void {
   void nextTick(() => {
     const el = (formCardRef.value as unknown as { $el?: HTMLElement } | null)
       ?.$el;
-    // jsdom (test env) doesn't implement scrollIntoView — guard so the
-    // microtask never throws an unhandled rejection there.
+    // jsdom（テスト環境）は scrollIntoView 未実装のため、microtask で
+    // unhandled rejection にならぬようガードする。
     if (typeof el?.scrollIntoView === 'function') {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -579,7 +569,7 @@ async function loadDetail(id: number): Promise<void> {
 }
 
 /**
- * 編集行クリック時のハンドラ. SCR-031-local convention:
+ * 編集行クリック時のハンドラ（SCR-031 ローカル規約）:
  *   - 既に同じ行を編集中ならそのまま再読込 (画面遷移なしの refresh).
  *   - 別の行を編集中、または新規作成モードで入力済みデータがある場合、
  *     未保存データの破棄について `クリア` ボタンと同じ ACSMS-MSG-031-010
@@ -593,7 +583,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
       await loadDetail(row.oshirase_id);
       scrollToForm();
     } catch {
-      // Global interceptor toasts 404 / 500.
+      // global interceptor が 404 / 500 をトースト。
     }
     return;
   }
@@ -613,7 +603,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
           await loadDetail(row.oshirase_id);
           scrollToForm();
         } catch {
-          // Global interceptor toasts.
+          // global interceptor がトースト。
         }
       },
     });
@@ -624,7 +614,7 @@ async function onEdit(row: OshiraseListItem): Promise<void> {
     await loadDetail(row.oshirase_id);
     scrollToForm();
   } catch {
-    // Global interceptor toasts 404 / 500.
+    // global interceptor が 404 / 500 をトースト。
   }
 }
 
@@ -636,11 +626,11 @@ function askDelete(row: OshiraseListItem): void {
     try {
       await removeOshirase(row.oshirase_id);
       notify.deleted();
-      // If we were editing the deleted row, return to create mode.
+      // 削除した行を編集中だった場合は新規作成モードへ戻す。
       if (editingId.value === row.oshirase_id) onClear();
       await fetchList();
     } catch {
-      // Global interceptor handles 409 (CONFLICT) / 500.
+      // global interceptor が 409（CONFLICT）/ 500 を処理。
     }
   });
 }
@@ -653,7 +643,7 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
 function statusBadgeClass(status: number): string {
   if (status === OshiraseStatus.PUBLIC) return 'bg-success-subtle text-success';
   if (status === OshiraseStatus.HIDDEN) return 'bg-error-subtle text-error';
-  // OshiraseStatus.DRAFT (and any unknown future value) → neutral.
+  // OshiraseStatus.DRAFT（および将来の未知値）→ ニュートラル。
   return 'bg-surface-hover text-text-description';
 }
 
@@ -680,16 +670,15 @@ function targetKanriKubunLabel(value: string): string {
     .join('、');
 }
 
-// Row-class hook used by BaseDataTable to highlight the row currently
-// being edited. Resolves to `--surface-active` — same tint as the
-// selected-row state across the design system.
+// BaseDataTable で編集中の行をハイライトする行クラスフック。
+// --surface-active（選択行と同じ色）に解決される。
 function rowClassForEdit(row: Record<string, unknown>): string {
   return (row as unknown as OshiraseListItem).oshirase_id === editingId.value
     ? 'oshirase-row-active'
     : '';
 }
 
-// Spec-visible internals — `wrapper.vm.formState` / `vm.state` / `vm.fetchList`.
+// スペック公開用の内部状態 — wrapper.vm.formState / vm.state / vm.fetchList。
 defineExpose({ formState, state, fetchList, editingId });
 </script>
 
@@ -714,7 +703,7 @@ defineExpose({ formState, state, fetchList, editingId });
         @finish="onSubmit"
         @keydown="preventEnterImplicitSubmit"
       >
-        <!-- お知らせタイトル — same inline-label pattern as 公開場所 / 状態. -->
+        <!-- お知らせタイトル — 公開場所 / 状態 と同じインラインラベルパターン。 -->
         <a-form-item
           name="title"
           :validate-status="fieldErrors.title ? 'error' : ''"
@@ -732,9 +721,8 @@ defineExpose({ formState, state, fetchList, editingId });
           </div>
         </a-form-item>
 
-        <!-- 公開場所 — label + radio group on a single row. Form layout is
-             vertical so antd's label-col/wrapper-col is ignored; we render
-             the label inline inside the form-item's wrapper instead. -->
+        <!-- 公開場所 — ラベル + ラジオを1行に。form layout=vertical で antd の
+             label-col/wrapper-col は無効なため、ラベルは wrapper 内にインライン描画。 -->
         <a-form-item
           name="publish_location"
           :validate-status="fieldErrors.publish_location ? 'error' : ''"
@@ -831,14 +819,11 @@ defineExpose({ formState, state, fetchList, editingId });
             <span class="text-sm font-medium whitespace-nowrap text-text-main">
               終了日
             </span>
-            <!-- 終了日 lives in the same row visually but is a separate
-                 field. <a-form-item-rest> opts it OUT of the parent
-                 form-item's field-collection (no "FormItem can only
-                 collect one field item" warning) AND isolates it from the
-                 parent's validate-status, so the required 開始日 error does
-                 NOT bleed a red border onto this optional 終了日 picker.
-                 Its own a-form-item carries only publish_end_date's status
-                 (date-order error), validated manually in validateForm. -->
+            <!-- 終了日は同じ行に見えるが別フィールド。<a-form-item-rest> で
+                 親 form-item のフィールド収集から外し（"collect one field" 警告
+                 回避）、親の validate-status からも隔離するため、必須 開始日エラーの
+                 赤枠がこの任意 終了日ピッカーに波及しない。自身の a-form-item は
+                 publish_end_date（日付順エラー、validateForm で手動検証）のみ持つ。 -->
             <a-form-item-rest>
               <a-form-item
                 class="mb-0 flex-1 min-w-0"
@@ -871,8 +856,8 @@ defineExpose({ formState, state, fetchList, editingId });
           </div>
         </a-form-item>
 
-        <!-- JA名 + お知らせ種別 on a single row. Each cell uses the inline-
-             label pattern (same as 公開場所 / 状態). -->
+        <!-- JA名 + お知らせ種別 を1行に。各セルは公開場所 / 状態 と同じ
+             インラインラベルパターン。 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <a-form-item
             name="ja_id"
@@ -885,9 +870,8 @@ defineExpose({ formState, state, fetchList, editingId });
               >
                 JA名
               </span>
-              <!-- BaseJaDropdown: server-side paginated (50/page) +
-                   infinite scroll + ja_name-only ILIKE. Matches SCR-024
-                   account screen behavior. -->
+              <!-- BaseJaDropdown: サーバーページング（50/頁）+ 無限スクロール +
+                   ja_name のみ ILIKE。SCR-024 アカウント画面と同じ挙動。 -->
               <div class="flex-1">
                 <BaseJaDropdown
                   v-model:value="formState.ja_id"
@@ -973,11 +957,10 @@ defineExpose({ formState, state, fetchList, editingId });
           >
             保存
           </a-button>
-          <!-- Always-visible. In create mode resets the form; in edit mode
-               cancels the edit and returns to create mode (onClear clears
-               editingId too). Screen-design.md row 11 says "新規モード時"
-               only, but hiding it leaves the user no way to bail out of
-               an edit — UX deviation by design. -->
+          <!-- 常時表示。新規作成時はフォームをリセット、編集時は編集を取消して
+               新規作成モードへ戻す（onClear は editingId もクリア）。screen-design.md
+               row 11 は「新規モード時」のみだが、隠すと編集から抜ける手段が無くなる
+               ため意図的な UX 逸脱。 -->
           <a-button :disabled="submitting" @click="onClear">クリア</a-button>
         </div>
       </a-form>
@@ -1020,13 +1003,11 @@ defineExpose({ formState, state, fetchList, editingId });
           {{ publishPeriod(record as OshiraseListItem) }}
         </template>
         <template v-else-if="column.key === 'ja_name'">
-          <!-- ja_name comes from the BE list response (leftJoin m_ja).
-               Two distinct null cases:
-                 - ja_id IS NULL     → 全JA向け (intentional broadcast)
-                 - ja_id set but row missing → (削除済JA) (the JA was
-                   removed after this announcement was created)
-               Folding both into 全JA向け would silently mislead — a
-               targeted notice would look org-wide after its JA leaves. -->
+          <!-- ja_name は BE 一覧レスポンス（leftJoin m_ja）由来。null は2種:
+                 - ja_id IS NULL      → 全JA向け（意図した全体配信）
+                 - ja_id あるが行欠落  → (削除済JA)（作成後に JA が削除された）
+               両者を全JA向けにまとめると、対象指定の通知が JA 削除後に
+               全体配信に見えて誤解を招くため区別する。 -->
           {{
             (record as OshiraseListItem).ja_name
               ?? ((record as OshiraseListItem).ja_id == null
@@ -1066,10 +1047,9 @@ defineExpose({ formState, state, fetchList, editingId });
 </template>
 
 <style scoped>
-/* Highlight the row currently being edited (form-on-top, list-below).
-   Targets `<td>` directly because antd paints its own cell backgrounds
-   for hover / zebra striping. Token: --surface-active (selected-row
-   tint, flips automatically in dark mode). */
+/* 編集中の行をハイライト（フォーム上部・一覧下部）。antd が hover/zebra で
+   セル背景を自前描画するため td を直接指定。トークン --surface-active
+   （選択行の色、ダークモードで自動反転）。 */
 :deep(.oshirase-row-active > td) {
   background-color: var(--surface-active) !important;
 }

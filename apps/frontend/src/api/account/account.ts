@@ -1,7 +1,7 @@
-// Hand-written wrapper around the /api/v1/accounts endpoints.
-// Functions here are what SCR-024 (AccountsListView) imports and what its
-// unit spec mocks via vi.mock('@/api/account/account').
-// Shapes mirror docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md.
+// /api/v1/accounts 用の手書き wrapper。
+// SCR-024 (AccountsListView) が import し、unit spec が
+// vi.mock('@/api/account/account') でモックする関数群。
+// 型は docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 
@@ -25,7 +25,7 @@ export interface AccountListItem {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** True when login attempts hit the lock threshold. SCR-024 list shows a ロック badge; SCR-025 edit form lets admin clear it. */
+  /** ログイン試行がロック閾値に達すると true。SCR-024 一覧は ロック バッジ表示、SCR-025 編集で admin が解除可。 */
   account_lock_flg: boolean;
   created_at: string;
   updated_at: string | null;
@@ -43,7 +43,7 @@ export interface AccountListResponse {
   meta: AccountListMeta;
 }
 
-/** Query DTO for `GET /api/v1/accounts` (ACSMS-API-024-001). */
+/** `GET /api/v1/accounts` のクエリDTO（ACSMS-API-024-001）。 */
 export interface ListAccountsQuery {
   login_id?: string;
   role_id?: number;
@@ -57,7 +57,7 @@ export interface ListAccountsQuery {
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response shape from `DELETE /api/v1/accounts/:account_id`. */
+/** `DELETE /api/v1/accounts/:account_id` のレスポンス形。 */
 export interface AccountDeleteResponse {
   message: string;
 }
@@ -104,7 +104,7 @@ export interface AccountDetail {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** True while the account is locked (login_failure_count ≥ threshold). */
+  /** アカウントがロック中の間 true（login_failure_count ≥ 閾値）。 */
   account_lock_flg: boolean;
   biko: string;
   created_at: string;
@@ -143,7 +143,7 @@ export interface UpdateAccountBody {
   sub_email_3?: string;
   paper_flg?: boolean;
   denshi_flg?: boolean;
-  /** Sending `false` triggers BE to reset login_failure_count to 0 (unlock). Omit to leave unchanged. */
+  /** `false` を送ると BE が login_failure_count を 0 にリセット（ロック解除）。省略時は変更なし。 */
   account_lock_flg?: boolean;
   biko?: string;
 }
@@ -185,7 +185,7 @@ export async function updateAccount(
   return res.data;
 }
 
-// ─── ACSMS-API-COMMON-005 — Account dropdown (defined alongside SCR-030) ──
+// ─── ACSMS-API-COMMON-005 — アカウント dropdown（SCR-030 と併せて定義） ──
 
 export interface AccountDropdownItem {
   account_id: number;
@@ -200,18 +200,18 @@ export interface AccountDropdownResponse {
   meta: { total: number; page: number; per_page: number; has_more: boolean };
 }
 
-/** Query-string DTO for `GET /api/v1/account/dropdown`. */
+/** `GET /api/v1/account/dropdown` のクエリDTO。 */
 export interface AccountDropdownQuery {
-  /** Partial match on login_id OR account_name (ILIKE) — see `match_field`. */
+  /** login_id OR account_name の部分一致（ILIKE）。`match_field` 参照。 */
   q?: string;
   /**
-   * 'both' (default) = login_id OR account_name; 'name' = account_name only.
-   * SCR-030 log view uses 'name' since its field label is just ユーザ名.
+   * 'both'（既定）= login_id OR account_name、'name' = account_name のみ。
+   * SCR-030 ログ画面は項目ラベルが ユーザ名 のみなので 'name' を使用。
    */
   match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
-  /** Edit-form escape hatch — BE prepends this account_id if not in page 1. */
+  /** 編集フォーム用の抜け道 — page 1 に無い場合 BE がこの account_id を先頭に付加。 */
   include_id?: number;
 }
 

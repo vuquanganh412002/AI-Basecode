@@ -1,12 +1,11 @@
 /**
- * Shared pagination sizes for entity dropdown / select components.
+ * エンティティ dropdown / select コンポーネント共通のページサイズ。
  *
- * `DROPDOWN_PAGE_SIZE` is the default page size a dropdown fetches per request;
- * `DROPDOWN_MAX_PAGE_SIZE` mirrors the BE dropdown DTO `@Max(100)` ceiling used
- * by "load all" fetches. Centralised so the value is defined once instead of
- * being repeated as a literal in every Base*Dropdown default.
+ * `DROPDOWN_PAGE_SIZE` は dropdown が 1 リクエストで取得する既定ページサイズ。
+ * `DROPDOWN_MAX_PAGE_SIZE` は「全件読込」で使う BE dropdown DTO の `@Max(100)` 上限のミラー。
+ * 各 Base*Dropdown の既定にリテラルを繰り返さず 1 箇所で定義するため集約。
  */
-/** Default page size for entity dropdown/select components. */
+/** エンティティ dropdown/select コンポーネントの既定ページサイズ。 */
 export const DROPDOWN_PAGE_SIZE = 50;
-/** BE dropdown DTO `@Max(100)` — largest per_page a dropdown fetch may request. */
+/** BE dropdown DTO `@Max(100)` — dropdown 取得で要求できる最大 per_page。 */
 export const DROPDOWN_MAX_PAGE_SIZE = 100;

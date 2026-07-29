@@ -199,7 +199,7 @@ function makeHelpers(getCtx: () => IntegrationTestContext) {
           '', '', '', '', '', '',
           $6, 1, '0', $7, 1,
           '', '', 1, '', '',
-          '農業者', '', '2026-01-01', '2026-04-01',
+          '0', '', '2026-01-01', '2026-04-01',
           '', '', 1,
           NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
       // Positional params match the $1..$7 placeholders in the VALUES list:
@@ -238,7 +238,7 @@ function makeHelpers(getCtx: () => IntegrationTestContext) {
          bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
          dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
          joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
-         henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
+         saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
          joho_henko_tekiyo_date, created_at, created_by)
        SELECT
          dokusya_id, 1, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
@@ -255,7 +255,7 @@ function makeHelpers(getCtx: () => IntegrationTestContext) {
          -- 現行 rireki の適用日は購読開始日に揃える（master seed は joho 未設定=NULL の
          -- ため、loadEffectiveRow の joho<=asOf 条件で除外されないよう有効日を入れる）。
          COALESCE(joho_henko_tekiyo_date, dokusya_kaishi_date), seikyu_kaishi_month, biko, denshi_shonin_status,
-         '', true, true, true, false, false,
+         true, true, true, false, false,
          NULL, created_at, created_by
        FROM t_dokusya WHERE dokusya_id = $1`,
       [dokusyaId],
@@ -496,7 +496,7 @@ describeRealPg(
            bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
            dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date,
            joho_henko_tekiyo_date, seikyu_kaishi_month, biko, denshi_shonin_status,
-           henko_riyu, saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
+           saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg, torikeshi_flg,
            joho_henko_tekiyo_date, created_at, created_by)
          SELECT
            dokusya_id, 2, ja_id, kanri_shiten_id, shiten_id, kumiaiin_code,
@@ -511,7 +511,7 @@ describeRealPg(
            bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
            dokusyaso_bunrui, nogyosya_bunrui, shoki_dokusya_kaishi_date, dokusya_kaishi_date, '2026-08-01',
            '2026-06-01', seikyu_kaishi_month, biko, denshi_shonin_status,
-           '取消', false, false, false, false, true,
+           false, false, false, false, true,
            NULL, created_at, created_by
          FROM t_dokusya WHERE dokusya_id = $1`,
         [id],

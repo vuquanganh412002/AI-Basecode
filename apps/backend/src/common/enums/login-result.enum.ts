@@ -1,11 +1,9 @@
 /**
- * Login attempt outcome stored in `t_login_log.login_result`.
+ * ログイン結果。`t_login_log.login_result`。
+ * Mirror of `m_code.code_category = 'LOGIN_RESULT'`。AuthService が成功/失敗
+ * 両方を記録 (OTP resend は success-with-mfa-required 扱い)。
  *
- * Mirror of `m_code.code_category = 'LOGIN_RESULT'`. Used by AuthService
- * to record both successful and failed login attempts (including OTP
- * resends counted as success-with-mfa-required).
- *
- * Keep in sync with `apps/frontend/src/constants/enums/login-result.ts`.
+ * `apps/frontend/src/constants/enums/login-result.ts` と同期。
  */
 export const LoginResult = {
   SUCCESS: 1,

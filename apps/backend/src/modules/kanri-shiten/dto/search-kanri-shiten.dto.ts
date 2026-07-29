@@ -5,14 +5,10 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
- * Whitelist of columns the client may sort by — per 画面定義§8.1 of
- * ACSMS-SCR-008 (画面設計書 v1.3 explicitly enumerates the three
- * user-clickable column headers). `updated_at` is the implicit default
- * (newest-first on landing) and is not exposed as a sortable header;
- * including it here keeps it inside the @IsIn allow-list so we don't
- * regress SQL-injection safety on `ORDER BY ${sort_by}`.
- *
- * The service maps each value to a typed QueryBuilder column reference.
+ * ソート可能列 allow-list（ACSMS-SCR-008 画面定義§8.1 が 3 つのクリック可能ヘッダを列挙）。
+ * updated_at は暗黙の既定（初期表示は最新順）でヘッダには出さないが、@IsIn allow-list に
+ * 含め `ORDER BY ${sort_by}` の SQL インジェクション安全性を保つ。
+ * service が各値を typed QueryBuilder 列参照へマップ。
  */
 export const KANRI_SHITEN_SEARCH_SORT_BY = [
   'kanri_shiten_code',
@@ -28,14 +24,9 @@ const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Query-string DTO for `GET /api/v1/kanri-shiten` (ACSMS-API-008-001).
- *
- * All fields optional; class-transformer applies defaults below so the
- * service always sees a fully-populated object.
- *
- * Inherits page/per_page from {@link PaginationDto}. The runtime default
- * (page=1, per_page=20) is applied by the service layer via `?? 1` /
- * `?? 20` because query params arrive as `undefined` when omitted.
+ * GET /api/v1/kanri-shiten (ACSMS-API-008-001) クエリ DTO。全項目任意。
+ * page/per_page は {@link PaginationDto} 継承。既定 (page=1, per_page=20) は
+ * 未指定時 undefined で届くため service 側で `?? 1` / `?? 20` を適用。
  */
 export class SearchKanriShitenDto extends PaginationDto {
   @ApiPropertyOptional({ description: '管理支店コード（部分一致）', maxLength: 15 })

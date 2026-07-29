@@ -1,21 +1,12 @@
 /**
- * Log-type discriminator stored in `t_log.log_type`.
+ * ログ種別。`t_log.log_type`。
+ * Mirror of `m_code.code_category = 'LOG_TYPE'` (seeder.md §5)。
+ * 値のみ固定 (分岐/テストに自己説明的な名前を与える)、label は `m_code` で
+ * runtime 編集可。値の追加/削除は code 変更 + migration。label rename
+ * (例 ERROR→ERROR_INTERNAL) は redeploy 不要 (`m_code.code_name` 変更 + reload)。
  *
- * Mirror of `m_code.code_category = 'LOG_TYPE'` (see seeder.md §5).
- * The DB column stays integer; this constant gives branching logic and
- * test code a self-documenting name. Display labels live in `m_code`
- * and can be edited at runtime — only the *values* are fixed here.
- *
- * Adding / removing a value requires a code change + migration.
- * Renaming the label (e.g. ERROR → ERROR_INTERNAL on the customer side)
- * does NOT require a redeploy — change `m_code.code_name` and reload
- * the cache.
- *
- * Naming convention: PascalCase identifier (TS type-like) + UPPER_SNAKE_CASE
- * members (project's `naming-conventions.md` rule for fixed constants).
- *
- * Keep in sync with `apps/frontend/src/constants/enums/log-type.ts`.
- * The integration test `enum-sync.spec.ts` fails CI if they drift.
+ * `apps/frontend/src/constants/enums/log-type.ts` と同期。
+ * `enum-sync.spec.ts` が drift 時 CI fail。
  */
 export const LogType = {
   /** 利用者操作ログ */

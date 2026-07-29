@@ -1,6 +1,5 @@
-// Pure response-shaping for the 増減通知（日本農業新聞）report (ACSMS-SCR-029).
-// No Nest DI / repo / service — only flat-row → grouped-DTO transforms +
-// pdfmake document definition, importable from anywhere (service + unit tests).
+// 増減通知（日本農業新聞）(ACSMS-SCR-029) の純変換（生行→グループ化DTO + pdfmake
+// document definition。DI/repo なし・service + test 共用）。
 
 import type {
   Content,
@@ -14,7 +13,7 @@ import { ItakuKubun } from '@/common/enums';
 /** getRawMany() の数値カラムは driver により number / 文字列で届くため両対応。 */
 type RawNullableNum = number | string | null;
 
-/** Flat row returned by the 増減通知 QueryBuilder `.getRawMany()` (api.md §4.5). */
+/** 増減通知 QueryBuilder .getRawMany() の生行（api.md §4.5）。 */
 export interface ZougenNichinoRawRow {
   dokusya_rireki_id: number | string;
   // 同一購読者の同日複数履歴を累計するキー（dokusya_id, rireki_no昇順）。
@@ -45,7 +44,7 @@ export interface ZougenNichinoRawRow {
   zenkai_dokusya_busu: RawNullableNum;
 }
 
-// ─── response row shapes (api.md §レスポンスデータ) ─────────────────────
+// ─── レスポンス行の型（api.md §レスポンスデータ）─────────────────────
 export interface ZougenNichinoReportRow {
   hanbaiten_id: number;
   itaku_label: string; // 「委託」 or ""
@@ -412,12 +411,7 @@ function detailTable(report: ZougenNichinoReport): TableCell[][] {
   return body;
 }
 
-/**
- * Build the pdfmake document definition for ONE 管理支店's 増減通知 PDF.
- * `biko` is the per-管理支店 remark printed in the 「＜備考＞」欄.
- * `PdfExportService.generatePdf(...)` に渡す。
- */
-/** 1管理支店ブロック（発行元ヘッダ + 見出し + 明細テーブル + ＜備考＞）。 */
+/** 1管理支店ブロック（発行元ヘッダ + 見出し + 明細テーブル + ＜備考＞）。biko は管理支店ごとの備考。 */
 function nichinoReportBlock(
   report: ZougenNichinoReport,
   tekiyo: string,
@@ -493,7 +487,7 @@ function nichinoReportBlock(
 }
 
 /**
- * Build the pdfmake document definition for the 増減通知 PDF — **プレビューと同じ
+ * 増減通知 PDF の pdfmake document definition を組む — **プレビューと同じ
  * 改ページ**：管理支店ごとに独立ページ（顧客要件 2026-07・SCR-026 と同方針）。行数の
  * 多い管理支店は自グループ内で `perPage`（既定15）行ずつ複数ページに続く（他管理支店
  * とは同居しない）。各ページ先頭で改ページ。`bikoByKs` は管理支店IDごとの「＜備考＞」欄。

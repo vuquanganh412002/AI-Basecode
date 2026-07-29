@@ -1,17 +1,13 @@
 /**
- * 出力種別 stored in `t_file_download.download_type`. One value per export
- * report. Mirror of `m_code.code_category = 'DOWNLOAD_TYPE'` (seeder.md §5).
+ * 出力種別。`t_file_download.download_type` (帳票ごとに1値)。
+ * Mirror of `m_code.code_category = 'DOWNLOAD_TYPE'` (seeder.md §5)。
  *
- * Group A: each value is a fixed, BE-owned identifier the export services
- * write when registering a download. The set is closed by design — a new
- * download type means a new report screen + code review, not a runtime
- * extension. Centralised here because the same 5 values were previously
- * redefined as local constants across report / koza-furikae / haitatsuryo
- * services.
+ * Group A: 各値は export サービスが書く固定の BE 所有 ID。set は設計上 closed
+ * (新種別 = 新帳票画面 + code review、runtime 拡張ではない)。
  *
- * BE-only: the FE never branches on the VALUE (download history shows the
- * label via `useCodesStore().label('DOWNLOAD_TYPE', value)`), so there is no
- * FE mirror / enum-sync pair. Add one if the FE starts branching on it.
+ * BE-only: FE は VALUE で分岐しない (履歴は
+ * `useCodesStore().label('DOWNLOAD_TYPE', value)` 表示) → FE mirror / enum-sync
+ * なし。FE が分岐し始めたら追加する。
  */
 export const DownloadType = {
   /** 口座振替 (SCR-020) */

@@ -1,18 +1,13 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable JA dropdown.
+ * サーバーページング + 検索対応の JA ドロップダウン。
  *
- * Used by every form that needs to associate a record with a JA
- * (SCR-009 管理支店 / SCR-007 支店 / SCR-006 単価 / etc.). Thin wrapper
- * over `<a-select>` + {@link useEntityDropdown}: the composable owns
- * all state-machine logic (pagination, debounced search, infinite
- * scroll, stale-response guard, edit-form `include_id` pin); this
- * file binds JA-specific knobs (fetcher, idField, label composer,
- * todofukenCode cascade).
+ * JA を紐付ける全フォーム（SCR-009 管理支店 / SCR-007 支店 / SCR-006 単価 等）で使用。
+ * `<a-select>` + {@link useEntityDropdown} の薄いラッパ。状態機械（ページング・
+ * デバウンス検索・無限スクロール・stale レスポンスガード・編集時 include_id ピン）は
+ * composable が持ち、本ファイルは JA 固有設定（fetcher / idField / label / todofukenCode カスケード）を束ねる。
  *
- * Server-side filter is opt-in (`filter-option={false}`), so antd
- * does NOT try to client-side filter the visible option list. Same
- * as the existing `<BaseCodeSelect>` pattern but with pagination.
+ * サーバー側フィルタは opt-in（`filter-option={false}`）なので antd はクライアント側で絞り込まない。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -25,34 +20,29 @@ import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /**
-   * Currently-selected ja_id. Accepts `number | null | undefined` —
-   * both `null` and `undefined` mean "nothing selected" so callers can
-   * use `v-model:value` against either filter state (`number | null`,
-   * from `useTableQuery`) or form state (`number | undefined`) without
-   * a ?? bridge at every call site.
+   * 選択中の ja_id。`number | null | undefined` を受ける — null / undefined とも
+   * 「未選択」の意味なので、filter state（`number | null`、useTableQuery）でも
+   * form state（`number | undefined`）でも ?? 変換なしに v-model:value できる。
    */
   value?: number | null;
   disabled?: boolean;
   placeholder?: string;
   allowClear?: boolean;
-  /** Override page size. Default 50. */
+  /** ページサイズ上書き。既定 50。 */
   perPage?: number;
   /**
-   * Option label format. 'code-name' (default) renders
-   * `${ja_code} ${ja_name}`; 'name' renders only `${ja_name}`.
-   * SCR-024 account list uses 'name' to hide ja_code from the UI.
+   * ラベル形式。'code-name'（既定）は `${ja_code} ${ja_name}`、'name' は `${ja_name}` のみ。
+   * SCR-024 アカウント一覧は UI から ja_code を隠すため 'name' を使う。
    */
   labelFormat?: 'code-name' | 'name';
   /**
-   * Backend ILIKE target. 'both' (default) matches ja_code OR ja_name;
-   * 'name' matches ja_name only. Pair with `labelFormat='name'` so the
-   * user can't be confused by a hit they can't see.
+   * BE の ILIKE 対象。'both'（既定）は ja_code OR ja_name、'name' は ja_name のみ。
+   * 表示できないヒットで混乱しないよう `labelFormat='name'` と組で使う。
    */
   searchField?: 'both' | 'name';
   /**
-   * Narrows the BE query to JAs in the given 都道府県. Used by SCR-023
-   * file upload (都道府県 picker cascades into the JA dropdown). Changing
-   * it resets selection + reloads page 1.
+   * 指定 都道府県 の JA に BE クエリを絞る。SCR-023 ファイルアップロード（都道府県 picker が
+   * JA ドロップダウンにカスケード）で使用。変更時は選択解除 + 1ページ目再読込。
    */
   todofukenCode?: string | null;
 }
@@ -68,14 +58,13 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  // Always emits `null` for "cleared" — callers get one type to handle.
+  // クリア時は常に `null` を emit — 呼び出し側は 1 型のみ扱えばよい。
   'update:value': [v: number | null];
   /**
-   * Fires alongside `update:value` when the user picks a row. Carries
-   * the full option (ja_code + ja_name + todofuken_code + chuokai_flg)
-   * so callers that need to display ja_code without a follow-up GET
-   * (e.g. SCR-023 "対象JA" multi-select chip list) don't have to grep
-   * the internal option array. `null` on X-clear.
+   * ユーザーが行を選択したとき `update:value` と同時に発火。option 全体
+   * （ja_code + ja_name + todofuken_code + chuokai_flg）を渡すので、追加 GET なしに
+   * ja_code を表示したい呼び出し側（SCR-023「対象JA」複数選択チップ等）が内部 option 配列を
+   * 探さずに済む。X クリア時は `null`。
    */
   select: [item: JaDropdownItem | null];
 }>();
@@ -102,16 +91,15 @@ const {
   perPage: perPageRef,
   buildExtraParams: () => {
     const extra: Partial<JaDropdownQuery> = {};
-    // Only send match_field when narrowing to 'name' — keeps requests
-    // minimal for the default (BE treats absent as 'both' anyway).
+    // 'name' 絞り込み時のみ match_field を送る（既定は BE が未指定を 'both' 扱い）。
     if (props.searchField === 'name') extra.match_field = 'name';
-    // Forward 都道府県 narrowing when provided. BE ignores empty/null.
+    // 都道府県 絞り込みは指定時のみ送る（BE は空/null を無視）。
     if (props.todofukenCode) extra.todofuken_code = props.todofukenCode;
     return extra;
   },
   resetTriggers: [todofukenCodeRef],
-  // JA cascade is "soft" — keep `q` + existing options visible across
-  // the prefecture change, never auto-clear the parent's selection.
+  // JA カスケードは "soft" — 都道府県変更をまたいで `q` と既存 options を保持し、
+  // 親の選択を自動クリアしない。
   resetMode: 'soft',
   onSelect: (v, item) => {
     emit('update:value', v);
@@ -120,9 +108,8 @@ const {
 });
 
 /**
- * Antd `<a-select>` labels options by their `label` field. Default
- * composes `{ja_code} {ja_name}` so users can match either; `'name'`
- * mode shows ja_name only for callers that hide the code (SCR-024).
+ * antd `<a-select>` は option の `label` を表示する。既定は `{ja_code} {ja_name}` を
+ * 合成し両方で照合可能に、'name' モードは code を隠す呼び出し側（SCR-024）向けに ja_name のみ。
  */
 const selectOptions = computed(() =>
   options.value.map((o) => ({
@@ -133,14 +120,11 @@ const selectOptions = computed(() =>
 );
 
 function onChange(v: number | undefined): void {
-  // The composable resolves the picked row + invokes our onSelect
-  // callback, which already fires both emits. Nothing further needed.
+  // composable が選択行を解決し onSelect コールバックを呼ぶ（両 emit 発火済み）。追加処理不要。
   composableOnChange(v);
 }
 
-// Re-expose internal state for tests (spec patterns mounted via
-// @vue/test-utils read `wrapper.vm.fetchPage / options / page /
-// hasMore / q`). Keep the surface stable across the refactor.
+// テスト用に内部状態を公開（spec が wrapper.vm.fetchPage / options / page / hasMore / q を参照）。
 defineExpose({ fetchPage, options, page, hasMore, q });
 </script>
 

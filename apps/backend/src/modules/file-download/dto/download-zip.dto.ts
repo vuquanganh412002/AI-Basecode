@@ -8,12 +8,12 @@ import {
   IsInt,
 } from 'class-validator';
 
-/** Max files bundled into one 一括ダウンロード ZIP — guards backend memory. */
+/** 一括ダウンロード ZIP 1 つに束ねる最大件数 — BE のメモリを保護。 */
 export const MAX_ZIP_FILES = 50;
 
 /**
- * Request body for POST /api/v1/file-download/download-zip — the list of
- * file_download_id to bundle into one ZIP (一括ダウンロード, SCR-022 §8).
+ * POST /api/v1/file-download/download-zip の body — 1 ZIP に束ねる
+ * file_download_id の配列（一括ダウンロード, SCR-022 §8）。
  */
 export class DownloadZipDto {
   @ApiProperty({

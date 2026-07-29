@@ -1,9 +1,9 @@
 /**
- * Mirror of `apps/backend/src/common/enums/itaku-kubun.enum.ts`
- * (`m_code.code_category = 'ITAKU_KUBUN'`).
+ * `apps/backend/src/common/enums/itaku-kubun.enum.ts` のミラー
+ * （`m_code.code_category = 'ITAKU_KUBUN'`）。
  *
- * Group A: 振込 (=1) makes the bank-account cluster required on the hanbaiten
- * form; 日農委託 / その他 do not. Labels come from `useCodesStore().label(...)`.
+ * Group A: 振込 (=1) は販売店フォームで銀行口座群を必須にする。日農委託 / その他 はしない。
+ * ラベルは `useCodesStore().label(...)` から取得。
  */
 export const ItakuKubun = {
   /** 振込 */

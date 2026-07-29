@@ -1,18 +1,15 @@
 import type { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 
 /**
- * SCR-019 — Excel template column headers in the canonical order
- * (api.md §テンプレートファイル仕様 / docs/design/ACSMS-SCR-019).
+ * SCR-019 — Excel テンプレートの列ヘッダ（正準順・api.md §テンプレートファイル仕様 /
+ * docs/design/ACSMS-SCR-019）。
  *
- * The DOM order is THE contract: changing any string here is a
- * customer-visible change to the downloaded template. Keep this
- * module-local rather than colocated with the DTO so DTO file size
- * stays focused on validation; this is a presentation concern.
+ * この並び順が契約そのもの: ここの文字列を変えると DL テンプレートが顧客可視で変わる。
+ * DTO のファイルサイズをバリデーションに集中させるため、DTO と同居させず
+ * モジュールローカルに置く（これは表示関心事）。
  *
- * Moved out of `hanbaiten.service.ts` (1380-line file) per the
- * architecture audit P1 #3 — small mechanical extract that signals
- * the future direction (a dedicated HanbaitenImportService) without
- * touching the import logic itself yet.
+ * `hanbaiten.service.ts`(1380行) から切り出し（アーキ監査 P1 #3）。取込ロジックには
+ * まだ触れず、専用 HanbaitenImportService への将来方向を示す機械的抽出。
  */
 export const IMPORT_TEMPLATE_COLUMNS = [
   '販売店コード',
@@ -41,10 +38,9 @@ export const IMPORT_TEMPLATE_COLUMNS = [
 ] as const;
 
 /**
- * Physical (request snake_case) column names in the SAME order as
- * `IMPORT_TEMPLATE_COLUMNS` (the JP headers) — index N here ↔ index N
- * there. Used to render the sample row in header order and to map the
- * positional template cells back to request fields.
+ * 物理（リクエスト snake_case）列名。`IMPORT_TEMPLATE_COLUMNS`（日本語ヘッダ）と
+ * 同一順で index N ↔ index N が対応。サンプル行をヘッダ順で描画し、位置指定の
+ * テンプレートセルをリクエスト項目へ対応付けるのに使う。
  */
 export const IMPORT_TEMPLATE_PHYSICAL_COLUMNS = [
   'hanbaiten_code',
@@ -73,16 +69,14 @@ export const IMPORT_TEMPLATE_PHYSICAL_COLUMNS = [
 ] as const;
 
 /**
- * One ready-to-import sample row shipped INSIDE the downloaded template
- * so users see the expected shape and can import immediately (edit
- * before real use). Keyed by physical column name; columns omitted here
- * render as blank cells.
+ * DL テンプレートに同梱する即取込可能なサンプル行1件。期待形を提示し即取込できる
+ * （実利用前に編集）。物理列名をキーとし、ここに無い列は空セルになる。
  *
- * Chosen to import cleanly with NO external dependencies:
- *  - `itaku_kubun = 2` (日農委託) → the 6 bank fields are NOT required.
- *  - `haitatsuryo_tanka_code` omitted → no m_tanka FK lookup (valid
- *    codes are JA-specific, so a fixed value could fail in some JAs).
- *  - `hanbaiten_name_kana` is half-width katakana (passes the kana rule).
+ * 外部依存なしで綺麗に取込めるよう選定:
+ *  - `itaku_kubun = 2`(日農委託) → 6 銀行項目は不要。
+ *  - `haitatsuryo_tanka_code` 省略 → m_tanka FK ルックアップ不要（有効コードは
+ *    JA 固有のため固定値だと JA によっては失敗しうる）。
+ *  - `hanbaiten_name_kana` は半角カタカナ（kana ルールを通る）。
  */
 export const IMPORT_TEMPLATE_SAMPLE_ROW: Readonly<
   Record<string, string | number | boolean>
@@ -103,23 +97,20 @@ export const IMPORT_TEMPLATE_SAMPLE_ROW: Readonly<
 };
 
 /**
- * Hard cap on import payload row count. Mirrors the DTO's
- * `@ArrayMaxSize(500)` — service-layer defence-in-depth so the
- * canonical `ROW_LIMIT_EXCEEDED` error code surfaces even when a
- * client bypasses the DTO validator.
+ * 取込ペイロード行数の上限。DTO の `@ArrayMaxSize(500)` と同値 — service 層の
+ * 多層防御で、クライアントが DTO バリデータをバイパスしても正準の
+ * `ROW_LIMIT_EXCEEDED` を返せるようにする。
  */
 export const IMPORT_MAX_ROWS = 500;
 
-/** Filename emitted in the Content-Disposition response header. */
+/** Content-Disposition レスポンスヘッダに出すファイル名。 */
 export const IMPORT_TEMPLATE_FILENAME = '販売店Excelデータ取込_テンプレート.xlsx';
 
 /**
- * Maps logical request column (`hanbaiten_name`, …) → TypeORM entity
- * field (`hanbaitenName`, …). Used in UPDATE to translate
- * `selected_columns` into the `manager.update()` partial. The two
- * special cases (`hanbaiten_code` excluded because it's the key column;
- * `haitatsuryo_tanka_code` because it goes through the m_tanka lookup
- * to resolve `haitatsuryoTankaId`) are handled in the call site.
+ * 論理リクエスト列（`hanbaiten_name`…）→ TypeORM エンティティ項目（`hanbaitenName`…）の
+ * 対応表。UPDATE で `selected_columns` を `manager.update()` の partial に変換する。
+ * 2 つの特例（`hanbaiten_code` はキー列のため除外、`haitatsuryo_tanka_code` は
+ * m_tanka ルックアップで `haitatsuryoTankaId` を解決）は呼出側で処理する。
  */
 export const IMPORT_COLUMN_TO_FIELD: Record<string, keyof Hanbaiten> = {
   hanbaiten_name: 'hanbaitenName',
@@ -146,11 +137,9 @@ export const IMPORT_COLUMN_TO_FIELD: Record<string, keyof Hanbaiten> = {
 };
 
 /**
- * Per-column default when the cell is empty / undefined / null.
- * Mirrors NEW-mode defaults so UPDATE honours NOT NULL
- * constraints on the m_hanbaiten columns that the schema marks
- * 空文字許容 (NOT NULL string default ''). Nullable columns (numeric
- * / enum) accept null directly.
+ * セルが空 / undefined / null のときの列別既定値。NEW モードの既定と同じにし、
+ * スキーマが 空文字許容（NOT NULL・既定 ''）とする m_hanbaiten 列の NOT NULL 制約を
+ * UPDATE でも満たす。NULL 許容列（numeric / enum）は null をそのまま受ける。
  */
 export const IMPORT_FIELD_EMPTY_DEFAULT: Partial<Record<keyof Hanbaiten, unknown>> = {
   hanbaitenName: '',
@@ -169,5 +158,5 @@ export const IMPORT_FIELD_EMPTY_DEFAULT: Partial<Record<keyof Hanbaiten, unknown
   kozaMeigi: '',
   biko: '',
   haitenFlg: false,
-  // numeric / enum fields fall through to `null` — column is nullable.
+  // numeric / enum 項目は `null` に落ちる — 列は NULL 許容。
 };

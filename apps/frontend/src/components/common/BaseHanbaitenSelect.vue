@@ -1,18 +1,15 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable **multi-select** 販売店 dropdown.
+ * サーバーページング + 検索対応の **複数選択** 販売店ドロップダウン。
  *
- * Multi-select sibling of {@link BaseJaDropdown}. Reuses
- * {@link useEntityDropdown} for the option state machine (page-50 load,
- * 300 ms debounced search, infinite scroll, stale-response guard) and
- * binds an `<a-select mode="multiple">`. Search matches 販売店コード OR
- * 名称 on the BE (`match_field='both'`).
+ * {@link BaseJaDropdown} の複数選択版。option 状態機械は {@link useEntityDropdown} を再利用
+ * （50件/page・300ms デバウンス検索・無限スクロール・stale レスポンスガード）し
+ * `<a-select mode="multiple">` を束ねる。検索は BE で 販売店コード OR 名称（`match_field='both'`）。
  *
- * `auto-clear-search-value=false` keeps the typed query after each pick
- * so the user can select several filtered rows in a row, and the
- * infinite-scroll keeps paging the SAME filtered set.
+ * `auto-clear-search-value=false` で選択後も入力クエリを保持 — 絞り込んだ行を連続選択でき、
+ * 無限スクロールは同じ絞り込みセットをページングし続ける。
  *
- * Used by SCR-028 増減連絡票（販売店）の販売店フィルタ（複数選択・未選択＝全件）。
+ * SCR-028 増減連絡票（販売店）の販売店フィルタ（複数選択・未選択＝全件）で使用。
  */
 import { computed, ref, toRef } from 'vue';
 import {
@@ -28,15 +25,15 @@ import {
 } from '@/composables/useSelectAllSentinel';
 
 interface Props {
-  /** Selected hanbaiten_id list (v-model:value). */
+  /** 選択中の hanbaiten_id 配列（v-model:value）。 */
   value?: number[];
-  /** Optional JA filter (NICHINO_* 代行入力). JA-scoped roles let session.ja_id win. */
+  /** 任意の JA フィルタ（NICHINO_* 代行入力）。JA スコープ付きロールは session.ja_id 優先。 */
   jaId?: number | null;
   disabled?: boolean;
   placeholder?: string;
-  /** Override page size. Default 50. */
+  /** ページサイズ上書き。既定 50。 */
   perPage?: number;
-  /** Add a 「全て」 option at the top of the list (選択すると入力欄に「全て」タグ=全件選択)。 */
+  /** リスト先頭に「全て」オプションを追加（選択すると入力欄に「全て」タグ=全件選択）。 */
   allowSelectAll?: boolean;
 }
 
@@ -52,7 +49,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{ 'update:value': [v: number[]] }>();
 
 const perPageRef = toRef(props, 'perPage');
-// Multi-select has no single edit-pin → include_id unused.
+// 複数選択は単一の編集ピンが無い → include_id 未使用。
 const selected = ref<number | null>(null);
 
 const {

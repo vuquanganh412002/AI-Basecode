@@ -9,43 +9,27 @@ import { RoleCode } from '@/common/enums';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 /**
- * Layer 2 (DataScope) of the security model — see `.claude/rules/security.md`.
- *
- * Roles partition data along two axes:
- *   - JA-level scope: NICHINO_ADMIN / NICHINO_STAFF (unrestricted),
- *     CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN (own JA).
- *   - Branch-level scope (additionally): JA_KANRI_SHITEN sees only
- *     records bound to their own kanri_shiten_id; CHUOKAI / JA_HONTEN
- *     see all branches inside their JA.
- *
- * Every service should run scope checks BEFORE returning records. Use
- * the same helper across modules so the rules stay uniform — divergent
- * inline checks are how Layer 2 silently drifts.
- *
- * NotFoundException (rather than ForbiddenException) is intentional:
- * surfacing 403 leaks the existence of the row to an out-of-scope
- * user, so we mask out-of-scope hits as "not found".
+ * Layer 2 DataScope（`.claude/rules/security.md`）。JA軸: NICHINO_* 無制限、
+ * CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN は自JA。支店軸: JA_KANRI_SHITEN は自
+ * kanri_shiten_id のみ、CHUOKAI/JA_HONTEN は自JA全支店。
+ * レコード返却前に必ずチェック。インライン実装の乱立を防ぐ共通ヘルパー。
+ * Forbidden でなく NotFound なのは意図的 — 403 は行の存在を漏らすため範囲外を
+ * 「見つからない」でマスクする。
  */
 
 /**
- * Throw the project's `NotFoundException` (`DomainException` subclass)
- * so `GlobalExceptionFilter` emits `{ error_code: 'NOT_FOUND', message }`
- * AND every spec that imports `NotFoundException` from
- * `@/common/exceptions/common.exceptions` matches via `instanceof`. The
- * factory at `common.exceptions.ts:35` builds the resource-aware message
- * `指定された{resource}が見つかりません。` from the optional argument.
+ * `NotFoundException`（DomainException 派生）を返し、GlobalExceptionFilter が
+ * `{ error_code: 'NOT_FOUND', message }` を出す＋spec が instanceof で一致。
+ * メッセージ `指定された{resource}が見つかりません。` は factory が label から生成。
  */
 function scopeNotFound(label?: string): NotFoundException {
   return new NotFoundException(label);
 }
 
 /**
- * Coerce a possibly-stringified BIGINT id into a `number` for safe
- * `===`/`!==` comparison. TypeORM types BIGINT columns as `number` in
- * the entity but pg actually returns them as `string`, so a raw
- * comparison with the session payload (real number after JSON.parse)
- * silently mis-fires the cross-scope guard. Returns null for null /
- * undefined so loose-equality intent is preserved.
+ * BIGINT id（pg は string で返すが TypeORM 型は number）を number に正規化し
+ * `===`/`!==` を安全に。生比較だと `"5" !== 5` でクロススコープガードが誤発火。
+ * null/undefined → null。
  */
 function numericId(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
@@ -55,38 +39,25 @@ function numericId(value: number | string | null | undefined): number | null {
 /* ─────────────── Single-record assertions (after fetch) ─────────────── */
 
 /**
- * Throw NotFoundException if the operator's JA scope doesn't match the
- * record's `jaId`. NICHINO_ADMIN / NICHINO_STAFF (session.ja_id == null)
- * bypass the check.
- *
- * Use for resources scoped at JA level: m_ja, m_dokusya, m_hanbaiten,
- * m_kanri_shiten, m_oshirase, m_account, etc.
- *
- * Pass a Japanese resource label (e.g. 'JA', '購読者') so the response
- * message reads naturally; falls back to the generic copy when omitted.
+ * 操作者の JA スコープ != record.jaId なら NotFound。NICHINO_*（session.ja_id
+ * == null）は bypass。JA単位リソース（m_ja, m_dokusya, m_hanbaiten,
+ * m_kanri_shiten, m_oshirase, m_account 等）用。label は '購読者' 等（省略時は汎用文）。
  */
 export function assertJaScope(
   recordJaId: number | null | undefined,
   session: SessionPayload,
   resourceLabel?: string,
 ): void {
-  if (session.ja_id == null) return; // unrestricted role
-  // BIGINT columns surface as `string` from pg + TypeORM even though the
-  // entity declares `number`; coerce both sides so e.g. `"5" !== 5` does
-  // not falsely trip the cross-scope guard.
+  if (session.ja_id == null) return; // 無制限ロール
   if (numericId(recordJaId) !== numericId(session.ja_id)) {
     throw scopeNotFound(resourceLabel);
   }
 }
 
 /**
- * Throw NotFoundException if the record is out of scope. JA_KANRI_SHITEN
- * is checked against `kanri_shiten_id`; CHUOKAI / JA_HONTEN against
- * `ja_id`; NICHINO_ADMIN / NICHINO_STAFF unrestricted.
- *
- * Use for resources whose access is partitioned at branch level for
- * branch users but JA level for HQ users: t_dokusya, t_log,
- * t_login_log, etc.
+ * 範囲外なら NotFound。JA_KANRI_SHITEN は kanri_shiten_id、CHUOKAI/JA_HONTEN は
+ * ja_id で判定、NICHINO_* 無制限。支店ユーザーには支店単位・HQ には JA 単位で
+ * 分割されるリソース（t_dokusya, t_log, t_login_log 等）用。
  */
 export function assertBranchScope(
   recordJaId: number | null | undefined,
@@ -100,8 +71,6 @@ export function assertBranchScope(
   ) {
     return;
   }
-  // Coerce BIGINT-as-string from TypeORM to number (see numericId comment
-  // in assertJaScope).
   const mismatch =
     session.role_code === RoleCode.JA_KANRI_SHITEN
       ? numericId(recordKanriShitenId) !== numericId(session.kanri_shiten_id)
@@ -112,15 +81,10 @@ export function assertBranchScope(
 }
 
 /**
- * Same branch-scope check as {@link assertBranchScope}, but throws
- * `DataScopeViolationException` (HTTP 403) instead of NotFound (404).
- *
- * Use when the id was NOT taken from the request URL — e.g. a bulk
- * operation acting on candidate rows the caller supplied (SCR-015
- * replace candidates, SCR-016 import existing rows). There the 404
- * existence-masking rationale doesn't apply (the caller already knows
- * the row exists), and the customer decision (2026-05-19,
- * `.claude/rules/security.md` Layer 4) is to surface an explicit 403.
+ * {@link assertBranchScope} と同じだが NotFound(404) でなく
+ * `DataScopeViolationException`(403)。id が URL 由来でない場合用 — 呼び出し側が
+ * 供給した候補行の一括処理（SCR-015 置換候補, SCR-016 取込既存行）。存在は既知で
+ * 404マスク不要、顧客決定（2026-05-19, security.md Layer 4）で明示 403。
  */
 export function assertBranchScopeViolation(
   recordJaId: number | null | undefined,
@@ -143,13 +107,9 @@ export function assertBranchScopeViolation(
 }
 
 /**
- * JA-level scope check that throws `DataScopeViolationException` (HTTP
- * 403) instead of NotFound (404). The JA-level counterpart of
- * {@link assertBranchScopeViolation}: every restricted role (including
- * JA_KANRI_SHITEN) is checked against `ja_id` — use for a JA-scoped
- * resource that has no kanri_shiten_id of its own (e.g. the m_hanbaiten
- * replace-target in SCR-015, whose existence the caller already
- * confirmed). NICHINO_* bypass.
+ * {@link assertBranchScopeViolation} の JA単位版 — 403 を投げる。全 restricted
+ * ロール（JA_KANRI_SHITEN 含む）を ja_id で判定。自身の kanri_shiten_id を持たない
+ * JA単位リソース用（SCR-015 の m_hanbaiten 置換対象、存在確認済み）。NICHINO_* bypass。
  */
 export function assertJaScopeViolation(
   recordJaId: number | null | undefined,
@@ -167,10 +127,9 @@ export function assertJaScopeViolation(
 }
 
 /* ─────────── 所属支店スコープ（3層目・顧客要件 2026-07） ────────────────── */
-// JA管理支店アカウントに所属支店(session.shiten_id)が設定されている場合、購読者
-// (t_dokusya) の参照・編集・追加をその支店に限定する（管理支店スコープの下位に
-// さらに絞り込む）。session.shiten_id == null のときは常に no-op（従来どおり）。
-// 管理支店スコープ(assertBranchScope / applyBranchScope)と併用して呼ぶ。
+// session.shiten_id 設定時、購読者(t_dokusya)の参照・編集・追加をその支店に限定
+// （管理支店スコープの下位に絞り込む）。null のときは no-op。assertBranchScope /
+// applyBranchScope と併用する。
 
 /** assert 版（URL の :id 由来 → 存在マスクのため 404）。 */
 export function assertShitenScope(
@@ -198,14 +157,8 @@ export function assertShitenScopeViolation(
 /* ─────────────── Query-builder helpers (for list queries) ───────────── */
 
 /**
- * Add a JA-scope `WHERE` clause to a TypeORM SelectQueryBuilder.
- * No-op for NICHINO_ADMIN / NICHINO_STAFF.
- *
- * ```ts
- * const qb = repo.createQueryBuilder('d');
- * applyJaScope(qb, 'd', 'jaId', session);
- * applyJaScope(qb, 'h', 'jaId', session); // join alias
- * ```
+ * SelectQueryBuilder に JA スコープの `WHERE` を付与。NICHINO_* は no-op。
+ * alias に join エイリアスも指定可（例 `applyJaScope(qb, 'h', 'jaId', session)`）。
  */
 export function applyJaScope<T extends object>(
   qb: SelectQueryBuilder<T>,
@@ -220,8 +173,8 @@ export function applyJaScope<T extends object>(
 }
 
 /**
- * Branch-aware variant. JA_KANRI_SHITEN filters by kanriShitenIdField;
- * other restricted roles fall back to jaIdField; NICHINO_* unrestricted.
+ * 支店対応版。JA_KANRI_SHITEN は kanriShitenIdField、他 restricted ロールは
+ * jaIdField で絞込、NICHINO_* 無制限。
  */
 export function applyBranchScope<T extends object>(
   qb: SelectQueryBuilder<T>,
@@ -247,9 +200,9 @@ export function applyBranchScope<T extends object>(
 }
 
 /**
- * 所属支店スコープ（QB 版・顧客要件 2026-07）。session.shiten_id が設定されている
- * 場合のみ `WHERE alias.shitenIdField = session.shiten_id` を付与する。null なら
- * no-op（従来どおり）。applyBranchScope と併用して購読者一覧を支店単位へ絞り込む。
+ * 所属支店スコープ（QB 版・顧客要件 2026-07）。session.shiten_id 設定時のみ
+ * `WHERE alias.shitenIdField = session.shiten_id` を付与、null なら no-op。
+ * applyBranchScope と併用し購読者一覧を支店単位へ絞り込む。
  */
 export function applyShitenScope<T extends object>(
   qb: SelectQueryBuilder<T>,
@@ -264,21 +217,11 @@ export function applyShitenScope<T extends object>(
 }
 
 /**
- * Branch-aware variant for the (rare) case where `ja_id` and
- * `kanri_shiten_id` live on DIFFERENT aliases — typically because
- * `ja_id` is on the primary table but `kanri_shiten_id` is denormalised
- * through a JOIN'd m_account row.
- *
- * Concrete user: `LogService.findAll/exportLogCsv` — `t_log.ja_id`
- * (alias `l`) but `m_account.kanri_shiten_id` (alias `a`) on the JOIN.
- *
- * Each side carries its own `{ alias, field }` pair. Behavior is
- * identical to `applyBranchScope` otherwise (NICHINO_* unrestricted,
- * KANRI_SHITEN narrows by kanri_shiten_id, CHUOKAI/JA_HONTEN by ja_id).
- *
- * Use the simpler `applyBranchScope(qb, alias, { jaIdField, kanriShitenIdField })`
- * when both fields sit on the same alias — this variant exists only
- * for the cross-table case.
+ * `ja_id` と `kanri_shiten_id` が別エイリアスにある稀なケース用（例: ja_id は主テーブル、
+ * kanri_shiten_id は JOIN した m_account 側）。利用例 `LogService.findAll/
+ * exportLogCsv` — `t_log.ja_id`(l) と `m_account.kanri_shiten_id`(a)。
+ * 各辺が `{ alias, field }` を持つ以外は applyBranchScope と同一。同一エイリアスなら
+ * 単純な applyBranchScope を使う。
  */
 export function applyBranchScopeWithJoinAlias<T extends object>(
   qb: SelectQueryBuilder<T>,
@@ -309,55 +252,23 @@ export function applyBranchScopeWithJoinAlias<T extends object>(
 /* ─────────────── FK reference scope (for CREATE / UPDATE bodies) ──── */
 
 /**
- * Fetch a parent row by id from `repo`, requiring it to BOTH exist AND
- * (optionally) belong to a given JA. Use whenever a CREATE / UPDATE
- * request body carries a foreign-key id that the caller could otherwise
- * forge to point at a row in a different tenant — the canonical guard
- * for Layer 4 (FK reference in scope) of the DataScope model.
+ * FK 親行を id で取得し、存在＋（任意で）指定 JA 所属を要求。CREATE/UPDATE の body に
+ * 他テナント行を指す FK id を偽装できる場合の Layer 4（FK 参照スコープ）ガード。
  *
- * Pass `expectedJaId`:
- *   - `null` when no scope check applies (NICHINO_ADMIN / NICHINO_STAFF
- *     accepting any JA's parent, or when the caller has already
- *     resolved an effective ja_id and wants only existence + soft-
- *     delete filtering).
- *   - A `number` when the parent's `ja_id` must equal this value
- *     (typical for restricted roles using `session.ja_id`).
+ * expectedJaId: null → スコープ無検査（NICHINO_* が任意 JA を許容、または呼び出し側が
+ * 実効 ja_id 解決済みで存在＋soft-delete のみ）。number → 親 ja_id が一致必須。
  *
- * Splits the two miss cases into distinct HTTP responses:
- *   - Row ABSENT (or invalid id) → `BadRequestException` with the
- *     canonical inline-FK-guard message `'<resource>IDが存在しません。'`.
- *   - Row EXISTS but belongs to a different tenant →
- *     `ForbiddenException` → `DATA_SCOPE_VIOLATION` (403) with the
- *     canonical message `'このデータへのアクセス権限がありません。'`.
- *
- * Customer decision (2026-05-19): the explicit 403 is preferred over
- * masking-as-400 even though it allows tenant-id existence enumeration
- * — audit logs and end-user UX benefit from the clear distinction.
- * Layer 2 (single-record access) still masks as 404 because the caller
- * there is on a URL that *names* the id, so leaking is much more
- * obvious. FK references in a body are different — caller already
- * supplied the id, so 403 doesn't reveal more than they already know
- * they're probing.
+ * 2つの miss を区別: 行不在/不正 id → BadRequest `'<resource>IDが存在しません。'`;
+ * 存在するが別テナント → DATA_SCOPE_VIOLATION(403)。
+ * 顧客決定（2026-05-19）: テナントid列挙を許すが監査＋UXのため 400マスクより明示 403。
+ * Layer 2 は URL が id を名指すため 404 マスク維持だが、body の FK id は呼び出し側が
+ * 既に供給しているため 403 でも追加の漏洩なし。
  *
  * @example
- *   // shiten.service.ts (CHUOKAI session — restricted to own JA)
- *   const ks = await fetchFkInJa(
- *     this.kanriShitenRepo,
- *     'kanriShitenId',
- *     dto.kanri_shiten_id,
- *     session.ja_id,         // ← restricted
- *     '管理支店',
- *   );
- *
- *   // hanbaiten.service.ts (effective ja_id resolved earlier, may be
- *   // session.ja_id OR dto.ja_id for NICHINO_STAFF 代行入力)
- *   const tanka = await fetchFkInJa(
- *     this.tankaRepo,
- *     'tankaId',
- *     dto.haitatsuryo_tanka_id,
- *     effectiveJaId,
- *     '配達手数料単価',
- *   );
+ *   // shiten.service.ts (CHUOKAI — 自JA限定)
+ *   await fetchFkInJa(repo, 'kanriShitenId', dto.kanri_shiten_id, session.ja_id, '管理支店');
+ *   // hanbaiten.service.ts (実効 ja_id は事前解決: session.ja_id か NICHINO_STAFF 代行の dto.ja_id)
+ *   await fetchFkInJa(repo, 'tankaId', dto.haitatsuryo_tanka_id, effectiveJaId, '配達手数料単価');
  */
 export async function fetchFkInJa<T extends { jaId: number }>(
   repo: Repository<T>,
@@ -369,8 +280,7 @@ export async function fetchFkInJa<T extends { jaId: number }>(
   if (id === null || id === undefined) {
     throw new BadRequestException(`${resourceLabelJp}IDが存在しません。`);
   }
-  // Two-step: first check existence WITHOUT the jaId filter so we can
-  // distinguish "missing" (→ 400) from "exists but cross-tenant" (→ 403).
+  // jaId フィルタ無しで存在確認 →「不在(400)」と「別テナント(403)」を区別。
   const where = {
     [idField as string]: id,
     deletedAt: IsNull(),

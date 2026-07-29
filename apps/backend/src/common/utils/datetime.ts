@@ -1,26 +1,15 @@
 /**
- * Centralised JST (Asia/Tokyo) date/time helpers for the backend.
+ * JST (Asia/Tokyo) 日時ヘルパー共通化（`.claude/rules/nestjs.md §Timestamp policy`）。
+ * 全ての now/today・DLファイル名タイムスタンプ・date列シリアライズはここを経由し
+ * TZ 非依存にする。FE `apps/frontend/src/utils/datetime.ts` と対。
  *
- * The system is JST-only operationally (`.claude/rules/nestjs.md §Timestamp
- * policy`). Every "what is now / today" computation, every download-filename
- * timestamp, and every date-only column serialization MUST go through this
- * module so behaviour is identical regardless of the host/container TZ.
- *
- * Why `Intl.DateTimeFormat(..., { timeZone: 'Asia/Tokyo' })` and not
- * `new Date().getHours()` / `toISOString().slice(0, 10)`:
- *   - `getHours()` etc. depend on the process TZ; correct only while the
- *     container runs `TZ=Asia/Tokyo`, wrong on a dev machine in another TZ.
- *   - `toISOString()` always emits UTC, so `.slice(0, 10)` is the UTC date —
- *     between 00:00–09:00 JST it is yesterday (off-by-one).
- * Pinning the timeZone makes all of these TZ-independent. Mirrors the FE
- * helpers at `apps/frontend/src/utils/datetime.ts`.
- *
- * These helpers replaced per-service private copies (`jstTimestamp` /
- * `timestampForFilename` / `formatDatetime` / `nowJstDate` …) that had
- * drifted apart (e.g. one filename stamp omitted the `_` separator).
+ * Intl.DateTimeFormat(timeZone:'Asia/Tokyo') を使う理由: getHours() 等はプロセス TZ
+ * 依存で TZ=Asia/Tokyo 以外の host でずれ、toISOString() は常に UTC のため
+ * `.slice(0,10)` は UTC 日付＝JST 早朝(00-09時)に1日ずれる。
+ * 各サービスに散った drift 版（filename stamp の `_` 欠落等）を置換。
  */
 
-/** Asia/Tokyo wall-clock parts of `date` as a `{ year, month, day, hour, minute, second }` map (all 2-digit except 4-digit year). */
+/** `date` の Asia/Tokyo 壁時計パーツ（year は4桁、他2桁）。 */
 function jstParts(date: Date): Record<string, string> {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tokyo',
@@ -38,13 +27,10 @@ function jstParts(date: Date): Record<string, string> {
 }
 
 /**
- * 本日 (Asia/Tokyo) を `YYYY-MM-DD` で返す。「当日以降か」を判定する日付ガード
- * （情報変更適用日・公開日 など）は全てこれを経由すること。FE の
- * `todayIsoTokyo()` と同一セマンティクス。
+ * 本日 (Asia/Tokyo) を `YYYY-MM-DD` で返す。「当日以降か」の日付ガード（情報変更
+ * 適用日・公開日 など）は全てこれを経由すること。FE `todayIsoTokyo()` と同一。
  *
- * @example
- * // 2026-06-15 06:00 JST (= 2026-06-14T21:00Z) でも '2026-06-15' を返す。
- * todayIsoJst(); // '2026-06-15'
+ * @example 2026-06-15 06:00 JST (= 2026-06-14T21:00Z) でも '2026-06-15'。
  */
 export function todayIsoJst(): string {
   const p = jstParts(new Date());
@@ -52,9 +38,8 @@ export function todayIsoJst(): string {
 }
 
 /**
- * `YYYY-MM-DD` の日付に `days` を加算した `YYYY-MM-DD` を返す（暦日計算、
- * タイムゾーン非依存）。UTC 正午基準で計算し、DST や TZ 早朝ずれの影響を受けない。
- * 解約バッチの適用日（電子版 = 購読中止日 + 1日）等で使用。
+ * `YYYY-MM-DD` + `days` → `YYYY-MM-DD`（暦日計算・TZ 非依存）。UTC 基準で計算し
+ * DST や TZ 早朝ずれの影響を受けない。解約バッチ適用日（電子版=購読中止日+1日）等。
  */
 export function addDaysIso(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -63,9 +48,8 @@ export function addDaysIso(iso: string, days: number): string {
 }
 
 /**
- * DATE 列（または日時値）を Asia/Tokyo の `YYYY-MM-DD` で返す。空/無効は `''`
- * （文字列入力ならそのまま）。`(d as Date).toISOString().slice(0, 10)` は UTC
- * 日付になり JST 早朝に1日ずれるため、その代替として使う。
+ * DATE 列/日時値を Asia/Tokyo の `YYYY-MM-DD` で返す。空/無効は `''`（文字列入力
+ * はそのまま）。`toISOString().slice(0,10)` は UTC 日付で JST 早朝に1日ずれるための代替。
  */
 export function dateOnlyIsoJst(
   value: Date | string | null | undefined,
@@ -78,9 +62,8 @@ export function dateOnlyIsoJst(
 }
 
 /**
- * ダウンロードファイル名用のタイムスタンプ `YYYYMMDD_HHmmss`（Asia/Tokyo）。
- * 既定は現在時刻。全出力サービス共通フォーマット（旧 `jstTimestamp` /
- * `timestampForFilename`）。
+ * DLファイル名用タイムスタンプ `YYYYMMDD_HHmmss`（Asia/Tokyo、既定は現在時刻）。
+ * 全出力サービス共通（旧 `jstTimestamp` / `timestampForFilename`）。
  */
 export function timestampForFilenameJst(date: Date = new Date()): string {
   const p = jstParts(date);
@@ -88,13 +71,11 @@ export function timestampForFilenameJst(date: Date = new Date()): string {
 }
 
 /**
- * 区切りなしのタイムスタンプ `yyyyMMddHHmmss`（14桁・Asia/Tokyo）。
- * 顧客指定フォーマットのファイル名用（例: 一括ダウンロード_20260619153000.zip）。
- * 区切りあり版は {@link timestampForFilenameJst}（`YYYYMMDD_HHmmss`）。
+ * 区切りなしタイムスタンプ `yyyyMMddHHmmss`（14桁・Asia/Tokyo）。顧客指定フォーマット
+ * のファイル名用（例: 一括ダウンロード_20260619153000.zip）。区切りあり版は
+ * {@link timestampForFilenameJst}。
  *
- * @example
- * // 2026-06-19 15:30:00 JST → '20260619153000'
- * compactTimestampJst();
+ * @example 2026-06-19 15:30:00 JST → '20260619153000'
  */
 export function compactTimestampJst(date: Date = new Date()): string {
   const p = jstParts(date);
@@ -102,8 +83,8 @@ export function compactTimestampJst(date: Date = new Date()): string {
 }
 
 /**
- * 日時値を Asia/Tokyo の `YYYY/MM/DD HH:mm:ss` で返す（表示・CSV 用）。無効値は
- * `''`。旧 log.service `formatDatetime` の共通版。
+ * 日時値を Asia/Tokyo の `YYYY/MM/DD HH:mm:ss` で返す（表示・CSV 用）。無効値は `''`。
+ * 旧 log.service `formatDatetime` の共通版。
  */
 export function formatDateTimeJst(value: Date | string): string {
   const d = value instanceof Date ? value : new Date(value);
@@ -126,8 +107,7 @@ export function nowTimeJst(): string {
 
 /**
  * 日時値を Asia/Tokyo の `YYYY/MM/DD HH:mm`（分まで）で返す。無効値は `''`。
- * お知らせの公開開始/終了日時の表示などに使う（旧 oshirase
- * `formatJstDateTimeMinutes`）。
+ * お知らせの公開開始/終了日時の表示など（旧 oshirase `formatJstDateTimeMinutes`）。
  */
 export function formatDateTimeMinutesJst(value: Date | string): string {
   const d = value instanceof Date ? value : new Date(value);
@@ -137,11 +117,10 @@ export function formatDateTimeMinutesJst(value: Date | string): string {
 }
 
 /**
- * `YYYY/MM/DD HH:mm` をプロセス TZ の壁時計として Date に変換する。不正形式は
- * null、秒は 0。本番コンテナは `TZ=Asia/Tokyo` 固定（`.claude/rules/nestjs.md
- * §Timestamp policy` / Dockerfile）なので JST として解釈される。旧 oshirase
- * `parseJstDateTimeMinutes` と同一セマンティクス（このモジュールで唯一 TZ に
- * 依存する関数 — フォーマッタ群は Intl で TZ 非依存）。
+ * `YYYY/MM/DD HH:mm` をプロセス TZ の壁時計として Date に変換（不正形式 null、秒 0）。
+ * 本番コンテナは `TZ=Asia/Tokyo` 固定（`.claude/rules/nestjs.md §Timestamp policy` /
+ * Dockerfile）なので JST 解釈。旧 oshirase `parseJstDateTimeMinutes` と同一。
+ * 本モジュールで唯一 TZ 依存の関数（フォーマッタ群は Intl で TZ 非依存）。
  */
 export function parseDatetimeMinutesJst(s: string): Date | null {
   const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(s);
@@ -151,9 +130,9 @@ export function parseDatetimeMinutesJst(s: string): Date | null {
 }
 
 /**
- * `YYYY/MM/DD HH:mm:ss`（秒まで）をプロセス TZ の壁時計として Date に変換する。
- * 不正形式は null。`parseDatetimeMinutesJst` の秒あり版（ログ検索の範囲指定
- * 用）。本番コンテナは TZ=Asia/Tokyo 固定なので JST として解釈される。
+ * `YYYY/MM/DD HH:mm:ss`（秒まで）をプロセス TZ の壁時計として Date に変換（不正形式
+ * null）。`parseDatetimeMinutesJst` の秒あり版（ログ検索範囲用）。本番コンテナは
+ * TZ=Asia/Tokyo 固定なので JST 解釈。
  */
 export function parseDatetimeJst(s: string): Date | null {
   const m = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
@@ -180,10 +159,9 @@ export function slashDateToIso(d: string): string {
 }
 
 /**
- * Excel のシリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を Asia/Tokyo
- * の `YYYY-MM-DD` へ変換する。シリアルの暦日 0:00(UTC) インスタントを JST に
- * 投影しても +9h で同一暦日になるため `dateOnlyIsoJst` を通して JST 暦日を得る
- * （FE `excelSerialToIsoDate` と同一セマンティクス・全時刻系を Asia/Tokyo に統一）。
+ * Excel シリアル日付値（1899-12-30 起点、1900 うるう年バグ込み）を Asia/Tokyo の
+ * `YYYY-MM-DD` へ変換。シリアルの暦日 0:00(UTC) を JST 投影しても +9h で同一暦日に
+ * なるため `dateOnlyIsoJst` で JST 暦日を得る（FE `excelSerialToIsoDate` と同一）。
  */
 export function excelSerialToIsoJst(serial: number): string {
   return dateOnlyIsoJst(
@@ -192,11 +170,10 @@ export function excelSerialToIsoJst(serial: number): string {
 }
 
 /**
- * 日付のみ文字列を varchar(10) 日付列向けにハイフン形へ正規化する。DTO は
- * YYYY/MM/DD（picker 表示形式）と YYYY-MM-DD を受けるが、列は検索フィルタの
- * 辞書順比較（`<=`）のためハイフン統一が必須（'/'=0x2F > '-'=0x2D）。空/null は
- * そのまま。防御的に、区切りなしの純数字は Excel シリアルとみなし変換する
- * （旧版 FE 等が生シリアルを送る場合がある）。
+ * 日付のみ文字列を varchar(10) 列向けにハイフン形へ正規化。DTO は YYYY/MM/DD
+ * （picker）と YYYY-MM-DD を受けるが、列は検索の辞書順比較（`<=`）のためハイフン統一が
+ * 必須（'/'=0x2F > '-'=0x2D）。空/null はそのまま。区切りなし純数字は防御的に Excel
+ * シリアルとみなし変換（旧版 FE 等が生シリアルを送る場合あり）。
  */
 export function normalizeDbDate<T extends string | null | undefined>(
   value: T,
@@ -212,10 +189,9 @@ export function normalizeDbDate<T extends string | null | undefined>(
 }
 
 /**
- * 取込セルを DB `date` 値（または null）へ正規化する。空/未指定 → null
- * （`date` 列が '' で "invalid input syntax for type date" にならないよう）。
- * 非空 → ハイフン形日付（Excel シリアルは `normalizeDbDate` 経由で変換）。
- * 物理的に `date` 型の列を持つ取込 UPDATE パスで使う。
+ * 取込セルを DB `date` 値（または null）へ正規化。空/未指定 → null（`date` 列が ''
+ * で "invalid input syntax for type date" にならないよう）。非空 → ハイフン形日付
+ * （Excel シリアルは `normalizeDbDate` 経由）。`date` 型列を持つ取込 UPDATE パス用。
  */
 export function dbDateOrNull(value: unknown): string | null {
   const raw =

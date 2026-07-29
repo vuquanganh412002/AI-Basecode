@@ -4,18 +4,28 @@ import {
   ShiharaiHoho,
   DenshiShoninStatus,
 } from '@/common/enums';
+import {
+  DOKUSYASO_BUNRUI_CODES,
+  NOGYOSYA_BUNRUI_CODES,
+} from '@/common/constants/dokusya-bunrui.constant';
+import {
+  GENDER_MALE,
+  GENDER_FEMALE,
+  GENDER_UNANSWERED,
+} from '@/common/constants/gender.constant';
+import {
+  DENSHI_DOKUSYA_SHUBETSU_MURYO,
+  DENSHI_DOKUSYA_SHUBETSU_YURYO,
+} from '@/common/constants/denshi-dokusya-shubetsu.constant';
+import { MAIL_MAGAZINE_FLG_OFF } from '@/common/constants/mail-magazine-flg.constant';
+import { YUBIN_KUBUN_NASHI } from '@/common/constants/yubin-kubun.constant';
 import type { DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
 
 /**
- * 電子版 `users`（顧客 CMS のビュー）→ クラウド版 `t_dokusya` 変換（純ロジック）。
- *
- * 正典: docs/demo/20260723_読者管理連携用API使用方法.xlsx シート
- * 「電子版→クラウド版で同期される情報」＋「T_会員情報」。DI/DB を持たず、行データと
- * FK 解決結果だけを受け取り `DokusyaFields`（= Partial<DokusyaRireki> camelCase）を返す。
- * FK 解決（JACd→管理支店/JA, ShopCd→販売店）は呼び出し側（service）で行う。
- *
- * 未確定の値対応（docs/dokusya-sync-implementation-plan.md §9）は本ファイル先頭の
- * 変換表定数に集約し、顧客確定後はここだけ直せばよいようにする。
+ * 電子版 `users`（顧客CMS）→ クラウド版 `t_dokusya` 変換（純ロジック・DI/DB なし）。
+ * 行データ + FK解決結果を受け取り `DokusyaFields`（Partial<DokusyaRireki> camelCase）を返す。
+ * FK解決（JACd→管理支店/JA, ShopCd→販売店）は呼び出し側で行う。
+ * 未確定の値対応（plan §9）は先頭の変換表定数に集約（顧客確定後はここだけ直す）。
  */
 
 /** MySQL ドライバが返す 1 行（列名キーの緩い型）。 */
@@ -28,45 +38,40 @@ export interface DenshiFkResolution {
   hanbaitenId: number | null;
 }
 
+// ─── 電子版 users のコード値（変換の入力側・外部システム仕様）──────────
+
+/**
+ * 電子版 status（0新規/1再読/2変更/3新規A/9解約）のうち解約。
+ * mapTetsuzuki の判定と service 側の解約分岐（applyChange 前の停止判定）が
+ * 同じ値を見るため、ここを唯一の定義とし service は import して使う。
+ */
+export const DENSHI_STATUS_KAIYAKU = 9;
+
 // ─── 変換表（§6・顧客確定後はここを更新）─────────────────────────────
 
 /**
- * payment_id → shiharai_hoho（顧客回答 2026-07-27・規則確定）:
- *   JA集金 → 1(口座振替) / 無料 → 9(その他) / クレカ決済 → 6(クレジットカード)
- * ※ payment_id の具体値↔支払方法名の対応（数値割当）は要ヒアリング（§9 残）。
- *   確定するまでは「無料(member_type=1)→9、それ以外→1(口座振替=JA集金の初回連動)」を
- *   既定とし、クレカに該当する payment_id が判明したら本マップに追加する。
+ * 有効な支払方法コード集合。payment_id を shiharai_hoho と 1:1 で突合するのに使う。
  */
-const PAYMENT_ID_TO_SHIHARAI: Record<number, number> = {
-  // 例: 3: ShiharaiHoho.CREDIT_CARD,  ← クレカの payment_id が判明したら追加
-};
+const VALID_SHIHARAI_HOHO: ReadonlySet<number> = new Set<number>(
+  Object.values(ShiharaiHoho),
+);
 
 /**
- * profession → 購読者層分類(dokusyaso_bunrui) の m_code 値対応（§9 残・暫定 identity）。
- * 電子版: 0農業者/1JAグループ役職員/2企業・団体/3学生/999その他。
- * クラウド m_code(DOKUSYASO_BUNRUI) の具体コード確定後に差し替える。
+ * profession → 購読者層分類(dokusyaso_bunrui) 対応。クラウド側も電子版と同じ
+ * コード値で保存する（顧客要件 2026-07）ため identity。未知コードを落とす
+ * フィルタとして表の形を保つ。0農業者/1JAグループ役職員/2企業・団体/3学生/999その他。
  */
-const PROFESSION_TO_BUNRUI: Record<string, string> = {
-  '0': '0',
-  '1': '1',
-  '2': '2',
-  '3': '3',
-  '999': '999',
-};
+const PROFESSION_TO_BUNRUI: Record<string, string> = Object.fromEntries(
+  DOKUSYASO_BUNRUI_CODES.map((c) => [c, c]),
+);
 
 /**
- * products → 農業者分類(nogyosya_bunrui) の m_code 値対応（§9 残・暫定 identity）。
- * 電子版: 0米/1野菜/2果実/3花/4畜産/5酪農/999その他（カンマ区切り）。
+ * products → 農業者分類(nogyosya_bunrui) 対応（identity・カンマ区切り）。
+ * 電子版: 0米/1野菜/2果実/3花/4畜産/5酪農/999その他。
  */
-const PRODUCTS_TO_BUNRUI: Record<string, string> = {
-  '0': '0',
-  '1': '1',
-  '2': '2',
-  '3': '3',
-  '4': '4',
-  '5': '5',
-  '999': '999',
-};
+const PRODUCTS_TO_BUNRUI: Record<string, string> = Object.fromEntries(
+  NOGYOSYA_BUNRUI_CODES.map((c) => [c, c]),
+);
 
 // ─── 値ヘルパ ────────────────────────────────────────────────────────
 
@@ -119,14 +124,16 @@ function prefToTodofuken(prefId: unknown): string {
 /** sex(0女/1男/未入力) → gender(1男/2女/9回答しない)。 */
 function mapGender(sex: unknown): number {
   const n = numOrNull(sex);
-  if (n === 1) return 1; // 男性
-  if (n === 0) return 2; // 女性
-  return 9; // 未入力 → 回答しない
+  if (n === 1) return GENDER_MALE;
+  if (n === 0) return GENDER_FEMALE;
+  return GENDER_UNANSWERED; // 未入力
 }
 
 /** status(0新規/1再読/2変更/3新規A/9解約) → tetsuzuki_shurui(0解約/1新規)。 */
 export function mapTetsuzuki(status: unknown): number {
-  return numOrNull(status) === 9 ? TetsuzukiShurui.KAIYAKU : TetsuzukiShurui.SHINKI;
+  return numOrNull(status) === DENSHI_STATUS_KAIYAKU
+    ? TetsuzukiShurui.KAIYAKU
+    : TetsuzukiShurui.SHINKI;
 }
 
 /** approval(0未承認/1承認済/2非承認/9対象外) → denshi_shonin_status（9→NULL）。 */
@@ -144,23 +151,20 @@ function mapShoninStatus(approval: unknown): number | null {
   }
 }
 
-/** payment_id + member_type → shiharai_hoho（§6・§9 の既定則）。 */
-function mapShiharai(paymentId: unknown, memberType: unknown): number {
+/** payment_id → shiharai_hoho（1:1。未設定/不明は その他）。 */
+function mapShiharai(paymentId: unknown): number {
   const pid = numOrNull(paymentId);
-  if (pid !== null && PAYMENT_ID_TO_SHIHARAI[pid] !== undefined) {
-    return PAYMENT_ID_TO_SHIHARAI[pid];
-  }
-  // 無料会員（member_type=1）→ その他(9)。それ以外は JA集金の初回連動 → 口座振替(1)。
-  return numOrNull(memberType) === 1
-    ? ShiharaiHoho.SONOTA
-    : ShiharaiHoho.KOZA_HIKIOTOSHI;
+  // 電子版 payment_id は cloud の支払方法コードと同一体系（例: 6=クレジットカード）
+  // で 1:1。有効な支払方法コードならそのまま採用し、未設定/不明は その他(9)。
+  if (pid !== null && VALID_SHIHARAI_HOHO.has(pid)) return pid;
+  return ShiharaiHoho.SONOTA;
 }
 
 /** member_type(1無料/2有料) → denshi_dokusya_shubetsu(0無料/1有料)。 */
 function mapDenshiSubtype(memberType: unknown): number | null {
   const n = numOrNull(memberType);
-  if (n === 1) return 0; // 無料
-  if (n === 2) return 1; // 有料
+  if (n === 1) return DENSHI_DOKUSYA_SHUBETSU_MURYO;
+  if (n === 2) return DENSHI_DOKUSYA_SHUBETSU_YURYO;
   return null;
 }
 
@@ -201,7 +205,15 @@ export function mapUserToDokusyaFields(
   const shubetsu = isHeidoku ? DokusyaShubetsu.BOTH : DokusyaShubetsu.DIGITAL;
   const haitatsuSameFlg = !isHeidoku; // 電子版=TRUE / 併読=FALSE
 
-  const kaishiDate = toIsoDate(u.activated_at);
+  // 購読開始日は `activated_at`（会員有効化日）が正。実データには未有効化のまま
+  // 収集対象になっている会員が居り（2026-07-29 実データ検証で 23,662 件中 95 件）、
+  // NULL のままだと t_dokusya.shoki_dokusya_kaishi_date(NOT NULL) 違反で行ごと落ちる。
+  // 「申込日 → 会員作成日」の順にフォールバックして取り込む（いずれも実際に読者が
+  // 電子版へ入った日として説明可能な値）。3つとも無い行は service 側で skip する。
+  const kaishiDate =
+    toIsoDate(u.activated_at) ??
+    toIsoDate(u.application_date) ??
+    toIsoDate(u.created_at);
 
   // 配達先住所: 電子版(same=TRUE)は購読者住所、併読(same=FALSE)は paper_*。
   const haitatsu = haitatsuSameFlg
@@ -248,7 +260,7 @@ export function mapUserToDokusyaFields(
     renrakusaki1: str(u.tel1),
     renrakusaki2: str(u.tel2),
     email: str(u.email),
-    mailMagazineFlg: numOrNull(u.melmaga) ?? 0,
+    mailMagazineFlg: numOrNull(u.melmaga) ?? MAIL_MAGAZINE_FLG_OFF,
     birthYear: numOrNull(u.birthyear),
     gender: mapGender(u.sex),
     // ─ 配達先 ─
@@ -267,8 +279,8 @@ export function mapUserToDokusyaFields(
     // ─ 販売店・単価・支払 ─
     hanbaitenId: fk.hanbaitenId, // 併読のみ実店/電子版単独はダミー（service 解決）
     tankaId: null, // 承認時に画面登録
-    yubinKubun: '0',
-    shiharaiHoho: mapShiharai(u.payment_id, u.member_type),
+    yubinKubun: YUBIN_KUBUN_NASHI,
+    shiharaiHoho: mapShiharai(u.payment_id),
     dokusyaryoShiharaiCycle: numOrNull(u.payment_cycle),
     bankBranchCode: '',
     bankBranchName: '',

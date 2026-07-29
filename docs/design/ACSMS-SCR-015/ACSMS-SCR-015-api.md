@@ -614,7 +614,7 @@ INSERT INTO t_dokusya_rireki (
   bank_branch_code, bank_branch_name, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi,
   dokusyaso_bunrui, nogyosya_bunrui,
   shoki_dokusya_kaishi_date, dokusya_kaishi_date, dokusya_chushi_date, joho_henko_tekiyo_date,
-  seikyu_kaishi_month, biko, henko_riyu,
+  seikyu_kaishi_month, biko,
   saishin_data_flg, zougen_hokoku_flg, shinki_flg, kaiyaku_flg,
   zenkai_hanbaiten_id,
   created_at, created_by
@@ -633,7 +633,7 @@ SELECT
   d.bank_branch_code, d.bank_branch_name, d.hikiotoshi_yokin_shubetsu, d.hikiotoshi_koza_no, d.hikiotoshi_koza_meigi,
   d.dokusyaso_bunrui, d.nogyosya_bunrui,
   d.shoki_dokusya_kaishi_date, d.dokusya_kaishi_date, d.dokusya_chushi_date, :joho_henko_tekiyo_date,
-  d.seikyu_kaishi_month, d.biko, '販売店一括置換',
+  d.seikyu_kaishi_month, d.biko,
   TRUE, TRUE, FALSE, FALSE,
   :zenkai_hanbaiten_id_per_dokusya,
   NOW(), :user_account_id
@@ -641,7 +641,6 @@ FROM t_dokusya d
 WHERE d.dokusya_id = :dokusya_id
 ```
 
-- `henko_riyu`：`'販売店一括置換'` を設定する。
 - `zougen_hokoku_flg`：販売店変更のため `TRUE`（増減報告対象）。
 - `zenkai_hanbaiten_id`：更新前の `t_dokusya.hanbaiten_id`（4.3 で取得した値）を設定する。
 - `joho_henko_tekiyo_date`：リクエストの `joho_henko_tekiyo_date` を設定する（販売店のみ変更イベント。専用の適用日列は廃止し適用日を joho に一本化・顧客要件 2026-07。UI 編集 Rule2 / SCR-011 §8.1・§14.3 と同一）。マスタ側 `t_dokusya.joho_henko_tekiyo_date` も同日に更新し、最新履歴（saishin）と整合させる。

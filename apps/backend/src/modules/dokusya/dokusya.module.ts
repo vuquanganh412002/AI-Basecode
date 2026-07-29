@@ -25,15 +25,12 @@ import { DokusyaReplaceService } from './dokusya-replace.service';
 /**
  * SCR-011 — 購読者情報登録画面.
  *
- * `Shiten` is re-imported (not just listed in providers) so the service
- * can run the 口座引落 reverse-lookup on `m_shiten` without owning the
- * entity (the canonical owner is `ShitenModule`).
+ * `Shiten` はエンティティを所有せずに `m_shiten` の 口座引落 逆引きを実行できるよう、
+ * （providers に列挙するだけでなく）再インポートする（正規の所有者は `ShitenModule`）。
  *
- * `AuthModule` provides `SessionService` / `PermissionsService` for the
- * two guards; `AuditLogModule` provides `AuditLogService`. `CodeModule`
- * is `@Global` so it doesn't need importing — but listing it here makes
- * the dependency explicit for future readers and survives module
- * extraction.
+ * `AuthModule` が2つのガード用に `SessionService` / `PermissionsService` を、
+ * `AuditLogModule` が `AuditLogService` を提供する。`CodeModule` は `@Global` なので
+ * インポート不要だが、ここに列挙して将来の読者に依存を明示し、モジュール分離にも耐える。
  */
 @Module({
   imports: [

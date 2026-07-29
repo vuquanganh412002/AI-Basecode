@@ -13,7 +13,7 @@ import {
 } from '@/common/utils/datetime';
 import { applyBranchScope, applyShitenScope } from '@/common/utils/data-scope';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
-import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import { paginate, clampPerPage, type PaginatedResponse } from '@/common/utils/paginate';
 import {
   AuditOperation,
   DokusyaShubetsu,
@@ -37,25 +37,18 @@ import {
 } from './dokusya.mapper';
 
 /**
- * SCR-014 — 購読者明細検索画面 audit-context label. core 側 DokusyaService と
- * 同一値だが、本サービス内で完結させるため複製して保持する（delete も
- * SCR-014 を使うため core 側にも同名定数が残る）。
+ * SCR-014 監査ラベル。core DokusyaService と同一値だが自己完結のため複製
+ * （delete も SCR-014 を使うため core 側にも同名定数が残る）。
  */
 const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
 
-/**
- * SCR-014 監査ログ用テーブル名（t_log.target_table）。core 側 DokusyaService と
- * 同一値だが、本サービス内で完結させるため複製して保持する。
- */
+/** SCR-014 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
- * Sort-by allow-list for the search endpoint. Maps the FE-supplied
- * snake_case identifier → fully-qualified QB column. Mirror the
- * DTO's `@IsIn` allow-list — both sides MUST agree.
- *
- * `updated_at` is the default; the others mirror screen-design v1.2
- * 検索結果テーブル sortable columns.
+ * 検索の sort_by 許可リスト。FE の snake_case 識別子 → 完全修飾 QB カラム。
+ * DTO の `@IsIn` と一致必須。既定は `updated_at`、他は screen-design v1.2 の
+ * 検索結果テーブルの sortable 列。
  */
 const SORT_COLUMN_MAP: Record<string, string> = {
   dokusya_id: 'd.dokusya_id',
@@ -69,15 +62,13 @@ const SORT_COLUMN_MAP: Record<string, string> = {
   updated_at: 'd.updated_at',
 };
 
-/** Excel export hard cap (api.md §API-014-003 §4.3 30,000件上限). */
+/** Excel 出力上限（api.md §API-014-003 §4.3 30,000件）。 */
 const EXPORT_MAX_ROWS = 30000;
 
 /**
- * Raise a single VALIDATION_ERROR with a one-field errors[] payload.
- * Shape matches `ValidationPipe`'s exception so the FE
- * `useApiForm` composable maps the error to `<a-form-item :help>`
- * uniformly with DTO failures.
- * core 側 DokusyaService と同一実装（検索と UI で文言・形を揃えるため複製）。
+ * 単一フィールド errors[] の VALIDATION_ERROR を生成。`ValidationPipe` と同形状で
+ * FE `useApiForm` が DTO エラーと同じく `<a-form-item :help>` にマップできる。
+ * core DokusyaService と同一実装（文言・形を揃えるため複製）。
  */
 function fieldValidationError(
   field: string,
@@ -87,16 +78,12 @@ function fieldValidationError(
 }
 
 /**
- * SCR-014 — 購読者明細検索（検索 + Excel出力）を担うサービス。
- *
- * 肥大化した `DokusyaService` から SEARCH / EXPORT concern を切り出したもの。
- * 検索クエリの組み立て（DataScope・等価/部分一致/日付範囲フィルタ）・Excel
- * ワークブック生成・検索専用の m_code 再検証を集約し、`DokusyaService` は本
- * サービスへ薄く委譲する facade として `search` / `exportExcel` を公開する。
- *
- * constructor は dokusyaRepo / auditLog / codeService のみ注入（検索ロジックは
- * dokusyaRepo の QueryBuilder と CodeService のみを使い、dataSource /
- * accountFlags は不要なため注入しない）。
+ * SCR-014 — 購読者明細検索（検索 + Excel出力）サービス。
+ * `DokusyaService` から SEARCH / EXPORT concern を切り出し、検索クエリ組み立て
+ * （DataScope・等価/部分一致/日付範囲フィルタ）・Excel 生成・検索専用 m_code 再検証を
+ * 集約。facade が `search` / `exportExcel` へ薄く委譲する。
+ * constructor は dokusyaRepo / auditLog / codeService のみ注入（dataSource /
+ * accountFlags は検索に不要）。
  */
 @Injectable()
 export class DokusyaSearchService {
@@ -113,27 +100,21 @@ export class DokusyaSearchService {
 
   // ─── API-014-001 — GET /api/v1/dokusya (search) ─────────────────────
   /**
-   * Search 購読者 list with pagination + sort + filters + DataScope.
-   *
+   * 購読者一覧を pagination + sort + filter + DataScope で検索。
    * Flow (api.md §API-014-001):
-   *   §4.1 DTO validates field shapes + sort_by allow-list. This method
-   *        additionally re-validates m_code values (dokusya_shubetsu /
-   *        shiharai_hoho / tetsuzuki_shurui / denshi_shonin_status)
-   *        against the runtime allow-list — the closed-set DTO `@IsIn`
-   *        only covers documented values, not customer-added m_code
-   *        extensions.
-   *   §4.2 DataScope via applyBranchScope (CHUOKAI/JA_HONTEN → ja_id,
-   *        JA_KANRI_SHITEN → kanri_shiten_id, NICHINO_* bypass).
-   *   §4.3 Equality + ILIKE + range filters per parameter.
-   *   §4.4 + §4.5 single SELECT with COUNT(*) via getCount() so the
-   *        spec's `getCount.mockResolvedValue(N)` controls `meta.total`.
-   *   §4.6 paginate() wraps the rows into the canonical envelope.
-   *
-   * Joho-henko-tekiyo-date branch:
-   *   - Both empty → live row from t_dokusya (saishin_data_flg semantics
-   *     are implicit in the master table); no JOIN to t_dokusya_rireki.
-   *   - Either side present → INNER JOIN t_dokusya_rireki and filter
-   *     the history's joho_henko_tekiyo_date column.
+   *   §4.1 DTO が形状 + sort_by 許可リストを検証。本メソッドは追加で m_code 値
+   *        (dokusya_shubetsu / shiharai_hoho / tetsuzuki_shurui / denshi_shonin_status)
+   *        を runtime 許可リストで再検証（closed-set の DTO `@IsIn` は顧客追加の
+   *        m_code 拡張をカバーしないため）。
+   *   §4.2 applyBranchScope で DataScope（CHUOKAI/JA_HONTEN→ja_id、
+   *        JA_KANRI_SHITEN→kanri_shiten_id、NICHINO_*=bypass）。
+   *   §4.3 パラメータ毎の等価 + ILIKE + 範囲フィルタ。
+   *   §4.4/§4.5 単一 SELECT + getCount()（spec の getCount.mockResolvedValue(N) が
+   *        meta.total を制御）。
+   *   §4.6 paginate() で正準エンベロープへ。
+   * 適用日(joho_henko_tekiyo_date)分岐:
+   *   - 両方空 → t_dokusya の live 行（master が saishin 状態を反映）、rireki JOIN なし。
+   *   - 片側でも指定 → t_dokusya_rireki を INNER JOIN し履歴の joho 列でフィルタ。
    */
   async search(
     query: SearchDokusyaDto,
@@ -144,17 +125,16 @@ export class DokusyaSearchService {
     const sortOrder: 'ASC' | 'DESC' =
       (query.sort_order ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     const page = Math.max(1, Number(query.page ?? 1));
-    const perPage = Math.max(1, Math.min(100, Number(query.per_page ?? 20)));
+    const perPage = clampPerPage(query.per_page);
 
     const qb = this.dokusyaRepo.createQueryBuilder('d');
     this.buildSearchQuery(qb, query, session);
 
-    // ORDER BY + LIMIT + OFFSET only on the data query path.
+    // ORDER BY + LIMIT + OFFSET はデータ取得パスのみ。
     qb.orderBy(sortColumn, sortOrder);
-    // Use limit/offset (NOT take/skip): take/skip only paginate getMany()
-    // entity results — they are IGNORED by getRawMany(), so per_page had no
-    // effect and every row was returned. getCount() ignores limit/offset,
-    // so total stays correct.
+    // limit/offset を使う（take/skip 不可）: take/skip は getMany() のみ効き
+    // getRawMany() では無視されるため per_page が効かず全行返っていた。getCount() は
+    // limit/offset を無視するので total は正しいまま。
     qb.limit(perPage);
     qb.offset((page - 1) * perPage);
 
@@ -169,20 +149,16 @@ export class DokusyaSearchService {
 
   // ─── API-014-003 — GET /api/v1/dokusya/export ───────────────────────
   /**
-   * Export the filtered 購読者 list as an Excel workbook (xlsx).
-   *
+   * フィルタ済み購読者一覧を Excel(xlsx) で出力。
    * Flow (api.md §API-014-003):
-   *   §4.3 COUNT(*) under the same filter / DataScope.
-   *        - 0      → 404 EXPORT_NO_DATA
-   *        - >30000 → 409 EXPORT_LIMIT_EXCEEDED
-   *   §4.4 Fetch rows (no pagination — hard-capped at 30,000).
-   *   §4.5 14-column header mirroring the検索結果テーブル layout
-   *        (手続種類 / 購読種別 / 配達先氏名 / 支払方法 included;
-   *        支店 / 連絡先２ / かな氏名 excluded).
-   *   §4.6 Audit row (log_type=1, operation='EXPORT_EXCEL', after_value
-   *        with record_count).
-   *   §4.7 Filename `購読者一覧出力_YYYYMMDD_HHmmss.xlsx` (JST).
-   *   §4.8 Error log outside any tx — same pattern as remove().
+   *   §4.3 同一フィルタ/DataScope で COUNT(*)。0 → 404 EXPORT_NO_DATA、
+   *        >30000 → 409 EXPORT_LIMIT_EXCEEDED。
+   *   §4.4 行取得（pagination なし・30,000 件で hard-cap）。
+   *   §4.5 14 列ヘッダ（検索結果テーブル準拠。手続種類/購読種別/配達先氏名/支払方法 含む、
+   *        支店/連絡先２/かな氏名 除く）。
+   *   §4.6 監査行（log_type=1, operation='EXPORT_EXCEL', after_value に record_count）。
+   *   §4.7 ファイル名 `購読者一覧出力_YYYYMMDD_HHmmss.xlsx`(JST)。
+   *   §4.8 エラーログは tx 外（remove() と同パターン）。
    */
   async exportExcel(
     query: SearchDokusyaDto,
@@ -200,9 +176,8 @@ export class DokusyaSearchService {
     try {
       this.assertSearchMCodeValues(query);
 
-      // [count-guard] — single QB used twice (getCount + getRawMany).
-      // The unit spec's dokusyaQb is a SINGLE shared mock so both
-      // calls land on the same chain.
+      // [count-guard] 単一 QB を getCount + getRawMany で 2 度使う。unit spec の
+      // dokusyaQb は共有モックなので両呼び出しが同一チェーンに乗る。
       const qb = this.dokusyaRepo.createQueryBuilder('d');
       this.buildSearchQuery(qb, query, session);
 
@@ -214,9 +189,8 @@ export class DokusyaSearchService {
         throw new ExportLimitExceededException();
       }
 
-      // No pagination — explicit LIMIT cap as defence-in-depth.
-      // limit (NOT take): take is ignored by getRawMany(), so the cap was
-      // never applied; limit() emits the real SQL LIMIT.
+      // pagination なし — 防御として明示 LIMIT cap。limit を使う（take 不可）:
+      // take は getRawMany() で無視され cap が効かない。limit() が実 SQL LIMIT を出す。
       qb.orderBy('d.dokusya_id', 'ASC');
       qb.limit(EXPORT_MAX_ROWS);
       const rows = await qb.getRawMany<Record<string, unknown>>();
@@ -263,7 +237,7 @@ export class DokusyaSearchService {
 
   // ─── private helpers (SCR-014) ───────────────────────────────────────
 
-  /** Re-validate every m_code-bound search field against CodeService. */
+  /** m_code 連動の検索フィールドを CodeService で再検証。 */
   private assertSearchMCodeValues(query: SearchDokusyaDto): void {
     assertMCodeValues(this.codeService, [
       {
@@ -288,11 +262,9 @@ export class DokusyaSearchService {
   }
 
   /**
-   * Look up the QB column for a FE-supplied sort_by. Throws
-   * VALIDATION_ERROR when the field is not in the allow-list — the
-   * DTO already rejects unknown values, but this guard remains the
-   * authoritative check so a future DTO change (or a programmatic
-   * caller bypassing the pipe) cannot inject arbitrary SQL.
+   * FE 指定の sort_by から QB カラムを引く。許可リスト外は VALIDATION_ERROR。
+   * DTO も未知値を弾くが、本ガードが権威チェック — 将来の DTO 変更や pipe を
+   * 迂回する呼び出しでも任意 SQL を注入させない。
    */
   private resolveSortColumn(sortBy: string = 'updated_at'): string {
     const column = SORT_COLUMN_MAP[sortBy];
@@ -303,12 +275,10 @@ export class DokusyaSearchService {
   }
 
   /**
-   * Common SELECT-list + JOIN + WHERE shared by search() (which
-   * adds ORDER BY + paging) and exportExcel() (no paging).
-   *
-   * SELECT shape matches api.md §4.5 — full_name / full_name_kana via
-   * shimei concat, haitatsu via address concat, is_read_only via
-   * boolean expression. The mapper relies on these aliases verbatim.
+   * search()（ORDER BY + paging を追加）と exportExcel()（paging なし）が共有する
+   * 共通 SELECT + JOIN + WHERE。
+   * SELECT 形状は api.md §4.5 準拠 — full_name/full_name_kana は shimei concat、
+   * haitatsu は住所 concat、is_read_only は boolean 式。mapper がこの alias を厳密に参照。
    */
   private buildSearchQuery(
     qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
@@ -365,8 +335,8 @@ export class DokusyaSearchService {
       ])
       .where('d.deleted_at IS NULL');
 
-    // Branch DataScope — NICHINO_* bypass; CHUOKAI/JA_HONTEN narrow by
-    // ja_id; JA_KANRI_SHITEN narrows by kanri_shiten_id.
+    // Branch DataScope — NICHINO_*=bypass、CHUOKAI/JA_HONTEN→ja_id、
+    // JA_KANRI_SHITEN→kanri_shiten_id。
     applyBranchScope(
       qb,
       'd',
@@ -381,7 +351,7 @@ export class DokusyaSearchService {
     this.applySearchDateFilters(qb, query);
   }
 
-  /** Equality (`= :param`) filters — applied when the value is set. */
+  /** 等価（`= :param`）フィルタ — 値が設定済みのとき適用。 */
   private applySearchEqualityFilters(
     qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
     query: SearchDokusyaDto,
@@ -419,12 +389,11 @@ export class DokusyaSearchService {
         denshi_shonin_status: query.denshi_shonin_status,
       });
     }
-    // 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。
-    // 参照する購読料単価(tanka_type=1)の active_flg で絞り込む: true=有効単価
-    // (active_flg=TRUE)を参照する購読者、false=失効単価(active_flg=FALSE)を参照する
-    // 購読者のみ。省略時は絞り込まない（両方）。tanka_id は m_tanka の PK なので
-    // INNER JOIN で行数は増えない（0/1件）。相関 EXISTS は pg-mem が外側エイリアスを
-    // 解決できず失敗するため JOIN を採用（SCR-020 の失効判定 SQL と同じ方式）。
+    // 有効単価フラグ（SCR-020 error gate 連携・顧客要件 2026-07）。参照する購読料単価
+    // (tanka_type=1)の active_flg で絞込: true=有効単価、false=失効単価を参照する購読者。
+    // 省略時は絞らない。tanka_id は m_tanka PK ゆえ INNER JOIN で行数は増えない(0/1件)。
+    // 相関 EXISTS は pg-mem が外側 alias を解決できず失敗するため JOIN を採用
+    // （SCR-020 の失効判定 SQL と同方式）。
     if (query.active_tanka_flg !== undefined) {
       qb.innerJoin(
         'm_tanka',
@@ -435,7 +404,7 @@ export class DokusyaSearchService {
     }
   }
 
-  /** Partial-match (`ILIKE %param%`) filters — applied when non-empty. */
+  /** 部分一致（`ILIKE %param%`）フィルタ — 非空のとき適用。 */
   private applySearchPartialFilters(
     qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
     query: SearchDokusyaDto,
@@ -446,7 +415,7 @@ export class DokusyaSearchService {
         { kumiaiin_code: query.kumiaiin_code },
       );
     }
-    // 引落元口座支店: コード + 名称を横断して部分一致 OR 検索する（物理カラムは
+    // 引落元口座支店: コード + 名称を横断して部分一致 OR（物理カラムは
     // bank_branch_code / bank_branch_name のレガシー名）。
     if (query.bank_branch) {
       qb.andWhere(
@@ -456,8 +425,8 @@ export class DokusyaSearchService {
       );
     }
     if (query.full_name) {
-      // 氏名: 購読者氏名 + 配達先氏名 の各カラムを部分一致 OR でまとめる。
-      // (shimei_sei / shimei_mei / haitatsu_shimei_sei / haitatsu_shimei_mei)
+      // 氏名: 購読者氏名 + 配達先氏名の各カラムを部分一致 OR
+      // (shimei_sei / shimei_mei / haitatsu_shimei_sei / haitatsu_shimei_mei)。
       qb.andWhere(
         "(d.shimei_sei ILIKE '%' || :full_name || '%' " +
           "OR d.shimei_mei ILIKE '%' || :full_name || '%' " +
@@ -467,7 +436,7 @@ export class DokusyaSearchService {
       );
     }
     if (query.full_name_kana) {
-      // かな氏名: 購読者かな氏名 + 配達先かな氏名 の各カラムを部分一致 OR。
+      // かな氏名: 購読者 + 配達先の各かな氏名カラムを部分一致 OR。
       qb.andWhere(
         "(d.shimei_kana_sei ILIKE '%' || :full_name_kana || '%' " +
           "OR d.shimei_kana_mei ILIKE '%' || :full_name_kana || '%' " +
@@ -477,7 +446,7 @@ export class DokusyaSearchService {
       );
     }
     if (query.renrakusaki) {
-      // 連絡先: 購読者連絡先1/2 + 配達先連絡先1/2 を横断して部分一致 OR。
+      // 連絡先: 購読者連絡先1/2 + 配達先連絡先1/2 を横断部分一致 OR。
       qb.andWhere(
         "(d.renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +
           "OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +
@@ -487,7 +456,7 @@ export class DokusyaSearchService {
       );
     }
     if (query.haitatsu) {
-      // 配達先住所: 配達先住所4項目 + 購読者住所4項目 をそれぞれ部分一致 OR。
+      // 配達先住所: 配達先住所4項目 + 購読者住所4項目を部分一致 OR。
       qb.andWhere(
         "(d.haitatsu_todofuken_code ILIKE '%' || :haitatsu || '%' " +
           "OR d.haitatsu_shikuchoson ILIKE '%' || :haitatsu || '%' " +
@@ -517,9 +486,8 @@ export class DokusyaSearchService {
     if (query.email) {
       qb.andWhere("d.email ILIKE '%' || :email || '%'", { email: query.email });
     }
-    // 請求開始月: YYYYMM の範囲検索（from ≦ 月 ≦ to）。6桁固定なので辞書順比較で
-    // 数値順と一致する。未設定（空文字）の購読者は課金未開始とみなし範囲検索から
-    // 除外する（from/to いずれか指定時に seikyu_kaishi_month <> '' を要求）。
+    // 請求開始月: YYYYMM 範囲検索（from ≦ 月 ≦ to）。6桁固定ゆえ辞書順=数値順。
+    // 未設定（空文字）は課金未開始とみなし除外（from/to 指定時に <> '' を要求）。
     if (query.seikyu_kaishi_month_from || query.seikyu_kaishi_month_to) {
       qb.andWhere("d.seikyu_kaishi_month <> ''");
       if (query.seikyu_kaishi_month_from) {
@@ -535,12 +503,12 @@ export class DokusyaSearchService {
     }
   }
 
-  /** Date-range + 適用日 (履歴) filters — applied when bounds are set. */
+  /** 日付範囲 + 適用日(履歴) フィルタ — 境界が設定済みのとき適用。 */
   private applySearchDateFilters(
     qb: ReturnType<Repository<Dokusya>['createQueryBuilder']>,
     query: SearchDokusyaDto,
   ): void {
-    // Range filters — shoki_dokusya_kaishi_date.
+    // 範囲フィルタ — shoki_dokusya_kaishi_date。
     if (query.shoki_dokusya_kaishi_date_from) {
       qb.andWhere(
         'd.shoki_dokusya_kaishi_date >= :shoki_dokusya_kaishi_date_from',
@@ -570,16 +538,11 @@ export class DokusyaSearchService {
       });
     }
 
-    // 適用日 (joho_henko_tekiyo_date) branch.
-    //
-    //   - Both empty → use the live master row. The master table already
-    //     reflects the current (saishin) state, so no extra predicate
-    //     is needed. The unit spec accepts EITHER a saishin_data_flg
-    //     predicate OR the absence of a t_dokusya_rireki JOIN — we
-    //     pick the latter for performance.
-    //
-    //   - Either side present → INNER JOIN t_dokusya_rireki and filter
-    //     the history rows.
+    // 適用日 (joho_henko_tekiyo_date) 分岐。
+    //   - 両方空 → live master 行。master は現行(saishin)状態を反映済で追加述語不要。
+    //     unit spec は saishin_data_flg 述語か rireki JOIN 無しのどちらも許容 →
+    //     性能のため後者を採用。
+    //   - 片側でも指定 → t_dokusya_rireki を INNER JOIN し履歴行でフィルタ。
     if (
       query.joho_henko_tekiyo_date_from ||
       query.joho_henko_tekiyo_date_to
@@ -613,10 +576,9 @@ export class DokusyaSearchService {
   }
 
   /**
-   * Build the Excel workbook buffer. One worksheet named '購読者一覧',
-   * 12-column header row (bold), then data rows mapped via
-   * `toDokusyaExcelRow`. Returns a Node Buffer (ExcelJS returns an
-   * ArrayBuffer on Node).
+   * Excel workbook buffer を生成。worksheet '購読者一覧' 1枚、太字ヘッダ行、続いて
+   * `toDokusyaExcelRow` でマップしたデータ行。Node Buffer を返す（ExcelJS は Node で
+   * ArrayBuffer を返す）。
    */
   private async buildExcelBuffer(rows: DokusyaListItem[]): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
@@ -625,14 +587,12 @@ export class DokusyaSearchService {
     sheet.addRow([...DOKUSYA_EXPORT_HEADERS]);
     const headerRow = sheet.getRow(1);
     headerRow.font = { bold: true };
-    // Reasonable defaults — 配達先住所 is the widest column at ~200
-    // chars, but Excel auto-fit is unreliable; leave at 18 chars so
-    // the user can widen interactively.
+    // 既定幅 — 配達先住所が最長(~200文字)だが Excel auto-fit は不安定なので
+    // 18文字に固定し、ユーザが手動で広げられるようにする。
     sheet.columns = DOKUSYA_EXPORT_HEADERS.map(() => ({ width: 18 }));
     for (const row of rows) {
-      // 手続種類 / 購読種別 / 支払方法 は m_code 値。Excel には
-      // 顧客が見やすいラベルを出力する（CodeService は @Global で
-      // メモリキャッシュ済みなので行ごとのルックアップは実質ゼロコスト）。
+      // 手続種類/購読種別/支払方法 は m_code 値。Excel には顧客が読めるラベルを出力
+      // （CodeService は @Global でメモリキャッシュ済ゆえ行毎ルックアップは実質ゼロコスト）。
       sheet.addRow(
         toDokusyaExcelRow(row, {
           tetsuzuki_shurui: this.codeService.getLabel(

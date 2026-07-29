@@ -157,12 +157,20 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     expect(mapUserToDokusyaFields(buildUser({ subscribe_flg: 0 }), FK).honshiKodokuFlg).toBe(false);
   });
 
-  it('maps payment: 無料(member_type=1)→その他(9), それ以外→口座振替(1)', () => {
-    expect(mapUserToDokusyaFields(buildUser({ member_type: 1 }), FK).shiharaiHoho).toBe(
+  it('maps payment_id 1:1 with shiharai_hoho（6→クレカ, 1→口座引落, 未設定/不明→その他）', () => {
+    expect(mapUserToDokusyaFields(buildUser({ payment_id: 6 }), FK).shiharaiHoho).toBe(
+      ShiharaiHoho.CREDIT_CARD,
+    );
+    expect(mapUserToDokusyaFields(buildUser({ payment_id: 1 }), FK).shiharaiHoho).toBe(
+      ShiharaiHoho.KOZA_HIKIOTOSHI,
+    );
+    // 未設定
+    expect(mapUserToDokusyaFields(buildUser({ payment_id: null }), FK).shiharaiHoho).toBe(
       ShiharaiHoho.SONOTA,
     );
-    expect(mapUserToDokusyaFields(buildUser({ member_type: 2 }), FK).shiharaiHoho).toBe(
-      ShiharaiHoho.KOZA_HIKIOTOSHI,
+    // 不明コード
+    expect(mapUserToDokusyaFields(buildUser({ payment_id: 999 }), FK).shiharaiHoho).toBe(
+      ShiharaiHoho.SONOTA,
     );
   });
 

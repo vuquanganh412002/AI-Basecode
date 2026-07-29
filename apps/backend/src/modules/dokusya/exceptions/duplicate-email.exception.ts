@@ -3,13 +3,12 @@ import { DomainException } from '@/common/exceptions/domain.exception';
 import { ErrorCode, ErrorMessage } from '@/common/constants/error-codes.constant';
 
 /**
- * Raised by `DokusyaService.create / update` when the email being saved
- * is already used by another non-deleted row in the SAME JA scope
- * (api.md §エラー一覧 #9 + §4.3 重複チェック).
+ * 保存しようとしたメールが同一 JA スコープ内の別の未削除行で既に使われているとき
+ * `DokusyaService.create / update` が送出（api.md §エラー一覧 #9 + §4.3 重複チェック）。
  *
- * `GlobalExceptionFilter` reads the `error_code` field on the response
- * body so the FE sees `{ error_code: 'DUPLICATE_EMAIL', message }` —
- * `useApiForm` then maps the toast / inline error.
+ * `GlobalExceptionFilter` がレスポンスボディの `error_code` を読み、FE は
+ * `{ error_code: 'DUPLICATE_EMAIL', message }` を見る — `useApiForm` が
+ * トースト／インラインエラーにマップする。
  */
 export class DuplicateEmailException extends DomainException {
   constructor(message: string = ErrorMessage.DUPLICATE_EMAIL) {

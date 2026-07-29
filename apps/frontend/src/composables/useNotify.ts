@@ -1,63 +1,60 @@
 import { message } from 'ant-design-vue';
 
 /**
- * Centralized user-feedback toasts. Use these instead of raw
- * `message.success(...)` so every screen uses the same Japanese
- * phrasing for the same action.
+ * ユーザーフィードバックの共通トースト。生の `message.success(...)` の代わりに
+ * 使い、同一操作には全画面で同一の日本語表現を使う。
  *
- * **Project copy convention (DO NOT prefix the subject)** — toasts are
- * verb-only ("登録しました。", not "JAを登録しました。"). The button the
- * user just clicked + the screen they're on already imply the subject;
- * adding it makes every toast read like "Captain Obvious". This is
- * project-wide for ALL screens. If a screen genuinely needs a custom
- * message, call `notify.success(text)` directly with the literal copy.
+ * **コピー規約（主語を接頭しない）** — トーストは動詞のみ（「登録しました。」で
+ * あって「JAを登録しました。」ではない）。押したボタン + 画面が主語を暗示するため、
+ * 付けると Captain Obvious 化する。全画面共通。カスタム文言が必要な画面は
+ * `notify.success(text)` を直接呼ぶ。
  *
- * Usage:
+ * 使用例:
  * ```ts
  * const notify = useNotify();
  * await api.create(form);
  * notify.created();   // ⇒ "登録しました。"
  * ```
  *
- * If a customer later asks for different copy, change it here once.
+ * 顧客が後で別文言を求めた場合はここを一度変更するだけ。
  */
 export function useNotify() {
   return {
-    /** Success after CREATE — `登録しました。`. */
+    /** CREATE 成功 — `登録しました。`。 */
     created() {
       message.success('登録しました。');
     },
-    /** Success after UPDATE — `更新しました。`. */
+    /** UPDATE 成功 — `更新しました。`。 */
     updated() {
       message.success('更新しました。');
     },
-    /** Success after DELETE — `削除しました。`. */
+    /** DELETE 成功 — `削除しました。`。 */
     deleted() {
       message.success('削除しました。');
     },
-    /** Success after FILE UPLOAD — `アップロードしました。`. */
+    /** ファイルアップロード成功 — `アップロードしました。`。 */
     uploaded() {
       message.success('アップロードしました。');
     },
-    /** Success after EXPORT/DOWNLOAD — `ダウンロードを開始しました。`. */
+    /** エクスポート/ダウンロード成功 — `ダウンロードを開始しました。`。 */
     downloaded() {
       message.success('ダウンロードを開始しました。');
     },
-    /** Generic success — caller supplies the message. */
+    /** 汎用成功 — 呼び出し元が文言を指定。 */
     success(text: string) {
       message.success(text);
     },
-    /** Error toast — caller supplies the message.
-        For HTTP errors prefer letting the global axios interceptor
-        in src/api/error-handler.ts handle the toast. */
+    /** エラートースト — 呼び出し元が文言を指定。
+        HTTP エラーは src/api/error-handler.ts のグローバル axios interceptor に
+        トーストを任せることを推奨。 */
     error(text: string) {
       message.error(text);
     },
-    /** Warning toast — non-blocking caution. */
+    /** 警告トースト — 非ブロッキングな注意喚起。 */
     warning(text: string) {
       message.warning(text);
     },
-    /** Info toast — neutral feedback. */
+    /** 情報トースト — 中立的フィードバック。 */
     info(text: string) {
       message.info(text);
     },

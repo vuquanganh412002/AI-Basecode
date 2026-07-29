@@ -1,15 +1,9 @@
 import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { CreateJaDto } from './create-ja.dto';
 
-/**
- * Update JA request body — API-005-003.
- *
- * All fields are optional. `ja_code` is immutable after creation and is
- * therefore not present on the Update DTO (api.md §4 注記).
- *
- * CHUOKAI / JA_HONTEN can only modify the ※4 allow-list; the service
- * layer filters the incoming body via FIELD_RESTRICTIONS before saving.
- */
+// JA更新リクエストbody — API-005-003。全項目 optional。ja_code は作成後
+// 不変のため本DTOに無い(api.md §4 注記)。CHUOKAI/JA_HONTEN は ※4 allow-list
+// のみ編集可 — service が FIELD_RESTRICTIONS で保存前にフィルタ。
 export class UpdateJaDto extends PartialType(
   OmitType(CreateJaDto, ['ja_code'] as const),
 ) {}

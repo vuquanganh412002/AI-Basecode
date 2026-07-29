@@ -1,18 +1,17 @@
-// Pure helpers for the 配達手数料支払情報 (ACSMS-SCR-021): the aggregation SQL
-// builder + flat-row → response mapping. No Nest DI / repo / service, so it is
-// importable from anywhere (service + unit tests).
+// 配達手数料支払情報 (ACSMS-SCR-021) の純ヘルパー: 集計SQLビルダ + フラット行→
+// レスポンス変換。Nest DI / repo / service を持たず、service からもユニット
+// テストからも import できる。
 //
-// The aggregation is a CTE + DISTINCT ON latest-snapshot grouped by 販売店 —
-// not expressible in the TypeORM QueryBuilder — so it is built as a
-// parameterized raw SQL string (positional `$1..$5`, NEVER string-interpolated
-// user input) and run via `dataSource.query(sql, params)`.
+// 集計は CTE + DISTINCT ON で最新スナップショットを 販売店 単位に集約する処理で、
+// TypeORM QueryBuilder では表現できないため、パラメータ化した raw SQL 文字列
+// （位置指定 $1..$5、ユーザー入力は絶対に文字列展開しない）を dataSource.query で実行する。
 
 import { TetsuzukiShurui } from '@/common/enums';
 import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
 import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
 
-/** A SessionPayload-shaped subset used for DataScope. */
+/** DataScope に使う SessionPayload の部分型。 */
 interface ScopeSession {
   ja_id: number | null;
   kanri_shiten_id: number | null;
@@ -21,7 +20,7 @@ interface ScopeSession {
 /** driver により number / 文字列 / null で届く集計カラムの共通型。 */
 type Numericish = number | string | null;
 
-/** One aggregated row returned by the raw `dataSource.query(...)`. */
+/** raw `dataSource.query(...)` が返す集計1行。 */
 export interface HaitatsuryoAggRow {
   target_month: string;
   hanbaiten_id: number | string;
@@ -259,7 +258,7 @@ export function buildInactiveHaitatsuryoTankaSql(
 }
 
 /**
- * Map the aggregated raw rows into the `{ data, meta }` response shape.
+ * 集計 raw 行を `{ data, meta }` レスポンス形へ変換する。
  *
  * `pagination` を渡すと `data` を該当ページにスライスし、`meta` に
  * page/per_page/total_pages を設定する（preview 用）。未指定時は全件返却

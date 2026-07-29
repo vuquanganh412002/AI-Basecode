@@ -51,14 +51,12 @@ import { DokusyaService } from './dokusya.service';
 /**
  * ACSMS-SCR-011 — 購読者情報登録画面.
  *
- * Six endpoints exposed under `/api/v1/dokusya`. The global prefix
- * `api/v1` is applied centrally in `main.ts` via `setGlobalPrefix` —
- * controllers declare the unprefixed segment only.
+ * `/api/v1/dokusya` 配下のエンドポイント群。グローバルプレフィックス `api/v1` は
+ * `main.ts` の `setGlobalPrefix` で一括付与 — コントローラは未付与セグメントのみ宣言。
  *
- * Both guards (`SessionAuthGuard` + `PermissionsGuard`) wrap every
- * endpoint. The `@Permissions('dokusya.*')` decorator names the
- * permission codes from `seeder.md §3` each role must hold:
- *   - `dokusya.view`   — GET detail + GET history
+ * 全エンドポイントを両ガード (`SessionAuthGuard` + `PermissionsGuard`) で保護。
+ * `@Permissions('dokusya.*')` は各ロールが保持すべき権限コード（seeder.md §3）:
+ *   - `dokusya.view`   — GET 詳細 + GET 履歴
  *   - `dokusya.create` — POST
  *   - `dokusya.update` — PUT + approve / reject
  */
@@ -70,12 +68,11 @@ export class DokusyaController {
   constructor(private readonly service: DokusyaService) {}
 
   // ─── API-014-001 ────────────────────────────────────────────────────
-  // NOTE — route order matters. Express/Nest match in declaration order,
-  // and `GET /:dokusya_id` would otherwise consume `/`-prefixed paths.
-  // The export path declares `GET /export` BEFORE `GET /:dokusya_id` so
-  // the literal segment wins over the numeric param. SCR-014's search
-  // (GET /) also lives ahead of detail so the SCR-011 detail handler
-  // continues to receive only numeric ids.
+  // 注意 — ルート宣言順が重要。Express/Nest は宣言順にマッチするため、
+  // `GET /:dokusya_id` を先に置くとリテラルパスを飲み込む。`GET /export` を
+  // `GET /:dokusya_id` より前に宣言しリテラルセグメントを数値パラメータより
+  // 優先させる。SCR-014 の検索 (GET /) も詳細より前に置き、SCR-011 の詳細
+  // ハンドラが数値 id のみ受け取るようにする。
   @Get()
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.view')
@@ -111,8 +108,8 @@ export class DokusyaController {
       req.user,
       req,
     );
-    // RFC 6266 filename*=UTF-8'' so the multibyte Japanese name
-    // (購読者一覧出力_…) survives Node's header-value restriction.
+    // RFC 6266 filename*=UTF-8'' で多バイト日本語名（購読者一覧出力_…）が
+    // Node のヘッダ値制限を通るようにする。
     const encoded = encodeURIComponent(filename);
     res.set({
       'Content-Type':
@@ -124,8 +121,8 @@ export class DokusyaController {
   }
 
   // ─── API-015-001 ────────────────────────────────────────────────────
-  // Literal `replace-hanbaiten/search` MUST precede `GET /:dokusya_id`
-  // so the numeric-param route doesn't swallow the literal segment.
+  // リテラル `replace-hanbaiten/search` は `GET /:dokusya_id` より前に置くこと。
+  // 数値パラメータルートがリテラルセグメントを飲み込まないようにする。
   @Get('replace-hanbaiten/search')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.replace_hanbaiten')
@@ -159,9 +156,9 @@ export class DokusyaController {
   }
 
   // ─── API-016-001 ────────────────────────────────────────────────────
-  // SCR-016 — 購読者Excelデータ取込画面. Literal `import/template` +
-  // `import` MUST precede `GET /:dokusya_id` so the numeric-param route
-  // doesn't swallow these literal segments.
+  // SCR-016 — 購読者Excelデータ取込画面. リテラル `import/template` + `import`
+  // は `GET /:dokusya_id` より前に置くこと。数値パラメータルートがこれらの
+  // リテラルセグメントを飲み込まないようにする。
   @Get('import/template')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.import')
@@ -176,8 +173,8 @@ export class DokusyaController {
     const { buffer, filename } = await this.service.downloadImportTemplate(
       req.user,
     );
-    // RFC 6266 filename*=UTF-8'' so the multibyte Japanese name survives
-    // Node's header-value restriction (raw multibyte is rejected).
+    // RFC 6266 filename*=UTF-8'' で多バイト日本語名が Node のヘッダ値制限を
+    // 通るようにする（生の多バイトは拒否される）。
     const encoded = encodeURIComponent(filename);
     res.set({
       'Content-Type':
@@ -192,10 +189,10 @@ export class DokusyaController {
   @Post('import')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.import')
-  // [throttle-import] WAF body inspection is bypassed for this path (large
-  // free-text JSON rows false-positive on managed rules — see .claude/rules/
-  // nestjs.md §WAF body-inspection bypass), so it lost the edge rate-limit.
-  // Cap at 10/min/IP (heavier than upload: up to 30,000 rows per call).
+  // [throttle-import] このパスは WAF ボディ検査をバイパスするため（大量の
+  // 自由文 JSON 行がマネージドルールに誤検知 — .claude/rules/nestjs.md
+  // §WAF body-inspection bypass 参照）、エッジのレート制限を失う。10/min/IP に
+  // 制限（1回で最大30,000行のため upload より重い）。
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: '購読者Excelデータ取込画面 — 一括取込（SCR-016）' })
   @ApiResponse({ status: 200, description: '取込結果サマリ + メッセージ' })
@@ -210,9 +207,9 @@ export class DokusyaController {
   }
 
   // ─── API-010-002 ────────────────────────────────────────────────────
-  // SCR-010 メニュー画面 — 電子版承認待ち件数. Literal `pending-approval/count`
-  // MUST precede `GET /:dokusya_id` so the numeric-param route doesn't
-  // capture it.
+  // SCR-010 メニュー画面 — 電子版承認待ち件数. リテラル `pending-approval/count`
+  // は `GET /:dokusya_id` より前に置くこと。数値パラメータルートに捕捉されない
+  // ようにする。
   @Get('pending-approval/count')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.view')
@@ -392,9 +389,9 @@ export class DokusyaController {
   }
 
   // ─── API-013-001 ────────────────────────────────────────────────────
-  // SCR-013 — 購読者履歴情報画面: paginated FULL history list.
-  // Two-segment path — distinct from `GET /:dokusya_id` (detail) and
-  // `GET /:dokusya_id/history` (SCR-011 lighter history).
+  // SCR-013 — 購読者履歴情報画面: ページネーション付きフル履歴一覧。
+  // 2セグメントパス — `GET /:dokusya_id`（詳細）や
+  // `GET /:dokusya_id/history`（SCR-011 の軽量履歴）とは別。
   @Get(':dokusya_id/rireki')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.view')

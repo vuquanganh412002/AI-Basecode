@@ -19,27 +19,26 @@ import {
   type ListTankaQuery,
 } from '@/api/tanka/tanka';
 
-// 有効単価フラグ filter — radio group with two on-states. '' = both
-// (default; api.md §4.3 "省略時は両方"), '1' = 有効中のみ, '0' = 停止中のみ.
-// 検索クリア resets back to '' (radios deselect together). Coerced to
-// boolean | undefined before hitting the wire so the BE sees the
-// swagger-declared `active_flg: boolean`.
+// 有効単価フラグ フィルタ — 2つのオン状態を持つラジオ。'' = 両方（既定、
+// api.md §4.3「省略時は両方」）、'1' = 有効中のみ、'0' = 停止中のみ。検索クリアで
+// '' に戻る。wire に載せる前に boolean | undefined へ変換（BE は swagger 宣言の
+// `active_flg: boolean` を期待）。
 type ActiveFlgFilter = '' | '1' | '0';
 
-// キャンペーンフラグ filter — same tri-state shape as 有効単価フラグ.
-// '' = 両方 (default), '1' = 有効のみ, '0' = 無効のみ.
+// キャンペーンフラグ フィルタ — 有効単価フラグと同じ三状態。
+// '' = 両方（既定）、'1' = 有効のみ、'0' = 無効のみ。
 type CampaignFlgFilter = '' | '1' | '0';
 
 interface TankaFilters {
   /**
-   * Radio: '' (未選択 = 全件), '1' (新聞購読料), '2' (配達手数料).
-   * 画面項目定義 row 1.0 — ラジオボタン.
+   * ラジオ: ''（未選択 = 全件）, '1'（新聞購読料）, '2'（配達手数料）。
+   * 画面項目定義 row 1.0。
    */
   tanka_type: '' | '1' | '2';
   tanka_name: string;
-  /** YYYY-MM-DD or '' — native <input type="date"> binds. */
+  /** YYYY-MM-DD または ''。 */
   tekiyo_start_date: string;
-  /** YYYY-MM-DD or '' — native <input type="date"> binds. */
+  /** YYYY-MM-DD または ''。 */
   tekiyo_end_date: string;
   active_flg: ActiveFlgFilter;
   campaign_flg: CampaignFlgFilter;
@@ -50,12 +49,11 @@ const notify = useNotify();
 const authStore = useAuthStore();
 const codes = useCodesStore();
 
-// Permission gates per docs/database/seeder.md §3 tanka.* matrix:
-//   role 1 NICHINO_ADMIN / role 2 NICHINO_STAFF: no tanka.* perms (filtered
-//                                                 at router meta.permission).
-//   role 3 CHUOKAI / 4 JA_HONTEN / 5 JA_KANRI_SHITEN: full view + CRUD.
-// UX rule (vue.md §Permission-aware list buttons): disable, don't hide —
-// keeps the affordance discoverable when a user switches roles.
+// 権限ゲート（seeder.md §3 tanka.* マトリクス）:
+//   role 1/2 NICHINO_ADMIN/STAFF: tanka.* なし（router meta.permission で除外）。
+//   role 3/4/5 CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN: view + CRUD 全て。
+// UX（vue.md §Permission-aware list buttons）: 非表示でなく無効化 —
+// ロール切替時にアフォーダンスを残す。
 const canCreate = computed(() => authStore.hasPermission('tanka.create'));
 const canUpdate = computed(() => authStore.hasPermission('tanka.update'));
 const canDelete = computed(() => authStore.hasPermission('tanka.delete'));
@@ -85,10 +83,9 @@ const columns: TableColumnsType = [
   { title: '単価名', dataIndex: 'tanka_name', key: 'tanka_name', sorter: true, width: 240 },
   { title: '適用開始日', dataIndex: 'tekiyo_start_date', key: 'tekiyo_start_date', sorter: true, width: 140 },
   { title: '適用終了日', dataIndex: 'tekiyo_end_date', key: 'tekiyo_end_date', sorter: true, width: 140 },
-  // Customer feedback 2026-05-11: 有効単価フラグ column inserted between
-  // 適用終了日 and 単価（税込）. Non-sortable per the sort_by whitelist in
-  // SearchTankaDto.TANKA_SEARCH_SORT_BY — only 単価コード / 単価名 /
-  // 適用開始日 / 適用終了日 are sortable axes for this list.
+  // 顧客要望 2026-05-11: 有効単価フラグ列を 適用終了日 と 単価（税込）の間に挿入。
+  // SearchTankaDto.TANKA_SEARCH_SORT_BY の whitelist によりソート不可 —
+  // ソート可能軸は 単価コード / 単価名 / 適用開始日 / 適用終了日 のみ。
   { title: '有効単価フラグ', dataIndex: 'active_flg', key: 'active_flg', align: 'center', width: 130 },
   { title: 'キャンペーンフラグ', dataIndex: 'campaign_flg', key: 'campaign_flg', align: 'center', width: 150 },
   { title: '単価（税込）', dataIndex: 'kingaku_zeikomi', key: 'kingaku_zeikomi', align: 'right', width: 130 },
@@ -122,9 +119,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: src/api/error-handler.ts already toasted FORBIDDEN
-    // / 500. Re-throwing would surface as an unhandled rejection inside
-    // onMounted's fire-and-forget invocation. Per vue.md §List view rule 5.
+    // 想定内・無視: error-handler.ts が FORBIDDEN / 500 を既にトースト済み。
+    // 再throw は onMounted の fire-and-forget で unhandled rejection になる
+    // （vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -134,11 +131,11 @@ async function fetchList(): Promise<void> {
 
 onMounted(fetchList);
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim so "  基本  " → "基本"; paste artifacts / IME spaces shouldn't widen
-  // the ILIKE pattern. Mutate in place so the input visibly updates (vue.md §5a).
+  // trim で "  基本  " → "基本"。paste/IME 由来の空白で ILIKE を広げない。
+  // 入力に反映させるため in-place で mutate（vue.md §5a）。
   beforeSearch() {
     state.filters.tanka_name = state.filters.tanka_name.trim();
   },
@@ -158,16 +155,16 @@ function goEdit(row: TankaListItem): void {
 }
 
 function askDelete(row: TankaListItem): void {
-  // ACSMS-MSG-002-005 — confirm copy verbatim from screen-design.md.
+  // ACSMS-MSG-002-005 — 確認文言は screen-design.md からそのまま。
   confirmDelete('この単価を削除してもよろしいですか？', async () => {
     try {
       await removeTanka(row.tanka_id);
       notify.deleted();  // ACSMS-MSG-002-007 — '削除しました。'
       await fetchList();
     } catch {
-      // Global axios interceptor handles 409 CONFLICT
-      // (ACSMS-MSG-002-006) and 500 (ACSMS-MSG-002-004); view must
-      // NOT re-toast (vue.md §Error Handling Architecture rule 1).
+      // axios interceptor が 409 CONFLICT（ACSMS-MSG-002-006）と 500
+      // （ACSMS-MSG-002-004）を処理。view で再トーストしない
+      // （vue.md §Error Handling Architecture rule 1）。
     }
   });
 }
@@ -175,17 +172,17 @@ function askDelete(row: TankaListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 4-column grid; the 5th field (有効単価フラグ) wraps
-         to the next row. Mirrors docs/design/ACSMS-SCR-002/index.html
-         (種別 radio / 名 text / 開始日 / 終了日 // フラグ radio). -->
+    <!-- 検索エリア — 4列グリッド。5番目（有効単価フラグ）は次行に折り返す。
+         ACSMS-SCR-002/index.html に準拠
+         （種別 radio / 名 text / 開始日 / 終了日 // フラグ radio）。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
       @search="onSearch"
       @clear="onClear"
     >
-      <!-- 単価種別 — ラジオ per 画面項目定義 row 1.0. "未選択" is implicit:
-           value '' clears the filter and is the default state after onClear. -->
+      <!-- 単価種別 — ラジオ（画面項目定義 row 1.0）。"未選択" は暗黙:
+           値 '' でフィルタ解除、onClear 後の既定状態。 -->
       <label for="tanka-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">単価種別</span>
         <a-radio-group id="tanka-filter-1" v-model:value="state.filters.tanka_type">
@@ -210,11 +207,9 @@ function askDelete(row: TankaListItem): void {
         />
       </label>
 
-      <!-- 適用開始日 / 適用終了日 — antd's <a-date-picker> with explicit
-           format='YYYY/MM/DD' (display) + value-format='YYYY-MM-DD' (wire).
-           Native <input type='date'> rendered as dd/mm/yyyy on non-JP
-           locale browsers; antd's picker pins the Japanese display
-           format regardless of the user's OS locale. -->
+      <!-- 適用開始日 / 適用終了日 — <a-date-picker>。format='YYYY/MM/DD'（表示）+
+           value-format='YYYY-MM-DD'（wire）。native date は非JPロケールで
+           dd/mm/yyyy 表示になるため、OSロケールに依存しない和式表示に固定。 -->
       <label for="tanka-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">適用開始日</span>
         <a-date-picker
@@ -239,9 +234,8 @@ function askDelete(row: TankaListItem): void {
         />
       </label>
 
-      <!-- 有効単価フラグ — ラジオ. Two on-states (有効=1 / 無効=0); deselected
-           (state value '') is the default and means "両方を返却" per
-           api.md §4.3. 検索クリア resets to ''. -->
+      <!-- 有効単価フラグ — ラジオ。オン状態は 有効=1 / 無効=0。未選択（''）が
+           既定で「両方を返却」（api.md §4.3）。検索クリアで '' に戻る。 -->
       <label for="tanka-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">有効単価フラグ</span>
         <a-radio-group id="tanka-filter-5" v-model:value="state.filters.active_flg">
@@ -250,8 +244,8 @@ function askDelete(row: TankaListItem): void {
         </a-radio-group>
       </label>
 
-      <!-- キャンペーンフラグ — ラジオ. Mirrors 有効単価フラグ; deselected
-           ('') = 両方を返却. 検索クリア resets to ''. -->
+      <!-- キャンペーンフラグ — ラジオ。有効単価フラグと同様。未選択（''）=
+           両方を返却。検索クリアで '' に戻る。 -->
       <label for="tanka-filter-6" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">キャンペーンフラグ</span>
         <a-radio-group id="tanka-filter-6" v-model:value="state.filters.campaign_flg">
@@ -261,9 +255,9 @@ function askDelete(row: TankaListItem): void {
       </label>
     </BaseSearchForm>
 
-    <!-- ACSMS-MSG-002-001 — empty-result message rendered as a sibling <p>
-         OUTSIDE the table. BaseDataTable's dynamic slot loop crashes on the
-         null slotProps antd passes to #emptyText (vue.md §List view rule 4). -->
+    <!-- ACSMS-MSG-002-001 — 空結果メッセージはテーブル外の兄弟 <p> で描画。
+         BaseDataTable の動的 slot ループは #emptyText の null slotProps で
+         crash する（vue.md §List view rule 4）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"
@@ -298,9 +292,8 @@ function askDelete(row: TankaListItem): void {
 
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'tanka_type'">
-          <!-- BE returns numeric tanka_type; the customer-facing label
-               comes from m_code (runtime-editable, no FE redeploy on
-               rename). See .claude/rules/vue.md §Code Master. -->
+          <!-- BE は数値 tanka_type を返す。表示ラベルは m_code から
+               （実行時編集可、リネームで FE 再デプロイ不要、vue.md §Code Master）。 -->
           {{ codes.label('TANKA_TYPE', (record as TankaListItem).tanka_type) }}
         </template>
         <template v-else-if="column.key === 'tanka_code'">
@@ -314,9 +307,8 @@ function askDelete(row: TankaListItem): void {
           <span v-else>{{ (record as TankaListItem).tanka_code }}</span>
         </template>
         <template v-else-if="column.key === 'tanka_name'">
-          <!-- Plain text — edit link lives on tanka_code (project
-               convention; all other CRUD list screens follow this
-               pattern). -->
+          <!-- プレーンテキスト — 編集リンクは tanka_code 側
+               （プロジェクト規約、他の CRUD 一覧も同様）。 -->
           <span>{{ (record as TankaListItem).tanka_name }}</span>
         </template>
         <template v-else-if="column.key === 'tekiyo_start_date'">
@@ -331,15 +323,14 @@ function askDelete(row: TankaListItem): void {
           }}
         </template>
         <template v-else-if="column.key === 'active_flg'">
-          <!-- Status badge — green for 有効 / red for 無効. Tag colour
-               carries the semantic that's lost on plain text in a dense
-               table; same convention as other status columns project-wide. -->
+          <!-- ステータスバッジ — 有効=緑 / 無効=赤。密なテーブルでは色が
+               意味を担う。他のステータス列と同じ規約。 -->
           <a-tag :color="(record as TankaListItem).active_flg ? 'success' : 'error'">
             {{ (record as TankaListItem).active_flg ? '有効' : '無効' }}
           </a-tag>
         </template>
         <template v-else-if="column.key === 'campaign_flg'">
-          <!-- キャンペーンフラグ — 有効=green / 無効=red, mirrors 有効単価フラグ. -->
+          <!-- キャンペーンフラグ — 有効=緑 / 無効=赤、有効単価フラグと同様。 -->
           <a-tag :color="(record as TankaListItem).campaign_flg ? 'success' : 'error'">
             {{ (record as TankaListItem).campaign_flg ? '有効' : '無効' }}
           </a-tag>
@@ -354,9 +345,8 @@ function askDelete(row: TankaListItem): void {
           {{ formatTaxRate((record as TankaListItem).tax_rate) }}
         </template>
         <template v-else-if="column.key === 'actions'">
-          <!-- 編集 hidden — entry is the clickable tanka_code / tanka_name
-               cells above. 削除 stays visible but disabled when the user
-               lacks tanka.delete. -->
+          <!-- 編集は非表示 — 入口は上の tanka_code / tanka_name セル。
+               削除は tanka.delete がないとき表示のまま無効化。 -->
           <BaseActionColumn
             :can-edit="false"
             :disable-delete="!canDelete"

@@ -17,7 +17,7 @@ const form = reactive({
   confirm_password: '',
 });
 
-/** UI states driven by token verification + submit results. */
+/** トークン検証・送信結果で切り替わる UI 状態。 */
 type Phase = 'verifying' | 'valid' | 'invalid' | 'expired' | 'done';
 const phase = ref<Phase>('verifying');
 
@@ -39,7 +39,7 @@ let redirectTimer: number | undefined;
 
 onMounted(async () => {
   const queryToken = route.query.token;
-  // screen-design SCR-012 §1.2 — no token in URL → invalid link, do NOT call verify endpoint.
+  // SCR-012 §1.2 — URL にトークン無し → 無効リンク（verify を呼ばない）。
   if (typeof queryToken !== 'string' || !queryToken) {
     phase.value = 'invalid';
     return;
@@ -48,12 +48,11 @@ onMounted(async () => {
 
   try {
     await verifyResetToken(queryToken);
-    phase.value = 'valid'; // screen-design SCR-012 §1.5 — token valid, render form
+    phase.value = 'valid'; // SCR-012 §1.5 — トークン有効、フォーム表示
   } catch (err) {
-    // screen-design SCR-012 §1.6 / §1.7 — fall back to 'invalid' for any non-token error
-    // because at mount-time the only useful action is to surface a
-    // dead-link message. Submit-time uses matchTokenError() which
-    // is stricter so VALIDATION_ERROR can flow to field-level :help.
+    // SCR-012 §1.6 / §1.7 — トークン以外のエラーは 'invalid' に倒す
+    // （mount 時はデッドリンク表示のみが有効なため）。送信時は matchTokenError()
+    // でより厳密に判定し VALIDATION_ERROR を :help に流す。
     phase.value = matchTokenError(err) ?? 'invalid';
   }
 });
@@ -63,11 +62,9 @@ onUnmounted(() => {
 });
 
 /**
- * Mirror the BE password regex (`new_password` rule in
- * `ResetPasswordDto`) so the user sees ACSMS-SCR-012-006 immediately
- * instead of waiting for a 400 round-trip.
- *
- * Rule: 8-32 chars AND ≥2 of {alpha, digit, symbol}.
+ * BE のパスワード正規表現（ResetPasswordDto の new_password）と同一。
+ * 400 往復を待たず ACSMS-SCR-012-006 を即表示する。
+ * ルール: 8~32文字 かつ {英字,数字,記号} のうち2種以上。
  */
 const PASSWORD_FORMAT_RE = new RegExp(
   '^(?=.{8,32}$)(?:' +
@@ -89,9 +86,8 @@ const HALFWIDTH_RE = /^[\x21-\x7E]+$/;
 function validateClient(): Record<string, string> {
   const errs: Record<string, string> = {};
   if (!form.new_password?.trim()) errs.new_password = REQUIRED_NEW;
-  // Half-width check fires BEFORE the format check so the user gets the
-  // specific "半角文字のみ" message instead of the longer combined
-  // "8~32文字で半角英数記号..." when they typed full-width characters.
+  // 半角チェックを書式チェックより先に実行し、全角入力時は具体的な
+  // 「半角文字のみ」を表示（長い複合メッセージを避ける）。
   if (!errs.new_password && form.new_password && !HALFWIDTH_RE.test(form.new_password)) {
     errs.new_password = HALFWIDTH_MSG;
   }
@@ -124,12 +120,10 @@ async function onSubmit(): Promise<void> {
         confirm_password: form.confirm_password,
       });
     } catch (err) {
-      // screen-design SCR-012 §4.4 — token may have expired between page-load verification
-      // and submit. Hide the form ONLY when the BE explicitly returns
-      // INVALID_RESET_TOKEN / EXPIRED_RESET_TOKEN. Other errors
-      // (VALIDATION_ERROR mapped by useApiForm, INTERNAL_SERVER_ERROR
-      // toasted by axios interceptor) must bubble so the form stays
-      // visible and per-field errors render via :help.
+      // SCR-012 §4.4 — 検証後～送信間にトークンが失効し得る。BE が
+      // INVALID_RESET_TOKEN / EXPIRED_RESET_TOKEN を返した場合のみフォームを隠す。
+      // 他エラー（VALIDATION_ERROR は useApiForm、500 は axios interceptor）は
+      // bubble させ、フォームを残して :help に表示する。
       const phaseAfter = matchTokenError(err);
       if (phaseAfter) {
         phase.value = phaseAfter;
@@ -138,7 +132,7 @@ async function onSubmit(): Promise<void> {
       throw err;
     }
 
-    // screen-design SCR-012 §4.5 — success message + §4.6 auto-redirect to /login after 3s.
+    // SCR-012 §4.5 成功メッセージ + §4.6 3秒後に /login へ自動遷移。
     message.success(SUCCESS_MSG);
     phase.value = 'done';
     redirectTimer = globalThis.setTimeout(() => {
@@ -148,11 +142,9 @@ async function onSubmit(): Promise<void> {
 }
 
 /**
- * Return the matching token-error phase, or `null` if the error is
- * NOT one of the two token-specific codes. The submit handler uses
- * the null result to bubble VALIDATION_ERROR / INTERNAL_SERVER_ERROR
- * through to useApiForm + the global axios interceptor; only token
- * errors hide the form.
+ * トークンエラーに対応する phase を返す。2種のトークン専用コード以外は
+ * null を返し、送信ハンドラは VALIDATION_ERROR / 500 を useApiForm +
+ * axios interceptor へ bubble させる（フォームを隠すのはトークンエラーのみ）。
  */
 function matchTokenError(err: unknown): 'expired' | 'invalid' | null {
   const ax = err as AxiosError<{ error_code?: string }>;
@@ -163,7 +155,7 @@ function matchTokenError(err: unknown): 'expired' | 'invalid' | null {
 }
 
 function goLogin(): void {
-  // screen-design SCR-012 §5.2 — clear input data on navigate-back.
+  // SCR-012 §5.2 — 戻る時に入力値をクリア。
   form.new_password = '';
   form.confirm_password = '';
   router.push({ name: 'Login' });
@@ -188,13 +180,13 @@ function goLogin(): void {
             パスワードの変更
           </h2>
 
-          <!-- §1.4 — token verification in flight. -->
+          <!-- §1.4 — トークン検証中。 -->
           <div v-if="phase === 'verifying'" class="text-center py-8">
             <a-spin size="large" />
             <p class="text-sm text-text-description mt-4">トークンを検証中...</p>
           </div>
 
-          <!-- §1.7 / §4.7 — invalid or expired token. Form stays hidden. -->
+          <!-- §1.7 / §4.7 — 無効・期限切れトークン。フォームは非表示のまま。 -->
           <div
             v-else-if="phase === 'invalid' || phase === 'expired'"
             class="text-center"
@@ -214,7 +206,7 @@ function goLogin(): void {
             </div>
           </div>
 
-          <!-- §4.5 / §4.6 — success state, auto-redirect in 3s. -->
+          <!-- §4.5 / §4.6 — 成功状態。3秒後に自動遷移。 -->
           <div v-else-if="phase === 'done'" class="text-center">
             <p class="text-sm text-text-main mb-6">
               {{ SUCCESS_MSG }}
@@ -222,7 +214,7 @@ function goLogin(): void {
             <p class="text-xs text-text-description">3秒後にログイン画面へ移動します...</p>
           </div>
 
-          <!-- §1.5 — token valid, render the form. -->
+          <!-- §1.5 — トークン有効、フォーム表示。 -->
           <a-form
             v-else
             layout="vertical"

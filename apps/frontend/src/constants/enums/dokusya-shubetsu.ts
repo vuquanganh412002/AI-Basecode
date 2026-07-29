@@ -1,9 +1,9 @@
 /**
- * Mirror of `apps/backend/src/common/enums/dokusya-shubetsu.enum.ts`
- * (`m_code.code_category = 'DOKUSYA_SHUBETSU'`).
+ * `apps/backend/src/common/enums/dokusya-shubetsu.enum.ts` のミラー
+ * （`m_code.code_category = 'DOKUSYA_SHUBETSU'`）。
  *
- * Group A: used for branching (電子版/併読 toggle the 配達先 section, payment
- * method allow-list, etc.). Labels come from `useCodesStore().label(...)`.
+ * Group A: 分岐に使用（電子版/併読 が 配達先 セクションや支払方法の許可リスト等を切り替える）。
+ * ラベルは `useCodesStore().label(...)` から取得。
  */
 export const DokusyaShubetsu = {
   /** 紙版 */

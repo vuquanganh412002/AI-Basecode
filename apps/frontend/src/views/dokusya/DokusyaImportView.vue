@@ -1,14 +1,12 @@
 <script setup lang="ts">
-// ACSMS-SCR-016 — 購読者Excelデータ取込画面.
+// ACSMS-SCR-016 — 購読者Excelデータ取込画面。
 //
-// Single-page form: pick an Excel file → client-side parse via xlsx →
-// show preview → toggle column subset → choose import mode → submit to
-// the BE import endpoint.
+// 単一ページフォーム: Excel 選択 → xlsx でクライアント解析 → プレビュー表示 →
+// 列サブセット切替 → 取込モード選択 → BE 取込エンドポイントへ送信。
 //
-// Mirrors the SCR-019 precedent (HanbaitenImportView.vue): native
-// <input type="file"> + native <input type="checkbox" name="col"
-// value="..."> so the spec's name+value selectors keep working in
-// vitest without traversing antd component internals.
+// SCR-019 (HanbaitenImportView.vue) の前例に倣い、ネイティブ <input type="file"> +
+// <input type="checkbox" name="col" value="..."> を使用。antd 内部を辿らず
+// vitest でスペックの name+value セレクタが機能するようにする。
 //
 // Spec contract: src/views/dokusya/__tests__/DokusyaImportView.spec.ts.
 
@@ -60,7 +58,7 @@ const IMPORT_MODE_OPTIONS: ReadonlyArray<{
   { value: 'update', label: '更新' },
 ];
 
-// ─── messages (screen-design.md §メッセージ情報) ──────────────────────
+// ─── メッセージ（screen-design.md §メッセージ情報） ──────────────────────
 const MSG_016_001 =
   'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。';
 const MSG_016_002 = '取込処理を開始します。よろしいですか？';
@@ -68,14 +66,14 @@ const MSG_016_004 = '取り込みました。';
 const MSG_016_006 =
   'ファイルの行数が上限（30000行）を超えているため、取込みできません。';
 
-// m_code values for the 電子版クレカ guard (seeder §5).
+// 電子版クレカガード用の m_code 値（seeder §5）。
 
 const authStore = useAuthStore();
 const codes = useCodesStore();
 const notify = useNotify();
 const canImport = computed(() => authStore.hasPermission('dokusya.import'));
 
-// ─── form state ──────────────────────────────────────────────────────
+// ─── フォーム状態 ──────────────────────────────────────────────────────
 
 const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
 
@@ -96,7 +94,7 @@ const shubetsuOptions = computed(() =>
     ),
 );
 
-/** Selected columns — every physical column starts checked. */
+/** 選択列 — 物理列は初期状態で全てチェック。 */
 const selected = reactive<Record<PhysicalColumn, boolean>>(
   PHYSICAL_COLUMNS.reduce(
     (acc, col) => {
@@ -107,13 +105,13 @@ const selected = reactive<Record<PhysicalColumn, boolean>>(
   ),
 );
 
-/** Parsed Excel rows, populated after a successful file change. */
+/** 解析済み Excel 行。ファイル選択成功後に格納される。 */
 const parsedRows = ref<Array<Record<string, unknown>>>([]);
 const fileName = ref<string>('');
 const submitting = ref(false);
 const panelCollapsed = ref(false);
 
-/** Row-level errors surfaced from IMPORT_VALIDATION_ERROR (capped at 10). */
+/** IMPORT_VALIDATION_ERROR 由来の行単位エラー（最大10件）。 */
 interface RowError {
   row: number;
   field: string;
@@ -121,7 +119,7 @@ interface RowError {
 }
 const rowErrors = ref<RowError[]>([]);
 
-/** Import result counts (機能 8.4). */
+/** 取込結果件数（機能 8.4）。 */
 const importResult = ref<{
   created_count: number;
   updated_count: number;
@@ -131,7 +129,7 @@ const importResult = ref<{
   total_rows: number;
 } | null>(null);
 
-// ─── derived ─────────────────────────────────────────────────────────
+// ─── 派生値 ─────────────────────────────────────────────────────────
 
 const hasFile = computed(() => parsedRows.value.length > 0);
 const previewVisible = computed(() => hasFile.value);
@@ -164,21 +162,21 @@ function isColumnDisabled(col: PhysicalColumn): boolean {
   return isLocked(col) || isForcedUnchecked(col);
 }
 
-/** Columns the preview table renders — checked only. */
+/** プレビューテーブルが描画する列 — チェック済みのみ。 */
 const previewColumns = computed<PhysicalColumn[]>(() =>
   PHYSICAL_COLUMNS.filter((col) => selected[col]),
 );
 
 /**
- * Rows the preview table actually renders. Capped so a huge file
- * (up to 30000 rows) doesn't blow up the DOM / heap — the full set is
- * still kept in `parsedRows` for the count badge, validation and submit.
+ * プレビューテーブルが実際に描画する行。大きなファイル（最大30000行）で
+ * DOM / heap が膨れないよう上限を設ける。全件は件数バッジ・検証・送信のため
+ * parsedRows に保持する。
  */
 const PREVIEW_ROW_CAP = 100;
 const previewRows = computed(() => parsedRows.value.slice(0, PREVIEW_ROW_CAP));
 
 /**
- * Bound to the すべて選択／解除 checkbox.
+ * すべて選択／解除 チェックボックスにバインド。
  * 編集不可項目（チェックボックス無し）は判定から除外する — 当該列は常に
  * 未チェックなので、含めると「全選択」でも常に false になってしまう。
  */
@@ -215,7 +213,7 @@ watch(
   { immediate: true },
 );
 
-// ─── file change → xlsx parse → preview ─────────────────────────────
+// ─── ファイル変更 → xlsx 解析 → プレビュー ─────────────────────────────
 
 function isExcelFileName(name: string): boolean {
   const lower = name.toLowerCase();
@@ -238,10 +236,9 @@ async function onFileChange(event: Event): Promise<void> {
   rowErrors.value = [];
   importResult.value = null;
 
-  // [format-guard] Extension check BEFORE parse. `accept=".xlsx,.xls"`
-  // is advisory only (bypassable via drag&drop / Safari), and XLSX.read
-  // parses CSV/TXT without throwing — so a catch alone can't detect a
-  // non-Excel file.
+  // [format-guard] 解析前に拡張子チェック。accept=".xlsx,.xls" は advisory のみ
+  //（drag&drop / Safari でバイパス可）で、XLSX.read は CSV/TXT も例外なく解析する
+  // ため、catch だけでは非 Excel を検出できない。
   if (!isExcelFileName(file.name)) {
     rejectInvalidFile();
     return;
@@ -256,9 +253,8 @@ async function onFileChange(event: Event): Promise<void> {
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
       defval: '',
     });
-    // sheet_to_json keys are row-1 cell strings. Accept either the JP
-    // header OR the physical name as a key (test fixtures pass physical
-    // names directly); drop unknown columns.
+    // sheet_to_json のキーは1行目セル文字列。JP ヘッダー・物理名どちらのキーも
+    // 受け付け（テスト fixture は物理名を直接渡す）、未知列は捨てる。
     parsedRows.value = rawRows.map((r) => {
       const out: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(r)) {
@@ -287,18 +283,18 @@ async function onFileChange(event: Event): Promise<void> {
   }
 }
 
-// ─── template download ──────────────────────────────────────────────
+// ─── テンプレートダウンロード ──────────────────────────────────────────────
 
 async function onTemplateDownload(): Promise<void> {
   try {
     const blob = await downloadDokusyaImportTemplate();
     downloadBlob(blob, '購読者Excelデータ取込_テンプレート.xlsx');
   } catch {
-    // Global axios interceptor already toasted the 500 — swallow here.
+    // global axios interceptor が 500 をトースト済み — ここでは握り潰す。
   }
 }
 
-// ─── client validation (機能 8.1) ─────────────────────────────────────
+// ─── クライアント検証（機能 8.1） ─────────────────────────────────────
 
 /** 電子版(2)・併読(3) はメール必須かつ一意。紙版(1) は任意・重複可。 */
 function isDigitalOrBoth(shubetsu: number): boolean {
@@ -308,10 +304,9 @@ function isDigitalOrBoth(shubetsu: number): boolean {
 }
 
 /**
- * Run all client-side preflight checks. Returns the first blocking
- * error message (toast) or null when the file is clean enough to submit.
- * Row-level 電子版クレカ / 購読部数 violations populate `rowErrors` so the
- * error panel renders them; the BE re-validates everything anyway.
+ * クライアント事前チェックを全実行。最初のブロッキングエラー文言（トースト）を
+ * 返し、送信可能なら null を返す。行単位の 電子版クレカ / 購読部数 違反は
+ * rowErrors に格納しエラーパネルへ表示する（BE も全件再検証する）。
  */
 function validateBeforeSubmit(): string | null {
   // no-file は onSubmit が warning で先に処理するためここには来ない。
@@ -426,8 +421,8 @@ async function runImport(): Promise<void> {
   if (submitting.value) return;
   submitting.value = true;
   try {
-    // selected_columns — every checked column. NEW-mode required columns
-    // are always included (their checkbox is disabled+checked).
+    // selected_columns — チェック済み全列。NEW モードの必須列は常に含まれる
+    //（チェックボックスが disabled+checked のため）。
     const selectedCols = PHYSICAL_COLUMNS.filter((c) => selected[c]);
 
     const rows: ImportDokusyaRow[] = parsedRows.value.map((r) => {
@@ -448,7 +443,7 @@ async function runImport(): Promise<void> {
     };
     const res = await importDokusyaExcel(body);
     notify.success(res.message || MSG_016_004);
-    // 機能 8.4 — show counts, then reset for the next upload.
+    // 機能 8.4 — 件数を表示し、次回アップロード用にリセット。
     importResult.value = {
       created_count: res.data?.created_count ?? 0,
       updated_count: res.data?.updated_count ?? 0,
@@ -461,12 +456,11 @@ async function runImport(): Promise<void> {
     fileName.value = '';
     resetFileInput();
   } catch (err: unknown) {
-    // Render row-level errors for both IMPORT_VALIDATION_ERROR (service
-    // business rules) AND VALIDATION_ERROR (nested-row DTO failures — the
-    // global ValidationPipe in main.ts flattens rows[i].field to
-    // { row, field, message }). The global axios interceptor stays silent
-    // for both codes (FORBIDDEN / 500 are toasted centrally), so the view
-    // owns the per-row list here.
+    // IMPORT_VALIDATION_ERROR（サービス業務ルール）と VALIDATION_ERROR
+    //（ネスト行 DTO 違反 — main.ts の ValidationPipe が rows[i].field を
+    // { row, field, message } に平坦化）両方の行単位エラーを描画する。
+    // interceptor は両コードで沈黙する（FORBIDDEN / 500 は集中トースト）ため、
+    // 行単位一覧は view が担う。
     const body = (err as { response?: { data?: unknown } })?.response?.data as
       | { error_code?: string; errors?: RowError[] }
       | undefined;
@@ -523,7 +517,7 @@ function renderCell(value: unknown): string {
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
       <form class="space-y-4" @submit.prevent>
-        <!-- Row 1（lg・5カラム）: [file ×2] [購読種別] [取込モード] [テンプレート右] -->
+        <!-- 1行目（lg・5カラム）: [file ×2] [購読種別] [取込モード] [テンプレート右] -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-4 items-start">
           <div class="md:col-span-2 lg:col-span-2">
             <label
@@ -768,7 +762,7 @@ function renderCell(value: unknown): string {
           </div>
         </div>
 
-        <!-- Row-level error list (max 10) -->
+        <!-- 行単位エラー一覧（最大10件） -->
         <div
           v-if="rowErrors.length > 0"
           data-test="import-error-list"

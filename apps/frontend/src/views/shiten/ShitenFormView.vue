@@ -2,19 +2,15 @@
 /**
  * 支店マスタ登録画面 (ACSMS-SCR-007).
  *
- * Shared between create + edit flows:
+ * 登録・編集を兼ねる:
  *   /shiten/create     (POST) — CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
- *   /shiten/:id/edit   (PUT)  — same 3 roles; shiten_code is immutable
+ *   /shiten/:id/edit   (PUT)  — 同3ロール、shiten_code は immutable
  *
- * - Validation rules + error message text from
- *   docs/design/ACSMS-SCR-007/screen-design.md (機能定義).
- * - DOM structure / Japanese button copy from
- *   docs/design/ACSMS-SCR-007/index.html.
- * - API contract from docs/design/ACSMS-SCR-007/ACSMS-SCR-007-api.md.
+ * バリデーション・メッセージ: screen-design.md（機能定義）
+ * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-007-api.md。
  *
- * NICHINO_ADMIN has NO shiten.* permission per api.md §4.2, so the
- * router guard rejects them — the form assumes a JA-scoped session
- * (session.ja_id non-null).
+ * NICHINO_ADMIN は api.md §4.2 で shiten.* 権限を持たず router guard が拒否する。
+ * フォームは JA スコープの session（session.ja_id 非 null）を前提とする。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -54,7 +50,7 @@ const notify = useNotify();
 const authStore = useAuthStore();
 const { fieldErrors, submitting, submit } = useApiForm();
 
-/** Numeric id from the path, or undefined for create mode. */
+/** パスの数値 id。登録モードでは undefined。 */
 const shitenIdParam = computed<number | undefined>(() => {
   const raw = route.params.id;
   if (raw === undefined || raw === '') return undefined;
@@ -64,16 +60,13 @@ const shitenIdParam = computed<number | undefined>(() => {
 
 const isEdit = computed(() => shitenIdParam.value !== undefined);
 
-// [role5-locked-fields] Customer policy 2026-05 — JA_KANRI_SHITEN can
-// edit shiten in edit mode BUT 管理支店 (kanri_shiten_id) must stay
-// read-only. That's the shiten's "parent" assignment — only higher
-// roles (CHUOKAI / JA_HONTEN / NICHINO_*) reassign a branch to a
-// different kanri-shiten; role 5 sees the value for context but
-// can't change it. Everything else (金融機関支店フラグ / 支店名 /
-// カナ / JASTEM / 備考 / 更新 submit) stays editable for role 5.
+// [role5-locked-fields] 顧客方針 2026-05 — JA_KANRI_SHITEN は編集モードで支店を
+// 編集できるが 管理支店（kanri_shiten_id）は read-only のまま。これは支店の
+// 「親」割当で、別の管理支店への再割当は上位ロール（CHUOKAI / JA_HONTEN /
+// NICHINO_*）のみ。role 5 は文脈として値を見るが変更不可。他項目（金融機関支店
+// フラグ / 支店名 / カナ / JASTEM / 備考 / 更新 submit）は role 5 も編集可。
 //
-// Kept as a Set + computed (vs. inline `role_code === ...`) so future
-// additions stay one-line: extend the Set, no code-flow changes.
+// 将来の追加を1行で済ませるため inline の `role_code === ...` でなく Set + computed。
 const ROLE5_LOCKED_FIELDS_ROLES: ReadonlySet<string> = new Set([
   RoleCode.JA_KANRI_SHITEN,
 ]);
@@ -99,9 +92,9 @@ const isViewOnly = computed(
 
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 
-// Form state — kanri_shiten_id stays undefined until the user picks one
-// so antd's <a-select> shows the placeholder ("選択してください") instead
-// of a literal "0". validateClient catches the unset case.
+// フォーム状態 — kanri_shiten_id はユーザーが選ぶまで undefined にして antd の
+// <a-select> が "0" ではなく placeholder（"選択してください"）を表示するようにする。
+// 未設定は validateClient が捕捉。
 type FormState = Omit<CreateShitenRequest, 'kanri_shiten_id'> & {
   kanri_shiten_id: number | undefined;
 };
@@ -112,8 +105,8 @@ const formState = reactive<FormState>({
   shiten_name_kana: '',
   kanri_shiten_id: undefined,
   kinyu_shiten_flg: false,
-  // JASTEM 店舗単位 4 列 — initialise to '' so the edit-mode preload
-  // and the POST body always carry strings (BE column is NOT NULL).
+  // JASTEM 店舗単位 4列 — '' で初期化し、編集プリロードと POST body が常に
+  // 文字列を持つようにする（BE 列は NOT NULL）。
   jastem_toriatsukai_tenpo_code: '',
   jastem_tenpo_name: '',
   jastem_tyokin_shubetsu: '',
@@ -124,31 +117,30 @@ const formState = reactive<FormState>({
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
 
-/* ─── Lifecycle ────────────────────────────────────────────────────── */
+/* ─── ライフサイクル ───────────────────────────────────────────────── */
 
 onMounted(async () => {
-  // 管理支店 dropdown via ACSMS-API-COMMON-004 — scoped to caller's JA
-  // (cascade source). NICHINO_ADMIN has no ja_id, so the form is
-  // unreachable for them anyway (router guard rejects on shiten.create
-  // / shiten.update which admins don't hold). The 3 JA-level roles
-  // always carry a non-null session.ja_id.
+  // 管理支店 dropdown（ACSMS-API-COMMON-004）— 呼び出し元の JA にスコープ
+  // （cascade 元）。NICHINO_ADMIN は ja_id を持たずどのみち到達不可（router guard が
+  // admin の持たない shiten.create / shiten.update で拒否）。JA レベル3ロールは
+  // 常に非 null の session.ja_id を持つ。
   const jaId = authStore.user?.ja_id;
   if (jaId !== null && jaId !== undefined) {
     try {
       const resp = await getKanriShitenDropdown(jaId);
       kanriShitenOptions.value = resp.data;
     } catch {
-      // Axios interceptor already toasted on 403/500.
+      // axios interceptor が 403/500 を既にトースト済み。
       kanriShitenOptions.value = [];
     }
   }
 
-  // Edit-mode preload.
+  // 編集モードの事前ロード。
   if (shitenIdParam.value !== undefined) {
     try {
       const resp = await getShiten(shitenIdParam.value);
-      // Capture the loaded branch's parent kanri_shiten for the
-      // role-5 view-only check ([role5-view-only]).
+      // role-5 view-only チェック用に、ロードした支店の親 kanri_shiten を控える
+      // （[role5-view-only]）。
       loadedKanriShitenId.value = resp.data.kanri_shiten_id ?? null;
       Object.assign(formState, {
         shiten_code: resp.data.shiten_code,
@@ -156,9 +148,8 @@ onMounted(async () => {
         shiten_name_kana: resp.data.shiten_name_kana ?? '',
         kanri_shiten_id: resp.data.kanri_shiten_id,
         kinyu_shiten_flg: !!resp.data.kinyu_shiten_flg,
-        // JASTEM 店舗単位 4 列 — `?? ''` guards legacy rows that
-        // pre-date the migration (where the column may not be present
-        // in the response payload from older BE deploys).
+        // JASTEM 店舗単位 4列 — `?? ''` は migration 以前のレガシー行
+        // （旧 BE デプロイの応答に列がない場合）を守る。
         jastem_toriatsukai_tenpo_code: resp.data.jastem_toriatsukai_tenpo_code ?? '',
         jastem_tenpo_name: resp.data.jastem_tenpo_name ?? '',
         jastem_tyokin_shubetsu: resp.data.jastem_tyokin_shubetsu ?? '',
@@ -167,23 +158,23 @@ onMounted(async () => {
       });
       await editGuard.capture();
     } catch {
-      // 404 / 403 — global axios interceptor toasts + this view bounces.
+      // 404 / 403 — axios interceptor がトーストし、この view は遷移させる。
       try {
         await router.push({ name: 'Dashboard' });
       } catch {
-        /* test routers may not declare Dashboard — ignore */
+        /* テスト用ルーターは Dashboard 未定義の場合あり — 無視 */
       }
     }
   }
 });
 
-/* ─── Validation (per screen-design.md §3.1) ──────────────────────── */
+/* ─── 検証（screen-design.md §3.1 に準拠） ─────────────────────────── */
 
 const REQUIRED_MSG = '必須項目です。';
 const SHITEN_CODE_FORMAT_MSG = '支店コードは半角数字3桁で入力してください。';
 const KANA_FORMAT_MSG = kanaFormatMessage('支店名');
 
-// JASTEM 店舗単位 fields — mirror BE @Matches regexes for instant feedback.
+// JASTEM 店舗単位 項目 — 即時フィードバックのため BE @Matches の regex をミラー。
 const TENPO_CODE_FORMAT_MSG =
   'データ送信取扱店舗コードは半角数字で入力してください（スペース不可）。';
 // 店舗名 — カタカナ/英数字は半角、漢字・ひらがなは可（JASTEM_NAME_RE）。
@@ -202,8 +193,8 @@ const TYOKIN_SHUBETSU_OPTIONS = [
 ];
 
 /**
- * One JASTEM field: required (when 金融機関支店フラグ=true) first, then a
- * format check only when non-empty — so the user sees one message at a time.
+ * JASTEM 1項目: まず必須（金融機関支店フラグ=true のとき）、次に非空のときのみ
+ * 形式チェック — ユーザーは一度に1メッセージを見る。
  */
 function checkJastemField(
   errs: Record<string, string>,
@@ -264,8 +255,8 @@ function validateJastemFields(
 function validateClient(form: FormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
-  // Required checks. ?.trim() is mandatory because antd's <a-select
-  // allow-clear> sets v-model to undefined on × click — see vue.md.
+  // 必須チェック。`?.trim()` は必須 — antd `<a-select allow-clear>` は
+  // × クリックで v-model を undefined にする（vue.md）。
   if (!isEdit.value && !form.shiten_code?.trim()) {
     errs.shiten_code = REQUIRED_MSG;
   }
@@ -276,7 +267,7 @@ function validateClient(form: FormState): Record<string, string> {
     errs.kanri_shiten_id = REQUIRED_MSG;
   }
 
-  // Format check — mirror BE @Matches(/^\d{3}$/) for instant feedback.
+  // 形式チェック — 即時フィードバックのため BE @Matches(/^\d{3}$/) をミラー。
   if (
     !errs.shiten_code &&
     form.shiten_code &&
@@ -285,8 +276,8 @@ function validateClient(form: FormState): Record<string, string> {
     errs.shiten_code = SHITEN_CODE_FORMAT_MSG;
   }
 
-  // Half-width katakana — downstream Zengin CSV / PDF exports require
-  // half-width per ﾆﾎﾝｼﾞｭｳｼﾞｭｳｺﾞｾﾝﾀｰ format spec. See vue.md §Kana fields.
+  // 半角カタカナ — 下流の Zengin CSV / PDF 出力は半角必須（ﾆﾎﾝｼﾞｭｳｼﾞｭｳｺﾞｾﾝﾀｰ
+  // 形式仕様）。vue.md §Kana fields。
   if (
     form.shiten_name_kana &&
     !HALF_WIDTH_KATAKANA_RE.test(form.shiten_name_kana)
@@ -306,7 +297,7 @@ const allFieldErrors = computed<Record<string, string>>(() => ({
   ...fieldErrors.value,
 }));
 
-/* ─── Submit pipeline ─────────────────────────────────────────────── */
+/* ─── Submit パイプライン ─────────────────────────────────────────── */
 
 const FIELD_ORDER: ReadonlyArray<keyof FormState> = [
   'kanri_shiten_id',
@@ -314,7 +305,7 @@ const FIELD_ORDER: ReadonlyArray<keyof FormState> = [
   'shiten_code',
   'shiten_name',
   'shiten_name_kana',
-  // JASTEM 店舗単位 4 列 — DOM order matches the template's row 3.
+  // JASTEM 店舗単位 4列 — DOM 順はテンプレートの行3に一致。
   'jastem_toriatsukai_tenpo_code',
   'jastem_tenpo_name',
   'jastem_tyokin_shubetsu',
@@ -332,18 +323,17 @@ async function submitWith(form: FormState): Promise<void> {
 
   await submit(async () => {
     // [highlight-on-return]
-    // Carry the just-touched shiten_id back to the list view via
-    // ?highlight=:id so the list can pull that row to position 1
-    // (customer ask 2026-05-19 — better feedback than scrolling
-    // through a code-sorted list to find the change).
+    // 直近操作した shiten_id を ?highlight=:id で一覧へ持ち帰り、一覧がその行を
+    // 先頭に引き上げられるようにする（顧客要望 2026-05-19 — コード順一覧を
+    // スクロールして変更を探すより良いフィードバック）。
     let highlightId: number | undefined;
     if (shitenIdParam.value === undefined) {
-      // validateClient guarantees kanri_shiten_id is set for create mode.
+      // validateClient が登録モードで kanri_shiten_id 設定済みを保証。
       const created = await createShiten(form as CreateShitenRequest);
       notify.created();
       highlightId = created.data.shiten_id;
     } else {
-      // PUT body drops shiten_code (immutable per api.md §3 注記).
+      // PUT body は shiten_code を落とす（immutable、api.md §3 注記）。
       const { shiten_code: _drop, ...updateBody } = form;
       void _drop;
       await updateShiten(
@@ -370,12 +360,11 @@ async function onFormSubmit(): Promise<void> {
     message.info('変更がありません。');
     return;
   }
-  // antd `<a-select allow-clear>` sets v-model to `undefined` on × click.
-  // JSON.stringify drops undefined → BE's pickString sees "key absent"
-  // and keeps the prior value, so a cleared dropdown wouldn't actually
-  // clear the column. Normalize to '' here so the BE receives the key
-  // explicitly and `@Transform(blankToUndef)` + pickString's "key
-  // present but undefined" branch clears the column. (See vue.md.)
+  // antd `<a-select allow-clear>` は × クリックで v-model を `undefined` にする。
+  // JSON.stringify が undefined を落とすと BE の pickString は「キー不在」と見て
+  // 既存値を維持し、クリアした dropdown が実際には列をクリアしない。ここで '' に
+  // 正規化し BE がキーを明示的に受け取り `@Transform(blankToUndef)` + pickString の
+  // 「キーあり・undefined」分岐が列をクリアするようにする。（vue.md）
   await submitWith({
     ...formState,
     jastem_tyokin_shubetsu: formState.jastem_tyokin_shubetsu ?? '',
@@ -383,8 +372,7 @@ async function onFormSubmit(): Promise<void> {
 }
 
 /**
- * Back button — straight navigation to the list view (no confirm modal,
- * matching the SCR-009 customer decision to drop the popup).
+ * 戻るボタン — 一覧へ直接遷移（確認モーダルなし、SCR-009 のポップアップ廃止決定に合わせる）。
  */
 function onBack(): void {
   router.push({ name: 'ShitenList' });
@@ -407,7 +395,7 @@ defineExpose({ submitWith, form: formState });
         @keydown="preventEnterImplicitSubmit"
         @finish="onFormSubmit"
       >
-        <!-- Row 1: 管理支店 (full width) + 金融機関支店フラグ -->
+        <!-- 行1: 管理支店（全幅） + 金融機関支店フラグ -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             class="md:col-span-2"
@@ -445,7 +433,7 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
         </div>
 
-        <!-- Row 2: 支店コード / 支店名 / 支店名カナ -->
+        <!-- 行2: 支店コード / 支店名 / 支店名カナ -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="shiten_code"
@@ -495,10 +483,10 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
         </div>
 
-        <!-- Row 3: JASTEM 店舗単位 — 4 fields (※空文字許容).
-             Visible labels drop the JASTEM_ prefix per customer-facing copy;
-             the prefix lives only in the DB column / docs comments.
-             Lengths mirror database-design.md §m_shiten rows 7-10. -->
+        <!-- 行3: JASTEM 店舗単位 — 4項目（※空文字許容）。
+             表示ラベルは顧客向け文言で JASTEM_ プレフィックスを外す
+             （プレフィックスは DB 列 / docs コメントのみ）。
+             桁数は database-design.md §m_shiten 行7-10 をミラー。 -->
         <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-6">
           <a-form-item
             name="jastem_toriatsukai_tenpo_code"
@@ -567,7 +555,7 @@ defineExpose({ submitWith, form: formState });
           </a-form-item>
         </div>
 
-        <!-- Row 4: 備考 -->
+        <!-- 行4: 備考 -->
         <a-form-item
           label="備考"
           name="biko"

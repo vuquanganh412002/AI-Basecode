@@ -1,25 +1,22 @@
 import JSZip from 'jszip';
 
-/** One entry (file) inside a ZIP archive. */
+/** ZIP アーカイブ内の1エントリ（ファイル）。 */
 export interface ZipEntry {
-  /** Filename inside the archive (basename, may be non-ASCII). */
+  /** アーカイブ内のファイル名（basename、非 ASCII 可）。 */
   name: string;
-  /** File content. */
+  /** ファイル内容。 */
   body: Buffer;
 }
 
 /**
- * Bundle `entries` into a single ZIP archive (`nodebuffer`).
+ * `entries` を単一 ZIP（`nodebuffer`）にまとめる。
  *
- * Shared helper for every screen that returns multiple files as one
- * download — 購読者ファイルダウンロード 一括DL (SCR-022), 増減通知 複数管理支店
- * (SCR-029), and any future bulk-export. Build the per-file buffers in the
- * caller (S3 fetch / PDF render / …), pass them here, then stream the result
- * with `Content-Type: application/zip`.
+ * 複数ファイルダウンロード全般で共有 — 一括DL (SCR-022), 増減通知 複数管理支店
+ * (SCR-029), 将来の一括エクスポート。呼び出し側がファイル別バッファ（S3 / PDF /
+ * …）を用意してここに渡し、`Content-Type: application/zip` でストリームする。
  *
- * Duplicate names are made unique by appending ` (n)` before the extension
- * (`a.pdf` → `a (1).pdf` → `a (2).pdf`); JSZip would otherwise silently
- * overwrite a same-named entry.
+ * 重複名は拡張子前に ` (n)` を付ける（`a.pdf` → `a (1).pdf`）。そうしないと JSZip
+ * が同名エントリを黙って上書きするため。
  */
 export async function buildZipArchive(entries: ZipEntry[]): Promise<Buffer> {
   const zip = new JSZip();
@@ -30,7 +27,7 @@ export async function buildZipArchive(entries: ZipEntry[]): Promise<Buffer> {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-/** Reserve a collision-free archive name, appending ` (n)` before the ext. */
+/** 衝突しないアーカイブ名を確保する（拡張子前に ` (n)` を付与）。 */
 function uniqueName(name: string, used: Set<string>): string {
   if (!used.has(name)) {
     used.add(name);

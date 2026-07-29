@@ -1,20 +1,17 @@
 import axiosInstance from '@/api/axios-instance';
 
-// Hand-written API wrapper for the 単価マスタ (m_tanka) endpoints.
-// Mirrors `apps/frontend/src/api/ja/ja.ts` — a thin layer over the shared
-// axiosInstance that unwraps the response envelope at this boundary so the
-// views consume clean shapes. The interfaces below are the single source of
-// truth for these shapes on the FE side (matches
-// docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md).
+// 単価マスタ (m_tanka) 用の手書き API wrapper。
+// `apps/frontend/src/api/ja/ja.ts` と同構造 — 共有 axiosInstance の薄いラッパで、
+// この境界で envelope をほどき view にクリーンな形を渡す。以下の interface が
+// FE 側でのこれら型の単一ソース（docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md 準拠）。
 //
-// SCR-002 ships listTanka + removeTanka. SCR-003 (create / update /
-// detail) will extend this file with getTanka / createTanka /
-// updateTanka — keep the structure parallel to ja.ts to make that
-// follow-up mechanical.
+// SCR-002 は listTanka + removeTanka を提供。SCR-003（create/update/detail）で
+// getTanka / createTanka / updateTanka を追加予定。後続を機械的にするため
+// ja.ts と並行構造を保つ。
 
 /**
- * Row shape returned by `GET /api/v1/tanka` (ACSMS-API-002-001).
- * Per `docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md` §レスポンスデータ.
+ * `GET /api/v1/tanka`（ACSMS-API-002-001）の行の形。
+ * `docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md` §レスポンスデータ 準拠。
  */
 export interface TankaListItem {
   tanka_id: number;
@@ -29,7 +26,7 @@ export interface TankaListItem {
   kingaku_zeikomi: number;
   kingaku_zeinuki: number;
   tax_rate: number;
-  /** Manual operator-controlled disable flag (independent of tekiyo dates). */
+  /** 運用者が手動制御する無効化フラグ（適用日とは独立）。 */
   active_flg: boolean;
   /** キャンペーンフラグ — TRUE: 有効, FALSE: 無効. */
   campaign_flg: boolean;
@@ -47,30 +44,28 @@ export interface TankaListResponse {
   meta: TankaListMeta;
 }
 
-/** Query-string DTO for `GET /api/v1/tanka`. */
+/** `GET /api/v1/tanka` のクエリDTO。 */
 export interface ListTankaQuery {
   tanka_type?: number;
   tanka_name?: string;
   /**
-   * Lower bound on `tekiyo_start_date` (YYYY-MM-DD). Records whose
-   * effective period starts on/after this date pass the filter.
-   * Per api.md §4.3 — `tekiyo_start_date >= 指定値`.
+   * `tekiyo_start_date`（YYYY-MM-DD）の下限。適用開始日がこの日以降の行が通る。
+   * api.md §4.3 — `tekiyo_start_date >= 指定値`。
    */
   tekiyo_start_date?: string;
   /**
-   * Upper bound on `tekiyo_end_date` (YYYY-MM-DD). Records whose
-   * effective period ends on/before this date pass the filter.
-   * NULL (無期限) records are EXCLUDED — see api.md §4.3.
+   * `tekiyo_end_date`（YYYY-MM-DD）の上限。適用終了日がこの日以前の行が通る。
+   * NULL（無期限）行は除外 — api.md §4.3 参照。
    */
   tekiyo_end_date?: string;
   /**
-   * `true` = 有効中のみ、`false` = 停止中のみ、`undefined` = 両方（省略時）.
-   * Per api.md §4.3 the BE treats absence as "both".
+   * `true` = 有効中のみ、`false` = 停止中のみ、`undefined` = 両方（省略時）。
+   * api.md §4.3 で BE は未指定を「両方」扱い。
    */
   active_flg?: boolean;
   /**
-   * `true` = キャンペーン有効のみ、`false` = 無効のみ、`undefined` = 両方（省略時）.
-   * Mirrors `active_flg` — the BE treats absence as "both".
+   * `true` = キャンペーン有効のみ、`false` = 無効のみ、`undefined` = 両方（省略時）。
+   * `active_flg` と同様、BE は未指定を「両方」扱い。
    */
   campaign_flg?: boolean;
   page?: number;
@@ -79,16 +74,16 @@ export interface ListTankaQuery {
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response shape from `DELETE /api/v1/tanka/:tanka_id`. */
+/** `DELETE /api/v1/tanka/:tanka_id` のレスポンス形。 */
 export interface TankaDeleteResponse {
   message: string;
 }
 
 /**
- * Detail shape returned by `GET /api/v1/tanka/:tanka_id` (ACSMS-API-003-001)
- * + body of `POST /api/v1/tanka` (003-002) + `PUT /api/v1/tanka/:tanka_id`
- * (003-003). Superset of `TankaListItem` — adds `ja_id`, `biko`,
- * `created_at`, `updated_at` per api.md §レスポンスデータ.
+ * `GET /api/v1/tanka/:tanka_id`（ACSMS-API-003-001）の詳細形 +
+ * `POST /api/v1/tanka`（003-002）+ `PUT /api/v1/tanka/:tanka_id`（003-003）の body。
+ * `TankaListItem` の上位集合で `ja_id`, `biko`, `created_at`, `updated_at` を追加
+ * （api.md §レスポンスデータ）。
  */
 export interface TankaDetail {
   tanka_id: number;
@@ -107,15 +102,15 @@ export interface TankaDetail {
   active_flg: boolean;
   /** キャンペーンフラグ — TRUE: 有効, FALSE: 無効. */
   campaign_flg: boolean;
-  /** NOT NULL, defaults to '' when blank. */
+  /** NOT NULL。空欄時は '' 既定。 */
   biko: string;
-  /** ISO 8601 (TIMESTAMPTZ). */
+  /** ISO 8601 (TIMESTAMPTZ)。 */
   created_at: string;
-  /** ISO 8601 — null until the first update. */
+  /** ISO 8601 — 初回更新まで null。 */
   updated_at: string | null;
 }
 
-/** POST /api/v1/tanka request body — ACSMS-API-003-002. */
+/** POST /api/v1/tanka のリクエスト body — ACSMS-API-003-002。 */
 export interface CreateTankaRequest {
   tanka_type: number;
   tanka_code: string;
@@ -132,8 +127,8 @@ export interface CreateTankaRequest {
 }
 
 /**
- * PUT /api/v1/tanka/:id request body — same as Create MINUS `tanka_code`
- * (immutable per api.md §API-003-003 footnote: 「tanka_code は更新不可」).
+ * PUT /api/v1/tanka/:id のリクエスト body — Create から `tanka_code` を除いた形
+ * （api.md §API-003-003 注記「tanka_code は更新不可」で不変）。
  */
 export type UpdateTankaRequest = Omit<CreateTankaRequest, 'tanka_code'>;
 
@@ -191,8 +186,8 @@ export async function updateTanka(
 }
 
 // ─── GET /api/v1/tanka/dropdown ────────────────────────────────────────
-// Slim paginated + searchable list — consumed by SCR-017 hanbaiten
-// create form for the 配達手数料単価 field. See `BaseTankaDropdown`.
+// 軽量なページング + 検索リスト — SCR-017 販売店作成フォームの 配達手数料単価
+// 項目で使用。`BaseTankaDropdown` 参照。
 
 export interface TankaDropdownItem {
   tanka_id: number;
@@ -215,18 +210,18 @@ export interface TankaDropdownResponse {
 }
 
 export interface TankaDropdownQuery {
-  /** ILIKE on tanka_name only (tanka_code is hidden in the UI). */
+  /** tanka_name のみ ILIKE（tanka_code は UI 非表示）。 */
   q?: string;
-  /** m_code.code_category=TANKA_TYPE value. SCR-017 passes 2 (配達手数料). */
+  /** m_code.code_category=TANKA_TYPE の値。SCR-017 は 2（配達手数料）を渡す。 */
   tanka_type?: number;
   /**
-   * Explicit JA filter — for NICHINO_STAFF 代行入力 flow where the form
-   * picked a JA up-front. Ignored when the caller's session is JA-scoped.
+   * 明示的な JA フィルタ — NICHINO_STAFF 代行入力でフォームが先に JA を選ぶ場合用。
+   * 呼び出し元セッションが JA スコープの時は無視される。
    */
   ja_id?: number;
   page?: number;
   per_page?: number;
-  /** Edit-form escape hatch — BE prepends this tanka_id if not in page 1. */
+  /** 編集フォーム用の抜け道 — page 1 に無い場合 BE がこの tanka_id を先頭に付加。 */
   include_id?: number;
 }
 

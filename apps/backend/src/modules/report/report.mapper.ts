@@ -1,8 +1,6 @@
-// Pure response-shaping for the 購読者名簿 report (ACSMS-SCR-026).
-// No Nest DI / repo / service — only flat-row → grouped-DTO transforms,
-// importable from anywhere (service + unit tests).
+// 購読者名簿 (ACSMS-SCR-026) の純変換（生行→グループ化DTO。DI/repo なし・service + test 共用）。
 
-/** Flat row returned by the report QueryBuilder `.getRawMany()`. */
+/** QueryBuilder .getRawMany() の生行。 */
 export interface MeiboRawRow {
   dokusya_id: number | string;
   dokusya_shubetsu: number;
@@ -44,7 +42,7 @@ export interface MeiboRawRow {
   ja_tel: string | null;
 }
 
-// ─── response row shapes (api.md §レスポンスデータ) ─────────────────────
+// ─── レスポンス行の型（api.md §レスポンスデータ）─────────────────────
 export interface HanbaitenReportRow {
   dokusya_id: number;
   shimei: string;
@@ -125,22 +123,18 @@ export interface MeiboPreviewData {
   /** 全ページ通算のトップレベルグループ数（合計行の表示要否判定用）。 */
   group_count?: number;
   /**
-   * 当該ページが属するグループ内でのページ番号 / グループ総ページ数（顧客要件
-   * 2026-07: 帳票ヘッダの「ページ数」は販売店/管理支店ごとに 1..N で採番する）。
-   * ページャ(ナビゲーション)は従来どおり全体通算 (total_pages) を使う。
+   * グループ内ページ番号 / グループ総ページ数（顧客要件2026-07: 帳票「ページ数」は
+   * 販売店/管理支店ごと 1..N 採番）。ページャは全体通算 total_pages を使う。
    */
   group_page_no?: number;
   group_total_pages?: number;
 }
 
-// ─── shared field helpers ──────────────────────────────────────────────
+// ─── 共通フィールドヘルパ ──────────────────────────────────────────────
 const num = (v: number | string | null | undefined): number =>
   v == null ? 0 : Number(v);
 
-/**
- * 配達先氏名/かな — 配達先情報指定（haitatsu_same_flg=false）のときは配達先
- * 氏名、それ以外（購読者と同じ）のときは購読者氏名を使用する（画面項目No.10/11）。
- */
+/** 配達先氏名/かな — haitatsu_same_flg=false は配達先氏名、それ以外は購読者氏名（画面項目No.10/11）。 */
 function resolveShimei(row: MeiboRawRow): { shimei: string; shimei_kana: string } {
   if (row.haitatsu_same_flg === false) {
     return {
@@ -156,10 +150,8 @@ function resolveShimei(row: MeiboRawRow): { shimei: string; shimei_kana: string 
 
 /**
  * 配達先住所 — 〒{郵便番号}{市町村郡}{丁目番地}{建物名}（画面項目No.12/25）。
- * haitatsu_same_flg=false（配達先を個別指定）のときは配達先住所、それ以外
- * （購読者と同じ）のときは購読者本人の住所を使う。same_flg=TRUE のとき
- * haitatsu_* は空欄で保存されるため、本人住所へフォールバックしないと住所が
- * 空になる（resolveShimei と同じ方針）。
+ * haitatsu_same_flg=false は配達先住所、それ以外は購読者本人住所。same_flg=TRUE では
+ * haitatsu_* が空欄保存のため本人住所へフォールバックしないと空になる（resolveShimei と同方針）。
  */
 function resolveAddress(row: MeiboRawRow): string {
   if (row.haitatsu_same_flg === false) {
@@ -168,10 +160,7 @@ function resolveAddress(row: MeiboRawRow): string {
   return `〒${row.yubin_no}${row.shikuchoson}${row.chome_banchi}${row.tatemono_mei}`;
 }
 
-/**
- * 配達先電話番号 — same_flg=false は配達先連絡先、それ以外は購読者本人の連絡先。
- * （same_flg=TRUE のとき haitatsu_renrakusaki_1 は空欄のため本人へフォールバック）
- */
+/** 配達先電話番号 — same_flg=false は配達先連絡先、それ以外は本人（TRUE時 haitatsu_* 空欄のためフォールバック）。 */
 function resolveTel(row: MeiboRawRow): string {
   return (
     (row.haitatsu_same_flg === false
@@ -289,37 +278,29 @@ export function groupByKanriShiten(rows: MeiboRawRow[]): {
 }
 
 // ─── ページ送り（文書ページ単位 / SCR-026 preview）─────────────────────────
-/**
- * preview の既定ページ行数（A4 1ページに収まる明細行数）。FE は report_type に
- * 関わらず 15 を送るため通常はこの既定値は使われないが、直接 API 呼び出しで
- * per_page 未指定のときも preview/Excel とページ数が一致するよう 15 にそろえる。
- */
+/** preview 既定ページ行数（A4 1ページ分）。直接API呼出で per_page 未指定でも preview/Excel が一致するよう 15。 */
 export const MEIBO_PREVIEW_PER_PAGE = 15;
 
 // ─── 動的ページング（A4 高さ基準・顧客要件 2026-07）──────────────────────────
-// 明細行の高さ(可変=氏名/住所の折返し)を積算し、A4 の1ページ分に収まる範囲で改ページ
-// する。preview と Excel が同じ関数(buildMeiboDocPages)を使うので必ず一致する。
-// 見積りは安全側（等倍・ヘッダ分と安全余白を差し引く）で、実印刷でのはみ出しを防ぐ。
+// 明細行の可変高(氏名/住所の折返し)を積算し A4 1ページに収まる範囲で改ページ。preview と
+// Excel が同じ buildMeiboDocPages を使うので必ず一致。見積りは安全側で実印刷のはみ出しを防ぐ。
 const MEIBO_LINE_PT = 14; // font10 の1行あたり高さ(pt)
 /**
- * 明細行(販売店別)の最低高(pt) — チェックボックス(font36)ぶん。ページ高さの見積り
- * (splitByHeight)と Excel の実行高(autoFitRowHeight)で同じ値を使わないと改ページ位置が
- * ずれるため、meibo-report.service から import して共有する。
+ * 明細行(販売店別)の最低高(pt) — チェックボックス(font36)ぶん。見積り(splitByHeight)と
+ * Excel実行高(autoFitRowHeight)で同値を使わないと改ページ位置がずれるため import 共有。
  */
 export const MEIBO_HANBAITEN_MIN_ROW_PT = 44;
 /**
- * 各 report_type の列幅(Excel width単位)。ページ高さの見積り(estimateMeiboRowHeightPt)と
- * Excel シートの実列幅(fillHanbaiten/KanriSheet の sheet.columns)は必ず一致させる必要が
- * あるため、meibo-report.service はこの配列から sheet.columns を組み立てる（唯一の真実源）。
+ * 各 report_type の列幅(Excel width単位)。見積り(estimateMeiboRowHeightPt)と実列幅
+ * (sheet.columns)を一致させるため service はこの配列から sheet.columns を組む（唯一の真実源）。
  */
 export const MEIBO_COL_WIDTHS: Record<'hanbaiten' | 'kanri_shiten', number[]> = {
   hanbaiten: [9, 24, 32, 16, 18, 14, 11],
   kanri_shiten: [22, 18, 30, 9, 12, 12, 28],
 };
-// 明細に使えるページ高さ(pt)。A4縦 印刷可能高(~755pt)から 繰り返しヘッダ(≈130pt) +
-// 小計行 + 安全余白を差し引いた値。見積り(MEIBO_LINE_PT=14pt/行)は実印刷(font10≈13pt)
-// より大きめ＝安全側なので、物理的に1枚に収まる行を無駄に分割しないよう budget は
-// 実印刷可能高に近づける（旧値 520/590 は保守的すぎて空白が目立ったため引上げ）。
+// 明細に使えるページ高(pt)。A4縦 印刷可能高(~755pt) − 繰返ヘッダ(≈130pt) − 小計 − 安全余白。
+// 見積り(14pt/行)は実印刷(≈13pt)より安全側だが budget は実可能高に近づける（旧値520/590は
+// 保守的すぎて空白が目立ったため引上げ）。
 const MEIBO_DETAIL_BUDGET_PT: Record<'hanbaiten' | 'kanri_shiten', number> = {
   hanbaiten: 650,
   kanri_shiten: 650,
@@ -334,9 +315,8 @@ function displayWidth(text: string): number {
 
 /** セルの折返しを考慮した行数（明示\n + 列幅からの折返し）。 */
 function cellLineCount(text: string, colWidthUnits: number): number {
-  // Excel の wrapText は概ね「列幅(=半角0の幅)ぶん」で折返す。全角=2幅換算(displayWidth)
-  // なので capacity=列幅そのもの(×1.0)が実折返しに一致する。0.92 は折返しを過剰計上して
-  // 行を無駄に分割していたため 1.0 に補正。
+  // wrapText は概ね列幅ぶんで折返す。全角=2幅換算のため capacity=列幅×1.0 が実折返しに一致
+  // （0.92 は過剰計上で無駄分割していたため 1.0 に補正）。
   const capacity = Math.max(1, colWidthUnits);
   let lines = 0;
   for (const line of text.split('\n')) {
@@ -416,11 +396,10 @@ function splitByHeight<T>(
 }
 
 /**
- * 全件のグループ済みデータから「文書ページ」の配列を作る（動的ページング・顧客要件
- * 2026-07）。各ページ = 1グループのスライス（グループを跨がない）で、行の見積り高さを
- * 積算し A4 1ページ分に収める。preview と Excel が本関数を共有するのでページ構成は必ず
- * 一致する。各ページは単一グループの {@link MeiboPreviewData}（group_page_no /
- * group_total_pages / is_continued / show_total 付き）。
+ * グループ済みデータから「文書ページ」配列を作る（動的ページング・顧客要件2026-07）。
+ * 各ページ=1グループのスライス（跨がない）で行の見積り高を積算し A4 1ページに収める。
+ * preview と Excel が本関数を共有するのでページ構成は必ず一致。各ページは単一グループの
+ * {@link MeiboPreviewData}（group_page_no/group_total_pages/is_continued/show_total 付き）。
  */
 export function buildMeiboDocPages(full: MeiboPreviewData): MeiboPreviewData[] {
   const pages: MeiboPreviewData[] = [];

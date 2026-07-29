@@ -14,16 +14,16 @@ import {
 import { FileUploadStatus } from '../file-upload-status.constant';
 
 /**
- * Coerce blank `""` / null / undefined to `undefined` so `@IsOptional`
- * short-circuits — query strings from the FE arrive as `''` rather
- * than missing keys, and class-validator's `@IsOptional` doesn't skip
- * empty strings by itself. Pair BEFORE `@IsOptional()`.
+ * 空文字 `""` / null / undefined を `undefined` に寄せ `@IsOptional` を
+ * short-circuit させる。FE のクエリ文字列は欠落キーでなく `''` で届き、
+ * class-validator の `@IsOptional` は空文字を単体では skip しないため。
+ * `@IsOptional()` の前に置く。
  */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-// SCR-022 + SCR-023 share this list endpoint. SCR-023 added `file_size`
-// as a sortable column per api.md §リクエストパラメータ row 5.
+// SCR-022 + SCR-023 が共有する一覧エンドポイント。SCR-023 で
+// api.md §リクエストパラメータ row 5 に従い `file_size` をソート列に追加。
 const SORTABLE_COLUMNS = [
   'upload_datetime',
   'file_name',
@@ -36,12 +36,11 @@ const SORTABLE_COLUMNS = [
 const SORT_ORDERS = ['asc', 'desc'] as const;
 
 /**
- * Query DTO for `GET /api/v1/file-upload` (ACSMS-API-022-001).
+ * `GET /api/v1/file-upload` (ACSMS-API-022-001) のクエリ DTO。
  *
- * All fields are optional per api.md §リクエストパラメータ; the service
- * applies defaults (page=1, per_page=20, sort_by='upload_datetime',
- * sort_order='desc'). `sort_by` is whitelisted to prevent SQL
- * injection through dynamic ORDER BY composition.
+ * 全フィールド任意(api.md §リクエストパラメータ)。既定値は service が付与
+ * (page=1, per_page=20, sort_by='upload_datetime', sort_order='desc')。
+ * `sort_by` は動的 ORDER BY 経由の SQL 注入を防ぐため許可値でホワイトリスト化。
  */
 export class SearchFileUploadDto {
   @ApiPropertyOptional({ description: 'ファイル名（部分一致 LIKE）', maxLength: 255 })
@@ -60,7 +59,7 @@ export class SearchFileUploadDto {
   })
   todofuken_code?: string;
 
-  // SCR-023 — JA filter (NICHINO_* only per api.md request param note).
+  // SCR-023 — JA フィルタ(api.md 注記より NICHINO_* のみ指定可)。
   @ApiPropertyOptional({ description: 'JA ID（NICHINO_ADMIN/STAFFのみ指定可。指定なしの場合は全JA）' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -69,7 +68,7 @@ export class SearchFileUploadDto {
   @Min(1, { message: 'JA IDは1以上で指定してください。' })
   ja_id?: number;
 
-  // SCR-023 — status filter (m_code.code_category='FILE_UPLOAD_STATUS').
+  // SCR-023 — ステータスフィルタ(m_code.code_category='FILE_UPLOAD_STATUS')。
   @ApiPropertyOptional({ description: '処理ステータス（1:処理中, 2:完了, 3:エラー）' })
   @Transform(blankToUndef)
   @IsOptional()

@@ -13,12 +13,9 @@ import {
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
 /**
- * Whitelist of columns the client may sort by. Anything else is rejected
- * by `@IsIn` so a user-supplied `sort_by` cannot inject SQL into
- * `ORDER BY ${sort_by}` (the service still maps each value to a known
- * QueryBuilder column reference — see `SORT_COLUMN_MAP`).
- *
- * Source: api.md §リクエストパラメータ + §4.5.
+ * ソート可能カラムの許可リスト。範囲外は @IsIn が拒否し、`ORDER BY ${sort_by}`
+ * への SQL インジェクションを防ぐ(サービスは値を既知のカラム参照へマップ — SORT_COLUMN_MAP)。
+ * 出典: api.md §リクエストパラメータ + §4.5。
  */
 export const TANKA_SEARCH_SORT_BY = [
   'tanka_code',
@@ -36,7 +33,7 @@ export type TankaSearchSortBy = (typeof TANKA_SEARCH_SORT_BY)[number];
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/** Coerce `'true'`/`'false'` (from query string) to a real boolean. */
+/** クエリ文字列の 'true'/'false' を真偽値へ変換。 */
 const stringToBool = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value === 'boolean') return value;
@@ -46,14 +43,10 @@ const stringToBool = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Query-string DTO for `GET /api/v1/tanka` (ACSMS-API-002-001).
- *
- * All fields optional. `active_flg` omitted means "return both states"
- * (per api.md §4.3 — 省略時は両方を返却).
- *
- * Inherits page/per_page from {@link PaginationDto}. The runtime default
- * (page=1, per_page=20) is applied by the service layer via `?? 1` /
- * `?? 20` because query params arrive as `undefined` when omitted.
+ * `GET /api/v1/tanka` のクエリDTO (ACSMS-API-002-001)。
+ * 全項目 optional。`active_flg` 省略時は両状態を返却 (api.md §4.3)。
+ * page/per_page は {@link PaginationDto} 継承。省略時 undefined のため、既定値
+ * (page=1, per_page=20) はサービス層の `?? 1` / `?? 20` で適用。
  */
 export class SearchTankaDto extends PaginationDto {
   @ApiPropertyOptional({

@@ -14,19 +14,13 @@ const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Request body for ACSMS-API-009-003 — PUT /api/v1/kanri-shiten/:id.
- *
- * Drops `ja_id` + `kanri_shiten_code` from CreateKanriShitenDto:
- *   - `ja_id`: not in the update body (managed branch is fixed after creation)
- *   - `kanri_shiten_code`: immutable after create per api.md §APIS-009-003 注記
- *
- * `forbidNonWhitelisted: true` on the global ValidationPipe rejects extra
- * fields, but smuggled values would never bind because the DTO has no
- * matching property — `plainToInstance` drops them. Spec asserts that
- * (`dto.ja_id` is `undefined` even when client sneaks it in).
- *
- * Per api.md §4.1, required fields on update are `kanri_shiten_name` +
- * `todofuken_code`. All other fields are optional.
+ * PUT /api/v1/kanri-shiten/:id (ACSMS-API-009-003) リクエストボディ。
+ * CreateKanriShitenDto から ja_id + kanri_shiten_code を除外:
+ *   - ja_id: 更新 body に無い（管理支店は作成後固定）
+ *   - kanri_shiten_code: 作成後変更不可（api.md §APIS-009-003 注記）
+ * global ValidationPipe の forbidNonWhitelisted: true が余剰フィールドを拒否するが、
+ * smuggle 値は DTO に対応プロパティが無く plainToInstance が drop（spec が dto.ja_id=undefined を検証）。
+ * api.md §4.1 の更新必須は kanri_shiten_name + todofuken_code、他は任意。
  */
 export class UpdateKanriShitenDto {
   @ApiProperty({ description: '管理支店名', maxLength: 100 })

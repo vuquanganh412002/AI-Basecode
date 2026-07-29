@@ -4,6 +4,9 @@
 // docs/demo/全銀フォーマット_91_口座振替データについて.xlsx「レコード定義」準拠。
 import * as iconv from 'iconv-lite';
 
+/** 全銀フォーマットの1レコード長（Shift_JIS バイト・固定長）。 */
+export const ZENGIN_RECORD_BYTES = 120;
+
 /** 文字列の Shift_JIS バイト長（半角=1, 全角=2）。桁詰めはこの長さで行う。 */
 export function sjisBytes(s: string): number {
   return iconv.encode(s, 'Shift_JIS').length;
@@ -95,15 +98,15 @@ export function spaces(len: number): string {
 }
 
 /**
- * 各フィールドを連結して1レコード(=120バイト)を生成する。バイト長が120で
- * ない場合は実装バグとして即座に throw する（全銀の受入条件#8）。
+ * 各フィールドを連結して1レコード(=ZENGIN_RECORD_BYTES バイト)を生成する。
+ * 長さが違う場合は実装バグとして即座に throw する（全銀の受入条件#8）。
  */
 export function buildRecord(fields: string[], label: string): string {
   const rec = fields.join('');
   const bytes = sjisBytes(rec);
-  if (bytes !== 120) {
+  if (bytes !== ZENGIN_RECORD_BYTES) {
     throw new Error(
-      `[zengin] ${label} レコード長が ${bytes} バイト（期待値120）。フィールド桁数の実装ミス。`,
+      `[zengin] ${label} レコード長が ${bytes} バイト（期待値${ZENGIN_RECORD_BYTES}）。フィールド桁数の実装ミス。`,
     );
   }
   return rec;

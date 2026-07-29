@@ -625,8 +625,8 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
 | 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
 | 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (mã phân cách bằng dấu phẩy. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. Ánh xạ 1:1 với profession của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
+| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (mã phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. Ánh xạ 1:1 với products của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
 | 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
 | 50 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
 | 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
@@ -711,31 +711,30 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
 | 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
 | 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị phân cách bằng dấu phẩy) ※Cho phép chuỗi rỗng |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (mã phân cách bằng dấu phẩy. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. Ánh xạ 1:1 với profession của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
+| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (mã phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. Ánh xạ 1:1 với products của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
 | 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
 | 52 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
 | 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
 | 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
 | 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
 | 56 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 57 | henko_riyu |  | TEXT |  |  |  | Lý do thay đổi ※Cho phép chuỗi rỗng |
-| 58 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
-| 59 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
-| 60 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
-| 61 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
-| 62 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
-| 63 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
-| 64 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
-| 65 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
-| 66 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
-| 67 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
-| 68 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
-| 69 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 70 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
-| 71 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
-| 72 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
-| 73 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
+| 57 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
+| 58 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
+| 59 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
+| 60 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
+| 61 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
+| 62 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
+| 63 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
+| 64 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
+| 65 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
+| 66 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
+| 67 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
+| 68 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 69 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
+| 70 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
+| 71 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
+| 72 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
 
 ## Chỉ mục
 

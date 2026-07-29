@@ -3,20 +3,16 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 /**
- * Shared base for every paginated query DTO (search-log, search-oshirase,
- * search-accounts, etc.). Carries ONLY `page` + `per_page` with the
- * canonical Japanese error messages and `default: 20` / `max: 100`.
+ * 全ページング系クエリ DTO（search-log, search-oshirase, search-accounts …）の
+ * 共通ベース。`page` + `per_page` のみを持つ（正準の日本語メッセージ、
+ * `default: 20` / `max: 100`）。
  *
- * `sort_by` + `sort_order` are NOT here because each search endpoint
- * whitelists a different `@IsIn(...)` enum for `sort_by` — concrete
- * DTOs declare those two fields with their own column whitelist.
+ * `sort_by` + `sort_order` はここに置かない — エンドポイントごとに `sort_by` の
+ * `@IsIn(...)` 許可値が異なるため、具象 DTO で宣言する。
  *
- * Why a base class rather than mixing in via @nestjs/mapped-types:
- * the search DTOs each add 3-10 module-specific filters (date_from,
- * keyword, ja_id, status, …) plus their own sort_by/sort_order, so
- * `extends PaginationDto` is the natural shape. Sonar previously
- * counted these 22-line page/per_page blocks as duplicates across the
- * 3 search modules; centralising here eliminates ~66 dup lines.
+ * @nestjs/mapped-types でなくベースクラスにしているのは、検索 DTO が独自フィルタ
+ * 3〜10個 + 独自ソートを足すため `extends PaginationDto` が適するから。
+ * 集約で3モジュール分の Sonar 重複行 約66行を削減。
  */
 export class PaginationDto {
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })

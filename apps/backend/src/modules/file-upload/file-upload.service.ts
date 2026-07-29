@@ -47,10 +47,7 @@ import { FileUploadStatus } from './file-upload-status.constant';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationStatus } from './notification-status.constant';
 
-/**
- * Subset of `Express.Multer.File` we actually consume — keeping the
- * interface local avoids requiring `@types/multer` in tsconfig.
- */
+/** 使用する `Express.Multer.File` の部分集合。`@types/multer` 依存回避のためローカル定義。 */
 export interface UploadedMulterFile {
   fieldname: string;
   originalname: string;
@@ -68,31 +65,21 @@ const PREVIEW_TTL_SECONDS = 3600;
 const DEFAULT_RETENTION_DAYS = 180;
 
 /**
- * SCR-023 — file format check (customer review 2026-05).
- *
- * Customer tightened the originally-open policy
- * (「ファイル形式制限なし」) to a 12-extension whitelist covering
- * the practical document/media set they want to share via the
- * upload screen. Matched by lowercased trailing suffix; comparison
- * is case-insensitive so `IMG.JPG` is accepted.
- *
- * Preview support (separate scope — see SCR-022) intentionally stays
- * narrower: only PDF + JPG/JPEG/PNG render inline; everything else
- * is download-only.
- *
- * Source of truth — keep in sync with:
- *   - FE: ALLOWED_EXTENSIONS in apps/frontend/src/views/file-upload/FileUploadView.vue
- *   - Spec: screen-design.md §B.4.1 + api.md §エラー一覧 row 10
+ * SCR-023 ファイル形式チェック（顧客レビュー 2026-05）。
+ * 当初「制限なし」を 12 拡張子ホワイトリストに厳格化。末尾拡張子を小文字化して照合（大小無視）。
+ * プレビュー対応（別スコープ SCR-022）は PDF + JPG/JPEG/PNG のみインライン、他は DL のみ。
+ * 同期対象: FE ALLOWED_EXTENSIONS (apps/frontend/src/views/file-upload/FileUploadView.vue) /
+ * screen-design.md §B.4.1 + api.md §エラー一覧 row 10。
  */
 const ALLOWED_EXTENSIONS = new Set([
-  '.xlsx', '.xls',        // Excel
-  '.pdf',                  // PDF
-  '.jpg', '.jpeg', '.png', // Image
-  '.doc', '.docx',         // Word
-  '.pptx', '.ppt',         // PowerPoint
-  '.csv',                  // CSV
-  '.txt',                  // Text
-  '.zip',                  // Compressed
+  '.xlsx', '.xls',
+  '.pdf',
+  '.jpg', '.jpeg', '.png',
+  '.doc', '.docx',
+  '.pptx', '.ppt',
+  '.csv',
+  '.txt',
+  '.zip',
 ]);
 
 function isAllowedExtension(fileName: string): boolean {
@@ -103,10 +90,8 @@ function isAllowedExtension(fileName: string): boolean {
 }
 
 /**
- * Parse the user-selected 削除予定日 (`YYYY/MM/DD` from the FE date-picker)
- * to a calendar-date string `YYYY-MM-DD` (no time, no timezone — the
- * column is `date`). Returns null on a blank / malformed value so the
- * caller falls back to its default.
+ * 削除予定日（FE date-picker の `YYYY/MM/DD`）を `date` 列用の `YYYY-MM-DD` へ。
+ * 空/不正は null → 呼び出し側で既定へフォールバック。
  */
 function parseScheduledDeleteDate(input: string | undefined): string | null {
   if (!input) return null;
@@ -116,15 +101,14 @@ function parseScheduledDeleteDate(input: string | undefined): string | null {
 
 
 /**
- * Normalise a nullable `date` column value to `YYYY-MM-DD` (Asia/Tokyo) or
- * null. 日付整形は集約ヘルパ `dateOnlyIsoJst`（`@/common/utils/datetime`）に
- * 委譲し、ここでは nullable 列の null 契約（未設定は '' でなく null）だけ保つ。
+ * nullable `date` 列を `YYYY-MM-DD`(Asia/Tokyo) か null へ。整形は `dateOnlyIsoJst`
+ * に委譲し、ここでは null 契約（未設定は '' でなく null）だけ保つ。
  */
 function toDateOnly(v: DateOrString): string | null {
   return v == null ? null : dateOnlyIsoJst(v) || null;
 }
 
-/** Maps a saved FileUpload entity → SCR-023 POST response item. */
+/** 保存済み FileUpload → SCR-023 POST レスポンス項目。 */
 function toUploadedRow(
   saved: FileUpload,
   filePath: string,
@@ -157,16 +141,13 @@ function toUploadedRow(
   };
 }
 
-/**
- * Number-or-stringified-number — pg-mem returns BIGINT as strings, real
- * Postgres returns them as numbers via node-postgres' typecasters.
- */
+/** 数値/数値文字列 — pg-mem は BIGINT を文字列、実 Postgres は数値で返す。 */
 type Numericish = number | string;
 
-/** A `date`/`timestamptz` column value as TypeORM / pg may hand it back. */
+/** TypeORM/pg が返す `date`/`timestamptz` 列値。 */
 type DateOrString = Date | string | null;
 
-/** One (jaId × file) pair staged for the DB insert after storage upload. */
+/** storage アップロード後の DB insert 用にステージした (jaId × file) 対。 */
 interface UploadInput {
   jaId: number;
   file: UploadedMulterFile;
@@ -174,12 +155,9 @@ interface UploadInput {
 }
 
 /**
- * Raw row shape returned by the list endpoint's hand-written SQL.
- * pg-style snake_case so `paginate(...)` can pass it through to the
- * response without re-mapping.
- *
- * SCR-023 extended this row with: ja_code, ja_name, success_count,
- * error_count, notification_status, scheduled_delete_date, error_file_path.
+ * list エンドポイントの手書き SQL が返す生行。`paginate(...)` が再マップ不要で
+ * 通せるよう pg-style snake_case。SCR-023 で ja_code/ja_name/success_count/
+ * error_count/notification_status/scheduled_delete_date/error_file_path を追加。
  */
 interface JoinedRow {
   file_upload_id: Numericish;
@@ -203,11 +181,7 @@ interface JoinedRow {
   created_at: Date | string;
 }
 
-/**
- * Convert a Date / pg-mem string to ISO 8601 with `+09:00` offset.
- * pg-mem returns Date objects; real Postgres returns ISO strings.
- * Both flow through `new Date(v).toISOString()` cleanly.
- */
+/** Date / pg-mem 文字列を ISO 8601(+09:00) へ。両者とも `new Date(v).toISOString()` で吸収。 */
 function toIso(v: Date | string): string {
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
 }
@@ -223,23 +197,15 @@ export class FileUploadService {
     private readonly dataSource: DataSource,
     private readonly auditLog: AuditLogService,
     private readonly storage: StorageService,
-    // [scr-023-optional-dep] Added by SCR-023; declared @Optional() so
-    // SCR-022 spec's `new FileUploadService(repo, ds, auditLog, storage)`
-    // (4-arg form) keeps compiling. SCR-023 spec passes a 5th stub.
-    // Production DI injects NotificationQueueService (see module).
-    //
-    // [di-class-not-interface] Param type MUST be the concrete class
-    // (`NotificationQueueService`), NOT the `NotificationQueue` interface
-    // — NestJS DI resolves by class token (emitted by `design:paramtypes`
-    // metadata), so an interface-typed param resolves to `Object` and
-    // stays `undefined` at runtime, silently disabling the enqueue path.
+    // [scr-023-optional-dep] SCR-023 追加。@Optional() で SCR-022 spec の 4 引数
+    // `new FileUploadService(repo, ds, auditLog, storage)` を維持（本番 DI は module 参照）。
+    // [di-class-not-interface] 型は具象クラス必須。interface 型だと NestJS DI が
+    // `design:paramtypes` で `Object` トークンに解決し undefined 化 → enqueue 無効化。
     @Optional()
     private readonly notificationQueue?: NotificationQueueService,
   ) {}
 
-  // ──────────────────────────────────────────────────────────────
   // API-022-001 — GET /api/v1/file-upload (list)
-  // ──────────────────────────────────────────────────────────────
   async findAll(
     query: SearchFileUploadDto,
     session: SessionPayload,
@@ -251,11 +217,9 @@ export class FileUploadService {
     const sort_order = (query.sort_order ?? 'desc').toUpperCase() === 'ASC'
       ? 'ASC'
       : 'DESC';
-    // [sort-column-map] Translate the whitelisted sort_by to its
-    // table-qualified SQL column. `created_by_name` is the JOINed
-    // m_account.account_name alias (NOT a t_file_upload column), so a
-    // bare `fu.<sort_by>` would be invalid SQL. The DTO @IsIn already
-    // rejects unknown keys; this map is the static safety net.
+    // [sort-column-map] ホワイトリスト sort_by → テーブル修飾 SQL 列。
+    // created_by_name は JOIN 先 m_account.account_name の別名(t_file_upload 列でない)
+    // なので `fu.<sort_by>` は不正 SQL。DTO @IsIn に加えた静的セーフティネット。
     const SORT_COLUMN_MAP: Record<string, string> = {
       upload_datetime: 'fu.upload_datetime',
       file_name: 'fu.file_name',
@@ -265,11 +229,9 @@ export class FileUploadService {
     };
     const orderColumn = SORT_COLUMN_MAP[sort_by] ?? 'fu.upload_datetime';
 
-    // DataScope role list — api.md §4.2 / §4.4. NICHINO_* bypass; the
-    // 3 JA-level roles narrow by ja_id-or-NULL. CHUOKAI's "managed JAs"
-    // resolution is conservative for now: own ja_id only (matches the
-    // CHUOKAI seed shape — `ja_id` IS the chuokai's home JA). Future
-    // SCR for cross-JA management can swap in a m_ja_chuokai lookup.
+    // DataScope — api.md §4.2 / §4.4。NICHINO_* はバイパス、JA 3 ロールは
+    // ja_id-or-NULL で絞る。CHUOKAI の managed JAs は暫定で自 ja_id のみ
+    // (seed 形状 = ja_id が chuokai の home JA)。将来 m_ja_chuokai lookup へ差替可。
     const role = session.role_code;
     const isNichino =
       role === RoleCode.NICHINO_ADMIN || role === RoleCode.NICHINO_STAFF;
@@ -277,10 +239,8 @@ export class FileUploadService {
       ? [Number(session.ja_id)]
       : [];
 
-    // Build a single parameter map so the SQL string stays identical
-    // between the COUNT and SELECT queries.
-    // SCR-023 added `ja_id` (NICHINO_* JA filter) and `status` (m_code
-    // FILE_UPLOAD_STATUS) — both nullable.
+    // COUNT/SELECT で SQL 文字列を同一に保つため単一パラメータマップ。
+    // SCR-023 で ja_id(NICHINO_* JA フィルタ) と status(m_code FILE_UPLOAD_STATUS) 追加。両者 nullable。
     const params: {
       file_name: string | null;
       todofuken_code: string | null;
@@ -295,10 +255,9 @@ export class FileUploadService {
 
     let scopeClause: string;
     if (isNichino) {
-      // NICHINO_ADMIN / NICHINO_STAFF — no DataScope filter (TS comment).
-      // The inline SQL comment used to live in this string but pg-mem's
-      // lexer choked on the U+2014 em-dash inside the `/* … */` block,
-      // failing every integration test with `invalid syntax at line 12`.
+      // NICHINO_ADMIN / NICHINO_STAFF — DataScope フィルタ無し。
+      // SQL 内コメントは不可: pg-mem lexer が /* */ 内の U+2014 em-dash で
+      // `invalid syntax` を出し全 integration test が落ちるため TS 側で説明。
       scopeClause = 'TRUE';
     } else if (managedJaIds.length === 0) {
       scopeClause = '(fu.ja_id IS NULL)';
@@ -306,20 +265,13 @@ export class FileUploadService {
       scopeClause = `(fu.ja_id IS NULL OR fu.ja_id IN (${managedJaIds.map(Number).join(',')}))`;
     }
 
-    // [dynamic-where] Build the WHERE clause from only the filters
-    // that have a non-null value. The earlier `($N::text IS NULL OR
-    // col = $N)` short-circuit pattern read well but tripped pg-mem's
-    // "lookups on joins" limitation when the join-aliased column
-    // (j.todofuken_code) appeared on the right side of an equality
-    // with a null literal — every integration test failed at the
-    // SELECT step. Pushing each conditional clause only when its
-    // param fires also generates simpler plans against real
-    // Postgres.
-    // [include-soft-deleted] The list intentionally returns soft-deleted
-    // rows too (screen-design 画面項目定義 No.17/18): the 削除日 column shows
-    // their deleted_at and the 削除 button is disabled for them. So NO
-    // `fu.deleted_at IS NULL` filter here (unlike preview/download/remove,
-    // which still reject already-deleted rows).
+    // [dynamic-where] 非 null のフィルタのみで WHERE を組む。旧 `($N::text IS NULL
+    // OR col = $N)` 方式は join 別名列(j.todofuken_code)を null リテラルと等値比較
+    // した際 pg-mem の "lookups on joins" 制限に触れ SELECT で全 test 失敗。
+    // 条件を発火時のみ足す方式は実 Postgres でも単純なプランになる。
+    // [include-soft-deleted] soft-delete 行も意図的に返す(screen-design 画面項目定義
+    // No.17/18): 削除日列に deleted_at 表示・削除ボタン無効。よって `fu.deleted_at
+    // IS NULL` フィルタは付けない(preview/download/remove は削除済みを弾く)。
     const wheres: string[] = [];
     const queryParams: unknown[] = [];
     if (params.file_name != null) {
@@ -354,9 +306,8 @@ export class FileUploadService {
     );
     const total = Number(countRows[0]?.total ?? 0);
 
-    // orderColumn comes from the SORT_COLUMN_MAP (whitelisted) so inline
-    // interpolation is safe.
-    // SCR-023 SELECT adds m_ja.ja_code/ja_name + 5 t_file_upload columns.
+    // orderColumn は SORT_COLUMN_MAP(ホワイトリスト)由来なので直挿し安全。
+    // SCR-023 SELECT は m_ja.ja_code/ja_name + t_file_upload 5 列を追加。
     const dataSql = `
       SELECT
           fu.file_upload_id,
@@ -412,9 +363,7 @@ export class FileUploadService {
     return paginate(data, total, page, per_page);
   }
 
-  // ══════════════════════════════════════════════════════════════
   // SCR-023 — POST /api/v1/file-upload (multipart upload)
-  // ══════════════════════════════════════════════════════════════
   async upload(
     jaIds: number[],
     files: UploadedMulterFile[],
@@ -422,7 +371,7 @@ export class FileUploadService {
     req: Request,
     scheduledDeleteDateInput?: string,
   ): Promise<{ data: FileUploadCreatedItemDto[]; message: string }> {
-    // [diag] Entry — what the service actually received post-multer.
+    // [diag] multer 後にサービスが受け取った内容。
     this.logger.log({
       event: 'file_upload.service.start',
       ja_ids: jaIds,
@@ -431,18 +380,17 @@ export class FileUploadService {
       role_code: session?.role_code ?? null,
     });
 
-    // ─── [4.1] Per-file shape validation ────────────────────────
+    // [4.1] ファイル毎の形状バリデーション
     this.validateUploadInputs(jaIds, files);
     this.logger.log({ event: 'file_upload.validate.ok', file_count: files.length });
 
-    // ─── [4.2] DataScope on each ja_id ──────────────────────────
+    // [4.2] 各 ja_id の DataScope
     this.assertUploadScope(jaIds, session);
     this.logger.log({ event: 'file_upload.scope.ok', ja_ids: jaIds });
 
-    // [scheduled-delete-date-guard] 削除予定日 must not be in the past.
-    // Mirrors the FE date-picker's disabled-date and runs BEFORE any S3
-    // upload so a bad date fails cleanly with no side effects. Compared
-    // at JST day precision (Asia/Tokyo) regardless of container TZ.
+    // [scheduled-delete-date-guard] 削除予定日は過去不可。FE date-picker の
+    // disabled-date と同方針で、S3 アップロード前に副作用なく弾く。
+    // container TZ に依らず JST 日精度(Asia/Tokyo)で比較。
     const parsedDeleteDate = parseScheduledDeleteDate(scheduledDeleteDateInput);
     if (parsedDeleteDate && parsedDeleteDate < todayIsoJst()) {
       throw new ValidationException([
@@ -453,16 +401,13 @@ export class FileUploadService {
       ]);
     }
 
-    // [ja-code-folder] Resolve each ja_id → ja_code so the S3 folder is
-    // human-readable in the console (`ja-{ja_id}-{ja_code}`). ja_id stays
-    // the leading, stable, unique key; ja_code is an immutable readability
-    // suffix (update-ja OmitType drops ja_code, so the stored file_path
-    // never drifts). One lookup per request.
+    // [ja-code-folder] ja_id → ja_code を解決し S3 フォルダを可読化
+    // (`ja-{ja_id}-{ja_code}`)。ja_id が安定した一意キー、ja_code は不変の可読
+    // 接尾辞(update-ja OmitType が ja_code を落とすので file_path はドリフトしない)。1 リクエスト 1 lookup。
     const jaCodeById = await this.fetchJaCodes(jaIds);
 
-    // ─── [4.4] Physical-file upload — runs BEFORE the DB tx so a
-    // storage failure doesn't leave half-committed rows. Track each
-    // successful key for compensation rollback. ────────────────────
+    // [4.4] 物理ファイルアップロード。DB tx の前に実行し storage 失敗で
+    // 中途コミット行を残さない。補償ロールバック用に成功キーを記録。
     const { uploadedKeys, inputs } = await this.uploadPhysicalFiles(
       jaIds,
       files,
@@ -471,16 +416,15 @@ export class FileUploadService {
       req,
     );
 
-    // ─── [4.5 + 4.6] INSERT t_file_upload + t_log in one tx ─────
+    // [4.5 + 4.6] t_file_upload + t_log を 1 tx で INSERT
     const savedRows: FileUpload[] = [];
     try {
       await this.dataSource.transaction(async (manager) => {
         const now = new Date();
-        // [scheduled-delete-date] Use the 削除予定日 the user picked on the
-        // screen (parsed + past-date-validated above) as a plain calendar
-        // date (YYYY-MM-DD). Only fall back to アップロード日+180日 (in JST)
-        // when the FE omits it. Previously this stored NOW()+180days as a
-        // timestamptz and discarded the user's selection — reported bug.
+        // [scheduled-delete-date] ユーザー選択の 削除予定日(上で parse + 過去日
+        // 検証済)をカレンダー日(YYYY-MM-DD)で使用。FE 省略時のみ アップロード日+180日
+        // (JST)へフォールバック。旧実装は NOW()+180days を timestamptz で保存し
+        // 選択値を捨てていた(報告バグ)。
         const deleteDate =
           parsedDeleteDate ??
           dateOnlyIsoJst(
@@ -547,8 +491,8 @@ export class FileUploadService {
         err: (err as Error).message,
         stack: (err as Error).stack,
       });
-      // [compensate] DB rollback ran — clean S3 too so we don't leak
-      // orphan objects. Error log lives OUTSIDE the tx (no manager).
+      // [compensate] DB ロールバック済 → S3 もクリーンし orphan を残さない。
+      // エラーログは tx 外(manager なし)。
       await this.compensateStorage(uploadedKeys);
       const errorCtx = buildAuditCtx(
         session,
@@ -561,11 +505,9 @@ export class FileUploadService {
       throw err;
     }
 
-    // ─── [4.7] Enqueue notification job AFTER commit — one job per
-    //          saved row (== one job per JA per file). 1-job-per-JA
-    //          isolates retry: SES throttle on JA-X must NOT force
-    //          a retry of JA-Y's mail. Trade-off is more Redis ops,
-    //          which is cheap. See review thread for context. ──────
+    // [4.7] commit 後に通知ジョブを enqueue。保存行 1 件 = 1 ジョブ(JA×ファイル毎)。
+    // 1-job-per-JA でリトライ隔離: JA-X の SES throttle が JA-Y のメールを
+    // 巻き込まない。Redis ops は増えるが安価(review スレッド参照)。
     await this.enqueueUploadNotifications(savedRows, session);
 
     this.logger.log({
@@ -582,11 +524,9 @@ export class FileUploadService {
   }
 
   /**
-   * [4.4] Upload every (jaId × file) to storage BEFORE the DB tx so a
-   * storage failure leaves no half-committed rows. On any failure,
-   * compensate (delete already-uploaded objects) + error-log, then
-   * rethrow. Returns the uploaded keys (for the caller's own
-   * compensation on a later DB failure) and the per-file inputs.
+   * [4.4] 各 (jaId × file) を DB tx の前に storage へアップロード(中途コミット行を残さない)。
+   * 失敗時は補償(アップロード済削除)+ エラーログ後に再throw。
+   * 戻り値: uploadedKeys(後続 DB 失敗時の呼び出し側補償用) と per-file inputs。
    */
   private async uploadPhysicalFiles(
     jaIds: number[],
@@ -635,11 +575,10 @@ export class FileUploadService {
   }
 
   /**
-   * [4.7] Enqueue one notification job per saved row (== one per JA per
-   * file) AFTER commit. 1-job-per-JA isolates retry: an SES throttle on
-   * JA-X must NOT force a retry of JA-Y's mail. enqueue failure must NOT
-   * fail the API — log and continue so a single Redis hiccup doesn't lose
-   * every pending notification (row stays at notification_status=1 未送信).
+   * [4.7] commit 後に保存行 1 件 = 1 通知ジョブ(JA×ファイル毎)を enqueue。
+   * 1-job-per-JA でリトライ隔離(JA-X の SES throttle が JA-Y を巻き込まない)。
+   * enqueue 失敗は API を落とさず log & continue — Redis 一時障害で全通知を
+   * 失わない(行は notification_status=1 未送信 のまま)。
    */
   private async enqueueUploadNotifications(
     savedRows: FileUpload[],
@@ -648,9 +587,8 @@ export class FileUploadService {
     if (!this.notificationQueue) return;
     for (const saved of savedRows) {
       if (saved.jaId == null) {
-        // [skip-null-ja] Upload to "全JA向け" folder (ja_id NULL) has no
-        // target audience for notification — SCR-023 requires jaIds[]
-        // non-empty so this branch is defensive only.
+        // [skip-null-ja] "全JA向け"(ja_id NULL)は通知対象者なし。SCR-023 は
+        // jaIds[] 非空必須のため防御的分岐。
         continue;
       }
       try {
@@ -670,15 +608,13 @@ export class FileUploadService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
   // SCR-023 — DELETE /api/v1/file-upload/:id
-  // ══════════════════════════════════════════════════════════════
   async remove(
     fileUploadId: number,
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    // ─── [4.3] Existence + scope check ──────────────────────────
+    // [4.3] 存在 + スコープチェック
     const before = await this.repo.findOne({
       where: { fileUploadId, deletedAt: IsNull() },
     });
@@ -695,7 +631,7 @@ export class FileUploadService {
       Number(before.fileUploadId),
     );
 
-    // ─── [4.4 + 4.5] Soft delete + audit log in one tx ──────────
+    // [4.4 + 4.5] soft delete + 監査ログを 1 tx で
     let committed = false;
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -739,7 +675,7 @@ export class FileUploadService {
       throw err;
     }
 
-    // ─── [4.6] Physical delete AFTER commit — failure non-fatal ─
+    // [4.6] commit 後に物理削除 — 失敗は非致命的
     if (committed) {
       try {
         await this.storage.delete(before.filePath);
@@ -756,10 +692,9 @@ export class FileUploadService {
   }
 
   /**
-   * Resolve ja_id → ja_code for the upload folder name. Numeric ids are
-   * interpolated directly (no injection risk) to sidestep pg-mem's
-   * `::bigint[]` array-param quirk. Soft-deleted JAs are excluded; a
-   * missing id simply has no entry and falls back to `ja-{ja_id}`.
+   * upload フォルダ名用に ja_id → ja_code を解決。pg-mem の `::bigint[]` 配列
+   * パラメータ癖を回避するため数値 id を直挿し(注入リスク無し)。soft-delete JA は
+   * 除外、欠落 id はエントリ無し → `ja-{ja_id}` へフォールバック。
    */
   private async fetchJaCodes(jaIds: number[]): Promise<Map<number, string>> {
     const ids = Array.from(new Set(jaIds.map(Number))).filter((n) =>
@@ -775,11 +710,10 @@ export class FileUploadService {
   }
 
   /**
-   * Build the per-JA storage folder: `ja-{ja_id}-{ja_code}`. ja_id leads
-   * (stable unique key); ja_code is sanitized to `[A-Za-z0-9_-]` since the
-   * DTO puts no charset rule on it, so an unexpected character can never
-   * inject a path separator. Falls back to `ja-{ja_id}` when ja_code is
-   * unknown (deleted JA / id not found / NICHINO bypass to a stray id).
+   * JA 毎の storage フォルダ `ja-{ja_id}-{ja_code}` を生成。ja_id が先頭(安定一意キー)。
+   * ja_code は DTO に charset ルールが無いため `[A-Za-z0-9_-]` にサニタイズし
+   * パス区切り注入を防ぐ。ja_code 不明時は `ja-{ja_id}` へフォールバック
+   * (削除 JA / id 不在 / NICHINO の stray id バイパス)。
    */
   private buildJaFolder(jaId: number, jaCode: string | undefined): string {
     if (!jaCode) return `ja-${Number(jaId)}`;
@@ -787,10 +721,7 @@ export class FileUploadService {
     return safe ? `ja-${Number(jaId)}-${safe}` : `ja-${Number(jaId)}`;
   }
 
-  /**
-   * Best-effort S3 cleanup on upload failure. Iterates `uploadedKeys`
-   * and absorbs per-key errors so one bad delete doesn't stop the rest.
-   */
+  /** upload 失敗時のベストエフォート S3 クリーンアップ。各キーのエラーは吸収し継続。 */
   private async compensateStorage(keys: string[]): Promise<void> {
     for (const key of keys) {
       try {
@@ -805,9 +736,7 @@ export class FileUploadService {
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // SCR-023 upload — per-file shape validation (size + extension)
-  // ──────────────────────────────────────────────────────────────
+  // SCR-023 upload — ファイル毎の形状バリデーション(size + extension)
   private validateUploadInputs(
     jaIds: number[],
     files: UploadedMulterFile[],
@@ -816,8 +745,8 @@ export class FileUploadService {
       throw new TargetJaRequiredException();
     }
     for (const f of files) {
-      // [size-cap] 30MB per file — screen-design.md 機能定義 4.2.
-      // (Earlier api.md said 10MB; customer spec wins.)
+      // [size-cap] 1 ファイル 30MB — screen-design.md 機能定義 4.2。
+      // (旧 api.md は 10MB だが顧客 spec 優先。)
       if (f.size > 30 * 1024 * 1024) {
         throw new FileSizeExceededException();
       }
@@ -827,9 +756,7 @@ export class FileUploadService {
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // SCR-023 upload — DataScope on each ja_id
-  // ──────────────────────────────────────────────────────────────
+  // SCR-023 upload — 各 ja_id の DataScope
   private assertUploadScope(
     jaIds: number[],
     session: SessionPayload,
@@ -841,19 +768,15 @@ export class FileUploadService {
     const allowed = session.ja_id == null ? [] : [Number(session.ja_id)];
     const outOfScope = jaIds.find((id) => !allowed.includes(Number(id)));
     if (outOfScope !== undefined) {
-      // [cross-tenant-data-scope] Customer decision 2026-05-19 (see
-      // .claude/rules/security.md Layer 4): cross-tenant access must
-      // throw DATA_SCOPE_VIOLATION (HTTP 403), not generic FORBIDDEN.
-      // Same explicit-403 trade-off as fetchFkInJa() — UX clarity over
-      // tenant-id enumeration hardening.
+      // [cross-tenant-data-scope] 顧客決定 2026-05-19(security.md Layer 4):
+      // クロステナントは DATA_SCOPE_VIOLATION(HTTP 403)を throw、汎用 FORBIDDEN 不可。
+      // fetchFkInJa() と同じ明示 403 トレードオフ(tenant-id 列挙耐性より UX 明快さ)。
       throw new DataScopeViolationException();
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // Preview / Download（SCR-022 と同方針。t_file_upload のファイルを
-  // プレビュー用署名URL / バイナリで返す。削除済み・スコープ外は対象外）
-  // ──────────────────────────────────────────────────────────────
+  // Preview / Download（SCR-022 と同方針。t_file_upload のファイルを署名URL /
+  // バイナリで返す。削除済み・スコープ外は対象外）
 
   /** プレビュー用の署名付き URL を返す（画像/PDF は FE がインライン表示）。 */
   async getPreview(
@@ -987,19 +910,16 @@ export class FileUploadService {
     };
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // Internal — DataScope assertion (existence-hiding via 404)
-  // ──────────────────────────────────────────────────────────────
+  // Internal — DataScope 判定(存在秘匿のため 404)
   private assertScope(row: FileUpload, session: SessionPayload): void {
     const role = session.role_code;
     const isNichino =
       role === RoleCode.NICHINO_ADMIN || role === RoleCode.NICHINO_STAFF;
-    // Global files (ja_id IS NULL) are visible to every role per
-    // api.md §4.2.
+    // グローバルファイル(ja_id IS NULL)は全ロール可視 — api.md §4.2。
     if (row.jaId == null) return;
     if (isNichino) return;
-    // CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN — own JA only (managed-JA
-    // resolution simplified to session.ja_id; see findAll comment).
+    // CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN — 自 JA のみ(managed-JA は
+    // session.ja_id に簡略化。findAll コメント参照)。
     if (session.ja_id != null && Number(row.jaId) === Number(session.ja_id)) {
       return;
     }

@@ -14,12 +14,9 @@ import {
 } from 'class-validator';
 
 /**
- * Create Tanka request body — ACSMS-API-003-002.
- *
- * `tanka_type` references `m_code.code_category='TANKA_TYPE'` (1=新聞購読料,
- * 2=配達手数料). Allowed-value check lives in the service via
- * `assertMCodeValues(this.codeService, [...])` so runtime additions to
- * m_code don't require a redeploy.
+ * 単価登録リクエストボディ — ACSMS-API-003-002。
+ * `tanka_type` は m_code.code_category='TANKA_TYPE'(1=新聞購読料, 2=配達手数料)。
+ * 値の許可判定はサービスの assertMCodeValues で行い、m_code 追加時も再デプロイ不要。
  */
 export class CreateTankaDto {
   @ApiProperty({
@@ -50,9 +47,8 @@ export class CreateTankaDto {
   @Max(100, { message: '税率は100以下で指定してください。' })
   tax_rate?: number;
 
-  // DB column is NUMERIC(10, 0) — max 10 integer digits (9,999,999,999).
-  // Without @Max the BE INSERT throws PostgreSQL numeric overflow which
-  // surfaces as 500. @Max + @IsInt below makes it a clean 400 instead.
+  // DB は NUMERIC(10,0)（最大10桁=9,999,999,999)。@Max なしだと INSERT が
+  // numeric overflow で 500 になる。@Max + @IsInt で 400 に落とす。
   @ApiPropertyOptional({ description: '税込金額（円）0〜9,999,999,999', example: 4900 })
   @IsOptional()
   @Type(() => Number)

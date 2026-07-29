@@ -9,17 +9,17 @@ import {
 } from 'typeorm';
 
 /**
- * TypeORM entity for `m_hanbaiten` (販売店マスタ).
+ * `m_hanbaiten`（販売店マスタ）エンティティ。
+ * `docs/database/database-design.md §m_hanbaiten` に準拠。
  *
- * Mirrors `docs/database/database-design.md §m_hanbaiten`. All timestamp
- * columns are TIMESTAMPTZ per project policy (JST operation — see
- * `.claude/rules/nestjs.md §Timestamp policy`).
+ * タイムスタンプ列は全て TIMESTAMPTZ（JST 運用 — `.claude/rules/nestjs.md
+ * §Timestamp policy`）。
  *
- * The 5 INTEGER / NUMERIC columns marked NULL許容=〇 in the schema
- * (itaku_kubun, haitatsuryo_tanka_id, haitatsuryo_shiharai_cycle,
- * furikomi_tesuryo_futan_kubun, furikomi_tesuryo, yokin_shubetsu) declare `nullable: true`
- * so the API response keeps the storage contract intact (see
- * `.claude/rules/nestjs.md §Nullable field serialization`).
+ * スキーマで NULL許容=〇 の INTEGER / NUMERIC 列（itaku_kubun,
+ * haitatsuryo_tanka_id, haitatsuryo_shiharai_cycle,
+ * furikomi_tesuryo_futan_kubun, furikomi_tesuryo, yokin_shubetsu）は
+ * `nullable: true` を宣言し、API レスポンスで保存契約を保つ
+ * （`.claude/rules/nestjs.md §Nullable field serialization`）。
  */
 @Entity('m_hanbaiten')
 @Index('UQ_m_hanbaiten_ja_code', ['jaId', 'hanbaitenCode'], { unique: true })
@@ -76,11 +76,9 @@ export class Hanbaiten {
   @Column({ name: 'furikomi_tesuryo_futan_kubun', type: 'int', nullable: true })
   furikomiTesuryoFutanKubun: number | null;
 
-  // NUMERIC(10) per database-design.md §m_hanbaiten — amounts are integer
-  // yen. Stored as a plain numeric in production; pg-mem doesn't handle
-  // the precision-only form gracefully so we omit precision/scale here.
-  // The migration's DDL still emits `NUMERIC(10)` for the production
-  // table.
+  // database-design.md §m_hanbaiten の NUMERIC(10)（金額は整数円）。本番は
+  // 通常の numeric 保存。pg-mem が precision のみの形を扱えないため、ここでは
+  // precision/scale を省略。マイグレーション DDL は本番表に NUMERIC(10) を出力する。
   @Column({ name: 'furikomi_tesuryo', type: 'numeric', nullable: true })
   furikomiTesuryo: number | null;
 

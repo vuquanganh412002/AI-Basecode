@@ -4,18 +4,14 @@ import { StorageProvider } from '@/modules/storage/interfaces/storage-provider.i
 interface MinioConfig {
   endpoint: string;
   /**
-   * Browser-facing host used to rewrite presigned URLs. Defaults to
-   * `endpoint` when unset. Required in dev where the BE talks to
-   * `http://minio:9000` (Docker DNS) but the browser must hit
-   * `http://localhost:9000`.
+   * presigned URL 用のブラウザ向けホスト。未設定時は endpoint。dev で BE が
+   * `http://minio:9000`(Docker DNS)、ブラウザは `http://localhost:9000` を叩く場合に必須。
    */
   publicEndpoint?: string;
   /**
-   * AWS region label. MinIO doesn't care which region but minio-js's
-   * `presignedGetObject` auto-detects by calling HEAD against the
-   * configured endpoint when this is unset — fatal for the signing
-   * client because the public host isn't reachable from the BE
-   * container. Pass it explicitly to skip the detect call.
+   * AWS region ラベル。MinIO は region 不問だが、未設定だと minio-js の
+   * presignedGetObject が endpoint へ HEAD で自動検出する → public host が BE
+   * コンテナから到達不能で致命的。明示指定で検出呼び出しを回避。
    */
   region?: string;
   accessKey: string;
@@ -24,13 +20,12 @@ interface MinioConfig {
 }
 
 export class MinioStorageProvider implements StorageProvider {
-  /** Used for upload / download / delete via Docker DNS hostname. */
+  /** upload / download / delete 用(Docker DNS ホスト名)。 */
   private readonly client: Minio.Client;
   /**
-   * Used ONLY for `getSignedUrl`. Configured with the public endpoint
-   * so the browser-facing URL is signed correctly. MinIO SigV4 includes
-   * the `host` header in the canonical request — post-signing string
-   * replacement breaks the signature, hence two clients.
+   * getSignedUrl 専用。public endpoint で構成しブラウザ向け URL を正しく署名。
+   * MinIO SigV4 は canonical request に host ヘッダを含むため、署名後の文字列置換は
+   * 署名を壊す → client を 2 つ持つ。
    */
   private readonly signingClient: Minio.Client;
   private readonly bucket: string;
@@ -60,10 +55,8 @@ export class MinioStorageProvider implements StorageProvider {
           useSSL: pubUrl.protocol === 'https:',
           accessKey: config.accessKey,
           secretKey: config.secretKey,
-          // [region-explicit] Without this, minio-js fires a HEAD
-          // request against `pubUrl` to detect the bucket region —
-          // ECONNREFUSED because the public host isn't reachable from
-          // the BE container.
+          // [region-explicit] 無いと minio-js が bucket region 検出のため pubUrl へ
+          // HEAD を投げ、public host が BE コンテナから不達で ECONNREFUSED。
           region,
         });
 
@@ -87,10 +80,8 @@ export class MinioStorageProvider implements StorageProvider {
   }
 
   async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
-    // [signing-client] Use the public-endpoint client so the host in
-    // the URL matches the host in the SigV4 canonical request. The
-    // signing client never fires a network request — `presignedGetObject`
-    // just builds + signs the URL string locally.
+    // [signing-client] public-endpoint client を使い URL の host を SigV4 canonical
+    // request の host と一致させる。presignedGetObject はローカルで URL を組んで署名するだけで通信しない。
     return this.signingClient.presignedGetObject(this.bucket, key, expiresIn);
   }
 

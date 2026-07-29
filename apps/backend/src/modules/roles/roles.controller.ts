@@ -33,20 +33,13 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { RolesService } from './roles.service';
 
 /**
- * Authorization — `role.view` permission (seeder.md §2.14, granted to
- * NICHINO_ADMIN only in §3 matrix). Replaces the previous bespoke
- * `RoleAdminGuard` (deleted) which hard-coded `role_code === 'NICHINO_ADMIN'`
- * — that was the only place in the codebase doing role-direct gating,
- * lopsided against `.claude/rules/security.md §Layer 1` which mandates
- * `@Permissions('model.action')`. Now uniform with every other
- * controller.
+ * 認可 — `role.view`（seeder.md §2.14, §3 matrix で NICHINO_ADMIN のみ付与）。
+ * 旧 `RoleAdminGuard`（削除）の `role_code === 'NICHINO_ADMIN'` 直判定を置換 —
+ * security.md §Layer 1 が求める `@Permissions('model.action')` に統一。
  *
- * Dropdown endpoint (`ACSMS-API-COMMON-002`) deliberately carries NO
- * `@Permissions` decorator so the PermissionsGuard short-circuits to
- * `true` — SCR-024 / SCR-025 admin screens (whose users aren't
- * NICHINO_ADMIN themselves) need it to populate the role select.
- * Class-level `SessionAuthGuard` still gates: anonymous requests get
- * 401 regardless.
+ * Dropdown(`ACSMS-API-COMMON-002`)は @Permissions を付けず PermissionsGuard を
+ * true 通過させる — SCR-024/SCR-025 admin 画面（利用者は NICHINO_ADMIN でない）が
+ * role select 用に必要。class の SessionAuthGuard は残るので匿名は 401。
  */
 @ApiTags('roles')
 @ApiCookieAuth('session_id')
@@ -68,10 +61,9 @@ export class RolesController {
   }
 
   // ─── ACSMS-API-COMMON-002 ───────────────────────────────────────────
-  // Slim dropdown — NO @Permissions so any authenticated user can
-  // hydrate role selects (SCR-024 / SCR-025 use cases). Declared BEFORE
-  // `@Get(':role_id')` so the literal path 'dropdown' matches first;
-  // otherwise the param route catches it and ParseIntPipe rejects 400.
+  // スリム dropdown — @Permissions なしで任意の認証ユーザが role select を得る
+  // (SCR-024/SCR-025)。リテラル path 'dropdown' を先に一致させるため
+  // `@Get(':role_id')` の前に宣言（後だと param ルートが拾い ParseIntPipe が 400）。
   @Get('dropdown')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'ロールプルダウン取得 — ACSMS-API-COMMON-002' })
@@ -92,9 +84,8 @@ export class RolesController {
   }
 
   // ─── ACSMS-API-027-003 ──────────────────────────────────────────────
-  // role.view doubles as the edit gate too — seeder.md doesn't define a
-  // separate `role.update` (matrix gives only NICHINO_ADMIN `role.view`
-  // and that's the only role the customer intends to author roles).
+  // role.view は編集 gate も兼ねる — seeder.md に `role.update` は無く、matrix は
+  // NICHINO_ADMIN のみに `role.view` を与える（顧客が想定する唯一の編集役職）。
   @Put(':role_id')
   @Permissions('role.view')
   @HttpCode(HttpStatus.OK)

@@ -3,12 +3,9 @@ import { KanriShitenListItemDto } from './dto/kanri-shiten-list-item.dto';
 import { KanriShitenDetailDto } from './dto/kanri-shiten-detail.dto';
 
 /**
- * Map a `KanriShiten` entity (camelCase columns) to the snake_case
- * `KanriShitenListItemDto` shape the API returns.
- *
- * `todofukenName` is hydrated separately by the service (batch lookup
- * against `m_todofuken`) — keeps the entity unbound from the prefecture
- * lookup table. Pure: no Nest DI, no IO.
+ * KanriShiten エンティティ (camelCase) → API 応答 KanriShitenListItemDto (snake_case)。
+ * todofukenName は service が別途 hydrate（m_todofuken バッチ lookup）— エンティティを
+ * 都道府県テーブルに束縛しない。純粋関数（Nest DI/IO なし）。
  */
 export function toKanriShitenListItem(
   ks: KanriShiten,
@@ -33,9 +30,8 @@ export function toKanriShitenListItem(
 }
 
 /**
- * Full detail mapping for SCR-009 endpoints (GET by id / POST create /
- * PUT update). Adds the columns the list endpoint elides (kana, biko,
- * created_at, updated_at).
+ * SCR-009 エンドポイント (GET by id / POST / PUT) の詳細マッピング。
+ * list が省く列 (kana, biko, created_at, updated_at) を追加。
  */
 export function toKanriShitenDetail(
   ks: KanriShiten,

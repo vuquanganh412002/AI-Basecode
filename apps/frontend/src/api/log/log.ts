@@ -1,11 +1,11 @@
-// Hand-written wrapper around the /api/v1/log endpoints (ACSMS-SCR-030).
-// Mirrors docs/design/ACSMS-SCR-030/ACSMS-SCR-030-api.md.
+// /api/v1/log 用の手書き wrapper（ACSMS-SCR-030）。
+// docs/design/ACSMS-SCR-030/ACSMS-SCR-030-api.md に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 
-// [no-labels-policy] Authenticated endpoint — `log_type_label` /
-// `result_status_label` removed from the wire contract per the project
-// rule. Consumers resolve via `useCodesStore().label('LOG_TYPE'|'RESULT_STATUS', value)`.
+// [no-labels-policy] 認証済み endpoint — プロジェクト規約により `log_type_label` /
+// `result_status_label` はワイヤ契約から除外。消費側は
+// `useCodesStore().label('LOG_TYPE'|'RESULT_STATUS', value)` で解決。
 export interface LogListItem {
   log_id: number;
   log_type: number;
@@ -35,7 +35,7 @@ export interface LogListResponse {
   meta: LogListMeta;
 }
 
-/** Query DTO for `GET /api/v1/log` (ACSMS-API-030-001). */
+/** `GET /api/v1/log` のクエリDTO（ACSMS-API-030-001）。 */
 export interface ListLogsQuery {
   date_from?: string;
   date_to?: string;
@@ -48,9 +48,9 @@ export interface ListLogsQuery {
 }
 
 /**
- * Query DTO for `GET /api/v1/log/export` (ACSMS-API-030-002).
- * Same shape as the list query — the export mirrors the on-screen page
- * (filters + sort + page + per_page), not the whole dataset.
+ * `GET /api/v1/log/export` のクエリDTO（ACSMS-API-030-002）。
+ * リストクエリと同形 — 出力は全データではなく画面上のページ（フィルタ + ソート
+ * + page + per_page）を反映する。
  */
 export type ExportLogQuery = ListLogsQuery;
 

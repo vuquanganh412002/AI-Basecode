@@ -35,21 +35,18 @@ import { SearchTankaDto, type TankaSearchSortBy } from './dto/search-tanka.dto';
 import { TankaResponseDto } from './dto/tanka-response.dto';
 import { toTankaResponse } from './tanka.mapper';
 
-/** Per-screen audit-context labels. */
+/** 画面別 audit-context ラベル。 */
 const SCREEN_NAME_SCR002 = '単価マスタ明細検索画面 (ACSMS-SCR-002)';
 const SCREEN_NAME_SCR003 = '単価マスタ登録画面 (ACSMS-SCR-003)';
 const TABLE_NAME = 'm_tanka';
 
 
 /**
- * Enforce date-range constraints for CREATE:
- *   - 適用開始日 >= today (no past start; existing records may have
- *     past start_dates on UPDATE, so this is create-only).
- *   - 適用終了日 >= 適用開始日.
- *
- * Throws a VALIDATION_ERROR matching the `ValidationPipe` exception
- * shape so `useApiForm` on the FE maps the field-level errors into
- * `<a-form-item :help>` uniformly.
+ * CREATE の日付範囲チェック:
+ *   - 適用開始日 >= 本日 (過去開始禁止。UPDATE は既存の過去開始日を許すため create 専用)。
+ *   - 適用終了日 >= 適用開始日。
+ * ValidationPipe 例外形に合わせた VALIDATION_ERROR を throw し、FE の useApiForm が
+ * フィールドエラーを `<a-form-item :help>` へ一律マップできるようにする。
  */
 function assertCreateDateRange(start: string, end: string): void {
   const errors: Array<{ field: string; message: string }> = [];
@@ -72,19 +69,16 @@ function assertCreateDateRange(start: string, end: string): void {
 }
 
 /**
- * Whitelist mapping `sort_by` → fully-qualified QueryBuilder column.
- * `@IsIn(TANKA_SEARCH_SORT_BY)` already rejects keys outside this map,
- * but keeping the lookup dynamic prevents SQL injection if the DTO drifts.
- */
-/**
- * TypeORM round-trips `date`-typed columns as JS `Date` in production but
- * as ISO string under pg-mem (tests). Normalize to the FE-expected
- * `YYYY-MM-DD` (or null for nullable `tekiyo_end_date`). Hoisted to module
- * scope so the `.map((t) => …)` callback in `searchTanka` stays compact
- * (Sonar S7721).
+ * `sort_by` → 完全修飾 QueryBuilder カラムの許可マップ (SORT_COLUMN_MAP)。
+ * @IsIn(TANKA_SEARCH_SORT_BY) が範囲外を拒否済みだが、動的ルックアップ維持で
+ * DTO ドリフト時の SQL インジェクションも防ぐ。
+ *
+ * TypeORM は date 列を本番では JS Date、pg-mem(テスト)では ISO 文字列で返す。
+ * FE 期待の `YYYY-MM-DD` (nullable な tekiyo_end_date は null) へ正規化。
+ * searchTanka の .map コールバックを簡潔に保つためモジュールスコープへ hoist (Sonar S7721)。
  */
 function tekiyoStartDateIso(t: Tanka): string {
-  // DATE 列: 文字列はそのまま、Date は JST 暦日へ。UTC ずれを避けるため
+  // DATE 列: 文字列はそのまま、Date は JST 暦日へ。UTC ずれ回避のため
   // toISOString().slice ではなく dateOnlyIsoJst を使う。
   return dateOnlyIsoJst(t.tekiyoStartDate);
 }
@@ -102,17 +96,15 @@ const SORT_COLUMN_MAP: Record<TankaSearchSortBy, string> = {
   tax_rate: 'mt.tax_rate',
   tekiyo_start_date: 'mt.tekiyo_start_date',
   tekiyo_end_date: 'mt.tekiyo_end_date',
-  // Default — newest write bubbles to row 1
+  // 既定 — 最新更新が先頭
   updated_at: 'mt.updated_at',
 };
 
 /**
- * Tables whose existence of a row referencing the tanka blocks a delete.
- * Mirrors `docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md §4.4`.
- *
- * `m_hanbaiten` checks via `haitatsuryo_tanka_id` column; `t_dokusya` via
- * `tanka_id`. Both columns are interpolated by `assertNoRelatedRows()`
- * — caller MUST pass hardcoded tuples (no user input).
+ * tanka を参照する行が存在すると削除をブロックするテーブル群。
+ * docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md §4.4 準拠。
+ * m_hanbaiten は haitatsuryo_tanka_id、t_dokusya は tanka_id で判定。両カラムは
+ * assertNoRelatedRows() が補間するため、呼び出し側はハードコードのタプルのみ渡す(ユーザ入力不可)。
  */
 const RELATED_FK_CHECKS: ReadonlyArray<readonly [string, string]> = [
   ['m_hanbaiten', 'haitatsuryo_tanka_id'],
@@ -147,10 +139,9 @@ export class TankaService {
 
   // ─── API-002-001 — GET /api/v1/tanka ────────────────────────────────────
   /**
-   * Paginated tanka list. Applies §4.3 DataScope (CHUOKAI / JA_HONTEN /
-   * JA_KANRI_SHITEN see only own ja_id; NICHINO_* have no tanka.view
-   * permission per seeder, so they never reach this method via the guard
-   * chain). Read-only — does NOT write t_log.
+   * ページング付き tanka 一覧。§4.3 DataScope 適用 (CHUOKAI / JA_HONTEN /
+   * JA_KANRI_SHITEN は自 ja_id のみ。NICHINO_* は seeder 上 tanka.view 権限が無く
+   * ガードチェーンで到達しない)。読み取り専用 — t_log 非書き込み。
    */
   async findAll(
     query: SearchTankaDto,
@@ -169,15 +160,14 @@ export class TankaService {
     // [soft-delete-filter]
     qb.where('mt.deleted_at IS NULL');
 
-    // 顧客要件 (2026-06): デフォルトで適用終了日が過去の（期限切れ）単価も含めて
-    // 全件表示する。以前の「(tekiyo_end_date IS NULL OR >= CURRENT_DATE)」既定
-    // フィルタは廃止 — 期間での絞り込みは tekiyo_start_date / tekiyo_end_date の
-    // 明示クエリパラメータでのみ行う。
+    // 顧客要件 (2026-06): 既定で期限切れ(適用終了日が過去)の単価も含め全件表示。
+    // 旧既定フィルタ「(tekiyo_end_date IS NULL OR >= CURRENT_DATE)」は廃止 —
+    // 期間絞り込みは tekiyo_start_date / tekiyo_end_date の明示パラメータのみ。
 
-    // [data-scope] — restricted roles see only their own JA.
+    // [data-scope] — 制限ロールは自 JA のみ。
     applyJaScope(qb, 'mt', 'jaId', session);
 
-    // [filter-conditions] — completes/partial match.
+    // [filter-conditions] — 完全/部分一致。
     if (query.tanka_type !== undefined) {
       qb.andWhere('mt.tanka_type = :tanka_type', {
         tanka_type: query.tanka_type,
@@ -189,14 +179,13 @@ export class TankaService {
       });
     }
     if (query.tekiyo_start_date) {
-      // 指定日以降に開始するレコード（lower bound on tekiyo_start_date）
+      // 指定日以降に開始 (tekiyo_start_date の下限)
       qb.andWhere('mt.tekiyo_start_date >= :tekiyo_start_date_filter', {
         tekiyo_start_date_filter: query.tekiyo_start_date,
       });
     }
     if (query.tekiyo_end_date) {
-      // 指定日以前に終了するレコード（upper bound on tekiyo_end_date）。
-      // NULL（無期限）は対象外 — `IS NOT NULL` ガードを明示。
+      // 指定日以前に終了 (tekiyo_end_date の上限)。NULL(無期限)は対象外 — IS NOT NULL 明示。
       qb.andWhere(
         'mt.tekiyo_end_date IS NOT NULL AND mt.tekiyo_end_date <= :tekiyo_end_date_filter',
         { tekiyo_end_date_filter: query.tekiyo_end_date },
@@ -240,27 +229,24 @@ export class TankaService {
 
   // ─── API-002-002 — DELETE /api/v1/tanka/:tanka_id ───────────────────────
   /**
-   * Logical delete. §4.4 enforces the FK-conflict check; §4.5 sets
-   * `deleted_at = NOW()`; §4.6 writes a t_log row inside the same
-   * transaction; §4.8 emits an error log (log_type=3) OUTSIDE the
-   * rolled-back transaction on failure.
+   * 論理削除。§4.4 FK 競合チェック → §4.5 deleted_at=NOW() → §4.6 同一トランザクションで
+   * t_log 書き込み。失敗時は §4.8 エラーログ(log_type=3)をロールバック済みトランザクションの外で出力。
    */
   async remove(
     tankaId: number,
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    // [fetch-target] — also serves as before_value snapshot
+    // [fetch-target] — before_value スナップショットも兼ねる
     const before = await this.repo.findOne({
       where: { tankaId, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('単価');
 
-    // [data-scope] — masks out-of-scope rows as 404 (NotFound, not
-    // Forbidden, to hide existence)
+    // [data-scope] — スコープ外は 404 でマスク (存在秘匿のため Forbidden でなく NotFound)
     assertJaScope(Number(before.jaId), session, '単価');
 
-    // [fk-conflict-check] — block when any related table still has rows for this tanka
+    // [fk-conflict-check] — 関連テーブルに参照行が残っていれば削除ブロック
     for (const [table, fk] of RELATED_FK_CHECKS) {
       await assertNoRelatedRows(this.dataSource, [table], fk, tankaId);
     }
@@ -280,13 +266,13 @@ export class TankaService {
           },
         );
 
-        // [audit-log-in-tx] — atomicity
+        // [audit-log-in-tx] — 原子性のため
         await this.auditLog.logDelete(ctxBuilder(), before, manager);
       });
 
       return { message: '削除しました。' };
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back tx so the trace survives
+      // [audit-error-log] — トレース保持のためロールバック済みトランザクションの外で
       await this.auditLog.logError(ctxBuilder(), AuditOperation.DELETE, err as Error);
       throw err;
     }
@@ -294,9 +280,8 @@ export class TankaService {
 
   // ─── API-003-001 — GET /api/v1/tanka/:tanka_id ──────────────────────────
   /**
-   * Single-tanka detail (edit-form load). Applies §4.3 DataScope: rows
-   * outside the caller's ja_id are masked as 404 to hide existence (see
-   * `.claude/rules/security.md` Layer 2). Read-only — does NOT write t_log.
+   * 単一 tanka 詳細(編集フォーム読込)。§4.3 DataScope 適用: 呼び出し側 ja_id 外の行は
+   * 存在秘匿のため 404 でマスク (.claude/rules/security.md Layer 2)。読み取り専用 — t_log 非書き込み。
    */
   async findById(
     tankaId: number,
@@ -312,20 +297,17 @@ export class TankaService {
 
   // ─── API-003-002 — POST /api/v1/tanka ───────────────────────────────────
   /**
-   * Insert a new tanka. §4.3 dedupes against `tanka_code`; §4.4 INSERTs +
-   * §4.5 writes a `t_log` row inside one transaction; §4.7 emits an error
-   * log (`log_type=3`) OUTSIDE the rolled-back transaction on failure.
-   *
-   * `ja_id` is bound from the session, not the request body — security
-   * boundary per `.claude/rules/security.md` Layer 2.
+   * 新規 tanka 挿入。§4.3 tanka_code で重複排除 → §4.4 INSERT + §4.5 一トランザクションで
+   * t_log 書き込み。失敗時 §4.7 エラーログ(log_type=3)をロールバック済みトランザクションの外で出力。
+   * `ja_id` はリクエストボディでなくセッションから束縛 — セキュリティ境界 (.claude/rules/security.md Layer 2)。
    */
   async create(
     dto: CreateTankaDto,
     session: SessionPayload,
     req: Request,
   ): Promise<TankaResponseDto> {
-    // [code-master-check] — m_code allow-list runs in service (CodeService can't be
-    // injected into class-validator decorators).
+    // [code-master-check] — m_code 許可リストはサービスで判定
+    // (CodeService は class-validator デコレータに注入できないため)。
     assertMCodeValues(this.codeService, [
       {
         field: 'tanka_type',
@@ -335,17 +317,14 @@ export class TankaService {
       },
     ]);
 
-    // [input-validation] — date-range constraints (CREATE-only). FE mirrors these on
-    // the picker via :disabled-date so curl-only bypass is the path
-    // this code blocks. Order matters: start-not-past first so a wrong
-    // start is reported even if end happens to be before it.
+    // [input-validation] — 日付範囲チェック (CREATE 専用)。FE も :disabled-date で
+    // ミラーするため、ここは curl バイパスを塞ぐ。順序重要: 開始日過去チェックを先に行い、
+    // 終了が開始より前でも誤った開始が報告されるようにする。
     assertCreateDateRange(dto.tekiyo_start_date, dto.tekiyo_end_date);
 
-    // [uniqueness-check] — duplicate-code check. `withDeleted: true` —
-    // code reuse is forbidden across lifetime (a code is reserved for
-    // the row even after logical delete), matching the DB UNIQUE INDEX
-    // which does not filter on deleted_at. `tanka_code` is project-wide
-    // unique per api.md SQL example.
+    // [uniqueness-check] — 重複コードチェック。`withDeleted: true` — コード再利用は
+    // 生涯禁止(論理削除後も行に予約される)。deleted_at で絞らない DB UNIQUE INDEX に一致。
+    // tanka_code は api.md SQL 例に従いプロジェクト全体で一意。
     const dup = await this.repo.count({
       where: { tankaCode: dto.tanka_code },
       withDeleted: true,
@@ -371,18 +350,17 @@ export class TankaService {
           kingakuZeinuki: dto.kingaku_zeinuki ?? 0,
           tekiyoStartDate: dto.tekiyo_start_date,
           tekiyoEndDate: dto.tekiyo_end_date,
-          // biko is NOT NULL DEFAULT '' per database-design.md; explicit ''
-          // when omitted so the DTO's optional shape maps to a stored blank.
+          // biko は database-design.md 上 NOT NULL DEFAULT ''。省略時は明示 '' で保存。
           biko: dto.biko ?? '',
-          // active_flg defaults to TRUE per api.md §リクエストパラメータ #10.
+          // active_flg 既定 TRUE (api.md §リクエストパラメータ #10)。
           activeFlg: dto.active_flg ?? true,
-          // campaign_flg defaults to FALSE（キャンペーン非対象が通常）.
+          // campaign_flg 既定 FALSE (キャンペーン非対象が通常)。
           campaignFlg: dto.campaign_flg ?? false,
           createdBy: accountId,
           updatedBy: accountId,
         });
         const written = await manager.save(Tanka, entity);
-        // [audit-log-in-tx] — atomicity
+        // [audit-log-in-tx] — 原子性のため
         await this.auditLog.logCreate(
           ctxBuilder(Number(written.tankaId)),
           written,
@@ -392,15 +370,13 @@ export class TankaService {
       });
       return toTankaResponse(saved);
     } catch (err) {
-      // Race-condition safety net: 2 concurrent CREATE requests can
-      // both pass the pre-check, then the second INSERT hits the DB
-      // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
-      // letting it bubble as 500.
+      // 競合セーフティネット: 同時 CREATE 2件が事前チェックを通過し、2件目の INSERT が
+      // DB UNIQUE INDEX に当たるケース。23505 を 500 にせず 400 へ変換する。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(ctxBuilder(null), AuditOperation.CREATE, err as Error);
         throw new DuplicateCodeException('単価コード', dto.tanka_code);
       }
-      // [audit-error-log] — OUTSIDE the rolled-back tx.
+      // [audit-error-log] — ロールバック済みトランザクションの外で。
       await this.auditLog.logError(ctxBuilder(null), AuditOperation.CREATE, err as Error);
       throw err;
     }
@@ -408,15 +384,12 @@ export class TankaService {
 
   // ─── API-003-003 — PUT /api/v1/tanka/:tanka_id ──────────────────────────
   /**
-   * Update an existing tanka. §4.3 fetches the before-snapshot (also the
-   * NotFound / DataScope gate); §4.4 UPDATEs + §4.5 writes a `t_log` row
-   * with before/after JSON inside one transaction; §4.7 emits an error
-   * log (`log_type=3`) OUTSIDE the transaction on failure.
-   *
-   * `tanka_code` is immutable per api.md §API-003-003 footnote — the DTO
-   * type (`UpdateTankaDto = OmitType(CreateTankaDto, ['tanka_code'])`)
-   * already excludes it, AND `forbidNonWhitelisted` on the pipe rejects
-   * a stray `tanka_code` in the body. Belt + braces.
+   * 既存 tanka の更新。§4.3 before スナップショット取得(NotFound / DataScope ゲート兼務) →
+   * §4.4 UPDATE + §4.5 一トランザクションで before/after JSON 付き t_log 書き込み。
+   * 失敗時 §4.7 エラーログ(log_type=3)をトランザクションの外で出力。
+   * `tanka_code` は api.md §API-003-003 脚注により不変 — DTO 型
+   * (UpdateTankaDto = OmitType(CreateTankaDto, ['tanka_code'])) が除外済みで、
+   * かつ pipe の forbidNonWhitelisted が紛れ込んだ tanka_code を拒否。二重防御。
    */
   async update(
     tankaId: number,
@@ -424,14 +397,14 @@ export class TankaService {
     session: SessionPayload,
     req: Request,
   ): Promise<TankaResponseDto> {
-    // [fetch-target] + [data-scope] (out-of-scope masked as 404 to hide existence).
+    // [fetch-target] + [data-scope] (スコープ外は存在秘匿のため 404 でマスク)。
     const before = await this.repo.findOne({
       where: { tankaId, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('単価');
     assertJaScope(Number(before.jaId), session, '単価');
 
-    // [code-master-check] — m_code allow-list (same call site as create).
+    // [code-master-check] — m_code 許可リスト (create と同一呼び出し)。
     assertMCodeValues(this.codeService, [
       {
         field: 'tanka_type',
@@ -445,12 +418,10 @@ export class TankaService {
     const ctxBuilder = (): AuditOperationContext =>
       buildAuditCtx(session, req, SCREEN_NAME_SCR003, TABLE_NAME, tankaId);
 
-    // [input-validation] — once 適用開始日 has passed, it becomes immutable. Mirror's
-    // the FE read-only behavior; defends against curl-bypass that
-    // would otherwise rewrite the historical price-start date.
-    // Silent-drop pattern (same shape as FIELD_RESTRICTIONS in
-    // .claude/rules/security.md Layer 3): preserve the stored value
-    // and ignore the incoming dto field.
+    // [input-validation] — 適用開始日が過去になると不変。FE の read-only を反映し、
+    // 履歴の価格開始日を書き換える curl バイパスを防ぐ。silent-drop パターン
+    // (.claude/rules/security.md Layer 3 の FIELD_RESTRICTIONS と同形): 保存値を維持し
+    // 受信 dto フィールドは無視。
     const today = todayIsoJst();
     const startLocked = String(before.tekiyoStartDate) < today;
     const effectiveStartDate = startLocked
@@ -459,8 +430,8 @@ export class TankaService {
 
     try {
       const updated = await this.dataSource.transaction(async (manager) => {
-        // [partial-update] — apply writable fields; tanka_code stays whatever `before`
-        // had (immutable per api.md footnote).
+        // [partial-update] — 更新可能フィールドを適用。tanka_code は before のまま
+        // (api.md 脚注により不変)。
         const next = manager.create(Tanka, {
           ...before,
           tankaType: dto.tanka_type,
@@ -477,7 +448,7 @@ export class TankaService {
         });
         const saved = await manager.save(Tanka, next);
 
-        // [audit-log-in-tx] — before + after snapshots, inside the same tx.
+        // [audit-log-in-tx] — before + after スナップショットを同一トランザクション内で。
         await this.auditLog.logUpdate(ctxBuilder(), before, saved, manager);
         return saved;
       });
@@ -490,22 +461,14 @@ export class TankaService {
 
   // ─── GET /api/v1/tanka/dropdown ───────────────────────────────────
   /**
-   * Slim paginated + searchable list for the SCR-017 hanbaiten create
-   * form 配達手数料単価 dropdown. Behaviour:
-   *   - DataScope: restricted roles see own JA only. NICHINO_STAFF
-   *     (代行入力) is JA-scoped via the optional `ja_id` query param;
-   *     ignored for other roles since `applyJaScope` already pins
-   *     `session.ja_id`.
-   *   - `tanka_type`: optional category filter (typically 2 for
-   *     配達手数料 on this form, but generic enough to reuse).
-   *   - `q`: ILIKE on `tanka_name` only — the dropdown hides
-   *     `tanka_code` so searching code would surface invisible hits.
-   *   - Filters out soft-deleted, inactive, and out-of-period rows
-   *     (`tekiyo_end_date < CURRENT_DATE` excluded) — only currently-
-   *     effective unit prices appear.
-   *   - `include_id`: edit-form escape hatch — if the pre-selected
-   *     tanka_id falls outside page 1, BE prepends it so the label
-   *     resolves without a second GET.
+   * SCR-017 hanbaiten 作成フォーム 配達手数料単価 ドロップダウン用の slim ページング/検索一覧。
+   *   - DataScope: 制限ロールは自 JA のみ。NICHINO_STAFF (代行入力) は任意の `ja_id`
+   *     パラメータで JA スコープ。他ロールは applyJaScope が session.ja_id を固定するため無視。
+   *   - `tanka_type`: 任意のカテゴリフィルタ (本フォームでは通常 2=配達手数料。汎用で再利用可)。
+   *   - `q`: tanka_name のみ ILIKE — ドロップダウンは tanka_code 非表示のため。
+   *   - soft-delete / 非 active / 期間外 (tekiyo_end_date < CURRENT_DATE) を除外 — 有効な単価のみ。
+   *   - `include_id`: 編集フォームの escape hatch — 選択済み tanka_id が 1 ページ目外なら
+   *     BE が先頭に付与し、追加 GET なしでラベルを解決。
    */
   async getDropdown(
     query: import('./dto/tanka-dropdown-query.dto').TankaDropdownQueryDto,
@@ -518,8 +481,8 @@ export class TankaService {
       tanka_type: number;
       kingaku_zeikomi: number;
       kingaku_zeinuki: number;
-      // ログイン中アカウントの JA の税区分 (m_ja.zei_kubun) で解決した表示用金額。
-      // zei_kubun=1(内税) → 税込、=2(外税) → 税抜。JA 不明時は税込で既定。
+      // ログイン中 JA の税区分 (m_ja.zei_kubun) で解決した表示用金額。
+      // zei_kubun=1(内税)→税込、=2(外税)→税抜。JA 不明時は税込を既定。
       kingaku: number;
     }>;
     meta: { total: number; page: number; per_page: number; has_more: boolean };
@@ -537,16 +500,15 @@ export class TankaService {
           '(mt.tekiyo_end_date IS NULL OR mt.tekiyo_end_date >= CURRENT_DATE)',
         );
 
-      // [data-scope] Restricted roles → own JA only. NICHINO_STAFF
-      // (session.ja_id == null) → use the explicit ja_id query param
-      // (代行入力 picks a JA up-front in the form).
+      // [data-scope] 制限ロール → 自 JA のみ。NICHINO_STAFF (session.ja_id == null) →
+      // 明示 ja_id パラメータを使用 (代行入力はフォームで JA を先に選択)。
       if (session.ja_id != null) {
         applyJaScope(qb, 'mt', 'jaId', session);
       } else if (query.ja_id !== undefined) {
         qb.andWhere('mt.ja_id = :qja', { qja: query.ja_id });
       }
-      // (NICHINO_ADMIN with no JA filter falls through and sees all JA's
-      //  tanka — not a typical caller for this endpoint, but harmless.)
+      // (NICHINO_ADMIN で JA フィルタ無しの場合は全 JA の tanka を見る — 本エンドポイントの
+      //  典型呼び出しではないが無害。)
 
       if (query.tanka_type !== undefined) {
         qb.andWhere('mt.tanka_type = :tt', { tt: query.tanka_type });
@@ -573,8 +535,7 @@ export class TankaService {
     const [rows, total] = await qb.getManyAndCount();
     const pageIds = new Set(rows.map((r) => Number(r.tankaId)));
 
-    // [include-id] prepend the pre-selected row when it survives the
-    // scope/active filter but falls outside the current page.
+    // [include-id] 選択済み行が scope/active フィルタを通過しつつ現ページ外なら先頭に付与。
     let pinned: Tanka | null = null;
     if (query.include_id && !pageIds.has(query.include_id)) {
       const pinnedQb = buildScopedQb()
@@ -589,12 +550,10 @@ export class TankaService {
       pinned = await pinnedQb.getOne();
     }
 
-    // [tanka-amount-by-zeikubun] ログイン中アカウントの JA の税区分で表示金額を
-    // 解決する（顧客要件）。effective JA = session.ja_id（JA スコープ role）
-    // ?? query.ja_id（NICHINO_STAFF 代行入力で選択した JA）。zei_kubun=1(内税)
-    // → 税込(kingaku_zeikomi)、=2(外税) → 税抜(kingaku_zeinuki)。JA 不明
-    // (NICHINO_ADMIN でフィルタ無し等) は税込で既定。全行同一 JA スコープの
-    // ため 1 回だけ解決する。
+    // [tanka-amount-by-zeikubun] ログイン中 JA の税区分で表示金額を解決 (顧客要件)。
+    // effective JA = session.ja_id (JA スコープ role) ?? query.ja_id (NICHINO_STAFF
+    // 代行入力で選択した JA)。zei_kubun=1(内税)→税込、=2(外税)→税抜。JA 不明
+    // (NICHINO_ADMIN フィルタ無し等) は税込を既定。全行同一 JA スコープのため 1 回だけ解決。
     const effectiveJaId = session.ja_id ?? query.ja_id ?? null;
     let effectiveZeiKubun: number | null = null;
     if (effectiveJaId != null) {

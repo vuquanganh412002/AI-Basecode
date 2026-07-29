@@ -5,96 +5,80 @@ import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
 import { useAuthStore } from '@/stores/auth.store';
 
 /**
- * Custom screen-specific error_codes whose toast is rendered by the caller
- * view (its catch handler shows a user-actionable message keyed off the
- * error_code). The global handler MUST skip toasting these so the user
- * doesn't see the same message twice. New codes are added here whenever a
- * view introduces an `if (error_code === 'X') message.error(...)` branch.
+ * 呼び出し元 view がトーストを出す画面固有 error_code の一覧。
+ * グローバルハンドラはこれらをトーストしない（二重表示防止）。
+ * view に `if (error_code === 'X') message.error(...)` を追加したら
+ * ここにも登録する。
  *
- *  - DEADLINE_NOTICE_DUPLICATE: SCR-031 (お知らせ管理) create with
- *    publish_location=メニュー画面 + oshirase_type=締め切り時間 already
- *    has a record. View: OshiraseManagementView.applyServerErrors.
- *  - EXPORT_LIMIT_EXCEEDED: SCR-030 (ログ参照) export beyond row cap.
- *    View: LogListView export handler.
- *  - IMPORT_VALIDATION_ERROR: SCR-016 / SCR-019 (購読者 / 販売店 Excel取込)
- *    carry a per-row `errors[]`. The import views surface that detail
- *    themselves (販売店: toast, 購読者: inline row panel), so a generic
- *    global toast would just duplicate without the row context.
+ *  - DEADLINE_NOTICE_DUPLICATE: SCR-031 お知らせ管理（メニュー画面 + 締め切り時間の重複）。
+ *    view: OshiraseManagementView.applyServerErrors
+ *  - EXPORT_LIMIT_EXCEEDED: SCR-030 ログ参照の出力上限超過。view: LogListView
+ *  - IMPORT_VALIDATION_ERROR: SCR-016 / SCR-019 Excel取込の行別 errors[]。
+ *    view 側で詳細表示（販売店: toast、購読者: 行パネル）するためグローバルは不要。
  */
 const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
   'DEADLINE_NOTICE_DUPLICATE',
   'EXPORT_LIMIT_EXCEEDED',
   'IMPORT_VALIDATION_ERROR',
-  // NO_TARGET_DATA: SCR-020 (口座振替データ出力) export with 0 target rows.
-  //   The wrapper normalizes the 404 blob to `{ error_code }` and the view
-  //   shows 対象データがありません。 in-screen — a global toast would duplicate.
+  // NO_TARGET_DATA: SCR-020 口座振替データ出力で対象0件。
+  //   wrapper が 404 Blob を `{ error_code }` に正規化し view が画面内表示。
   'NO_TARGET_DATA',
-  // INACTIVE_TANKA_REFERENCED: SCR-020 (口座振替データ出力) preview/export when a
-  //   購読者 references a 失効単価 (active_flg=false). Carries errors[] (該当購読者).
-  //   The view renders an inline error list (Excel取込画面と同様) so the operator
-  //   can migrate them — a global toast would drop the list detail.
+  // INACTIVE_TANKA_REFERENCED: SCR-020 で失効単価(active_flg=false)を参照する購読者あり。
+  //   errors[]（該当購読者）を view がインラインリスト表示するためグローバルは不要。
   'INACTIVE_TANKA_REFERENCED',
 ]);
 
 /**
- * Central Axios error handler.
- *
- * Strategy:
- *  - Auth endpoints (login / mfa/*): never redirect to /login — surface toast and let the
- *    calling form handle field-level errors.
- *  - `UNAUTHORIZED` outside auth endpoints: session is dead (HTTP-only cookie session,
- *    no token to refresh) → clear user state, redirect to /login with `redirect` query.
- *  - `FORBIDDEN`: toast + redirect to /dashboard (no standalone 403 page —
- *    keep the user on a working screen instead of a dead end).
- *  - `VALIDATION_ERROR`: do NOT toast — caller's form handler maps `errors[]`.
- *  - View-handled custom codes (`VIEW_HANDLED_CODES`): do NOT toast — caller toasts.
- *  - All other common codes: show a user-friendly toast.
+ * Axios 共通エラーハンドラ。error_code ごとに振り分ける。
+ *  - auth endpoint (login / mfa/*): /login へ遷移せずトースト。フォームが項目別エラー処理。
+ *  - auth 以外の UNAUTHORIZED: セッション切れ（HTTP-only cookie、再取得トークンなし）
+ *    → user state をクリアし /login へ redirect クエリ付きで遷移。
+ *  - FORBIDDEN: トースト + /dashboard へ遷移（403専用ページを持たず行き止まりを避ける）。
+ *  - VALIDATION_ERROR: トーストしない。呼び出し元フォームが errors[] をマップ。
+ *  - VIEW_HANDLED_CODES: トーストしない。呼び出し元 view が表示。
+ *  - その他共通コード: ユーザー向けトースト表示。
  */
 export async function handleApiError(
   error: AxiosError<ApiErrorResponse>,
 ): Promise<never> {
   const status = error.response?.status;
-  // Blob responseType (CSV / Excel export) delivers a JSON error body as a
-  // Blob. Parse it back to the standard `{ error_code, message }` shape so the
-  // switch below + VIEW_HANDLED_CODES can read the code, and so downstream
-  // wrappers see the parsed object on `error.response.data`.
+  // Blob responseType（CSV/Excel出力）はエラー body も Blob で届く。
+  // `{ error_code, message }` にパースし直し、switch / VIEW_HANDLED_CODES
+  // と下流 wrapper が error.response.data から読めるようにする。
   if (error.response && (error.response.data as unknown) instanceof Blob) {
     try {
       error.response.data = JSON.parse(
         await (error.response.data as unknown as Blob).text(),
       );
     } catch {
-      // Non-JSON blob — leave as-is; falls through to the network branch.
+      // JSON でない Blob はそのまま。ネットワーク分岐へ落ちる。
     }
   }
   const data = error.response?.data;
   const code = data?.error_code;
   const url = error.config?.url || '';
 
-  // Screen-specific custom error_code that the calling view will toast.
-  // Skip the global toast to avoid a duplicate banner.
+  // view がトーストする画面固有コードは二重表示防止でグローバルはスキップ。
   if (code && VIEW_HANDLED_CODES.has(code)) {
     throw error;
   }
-  // User-initiated form posts where UNAUTHORIZED carries an actionable
-  // meaning ("wrong password" / "wrong OTP") — toast it.
+  // フォーム送信での UNAUTHORIZED は意味を持つ（パスワード/OTP誤り）のでトースト対象。
   const isAuthFormEndpoint =
     url.includes('/auth/login') ||
     url.includes('/auth/mfa/');
-  // Background probe fired from main.ts on every page load to restore
-  // the session from the cookie. A 401 here just means "user not logged
-  // in" — expected on every fresh visit. Silent so we don't show
-  // "セッションが切れました" the first time someone opens /login.
+  // main.ts が毎ロード時に cookie からセッション復元する背景プローブ。
+  // ここでの 401 は「未ログイン」で毎回想定内。無音にして /login 初回表示で
+  // 「セッションが切れました」を出さない。
   const isRefreshProbe = url.includes('/auth/refresh');
 
-  // Network error or non-JSON body — generic toast.
+  // ネットワークエラー / 非JSON body は汎用トースト。
   if (!status || !data) {
     message.error('ネットワークエラーが発生しました。接続をご確認ください。');
     return Promise.reject(error);
   }
 
   switch (code) {
-    // ─── SCR-001 specific — always toast, never redirect ────────────────
+    // ─── SCR-001 固有 — 常にトースト、遷移しない ────────────────
     case ErrorCode.INVALID_CREDENTIALS:
     case ErrorCode.ACCOUNT_LOCKED:
     case ErrorCode.INVALID_OTP:
@@ -102,8 +86,8 @@ export async function handleApiError(
       message.error(data.message);
       break;
 
-    // OTP expired / max attempts / resend limit / invalid mfa_token
-    // → force user back to login (spec §11, §7.6, §8.3).
+    // OTP期限切れ / 試行上限 / 再送上限 / mfa_token無効
+    // → login へ戻す（spec §11, §7.6, §8.3）。
     case ErrorCode.OTP_EXPIRED:
     case ErrorCode.OTP_MAX_ATTEMPTS:
     case ErrorCode.OTP_RESEND_LIMIT:
@@ -114,20 +98,17 @@ export async function handleApiError(
 
     case ErrorCode.UNAUTHORIZED: {
       if (isRefreshProbe) {
-        // Bootstrap probe — caller (auth.store.refreshSession) catches and
-        // clears state. No toast (would scare a user opening /login fresh).
-        // No redirect (router isn't even mounted yet on first call).
+        // 起動時プローブ。呼び出し元 auth.store.refreshSession が catch し state をクリア。
+        // トーストなし（/login 初回訪問で驚かせない）、遷移なし（初回は router 未マウント）。
         break;
       }
       if (isAuthFormEndpoint) {
         message.error(data.message);
         break;
       }
-      // With HTTP-only session cookies the server's 401 means the Redis session
-      // is already gone (expired or revoked). There is no refresh token to
-      // swap in — retrying /auth/refresh would send the same dead cookie and
-      // also 401. Drop client-side session state (user + codes cache) before
-      // bouncing to /login so the next sign-in starts fresh.
+      // HTTP-only cookie セッションでは 401 = Redis セッション消滅（期限切れ/失効）。
+      // 差し替える refresh token はなく /auth/refresh 再試行も同じ死cookieで 401。
+      // /login へ戻す前に client 側 state（user + codes cache）を破棄し次回ログインを初期化。
       useAuthStore().clearSession();
       await router.push({
         name: 'Login',
@@ -145,14 +126,14 @@ export async function handleApiError(
       message.error(data.message);
       break;
 
-    // SCR-011 — account lacks paper_flg/denshi_flg for the row's 購読種別.
-    // Toast only (no /dashboard bounce) — the user stays on the form.
+    // SCR-011 — 対象行の購読種別に対し account に paper_flg/denshi_flg なし。
+    // トーストのみ（/dashboard へ遷移せずフォームに留まる）。
     case ErrorCode.SHUBETSU_PERMISSION_DENIED:
       message.error(data.message);
       break;
 
     case ErrorCode.VALIDATION_ERROR:
-      // Caller's useApiForm composable maps `errors[]` to form fields.
+      // 呼び出し元 useApiForm が errors[] をフォーム項目へマップ。
       break;
 
     case ErrorCode.DUPLICATE_CODE:
@@ -160,6 +141,8 @@ export async function handleApiError(
     case ErrorCode.NOT_FOUND:
     case ErrorCode.CONFLICT:
     case ErrorCode.TOO_MANY_REQUESTS:
+    // 502 — 電子版連携(push)失敗。cloud 側もロールバック済み。message を表示。
+    case ErrorCode.DENSHIBAN_PUSH_FAILED:
       message.error(data.message);
       break;
 

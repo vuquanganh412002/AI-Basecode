@@ -724,6 +724,32 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'dokusyaso_bunrui')).toBe(true);
   });
 
+  // 分類は電子版と同じコードで保存する（顧客要件 2026-07）。日本語ラベルや
+  // 未定義コードは push 時に profession へ変換できないため DTO で弾く。
+  it.each(['0', '999', '0,3'])(
+    'should accept dokusyaso_bunrui code CSV %s',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ dokusyaso_bunrui: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.filter((e) => e.property === 'dokusyaso_bunrui')).toHaveLength(0);
+    },
+  );
+
+  it.each(['農業者', '4', '0,', '0,農業者'])(
+    'should fail when dokusyaso_bunrui is not a code CSV (%s)',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ dokusyaso_bunrui: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusyaso_bunrui')).toBe(true);
+    },
+  );
+
   // ─── nogyosya_bunrui (String, optional, max 50) ─────────────────────────
   it('should fail when nogyosya_bunrui exceeds 50 chars', async () => {
     const dto = plainToInstance(
@@ -733,6 +759,30 @@ describe('CreateDokusyaDto', () => {
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'nogyosya_bunrui')).toBe(true);
   });
+
+  it.each(['0', '5', '999', '0,1,4'])(
+    'should accept nogyosya_bunrui code CSV %s',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ nogyosya_bunrui: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.filter((e) => e.property === 'nogyosya_bunrui')).toHaveLength(0);
+    },
+  );
+
+  it.each(['米', '6', '0,米'])(
+    'should fail when nogyosya_bunrui is not a code CSV (%s)',
+    async (value) => {
+      const dto = plainToInstance(
+        CreateDokusyaDto,
+        buildCreateDokusyaBody({ nogyosya_bunrui: value }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'nogyosya_bunrui')).toBe(true);
+    },
+  );
 
   // ─── haitatsu_* delivery-address cluster (max lengths) ──────────────────
   it('should fail when haitatsu_yubin_no exceeds 7 chars', async () => {

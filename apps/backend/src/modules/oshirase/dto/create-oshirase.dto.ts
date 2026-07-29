@@ -17,13 +17,10 @@ import {
   PublishLocation,
 } from '@/common/enums';
 
-/** YYYY/MM/DD HH:mm — accepted on the wire; service parses into Date. */
+/** YYYY/MM/DD HH:mm — service が Date へパース。 */
 const DATETIME_RE = /^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/;
 
-/**
- * Request body for `POST /api/v1/oshirase` (ACSMS-API-031-003).
- * Mirrors api.md §リクエストパラメータ exactly.
- */
+/** POST /api/v1/oshirase (ACSMS-API-031-003) — api.md §リクエストパラメータ に一致。 */
 export class CreateOshiraseDto {
   @ApiProperty({ description: 'お知らせタイトル', minLength: 1, maxLength: 200 })
   @IsString({ message: 'お知らせタイトルは文字列で指定してください。' })

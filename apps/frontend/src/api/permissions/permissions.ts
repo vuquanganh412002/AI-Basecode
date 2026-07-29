@@ -1,7 +1,7 @@
-// Hand-written axios wrapper for the /api/v1/permissions endpoint.
-// Consumed only by SCR-027 (RoleManagementView) for the permission checkbox
-// grid; mocked in unit specs via vi.mock('@/api/permissions/permissions').
-// Shape mirrors docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md §API-027-004.
+// /api/v1/permissions 用の手書き axios wrapper。
+// SCR-027 (RoleManagementView) の権限チェックボックスグリッドのみが使用。
+// unit spec は vi.mock('@/api/permissions/permissions') でモック。
+// 型は docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md §API-027-004 に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 
@@ -9,7 +9,7 @@ export interface PermissionListItem {
   permission_id: number;
   permission_code: string;
   permission_name: string;
-  /** Nullable per api.md §レスポンスデータ row 5. */
+  /** api.md §レスポンスデータ row 5 に従い null 許容。 */
   description: string | null;
 }
 

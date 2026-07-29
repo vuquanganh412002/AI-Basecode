@@ -1,37 +1,35 @@
 /**
- * Canonical menu definition — single source of truth for both AppSidebar
- * (left rail) and DashboardView (SCR-010 menu cards). Both surfaces are the
- * same product menu visualised two ways; do not duplicate this list.
+ * メニュー定義の正 — AppSidebar（左レール）と DashboardView（SCR-010 メニューカード）
+ * 双方の唯一の情報源。両者は同じプロダクトメニューを 2 通りに可視化したもの。このリストを二重定義しない。
  *
- * Permissions audit: docs/requirement/account_concept.md (権限マトリクス) +
- * docs/database/seeder.md §3 (m_roles_permissions). Visibility filter lives in
- * `useMenu()` (src/composables/useMenu.ts).
+ * 権限監査: docs/requirement/account_concept.md（権限マトリクス）+
+ * docs/database/seeder.md §3（m_roles_permissions）。表示フィルタは
+ * `useMenu()`（src/composables/useMenu.ts）。
  */
 
 export interface MenuItem {
-  /** Vue Router route name. */
+  /** Vue Router のルート名。 */
   name: string;
-  /** Japanese display label (matches account_concept.md matrix verbatim). */
+  /** 日本語表示ラベル（account_concept.md マトリクスと一字一句一致）。 */
   label: string;
-  /** Material Symbols / Material Icons name. */
+  /** Material Symbols / Material Icons 名。 */
   icon: string;
-  /** Required permission to show this item. Omit for always-visible (e.g. Dashboard itself). */
+  /** 表示に必要な権限。常時表示（Dashboard 自身等）は省略。 */
   permission?: string;
   /**
-   * When true, the item also requires the account to hold at least one
-   * 購読種別 flag (m_account.paper_flg / denshi_flg). An account that has the
-   * permission but neither flag sees the item DISABLED (greyed, not hidden) —
-   * it cannot 登録/取込/一括置換 any 購読者 (account_concept.md §139-145).
-   * `useMenu()` computes the runtime `disabled` state.
+   * true のとき、アカウントが少なくとも 1 つの 購読種別 フラグ
+   * （m_account.paper_flg / denshi_flg）を持つことも要求する。権限はあるがどちらのフラグも無い
+   * アカウントは項目が DISABLED（グレー、非表示ではない）— 購読者 の 登録/取込/一括置換 ができない
+   * （account_concept.md §139-145）。ランタイムの `disabled` 状態は `useMenu()` が算出する。
    */
   requiresAnyDokusyaFlag?: boolean;
 }
 
 export interface MenuSection {
-  /** Section header. Omit for the rootless top-level entry (Dashboard). */
+  /** セクション見出し。ルート無しの最上位項目（Dashboard）は省略。 */
   heading?: string;
   items: MenuItem[];
-  /** Sidebar-only spacing tweak (last section bottom padding). Dashboard ignores. */
+  /** サイドバー専用の余白調整（最終セクションの下 padding）。Dashboard は無視。 */
   extraClass?: string;
 }
 
@@ -94,12 +92,11 @@ export const MENU_SECTIONS: MenuSection[] = [
       { name: 'LogList', label: 'ログ参照', icon: 'history', permission: 'log.view' },
       { name: 'OshiraseList', label: 'お知らせ管理', icon: 'campaign', permission: 'oshirase.view' },
       { name: 'AccountList', label: 'アカウント管理', icon: 'manage_accounts', permission: 'account.view' },
-      // NOTE: the standalone 販売店代行入力 entry was removed (2026-06).
-      // NICHINO_STAFF now reaches the 代行 flow through the 販売店管理 section
-      // entries, which `useMenu()` relabels to 販売店情報登録（代行）/
-      // 販売店明細検索（代行）for that role. The `hanbaiten.daiko_input`
-      // permission is retained — HanbaitenFormView still keys the staff
-      // JA-picker / create capability off it.
+      // NOTE: 独立した 販売店代行入力 項目は削除（2026-06）。NICHINO_STAFF は今や
+      // 販売店管理 セクションの項目から 代行 フローに入り、`useMenu()` が当該ロール向けに
+      // 販売店情報登録（代行）/ 販売店明細検索（代行）にラベルを付け替える。
+      // `hanbaiten.daiko_input` 権限は残存 — HanbaitenFormView がスタッフの
+      // JA ピッカー / 作成可否をこれで判定し続けるため。
       { name: 'RoleList', label: 'ロール管理', icon: 'security', permission: 'role.view' },
     ],
   },

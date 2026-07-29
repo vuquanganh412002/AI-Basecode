@@ -21,7 +21,7 @@ const OTP_LENGTH = 6;
 const OTP_EXPIRY_SECONDS = 300;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
-/** Current mfa_token (rotates on resend). */
+/** 現在の mfa_token（再送で更新される）。 */
 const mfaToken = ref<string>(String(route.query.mfa_token ?? ''));
 const expiresIn = ref<number>(OTP_EXPIRY_SECONDS);
 const resendCooldown = ref<number>(OTP_RESEND_COOLDOWN_SECONDS);
@@ -90,7 +90,7 @@ async function resend(): Promise<void> {
     startCooldown(60);
     message.success('認証コードを再送しました。');
   } catch {
-    // error-handler shows toast; OTP_RESEND_LIMIT will be surfaced as toast.
+    // error-handler がトースト表示（OTP_RESEND_LIMIT もトーストで通知）。
   } finally {
     resending.value = false;
   }

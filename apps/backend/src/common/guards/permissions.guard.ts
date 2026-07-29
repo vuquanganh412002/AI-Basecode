@@ -22,13 +22,10 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException();
     }
 
-    // [perm-any-of] OR semantics — caller holds AT LEAST ONE of the
-    // required perms. Matches the FE router guard (see
-    // `src/router/index.ts` [permission-any-of]). Lets endpoints
-    // shared across roles (e.g. /api/v1/ja/dropdown — consumed by
-    // every CRUD form regardless of role) declare every accepted
-    // perm without forcing roles to overlap. No existing controller
-    // passes multiple perms, so flipping the join is backwards-safe.
+    // [perm-any-of] OR — required perm の1つ以上を保持で許可。FE router guard
+    // (`src/router/index.ts` [permission-any-of]) と一致。ロール横断エンドポイント
+    // (例 /api/v1/ja/dropdown) がロールを重複させず全許容 perm を宣言できる。
+    // 複数 perm を渡す controller は現状なく、join 反転は後方互換。
     const hasAny = required.some((p: string) =>
       user.permissions.includes(p),
     );

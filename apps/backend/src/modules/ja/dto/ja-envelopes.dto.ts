@@ -4,11 +4,8 @@ import { DropdownMetaDto, PaginationMetaDto } from '@/common/dto/responses.dto';
 
 import { JaResponseDto } from './ja-response.dto';
 
-/**
- * Slim row shape returned by the list endpoint — service projects only
- * the columns the table displays. Matches the `Pick<JaResponseDto, ...>`
- * union in JaService.findAll().
- */
+// 一覧endpointの slim 行 — 表示列のみ。JaService.findAll() の
+// `Pick<JaResponseDto, ...>` と一致。
 export class JaListItemDto {
   @ApiProperty() ja_id: number;
   @ApiProperty() ja_code: string;
@@ -30,10 +27,7 @@ export class JaListResponseDto {
   meta: PaginationMetaDto;
 }
 
-/**
- * Slim row shape for GET /api/v1/ja/dropdown.
- * Returns only the columns dropdowns need (id + code + name + scope).
- */
+// GET /api/v1/ja/dropdown の slim 行 — id + code + name + scope のみ。
 export class JaDropdownItemDto {
   @ApiProperty() ja_id: number;
   @ApiProperty() ja_code: string;
@@ -50,13 +44,13 @@ export class JaDropdownResponseDto {
   meta: DropdownMetaDto;
 }
 
-/** Single-resource envelope (GET /:id). */
+// 単一リソースenvelope (GET /:id)。
 export class JaDetailEnvelopeDto {
   @ApiProperty({ type: JaResponseDto })
   data: JaResponseDto;
 }
 
-/** Mutation success envelope (POST + PUT). */
+// 更新成功envelope (POST + PUT)。
 export class JaMutationResponseDto {
   @ApiProperty({ type: JaResponseDto })
   data: JaResponseDto;

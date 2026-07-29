@@ -45,20 +45,15 @@ const TABLE_NAME = 't_oshirase';
 /** 「新着」バッジを表示する期間（公開起点から N 日以内なら is_new=true）。 */
 const NEW_BADGE_DAYS = 7;
 
-// OSHIRASE_TYPE was promoted from Group B → Group A: value 4
-// (`OshiraseType.DEADLINE`) drives mandatory business branching in 3
-// places (location pairing, system-wide uniqueness, delete-not-allowed),
-// so it now lives in `@/common/enums` with its BE/FE mirror enforced
-// by the enum-sync integration test. The local
-// `const OshiraseType.DEADLINE = 4` previously declared here was
-// retired in favor of `OshiraseType.DEADLINE`.
+// OSHIRASE_TYPE は Group B → Group A に昇格: value 4
+// (`OshiraseType.DEADLINE`) が3箇所（場所ペアリング・システム全体一意性・
+// 削除不可）で業務分岐を駆動するため `@/common/enums` に置き、BE/FE ミラーを
+// enum-sync 統合テストで強制する。
 
 /**
- * Epoch ms at the start of the current minute (JST or whatever the
- * container TZ is — production fixes both ECS task and Postgres session
- * to Asia/Tokyo via Dockerfile + TypeORM options). Past-date validation
- * for publish_start_date uses minute precision because the form input
- * is `YYYY/MM/DD HH:mm` (no seconds).
+ * 現在分の開始 epoch ms（本番は Dockerfile + TypeORM options で ECS/Postgres
+ * とも Asia/Tokyo 固定）。フォーム入力が YYYY/MM/DD HH:mm（秒なし）のため
+ * publish_start_date の過去日検査は分精度。
  */
 function nowMinuteFloor(): number {
   const d = new Date();
@@ -66,11 +61,8 @@ function nowMinuteFloor(): number {
   return d.getTime();
 }
 
-/**
- * Builds the canonical VALIDATION_ERROR shape so the FE's
- * `applyServerErrors` maps `publish_start_date` to a field-level error.
- * Used when the BE rejects a past start date.
- */
+/** 過去の開始日を拒否する VALIDATION_ERROR（FE の applyServerErrors が
+ *  publish_start_date のフィールドエラーへマップ）。 */
 function publishStartPastException(): ValidationException {
   return new ValidationException([
     { field: 'publish_start_date', message: '過去日は選択できません。' },
@@ -78,11 +70,10 @@ function publishStartPastException(): ValidationException {
 }
 
 /**
- * Builds the canonical VALIDATION_ERROR shape (ACSMS-MSG-031-008) for the
- * publish-period correlation check: 表示終了日時 must not precede 表示開始日時
- * (screen-design.md §画面項目定義 No.5「開始<=終了の相関チェック」). Equal
- * instants are allowed; only `end < start` is rejected. NULL end =
- * 無期限 → no check. Used by both create() and update().
+ * 公開期間の相関チェック用 VALIDATION_ERROR（ACSMS-MSG-031-008、
+ * screen-design.md §画面項目定義 No.5「開始<=終了の相関チェック」）:
+ * 表示終了日時 は 表示開始日時 より前不可。等時刻は許可、end < start のみ
+ * 拒否。end=NULL（無期限）は対象外。create()/update() 双方で使用。
  */
 function publishEndBeforeStartException(): ValidationException {
   return new ValidationException([
@@ -91,12 +82,12 @@ function publishEndBeforeStartException(): ValidationException {
 }
 
 /**
- * Enforce the bidirectional pairing between 締め切り時間 (oshirase_type=4)
- * and MENU_DEADLINE (publish_location=3):
- *   - type=4 MUST be at publish_location=3
- *   - publish_location=3 MUST carry type=4
- * Returns a VALIDATION_ERROR shape so FE's applyServerErrors maps it.
- * Used by both create() and update().
+ * 締め切り時間（oshirase_type=4）と MENU_DEADLINE（publish_location=3）の
+ * 双方向ペアリングを強制:
+ *   - type=4 は publish_location=3 必須
+ *   - publish_location=3 は type=4 必須
+ * VALIDATION_ERROR を返す（FE の applyServerErrors がマップ）。
+ * create()/update() 双方で使用。
  */
 function assertDeadlineLocationPairing(
   oshiraseType: number,
@@ -123,12 +114,12 @@ function assertDeadlineLocationPairing(
 }
 
 /**
- * Item shape returned by SCR-010's `GET /api/v1/oshirase/menu`.
+ * SCR-010 の GET /api/v1/oshirase/menu が返す項目。
  *
- * [no-labels-policy] Authenticated endpoint — no `oshirase_type_label`.
- * FE resolves via `useCodesStore().label('OSHIRASE_TYPE', value)`.
- * (Public SCR-001 `findLogin` still serializes the label because the
- * unauthenticated login screen has no m_code cache.)
+ * [no-labels-policy] 認証エンドポイント — `oshirase_type_label` なし。
+ * FE が `useCodesStore().label('OSHIRASE_TYPE', value)` で解決。
+ * （公開の SCR-001 findLogin は未認証で m_code キャッシュがないため
+ * ラベルを serialize する。）
  */
 export interface MenuOshiraseItem {
   oshirase_id: number;
@@ -145,15 +136,14 @@ export interface MenuOshiraseItem {
 export class OshiraseService {
   constructor(
     @InjectRepository(Oshirase) private readonly repo: Repository<Oshirase>,
-    // OSHIRASE_TYPE is a Group B m_code category (extensible at runtime).
-    // Public endpoints MUST serialize the label here because anonymous
-    // callers (login screen) don't carry the FE m_code cache. See
-    // `.claude/rules/nestjs.md §Response serialization` for the rule.
+    // OSHIRASE_TYPE は Group B の m_code カテゴリ（実行時拡張可）。公開
+    // エンドポイントは匿名呼び出し（ログイン画面）が FE m_code キャッシュを
+    // 持たないためラベルを serialize 必須（`.claude/rules/nestjs.md
+    // §Response serialization`）。
     private readonly codeService: CodeService,
-    // SCR-031 admin endpoints need audit log + transactions. Marked
-    // @Optional() so SCR-001 specs that construct the service with only
-    // (repo, codeService) keep type-checking. Production DI always supplies
-    // both — see oshirase.module.ts imports.
+    // SCR-031 管理エンドポイントは audit log + transaction が必要。SCR-001
+    // spec が (repo, codeService) のみで生成できるよう @Optional()。本番 DI は
+    // 常に両方供給（oshirase.module.ts 参照）。
     @Optional() private readonly auditLog?: AuditLogService,
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
   ) {}
@@ -163,11 +153,10 @@ export class OshiraseService {
   // ═══════════════════════════════════════════════════════════════════
   async findLogin(query: LoginOshiraseQueryDto): Promise<LoginOshiraseItemDto[]> {
     const limit = Math.min(query.limit ?? 20, 20);
-    // `now` is the current absolute instant. publish_start_date /
-    // publish_end_date are TIMESTAMPTZ (absolute instants too), so the
-    // window comparison below is timezone-agnostic — comparing two
-    // moments, not wall-clock dates. The container runs TZ=Asia/Tokyo
-    // (project timestamp policy), so this instant equals "now in JST".
+    // `now` は現在の絶対時刻。publish_start_date / publish_end_date も
+    // TIMESTAMPTZ（絶対時刻）なので、下の期間比較は TZ 非依存（壁時計日付
+    // でなく2つの瞬間の比較）。コンテナは TZ=Asia/Tokyo なのでこの瞬間は
+    // 「JST の now」に等しい。
     const now = new Date();
 
     const rows = await this.repo
@@ -176,9 +165,8 @@ export class OshiraseService {
         publishLocation: PublishLocation.LOGIN,
       })
       .andWhere('o.status = :status', { status: OshiraseStatus.PUBLIC })
-      // Login banner shows only the three general-purpose types
-      // (システム / 重要 / 一般). Type 4 (締め切り時間) lives on the menu
-      // screen (publish_location=3) and is excluded here.
+      // ログインバナーは汎用3種別（システム/重要/一般）のみ表示。
+      // type 4（締め切り時間）はメニュー画面（publish_location=3）専用で除外。
       .andWhere('o.oshirase_type IN (:...types)', {
         types: [
           OshiraseType.SYSTEM,
@@ -190,9 +178,8 @@ export class OshiraseService {
       .andWhere('(o.publish_end_date IS NULL OR o.publish_end_date >= :now)', { now })
       .andWhere('o.ja_id IS NULL')
       .andWhere({ deletedAt: IsNull() })
-      // Newest-updated first; COALESCE falls back to created_at when
-      // updated_at is absent (NOT NULL today — defensive against future
-      // schema/seed paths that bypass @UpdateDateColumn).
+      // 更新日時の新しい順。updated_at 欠損時は created_at にフォールバック
+      // （現状 NOT NULL — @UpdateDateColumn を迂回する将来経路への防御）。
       .orderBy('COALESCE(o.updated_at, o.created_at)', 'DESC')
       .take(limit)
       .getMany();
@@ -202,8 +189,8 @@ export class OshiraseService {
       oshirase_type: r.oshiraseType,
       oshirase_type_label: this.codeService.getLabel('OSHIRASE_TYPE', r.oshiraseType),
       title: r.title,
-      // JST calendar date — NOT toISOString().slice(0,10) (UTC, off-by-one
-      // for instants before 09:00 JST).
+      // JST 暦日 — toISOString().slice(0,10) 不可（UTC で 09:00 JST 前は
+      // 1日ズレる）。
       publish_start_date: dateOnlyIsoJst(r.publishStartDate),
     }));
   }
@@ -226,20 +213,18 @@ export class OshiraseService {
     const now = new Date();
     const newBadgeMs = NEW_BADGE_DAYS * 24 * 60 * 60 * 1000;
     const userJaId = session.ja_id;
-    // target_kanri_kubun stores a comma-separated list of 管理者区分 codes
-    // (= role_id 1〜5); empty string = 全選択 (targets every role). The
-    // notice is shown when it targets everyone OR the viewer's role_id is
-    // in the list. The comma-bracket trick (",3,4," LIKE "%,3,%") matches
-    // whole tokens only — so role 3 never matches "13" or "30" — and works
-    // on every SQL dialect (incl. pg-mem) without array functions.
+    // target_kanri_kubun はカンマ区切りの 管理者区分 code（= role_id 1〜5）。
+    // 空文字 = 全選択（全 role 対象）。全員対象 OR 閲覧者の role_id が
+    // リストに含まれる場合に表示。カンマ括り技（",3,4," LIKE "%,3,%"）で
+    // トークン単位一致 — role 3 が "13"/"30" に誤マッチしない — かつ配列関数
+    // なしで全 SQL 方言（pg-mem 含む）で動作。
     const kanriNeedle = `%,${session.role_id},%`;
 
-    // Common filter: publish_location IN (MENU=2, MENU_DEADLINE=3),
-    // status=公開, deleted_at IS NULL, within publish window,
-    // ja_id NULL OR ja_id = user.ja_id, and target_kanri_kubun matches the
-    // viewer's role. The two locations cover the two header slots — regular
-    // menu notices (type≠4) live at MENU, the singleton 締め切り時間
-    // (type=4) at MENU_DEADLINE.
+    // 共通フィルタ: publish_location IN (MENU=2, MENU_DEADLINE=3),
+    // status=公開, deleted_at IS NULL, 公開期間内, ja_id NULL OR
+    // ja_id = user.ja_id, target_kanri_kubun が閲覧者の role に一致。2つの
+    // 場所がヘッダ2枠に対応 — 通常メニュー通知（type≠4）は MENU、単一の
+    // 締め切り時間（type=4）は MENU_DEADLINE。
     const baseQb = () => {
       const qb = this.repo
         .createQueryBuilder('o')
@@ -268,8 +253,8 @@ export class OshiraseService {
       return qb;
     };
 
-    // Newest-updated first; COALESCE falls back to created_at when
-    // updated_at is absent (defensive — updated_at is NOT NULL today).
+    // 更新日時の新しい順。updated_at 欠損時は created_at にフォールバック
+    // （防御 — 現状 NOT NULL）。
     const ORDER_EXPR = 'COALESCE(o.updated_at, o.created_at)';
     const [rows, deadlineRow] = await Promise.all([
       baseQb()
@@ -289,8 +274,8 @@ export class OshiraseService {
     ]);
 
     const toMenuItem = (r: Oshirase): MenuOshiraseItem => {
-      // NEW badge: within 7 days of the last update; fall back to created_at
-      // when updated_at is absent (NOT NULL today — defensive).
+      // 新着バッジ: 最終更新から7日以内。updated_at 欠損時は created_at に
+      // フォールバック（現状 NOT NULL — 防御）。
       const freshnessBasis = r.updatedAt ?? r.createdAt;
       return {
         oshirase_id: Number(r.oshiraseId),
@@ -327,10 +312,9 @@ export class OshiraseService {
     const sortOrder: 'ASC' | 'DESC' =
       (query.sort_order ?? 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // Default ordering (no explicit sort_by): COALESCE(updated_at, created_at)
-    // DESC — most-recently-touched first, so a freshly CREATED *or* UPDATED
-    // notice surfaces directly below the pinned 締め切り時間. An explicit,
-    // whitelisted sort_by overrides the column (the deadline stays pinned).
+    // 既定ソート（sort_by 未指定）: COALESCE(updated_at, created_at) DESC —
+    // 最近更新順で、新規作成/更新された通知がピン留めの締め切り時間直下に出る。
+    // 明示的な許可済み sort_by はカラムを上書き（締め切り時間はピン維持）。
     const explicitSort =
       query.sort_by !== undefined &&
       OSHIRASE_SEARCH_SORT_BY.includes(query.sort_by);
@@ -338,13 +322,11 @@ export class OshiraseService {
       ? `o.${query.sort_by}`
       : 'COALESCE(o.updated_at, o.created_at)';
 
-    // Pin the 締め切り時間 row at the top of every page, regardless of
-    // the requested sort. The boolean expression evaluates to TRUE for
-    // the deadline notice → DESC puts it first. Postgres accepts the
-    // bare boolean in ORDER BY. ORDER BY does NOT take TypeORM params
-    // by name, so we inline `OshiraseType.DEADLINE` via a template
-    // literal — typed as a number constant so the embedded value is
-    // safe (no user input).
+    // 締め切り時間の行をソート指定に関わらず全ページ先頭にピン留め。
+    // boolean 式が締め切り時間で TRUE → DESC で先頭。Postgres は ORDER BY の
+    // 素の boolean を受理。ORDER BY は TypeORM の名前付きパラメータ不可のため
+    // `OshiraseType.DEADLINE` をテンプレートリテラルで inline — number 定数
+    // 型なので埋込値は安全（ユーザー入力なし）。
     const qb = this.repo
       .createQueryBuilder('o')
       .where({ deletedAt: IsNull() })
@@ -355,11 +337,10 @@ export class OshiraseService {
 
     const [rows, total] = await qb.getManyAndCount();
 
-    // [ja-name-batch] Resolve ja_name in ONE extra query keyed by the
-    // page's distinct ja_ids — avoids the N+1 a per-row lookup would
-    // cause and sidesteps TypeORM 0.3.x's expression-ORDER-BY parser
-    // failure with .getRawAndEntities()+leftJoin (it tried to alias
-    // the literal "(o" prefix of the boolean expression above).
+    // [ja-name-batch] ページ内の distinct ja_id をキーに追加1クエリで
+    // ja_name を解決 — 行毎ルックアップの N+1 を回避しつつ、TypeORM 0.3.x の
+    // 式 ORDER BY パーサが .getRawAndEntities()+leftJoin で上記 boolean 式の
+    // "(o" 接頭辞を alias 化しようとして失敗する問題も回避。
     const jaIds = Array.from(
       new Set(rows.map((r) => r.jaId).filter((id): id is number => id !== null)),
     );
@@ -406,13 +387,11 @@ export class OshiraseService {
     // するため通常到達しないが、API 直接呼び出し対策で BE 側でも検査。
     assertDeadlineLocationPairing(dto.oshirase_type, dto.publish_location);
 
-    // [uniqueness-check] 締め切り時間 重複チェック
-    // System-wide rule (顧客確認 2026-05): only ONE 締め切り時間 record
-    // may exist at a time regardless of publish_location. The earlier
-    // narrower form (`publish_location = MENU AND type = 4`) let users
-    // create a 2nd type=4 row on a different publish_location and slip
-    // through. oshirase_type is Group B (no TS enum); the constant
-    // `OshiraseType.DEADLINE` documents the 締め切り時間 m_code value.
+    // [uniqueness-check] 締め切り時間 重複チェック。システム全体ルール
+    // （顧客確認 2026-05）: publish_location に関わらず締め切り時間は同時に
+    // 1件のみ。旧来の狭い形（publish_location = MENU AND type = 4）では別の
+    // publish_location に2件目の type=4 を作れてしまった。oshirase_type は
+    // Group B（TS enum なし）で、定数 `OshiraseType.DEADLINE` が m_code 値を示す。
     if (dto.oshirase_type === OshiraseType.DEADLINE) {
       const exists = await this.repo.count({
         where: {
@@ -502,15 +481,13 @@ export class OshiraseService {
     });
     if (!existing) throw new NotFoundException('お知らせ');
 
-    // [deadline-pairing] type=4 ⇔ publish_location=3 (MENU_DEADLINE).
-    // Same rule as create — applied to the incoming DTO so any change
-    // also satisfies the 1:1 mapping (and API-direct callers can't slip
-    // an inconsistent body through past the FE form).
+    // [deadline-pairing] type=4 ⇔ publish_location=3 (MENU_DEADLINE)。
+    // create と同ルール — 入力 DTO に適用し、変更後も 1:1 対応を満たす
+    // （API 直接呼び出しで不整合な body を通さない）。
     assertDeadlineLocationPairing(dto.oshirase_type, dto.publish_location);
 
-    // 締め切り時間 重複チェック. Same system-wide uniqueness rule as
-    // create — but exclude the row being edited so saving the existing
-    // 締め切り時間 itself doesn't trip the check.
+    // 締め切り時間 重複チェック。create と同じシステム全体一意性ルール —
+    // ただし編集中の行は除外し、既存の締め切り時間自身の保存で誤検知しない。
     if (dto.oshirase_type === OshiraseType.DEADLINE) {
       const exists = await this.repo.count({
         where: {
@@ -545,12 +522,11 @@ export class OshiraseService {
     //   - 保存済み開始日=未来 + 新値<現在 → 拒否（過去日への変更不可）
     //   - 保存済み開始日=未来 + 新値>=現在 → 通す
     //
-    // [minute-precision] Form input is YYYY/MM/DD HH:mm (no seconds);
-    // parseDatetimeMinutesJst always returns a Date with seconds=0.
-    // The DB row, however, keeps the full timestamp from INSERT (e.g.
-    // 15:44:55.303). Strict-equal `getTime()` would tag every PATCH —
-    // even one that doesn't touch the field — as a change. Compare at
-    // minute precision so "submit unchanged" passes through.
+    // [minute-precision] フォーム入力は YYYY/MM/DD HH:mm（秒なし）で
+    // parseDatetimeMinutesJst は常に seconds=0 の Date を返す。一方 DB 行は
+    // INSERT 時の完全 timestamp（例 15:44:55.303）を保持。厳密な getTime()
+    // 比較では該当フィールド未変更の PATCH も変更扱いになる。分精度で比較し
+    // 「未変更で送信」を通す。
     const truncateToMinute = (d: Date): number => {
       const x = new Date(d);
       x.setSeconds(0, 0);
@@ -662,17 +638,14 @@ export class OshiraseService {
   }
 
   /**
-   * [scr031-deps-guard] Centralised runtime check for create / update /
-   * remove — the 3 admin endpoints SCR-031 added on top of the SCR-001
-   * public-notice service. Both `dataSource` and `auditLog` are
-   * `@Optional()` so the SCR-001 unit specs can construct the service
-   * with only `(repo, codeService)`; production DI always wires both.
+   * [scr031-deps-guard] create / update / remove（SCR-001 公開通知 service に
+   * SCR-031 が追加した3管理エンドポイント）の集中ランタイム検査。dataSource /
+   * auditLog は @Optional() で SCR-001 unit spec が (repo, codeService) のみで
+   * 生成可能。本番 DI は常に両方供給。
    *
-   * Returns void rather than narrowing via `asserts this is …` because
-   * the latter collapses to `never` when TS tries to intersect this
-   * class (private auditLog) with a public-typed override. Call this
-   * at the top of every admin method; downstream sites use the `!`
-   * non-null assertion to read the now-checked deps.
+   * `asserts this is …` で絞り込まず void を返す — 後者は private auditLog を
+   * public 型 override と交差させる際 never に潰れるため。各管理メソッド冒頭で
+   * 呼び、下流は `!` non-null 断定で検査済み依存を読む。
    */
   private assertScrAdminDeps(): void {
     if (!this.dataSource || !this.auditLog) {

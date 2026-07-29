@@ -41,17 +41,13 @@ import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
 import { pickBool, pickNumber, pickString } from '@/common/utils/pick';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
-/** Per-screen audit-context label for SCR-004 (list / delete). */
+// SCR-004(一覧/削除)用の audit-context ラベル。
 const SCREEN_NAME_SCR004 = 'JAマスタ明細検索画面 (ACSMS-SCR-004)';
 
-/**
- * Whitelist mapping `sort_by` → fully-qualified QueryBuilder column.
- * `@IsIn(JA_SEARCH_SORT_BY)` already rejects keys outside this map, but
- * keeping the lookup dynamic prevents SQL injection if the DTO drifts.
- * `todofuken_name` is mapped to `mj.todofuken_code` because we don't
- * carry the m_todofuken JOIN in the QB — sorting by code groups same-
- * prefecture rows reasonably.
- */
+// sort_by → QB 列名の対応。@IsIn(JA_SEARCH_SORT_BY) が範囲外を拒否済みだが、
+// DTO ドリフト時の SQLインジェクション防止に動的ルックアップを維持。
+// todofuken_name は m_todofuken JOIN を持たないため mj.todofuken_code に
+// マップ(同一県をまとめてソート)。
 const SORT_COLUMN_MAP: Record<JaSearchSortBy, string> = {
   ja_code: 'mj.ja_code',
   ja_name: 'mj.ja_name',
@@ -60,22 +56,16 @@ const SORT_COLUMN_MAP: Record<JaSearchSortBy, string> = {
   tel: 'mj.tel',
   address: 'mj.address',
   fax: 'mj.fax',
-  // Default sort key — newest write (CREATE or UPDATE auto-stamps
-  // updated_at) bubbles to row 1 so users see what they just changed.
+  // 既定ソート — 最新更新(CREATE/UPDATE が updated_at を自動更新)を先頭へ。
   updated_at: 'mj.updated_at',
 };
 
-/**
- * Tables whose existence of a row referencing the JA blocks a delete.
- * Mirrors `docs/design/ACSMS-SCR-004/ACSMS-SCR-004-api.md §4.4`.
- *
- * Some of these tables aren't yet TypeORM entities (later screens own
- * them); the generic `assertNoRelatedRows()` helper at
- * `@/common/utils/fk-conflict` takes this readonly list + the FK column
- * name and runs a parameterised `SELECT COUNT(*) FROM ${table} WHERE
- * ${fk} = $1 AND deleted_at IS NULL` against each. Table list MUST stay
- * hardcoded (no user input) — the helper interpolates it into the SQL.
- */
+// JA を参照する行が残っていると削除を阻止するテーブル群。
+// docs/design/ACSMS-SCR-004/ACSMS-SCR-004-api.md §4.4 準拠。
+// 一部は未 TypeORM 化(後続画面が所有)。assertNoRelatedRows()
+// (@/common/utils/fk-conflict)がこの readonly リスト + FK 列名で各テーブルに
+// パラメタライズド `SELECT COUNT(*) ... WHERE ${fk}=$1 AND deleted_at IS NULL`
+// を実行。ヘルパが SQL に埋め込むためリストは必ずハードコード(ユーザ入力不可)。
 const RELATED_TABLES: readonly string[] = [
   'm_kanri_shiten',
   'm_shiten',
@@ -85,12 +75,9 @@ const RELATED_TABLES: readonly string[] = [
   'm_account',
 ];
 
-/**
- * Field-level restriction table per `.claude/rules/security.md` §Layer 3.
- * Only roles that CAN edit a given column are listed with the allowed field set.
- * `*` means "all fields allowed". The generic filter implementation lives in
- * `common/utils/field-restrictions.ts`.
- */
+// フィールド単位制限表(.claude/rules/security.md §Layer 3)。編集可能な
+// ロールのみ許可列集合を列挙。'*'=全列許可。フィルタ実装は
+// common/utils/field-restrictions.ts。
 const FIELD_RESTRICTIONS: FieldRestrictionTable = {
   ja: {
     NICHINO_ADMIN: ['*'],
@@ -152,7 +139,7 @@ export class JaService {
     const ja = await this.repo.findOne({ where: { jaId, deletedAt: IsNull() } });
     if (!ja) throw new NotFoundException('JA');
 
-    // [data-scope] — masks out-of-scope rows as 404.
+    // [data-scope] — 範囲外の行は 404 でマスク。
     assertJaScope(ja.jaId, session, 'JA');
 
     const td = await this.todofukenRepo.findOne({
@@ -172,7 +159,7 @@ export class JaService {
       { field: 'zei_kubun', value: dto.zei_kubun, category: 'ZEI_KUBUN', label: '税区分' },
     ]);
 
-    // [code-master-check] — 都道府県コード 存在検証
+    // [code-master-check] — 都道府県コード存在検証
     const td = await this.todofukenRepo.findOne({
       where: { todofukenCode: dto.todofuken_code },
     });
@@ -180,10 +167,9 @@ export class JaService {
       throw new BadRequestException('都道府県コードが存在しません。');
     }
 
-    // [uniqueness-check] — JAコード 一意性チェック. `withDeleted: true` —
-    // code reuse is forbidden across lifetime (a code is reserved for
-    // the row even after logical delete), matching the DB UNIQUE INDEX
-    // which does not filter on deleted_at.
+    // [uniqueness-check] — JAコード一意性チェック。`withDeleted: true`：
+    // コードは論理削除後もその行に予約され再利用不可(deleted_at で絞らない
+    // DB UNIQUE INDEX に一致)。
     const existing = await this.repo.findOne({
       where: { jaCode: dto.ja_code },
       withDeleted: true,
@@ -227,18 +213,15 @@ export class JaService {
         return created;
       });
 
-      // `td` (above) was fetched to validate todofuken_code existence;
-      // `saved.todofukenCode === dto.todofuken_code` since the entity
-      // carries it through unchanged, so reuse instead of re-querying.
+      // 上の td は存在検証で取得済。entity がそのまま持つので
+      // saved.todofukenCode === dto.todofuken_code → 再クエリせず再利用。
       return {
         ...toJaResponse(saved, td.todofukenName),
         message: '登録しました。',
       };
     } catch (err) {
-      // Race-condition safety net: 2 concurrent CREATE requests can
-      // both pass the pre-check, then the second INSERT hits the DB
-      // UNIQUE INDEX. Convert that 23505 into a clean 400 instead of
-      // letting it bubble as 500.
+      // 競合対策：並行 CREATE 2件が事前チェックを通過し2件目の INSERT が
+      // UNIQUE INDEX に衝突する場合、23505 を 500 でなく 400 に変換。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
           buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
@@ -247,7 +230,7 @@ export class JaService {
         );
         throw new DuplicateCodeException('JAコード', dto.ja_code);
       }
-      // [audit-error-log] — OUTSIDE the (rolled-back) transaction.
+      // [audit-error-log] — ロールバックされた tx の外側で記録。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
         AuditOperation.CREATE,
@@ -268,14 +251,14 @@ export class JaService {
       { field: 'zei_kubun', value: dto.zei_kubun, category: 'ZEI_KUBUN', label: '税区分' },
     ]);
 
-    // [fetch-target] — existence + [data-scope] check
+    // [fetch-target] — 存在 + [data-scope] チェック
     const before = await this.repo.findOne({
       where: { jaId, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('JA');
     assertJaScope(before.jaId, session, 'JA');
 
-    // [role-allow-list] — per-role allow-list
+    // [role-allow-list] — ロール別 allow-list
     const filtered = filterAllowedFields(
       dto as unknown as Record<string, unknown>,
       'ja',
@@ -283,10 +266,9 @@ export class JaService {
       FIELD_RESTRICTIONS,
     );
 
-    // [code-master-check] — todofuken_code 存在検証 (NICHINO_ADMIN only; the allow-list
-    // above drops this field for CHUOKAI/JA_HONTEN). When the role can
-    // change todofuken_code, cache the validated row so the response
-    // hydration below doesn't need to re-query m_todofuken.
+    // [code-master-check] — todofuken_code 存在検証(NICHINO_ADMIN のみ。
+    // CHUOKAI/JA_HONTEN は上の allow-list が本項目を除外)。変更可のロール時は
+    // 検証済み行をキャッシュし、下の response 生成で m_todofuken 再クエリを回避。
     let validatedTodofuken: Todofuken | null = null;
     if ('todofuken_code' in filtered) {
       validatedTodofuken = await this.todofukenRepo.findOne({
@@ -332,9 +314,8 @@ export class JaService {
         return updated;
       });
 
-      // Reuse the validated row if the role just updated todofuken_code;
-      // otherwise the column is unchanged (allow-list dropped the key) and
-      // we need to look up the existing value to hydrate todofuken_name.
+      // todofuken_code を更新したロールは検証済み行を再利用。それ以外は
+      // 未変更(allow-list が除外)なので既存値を引いて todofuken_name を補完。
       const tdForResponse =
         validatedTodofuken ??
         (await this.todofukenRepo.findOne({
@@ -345,7 +326,7 @@ export class JaService {
         message: '更新しました。',
       };
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the (rolled-back) transaction.
+      // [audit-error-log] — ロールバックされた tx の外側で記録。
       await this.auditLog.logError(
         buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, jaId),
         AuditOperation.UPDATE,
@@ -356,14 +337,10 @@ export class JaService {
   }
 
   // ─── API-004-001 — GET /api/v1/ja ─────────────────────────────────────
-  /**
-   * Paginated search across `m_ja`. Applies §4.3 DataScope (NICHINO_*
-   * unrestricted, CHUOKAI / JA_HONTEN see only own ja_id). `todofuken_name`
-   * is hydrated from `m_todofuken` after the query rather than via JOIN to
-   * keep the QueryBuilder simple — see comment on `SORT_COLUMN_MAP`.
-   *
-   * Read-only: does NOT write to t_log.
-   */
+  // m_ja のページング検索。§4.3 DataScope 適用(NICHINO_* は無制限、
+  // CHUOKAI/JA_HONTEN は自 ja_id のみ)。todofuken_name は QB を単純に保つため
+  // JOIN でなくクエリ後に m_todofuken から補完(SORT_COLUMN_MAP のコメント参照)。
+  // 読取専用：t_log に書き込まない。
   async findAll(
     query: SearchJaDto,
     session: SessionPayload,
@@ -387,19 +364,19 @@ export class JaService {
     // [soft-delete-filter]
     qb.where('mj.deleted_at IS NULL');
 
-    // [data-scope] — restricted roles see only their own JA.
+    // [data-scope] — 制限ロールは自 JA のみ。
     applyJaScope(qb, 'mj', 'jaId', session);
 
-    // [filter-conditions] — partial-match filters.
+    // [filter-conditions] — 部分一致フィルタ。
     if (query.ja_code) {
       qb.andWhere('mj.ja_code ILIKE :ja_code', { ja_code: `%${query.ja_code}%` });
     }
     if (query.ja_name) {
       qb.andWhere('mj.ja_name ILIKE :ja_name', { ja_name: `%${query.ja_name}%` });
     }
-    // [filter-conditions] todofuken filter — exact match. Source: dropdown
-    // (ACSMS-API-COMMON-001), values are the 2-char m_todofuken codes
-    // so partial match wouldn't make sense ("13" vs "1" overlap).
+    // [filter-conditions] todofuken フィルタ — 完全一致。Source: dropdown
+    // (ACSMS-API-COMMON-001)。値は2桁 m_todofuken コードで部分一致は無意味
+    // ("13" と "1" が重なる)。
     if (query.todofuken_code) {
       qb.andWhere('mj.todofuken_code = :todofuken_code', {
         todofuken_code: query.todofuken_code,
@@ -414,8 +391,8 @@ export class JaService {
 
     const [rows, total] = await qb.getManyAndCount();
 
-    // Hydrate todofuken_name in one batch lookup. m_todofuken is a small
-    // reference table (47 rows) so a single find() is cheaper than a JOIN.
+    // todofuken_name を一括取得で補完。m_todofuken は小さな参照表(47行)で
+    // 単一 find() の方が JOIN より安い。
     const codes = Array.from(new Set(rows.map((r) => r.todofukenCode).filter(Boolean)));
     const tdRows = codes.length > 0 ? await this.todofukenRepo.find() : [];
     const tdMap = new Map(tdRows.map((t) => [t.todofukenCode, t.todofukenName]));
@@ -441,24 +418,21 @@ export class JaService {
   }
 
   // ─── API-004-002 — DELETE /api/v1/ja/:ja_id ───────────────────────────
-  /**
-   * Logical delete. §4.4 enforces a 6-table conflict check before
-   * committing; §4.5 sets `deleted_at = NOW()`; §4.6 writes a t_log row
-   * (operation='DELETE') in the same transaction; §4.8 emits an error
-   * log (log_type=3) OUTSIDE the rolled-back transaction on failure.
-   */
+  // 論理削除。§4.4 で6テーブルの競合チェック→§4.5 deleted_at=NOW()→
+  // §4.6 同一 tx で t_log 行(operation='DELETE')→失敗時 §4.8 エラーログ
+  // (log_type=3)をロールバックされた tx の外側で記録。
   async remove(
     id: number,
     session: SessionPayload,
     req: Request,
   ): Promise<{ message: string }> {
-    // [fetch-target] — also serves as before_value snapshot in the audit log.
+    // [fetch-target] — 監査ログの before_value スナップショットも兼ねる。
     const before = await this.repo.findOne({
       where: { jaId: id, deletedAt: IsNull() },
     });
     if (!before) throw new NotFoundException('JA');
 
-    // [fk-conflict-check] — block when any related table still has rows for this JA.
+    // [fk-conflict-check] — 関連テーブルにこの JA の行が残る場合は阻止。
     await assertNoRelatedRows(this.dataSource, RELATED_TABLES, 'ja_id', id);
 
     const ctxBuilder = (): AuditOperationContext =>
@@ -466,7 +440,7 @@ export class JaService {
 
     try {
       await this.dataSource.transaction(async (manager) => {
-        // [soft-delete] — UPDATE m_ja SET deleted_at=NOW(), updated_by=:account_id
+        // [soft-delete] — m_ja の deleted_at=NOW(), updated_by=:account_id
         await manager.update(
           Ja,
           { jaId: id, deletedAt: IsNull() },
@@ -476,41 +450,32 @@ export class JaService {
           },
         );
 
-        // [audit-log-in-tx] — inside the same tx so atomicity holds.
+        // [audit-log-in-tx] — 同一 tx 内で原子性を保つ。
         await this.auditLog.logDelete(ctxBuilder(), before, manager);
       });
 
       return { message: '削除しました。' };
     } catch (err) {
-      // [audit-error-log] — OUTSIDE the rolled-back tx so the trace
-      // survives even when the business write was discarded.
+      // [audit-error-log] — ロールバックされた tx の外側で記録し、業務書込が
+      // 破棄されてもトレースを残す。
       await this.auditLog.logError(ctxBuilder(), AuditOperation.DELETE, err as Error);
       throw err;
     }
   }
 
   // ─── ACSMS-API-COMMON-003 — GET /api/v1/ja/dropdown ─────────────────
-  /**
-   * Server-side-paginated + searchable JA list for form dropdowns.
-   * Unifies two use cases that share the path:
-   *
-   *   1. Free-text + infinite scroll (SCR-009 管理支店 create form
-   *      and friends) — pass `q`, `page`, `per_page`, optional
-   *      `include_id`.
-   *   2. Cascading filter (SCR-024 account search / SCR-025 register)
-   *      — pass `todofuken_code`, `role_id` for narrow JA pickers
-   *      driven by sibling dropdowns.
-   *
-   * Both contracts return the SAME paginated shape; cascade-callers
-   * just ignore the `meta` and use `data`. The `role_id → chuokai_flg`
-   * mapping resolves role_id → role_code first (never hardcodes the PK):
-   *   CHUOKAI                     → chuokai_flg=TRUE  (central association)
-   *   JA_HONTEN / JA_KANRI_SHITEN → chuokai_flg=FALSE (single JA)
-   *
-   * DataScope: applied via `applyJaScope` so non-NICHINO roles only
-   * see JAs in their organizational hierarchy. `include_id` does NOT
-   * bypass DataScope — an out-of-scope id is silently dropped.
-   */
+  // フォーム dropdown 用のサーバページング + 検索可能 JA リスト。
+  // 同一パスで2用途を統合：
+  //   1. free-text + 無限スクロール(SCR-009 管理支店 create 等)
+  //      — q/page/per_page、任意 include_id。
+  //   2. カスケード絞込み(SCR-024 検索 / SCR-025 登録)
+  //      — todofuken_code/role_id で兄弟dropdown連動の絞込み。
+  // 両契約とも同じページング形を返す(カスケード呼び元は meta 無視で data のみ)。
+  // role_id → chuokai_flg は先に role_id→role_code へ解決(PK ハードコード禁止)：
+  //   CHUOKAI                     → chuokai_flg=TRUE (中央会)
+  //   JA_HONTEN / JA_KANRI_SHITEN → chuokai_flg=FALSE (単協)
+  // DataScope: applyJaScope 適用で非 NICHINO は自組織階層の JA のみ。
+  // include_id は DataScope を迂回しない(範囲外 id は黙って除外)。
   async dropdown(
     query: JaDropdownQueryDto,
     session: SessionPayload,
@@ -541,9 +506,8 @@ export class JaService {
     applyJaScope(qb, 'mj', 'jaId', session);
 
     if (query.q) {
-      // [match-field] 'name' = ja_name only (SCR-024 account list hides
-      // ja_code so searching by code would be invisible to the user).
-      // Default 'both' preserves legacy behavior for every other caller.
+      // [match-field] 'name' = ja_name のみ(SCR-024 は ja_code 非表示で
+      // コード検索がユーザに見えないため)。既定 'both' は他呼び元の従来動作。
       if (query.match_field === 'name') {
         qb.andWhere('mj.ja_name ILIKE :q', { q: `%${query.q}%` });
       } else {
@@ -559,12 +523,10 @@ export class JaService {
       });
     }
 
-    // role_id → chuokai_flg cascade. Resolve the (DB-assigned, BIGSERIAL)
-    // role_id to its STABLE role_code before branching, so the logic never
-    // hardcodes m_roles PK values (insert-order dependent — see
-    // SeedMRoles migration). 中央会 → chuokai_flg=TRUE; 単協 (JA本店 /
-    // JA管理支店) → FALSE. Unknown role_id / 日農 roles fall through (no
-    // filter) rather than 400, matching the SCR-024 spec.
+    // role_id → chuokai_flg カスケード。分岐前に(DB採番 BIGSERIAL の)role_id を
+    // 安定した role_code へ解決し、m_roles PK 値をハードコードしない(挿入順依存
+    // — SeedMRoles migration 参照)。中央会→TRUE、単協(JA本店/JA管理支店)→FALSE。
+    // 不明な role_id / 日農ロールは 400 でなく素通り(SCR-024 spec に一致)。
     if (query.role_id !== undefined) {
       const role = await this.roleRepo.findOne({
         where: { roleId: query.role_id },
@@ -587,9 +549,8 @@ export class JaService {
     const [rows, total] = await qb.getManyAndCount();
     const pageIds = new Set(rows.map((r) => r.jaId));
 
-    // include_id: if specified and the row is in scope BUT not in the
-    // current page slice, prepend it so the FE can render the
-    // already-selected option without a second GET /api/v1/ja/:id round trip.
+    // include_id: 指定行が scope 内だが現ページ範囲外の場合、先頭に付加し、
+    // FE が選択済みオプションを GET /api/v1/ja/:id の再取得なしで描画できるように。
     let pinned: Ja | null = null;
     if (query.include_id && !pageIds.has(query.include_id)) {
       const pinnedQb = this.repo
@@ -607,11 +568,10 @@ export class JaService {
       pinned = await pinnedQb.getOne();
     }
 
-    // Coerce BIGINT-as-string back to number for `ja_id` (TypeORM + pg
-     // returns BIGINT as string even though the entity typed it as number).
-     // Without this, FE <a-select> strict-equal match fails (option.value
-     // is "60" while v-model is 60) → option doesn't resolve → antd renders
-     // the raw id instead of the `${ja_code} ${ja_name}` label.
+    // ja_id を BIGINT-as-string から number へ変換(TypeORM+pg は entity が
+    // number 型でも BIGINT を string で返す)。放置すると FE <a-select> の
+    // strict-equal 照合が失敗し(option.value="60" vs v-model 60)、antd が
+    // `${ja_code} ${ja_name}` ラベルでなく生 id を描画する。
     const data = [...(pinned ? [pinned] : []), ...rows].map((r) => ({
       ja_id: Number(r.jaId),
       ja_code: r.jaCode,

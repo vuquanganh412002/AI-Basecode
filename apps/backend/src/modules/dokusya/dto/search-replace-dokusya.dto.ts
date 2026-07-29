@@ -15,15 +15,14 @@ import {
 import { DokusyaShubetsu } from '@/common/enums';
 
 /**
- * Empty-string → undefined transformer. `@IsOptional()` only skips
- * `null` / `undefined`, NOT `""`. GET requests serialise blank inputs
- * as `?shimei=` — without this the format / length checks would reject
- * them at 400. See `.claude/rules/nestjs.md §DTO validation gotchas`.
+ * 空文字 → undefined 変換。`@IsOptional()` は `null`／`undefined` のみスキップし
+ * `""` は対象外。GET リクエストは空入力を `?shimei=` でシリアライズするため、
+ * これが無いと形式／長さチェックが 400 で弾く。`.claude/rules/nestjs.md §DTO validation gotchas` 参照。
  */
 const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/** Allow-list of columns the FE can sort by (api.md §4.1 sort_by). */
+/** FE がソート可能な列の allow-list（api.md §4.1 sort_by）。 */
 const ALLOWED_SORT_COLUMNS = [
   'kanri_shiten_name',
   'shiten_name',
@@ -31,22 +30,20 @@ const ALLOWED_SORT_COLUMNS = [
   'hanbaiten_code',
 ] as const;
 
-/** `YYYY-MM-DD` literal — date-only filter format. */
+/** `YYYY-MM-DD` リテラル — 日付のみのフィルタ形式。 */
 const DATE_FORMAT_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FORMAT_MSG = '日付はYYYY-MM-DDの形式で指定してください。';
 
 /**
- * Query DTO for `GET /api/v1/dokusya/replace-hanbaiten/search`
- * (ACSMS-API-015-001). Every search filter is optional; pagination /
- * sort carry project defaults (page=1, per_page=20,
- * sort_by=kumiaiin_code, sort_order=asc).
+ * `GET /api/v1/dokusya/replace-hanbaiten/search` のクエリ DTO
+ * （ACSMS-API-015-001）。検索フィルタは全て任意。ページネーション／ソートは
+ * プロジェクトのデフォルト（page=1・per_page=20・sort_by=kumiaiin_code・sort_order=asc）。
  *
- * The date_from > date_to correlation is a SERVICE-level business rule
- * (api.md §4.1 → DATE_RANGE_INVALID) — the DTO only checks each side's
- * YYYY-MM-DD format.
+ * date_from > date_to の相関はサービス層の業務ルール
+ * （api.md §4.1 → DATE_RANGE_INVALID）— DTO は各側の YYYY-MM-DD 形式のみチェック。
  */
 export class SearchReplaceDokusyaDto {
-  // ─── Equality filters ──────────────────────────────────────────────────
+  // ─── 完全一致フィルタ ──────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '管理支店ID' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -87,7 +84,7 @@ export class SearchReplaceDokusyaDto {
   @Min(1, { message: '置換先配達販売店を選択してください。' })
   new_hanbaiten_id!: number;
 
-  // ─── Partial-match filters ────────────────────────────────────────────
+  // ─── 部分一致フィルタ ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: '組合員コード（部分一致）', maxLength: 20 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -116,7 +113,7 @@ export class SearchReplaceDokusyaDto {
   @MaxLength(300, { message: '配達先住所は最大300文字で指定してください。' })
   haitatsu_address?: string;
 
-  // ─── Date ranges (YYYY-MM-DD; from ≦ to enforced in service) ────────────
+  // ─── 日付範囲（YYYY-MM-DD；from ≦ to はサービスで強制）────────────
   @ApiPropertyOptional({ description: '購読開始日（範囲開始）YYYY-MM-DD' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -155,7 +152,7 @@ export class SearchReplaceDokusyaDto {
   })
   dokusya_shubetsu!: number;
 
-  // ─── Pagination + sort ────────────────────────────────────────────────
+  // ─── ページネーション + ソート ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1, default: 1 })
   @Transform(blankToUndef)
   @IsOptional()

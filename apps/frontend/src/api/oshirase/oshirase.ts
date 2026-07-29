@@ -1,6 +1,5 @@
-// Hand-written wrapper around /api/v1/oshirase admin endpoints (ACSMS-SCR-031).
-// The /public list (SCR-001 login banner) lives separately; this module only
-// covers the authenticated CRUD surface.
+// /api/v1/oshirase の admin endpoint 用の手書き wrapper（ACSMS-SCR-031）。
+// /public リスト（SCR-001 ログインバナー）は別モジュール。ここは認証済み CRUD のみ。
 
 import axiosInstance from '@/api/axios-instance';
 
@@ -8,9 +7,8 @@ export interface OshiraseListItem {
   oshirase_id: number;
   ja_id: number | null;
   /**
-   * Resolved ja_name from BE leftJoin (m_ja). null when ja_id is null
-   * (= 全JA向け) OR when the referenced JA was hard-deleted. Renderer
-   * substitutes '全JA向け' for null.
+   * BE の leftJoin（m_ja）で解決した ja_name。ja_id が null（= 全JA向け）または
+   * 参照先 JA が物理削除済みの時は null。描画側は null を '全JA向け' に置換する。
    */
   ja_name: string | null;
   oshirase_type: number;
@@ -20,11 +18,10 @@ export interface OshiraseListItem {
   publish_start_date: string;
   publish_end_date: string | null;
   /**
-   * Comma-separated 1〜5 codes; empty string = 全管理者 (all).
+   * カンマ区切りの 1〜5 コード。空文字 = 全管理者。
    *
-   * Optional at the type level so legacy fixtures that pre-date this
-   * column still satisfy the type — view template falls back to '全管理者'
-   * via `??` when the field is undefined.
+   * この列より前の古い fixture も型を満たすよう型上は optional — view template は
+   * 未定義時に `??` で '全管理者' にフォールバックする。
    */
   target_kanri_kubun?: string;
   created_at: string;
@@ -91,11 +88,11 @@ export async function listOshirase(
   return res.data;
 }
 
-// ─── ACSMS-API-010-001 — Menu screen list (authenticated, any role) ─────
+// ─── ACSMS-API-010-001 — メニュー画面リスト（認証済み・全ロール） ─────
 
-// [no-labels-policy] SCR-010 menu list is authenticated — BE does not
-// emit `oshirase_type_label`. Consumers resolve via
-// `useCodesStore().label('OSHIRASE_TYPE', oshirase_type)`.
+// [no-labels-policy] SCR-010 メニューリストは認証済み — BE は
+// `oshirase_type_label` を出さない。消費側は
+// `useCodesStore().label('OSHIRASE_TYPE', oshirase_type)` で解決。
 export interface MenuOshiraseItem {
   oshirase_id: number;
   title: string;

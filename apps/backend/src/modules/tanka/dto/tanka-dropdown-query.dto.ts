@@ -5,23 +5,14 @@ import { IsInt, IsOptional, Min } from 'class-validator';
 import { BaseDropdownQueryDto } from '@/common/dto/base-dropdown-query.dto';
 
 /**
- * Query DTO for `GET /api/v1/tanka/dropdown`.
- *
- * Powers the 配達手数料単価 dropdown on the hanbaiten create form
- * (SCR-017 + the SCR-018 daiko 代行入力 flow). Returns slim
- * (tanka_id, tanka_code, tanka_name, kingaku_zeikomi) rows.
- *
- * Inherits the shared search/paging shape from {@link BaseDropdownQueryDto}
- * (`q` matches `tanka_name` ILIKE only — `tanka_code` is hidden in the
- * UI so searching it would surface invisible hits) and adds tanka-
- * specific filters:
- *
- *   - `tanka_type` lets the caller scope to a single category
- *     (e.g. `2` = 配達手数料).
- *   - `ja_id` is the explicit-JA path for NICHINO_STAFF (代行入力).
- *     For other roles DataScope (session-bound JA) takes effect and
- *     this param is ignored.
- *   - `include_id` (from base) is the edit-form escape hatch.
+ * `GET /api/v1/tanka/dropdown` のクエリDTO。
+ * hanbaiten 作成フォーム(SCR-017 + SCR-018 代行入力)の 配達手数料単価 ドロップダウン用。
+ * slim 行 (tanka_id, tanka_code, tanka_name, kingaku_zeikomi) を返す。
+ * {@link BaseDropdownQueryDto} 継承 (`q` は tanka_name ILIKE のみ — tanka_code は
+ * UI 非表示で検索対象外)。追加フィルタ:
+ *   - `tanka_type`: 単一カテゴリへ絞り込み (例 2=配達手数料)。
+ *   - `ja_id`: NICHINO_STAFF 代行入力 の明示JA指定。他ロールは DataScope 適用で無視。
+ *   - `include_id` (base): 編集フォームの escape hatch。
  */
 export class TankaDropdownQueryDto extends BaseDropdownQueryDto {
   @ApiPropertyOptional({

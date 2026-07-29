@@ -2,8 +2,8 @@ import { HttpStatus } from '@nestjs/common';
 import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
- * Raised by `DokusyaService.exportExcel` when the filtered count is 0.
- * api.md §エラー一覧 #12 + §4.3 (件数チェック).
+ * 絞り込み件数が 0 のとき `DokusyaService.exportExcel` が送出。
+ * api.md §エラー一覧 #12 + §4.3（件数チェック）。
  */
 export class ExportNoDataException extends DomainException {
   constructor() {

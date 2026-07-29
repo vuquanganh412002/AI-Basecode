@@ -61,11 +61,9 @@ function toIso(v: Dateish): string | null {
 }
 
 /**
- * SCR-022 ファイルダウンロード画面のサービス。
- *
- * データソースは `t_file_download`（帳票各画面が生成時に INSERT する。本画面は
- * **読み取り + ダウンロード専用**）。ダウンロード時は t_file_download への INSERT
- * を行わず、`t_log`（log_type=4 / operation=DOWNLOAD）のみ記録する。
+ * SCR-022 ファイルダウンロード画面サービス。データソースは `t_file_download`
+ * (帳票各画面が生成時 INSERT。本画面は読取 + DL 専用)。DL 時は INSERT せず
+ * `t_log`(log_type=4 / operation=DOWNLOAD)のみ記録。
  */
 @Injectable()
 export class FileDownloadService {
@@ -338,9 +336,8 @@ export class FileDownloadService {
   }
 
   /**
-   * 単一行の DataScope チェック。NICHINO_* は全件許可。JA系ロールは
-   * ja_id が NULL（全JA向け）または自 JA のときのみ許可、それ以外は 404
-   * でマスクする（行の存在を隠す）。
+   * 単一行 DataScope チェック。NICHINO_* は全件許可。JA系は ja_id が NULL(全JA向け)
+   * か自 JA のみ許可、他は存在秘匿のため 404。
    */
   private assertScope(row: FileDownload, session: SessionPayload): void {
     const role = session.role_code;
@@ -355,13 +352,9 @@ export class FileDownloadService {
   }
 
   /**
-   * 日農DL許可チェック。対象ロールは nichino_download_allowed_flg=false の
-   * ファイルをダウンロード／プレビューできない（FE の行無効化と対になるサーバ側
-   * 強制＝実際のアクセス境界）。一覧には表示される行なので、存在を隠す 404 では
-   * なく 403 を返す。
-   *
-   * 対象ロール（顧客要件）: 日農（NICHINO_ADMIN=role1 / NICHINO_STAFF=role2）に
-   * 加え、中央会（CHUOKAI=role3）も追加する。
+   * 日農DL許可チェック。対象ロールは nichino_download_allowed_flg=false のファイルを
+   * DL/プレビュー不可（FE の行無効化と対のサーバ側強制＝実際の境界）。一覧表示行なので
+   * 404 でなく 403。対象ロール（顧客要件）: 日農(NICHINO_ADMIN/STAFF) + 中央会(CHUOKAI)。
    */
   private assertNichinoDownloadAllowed(
     row: FileDownload,

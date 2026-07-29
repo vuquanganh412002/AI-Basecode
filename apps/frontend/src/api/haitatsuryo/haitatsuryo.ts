@@ -58,7 +58,7 @@ export interface HaitatsuryoMeta {
   zei_kubun: number;
 }
 
-/** Preview response body — `{ data, meta }` at top level (no extra wrapper). */
+/** プレビューのレスポンス body — トップレベルの `{ data, meta }`（追加ラッパなし）。 */
 export interface HaitatsuryoPreviewData {
   data: HaitatsuryoRow[];
   meta: HaitatsuryoMeta;
@@ -73,7 +73,7 @@ export interface HaitatsuryoErrorDetail {
 }
 
 /**
- * A normalized non-axios error carrying the screen-specific error_code.
+ * 画面固有 error_code を運ぶ、正規化された非 axios エラー。
  * INACTIVE_TANKA_REFERENCED のときは `errors[]`（該当販売店一覧・先頭15件）と
  * `total`（総件数）+ `message` を伴い、view が SCR-020 と同様のインライン
  * エラー一覧で提示する（トーストではない）。

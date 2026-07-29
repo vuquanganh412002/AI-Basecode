@@ -2048,7 +2048,7 @@ DBで以下クエリを実行し、ステータスと履歴を確認
 ```sql
 SELECT denshi_shonin_status, rireki_no FROM t_dokusya WHERE dokusya_id = 200;
 
-SELECT rireki_no, denshi_shonin_status, saishin_data_flg, henko_riyu
+SELECT rireki_no, denshi_shonin_status, saishin_data_flg
 FROM t_dokusya_rireki
 WHERE dokusya_id = 200
 ORDER BY rireki_no DESC;
@@ -2063,7 +2063,7 @@ ORDER BY rireki_no DESC;
 HTTPステータスコード200が返却されること（`data.denshi_shonin_status = 1`）、メッセージ `承認しました。` が表示されること
 
 ステップ3：
-t_dokusya の denshi_shonin_status が1に更新されること、t_dokusya_rireki に新履歴（denshi_shonin_status=1, saishin_data_flg=true, henko_riyu=`電子版承認`）が追記されること
+t_dokusya の denshi_shonin_status が1に更新されること、t_dokusya_rireki に新履歴（denshi_shonin_status=1, saishin_data_flg=true）が追記されること
 
 補足：
 ・「承認」ボタン押下で APIが denshi_shonin_status=1（承認済み）に設定し、新規履歴レコードを作成すること（機能定義 §3.3）
@@ -2118,7 +2118,7 @@ DBで以下クエリを実行し、ステータスと履歴を確認
 ```sql
 SELECT denshi_shonin_status FROM t_dokusya WHERE dokusya_id = 201;
 
-SELECT denshi_shonin_status, henko_riyu
+SELECT denshi_shonin_status
 FROM t_dokusya_rireki
 WHERE dokusya_id = 201 AND saishin_data_flg = TRUE;
 ```
@@ -2135,7 +2135,7 @@ denshi_shonin_status=0（承認待ち）のため「承認しない」ボタン�
 HTTPステータスコード200が返却されること（`data.denshi_shonin_status = 2`）、メッセージ `否認しました。` が表示されること、購読者明細検索画面へ遷移すること
 
 ステップ4：
-t_dokusya の denshi_shonin_status が2に更新されること、t_dokusya_rireki の最新履歴に denshi_shonin_status=2, henko_riyu=`電子版否認` が記録されること
+t_dokusya の denshi_shonin_status が2に更新されること、t_dokusya_rireki の最新履歴に denshi_shonin_status=2 が記録されること
 
 補足：
 ・denshi_shonin_status=0 の場合のみ「承認しない」ボタンを表示すること（機能定義 §4.1）
@@ -2243,7 +2243,7 @@ t_dokusya の denshi_shonin_status が0（承認待ち）のまま変更され�
 DevTools の Network タブで GET `/api/v1/dokusya/100/history` のレスポンスを確認
 
 ステップ3：
-履歴一覧の並び順と各行の項目（rireki_no・tetsuzuki_shurui_label・henko_riyu・saishin_data_flg）を確認
+履歴一覧の並び順と各行の項目（rireki_no・tetsuzuki_shurui_label・saishin_data_flg）を確認
 
 ### 期待結果
 
@@ -2254,7 +2254,7 @@ DevTools の Network タブで GET `/api/v1/dokusya/100/history` のレスポン
 HTTPステータスコード200が返却されること（`data` 配列に履歴レコードが含まれること）
 
 ステップ3：
-履歴一覧が rireki_no の降順で表示されること、各行に手続種類ラベル（tetsuzuki_shurui_label）・変更理由（henko_riyu）・最新データフラグ（saishin_data_flg）が表示されること
+履歴一覧が rireki_no の降順で表示されること、各行に手続種類ラベル（tetsuzuki_shurui_label）・最新データフラグ（saishin_data_flg）が表示されること
 
 補足：
 ・「履歴表示」ボタン押下で購読者履歴情報画面（ACSMS-SCR-013）へ遷移すること（機能定義 §5.1）

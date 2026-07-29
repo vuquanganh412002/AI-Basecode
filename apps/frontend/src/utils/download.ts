@@ -1,12 +1,10 @@
 /**
- * Browser file-download helper — the single place that turns an API
- * `Blob` response into a "Save as…" download. Every export/template
- * screen (帳票 / CSV / Excel / テンプレート) MUST go through this instead
- * of hand-rolling the `createObjectURL → <a> → click → revoke` dance.
+ * ブラウザのファイルダウンロードヘルパ — API の `Blob` レスポンスを「名前を付けて保存」
+ * ダウンロードに変える唯一の場所。全エクスポート/テンプレート画面（帳票 / CSV / Excel /
+ * テンプレート）は `createObjectURL → <a> → click → revoke` を自前で書かず必ずこれを使う。
  *
- * Skips silently in jsdom (test env) where `URL.createObjectURL` is
- * undefined, so component specs can assert the wrapper API was called
- * without stubbing the DOM download plumbing.
+ * `URL.createObjectURL` が undefined の jsdom（テスト環境）では黙ってスキップするので、
+ * コンポーネント spec は DOM ダウンロード配線をスタブせずラッパ API 呼び出しを検証できる。
  */
 export function downloadBlob(blob: Blob, filename: string): void {
   if (
@@ -39,7 +37,7 @@ export function parseContentDispositionFilename(
     try {
       return decodeURIComponent(star[1].trim());
     } catch {
-      // Malformed percent-encoding — fall through to the ASCII form.
+      // 不正なパーセントエンコード — ASCII 形式にフォールスルー。
     }
   }
   const plain = /filename="?([^";]+)"?/i.exec(disposition);

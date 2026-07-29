@@ -20,7 +20,7 @@ const emit = defineEmits<{
 const digits = ref<string[]>(Array.from({ length: props.length }, () => ''));
 const inputs = ref<(HTMLInputElement | null)[]>([]);
 
-// Sync prop → internal
+// prop → 内部状態を同期
 watch(
   () => props.modelValue,
   (v) => {
@@ -35,9 +35,8 @@ watch(
 function emitJoined(): void {
   const value = digits.value.join('');
   emit('update:modelValue', value);
-  // Every slot must be filled. NOTE: cannot use `value.includes('')` —
-  // empty string is a substring of any string, so it returns true even
-  // for fully populated codes. Check the array directly.
+  // 全枠が埋まっている必要がある。NOTE: `value.includes('')` は使えない —
+  // 空文字は任意文字列の部分文字列なので満杯のコードでも true を返す。配列を直接確認する。
   if (value.length === props.length && !digits.value.includes('')) {
     emit('complete', value);
   }
@@ -51,7 +50,7 @@ function onInput(idx: number, e: Event): void {
     emitJoined();
     return;
   }
-  // Support paste of full code
+  // コード全体の貼り付けに対応
   if (raw.length > 1) {
     raw.split('').forEach((c, i) => {
       if (idx + i < props.length) digits.value[idx + i] = c;
@@ -80,7 +79,7 @@ function onKeydown(idx: number, e: KeyboardEvent): void {
   }
 }
 
-// Explicit paste handler — `maxlength="1"` would otherwise truncate to 1 char.
+// 明示的な paste ハンドラ — さもなくば `maxlength="1"` が 1 文字に切り詰める。
 function onPaste(e: ClipboardEvent): void {
   e.preventDefault();
   const text = e.clipboardData?.getData('text') ?? '';

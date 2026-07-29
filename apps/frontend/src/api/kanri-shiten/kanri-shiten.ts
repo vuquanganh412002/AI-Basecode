@@ -3,8 +3,8 @@ import axiosInstance from '@/api/axios-instance';
 // ─── ACSMS-SCR-008 — 管理支店マスタ明細検索画面 ──────────────────────────
 
 /**
- * Row shape returned by `GET /api/v1/kanri-shiten` (ACSMS-API-008-001).
- * Mirrors `docs/design/ACSMS-SCR-008/ACSMS-SCR-008-api.md §レスポンスデータ`.
+ * `GET /api/v1/kanri-shiten`（ACSMS-API-008-001）の行の形。
+ * `docs/design/ACSMS-SCR-008/ACSMS-SCR-008-api.md §レスポンスデータ` 準拠。
  */
 export interface KanriShitenListItem {
   kanri_shiten_id: number;
@@ -34,7 +34,7 @@ export interface KanriShitenListResponse {
   meta: KanriShitenListMeta;
 }
 
-/** Query-string DTO for `GET /api/v1/kanri-shiten`. */
+/** `GET /api/v1/kanri-shiten` のクエリDTO。 */
 export interface ListKanriShitenQuery {
   kanri_shiten_code?: string;
   kanri_shiten_name?: string;
@@ -44,9 +44,8 @@ export interface ListKanriShitenQuery {
   page?: number;
   per_page?: number;
   /**
-   * 3 user-clickable headers from 画面定義§8.1 plus `updated_at`, the
-   * implicit default applied on first render so the most recently
-   * created / updated row appears at the top.
+   * 画面定義§8.1 のユーザークリック可能な3ヘッダ + `updated_at`。後者は初回表示の
+   * 暗黙の既定で、最近作成/更新された行が先頭に来る。
    */
   sort_by?:
     | 'kanri_shiten_code'
@@ -56,7 +55,7 @@ export interface ListKanriShitenQuery {
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response from `DELETE /api/v1/kanri-shiten/:kanri_shiten_id`. */
+/** `DELETE /api/v1/kanri-shiten/:kanri_shiten_id` のレスポンス。 */
 export interface KanriShitenDeleteResponse {
   message: string;
 }
@@ -83,8 +82,8 @@ export async function removeKanriShiten(
 // ─── ACSMS-API-COMMON-004 — Get Kanri Shiten Dropdown ────────────────
 
 /**
- * Single row in the dropdown response. Minimal 3-column projection per
- * spec — full management list is admin-only via `listKanriShiten`.
+ * dropdown レスポンスの1行。spec に沿った最小3列 projection — 完全な管理
+ * 一覧は `listKanriShiten` 経由の admin 専用。
  */
 export interface KanriShitenDropdownItem {
   kanri_shiten_id: number;
@@ -99,10 +98,9 @@ export interface KanriShitenDropdownItem {
 export interface KanriShitenDropdownEnvelope {
   data: KanriShitenDropdownItem[];
   /**
-   * Optional cursor-pagination meta — older callers expect just
-   * `{ data }`; newer dropdown consumers (SCR-011) read `has_more` to
-   * drive infinite scroll. The field stays optional so both shapes
-   * type-check.
+   * 任意のカーソルページング meta — 旧呼び出し元は `{ data }` のみを期待し、
+   * 新しい dropdown 消費側（SCR-011）は無限スクロール用に `has_more` を読む。
+   * 両形が型チェックを通るよう optional のまま。
    */
   meta?: { total: number; page: number; per_page: number; has_more: boolean };
 }
@@ -110,7 +108,7 @@ export interface KanriShitenDropdownEnvelope {
 export interface KanriShitenDropdownQuery {
   ja_id: number;
   q?: string;
-  /** 'both' (default) matches kanri_shiten_code OR kanri_shiten_name; 'name' matches name only. */
+  /** 'both'（既定）は kanri_shiten_code OR kanri_shiten_name、'name' は名前のみ一致。 */
   match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
@@ -118,10 +116,9 @@ export interface KanriShitenDropdownQuery {
 }
 
 /**
- * Shared dropdown lookup used by SCR-007 / SCR-024 / SCR-025 forms.
- * Authenticated-only — no role gate (the caller's screen-level guard
- * already authorized the user). Spec:
- * `docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md §ACSMS-API-COMMON-004`.
+ * SCR-007 / SCR-024 / SCR-025 フォームが使う共通 dropdown ルックアップ。
+ * 認証済みのみ — ロールゲートなし（呼び出し元の画面レベルガードが既に認可済み）。
+ * spec: `docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md §ACSMS-API-COMMON-004`。
  *
  * 後方互換: 数値 `jaId` を渡すと従来どおり全件取得（ページングなし）。
  * 検索/ページング/無限スクロールを使う呼び出し元（SCR-028 マルチセレクト等）は
@@ -141,9 +138,8 @@ export async function getKanriShitenDropdown(
 // ─── ACSMS-SCR-009 — 管理支店マスタ登録画面 ──────────────────────────
 
 /**
- * Full detail returned by `GET /api/v1/kanri-shiten/:id` and the body of
- * POST/PUT responses. Mirrors
- * `docs/design/ACSMS-SCR-009/ACSMS-SCR-009-api.md §レスポンスデータ`.
+ * `GET /api/v1/kanri-shiten/:id` および POST/PUT レスポンスの body が返す完全な詳細。
+ * `docs/design/ACSMS-SCR-009/ACSMS-SCR-009-api.md §レスポンスデータ` 準拠。
  */
 export interface KanriShitenDetail {
   kanri_shiten_id: number;
@@ -170,7 +166,7 @@ export interface KanriShitenDetail {
   updated_at: string | null;
 }
 
-/** POST /api/v1/kanri-shiten request body. */
+/** POST /api/v1/kanri-shiten のリクエスト body。 */
 export interface CreateKanriShitenRequest {
   ja_id: number;
   kanri_shiten_code: string;
@@ -187,8 +183,8 @@ export interface CreateKanriShitenRequest {
 }
 
 /**
- * PUT /api/v1/kanri-shiten/:id — drops `ja_id` and `kanri_shiten_code`
- * per api.md §3 注記 (immutable after create).
+ * PUT /api/v1/kanri-shiten/:id — api.md §3 注記に従い `ja_id` と
+ * `kanri_shiten_code`（作成後は不変）を除く。
  */
 export type UpdateKanriShitenRequest = Omit<
   CreateKanriShitenRequest,

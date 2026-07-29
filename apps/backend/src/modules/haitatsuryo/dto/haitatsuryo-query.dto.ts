@@ -14,7 +14,7 @@ import {
 const TARGET_MONTH_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Shared query/body DTO for both 配達手数料支払情報 endpoints:
+ * 配達手数料支払情報 の 2 エンドポイント共用の query/body DTO:
  *   - GET  /api/v1/haitatsuryo/preview (ACSMS-API-021-001, query)
  *   - POST /api/v1/haitatsuryo/export  (ACSMS-API-021-002, body)
  *

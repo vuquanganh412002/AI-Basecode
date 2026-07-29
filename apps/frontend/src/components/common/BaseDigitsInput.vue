@@ -1,25 +1,21 @@
 <script setup lang="ts">
-// BaseDigitsInput — text input for numeric values stored as
-// `number | null`. Customer spec for fields like 単価（税込）/（税抜）/
-// 配達手数料 specifies コントロール=テキスト + 半角数字のみ + 桁数 — so an
-// <a-input-number> spinner is wrong UX (it lets users type decimals,
-// negatives, and exposes increment buttons the spec doesn't ask for).
+// BaseDigitsInput — `number | null` で保持する数値用のテキスト入力。
+// 単価（税込）/（税抜）/ 配達手数料 等の顧客仕様は コントロール=テキスト + 半角数字のみ +
+// 桁数 を指定 — <a-input-number> スピナーは UX が不適切（小数・負数の入力を許し、
+// 仕様にない増減ボタンを露出する）。
 //
-// Defence layers mirror [[BaseCodeInput]] but with digit-only rule:
-//   1. autocorrect/autocapitalize/spellcheck off — kill OS substitution.
-//   2. @beforeinput — preventDefault when InputEvent.data contains
-//      any non-digit character, OR when inputType matches /Replace/i
-//      (catches macOS double-space → period).
-//   3. @keydown.space.prevent — block typed space cleanly (no flicker).
-//   4. @update:value sanitiser — strip every non-digit from the final
-//      string and re-emit as `number | null` (empty input → null).
+// 防御層は [[BaseCodeInput]] と同様だが数字のみルール:
+//   1. autocorrect/autocapitalize/spellcheck off — OS 置換を無効化。
+//   2. @beforeinput — InputEvent.data に非数字が含まれる、または inputType が /Replace/i に
+//      一致するとき preventDefault（macOS ダブルスペース→ピリオドを捕捉）。
+//   3. @keydown.space.prevent — 入力スペースをクリーンにブロック（ちらつきなし）。
+//   4. @update:value サニタイザ — 最終文字列から全非数字を除去し `number | null` を再 emit
+//      （空入力 → null）。
 //
-// v-model is `number | null` so the parent's form-state type matches
-// what the BE DTO expects (`@IsOptional() @IsInt() @Min(0) @Max(...)`)
-// without manual string-to-number conversion in the form component.
+// v-model は `number | null`。フォームコンポーネントで手動の文字列→数値変換をせずに
+// 親の form-state 型が BE DTO の期待（`@IsOptional() @IsInt() @Min(0) @Max(...)`）に一致する。
 //
-// Pass-through props: value (v-model), maxlength (= max digit count),
-// disabled, placeholder, id.
+// パススルー props: value (v-model), maxlength (= 最大桁数), disabled, placeholder, id。
 
 interface Props {
   value?: number | null;
@@ -42,7 +38,7 @@ const emit = defineEmits<{
 
 import { computed } from 'vue';
 
-// Inner <a-input> works on strings — convert the prop one-way for display.
+// 内部 <a-input> は文字列で動くため、prop を表示用に一方向変換する。
 const displayValue = computed(() =>
   props.value === null || props.value === undefined ? '' : String(props.value),
 );

@@ -50,13 +50,11 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
       envFilePath,
       load: [configuration],
     }),
-    // Rate-limit counters live in Redis (shared) — NOT the default in-memory
-    // storage. Prod runs ≥2 ECS tasks (Multi-AZ); in-memory buckets are
-    // per-instance, so the ALB spreads N requests across tasks and the real
-    // limit becomes `limit × task_count` — the @Throttle('login', 10/min)
-    // brute-force guard effectively never trips. A single Redis-backed store
-    // makes the per-endpoint limits hold cluster-wide. RedisModule is @Global
-    // so REDIS_CLIENT is injectable here.
+    // レート制限カウンタは Redis 共有ストアに置く（既定のインメモリ不可）。
+    // 本番は ≥2 ECS タスク（Multi-AZ）でインメモリはタスク単位のため、実効上限が
+    // `limit × task_count` になり @Throttle('login', 10/min) のブルートフォース
+    // ガードが実質発火しない。Redis 共有ストアで per-endpoint 上限がクラスタ全体に
+    // 効く。RedisModule は @Global なので REDIS_CLIENT をここで注入可能。
     ThrottlerModule.forRootAsync({
       inject: [REDIS_CLIENT],
       useFactory: (redis: Redis) => ({
@@ -96,11 +94,10 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     KozaFurikaeModule,
     RolesModule,
   ],
-  // Wire ThrottlerGuard globally so the @Throttle() decorators on auth
-  // endpoints (login 10/min, MFA verify 20/min, MFA resend 5/min,
-  // forgot-password 3/hour, reset-password 5/min) actually enforce.
-  // Without this APP_GUARD registration, @Throttle is decorator metadata
-  // that no guard reads.
+  // ThrottlerGuard をグローバル登録し、auth エンドポイントの @Throttle()
+  // （login 10/min, MFA verify 20/min, MFA resend 5/min, forgot-password
+  // 3/hour, reset-password 5/min）を実効化する。この APP_GUARD 登録がないと
+  // @Throttle は誰も読まないメタデータになる。
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements NestModule {

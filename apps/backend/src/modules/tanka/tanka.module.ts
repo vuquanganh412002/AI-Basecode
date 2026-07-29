@@ -11,7 +11,7 @@ import { TankaService } from './tanka.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Tanka]),
-    AuthModule, // SessionAuthGuard + PermissionsGuard dependencies
+    AuthModule, // SessionAuthGuard + PermissionsGuard 依存
     AuditLogModule, // AuditLogService
   ],
   controllers: [TankaController],

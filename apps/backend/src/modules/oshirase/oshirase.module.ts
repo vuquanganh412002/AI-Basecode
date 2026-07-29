@@ -11,7 +11,7 @@ import { OshiraseService } from './oshirase.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Oshirase]),
-    AuditLogModule, // SCR-031 admin endpoints
+    AuditLogModule, // SCR-031 管理エンドポイント
     AuthModule, // SessionAuthGuard
   ],
   controllers: [OshiraseController],

@@ -1,11 +1,9 @@
 /**
- * Subscription kind stored in `t_dokusya_rireki.dokusya_shubetsu`.
+ * 購読種別。`t_dokusya_rireki.dokusya_shubetsu`。
+ * Mirror of `m_code.code_category = 'DOKUSYA_SHUBETSU'`。Group A: code が値で
+ * 分岐 (電子版→配達先非表示、併読→配達ルール等) — DokusyaFormView / dokusya.service。
  *
- * Mirror of `m_code.code_category = 'DOKUSYA_SHUBETSU'`. Group A because the
- * code branches on the value (電子版 hides the 配達先 section, 併読 affects
- * delivery rules, etc.) — see DokusyaFormView / dokusya.service.
- *
- * Keep in sync with `apps/frontend/src/constants/enums/dokusya-shubetsu.ts`.
+ * `apps/frontend/src/constants/enums/dokusya-shubetsu.ts` と同期。
  */
 export const DokusyaShubetsu = {
   /** 紙版 */

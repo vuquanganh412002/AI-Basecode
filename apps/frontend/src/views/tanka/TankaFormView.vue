@@ -2,18 +2,15 @@
 /**
  * 単価マスタ登録画面 (ACSMS-SCR-003).
  *
- * Single view that handles BOTH the create and edit flows:
- *   /tanka/create     (POST)  -- create mode
- *   /tanka/:id/edit   (PUT)   -- edit mode (preloads via GET /api/v1/tanka/:id)
+ * 登録・編集を兼ねる単一ビュー:
+ *   /tanka/create     (POST)  -- 登録モード
+ *   /tanka/:id/edit   (PUT)   -- 編集モード（GET /api/v1/tanka/:id で事前ロード）
  *
- * - Validation rules + error message text from
- *   docs/design/ACSMS-SCR-003/screen-design.md (機能定義 + メッセージ情報).
- * - DOM structure / Japanese button copy from
- *   docs/design/ACSMS-SCR-003/index.html.
- * - API contract from docs/design/ACSMS-SCR-003/ACSMS-SCR-003-api.md.
+ * バリデーション・メッセージ: screen-design.md（機能定義 + メッセージ情報）
+ * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-003-api.md。
  *
- * tanka_code is immutable on edit per api.md §API-003-003 footnote
- * (画面側でdisabled、 PUT body omits it).
+ * tanka_code は編集時 immutable（api.md §API-003-003 脚注: 画面側 disabled、
+ * PUT body から除外）。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -21,10 +18,9 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { message } from 'ant-design-vue';
 
 import { todayIsoTokyo, isPastDayTokyo } from '@/utils/datetime';
-// `dayjs` is kept ONLY to parse picker-frame strings (e.g. user-selected
-// YYYY-MM-DD) into a Dayjs that lives in the same TZ frame as the picker
-// output. NEVER call `dayjs()` (no args) here — use `nowTokyo()` /
-// `isPastDayTokyo()` instead per `.claude/rules/vue.md §Date/Time`.
+// `dayjs` は picker フレームの文字列（YYYY-MM-DD）を同じ TZ フレームの
+// Dayjs にパースする用途に限定。引数なしの `dayjs()` は禁止 — `nowTokyo()` /
+// `isPastDayTokyo()` を使う（`.claude/rules/vue.md §Date/Time`）。
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
@@ -52,7 +48,7 @@ const authStore = useAuthStore();
 const codes = useCodesStore();
 const { fieldErrors, submitting, submit } = useApiForm();
 
-/** Numeric id from the path, or undefined for create mode. */
+/** パスの数値 id。登録モードでは undefined。 */
 const tankaIdParam = computed<number | undefined>(() => {
   const raw = route.params.id;
   if (raw === undefined || raw === '') return undefined;
@@ -69,28 +65,20 @@ const canSubmit = computed(() =>
 );
 
 /**
- * Form-state shape — string-radio for tanka_type to align with the
- * project's <a-radio-group> + Number() coercion at the submit boundary
- * (same pattern as zei_kubun in JaFormView). Date inputs bind to
- * YYYY-MM-DD strings.
+ * フォーム状態。tanka_type は string-radio（<a-radio-group> + submit時 Number()
+ * 変換、JaFormView の zei_kubun と同パターン）。日付は YYYY-MM-DD 文字列。
  *
- * Defaults follow 機能定義 1.2:
- *   - 単価種別 = '1' (新聞購読料)
- *   - 税率 = 0
- *   - 単価税込 / 税抜 = 0
- *   - 適用開始日 = 本日 (computed below)
- *   - 備考 = '' (NOT NULL, blank = '')
- *   - 有効フラグ = true
+ * 既定値は機能定義 1.2 に従う（単価種別='1'、税率=0、税込/税抜=0、
+ * 適用開始日=本日、備考=''（NOT NULL）、有効フラグ=true）。
  */
 interface TankaFormState {
   tanka_type: '1' | '2';
   tanka_code: string;
   tanka_name: string;
   tax_rate: number;
-  // 単価（税込）/（税抜） per 機能定義: コントロール=テキスト, 数値, 10桁,
-  // 半角数字のみ. null when the user hasn't entered anything (empty input);
-  // 0 is a legitimate user-entered value distinct from null. The "at-least
-  // -one-of" cross-field rule fires only when BOTH are null.
+  // 単価（税込）/（税抜）（機能定義: テキスト・数値・10桁・半角数字のみ）。
+  // 未入力は null（0 は null と区別される正当な入力値）。両方 null のときだけ
+  // 「いずれか必須」の相互チェックが発火する。
   kingaku_zeikomi: number | null;
   kingaku_zeinuki: number | null;
   tekiyo_start_date: string;
@@ -107,25 +95,18 @@ function todayIso(): string {
 }
 
 /**
- * Disable past dates on the 適用開始日 picker whenever the field is
- * interactive (CREATE mode, or EDIT mode where the existing start_date
- * has NOT yet passed — see `isStartDateReadOnly`). In EDIT mode where
- * the field is read-only (start already in the past), the picker is
- * fully disabled by `:disabled` so this function doesn't run.
- *
- * Lets a "starts next week" tanka be re-scheduled forward, but blocks
- * the user from backdating it. The submit-time validator in
- * `validateClient` re-enforces this as defence-in-depth.
+ * 適用開始日 picker で過去日を選択不可にする（フィールドが操作可能なとき、
+ * すなわち登録モード or 開始日が未到来の編集モード。`isStartDateReadOnly` 参照）。
+ * 開始日が過去の編集モードでは `:disabled` で完全無効化されこの関数は走らない。
+ * 前倒し変更は許可、バックデートは禁止。`validateClient` でも submit時に再検証。
  */
 function disableStartDate(current: Dayjs): boolean {
   return isPastDayTokyo(current);
 }
 
 /**
- * Disable end-date selections that would violate `end >= start`. Also
- * disables past dates in CREATE mode (end >= today is implied by
- * end >= start >= today). The submit-time validator still enforces
- * `end >= start` as a defence-in-depth check.
+ * `end >= start` を満たさない終了日を選択不可にする。登録モードでは過去日も
+ * 不可（end >= start >= today）。submit時にも `end >= start` を再検証する。
  */
 function disableEndDate(current: Dayjs): boolean {
   if (!current) return false;
@@ -142,13 +123,9 @@ function disableEndDate(current: Dayjs): boolean {
 }
 
 /**
- * 適用開始日 becomes read-only in EDIT mode once the existing record's
- * start date has already passed — changing it would rewrite history
- * (the price has been in effect since `formState.tekiyo_start_date`,
- * so retroactively shifting the start makes no business sense). The
- * BE update() mirrors this by silently preserving the existing value
- * when the stored start is in the past, so a curl bypass can't
- * change it either.
+ * 編集モードで既存の開始日が過去になっている場合、適用開始日を read-only にする。
+ * 変更は履歴の書き換えになるため（開始日から既に適用中）。BE update() も過去開始日は
+ * 既存値を維持するため、curl 経由でも変更不可。
  */
 const isStartDateReadOnly = computed(() => {
   if (!isEdit.value || !formState.tekiyo_start_date) return false;
@@ -160,10 +137,8 @@ const formState = reactive<TankaFormState>({
   tanka_code: '',
   tanka_name: '',
   tax_rate: 0,
-  // Initial value 0 to match the screen mockup (customer prefers a visible
-  // "0" rather than empty placeholder). The type stays `number | null` so
-  // user CAN clear the field via the text input; the at-least-one-of guard
-  // in validateClient still catches the both-cleared edge case.
+  // 初期値 0（顧客はプレースホルダより可視の「0」を好む）。型は `number | null` の
+  // ままなのでクリア可能。両方クリアのエッジは validateClient のいずれか必須で捕捉。
   kingaku_zeikomi: 0,
   kingaku_zeinuki: 0,
   tekiyo_start_date: todayIso(),
@@ -177,19 +152,17 @@ const formState = reactive<TankaFormState>({
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
 
-/* ─── Lifecycle ────────────────────────────────────────────────────── */
+/* ─── ライフサイクル ───────────────────────────────────────────────── */
 
 onMounted(async () => {
-  if (tankaIdParam.value === undefined) return; // create mode — nothing to load.
+  if (tankaIdParam.value === undefined) return; // 登録モード — ロード不要。
 
   try {
     const resp = await getTanka(tankaIdParam.value);
     Object.assign(formState, {
-      // BE returns tanka_type as a number (1 = 新聞購読料, 2 = 配達手数料)
-      // per m_code.code_category='TANKA_TYPE'. The form uses a string
-      // radio v-model ('1'/'2'), so coerce at the load boundary —
-      // without this the radio's strict-equality check fails (`'1' !== 1`)
-      // and edit mode shows nothing selected.
+      // BE は tanka_type を number（1=新聞購読料, 2=配達手数料、m_code
+      // TANKA_TYPE）で返すが、フォームは string radio ('1'/'2')。ロード境界で
+      // 変換しないと radio の strict-equal（`'1' !== 1`）で未選択表示になる。
       tanka_type: String(resp.data.tanka_type ?? '1') as '1' | '2',
       tanka_code: resp.data.tanka_code,
       tanka_name: resp.data.tanka_name,
@@ -210,13 +183,12 @@ onMounted(async () => {
     });
     await editGuard.capture();
   } catch {
-    // 404 / 403 — global axios interceptor already toasted via
-    // src/api/error-handler.ts. Drop back to the list so we don't
-    // render an empty edit form.
+    // 404 / 403 — axios interceptor（src/api/error-handler.ts）が既にトースト済み。
+    // 空の編集フォームを描画しないよう一覧へ戻す。
     try {
       await router.push({ name: 'TankaList' });
     } catch {
-      /* test routers may not register TankaList — ignore. */
+      /* テスト用ルーターは TankaList 未登録の場合あり — 無視。 */
     }
   }
 });
@@ -227,9 +199,8 @@ const REQUIRED_MSG = '必須項目です。';
 const TAX_RATE_RANGE_MSG = '税率は0から100の範囲で入力してください。';
 const KINGAKU_ZEIKOMI_NONNEG_MSG = '単価（税込）は0以上で入力してください。';
 const KINGAKU_ZEINUKI_NONNEG_MSG = '単価（税抜）は0以上で入力してください。';
-// DB column is NUMERIC(10, 0) — 11+ digits triggers PostgreSQL numeric
-// overflow on INSERT (a 500). The BE DTO now @Max-bounds the value to
-// the same 10-digit ceiling; mirror it here for instant feedback.
+// DB列は NUMERIC(10,0) — 11桁以上は INSERT時に numeric overflow（500）。
+// BE DTO も同じ10桁上限を @Max で課すため、即時フィードバック用にミラー。
 const KINGAKU_MAX = 9_999_999_999;
 const KINGAKU_ZEIKOMI_MAX_MSG = '単価（税込）は10桁以下で入力してください。';
 const KINGAKU_ZEINUKI_MAX_MSG = '単価（税抜）は10桁以下で入力してください。';
@@ -239,10 +210,8 @@ const DATE_ORDER_MSG = '適用終了日は適用開始日以降を指定して�
 const START_DATE_NOT_PAST_MSG = '適用開始日は本日以降の日付を入力してください。';
 
 /**
- * Past-date guard for 適用開始日. Only enforces when the field is
- * interactive — an existing record with a historical start_date stays
- * read-only via `isStartDateReadOnly` and must not be flagged invalid
- * on save.
+ * 適用開始日の過去日ガード。フィールドが操作可能なときのみ発火 — 既存の過去
+ * 開始日は `isStartDateReadOnly` で read-only のため保存時に不正扱いしない。
  */
 function isStartDateInPast(form: TankaFormState): boolean {
   if (!form.tekiyo_start_date) return false;
@@ -292,12 +261,9 @@ function checkKingakuPair(form: TankaFormState): Record<string, string> {
 function validateClient(form: TankaFormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
-  // Required-field checks — `?.trim()` is mandatory for string fields
-  // bound to clearable controls (native <input type="date">, antd
-  // selects) which set v-model to `undefined` on clear. A bare
-  // `.trim()` would throw TypeError → generic "エラーが発生しました…"
-  // toast → masks the required-field violation. See
-  // .claude/rules/vue.md §Validation — mirror BE rules.
+  // 必須チェック — clearable コントロール（native date、antd select）は
+  // クリア時 v-model を `undefined` にするため `?.trim()` 必須。素の `.trim()` は
+  // TypeError → 汎用エラートーストで必須違反が隠れる。.claude/rules/vue.md §Validation。
   if (!isEdit.value && !form.tanka_code?.trim()) {
     errs.tanka_code = REQUIRED_MSG;
   }
@@ -307,29 +273,25 @@ function validateClient(form: TankaFormState): Record<string, string> {
   if (!errs.tekiyo_start_date && isStartDateInPast(form)) {
     errs.tekiyo_start_date = START_DATE_NOT_PAST_MSG;
   }
-  // tanka_type — accept either string ('1'/'2' from radio v-model) OR
-  // number (1/2 from the fixture payload + the BE response in edit mode).
-  // String() collapses both into the same comparable form so the spec's
-  // numeric payload doesn't trip a phantom "required" error.
+  // tanka_type — string ('1'/'2' radio) と number (1/2 fixture・BE応答) の
+  // 両方を受理。String() で比較形を統一し数値payload が誤って必須違反にならないよう。
   {
     const t = String(form.tanka_type ?? '');
     if (t !== '1' && t !== '2') errs.tanka_type = REQUIRED_MSG;
   }
 
-  // active_flg — required (radio must be 有効 or 無効). With boolean
-  // v-model the user can't actually clear it, but guard for the case
-  // where the payload omits it / passes null so the validator stays
-  // consistent with the visual required-marker.
+  // active_flg — 必須（有効 or 無効）。boolean v-model でクリア不可だが、payload が
+  // 省略/null を渡す場合に備え、必須マーカーと整合させるためガード。
   if (typeof form.active_flg !== 'boolean') {
     errs.active_flg = REQUIRED_MSG;
   }
 
-  // campaign_flg — required (radio must be 有効 or 無効). Mirrors active_flg.
+  // campaign_flg — 必須（有効 or 無効）。active_flg と同様。
   if (typeof form.campaign_flg !== 'boolean') {
     errs.campaign_flg = REQUIRED_MSG;
   }
 
-  // Numeric range / non-negative checks (only when value is present).
+  // 数値範囲・非負チェック（値がある場合のみ）。
   if (
     typeof form.tax_rate === 'number' &&
     (form.tax_rate < 0 || form.tax_rate > 100)
@@ -338,8 +300,7 @@ function validateClient(form: TankaFormState): Record<string, string> {
   }
   Object.assign(errs, checkKingakuPair(form));
 
-  // Date-order: 適用終了日 >= 適用開始日 (string compare is correct for
-  // ISO 8601 YYYY-MM-DD format).
+  // 日付順: 適用終了日 >= 適用開始日（ISO 8601 YYYY-MM-DD は文字列比較で正しい）。
   const tekiyoErr = checkTekiyoOrder(form, errs);
   if (tekiyoErr) errs.tekiyo_end_date = tekiyoErr;
 
@@ -353,9 +314,9 @@ const allFieldErrors = computed<Record<string, string>>(() => ({
   ...fieldErrors.value,
 }));
 
-/* ─── Submit pipeline ─────────────────────────────────────────────── */
+/* ─── Submit パイプライン ─────────────────────────────────────────── */
 
-/** DOM order of form fields for focusFirstError. Keep in sync with the template. */
+/** focusFirstError 用のフィールド DOM 順。テンプレートと同期を保つこと。 */
 const FIELD_ORDER: ReadonlyArray<keyof TankaFormState> = [
   'tanka_type',
   'tanka_code',
@@ -371,9 +332,8 @@ const FIELD_ORDER: ReadonlyArray<keyof TankaFormState> = [
 ];
 
 /**
- * Programmatic submit — exposed so the spec can drive the form without
- * reaching into antd's internal form state. The real UX submit handler
- * funnels through this same path on `<form @submit>`.
+ * プログラム的 submit — antd 内部フォーム状態に触れず spec から駆動できるよう公開。
+ * 実UXの submit ハンドラも `<form @submit>` から同じ経路を通る。
  */
 async function submitWith(form: TankaFormState): Promise<void> {
   const errs = validateClient(form);
@@ -401,9 +361,8 @@ async function submitWith(form: TankaFormState): Promise<void> {
       await createTanka(createBody);
       notify.created();
     } else {
-      // UPDATE — tanka_code is immutable per api.md §API-003-003 footnote.
-      // Strip it from the payload so the BE's forbidNonWhitelisted pipe
-      // doesn't reject the request.
+      // UPDATE — tanka_code は immutable（api.md §API-003-003 脚注）。
+      // BE の forbidNonWhitelisted に弾かれないよう payload から除外。
       const updateBody: UpdateTankaRequest = {
         tanka_type: Number(form.tanka_type),
         tanka_name: form.tanka_name,
@@ -419,13 +378,13 @@ async function submitWith(form: TankaFormState): Promise<void> {
       await updateTanka(tankaIdParam.value, updateBody);
       notify.updated();
     }
-    // Only navigate when the API call resolved without throwing —
-    // `submit()` swallows the error and the axios interceptor toasts.
+    // API が例外なく解決したときのみ遷移 — `submit()` はエラーを飲み込み
+    // axios interceptor がトーストする。
     await router.push({ name: 'TankaList' });
   });
 
-  // After the round-trip, server-side VALIDATION_ERROR fields are now
-  // in fieldErrors (via useApiForm). Focus the first one too.
+  // ラウンドトリップ後、サーバ側 VALIDATION_ERROR が fieldErrors に入るので
+  // その先頭にもフォーカスする。
   if (Object.keys(fieldErrors.value).length > 0) {
     focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
@@ -455,8 +414,8 @@ defineExpose({
 
 <template>
   <div class="space-y-6">
-    <!-- Page title + breadcrumb are rendered by AppHeader (in MainLayout)
-         based on route meta — do NOT duplicate here. -->
+    <!-- ページタイトル・パンくずは route meta を元に AppHeader（MainLayout）が
+         描画する — ここで重複させない。 -->
 
     <BaseCard padding="none">
       <div class="px-4 py-4 border-b border-border">
@@ -470,9 +429,9 @@ defineExpose({
         @keydown="preventEnterImplicitSubmit"
         @finish="onFormSubmit"
       >
-        <!-- 単価種別 — ラジオ. Default '1' (新聞購読料) per 機能定義 1.2.
-             m_code TANKA_TYPE labels read from useCodesStore — runtime-editable
-             customer copy, no hardcoded label map (vue.md §Code Master). -->
+        <!-- 単価種別 — ラジオ。既定 '1'（新聞購読料、機能定義 1.2）。
+             ラベルは useCodesStore の m_code TANKA_TYPE から（顧客が実行時編集可、
+             ハードコードのラベルマップ禁止、vue.md §Code Master）。 -->
         <a-form-item
           name="tanka_type"
           :validate-status="allFieldErrors.tanka_type ? 'error' : ''"
@@ -493,7 +452,7 @@ defineExpose({
           </a-radio-group>
         </a-form-item>
 
-        <!-- Row 2: tanka_code + tanka_name (code takes 1/3, name 2/3). -->
+        <!-- 行2: 単価コード + 単価名（コード 1/3、名前 2/3）。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="tanka_code"
@@ -504,10 +463,9 @@ defineExpose({
               <span>単価コード</span>
               <span class="text-error ml-1">*</span>
             </template>
-            <!-- tanka_code is immutable on update — disabled via :disabled
-                 (per 機能定義 2.3 + api.md §API-003-003 footnote). The
-                 BE additionally rejects it via forbidNonWhitelisted on the
-                 UpdateTankaDto — defence in depth. -->
+            <!-- 単価コードは更新時 immutable — :disabled で無効化（機能定義 2.3 +
+                 api.md §API-003-003 脚注）。BE も UpdateTankaDto の
+                 forbidNonWhitelisted で拒否（多層防御）。 -->
             <BaseCodeInput
               v-model:value="formState.tanka_code"
               :maxlength="10"
@@ -534,9 +492,8 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 3: tax_rate / kingaku_zeikomi / kingaku_zeinuki (3 equal cols).
-             Each is a number input; `addon-after` / `addon-before` mimics the
-             mockup's ¥/% adornments. -->
+        <!-- 行3: 税率 / 単価（税込）/ 単価（税抜）（3等分）。数値入力で、
+             `addon-after` / `addon-before` がモックの ¥/% 装飾を再現。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
             name="tax_rate"
@@ -545,12 +502,10 @@ defineExpose({
             label="税率 (%)"
           >
             <!--
-              :min / :max intentionally omitted — antd's <a-input-number>
-              auto-clamps the v-model value to the [min, max] range on
-              blur, which silently rewrites user input to 0 or 100 and
-              hides the validation error from validateClient. Letting
-              the field accept any number means out-of-range values
-              surface ACSMS-MSG TAX_RATE_RANGE_MSG instead.
+              :min / :max は意図的に省略 — <a-input-number> は blur時に値を
+              [min, max] に自動クランプし、入力を 0/100 に無言で書き換えて
+              validateClient のエラーを隠す。任意の数値を受理させ、範囲外は
+              TAX_RATE_RANGE_MSG で顕在化させる。
             -->
             <a-input-number
               v-model:value="formState.tax_rate"
@@ -587,15 +542,12 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 4: tekiyo_start_date + tekiyo_end_date. <a-date-picker>
-             with `format="YYYY/MM/DD"` (Japanese display convention) and
-             `value-format="YYYY-MM-DD"` (wire format the BE DTO regex
-             expects). Native <input type="date"> rendered as dd/mm/yyyy
-             on non-JP locale browsers — switching to antd's picker pins
-             the display format regardless of the user's OS locale. -->
-        <!-- 6-col grid: 適用開始日 / 適用終了日 span 2 each (2/3 total),
-             有効単価フラグ / キャンペーンフラグ span 1 each so the two
-             radio columns together occupy 1/3 of the row. -->
+        <!-- 行4: 適用開始日 + 適用終了日。<a-date-picker> は
+             `format="YYYY/MM/DD"`（和式表示）と `value-format="YYYY-MM-DD"`
+             （BE DTO regex が期待する wire 形式）。native date は非JPロケールで
+             dd/mm/yyyy 表示になるため、OSロケールに依存しない antd picker を使う。 -->
+        <!-- 6列グリッド: 適用開始日 / 適用終了日 が各2（計2/3）、
+             有効単価フラグ / キャンペーンフラグ が各1で2列合わせて 1/3。 -->
         <div class="grid grid-cols-1 md:grid-cols-6 gap-6">
           <a-form-item
             name="tekiyo_start_date"
@@ -638,13 +590,10 @@ defineExpose({
             />
           </a-form-item>
 
-          <!-- 有効単価フラグ — ラジオ (有効=true / 無効=false). Required —
-               the user must pick one. Visible in both create AND edit
-               modes for UI consistency with the list-view filter
-               (vue.md §Reusable Building Blocks pattern). Defaults to
-               true via formState. Spans 1 of the 6 grid columns; the two
-               radio flags together fill 1/3 of the row (適用開始日 /
-               適用終了日 take 2/6 each). -->
+          <!-- 有効単価フラグ — ラジオ（有効=true / 無効=false）。必須。
+               一覧のフィルタとの UI 整合のため登録・編集の両モードで表示
+               （vue.md §Reusable Building Blocks）。formState で既定 true。
+               6列中1列を占め、2つのフラグで行の 1/3。 -->
           <a-form-item
             name="active_flg"
             :validate-status="allFieldErrors.active_flg ? 'error' : ''"
@@ -660,8 +609,8 @@ defineExpose({
             </a-radio-group>
           </a-form-item>
 
-          <!-- キャンペーンフラグ — ラジオ (有効=true / 無効=false). Required.
-               Mirrors 有効単価フラグ; defaults to false via formState. -->
+          <!-- キャンペーンフラグ — ラジオ（有効=true / 無効=false）。必須。
+               有効単価フラグと同様、formState で既定 false。 -->
           <a-form-item
             name="campaign_flg"
             :validate-status="allFieldErrors.campaign_flg ? 'error' : ''"
@@ -678,7 +627,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <!-- Row 5: 備考 (optional, textarea — last input before the footer). -->
+        <!-- 行5: 備考（任意、textarea — フッター直前の最終入力）。 -->
         <a-form-item
           name="biko"
           :validate-status="allFieldErrors.biko ? 'error' : ''"

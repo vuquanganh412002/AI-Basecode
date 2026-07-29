@@ -1,20 +1,17 @@
 <script setup lang="ts">
-// ACSMS-SCR-019 — 販売店Excelデータ取込画面.
+// ACSMS-SCR-019 — 販売店Excelデータ取込画面。
 //
-// Single-page form: pick an Excel file → client-side parse via xlsx →
-// show preview → toggle column subset → submit to BE import endpoint.
+// 単一ページフォーム: Excel選択 → xlsx でクライアント parse → プレビュー →
+// 取込列トグル → BE import エンドポイントへ送信。
 //
-// Spec contract: src/views/hanbaiten/__tests__/HanbaitenImportView.spec.ts
-//   - data-test selectors hit specific DOM nodes (preview-section,
-//     import-submit-btn, template-download-btn, select-all-checkbox,
-//     import-mode); changing them breaks the test.
-//   - The native `<select>` element is used (not <a-select>) to match
-//     the screen-design `<select id="import-mode">` mockup AND to keep
-//     wrapper.find('select#import-mode').setValue('update') working in
-//     vitest without a-select internals.
-//   - The native `<input type="checkbox" name="col" value="...">` keeps
-//     the spec's name+value selector working. wrapping in antd `<a-checkbox>`
-//     would require setValue to traverse the wrapper.
+// Spec 契約: src/views/hanbaiten/__tests__/HanbaitenImportView.spec.ts
+//   - data-test セレクタが特定 DOM ノード（preview-section, import-submit-btn,
+//     template-download-btn, select-all-checkbox, import-mode）を指すため変更不可。
+//   - native `<select>`（<a-select> 不使用）で screen-design のモックに合わせ、
+//     vitest の setValue が a-select 内部を経由せず動くようにする。
+//   - native `<input type="checkbox" name="col" value="...">` で spec の
+//     name+value セレクタが動く。antd `<a-checkbox>` でラップすると setValue が
+//     wrapper を辿る必要が出る。
 
 import { computed, reactive, ref, watch } from 'vue';
 import { message, Modal } from 'ant-design-vue';
@@ -30,9 +27,8 @@ import {
 import { downloadBlob } from '@/utils/download';
 
 /**
- * 23-column physical-name list — exact order per api.md §テンプレート
- * ファイル仕様. Index N in this array maps to the index-N Japanese
- * header below, and to the corresponding checkbox `value` attribute.
+ * 23列の物理名リスト — 順序は api.md §テンプレートファイル仕様に厳密準拠。
+ * この配列の index N が下の JP ヘッダ index N と checkbox `value` に対応する。
  */
 const PHYSICAL_COLUMNS = [
   'hanbaiten_code',
@@ -61,7 +57,7 @@ const PHYSICAL_COLUMNS = [
 ] as const;
 type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
-/** Japanese display headers — must match BE getImportTemplateColumns(). */
+/** 表示用 JP ヘッダ — BE の getImportTemplateColumns() と一致必須。 */
 const JP_HEADERS: Record<PhysicalColumn, string> = {
   hanbaiten_code: '販売店コード',
   hanbaiten_name: '販売店名称',
@@ -89,17 +85,15 @@ const JP_HEADERS: Record<PhysicalColumn, string> = {
 };
 
 /**
- * Excel column heading → physical column mapping. The template the BE
- * ships uses these exact JP strings; we accept the half-width variant
- * `販売店名称(カナ)` for backwards compatibility with older customer
- * files that pre-date the v1.0 template.
+ * Excel 列見出し → 物理列のマッピング。BE 配布テンプレートはこの JP 文字列を使う。
+ * v1.0 以前の顧客ファイル互換のため半角 `販売店名称(カナ)` も受理する。
  */
 const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
   const out: Record<string, PhysicalColumn> = {};
   for (const col of PHYSICAL_COLUMNS) {
     out[JP_HEADERS[col]] = col;
   }
-  // [legacy-kana-header] accept half-width parens too
+  // [legacy-kana-header] 半角括弧も受理
   out['販売店名称(カナ)'] = 'hanbaiten_name_kana';
   out['販売店名称カナ'] = 'hanbaiten_name_kana';
   return out;
@@ -107,8 +101,8 @@ const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
 
 const MAX_ROWS = 500;
 
-// FE display value → BE wire value. Shorter IDs match screen-design.md
-// mockup and the radio v-model; translated to wire codes at submit.
+// FE 表示値 → BE wire 値。短い ID は screen-design のモック・radio v-model に合わせ、
+// submit 時に wire コードへ変換する。
 // 取込モードは 新規登録 / 更新 の2択（顧客要件 2026-07：全項目更新を廃止）。
 // 更新は選択列のみ更新。全列更新は「すべて選択」でチェックする。
 const MODE_TO_BE: Record<string, ImportMode> = {
@@ -127,12 +121,12 @@ const IMPORT_MODE_OPTIONS: ReadonlyArray<{
 const authStore = useAuthStore();
 const canImport = computed(() => authStore.hasPermission('hanbaiten.import'));
 
-// ─── form state ──────────────────────────────────────────────────────
+// ─── フォーム状態 ─────────────────────────────────────────────────────
 
-/** FE display value for the mode select (`new` / `update` / `cancel`). */
+/** モード select の FE 表示値（`new` / `update`）。 */
 const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
 
-/** Selected columns set — every physical column starts checked. */
+/** 選択列セット — 全物理列がチェック済みで開始。 */
 const selected = reactive<Record<PhysicalColumn, boolean>>(
   PHYSICAL_COLUMNS.reduce(
     (acc, col) => {
@@ -144,21 +138,20 @@ const selected = reactive<Record<PhysicalColumn, boolean>>(
 );
 
 /**
- * Columns force-checked + disabled per mode (the "取込列" lock set).
- * A locked column cannot be unchecked; entering a mode re-checks its set.
+ * モード別に強制チェック + disabled にする列（「取込列」ロックセット）。
+ * ロック列はチェック外し不可。モード切替でそのセットを再チェックする。
  *
  *   new    (新規登録) — hanbaiten_code + hanbaiten_name + itaku_kubun +
  *                     furikomi_tesuryo_futan_kubun: 販売店コード/名称は NOT NULL、
- *                     委託区分/振込手数料負担区分は必須（顧客要件）なので、新規行は
- *                     これらを必ず取り込む → ロック（チェック外し不可）。
- *   update (更新)     — hanbaiten_code only: the anchor key. Every other
- *                     column is free to tick/untick (only ticked columns are
- *                     written; the rest keep their existing DB value). 委託区分/
- *                     振込手数料負担区分 は未選択なら既存値を維持するためロック不要。
- *                     全列更新は「すべて選択」で全列をチェックする。
+ *                     委託区分/振込手数料負担区分は必須（顧客要件）なので新規行は
+ *                     必ず取り込む → ロック。
+ *   update (更新)     — hanbaiten_code のみ（アンカーキー）。他列は自由に選択可
+ *                     （選択列のみ書込み、他は既存 DB 値を維持）。委託区分/
+ *                     振込手数料負担区分は未選択なら既存値維持のためロック不要。
+ *                     全列更新は「すべて選択」でチェックする。
  *
- * (The bank cluster's conditional-required rule — required iff
- * itaku_kubun=1 — is per-row and validated by the BE, not a column lock.)
+ * （銀行系の条件付き必須 — itaku_kubun=1 のとき必須 — は行単位で BE 検証、
+ *   列ロックではない。）
  */
 const REQUIRED_BY_MODE: Record<
   keyof typeof MODE_TO_BE,
@@ -173,7 +166,7 @@ const REQUIRED_BY_MODE: Record<
   update: ['hanbaiten_code'],
 };
 
-/** Set of columns locked (checked + disabled) for the current mode. */
+/** 現モードでロック（checked + disabled）される列の集合。 */
 const lockedCols = computed<Set<PhysicalColumn>>(
   () => new Set(REQUIRED_BY_MODE[importModeFe.value]),
 );
@@ -197,7 +190,7 @@ watch(
   { immediate: true },
 );
 
-/** Parsed Excel rows, populated after a successful file change. */
+/** parse 済み Excel 行。ファイル変更成功後に格納。 */
 const parsedRows = ref<Array<Record<PhysicalColumn, unknown>>>([]);
 
 const fileName = ref<string>('');
@@ -210,17 +203,15 @@ function onPanelToggle(): void {
 }
 
 /**
- * Per-row / per-field server errors from the last import attempt, rendered
- * in a persistent panel below the form (NOT a toast). antd's `message.error`
- * collapses '\n', so a multi-row error blob reads as one unscrollable line —
- * the panel shows each row + field + message in a scrollable table instead.
+ * 直近取込の行単位/項目単位のサーバエラー。フォーム下の常設パネルに描画
+ * （トーストではない）。`message.error` は '\n' を潰し複数行がスクロール不能な
+ * 1行になるため、行 + 項目 + メッセージをスクロール可能な表で表示する。
  */
 const importErrors = ref<ImportError[]>([]);
 
 /**
- * Import counts from the last successful run — rendered in a green banner
- * below the form (mirrors the dokusya 取込結果 display). hanbaiten has no
- * 解約 / 履歴 concept, so only 登録 / 更新 / スキップ / 合計 are shown.
+ * 直近成功時の取込件数 — フォーム下の緑バナーに表示（dokusya 取込結果と同様）。
+ * hanbaiten に 解約 / 履歴 概念はないため 登録 / 更新 / スキップ / 合計 のみ。
  */
 const importResult = ref<{
   created_count: number;
@@ -230,19 +221,19 @@ const importResult = ref<{
 } | null>(null);
 
 /**
- * Structured server-side import error shape. Each entry may carry a
- * 1-indexed Excel `row` (header = row 1) and a `field` (physical column
- * name or a top-level array name like `rows` / `selected_columns`).
+ * 構造化されたサーバ側取込エラーの型。各要素は 1始まりの Excel `row`
+ * （ヘッダ = 行1）と `field`（物理列名 or `rows` / `selected_columns` 等の
+ * トップレベル配列名）を持ちうる。
  */
 type ImportError = { row?: number; field?: string; message: string };
 
-/** Friendly labels for top-level (non-column) error fields. */
+/** トップレベル（非列）エラー項目の表示ラベル。 */
 const TOP_LEVEL_FIELD_LABELS: Record<string, string> = {
   rows: '取込データ',
   selected_columns: '取込列',
 };
 
-/** Japanese label for an error's `field` (column header or top-level name). */
+/** エラーの `field`（列ヘッダ or トップレベル名）の日本語ラベル。 */
 function errorFieldLabel(e: ImportError): string {
   if (!e.field) return '';
   return (
@@ -252,32 +243,32 @@ function errorFieldLabel(e: ImportError): string {
   );
 }
 
-// ─── derived ─────────────────────────────────────────────────────────
+// ─── 派生 ─────────────────────────────────────────────────────────────
 
 const hasFile = computed(() => parsedRows.value.length > 0);
 
 const previewVisible = computed(() => hasFile.value);
 
-/** Columns the preview table renders — checked ∧ at least 1 row. */
+/** プレビュー表が描画する列 — チェック済み。 */
 const previewColumns = computed<PhysicalColumn[]>(() =>
   PHYSICAL_COLUMNS.filter((col) => selected[col]),
 );
 
-/** Bound to the 'すべて選択' checkbox. */
+/** 'すべて選択' checkbox にバインド。 */
 const allChecked = computed<boolean>({
   get: () => PHYSICAL_COLUMNS.every((col) => selected[col]),
   set: (value: boolean) => {
     for (const col of PHYSICAL_COLUMNS) {
-      // [locked-column-pin] Locked columns (mode-dependent — at least
-      // hanbaiten_code) stay checked even when the user uncheck-all's.
+      // [locked-column-pin] ロック列（モード依存、最低でも hanbaiten_code）は
+      // 全解除時もチェック維持。
       selected[col] = isLocked(col) ? true : value;
     }
   },
 });
 
-// ─── file change → xlsx parse → preview ─────────────────────────────
+// ─── ファイル変更 → xlsx parse → プレビュー ─────────────────────────
 
-/** ACSMS-MSG-007-001 — file-format error (screen-design.md §メッセージ情報). */
+/** ACSMS-MSG-007-001 — ファイル形式エラー（screen-design.md §メッセージ情報）。 */
 const FILE_FORMAT_ERROR_MSG =
   'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。';
 
@@ -301,7 +292,7 @@ async function onFileChange(event: Event): Promise<void> {
   const file = target.files?.[0];
   if (!file) return;
   fileName.value = file.name;
-  // A fresh file invalidates the previous run's error panel + result banner.
+  // 新規ファイルは前回のエラーパネル + 結果バナーを無効化する。
   importErrors.value = [];
   importResult.value = null;
 
@@ -324,17 +315,16 @@ async function onFileChange(event: Event): Promise<void> {
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
       defval: '',
     });
-    // [header-mapping] sheet_to_json uses the row-1 cell strings as keys.
-    // Map them through HEADER_TO_PHYSICAL so unknown columns are dropped
-    // and the spec's `buildImportRow()` snake_case payload also works
-    // (test fixtures pass physical-name keys directly).
+    // [header-mapping] sheet_to_json は行1のセル文字列をキーにする。
+    // HEADER_TO_PHYSICAL で写像し未知列を落とす。spec の buildImportRow()
+    // snake_case payload（fixture は物理名キーを直接渡す）にも対応。
     parsedRows.value = rawRows.map((r) => {
       const out: Record<PhysicalColumn, unknown> = {} as Record<
         PhysicalColumn,
         unknown
       >;
       for (const [key, value] of Object.entries(r)) {
-        // Accept either the JP header OR the physical name as a key.
+        // JP ヘッダ or 物理名のどちらのキーも受理。
         const physical =
           (HEADER_TO_PHYSICAL[key] as PhysicalColumn | undefined) ??
           ((PHYSICAL_COLUMNS as readonly string[]).includes(key)
@@ -349,21 +339,21 @@ async function onFileChange(event: Event): Promise<void> {
   }
 }
 
-// ─── template download ──────────────────────────────────────────────
+// ─── テンプレートダウンロード ─────────────────────────────────────────
 
 async function onTemplateDownload(): Promise<void> {
   try {
     const blob = await downloadHanbaitenImportTemplate();
     downloadBlob(blob, '販売店Excelデータ取込_テンプレート.xlsx');
   } catch {
-    // Global axios interceptor already toasted — swallow silently here.
+    // axios interceptor が既にトースト済み — ここでは黙って握る。
   }
 }
 
 // ─── submit ─────────────────────────────────────────────────────────
 
 function onSubmit(): void {
-  // 機能 7.1 — client-side guards before opening the confirm modal.
+  // 機能 7.1 — 確認モーダルを開く前のクライアント側ガード。
   if (!hasFile.value) {
     message.warning('Excelファイルを選択してください。');
     return;
@@ -374,7 +364,7 @@ function onSubmit(): void {
   }
   if (submitting.value) return;
 
-  // ACSMS-MSG-007-002 — confirm dialog wording.
+  // ACSMS-MSG-007-002 — 確認ダイアログ文言。
   Modal.confirm({
     title: '取込処理',
     content: '取込処理を開始します。よろしいですか？',
@@ -388,17 +378,15 @@ function onSubmit(): void {
 
 async function runImport(): Promise<void> {
   submitting.value = true;
-  // Clear any errors / counts from a previous attempt so the panel reflects
-  // only the current run.
+  // パネルが現在の実行のみ反映するよう前回のエラー/件数をクリア。
   importErrors.value = [];
   importResult.value = null;
   try {
-    // selected_columns — every checked column. hanbaiten_code is always
-    // present because the checkbox is `disabled checked`.
+    // selected_columns — チェック済みの全列。checkbox が `disabled checked` の
+    // ため hanbaiten_code は常に含まれる。
     const selectedCols = PHYSICAL_COLUMNS.filter((c) => selected[c]);
-    // Each row sent to BE — keep only the values the BE accepts, in the
-    // shape ImportHanbaitenRow expects. Pass-through every parsed key
-    // that matches a physical column.
+    // BE へ送る各行 — BE が受理する値のみを ImportHanbaitenRow の形で保持。
+    // 物理列に一致する parse 済みキーを pass-through。
     const rows: ImportHanbaitenRow[] = parsedRows.value.map((r) => {
       const out: Record<string, unknown> = {};
       for (const col of PHYSICAL_COLUMNS) {
@@ -406,9 +394,8 @@ async function runImport(): Promise<void> {
           out[col] = r[col];
         }
       }
-      // hanbaiten_code is always required even if cell was blank — let
-      // the BE return IMPORT_VALIDATION_ERROR for empty codes (spec
-      // covers row 2 / row 3 inline error display).
+      // hanbaiten_code はセル空でも常に必須 — 空コードは BE が
+      // IMPORT_VALIDATION_ERROR を返す（spec が行2/行3のインライン表示を担保）。
       if (out.hanbaiten_code === undefined) out.hanbaiten_code = '';
       return out as unknown as ImportHanbaitenRow;
     });
@@ -419,7 +406,7 @@ async function runImport(): Promise<void> {
       rows,
     };
     const res = await importHanbaitenExcel(body);
-    // ACSMS-MSG-007-004 wording — flow through BE response.
+    // ACSMS-MSG-007-004 文言 — BE レスポンスをそのまま流す。
     message.success(res.message || '取り込みました。');
     // 取込件数を緑のバナーで表示（dokusya と同様）。
     importResult.value = {
@@ -428,7 +415,7 @@ async function runImport(): Promise<void> {
       skipped_count: res.data?.skipped_count ?? 0,
       total_rows: res.data?.total_rows ?? 0,
     };
-    // 機能 7.4 — reset state for next upload.
+    // 機能 7.4 — 次回アップロードに向けて状態リセット。
     parsedRows.value = [];
     fileName.value = '';
     importErrors.value = [];
@@ -452,36 +439,31 @@ async function runImport(): Promise<void> {
       (code === 'VALIDATION_ERROR' || code === 'IMPORT_VALIDATION_ERROR') &&
       detail.length > 0
     ) {
-      // Per-row / per-field detail rendered in a persistent panel below the
-      // form — NOT crammed into one toast (antd collapses '\n', so a
-      // multi-row blob read as a single unscrollable line). The global
-      // interceptor stays silent for both codes (VALIDATION_ERROR is meant
-      // for useApiForm field-mapping, which this non-form screen doesn't
-      // use; IMPORT_VALIDATION_ERROR is in VIEW_HANDLED_CODES) so the view
-      // owns the display. A short summary toast points the user to the panel.
+      // 行/項目単位の詳細はフォーム下の常設パネルに描画 — 1トーストに詰めない
+      // （antd は '\n' を潰しスクロール不能な1行になる）。interceptor は両コードで
+      // 沈黙（VALIDATION_ERROR は useApiForm 用でこの非フォーム画面は使わない、
+      // IMPORT_VALIDATION_ERROR は VIEW_HANDLED_CODES）ので view が表示を持つ。
+      // 短い要約トーストでパネルへ誘導する。
       importErrors.value = detail;
       message.error(`取込に失敗しました。${detail.length}件のエラーがあります。`);
     } else if (code === 'VALIDATION_ERROR') {
-      // VALIDATION_ERROR without an errors[] array — interceptor stayed
-      // silent, so fall back to the body message.
+      // errors[] 配列なしの VALIDATION_ERROR — interceptor は沈黙のため
+      // body message にフォールバック。
       message.error(data?.message || '入力値が不正です。');
     }
-    // Every other code (FILE_FORMAT_ERROR / ROW_LIMIT_EXCEEDED /
-    // CONFLICT / DATA_SCOPE_VIOLATION / INTERNAL_SERVER_ERROR) is already
-    // toasted by the global interceptor — do not re-toast here.
+    // その他のコード（FILE_FORMAT_ERROR / ROW_LIMIT_EXCEEDED / CONFLICT /
+    // DATA_SCOPE_VIOLATION / INTERNAL_SERVER_ERROR）は interceptor が
+    // 既にトースト済み — ここで再トーストしない。
   } finally {
     submitting.value = false;
   }
 }
 
-/** Template ref on the native file input. `resetFileInput()` clears its
- * value in three cases:
- *  - after a successful import / parse error, so the displayed filename
- *    matches the parsed state (otherwise the input keeps the old name while
- *    `parsedRows` is empty → misleading "Excelファイルを選択してください。");
- *  - on the input's @click, BEFORE the OS picker opens, so re-selecting the
- *    SAME filename (after editing the Excel) still fires `change` and
- *    re-parses — a browser suppresses `change` when the value is unchanged. */
+/** native file input の template ref。`resetFileInput()` が value をクリアするのは:
+ *  - 取込成功 / parse エラー後（表示ファイル名を parse 状態に合わせる。さもないと
+ *    `parsedRows` が空なのに旧名が残り「Excelファイルを選択してください。」と誤解を招く）;
+ *  - input の @click で OS picker が開く前（Excel 編集後の同一ファイル名再選択でも
+ *    `change` が発火し再 parse される。value 不変だとブラウザは `change` を抑制する）。 */
 const fileInputEl = ref<HTMLInputElement | null>(null);
 
 function resetFileInput(): void {
@@ -490,11 +472,9 @@ function resetFileInput(): void {
 
 function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
   // [locked-column-veto-handler]
-  // Defence-in-depth: in real browsers `disabled` blocks `change`
-  // from firing, but environments without the disabled-event guard
-  // (e.g. a11y tooling, vitest setValue) still emit it. If the change
-  // event reaches us for a locked column, snap the DOM back to checked
-  // and short-circuit — never let the underlying boolean flip.
+  // 多層防御: 実ブラウザでは `disabled` が `change` 発火を防ぐが、disabled-event
+  // ガードのない環境（a11y ツール、vitest setValue）は発火させる。ロック列に
+  // change が届いたら DOM を checked に戻して短絡 — 内部 boolean を絶対に反転させない。
   if (isLocked(col)) {
     el.checked = true;
     selected[col] = true;
@@ -503,7 +483,7 @@ function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
   selected[col] = el.checked;
 }
 
-// Helper: render preview cell value (booleans → ✓/-, null → blank).
+// ヘルパー: プレビューセル値を描画（boolean → ✓/空, null → 空）。
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'boolean') return value ? '✓' : '';
@@ -569,11 +549,10 @@ function renderCell(value: unknown): string {
               取込モード
               <span class="text-error ml-1">*</span>
             </span>
-            <!-- [import-mode-radio] Customer 2026-05-27 — switched
-                 from a native dropdown to inline radios for one-click
-                 mode changes. Each radio carries a per-value test
-                 hook (see IMPORT_MODE_OPTIONS) so vitest can target a
-                 specific option without setValue on a parent select. -->
+            <!-- [import-mode-radio] 顧客 2026-05-27 — ワンクリックのモード切替の
+                 ため native dropdown からインライン radio へ変更。各 radio は
+                 値ごとの test hook（IMPORT_MODE_OPTIONS 参照）を持ち、vitest が
+                 親 select の setValue なしで特定オプションを狙える。 -->
             <div
               role="radiogroup"
               aria-labelledby="import-mode-label"
@@ -617,7 +596,7 @@ function renderCell(value: unknown): string {
           </div>
         </div>
 
-        <!-- Column selector accordion -->
+        <!-- 取込列セレクタのアコーディオン -->
         <div class="border border-border rounded">
           <div
             class="w-full flex items-center justify-between px-4 py-2.5 bg-surface-card-subtle"
@@ -665,12 +644,11 @@ function renderCell(value: unknown): string {
                 class="flex items-center gap-3 px-3 py-2 border border-border rounded cursor-pointer hover:bg-surface-hover transition-colors"
               >
                 <!-- [locked-column-veto]
-                     `:disabled` alone is not enough: jsdom (and some a11y
-                     overrides / vitest setValue) still fire `change` on a
-                     disabled input and toggle `.checked`. Bind `:checked` +
-                     custom `@change` so locked columns ignore uncheck
-                     attempts at the JS layer too. Which columns are locked
-                     depends on the mode (see REQUIRED_BY_MODE). -->
+                     `:disabled` だけでは不十分: jsdom（や一部 a11y override /
+                     vitest setValue）は disabled input でも `change` を発火し
+                     `.checked` を切り替える。`:checked` + カスタム `@change` で
+                     ロック列は JS 層でもチェック外しを無視する。ロック対象は
+                     モード依存（REQUIRED_BY_MODE 参照）。 -->
                 <input
                   type="checkbox"
                   name="col"
@@ -686,7 +664,7 @@ function renderCell(value: unknown): string {
           </div>
         </div>
 
-        <!-- Preview -->
+        <!-- プレビュー -->
         <div
           v-if="previewVisible"
           data-test="preview-section"
@@ -736,7 +714,7 @@ function renderCell(value: unknown): string {
         </div>
       </form>
 
-      <!-- Import errors — persistent, scrollable panel (per row/field) -->
+      <!-- 取込エラー — 行/項目単位の常設スクロールパネル -->
       <div
         v-if="importErrors.length > 0"
         data-test="import-error-panel"
@@ -788,7 +766,7 @@ function renderCell(value: unknown): string {
         </div>
       </div>
 
-      <!-- Import result counts (緑バナー) — dokusya と同じ表示 -->
+      <!-- 取込結果件数（緑バナー） — dokusya と同じ表示 -->
       <div
         v-if="importResult"
         data-test="import-result"

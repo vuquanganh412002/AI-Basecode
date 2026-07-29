@@ -9,6 +9,12 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
 import {
+  DOKUSYASO_BUNRUI_INVALID_MSG,
+  NOGYOSYA_BUNRUI_INVALID_MSG,
+  isValidDokusyaSoBunruiCsv,
+  isValidNogyosyaBunruiCsv,
+} from '@/common/constants/dokusya-bunrui.constant';
+import {
   normalizeDbDate,
   dbDateOrNull,
   todayIsoJst,
@@ -31,9 +37,8 @@ import {
 } from './dokusya-shubetsu.rules';
 
 /**
- * Pre-fetched lookup sets/maps shared by the per-row Excel-import
- * validators. Built once in `importExcel` before the row loop so each
- * row check is O(1) against in-memory structures, not a per-row query.
+ * 行バリデーション共用の事前ロード lookup。importExcel の行ループ前に一度だけ
+ * 構築し、各行チェックを per-row クエリでなく O(1) のメモリ参照にする。
  */
 interface ImportRowLookups {
   existingById: Map<number, Record<string, unknown>>;
@@ -53,7 +58,7 @@ interface ImportRowLookups {
   existingDigitalEmailToIds: Map<string, Set<number>>;
 }
 
-/** Per-row import error accumulator entry. */
+/** 行エラー蓄積用エントリ。 */
 type ImportRowError = { row: number; field: string; message: string };
 
 /** 電子版・併読で email 未入力時のメッセージ（共通ルール由来）。 */
@@ -64,11 +69,9 @@ const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
   SHUBETSU_MSG.DOKUSYASO_BUNRUI_REQUIRED_DIGITAL;
 
 /**
- * Raise a single VALIDATION_ERROR with a one-field errors[] payload.
- * Shape matches `ValidationPipe`'s exception so the FE
- * `useApiForm` composable maps the error to `<a-form-item :help>`
- * uniformly with DTO failures.
- * core 側 DokusyaService と同一実装（取込と UI で文言・形を揃えるため複製）。
+ * 1フィールドの errors[] を持つ VALIDATION_ERROR を投げる。ValidationPipe の例外と
+ * 同形なので FE useApiForm が DTO 失敗と同様に <a-form-item :help> へマップする。
+ * DokusyaService と同一実装（取込と UI で文言・形を揃えるため複製）。
  */
 function fieldValidationError(
   field: string,
@@ -78,9 +81,9 @@ function fieldValidationError(
 }
 
 /**
- * SCR-016 — the physical columns NEW mode REQUIRES in `selected_columns`
- * (api.md §4.1). 購読種別 は画面ラジオ（紙版/電子版）で選ぶ取込モードへ移動した
- * ため、Excel の必須列からは外した（顧客要件 2026-07）。
+ * SCR-016 — NEW モードが selected_columns に必須とする物理列（api.md §4.1）。
+ * 購読種別は画面ラジオ（紙版/電子版）の取込モードへ移動したため Excel 必須列から
+ * 除外（顧客要件 2026-07）。
  */
 const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
   'kanri_shiten_code',
@@ -98,13 +101,10 @@ const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
 ] as const;
 
 /**
- * SCR-016 — Japanese labels for the NEW required columns, used to build a
- * per-row "{label}は必須です。" message when a selected required column
- * carries a BLANK value. The column-selection check above only verifies the
- * column is targeted; this value-presence check prevents a blank required
- * FK / field from slipping through to the INSERT (which would otherwise hit
- * a NOT NULL / FK constraint and surface as a 500 instead of a graceful
- * IMPORT_VALIDATION_ERROR).
+ * SCR-016 — NEW 必須列の日本語ラベル。選択済み必須列が空欄のとき per-row
+ * 「{label}は必須です。」メッセージを組み立てる。上の列選択チェックは列が対象かを
+ * 見るだけで、空欄の必須 FK/項目が INSERT まで漏れて NOT NULL/FK 制約→500 になるのを
+ * 防ぎ IMPORT_VALIDATION_ERROR として穏当に返す。
  */
 const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   kanri_shiten_code: '管理支店',
@@ -121,17 +121,16 @@ const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   dokusya_kaishi_date: '購読開始日',
 };
 
-/** SCR-016 — row-error cap returned to the client (api.md §4.1). */
+/** SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
 const IMPORT_ERROR_CAP = 10;
 
 /**
- * SCR-016 — 購読者Excelデータ取込の純粋バリデーションクラスタを担うサービス。
+ * SCR-016 — 購読者Excelデータ取込の純粋バリデーションを担うサービス。
  *
- * 肥大化した `DokusyaImportService` から「行バリデーション + 分類」concern を
- * 切り出したもの。注入依存を一切持たない leaf サービス（全メソッドが引数の
- * rows / dto / 事前解決済み lookups のみで完結する純粋ロジック）。`importExcel`
- * は `assertNewModeRequiredColumns` / `validateImportRows` の 2 メソッドを呼び、
- * 残り 9 メソッドはこのクラスタ内でのみ相互呼び出しされる。
+ * DokusyaImportService から「行バリデーション + 分類」concern を切り出したもの。
+ * 注入依存を持たない leaf サービス（全メソッドが引数 rows / dto / 事前解決済み
+ * lookups のみで完結）。importExcel は assertNewModeRequiredColumns /
+ * validateImportRows の2メソッドを呼び、残り9メソッドはクラスタ内で相互呼び出し。
  */
 @Injectable()
 export class DokusyaImportValidator {
@@ -188,6 +187,7 @@ export class DokusyaImportValidator {
         errors,
       );
       this.validateImportRowDokusyaSoBunrui(row, rowNo, dto, lookups, errors);
+      this.validateImportRowBunruiCodes(row, rowNo, errors);
       const category = this.classifyImportRow(
         row,
         rowNo,
@@ -204,10 +204,9 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * §4.1/§4.3 — NEW-mode required-column + duplicate-kumiaiin checks.
-   * The column-selection guard only checks a column is targeted; a blank
-   * required FK/field would otherwise slip past the per-row FK checks and
-   * crash the INSERT (NOT NULL / FK) as a 500 — surface it gracefully.
+   * §4.1/§4.3 — NEW モードの必須列 + kumiaiin 重複チェック。列選択ガードは列が
+   * 対象かのみ見るため、空欄の必須 FK/項目は per-row FK チェックを抜け INSERT を
+   * NOT NULL/FK で 500 にする — ここで穏当に弾く。
    */
   private validateImportRowRequired(
     row: ImportDokusyaRowDto,
@@ -289,21 +288,19 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * §4.1 適用日の整合性（顧客要件 2026-07）。UI 単票と同じルールを取込にも適用。
-   *   [解約予定日] NEW / UPDATE 両方・入力時のみ:
-   *     - 解約予定日 >= 購読開始日（当日可）
-   *     - 解約予定日 >= 本日（過去日不可・当日可）
-   *     参照の購読開始日は UPDATE=既存レコード（開始日は編集不可）、NEW=行の入力値。
+   * §4.1 適用日の整合性（顧客要件 2026-07）。UI 単票と同ルールを取込にも適用。
+   *   [解約予定日] NEW/UPDATE 両方・入力時のみ:
+   *     - 解約予定日 >= 購読開始日（当日可）／ >= 本日（過去日不可・当日可）
+   *     参照の購読開始日は UPDATE=既存レコード（開始日は編集不可）、NEW=行入力値。
    *   [読者情報変更適用日 / 販売店適用日] UPDATE行のみ（NEW は joho=購読開始日で自明）:
    *     - today <= 各適用日（過去日不可）
    *     - 読者情報変更適用日 >= 購読開始日 / 販売店適用日 < 解約予定日（既存レコード基準）
-   * 既存行が見つからないケースは classifyImportRow が別途「購読者が見つかりません」を出す。
+   * 既存行なしは classifyImportRow が「購読者が見つかりません」を出す。
    */
   /**
    * 顧客要件 2026-07 — 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード。
-   * UPDATE では既存レコードの購読種別が選択モードと一致することを検証する
-   * （購読種別は編集不可のため、モードと異なる既存購読者は対象外）。NEW は
-   * 新規レコードへモードの購読種別を設定するだけなので照合不要。
+   * UPDATE は既存レコードの購読種別が選択モードと一致するか検証（購読種別は編集
+   * 不可のためモードと異なる既存購読者は対象外）。NEW は種別を設定するだけで照合不要。
    */
   private validateImportRowShubetsuMatch(
     row: ImportDokusyaRowDto,
@@ -408,9 +405,8 @@ export class DokusyaImportValidator {
       })) {
         this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
       }
-      // 取込 UPDATE は selected_columns の列だけが実際の変更対象。行は全列に既定値を
-      // 持つため、選択列に限定して帳票影響項目の変更を判定する（UI は全項目送信のため
-      // この限定は不要だが、取込では必須）。
+      // 取込 UPDATE は selected_columns の列だけが変更対象。行は全列に既定値を持つため
+      // 選択列に限定して帳票影響項目の変更を判定（UI は全項目送信で不要だが取込では必須）。
       const selected = new Set(dto.selected_columns ?? []);
       const changedReportFields = computeChangedReportFields(
         row as unknown as Record<string, unknown>,
@@ -512,13 +508,11 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * 顧客要件 — 読者属性(dokusyaso_bunrui) は電子版(2)・併読(3) で1つ以上
-   * 選択必須（紙版(1) は任意）。フォーム(SCR-011)の必須ルールと同一。
-   *
-   * - 実効購読種別: NEW は行の購読種別、UPDATE は既存レコードの購読種別
-   *   （購読種別は編集不可のため DB の値で判定）。email 必須と同じ扱い。
-   * - UPDATE で dokusyaso_bunrui 列が selected_columns に無い行は未変更の
-   *   ため検証しない（既存値を維持）。
+   * 顧客要件 — 読者属性(dokusyaso_bunrui) は電子版(2)・併読(3) で1つ以上必須
+   * （紙版(1) は任意）。フォーム(SCR-011)の必須ルールと同一。
+   * - 実効購読種別: NEW は行の種別、UPDATE は既存レコードの種別（編集不可のため
+   *   DB 値で判定）。email 必須と同じ扱い。
+   * - UPDATE で dokusyaso_bunrui 列が selected_columns に無い行は未変更で検証しない。
    */
   private validateImportRowDokusyaSoBunrui(
     row: ImportDokusyaRowDto,
@@ -565,15 +559,40 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * 顧客要件 — メールアドレスは電子版(2)・併読(3) で必須かつ電子版/併読の
-   * レコード間で一意（紙版(1) は任意・重複可）。
-   *
-   * - 実効購読種別: NEW は行の購読種別、UPDATE_* は既存レコードの購読種別
-   *   （購読種別は編集不可のため Excel 上の値ではなく DB の値で判定）。
-   * - UPDATE で email 列が selected_columns に無い行は email 未変更
-   *   のため検証しない。
+   * 購読者層分類 / 農業者分類 は電子版と同じコード値のカンマ区切りで保存する
+   * （顧客要件 2026-07）。日本語ラベル（'農業者' 等）や未定義コードを取り込むと
+   * push 時に profession/products へ変換できず 999(その他) に落ちるため、
+   * 取込時点で弾く。テンプレートのサンプル行も `0` 形式。
+   */
+  private validateImportRowBunruiCodes(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    errors: ImportRowError[],
+  ): void {
+    if (!isValidDokusyaSoBunruiCsv(row.dokusyaso_bunrui)) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'dokusyaso_bunrui',
+        message: DOKUSYASO_BUNRUI_INVALID_MSG,
+      });
+    }
+    if (!isValidNogyosyaBunruiCsv(row.nogyosya_bunrui)) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'nogyosya_bunrui',
+        message: NOGYOSYA_BUNRUI_INVALID_MSG,
+      });
+    }
+  }
+
+  /**
+   * 顧客要件 — メールアドレスは電子版(2)・併読(3) で必須かつ電子版/併読レコード間
+   * で一意（紙版(1) は任意・重複可）。
+   * - 実効購読種別: NEW は行の種別、UPDATE_* は既存レコードの種別（編集不可のため
+   *   Excel 値でなく DB 値で判定）。
+   * - UPDATE で email 列が selected_columns に無い行は未変更で検証しない。
    * - 一意性: DB 内の電子版/併読レコード（自身は除外）＋同一取込バッチ内の
-   *   電子版/併読行同士の双方で重複を検知する。
+   *   電子版/併読行同士の双方で重複検知。
    */
   private validateImportRowEmail(
     row: ImportDokusyaRowDto,
@@ -643,10 +662,9 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * §4.3.4 — classify a row as created / updated / cancelled for the
-   * summary counts. UPDATE_* / 一括中止 require an existing record
-   * (out-of-scope → 403; not found → row error, returns null). NEW rows
-   * are always 'created'.
+   * §4.3.4 — 集約件数用に行を created / updated / cancelled へ分類。UPDATE_* /
+   * 一括中止 は既存レコード必須（スコープ外→403、該当なし→行エラーで null 返す）。
+   * NEW 行は常に 'created'。
    */
   private classifyImportRow(
     row: ImportDokusyaRowDto,
@@ -689,7 +707,7 @@ export class DokusyaImportValidator {
       return null;
     }
 
-    // JA_KANRI_SHITEN out-of-scope existing record → 403.
+    // JA_KANRI_SHITEN スコープ外の既存レコード → 403。
     assertBranchScopeViolation(
       Number(existing.ja_id),
       existing.kanri_shiten_id == null ? null : Number(existing.kanri_shiten_id),
@@ -719,7 +737,7 @@ export class DokusyaImportValidator {
     return (lookups.kumiaiinCounts.get(String(row.kumiaiin_code)) ?? 0) > 1;
   }
 
-  /** Push a row error, never exceeding the 10-entry cap. */
+  /** 行エラーを追加（10件上限を超えない）。 */
   private pushImportError(
     errors: Array<{ row: number; field: string; message: string }>,
     error: { row: number; field: string; message: string },
@@ -728,9 +746,9 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * Resolve the existing 購読者 for an UPDATE_* / 一括中止 row. dokusya_id
-   * があればそれを優先（解約も同じ — UPDATE 句の WHERE と一致させる）。無い
-   * 場合のみ kumiaiin_code にフォールバック（呼び出し側で重複件数を検証済み）。
+   * UPDATE_* / 一括中止 行の既存購読者を解決。dokusya_id があれば優先（解約も同じ
+   * — UPDATE 句の WHERE と一致）。無い場合のみ kumiaiin_code にフォールバック
+   * （呼び出し側で重複件数を検証済み）。
    */
   private resolveExistingRow(
     row: ImportDokusyaRowDto,

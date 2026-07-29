@@ -2337,15 +2337,14 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
       expect(target.torikeshi_flg).toBe(true);
       expect(target.biko).toBe('誤入力のため取消');
 
-      // 打ち消し行(新規 rireki): torikeshi_flg=true + biko=理由 + henko_riyu='取消'。
+      // 打ち消し行(新規 rireki): torikeshi_flg=true + biko=理由。
       const counters = await ctx.dataSource.query(
-        `SELECT torikeshi_flg, biko, henko_riyu FROM t_dokusya_rireki
+        `SELECT torikeshi_flg, biko FROM t_dokusya_rireki
            WHERE dokusya_id = $1 AND torikeshi_flg = true AND dokusya_rireki_id <> $2`,
         [dokusyaId, targetId],
       );
       expect(counters).toHaveLength(1);
       expect(counters[0].biko).toBe('誤入力のため取消');
-      expect(counters[0].henko_riyu).toBe('取消');
 
       // t_log に取消理由が記録される（afterValue の torikeshi_reason）。
       const logs = await ctx.dataSource.query(

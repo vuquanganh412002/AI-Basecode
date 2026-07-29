@@ -7,35 +7,29 @@ import {
 } from 'typeorm';
 
 /**
- * TypeORM entity for `t_dokusya_rireki` (購読者履歴).
+ * `t_dokusya_rireki`（購読者履歴）エンティティ。
+ * `docs/database/database-design.md §t_dokusya_rireki` に準拠。
  *
- * Mirrors `docs/database/database-design.md §t_dokusya_rireki`. This is
- * the append-only source of truth (正本) for subscriber changes — a
- * bitemporal ledger keyed by valid-time (`joho_henko_tekiyo_date`) and
- * transaction-time (`rireki_no`). `t_dokusya` is a derived snapshot
- * recomputed from this table.
+ * 購読者変更の正本（append-only）。有効時間 `joho_henko_tekiyo_date` と
+ * トランザクション時間 `rireki_no` を持つバイテンポラル台帳で、`t_dokusya`
+ * はこの表から再計算される派生スナップショット。
  *
- * The "current / effective" row (which `t_dokusya` mirrors and which
- * carries `saishin_data_flg = TRUE`) is NOT simply the max `rireki_no`.
- * It is the row with the greatest `joho_henko_tekiyo_date` that is
- * `<= today` (ties broken by greatest `rireki_no`), among rows with
- * `torikeshi_flg = false`. Future-dated rows (`joho > today`) are held
- * until the nightly batch activates them; back-inserted rows (a new
- * `joho` between existing rows, always `>= today`) require recomputing
- * the immediately-following row's `zenkai_*`.
- * See `docs/dokusya-rireki-implementation-plan.md` §2, §2.1.
+ * 「現行（有効）」行（＝`t_dokusya` が写す `saishin_data_flg = TRUE` の行）は
+ * 単純な最大 `rireki_no` ではない。`torikeshi_flg = false` の行のうち
+ * `joho_henko_tekiyo_date <= today` で最大の日付（同着は最大 `rireki_no`）の行。
+ * 未来日行は夜間バッチで有効化。中間挿入行（既存行の間・常に `>= today`）は
+ * 直後行の `zenkai_*` 再計算が必要。
+ * 詳細: `docs/dokusya-rireki-implementation-plan.md` §2, §2.1。
  *
- * No `deleted_at` — history rows are insert-only by design; soft-delete
- * on the parent does NOT cascade to history (the audit trail must
- * survive a logical delete). Corrections use `torikeshi_flg` (赤伝),
- * never physical delete.
+ * `deleted_at` は持たない — 履歴行は挿入のみ。親の論理削除は履歴に波及させない
+ * （監査証跡を残すため）。訂正は物理削除せず `torikeshi_flg`（赤伝）で行う。
  */
 @Entity('t_dokusya_rireki')
 @Index('IX_t_dokusya_rireki_dokusya_id', ['dokusyaId'])
 @Index('IX_t_dokusya_rireki_ja_id', ['jaId'])
 @Index('IX_t_dokusya_rireki_saishin', ['dokusyaId', 'saishinDataFlg'])
-// Bitemporal chain lookup: findBefore / findNext / loadHienHanh order by
-// (joho_henko_tekiyo_date, rireki_no) per dokusya.
+// バイテンポラル連鎖検索: dokusya 単位で (joho_henko_tekiyo_date, rireki_no)
+// 順に findBefore / findNext / 現行読込を行う。
 @Index('IX_t_dokusya_rireki_chain', [
   'dokusyaId',
   'johoHenkoTekiyoDate',
@@ -275,40 +269,34 @@ export class DokusyaRireki {
   @Column({ name: 'biko', type: 'text', default: '' })
   biko: string;
 
-  // ─── History-only metadata columns ──────────────────────────────────
-  /** Reason / label for the change (api.md §4.4 ステップ2). */
-  @Column({ name: 'henko_riyu', type: 'text', default: '' })
-  henkoRiyu: string;
-
-  /** TRUE on the row that is the current snapshot for this dokusya. */
+  // ─── 履歴専用メタ列 ─────────────────────────────────────────────────
+  /** この dokusya の現行スナップショット行で TRUE。 */
   @Column({ name: 'saishin_data_flg', type: 'boolean', default: false })
   saishinDataFlg: boolean;
 
-  /** Whether 増減連絡票 has been generated for this snapshot. */
+  /** このスナップショットの増減連絡票を生成済みか。 */
   @Column({ name: 'zougen_hokoku_flg', type: 'boolean', default: true })
   zougenHokokuFlg: boolean;
 
-  /** TRUE for CREATE flow when tetsuzuki_shurui=1 (新規). */
+  /** CREATE 時 tetsuzuki_shurui=1（新規）で TRUE。 */
   @Column({ name: 'shinki_flg', type: 'boolean', default: false })
   shinkiFlg: boolean;
 
-  /** TRUE when tetsuzuki_shurui=0 (解約). */
+  /** tetsuzuki_shurui=0（解約）で TRUE。 */
   @Column({ name: 'kaiyaku_flg', type: 'boolean', default: false })
   kaiyakuFlg: boolean;
 
   /**
-   * TRUE (取消レコード / red-slip) when this row has been voided by the
-   * 取消処理 on the 履歴情報 screen (both the wrong row and its reversing
-   * row carry this flag). Rows with torikeshi_flg=true are FROZEN at
-   * their cancel-time values and EXCLUDED from every extraction:
-   * saishin/zenkai recompute, cascade, report queries (増減連絡票・
-   * 増減通知・購読者名簿), search and current-state display. Kept only
-   * as an audit trail — never physically deleted.
+   * 取消レコード（赤伝）。履歴情報画面の取消処理で無効化された行で TRUE
+   * （誤り行と反転行の両方が持つ）。torikeshi_flg=true の行は取消時点の値で
+   * 凍結され、全抽出（saishin/zenkai 再計算・カスケード・帳票[増減連絡票・
+   * 増減通知・購読者名簿]・検索・現行表示）から除外される。監査証跡としてのみ
+   * 保持し、物理削除しない。
    */
   @Column({ name: 'torikeshi_flg', type: 'boolean', default: false })
   torikeshiFlg: boolean;
 
-  // ─── Previous-snapshot columns (used by 増減連絡票) ──────────────────
+  // ─── 前回スナップショット列（増減連絡票で使用） ────────────────────
   @Column({ name: 'zenkai_hanbaiten_id', type: 'bigint', nullable: true })
   zenkaiHanbaitenId: number | null;
 
@@ -355,7 +343,7 @@ export class DokusyaRireki {
   })
   zenkaiTatemonoMei: string | null;
 
-  /** Approve/reject status snapshot at the moment of the history row. */
+  /** 履歴行時点の承認／却下ステータスのスナップショット。 */
   @Column({ name: 'denshi_shonin_status', type: 'int', nullable: true })
   denshiShoninStatus: number | null;
 

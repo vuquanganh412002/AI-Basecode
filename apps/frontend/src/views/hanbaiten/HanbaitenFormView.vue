@@ -1,17 +1,15 @@
 <script setup lang="ts">
-// ACSMS-SCR-017 — 販売店情報登録画面.
+// ACSMS-SCR-017 — 販売店情報登録画面。
 //
-// Single component for both CREATE (route `HanbaitenCreate`) and EDIT
-// (route `HanbaitenEdit`, `:id` path param). Backed by the SCR-017
-// API trio in `@/api/hanbaiten/hanbaiten`:
+// CREATE（route `HanbaitenCreate`）と EDIT（route `HanbaitenEdit`、`:id`）を
+// 兼ねる単一コンポーネント。`@/api/hanbaiten/hanbaiten` の SCR-017 API 三種:
 //   - getHanbaiten(id)        → ACSMS-API-017-001
 //   - createHanbaiten(body)   → ACSMS-API-017-002
 //   - updateHanbaiten(id, …)  → ACSMS-API-017-003
 //
-// Conditional-required cluster (screen-design v1.2 §3.1, api.md §4.1):
-// when `itaku_kubun = 1 (振込)`, the 7 bank fields (No.17-23) are
-// required; when `itaku_kubun = 2 (日農委託)` or `9 (その他)` they're
-// optional. The validation here mirrors the BE DTO rules verbatim.
+// 条件付き必須クラスタ（screen-design v1.2 §3.1、api.md §4.1）:
+// `itaku_kubun = 1 (振込)` のとき銀行系7項目（No.17-23）が必須、
+// `2 (日農委託)` / `9 (その他)` では任意。ここの検証は BE DTO 規則を忠実にミラー。
 
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -45,19 +43,17 @@ import {
 } from '@/api/todofuken/todofuken';
 import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 
-// ─── Form state ────────────────────────────────────────────────────
+// ─── フォーム状態 ─────────────────────────────────────────────────
 //
-// Spec exposes `vm.formState` via `defineExpose` and mutates it via
-// `Object.assign(vm.formState, …)` to drive each it() case. Keep
-// field names identical to the API body so the spec fixtures
-// (`buildCreateHanbaitenForm`) line up 1:1.
+// spec は `defineExpose` で `vm.formState` を公開し `Object.assign` で各 it() を
+// 駆動する。フィールド名を API body と一致させ spec fixture
+// （`buildCreateHanbaitenForm`）と 1:1 で並ぶようにする。
 
 interface HanbaitenFormState {
   /**
-   * [staff-ja-id] NICHINO_STAFF 代行入力 picks the target JA via the
-   * BaseJaDropdown rendered at the top of the form. Always omitted
-   * from the request when the user is JA-scoped (session.ja_id set)
-   * because the BE ignores it and uses session.ja_id instead.
+   * [staff-ja-id] NICHINO_STAFF 代行入力 はフォーム上部の BaseJaDropdown で
+   * 対象 JA を選ぶ。JA スコープのユーザー（session.ja_id あり）ではリクエストから
+   * 常に省略 — BE は無視し session.ja_id を使うため。
    */
   ja_id: number | null;
   hanbaiten_code: string;
@@ -90,7 +86,7 @@ interface HanbaitenFormState {
 // Group B（拡張可・enum なし）のため値をリテラルで持つ。
 const TESURYO_KUBUN_JA = 1;
 
-/** Blank create-mode defaults — single source for init + reset. */
+/** 登録モードの空の既定値 — init + reset の単一ソース。 */
 function defaultFormState(): HanbaitenFormState {
   return {
     ja_id: null,
@@ -133,7 +129,7 @@ const SHIHARAI_CYCLE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
   label: `${i + 1}`,
 }));
 
-/** Reset every field back to the create-mode blank defaults. */
+/** 全フィールドを登録モードの空既定値に戻す。 */
 function resetFormState(): void {
   Object.assign(formState, defaultFormState());
   fieldErrors.value = {};
@@ -148,7 +144,7 @@ const notify = useNotify();
 const codes = useCodesStore();
 const authStore = useAuthStore();
 
-// ─── Route-driven mode ─────────────────────────────────────────────
+// ─── ルート駆動のモード ─────────────────────────────────────────────
 
 const hanbaitenId = computed<number | null>(() => {
   const raw = route.params.id;
@@ -158,16 +154,15 @@ const hanbaitenId = computed<number | null>(() => {
 });
 const isEdit = computed(() => hanbaitenId.value !== null);
 
-// ─── Permission gating (Layer 1 mirror) ───────────────────────────
+// ─── 権限ゲート（Layer 1 ミラー） ──────────────────────────────────
 //
-// Router guard already enforces `hanbaiten.create` / `hanbaiten.update`
-// meta — the submit button is only disabled here as a defense-in-depth
-// hint so the cursor / focus reflects an inert button if the user
-// somehow lands on the screen without permission.
+// router guard が `hanbaiten.create` / `hanbaiten.update` meta を既に強制する。
+// submit ボタンの disabled は多層防御のヒントで、権限なしで着地した場合に
+// 不活性ボタンとして見せるだけ。
 
 const canSubmit = computed(() => {
-  // [perm-any-of] NICHINO_STAFF holds `hanbaiten.daiko_input` only —
-  // that grants both create AND update inside the daiko flow.
+  // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input` のみ保持 —
+  // daiko フロー内で create と update の両方を許可する。
   if (isEdit.value) {
     return (
       (authStore.hasPermission?.('hanbaiten.update') ?? false) ||
@@ -180,39 +175,38 @@ const canSubmit = computed(() => {
   );
 });
 
-// [staff-ja-id] NICHINO_STAFF has no session.ja_id — the BaseJaDropdown
-// at the top of the form is required (create) / disabled-read-only (edit).
+// [staff-ja-id] NICHINO_STAFF は session.ja_id を持たない — 上部の
+// BaseJaDropdown は create で必須 / edit で disabled read-only。
 const isStaff = computed(() =>
   authStore.hasPermission?.('hanbaiten.daiko_input') ?? false,
 );
 
-// ─── Dropdown options ──────────────────────────────────────────────
+// ─── ドロップダウン options ─────────────────────────────────────────
 
 const todofukenOptions = ref<TodofukenItem[]>([]);
 
 async function fetchTodofukenOptions(): Promise<void> {
   try {
     const resp = await getTodofukenList();
-    // BE envelope is `{ data: [...] }`. Some spec fixtures pass a
-    // plain array (legacy contract) — accept both shapes.
+    // BE envelope は `{ data: [...] }`。一部 spec fixture は素の配列（旧契約）を
+    // 渡すため両形を受理。
     todofukenOptions.value = Array.isArray(resp)
       ? (resp as unknown as TodofukenItem[])
       : resp.data;
   } catch {
-    // Global axios interceptor already toasted the error.
+    // axios interceptor が既にエラーをトースト済み。
     todofukenOptions.value = [];
   }
 }
 
-// ─── [pref-from-ja] 都道府県 is read-only and always mirrors the
-// hanbaiten's JA (m_ja.todofuken_code). It is NEVER user-editable:
-//   - JA-scoped roles (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) → fixed to
-//     the logged-in user's JA prefecture (authStore.user.todofuken_code).
-//   - NICHINO_STAFF 代行入力 → follows whichever JA they pick in the
-//     BaseJaDropdown (onJaSelect) / the ?ja_id prefill (resolveTodofukenForJa).
-//   - Edit mode → carried by the detail response (loadDetail).
-// The label shown in the disabled field is resolved through the
-// 都道府県 master; the submitted value stays the 2-digit code.
+// ─── [pref-from-ja] 都道府県 は read-only で常に hanbaiten の JA
+// （m_ja.todofuken_code）をミラーする。ユーザー編集は不可:
+//   - JA スコープ（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）→ ログインユーザーの
+//     JA 都道府県（authStore.user.todofuken_code）に固定。
+//   - NICHINO_STAFF 代行入力 → BaseJaDropdown で選んだ JA（onJaSelect）/
+//     ?ja_id prefill（resolveTodofukenForJa）に追従。
+//   - edit → detail レスポンス（loadDetail）で持つ。
+// disabled フィールドの表示ラベルは都道府県マスタで解決、送信値は2桁コード。
 
 const todofukenName = computed<string>(() => {
   const code = formState.todofuken_code;
@@ -221,15 +215,15 @@ const todofukenName = computed<string>(() => {
   return hit?.todofuken_name ?? code;
 });
 
-/** Sync the read-only 都道府県 from a freshly-picked JA (staff path). */
+/** 新たに選ばれた JA から read-only 都道府県を同期（staff 経路）。 */
 function onJaSelect(item: JaDropdownItem | null): void {
   formState.todofuken_code = item?.todofuken_code ?? '';
 }
 
 /**
- * Resolve a JA's 都道府県 for the staff prefill path (`?ja_id=…`), where
- * the BaseJaDropdown pins the value without firing `@select`. Pull the
- * pinned row via `include_id` and copy its todofuken_code.
+ * staff prefill 経路（`?ja_id=…`）で JA の都道府県を解決する。BaseJaDropdown は
+ * `@select` を発火せず値を固定するため、`include_id` で固定行を引き
+ * todofuken_code をコピーする。
  */
 async function resolveTodofukenForJa(jaId: number): Promise<void> {
   try {
@@ -237,19 +231,18 @@ async function resolveTodofukenForJa(jaId: number): Promise<void> {
     const match = resp.data.find((j) => j.ja_id === jaId);
     formState.todofuken_code = match?.todofuken_code ?? '';
   } catch {
-    // Global axios interceptor already toasted; leave 都道府県 blank.
+    // axios interceptor が既にトースト済み。都道府県は空のまま。
   }
 }
 
-// ─── Edit-mode hydrate ─────────────────────────────────────────────
+// ─── 編集モードの hydrate ───────────────────────────────────────────
 
 const isHydrating = ref(false);
 
-// [tanka-cascade] Reset haitatsuryo_tanka_id whenever the staff swaps
-// JA — the BaseTankaDropdown's option set is scoped to ja_id, so a
-// stale selection from the previous JA would no longer resolve and
-// the BE Layer-4 FK guard would reject the submit. Skip during edit
-// hydration (loadDetail mutates ja_id before populating tanka_id).
+// [tanka-cascade] staff が JA を切り替えるたび haitatsuryo_tanka_id をリセット —
+// BaseTankaDropdown の option は ja_id にスコープされるため、前 JA の古い選択は
+// 解決できず BE Layer-4 FK ガードが submit を拒否する。edit hydration 中は
+// スキップ（loadDetail は tanka_id 投入前に ja_id を変更する）。
 watch(
   () => formState.ja_id,
   (next, prev) => {
@@ -264,8 +257,8 @@ async function loadDetail(id: number): Promise<void> {
     const resp = await getHanbaiten(id);
     isHydrating.value = true;
     Object.assign(formState, {
-      // [staff-ja-id] Detail carries ja_id — populate so the disabled
-      // BaseJaDropdown in edit mode shows the owning JA.
+      // [staff-ja-id] detail は ja_id を持つ — 投入して edit モードの disabled
+      // BaseJaDropdown が所有 JA を表示するようにする。
       ja_id: resp.data.ja_id,
       hanbaiten_code: resp.data.hanbaiten_code,
       hanbaiten_name: resp.data.hanbaiten_name,
@@ -292,23 +285,23 @@ async function loadDetail(id: number): Promise<void> {
       haiten_flg: resp.data.haiten_flg,
       biko: resp.data.biko,
     });
-    // Reset on the next microtask so any cascade watchers have a tick
-    // to observe the hydrating-true state. queueMicrotask sidesteps the
-    // floating-promise lint that `Promise.resolve().then(...)` triggers.
+    // cascade watcher が hydrating-true を観測できるよう次の microtask で
+    // リセット。queueMicrotask は `Promise.resolve().then(...)` の
+    // floating-promise lint を回避する。
     queueMicrotask(() => {
       isHydrating.value = false;
     });
   } catch {
-    // Global axios interceptor already toasted the NOT_FOUND / 500 /
-    // FORBIDDEN error — leave the form blank rather than redirecting,
-    // so tests that mount in edit mode don't crash onMounted.
+    // axios interceptor が NOT_FOUND / 500 / FORBIDDEN を既にトースト済み。
+    // リダイレクトせずフォームを空のままにし、edit モードで mount する
+    // テストが onMounted で crash しないようにする。
   }
 }
 
 /**
- * Apply create / edit mode from the current route. Always resets the
- * form FIRST so navigating edit→create (or edit-id→other-edit-id) does
- * not leak the previously loaded record's data.
+ * 現在のルートから create / edit モードを適用する。edit→create（や
+ * edit-id→別 edit-id）で前レコードのデータが漏れないよう、まず必ずフォームを
+ * リセットする。
  */
 async function applyRouteMode(): Promise<void> {
   resetFormState();
@@ -319,23 +312,21 @@ async function applyRouteMode(): Promise<void> {
     return;
   }
   if (isStaff.value) {
-    // [staff-ja-prefill] HanbaitenListView forwards the search-screen's
-    // selected JA via Vue Router history state (window.history.state.jaId)
-    // — keeps the URL clean (`/hanbaiten/create`, no ?ja_id). Pre-select it
-    // (the staff can still change it from the dropdown). Non-numeric /
-    // absent values are ignored — the picker just stays empty.
+    // [staff-ja-prefill] HanbaitenListView は検索画面で選んだ JA を Vue Router
+    // history state（window.history.state.jaId）で渡す — URL を綺麗に保つ
+    // （`/hanbaiten/create`、?ja_id なし）。事前選択する（staff は変更可）。
+    // 非数値 / 不在値は無視 — picker は空のまま。
     const rawJaId = (globalThis.history.state as { jaId?: unknown } | null)?.jaId;
     const n = typeof rawJaId === 'number' ? rawJaId : Number(rawJaId);
     if (Number.isFinite(n) && n > 0) {
       formState.ja_id = n;
-      // [pref-from-ja] Prefill the read-only 都道府県 from the pinned JA —
-      // the dropdown won't fire @select for this pre-selected path.
+      // [pref-from-ja] 固定 JA から read-only 都道府県を prefill —
+      // この事前選択経路では dropdown が @select を発火しない。
       void resolveTodofukenForJa(n);
     }
   } else {
-    // JA-scoped roles (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) can only ever
-    // create under their own JA, so 都道府県 is fixed to the session user's
-    // JA prefecture.
+    // JA スコープ（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）は自 JA でしか
+    // 作成できないため、都道府県は session ユーザーの JA 都道府県に固定。
     formState.todofuken_code = authStore.user?.todofuken_code ?? '';
   }
 }
@@ -345,24 +336,22 @@ onMounted(() => {
   void applyRouteMode();
 });
 
-// [route-reuse] vue-router REUSES this component instance when both the
-// create (`/hanbaiten/create`) and edit (`/hanbaiten/:id/edit`) routes
-// resolve to HanbaitenFormView — so `onMounted` does NOT re-run when
-// the user jumps edit→create via the submenu. Without re-applying the
-// route mode here, the create form would keep showing the edit record's
-// data (reported bug). Re-init whenever the id segment changes.
+// [route-reuse] create（`/hanbaiten/create`）と edit（`/hanbaiten/:id/edit`）が
+// 両方 HanbaitenFormView に解決するため vue-router はこのインスタンスを再利用する
+// — submenu で edit→create しても `onMounted` は再実行されない。ここで再適用しないと
+// create フォームが edit レコードのデータを表示し続ける（報告バグ）。id 変化時に再 init。
 watch(hanbaitenId, () => {
   void applyRouteMode();
 });
 
-// ─── Client-side validation (機能定義 3.1 / api.md §4.1) ────────────
+// ─── クライアント側検証（機能定義 3.1 / api.md §4.1） ────────────────
 
 const REQUIRED_MSG = '必須項目です。';
 const KANA_FORMAT_MSG = kanaFormatMessage('販売店名');
 const TEL_DIGITS_ONLY_MSG = '電話番号は半角数字のみ（ハイフンなし）入力可能です。';
 const FAX_DIGITS_ONLY_MSG = 'FAXは半角数字のみ（ハイフンなし）入力可能です。';
 
-/** Bank cluster — required iff itaku_kubun = 1 (振込). */
+/** 銀行系クラスタ — itaku_kubun = 1 (振込) のとき必須。 */
 const BANK_FIELDS = [
   'bank_code',
   'bank_name',
@@ -374,9 +363,8 @@ const BANK_FIELDS = [
 ] as const;
 
 /**
- * Conditional-required — when itaku_kubun = 1 (振込) every bank-cluster
- * field is required. Extracted from validateClient to keep its cognitive
- * complexity under the lint threshold.
+ * 条件付き必須 — itaku_kubun = 1 (振込) のとき銀行系全項目が必須。
+ * validateClient の認知的複雑度を lint 閾値以下に保つため切り出した。
  */
 function collectBankClusterErrors(errs: Record<string, string>): void {
   if (formState.itaku_kubun !== ItakuKubun.FURIKOMI) return;
@@ -418,14 +406,13 @@ const FIELD_ORDER: readonly string[] = [
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
 
-  // [staff-ja-required] NICHINO_STAFF 代行入力 must pick a JA before
-  // submitting the form. JA-scoped roles let session.ja_id win and
-  // never see the picker so skip the check there.
+  // [staff-ja-required] NICHINO_STAFF 代行入力 は submit 前に JA 選択が必須。
+  // JA スコープは session.ja_id が優先され picker を見ないためチェックをスキップ。
   if (isStaff.value && !isEdit.value && formState.ja_id == null) {
     errs.ja_id = REQUIRED_MSG;
   }
 
-  // Required — base fields.
+  // 必須 — 基本フィールド。
   if (!isEdit.value && !formState.hanbaiten_code?.trim()) {
     errs.hanbaiten_code = REQUIRED_MSG;
   }
@@ -442,7 +429,7 @@ function validateClient(): boolean {
     errs.furikomi_tesuryo_futan_kubun = REQUIRED_MSG;
   }
 
-  // Format — half-width katakana (only when value present; optional field).
+  // 形式 — 半角カタカナ（値がある場合のみ、任意項目）。
   if (
     formState.hanbaiten_name_kana &&
     !HALF_WIDTH_KATAKANA_RE.test(formState.hanbaiten_name_kana)
@@ -450,9 +437,8 @@ function validateClient(): boolean {
     errs.hanbaiten_name_kana = KANA_FORMAT_MSG;
   }
 
-  // Format — tel / fax: half-width digits only, no hyphen (only when
-  // present; both optional). Mirrors the BE @Matches(/^\d+$/) and the
-  // JA / 管理支店 forms so the convention is uniform across screens.
+  // 形式 — tel / fax: 半角数字のみ・ハイフンなし（存在時のみ、両者任意）。
+  // BE @Matches(/^\d+$/) と JA / 管理支店 フォームをミラーし画面間で規約統一。
   if (formState.tel && !/^\d+$/.test(formState.tel)) {
     errs.tel = TEL_DIGITS_ONLY_MSG;
   }
@@ -466,13 +452,12 @@ function validateClient(): boolean {
   return Object.keys(errs).length === 0;
 }
 
-// ─── Build request bodies ──────────────────────────────────────────
+// ─── リクエスト body 構築 ───────────────────────────────────────────
 
 function buildCreateBody(): CreateHanbaitenBody {
   return {
-    // [staff-ja-id] Only emit ja_id for staff — JA-scoped roles let the
-    // BE bind session.ja_id and would have it ignored anyway. Keeps the
-    // payload clean and the spec assertions tight.
+    // [staff-ja-id] staff のみ ja_id を出す — JA スコープは BE が session.ja_id を
+    // bind しどのみち無視される。payload を綺麗に、spec assertion をタイトに保つ。
     ...(isStaff.value && formState.ja_id != null
       ? { ja_id: formState.ja_id }
       : {}),
@@ -504,7 +489,7 @@ function buildCreateBody(): CreateHanbaitenBody {
 }
 
 function buildUpdateBody(): UpdateHanbaitenBody {
-  // hanbaiten_code 更新不可 — explicitly omitted (api.md §API-017-003 注記).
+  // hanbaiten_code 更新不可 — 明示的に除外（api.md §API-017-003 注記）。
   return {
     hanbaiten_name: formState.hanbaiten_name,
     hanbaiten_name_kana: formState.hanbaiten_name_kana,
@@ -532,7 +517,7 @@ function buildUpdateBody(): UpdateHanbaitenBody {
   };
 }
 
-// ─── Server-error handling (DUPLICATE_CODE + VALIDATION_ERROR) ─────
+// ─── サーバエラー処理（DUPLICATE_CODE + VALIDATION_ERROR） ───────────
 
 interface ServerErrorPayload {
   error_code?: string;
@@ -554,11 +539,11 @@ function handleServerError(err: unknown): void {
     );
     focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
   }
-  // Non-field-level errors (500, generic 400) are toasted by the
-  // global axios interceptor — view must NOT re-toast.
+  // 非フィールドエラー（500、汎用 400）は axios interceptor が
+  // トースト — view で再トーストしない。
 }
 
-// ─── Submit pipeline ───────────────────────────────────────────────
+// ─── Submit パイプライン ────────────────────────────────────────────
 
 async function onSubmit(): Promise<void> {
   if (!validateClient()) {
@@ -580,8 +565,8 @@ async function onSubmit(): Promise<void> {
       await createHanbaiten(buildCreateBody());
       notify.created();
     }
-    // Only navigate on success — when the API rejects we stay put so
-    // the user can correct the highlighted field errors.
+    // 成功時のみ遷移 — API 拒否時は留まり、ユーザーが強調された
+    // フィールドエラーを修正できるようにする。
     await router.push({ name: 'HanbaitenList' });
   } catch (err) {
     handleServerError(err);
@@ -594,8 +579,8 @@ function goBack(): void {
   void router.push({ name: 'HanbaitenList' });
 }
 
-// Expose state for the spec's `fillForm` helper (drives form values
-// directly without traversing antd's internal v-model wiring).
+// spec の `fillForm` ヘルパー用に状態を公開（antd 内部 v-model 配線を辿らず
+// フォーム値を直接駆動する）。
 defineExpose({ formState, fieldErrors });
 </script>
 
@@ -621,10 +606,9 @@ defineExpose({ formState, fieldErrors });
             <span>JA名</span>
             <span v-if="!isEdit" class="text-error ml-1">*</span>
           </template>
-          <!-- Disabled in edit mode (FK immutable — would orphan the
-               existing hanbaiten + every child reference). Required *
-               also drops in edit mode so the asterisk only signals what
-               the user actually has to fill in. -->
+          <!-- edit モードで disabled（FK は immutable — 既存 hanbaiten と全子参照を
+               孤立させてしまう）。必須 * も edit で消し、アスタリスクは実際に
+               入力が必要な項目だけを示す。 -->
           <BaseJaDropdown
             v-model:value="formState.ja_id"
             :disabled="isEdit"
@@ -686,20 +670,18 @@ defineExpose({ formState, fieldErrors });
         <!-- ─── 住所・連絡先 ─────────────────────────────────── -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item name="todofuken_code" label="都道府県">
-            <!-- [pref-from-ja] Read-only — 都道府県 always mirrors the
-                 hanbaiten's JA (m_ja の都道府県コード), never user-editable.
-                 Staff: follows the picked JA; roles 3/4/5: the session
-                 user's JA; edit: the detail response. Shows the resolved
-                 prefecture NAME while formState keeps the 2-digit code. -->
+            <!-- [pref-from-ja] read-only — 都道府県 は常に hanbaiten の JA
+                 （m_ja の都道府県コード）をミラーし、ユーザー編集不可。
+                 staff: 選んだ JA、role 3/4/5: session ユーザーの JA、edit: detail。
+                 formState は2桁コードを保持しつつ解決した都道府県名を表示。 -->
             <a-input
               id="todofuken_code"
               :value="todofukenName"
               disabled
             />
-            <!-- Eager label exposure for spec — antd's dropdown layer
-                 doesn't render options into the DOM until opened, but
-                 the test asserts the option text is present in
-                 wrapper.html() at mount time. -->
+            <!-- spec 用にラベルを先出し — antd の dropdown は開くまで option を
+                 DOM に描画しないが、テストは mount 時に wrapper.html() へ
+                 option テキストがあることを検証する。 -->
             <span class="hidden" data-test="todofuken-options">
               <span v-for="opt in todofukenOptions" :key="opt.todofuken_code">
                 {{ opt.todofuken_name }}
@@ -776,16 +758,13 @@ defineExpose({ formState, fieldErrors });
             label="配達手数料単価"
           >
             <!--
-              Server-side paginated + searchable dropdown. tankaType=2
-              narrows to 配達手数料. For JA-scoped roles `jaId` is null
-              and the BE applies session.ja_id. For NICHINO_STAFF 代行
-              入力 we forward `formState.ja_id` so the option list is
-              scoped to the chosen tenant and the cascade watch above
-              clears any stale selection on JA swap.
-              [staff-tanka-gate] In create mode, staff must pick a JA
-              first — disabling the dropdown blocks them from selecting
-              a 単価 that would otherwise resolve against the wrong
-              tenant. Edit mode keeps it enabled (JA is locked anyway).
+              サーバ側ページング + 検索可能な dropdown。tankaType=2 で
+              配達手数料に絞る。JA スコープは `jaId` null で BE が session.ja_id を
+              適用。NICHINO_STAFF 代行入力 は `formState.ja_id` を渡し option を
+              選択テナントにスコープ、上の cascade watch が JA 切替で古い選択を消す。
+              [staff-tanka-gate] create モードで staff はまず JA 選択が必要 —
+              dropdown を disabled にし、誤テナントに解決する単価の選択を防ぐ。
+              edit モードは有効のまま（JA はどのみちロック）。
             -->
             <BaseTankaDropdown
               v-model:value="formState.haitatsuryo_tanka_id"
@@ -1007,10 +986,9 @@ defineExpose({ formState, fieldErrors });
             </a-radio-group>
           </a-form-item>
 
-          <!-- [haiten-edit-only] 廃店フラグ stays hidden on CREATE — a
-               brand-new hanbaiten is always 営業中 (false), so showing
-               the toggle just invites accidental clicks. Edit mode
-               keeps it so ops can mark a store as 廃店. -->
+          <!-- [haiten-edit-only] 廃店フラグ は CREATE で非表示 — 新規 hanbaiten は
+               常に営業中（false）で、トグル表示は誤クリックを招くだけ。edit モードは
+               残し、ops が店舗を廃店にできる。 -->
           <a-form-item
             v-if="isEdit"
             label="廃店フラグ"

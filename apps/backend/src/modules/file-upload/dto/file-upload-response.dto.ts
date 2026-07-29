@@ -3,13 +3,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * Row shape for `GET /api/v1/file-upload` (list endpoint). Each field
- * mirrors api.md §レスポンスデータ. Snake_case keys are intentional
- * (FE Orval client + every list-screen consumer).
+ * `GET /api/v1/file-upload`(一覧)の行形状。各フィールドは
+ * api.md §レスポンスデータ の mirror。snake_case キーは意図的
+ * (FE クライアント + 全一覧画面が消費)。
  *
- * Nullability follows DB schema, NOT UI:
- *   - ja_id, file_size, record_count: nullable (NULL = global file /
- *     not-yet-computed / etc.)
+ * nullable は UI でなく DB スキーマに従う:
+ *   - ja_id, file_size, record_count: nullable(NULL = 全JA向け / 未計算 等)
  *   - upload_datetime, file_name, status, created_by, created_by_name,
  *     created_at: NOT NULL
  */
@@ -20,7 +19,7 @@ export class FileUploadListItemDto {
   @ApiPropertyOptional({ description: 'JA ID (NULL = 全 JA 向け)' })
   ja_id: number | null;
 
-  // SCR-023 — JOIN'd m_ja columns. NULL when ja_id IS NULL (global file).
+  // SCR-023 — JOIN した m_ja 列。ja_id IS NULL(全JA向け)のとき NULL。
   @ApiPropertyOptional({ description: 'JAコード（JOIN by ja_id）' })
   ja_code: string | null;
 
@@ -39,7 +38,7 @@ export class FileUploadListItemDto {
   @ApiPropertyOptional({ description: 'レコード件数' })
   record_count: number | null;
 
-  // SCR-023 — populated by the import/notification worker after upload.
+  // SCR-023 — upload 後に import/notification worker が設定。
   @ApiPropertyOptional({ description: '成功件数' })
   success_count: number | null;
 
@@ -52,7 +51,7 @@ export class FileUploadListItemDto {
   })
   status: number;
 
-  // SCR-023 — populated by the background notification worker.
+  // SCR-023 — バックグラウンド通知 worker が設定。
   @ApiProperty({
     description:
       "通知ステータス ※m_code.code_category='NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗）",
@@ -90,8 +89,8 @@ export class FileUploadListItemDto {
 }
 
 /**
- * Row shape returned by `POST /api/v1/file-upload` (SCR-023 upload).
- * One row per (ja_id × file) combination — see api.md §4.5.
+ * `POST /api/v1/file-upload`(SCR-023 upload)が返す行形状。
+ * (ja_id × file)の組み合わせ 1 件につき 1 行 — api.md §4.5 参照。
  */
 export class FileUploadCreatedItemDto {
   @ApiProperty({ description: 'ファイルアップロード ID' })

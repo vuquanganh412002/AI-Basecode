@@ -3,28 +3,22 @@ import { Transform, Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /**
- * Coerce blank strings to `undefined` BEFORE `@IsOptional` runs. Forms
- * post `q: ""` for an empty search box; without this transform
- * downstream string validators would either reject the empty string
- * or treat it as a deliberate filter. See `.claude/rules/nestjs.md
- * §DTO validation gotchas`.
+ * `@IsOptional` の前に空文字を `undefined` へ強制変換する。フォームは空の検索欄で
+ * `q: ""` を送るため、これがないと文字列バリデータが拒否 or フィルタ扱いしてしまう。
+ * .claude/rules/nestjs.md §DTO validation gotchas 参照。
  */
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Shared base for every `GET /api/v1/<resource>/dropdown` query DTO.
+ * 全 `GET /api/v1/<resource>/dropdown` クエリ DTO の共通ベース。
  *
- * The customer's "common dropdown" UX (server-side keyword search +
- * paginated infinite-scroll + `include_id` escape hatch for edit-form
- * pre-selection) is identical across JA / account / tanka / future
- * resources — so the four fields below live in ONE class and concrete
- * DTOs extend with their entity-specific filters (`role_id`,
- * `match_field`, `tanka_type`, etc.).
+ * 共通ドロップダウン UX（キーワード検索 + 無限スクロール + `include_id` 退避）は
+ * JA / account / tanka / 将来のリソースで同一のため、この4フィールドを1クラスに
+ * 集約。具象 DTO は独自フィルタ（`role_id`, `match_field`, `tanka_type` …）を追加する。
  *
- * Subclasses MUST NOT redeclare these fields. NestJS's
- * `forbidNonWhitelisted: true` ValidationPipe + `transform: true` work
- * correctly with inherited decorators.
+ * サブクラスはこれらを再宣言しないこと。継承デコレータでも `forbidNonWhitelisted`
+ * + `transform: true` は正しく機能する。
  */
 export class BaseDropdownQueryDto {
   @ApiPropertyOptional({
@@ -53,11 +47,9 @@ export class BaseDropdownQueryDto {
   per_page?: number = 50;
 
   /**
-   * Edit-form escape hatch. If the currently-selected resource id
-   * falls outside the first page of search hits, the service prepends
-   * that row to the response so the label resolves without a second
-   * GET. Concrete DTOs may rename the *semantic* (e.g. "ja_id",
-   * "tanka_id") via prose, but the wire param stays `include_id`.
+   * 編集フォーム用の退避手段。選択中の id がヒットのページ1に含まれない場合、
+   * サービスがその行を先頭に追加し、2回目の GET なしでラベルを解決する。具象 DTO
+   * は説明文で意味を読み替える（ja_id, tanka_id）が、wire パラメータは `include_id` のまま。
    */
   @ApiPropertyOptional({
     description:

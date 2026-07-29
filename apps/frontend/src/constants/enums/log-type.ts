@@ -1,7 +1,7 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/log-type.enum.ts`.
- * Display labels come from `useCodesStore().label('LOG_TYPE', value)`.
- * Keep values in lockstep — `enum-sync.spec.ts` fails CI on drift.
+ * `apps/backend/src/common/enums/log-type.enum.ts` の FE ミラー。
+ * 表示ラベルは `useCodesStore().label('LOG_TYPE', value)` から取得。
+ * 値を完全一致させること — `enum-sync.spec.ts` がドリフト時に CI を失敗させる。
  */
 export const LogType = {
   USER_OPERATION: 1,

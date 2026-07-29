@@ -51,13 +51,13 @@ interface AccountFormState {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** Edit-only — hydrated from getAccount, sent only when admin toggles. */
+  /** 編集専用 — getAccount から hydrate、admin がトグルしたときだけ送信。 */
   account_lock_flg: boolean;
   biko: string;
 }
 
-// ─── Access control (機能定義 1.1) ─────────────────────────────────
-// SCR-025 は日農管理者のみアクセス可。view-side guard で API も叩かない。
+// ─── アクセス制御（機能定義 1.1） ─────────────────────────────────────
+// SCR-025 は日農管理者のみアクセス可。view 側ガードで API も叩かない。
 const authStore = useAuthStore();
 const isAdmin = computed(
   () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
@@ -101,19 +101,17 @@ const editGuard = useEditGuard(() => formState);
 const fieldErrors = ref<Record<string, string>>({});
 const submitting = ref(false);
 
-// ─── Dropdown state ─────────────────────────────────────────────────
+// ─── ドロップダウン状態 ───────────────────────────────────────────────
 const roleOptions = ref<RoleDropdownItem[]>([]);
 const todofukenOptions = ref<TodofukenItem[]>([]);
 const jaOptions = ref<JaDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 const shitenOptions = ref<ShitenDropdownItem[]>([]);
 
-// `hydrateFromDetail` (edit mode) and other programmatic bulk-loads
-// would otherwise trip the cascade watchers below — setting both
-// `todofuken_code` and `ja_id` in the same tick lets the todofuken
-// watcher fire first and wipe the just-assigned ja_id. Flip this flag
-// while loading; the watchers no-op while it's true and the next
-// USER-driven change reverts to normal cascade behaviour.
+// `hydrateFromDetail`（編集モード）や他のプログラム的一括ロードは、そのままだと
+// 下の cascade watcher を誤発火させる — 同一 tick で `todofuken_code` と `ja_id` を
+// 設定すると todofuken watcher が先に走り代入直後の ja_id を消す。ロード中はこの
+// フラグを立て、true の間は watcher を no-op にし、次の USER 操作で通常挙動に戻す。
 const isHydrating = ref(false);
 
 // 機能定義 4.x — ロールによるドロップダウンの表示制御.
@@ -145,7 +143,7 @@ const showShiten = computed(
     formState.kanri_shiten_id != null,
 );
 
-// ─── Mount / edit-mode load ─────────────────────────────────────────
+// ─── マウント / 編集モードロード ───────────────────────────────────────
 async function fetchRoleOptions(): Promise<void> {
   try {
     const resp = await listRolesDropdown();
@@ -158,8 +156,8 @@ async function fetchRoleOptions(): Promise<void> {
 async function fetchTodofukenOptions(): Promise<void> {
   try {
     const resp = await getTodofukenList();
-    // BE envelope is `{ data: [...] }`; the spec fixture also passes
-    // a plain array (buildTodofukenList) — accept both shapes.
+    // BE envelope は `{ data: [...] }`。spec fixture は素の配列も渡す
+    // （buildTodofukenList）— 両形を受理。
     todofukenOptions.value = Array.isArray(resp)
       ? (resp as unknown as TodofukenItem[])
       : resp.data;
@@ -208,9 +206,9 @@ async function fetchShitenOptions(
 }
 
 function hydrateFromDetail(detail: AccountDetail): void {
-  // Edit mode pre-fill — login_id read-only, password blank (空欄=保持).
-  // Guard with isHydrating so the cascade watchers don't wipe the
-  // pre-filled ja_id / kanri_shiten_id when todofuken_code is set.
+  // 編集モードの事前入力 — login_id は read-only、password は空欄（空欄=保持）。
+  // isHydrating でガードし、todofuken_code 設定時に cascade watcher が
+  // 事前入力の ja_id / kanri_shiten_id を消さないようにする。
   isHydrating.value = true;
   formState.login_id = detail.login_id;
   formState.password = '';
@@ -228,8 +226,8 @@ function hydrateFromDetail(detail: AccountDetail): void {
   formState.denshi_flg = detail.denshi_flg;
   formState.account_lock_flg = detail.account_lock_flg;
   formState.biko = detail.biko;
-  // Reset on the next microtask, AFTER the cascade watchers have run
-  // (they're flush:'pre' and fire on the upcoming tick).
+  // cascade watcher が走った後（flush:'pre' で次 tick に発火）に次の
+  // microtask でリセットする。
   void Promise.resolve().then(() => {
     isHydrating.value = false;
   });
@@ -237,7 +235,7 @@ function hydrateFromDetail(detail: AccountDetail): void {
 
 onMounted(async () => {
   // 機能定義 1.1 / 1.2 — 日農管理者のみアクセス可。
-  // Non-admin: render the ACCESS_DENIED message and skip all API calls.
+  // 非 admin: ACCESS_DENIED メッセージを表示し全 API 呼び出しをスキップ。
   if (!isAdmin.value) return;
 
   void fetchRoleOptions();
@@ -247,8 +245,8 @@ onMounted(async () => {
     try {
       const resp = await getAccount(accountId.value);
       hydrateFromDetail(resp.data);
-      // After hydrate, sequentially load cascade dropdowns so the
-      // pre-filled selections render correctly.
+      // hydrate 後、事前入力の選択が正しく描画されるよう cascade dropdown を
+      // 順に読み込む。
       if (resp.data.todofuken_code) {
         void fetchJaOptions(resp.data.todofuken_code, resp.data.role_id);
       }
@@ -261,23 +259,22 @@ onMounted(async () => {
       // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
       await editGuard.capture();
     } catch {
-      // Global axios interceptor toasts NOT_FOUND / 500 — view stays
-      // mounted with empty fields rather than crashing onMounted.
+      // axios interceptor が NOT_FOUND / 500 をトースト — onMounted で crash せず
+      // 空フィールドのまま view をマウントし続ける。
     }
   }
 });
 
-// ─── Cascade watchers (機能定義 5.x / 6.x) ───────────────────────────
-// All three watchers no-op during isHydrating so edit-mode pre-fill
-// (which assigns todofuken_code, ja_id, kanri_shiten_id in the same
-// tick) doesn't wipe its own values via the cascade.
+// ─── Cascade watcher（機能定義 5.x / 6.x） ───────────────────────────
+// 3つの watcher は isHydrating 中 no-op になり、編集モード事前入力
+// （同一 tick で todofuken_code, ja_id, kanri_shiten_id を代入）が
+// cascade で自身の値を消さないようにする。
 watch(
   () => formState.todofuken_code,
   (next, prev) => {
     if (isHydrating.value) return;
     if (next === prev) return;
-    // Reset downstream selections so a stale value can't leak when the
-    // new todofuken's JA list arrives.
+    // 新 todofuken の JA 一覧が届いたとき古い値が漏れないよう下流の選択をリセット。
     formState.ja_id = null;
     formState.kanri_shiten_id = null;
     formState.shiten_id = null;
@@ -349,7 +346,7 @@ watch(
   },
 );
 
-// ─── Client-side validation (機能定義 2.1) ──────────────────────────
+// ─── クライアント側検証（機能定義 2.1） ───────────────────────────────
 const REQUIRED_MSG = '必須項目です。';
 const LOGIN_ID_FORMAT_MSG = 'ログインIDは半角英数字のみ入力可能です。';
 const PASSWORD_FORMAT_MSG =
@@ -386,16 +383,12 @@ const FIELD_ORDER: readonly string[] = [
 function validateClient(): boolean {
   const errs: Record<string, string> = {};
 
-  // [required-table] Drives the required-field pass via data. Cuts
-  // cognitive complexity vs. a chain of if-statements and keeps the
-  // ordering explicit (FIELD_ORDER below relies on this list for
-  // focus-first-error). Use `?.trim()` (not `.trim()`) so a future
-  // migration to a clearable control doesn't crash with TypeError.
-  // [email-required] QA bug 2026-05 — 通知先メールアドレス must be
-  // required. Primary email is the only address paper-based delivery
-  // notifications fall back to; SCR-023's worker drops the recipient
-  // entirely when it's blank, so an account without one silently
-  // receives nothing.
+  // [required-table] 必須チェックをデータ駆動で回す。if 連鎖より認知的複雑度を
+  // 下げ順序を明示（下の FIELD_ORDER が focus-first-error でこのリストに依存）。
+  // clearable コントロールへの将来移行で TypeError にならないよう `?.trim()` を使う。
+  // [email-required] QA バグ 2026-05 — 通知先メールアドレスは必須。紙版配送通知の
+  // フォールバック先はプライマリメールのみで、SCR-023 の worker は空だと受信者を
+  // 丸ごと落とすため、未設定のアカウントは何も受信できない。
   const requiredChecks: ReadonlyArray<readonly [string, boolean]> = [
     ['login_id', !isEdit.value && !formState.login_id?.trim()],
     ['password', !isEdit.value && !formState.password],
@@ -410,8 +403,7 @@ function validateClient(): boolean {
     if (missing) errs[field] = REQUIRED_MSG;
   }
 
-  // Format checks (only when value is present — required-message takes
-  // priority over format-message for the same field).
+  // 形式チェック（値がある場合のみ — 同一項目では必須メッセージが形式より優先）。
   if (!errs.login_id && formState.login_id && !LOGIN_ID_RE.test(formState.login_id)) {
     errs.login_id = LOGIN_ID_FORMAT_MSG;
   }
@@ -426,7 +418,7 @@ function validateClient(): boolean {
   return Object.keys(errs).length === 0;
 }
 
-// ─── Submit pipeline ────────────────────────────────────────────────
+// ─── Submit パイプライン ──────────────────────────────────────────────
 function buildCreateBody(): CreateAccountBody {
   return {
     login_id: formState.login_id,
@@ -450,7 +442,7 @@ function buildCreateBody(): CreateAccountBody {
 
 function buildUpdateBody(): UpdateAccountBody {
   return {
-    // Empty password = leave unchanged (BE DTO accepts blank as no-op).
+    // 空パスワード = 変更なし（BE DTO は空を no-op として受理）。
     password: formState.password,
     role_id: formState.role_id as number,
     todofuken_code: formState.todofuken_code,
@@ -464,7 +456,7 @@ function buildUpdateBody(): UpdateAccountBody {
     sub_email_3: formState.sub_email_3,
     paper_flg: formState.paper_flg,
     denshi_flg: formState.denshi_flg,
-    // BE resets login_failure_count → 0 when this is sent as false (unlock).
+    // false で送ると BE が login_failure_count → 0 にリセット（ロック解除）。
     account_lock_flg: formState.account_lock_flg,
     biko: formState.biko,
   };
@@ -479,9 +471,8 @@ interface ServerErrorPayload {
 function handleServerError(err: unknown): void {
   const axiosErr = err as AxiosError<ServerErrorPayload>;
   const data = axiosErr?.response?.data;
-  // VALIDATION_ERROR + DUPLICATE_CODE both surface field-level details
-  // in `errors[]` (per api.md §エラー一覧). Map them so the form item
-  // shows the inline message instead of a generic toast.
+  // VALIDATION_ERROR + DUPLICATE_CODE は共に `errors[]` にフィールド単位の詳細を
+  // 返す（api.md §エラー一覧）。form item がインラインメッセージを表示するよう写像。
   if (data && Array.isArray(data.errors) && data.errors.length > 0) {
     fieldErrors.value = Object.fromEntries(
       data.errors
@@ -492,8 +483,8 @@ function handleServerError(err: unknown): void {
     );
     focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
   }
-  // Non-field-level errors (500, generic 400) are toasted by the
-  // global axios interceptor — the view must NOT re-toast.
+  // 非フィールドエラー（500、汎用 400）は axios interceptor が
+  // トースト — view で再トーストしない。
 }
 
 async function onSubmit(): Promise<void> {
@@ -506,8 +497,8 @@ async function onSubmit(): Promise<void> {
     message.info('変更がありません。');
     return;
   }
-  // Guard against a double submit (e.g. rapid double-Enter): a second
-  // form-submit while the first request is in flight must be ignored.
+  // 二重 submit（例: 高速な二連 Enter）を防ぐ: 1回目のリクエスト処理中の
+  // 2回目の form-submit は無視する。
   if (submitting.value) return;
   submitting.value = true;
   try {
@@ -548,12 +539,11 @@ defineExpose({ formState, fieldErrors });
         @keydown="preventEnterImplicitSubmit"
         @finish="onSubmit"
       >
-        <!-- v1.3 screen design: no section headers; the form is one
-             continuous block. JA + 管理支店 always render — disable +
-             required-marker toggle by role_id via showTodofuken /
-             showJa / showKanriShiten. Spacing matches the canonical
-             CRUD form pattern (JaFormView / TankaFormView / etc.):
-             `p-4 space-y-2` on <a-form>, `gap-6` on every grid row. -->
+        <!-- v1.3 画面設計: セクション見出しなし、フォームは一続きのブロック。
+             JA + 管理支店 は常に描画し、disable + 必須マーカーは role_id により
+             showTodofuken / showJa / showKanriShiten でトグル。余白は正準の CRUD
+             フォーム（JaFormView / TankaFormView 等）に合わせる:
+             <a-form> に `p-4 space-y-2`、各 grid 行に `gap-6`。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <a-form-item
               name="login_id"
@@ -775,12 +765,10 @@ defineExpose({ formState, fieldErrors });
             </a-form-item>
           </div>
 
-        <!-- 3-column row, each cell = 1/3 of the form card. Mirrors
-             the sub-mail row above (`md:grid-cols-3 gap-6`) so vertical
-             rhythm stays consistent. Cell #3 is intentionally empty —
-             keeps 取扱い区分 + ロック状態 anchored to the LEFT
-             (cells 1 + 2) instead of stretching the lone ロック
-             column. On narrow viewports collapses to 1-column stack. -->
+        <!-- 3列行、各セル = フォームカードの 1/3。上のサブメール行
+             （`md:grid-cols-3 gap-6`）に合わせ縦リズムを一定に保つ。
+             セル#3 は意図的に空 — 取扱い区分 + ロック状態 を左（セル1+2）に
+             寄せ、単独の ロック 列を引き伸ばさない。狭幅では1列スタックに畳む。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item label="取扱い区分">
             <div class="flex items-center gap-6">
@@ -789,15 +777,13 @@ defineExpose({ formState, fieldErrors });
             </div>
           </a-form-item>
 
-          <!-- Edit-only: admin can unlock the account here. Sending
-               account_lock_flg=false resets login_failure_count → 0 on
-               the BE so the user can log in again immediately. Hidden
-               in create mode (new accounts can't be locked yet). -->
+          <!-- 編集専用: admin はここでアカウントのロックを解除できる。
+               account_lock_flg=false 送信で BE が login_failure_count → 0 に
+               リセットし即再ログイン可。作成モードでは非表示（新規は未ロック）。 -->
           <a-form-item v-if="isEdit" label="ロック状態">
-            <!-- QA bug 2026-05 — checkbox label already says "ロック";
-                 the red ロック pill previously shown to the right was
-                 a duplicate. Lock state is now communicated solely by
-                 the checkbox's checked state. -->
+            <!-- QA バグ 2026-05 — checkbox ラベルが既に「ロック」と表示するため
+                 右に出していた赤い ロック pill は重複だった。ロック状態は
+                 checkbox の checked 状態のみで伝える。 -->
             <a-checkbox v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
           </a-form-item>
         </div>

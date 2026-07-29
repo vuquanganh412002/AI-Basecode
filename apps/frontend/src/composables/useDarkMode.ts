@@ -4,8 +4,8 @@ const STORAGE_KEY = 'theme-mode';
 type Mode = 'light' | 'dark';
 
 /**
- * Dark mode singleton — call once per app.
- * Persists to localStorage, syncs `documentElement.classList`.
+ * ダークモードのシングルトン — アプリ毎に一度呼ぶ。
+ * localStorage に永続化し `documentElement.classList` を同期。
  */
 const mode = ref<Mode>(loadInitial());
 

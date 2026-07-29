@@ -7,28 +7,25 @@ import {
 } from '@/constants/menu-sections';
 import { RoleCode } from '@/constants/enums';
 
-/** A menu item plus the runtime `disabled` state computed by `useMenu()`. */
+/** メニュー項目 + `useMenu()` が算出する実行時 `disabled` 状態。 */
 export interface VisibleMenuItem extends MenuItem {
   /**
-   * Permission is held (otherwise the item is filtered out), but the item
-   * requires a 購読種別 flag the account lacks → render greyed + non-clickable
-   * (account_concept.md §139-145).
+   * 権限は保持（無ければ項目自体が除外される）だが、アカウントに無い
+   * 購読種別フラグを要する → グレーアウト + 非クリック（account_concept.md §139-145）。
    */
   disabled?: boolean;
 }
 
-/** A menu section whose items carry the computed `disabled` flag. */
+/** 算出済み `disabled` フラグを持つ項目のメニューセクション。 */
 export interface VisibleMenuSection extends Omit<MenuSection, 'items'> {
   items: VisibleMenuItem[];
 }
 
 /**
- * For NICHINO_STAFF, the 販売店 screens are operated in 代行 (proxy-input)
- * mode on behalf of a JA. Surface that in the label so staff know they're
- * acting as a proxy — 販売店情報登録（代行）/ 販売店明細検索（代行）. Keyed
- * by route name; only these entries get the suffix, and only for staff.
- * Other roles see the plain labels. (Replaces the old standalone
- * 販売店代行入力 menu entry, removed from MENU_SECTIONS in 2026-06.)
+ * NICHINO_STAFF は 販売店 画面を JA の代行入力モードで操作する。代行中と分かる
+ * よう label に接尾辞を付与 — 販売店情報登録（代行）/ 販売店明細検索（代行）。
+ * route 名でキーし、staff のみ・該当項目のみ付与。他ロールは素の label。
+ * （2026-06 に MENU_SECTIONS から除去した旧 販売店代行入力 メニュー項目の代替。）
  */
 const STAFF_DAIKO_LABEL_SUFFIX = '（代行）';
 const STAFF_DAIKO_ROUTE_NAMES: ReadonlySet<string> = new Set([
@@ -58,22 +55,21 @@ const SHITEN_RESTRICTED_ROUTE_NAMES: ReadonlySet<string> = new Set([
 
 export interface UseMenuOptions {
   /**
-   * Drop the rootless top-level entry (the Dashboard "メニュー画面" item)
-   * from the visible result. DashboardView sets this to true so it doesn't
-   * render a "go to dashboard" card while already on the dashboard.
+   * ルート無しの最上位項目（Dashboard の「メニュー画面」項目）を結果から除外。
+   * DashboardView は true を設定し、ダッシュボード上で「ダッシュボードへ」
+   * カードを描画しないようにする。
    */
   excludeRoot?: boolean;
 }
 
 /**
- * Returns the menu sections the current user is allowed to see, in the
- * canonical order defined in `src/constants/menu-sections.ts`. An item is
- * visible when it has no `permission` (e.g. Dashboard) or when the user's
- * session permissions[] contains the required one. Empty sections (every
- * item filtered out) are dropped — sections are auto-collapsed.
+ * 現ユーザーが閲覧許可されたメニューセクションを、`src/constants/menu-sections.ts`
+ * 定義の標準順で返す。項目は `permission` 無し（例 Dashboard）か、セッションの
+ * permissions[] が必要権限を含む時に表示。空セクション（全項目除外）は
+ * 自動折り畳みで除去。
  *
- * Used by both AppSidebar (left rail) and DashboardView (SCR-010 menu cards)
- * so the two surfaces stay in sync.
+ * AppSidebar（左レール）と DashboardView（SCR-010 メニューカード）両方で使用し
+ * 二面を同期。
  */
 export function useMenu(options: UseMenuOptions = {}): {
   visibleSections: ComputedRef<VisibleMenuSection[]>;

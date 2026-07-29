@@ -1,26 +1,17 @@
 /**
- * Generic helper for the field-level restriction pattern described in
- * `.claude/rules/security.md` Layer 3. Each module declares its own
- * `FIELD_RESTRICTIONS` table (because the columns are resource-specific)
- * but every module uses this same filter implementation.
+ * フィールドレベル制限ヘルパー — .claude/rules/security.md Layer 3。各モジュールが
+ * リソース固有の `FIELD_RESTRICTIONS`（role × 許可フィールド）テーブルを宣言し、
+ * このフィルタを共有する。
  *
- * Example:
  * ```ts
  * const FIELD_RESTRICTIONS: FieldRestrictionTable = {
- *   ja: {
- *     NICHINO_ADMIN: ['*'],
- *     CHUOKAI: ['yubin_no', 'address', 'tel', ...],
- *     JA_HONTEN: ['yubin_no', 'address', 'tel', ...],
- *   },
+ *   ja: { NICHINO_ADMIN: ['*'], CHUOKAI: ['yubin_no', 'address', ...] },
  * };
- *
- * const filtered = filterAllowedFields(dto, 'ja', session.role_code, FIELD_RESTRICTIONS);
+ * filterAllowedFields(dto, 'ja', session.role_code, FIELD_RESTRICTIONS);
  * ```
  *
- * Returns:
- *   - `{}` when the role isn't listed (= no permission to update anything)
- *   - `{ ...dto }` (shallow copy) when the role's allow-list is `['*']`
- *   - A new object containing only the keys present in the allow-list
+ * 戻り値: role が未掲載（更新権限なし）なら `{}`、許可リストが `['*']`（ワイルド
+ * カード）なら `{ ...dto }`、それ以外は許可キーのみ。
  */
 export type FieldRestrictionTable = Record<string, Record<string, string[]>>;
 

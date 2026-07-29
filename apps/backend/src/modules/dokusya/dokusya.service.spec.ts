@@ -232,6 +232,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -266,7 +267,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 
@@ -3773,12 +3774,10 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       const rireki2 = buildDokusyaRireki({
         dokusyaRirekiId: 200, dokusyaId: 100, rirekiNo: 2,
         tetsuzukiShurui: 1, saishinDataFlg: true, shinkiFlg: false,
-        henkoRiyu: '住所変更',
       });
       const rireki1 = buildDokusyaRireki({
         dokusyaRirekiId: 100, dokusyaId: 100, rirekiNo: 1,
         tetsuzukiShurui: 1, saishinDataFlg: false, shinkiFlg: true,
-        henkoRiyu: '',
       });
       rirekiRepo.find.mockResolvedValue([rireki2, rireki1]);
       rirekiQb.getMany.mockResolvedValue([rireki2, rireki1]);
@@ -3994,6 +3993,7 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -4029,7 +4029,7 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 
@@ -5339,6 +5339,7 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -5374,7 +5375,7 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 
@@ -5786,6 +5787,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -5821,7 +5823,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
 
     // 一括置換は各購読者を applyChange(UPDATE) で置換する。CREATE/UPDATE の履歴
@@ -6300,7 +6302,7 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       // values は hanbaiten_id のみ、johoDate=hanbaitenDate=販売店適用日
       // （UI 編集 Rule2 と同一）。前回販売店の zenkai_hanbaiten_id 退避・全列の
       // carry-forward・増減報告フラグ(hanbaiten はトリガ)は writer が担う
-      // （builder.spec/writer.spec が網羅）。henko_riyu は '販売店一括置換'。
+      // （builder.spec/writer.spec が網羅）。
       const rows = [buildReplaceCandidateRow({ dokusya_id: 5001, hanbaiten_id: 200 })];
       primeReplace(rows);
 
@@ -6323,7 +6325,6 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       // johoDate として渡す（hanbaitenDate は廃止）。1更新1レコード。
       expect(input.johoDate).toBe(tekiyoDate);
       expect(input.hanbaitenDate).toBeUndefined();
-      expect(input.reason).toBe('販売店一括置換');
       expect(input.source).toBe('REPLACE_HANBAITEN');
     });
 
@@ -6904,6 +6905,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -6939,7 +6941,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
 
     // NEW 取込は applyChange(CREATE) を通る。CREATE の master/履歴生成を writer に
@@ -8284,6 +8286,7 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export 経路はこの describe では未使用。dokusyaRepo（qb mock）のみ
     // 実体を渡し、auditLog / codeService は最小 mock で型を満たす。
@@ -8317,7 +8320,7 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 
@@ -8528,6 +8531,7 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       accountFlags as any,
       rireki as any,
       new DokusyaImportValidator(),
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
     // search/export concern は DokusyaSearchService（step D）。facade
     // （DokusyaService）へ同一の dokusyaRepo / auditLog / codeService mock を
@@ -8562,7 +8566,7 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       rireki,
       searchService,
       replaceService,
-      { isTarget: jest.fn().mockResolvedValue(false), push: jest.fn() } as any,
+      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 

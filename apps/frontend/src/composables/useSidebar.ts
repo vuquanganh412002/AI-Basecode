@@ -1,11 +1,11 @@
 import { ref } from 'vue';
 
 /**
- * Sidebar visibility state — shared across AppSidebar + AppHeader (toggle).
+ * サイドバー表示状態 — AppSidebar + AppHeader（トグル）で共有。
  *
- * Default:
- * - desktop (≥ md / 768px): open
- * - mobile (< md):          closed (sidebar renders as overlay when opened)
+ * 既定:
+ * - デスクトップ（≥ md / 768px）: 開
+ * - モバイル（< md）: 閉（開くとオーバーレイ表示）
  */
 const MD_BREAKPOINT = 768;
 

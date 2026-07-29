@@ -1,12 +1,11 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable **single-select** 支店 dropdown.
+ * サーバーページング + 検索対応の **単一選択** 支店ドロップダウン。
  *
- * Reuses {@link useEntityDropdown} (page-50 load, debounced search on
- * コード OR 名称, infinite scroll, edit-mode include_id pin). Optional
- * `kanriShitenId` cascades the list off the chosen 管理支店 (BE asserts
- * the id is within the caller's scope); when omitted the full scoped
- * list is returned. `jaId` is only needed for the NICHINO_* 代行入力 flow.
+ * {@link useEntityDropdown} を再利用（50件/page・コード OR 名称 のデバウンス検索・
+ * 無限スクロール・編集時 include_id ピン）。任意の `kanriShitenId` で選択中 管理支店 配下に
+ * カスケード（BE が id を呼び出し側スコープ内か検証）、省略時はスコープ内全件。
+ * `jaId` は NICHINO_* 代行入力 フローでのみ必要。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -21,11 +20,11 @@ import {
 import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
-  /** Selected shiten_id (`null`/`undefined` = nothing selected). */
+  /** 選択中の shiten_id（`null`/`undefined` = 未選択）。 */
   value?: number | null;
-  /** Cascade filter — only shiten under this 管理支店. */
+  /** カスケードフィルタ — この 管理支店 配下の支店のみ。 */
   kanriShitenId?: number | null;
-  /** Explicit JA filter (NICHINO_* 代行入力). Scoped roles let session win. */
+  /** 明示的な JA フィルタ（NICHINO_* 代行入力）。スコープ付きロールは session 優先。 */
   jaId?: number | null;
   disabled?: boolean;
   placeholder?: string;
@@ -46,8 +45,8 @@ const selected = toRef(props, 'value');
 const perPageRef = toRef(props, 'perPage');
 const kanriShitenIdRef = toRef(props, 'kanriShitenId');
 
-// shiten envelope's meta is optional (legacy callers) — default
-// has_more=false so useEntityDropdown stops paging.
+// shiten エンベロープの meta は任意（旧呼び出し側）— 既定 has_more=false で
+// useEntityDropdown のページングを止める。
 async function fetcher(
   params: ShitenDropdownQuery,
 ): Promise<EntityDropdownResult<ShitenDropdownItem>> {

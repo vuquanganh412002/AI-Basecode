@@ -1,12 +1,12 @@
 <script setup lang="ts">
 interface Props {
-  /** Render the 編集 button. Default true. */
+  /** 編集 ボタンを表示。既定 true。 */
   canEdit?: boolean;
-  /** Render the 削除 button. Default true. */
+  /** 削除 ボタンを表示。既定 true。 */
   canDelete?: boolean;
-  /** Render 編集 but greyed-out + non-clickable (permission denied). */
+  /** 編集 をグレーアウト + 非クリックで表示（権限なし）。 */
   disableEdit?: boolean;
-  /** Render 削除 but greyed-out + non-clickable (permission denied). */
+  /** 削除 をグレーアウト + 非クリックで表示（権限なし）。 */
   disableDelete?: boolean;
 }
 

@@ -55,11 +55,8 @@ export class ShitenController {
   }
 
   // ─── ACSMS-API-COMMON — GET /api/v1/shiten/dropdown (SCR-011) ───────
-  //
-  // Consumed by the 購読者情報登録 (SCR-011) form's 引落口座支店 picker.
-  // Authenticated-only — no `@Permissions` so any logged-in user with a
-  // screen-level permission that needs a 支店 picker can call.
-  // Declared BEFORE `@Get(':id')` to win the path-vs-param routing.
+  // 購読者情報登録 (SCR-011) の 引落口座支店 picker が利用。認証済みなら誰でも可
+  // （@Permissions なし — 呼び出し元画面の権限に依存）。@Get(':id') より前に宣言。
   @Get('dropdown')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '支店プルダウン (SCR-011 用)' })
@@ -75,13 +72,13 @@ export class ShitenController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
-    // 管理支店で絞り込む（顧客要件2026-07・SCR-025 所属支店 / SCR-011）。選択した
-    // 管理支店配下の支店のみをドロップダウンに出す。未指定なら絞らない。
+    // 管理支店で絞り込む（顧客要件2026-07・SCR-025 所属支店 / SCR-011）。
+    // 選択した管理支店配下の支店のみ出す。未指定なら絞らない。
     const kanriShitenId =
       query.kanri_shiten_id === undefined
         ? undefined
         : Number(query.kanri_shiten_id);
-    // Query-string booleans arrive as 'true' / 'false' / undefined; coerce.
+    // クエリ boolean は 'true' / 'false' / undefined で届くため coerce。
     let kinyuFlg: boolean | undefined;
     if (query.kinyu_shiten_flg === 'true') kinyuFlg = true;
     else if (query.kinyu_shiten_flg === 'false') kinyuFlg = false;
@@ -102,8 +99,7 @@ export class ShitenController {
   }
 
   // ─── ACSMS-API-COMMON-008 — GET /api/v1/shiten/koza-dropdown ─────────
-  // 口座支店（金融機関支店フラグ=TRUE）プルダウン。認証済みなら誰でも可
-  // （呼び出し元画面の権限に依存）。`@Get(':id')` より前に宣言する。
+  // 口座支店（金融機関支店フラグ=TRUE）プルダウン。認証済みなら誰でも可。@Get(':id') より前に宣言。
   @Get('koza-dropdown')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '口座支店プルダウン (SCR-020 用) — ACSMS-API-COMMON-008' })
@@ -112,7 +108,7 @@ export class ShitenController {
     @Query() query: { kanri_shiten_ids?: string },
     @Req() req: Request & { user: SessionPayload },
   ) {
-    // クエリの kanri_shiten_ids は 'カンマ区切り' 文字列で届く。数値配列へ正規化。
+    // kanri_shiten_ids はカンマ区切り文字列で届く。数値配列へ正規化。
     const kanriShitenIds =
       typeof query.kanri_shiten_ids === 'string' &&
       query.kanri_shiten_ids.length > 0

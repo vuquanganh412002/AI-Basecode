@@ -1,28 +1,20 @@
 /**
- * Audit-log operation verb stored in `t_log.operation`.
+ * `t_log.operation` 監査操作動詞。
  *
- * Convention (`.claude/rules/nestjs.md` §Audit Log): a BARE verb — never
- * prefixed with the entity or screen (`'JA_CREATE'` is forbidden; screen
- * context lives in `gamen_name`, entity in `target_table`). String-valued
- * so the DB column reads as the literal and log greps stay sane.
+ * 規約 (`.claude/rules/nestjs.md` §Audit Log): BARE 動詞のみ — entity/screen
+ * を前置しない (`'JA_CREATE'` 禁止; screen は `gamen_name`、entity は
+ * `target_table`)。
  *
- * BE-only: the FE never writes audit logs, so there is no FE mirror /
- * enum-sync pair. `operation` is an OPEN string vocabulary (this lists the
- * canonical verbs across the codebase; some callers compute it dynamically,
- * e.g. hanbaiten's IMPORT_*), so `AuditLogService` types the field as
- * `string` — this object is a convenience namespace for the named verbs,
- * not a closed union. Prefer a member over a raw literal at call sites.
+ * BE-only (FE は監査ログを書かない → FE mirror / enum-sync なし)。`operation`
+ * は OPEN な文字列語彙 (一部は動的生成、例 hanbaiten IMPORT_*) なので
+ * `AuditLogService` は `string` 型。ここは名前付き動詞の便宜 namespace で
+ * closed union ではない。呼び出し側は生リテラルより member を優先。
  */
 export const AuditOperation = {
-  /** Row created. */
   CREATE: 'CREATE',
-  /** Row updated. */
   UPDATE: 'UPDATE',
-  /** Row (soft-)deleted. */
   DELETE: 'DELETE',
-  /** File downloaded (signed-URL fetch). */
   DOWNLOAD: 'DOWNLOAD',
-  /** Generic export. */
   EXPORT: 'EXPORT',
   /** CSV export (口座振替データ等). */
   EXPORT_CSV: 'EXPORT_CSV',
@@ -30,19 +22,12 @@ export const AuditOperation = {
   EXPORT_EXCEL: 'EXPORT_EXCEL',
   /** PDF export (帳票). */
   EXPORT_PDF: 'EXPORT_PDF',
-  /** Excel import — new rows. */
   IMPORT_NEW: 'IMPORT_NEW',
-  /** Excel import — full update of existing rows. */
   IMPORT_UPDATE_ALL: 'IMPORT_UPDATE_ALL',
-  /** Excel import — partial update of selected columns. */
   IMPORT_UPDATE_PARTIAL: 'IMPORT_UPDATE_PARTIAL',
-  /** Async notification mail send (worker). */
   SEND_NOTIFICATION: 'SEND_NOTIFICATION',
-  /** Scheduled / batch job. */
   CRON: 'CRON',
-  /** Password reset completed. */
   PASSWORD_RESET: 'PASSWORD_RESET',
-  /** Password-reset email requested. */
   PASSWORD_RESET_REQUEST: 'PASSWORD_RESET_REQUEST',
 } as const;
 export type AuditOperation =

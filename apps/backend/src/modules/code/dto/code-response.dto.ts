@@ -5,13 +5,10 @@ import {
 } from '@nestjs/swagger';
 
 /**
- * Single code row — mirrors `CodeItem` from the service (kept here as
- * a `class` for Swagger reflection; the service-side `interface`
- * stays for plain TS callers).
- *
- * `value` is a number | string union: most categories normalize to
- * number, but some VARCHAR-backed categories (e.g. TODOFUKEN-prefixed)
- * may emit strings. Orval surfaces this as `string | number`.
+ * 単一コード行 — サービスの `CodeItem` のミラー (Swagger リフレクション用に class 化。
+ * サービス側 interface は素の TS 呼び出し向けに残す)。
+ * `value` は number | string: 多くは number 正規化だが、VARCHAR 系カテゴリ
+ * (例 TODOFUKEN 系) は文字列を出す。Orval は `string | number` として表出。
  */
 export class CodeItemDto {
   @ApiProperty({

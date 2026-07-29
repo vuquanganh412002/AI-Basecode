@@ -3,10 +3,9 @@ import type { AxiosError } from 'axios';
 import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
 
 /**
- * Composable for handling form submissions that call APIs returning
- * field-level validation errors.
+ * フィールド単位のバリデーションエラーを返す API を呼ぶフォーム送信の composable。
  *
- * Usage:
+ * 使用例:
  * ```ts
  * const { fieldErrors, submitting, submit } = useApiForm();
  *
@@ -18,16 +17,15 @@ import { ErrorCode, type ApiErrorResponse } from '@/constants/error-codes';
  * }
  * ```
  *
- * When the backend returns `VALIDATION_ERROR` with `errors: [{field, message}]`,
- * `fieldErrors` will be populated as `{ [field]: message }` — bind to form items:
+ * BE が `VALIDATION_ERROR` を `errors: [{field, message}]` 付きで返すと、
+ * `fieldErrors` が `{ [field]: message }` に populate される — フォーム項目に bind:
  * ```vue
  * <a-form-item :validate-status="fieldErrors.email ? 'error' : ''"
  *              :help="fieldErrors.email">
  * ```
  *
- * Non-validation errors (401, 403, 500, etc.) are already handled by the
- * axios interceptor (toast / redirect). This composable only surfaces
- * field-level details.
+ * 非バリデーションエラー（401/403/500 等）は axios interceptor が処理済み
+ * （トースト/リダイレクト）。当 composable はフィールド単位の詳細のみ露出する。
  */
 export function useApiForm() {
   const fieldErrors = ref<Record<string, string>>({});

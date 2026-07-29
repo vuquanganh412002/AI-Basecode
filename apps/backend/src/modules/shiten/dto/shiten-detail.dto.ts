@@ -1,9 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Full detail shape for ACSMS-API-007-001 (GET) + 007-002 (POST response)
- * + 007-003 (PUT response). Matches `database-design.md §m_shiten` column
- * order; `biko` added per v1.3.
+ * 詳細形状: ACSMS-API-007-001 (GET) / 007-002 (POST 応答) / 007-003 (PUT 応答)。
+ * 列順は database-design.md §m_shiten。biko は v1.3 で追加。
  */
 export class ShitenDetailDto {
   @ApiProperty() shiten_id: number;

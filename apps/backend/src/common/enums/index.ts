@@ -1,32 +1,22 @@
 /**
- * Barrel export for fixed-set value constants (Group A) — categories whose
- * VALUES are baked into branching logic across the codebase.
+ * 固定値定数 (Group A) の barrel — VALUE が codebase の分岐ロジックに焼き込まれた
+ * カテゴリ。
  *
- * Style:
- *   - Identifier: PascalCase (`ResultStatus`) — TS type-like.
- *   - Members: UPPER_SNAKE_CASE (`SUCCESS`) — fixed-constant convention
- *     per `.claude/rules/naming-conventions.md`.
- *   - Pattern: `const … as const` + derived type alias of the same name
- *     (TS allows merging the value and type namespaces). Avoids `enum`
- *     because it (a) emits IIFE runtime code that fails on Node native
- *     TS, (b) creates a reverse-mapping that pollutes `Object.values()`,
- *     and (c) is increasingly discouraged by the TS community.
+ * Style: Identifier=PascalCase、Members=UPPER_SNAKE_CASE
+ * (`.claude/rules/naming-conventions.md`)。`const … as const` + 同名の派生型。
+ * `enum` を避ける理由: (a) IIFE を emit し Node native TS で fail、
+ * (b) reverse-mapping が `Object.values()` を汚染、(c) TS コミュニティで非推奨。
  *
- * Adding / removing a value here REQUIRES a code change + redeploy.
- * Renaming the customer-visible LABEL does NOT — labels live in the
- * `m_code` master table and are loaded by `CodeService`. A runtime
- * `m_code` admin edit only flips the displayed string; the integer
- * value reaching this constant stays the same.
+ * 値の追加/削除は code 変更 + redeploy が必要。顧客可視 LABEL の rename は不要
+ * — label は `m_code` master にあり `CodeService` が load。runtime の m_code
+ * 編集は表示文字列を変えるだけで、整数値は不変。
  *
- * Categories that are NOT in this folder (Group B — GENDER, TANKA_TYPE,
- * YOKIN_SHUBETSU, TESURYO_KUBUN, …) intentionally have no constant:
- * the customer can extend them at runtime and the BE only validates
- * via `CodeService.has(category, value)`. Picking the right group when
- * adding a new category is part of the design review.
+ * この folder に無いカテゴリ (Group B — GENDER, TANKA_TYPE, YOKIN_SHUBETSU,
+ * TESURYO_KUBUN, …) は意図的に定数なし: runtime 拡張可で BE は
+ * `CodeService.has(category, value)` で検証のみ。group 選択は設計 review の一部。
  *
- * Sync requirement:
- * Mirror this folder at `apps/frontend/src/constants/enums/`. The CI
- * test `enum-sync.spec.ts` parses both sides and fails if they drift.
+ * Sync: `apps/frontend/src/constants/enums/` に mirror。CI の
+ * `enum-sync.spec.ts` が両側を parse し drift 時 fail。
  */
 export { LogType } from './log-type.enum';
 export { ResultStatus } from './result-status.enum';

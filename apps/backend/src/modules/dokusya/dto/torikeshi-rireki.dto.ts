@@ -2,9 +2,9 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 /**
- * Body for `POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi`.
- * The cancellation reason is required — it is written into the `biko` of both
- * the cancelled row and the reversing row, and recorded in `t_log` (顧客要件).
+ * `POST /api/v1/dokusya/:dokusya_id/rireki/:dokusya_rireki_id/torikeshi` のボディ。
+ * 取消理由は必須 — 取消行と打ち消し行の両方の `biko` に書き込まれ、
+ * `t_log` にも記録される（顧客要件）。
  */
 export class TorikeshiRirekiDto {
   @ApiProperty({

@@ -90,7 +90,6 @@ export interface DokusyaHistoryItem {
   rireki_no: number;
   tetsuzuki_shurui: number;
   tetsuzuki_shurui_label: string;
-  henko_riyu: string;
   saishin_data_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
@@ -220,8 +219,8 @@ export function buildDokusyaDetail(
     hikiotoshi_yokin_shubetsu: 1,
     hikiotoshi_koza_no: '1234567',
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
-    dokusyaso_bunrui: '農業者',
-    nogyosya_bunrui: '水稲,野菜',
+    dokusyaso_bunrui: '0',
+    nogyosya_bunrui: '0,1',
     shoki_dokusya_kaishi_date: '2026-01-01',
     dokusya_kaishi_date: '2026-04-01',
     dokusya_chushi_date: null,
@@ -290,8 +289,8 @@ export function buildCreateDokusyaForm(
     hikiotoshi_yokin_shubetsu: 1,
     hikiotoshi_koza_no: '1234567',
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
-    dokusyaso_bunrui: '農業者',
-    nogyosya_bunrui: '水稲,野菜',
+    dokusyaso_bunrui: '0',
+    nogyosya_bunrui: '0,1',
     // 購読開始日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。翌日を
     // 既定にして create happy-path が通るようにする（固定日だと時間経過で過去日に
     // なり検証に弾かれるため動的）。
@@ -330,7 +329,6 @@ export function buildDokusyaHistoryItem(
     rireki_no: 2,
     tetsuzuki_shurui: 1,
     tetsuzuki_shurui_label: '新規',
-    henko_riyu: '住所変更',
     saishin_data_flg: true,
     shinki_flg: false,
     kaiyaku_flg: false,
@@ -348,14 +346,12 @@ export function buildDokusyaHistoryResponse(): { data: DokusyaHistoryItem[] } {
       buildDokusyaHistoryItem({
         dokusya_rireki_id: 200,
         rireki_no: 2,
-        henko_riyu: '住所変更',
         saishin_data_flg: true,
         shinki_flg: false,
       }),
       buildDokusyaHistoryItem({
         dokusya_rireki_id: 100,
         rireki_no: 1,
-        henko_riyu: '',
         saishin_data_flg: false,
         shinki_flg: true,
         created_at: '2026-04-01T10:00:00Z',
@@ -479,7 +475,7 @@ export function buildDokusyaRirekiRow(
     mail_magazine_flg: 1,
     birth_year: 1980,
     gender: 1,
-    dokusyaso_bunrui: '一般,個人',
+    dokusyaso_bunrui: '0,3',
     nogyosya_bunrui: '',
     tanka_id: 1,
     tanka_name: '新聞購読料',

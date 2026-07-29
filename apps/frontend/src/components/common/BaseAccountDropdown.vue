@@ -1,20 +1,15 @@
 <script setup lang="ts">
 /**
- * Server-side-paginated + searchable account dropdown.
+ * サーバーページング + 検索対応のアカウントドロップダウン。
  *
- * Mirrors {@link BaseJaDropdown}: 50/page init, 300 ms debounced search,
- * popup-scroll → next page append, optional `include_id` to pin a
- * pre-selected row on the first hydration. State-machine lives in
- * {@link useEntityDropdown}; this file binds account-specific knobs
- * (fetcher, idField, label composer, optional `match_field`).
+ * {@link BaseJaDropdown} と同構造（初回50件/page・300ms デバウンス検索・popup-scroll で次ページ追加・
+ * 初回に選択行を固定する任意の include_id）。状態機械は {@link useEntityDropdown}、本ファイルは
+ * アカウント固有設定（fetcher / idField / label / 任意の match_field）を束ねる。
  *
- * Default label format is `${login_id} ${account_name}` so log/audit
- * screens disambiguate accounts that share a display name;
- * `labelFormat='name'` shows just `${account_name}` for screens that
- * present the field as ユーザー名.
+ * 既定ラベルは `${login_id} ${account_name}` — 表示名が同じアカウントをログ/監査画面で区別するため。
+ * `labelFormat='name'` はフィールドを ユーザー名 として見せる画面向けに `${account_name}` のみ。
  *
- * Server-side filter is opt-in (`filter-option={false}`) so antd does
- * not also client-side filter the visible option list.
+ * サーバー側フィルタは opt-in（`filter-option={false}`）なので antd はクライアント側で絞り込まない。
  */
 import { computed, toRef } from 'vue';
 import {
@@ -27,31 +22,25 @@ import { DROPDOWN_PAGE_SIZE } from '@/constants/pagination';
 
 interface Props {
   /**
-   * Currently-selected account_id. Accepts `number | null | undefined`
-   * — both `null` and `undefined` mean "nothing selected" so callers
-   * can use `v-model:value` against either filter state
-   * (`number | null`, from `useTableQuery`) or form state
-   * (`number | undefined`) without a ?? bridge at every call site.
+   * 選択中の account_id。`number | null | undefined` を受ける — null / undefined とも
+   * 「未選択」の意味なので、filter state（`number | null`、useTableQuery）でも
+   * form state（`number | undefined`）でも ?? 変換なしに v-model:value できる。
    */
   value?: number | null;
   disabled?: boolean;
   placeholder?: string;
   allowClear?: boolean;
-  /** Override page size. Default 50. */
+  /** ページサイズ上書き。既定 50。 */
   perPage?: number;
   /**
-   * Option label format. 'login-name' (default) renders
-   * `${login_id} ${account_name}` (space-separated — chosen so the
-   * row reads naturally and copy-paste from logs/tickets keeps the
-   * id-then-name order); 'name' renders only `${account_name}` for
-   * screens that present the field as just ユーザー名.
+   * ラベル形式。'login-name'（既定）は `${login_id} ${account_name}`（スペース区切り —
+   * 行が自然に読め、ログ/チケットからのコピペで id→name の順が保たれる）、
+   * 'name' はフィールドを ユーザー名 として見せる画面向けに `${account_name}` のみ。
    */
   labelFormat?: 'login-name' | 'name';
   /**
-   * Backend ILIKE target. 'both' (default) matches login_id OR
-   * account_name; 'name' matches account_name only. Pair with
-   * `labelFormat='name'` so the user can't be confused by a hit they
-   * can't see.
+   * BE の ILIKE 対象。'both'（既定）は login_id OR account_name、'name' は account_name のみ。
+   * 表示できないヒットで混乱しないよう `labelFormat='name'` と組で使う。
    */
   searchField?: 'both' | 'name';
 }
@@ -66,7 +55,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  // Always emits `null` for "cleared" — callers get one type to handle.
+  // クリア時は常に `null` を emit — 呼び出し側は 1 型のみ扱えばよい。
   'update:value': [v: number | null];
 }>();
 
@@ -113,8 +102,7 @@ function onChange(v: number | undefined): void {
   composableOnChange(v);
 }
 
-// Re-expose internal state for tests (spec reads
-// `wrapper.vm.fetchPage / options / page / hasMore / q`).
+// テスト用に内部状態を公開（spec が wrapper.vm.fetchPage / options / page / hasMore / q を参照）。
 defineExpose({ fetchPage, options, page, hasMore, q });
 </script>
 

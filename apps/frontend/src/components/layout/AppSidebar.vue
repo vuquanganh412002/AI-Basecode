@@ -9,9 +9,8 @@ const { open, hide } = useSidebar();
 const route = useRoute();
 const router = useRouter();
 
-// Menu source of truth: src/constants/menu-sections.ts. Permission filter:
-// src/composables/useMenu.ts. DashboardView consumes the same composable so
-// the sidebar and the SCR-010 menu cards never drift apart.
+// メニューの正: src/constants/menu-sections.ts。権限フィルタ: src/composables/useMenu.ts。
+// DashboardView も同 composable を使うため、サイドバーと SCR-010 メニューカードがずれない。
 const { visibleSections } = useMenu();
 
 function isActive(name: string): boolean {
@@ -19,13 +18,12 @@ function isActive(name: string): boolean {
 }
 
 function navigate(name: string): void {
-  // During layout testing many routes aren't registered yet; skip instead of
-  // crashing / logging a vue-router warning.
+  // レイアウトテスト時は未登録ルートが多い。クラッシュ / vue-router 警告を避けてスキップする。
   if (!router.hasRoute(name)) return;
   router.push({ name });
 }
 
-// Auto-close the overlay sidebar after navigating on mobile.
+// モバイルではナビゲート後にオーバーレイサイドバーを自動で閉じる。
 watch(
   () => route.fullPath,
   () => {
@@ -37,7 +35,7 @@ watch(
 </script>
 
 <template>
-  <!-- Mobile-only backdrop: dims page content and closes sidebar on tap. -->
+  <!-- モバイル専用バックドロップ: ページを暗くしタップでサイドバーを閉じる。 -->
   <div
     v-if="open"
     class="fixed inset-0 bg-black/40 z-30 md:hidden"
@@ -48,15 +46,15 @@ watch(
   <aside
     :class="[
       'bg-surface-card border-r border-border flex flex-col h-screen w-72 flex-shrink-0',
-      // Mobile: fixed overlay that slides in from the left.
+      // モバイル: 左からスライドインする固定オーバーレイ。
       'fixed top-0 left-0 z-40 transition-transform duration-300',
       open ? 'translate-x-0' : '-translate-x-full',
-      // Desktop: in-flow sticky child; animate width when collapsed instead.
+      // デスクトップ: フロー内の sticky 子要素。折りたたみ時は幅をアニメーション。
       'md:sticky md:top-0 md:z-auto md:translate-x-0 md:transition-[width] md:duration-300',
       open ? '' : 'md:w-0 md:border-r-0 md:overflow-hidden',
     ]"
   >
-    <!-- Brand -->
+    <!-- ブランド -->
     <div class="p-6 border-b border-border flex items-center gap-3">
       <div class="w-8 h-8 bg-primary rounded flex items-center justify-center">
         <span class="material-icons text-white text-sm">auto_stories</span>
@@ -64,7 +62,7 @@ watch(
       <h1 class="font-bold text-lg tracking-tight">購読者管理システム</h1>
     </div>
 
-    <!-- Nav -->
+    <!-- ナビ -->
     <nav class="flex-1 mt-2 overflow-y-auto sidebar-scroll px-4 pb-6 space-y-6">
       <div
         v-for="(section, idx) in visibleSections"
@@ -106,7 +104,7 @@ watch(
       </div>
     </nav>
 
-    <!-- Footer: dark mode toggle -->
+    <!-- フッター: ダークモード切替 -->
     <div class="p-4 border-t border-border flex justify-center">
       <DarkModeToggle />
     </div>

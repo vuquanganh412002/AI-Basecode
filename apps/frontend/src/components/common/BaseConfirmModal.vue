@@ -5,7 +5,7 @@ interface Props {
   content: string;
   okText?: string;
   cancelText?: string;
-  /** Mark the OK button as destructive (red) — for delete confirmations. */
+  /** OK ボタンを破壊的操作（赤）にする — 削除確認向け。 */
   danger?: boolean;
   loading?: boolean;
 }

@@ -232,7 +232,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-01',
       source: 'UI',
       actor: 'admin',
-      reason: '',
     };
     const res = await applyChange(m, input);
 
@@ -270,7 +269,6 @@ describe('applyChange', () => {
       johoDate: '2099-12-31', // 未来
       source: 'UI',
       actor: 'admin',
-      reason: '',
     });
 
     expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 2002, 10);
@@ -293,7 +291,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-05',
       source: 'UI',
       actor: 'u',
-      reason: '',
     });
 
     expect(q.ensureMaster).not.toHaveBeenCalled();
@@ -318,7 +315,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-05',
       source: 'UI',
       actor: 'u',
-      reason: '',
     });
 
     expect(q.insertRow).toHaveBeenCalledTimes(1);
@@ -342,7 +338,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-05',
       source: 'IMPORT',
       actor: 'u',
-      reason: '',
     });
 
     expect(q.insertRow).toHaveBeenCalledTimes(1);
@@ -377,7 +372,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-24',
       source: 'UI',
       actor: 'u',
-      reason: '',
     });
 
     expect(q.insertRow).toHaveBeenCalledTimes(1); // hanbaiten 1行のみ（busu は非変更）
@@ -409,7 +403,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-23',
       source: 'UI',
       actor: 'u',
-      reason: '',
     });
 
     expect(q.insertRow).toHaveBeenCalledTimes(1);
@@ -431,7 +424,6 @@ describe('applyChange', () => {
       johoDate: '2026-07-01',
       source: 'UI',
       actor: 'a',
-      reason: '',
     });
     expect(res.denshiSync).toBe(true);
   });

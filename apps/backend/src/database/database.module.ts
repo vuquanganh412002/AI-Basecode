@@ -21,9 +21,9 @@ configurePgTypeParsers();
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.database'),
-        // Aurora/RDS require TLS (pg_hba rejects "no encryption"). pg accepts
-        // rejectUnauthorized:false to use TLS without bundling the RDS CA —
-        // encrypts in transit without full chain verification. `false` locally.
+        // Aurora/RDS は TLS 必須（pg_hba が "no encryption" を拒否）。
+        // rejectUnauthorized:false で RDS CA を同梱せず TLS を使う（全チェーン
+        // 検証なしで転送を暗号化）。ローカルは `false`。
         ssl: toBoolean(config.get<string | boolean>('database.ssl'))
           ? { rejectUnauthorized: false }
           : false,
@@ -34,10 +34,10 @@ configurePgTypeParsers();
         extra: {
           max: 10,
           idleTimeoutMillis: 30000,
-          // JST 運用 — Postgres session timezone is set per-connection so
-          // NOW() / CURRENT_TIMESTAMP / TIMESTAMPTZ display follow JST.
-          // Storage stays UTC internally (TIMESTAMPTZ guarantees that).
-          // See .claude/rules/nestjs.md §Timestamp policy.
+          // JST 運用 — 接続ごとに Postgres session timezone を設定し
+          // NOW() / CURRENT_TIMESTAMP / TIMESTAMPTZ の表示を JST に揃える。
+          // 内部保存は UTC のまま（TIMESTAMPTZ が保証）。
+          // .claude/rules/nestjs.md §Timestamp policy 参照。
           options: '-c timezone=Asia/Tokyo',
         },
       }),
@@ -50,10 +50,9 @@ export class DatabaseModule implements OnApplicationBootstrap {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * TypeORM establishes the connection during module init, so by the time
-   * the app finishes bootstrapping the DataSource is already initialized.
-   * Emit one line (visible in ECS / CloudWatch) confirming the connection —
-   * host + db name only, never credentials.
+   * TypeORM はモジュール init 時に接続するため、ブートストラップ完了時点で
+   * DataSource は初期化済み。接続確認ログを1行だけ出す（ECS / CloudWatch で
+   * 確認可能）。host + db 名のみ、認証情報は絶対に出さない。
    */
   onApplicationBootstrap(): void {
     const options = this.dataSource.options as { host?: string; port?: number; database?: unknown };

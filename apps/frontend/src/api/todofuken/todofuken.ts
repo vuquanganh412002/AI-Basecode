@@ -1,6 +1,6 @@
 import axiosInstance from '@/api/axios-instance';
 
-/** Single 都道府県 row returned by GET /api/v1/todofuken. */
+/** GET /api/v1/todofuken が返す都道府県の1行。 */
 export interface TodofukenItem {
   todofuken_code: string;
   todofuken_name: string;

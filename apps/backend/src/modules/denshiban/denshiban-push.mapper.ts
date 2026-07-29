@@ -1,48 +1,50 @@
-import { DokusyaShubetsu } from '@/common/enums';
+import {
+  DOKUSYASO_BUNRUI_CODES,
+  DOKUSYASO_BUNRUI_NOGYOSYA,
+  NOGYOSYA_BUNRUI_CODES,
+} from '@/common/constants/dokusya-bunrui.constant';
+import { GENDER_MALE, GENDER_FEMALE } from '@/common/constants/gender.constant';
+import { MAIL_MAGAZINE_FLG_ON } from '@/common/constants/mail-magazine-flg.constant';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 
 /**
- * クラウド版 `t_dokusya`（履歴確定後の `after` スナップショット）→ 電子版 共通API
- * `updateUserInfo` の各 action_kbn パラメータへの変換（純ロジック・DI/DB なし）。
+ * `t_dokusya`（after スナップショット）→ 電子版 updateUserInfo の各 action_kbn
+ * パラメータへの変換（純ロジック・DI/DB なし）。pull 側 dokusya-sync.mapper の逆変換。
+ * 未確定の値対応（pref_id/profession/products）は pull と同じ identity 表（plan §8）。
  *
- * これは pull 側 `dokusya-sync.mapper.ts` の逆変換。正典は
- * docs/demo/20260723_読者管理連携用API使用方法.xlsx。未確定の値対応（pref_id /
- * profession / products の具体コード）は pull 側と同じ identity 表を使い、
- * 顧客確定後は両ファイルを揃えて直す（docs/denshiban-push-implementation-plan.md §8）。
- *
- * 生成する payload は電子版デモ (denshiban-demo) の validators.js を必ず通す形にする:
- *   - jacd_execute / jacd  : 数字ちょうど10桁（管理支店コードのハイフン除去）
- *   - id                   : 数字（denshi_kaiin_id）
- *   - zip                  : 数字1〜7桁 / pref_id: 1〜47 / tel: 数字1〜13桁
- *   - first_kana/last_kana : ひらがな（クラウドのカナ項目はひらがなに統一済み）
- *   - subscribe_flg/melmaga: '0'|'1' / sex: '0'(女)|'1'(男)|'9'(回答しない)
- *   - profession           : codeList('0','1','2','3','999')（カンマ可）
- *   - products             : profession が '0' を含むときだけ送る（条件付き項目）
+ * 生成 payload は電子版デモの validators.js を通す形（jacd/id=数字、zip 1〜7桁、
+ * pref_id 1〜47、tel 1〜13桁、kana=ひらがな、flg='0'|'1'、sex='0'女/'1'男/'9'、
+ * profession=codeList、products は profession に '0' を含むときだけ）。
  */
 
 // ─── 逆変換表（pull 側と対に保つ。§8 で顧客確定後に差し替え）─────────────
+//
+// `dokusyaso_bunrui` / `nogyosya_bunrui` は**電子版と同じコード値**で保存する
+// （画面・pull バッチ・Excel 取込のいずれもコード。顧客要件 2026-07。日本語
+// ラベルを保存していた旧データはマイグレーション
+// 1784100000000-NormalizeDokusyaBunruiCodes でコードへ変換済み）。
+// よって変換は identity だが、未知値を落とすフィルタとして表を残す — 電子版が
+// 受理しないコードをそのまま送ると create/update が V29 で弾かれるため。
+//
+// 対応表は顧客仕様書 create_パラメータ仕様シートの職業／農畜産物の定義に従う。
 
-/** dokusyaso_bunrui(クラウド) → profession(電子版)。暫定 identity。 */
-const BUNRUI_TO_PROFESSION: Record<string, string> = {
-  '0': '0',
-  '1': '1',
-  '2': '2',
-  '3': '3',
-  '999': '999',
-};
+/** コード集合から identity 変換表を作る（未知値フィルタ用）。 */
+function identityTable(codes: readonly string[]): Record<string, string> {
+  return Object.fromEntries(codes.map((c) => [c, c]));
+}
 
-/** nogyosya_bunrui(クラウド) → products(電子版)。暫定 identity。 */
-const BUNRUI_TO_PRODUCTS: Record<string, string> = {
-  '0': '0',
-  '1': '1',
-  '2': '2',
-  '3': '3',
-  '4': '4',
-  '5': '5',
-  '999': '999',
-};
+/** dokusyaso_bunrui(コード) → profession(電子版)。0農業者/1JA/2企業・団体/3学生/999その他。 */
+const BUNRUI_TO_PROFESSION: Record<string, string> =
+  identityTable(DOKUSYASO_BUNRUI_CODES);
+
+/** nogyosya_bunrui(コード) → products(電子版)。0米/1野菜/2果実/3花/4畜産/5酪農/999その他。 */
+const BUNRUI_TO_PRODUCTS: Record<string, string> =
+  identityTable(NOGYOSYA_BUNRUI_CODES);
 
 // ─── 値ヘルパ ────────────────────────────────────────────────────────
+
+/** 電子版 API のテキスト項目の最大長（超過分は切り捨て）。 */
+const MAX_TEXT_LEN = 255;
 
 /** 数字のみ抽出（ハイフン・空白等を除去）。 */
 function digitsOnly(v: string | null | undefined): string {
@@ -68,18 +70,19 @@ function mapCsvCodes(raw: string | null | undefined, table: Record<string, strin
 
 /** gender(1男/2女/9回答しない) → sex(1男/0女/9回答しない)。 */
 function genderToSex(gender: number | null | undefined): string {
-  if (gender === 1) return '1'; // 男性
-  if (gender === 2) return '0'; // 女性
+  if (gender === GENDER_MALE) return '1';
+  if (gender === GENDER_FEMALE) return '0';
   return '9'; // 回答しない / 未設定
 }
 
 /**
- * profession（購読者層分類の逆変換）。create は必須項目のため空なら '0'(農業者) を
- * 既定にする（電子版側の必須制約を満たすためのフォールバック・§8 で要確認）。
+ * profession（購読者層分類の逆変換）。create は必須項目だが、クラウド側が未分類
+ * （空）の会員を電子版へ 0(農業者) と誤分類しないよう、空のときは 999(その他) を
+ * 既定にする（「不明」に最も近い安全側の値・§8 で顧客に最終確認）。
  */
 function toProfession(bunrui: string | null | undefined): string {
   const mapped = mapCsvCodes(bunrui, BUNRUI_TO_PROFESSION);
-  return mapped === '' ? '0' : mapped;
+  return mapped === '' ? '999' : mapped;
 }
 
 // ─── payload 構築 ────────────────────────────────────────────────────
@@ -88,25 +91,25 @@ function toProfession(bunrui: string | null | undefined): string {
 function buildProfile(f: Dokusya): Record<string, string> {
   const profession = toProfession(f.dokusyasoBunrui);
   const payload: Record<string, string> = {
-    first_name: clamp(f.shimeiSei, 255),
-    last_name: clamp(f.shimeiMei, 255),
-    first_kana: clamp(f.shimeiKanaSei, 255),
-    last_kana: clamp(f.shimeiKanaMei, 255),
+    first_name: clamp(f.shimeiSei, MAX_TEXT_LEN),
+    last_name: clamp(f.shimeiMei, MAX_TEXT_LEN),
+    first_kana: clamp(f.shimeiKanaSei, MAX_TEXT_LEN),
+    last_kana: clamp(f.shimeiKanaMei, MAX_TEXT_LEN),
     zip: digitsOnly(f.yubinNo),
     pref_id: digitsOnly(f.todofukenCode),
-    addr: clamp(f.shikuchoson, 255),
-    city: clamp(f.chomeBanchi, 255),
+    addr: clamp(f.shikuchoson, MAX_TEXT_LEN),
+    city: clamp(f.chomeBanchi, MAX_TEXT_LEN),
     tel: digitsOnly(f.renrakusaki1),
     email: (f.email ?? '').trim(),
     subscribe_flg: f.honshiKodokuFlg ? '1' : '0',
-    melmaga: String(f.mailMagazineFlg ?? 0) === '1' ? '1' : '0',
+    melmaga: f.mailMagazineFlg === MAIL_MAGAZINE_FLG_ON ? '1' : '0',
     profession,
   };
 
-  const building = clamp(f.tatemonoMei, 255);
+  const building = clamp(f.tatemonoMei, MAX_TEXT_LEN);
   if (building) payload.building = building;
 
-  const remarks1 = clamp(f.biko, 255);
+  const remarks1 = clamp(f.biko, MAX_TEXT_LEN);
   if (remarks1) payload.remarks1 = remarks1;
 
   if (f.birthYear != null && /^\d{4}$/.test(String(f.birthYear))) {
@@ -114,12 +117,14 @@ function buildProfile(f: Dokusya): Record<string, string> {
   }
   payload.sex = genderToSex(f.gender);
 
-  // products は「profession が '0'(農業者) を含む」ときだけ許可される条件付き項目。
-  // それ以外で送ると電子版が V29 を返すため、条件を満たすときのみ載せる。
-  if (profession.split(',').includes('0')) {
-    const products = mapCsvCodes(f.nogyosyaBunrui, BUNRUI_TO_PRODUCTS);
-    if (products) payload.products = products;
-  }
+  // products キーは常に載せる（顧客要件）。ただし値を持てるのは「profession が
+  // '0'(農業者) を含む」ときだけの条件付き項目で、それ以外で値を送ると電子版が
+  // V29 を返す — 該当しない／未選択なら '' を送る。電子版の isPresent は
+  // 空文字を「キー無し」と同一視するため、'' なら形式チェックも条件チェックも
+  // 発火しない。
+  payload.products = profession.split(',').includes(DOKUSYASO_BUNRUI_NOGYOSYA)
+    ? mapCsvCodes(f.nogyosyaBunrui, BUNRUI_TO_PRODUCTS)
+    : '';
 
   return payload;
 }
@@ -188,15 +193,4 @@ export function toCancelPayload(
     notify_flg: '0',
     cancel_ym: cancelYm,
   };
-}
-
-/**
- * 併読/電子版の対象判定（種別だけの純チェック）。campaign 除外・source 除外は
- * push service 側（DB アクセスを伴う）で行う。
- */
-export function isDenshiShubetsu(dokusyaShubetsu: number | null | undefined): boolean {
-  return (
-    dokusyaShubetsu === DokusyaShubetsu.DIGITAL ||
-    dokusyaShubetsu === DokusyaShubetsu.BOTH
-  );
 }

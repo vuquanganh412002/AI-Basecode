@@ -18,7 +18,7 @@ import { FileDownloadService } from './file-download.service';
   imports: [
     TypeOrmModule.forFeature([FileDownload]),
     AuditLogModule,
-    AuthModule, // SessionAuthGuard depends on SessionService
+    AuthModule, // SessionAuthGuard が SessionService に依存
     StorageModule,
   ],
   controllers: [FileDownloadController],

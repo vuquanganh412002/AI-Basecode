@@ -4,9 +4,9 @@ import Redis from 'ioredis';
 export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
 
 /**
- * Thin wrapper around a single ioredis client. Exposes just the operations
- * the app needs (session store, OTP store, rate-limit counters) so call
- * sites don't reach for ioredis primitives directly.
+ * 単一 ioredis クライアントの薄いラッパー。アプリが必要とする操作
+ * （セッション/OTP ストア、レート制限カウンタ）のみ公開し、呼び出し側が
+ * ioredis プリミティブに直接触れないようにする。
  */
 @Injectable()
 export class RedisService implements OnModuleDestroy {
@@ -14,7 +14,7 @@ export class RedisService implements OnModuleDestroy {
 
   constructor(@Inject(REDIS_CLIENT) private readonly client: Redis) {}
 
-  /** Expose the raw client only for advanced use (pipelines, scripts). */
+  /** 生クライアント公開（pipeline / script など高度用途のみ）。 */
   get raw(): Redis {
     return this.client;
   }

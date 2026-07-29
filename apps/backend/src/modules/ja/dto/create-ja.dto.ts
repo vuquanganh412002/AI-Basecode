@@ -12,23 +12,14 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/**
- * Class-transformer hook: collapse empty / whitespace-only string to
- * `undefined` so `@IsOptional()` correctly skips downstream validators
- * (e.g. `@Matches(/^\d+$/)` on optional fields like `tel`/`fax`).
- *
- * Without this, a frontend posting `tel: ""` triggers the regex check
- * and fails validation, even though `tel` is optional.
- */
+// 空文字/空白のみ→undefined。@IsOptional が後続の @Matches 等を正しく
+// スキップできるようにする（FE が tel:"" を送っても optional 扱い）。
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/**
- * Create JA request body — API-005-002.
- *
- * `zei_kubun` references m_code.code_category='ZEI_KUBUN' (1=内税, 2=外税).
- * The allowed-value check lives in the service via CodeService.has().
- */
+// JA登録リクエストbody — API-005-002。
+// zei_kubun は m_code.code_category='ZEI_KUBUN'(1=内税,2=外税)。値の
+// 存在検証は service の CodeService.has() 側。
 export class CreateJaDto {
   @ApiProperty({ description: 'JAコード（一意制約）', maxLength: 10, example: '1301003001' })
   @IsString({ message: 'JAコードは文字列で入力してください。' })
@@ -119,7 +110,7 @@ export class CreateJaDto {
   @IsInt({ message: '税区分は整数で入力してください。' })
   zei_kubun!: number;
 
-  // 委託者コード — half-width alphanumeric, NO space.
+  // 委託者コード — 半角英数字のみ（スペース不可）。
   @ApiPropertyOptional({ description: 'JASTEM_委託者コード ※空文字許容', maxLength: 10 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -130,8 +121,8 @@ export class CreateJaDto {
   })
   jastem_itakusha_code?: string;
 
-  // 委託者名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
-  // FE: utils/kana.ts JASTEM_NAME_RE と正規表現・メッセージを一致させること。
+  // 委託者名 — 銀行charset限定：半角カナ ｱ-ﾟ/A-Z/0-9/. ( ) -（顧客要件
+  // 2026-06-25、漢字/ひらがな/全角不可）。FE utils/kana.ts JASTEM_NAME_RE と正規表現・メッセージ一致。
   @ApiPropertyOptional({ description: 'JASTEM_委託者名 ※空文字許容', maxLength: 40 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -143,7 +134,7 @@ export class CreateJaDto {
   })
   jastem_itakusha_name?: string;
 
-  // 農協番号 — half-width digits only.
+  // 農協番号 — 半角数字のみ。
   @ApiPropertyOptional({ description: 'JASTEM_農協番号 ※空文字許容', maxLength: 4 })
   @Transform(blankToUndef)
   @IsOptional()
@@ -154,8 +145,8 @@ export class CreateJaDto {
   })
   jastem_ja_code?: string;
 
-  // 農協名 — 銀行charset限定：半角カナ ｱ-ﾟ・A-Z・0-9・. ( ) -（顧客要件 2026-06-25。漢字/ひらがな/全角不可）。
-  // FE: utils/kana.ts JASTEM_NAME_RE と一致。
+  // 農協名 — 銀行charset限定：半角カナ ｱ-ﾟ/A-Z/0-9/. ( ) -（顧客要件
+  // 2026-06-25、漢字/ひらがな/全角不可）。FE utils/kana.ts JASTEM_NAME_RE と一致。
   @ApiPropertyOptional({ description: 'JASTEM_農協名 ※空文字許容', maxLength: 15 })
   @Transform(blankToUndef)
   @IsOptional()

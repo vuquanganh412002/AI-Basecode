@@ -9,35 +9,25 @@ import { API_PREFIX } from './common/constants/api.constants';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
-  // [json-body-limit]
-  // Default Express body-parser cap is ~100KB. SCR-019 (Hanbaiten Excel
-  // import) accepts up to 500 rows × ~700 bytes per row ≈ 350KB; with
-  // header / encoding overhead the body comfortably exceeds the default
-  // and Express rejects with `PayloadTooLargeError` BEFORE the DTO
-  // `@ArrayMaxSize(500)` or service-level `ROW_LIMIT_EXCEEDED` check
-  // gets a chance to fire. Bump to 5MB so the canonical error codes
-  // surface and other batch endpoints (oshirase, log export, etc.)
-  // also have headroom.
+  // [json-body-limit] Express 既定の body 上限 ~100KB では SCR-019 の Excel 取込
+  // （最大500行×~700byte ≈ 350KB）が DTO `@ArrayMaxSize(500)` / `ROW_LIMIT_EXCEEDED`
+  // 到達前に `PayloadTooLargeError` で弾かれる。5MB に引上げ正規エラーコードを出し、
+  // 他バッチ（oshirase, log export 等）にも余裕を持たせる。
   const app = await NestFactory.create(AppModule, {
     bodyParser: true,
   });
   const configService = app.get(ConfigService);
 
-  // Apply enlarged JSON / urlencoded limits via the platform-express
-  // adapter — the constructor `bodyParser:true` only enables the
-  // default-sized parser; we need to re-register with `limit: 5mb`.
+  // constructor の `bodyParser:true` は既定サイズのみ。limit:5mb で再登録する。
   const express = require('express');
   app.use(express.json({ limit: '5mb' }));
   app.use(express.urlencoded({ limit: '5mb', extended: true }));
 
-  // [trust-proxy] Behind CloudFront → ALB → ECS, the immediate TCP peer is
-  // the ALB and the real client IP is carried in X-Forwarded-For. Without
-  // this, `req.ip` is the ALB/proxy IP — so ThrottlerGuard buckets every
-  // request under one key (rate-limiting collapses) and audit logs (t_log
-  // ip_address) record the proxy, not the user. Setting the trusted-hop
-  // count makes Express skip exactly the infra hops (CloudFront edge + ALB)
-  // and resolve `req.ip` to the CloudFront-appended viewer IP, which a
-  // client cannot spoof via a leftmost XFF entry. Local/no-proxy → 0.
+  // [trust-proxy] CloudFront→ALB→ECS の背後では TCP peer が ALB で実クライアント IP は
+  // X-Forwarded-For に載る。未設定だと `req.ip` が ALB IP になり ThrottlerGuard が全
+  // リクエストを1キーに集約（レート制限崩壊）＋監査ログ(t_log.ip_address)が proxy を記録。
+  // 信頼ホップ数を設定するとインフラ hop（CloudFront+ALB）だけスキップし、CloudFront が
+  // 付与した viewer IP に解決（左端 XFF 偽装は不可）。ローカル/proxy無し → 0。
   const trustProxyHops = configService.get<number>('app.trustProxyHops') ?? 0;
   if (trustProxyHops > 0) {
     app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
@@ -49,13 +39,10 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       exceptionFactory: (errors) => {
-        // Surface ONE message per field, with a deterministic priority so
-        // the user sees the most relevant error first instead of a
-        // comma-joined sentence (e.g. for an empty login_id the FE would
-        // otherwise display "...should not be empty, ...must contain only
-        // half-width characters"). useApiForm on the FE binds a single
-        // string to <a-form-item :help>, so multiple-message-per-field is
-        // wasted anyway — Object.fromEntries collapses to the last entry.
+        // フィールド毎に1メッセージを決定順で返す（カンマ連結でなく最重要エラーを先頭に。
+        // 空 login_id で「should not be empty, must contain only half-width...」の様な
+        // 二重表示を防ぐ）。FE useApiForm は1文字列を `<a-form-item :help>` に bind し
+        // Object.fromEntries が最後の1件に潰すため複数メッセージは無駄。
         const PRIORITY = [
           'isDefined',
           'isNotEmpty',
@@ -75,17 +62,11 @@ async function bootstrap() {
           }
           return Object.values(constraints)[0] ?? '入力値が不正です';
         };
-        // Flatten the (possibly nested) class-validator error tree. For a
-        // DTO validated with @ValidateNested({ each: true }) over an array
-        // — currently only the bulk-import `rows` payload — the element
-        // index is surfaced as the originating Excel row number (header
-        // occupies row 1, so array index N maps to Excel row N+2, matching
-        // the import service's own IMPORT_VALIDATION_ERROR convention). The
-        // FE import panel then renders { row, field, message } per entry
-        // instead of collapsing every nested failure into one generic
-        // "取込データ / 入力値が不正です" line. Non-nested DTOs (every form
-        // endpoint) hit only the top level → identical { field, message }
-        // output as before, so useApiForm field-mapping is unaffected.
+        // class-validator のネストしたエラー木を平坦化。配列に @ValidateNested({each})
+        // を掛ける DTO（現状は一括取込の `rows` のみ）では要素 index を Excel 行番号に
+        // 変換（ヘッダが1行目 → index N は Excel 行 N+2、取込の IMPORT_VALIDATION_ERROR
+        // 慣習と一致）。FE 取込パネルは { row, field, message } を行毎に表示できる。
+        // 非ネスト DTO（各フォーム）は最上位のみ → 従来と同じ { field, message }。
         type ErrLike = {
           property: string;
           constraints?: Record<string, string>;
@@ -111,11 +92,9 @@ async function bootstrap() {
           return out;
         };
         const details = flatten(errors);
-        // MUST throw a real HttpException — returning a plain object
-        // makes NestJS throw a non-Error, which the GlobalExceptionFilter
-        // can't decode and falls through as 500. Wrap the body in
-        // HttpException so it's classified as a 400 with our standard
-        // `{ error_code, message, errors }` body shape.
+        // 必ず HttpException を throw する — plain object を返すと NestJS が非 Error を
+        // throw し GlobalExceptionFilter が解釈できず 500 に落ちる。HttpException で
+        // 包み標準 `{ error_code, message, errors }` 形状の 400 に分類させる。
         return new HttpException(
           {
             code: 'VALIDATION_ERROR',
@@ -130,26 +109,17 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new GlobalExceptionFilter());
-  // Version prefix applied centrally — controllers declare unprefixed paths
-  // (`@Controller('auth')`, `@Controller('codes')`, …). Health probe is
-  // served under the prefix at `GET /api/v1/health` so the ALB / ECS target
-  // group health check (path `/api/v1/health`) resolves.
+  // バージョンプレフィックスは一括付与 — controller は無プレフィックスパスを宣言
+  // (`@Controller('auth')` 等)。health は `GET /api/v1/health` で ALB/ECS の
+  // ヘルスチェック（path `/api/v1/health`）が解決する。
   app.setGlobalPrefix(API_PREFIX);
 
-  // Helmet hardens response headers, but several of its defaults assume the
-  // app is reached over HTTPS:
-  //   - `contentSecurityPolicy` ships `upgrade-insecure-requests`, which
-  //     makes browsers upgrade subresource requests to HTTPS. Hitting a
-  //     plain-HTTP staging deploy (Ubuntu without TLS terminator) then
-  //     yields ERR_SSL_PROTOCOL_ERROR on Swagger UI assets. Production
-  //     terminates TLS at ALB so the upgrade is a no-op there.
-  //   - `Strict-Transport-Security` (HSTS) tells browsers to pin the host
-  //     to HTTPS for ~6 months. Sending it over plain HTTP teaches the
-  //     browser to refuse future HTTP requests until the cache expires.
-  //   - `Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy`
-  //     only take effect over HTTPS — log noise otherwise.
-  // → disable all four outside production. Behind the AWS ALB (which
-  //   terminates TLS), `nodeEnv=production` re-enables them.
+  // Helmet はレスポンスヘッダを堅牢化するが、既定のいくつかは HTTPS 前提:
+  //   - contentSecurityPolicy の `upgrade-insecure-requests` はサブリソースを HTTPS
+  //     化 → 平文 HTTP のステージング（TLS 終端無し）で Swagger UI が ERR_SSL_PROTOCOL_ERROR。
+  //   - HSTS は host を ~6ヶ月 HTTPS 固定 → 平文 HTTP で送るとブラウザが以後 HTTP 拒否。
+  //   - COOP / COEP は HTTPS でのみ有効 → それ以外はログノイズ。
+  // → 本番以外は4つとも無効。ALB(TLS 終端)背後の nodeEnv=production で再有効化。
   const isProd = configService.get<string>('nodeEnv') === 'production';
   app.use(
     helmet({
@@ -160,9 +130,8 @@ async function bootstrap() {
     }),
   );
 
-  // Pass SESSION_SECRET so `res.cookie(..., { signed: true })` works and
-  // `req.signedCookies` is populated. The secret is required for Auth's
-  // session cookie tamper-detection.
+  // SESSION_SECRET を渡し `res.cookie(..., { signed: true })` と `req.signedCookies`
+  // を有効化。認証のセッション cookie 改竄検知に必須。
   const sessionSecret = configService.get<string>('session.secret');
   app.use(cookieParser(sessionSecret));
 
@@ -187,20 +156,16 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: {
-      // Ensure Swagger UI's "Try it out" sends the session cookie.
-      // Without this, requests omit the HttpOnly session_id cookie and
-      // every protected endpoint returns 401 even after a successful
-      // login via the same UI.
+      // Swagger UI の「Try it out」がセッション cookie を送るように。無しだと
+      // HttpOnly session_id が付かず、同 UI でログイン後も保護 API が 401 になる。
       withCredentials: true,
-      // Keep the "Authorize" state across page reloads so testers don't
-      // re-login every time they refresh.
+      // リロードしても「Authorize」状態を保持（テスタが毎回再ログイン不要）。
       persistAuthorization: true,
     },
   });
 
-  // Swagger UI at /api/docs is served from the in-memory `document` —
-  // no file write needed. Use the standalone `npm run swagger:export`
-  // script if you want an on-disk snapshot.
+  // /api/docs の Swagger UI はメモリ上の `document` から配信（ファイル書出し不要）。
+  // オンディスクのスナップショットが要る場合は `npm run swagger:export` を使う。
 
   const port = configService.get<number>('port') || 3000;
   await app.listen(port);

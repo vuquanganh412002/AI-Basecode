@@ -4,9 +4,7 @@ import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 import { LoginOshiraseItemDto } from './login-oshirase-query.dto';
 
-/**
- * SCR-031 admin list row — mirrors `OshiraseListItem` in oshirase.mapper.ts.
- */
+/** SCR-031 管理一覧行 — oshirase.mapper.ts の `OshiraseListItem` と一致。 */
 export class OshiraseListItemDto {
   @ApiProperty() oshirase_id: number;
   @ApiPropertyOptional({ nullable: true }) ja_id: number | null;
@@ -18,8 +16,8 @@ export class OshiraseListItemDto {
   })
   ja_name: string | null;
 
-  // [no-labels-policy] Authenticated endpoint — code values only; the FE
-  // resolves labels via useCodesStore().label(...). No `*_label` fields.
+  // [no-labels-policy] 認証エンドポイントはコード値のみ返す。ラベルは FE が
+  // useCodesStore().label(...) で解決（`*_label` フィールドなし）。
   @ApiProperty() oshirase_type: number;
   @ApiProperty() publish_location: number;
   @ApiProperty() status: number;
@@ -37,7 +35,7 @@ export class OshiraseListItemDto {
   @ApiProperty({ description: 'ISO 8601 (TIMESTAMPTZ)' }) updated_at: string;
 }
 
-/** Detail adds `content` (markdown / rich text body). */
+/** Detail は `content`（本文）を追加。 */
 export class OshiraseDetailDto extends OshiraseListItemDto {
   @ApiProperty() content: string;
 }
@@ -66,21 +64,21 @@ export class OshiraseMutationResponseDto {
   message: string;
 }
 
-/** GET /api/v1/oshirase/login — public, no auth, flat array. */
+/** GET /api/v1/oshirase/login — 公開・未認証・フラット配列。 */
 export class LoginOshiraseListResponseDto {
   @ApiProperty({ type: [LoginOshiraseItemDto] })
   data: LoginOshiraseItemDto[];
 }
 
 /**
- * SCR-010 menu item — subset shown on the dashboard. Defined inline
- * (mirrors `MenuOshiraseItem` in oshirase.service.ts).
+ * SCR-010 メニュー項目 — ダッシュボード表示用サブセット
+ * （oshirase.service.ts の `MenuOshiraseItem` と一致）。
  */
 export class MenuOshiraseItemDto {
   @ApiProperty() oshirase_id: number;
   @ApiProperty() title: string;
   @ApiProperty() content: string;
-  // [no-labels-policy] Authenticated — code value only; FE resolves label.
+  // [no-labels-policy] 認証エンドポイント — コード値のみ。ラベルは FE が解決。
   @ApiProperty() oshirase_type: number;
   @ApiProperty() publish_start_date: string;
   @ApiPropertyOptional({ nullable: true }) publish_end_date: string | null;

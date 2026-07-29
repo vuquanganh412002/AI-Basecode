@@ -12,7 +12,7 @@ import {
 
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
-/** Whitelist of sortable columns per api.md §4.1. Any other value rejected. */
+/** ソート可能列のホワイトリスト（api.md §4.1）。他の値は拒否。 */
 export const ACCOUNT_SEARCH_SORT_BY = [
   'login_id',
   'account_name',
@@ -24,12 +24,10 @@ export const ACCOUNT_SEARCH_SORT_BY = [
 export type AccountSearchSortBy = (typeof ACCOUNT_SEARCH_SORT_BY)[number];
 
 /**
- * Query DTO for `GET /api/v1/accounts` (ACSMS-API-024-001).
- *
- * Inherits `page` / `per_page` from {@link PaginationDto} (Japanese
- * messages, default 20, max 100). Adds login-id / role / JA / branch
- * filters and a `sort_by` whitelisted to `ACCOUNT_SEARCH_SORT_BY`.
- * Every field is optional; api.md §2 lists no 必須 column.
+ * `GET /api/v1/accounts` のクエリ DTO（ACSMS-API-024-001）。
+ * {@link PaginationDto} から page/per_page を継承（既定20, 最大100）。login_id /
+ * role / JA / branch フィルタと `ACCOUNT_SEARCH_SORT_BY` に限定した sort_by を追加。
+ * 全項目任意（api.md §2 に必須列なし）。
  */
 export class SearchAccountsDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'ログインID（部分一致）', maxLength: 20 })

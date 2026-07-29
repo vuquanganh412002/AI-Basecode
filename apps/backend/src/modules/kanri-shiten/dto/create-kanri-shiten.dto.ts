@@ -11,33 +11,24 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/**
- * Coerce blank strings to `undefined` BEFORE `@IsOptional` runs. Forms
- * post `tel: ""` for empty inputs; without this transform `@Matches(/^\d+$/)`
- * would reject the empty string and 400. See `.claude/rules/nestjs.md
- * §DTO validation gotchas`.
- */
+// 空文字→undefined（@IsOptional 前に実行）。フォームは空入力を tel: "" で送るため、
+// これ無しだと @Matches(/^\d+$/) が空文字を拒否し 400。.claude/rules/nestjs.md §DTO validation gotchas
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
- * Canonical 管理支店コード shape — three HALF-WIDTH DIGIT groups joined
- * by hyphens (3-4-3 = e.g. "013-3300-001"). Customer spec rejects any
- * non-digit character (alphabet was previously accepted by mistake —
- * fixed 2026-05-19). Mirrored on the FE as `KANRI_SHITEN_CODE_REGEX`
- * in `apps/frontend/src/utils/formatters.ts`.
+ * 管理支店コード正規形 — 半角数字 3 群をハイフン連結 (3-4-3 = 例 "013-3300-001")。
+ * 顧客仕様は非数字を拒否（以前アルファベットを誤許容 — 2026-05-19 修正）。
+ * FE の apps/frontend/src/utils/formatters.ts `KANRI_SHITEN_CODE_REGEX` とミラー。
  */
 const KANRI_SHITEN_CODE_REGEX = /^\d{3}-\d{4}-\d{3}$/;
 
 /**
- * Normalise a 管理支店コード input:
- *   - If already dashed (`NNN-NNNN-NNN`) → keep as-is.
- *   - If exactly 10 digits (no dashes) → insert dashes at positions
- *     3 and 7 → `NNN-NNNN-NNN`.
- *   - Otherwise → return trimmed input unchanged so the @Matches check
- *     below produces the expected validation error.
- * Belt-and-suspenders with the FE `formatKanriShitenCode()` helper — if
- * a client bypasses the form, the BE still stores the canonical form.
+ * 管理支店コードの正規化:
+ *   - ハイフン付き (NNN-NNNN-NNN) → そのまま。
+ *   - 10 桁数字（ハイフン無し）→ 位置 3, 7 にハイフン挿入 → NNN-NNNN-NNN。
+ *   - それ以外 → trim のみ（下の @Matches が期待どおりのエラーを出す）。
+ * FE formatKanriShitenCode() との二重防御 — フォーム迂回でも BE が正規形で保存。
  */
 const normalizeKanriShitenCode = ({ value }: { value: unknown }) => {
   if (typeof value !== 'string') return value;
@@ -50,11 +41,9 @@ const normalizeKanriShitenCode = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Request body for ACSMS-API-009-002 — POST /api/v1/kanri-shiten.
- *
- * Field constraints mirror api.md §リクエストパラメータ + §4.1.
- * `paper_flg` / `denshi_flg` default to `false` per api.md and
- * `database-design.md §m_kanri_shiten`.
+ * POST /api/v1/kanri-shiten (ACSMS-API-009-002) リクエストボディ。
+ * 制約は api.md §リクエストパラメータ + §4.1。paper_flg / denshi_flg 既定 false
+ * (api.md, database-design.md §m_kanri_shiten)。
  */
 export class CreateKanriShitenDto {
   @ApiProperty({ description: 'JA ID（m_ja.ja_idに存在すること）', example: 1 })
@@ -69,9 +58,8 @@ export class CreateKanriShitenDto {
     example: '113-3300-001',
     maxLength: 12,
   })
-  // Normalise FIRST (bare 10 chars → dashed), THEN enforce the strict
-  // dashed shape. @Matches runs after the transform per class-validator
-  // execution order.
+  // 先に正規化（10 桁→ハイフン付き）、その後厳密形を強制。
+  // class-validator の実行順で @Matches は transform 後に走る。
   @Transform(normalizeKanriShitenCode)
   @IsString({ message: '管理支店コードを入力してください。' })
   @IsNotEmpty({ message: '管理支店コードを入力してください。' })

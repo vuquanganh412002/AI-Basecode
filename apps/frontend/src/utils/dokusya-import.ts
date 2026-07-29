@@ -9,9 +9,9 @@
 // import させない — 同一ソース同士の比較になりトートロジーになるため。
 
 /**
- * 49 physical column names — exact order per api.md §テンプレートファイル仕様
+ * 物理カラム名 49 個 — api.md §テンプレートファイル仕様 の並び順どおり
  * （v1.3: 販売店適用日を廃止し、適用日は読者情報変更適用日に統一。1更新1レコード・
- * UI/置換と同一）。Index N が index-N の日本語ヘッダ + チェックボックスの value
+ * UI/置換と同一）。index N が index-N の日本語ヘッダ + チェックボックスの value
  * 属性に対応する。
  */
 export const PHYSICAL_COLUMNS = [
@@ -66,7 +66,7 @@ export const PHYSICAL_COLUMNS = [
 ] as const;
 export type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
-/** Japanese display headers — must match BE template column order. */
+/** 日本語表示ヘッダ — BE テンプレートの列順と一致必須。 */
 export const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusya_id: 'ID',
   kanri_shiten_code: '管理支店',
@@ -118,7 +118,7 @@ export const JP_HEADERS: Record<PhysicalColumn, string> = {
   joho_henko_tekiyo_date: '読者情報変更適用日',
 };
 
-/** Header (JP) → physical column. sheet_to_json keys are row-1 strings. */
+/** ヘッダ（日本語）→ 物理カラム。sheet_to_json のキーは 1 行目の文字列。 */
 export const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
   const out: Record<string, PhysicalColumn> = {};
   for (const col of PHYSICAL_COLUMNS) {
@@ -138,8 +138,8 @@ export const DATE_PHYSICAL_COLUMNS = new Set<string>([
 export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
 
 /**
- * Physical columns required + always-checked + disabled when import
- * mode = 新規登録 (NEW). Mirrors api.md §4.1 NEW-mode required list.
+ * 取込モード = 新規登録（NEW）のとき、必須 + 常時チェック + disable の物理カラム。
+ * api.md §4.1 NEW モード必須リストに対応。
  */
 export const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
   'kanri_shiten_code',

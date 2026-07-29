@@ -1,12 +1,11 @@
 /**
- * Split free text into plain-text and URL segments so a template can render
- * URLs as real `<a>` links WITHOUT `v-html` (no XSS surface — the URL text
- * is bound via `:href` / interpolation, never injected as markup).
+ * 自由テキストをプレーンテキストと URL セグメントに分割し、テンプレートが `v-html` なしで
+ * URL を本物の `<a>` リンクとして描画できるようにする（XSS 面なし — URL テキストは
+ * `:href` / 補間でバインドし、マークアップとして注入しない）。
  *
- * Only `http://` / `https://` URLs are linkified. Trailing punctuation that
- * is almost never part of a URL (`. , ; : ! ? ) ] } " '` and full-width 。、）
- * is pushed back into the following text segment so a sentence like
- * "見てね https://example.com/。" doesn't swallow the 。 into the link.
+ * リンク化するのは `http://` / `https://` のみ。URL の一部になることがほぼない末尾の句読点
+ * （`. , ; : ! ? ) ] } " '` と全角 。、））は後続テキストセグメントへ戻すため、
+ * "見てね https://example.com/。" のような文で 。 をリンクに取り込まない。
  */
 export interface LinkifyPart {
   type: 'text' | 'url';
@@ -14,8 +13,7 @@ export interface LinkifyPart {
 }
 
 const URL_RE = /https?:\/\/[^\s]+/g;
-// Characters that should not end a URL — trimmed off the tail and returned
-// to the text stream.
+// URL の末尾に来るべきでない文字 — 末尾から切り取りテキスト側へ返す。
 const TRAILING = /[.,;:!?)\]}'"。、）]+$/;
 
 export function linkifyParts(text: string): LinkifyPart[] {
@@ -28,7 +26,7 @@ export function linkifyParts(text: string): LinkifyPart[] {
     const start = match.index ?? 0;
     let url = match[0];
 
-    // Strip trailing punctuation off the URL; it belongs to the prose.
+    // URL 末尾の句読点を除去する。文章側に属する。
     let trailing = '';
     const trail = TRAILING.exec(url);
     if (trail) {

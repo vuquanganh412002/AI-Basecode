@@ -1,32 +1,32 @@
-// Hand-written wrapper around the /api/v1/hanbaiten endpoints.
-// Functions here are what SCR-018 (HanbaitenListView) imports and what its
-// unit spec mocks via vi.mock('@/api/hanbaiten/hanbaiten').
-// Shapes mirror docs/design/ACSMS-SCR-018/ACSMS-SCR-018-api.md (v1.2).
+// /api/v1/hanbaiten 用の手書き wrapper。
+// SCR-018 (HanbaitenListView) が import し、unit spec が
+// vi.mock('@/api/hanbaiten/hanbaiten') でモックする関数群。
+// 型は docs/design/ACSMS-SCR-018/ACSMS-SCR-018-api.md (v1.2) に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 
 export interface HanbaitenListItem {
   hanbaiten_id: number;
   ja_id: number;
-  /** Joined from m_ja.ja_code (api.md §4.5). */
+  /** m_ja.ja_code から JOIN（api.md §4.5）。 */
   ja_code: string;
-  /** Joined from m_ja.ja_name (api.md §4.5). */
+  /** m_ja.ja_name から JOIN（api.md §4.5）。 */
   ja_name: string;
   hanbaiten_code: string;
   hanbaiten_name: string;
   todofuken_code: string;
-  /** Joined from m_todofuken.todofuken_name (api.md v1.2 §4.5). */
+  /** m_todofuken.todofuken_name から JOIN（api.md v1.2 §4.5）。 */
   todofuken_name: string;
   yubin_no: string;
   address: string;
   tel: string;
   fax: string;
   shocho_name: string;
-  /** m_code.code_category='ITAKU_KUBUN' — FE resolves label via useCodesStore. */
+  /** m_code.code_category='ITAKU_KUBUN' — FE は useCodesStore でラベル解決。 */
   itaku_kubun: number | null;
-  /** 月数. v1.2 rename: 旧「支払区分」. */
+  /** 月数。v1.2 改名: 旧「支払区分」。 */
   haitatsuryo_shiharai_cycle: number | null;
-  /** m_code.code_category='TESURYO_KUBUN' — 振込手数料負担区分. */
+  /** m_code.code_category='TESURYO_KUBUN' — 振込手数料負担区分。 */
   furikomi_tesuryo_futan_kubun: number | null;
   furikomi_tesuryo: number | null;
   haiten_flg: boolean;
@@ -46,7 +46,7 @@ export interface HanbaitenListResponse {
   meta: HanbaitenListMeta;
 }
 
-/** Query DTO for `GET /api/v1/hanbaiten` (ACSMS-API-018-001). */
+/** `GET /api/v1/hanbaiten` のクエリDTO（ACSMS-API-018-001）。 */
 export interface ListHanbaitenQuery {
   hanbaiten_code?: string;
   hanbaiten_name?: string;
@@ -54,7 +54,7 @@ export interface ListHanbaitenQuery {
   fax?: string;
   address?: string;
   shocho_name?: string;
-  /** true:廃店レコードも含む / false (default):廃店を除外. */
+  /** true:廃店レコードも含む / false（既定）:廃店を除外。 */
   haiten_flg?: boolean;
   /**
    * 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。参照する配達
@@ -63,25 +63,23 @@ export interface ListHanbaitenQuery {
    */
   active_tanka_flg?: boolean;
   /**
-   * [staff-ja-filter] NICHINO_STAFF (session.ja_id == null) supplies
-   * the JA to scope the search against via the 代行入力 list view's
-   * BaseJaDropdown filter. Other roles ignore this field — the BE
-   * always uses session.ja_id for them.
+   * [staff-ja-filter] NICHINO_STAFF（session.ja_id == null）が代行入力一覧の
+   * BaseJaDropdown で検索スコープの JA を指定する。他ロールは無視され、BE は
+   * 常に session.ja_id を使う。
    */
   ja_id?: number;
   page?: number;
   per_page?: number;
   /**
-   * `updated_at` is the default (most-recently-touched first) — not a
-   * clickable column, just the landing order so a freshly created, imported
-   * OR updated 販売店 appears at the top. `hanbaiten_code` /
-   * `hanbaiten_name` are the UI sort headers.
+   * 既定は `updated_at`（最終更新順）— クリック可能な列ではなく、新規作成/取込/
+   * 更新された販売店が先頭に来る初期表示順。UI のソートヘッダは
+   * `hanbaiten_code` / `hanbaiten_name`。
    */
   sort_by?: 'hanbaiten_code' | 'hanbaiten_name' | 'updated_at';
   sort_order?: 'asc' | 'desc';
 }
 
-/** Response shape from `DELETE /api/v1/hanbaiten/:hanbaiten_id`. */
+/** `DELETE /api/v1/hanbaiten/:hanbaiten_id` のレスポンス形。 */
 export interface HanbaitenDeleteResponse {
   message: string;
 }
@@ -106,12 +104,12 @@ export async function removeHanbaiten(
   return res.data;
 }
 
-// ─── ACSMS-API-COMMON — 販売店 dropdown (consumed by SCR-011) ─────────
+// ─── ACSMS-API-COMMON — 販売店 dropdown（SCR-011 で使用） ─────────
 
 /**
- * Minimal projection used by the 購読者情報登録 (SCR-011) 販売店コード
- * dropdown. Filters to the caller's JA scope server-side (the BE
- * service applies `applyJaScope` on the underlying query).
+ * 購読者情報登録（SCR-011）の販売店コード dropdown 用の最小 projection。
+ * サーバ側で呼び出し元の JA スコープに絞る（BE service が元クエリに
+ * `applyJaScope` を適用）。
  */
 export interface HanbaitenDropdownItem {
   hanbaiten_id: number;
@@ -125,22 +123,22 @@ export interface HanbaitenDropdownEnvelope {
 }
 
 export interface HanbaitenDropdownQuery {
-  /** Optional JA filter (NICHINO_* 代行入力 only — JA-scoped roles let session.ja_id win). */
+  /** 任意の JA フィルタ（NICHINO_* 代行入力のみ — JA スコープのロールは session.ja_id 優先）。 */
   ja_id?: number;
   q?: string;
-  /** 'both' (default) matches hanbaiten_code OR hanbaiten_name; 'name' matches name only. */
+  /** 'both'（既定）は hanbaiten_code OR hanbaiten_name、'name' は名前のみ一致。 */
   match_field?: 'both' | 'name';
   page?: number;
   per_page?: number;
-  /** Edit-mode pin — force the selected id onto page 1 so its label resolves. */
+  /** 編集モードのピン — 選択 id を page 1 に強制しラベルを解決させる。 */
   include_id?: number;
   /** true → 営業中(haiten_flg=false)のみ。購読者の販売店選択（登録/編集）用。 */
   active_only?: boolean;
 }
 
 /**
- * GET /api/v1/hanbaiten/dropdown — Shared dropdown lookup for SCR-011.
- * Returns minimal projections so the dropdown can paginate cheaply.
+ * GET /api/v1/hanbaiten/dropdown — SCR-011 共通 dropdown ルックアップ。
+ * 最小 projection を返し dropdown が安価にページングできるようにする。
  */
 export async function getHanbaitenDropdown(
   query: HanbaitenDropdownQuery = {},
@@ -152,11 +150,10 @@ export async function getHanbaitenDropdown(
   return res.data;
 }
 
-// ─── SCR-017 — 販売店情報登録画面 (Detail / Create / Update) ────────────
+// ─── SCR-017 — 販売店情報登録画面（Detail / Create / Update） ────────────
 //
-// Shapes mirror docs/design/ACSMS-SCR-017/ACSMS-SCR-017-api.md (v1.2 —
-// adds todofuken_code + conditional-required bank fields when
-// itaku_kubun=1).
+// 型は docs/design/ACSMS-SCR-017/ACSMS-SCR-017-api.md (v1.2 — todofuken_code +
+// itaku_kubun=1 時の条件付き必須 bank 項目を追加) に準拠。
 
 export interface HanbaitenDetail {
   hanbaiten_id: number;
@@ -191,10 +188,9 @@ export interface HanbaitenDetail {
 
 export interface CreateHanbaitenBody {
   /**
-   * [staff-ja-id] NICHINO_STAFF 代行入力 supplies ja_id explicitly via
-   * the form's BaseJaDropdown — session.ja_id is null for that role.
-   * Other roles may also send it; the BE service ignores it and uses
-   * session.ja_id, so cross-tenant injection is not possible.
+   * [staff-ja-id] NICHINO_STAFF 代行入力ではフォームの BaseJaDropdown で ja_id を
+   * 明示指定する（このロールは session.ja_id が null）。他ロールが送っても BE service
+   * は無視し session.ja_id を使うため、クロステナント注入は不可。
    */
   ja_id?: number;
   hanbaiten_code: string;
@@ -223,7 +219,7 @@ export interface CreateHanbaitenBody {
   biko?: string;
 }
 
-/** Update body — hanbaiten_code 更新不可 (api.md §API-017-003 注記). */
+/** Update body — hanbaiten_code は更新不可（api.md §API-017-003 注記）。 */
 export type UpdateHanbaitenBody = Omit<CreateHanbaitenBody, 'hanbaiten_code'>;
 
 export interface HanbaitenDetailResponse {

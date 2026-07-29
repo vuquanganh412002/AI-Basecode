@@ -1,16 +1,8 @@
-// Custom class-validator decorator for the project's password policy:
-//   - 8〜32 characters
-//   - half-width alphabetic / numeric / symbol — at least 2 of the 3
-//     character categories present
-//
-// Used by SCR-001 password reset, SCR-025 account create/update, etc.
-// Mirrors the FE regex set in `apps/frontend/src/views/auth/...`.
-//
-// Reject behaviour: returns false for any value that is not a string,
-// whose length is outside [8, 32], or that fails the 2-of-3 check.
-// Defaults the validation message to the project's canonical literal —
-// callers can override via `validationOptions.message` if a screen
-// needs a different wording.
+// パスワードポリシー: 8〜32文字 かつ 半角英字/数字/記号の3種のうち2種以上。
+// SCR-001 パスワードリセット, SCR-025 アカウント作成/更新等で使用。
+// FE regex (`apps/frontend/src/views/auth/...`) と一致。
+// 非文字列・長さ外・2-of-3 未満は false。message は既定の正規文言、
+// `validationOptions.message` で上書き可。
 import {
   registerDecorator,
   type ValidationOptions,

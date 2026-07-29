@@ -1,25 +1,24 @@
 import { nextTick } from 'vue';
 
 /**
- * Focus + scroll to the first errored form field, in the given display order.
+ * 指定の表示順で最初のエラーフィールドにフォーカス + スクロールする。
  *
- * Shared by CRUD form views (see `.claude/rules/vue.md §Auto-focus the first
- * error on submit`). Call it from BOTH the client-validation-fail path and the
- * server `VALIDATION_ERROR` path so the user always lands on the first problem.
+ * CRUD フォームビュー共通（`.claude/rules/vue.md §Auto-focus the first error on submit`）。
+ * クライアント検証失敗パスとサーバー `VALIDATION_ERROR` パスの両方から呼び、
+ * ユーザーが常に最初の問題箇所に着地するようにする。
  *
- * Robust across the three Ant Design Vue control kinds we use, because antd v4
- * assigns the control's `id` as `form_item_<name>` (or `<formName>_<name>` when
- * the `<a-form>` has a `name`), NOT the bare field name — so the lookup falls
- * back to an `[id$="_<name>"]` suffix match, then to scanning `.ant-form-item`:
- *   - `<a-input>` / `<a-textarea>` : native control → focus itself
- *   - `<a-select>`                 : focus the `.ant-select-selector` child
- *   - `<a-radio-group>`            : focus the first focusable descendant
+ * 使用する 3 種の Ant Design Vue コントロールに頑健。antd v4 はコントロールの `id` を
+ * `form_item_<name>`（`<a-form>` に `name` があれば `<formName>_<name>`）に割り当て、
+ * 素のフィールド名ではないため、`[id$="_<name>"]` 後方一致 → `.ant-form-item` 走査 の順にフォールバックする:
+ *   - `<a-input>` / `<a-textarea>` : ネイティブコントロール → 自身にフォーカス
+ *   - `<a-select>`                 : `.ant-select-selector` 子にフォーカス
+ *   - `<a-radio-group>`            : 最初のフォーカス可能子孫にフォーカス
  *
- * `scrollIntoView` is called optionally (`?.`) because jsdom doesn't implement
- * it — keeps unit tests free of unhandled rejections.
+ * `scrollIntoView` は任意呼び出し（`?.`）— jsdom が未実装のため、単体テストの
+ * unhandled rejection を防ぐ。
  *
- * @param fieldOrder - field names in DOM / template order (drives which error is "first")
- * @param errors - the `fieldErrors` map (field name → message)
+ * @param fieldOrder - DOM / テンプレート順のフィールド名（どのエラーが「最初」かを決める）
+ * @param errors - `fieldErrors` マップ（フィールド名 → メッセージ）
  */
 export function focusFirstError(
   fieldOrder: readonly string[],
@@ -30,13 +29,11 @@ export function focusFirstError(
 
   void nextTick(() => {
     let target: HTMLElement | null = document.getElementById(first);
-    // antd prefixes ids (form_item_<name> or <formName>_<name>).
-    if (!target) {
-      target = document.querySelector<HTMLElement>(
-        `[id$="_${first}"], [id="${first}"]`,
-      );
-    }
-    // Last resort: the .ant-form-item that owns a control named/ided `first`.
+    // antd は id に接頭辞を付ける（form_item_<name> または <formName>_<name>）。
+    target ??= document.querySelector<HTMLElement>(
+      `[id$="_${first}"], [id="${first}"]`,
+    );
+    // 最終手段: `first` を name/id に持つコントロールを含む .ant-form-item。
     if (!target) {
       const items = document.querySelectorAll<HTMLElement>('.ant-form-item');
       for (const item of items) {
@@ -48,7 +45,7 @@ export function focusFirstError(
     }
     if (!target) return;
 
-    // Native focusable control → focus directly.
+    // ネイティブのフォーカス可能コントロール → 直接フォーカス。
     if (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
@@ -59,8 +56,7 @@ export function focusFirstError(
       return;
     }
 
-    // Wrapper (a-select / a-radio-group / a-form-item) → drill to the first
-    // focusable descendant.
+    // ラッパ（a-select / a-radio-group / a-form-item）→ 最初のフォーカス可能子孫まで辿る。
     const inner =
       target.querySelector<HTMLElement>('.ant-select-selector') ??
       target.querySelector<HTMLElement>(

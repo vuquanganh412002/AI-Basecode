@@ -1,6 +1,6 @@
 /**
- * FE mirror of `apps/backend/src/common/enums/oshirase-status.enum.ts`.
- * Display labels come from `useCodesStore().label('OSHIRASE_STATUS', value)`.
+ * `apps/backend/src/common/enums/oshirase-status.enum.ts` の FE ミラー。
+ * 表示ラベルは `useCodesStore().label('OSHIRASE_STATUS', value)` から取得。
  */
 export const OshiraseStatus = {
   DRAFT: 1,

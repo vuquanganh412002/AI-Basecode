@@ -9,19 +9,15 @@ import {
 } from 'typeorm';
 
 /**
- * m_tanka — 単価マスタ. Per-JA pricing for subscriptions and delivery.
+ * `m_tanka`（単価マスタ）エンティティ。JA ごとの購読料・配達手数料単価。
+ * `docs/database/database-design.md §m_tanka` に準拠。
  *
- * `tanka_type` (m_code category `TANKA_TYPE`): 1=購読料, 2=配達手数料.
- * `active_flg` is an operator-controlled manual flag: FALSE blocks new
- * subscriber assignments but keeps existing contracts. The operator may
- * set it FALSE anytime (even within the effective period), and being
- * within the period does NOT force it TRUE. The nightly tanka-expire
- * batch additionally flips it TRUE→FALSE once `tekiyo_end_date` has
- * passed (one-directional: expiry → FALSE; never FALSE→TRUE), so a
- * lapsed 単価 is not left "active". See
- * `src/modules/batch/tanka-expire/`.
- *
- * Schema source: `docs/database/database-design.md §m_tanka`.
+ * `tanka_type`（m_code カテゴリ `TANKA_TYPE`）: 1=購読料, 2=配達手数料。
+ * `active_flg` はオペレータ手動フラグ。FALSE で新規割当を止めつつ既存契約は維持。
+ * 適用期間内でも任意に FALSE にでき、期間内でも自動的に TRUE にはならない。
+ * さらに夜間 tanka-expire バッチが `tekiyo_end_date` 経過後に TRUE→FALSE へ
+ * 一方向に反転（失効→FALSE のみ、FALSE→TRUE はしない）させ、失効単価が
+ * 「有効」のまま残らないようにする。`src/modules/batch/tanka-expire/` 参照。
  */
 @Entity('m_tanka')
 @Index('UQ_m_tanka_ja_code', ['jaId', 'tankaCode'], { unique: true })
@@ -44,10 +40,9 @@ export class Tanka {
   @Column({ name: 'tanka_name', type: 'varchar', length: 100 })
   tankaName: string;
 
-  // NUMERIC(10) per database-design.md §m_tanka — amounts are integer yen.
-  // Stored as a plain numeric in production; pg-mem doesn't handle the
-  // precision-only form gracefully so we omit precision/scale here. The
-  // migration's DDL still emits `NUMERIC(10)` for the production table.
+  // database-design.md §m_tanka の NUMERIC(10)（金額は整数円）。本番は通常の
+  // numeric 保存。pg-mem が precision のみの形を扱えないため precision/scale を
+  // 省略。マイグレーション DDL は本番表に NUMERIC(10) を出力する。
   @Column({ name: 'kingaku_zeikomi', type: 'numeric' })
   kingakuZeikomi: number;
 

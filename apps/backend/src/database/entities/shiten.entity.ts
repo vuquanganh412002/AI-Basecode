@@ -13,11 +13,10 @@ import {
 import { KanriShiten } from './kanri-shiten.entity';
 
 /**
- * TypeORM entity for `m_shiten` (支店マスタ).
- *
- * Mirrors `docs/database/database-design.md §m_shiten`. All timestamp
- * columns are TIMESTAMPTZ per project policy (JST operation — see
- * `.claude/rules/nestjs.md §Timestamp policy`).
+ * `m_shiten`（支店マスタ）エンティティ。
+ * `docs/database/database-design.md §m_shiten` に準拠。
+ * タイムスタンプ列は全て TIMESTAMPTZ（JST 運用 — `.claude/rules/nestjs.md
+ * §Timestamp policy`）。
  */
 @Entity('m_shiten')
 @Index('UQ_m_shiten_ja_code', ['jaId', 'shitenCode'], { unique: true })
@@ -44,9 +43,9 @@ export class Shiten {
   kinyuShitenFlg: boolean;
 
   // ─── JASTEM 店舗単位 4 カラム（※空文字許容、NOT NULL DEFAULT ''）─────
-  // database-design.md §m_shiten rows 7-10. Logical order sits between
-  // kinyu_shiten_flg (row 6) and kanri_shiten_id (now row 11) — Postgres
-  // physically appended them but the design spec is the source of truth.
+  // database-design.md §m_shiten 行7-10。論理順は kinyu_shiten_flg（行6）と
+  // kanri_shiten_id（現・行11）の間。Postgres 上は物理的に末尾追加だが、
+  // 設計仕様が正本。
   @Column({
     name: 'jastem_toriatsukai_tenpo_code',
     type: 'varchar',
@@ -68,13 +67,11 @@ export class Shiten {
   kanriShitenId: number;
 
   /**
-   * Parent 管理支店. Declared as a TypeORM relation so the
-   * SCR-006 list QueryBuilder can `leftJoin('m.kanriShiten', 'ks')` and
-   * ORDER BY the joined column even under `take()`/`skip()` (which
-   * wraps the query in a DISTINCT subquery — the wrapper needs entity
-   * metadata to resolve the ORDER BY target). Not eager — list still
-   * batch-fetches the name explicitly; the form / edit views don't
-   * load it.
+   * 親の管理支店。TypeORM リレーションとして宣言し、SCR-006 一覧の
+   * QueryBuilder が `leftJoin('m.kanriShiten', 'ks')` して結合列で ORDER BY
+   * できるようにする（`take()`/`skip()` は DISTINCT サブクエリでラップされ、
+   * ORDER BY 対象の解決にエンティティメタデータが要るため）。eager ではない
+   * — 一覧は名前を別途バッチ取得し、フォーム／編集画面では読み込まない。
    */
   @ManyToOne(() => KanriShiten)
   @JoinColumn({ name: 'kanri_shiten_id' })

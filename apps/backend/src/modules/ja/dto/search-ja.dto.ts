@@ -4,14 +4,9 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
-/**
- * Whitelist of columns the client may sort by. Anything else is rejected
- * by `@IsIn` so a user-supplied `sort_by` cannot inject SQL into
- * `ORDER BY ${sort_by}` (the service still maps each value to a known
- * QueryBuilder column reference — see `SORT_COLUMN_MAP`).
- *
- * Source: api.md §1 リクエストパラメータ + §4.1.
- */
+// sort_by 許可列のホワイトリスト。@IsIn で他値を拒否し `ORDER BY
+// ${sort_by}` への SQLインジェクションを防ぐ(service 側でも既知の QB 列へ
+// マップ — SORT_COLUMN_MAP 参照)。Source: api.md §1 + §4.1。
 export const JA_SEARCH_SORT_BY = [
   'ja_code',
   'ja_name',
@@ -28,16 +23,9 @@ export type JaSearchSortBy = (typeof JA_SEARCH_SORT_BY)[number];
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/**
- * Query-string DTO for `GET /api/v1/ja` (ACSMS-API-004-001).
- *
- * All fields optional; class-transformer applies the defaults below when
- * the property is absent so callers always see a fully-populated object.
- *
- * Inherits page/per_page from {@link PaginationDto}. The runtime default
- * (page=1, per_page=20) is applied by the service layer via `?? 1` /
- * `?? 20` because query params arrive as `undefined` when omitted.
- */
+// `GET /api/v1/ja` 用 DTO (ACSMS-API-004-001)。全項目 optional。
+// page/per_page は {@link PaginationDto} 継承。省略時は query が undefined
+// で届くため、既定(page=1, per_page=20)は service 側 `?? 1`/`?? 20` で付与。
 export class SearchJaDto extends PaginationDto {
   @ApiPropertyOptional({ description: 'JAコード（部分一致）', maxLength: 10 })
   @Transform(blankToUndef)

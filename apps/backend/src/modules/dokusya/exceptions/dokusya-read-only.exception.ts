@@ -2,13 +2,12 @@ import { HttpStatus } from '@nestjs/common';
 import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
- * Raised by `DokusyaService.remove` when the target 購読者 is a
- * 電子版クレジットカード決済者 (`dokusya_shubetsu = 2 AND shiharai_hoho = 6`)
- * or a 併読者 (`dokusya_shubetsu = 3`). api.md §エラー一覧 #10 +
- * §4.3 読み取り専用判定.
+ * 対象購読者が 電子版クレジットカード決済者（`dokusya_shubetsu = 2 AND
+ * shiharai_hoho = 6`）または 併読者（`dokusya_shubetsu = 3`）のとき
+ * `DokusyaService.remove` が送出。api.md §エラー一覧 #10 + §4.3 読み取り専用判定。
  *
- * NOTE — message uses full-width parentheses （）to match the
- * canonical literal from api.md / screen-design.md word-for-word.
+ * 注意 — メッセージは api.md / screen-design.md の正規リテラルに一字一句合わせるため
+ * 全角括弧（）を使用。
  */
 export class DokusyaReadOnlyException extends DomainException {
   constructor() {

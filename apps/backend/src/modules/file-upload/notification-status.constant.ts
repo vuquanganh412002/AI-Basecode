@@ -1,25 +1,23 @@
 /**
- * `t_file_upload.notification_status` — internal notification state machine
- * driven by {@link FileUploadNotificationWorker} (SCR-023 §6.5).
+ * `t_file_upload.notification_status` — {@link FileUploadNotificationWorker}
+ * が駆動する通知状態機械（SCR-023 §6.5）。
  *
- *      [1] 未送信 → [2] 送信中 → [3] 完了            (all recipients ok)
- *                            ↘ [4] 一部失敗          (some recipients fail)
+ *      [1] 未送信 → [2] 送信中 → [3] 完了            (全宛先成功)
+ *                            ↘ [4] 一部失敗          (一部宛先失敗)
  *
- * DISTINCT from `m_code.code_category='FILE_UPLOAD_STATUS'` (the processing
- * status 1:処理中 / 2:完了 / 3:エラー). This state machine is BE-only — it
- * has no `m_code` row and no FE mirror; the list screen renders its badge
- * from a separate response field. Named constants replace bare 1..4 literals
- * so the worker's branching reads by intent; this is NOT a validation
- * allow-list.
+ * `m_code.code_category='FILE_UPLOAD_STATUS'`(処理状態 1:処理中/2:完了/3:エラー)
+ * とは別物。この状態機械は BE 専用で m_code 行も FE mirror も無く、一覧画面の
+ * バッジは別レスポンス項目から描画。定数は worker の分岐を意図で読ませるため
+ * 1..4 リテラルを置換したもので、バリデーション allow-list ではない。
  */
 export const NotificationStatus = {
-  /** 未送信 — enqueued, not yet picked up. */
+  /** 未送信 — enqueue 済、未取得。 */
   NOT_SENT: 1,
-  /** 送信中 — worker is iterating recipients. */
+  /** 送信中 — worker が宛先を処理中。 */
   SENDING: 2,
-  /** 完了 — every recipient sent successfully. */
+  /** 完了 — 全宛先へ送信成功。 */
   COMPLETE: 3,
-  /** 一部失敗 — at least one recipient failed. */
+  /** 一部失敗 — 1 件以上の宛先で失敗。 */
   PARTIAL_FAILURE: 4,
 } as const;
 export type NotificationStatus =

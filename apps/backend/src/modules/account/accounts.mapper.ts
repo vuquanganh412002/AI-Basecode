@@ -1,7 +1,6 @@
-// Pure transform from the joined account-row (LEFT JOIN m_account x m_roles
-// x m_todofuken x m_ja x m_kanri_shiten — see SCR-024 api.md §4.5) into the
-// snake_case response shape the FE consumes. No Nest DI, no repository —
-// importable from anywhere (service, tests).
+// join 済み account 行（m_account × m_roles × m_todofuken × m_ja × m_kanri_shiten,
+// SCR-024 api.md §4.5）→ FE 用 snake_case 応答形状への純粋変換。Nest DI / repo 不要で
+// どこからでも import 可（service, tests）。
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
 
@@ -54,7 +53,7 @@ export interface AccountListItem {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** True when login attempts hit the lock threshold — admin can clear it from SCR-025 edit form. */
+  /** ログイン失敗がロック閾値に達すると true。admin が SCR-025 編集フォームで解除可。 */
   account_lock_flg: boolean;
   created_at: string;
   updated_at: string | null;
@@ -62,7 +61,7 @@ export interface AccountListItem {
 
 // `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers`.
 
-/** Map a raw joined row → API list item per SCR-024 api.md §レスポンスデータ. */
+/** join 行 → SCR-024 api.md §レスポンスデータ の一覧アイテムへ変換。 */
 export function toAccountListItem(row: AccountSearchRow): AccountListItem {
   return {
     account_id: Number(row.account_id),

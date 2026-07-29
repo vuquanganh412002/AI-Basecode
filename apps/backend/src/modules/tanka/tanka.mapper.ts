@@ -3,16 +3,13 @@ import { dateOnlyIsoJst } from '@/common/utils/datetime';
 import { TankaResponseDto } from './dto/tanka-response.dto';
 
 /**
- * Map a `Tanka` entity (camelCase columns) to the snake_case
- * `TankaResponseDto` shape the API serializes.
- *
- * Pure — no Nest DI, no IO. Safe to import from controllers, services,
- * specs, or other mappers.
+ * `Tanka` エンティティ(camelCase) → API 出力用 snake_case `TankaResponseDto` へ変換。
+ * 純粋関数 — Nest DI / IO なし。controller/service/spec/他 mapper から安全に import 可。
  */
 export function toTankaResponse(tanka: Tanka): TankaResponseDto {
   function tekiyoStartDateIso(): string {
-    // DATE 列。文字列('YYYY-MM-DD')はそのまま、Date は JST 暦日へ
-    // (toISOString().slice は UTC で早朝に1日ずれるため使わない)。
+    // DATE 列。文字列はそのまま、Date は JST 暦日へ。toISOString().slice は
+    // UTC で早朝に1日ずれるため使わない。
     return dateOnlyIsoJst(tanka.tekiyoStartDate);
   }
 

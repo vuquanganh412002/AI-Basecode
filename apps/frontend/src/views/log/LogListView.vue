@@ -77,13 +77,10 @@ function buildQuery(): ListLogsQuery {
 }
 
 /**
- * Validates date range. Returns `true` when valid (or both blank), `false`
- * when invalid (and toasts the user-facing message — ACSMS-MSG-030-001 /
- * 030-002).
- *
- * Both ends are parsed as Asia/Tokyo via `@/utils/datetime` — the system
- * is JST-only operationally (`.claude/rules/vue.md §Date/Time`), so the
- * comparison must not depend on the browser's local TZ.
+ * 期間バリデーション。正常（または両方空）で `true`、不正で `false`（ユーザー向け
+ * メッセージも toast — ACSMS-MSG-030-001 / 030-002）。両端は `@/utils/datetime` で
+ * Asia/Tokyo 解釈（JST 運用・`.claude/rules/vue.md §Date/Time`）— 比較がブラウザ TZ に
+ * 依存しないように。
  */
 function validateDateRange(): boolean {
   const from = state.filters.date_from?.trim();
@@ -110,10 +107,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Global axios interceptor already toasted FORBIDDEN / 500 — view only
-    // clears local state so onMounted's fire-and-forget invocation doesn't
-    // surface an unhandled rejection. Per .claude/rules/vue.md §List view
-    // rule 5.
+    // グローバル axios interceptor が FORBIDDEN / 500 を toast 済 — view はローカル
+    // 状態のみクリアし、onMounted の fire-and-forget で unhandled rejection を出さない
+    // （.claude/rules/vue.md §List view rule 5）。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -123,14 +119,14 @@ async function fetchList(): Promise<void> {
 
 onMounted(() => {
   void fetchList();
-  // Account dropdown self-hydrates via <BaseAccountDropdown>'s onMounted
-  // hook — no view-level fetch required.
+  // アカウントドロップダウンは <BaseAccountDropdown> の onMounted で自己 hydrate
+  // — view 側の fetch は不要。
 });
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Validate the date range first; returning false aborts the search.
+  // 先に期間を検証 — false なら検索中断。
   beforeSearch: validateDateRange,
 });
 
@@ -139,15 +135,14 @@ function onPageChange(...args: Parameters<typeof onChange>): void {
   void fetchList();
 }
 
-// Filename timestamp is built in Asia/Tokyo by `timestampForFilenameTokyo`
-// — see `.claude/rules/vue.md §Date/Time`. Kept here as a tiny call-site
-// for readability.
+// ファイル名タイムスタンプは `timestampForFilenameTokyo` が Asia/Tokyo で生成
+// （`.claude/rules/vue.md §Date/Time`）。
 
 async function onCsvExport(): Promise<void> {
   if (!validateDateRange()) return;
   try {
-    // Export the CURRENT screen page — same filters + sort + page + per_page
-    // as the list, so the CSV matches exactly what's visible.
+    // 現在の画面ページを出力 — 一覧と同じ filters+sort+page+per_page なので CSV が
+    // 表示内容と完全一致。
     const params: ExportLogQuery = {
       date_from: state.filters.date_from || undefined,
       date_to: state.filters.date_to || undefined,
@@ -162,9 +157,9 @@ async function onCsvExport(): Promise<void> {
     downloadBlob(blob, `log_export_${timestampForFilenameTokyo()}.csv`);
     message.success('CSVファイルをダウンロードしました。');
   } catch {
-    // Export mirrors the on-screen page (bounded by per_page), so there is
-    // no row-limit error to handle. The global interceptor toasts 401 / 403
-    // / 500 (system error ACSMS-MSG-030-006); the view must NOT re-toast.
+    // 出力は画面ページ（per_page 制限内）のミラーで行数上限エラーは無い。グローバル
+    // interceptor が 401/403/500（システムエラー ACSMS-MSG-030-006）を toast 済 —
+    // view は再 toast しない。
   }
 }
 
@@ -174,25 +169,23 @@ function resultBadgeClass(status: number): string {
   return 'bg-warning-subtle text-warning';
 }
 
-// Spec-visible internals — `wrapper.vm.fetchList` lets pagination tests
-// drive a re-fetch directly without going through `onSearch` (which
-// resets `state.page` to 1 via `applyFilters`).
+// spec 可視の内部 — `wrapper.vm.fetchList` でページングテストが `onSearch`
+// （applyFilters で state.page を1に戻す）を経ずに再 fetch できる。
 defineExpose({ state, fetchList });
 </script>
 
 <template>
   <div class="space-y-6">
-    <!-- 検索条件エリア — 4-column grid; 4 fields fill the row. -->
+    <!-- 検索条件エリア — 4カラムグリッド、4項目で1行を埋める。 -->
     <BaseSearchForm
       :loading="loading"
       :columns="4"
       @search="onSearch"
       @clear="onClear"
     >
-      <!-- 期間（開始 / 終了） — antd <a-date-picker show-time> with Japanese
-           jaJP locale (registered globally in App.vue's <ConfigProvider>).
-           format=display (YYYY/MM/DD HH:mm:ss), value-format=wire (same)
-           keeps the form-state field a plain string the BE accepts. -->
+      <!-- 期間（開始 / 終了） — antd <a-date-picker show-time>、jaJP locale
+           （App.vue の <ConfigProvider> で全体登録）。format=表示・value-format=送信
+           とも YYYY/MM/DD HH:mm:ss にし、form-state を BE 受理の素の文字列に保つ。 -->
       <label for="log-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">期間（開始）</span>
         <a-date-picker
@@ -239,11 +232,9 @@ defineExpose({ state, fetchList });
       </label>
       <label for="log-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">ユーザー</span>
-        <!-- BaseAccountDropdown: server-side paginated (50/page) +
-             infinite scroll. Defaults intentionally — display
-             `${login_id} ${account_name}` (disambiguates accounts that
-             share a display name in log troubleshooting) + search both
-             login_id and account_name. -->
+        <!-- BaseAccountDropdown: サーバーページング(50/page)+無限スクロール。
+             既定は意図的に表示 `${login_id} ${account_name}`（ログ調査で表示名が
+             重複するアカウントを区別）＋ login_id・account_name 双方で検索。 -->
         <div class="flex-1">
           <BaseAccountDropdown
             id="log-filter-4"
@@ -254,9 +245,8 @@ defineExpose({ state, fetchList });
       </label>
     </BaseSearchForm>
 
-    <!-- ACSMS-MSG-030-003 — empty-result message rendered as a sibling
-         outside the table (BaseDataTable's dynamic slot loop can't forward
-         a-table's emptyText slot). -->
+    <!-- ACSMS-MSG-030-003 — 空結果メッセージはテーブル外の兄弟要素で表示
+         （BaseDataTable の動的 slot ループは a-table の emptyText slot を転送不可）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"

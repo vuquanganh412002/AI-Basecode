@@ -1,13 +1,12 @@
 <script setup lang="ts">
 /**
- * Submit / Cancel button bar for create/edit forms.
+ * 新規/編集フォーム用の 登録・キャンセル ボタンバー。
  *
- * Project convention (vue.md §Form footer): **primary action LEFT,
- * both buttons left-aligned**. The submit-button label flips between
- * `登録` (create) and `更新` (edit) based on `isEdit`. The cancel
- * button reads `前の画面に戻る` per the navigation convention.
+ * プロジェクト規約（vue.md §Form footer）: **主アクションを左に、両ボタン左寄せ**。
+ * submit ラベルは `isEdit` により `登録`（新規）/ `更新`（編集）で切替。
+ * キャンセルは ナビゲーション規約に従い `前の画面に戻る`。
  *
- * Usage (canonical CRUD form):
+ * 使用例（標準 CRUD フォーム）:
  * ```vue
  * <BaseFormFooter
  *   :is-edit="isEdit"
@@ -16,7 +15,7 @@
  * />
  * ```
  *
- * Override labels for non-CRUD forms (delete-confirm, wizard step):
+ * 非 CRUD フォーム（削除確認・ウィザードステップ）はラベル上書き:
  * ```vue
  * <BaseFormFooter
  *   submit-text="削除する"
@@ -27,8 +26,7 @@
  * />
  * ```
  *
- * Permission-gating (Tanka pattern — disable submit when role lacks
- * the create/update perm):
+ * 権限ゲート（Tanka パターン — ロールに create/update 権限が無ければ submit を無効化）:
  * ```vue
  * <BaseFormFooter
  *   :is-edit="isEdit"
@@ -41,19 +39,19 @@
 import { computed } from 'vue';
 
 interface Props {
-  /** Show `更新` instead of `登録` for the primary button. */
+  /** 主ボタンを `登録` でなく `更新` にする。 */
   isEdit?: boolean;
-  /** Disable both buttons + show spinner on submit while a request is in flight. */
+  /** リクエスト中は両ボタンを無効化 + submit にスピナー表示。 */
   submitting?: boolean;
-  /** Disable submit independently (e.g. role lacks create/update perm). */
+  /** submit を単独で無効化（例: ロールに create/update 権限が無い）。 */
   disabled?: boolean;
-  /** Override the primary-button label (skips the isEdit-based default). */
+  /** 主ボタンのラベルを上書き（isEdit 既定を無視）。 */
   submitText?: string;
-  /** Override the cancel-button label. */
+  /** キャンセルボタンのラベルを上書き。 */
   cancelText?: string;
-  /** Hide the cancel button entirely (forms without a back target). */
+  /** キャンセルボタンを完全に非表示（戻り先の無いフォーム向け）。 */
   hideCancel?: boolean;
-  /** Mark submit as destructive (red button). Use for delete-confirm forms. */
+  /** submit を破壊的操作（赤ボタン）にする。削除確認フォーム向け。 */
   danger?: boolean;
 }
 

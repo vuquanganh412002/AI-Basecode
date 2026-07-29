@@ -2,11 +2,9 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsBoolean } from 'class-validator';
 
 /**
- * Body shape for `PATCH /api/v1/account/me/mfa`.
- *
- * Self-service MFA on/off toggle. The endpoint reads `account_id`
- * from the authenticated session, NOT from the URL or body — the
- * caller can only toggle their own flag.
+ * `PATCH /api/v1/account/me/mfa` のボディ。
+ * 自己 MFA on/off トグル。`account_id` は URL/body でなく認証済セッションから読むため、
+ * 呼出者は自分のフラグのみ切替可。
  */
 export class ToggleMfaDto {
   @ApiProperty({

@@ -15,12 +15,17 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { DokusyaShubetsu } from '@/common/enums';
+import {
+  DOKUSYASO_BUNRUI_CSV_RE,
+  DOKUSYASO_BUNRUI_INVALID_MSG,
+  NOGYOSYA_BUNRUI_CSV_RE,
+  NOGYOSYA_BUNRUI_INVALID_MSG,
+} from '@/common/constants/dokusya-bunrui.constant';
 
 /**
- * Empty-string → undefined transformer. `@IsOptional()` only skips
- * `null` / `undefined`, NOT `""`. Form posts send blank optional
- * inputs as `""` — without this, `@MaxLength` / `@Matches` would
- * reject. See `.claude/rules/nestjs.md §DTO validation gotchas #1`.
+ * 空文字 → undefined 変換。`@IsOptional()` は `null`／`undefined` のみスキップし
+ * `""` は対象外。フォームは空の任意項目を `""` で送るため、これが無いと
+ * `@MaxLength`／`@Matches` が弾く。`.claude/rules/nestjs.md §DTO validation gotchas #1` 参照。
  */
 export const blankToUndef = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
@@ -51,12 +56,11 @@ function isHaitatsuAddressRequired(o: {
 }
 
 /**
- * Date-only literal accepting BOTH separators: YYYY/MM/DD (the picker's
- * display format the user sees + types) and YYYY-MM-DD (ISO). The service
- * normalises the slash form to hyphen before persisting, so the varchar(10)
- * columns stay hyphen-consistent for the lexicographic range filters
- * (`d.dokusya_kaishi_date <= :to`). Mirrors the YYYY/MM/DD-friendly inputs
- * on the file-upload / oshirase / log screens.
+ * 両区切りを許容する日付リテラル: YYYY/MM/DD（ピッカー表示形式＝ユーザーが見て
+ * 入力する形）と YYYY-MM-DD（ISO）。サービスは保存前にスラッシュをハイフンに
+ * 正規化し、varchar(10) 列を辞書順範囲フィルタ（`d.dokusya_kaishi_date <= :to`）
+ * 用にハイフン統一で保つ。ファイルアップロード／お知らせ／ログ画面の
+ * YYYY/MM/DD 対応入力と同様。
  */
 export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
 
@@ -68,31 +72,29 @@ export const DATE_INPUT_RE = /^\d{4}[/-]\d{2}[/-]\d{2}$/;
  * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
  * 片方を変えたら両方更新すること。
  */
-const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
 const KANJI_NAME_MSG =
   '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。';
 
 /**
- * Body for POST /api/v1/dokusya (ACSMS-API-011-002).
+ * POST /api/v1/dokusya (ACSMS-API-011-002) のボディ。
  *
- * `ja_id` and `dokusya_id` are intentionally NOT declared — the global
- * `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`
- * strips/rejects them at the controller boundary. Both are derived
- * server-side (ja_id from session, dokusya_id auto-assigned).
+ * `ja_id` / `dokusya_id` は意図的に未宣言 — グローバルな
+ * `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })` が
+ * コントローラ境界で除去／拒否する。両者はサーバ側で導出（ja_id はセッション、
+ * dokusya_id は自動採番）。
  *
- * Runtime allow-list checks against `m_code` (dokusya_shubetsu,
- * tetsuzuki_shurui, yubin_kubun, shiharai_hoho, etc.) and the future-
- * date check on `joho_henko_tekiyo_date` live in the service layer —
- * `class-validator` decorators can't inject `CodeService` because they
- * run before Nest DI is wired.
+ * `m_code` に対する実行時 allow-list チェック（dokusya_shubetsu・
+ * tetsuzuki_shurui・yubin_kubun・shiharai_hoho 等）と `joho_henko_tekiyo_date`
+ * の未来日チェックはサービス層に置く — `class-validator` デコレータは Nest DI
+ * 配線前に走るため `CodeService` を注入できない。
  */
 export class CreateDokusyaDto {
   /**
-   * `ja_id` is server-side derived from the session — the body MUST NOT
-   * supply it. Declared with `@IsEmpty()` so even if `whitelist:true` /
-   * `forbidNonWhitelisted:true` are off, a client that smuggles
-   * `ja_id` gets a 400 with a `ja_id` field error. Used by the
-   * dto.spec.ts assertion `should reject ja_id in body`.
+   * `ja_id` はセッションからサーバ側で導出 — ボディで指定してはならない。
+   * `@IsEmpty()` を付与し、`whitelist:true`／`forbidNonWhitelisted:true` が
+   * 無効でも `ja_id` を紛れ込ませたクライアントには `ja_id` フィールドエラーの
+   * 400 を返す。dto.spec.ts の `should reject ja_id in body` が使用。
    */
   @IsEmpty({ message: 'ja_id はリクエストボディに含められません。' })
   ja_id?: never;
@@ -466,22 +468,34 @@ export class CreateDokusyaDto {
   })
   hikiotoshi_koza_meigi?: string;
 
-  @ApiPropertyOptional({ description: '購読者層分類', maxLength: 50 })
+  @ApiPropertyOptional({
+    description:
+      '購読者層分類 — コードのカンマ区切り（0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他）。電子版 profession と 1:1。',
+    maxLength: 50,
+    example: '0',
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '購読者層分類は文字列で指定してください。' })
   @MaxLength(50, {
     message: '購読者層分類は最大50文字で指定してください。',
   })
+  @Matches(DOKUSYASO_BUNRUI_CSV_RE, { message: DOKUSYASO_BUNRUI_INVALID_MSG })
   dokusyaso_bunrui?: string;
 
-  @ApiPropertyOptional({ description: '農業者分類', maxLength: 50 })
+  @ApiPropertyOptional({
+    description:
+      '農業者分類 — コードのカンマ区切り（0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他）。電子版 products と 1:1。',
+    maxLength: 50,
+    example: '0,1',
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '農業者分類は文字列で指定してください。' })
   @MaxLength(50, {
     message: '農業者分類は最大50文字で指定してください。',
   })
+  @Matches(NOGYOSYA_BUNRUI_CSV_RE, { message: NOGYOSYA_BUNRUI_INVALID_MSG })
   nogyosya_bunrui?: string;
 
   @ApiProperty({ description: '購読開始日 (YYYY/MM/DD)' })

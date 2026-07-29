@@ -1,24 +1,21 @@
 <script setup lang="ts">
-// ACSMS-SCR-014 — 購読者明細検索画面.
+// ACSMS-SCR-014 — 購読者明細検索画面。
 //
-// Lists records from `GET /api/v1/dokusya` with pagination, sort,
-// filter (12 common-area fields + 6 詳細検索 fields). 削除 fires
-// soft-delete via DELETE /api/v1/dokusya/:id. Excel出力 streams a
-// blob from /api/v1/dokusya/export (filter-only payload — no
-// page/sort).
+// GET /api/v1/dokusya をページング・ソート・フィルタ（常時表示12項目 + 詳細検索
+// 6項目）で一覧表示。削除 は DELETE /api/v1/dokusya/:id で論理削除。Excel出力 は
+// /api/v1/dokusya/export の blob をストリーム（フィルタのみ・page/sort なし）。
 //
-// Permission model (per docs/database/seeder.md §3 dokusya.*):
-//   - dokusya.view   : enables 検索 + Excel出力 (view-bound).
-//   - dokusya.create : enables 購読者情報登録 button (otherwise greyed).
-//   - dokusya.delete : enables 削除 link per row (otherwise greyed).
-//   - dokusya.update : 編集 navigation via 購読者名 anchor (no anchor
-//                      shown when missing — keeps the dead-link UX out).
-// Per-row override: `is_read_only=true` always disables 削除 even when
-// the user holds dokusya.delete (CC / 併読 / 海外配送 etc.).
+// 権限モデル（docs/database/seeder.md §3 dokusya.*）:
+//   - dokusya.view   : 検索 + Excel出力 を有効化（閲覧連動）。
+//   - dokusya.create : 購読者情報登録 ボタンを有効化（無ければグレー）。
+//   - dokusya.delete : 行ごとの 削除 リンクを有効化（無ければグレー）。
+//   - dokusya.update : 購読者名 アンカーからの 編集 遷移（無い場合はアンカー
+//                      非表示 = デッドリンクを出さない）。
+// 行単位オーバーライド: is_read_only=true は dokusya.delete 保有時も常に 削除 を
+// 無効化（CC / 併読 / 海外配送 等）。
 //
-// 検索クリア resets every filter + page=1. 検索 sends only non-empty
-// filters (empty string → undefined) so the BE doesn't see falsy values
-// in the ILIKE chain.
+// 検索クリア は全フィルタ + page=1 をリセット。検索 は非空フィルタのみ送信
+//（空文字 → undefined）し、BE が ILIKE チェーンで falsy を見ないようにする。
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -56,7 +53,7 @@ import {
   type DokusyaSearchParams,
 } from '@/api/dokusya/dokusya';
 
-// ─── State ──────────────────────────────────────────────────────────
+// ─── 状態 ──────────────────────────────────────────────────────────
 
 // 有効単価フラグ filter — 単価一覧(SCR-006)と同一のトライステートラジオ。
 // '' = 両方（既定・絞り込まない）、'1' = 有効単価を参照する購読者のみ、
@@ -65,7 +62,7 @@ import {
 type ActiveFlgFilter = '' | '1' | '0';
 
 interface DokusyaFilters {
-  // 常時表示エリア (12 fields per index.html).
+  // 常時表示エリア（index.html の12項目）。
   kanri_shiten_id: number | undefined;
   shiten_id: number | undefined;
   kumiaiin_code: string;
@@ -139,16 +136,16 @@ const notify = useNotify();
 const authStore = useAuthStore();
 const codes = useCodesStore();
 
-// Permission gates per docs/database/seeder.md §3 dokusya.* matrix.
+// docs/database/seeder.md §3 dokusya.* マトリクスに基づく権限ゲート。
 const canView = computed(() => authStore.hasPermission('dokusya.view'));
 const canCreate = computed(() => authStore.hasPermission('dokusya.create'));
 const canUpdate = computed(() => authStore.hasPermission('dokusya.update'));
 const canDelete = computed(() => authStore.hasPermission('dokusya.delete'));
 
-// 購読種別-flag gate (account_concept.md §139-145): an account with neither
-// paper_flg nor denshi_flg cannot create/delete any 購読者, so 新規登録 +
-// 削除 are greyed even when it holds dokusya.create / dokusya.delete. BE
-// (assertShubetsuFlag) is the real boundary.
+// 購読種別-flag gate (account_concept.md §139-145): paper_flg も denshi_flg も
+// 持たないアカウントは購読者を作成・削除できないため、dokusya.create /
+// dokusya.delete 保有時も 新規登録 + 削除 をグレーにする。BE
+//（assertShubetsuFlag）が実境界。
 const hasAnyDokusyaFlag = computed(
   () => !!authStore.user?.paper_flg || !!authStore.user?.denshi_flg,
 );
@@ -161,22 +158,22 @@ const {
 } =
   useTableQuery<DokusyaFilters>({
     defaultFilters: { ...DEFAULT_FILTERS },
-    // Newest write first so users see what they just changed at row 1.
+    // 更新の新しい順。直前に変更したものが1行目に見えるように。
     defaultSortBy: 'updated_at',
     defaultSortOrder: 'desc',
   });
 
 const rows = ref<DokusyaListItem[]>([]);
 
-// 詳細検索 toggle — collapsed by default per index.html row 471.
+// 詳細検索トグル — index.html row 471 に従い既定は折りたたみ。
 const showAdvanced = ref(false);
 const toggleLabel = computed(() =>
   showAdvanced.value ? '詳細検索を非表示' : '詳細検索を表示',
 );
 
-// 電子版承認ステータス — NOT in m_code (status semantics are derived
-// at API layer from t_denshi_dokusya state). Hardcode the 4 options
-// per index.html row 559-562. `null` = Web申込以外 (no digital row).
+// 電子版承認ステータス — m_code に無い（status 意味は API 層で t_denshi_dokusya
+// 状態から導出）。index.html row 559-562 の4択をハードコード。null = Web申込以外
+//（電子版行なし）。
 interface DenshiShoninOption {
   value: number | null;
   label: string;
@@ -188,13 +185,13 @@ const denshiShoninOptions: DenshiShoninOption[] = [
   { value: 2, label: '否認' },
 ];
 
-// ─── Dropdown lookups (mounted-once) ─────────────────────────────────
+// ─── ドロップダウン参照（マウント時一度） ─────────────────────────────────
 
 // 管理支店 / 支店 / 配達販売店 のフィルタは Base*Dropdown（サーバ
 // ページング + 検索 + 無限スクロール）に委譲。JA スコープは BE が適用。
 const filterJaId = computed(() => authStore.user?.ja_id ?? 0);
 
-// ─── Columns (12 + 操作 per index.html §検索結果テーブル) ───────────
+// ─── 列（index.html §検索結果テーブルの12 + 操作） ───────────
 
 const columns: TableColumnsType = [
   {
@@ -303,7 +300,7 @@ const columns: TableColumnsType = [
   { title: '操作', key: 'actions', align: 'center', width: 180, fixed: 'right' },
 ];
 
-// ─── Validation messages (literals from screen-design.md §メッセージ情報) ─
+// ─── 検証メッセージ（screen-design.md §メッセージ情報 のリテラル） ─
 
 const MSG_EMAIL_INVALID = '正しいメール形式を入力してください。'; // ACSMS-MSG-014-008
 const MSG_DATE_RANGE_INVALID =
@@ -315,21 +312,19 @@ const MSG_EXPORT_SUCCESS = 'Excel出力が正常に完了しました。'; // AC
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Inline validation errors — rendered inside the search card so the
- *  user sees the message right where they typed (toast alone is easy
- *  to miss with this many filters). Empty string = no error. */
+/** インライン検証エラー — 検索カード内に表示し、入力した場所で確認できるように
+ *  する（フィルタが多くトーストのみでは見落としやすい）。空文字 = エラーなし。 */
 const validationError = ref<string>('');
 
 /**
- * Validate filter combinations BEFORE firing the API. Returns true when
- * every check passes; sets `validationError` to the first violation
- * otherwise.
+ * API 発行前にフィルタの組合せを検証。全チェック通過で true、違反時は
+ * validationError に最初の違反を設定して false を返す。
  *
- * Three correlation checks (api.md §13/14):
+ * 3つの相関チェック（api.md §13/14）:
  *   - 購読開始日: from ≦ to
  *   - 購読中止日: from ≦ to
  *   - 適用日:     from ≦ to
- * Plus email format check (ACSMS-MSG-014-008).
+ * 加えてメール形式チェック（ACSMS-MSG-014-008）。
  */
 function validateFilters(f: DokusyaFilters): boolean {
   validationError.value = '';
@@ -399,7 +394,7 @@ function applyNumberFilters(
   if (activeTanka !== undefined) params.active_tanka_flg = activeTanka;
 }
 
-/** Free-text filters — copied when non-empty (blank → BE sees no value). */
+/** フリーテキストフィルタ — 非空時のみコピー（空 → BE に値を渡さない）。 */
 function applyTextFilters(
   params: DokusyaSearchParams,
   f: DokusyaFilters,
@@ -420,7 +415,7 @@ function applyTextFilters(
     params.seikyu_kaishi_month_to = f.seikyu_kaishi_month_to;
 }
 
-/** Date-range filters — copied when non-empty. */
+/** 日付範囲フィルタ — 非空時のみコピー。 */
 function applyDateFilters(
   params: DokusyaSearchParams,
   f: DokusyaFilters,
@@ -439,7 +434,7 @@ function applyDateFilters(
     params.joho_henko_tekiyo_date_to = f.joho_henko_tekiyo_date_to;
 }
 
-/** Strip empty strings + undefined so the BE doesn't see falsy filter values. */
+/** 空文字 + undefined を除去し、BE が falsy フィルタ値を見ないようにする。 */
 function buildSearchParams(): DokusyaSearchParams {
   const f = state.filters;
   const params: DokusyaSearchParams = {
@@ -454,7 +449,7 @@ function buildSearchParams(): DokusyaSearchParams {
   return params;
 }
 
-/** Filter-only variant for the Excel export (no page/sort). */
+/** Excel 出力用のフィルタのみ版（page/sort なし）。 */
 function buildExportParams(): DokusyaSearchParams {
   const params = buildSearchParams();
   delete params.page;
@@ -464,7 +459,7 @@ function buildExportParams(): DokusyaSearchParams {
   return params;
 }
 
-// ─── Fetch ──────────────────────────────────────────────────────────
+// ─── 取得 ──────────────────────────────────────────────────────────
 
 async function fetchList(): Promise<void> {
   loading.value = true;
@@ -473,11 +468,9 @@ async function fetchList(): Promise<void> {
     rows.value = res.data;
     total.value = res.meta.total;
   } catch {
-    // Expected & ignored: the global axios interceptor in
-    // src/api/error-handler.ts already toasted FORBIDDEN / 500.
-    // Re-throwing would surface an unhandled rejection in onMounted's
-    // fire-and-forget invocation. Per .claude/rules/vue.md — this is
-    // the "expected and intentionally ignored" exception.
+    // 想定内・無視: global axios interceptor が FORBIDDEN / 500 をトースト済み。
+    // 再 throw は onMounted の fire-and-forget で unhandled rejection になる。
+    // .claude/rules/vue.md の「想定内で意図的に無視」ケース。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -510,12 +503,12 @@ onMounted(() => {
   void fetchList();
 });
 
-// ─── Event handlers ─────────────────────────────────────────────────
+// ─── イベントハンドラ ─────────────────────────────────────────────────
 
 function trimTextFilters(): void {
-  // Trim every text filter in place so paste artifacts / IME-confirmed
-  // spaces don't alter the ILIKE pattern. Mutate state.filters so the
-  // input visibly reflects the trimmed value — clear UX feedback.
+  // 各テキストフィルタをその場で trim し、貼付ゴミ / IME 確定スペースが ILIKE
+  // パターンを変えないようにする。state.filters を直接更新し、trim 後の値が入力に
+  // 反映される（明確な UX フィードバック）。
   const f = state.filters;
   f.kumiaiin_code = f.kumiaiin_code.trim();
   f.full_name = f.full_name.trim();
@@ -530,11 +523,11 @@ function trimTextFilters(): void {
   // TypeError → 検索ボタンで「エラーが発生しました」トーストになる。trim 対象外。
 }
 
-// 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
+// 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
 const { onSearch, onClear } = searchActions({
   fetchList,
-  // Trim every text filter, then client-validate (email / date ranges).
-  // Returning false aborts the search before the changed-since-applied guard.
+  // 全テキストフィルタを trim 後、クライアント検証（email / 日付範囲）。
+  // false を返すと changed-since-applied ガード前に検索を中止する。
   beforeSearch() {
     trimTextFilters();
     return validateFilters(state.filters);
@@ -568,9 +561,9 @@ function askDelete(row: DokusyaListItem): void {
       notify.deleted();
       await fetchList();
     } catch {
-      // The global axios interceptor handles 403 DOKUSYA_READ_ONLY /
-      // 409 CONFLICT / 500 — the view must NOT re-toast. See
-      // .claude/rules/vue.md §Error Handling Architecture.
+      // global axios interceptor が 403 DOKUSYA_READ_ONLY / 409 CONFLICT /
+      // 500 を処理 — view は再トースト禁止。.claude/rules/vue.md
+      // §Error Handling Architecture 参照。
     }
   });
 }
@@ -725,11 +718,11 @@ async function confirmStop(): Promise<void> {
   }
 }
 
-// ─── Excel export ──────────────────────────────────────────────────
+// ─── Excel 出力 ──────────────────────────────────────────────────
 
 function buildExportFilename(): string {
-  // YYYYMMDD_HHmmss in JST — always via the shared helper (browser-local
-  // new Date().getHours() would mis-stamp for non-JST users).
+  // JST の YYYYMMDD_HHmmss — 必ず共通ヘルパー経由（ブラウザ local の
+  // new Date().getHours() は非 JST ユーザーで誤刻印になる）。
   return `購読者一覧出力_${timestampForFilenameTokyo()}.xlsx`;
 }
 
@@ -754,26 +747,25 @@ async function onExport(): Promise<void> {
     message.success(MSG_EXPORT_SUCCESS);
   } catch (err) {
     const code = getErrorCode(err);
-    // EXPORT_NO_DATA (404) — the global interceptor's NOT_FOUND branch
-    // would already toast `data.message` (= '出力データがありません。'),
-    // but the spec mocks the WRAPPER, not axios, so the interceptor
-    // never runs in tests. Toast here to satisfy the assertion AND to
-    // make the message robust to either error path.
+    // EXPORT_NO_DATA (404) — interceptor の NOT_FOUND 分岐が既に
+    // data.message（='出力データがありません。'）をトーストするが、スペックは
+    // axios ではなく wrapper をモックするため interceptor がテストで走らない。
+    // アサーション充足 + どちらのエラー経路でも確実に出すためここでトースト。
     if (code === 'EXPORT_NO_DATA') {
       message.error(MSG_EXPORT_NO_DATA);
       return;
     }
-    // EXPORT_LIMIT_EXCEEDED (409) — listed in VIEW_HANDLED_CODES so the
-    // global interceptor skips it. View MUST toast.
+    // EXPORT_LIMIT_EXCEEDED (409) — VIEW_HANDLED_CODES にあり interceptor が
+    // スキップするため view が必ずトーストする。
     if (code === 'EXPORT_LIMIT_EXCEEDED') {
       message.error(MSG_EXPORT_LIMIT_EXCEEDED);
       return;
     }
-    // Other errors handled by the global interceptor — no view toast.
+    // その他のエラーは global interceptor が処理 — view はトーストしない。
   }
 }
 
-// Expose state to the spec so it can mutate filters via wrapper.vm.state.
+// wrapper.vm.state 経由でフィルタを操作できるようスペックへ state を公開。
 defineExpose({ state });
 </script>
 
@@ -947,7 +939,7 @@ defineExpose({ state });
           </a-radio-group>
         </div>
 
-        <!-- 電子版承認ステータス (radio group, hardcoded — NOT m_code) -->
+        <!-- 電子版承認ステータス（ラジオ・ハードコード、m_code ではない） -->
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">電子版承認ステータス</span>
           <a-radio-group
@@ -965,9 +957,8 @@ defineExpose({ state });
         </div>
       </div>
 
-      <!-- 詳細検索 toggle — full-width row (border-top + grey button +
-           icon) between the always-on fields and the advanced area, per
-           index.html. -->
+      <!-- 詳細検索トグル — 常時表示項目と詳細エリアの間の全幅行
+           （border-top + グレーボタン + アイコン、index.html 準拠）。 -->
       <div class="col-span-full flex gap-3 pt-4 border-t border-border">
         <button
           type="button"
@@ -1068,9 +1059,9 @@ defineExpose({ state });
           </div>
         </div>
 
-        <!-- 19. 支払方法 (radio group, m_code SHIHARAI_HOHO) — full-width
-             (col-span-full) so the radios lay out on one row (per
-             index.html) instead of wrapping inside a narrow grid cell. -->
+        <!-- 19. 支払方法（ラジオ、m_code SHIHARAI_HOHO）— 全幅
+             (col-span-full) にし、狭いグリッドセルで折返さず1行に並べる
+             （index.html 準拠）。 -->
         <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">支払方法</span>
           <a-radio-group
@@ -1145,9 +1136,8 @@ defineExpose({ state });
         </div>
       </template>
 
-      <!-- 検索 / 検索クリア (BaseSearchForm) + Excel出力 on the same
-           button row, per index.html. The 詳細検索 toggle moved to its
-           own row in the middle of the form (above). -->
+      <!-- 検索 / 検索クリア（BaseSearchForm）+ Excel出力 を同じボタン行に
+           （index.html 準拠）。詳細検索トグルはフォーム中段の独立行へ移動（上記）。 -->
       <template #extra>
         <a-button
           html-type="button"
@@ -1160,9 +1150,8 @@ defineExpose({ state });
       </template>
     </BaseSearchForm>
 
-    <!-- Inline validation error (ACSMS-MSG-014-008 email format,
-         相関チェック date range violations). Rendered above the
-         result area so the user sees it without scanning toasts. -->
+    <!-- インライン検証エラー（ACSMS-MSG-014-008 メール形式、相関チェックの
+         日付範囲違反）。結果エリア上部に表示し、トーストを探さず確認できるように。 -->
     <p
       v-if="validationError"
       class="text-error text-sm"
@@ -1171,9 +1160,9 @@ defineExpose({ state });
       {{ validationError }}
     </p>
 
-    <!-- ACSMS-MSG-014-002 — empty-result message rendered separately
-         (BaseDataTable's dynamic slot loop can't forward a-table's
-         #emptyText slot safely). -->
+    <!-- ACSMS-MSG-014-002 — 検索結果0件メッセージは別要素で描画
+         （BaseDataTable の動的スロットループは a-table の #emptyText を
+         安全に転送できない）。 -->
     <p
       v-if="!loading && total === 0"
       class="text-text-description text-sm"
@@ -1228,8 +1217,8 @@ defineExpose({ state });
         <template v-else-if="column.key === 'shiharai_hoho'">
           {{ codes.label('SHIHARAI_HOHO', (record as DokusyaListItem).shiharai_hoho) }}
         </template>
-        <!-- Date columns — format to YYYY/MM/DD (pinned Asia/Tokyo) so the
-             cell shows a JST date, not a raw Date.toString(). -->
+        <!-- 日付列 — YYYY/MM/DD（Asia/Tokyo 固定）に整形し、Date.toString() 生値
+             ではなく JST 日付をセルに表示する。 -->
         <template v-else-if="column.key === 'shoki_dokusya_kaishi_date'">
           {{ formatDate((record as DokusyaListItem).shoki_dokusya_kaishi_date) }}
         </template>
@@ -1249,10 +1238,10 @@ defineExpose({ state });
             >
               購読中止
             </button>
-            <!-- 削除 visible-but-disabled when:
-                   (a) the row carries is_read_only=true, OR
-                   (b) the user lacks dokusya.delete.
-                 Edit affordance is on the 購読者名 anchor above, NOT here. -->
+            <!-- 削除 は表示のまま非活性:
+                   (a) 行が is_read_only=true、または
+                   (b) ユーザーが dokusya.delete を持たない。
+                 編集導線は上の 購読者名 アンカー（ここではない）。 -->
             <BaseActionColumn
               :can-edit="false"
               :disable-delete="

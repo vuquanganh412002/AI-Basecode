@@ -277,7 +277,7 @@ describe('computeZougen', () => {
 });
 
 describe('buildRirekiRow', () => {
-  const ctx = { dokusyaId: 1001, rirekiNo: 3, actor: 'u1', reason: 'r1' };
+  const ctx = { dokusyaId: 1001, rirekiNo: 3, actor: 'u1' };
 
   it('CREATE → shinki/zougen true, zenkai null, hanbaiten_tekiyo null, saishin false', () => {
     const event: ChangeEvent = {
@@ -288,7 +288,6 @@ describe('buildRirekiRow', () => {
       dokusyaId: 1001,
       rirekiNo: 1,
       actor: 'admin',
-      reason: '',
     });
     expect(r.shinkiFlg).toBe(true);
     expect(r.zougenHokokuFlg).toBe(true);
@@ -364,7 +363,6 @@ describe('mapRirekiToMaster', () => {
     hanbaitenId: 460,
     shikuchoson: 'Minato-ku',
     tetsuzukiShurui: 1,
-    henkoRiyu: 'r',
     saishinDataFlg: true,
     zougenHokokuFlg: true,
     shinkiFlg: false,
@@ -384,7 +382,7 @@ describe('mapRirekiToMaster', () => {
     expect(m.rirekiNo).toBe(3);
   });
 
-  it('excludes rireki-only columns (PK, zenkai_*, history flags, hanbaiten_tekiyo, henko_riyu)', () => {
+  it('excludes rireki-only columns (PK, zenkai_*, history flags, hanbaiten_tekiyo)', () => {
     const m = mapRirekiToMaster(rireki);
     for (const k of [
       'dokusyaRirekiId',
@@ -395,7 +393,6 @@ describe('mapRirekiToMaster', () => {
       'shinkiFlg',
       'kaiyakuFlg',
       'torikeshiFlg',
-      'henkoRiyu',
     ]) {
       expect(m).not.toHaveProperty(k);
     }
@@ -540,7 +537,7 @@ describe('buildResubscribeRow', () => {
     const r = buildResubscribeRow(
       before,
       values,
-      { dokusyaId: 1001, rirekiNo: 8, actor: '42', reason: '再購読' },
+      { dokusyaId: 1001, rirekiNo: 8, actor: '42' },
       '2026-07-09', // joho=当日（即時反映）
     );
     // 新規(再購読)の形。

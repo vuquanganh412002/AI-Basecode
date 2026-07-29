@@ -43,14 +43,11 @@ import { ToggleMfaDto } from './dto/toggle-mfa.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 
 /**
- * Controller covers two distinct surfaces:
- *
- * - `/api/v1/account/me/mfa` — self-service MFA toggle (header).
- * - `/api/v1/accounts` — admin search + delete (SCR-024).
- *
- * The class-level `@Controller()` carries no path so each endpoint
- * declares its full route inline. Allows the singular `account/...`
- * and plural `accounts/...` URL spaces to coexist on the same class.
+ * 2つの面を担当:
+ * - `/api/v1/account/me/mfa` — 自己 MFA トグル（ヘッダー）。
+ * - `/api/v1/accounts` — admin 検索+削除（SCR-024）。
+ * クラス `@Controller()` は path 無しで各 endpoint がフルルートを宣言。単数
+ * `account/...` と複数 `accounts/...` を同一クラスで共存させるため。
  */
 @ApiTags('account')
 @Controller()
@@ -85,11 +82,9 @@ export class AccountController {
   }
 
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────
-  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. Shared
-  // form-facing dropdown (defined alongside SCR-030 ログ参照画面). The data
-  // boundary is `AccountService.getDropdown` → `applyBranchScope`
-  // (restricted roles see only their own JA / kanri_shiten accounts);
-  // screen access is each route's own guard.
+  // [shared-dropdown-rule] 認証のみ — @Permissions なし。共有フォーム用 dropdown
+  // （SCR-030 ログ参照画面と併設）。データ境界は AccountService.getDropdown →
+  // applyBranchScope（制限役職は自 JA / kanri_shiten のみ）。画面アクセスは各ルートの guard。
   @Get('account/dropdown')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'アカウントプルダウン取得 — ACSMS-API-COMMON-005' })

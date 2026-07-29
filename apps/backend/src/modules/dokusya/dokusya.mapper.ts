@@ -8,10 +8,8 @@ import {
 import { DokusyaResponseDto } from './dto/dokusya-response.dto';
 
 /**
- * Extra fields the service resolves by JOIN (api.md §4.3 SELECT) before
- * invoking the mapper. The mapper expects the joined labels +
- * `m_shiten` reverse-lookup result to be ready — it does NOT issue any
- * IO on its own.
+ * service が JOIN で解決してから mapper に渡す追加項目（api.md §4.3 SELECT）。mapper は
+ * JOIN 済みラベル + m_shiten 逆引き結果が揃っている前提 — 自身では IO しない。
  */
 export interface DokusyaJoinFields {
   hanbaiten_name: string;
@@ -22,9 +20,8 @@ export interface DokusyaJoinFields {
 }
 
 /**
- * Coerce a possibly-stringified BIGINT id into a `number`. TypeORM
- * surfaces `bigint` Postgres columns as `string`; the API response
- * keeps the JSON contract numeric.
+ * 文字列化されうる BIGINT id を number へ。TypeORM は bigint 列を string で返すが
+ * API レスポンスは JSON 契約を numeric に保つ。
  */
 function coerceNumber(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -41,7 +38,7 @@ function coerceNullableNumber(
   return Number.isNaN(n) ? null : n;
 }
 
-/** Nullable scalar shape a raw `getRawMany()` column can take before coercion. */
+/** 生 getRawMany() 列が coerce 前に取りうる nullable スカラー型。 */
 type RawScalarNullable = number | string | null;
 
 function isoOrEmpty(value: Date | string | null | undefined): string {
@@ -51,20 +48,17 @@ function isoOrEmpty(value: Date | string | null | undefined): string {
 }
 
 /**
- * Map a `Dokusya` entity + JOIN-side fields to the snake_case response
- * DTO returned by GET / POST / PUT detail endpoints.
+ * Dokusya エンティティ + JOIN 側項目 → GET/POST/PUT 詳細エンドポイントが返す
+ * snake_case レスポンス DTO へマップ。
  *
- * Pure function — no Nest DI, no repo. The service has already done
- * the JOINs and m_shiten reverse-lookup; this mapper is the
- * camelCase → snake_case translation layer only.
+ * 純関数 — Nest DI/repo なし。service が JOIN と m_shiten 逆引きを済ませている前提；
+ * この mapper は camelCase → snake_case 変換層のみ。
  *
- * See `apps/backend/src/modules/ja/ja.mapper.ts` for the canonical
- * pattern referenced by `.claude/rules/nestjs.md §mapper`.
+ * 標準パターンは `apps/backend/src/modules/ja/ja.mapper.ts`（.claude/rules/nestjs.md §mapper）。
  */
 /**
- * 履歴メタ（解約予約ガード）。master は未来解約を反映しないため getDetail が
- * 履歴から算出して渡す。省略時は解約予約なし・履歴なし相当（作成/更新レスポンス
- * では未使用）。
+ * 履歴メタ（解約予約ガード）。master は未来解約を反映しないため getDetail が履歴から算出して渡す。
+ * 省略時は解約予約なし・履歴なし相当（作成/更新レスポンスでは未使用）。
  */
 export interface DokusyaHistoryMeta {
   has_active_kaiyaku?: boolean;
@@ -79,10 +73,9 @@ export function toDokusyaResponse(
   return {
     dokusya_id: coerceNumber(entity.dokusyaId),
     ja_id: coerceNumber(entity.jaId),
-    // kanri_shiten_id / shiten_id は購読者に未設定のことがある (NULL)。0 へ
-    // 丸めると FE がそのまま 0 を送り返し、更新で assertFkScope が「id=0 の
-    // 管理支店」を探して 400 (管理支店IDが存在しません) になる。NULL を保って
-    // 一覧マッパー (coerceNullableNumber) と nullable 直列化規約に合わせる。
+    // kanri_shiten_id / shiten_id は未設定(NULL)のことがある。0 へ丸めると FE が 0 を送り返し、
+    // 更新で assertFkScope が「id=0 の管理支店」を探して 400(管理支店IDが存在しません)になる。
+    // NULL を保ち一覧マッパー(coerceNullableNumber)と nullable 直列化規約に合わせる。
     kanri_shiten_id: coerceNullableNumber(entity.kanriShitenId),
     shiten_id: coerceNullableNumber(entity.shitenId),
     kumiaiin_code: entity.kumiaiinCode ?? '',
@@ -155,13 +148,12 @@ export function toDokusyaResponse(
 }
 
 /**
- * SCR-014 — flat list item shape returned by GET /api/v1/dokusya
- * (api.md §API-014-001 レスポンスデータ #1-#22 per-row fields).
+ * SCR-014 — GET /api/v1/dokusya が返すフラット list item 形
+ * （api.md §API-014-001 レスポンスデータ #1-#22 per-row）。
  *
- * Fields mirror the SELECT in api.md §4.5 with two computed columns
- * (full_name + full_name_kana via shimei concat, haitatsu via address
- * concat) and an `is_read_only` flag computed BE-side so the FE can
- * disable "編集"/"削除" buttons without re-deriving the rule.
+ * 項目は api.md §4.5 の SELECT を反映 + 2つの計算列（full_name / full_name_kana は shimei concat、
+ * haitatsu は住所 concat）と BE 側算出の is_read_only フラグ（FE がルールを再導出せず
+ * 「編集」/「削除」を disable できる）。
  */
 export interface DokusyaListItem {
   dokusya_id: number;
@@ -195,12 +187,9 @@ export interface DokusyaListItem {
 }
 
 /**
- * Compute the `is_read_only` flag from the canonical rule
- * (api.md §4.5):
+ * is_read_only フラグを標準ルール（api.md §4.5）で算出:
  *   (dokusya_shubetsu = 2 AND shiharai_hoho = 6) OR dokusya_shubetsu = 3
- *
- * Exported so service/spec helpers can short-circuit without
- * re-implementing the predicate inline.
+ * service/spec ヘルパが述語を再実装せず短絡できるよう export。
  */
 export function isDokusyaReadOnly(
   dokusyaShubetsu: number | null | undefined,
@@ -215,12 +204,11 @@ export function isDokusyaReadOnly(
 }
 
 /**
- * Map a raw QueryBuilder row (snake_case from getRawMany) → flat
- * DokusyaListItem with the computed is_read_only flag.
+ * 生 QueryBuilder 行（getRawMany の snake_case）→ is_read_only 算出済みの
+ * フラット DokusyaListItem へマップ。
  *
- * The mapper is permissive on input — the factory `buildDokusyaListRow`
- * already emits a complete shape (matching api.md §4.5 SELECT
- * column-by-column) so a partial-row branch isn't needed in production.
+ * 入力に寛容 — factory `buildDokusyaListRow` が完全な形（api.md §4.5 SELECT を列単位で反映）を
+ * 出すため production では部分行分岐は不要。
  */
 export function toDokusyaListItem(
   row: Record<string, unknown>,
@@ -247,7 +235,7 @@ export function toDokusyaListItem(
     renrakusaki_1: stringOrEmpty(row.renrakusaki_1),
     renrakusaki_2: stringOrEmpty(row.renrakusaki_2),
     haitatsu_renrakusaki_1: stringOrEmpty(row.haitatsu_renrakusaki_1),
-    // 配達先氏名 concat — trim so an empty 配達先氏名 renders '' (not a lone space).
+    // 配達先氏名 concat — trim して空なら '' に（孤立スペースを防ぐ）。
     haitatsu_full_name: stringOrEmpty(row.haitatsu_full_name).trim(),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu: stringOrEmpty(row.haitatsu),
@@ -266,16 +254,14 @@ export function toDokusyaListItem(
 }
 
 /**
- * Canonical 15-column Japanese header row for the Excel export. Mirrors
- * the SCR-014 検索結果テーブル column layout (顧客要件 2026-06):
- *   - ID (dokusya_id) added as the first column
- *   - 支店 / 連絡先２ columns removed
- *   - 手続種類 / 購読種別 added after 購読者名
- *   - 配達先氏名 added after 連絡先１
- *   - 支払方法 added after 販売店名
- *
- * かな氏名 stays search-only (no display/export column). Exported so the
- * unit spec can assert against a single source of truth.
+ * Excel エクスポートの標準15列日本語ヘッダ行。SCR-014 検索結果テーブルの列レイアウトを反映
+ * （顧客要件2026-06）:
+ *   - ID (dokusya_id) を先頭列に追加
+ *   - 支店 / 連絡先２ 列を削除
+ *   - 手続種類 / 購読種別 を購読者名の後に追加
+ *   - 配達先氏名 を連絡先１の後に追加
+ *   - 支払方法 を販売店名の後に追加
+ * かな氏名 は検索専用（表示/export 列なし）。単一の真実源として spec が assert できるよう export。
  */
 export const DOKUSYA_EXPORT_HEADERS: readonly string[] = [
   'ID',
@@ -296,10 +282,9 @@ export const DOKUSYA_EXPORT_HEADERS: readonly string[] = [
 ] as const;
 
 /**
- * Resolved m_code labels for the three code-bound export columns
- * (手続種類 / 購読種別 / 支払方法). The service resolves these via
- * `CodeService.getLabel` before calling the mapper so the Excel file
- * shows customer-facing labels, not raw numeric codes.
+ * code バインドの3 export 列（手続種類/購読種別/支払方法）の解決済み m_code ラベル。
+ * service が mapper 呼出し前に CodeService.getLabel で解決し、Excel が生の数値でなく
+ * 顧客向けラベルを表示する。
  */
 export interface DokusyaExcelLabels {
   tetsuzuki_shurui: string;
@@ -308,10 +293,8 @@ export interface DokusyaExcelLabels {
 }
 
 /**
- * Convert a DokusyaListItem → 15 string cells in Excel header order.
- * The three m_code columns render the resolved label (passed in by the
- * service). NULL date columns render as ''. The service then feeds these
- * into an ExcelJS worksheet.
+ * DokusyaListItem → Excel ヘッダ順の15セル文字列へ変換。3つの m_code 列は解決済みラベル
+ * （service が渡す）、NULL 日付列は '' に。service がこれを ExcelJS worksheet へ流す。
  */
 export function toDokusyaExcelRow(
   item: DokusyaListItem,
@@ -337,19 +320,15 @@ export function toDokusyaExcelRow(
 }
 
 /**
- * SCR-013 — 購読者履歴情報画面: one full row of
- * `GET /api/v1/dokusya/:dokusya_id/rireki` (api.md §API-013-001
- * §レスポンスデータ #2-#61).
+ * SCR-013 — 購読者履歴情報画面: `GET /api/v1/dokusya/:dokusya_id/rireki` の1行完全形
+ * （api.md §API-013-001 §レスポンスデータ #2-#61）。
  *
- * Distinct from `DokusyaHistoryItemDto` (SCR-011 /history — lighter,
- * carries a `tetsuzuki_shurui_label`). This endpoint returns the FULL
- * snapshot joined with name lookups (管理支店 / 支店 / 都道府県×3 /
- * 販売店×2) and — per `nestjs.md §Response serialization` + api.md
- * §m_code note — CODE VALUES ONLY (no `*_label`; FE resolves labels
- * via useCodesStore).
+ * DokusyaHistoryItemDto（SCR-011 /history — 軽量・tetsuzuki_shurui_label 付き）とは別物。
+ * 本エンドポイントは名称 lookup（管理支店/支店/都道府県×3/販売店×2）を JOIN した完全スナップショットを
+ * 返し、nestjs.md §Response serialization + api.md §m_code note に従い CODE 値のみ
+ * （*_label なし；FE が useCodesStore で解決）。
  *
- * Nullability mirrors the api.md レスポンスデータ "Nullable" column:
- * `〇` → `… | null`, blank → non-null string / number.
+ * Nullable は api.md レスポンスデータの "Nullable" 列に一致: 〇 → `… | null`、空 → 非null string/number。
  */
 export interface DokusyaRirekiListItem {
   dokusya_rireki_id: number;
@@ -440,40 +419,36 @@ export interface DokusyaRirekiListItem {
 }
 
 /**
- * Narrow a raw `getRawMany()` column (always scalar at runtime) to a
- * primitive so String() can't hit the `[object Object]` path. The
- * assertion is required here — the `string | number` receiver does not
- * accept `unknown` without it.
+ * 生 getRawMany() 列（実行時は常にスカラー）をプリミティブへ narrow し String() が
+ * `[object Object]` にならないようにする。`string | number` 受け側が unknown を受けないため assertion が必要。
  */
 function asScalar(value: unknown): string | number {
   return value as string | number;
 }
 
-/** `null` → null, otherwise the trimmed string form. */
+/** null → null、それ以外は文字列形。 */
 function nullableString(value: unknown): string | null {
   return value == null ? null : String(asScalar(value));
 }
 
-/** `null` → '', otherwise the string form. */
+/** null → ''、それ以外は文字列形。 */
 function stringOrEmpty(value: unknown): string {
   return value == null ? '' : String(asScalar(value));
 }
 
 /**
- * Map a raw QueryBuilder row (snake_case aliases from `getRawMany`,
- * exactly the SELECT in api.md §4.5) → `DokusyaRirekiListItem`.
+ * 生 QueryBuilder 行（getRawMany の snake_case alias・api.md §4.5 の SELECT そのまま）→
+ * DokusyaRirekiListItem へマップ。
  *
- * Pure function — the service already resolved every JOIN. BIGINT ids
- * arrive as strings from TypeORM and are coerced to numbers to keep the
- * JSON contract numeric; nullable joins (kanri_shiten_name, todofuken_name,
- * zenkai_* …) preserve `null` so the FE can distinguish "absent" from "".
+ * 純関数 — service が全 JOIN を解決済み。BIGINT id は TypeORM から string で来るので JSON 契約を
+ * numeric に保つため number へ coerce；nullable join（kanri_shiten_name, todofuken_name,
+ * zenkai_* …）は null を保ち FE が「absent」と「""」を区別できる。
  */
 export function toDokusyaRirekiListItem(
   row: Record<string, unknown>,
   /**
-   * `dokusya_rireki_id` of the chain tail (greatest (joho, rireki_no) among
-   * `torikeshi_flg=false` rows). When this row IS the tail and is neither
-   * 新規 nor 取消済, `can_torikeshi` is true. `null` → no cancellable tail.
+   * チェーン末尾の dokusya_rireki_id（torikeshi_flg=false 行の最大 (joho, rireki_no)）。
+   * この行が末尾かつ 新規/取消済 でないとき can_torikeshi=true。null → 取消可能な末尾なし。
    */
   tailRirekiId: number | null = null,
 ): DokusyaRirekiListItem {
@@ -483,11 +458,11 @@ export function toDokusyaRirekiListItem(
     tailRirekiId != null &&
     coerceNumber(row.dokusya_rireki_id as number | string) === tailRirekiId;
   // 顧客要件2026-07（canTorikeshi と同一条件）:
-  // 6. 紙版(dokusya_shubetsu=1)のみ取消可（電子版=2・併読=3 は電子版連携のため不可）。
+  // 6. 紙版(1)のみ取消可（電子版=2・併読=3 は電子版連携のため不可）。
   const isPaper =
     coerceNumber(row.dokusya_shubetsu as number | string) ===
     DokusyaShubetsu.PAPER;
-  // 7. 適用日が未来（本日 < 適用日, JST）でなければ取消不可。DATE の ISO 文字列比較。
+  // 7. 適用日が未来(本日 < 適用日, JST) でなければ取消不可。DATE の ISO 文字列比較。
   const isFutureJoho =
     typeof row.joho_henko_tekiyo_date === 'string' &&
     row.joho_henko_tekiyo_date > todayIsoJst();
@@ -576,9 +551,8 @@ export function toDokusyaRirekiListItem(
 }
 
 /**
- * Map a `DokusyaRireki` entity → history list item. The caller resolves
- * `tetsuzuki_shurui_label` via `CodeService.getLabel(...)` once per
- * row (CodeService is in-memory cached, so the per-row lookup is free).
+ * DokusyaRireki エンティティ → history list item へマップ。caller が行ごとに
+ * CodeService.getLabel(...) で tetsuzuki_shurui_label を解決（in-memory cache なので lookup は無料）。
  */
 export function toDokusyaHistoryItem(
   row: DokusyaRireki,
@@ -590,7 +564,6 @@ export function toDokusyaHistoryItem(
     rireki_no: coerceNumber(row.rirekiNo),
     tetsuzuki_shurui: coerceNumber(row.tetsuzukiShurui),
     tetsuzuki_shurui_label: tetsuzukiShuruiLabel,
-    henko_riyu: row.henkoRiyu ?? '',
     saishin_data_flg: Boolean(row.saishinDataFlg),
     shinki_flg: Boolean(row.shinkiFlg),
     kaiyaku_flg: Boolean(row.kaiyakuFlg),
@@ -606,9 +579,8 @@ export function toDokusyaHistoryItem(
 // ════════════════════════════════════════════════════════════════════════
 
 /**
- * Flat snake_case row returned by `DokusyaService.searchForReplace`
- * (ACSMS-API-015-001 §レスポンスデータ). `shimei` and `haitatsu_address`
- * are concatenations the mapper computes (api.md §4.6).
+ * DokusyaService.searchForReplace が返すフラット snake_case 行（ACSMS-API-015-001
+ * §レスポンスデータ）。shimei と haitatsu_address は mapper が算出する concat（api.md §4.6）。
  */
 export interface ReplaceSearchItem {
   dokusya_id: number;
@@ -628,11 +600,10 @@ export interface ReplaceSearchItem {
 }
 
 /**
- * Map a joined raw row (api.md §4.5 SELECT) → the replace-search response
- * shape. `shimei = shimei_sei + ' ' + shimei_mei`; `haitatsu_address =
- * todofuken_name + haitatsu_shikuchoson + haitatsu_chome_banchi +
- * haitatsu_tatemono_mei` (api.md §4.6). Raw rows arrive from
- * `getRawMany()` so every value is coerced from string.
+ * JOIN 済み生行（api.md §4.5 SELECT）→ replace-search レスポンス形へマップ。
+ * shimei = shimei_sei + ' ' + shimei_mei；haitatsu_address = todofuken_name +
+ * haitatsu_shikuchoson + haitatsu_chome_banchi + haitatsu_tatemono_mei（api.md §4.6）。
+ * 生行は getRawMany() 由来なので全値を string から coerce。
  */
 export function toReplaceSearchItem(
   row: Record<string, unknown>,

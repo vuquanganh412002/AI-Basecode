@@ -12,7 +12,7 @@ import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Ja, Todofuken, Role]),
-    AuthModule,      // SessionAuthGuard + PermissionsGuard dependencies
+    AuthModule,      // SessionAuthGuard + PermissionsGuard 依存
     AuditLogModule,  // AuditLogService
   ],
   controllers: [JaController],

@@ -15,10 +15,9 @@ import {
 const TEKIYO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Coerce a query/body value into a number array. Query strings arrive as a
- * single value (`?hanbaiten_id=200`) or an array (`?hanbaiten_id=200&…=201`);
- * normalise both to `number[]` so `@IsInt({ each: true })` can validate.
- * Non-numeric members become `NaN` → rejected by `@IsInt`.
+ * クエリ/body 値を number 配列へ正規化する。単一値（`?hanbaiten_id=200`）でも配列
+ * （`?hanbaiten_id=200&…=201`）でも `number[]` に揃え、`@IsInt({ each: true })` で
+ * 検証できるようにする。数値化できない要素は `NaN` → `@IsInt` で弾かれる。
  */
 const toNumberArray = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null) return value;
@@ -27,7 +26,7 @@ const toNumberArray = ({ value }: { value: unknown }) => {
 };
 
 /**
- * Shared query/body DTO for both 増減連絡票（販売店） endpoints:
+ * 増減連絡票（販売店）の両エンドポイント共通のクエリ/body DTO:
  *   - GET  /api/v1/report/zougen-hanbaiten/preview (ACSMS-API-028-001)
  *   - POST /api/v1/report/zougen-hanbaiten/export  (ACSMS-API-028-002)
  *

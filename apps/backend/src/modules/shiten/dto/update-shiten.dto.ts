@@ -14,17 +14,14 @@ import {
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-/**
- * 金融機関支店フラグ = true のとき JASTEM 4項目は必須（create DTO と同条件）。
- */
+// kinyu_shiten_flg=true のとき JASTEM 4項目は必須（create DTO と同条件）。
 const isJastemRequired = (o: { kinyu_shiten_flg?: boolean }): boolean =>
   o.kinyu_shiten_flg === true;
 
 /**
- * Request body for ACSMS-API-007-003 — PUT /api/v1/shiten/:id.
- *
- * Drops `shiten_code` (immutable after create — UI disables the input,
- * api.md §3 注記). All other CreateShitenDto fields apply.
+ * PUT /api/v1/shiten/:id (ACSMS-API-007-003) リクエストボディ。
+ * shiten_code は作成後変更不可のため除外（UI 側 disabled、api.md §3 注記）。
+ * 他は CreateShitenDto と同じ。
  */
 export class UpdateShitenDto {
   @ApiProperty({ description: '支店名', maxLength: 100 })
@@ -38,8 +35,7 @@ export class UpdateShitenDto {
   @IsOptional()
   @IsString({ message: '支店名（カナ）は文字列で入力してください。' })
   @MaxLength(100, { message: '支店名（カナ）は最大100文字で入力してください。' })
-  // Half-width katakana — downstream Zengin CSV / PDF exports require it.
-  // ｦ-ﾟ covers letters ｦ-ﾝ + prolonged mark ｰ + dakuten/handakuten ﾞ ﾟ.
+  // 半角カタカナ（Zengin CSV / PDF 出力が要求）。ｦ-ﾟ = 文字ｦ-ﾝ + 長音ｰ + 濁点/半濁点ﾞﾟ。
   @Matches(/^[ｦ-ﾟ\s0-9]+$/u, {
     message: '支店名(カナ)は半角カタカナ・半角数字で入力してください。',
   })
@@ -50,10 +46,9 @@ export class UpdateShitenDto {
   @IsInt({ message: '管理支店を選択してください。' })
   kanri_shiten_id!: number;
 
-  // 作成後は変更不可（顧客要件 2026-07）。JASTEM 4項目の必須判定
-  // (isJastemRequired) に既存値が必要なため受け取りは残すが、既存値と
-  // 異なる値が来た場合は ShitenService.update が 400 VALIDATION_ERROR
-  // (field=kinyu_shiten_flg) で拒否し、永続化は常に既存値を維持する。
+  // 作成後変更不可（顧客要件 2026-07）。JASTEM 必須判定に既存値が要るため受け取りは残すが、
+  // 既存値と異なると ShitenService.update が 400 VALIDATION_ERROR (field=kinyu_shiten_flg) で拒否、
+  // 永続化は常に既存値を維持。
   @ApiPropertyOptional({ description: '金融機関支店フラグ（作成後変更不可）', default: false })
   @IsOptional()
   @IsBoolean({ message: '金融機関支店フラグはブール値で指定してください。' })

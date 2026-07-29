@@ -56,18 +56,14 @@ export class TankaController {
     return this.service.findAll(query, req.user);
   }
 
-  // [dropdown-route-order] declared BEFORE `@Get(':id')` so the static
-  // literal path beats the dynamic param matcher. Otherwise NestJS
-  // routes `/tanka/dropdown` through `findById(':id')` and ParseIntPipe
-  // 400s on the non-numeric "dropdown".
+  // [dropdown-route-order] `@Get(':id')` より前に宣言 — 静的パスを動的パラメータ
+  // より優先させる。逆順だと `/tanka/dropdown` が findById(':id') に入り
+  // ParseIntPipe が非数値 "dropdown" で 400 になる。
   //
-  // [shared-dropdown-rule] Authenticated-only — NO @Permissions. Shared
-  // form-facing dropdown consumed by multiple screens with different
-  // gates (SCR-017 hanbaiten form AND SCR-011 dokusya form). Gating it by
-  // one CRUD permission risks locking out a consuming screen's role; the
-  // data boundary is `TankaService.dropdown` → `applyJaScope` (restricted
-  // roles see only their own JA's tanka), screen access is each route's
-  // own guard.
+  // [shared-dropdown-rule] 認証のみ — @Permissions なし。異なるゲートを持つ複数画面
+  // (SCR-017 hanbaiten / SCR-011 dokusya) が共有するフォーム用ドロップダウン。1つの CRUD
+  // 権限で絞ると消費側画面のロールを締め出す恐れ。データ境界は
+  // TankaService.dropdown → applyJaScope (制限ロールは自 JA のみ)、画面アクセスは各ルート自身のガード。
   @Get('dropdown')
   @ApiOperation({
     summary: '単価ドロップダウン — 配達手数料単価 (SCR-017) 用',

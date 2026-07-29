@@ -7,16 +7,15 @@ import {
 
 export interface BreadcrumbItem {
   label: string;
-  /** Either a string path or a Vue Router location object (`{ name: 'JaList' }`).
-   *  Prefer the named-route object form so renaming a path doesn't ripple. */
+  /** 文字列パス、または Vue Router location オブジェクト（`{ name: 'JaList' }`）。
+   *  パス改名が波及しないよう named-route オブジェクト形式を推奨。 */
   to?: RouteLocationRaw;
 }
 
 /**
- * Pure builder: turn a route's `matched` chain into breadcrumb items,
- * always prefixed with ホーム. Shared by {@link useBreadcrumb} (component
- * context) and the router `afterEach` document-title logic so both derive
- * the page label from the exact same source and never drift.
+ * 純粋ビルダー: route の `matched` チェーンをパンくず項目へ変換（常に ホーム 接頭）。
+ * {@link useBreadcrumb}（コンポーネント文脈）と router `afterEach` の
+ * document-title ロジックで共有し、両者が同一ソースからページラベルを導出しドリフトを防ぐ。
  */
 export function buildBreadcrumbItems(
   matched: readonly RouteLocationMatched[],
@@ -41,29 +40,28 @@ export function buildBreadcrumbItems(
 }
 
 /**
- * The current page's title = the leaf (last) breadcrumb label, or `null`
- * when the route only resolves to ホーム (no page-specific breadcrumb).
- * Used to build `document.title` per page.
+ * 現ページのタイトル = 末端（最後）のパンくずラベル。route が ホーム のみに
+ * 解決する（ページ固有パンくず無し）場合は `null`。ページ毎の `document.title` 構築に使用。
  */
 export function pageTitleFromMatched(
   matched: readonly RouteLocationMatched[],
 ): string | null {
   const items = buildBreadcrumbItems(matched);
-  // items[0] is always ホーム — a real page adds at least one more.
-  return items.length > 1 ? items[items.length - 1].label : null;
+  // items[0] は常に ホーム — 実ページは最低 1 つ追加する。
+  return items.length > 1 ? (items.at(-1)?.label ?? null) : null;
 }
 
 /**
- * Generates breadcrumbs from the current route's matched chain,
- * reading `meta.breadcrumb` (string | BreadcrumbItem[]).
+ * 現 route の matched チェーンから `meta.breadcrumb`（string | BreadcrumbItem[]）を
+ * 読んでパンくずを生成。
  *
- * Usage in route meta:
+ * route meta での使用例:
  * ```ts
  * { path: '/tanka', meta: { breadcrumb: 'マスタ管理' } }
  * { path: '/tanka/list', meta: { breadcrumb: '単価マスタ明細検索' } }
  * ```
  *
- * Result: `ホーム > マスタ管理 > 単価マスタ明細検索`
+ * 結果: `ホーム > マスタ管理 > 単価マスタ明細検索`
  */
 export function useBreadcrumb() {
   const route = useRoute();

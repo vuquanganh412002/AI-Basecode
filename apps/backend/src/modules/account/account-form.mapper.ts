@@ -1,12 +1,11 @@
-// Pure transform from the joined m_account row (LEFT JOIN m_roles x
-// m_todofuken x m_ja x m_kanri_shiten — see SCR-025 api.md §4.3 / §4.5)
-// into the snake_case detail-response shape. No Nest DI, no repo —
-// importable from anywhere (service, tests).
+// join 済み m_account 行（m_roles × m_todofuken × m_ja × m_kanri_shiten,
+// SCR-025 api.md §4.3/§4.5）→ snake_case 詳細応答形状への純粋変換。Nest DI / repo 不要で
+// どこからでも import 可（service, tests）。
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
 
-// Raw DB id columns arrive as number or string depending on the pg driver /
-// aggregation. Aliased to avoid repeating the union across every id field.
+// DB の id 列は pg ドライバ/集約により number か string。各 id フィールドで union を
+// 繰返さないよう別名化。
 type IdRaw = number | string;
 type IdRawNullable = number | string | null;
 
@@ -56,17 +55,16 @@ export interface AccountDetail {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** True when login attempts hit the lock threshold — surfaced so the admin form can clear it. */
+  /** ログイン失敗がロック閾値に達すると true。admin フォームで解除できるよう返す。 */
   account_lock_flg: boolean;
   biko: string;
   created_at: string;
   updated_at: string | null;
 }
 
-// `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers` — see
-// import at top of file.
+// `toIso` / `toNumber` は `@/common/utils/mapper-helpers` へ移動（冒頭 import 参照）。
 
-/** Map a raw joined row → SCR-025 detail-response shape. */
+/** join 行 → SCR-025 詳細応答形状へ変換。 */
 export function toAccountDetail(row: AccountDetailRow): AccountDetail {
   return {
     account_id: Number(row.account_id),

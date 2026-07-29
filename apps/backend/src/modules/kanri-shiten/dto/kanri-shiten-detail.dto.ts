@@ -1,9 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Full detail shape for ACSMS-API-009-001 (GET) + 009-002 (POST response)
- * + 009-003 (PUT response). Includes everything `KanriShitenListItemDto`
- * has plus `kanri_shiten_name_kana`, `biko`, `created_at`, `updated_at`.
+ * 詳細形状: ACSMS-API-009-001 (GET) / 009-002 (POST 応答) / 009-003 (PUT 応答)。
+ * KanriShitenListItemDto の全列 + kanri_shiten_name_kana, biko, created_at, updated_at。
  */
 export class KanriShitenDetailDto {
   @ApiProperty() kanri_shiten_id: number;

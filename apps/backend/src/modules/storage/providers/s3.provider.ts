@@ -31,9 +31,9 @@ export class S3StorageProvider implements StorageProvider {
     });
     this.bucket = config.bucket;
     this.region = config.region;
-    // [diag] When false the SDK falls back to the default provider chain
-    // (ECS task role / env / instance profile). A wrong/missing task role
-    // is the most common "uploads silently fail" cause in prod.
+    // [diag] false のとき SDK は既定の provider chain(ECS task role / env /
+    // instance profile)へフォールバック。誤った/欠落した task role が本番で
+    // "アップロードが silent 失敗する" 最頻原因。
     this.hasExplicitCreds = Boolean(config.accessKey);
     this.logger.log({
       event: 's3.provider.init',
@@ -70,9 +70,9 @@ export class S3StorageProvider implements StorageProvider {
       });
       return key;
     } catch (err) {
-      // [diag] Surface the real AWS error — name (AccessDenied,
-      // NoSuchBucket, CredentialsProviderError, …) is what pinpoints
-      // the misconfiguration. Re-throw so the service compensates.
+      // [diag] 実際の AWS エラーを可視化 — name(AccessDenied, NoSuchBucket,
+      // CredentialsProviderError, …)が設定ミスを特定する。service が補償できる
+      // よう re-throw する。
       this.logger.error({
         event: 's3.put.failed',
         bucket: this.bucket,

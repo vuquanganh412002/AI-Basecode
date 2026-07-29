@@ -29,14 +29,13 @@ onMounted(async () => {
       title: n.title,
     }));
   } catch {
-    // Spec §14.4: oshirase failure must not block login.
+    // §14.4: お知らせ取得失敗はログインを妨げない。
     notices.value = [];
   }
 });
 
-// Spec §2.1 / §3.1 / §4.1: FE must check required fields before sending
-// the login request — show ACSMS-MSG-001-001 / -002 directly instead of
-// relying on the BE 400 roundtrip.
+// §2.1 / §3.1 / §4.1: 必須チェックは送信前に FE で行い、ACSMS-MSG-001-001 /
+// -002 を直接表示（BE 400 往復に頼らない）。
 function validateClient(): Record<string, string> {
   const errs: Record<string, string> = {};
   if (!form.login_id.trim()) errs.login_id = 'ユーザーIDを入力してください。';
@@ -130,11 +129,8 @@ async function onSubmit(): Promise<void> {
             </a-button>
           </a-form-item>
 
-          <!-- SCR-012 entry point. Per screen-design.md note: just below
-               the login button, before the terms-of-service line. Named
-               route per the "named routes only" convention; the LoginView
-               spec's test router registers ForgotPassword so the link
-               resolves. -->
+          <!-- SCR-012 入口。ログインボタン直下・利用規約行の上（screen-design.md）。
+               named routes only 規約に従い named route を使用。 -->
           <div class="text-center mb-4">
             <router-link
               :to="{ name: 'ForgotPassword' }"
