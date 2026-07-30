@@ -5,7 +5,7 @@
  *
  * 深夜に agrinews-terraform の EventBridge ルール → ECS RunTask が起動。
  * Invoke:
- *   dev : npm run file:cleanup
+ *   dev : npm run file:cleanup:dev
  *   prod: npm run file:cleanup:prod   (node dist/batch/file-cleanup.main.js)
  *
  * 定型処理（application context の起動・サービス解決・exit code）は runBatch()

@@ -44,9 +44,12 @@ Prerequisites: Docker, Node 20+, `mkcert`, `openssl`.
 ./scripts/generate-certs.sh       # requires mkcert
 
 # 3. Env files — the defaults already match the docker-compose topology
-cp apps/.env.example          apps/.env      # docker compose ${...} interpolation
 cp apps/backend/.env.example  apps/backend/.env
 cp apps/frontend/.env.example apps/frontend/.env
+# docker compose needs a .env next to docker-compose.yml. Symlink it to the
+# backend env so there is one file to edit (see apps/.env.example for the
+# alternative of keeping a separate copy):
+ln -s ./backend/.env apps/.env
 
 # 4. Bring the stack up
 docker compose -f apps/docker-compose.yml up -d
@@ -153,15 +156,18 @@ Details in `.claude/rules/security.md`.
 ## Batch Jobs
 
 Run as ECS one-off tasks, scheduled by EventBridge rules defined in
-`agrinews-terraform`. Each has a local (`ts-node`) and a `:prod` (compiled) script.
+`agrinews-terraform`. Each has a `:dev` (`ts-node`, runs `src/` directly) and a
+`:prod` (compiled, `node dist/…`) script. ECS invokes the `:prod` one.
 
 | Job | Schedule (JST) | Purpose |
 | --- | --- | --- |
-| `npm run dokusya:sync` | every 10 min | Pull 電子版 `users` → `t_dokusya` (incremental; nightly full reconcile via `DENSHIBAN_FULL_SYNC=true`) |
-| `npm run dokusya:apply-due` | daily | Finalise subscriptions whose 購読中止日 has arrived; apply scheduled info changes |
-| `npm run tanka:expire` | 00:05 | Flip `m_tanka.active_flg` to FALSE once `tekiyo_end_date` has passed |
-| `npm run log:cleanup` | 23:00 | Hard-delete `t_log` / `t_login_log` older than `LOG_RETENTION_YEARS` (default 5) |
-| `npm run file:cleanup` | daily | Delete S3 objects past `scheduled_delete_date`; soft-delete the DB rows |
+| `dokusya:sync` | every 10 min | Pull 電子版 `users` → `t_dokusya` (incremental; nightly full reconcile via `DENSHIBAN_FULL_SYNC=true`) |
+| `dokusya:apply-due` | daily | Finalise subscriptions whose 購読中止日 has arrived; apply scheduled info changes |
+| `tanka:expire` | 00:05 | Flip `m_tanka.active_flg` to FALSE once `tekiyo_end_date` has passed |
+| `log:cleanup` | 23:00 | Hard-delete `t_log` / `t_login_log` older than `LOG_RETENTION_YEARS` (default 5) |
+| `file:cleanup` | daily | Delete S3 objects past `scheduled_delete_date`; soft-delete the DB rows |
+
+Locally: `npm run <job>:dev --workspace=apps/backend`.
 
 ## 電子版 Integration
 

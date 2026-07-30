@@ -37,22 +37,41 @@ interface FileFilters {
 
 const authStore = useAuthStore();
 const codes = useCodesStore();
-// JA スコープロール（CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）は自JA 1件のみ。
+// JA 固定ロール（JA_HONTEN/JA_KANRI_SHITEN）は自JA 1件のみ。
 // JA 絞り込みは自JAで固定（プリセット＋disable）＝情報提供のみの意味合い。
 // NICHINO_ADMIN/STAFF は全JAを自由に絞り込める。
+//
+// 中央会(CHUOKAI)は 2026-07 の顧客要件で「同一都道府県の全JA」へ拡大したため
+// ここから外す。自JAを ja_id にプリセットしたままだと検索条件が常に
+// `ja_id = 自JA` で送られ、BE 側のスコープ拡大が効かない。代わりに都道府県を
+// 自県で固定する（下記 scopedTodofukenCode）。
 const isJaScopedRole = computed(() =>
-  ([RoleCode.CHUOKAI, RoleCode.JA_HONTEN, RoleCode.JA_KANRI_SHITEN] as string[]).includes(
+  ([RoleCode.JA_HONTEN, RoleCode.JA_KANRI_SHITEN] as string[]).includes(
     authStore.user?.role_code ?? '',
   ),
 );
 // defaultFilters に自JAを入れることで、初期表示・検索クリア後も自JAが残る。
 const scopedJaId = isJaScopedRole.value ? (authStore.user?.ja_id ?? null) : null;
 
+// 中央会は自県固定（プリセット＋disable）。他県を選んでも BE が弾いて0件になる
+// だけなので、選ばせない方が分かりやすい。todofuken_code 未設定の中央会
+// アカウントは従来どおり（BE も自JAスコープへフォールバック）。
+const isChuokai = computed(
+  () => authStore.user?.role_code === RoleCode.CHUOKAI,
+);
+const scopedTodofukenCode = isChuokai.value
+  ? (authStore.user?.todofuken_code ?? '')
+  : '';
+
 const {
   state, loading, total, onChange, searchActions,
 } =
   useTableQuery<FileFilters>({
-    defaultFilters: { file_name: '', todofuken_code: '', ja_id: scopedJaId },
+    defaultFilters: {
+      file_name: '',
+      todofuken_code: scopedTodofukenCode,
+      ja_id: scopedJaId,
+    },
     defaultSortBy: 'download_datetime',
     defaultSortOrder: 'desc',
   });
@@ -77,8 +96,25 @@ const isNichinoRole = computed(() =>
     authStore.user?.role_code ?? '',
   ),
 );
+
+/**
+ * 自分が出力したファイルか（顧客要件 2026-07）。`created_by` は account_id を
+ * 文字列で保持するため、比較は文字列に揃える。BE の isCreatedBySelf と同条件。
+ */
+function isCreatedBySelf(row: FileDownloadListItem): boolean {
+  const createdBy = (row.created_by ?? '').trim();
+  if (createdBy === '') return false;
+  return createdBy === String(authStore.user?.account_id ?? '').trim();
+}
+
+// 自分で出力したファイルは、フラグ false でも常に操作可（顧客要件 2026-07）。
+// フラグは「他組織へ自組織のファイルを見せてよいか」を JA が決めるもので、
+// 出力した本人を締め出す意図は無い。既定 FALSE のため、この例外が無いと
+// 中央会が自分で出した帳票をその場で落とせない。
 function isNichinoBlocked(row: FileDownloadListItem): boolean {
-  return isNichinoRole.value && row.nichino_download_allowed_flg === false;
+  if (!isNichinoRole.value) return false;
+  if (isCreatedBySelf(row)) return false;
+  return row.nichino_download_allowed_flg === false;
 }
 
 /** 削除済み or 日農DL不可 → 選択・プレビュー・DL 対象外。 */
@@ -262,7 +298,8 @@ defineExpose({
           id="file-download-filter-2"
           v-model:value="state.filters.todofuken_code"
           placeholder="すべて"
-          allow-clear
+          :allow-clear="!scopedTodofukenCode"
+          :disabled="!!scopedTodofukenCode"
           show-search
           :filter-option="
             (input: string, option: { children?: unknown }) =>
@@ -280,8 +317,11 @@ defineExpose({
         </a-select>
       </label>
       <!-- JA 絞り込み — 共通 <BaseJaDropdown>（サーバ側ページング・JAコード/JA名
-           検索・単一選択）。/ja/dropdown が DataScope を適用するため、JA ロール
-           （CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）は自JAのみが候補に出る。 -->
+           検索・単一選択）。/ja/dropdown が DataScope を適用するため、JA本店/
+           JA管理支店は自JAのみが候補に出る。
+           中央会は scope='todofuken' で自都道府県の全JAを候補にする（顧客要件
+           2026-07 — 一覧のスコープ拡大に絞り込み候補を揃える。拡大先の県は BE が
+           セッションから決めるので他県は覗けない）。 -->
       <label for="file-download-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">JA名</span>
         <BaseJaDropdown
@@ -289,6 +329,7 @@ defineExpose({
           v-model:value="state.filters.ja_id"
           placeholder="JAコード・JA名で検索"
           :disabled="isJaScopedRole"
+          :scope="scopedTodofukenCode ? 'todofuken' : 'own'"
           class="flex-1"
         />
       </label>

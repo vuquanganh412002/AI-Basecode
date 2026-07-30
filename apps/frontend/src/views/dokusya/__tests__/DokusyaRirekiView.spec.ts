@@ -220,6 +220,48 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
     expect(text).toContain('新聞購読料');
   });
 
+  // COVERS: 顧客要件 2026-07 — 履歴番号の直後に 購読種別 → 電子版読者種別 →
+  // 電子申込承認ステータス を並べる。電子版読者種別は m_code、承認ステータスは
+  // m_code に無いため constants/denshi-shonin-status-labels.ts で解決する。
+  it('renders 電子版読者種別 / 電子申込承認ステータス right after 購読種別', async () => {
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_shubetsu: 2, // 電子版
+            denshi_dokusya_shubetsu: 1, // 有料
+            denshi_shonin_status: 1, // 承認済み
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    const text = wrapper.text();
+    // 列ヘッダ。
+    expect(text).toContain('電子版読者種別');
+    expect(text).toContain('電子申込承認ステータス');
+    // セル値: m_code / 定数マップの両方でラベル解決されること。
+    expect(text).toContain('有料');
+    expect(text).toContain('承認済み');
+
+    // 列順: 履歴番号 → 購読種別 → 電子版読者種別 → 電子申込承認ステータス → 手続種別。
+    const headers = wrapper.findAll('thead th').map((th) => th.text());
+    const idx = (label: string): number => headers.findIndex((h) => h === label);
+    expect(idx('購読種別')).toBe(idx('履歴番号') + 1);
+    expect(idx('電子版読者種別')).toBe(idx('購読種別') + 1);
+    expect(idx('電子申込承認ステータス')).toBe(idx('電子版読者種別') + 1);
+    expect(idx('手続種別')).toBe(idx('電子申込承認ステータス') + 1);
+  });
+
+  // 紙版は電子版連携が無いため 2 列とも null → 空欄（'Web申込以外' も出さない…
+  // ではなく承認ステータスは 'Web申込以外' を表示する。SCR-011 絞り込みと同じ文言）。
+  it('shows blank 電子版読者種別 and Web申込以外 for a 紙版 row', async () => {
+    const { wrapper } = await renderView(); // 既定 fixture = 紙版・両列 null
+    expect(wrapper.text()).toContain('Web申込以外');
+  });
+
   it('shows 増部日 (dokusya_kaishi_date) when 部数 increased vs 前回', async () => {
     // 部数 2 > 前回 1 → 増部日に購読開始日(dokusya_kaishi_date)を表示。
     // dokusya_kaishi_date は 増部日/減部日 だけが参照する列なので、他の日付列と

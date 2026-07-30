@@ -5,7 +5,7 @@ import { DenshibanDbService } from '@/modules/denshiban/denshiban-db.service';
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
 import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
 import { DenshiShoninStatus } from '@/common/enums';
-import { DokusyaSyncService } from './dokusya-sync.service';
+import { DokusyaSyncService, PAGE_SIZE } from './dokusya-sync.service';
 import type { DenshiUserRow } from './dokusya-sync.mapper';
 
 jest.mock('@/modules/dokusya/dokusya-history.writer', () => ({
@@ -337,5 +337,74 @@ describe('DokusyaSyncService', () => {
     const deltaSql = delta.denshibanQuery.mock.calls[0][0] as string;
     expect(deltaSql).toContain('collecting = 1');
     expect(deltaSql).toContain('treatment = 1 AND payment_id = 6');
+  });
+
+  // ── ページング（差分が尽きるまで反復）─────────────────────────────────
+  // 旧実装は 1 クエリ `LIMIT 50000` のみで、超過分は静かに切り捨てられていた。
+  // full-sync は watermark を無視して chg_ts 昇順に読むため、50k 超のテーブルでは
+  // 毎晩「最も古い 50k 件」だけを見て新しい行に永久に到達しなかった。
+  function buildFullPage(startId: number, chgTs: string): DenshiUserRow[] {
+    return Array.from({ length: PAGE_SIZE }, (_, i) =>
+      buildUser({ id: startId + i, chg_ts: chgTs }),
+    );
+  }
+
+  it('1 ページが満杯なら次ページを keyset カーソルで読み、尽きるまで反復する', async () => {
+    const { service, denshibanQuery, stateRepo } = buildService();
+    denshibanQuery.mockReset();
+    denshibanQuery
+      .mockResolvedValueOnce(buildFullPage(2000, '2026-04-01 00:00:00'))
+      .mockResolvedValueOnce([buildUser({ id: 9001, chg_ts: '2026-04-02 00:00:00' })]);
+
+    await service.run();
+
+    expect(denshibanQuery).toHaveBeenCalledTimes(2);
+    // 2 ページ目は前ページ末尾の (chg_ts, id) から続ける（OFFSET ではない）。
+    expect(denshibanQuery.mock.calls[1][0] as string).toContain('AND id > ?');
+    expect(denshibanQuery.mock.calls[1][1] as unknown[]).toContain(
+      2000 + PAGE_SIZE - 1,
+    );
+    // 完走したので watermark は最終行まで進む。
+    expect(String(stateRepo.update.mock.calls[0][1].lastSourceId)).toBe('9001');
+  });
+
+  it('full-sync でもページングする（1 ページ目は watermark 無し・2 ページ目はカーソル）', async () => {
+    const { service, denshibanQuery } = buildService({ fullSync: true });
+    denshibanQuery.mockReset();
+    denshibanQuery
+      .mockResolvedValueOnce(buildFullPage(3000, '2026-04-01 00:00:00'))
+      .mockResolvedValueOnce([]);
+
+    await service.run();
+
+    expect(denshibanQuery).toHaveBeenCalledTimes(2);
+    expect(denshibanQuery.mock.calls[0][0] as string).not.toContain('id > ?');
+    expect(denshibanQuery.mock.calls[1][0] as string).toContain('AND id > ?');
+  });
+
+  // 差分条件は `id > wId OR chg_ts > wTs` の両方 strict。同じ chg_ts の途中で中断した
+  // まま chg_ts だけ進めると、そのグループの未処理行は id でも chg_ts でも watermark
+  // 以下になり二度と差分に乗らない（別グループの大きい id に負けるため）。
+  it('同一 chg_ts グループの途中で中断したら watermark をそのグループの手前で止める', async () => {
+    const { service, stateRepo } = buildService({
+      deltaRows: [
+        buildUser({ id: 9999, chg_ts: '2026-04-01 00:00:00' }), // 別グループ・大きい id
+        buildUser({ id: 5, chg_ts: '2026-04-02 00:00:00' }), // 同グループ・成功
+        buildUser({ id: 6, chg_ts: '2026-04-02 00:00:00' }), // 同グループ・失敗
+      ],
+    });
+    mockApplyChange
+      .mockResolvedValueOnce({ dokusyaId: 1, insertedRirekiIds: [1] })
+      .mockResolvedValueOnce({ dokusyaId: 2, insertedRirekiIds: [2] })
+      .mockRejectedValueOnce(new Error('boom'));
+
+    await service.run();
+
+    const patch = stateRepo.update.mock.calls[0][1];
+    // 04-02 グループは丸ごと未コミット → 次回 `chg_ts > 04-01` で id=5,6 とも再取得される。
+    expect(String(patch.lastSourceId)).toBe('9999');
+    expect((patch.lastSourceUpdatedAt as Date).getTime()).toBe(
+      new Date('2026-04-01 00:00:00').getTime(),
+    );
   });
 });

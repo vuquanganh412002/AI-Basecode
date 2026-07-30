@@ -133,10 +133,13 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
  * 取込モード = 新規登録. Mirrors screen-design §画面項目定義 「常に選択
  * されており、選択を解除することはできません。」 + API-016-002 §4.1
  * NEW-mode required list.
+ *
+ * `shiten_code` (支店) is intentionally NOT here: api.md §4.1 marks only the
+ * 管理支店 side as NEW-mode required, `t_dokusya.shiten_id` is nullable, and the
+ * SCR-011 form treats it as optional.
  */
 export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
   'kanri_shiten_code',
-  'shiten_code',
   'shimei_sei',
   'shimei_mei',
   'shimei_kana_sei',

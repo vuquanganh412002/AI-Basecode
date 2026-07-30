@@ -132,6 +132,47 @@ describe('FileDownloadService', () => {
       expect(dataSql).not.toMatch(/fd\.ja_id IN/);
     });
 
+    // 顧客要件 2026-07: 中央会は自JAのみ → 同一都道府県の全JA へ拡大。
+    // 実際にDLできるかは nichino_download_allowed_flg 次第（別チェック）。
+    it('should scope CHUOKAI by todofuken_code (同一都道府県の全JA)', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ total: '0' }])
+        .mockResolvedValueOnce([]);
+      await service.findAll(
+        {},
+        jaSession({ role_code: 'CHUOKAI', ja_id: 5, todofuken_code: '13' }),
+      );
+      const [dataSql, params] = (dataSource.query as jest.Mock).mock.calls[1];
+      expect(dataSql).toMatch(/j\.todofuken_code = \$1/);
+      expect(dataSql).not.toMatch(/fd\.ja_id IN/);
+      expect(params).toContain('13');
+    });
+
+    // 旧セッション（デプロイ前に発行され todofuken_code を持たない）や未設定
+    // アカウントは従来どおり自JAスコープへフォールバックする（安全側）。
+    it('should fall back to the own-JA scope for a CHUOKAI without todofuken_code', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ total: '0' }])
+        .mockResolvedValueOnce([]);
+      await service.findAll({}, jaSession({ role_code: 'CHUOKAI', ja_id: 5 }));
+      const [dataSql] = (dataSource.query as jest.Mock).mock.calls[1];
+      expect(dataSql).toMatch(/fd\.ja_id IN \(5\)/);
+      expect(dataSql).not.toMatch(/todofuken_code = \$/);
+    });
+
+    // JA本店・JA管理支店も todofuken_code を持つが、DataScope は自JAのまま。
+    it('should NOT widen the scope for JA_HONTEN even when todofuken_code is set', async () => {
+      (dataSource.query as jest.Mock)
+        .mockResolvedValueOnce([{ total: '0' }])
+        .mockResolvedValueOnce([]);
+      await service.findAll(
+        {},
+        jaSession({ role_code: 'JA_HONTEN', ja_id: 5, todofuken_code: '13' }),
+      );
+      const [dataSql] = (dataSource.query as jest.Mock).mock.calls[1];
+      expect(dataSql).toMatch(/fd\.ja_id IN \(5\)/);
+    });
+
     it('should scope by ja_id (or NULL) for JA-level roles', async () => {
       (dataSource.query as jest.Mock)
         .mockResolvedValueOnce([{ total: '0' }])
@@ -214,10 +255,11 @@ describe('FileDownloadService', () => {
       expect(storage.download).not.toHaveBeenCalled();
     });
 
-    it('should FORBID CHUOKAI (role3) from downloading a nichino_download_allowed_flg=false row', async () => {
+    it('should FORBID CHUOKAI (role3) from downloading a flag=false row created by someone else', async () => {
       // 顧客要件: 日農(role1/2) に加え 中央会(CHUOKAI=role3) も flag=false のファイルを DL 不可。
+      // created_by が別アカウント（'999'）なので自己作成の例外に当たらない。
       (repo.findOne as jest.Mock).mockResolvedValue(
-        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false }),
+        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false, createdBy: '999' }),
       );
       await expect(
         service.download(100, jaSession({ role_code: 'CHUOKAI', ja_id: 5 }), req),
@@ -225,6 +267,102 @@ describe('FileDownloadService', () => {
         response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
       });
       expect(storage.download).not.toHaveBeenCalled();
+    });
+
+    // 顧客要件 2026-07: 自分が出力したファイルはフラグに関わらず DL 可。フラグは
+    // 「他組織へ自組織のファイルを見せてよいか」の設定で、既定 FALSE のため、この
+    // 例外が無いと中央会が自分で出した帳票をその場で落とせない。
+    it('should ALLOW CHUOKAI to download a flag=false row that itself created (created_by 一致)', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false, createdBy: '9' }),
+      );
+      await expect(
+        service.download(
+          100,
+          jaSession({ role_code: 'CHUOKAI', ja_id: 5, account_id: 9 }),
+          req,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('should ALLOW 日農 to download a flag=false row that itself created', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false, createdBy: '1' }),
+      );
+      await expect(
+        service.download(100, nichinoSession({ account_id: 1 }), req),
+      ).resolves.toBeDefined();
+    });
+
+    it('should FORBID when created_by is blank (未設定は本人扱いしない)', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 5, nichinoDownloadAllowedFlg: false, createdBy: '' }),
+      );
+      await expect(
+        service.download(100, jaSession({ role_code: 'CHUOKAI', ja_id: 5 }), req),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
+      });
+    });
+
+    // 顧客要件 2026-07: 一覧に出た同県他JAのファイルは個別DLでも通ること
+    // （一覧のスコープ条件と assertScope が食い違うと「見えるのに落とせない」）。
+    it('should ALLOW CHUOKAI to download a file of another JA in the same 都道府県', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 77, nichinoDownloadAllowedFlg: true, createdBy: '999' }),
+      );
+      // resolveAllowedJaIds の m_ja 参照 — 同県のJA一覧。
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { ja_id: '5' },
+        { ja_id: '77' },
+      ]);
+      await expect(
+        service.download(
+          100,
+          jaSession({ role_code: 'CHUOKAI', ja_id: 5, todofuken_code: '13' }),
+          req,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('should 404 for CHUOKAI when the file belongs to a JA outside its 都道府県', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 999, nichinoDownloadAllowedFlg: true, createdBy: '999' }),
+      );
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { ja_id: '5' },
+        { ja_id: '77' },
+      ]);
+      await expect(
+        service.download(
+          100,
+          jaSession({ role_code: 'CHUOKAI', ja_id: 5, todofuken_code: '13' }),
+          req,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'NOT_FOUND' }),
+      });
+      expect(storage.download).not.toHaveBeenCalled();
+    });
+
+    // 同県でも flag=false なら従来どおり 403（閲覧はできるが DL は不可）。
+    it('should FORBID CHUOKAI from downloading a same-都道府県 file with flag=false', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(
+        buildRow({ jaId: 77, nichinoDownloadAllowedFlg: false, createdBy: '999' }),
+      );
+      (dataSource.query as jest.Mock).mockResolvedValueOnce([
+        { ja_id: '5' },
+        { ja_id: '77' },
+      ]);
+      await expect(
+        service.download(
+          100,
+          jaSession({ role_code: 'CHUOKAI', ja_id: 5, todofuken_code: '13' }),
+          req,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
+      });
     });
 
     it('should ALLOW JA_HONTEN / JA_KANRI_SHITEN to download a flag=false row', async () => {

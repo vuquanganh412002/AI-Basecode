@@ -24,8 +24,16 @@ import {
 const SYNC_LOCK_KEY = 4210010;
 /** バッチ識別名（t_denshi_sync_state.batch_name）。 */
 const BATCH_NAME = 'dokusya-sync';
-/** 1 実行で処理する最大件数（安全上限。超過分は次回/夜間全件で追従）。 */
-const MAX_ROWS_PER_RUN = 50_000;
+/**
+ * 1 ページの取得件数（keyset ページング）。差分が尽きるまで反復するので、これは
+ * 「1 クエリで MySQL から引く行数」であって 1 実行の上限ではない（plan §2.2）。
+ */
+export const PAGE_SIZE = 1_000;
+/**
+ * 1 実行で処理する最大件数（暴走ガード）。到達時は watermark を安全側に丸めて中断し、
+ * 残りは次回実行が続きから読む。通常運用で到達しない値にしてある。
+ */
+const MAX_ROWS_PER_RUN = 500_000;
 
 interface SyncCounts {
   read: number;
@@ -42,12 +50,22 @@ type KanriShitenMap = Map<string, { kanriShitenId: number; jaId: number }>;
 /** `${jaId}:${hanbaiten_code}` → hanbaiten_id。 */
 type HanbaitenMap = Map<string, number>;
 
+/** ページングの読み取り位置（`ORDER BY chg_ts, id` 上の直前行）。 */
+interface PageCursor {
+  ts: Date;
+  id: number;
+}
+
 /**
  * 読者同期バッチ（電子版 → cloud, pull 片方向）。電子版 `cmsDB.users` の差分を取得し
  * `t_dokusya`/`t_dokusya_rireki` に取り込む。突合キー: `users.id ↔ denshi_kaiin_id`。
  * 履歴は共通ライタ `applyChange`（source='BATCH', joho=当日）に集約。
  * 10分間隔で EventBridge → ECS RunTask が `run()` を起動。多重起動は PostgreSQL
  * advisory lock で自衛（前回実行中なら skip）。plan: dokusya-sync-implementation-plan.md。
+ *
+ * 取得は `(chg_ts, id)` の keyset ページング（{@link PAGE_SIZE} 件/クエリ）で
+ * **差分が尽きるまで反復**する。件数上限で打ち切らないので、`DENSHIBAN_FULL_SYNC=true`
+ * の全件リコンサイルは users テーブルが何万件でも最後まで走査する。
  */
 @Injectable()
 export class DokusyaSyncService implements BatchJob {
@@ -106,15 +124,6 @@ export class DokusyaSyncService implements BatchJob {
     const state = await this.loadState();
     const [kanriMap, hanbaitenMap] = await this.loadFkMaps();
 
-    const rows = await this.fetchDelta(state, fullSync);
-    if (rows.length >= MAX_ROWS_PER_RUN) {
-      this.logger.warn({
-        event: 'dokusya_sync.cap_hit',
-        cap: MAX_ROWS_PER_RUN,
-        note: '上限到達。残りは次回実行/夜間全件同期で追従する。',
-      });
-    }
-
     const counts: SyncCounts = {
       read: 0,
       created: 0,
@@ -124,42 +133,103 @@ export class DokusyaSyncService implements BatchJob {
       cancelled: 0,
       failed: 0,
     };
-    let maxId = Number(state.lastSourceId ?? 0);
-    let maxTs = state.lastSourceUpdatedAt ?? new Date(0);
-    // 最初の失敗行以降は watermark を進めない。rows は (chg_ts, id) 昇順なので、
-    // 「失敗行の手前まで」で止めれば次回実行が必ずその行から読み直す。
-    //
-    // ⚠️ 単純な max() ではダメ（2026-07-29 実データ検証で判明）: 失敗行より後ろの行が
-    // 1つでも成功/skip すると watermark がそれを追い越し、失敗行は id も chg_ts も
-    // watermark 以下になって**二度と差分に乗らない**（電子版側で更新されない限り恒久
-    // miss）。実際 95 件が summary 上 failed→次回 0 件と消え、cloud に存在しないまま
-    // になっていた。skip 行は業務判断で取り込まないと決めた行なので進めてよい
-    // （マスタ整備後の取り込みは全件同期で拾う）。
-    let blocked = false;
 
-    for (const u of rows) {
-      counts.read++;
-      try {
-        await this.upsertOne(u, kanriMap, hanbaitenMap, counts);
-      } catch (err) {
-        counts.failed++;
-        blocked = true;
-        this.logger.error({
-          event: 'dokusya_sync.record_error',
-          denshi_kaiin_id: u.id,
-          message: (err as Error).message,
-        });
-        continue;
+    // ── watermark の前進管理 ───────────────────────────────────────────
+    // 初期値は保存済み値。full-sync は古い行から読むため、ここから後退させない。
+    let safeId = Number(state.lastSourceId ?? 0);
+    let safeTs = state.lastSourceUpdatedAt ?? new Date(0);
+    // 前進は **chg_ts グループ単位**でコミットする。差分条件は
+    // `id > wId OR chg_ts > wTs` で両方 strict なので、同じ chg_ts を持つ行の途中で
+    // 中断すると「chg_ts は watermark 以下・id も（別グループの大きな id に負けて）
+    // watermark 以下」の未処理行が生まれ、二度と差分に乗らない。行ごとの max() では
+    // なくグループ完了時にだけコミットし、中断時は最終グループを捨てることで、
+    // 未処理行は必ず `chg_ts > wTs` で再取得される。
+    // （2026-07-29 実データ検証: 失敗行を追い越して 95 件が恒久 miss した事象の一般化。）
+    let groupTs: Date | null = null;
+    let groupMaxId = 0;
+    const commitGroup = (): void => {
+      if (groupTs === null) return;
+      if (groupTs.getTime() > safeTs.getTime()) safeTs = groupTs;
+      if (groupMaxId > safeId) safeId = groupMaxId;
+      groupTs = null;
+      groupMaxId = 0;
+    };
+    // 昇順なので「別の chg_ts が来た＝前のグループは完了」。
+    const commitIfNewGroup = (ts: Date): void => {
+      if (groupTs !== null && ts.getTime() !== groupTs.getTime()) commitGroup();
+    };
+
+    let cursor: PageCursor | null = null;
+    let blocked = false;
+    let capHit = false;
+    let pages = 0;
+
+    // ── ページング: 差分が尽きるまで反復（plan §2.2）─────────────────────
+    while (!blocked && !capHit) {
+      const rows = await this.fetchPage(state, fullSync, cursor);
+      pages++;
+      if (rows.length === 0) break;
+
+      for (const u of rows) {
+        const id = Number(u.id);
+        // chg_ts が取れない行（updated_at/created_at とも空）は直前グループに畳む。
+        const ts: Date = this.chgTs(u) ?? groupTs ?? safeTs;
+        // 読み取り位置は成否に関わらず進める（同じページを再取得しないため）。
+        cursor = { ts, id };
+
+        if (counts.read >= MAX_ROWS_PER_RUN) {
+          commitIfNewGroup(ts); // 未処理行のグループは残す
+          capHit = true;
+          break;
+        }
+        counts.read++;
+
+        try {
+          await this.upsertOne(u, kanriMap, hanbaitenMap, counts);
+        } catch (err) {
+          // 失敗行のグループは未コミットのまま残し、次回必ず読み直させる。
+          // 同一ページ内の残りは診断目的で処理を続ける（watermark は進めない）。
+          commitIfNewGroup(ts);
+          blocked = true;
+          counts.failed++;
+          this.logger.error({
+            event: 'dokusya_sync.record_error',
+            denshi_kaiin_id: u.id,
+            message: (err as Error).message,
+          });
+          continue;
+        }
+        if (blocked) continue; // 失敗行を追い越さない
+        // skip 行は「業務判断で取り込まない」と決めた行なので前進してよい
+        // （マスタ整備後の取込は全件同期で拾う）。
+        commitIfNewGroup(ts);
+        groupTs = ts;
+        if (Number.isFinite(id) && id > groupMaxId) groupMaxId = id;
       }
-      if (blocked) continue; // 失敗行を追い越さない
-      const id = Number(u.id);
-      const ts = this.chgTs(u);
-      if (Number.isFinite(id) && id > maxId) maxId = id;
-      if (ts && ts.getTime() > maxTs.getTime()) maxTs = ts;
+
+      // 端数ページ＝差分を読み切った。
+      if (rows.length < PAGE_SIZE) break;
     }
 
-    await this.saveState(maxId, maxTs);
-    this.logger.log({ event: 'dokusya_sync.summary', ...counts });
+    // 完走したときだけ最終グループをコミットする。
+    if (!blocked && !capHit) commitGroup();
+
+    if (capHit) {
+      this.logger.warn({
+        event: 'dokusya_sync.cap_hit',
+        cap: MAX_ROWS_PER_RUN,
+        note: '上限到達。残りは次回実行が続きから読む。',
+      });
+    }
+
+    await this.saveState(safeId, safeTs);
+    this.logger.log({
+      event: 'dokusya_sync.summary',
+      ...counts,
+      pages,
+      full_sync: fullSync,
+      stopped: blocked ? 'blocked' : capHit ? 'cap' : 'done',
+    });
   }
 
   // ── state（watermark）────────────────────────────────────────────────
@@ -234,9 +304,22 @@ export class DokusyaSyncService implements BatchJob {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  private async fetchDelta(
+  /**
+   * 1 ページ分の対象行を取得する（`ORDER BY chg_ts, id` 昇順・`LIMIT PAGE_SIZE`）。
+   *
+   * - 抽出条件（キャンペーン除外 AND 取込対象条件）は差分/全件とも常に適用。
+   * - `fullSync=false` は watermark 条件を追加（差分）。`true` は付けない（全件）。
+   * - `cursor` は同一実行内のページ送り。`(chg_ts, id)` の keyset なので、同じ
+   *   chg_ts が PAGE_SIZE をまたいでも取りこぼさない（OFFSET は使わない）。
+   *
+   * 接続は 1 ページ 1 接続（`withConnection` が都度 destroy）。バッチ全体で 1 本を
+   * 保持すると PostgreSQL 側の長い書込みの間 MySQL が idle になり wait_timeout /
+   * NAT 切断を踏むため、意図的にページ単位で開閉する。
+   */
+  private async fetchPage(
     state: DenshiSyncState,
     fullSync: boolean,
+    cursor: PageCursor | null,
   ): Promise<DenshiUserRow[]> {
     // キャンペーン読者（Campagna_flg が立つ）は取込除外（顧客要件 2026-07）。
     const campaignFilter = `(Campagna_flg IS NULL OR Campagna_flg IN ('', '0'))`;
@@ -247,35 +330,33 @@ export class DokusyaSyncService implements BatchJob {
     //   mapShiharai と同じ前提）なので ShiharaiHoho をそのまま使える。
     const eligibilityFilter =
       `(collecting = 1 OR (treatment = 1 AND payment_id = ${ShiharaiHoho.CREDIT_CARD}))`;
-    // 全クエリ共通の抽出条件（キャンペーン除外 AND 取込対象条件）。
-    const baseFilter = `${campaignFilter} AND ${eligibilityFilter}`;
     const chg = 'COALESCE(updated_at, created_at)';
 
-    if (fullSync) {
-      // 全件リコンサイル（夜間）。watermark 無視。
-      return this.denshibanDb.withConnection((ds) =>
-        ds.query(
-          `SELECT *, ${chg} AS chg_ts FROM users
-             WHERE ${baseFilter}
-             ORDER BY ${chg} ASC, id ASC
-             LIMIT ?`,
-          [MAX_ROWS_PER_RUN],
-        ),
+    const where: string[] = [`${campaignFilter} AND ${eligibilityFilter}`];
+    const params: unknown[] = [];
+
+    if (!fullSync) {
+      // 差分: 新規(id 進行) OR 更新(chg_ts 進行)。id は AUTO_INCREMENT のため
+      // created_at を遡って挿入された行も拾える保険になる。
+      where.push(`( id > ? OR ${chg} > ? )`);
+      params.push(
+        String(state.lastSourceId ?? '0'),
+        state.lastSourceUpdatedAt ?? new Date(0),
       );
     }
+    if (cursor) {
+      where.push(`( ${chg} > ? OR (${chg} = ? AND id > ?) )`);
+      params.push(cursor.ts, cursor.ts, cursor.id);
+    }
+    params.push(PAGE_SIZE);
 
-    const wId = String(state.lastSourceId ?? '0');
-    const wTs = state.lastSourceUpdatedAt ?? new Date(0);
-    // 差分: 新規(id 進行) OR 更新(chg_ts 進行)。id は AUTO_INCREMENT のため
-    // updated_at が NULL の新規行も拾える。
     return this.denshibanDb.withConnection((ds) =>
       ds.query(
         `SELECT *, ${chg} AS chg_ts FROM users
-           WHERE ( id > ? OR ${chg} > ? )
-             AND ${baseFilter}
+           WHERE ${where.join(' AND ')}
            ORDER BY ${chg} ASC, id ASC
            LIMIT ?`,
-        [wId, wTs, MAX_ROWS_PER_RUN],
+        params,
       ),
     );
   }

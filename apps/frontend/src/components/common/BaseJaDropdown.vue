@@ -45,6 +45,12 @@ interface Props {
    * JA ドロップダウンにカスケード）で使用。変更時は選択解除 + 1ページ目再読込。
    */
   todofukenCode?: string | null;
+  /**
+   * DataScope 範囲（既定 `own`）。`todofuken` は **中央会のみ** 自JAでなく自都道府県の
+   * 全JAを候補にする。SCR-022 ファイルダウンロード画面で、一覧のスコープ拡大に
+   * 絞り込み候補を揃えるために使う。拡大先の県は BE がセッションから決める。
+   */
+  scope?: 'own' | 'todofuken';
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -55,6 +61,7 @@ const props = withDefaults(defineProps<Props>(), {
   labelFormat: 'code-name',
   searchField: 'both',
   todofukenCode: null,
+  scope: 'own',
 });
 
 const emit = defineEmits<{
@@ -95,6 +102,8 @@ const {
     if (props.searchField === 'name') extra.match_field = 'name';
     // 都道府県 絞り込みは指定時のみ送る（BE は空/null を無視）。
     if (props.todofukenCode) extra.todofuken_code = props.todofukenCode;
+    // 既定 'own' は送らない（BE の未指定と同義）。
+    if (props.scope === 'todofuken') extra.scope = 'todofuken';
     return extra;
   },
   resetTriggers: [todofukenCodeRef],

@@ -98,9 +98,12 @@ export class DenshibanPushService {
     return this.configService.get<boolean>('denshiban.pushEnabled') === true;
   }
 
-  // ─── hook 用ファサード（呼び出し側はこの2つだけ使う）──────────────────
+  // ─── hook 用ファサード（呼び出し側はこれだけ使う）────────────────────
   // 対象判定→当日判定→push→書き戻し を集約。非対象は no-op。ガード付け忘れ・
   // push 単独呼び出しを構造的に防ぐ。
+  // push 経路は UI / 取込 のみ（顧客要件 2026-07: dokusya-apply-due バッチは
+  // 自社クラウド内で完結し、外部連携を行わない）。cancel は SCR-014 の
+  // 「購読中止」操作が発行する。
 
   /**
    * UI / 取込 からの push ファサード（呼び出し側 tx 内で実行）。非対象は no-op。
@@ -115,6 +118,7 @@ export class DenshibanPushService {
       after: Dokusya;
       source: ApplyChangeSource;
       immediateJohoDate?: string;
+      /** action='cancel' 用の解約対象月（YYYYMM）。 */
       cancelYm?: string;
     },
   ): Promise<void> {
@@ -132,20 +136,6 @@ export class DenshibanPushService {
     }
   }
 
-  /**
-   * 到来日バッチからの push ファサード。cloud 起点の予約反映で echo ではないため
-   * source チェックなし（{@link isBatchTarget}）。非対象は no-op。
-   */
-  async pushOnBatch(
-    manager: EntityManager,
-    params: { action: PushAction; after: Dokusya; cancelYm?: string },
-  ): Promise<void> {
-    if (!(await this.isBatchTarget(manager, params.after))) return;
-    await this.push(manager, params.action, params.after, {
-      cancelYm: params.cancelYm,
-    });
-  }
-
   /** UI / 取込 の push 対象判定。source==='BATCH'（pull sync の押し戻し）は echo 防止で false。 */
   async isTarget(
     manager: EntityManager,
@@ -153,14 +143,14 @@ export class DenshibanPushService {
     source: ApplyChangeSource,
   ): Promise<boolean> {
     if (source === 'BATCH') return false;
-    return this.isBatchTarget(manager, after);
+    return this.isPushTarget(manager, after);
   }
 
   /**
-   * 到来日バッチの push 対象判定（cloud 起点なので source チェックなし）。
-   * push無効 / 種別が電子版・併読でない / 単価が campaign → いずれも false。
+   * source を問わない push 対象判定。push無効 / 種別が電子版・併読でない /
+   * 単価が campaign → いずれも false。{@link isTarget} が source 判定を足して使う。
    */
-  async isBatchTarget(manager: EntityManager, after: Dokusya): Promise<boolean> {
+  async isPushTarget(manager: EntityManager, after: Dokusya): Promise<boolean> {
     if (!this.enabled) return false;
     if (!isDigitalOrBoth(after.dokusyaShubetsu)) return false;
     if (after.tankaId != null) {
@@ -174,8 +164,8 @@ export class DenshibanPushService {
   }
 
   /**
-   * 低レベル primitive: 対象判定なしで push する。通常は {@link pushOnWrite} /
-   * {@link pushOnBatch} を使う（対象判定を内包）。statusCode≠'0' で throw → tx rollback。
+   * 低レベル primitive: 対象判定なしで push する。通常は {@link pushOnWrite}
+   * を使う（対象判定を内包）。statusCode≠'0' で throw → tx rollback。
    * @returns create のとき採番された会員ID（master へ書き戻し済み）。それ以外 null。
    */
   async push(

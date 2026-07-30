@@ -5,7 +5,7 @@
  *
  * 5:00(JST) に agrinews-terraform の EventBridge ルール → ECS RunTask が起動。
  * Invoke:
- *   dev : npm run dokusya:apply-due
+ *   dev : npm run dokusya:apply-due:dev
  *   prod: npm run dokusya:apply-due:prod   (node dist/batch/dokusya-apply-due.main.js)
  *
  * 定型処理（application context の起動・サービス解決・exit code）は runBatch()

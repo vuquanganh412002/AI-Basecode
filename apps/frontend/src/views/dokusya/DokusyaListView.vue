@@ -34,6 +34,10 @@ import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { DokusyaShubetsu, TetsuzukiShurui } from '@/constants/enums';
+import {
+  DENSHI_SHONIN_STATUS_LABELS,
+  DENSHI_SHONIN_STATUS_NONE_LABEL,
+} from '@/constants/denshi-shonin-status-labels';
 import { formatDate } from '@/utils/formatters';
 import {
   timestampForFilenameTokyo,
@@ -172,17 +176,18 @@ const toggleLabel = computed(() =>
 );
 
 // 電子版承認ステータス — m_code に無い（status 意味は API 層で t_denshi_dokusya
-// 状態から導出）。index.html row 559-562 の4択をハードコード。null = Web申込以外
-//（電子版行なし）。
+// 状態から導出）。index.html row 559-562 の4択。null = Web申込以外（電子版行なし）。
+// ラベルは SCR-013 履歴一覧と共有（constants/denshi-shonin-status-labels.ts）。
 interface DenshiShoninOption {
   value: number | null;
   label: string;
 }
 const denshiShoninOptions: DenshiShoninOption[] = [
-  { value: null, label: 'Web申込以外' },
-  { value: 0, label: '未承認' },
-  { value: 1, label: '承認済み' },
-  { value: 2, label: '否認' },
+  { value: null, label: DENSHI_SHONIN_STATUS_NONE_LABEL },
+  ...Object.entries(DENSHI_SHONIN_STATUS_LABELS).map(([value, label]) => ({
+    value: Number(value),
+    label,
+  })),
 ];
 
 // ─── ドロップダウン参照（マウント時一度） ─────────────────────────────────

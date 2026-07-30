@@ -140,10 +140,14 @@ export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
 /**
  * 取込モード = 新規登録（NEW）のとき、必須 + 常時チェック + disable の物理カラム。
  * api.md §4.1 NEW モード必須リストに対応。
+ *
+ * `shiten_code`（支店）は含めない — api.md §4.1 で「NEW モードは必須」と明記されて
+ * いるのは管理支店側のみで、`t_dokusya.shiten_id` は NULL 許容、SCR-011 の画面登録
+ * でも任意項目。取込だけ必須にすると画面からは登録できる購読者が Excel からは
+ * 登録できない不整合になる（BE の IMPORT_NEW_REQUIRED_COLUMNS と対で保つこと）。
  */
 export const REQUIRED_COLUMNS_NEW: readonly PhysicalColumn[] = [
   'kanri_shiten_code',
-  'shiten_code',
   'shimei_sei',
   'shimei_mei',
   'shimei_kana_sei',
@@ -166,15 +170,16 @@ export const KEY_COLUMN: PhysicalColumn = 'dokusya_id';
 
 /**
  * 入力箇所のみ更新（UPDATE_PARTIAL）で「編集不可」の項目。
- * 氏名4項目 / 購読開始日 はフォーム編集でも不変のため、部分更新でも
- * 未チェック＋disable にして更新対象から外す。購読種別は画面ラジオで
- * 一括指定する単一ソース（Excel 列ではない）ため対象外。
+ * 購読開始日（初回）はフォーム編集でも不変のため、部分更新でも未チェック＋
+ * disable にして更新対象から外す。購読種別は画面ラジオで一括指定する単一ソース
+ * （Excel 列ではない）ため対象外。
+ *
+ * 氏名4項目（購読者氏名/かな）は **更新可**（顧客要件 2026-07・改姓等）。
+ * SCR-011 の編集画面が既に氏名の変更を許可しているので、取込だけ不可にすると
+ * 画面からはできて Excel からはできない不整合になる。紙版・電子版とも同じ扱い
+ * （BE の IMPORT_EDIT_IMMUTABLE_COLUMNS と対で保つこと）。
  */
 export const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
   'dokusya_kaishi_date',
 ];
 export const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);

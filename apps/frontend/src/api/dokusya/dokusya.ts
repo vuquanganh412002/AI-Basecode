@@ -488,6 +488,10 @@ export interface DokusyaRirekiItem {
   rireki_no: number;
   /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。*/
   dokusya_shubetsu: number;
+  /** m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'（0:無料, 1:有料）。紙版は null。*/
+  denshi_dokusya_shubetsu: number | null;
+  /** 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。Web申込以外は null。*/
+  denshi_shonin_status: number | null;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;

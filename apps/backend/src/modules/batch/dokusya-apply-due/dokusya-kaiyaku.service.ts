@@ -3,10 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { DokusyaShubetsu } from '@/common/enums/dokusya-shubetsu.enum';
 import { ShiharaiHoho } from '@/common/enums/shiharai-hoho.enum';
-import { Dokusya } from '@/database/entities/dokusya.entity';
 import { insertKaiyaku } from '@/modules/dokusya/dokusya-history.writer';
-import { isDigitalOrBoth } from '@/modules/dokusya/dokusya-shubetsu.rules';
-import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
 import { addDaysIso, todayIsoJst } from '@/common/utils/datetime';
 
 /**
@@ -14,24 +11,23 @@ import { addDaysIso, todayIsoJst } from '@/common/utils/datetime';
  * master へ反映（idempotent ヘルパ insertKaiyaku に委譲）。per-row try/catch で
  * 1件失敗しても全体は止めない。
  *
+ * **自社クラウド内で完結する**（顧客要件 2026-07）。電子版への cancel push は行わない。
+ * 以前は解約確定後に電子版へ cancel を push していたが、push が「insertKaiyaku が
+ * 実際に行を追加したか」と無関係に実行され、かつ抽出条件（master の
+ * dokusya_chushi_date <= 当日）は解約後も真のままなので、解約済みの購読者へ毎晩
+ * cancel を送り続けていた（対象は増える一方）。連携は別途設計し直すため、本バッチ
+ * からは外部 API 呼び出しを完全に取り除く。
+ *
  * 抽出条件（§6-2）:
  *   - 紙版(1)   : dokusya_chushi_date <= 当日
  *   - 電子版(2) : dokusya_chushi_date <= 当日-1（適用日+1日）かつ shiharai_hoho≠クレカ
  *   - 併読(3) / 電子版クレカ : 除外（read-only）
  */
-/** 購読中止日 'YYYY-MM-DD' → cancel_ym 'YYYYMM'（電子版 cancel の解約対象月）。 */
-function toCancelYm(chushiDate: string | null): string {
-  return (chushiDate ?? '').replaceAll('-', '').slice(0, 6);
-}
-
 @Injectable()
 export class DokusyaKaiyakuService {
   private readonly logger = new Logger(DokusyaKaiyakuService.name);
 
-  constructor(
-    @InjectDataSource() private readonly db: DataSource,
-    private readonly denshiPush: DenshibanPushService,
-  ) {}
+  constructor(@InjectDataSource() private readonly db: DataSource) {}
 
   async run(): Promise<void> {
     const startedAt = Date.now();
@@ -62,19 +58,10 @@ export class DokusyaKaiyakuService {
     for (const { dokusya_id } of rows) {
       const id = Number(dokusya_id);
       try {
+        // insertKaiyaku は解約済み（有効行が kaiyaku_flg=true）なら no-op。
+        // 外部連携が無くなったので、同日に複数回流しても副作用は一切無い。
         await this.db.transaction(async (m) => {
           await insertKaiyaku(m, id, today);
-          // cloud → 電子版 cancel（cloud 起点の解約なので echo ではない）。抽出は解約
-          // 確定のため紙版も含むが、紙版は push を呼ばない。push 失敗はこの行の tx を
-          // ロールバック → 翌バッチで再試行（idempotent）。
-          const after = await m.findOne(Dokusya, { where: { dokusyaId: id } });
-          if (after && isDigitalOrBoth(after.dokusyaShubetsu)) {
-            await this.denshiPush.pushOnBatch(m, {
-              action: 'cancel',
-              after,
-              cancelYm: toCancelYm(after.dokusyaChushiDate),
-            });
-          }
         });
         ok++;
       } catch (err) {

@@ -134,6 +134,11 @@ const importResult = ref<{
 const hasFile = computed(() => parsedRows.value.length > 0);
 const previewVisible = computed(() => hasFile.value);
 
+/** 取込モードのラジオが 電子版（＝即時連携で適用日は当日固定）を選んでいるか。 */
+const isDigitalBatchSelected = computed(() =>
+  isDigitalOrBoth(dokusyaShubetsuFe.value),
+);
+
 /**
  * 強制チェック＋disable（forced ON）になる列か:
  *   - 新規登録 (NEW)   → 必須列を lock。
@@ -153,6 +158,12 @@ function isLocked(col: PhysicalColumn): boolean {
 function isForcedUnchecked(col: PhysicalColumn): boolean {
   // 新規登録: 読者情報変更適用日 / 販売店適用日 は対象外（UPDATE 専用の変更イベント日）。
   if (importModeFe.value === 'new') return NEW_EXCLUDED_SET.has(col);
+  // 更新 × 電子版: 読者情報変更適用日 は当日固定（電子版は即時連携で未来日を
+  // 指定できず、BE も当日以外を弾く）。入力させる意味が無いのでグレーアウトし、
+  // BE が空欄を当日として扱う（顧客要件 2026-07）。
+  if (col === 'joho_henko_tekiyo_date' && isDigitalBatchSelected.value) {
+    return true;
+  }
   // 更新: キー以外の編集不可列は更新対象外。
   return col !== KEY_COLUMN && EDIT_IMMUTABLE_SET.has(col);
 }
@@ -369,7 +380,13 @@ function validateBeforeSubmit(): string | null {
       });
     }
     // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日）。
-    if (!isNew && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
+    // 電子版は当日固定で列自体をグレーアウトしているため必須チェックの対象外
+    // （BE も同条件で必須を外し、空欄は当日として扱う）。
+    if (
+      !isNew &&
+      !isDigitalBatchSelected.value &&
+      !String(row.joho_henko_tekiyo_date ?? '').trim()
+    ) {
       errors.push({
         row: rowNo,
         field: 'joho_henko_tekiyo_date',

@@ -23,6 +23,7 @@ import {
   dokusyaSoBunruiLabel,
   nogyosyaBunruiLabel,
 } from '@/constants/dokusya-bunrui';
+import { denshiShoninStatusLabel } from '@/constants/denshi-shonin-status-labels';
 import {
   getDokusyaRirekiList,
   torikeshiDokusyaRireki,
@@ -57,8 +58,11 @@ const rows = ref<DokusyaRirekiItem[]>([]);
 // joho_henko_tekiyo_date, created_at}）にある列のみ sorter: true。
 const columns: TableColumnsType = [
   { title: '履歴番号', dataIndex: 'rireki_no', key: 'rireki_no', sorter: true, width: 90 },
-  // 購読種別 を 履歴番号 の直後に追加、手続種別 をその直後へ移動（顧客要件 SCR-013）。
+  // 履歴番号 の直後に 購読種別 → 電子版読者種別 → 電子申込承認ステータス の順で
+  // 並べ、手続種別 をその後ろへ（顧客要件 SCR-013）。
   { title: '購読種別', key: 'dokusya_shubetsu', width: 110 },
+  { title: '電子版読者種別', key: 'denshi_dokusya_shubetsu', width: 140 },
+  { title: '電子申込承認ステータス', key: 'denshi_shonin_status', width: 180 },
   { title: '手続種別', key: 'tetsuzuki_shurui', width: 110 },
   { title: '管理支店', dataIndex: 'kanri_shiten_name', key: 'kanri_shiten_name', width: 160 },
   { title: '支店名', dataIndex: 'shiten_name', key: 'shiten_name', width: 140 },
@@ -349,6 +353,19 @@ async function confirmTorikeshi(): Promise<void> {
         </template>
         <template v-else-if="column.key === 'dokusya_shubetsu'">
           {{ codes.label('DOKUSYA_SHUBETSU', (record as DokusyaRirekiItem).dokusya_shubetsu) }}
+        </template>
+        <!-- 電子版読者種別 — 紙版は連携が無いため null（codes.label が '' を返す）。 -->
+        <template v-else-if="column.key === 'denshi_dokusya_shubetsu'">
+          {{
+            codes.label(
+              'DENSHI_DOKUSYA_SHUBETSU',
+              (record as DokusyaRirekiItem).denshi_dokusya_shubetsu,
+            )
+          }}
+        </template>
+        <!-- 電子申込承認ステータス — m_code に無い区分（constants に集約）。 -->
+        <template v-else-if="column.key === 'denshi_shonin_status'">
+          {{ denshiShoninStatusLabel((record as DokusyaRirekiItem).denshi_shonin_status) }}
         </template>
         <!-- 分類はコード保存 (電子版 profession/products と 1:1) → ラベル表示。 -->
         <template v-else-if="column.key === 'dokusyaso_bunrui'">

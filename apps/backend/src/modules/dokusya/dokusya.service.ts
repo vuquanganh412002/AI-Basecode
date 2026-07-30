@@ -180,6 +180,11 @@ function fmtYearMonth(ym: string): string {
   return `${ym.slice(0, 4)}/${ym.slice(4, 6)}`;
 }
 
+/** 購読中止日 'YYYY-MM-DD' → 電子版 cancel の cancel_ym 'YYYYMM'（解約対象月）。 */
+function toCancelYm(chushiDate: string): string {
+  return chushiDate.replaceAll('-', '').slice(0, 6);
+}
+
 /**
  * 電子版(2)は購読部数=1固定（顧客要件 2026-06）。新規・更新とも解約以外で busu≠1 を拒否。
  * FE も入力不可だが改竄リクエストはここで弾く。解約(手続種類=0)は 0 許容。
@@ -251,25 +256,31 @@ export class DokusyaService {
   ) {}
 
   /**
-   * SCR-011 の各書き込み(create/update/reread/approve/reject)から呼ぶ cloud → 電子版 push
-   * の共通入口。種別で早期分岐し紙版は push を呼ばない（push 不具合でも紙版登録は無影響）。
-   * 電子版/併読 の残り判定(有効化/campaign/当日適用)は pushOnWrite が内包。
+   * SCR-011 の各書き込み(create/update/reread/approve/reject)と SCR-014 の購読中止
+   * (cancel)から呼ぶ cloud → 電子版 push の共通入口。`source: 'UI'` を固定するだけの
+   * 薄いラッパで、**push 対象かの判定は一切ここで行わない**。
    *
-   * @param immediateJohoDate 指定時、適用日==当日 のみ即 push（未来適用の併読予約は到来日に
-   *   recompute バッチが反映）。create/approve 等の即時操作では省略。
+   * 対象判定は `pushOnWrite` → `isPushTarget` に一本化してある
+   * （push 有効化 / 電子版・併読か / campaign 単価か）。呼び出し側で
+   * `isDigitalOrBoth` を先出しすると「3条件のうち1つだけ」を各所に写した状態になり、
+   * 条件が増えたときに更新漏れが起きる。非対象は pushOnWrite が no-op で返す。
+   *
+   * @param opts.immediateJohoDate 指定時、適用日==当日 のみ即 push（未来適用は push しない）。
+   *   create/approve/cancel 等の即時操作では省略。
+   * @param opts.cancelYm action='cancel' の解約対象月（YYYYMM）。
    */
   private async pushUiIfDenshi(
     manager: EntityManager,
     action: PushAction,
     after: Dokusya,
-    immediateJohoDate?: string,
+    opts: { immediateJohoDate?: string; cancelYm?: string } = {},
   ): Promise<void> {
-    if (!isDigitalOrBoth(after.dokusyaShubetsu)) return;
     await this.denshiPush.pushOnWrite(manager, {
       action,
       after,
       source: 'UI',
-      immediateJohoDate,
+      immediateJohoDate: opts.immediateJohoDate,
+      cancelYm: opts.cancelYm,
     });
   }
 
@@ -793,12 +804,9 @@ export class DokusyaService {
           );
           // 再購読は電子版では reread（解約済み会員の再有効化）。当日開始のみ即 push
           // （未来開始の併読は到来日に recompute バッチ反映）。
-          await this.pushUiIfDenshi(
-            manager,
-            'reread',
-            result.after,
-            normalizeDbDate(dto.dokusya_kaishi_date),
-          );
+          await this.pushUiIfDenshi(manager, 'reread', result.after, {
+            immediateJohoDate: normalizeDbDate(dto.dokusya_kaishi_date),
+          });
           await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
           return result.after;
         }
@@ -855,12 +863,9 @@ export class DokusyaService {
         // cloud → 電子版 push（情報変更）。当日適用のみ即 push。未来適用(併読の予約変更)は
         // 到来日に recompute バッチ反映のため即 push しない（二重・先行反映防止）。
         // null 安全化: 未設定なら '' で当日判定に一致せず push を batch へ委譲。
-        await this.pushUiIfDenshi(
-          manager,
-          'update',
-          result.after,
-          String(updatePartial.johoHenkoTekiyoDate ?? ''),
-        );
+        await this.pushUiIfDenshi(manager, 'update', result.after, {
+          immediateJohoDate: String(updatePartial.johoHenkoTekiyoDate ?? ''),
+        });
 
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
@@ -989,6 +994,26 @@ export class DokusyaService {
           { dokusyaId: id },
           { updatedBy: String(session.account_id) },
         );
+        // 電子版へ cancel を push（顧客要件 2026-07: 解約の外部連携は到来日バッチ
+        // ではなく本操作が担う）。tx 内で実行するので、push 失敗（DenshibanPush
+        // Exception）はここで throw → 予約履歴行・master・監査ログもろとも
+        // ロールバックされ、cloud と電子版の状態が食い違わない（同期 Saga）。
+        //
+        // immediateJohoDate は渡さない: 予約行の適用日(=購読中止日)は未来になり得るが、
+        // 解約対象月は cancel_ym で電子版へ伝えるため、予約した時点で push する。
+        // 到来日を待つと、その間に電子版側で課金が進んでしまう。
+        //
+        // 実際に push されるのは 電子版(2)・非クレカ・非campaign単価 のみ:
+        //   - 紙版(1)            … pushUiIfDenshi が種別で早期 return
+        //   - 併読(3)/電子版クレカ … 冒頭の read-only ガードで 403（ここへ来ない）
+        //   - campaign 単価      … pushOnWrite 内の isPushTarget が false を返す
+        //     （キャンペーン読者は電子版側の管理対象外。pull の dokusya-sync も
+        //      Campagna_flg 立ちを取込対象から外しており、方向は逆でも同じ方針）
+        //   - DENSHIBAN_PUSH_ENABLED=false … 同じく isPushTarget が false
+        // いずれも throw せず no-op なので、cloud 側の解約予約はそのまま成立する。
+        await this.pushUiIfDenshi(manager, 'cancel', result.after, {
+          cancelYm: toCancelYm(chushi),
+        });
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
         return result.after;
       });
@@ -1168,8 +1193,12 @@ export class DokusyaService {
         'r.dokusya_kaishi_date AS dokusya_kaishi_date',
         'r.dokusya_chushi_date AS dokusya_chushi_date',
         'r.joho_henko_tekiyo_date AS joho_henko_tekiyo_date',
-        // can_torikeshi 判定用（紙版のみ取消可・顧客要件2026-07）。出力DTOには含めない。
+        // 購読種別は can_torikeshi 判定（紙版のみ取消可・顧客要件2026-07）と
+        // 一覧表示（履歴番号の直後の列）の両方で使う。
         'r.dokusya_shubetsu AS dokusya_shubetsu',
+        // 購読種別に続く電子版2列（顧客要件 2026-07・SCR-013 一覧）。紙版は null。
+        'r.denshi_dokusya_shubetsu AS denshi_dokusya_shubetsu',
+        'r.denshi_shonin_status AS denshi_shonin_status',
         'r.saishin_data_flg AS saishin_data_flg',
         'r.zougen_hokoku_flg AS zougen_hokoku_flg',
         'r.shinki_flg AS shinki_flg',

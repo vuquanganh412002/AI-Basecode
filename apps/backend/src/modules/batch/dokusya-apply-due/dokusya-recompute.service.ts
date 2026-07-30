@@ -1,11 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { DokusyaShubetsu } from '@/common/enums/dokusya-shubetsu.enum';
-import { Dokusya } from '@/database/entities/dokusya.entity';
 import { recomputeMaster } from '@/modules/dokusya/dokusya-history.writer';
-import { isDigitalOrBoth } from '@/modules/dokusya/dokusya-shubetsu.rules';
-import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
 import { todayIsoJst } from '@/common/utils/datetime';
 
 /** 1ループで処理する dokusya_id 件数（メモリ・ロック分散）。keyset(id>cursor)で進める。 */
@@ -16,24 +12,21 @@ const CHUNK_SIZE = 500;
  * recomputeMaster(当日) を実行し master + saishin_data_flg を当日基準で再計算。
  * 予約情報変更は適用日(joho)が当日到来した時点で effective 化し master に反映される。
  * idempotent（履歴行は追加しない）。1件失敗しても止めず、keyset で CHUNK_SIZE 件ずつ回す。
+ *
+ * **自社クラウド内で完結する**（顧客要件 2026-07）。電子版への update push は行わない。
+ * 以前は「本日 effective 化する予約情報変更を持つ電子版/併読」を先に集めて recompute 後に
+ * push していたが、その候補集合は当日中なら何度でも同じものが返るため、同日に2回流すと
+ * 同じ update を2回送っていた。連携は別途設計し直すため外部 API 呼び出しを取り除く。
  */
 @Injectable()
 export class DokusyaRecomputeService {
   private readonly logger = new Logger(DokusyaRecomputeService.name);
 
-  constructor(
-    @InjectDataSource() private readonly db: DataSource,
-    private readonly denshiPush: DenshibanPushService,
-  ) {}
+  constructor(@InjectDataSource() private readonly db: DataSource) {}
 
   async run(): Promise<void> {
     const startedAt = Date.now();
     const today = todayIsoJst();
-
-    // 本日 effective 化する予約情報変更を持つ電子版/併読の購読者IDを先に集め、
-    // recompute 後にその集合だけ電子版へ update を push する。当日変更は UI で push 済み・
-    // 予約分は created<当日 で二重 push を避けるため、実質 併読(3) の予約分が対象。
-    const pushTargets = await this.collectDuePushTargets(today);
 
     let ok = 0;
     let ng = 0;
@@ -57,14 +50,6 @@ export class DokusyaRecomputeService {
         try {
           await this.db.transaction(async (m) => {
             await recomputeMaster(m, id, today);
-            // 本日 effective 化した予約情報変更 → 電子版へ update を push（同期 Saga）。
-            // 候補SQLで種別は絞り込み済みだが call site でも明示ガード（紙版は呼ばない）。
-            if (pushTargets.has(id)) {
-              const after = await m.findOne(Dokusya, { where: { dokusyaId: id } });
-              if (after && isDigitalOrBoth(after.dokusyaShubetsu)) {
-                await this.denshiPush.pushOnBatch(m, { action: 'update', after });
-              }
-            }
           });
           ok++;
         } catch (err) {
@@ -84,30 +69,9 @@ export class DokusyaRecomputeService {
       event: 'recompute.done',
       today,
       target,
-      pushTargets: pushTargets.size,
       ok,
       ng,
       durationMs: Date.now() - startedAt,
     });
-  }
-
-  /**
-   * 本日 effective 化する予約情報変更を持つ電子版/併読の購読者ID集合。
-   * 条件: joho=当日・非解約・created<当日（当日作成の当日変更は UI で push 済みなので
-   * 除外＝二重 push 防止）。created_at::date は接続TZ(Asia/Tokyo)基準で比較。
-   */
-  private async collectDuePushTargets(today: string): Promise<Set<number>> {
-    const rows: { dokusya_id: string }[] = await this.db.query(
-      `SELECT DISTINCT d.dokusya_id
-         FROM t_dokusya d
-         JOIN t_dokusya_rireki r ON r.dokusya_id = d.dokusya_id
-        WHERE d.deleted_at IS NULL
-          AND d.dokusya_shubetsu IN ($1, $2)
-          AND r.joho_henko_tekiyo_date = $3
-          AND r.kaiyaku_flg = false
-          AND r.created_at::date < $3::date`,
-      [DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH, today],
-    );
-    return new Set(rows.map((r) => Number(r.dokusya_id)));
   }
 }

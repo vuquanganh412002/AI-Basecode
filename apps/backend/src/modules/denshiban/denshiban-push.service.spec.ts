@@ -274,7 +274,7 @@ describe('DenshibanPushService', () => {
       expect(update).toHaveBeenCalledWith(Dokusya, 10, { denshiKaiinId: 999 });
     });
 
-    it('approve/cancel で denshi_kaiin_id が null なら skip（throw せず・cloud を止めない）', async () => {
+    it('approve/unapprove で denshi_kaiin_id が null なら skip（throw せず・cloud を止めない）', async () => {
       const updateUserInfo = jest.fn();
       const service = buildService(true, { updateUserInfo });
       const { manager } = buildManager();
@@ -283,9 +283,7 @@ describe('DenshibanPushService', () => {
         service.push(manager, 'approve', buildDokusya({ denshiKaiinId: null })),
       ).resolves.toBeNull();
       await expect(
-        service.push(manager, 'cancel', buildDokusya({ denshiKaiinId: null }), {
-          cancelYm: '202608',
-        }),
+        service.push(manager, 'unapprove', buildDokusya({ denshiKaiinId: null })),
       ).resolves.toBeNull();
       expect(updateUserInfo).not.toHaveBeenCalled();
     });
@@ -349,41 +347,6 @@ describe('DenshibanPushService', () => {
 
       expect(updateUserInfo).toHaveBeenCalledWith('create', expect.any(Object));
       expect(after.denshiKaiinId).toBe(888);
-    });
-  });
-
-  describe('pushOnBatch (到来日バッチ ファサード)', () => {
-    it('非電子版（紙版）は push しない', async () => {
-      const updateUserInfo = jest.fn();
-      const service = buildService(true, { updateUserInfo });
-      const { manager } = buildManager();
-
-      await service.pushOnBatch(manager, {
-        action: 'cancel',
-        after: buildDokusya({ dokusyaShubetsu: DokusyaShubetsu.PAPER }),
-        cancelYm: '202608',
-      });
-
-      expect(updateUserInfo).not.toHaveBeenCalled();
-    });
-
-    it('電子版なら source チェックなしで cancel を push', async () => {
-      const updateUserInfo = jest
-        .fn()
-        .mockResolvedValue({ statusCode: '0', id: '', message: '' });
-      const service = buildService(true, { updateUserInfo });
-      const { manager } = buildManager();
-
-      await service.pushOnBatch(manager, {
-        action: 'cancel',
-        after: buildDokusya({ denshiKaiinId: 555 }),
-        cancelYm: '202608',
-      });
-
-      expect(updateUserInfo).toHaveBeenCalledWith(
-        'cancel',
-        expect.objectContaining({ cancel_ym: '202608' }),
-      );
     });
   });
 });

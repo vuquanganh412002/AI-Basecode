@@ -1035,6 +1035,72 @@ describe('JaService', () => {
       return buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' });
     }
 
+    // 顧客要件 2026-07 — SCR-022 ファイルダウンロード画面の DataScope が
+    // 「同一都道府県の全JA」へ拡大したため、絞り込み候補も揃える。
+    // 拡大先の県はクライアント指定ではなくセッションの todofuken_code。
+    it('scope=todofuken: CHUOKAI は自都道府県で絞り、自JA固定の scope は付けない', async () => {
+      qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+
+      await service.dropdown(
+        { page: 1, per_page: 50, scope: 'todofuken' } as any,
+        buildSession({
+          ja_id: 5,
+          role_code: 'CHUOKAI',
+          todofuken_code: '13',
+        }),
+      );
+
+      const calls = qbMock.andWhere.mock.calls;
+      expect(
+        calls.some(
+          ([sql, params]: [string, any]) =>
+            String(sql).includes('mj.todofuken_code = :scopeTodofuken') &&
+            params?.scopeTodofuken === '13',
+        ),
+      ).toBe(true);
+      // applyJaScope（自JA固定）は適用されない。
+      expect(
+        calls.some(([sql]: [string]) => String(sql).includes('scopeJaId')),
+      ).toBe(false);
+    });
+
+    it('scope=todofuken: CHUOKAI 以外は無視して従来の自JAスコープのまま', async () => {
+      qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+
+      await service.dropdown(
+        { page: 1, per_page: 50, scope: 'todofuken' } as any,
+        buildSession({
+          ja_id: 5,
+          role_code: 'JA_HONTEN',
+          todofuken_code: '13',
+        }),
+      );
+
+      const calls = qbMock.andWhere.mock.calls;
+      expect(
+        calls.some(([sql]: [string]) => String(sql).includes('scopeJaId')),
+      ).toBe(true);
+      expect(
+        calls.some(([sql]: [string]) =>
+          String(sql).includes('scopeTodofuken'),
+        ),
+      ).toBe(false);
+    });
+
+    it('scope=todofuken: todofuken_code 未設定（旧セッション）は自JAスコープへフォールバック', async () => {
+      qbMock.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
+
+      await service.dropdown(
+        { page: 1, per_page: 50, scope: 'todofuken' } as any,
+        buildSession({ ja_id: 5, role_code: 'CHUOKAI' }),
+      );
+
+      const calls = qbMock.andWhere.mock.calls;
+      expect(
+        calls.some(([sql]: [string]) => String(sql).includes('scopeJaId')),
+      ).toBe(true);
+    });
+
     it('should return slim row payload with todofuken_code + chuokai_flg and has_more meta', async () => {
       const rows = [
         buildJa({

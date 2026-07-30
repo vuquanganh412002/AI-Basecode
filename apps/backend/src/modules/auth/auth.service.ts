@@ -686,6 +686,7 @@ export class AuthService {
       kanri_shiten_id:
         account.kanriShitenId !== null ? Number(account.kanriShitenId) : null,
       shiten_id: account.shitenId !== null ? Number(account.shitenId) : null,
+      todofuken_code: account.todofukenCode ?? null,
       permissions,
     };
 

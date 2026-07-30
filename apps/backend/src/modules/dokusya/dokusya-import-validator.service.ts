@@ -84,10 +84,18 @@ function fieldValidationError(
  * SCR-016 — NEW モードが selected_columns に必須とする物理列（api.md §4.1）。
  * 購読種別は画面ラジオ（紙版/電子版）の取込モードへ移動したため Excel 必須列から
  * 除外（顧客要件 2026-07）。
+ *
+ * `shiten_code`（支店）は **必須ではない** — api.md §4.1 で「NEW モードは必須」と
+ * 明記されているのは kanri_shiten_code 側だけで、`t_dokusya.shiten_id` も NULL 許容。
+ * SCR-011 の画面登録でも任意項目なので、取込だけ必須にすると同じ購読者を画面から
+ * 登録できて Excel からは登録できない不整合になる。
+ *
+ * 逆に `dokusya_busu` / `shiharai_hoho` は api.md に必須の記載が無いが NOT NULL
+ * 列（DEFAULT 無し）なので、空欄のまま INSERT に到達すると制約違反→500 になる。
+ * IMPORT_VALIDATION_ERROR として穏当に返すためここに残す。
  */
 const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
   'kanri_shiten_code',
-  'shiten_code',
   'dokusya_busu',
   'tanka_code',
   'yubin_no',
@@ -108,7 +116,6 @@ const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
  */
 const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   kanri_shiten_code: '管理支店',
-  shiten_code: '支店',
   dokusya_busu: '購読部数',
   tanka_code: '新聞単価',
   yubin_no: '郵便番号',
@@ -276,9 +283,20 @@ export class DokusyaImportValidator {
     }
     // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
     // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
-    const isUpdate =
-      dto.import_mode === 'UPDATE';
-    if (isUpdate && !String(row.joho_henko_tekiyo_date ?? '').trim()) {
+    //
+    // ただし **電子版は当日以外を指定できない**（下の collectDigitalTodayModeViolation
+    // が未来日を弾く）ため、入力させる意味が無い。顧客要件 2026-07: 電子版の UPDATE
+    // では列を入力不可（FE 側でグレーアウト）にし、空欄なら当日を自動採用する
+    // （importUpdateRow の `?? todayIsoJst()`）。よって必須チェックは紙版のみ。
+    // 取込モードの購読種別は dto のラジオ値で、UPDATE では既存レコードの種別と
+    // 一致することを validateImportRowShubetsuMatch が別途保証している。
+    const isUpdate = dto.import_mode === 'UPDATE';
+    const isDigitalBatch = isDigitalOrBoth(dto.dokusya_shubetsu);
+    if (
+      isUpdate &&
+      !isDigitalBatch &&
+      !String(row.joho_henko_tekiyo_date ?? '').trim()
+    ) {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'joho_henko_tekiyo_date',

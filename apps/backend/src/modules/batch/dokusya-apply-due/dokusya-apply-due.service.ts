@@ -14,8 +14,12 @@ import { DokusyaRecomputeService } from './dokusya-recompute.service';
  * ①が新規の解約行を追加した後に②の全件再計算が走ることで、その晩のうちに
  * 解約・情報変更の両方が矛盾なく master へ反映される。両段とも idempotent。
  *
+ * **本バッチは自社クラウド内で完結する**（顧客要件 2026-07）。電子版への push
+ * （cancel / update）は行わない。外部呼び出しが無くなったため、同日に複数回
+ * 実行しても履歴・master・外部システムのいずれにも副作用は生じない。
+ *
  * スケジュール(5:00 JST)は agrinews-terraform の EventBridge ルールが持つ。
- * エントリ: src/batch/dokusya-apply-due.main.ts（`npm run dokusya:apply-due[:prod]`）。
+ * エントリ: src/batch/dokusya-apply-due.main.ts（`npm run dokusya:apply-due:{dev,prod}`）。
  */
 @Injectable()
 export class DokusyaApplyDueService implements BatchJob {

@@ -311,6 +311,44 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     }
   });
 
+  // 支店は NEW モードでも必須ではない（api.md §4.1 は管理支店側のみ必須と記載、
+  // t_dokusya.shiten_id は NULL 許容、SCR-011 の画面登録でも任意）。取込だけ必須に
+  // すると画面から登録できる購読者が Excel からは登録できない不整合になる（回帰防止）。
+  it('should leave 支店 (shiten_code) unlocked in 新規登録 mode — selectable but not forced', async () => {
+    const { wrapper } = await renderView();
+    const cb = wrapper.find('input[type="checkbox"][value="shiten_code"]');
+    expect(cb.exists()).toBe(true);
+    expect((cb.element as HTMLInputElement).disabled).toBe(false);
+    expect(DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW as readonly string[]).not.toContain(
+      'shiten_code',
+    );
+  });
+
+  // 電子版は即時連携で適用日が当日固定（BE も未来日を弾く）。UPDATE × 電子版 では
+  // 読者情報変更適用日 の列を強制未チェック＋グレーアウトし、BE が空欄を当日として
+  // 扱う。紙版は予約変更（未来日）が必要なので従来どおり選択可（顧客要件 2026-07）。
+  it('should grey out 読者情報変更適用日 on 更新 × 電子版 but keep it selectable on 更新 × 紙版', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+
+    // 紙版（既定）→ 選択可。
+    await setShubetsu(wrapper, 1);
+    let cb = wrapper.find('input[type="checkbox"][value="joho_henko_tekiyo_date"]');
+    expect(cb.exists()).toBe(true);
+    expect((cb.element as HTMLInputElement).disabled).toBe(false);
+
+    // 電子版 → 強制未チェック扱い。他の編集不可列と同じくチェックボックスを
+    // 描画せずラベルだけグレー表示にする（既存の forced-OFF 表現に合わせる）。
+    await setShubetsu(wrapper, 2);
+    cb = wrapper.find('input[type="checkbox"][value="joho_henko_tekiyo_date"]');
+    expect(cb.exists()).toBe(false);
+    const label = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('読者情報変更適用日'));
+    expect(label?.classes()).toContain('cursor-not-allowed');
+  });
+
   it('should set UPDATE (更新) column states: ID checked+disabled, immutable fields rendered WITHOUT a checkbox, others enabled', async () => {
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue();
@@ -321,17 +359,24 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     expect((idCb.element as HTMLInputElement).checked).toBe(true);
     expect((idCb.element as HTMLInputElement).disabled).toBe(true);
 
-    // 編集不可項目（氏名4 / 購読開始日）→ チェックボックスを描画しない
+    // 編集不可項目（購読開始日）→ チェックボックスを描画しない
     // （購読種別は画面ラジオで指定する単一ソースのため列に無い）。
+    const kaishi = wrapper.find(
+      'input[type="checkbox"][value="dokusya_kaishi_date"]',
+    );
+    expect(kaishi.exists()).toBe(false);
+
+    // 氏名4項目は更新可（顧客要件 2026-07・改姓等。SCR-011 編集画面と同じ扱い）→
+    // チェックボックスを描画し、選択できること。
     for (const col of [
       'shimei_sei',
       'shimei_mei',
       'shimei_kana_sei',
       'shimei_kana_mei',
-      'dokusya_kaishi_date',
     ]) {
       const cb = wrapper.find(`input[type="checkbox"][value="${col}"]`);
-      expect(cb.exists()).toBe(false);
+      expect(cb.exists()).toBe(true);
+      expect((cb.element as HTMLInputElement).disabled).toBe(false);
     }
 
     // 通常の編集可能列（email）→ enable（disable されない）

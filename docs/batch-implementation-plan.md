@@ -389,7 +389,7 @@ async run(): Promise<void> {
 
 **既存 stub の実装のみ**。フォルダ/エントリ/npm script は既に存在:
 - `apps/backend/src/modules/batch/dokusya-sync/dokusya-sync.service.ts` (`run()` が TODO)
-- `apps/backend/scripts/batch/dokusya-sync.ts` / npm `dokusya:sync`
+- `apps/backend/scripts/batch/dokusya-sync.ts` / npm `dokusya:sync:dev`
 
 ### やること
 - 電子版 MySQL `users` の差分 (`updated_at` 等) を `DenshibanDbService.withConnection()`
@@ -412,6 +412,12 @@ async run(): Promise<void> {
 "file:cleanup":    "ts-node -r tsconfig-paths/register scripts/batch/file-cleanup.ts",
 "log:cleanup":     "ts-node -r tsconfig-paths/register scripts/batch/log-cleanup.ts"
 ```
+
+> **実装時の差異（本計画からの変更点）**: エントリは `scripts/batch/*.ts` ではなく
+> `src/batch/*.main.ts`（dist へコンパイルされる）に置いた。npm script 名も
+> `start:dev` / `start:prod` に合わせ **`<job>:dev`（ts-node）/ `<job>:prod`
+> （`node dist/…`）** の 2 本立てに統一している（接尾辞なしの名前は使わない）。
+> ECS のコマンド override は `:prod` を叩く。
 
 ### 2) `apps/backend/src/app.module.ts` の `imports:` に追加
 

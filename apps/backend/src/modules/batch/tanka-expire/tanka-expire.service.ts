@@ -21,7 +21,7 @@ import type { BatchJob } from '@/batch/batch-job.interface';
  * 手動フラグでもあるため、期限内でも手動 FALSE を尊重する）。
  *
  * スケジュール(0:05 JST)は agrinews-terraform の EventBridge ルールが持つ。
- * エントリ: src/batch/tanka-expire.main.ts（`npm run tanka:expire[:prod]`）。
+ * エントリ: src/batch/tanka-expire.main.ts（`npm run tanka:expire:{dev,prod}`）。
  */
 @Injectable()
 export class TankaExpireService implements BatchJob {

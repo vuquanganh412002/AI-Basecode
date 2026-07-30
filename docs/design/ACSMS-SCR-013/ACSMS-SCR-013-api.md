@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/15 | 1.0  | Nguyen Duyen Manh | 初版作成                                                                                                            | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/30 | 1.1  | Tran Duc Tuyen    | 画面設計書 v1.2 / index.html に整合。`t_dokusya_rireki` に存在しない `bank_code` / `bank_name` をレスポンスから削除し、`bank_branch_code` / `bank_branch_name` を論理名「引落元口座店舗コード／名」に改称（画面項目 No.40・41） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/17 | 1.2  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加・並べ替え）: レスポンスに `dokusya_shubetsu`（購読種別）・`tanka_id`/`tanka_name`/`tanka_kingaku`（新聞単価。金額は JA 税区分で解決）・`shiharai_hoho`（支払い方法）・`yubin_kubun`（郵送区分）・`dokusyaryo_shiharai_cycle`（購読料支払サイクル）・`biko`（備考）を追加。SELECT に `m_tanka` / `m_ja` を LEFT JOIN。列並び: 履歴番号→購読種別→手続種別、新聞単価は購読部数の前、初回購読開始日（旧「購読開始日」）→増部日→減部日、支払い方法/郵送区分/購読料サイクルは引落口座貯金種目の前、備考は最終データ列。増部日/減部日は部数の増減時のみ `dokusya_kaishi_date` を表示。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/07/30 | 1.3  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加）: レスポンスに `denshi_dokusya_shubetsu`（電子版読者種別）・`denshi_shonin_status`（電子申込承認ステータス）を追加し、一覧では 履歴番号 → 購読種別 → 電子版読者種別 → 電子申込承認ステータス → 手続種別 の順に表示する。どちらも `t_dokusya_rireki` の既存列で JOIN 追加は不要。紙版は両方 null。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -156,17 +157,19 @@ updated_by: Tran Duc Tuyen
 | 67  | →yubin_kubun                 | String  | -        |              |          | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                            |
 | 68  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数 1〜12、未設定は null）                                                                |
 | 69  | →biko                        | String  | -        |              |          | 備考（取消時は取消理由を記録・空文字許容）。一覧の最終データ列                                                 |
-| 70  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
-| 71  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
-| 72  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
-| 73  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
-| 74  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
+| 70  | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別 ※m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'を参照（0:無料, 1:有料）。紙版は電子版連携が無いため null。SCR-013 一覧の 購読種別 直後に表示 |
+| 71  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。m_code ではなく電子版連携の状態から導出。Web申込以外（紙版等）は null。SCR-013 一覧の 電子版読者種別 直後に表示 |
+| 72  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
+| 73  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
+| 74  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
+| 75  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
+| 76  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
 
 ※ `mail_magazine_flg` / `gender` / `tetsuzuki_shurui` / `dokusya_shubetsu` / `shiharai_hoho` / `yubin_kubun` / `hikiotoshi_yokin_shubetsu` はコード値のみ返却し、ラベルはFE側で `useCodesStore().label('CATEGORY', value)` から取得する（`.claude/rules/nestjs.md §Response serialization` 参照）。
 
 ※ 新聞単価金額(`tanka_kingaku`)は JA の税区分で BE 解決する（単価ドロップダウン・haitatsuryo と同一方式）。`tanka_name` と併せ、一覧では「単価名 + 半角スペース + 金額」で表示する。
 
-※ SCR-013 一覧の列並び（顧客要件 2026-07）: 履歴番号 → **購読種別** → 手続種別（購読種別の直後へ移動）→ … → **新聞単価**（購読部数の前）→ 購読部数 → … → 前回販売店名 → **初回購読開始日** → **増部日** → **減部日** → … → **支払い方法 / 郵送区分 / 購読料支払いサイクル**（引落口座貯金種目の前）→ 引落口座貯金種目 → … → **備考**（最終データ列）→ 操作。増部日/減部日は `dokusya_kaishi_date` を条件付き表示: 増部日は `dokusya_busu > zenkai_dokusya_busu` または `zenkai_dokusya_busu` が null のとき、減部日は `dokusya_busu < zenkai_dokusya_busu` または null のとき表示（それ以外は空欄）。
+※ SCR-013 一覧の列並び（顧客要件 2026-07）: 履歴番号 → **購読種別** → **電子版読者種別** → **電子申込承認ステータス** → 手続種別→ … → **新聞単価**（購読部数の前）→ 購読部数 → … → 前回販売店名 → **初回購読開始日** → **増部日** → **減部日** → … → **支払い方法 / 郵送区分 / 購読料支払いサイクル**（引落口座貯金種目の前）→ 引落口座貯金種目 → … → **備考**（最終データ列）→ 操作。増部日/減部日は `dokusya_kaishi_date` を条件付き表示: 増部日は `dokusya_busu > zenkai_dokusya_busu` または `zenkai_dokusya_busu` が null のとき、減部日は `dokusya_busu < zenkai_dokusya_busu` または null のとき表示（それ以外は空欄）。
 
 ## リクエスト例
 
@@ -205,6 +208,8 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
       "dokusyaso_bunrui": "一般,個人",
       "nogyosya_bunrui": "",
       "dokusya_shubetsu": 1,
+      "denshi_dokusya_shubetsu": null,
+      "denshi_shonin_status": null,
       "tanka_id": 1,
       "tanka_name": "新聞購読料",
       "tanka_kingaku": 3500,
@@ -390,7 +395,7 @@ SELECT
   r.shikuchoson, r.chome_banchi, r.tatemono_mei,
   r.renrakusaki_1, r.renrakusaki_2, r.email,
   r.mail_magazine_flg, r.birth_year, r.gender,
-  r.dokusya_shubetsu,
+  r.dokusya_shubetsu, r.denshi_dokusya_shubetsu, r.denshi_shonin_status,
   r.dokusyaso_bunrui, r.nogyosya_bunrui,
   r.tanka_id, t.tanka_name,
   /* 金額は JA の税区分で解決（zei_kubun=1 内税→税込、それ以外→税抜） */

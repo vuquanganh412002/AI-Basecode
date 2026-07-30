@@ -10,6 +10,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * カラム順序・型・NULL許容は docs/database/database-design.md §t_dokusya_rireki に従う。
  * 引落口座は支店レベル以下で管理するため、bank_code / bank_name は持たず
  * bank_branch_code / bank_branch_name のみ保持する。
+ *
+ * ※ 2026-07 追記: `dokusyaso_bunrui` / `nogyosya_bunrui` の COMMENT 文言のみ、
+ *   電子版と同じコード値を保存する仕様（顧客要件 2026-07）に合わせて後から更新した。
+ *   適用済み DB には別マイグレーションで反映済み（そのマイグレーションは適用完了後に
+ *   削除）。本ファイルの更新は新規構築 DB の COMMENT を実態に揃えるためのもので、
+ *   DDL（型・制約）は初版から変更していない。
  */
 export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
   name = 'CreateTDokusyaRireki1711900800017';
@@ -65,8 +71,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
         hikiotoshi_yokin_shubetsu INTEGER,                                  -- 引落口座貯金種目（1:普通, 2:当座）
         hikiotoshi_koza_no VARCHAR(10) NOT NULL DEFAULT '',                 -- 引落口座番号※空文字許容
         hikiotoshi_koza_meigi VARCHAR(50) NOT NULL DEFAULT '',              -- 引落口座名義※空文字許容
-        dokusyaso_bunrui VARCHAR(50) NOT NULL DEFAULT '',                   -- 購読者層分類（複数カンマ区切り）※空文字許容
-        nogyosya_bunrui VARCHAR(50) NOT NULL DEFAULT '',                    -- 農業者分類（複数カンマ区切り）※空文字許容
+        dokusyaso_bunrui VARCHAR(50) NOT NULL DEFAULT '',                   -- 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容
+        nogyosya_bunrui VARCHAR(50) NOT NULL DEFAULT '',                    -- 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容
         shoki_dokusya_kaishi_date DATE NOT NULL,                            -- 初回購読開始日（変更時も保持）
         dokusya_kaishi_date DATE NOT NULL,                                  -- 購読開始日
         dokusya_chushi_date DATE,                                           -- 購読中止日
@@ -155,8 +161,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.hikiotoshi_yokin_shubetsu IS '引落口座貯金種目（1:普通, 2:当座）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.hikiotoshi_koza_no IS '引落口座番号※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.hikiotoshi_koza_meigi IS '引落口座名義※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.dokusyaso_bunrui IS '購読者層分類（複数カンマ区切り）※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.nogyosya_bunrui IS '農業者分類（複数カンマ区切り）※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.dokusyaso_bunrui IS '購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.nogyosya_bunrui IS '農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.shoki_dokusya_kaishi_date IS '初回購読開始日（変更時も保持）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.dokusya_kaishi_date IS '購読開始日'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.dokusya_chushi_date IS '購読中止日'`);

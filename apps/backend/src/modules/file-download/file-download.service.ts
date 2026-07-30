@@ -61,6 +61,41 @@ function toIso(v: Dateish): string | null {
 }
 
 /**
+ * 中央会(CHUOKAI)の都道府県スコープ用コード。対象外ロール・未設定なら null。
+ *
+ * 中央会は「自JAのみ」ではなく **同一都道府県の全JA** のファイルを閲覧できる
+ * （顧客要件 2026-07）。突合は `m_account.todofuken_code` ⇔ `m_ja.todofuken_code`。
+ *
+ * 中央会に限定する理由: JA本店・JA管理支店も todofuken_code を持つが、DataScope は
+ * 従来どおり自JA（さらに支店）に閉じる必要がある。todofuken_code の有無だけで
+ * 判定すると、それらのロールまで県内全JAへ広がってしまう。
+ *
+ * デプロイ前に発行された既存セッションは本項目を持たない → null を返し、
+ * 呼び出し側は従来の自JAスコープにフォールバックする（安全側）。
+ */
+function chuokaiTodofukenCode(session: SessionPayload): string | null {
+  if (session.role_code !== RoleCode.CHUOKAI) return null;
+  const code = (session.todofuken_code ?? '').trim();
+  return code === '' ? null : code;
+}
+
+/**
+ * ログイン中のアカウントが自分で出力したファイルか。
+ *
+ * `created_by` は varchar(50) に account_id を文字列で保持する（一覧 SQL も
+ * `m_account.account_id::text = fd.created_by` で突合）。数値と文字列の比較に
+ * ならないよう両辺を trim 済み文字列に揃える。空・未設定は「本人でない」扱い。
+ */
+function isCreatedBySelf(
+  row: FileDownload,
+  session: SessionPayload,
+): boolean {
+  const createdBy = (row.createdBy ?? '').trim();
+  if (createdBy === '') return false;
+  return createdBy === String(session.account_id ?? '').trim();
+}
+
+/**
  * SCR-022 ファイルダウンロード画面サービス。データソースは `t_file_download`
  * (帳票各画面が生成時 INSERT。本画面は読取 + DL 専用)。DL 時は INSERT せず
  * `t_log`(log_type=4 / operation=DOWNLOAD)のみ記録。
@@ -98,16 +133,25 @@ export class FileDownloadService {
     };
     const orderColumn = SORT_COLUMN_MAP[sort_by] ?? 'fd.download_datetime';
 
-    // DataScope — NICHINO_* は全件、JA系ロールは ja_id-or-NULL に絞る。
+    // DataScope — NICHINO_* は全件、中央会は同一都道府県の全JA、他のJA系ロールは
+    // ja_id-or-NULL に絞る。全JA向けファイル(ja_id IS NULL)はどのロールでも可視。
     const role = session.role_code;
     const isNichino =
       role === RoleCode.NICHINO_ADMIN || role === RoleCode.NICHINO_STAFF;
     const managedJaIds: number[] =
       !isNichino && session.ja_id != null ? [Number(session.ja_id)] : [];
 
+    const wheres: string[] = [];
+    const queryParams: unknown[] = [];
+
     let scopeClause: string;
     if (isNichino) {
       scopeClause = 'TRUE';
+    } else if (chuokaiTodofukenCode(session) != null) {
+      // 中央会は自県内の全JAのファイルを閲覧できる（顧客要件 2026-07）。
+      // 実際にDLできるかは nichino_download_allowed_flg 次第（別チェック）。
+      queryParams.push(chuokaiTodofukenCode(session));
+      scopeClause = `(fd.ja_id IS NULL OR j.todofuken_code = $${queryParams.length})`;
     } else if (managedJaIds.length === 0) {
       scopeClause = '(fd.ja_id IS NULL)';
     } else {
@@ -116,8 +160,6 @@ export class FileDownloadService {
         .join(',')}))`;
     }
 
-    const wheres: string[] = [];
-    const queryParams: unknown[] = [];
     if (query.file_name != null) {
       queryParams.push(query.file_name);
       wheres.push(`fd.file_name ILIKE '%' || $${queryParams.length} || '%'`);
@@ -207,7 +249,7 @@ export class FileDownloadService {
   ): Promise<{ data: { preview_url: string; file_name: string } }> {
     const row = await this.repo.findOne({ where: { fileDownloadId } });
     if (!row) throw new NotFoundException('ファイル');
-    this.assertScope(row, session);
+    this.assertScope(row, session, await this.resolveAllowedJaIds(session));
     this.assertNichinoDownloadAllowed(row, session);
 
     const previewUrl = await this.storage.getSignedUrl(row.filePath);
@@ -222,7 +264,7 @@ export class FileDownloadService {
   ): Promise<DownloadResult> {
     const row = await this.repo.findOne({ where: { fileDownloadId } });
     if (!row) throw new NotFoundException('ファイル');
-    this.assertScope(row, session);
+    this.assertScope(row, session, await this.resolveAllowedJaIds(session));
     this.assertNichinoDownloadAllowed(row, session);
 
     // ストレージ取得はトランザクション外で先に行う（失敗時 t_log を残さない）。
@@ -279,11 +321,13 @@ export class FileDownloadService {
       where: { fileDownloadId: In(fileDownloadIds) },
     });
     const byId = new Map(rows.map((r) => [Number(r.fileDownloadId), r]));
+    // スコープ集合はループ前に1回だけ解決（行ごとに引くと N+1 になる）。
+    const allowedJaIds = await this.resolveAllowedJaIds(session);
     const ordered: FileDownload[] = [];
     for (const id of fileDownloadIds) {
       const row = byId.get(id);
       if (!row) throw new NotFoundException('ファイル');
-      this.assertScope(row, session);
+      this.assertScope(row, session, allowedJaIds);
       this.assertNichinoDownloadAllowed(row, session);
       ordered.push(row);
     }
@@ -339,22 +383,59 @@ export class FileDownloadService {
    * 単一行 DataScope チェック。NICHINO_* は全件許可。JA系は ja_id が NULL(全JA向け)
    * か自 JA のみ許可、他は存在秘匿のため 404。
    */
-  private assertScope(row: FileDownload, session: SessionPayload): void {
+  private assertScope(
+    row: FileDownload,
+    session: SessionPayload,
+    /** {@link resolveAllowedJaIds} の結果。null = 制限なし（NICHINO_*）。 */
+    allowedJaIds: Set<number> | null,
+  ): void {
+    if (allowedJaIds === null) return; // NICHINO_* は全件
+    if (row.jaId == null) return; // 全JA向けファイルは誰でも可
+    if (allowedJaIds.has(Number(row.jaId))) return;
+    throw new NotFoundException('ファイル');
+  }
+
+  /**
+   * このセッションが閲覧できる ja_id 集合。`null` は制限なし（NICHINO_*）。
+   *
+   * - NICHINO_ADMIN / NICHINO_STAFF … null（全件）
+   * - CHUOKAI かつ todofuken_code あり … 同一都道府県の全JA（顧客要件 2026-07）
+   * - その他のJA系ロール … 自JAのみ（従来どおり）
+   *
+   * 一覧の scopeClause と同じ規則をここでも表現する（一覧に出た行は個別 DL でも
+   * 通る、が不変条件）。呼び出しごとに1回だけ解決し、複数DLのループでは使い回して
+   * N+1 を避ける。ja_id が NULL の「全JA向け」ファイルは集合に関係なく可視。
+   */
+  private async resolveAllowedJaIds(
+    session: SessionPayload,
+  ): Promise<Set<number> | null> {
     const role = session.role_code;
     if (role === RoleCode.NICHINO_ADMIN || role === RoleCode.NICHINO_STAFF) {
-      return;
+      return null;
     }
-    if (row.jaId == null) return; // 全JA向けファイルは誰でも可
-    if (session.ja_id != null && Number(row.jaId) === Number(session.ja_id)) {
-      return;
+    const todofuken = chuokaiTodofukenCode(session);
+    if (todofuken != null) {
+      const rows: { ja_id: string }[] = await this.dataSource.query(
+        `SELECT ja_id FROM m_ja WHERE todofuken_code = $1 AND deleted_at IS NULL`,
+        [todofuken],
+      );
+      return new Set(rows.map((r) => Number(r.ja_id)));
     }
-    throw new NotFoundException('ファイル');
+    return session.ja_id != null ? new Set([Number(session.ja_id)]) : new Set();
   }
 
   /**
    * 日農DL許可チェック。対象ロールは nichino_download_allowed_flg=false のファイルを
    * DL/プレビュー不可（FE の行無効化と対のサーバ側強制＝実際の境界）。一覧表示行なので
    * 404 でなく 403。対象ロール（顧客要件）: 日農(NICHINO_ADMIN/STAFF) + 中央会(CHUOKAI)。
+   *
+   * ただし **自分が作成したファイルは常に DL 可**（顧客要件 2026-07）。本フラグは
+   * 「他組織（日農・中央会）に自組織のファイルを見せてよいか」を JA 側が決めるもので、
+   * 出力した本人まで締め出す意図はない。既定 FALSE のため、この例外が無いと
+   * 中央会が自分で出力した帳票をその場でダウンロードできない。
+   *
+   * 突合は t_file_download.created_by（account_id を varchar で保持。一覧 SQL の
+   * `m_account.account_id::text = fd.created_by` と同じ前提）。
    */
   private assertNichinoDownloadAllowed(
     row: FileDownload,
@@ -365,7 +446,9 @@ export class FileDownloadService {
       role === RoleCode.NICHINO_ADMIN ||
       role === RoleCode.NICHINO_STAFF ||
       role === RoleCode.CHUOKAI;
-    if (isDlRestrictedRole && row.nichinoDownloadAllowedFlg === false) {
+    if (!isDlRestrictedRole) return;
+    if (isCreatedBySelf(row, session)) return;
+    if (row.nichinoDownloadAllowedFlg === false) {
       throw new ForbiddenException(
         'このファイルは日農のダウンロードが許可されていません。',
       );

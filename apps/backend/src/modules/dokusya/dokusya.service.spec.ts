@@ -73,6 +73,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
   let codeService: any;
   let dataSource: any;
   let txManager: any;
+  /** 電子版 push ファサードの mock。SCR-014 購読中止の cancel push を検証する。 */
+  let denshiPush: { pushOnWrite: jest.Mock };
   // [layer4-fk-guard] JA that the FK-scope mocks report. Default 1 (matches
   // the ja_id:1 sessions / before rows used across these tests); the
   // body-ja_id-ignored test flips it to its session JA.
@@ -221,6 +223,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       })),
     };
 
+    denshiPush = { pushOnWrite: jest.fn().mockResolvedValue(undefined) };
+
     const accountFlags = new DokusyaAccountFlagService(accountRepo as any);
     const rireki = new DokusyaRirekiService();
     // rireki ヘルパは UI/取込 両方が共有する leaf service（step C）。import-service
@@ -267,7 +271,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       rireki,
       searchService,
       replaceService,
-      { pushOnWrite: jest.fn().mockResolvedValue(undefined) } as any,
+      denshiPush as any,
     );
   });
 
@@ -3075,15 +3079,21 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
   // API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop (購読停止・解約予約)
   // ════════════════════════════════════════════════════════════════════════
   describe('stop (購読停止・解約予約 — 一覧のポップアップから)', () => {
-    /** insertScheduledKaiyaku を spy（実 writer ロジックは writer.spec が網羅）。 */
-    function spyScheduledKaiyaku(): jest.SpyInstance {
+    /**
+     * insertScheduledKaiyaku を spy（実 writer ロジックは writer.spec が網羅）。
+     * `after` は本番では loadMaster が返す master 行そのもの。push 判定が
+     * `after.dokusyaShubetsu` を見るテストは afterOverride で種別を渡す。
+     */
+    function spyScheduledKaiyaku(
+      afterOverride: Record<string, unknown> = {},
+    ): jest.SpyInstance {
       return jest
         .spyOn(historyWriter, 'insertScheduledKaiyaku')
         .mockResolvedValue({
           dokusyaId: 100,
           insertedRirekiIds: [2],
           before: null as any,
-          after: { dokusyaId: 100 } as any,
+          after: { dokusyaId: 100, ...afterOverride } as any,
           denshiSync: false,
         });
     }
@@ -3120,6 +3130,117 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
             actor: '11',
           }),
         );
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    // 顧客要件 2026-07: 解約の電子版連携は到来日バッチではなく本操作（SCR-014
+    // 購読中止）が担う。push は tx 内で実行し、失敗したら予約履歴・master・監査ログ
+    // まとめてロールバックする（同期 Saga）。
+    it('電子版: 予約と同一 tx 内で cancel を push（cancel_ym=中止日のYYYYMM）', async () => {
+      const spy = spyScheduledKaiyaku({ dokusyaShubetsu: 2, denshiKaiinId: 555 });
+      try {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 2, // 電子版
+            seikyuKaishiMonth: '202604',
+            dokusyaKaishiDate: '2026-04-01',
+          }),
+        );
+        rirekiRepo.findOne.mockResolvedValue(null);
+        dokusyaQb.getRawOne.mockResolvedValue({});
+
+        await service.stop(
+          100,
+          { dokusya_chushi_date: '2030-07-31' },
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+
+        expect(denshiPush.pushOnWrite).toHaveBeenCalledTimes(1);
+        const [, params] = denshiPush.pushOnWrite.mock.calls[0];
+        expect(params).toEqual(
+          expect.objectContaining({
+            action: 'cancel',
+            source: 'UI',
+            cancelYm: '203007',
+          }),
+        );
+        // 予約日が未来でも即 push する（到来を待つと電子版側で課金が進むため）。
+        expect(params.immediateJohoDate).toBeUndefined();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    // 紙版で実際に push されないことは DenshibanPushService.isPushTarget が担保し、
+    // denshiban-push.service.spec の「非電子版（紙版）は対象外」が検証している。
+    // ここ（呼び出し側）は push 対象判定を持たず pushOnWrite へ委譲するのが契約
+    // なので、種別に関わらず同じ引数で委譲することだけを確認する。
+    // 呼び出し側で isDigitalOrBoth を先出しすると 3 条件（有効化 / 種別 /
+    // campaign 単価）のうち 1 つだけを各所に写した状態になり、条件追加時に
+    // 更新漏れが起きるため、あえて判定を持たせない。
+    it('紙版: 対象判定は持たず pushOnWrite へ委譲する（実際の除外は isPushTarget）', async () => {
+      const spy = spyScheduledKaiyaku({ dokusyaShubetsu: 1 });
+      try {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 1, // 紙版
+            dokusyaKaishiDate: '2026-04-01',
+          }),
+        );
+        rirekiRepo.findOne.mockResolvedValue(null);
+        dokusyaQb.getRawOne.mockResolvedValue({});
+
+        await service.stop(
+          100,
+          { dokusya_chushi_date: futureDate(30) },
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+
+        expect(denshiPush.pushOnWrite).toHaveBeenCalledTimes(1);
+        expect(denshiPush.pushOnWrite.mock.calls[0][1]).toEqual(
+          expect.objectContaining({ action: 'cancel', source: 'UI' }),
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('push 失敗時は throw して tx をロールバックする（予約は残さない）', async () => {
+      const spy = spyScheduledKaiyaku({ dokusyaShubetsu: 2, denshiKaiinId: 555 });
+      try {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 2,
+            seikyuKaishiMonth: '202604',
+            dokusyaKaishiDate: '2026-04-01',
+          }),
+        );
+        rirekiRepo.findOne.mockResolvedValue(null);
+        dokusyaQb.getRawOne.mockResolvedValue({});
+        denshiPush.pushOnWrite.mockRejectedValue(new Error('V15'));
+
+        await expect(
+          service.stop(
+            100,
+            { dokusya_chushi_date: '2030-07-31' },
+            buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toThrow('V15');
+
+        // tx コールバックが throw で抜ける = 予約行も master 更新も監査ログもロールバック。
+        // 失敗の記録は tx 外の logError が担う。
+        expect(auditLog.logError).toHaveBeenCalled();
       } finally {
         spy.mockRestore();
       }
@@ -3323,6 +3444,42 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           }),
         });
         expect(spy).not.toHaveBeenCalled();
+        // [push-guard] 併読を push しないのは pushUiIfDenshi の種別判定ではなく
+        // この read-only ガードの効果。pushUiIfDenshi が使う isDigitalOrBoth は
+        // 併読(3)も true を返すため、read-only を将来緩めると cancel push が
+        // 併読へも飛ぶ。併読は第3システム所有なので、その回帰をここで止める。
+        expect(denshiPush.pushOnWrite).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('電子版+クレカ(read-only)は 403 で停止を拒否し cancel も push しない', async () => {
+      const spy = spyScheduledKaiyaku();
+      try {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 2, // 電子版
+            shiharaiHoho: 6, // クレジットカード
+            seikyuKaishiMonth: '202604',
+          }),
+        );
+        await expect(
+          service.stop(
+            100,
+            { dokusya_chushi_date: '2030-07-31' },
+            buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            error_code: 'DOKUSYA_READ_ONLY',
+          }),
+        });
+        expect(spy).not.toHaveBeenCalled();
+        expect(denshiPush.pushOnWrite).not.toHaveBeenCalled();
       } finally {
         spy.mockRestore();
       }
@@ -7531,6 +7688,26 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       ).toBe(true);
     });
 
+    // 支店(shiten_code) は NEW モードでも必須ではない — api.md §4.1 で「NEW モードは
+    // 必須」と明記されているのは管理支店側だけで、t_dokusya.shiten_id は NULL 許容、
+    // SCR-011 の画面登録でも任意項目。取込だけ必須にすると画面から登録できる購読者が
+    // Excel からは登録できない不整合になる（回帰防止）。
+    it('should NOT require shiten_code on NEW import (blank 支店 imports with shiten_id=null)', async () => {
+      primeImport();
+
+      await service.importExcel(
+        buildImportBody({
+          rows: [buildImportRow({ shiten_code: '' })],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // 行エラーにならず applyChange まで到達し、shitenId は null で保存される。
+      const values = applyChangeInputs()[0].values;
+      expect(values.shitenId).toBeNull();
+    });
+
     it('should resolve kanri_shiten_code / shiten_code to their ids in the NEW applyChange values', async () => {
       // 取込みはコード入力 → 物理カラム kanri_shiten_id / shiten_id へ解決して
       // applyChange の values に載せる。
@@ -7611,6 +7788,139 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           baseReq,
         ),
       ).rejects.toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+    });
+
+    // 氏名4列は UPDATE で変更可（顧客要件 2026-07・改姓等）。SCR-011 の編集画面は
+    // 既に氏名変更を許可しており、取込だけ不可だと同じ改姓が画面からはできて
+    // Excel からはできない不整合になる。紙版・電子版とも同じ扱い（回帰防止）。
+    it('should update the 4 氏名 columns on UPDATE import (no longer pinned)', async () => {
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 7001,
+            kumiaiin_code: 'K00001',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+            dokusya_shubetsu: 1,
+          },
+        ],
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE',
+          dokusya_shubetsu: 1,
+          selected_columns: [
+            'dokusya_id',
+            'shimei_sei',
+            'shimei_mei',
+            'shimei_kana_sei',
+            'shimei_kana_mei',
+          ],
+          rows: [
+            buildImportRow({
+              dokusya_id: 7001,
+              shimei_sei: '佐藤',
+              shimei_mei: '花子',
+              shimei_kana_sei: 'さとう',
+              shimei_kana_mei: 'はなこ',
+              joho_henko_tekiyo_date: todayIsoJst(),
+            }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      const values = applyChangeInputs()[0].values;
+      expect(values.shimeiSei).toBe('佐藤');
+      expect(values.shimeiMei).toBe('花子');
+      expect(values.shimeiKanaSei).toBe('さとう');
+      expect(values.shimeiKanaMei).toBe('はなこ');
+    });
+
+    // 電子版は即時連携で適用日が当日固定（未来日は collectDigitalTodayModeViolation が
+    // 弾く）。入力させる意味が無いので UPDATE × 電子版 では必須にせず、空欄なら当日を
+    // 自動採用する（FE も列をグレーアウト）。顧客要件 2026-07（回帰防止）。
+    it('should NOT require joho_henko_tekiyo_date on UPDATE when the batch is 電子版 (falls back to today)', async () => {
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 7001,
+            kumiaiin_code: 'K00001',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+            dokusya_shubetsu: 2, // 電子版
+            dokusya_kaishi_date: '2026-01-01',
+          },
+        ],
+      });
+
+      await service.importExcel(
+        buildImportBody({
+          import_mode: 'UPDATE',
+          dokusya_shubetsu: 2, // 画面ラジオ = 電子版
+          selected_columns: ['dokusya_id', 'biko'],
+          rows: [
+            buildImportRow({
+              dokusya_id: 7001,
+              biko: 'メモ更新',
+              joho_henko_tekiyo_date: '', // 空欄でもエラーにならない
+            }),
+          ],
+        }),
+        buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // 空欄 → 当日(JST)で applyChange が呼ばれる。
+      expect(applyChangeInputs()[0].johoDate).toBe(todayIsoJst());
+    });
+
+    // 紙版は帳票影響項目の変更で予約変更（未来日）が要る運用のため必須のまま。
+    it('should still require joho_henko_tekiyo_date on UPDATE when the batch is 紙版', async () => {
+      primeImport({
+        existing: [
+          {
+            dokusya_id: 7001,
+            kumiaiin_code: 'K00001',
+            ja_id: 1,
+            kanri_shiten_id: 101,
+            dokusya_shubetsu: 1, // 紙版
+          },
+        ],
+      });
+
+      let caught: any;
+      try {
+        await service.importExcel(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 1,
+            selected_columns: ['dokusya_id', 'biko'],
+            rows: [
+              buildImportRow({
+                dokusya_id: 7001,
+                biko: 'メモ更新',
+                joho_henko_tekiyo_date: '',
+              }),
+            ],
+          }),
+          buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+      const body = caught?.response ?? caught?.getResponse?.() ?? caught;
+      const errors = body?.errors ?? caught?.errors ?? [];
+      expect(
+        errors.some(
+          (e: Record<string, unknown>) =>
+            e.field === 'joho_henko_tekiyo_date',
+        ),
+      ).toBe(true);
     });
 
     it('should throw IMPORT_VALIDATION_ERROR with field=kumiaiin_code when a 一括中止 row references an unknown kumiaiin_code', async () => {

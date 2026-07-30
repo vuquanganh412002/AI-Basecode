@@ -4,7 +4,7 @@
  *
  * 0:05(JST) に agrinews-terraform の EventBridge ルール → ECS RunTask が起動。
  * Invoke:
- *   dev : npm run tanka:expire
+ *   dev : npm run tanka:expire:dev
  *   prod: npm run tanka:expire:prod   (node dist/batch/tanka-expire.main.js)
  *
  * 定型処理（application context の起動・サービス解決・exit code）は runBatch()

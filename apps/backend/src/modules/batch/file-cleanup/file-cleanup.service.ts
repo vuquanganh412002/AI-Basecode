@@ -53,7 +53,7 @@ interface PurgeConfig {
  *   deleted_at IS NULL（未削除）のみ対象。冪等。
  *
  * スケジュール(深夜想定)は agrinews-terraform の EventBridge ルールが持つ。
- * エントリ: src/batch/file-cleanup.main.ts（`npm run file:cleanup[:prod]`）。
+ * エントリ: src/batch/file-cleanup.main.ts（`npm run file:cleanup:{dev,prod}`）。
  */
 @Injectable()
 export class FileCleanupService implements BatchJob {

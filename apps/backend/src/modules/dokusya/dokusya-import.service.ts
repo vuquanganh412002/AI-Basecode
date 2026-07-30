@@ -31,7 +31,6 @@ import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
 import { DokusyaImportValidator } from './dokusya-import-validator.service';
 import { applyChange } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
-import { isDigitalOrBoth } from './dokusya-shubetsu.rules';
 
 /** SCR-016 — 監査コンテキストの画面名ラベル。 */
 const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)';
@@ -196,16 +195,18 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
 const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレート.xlsx';
 
 /**
- * SCR-016 — 更新モードで編集不可の物理カラム。購読種別・氏名(4列)・購読開始日は
- * 登録時のみ設定可、更新では既存値維持（SCR-011 編集画面の pin と同ルール）。
+ * SCR-016 — 更新モードで編集不可の物理カラム。購読種別・購読開始日は登録時のみ
+ * 設定可、更新では既存値維持（SCR-011 編集画面の pin と同ルール）。
  * FE は更新モードで未チェック＋disable、BE は selected_columns から除外。
+ *
+ * 氏名4列（shimei_sei / shimei_mei / shimei_kana_sei / shimei_kana_mei）は
+ * **更新可**（顧客要件 2026-07）。SCR-011 の編集画面が既に氏名の変更を許可して
+ * おり（UpdateDokusyaDto は CreateDokusyaDto の必須+書式検証をそのまま継承）、
+ * 取込だけ不可だと同じ改姓を画面からはできて Excel からはできない不整合になる。
+ * 紙版・電子版のどちらでも同じ扱い。
  */
 const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_shubetsu',
-  'shimei_sei',
-  'shimei_mei',
-  'shimei_kana_sei',
-  'shimei_kana_mei',
   'dokusya_kaishi_date',
 ]);
 
@@ -847,6 +848,11 @@ export class DokusyaImportService {
         optionalFk: true,
       },
       kumiaiin_code: { field: 'kumiaiinCode', value: str_('kumiaiin_code') },
+      // 氏名4列は更新可（顧客要件 2026-07・改姓等。SCR-011 編集画面と同じ扱い）。
+      shimei_sei: { field: 'shimeiSei', value: str_('shimei_sei') },
+      shimei_mei: { field: 'shimeiMei', value: str_('shimei_mei') },
+      shimei_kana_sei: { field: 'shimeiKanaSei', value: str_('shimei_kana_sei') },
+      shimei_kana_mei: { field: 'shimeiKanaMei', value: str_('shimei_kana_mei') },
       dokusya_busu: { field: 'dokusyaBusu', value: () => Number(row.dokusya_busu ?? 0) },
       yubin_no: { field: 'yubinNo', value: str_('yubin_no') },
       todofuken_code: { field: 'todofukenCode', value: str_('todofuken_code') },
@@ -972,17 +978,19 @@ export class DokusyaImportService {
         source: 'IMPORT',
         actor: updatedBy,
       });
-      // cloud → 電子版 push（新規会員）。紙版は呼ばない。同期 Saga。取込は全行を1 tx
-      // で包むため push 失敗時は取込全体がロールバック（cloud 側は整合）。ただし同一取込
-      // で先行行が電子版へ create 済みなら電子版側に孤児が残りうる → per-record atomic 化
+      // cloud → 電子版 push（新規会員）。同期 Saga。取込は全行を1 tx で包むため
+      // push 失敗時は取込全体がロールバック（cloud 側は整合）。ただし同一取込で
+      // 先行行が電子版へ create 済みなら電子版側に孤児が残りうる → per-record atomic 化
       // と孤児 reconcile は follow-up・§4.4/§6。
-      if (isDigitalOrBoth(createResult.after.dokusyaShubetsu)) {
-        await this.denshiPush.pushOnWrite(manager, {
-          action: 'create',
-          after: createResult.after,
-          source: 'IMPORT',
-        });
-      }
+      //
+      // 対象判定（push 有効化 / 電子版・併読か / campaign 単価か）は pushOnWrite 内の
+      // isPushTarget に一本化。呼び出し側で種別を先出しチェックしない（3条件の1つだけを
+      // 各所に写すと条件追加時に更新漏れが起きる）。非対象は no-op で返る。
+      await this.denshiPush.pushOnWrite(manager, {
+        action: 'create',
+        after: createResult.after,
+        source: 'IMPORT',
+      });
       // 履歴は applyChange が書いたので writeRirekiSnapshot はスキップ。
       // updated_by は values に載せているので ensureMaster の INSERT で確定済み。
       return;
@@ -1010,16 +1018,14 @@ export class DokusyaImportService {
     // updated_by は rireki に無い列で recompute 対象外 → master へ明示スタンプ。
     await manager.update(Dokusya, { dokusyaId }, { updatedBy });
 
-    // cloud → 電子版 push（情報変更）。紙版は push を呼ばない。当日適用のみ即 push
-    // （未来適用の併読予約は到来日に recompute バッチが反映）。UI update と同一方針。
-    if (isDigitalOrBoth(updateResult.after.dokusyaShubetsu)) {
-      await this.denshiPush.pushOnWrite(manager, {
-        action: 'update',
-        after: updateResult.after,
-        source: 'IMPORT',
-        immediateJohoDate: updateJoho,
-      });
-    }
+    // cloud → 電子版 push（情報変更）。当日適用のみ即 push。UI update と同一方針。
+    // 対象判定は pushOnWrite 内の isPushTarget に一本化（上の create と同じ理由）。
+    await this.denshiPush.pushOnWrite(manager, {
+      action: 'update',
+      after: updateResult.after,
+      source: 'IMPORT',
+      immediateJohoDate: updateJoho,
+    });
   }
 
 }

@@ -16,6 +16,16 @@ export interface SessionPayload {
    * DataScope を支店単位まで絞り込み、帳票5画面の使用が禁止される。
    */
   shiten_id: number | null;
+  /**
+   * 都道府県コード（`m_account.todofuken_code`。中央会・JA本店・JA管理支店で必須）。
+   * 中央会(CHUOKAI)のファイルダウンロード画面 DataScope を「自JAのみ」から
+   * 「同一都道府県の全JA」へ広げるのに使う（顧客要件 2026-07）。
+   *
+   * デプロイ前に発行された Redis 上の既存セッションには本項目が**存在しない**ため
+   * optional。型を必須にすると実行時の実態と食い違う。読み取り側は未設定を
+   * 「都道府県スコープ無し＝従来どおり自JAのみ」として扱うこと（安全側）。
+   */
+  todofuken_code?: string | null;
   permissions: string[];
   created_at: string;      // ISO-8601
   last_activity_at: string; // ISO-8601 — 成功リクエストごとに更新

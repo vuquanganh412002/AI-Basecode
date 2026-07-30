@@ -123,6 +123,23 @@ ACSMS-SCR-013_購読者履歴情報画面_画面イメージ
 | 42 | 引落口座番号 | hikiotoshi_koza_no | ラベル | 出力 | - | VARCHAR | - | 10 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | 引落口座番号 | hikiotoshi_koza_no | 常時表示 | - |  |
 | 43 | 引落口座名義 | hikiotoshi_koza_meigi | ラベル | 出力 | - | VARCHAR | - | 50 | 右 | - | 読者履歴テーブル | t_dokusya_rireki | 引落口座名義 | hikiotoshi_koza_meigi | 常時表示 | - |  |
 
+> **顧客要件 2026-07 による列追加・並べ替え（本表 No.1〜43 に未反映）**
+>
+> 上表は v1.2 時点の項目定義。以降の顧客要件で追加した列と並び順は
+> [ACSMS-SCR-013-api.md](./ACSMS-SCR-013-api.md) §レスポンスデータ末尾の
+> 「SCR-013 一覧の列並び」注記が正典。No. の全面採番し直しを避けるため本表には
+> 追記していない。追加列は以下:
+>
+> - 2026/07/17（api.md v1.2）: 購読種別 `dokusya_shubetsu`、新聞単価
+>   `tanka_id` / `tanka_name` / `tanka_kingaku`、支払い方法 `shiharai_hoho`、
+>   郵送区分 `yubin_kubun`、購読料支払サイクル `dokusyaryo_shiharai_cycle`、
+>   備考 `biko`
+> - 2026/07/30（api.md v1.3）: 電子版読者種別 `denshi_dokusya_shubetsu`、
+>   電子申込承認ステータス `denshi_shonin_status`
+>
+> 現在の列順（履歴番号以降の先頭部）:
+> 履歴番号 → 購読種別 → **電子版読者種別** → **電子申込承認ステータス** → 手続種別 → …
+
 ### アクションボタン
 
 | No | 項目名 | 項目ID | 項目タイプ | 入力/出力 | 必須 | 入力データ型 | 最小桁数 | 最大桁数 | 文字揃え | フォーマット | テーブル名（論理名） | テーブル名（物理名） | カラム名（論理名） | カラム名（物理名） | 表示条件 | デフォルト値 | 備考 |

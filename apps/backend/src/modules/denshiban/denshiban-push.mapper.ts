@@ -21,8 +21,8 @@ import type { Dokusya } from '@/database/entities/dokusya.entity';
 //
 // `dokusyaso_bunrui` / `nogyosya_bunrui` は**電子版と同じコード値**で保存する
 // （画面・pull バッチ・Excel 取込のいずれもコード。顧客要件 2026-07。日本語
-// ラベルを保存していた旧データはマイグレーション
-// 1784100000000-NormalizeDokusyaBunruiCodes でコードへ変換済み）。
+// ラベルを保存していた旧データは一括変換済み — 変換用マイグレーションは適用
+// 完了後に削除した）。
 // よって変換は identity だが、未知値を落とすフィルタとして表を残す — 電子版が
 // 受理しないコードをそのまま送ると create/update が V29 で弾かれるため。
 //
@@ -181,7 +181,12 @@ export function toUnapprovePayload(
   return toApprovePayload(jacdExecute, denshiKaiinId);
 }
 
-/** cancel パラメータ（解約）。cancel_ym は YYYYMM（解約対象月）。 */
+/**
+ * cancel パラメータ（解約）。cancel_ym は YYYYMM（解約対象月）。
+ *
+ * 発行元は SCR-014 購読者明細検索の「購読中止」（`DokusyaService.stop`）。
+ * 到来日バッチからは push しない（顧客要件 2026-07 でバッチは自社クラウド内完結）。
+ */
 export function toCancelPayload(
   jacdExecute: string,
   denshiKaiinId: number,
@@ -194,3 +199,4 @@ export function toCancelPayload(
     cancel_ym: cancelYm,
   };
 }
+

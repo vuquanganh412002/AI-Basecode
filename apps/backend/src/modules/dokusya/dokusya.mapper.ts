@@ -336,6 +336,17 @@ export interface DokusyaRirekiListItem {
   rireki_no: number;
   /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧。*/
   dokusya_shubetsu: number;
+  /**
+   * m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'（0:無料, 1:有料）。
+   * 紙版は電子版連携が無いため null。SCR-013 一覧（顧客要件 2026-07）。
+   */
+  denshi_dokusya_shubetsu: number | null;
+  /**
+   * 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。m_code ではなく
+   * 電子版連携で決まる値で、Web申込以外（紙版等）は null。
+   * SCR-013 一覧（顧客要件 2026-07）。
+   */
+  denshi_shonin_status: number | null;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
@@ -471,6 +482,12 @@ export function toDokusyaRirekiListItem(
     dokusya_id: coerceNumber(row.dokusya_id as number | string),
     rireki_no: coerceNumber(row.rireki_no as number | string),
     dokusya_shubetsu: coerceNumber(row.dokusya_shubetsu as number | string),
+    denshi_dokusya_shubetsu: coerceNullableNumber(
+      row.denshi_dokusya_shubetsu as RawScalarNullable,
+    ),
+    denshi_shonin_status: coerceNullableNumber(
+      row.denshi_shonin_status as RawScalarNullable,
+    ),
     ja_id: coerceNumber(row.ja_id as number | string),
     kanri_shiten_id: coerceNullableNumber(
       row.kanri_shiten_id as RawScalarNullable,

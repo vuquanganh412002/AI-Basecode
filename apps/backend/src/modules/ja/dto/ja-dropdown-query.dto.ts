@@ -53,4 +53,30 @@ export class JaDropdownQueryDto extends BaseDropdownQueryDto {
   @IsInt({ message: 'role_idは整数で指定してください。' })
   @Min(1, { message: 'role_idは1以上で指定してください。' })
   role_id?: number;
+
+  /**
+   * DataScope の適用範囲（既定 `own` = 自組織階層のみ）。
+   *
+   * `todofuken` を指定すると **中央会(CHUOKAI)に限り** 自JAではなく
+   * 「自セッションの都道府県に属する全JA」を候補にする。SCR-022 ファイル
+   * ダウンロード画面の JA 絞り込み専用（顧客要件 2026-07 で同画面の DataScope が
+   * 同一都道府県へ拡大したため、絞り込み候補も揃える必要がある）。
+   *
+   * **拡大先の都道府県はクライアントではなくセッションの `todofuken_code` から
+   * 決まる**。よって本パラメータでできるのは「自県のJA一覧を見る」ことだけで、
+   * 他県を覗くことはできない。中央会以外のロールでは無視される（素通りで従来の
+   * 自組織スコープ）。
+   */
+  @ApiPropertyOptional({
+    description:
+      'DataScope 範囲。todofuken 指定時は中央会のみ自都道府県の全JAを候補にする（SCR-022 専用）',
+    enum: ['own', 'todofuken'],
+    default: 'own',
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsIn(['own', 'todofuken'], {
+    message: 'scopeは"own"または"todofuken"で指定してください。',
+  })
+  scope?: 'own' | 'todofuken';
 }

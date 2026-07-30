@@ -1,5 +1,4 @@
 import { DataSource } from 'typeorm';
-import { DokusyaShubetsu } from '@/common/enums/dokusya-shubetsu.enum';
 import { recomputeMaster } from '@/modules/dokusya/dokusya-history.writer';
 import { DokusyaRecomputeService } from './dokusya-recompute.service';
 
@@ -13,34 +12,25 @@ describe('DokusyaRecomputeService', () => {
   let service: DokusyaRecomputeService;
   let db: { query: jest.Mock; transaction: jest.Mock };
   let managerMock: { findOne: jest.Mock };
-  let denshiPush: { pushOnBatch: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockRecomputeMaster.mockResolvedValue(undefined);
     managerMock = { findOne: jest.fn().mockResolvedValue(null) };
-    // run() は最初に collectDuePushTargets の SELECT を1回投げ、続いて chunk SELECT
-    // を回す。既定は全て [] を返す（push 対象なし・購読者なし）。
+    // 外部連携を廃止したので run() が投げる SELECT は chunk のみ（顧客要件 2026-07）。
     db = {
       query: jest.fn().mockResolvedValue([]),
       transaction: jest.fn((cb: (m: unknown) => unknown) => cb(managerMock)),
     };
-    denshiPush = { pushOnBatch: jest.fn().mockResolvedValue(undefined) };
-    service = new DokusyaRecomputeService(
-      db as unknown as DataSource,
-      denshiPush as never,
-    );
+    service = new DokusyaRecomputeService(db as unknown as DataSource);
   });
 
   it('should recompute every non-deleted subscriber in a transaction, asOf=today', async () => {
-    db.query
-      .mockResolvedValueOnce([]) // collectDuePushTargets
-      .mockResolvedValueOnce([{ dokusya_id: '4' }, { dokusya_id: '9' }]); // chunk
+    db.query.mockResolvedValueOnce([{ dokusya_id: '4' }, { dokusya_id: '9' }]);
 
     await service.run();
 
-    // chunk SELECT は2回目の query 呼び出し。
-    const [sql] = db.query.mock.calls[1] as [string];
+    const [sql] = db.query.mock.calls[0] as [string];
     expect(sql).toContain('deleted_at IS NULL');
     expect(sql).toContain('dokusya_id > $1');
     expect(mockRecomputeMaster).toHaveBeenCalledWith(
@@ -56,23 +46,19 @@ describe('DokusyaRecomputeService', () => {
       dokusya_id: String(i + 1),
     }));
     db.query
-      .mockResolvedValueOnce([]) // collectDuePushTargets
       .mockResolvedValueOnce(fullChunk)
       .mockResolvedValueOnce([{ dokusya_id: '501' }]);
 
     await service.run();
 
-    // 1(候補) + 2(chunk) = 3 回。
-    expect(db.query).toHaveBeenCalledTimes(3);
+    expect(db.query).toHaveBeenCalledTimes(2);
     expect(mockRecomputeMaster).toHaveBeenCalledTimes(501);
-    // 2番目の chunk のカーソル = 1番目末尾の id(500)。chunk は calls[1], calls[2]。
-    expect(db.query.mock.calls[2][1]).toEqual([500]);
+    // 2番目の chunk のカーソル = 1番目末尾の id(500)。
+    expect(db.query.mock.calls[1][1]).toEqual([500]);
   });
 
   it('should continue with the rest when one subscriber fails (per-row isolation)', async () => {
-    db.query
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ dokusya_id: '1' }, { dokusya_id: '2' }]);
+    db.query.mockResolvedValueOnce([{ dokusya_id: '1' }, { dokusya_id: '2' }]);
     mockRecomputeMaster.mockImplementation((_m: unknown, id: number) =>
       id === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(undefined),
     );
@@ -89,34 +75,19 @@ describe('DokusyaRecomputeService', () => {
     expect(mockRecomputeMaster).not.toHaveBeenCalled();
   });
 
-  it('到来した予約情報変更の購読者だけ update を push する', async () => {
-    db.query
-      .mockResolvedValueOnce([{ dokusya_id: '9' }]) // collectDuePushTargets → {9}
-      .mockResolvedValueOnce([{ dokusya_id: '4' }, { dokusya_id: '9' }]); // chunk
-    managerMock.findOne.mockResolvedValue({
-      dokusyaId: 9,
-      dokusyaShubetsu: DokusyaShubetsu.DIGITAL,
-    });
+  // 顧客要件 2026-07: 本バッチは自社クラウド内で完結し、電子版へは push しない。
+  // 以前は「本日 effective 化する予約情報変更」の候補集合を先に SELECT して
+  // recompute 後に update を push していたが、その候補は当日中なら何度でも同じ
+  // ものが返るため、同日に2回流すと同じ update を2回送っていた（回帰防止）。
+  it('外部連携（push）を行わず、候補抽出クエリも投げない', async () => {
+    db.query.mockResolvedValueOnce([{ dokusya_id: '9' }]);
 
     await service.run();
 
-    // 4 は候補外 → push されない。9 のみ update を pushOnBatch（対象判定はファサード内）。
-    expect(denshiPush.pushOnBatch).toHaveBeenCalledTimes(1);
-    expect(denshiPush.pushOnBatch).toHaveBeenCalledWith(managerMock, {
-      action: 'update',
-      after: expect.objectContaining({ dokusyaId: 9 }),
-    });
-  });
-
-  it('候補クエリは 電子版/併読・joho=当日・非解約・予約(created<当日) で絞る', async () => {
-    db.query.mockResolvedValue([]);
-
-    await service.run();
-
+    // 投げる SELECT は chunk のみ。push 用の master 参照も無い。
     const [sql] = db.query.mock.calls[0] as [string];
-    expect(sql).toContain('d.dokusya_shubetsu IN ($1, $2)');
-    expect(sql).toContain('r.joho_henko_tekiyo_date = $3');
-    expect(sql).toContain('r.kaiyaku_flg = false');
-    expect(sql).toContain('r.created_at::date < $3::date');
+    expect(sql).toContain('dokusya_id > $1');
+    expect(sql).not.toContain('t_dokusya_rireki');
+    expect(managerMock.findOne).not.toHaveBeenCalled();
   });
 });

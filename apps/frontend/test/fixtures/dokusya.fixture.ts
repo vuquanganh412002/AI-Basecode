@@ -375,6 +375,8 @@ export interface DokusyaRirekiRow {
   dokusya_id: number;
   rireki_no: number;
   dokusya_shubetsu: number;
+  denshi_dokusya_shubetsu: number | null;
+  denshi_shonin_status: number | null;
   ja_id: number;
   kanri_shiten_id: number | null;
   kanri_shiten_name: string | null;
@@ -456,6 +458,9 @@ export function buildDokusyaRirekiRow(
     dokusya_id: 100,
     rireki_no: 3,
     dokusya_shubetsu: 1,
+    // 既定は紙版なので電子版連携の 2 列は null（SCR-013 一覧）。
+    denshi_dokusya_shubetsu: null,
+    denshi_shonin_status: null,
     ja_id: 1,
     kanri_shiten_id: 5,
     kanri_shiten_name: '東京中央管理支店',
@@ -665,6 +670,10 @@ export function buildCodesSeed(): Record<
     TETSUZUKI_SHURUI: [
       { value: 0, label: '解約', label_short: '解約' },
       { value: 1, label: '新規', label_short: '新規' },
+    ],
+    DENSHI_DOKUSYA_SHUBETSU: [
+      { value: 0, label: '無料', label_short: '無料' },
+      { value: 1, label: '有料', label_short: '有料' },
     ],
     SHIHARAI_HOHO: [
       { value: 1, label: '口座引落', label_short: '口座引落' },

@@ -14,7 +14,6 @@ describe('DokusyaKaiyakuService', () => {
   let service: DokusyaKaiyakuService;
   let db: { query: jest.Mock; transaction: jest.Mock };
   let managerMock: { findOne: jest.Mock };
-  let denshiPush: { pushOnBatch: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -25,11 +24,7 @@ describe('DokusyaKaiyakuService', () => {
       // transaction(cb) は cb(manager) を実行してその結果(promise)を返す。
       transaction: jest.fn((cb: (m: unknown) => unknown) => cb(managerMock)),
     };
-    denshiPush = { pushOnBatch: jest.fn().mockResolvedValue(undefined) };
-    service = new DokusyaKaiyakuService(
-      db as unknown as DataSource,
-      denshiPush as never,
-    );
+    service = new DokusyaKaiyakuService(db as unknown as DataSource);
   });
 
   it('should extract paper(<=today) + digital(<=yesterday, non credit-card), excluding 併読', async () => {
@@ -83,7 +78,11 @@ describe('DokusyaKaiyakuService', () => {
     expect(mockInsertKaiyaku).not.toHaveBeenCalled();
   });
 
-  it('解約確定後、cancel を pushOnBatch（cancel_ym=中止日のYYYYMM。対象判定はファサード内）', async () => {
+  // 顧客要件 2026-07: 本バッチは自社クラウド内で完結し、電子版へは push しない。
+  // 以前は解約確定後に cancel を push していたが、抽出条件（master の中止日）は
+  // 解約後も真のままで push が insertKaiyaku の結果と無関係だったため、解約済みの
+  // 購読者へ毎晩 cancel を送り続けていた（回帰防止）。
+  it('電子版の行でも外部連携（push）を一切行わない', async () => {
     db.query.mockResolvedValue([{ dokusya_id: '4' }]);
     managerMock.findOne.mockResolvedValue({
       dokusyaId: 4,
@@ -93,19 +92,25 @@ describe('DokusyaKaiyakuService', () => {
 
     await service.run();
 
-    expect(denshiPush.pushOnBatch).toHaveBeenCalledWith(managerMock, {
-      action: 'cancel',
-      after: expect.objectContaining({ dokusyaId: 4 }),
-      cancelYm: '202608',
-    });
+    // master 参照そのものが不要になった（push 用の findOne が消えた）。
+    expect(managerMock.findOne).not.toHaveBeenCalled();
+    expect(mockInsertKaiyaku).toHaveBeenCalledWith(managerMock, 4, expect.any(String));
   });
 
-  it('master が見つからなければ pushOnBatch を呼ばない', async () => {
+  // 外部呼び出しが無くなったので、同日に2回流しても DB 書込みは insertKaiyaku の
+  // 冪等ガード任せで副作用ゼロ。行あたり1回ずつ呼ばれるだけであること。
+  it('同日に2回実行しても行あたり insertKaiyaku 1回・外部呼び出し無し', async () => {
     db.query.mockResolvedValue([{ dokusya_id: '4' }]);
-    managerMock.findOne.mockResolvedValue(null);
+    managerMock.findOne.mockResolvedValue({
+      dokusyaId: 4,
+      dokusyaShubetsu: DokusyaShubetsu.DIGITAL,
+      dokusyaChushiDate: '2026-08-31',
+    });
 
     await service.run();
+    await service.run();
 
-    expect(denshiPush.pushOnBatch).not.toHaveBeenCalled();
+    expect(mockInsertKaiyaku).toHaveBeenCalledTimes(2); // 2実行 × 1行
+    expect(managerMock.findOne).not.toHaveBeenCalled();
   });
 });

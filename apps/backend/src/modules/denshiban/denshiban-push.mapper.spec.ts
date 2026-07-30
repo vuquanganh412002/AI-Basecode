@@ -3,7 +3,6 @@ import { DokusyaShubetsu } from '@/common/enums';
 
 import {
   toApprovePayload,
-  toCancelPayload,
   toCreatePayload,
   toUnapprovePayload,
   toUpdatePayload,
@@ -119,7 +118,7 @@ describe('denshiban-push.mapper', () => {
 
     /**
      * 分類は画面・pull バッチ・Excel 取込のいずれも**電子版と同じコード**で保存する
-     * （顧客要件 2026-07。旧ラベルデータは 1784100000000 マイグレーションで変換済み）。
+     * （顧客要件 2026-07。旧ラベルデータは一括変換済み）。
      * 未知値は落として 999(その他) にフォールバックし、電子版の V29 を避ける。
      */
     describe('分類コードの変換', () => {
@@ -181,17 +180,6 @@ describe('denshiban-push.mapper', () => {
       const approve = toApprovePayload('1301002001', 555);
       expect(approve).toEqual({ jacd_execute: '1301002001', id: '555', payment_start: '0' });
       expect(toUnapprovePayload('1301002001', 555)).toEqual(approve);
-    });
-  });
-
-  describe('toCancelPayload', () => {
-    it('id + notify_flg + cancel_ym を含む', () => {
-      expect(toCancelPayload('1301002001', 555, '202607')).toEqual({
-        jacd_execute: '1301002001',
-        id: '555',
-        notify_flg: '0',
-        cancel_ym: '202607',
-      });
     });
   });
 

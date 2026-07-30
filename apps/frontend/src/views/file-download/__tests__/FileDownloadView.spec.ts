@@ -262,9 +262,9 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
     );
   });
 
-  it('should pre-select own JA and disable the JA dropdown for JA-scoped roles (CHUOKAI)', async () => {
+  it('should pre-select own JA and disable the JA dropdown for JA-fixed roles (JA_HONTEN)', async () => {
     const { wrapper } = await renderView({
-      user: buildFileDownloadUser({ role_code: 'CHUOKAI', ja_id: 5 }),
+      user: buildFileDownloadUser({ role_code: 'JA_HONTEN', ja_id: 5 }),
     });
     const vm = wrapper.vm as any;
     // 自JA がプリセットされる（情報提供のみ）。
@@ -273,13 +273,57 @@ describe('FileDownloadView — search (機能定義 2.x)', () => {
     expect(wrapper.findComponent(BaseJaDropdown).props('disabled')).toBe(true);
   });
 
+  // 顧客要件 2026-07: 中央会は「同一都道府県の全JA」を閲覧できる。ja_id を自JAで
+  // プリセットしたままだと検索条件が常に `ja_id = 自JA` になり BE のスコープ拡大が
+  // 効かないため、中央会は ja_id を固定せず、代わりに都道府県を自県で固定する。
+  it('should scope CHUOKAI by its own 都道府県 instead of pinning ja_id', async () => {
+    const { wrapper } = await renderView({
+      user: buildFileDownloadUser({
+        role_code: 'CHUOKAI',
+        ja_id: 5,
+        todofuken_code: '13',
+      }),
+    });
+    const vm = wrapper.vm as any;
+    expect(vm.state.filters.ja_id).toBeNull();
+    expect(vm.state.filters.todofuken_code).toBe('13');
+    // JA 絞り込みは自由（同県内の JA を任意に絞れる）。候補も自県の全JAへ
+    // 広げるため scope='todofuken' を渡す（BE がセッションの県で絞る）。
+    const jaDropdown = wrapper.findComponent(BaseJaDropdown);
+    expect(jaDropdown.props('disabled')).toBe(false);
+    expect(jaDropdown.props('scope')).toBe('todofuken');
+
+    // 初回取得は ja_id 無し・自県の todofuken_code 付きで飛ぶ。
+    const { listFiles } = await import('@/api/file-download/file-download');
+    expect(listFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ todofuken_code: '13', ja_id: undefined }),
+    );
+  });
+
+  // todofuken_code を持たない中央会アカウント（旧データ・未設定）は従来どおり
+  // 自JAスコープにフォールバックする（BE も同じ判定）。
+  it('should fall back to the own-JA scope for a CHUOKAI without todofuken_code', async () => {
+    const { wrapper } = await renderView({
+      user: buildFileDownloadUser({
+        role_code: 'CHUOKAI',
+        ja_id: 5,
+        todofuken_code: null,
+      }),
+    });
+    const vm = wrapper.vm as any;
+    expect(vm.state.filters.todofuken_code).toBe('');
+  });
+
   it('should keep the JA dropdown editable and NOT pre-select for NICHINO roles', async () => {
     const { wrapper } = await renderView({
       user: buildFileDownloadUser({ role_code: 'NICHINO_ADMIN', ja_id: null }),
     });
     const vm = wrapper.vm as any;
     expect(vm.state.filters.ja_id).toBeNull();
-    expect(wrapper.findComponent(BaseJaDropdown).props('disabled')).toBe(false);
+    const jaDropdown = wrapper.findComponent(BaseJaDropdown);
+    expect(jaDropdown.props('disabled')).toBe(false);
+    // 日農は県拡大の対象外 — 既定スコープのまま。
+    expect(jaDropdown.props('scope')).toBe('own');
   });
 
   it('should not throw when 都道府県 is cleared (undefined) and 検索 is clicked (allow-clear → undefined)', async () => {
@@ -476,6 +520,34 @@ describe('FileDownloadView — nichino download permission (role 1/2/3)', () => 
   it('disables a flag=false row for NICHINO_STAFF (role 2)', async () => {
     const { wrapper } = await renderAs('NICHINO_STAFF');
     const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
+  });
+
+  // 顧客要件 2026-07: 自分が出力したファイルはフラグに関わらず操作可。フラグは
+  // 「他組織へ自組織のファイルを見せてよいか」の設定で、既定 FALSE のため、この
+  // 例外が無いと中央会が自分で出した帳票をその場で落とせない。
+  // created_by は account_id を文字列で保持する（BE の isCreatedBySelf と同条件）。
+  it('does NOT disable a flag=false row that the logged-in user created (CHUOKAI)', async () => {
+    const ownRow = buildFileDownloadItem({
+      file_download_id: 203,
+      file_name: 'own_report.pdf',
+      nichino_download_allowed_flg: false,
+      created_by: '7', // = account_id
+    });
+    const { listFiles } = await import('@/api/file-download/file-download');
+    vi.mocked(listFiles).mockResolvedValue(
+      buildFileDownloadListResponse({
+        data: [ownRow, blockedRow],
+        meta: { total: 2, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView({
+      user: buildFileDownloadUser({ role_code: 'CHUOKAI', account_id: 7 }),
+    });
+
+    const cfg = (wrapper.vm as any).rowSelectionConfig;
+    expect(cfg.getCheckboxProps(ownRow).disabled).toBe(false);
+    // 他人が作成した flag=false 行は従来どおり選択不可のまま。
     expect(cfg.getCheckboxProps(blockedRow).disabled).toBe(true);
   });
 

@@ -171,6 +171,12 @@ export interface JaDropdownQuery {
   todofuken_code?: string;
   /** カスケードフィルタ — 3:chuokai_flg=TRUE、4|5:chuokai_flg=FALSE。 */
   role_id?: number;
+  /**
+   * DataScope 範囲（既定 `own`）。`todofuken` は **中央会のみ** 自JAでなく
+   * 自都道府県の全JAを候補にする。SCR-022 ファイルダウンロード画面専用。
+   * 拡大先の県は BE がセッションから決めるため、他県は指定できない。
+   */
+  scope?: 'own' | 'todofuken';
 }
 
 export async function getJaDropdown(

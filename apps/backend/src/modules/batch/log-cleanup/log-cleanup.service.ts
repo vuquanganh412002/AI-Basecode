@@ -44,7 +44,7 @@ const LOG_TABLES: readonly LogTable[] = [
  * 各チャンクは RETURNING で削除件数を数える。
  *
  * スケジュール(23:00 JST 想定)は agrinews-terraform の EventBridge ルールが持つ。
- * エントリ: src/batch/log-cleanup.main.ts（`npm run log:cleanup[:prod]`）。
+ * エントリ: src/batch/log-cleanup.main.ts（`npm run log:cleanup:{dev,prod}`）。
  */
 @Injectable()
 export class LogCleanupService implements BatchJob {

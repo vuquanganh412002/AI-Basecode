@@ -503,7 +503,23 @@ export class JaService {
       ])
       .where('mj.deleted_at IS NULL');
 
-    applyJaScope(qb, 'mj', 'jaId', session);
+    // [scope=todofuken] SCR-022 ファイルダウンロード画面専用の拡大（顧客要件 2026-07）。
+    // 中央会に限り 自JA → 自都道府県の全JA。拡大先の県はクライアント指定ではなく
+    // セッションの todofuken_code なので、他県を覗くことはできない。中央会以外・
+    // todofuken_code 未設定（旧セッション）は通常の applyJaScope へフォールバック。
+    const chuokaiTodofuken =
+      query.scope === 'todofuken' &&
+      session.role_code === RoleCode.CHUOKAI &&
+      (session.todofuken_code ?? '').trim() !== ''
+        ? (session.todofuken_code as string).trim()
+        : null;
+    if (chuokaiTodofuken != null) {
+      qb.andWhere('mj.todofuken_code = :scopeTodofuken', {
+        scopeTodofuken: chuokaiTodofuken,
+      });
+    } else {
+      applyJaScope(qb, 'mj', 'jaId', session);
+    }
 
     if (query.q) {
       // [match-field] 'name' = ja_name のみ(SCR-024 は ja_code 非表示で

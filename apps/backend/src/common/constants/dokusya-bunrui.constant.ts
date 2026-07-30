@@ -5,8 +5,8 @@
  * DB には**電子版システムと同じコード値**をカンマ区切りで保存する
  * （dokusyaso_bunrui ⇔ profession / nogyosya_bunrui ⇔ products が 1:1）。
  * 日本語ラベルは画面表示専用で DB には入れない — 顧客要件 2026-07。
- * 旧データ（ラベル保存）はマイグレーション
- * `1784100000000-NormalizeDokusyaBunruiCodes` でコードへ変換済み。
+ * 日本語ラベルを保存していた旧データは一括変換済み（変換用マイグレーションは
+ * 適用完了後に削除した）。
  *
  * FE 側のミラーは `apps/frontend/src/constants/dokusya-bunrui.ts`
  * （選択肢の並び・ラベルもそちらに定義）。
