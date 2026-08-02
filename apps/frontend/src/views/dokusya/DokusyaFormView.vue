@@ -794,14 +794,16 @@ const canSelectMode = computed(
     Number(originalTetsuzukiShurui.value) !== TetsuzukiShurui.KAIYAKU &&
     authStore.hasPermission('dokusya.update'),
 );
-// 電子版は当日変更のみ（顧客要件 2026-07 改訂）— モードバー（当日変更/予約変更の
-// 2択）を出さず、編集可能な電子版読者は直接「当日変更」モードで開く。紙版のみ
-// 参照→当日/予約 のモードバーを出す。
-const isPureDigitalEditable = computed(
-  () => canSelectMode.value && isDigital.value,
-);
-// モードバー（2択ボタン）を出すのは紙版の編集可能読者のみ。
-const showModeBar = computed(() => canSelectMode.value && isPaper.value);
+// モードバーは紙版・電子版とも出す。以前は電子版だけモードバーを出さず、開いた
+// 瞬間から編集可能（当日変更モード）にしていたが、同じ「購読者編集」画面が購読種別
+// によって参照で開いたり編集で開いたりするのは一貫性が無く、電子版だけ誤操作で
+// 保存しやすかった。両版とも「参照で開く → モードを選ぶ」に統一する（顧客要件
+// 2026-07 改訂 / UI 統一）。
+const showModeBar = computed(() => canSelectMode.value);
+// 予約変更（未来日）が使えるのは紙版のみ。電子版は当日変更だけ（顧客要件 2026-07）。
+// ボタンは隠さず disabled にする — 隠すと「この画面に予約変更は無い」と読めてしまい、
+// 紙版との違いが伝わらない。理由はモードバーの補足テキストで示す。
+const canUseReservedMode = computed(() => isPaper.value);
 
 const isReferenceMode = computed(
   () => isEdit.value && canSelectMode.value && viewMode.value === 'reference',
@@ -843,6 +845,10 @@ function selectMode(mode: 'today' | 'reserved'): void {
   // 予約変更は、モードに入る前に適用日ポップアップで joho を確定し、その joho
   // 時点の有効履歴行(predecessor)をロードする（B案）。
   if (mode === 'reserved') {
+    // ボタンは disabled だが、それは UI の都合でしかない。電子版で予約変更へ
+    // 入れてしまうと未来日の履歴行ができ、BE の当日変更前提と食い違うので
+    // ここでも弾く（BE も change_mode を検証する）。
+    if (!canUseReservedMode.value) return;
     reservedJohoInput.value = null;
     reservedJohoError.value = '';
     reservedJohoModalOpen.value = true;
@@ -854,6 +860,11 @@ function selectMode(mode: 'today' | 'reserved'): void {
     viewMode.value = 'today';
     formState.joho_henko_tekiyo_date = todayIsoTokyo();
     fieldErrors.value = {};
+    // 適用日を本日へ動かした状態を新しい基準にする。これをしないと、モードに
+    // 入っただけ（業務項目は未変更）で editGuard が dirty と判定し、「変更が
+    // ありません」のスキップが効かず空の履歴行が生まれる。予約変更側は
+    // confirmReservedJoho が同じことをしており、当日変更だけ抜けていた。
+    void editGuard.capture();
   };
   if (viewMode.value !== 'reference') {
     Modal.confirm({
@@ -1870,17 +1881,11 @@ async function applyRouteMode(): Promise<void> {
     await loadDetail(dokusyaId.value);
     // 現在紐づく販売店（既に廃店でも）を include_id でピンして取得する。
     await fetchHanbaitenOptions(formState.hanbaiten_id ?? undefined);
-    // 参照→編集フロー: 紙版は最初「参照」モード（当日変更/予約変更を選ぶ）。
-    // 電子版は当日変更のみ（顧客要件 2026-07 改訂）— モードバーを出さず、編集可能な
-    // 読者は直接「当日変更」モードで開く（適用日=本日）。適用日=本日は capture より
-    // 先に確定させる — そうしないと editGuard が「未変更なのに dirty」と誤検知して
-    // 「変更がありません」スキップが効かなくなる。
-    if (isPureDigitalEditable.value) {
-      viewMode.value = 'today';
-      formState.joho_henko_tekiyo_date = todayIsoTokyo();
-    } else {
-      viewMode.value = 'reference';
-    }
+    // 参照→編集フロー: 紙版・電子版とも最初は「参照」モードで開き、モードバーから
+    // 編集モードを選ばせる（UI 統一）。電子版で選べるのは当日変更のみ。
+    // 適用日=本日 は selectMode('today') 側で確定させる（そこで editGuard の基準も
+    // 取り直すので、モードに入っただけでは dirty にならない）。
+    viewMode.value = 'reference';
     // ロード（＋ハイドレート中 watcher・電子版の当日適用日）が確定した状態を基準に控える。
     await editGuard.capture();
     // 読者情報変更適用日の編集可否判定用に、適用日を除いた基準も控える。
@@ -1961,20 +1966,10 @@ defineExpose({
       {{ notFoundMessage }}
     </p>
 
-    <!-- 電子版は当日変更のみ（顧客要件2026-07 改訂）— モードバーを出さず、当日変更
-         (適用日=本日)である旨を表示するだけ。編集可能な電子版読者のみ表示。 -->
-    <div
-      v-if="isEdit && isPureDigitalEditable"
-      data-test="dokusya-digital-today-note"
-      class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4 text-sm"
-    >
-      <span class="font-bold text-primary">当日変更モード</span>
-      <span class="text-text-description ml-2">電子版は当日変更のみです（適用日は本日）。</span>
-    </div>
-
     <!-- 情報変更モードバー（顧客要件2026-07・参照→編集フロー）。a-form の外に
          置くことで、参照モードで form 全体が disabled でもボタンは押せる。
-         2択（当日変更/予約変更）は紙版のみ（電子版は上の当日変更固定）。 -->
+         紙版・電子版とも表示する（UI 統一）。電子版は「予約変更」を disabled にして
+         当日変更のみに絞る — 隠さないのは、紙版との違いを画面上で伝えるため。 -->
     <div
       v-if="isEdit && showModeBar"
       data-test="dokusya-mode-bar"
@@ -1984,6 +1979,13 @@ defineExpose({
         <template v-if="isReferenceMode">
           <span class="font-bold text-text-main">参照モード</span>
           <span class="text-text-description ml-2">閲覧のみです。編集するにはモードを選択してください。</span>
+          <span
+            v-if="!canUseReservedMode"
+            data-test="dokusya-reserved-disabled-note"
+            class="text-text-description ml-2"
+          >
+            電子版は当日変更のみです（予約変更は使用できません）。
+          </span>
         </template>
         <template v-else-if="isTodayMode">
           <span class="font-bold text-primary">当日変更モード</span>
@@ -2006,6 +2008,7 @@ defineExpose({
         <a-button
           type="primary"
           :ghost="!isReservedMode"
+          :disabled="!canUseReservedMode"
           data-test="mode-reserved"
           @click="selectMode('reserved')"
         >

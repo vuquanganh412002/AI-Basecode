@@ -7,6 +7,7 @@ import {
   DIFF_EXCLUDE_FIELDS,
   HAITATSU_ADDRESS_FIELDS,
   KODOKU_ADDRESS_FIELDS,
+  MASTER_CLOUD_OWNED_FIELDS,
   MASTER_EXCLUDE_FIELDS,
   ZENKAI_ADDRESS_ZCOLS,
   ZENKAI_FIELD_MAP,
@@ -14,7 +15,10 @@ import {
 } from './dokusya-history.constants';
 import { ChangeEvent, DateOnly, DokusyaFields } from './dokusya-history.types';
 
-const MASTER_EXCLUDE = new Set<string>(MASTER_EXCLUDE_FIELDS);
+const MASTER_EXCLUDE = new Set<string>([
+  ...MASTER_EXCLUDE_FIELDS,
+  ...MASTER_CLOUD_OWNED_FIELDS,
+]);
 const DIFF_EXCLUDE = new Set<string>(DIFF_EXCLUDE_FIELDS);
 
 /**

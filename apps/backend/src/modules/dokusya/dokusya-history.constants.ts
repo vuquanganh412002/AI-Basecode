@@ -108,6 +108,22 @@ export const MASTER_EXCLUDE_FIELDS = [
 ] as const satisfies readonly (keyof DokusyaRireki)[];
 
 /**
+ * master (`t_dokusya`) 側が所有し、履歴からは**絶対にコピーしない**列。
+ *
+ * `MASTER_EXCLUDE_FIELDS` と分けているのは型が違うため。あちらは
+ * `keyof DokusyaRireki` に制約されているので、「DB の t_dokusya_rireki には列が
+ * あるが DokusyaRireki エンティティが宣言していない」列を書けない。まさに
+ * `denshi_kaiin_id` がそれで、電子版同期バッチが master へ直接書く一方 rireki 側は
+ * 常に NULL。
+ *
+ * これまでこの列を守っていたのは「エンティティが宣言していないので
+ * `Object.entries()` に現れない」という偶然だけだった。将来 rireki エンティティに
+ * この列を足した瞬間、毎晩 NULL で上書きされて電子版の会員紐付けが消える
+ * （UI からは復旧できない）。偶然ではなく明示で守る。
+ */
+export const MASTER_CLOUD_OWNED_FIELDS = ['denshiKaiinId'] as const;
+
+/**
  * 変更検出 (diffChangedFields) で「業務変更」として数えないフィールド。
  * これらが `values` に含まれていても差分に出さない：
  *  - johoHenkoTekiyoDate: 適用日（＝いつ適用するか）であって業務項目の変更では

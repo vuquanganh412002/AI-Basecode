@@ -30,6 +30,7 @@ updated_by: Tran Duc Tuyen
 | 11  | 2026/07/23 | 1.10 | Tran Duc Tuyen | 顧客要件 2026-07：氏名4項目（`shimei_sei`/`shimei_mei`/`haitatsu_shimei_sei`/`haitatsu_shimei_mei`）の形式チェックを **漢字・ひらがな・カタカナ → 漢字・ひらがな・カタカナ・アルファベット許容** に拡張（半角A-Za-z・全角Ａ-Ｚ/ａ-ｚ可、半角カナ・数字不可）。メッセージを「漢字・ひらがな・カタカナ・アルファベットで入力してください。」に変更。かな項目は変更なし。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 12  | 2026/07/24 | 1.11 | Tran Duc Tuyen | 顧客要件 2026-07：電子版承認(API-011-004)にリクエストボディ任意 `tanka_id` を追加。承認待ち画面では新聞単価のみ編集可のため、承認時に編集後の単価を保存してから `denshi_shonin_status=1` へ確定する。指定時はテナント跨ぎ FK 検証（`m_tanka` 存在＋自JA）を行う（他JA単価は `DATA_SCOPE_VIOLATION`）。あわせて電子版の編集画面挙動を承認ステータス別に明記：承認待ち(0)=単価のみ編集可＋承認/否認ボタン、承認済(1)=通常編集、否認(2)=全項目読取専用（紙版は本ワークフロー対象外）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 13  | 2026/07/27 | 1.12 | Tran Duc Tuyen | 実装是正：承認(API-011-004)/否認(API-011-005) を §4.4 の**履歴追記方式**（旧 saishin 降格 → rireki_no 採番 → 現行行コピー＋新ステータスで1件 INSERT ＋ 新行を saishin へ昇格し t_dokusya へ即時反映）へ統一。旧実装は t_dokusya と現行履歴行を in-place 更新するだけで履歴が残らなかったため、承認/否認の操作も履歴(t_dokusya_rireki)へ1レコード記録されるよう修正（顧客要件）。承認/否認は電子版(dokusya_shubetsu=2)専用ワークフローであり**電子版は適用日(joho_henko_tekiyo_date)が常に当日**のため、承認/否認イベント行の joho も当日に設定する（現行行の joho を carry-forward しない）。電子版の joho は常に <= 当日なので、当日・最大 rireki_no のこの行が到来日バッチ後も有効行として保たれる。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 14  | 2026/07/31 | 1.13 | Tran Duc Tuyen | 顧客要件 2026-07 改訂（UI統一）：BE仕様は変更なし（電子版の `change_mode='reserved'` 拒否は従来どおり）。FE側の記述のみ更新 — 電子版でもモードバーを表示し「予約変更」ボタンを非活性にする（従来はモードバー自体を非表示にして当日変更固定で開いていた）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -923,7 +924,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 
 - `change_mode = 'today'`（当日変更）：サーバは `joho_henko_tekiyo_date` を**本日に固定**（送信値は無視）。**紙版**は帳票影響項目（`dokusya_busu` / `hanbaiten_id` / 購読者住所 `yubin_no`・`todofuken_code`・`shikuchoson`・`chome_banchi`・`tatemono_mei` / 配達先住所 `haitatsu_*`）を既存値から変更した場合 `VALIDATION_ERROR`（当該フィールド）で弾く。**電子版**は帳票を生成しないため制限なし。
 - `change_mode = 'reserved'`（予約変更）：`joho_henko_tekiyo_date` は必須・未来日のみ（当日不可）。全項目変更可。
-- **電子版（dokusya_shubetsu=2）は当日変更のみ（顧客要件2026-07 改訂）**：`change_mode='reserved'`（予約変更）は不可で、`VALIDATION_ERROR`（field=`change_mode`、メッセージ「電子版は当日変更のみ可能です。予約変更はできません。」）を返す。電子版は帳票を生成せず即時反映のため、変更は常に本日適用。購読種別は保存値で判定（body の spoof 不可）。例外：再購読（解約済み→新規）は新しい購読を未来開始日で作る別フローのため対象外。**紙版のみ当日変更／予約変更の2モードを持つ**。FEは電子版で編集画面のモードバーを出さず当日変更固定で開く。
+- **電子版（dokusya_shubetsu=2）は当日変更のみ（顧客要件2026-07 改訂）**：`change_mode='reserved'`（予約変更）は不可で、`VALIDATION_ERROR`（field=`change_mode`、メッセージ「電子版は当日変更のみ可能です。予約変更はできません。」）を返す。電子版は帳票を生成せず即時反映のため、変更は常に本日適用。購読種別は保存値で判定（body の spoof 不可）。例外：再購読（解約済み→新規）は新しい購読を未来開始日で作る別フローのため対象外。**紙版のみ当日変更／予約変更の2モードを持つ**。FEは電子版でも紙版と同じモードバーを表示するが「予約変更」ボタンを非活性にし、当日変更のみ選択可とする（UI統一・2026-07 改訂）。
 - 履歴は従来どおり 1更新1レコード。併読／電子版クレカは read-only（403）。
 
 ## レスポンスデータ

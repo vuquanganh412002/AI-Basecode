@@ -39,6 +39,8 @@ import {
   ApplyChangeResult,
   DateOnly,
   DokusyaFields,
+  KaiyakuResult,
+  RecomputeResult,
 } from './dokusya-history.types';
 
 // 電子版=2 / 併読=3 → どちらも電子版同期対象。
@@ -135,17 +137,23 @@ export async function applyChange(
  * joho<=asOf まで有効化されず到来日バッチ任せ。単一LC（再購読なし）は従来と同一挙動。
  *
  * 冪等: フル再計算。save / batch で繰り返し実行可。
+ *
+ * [touch-only-changed] 書き込みは 3 分岐（下の `writeMaster`）。業務値が変わらない
+ * ときに 56 列を無条件 UPDATE すると `updated_at` が毎回動き、購読者一覧(SCR-014)の
+ * 既定ソート `updated_at DESC` が「誰も触っていないのに先頭に来る」状態になる。
+ *
+ * 戻り値 {@link RecomputeResult} は「業務値が実際に動いたか」を呼出し元へ伝えるため
+ * のもの。監査ログを書くのは**バッチ側の責務**で、ここでは書かない — 本関数は UI 経由の
+ * applyChange / 解約 / 取消 からも呼ばれ、それらは既に自前で t_log を書いているので、
+ * ここで書くと 1 操作につき監査行が 2 本になる。
  */
 export async function recomputeMaster(
   m: EntityManager,
   dokusyaId: number,
   asOf: DateOnly,
-): Promise<void> {
-  const effectiveRow = await loadCurrentLifecycleEffectiveRow(
-    m,
-    dokusyaId,
-    asOf,
-  );
+): Promise<RecomputeResult> {
+  const { row: effectiveRow, startRirekiNo } =
+    await loadCurrentLifecycleEffectiveRow(m, dokusyaId, asOf);
   await setSaishinFlags(m, dokusyaId, effectiveRow?.dokusyaRirekiId ?? null);
   if (effectiveRow) {
     const masterFields = mapRirekiToMaster(effectiveRow);
@@ -153,38 +161,107 @@ export async function recomputeMaster(
     // 2026-07）。予約行は未来日で effective でないため通常 master 未反映だが、中止日だけは
     // 予約時点から一覧(SCR-014)/詳細(SCR-011)に表示したい。取消済みなら null → master も
     // クリア。effective 行が既に中止日を持つ（バッチ確定後等）場合も同値が返り整合。
-    const scheduledChushi = await loadScheduledChushiDate(m, dokusyaId);
+    const scheduledChushi = await loadScheduledChushiDate(
+      m,
+      dokusyaId,
+      startRirekiNo,
+    );
     if (scheduledChushi != null) {
       masterFields.dokusyaChushiDate = scheduledChushi;
     }
-    await m.update(Dokusya, { dokusyaId }, masterFields);
+    return writeMaster(m, dokusyaId, masterFields);
   }
+  return { changedFields: [], before: null, after: {} };
 }
 
 /**
- * NOTE(未実装バッチ用): 到来日バッチ（日次 cron）から呼ぶ想定。バッチ本体は未実装のため
- * 現状 production 呼出し元は無く unit test のみ対象（意図的な pending・孤立コードではない）。
+ * master への書き込み最小化。業務値の差分有無で 3 分岐する:
  *
+ * 1. **業務値に差分あり** → 従来どおり全列 UPDATE（`updated_at` も更新される）。
+ * 2. **業務値は同一・ポインタだけ前進** → `(joho_henko_tekiyo_date, rireki_no)` の
+ *    2 列だけを生 SQL で更新。`m.update()` を使うと TypeORM が @UpdateDateColumn を
+ *    検出して `updated_at = CURRENT_TIMESTAMP` を自動付与してしまうため、ここは
+ *    意図的に `m.query()` を使う。
+ * 3. **完全に同一** → 何もしない。
+ *
+ * 「業務値」の定義は applyChange の変更検出と同じ {@link diffChangedFields}
+ * （＝ DIFF_EXCLUDE_FIELDS 以外）。両者で判定基準を揃えることで「履歴行は作られた
+ * のに master は動かない」「その逆」といったズレが起きない。
+ *
+ * ポインタ 2 列は業務値ではないが**必ず同期する**こと。これは recompute バッチの
+ * 抽出条件（master の (joho, rireki_no) より後ろに到来済み履歴行があるか）の基準
+ * そのもので、ここを更新しないと同じ購読者が毎晩無限に抽出され続ける。
+ */
+async function writeMaster(
+  m: EntityManager,
+  dokusyaId: number,
+  masterFields: Partial<Dokusya>,
+): Promise<RecomputeResult> {
+  const before = await m.findOne(Dokusya, { where: { dokusyaId } });
+  if (!before) {
+    await m.update(Dokusya, { dokusyaId }, masterFields);
+    return { changedFields: [], before: null, after: masterFields };
+  }
+
+  const changedFields = diffChangedFields(
+    before,
+    masterFields as DokusyaFields,
+  );
+  if (changedFields.length > 0) {
+    await m.update(Dokusya, { dokusyaId }, masterFields);
+    return { changedFields, before, after: masterFields };
+  }
+
+  const joho = masterFields.johoHenkoTekiyoDate ?? null;
+  const no = masterFields.rirekiNo ?? null;
+  const samePointer =
+    String(before.johoHenkoTekiyoDate ?? '') === String(joho ?? '') &&
+    Number(before.rirekiNo ?? -1) === Number(no ?? -1);
+  if (samePointer) return { changedFields: [], before, after: masterFields };
+
+  await m.query(
+    `UPDATE t_dokusya
+        SET joho_henko_tekiyo_date = $1, rireki_no = $2
+      WHERE dokusya_id = $3`,
+    [joho, no, dokusyaId],
+  );
+  return { changedFields: [], before, after: masterFields };
+}
+
+/**
  * Batch 解約: `dokusya_chushi_date` が到来した購読者に解約行を1件 append し t_dokusya へ反映。
- * - 適用日 = 中止日(紙版=1) または +1日(電子版=2)。
+ * 呼出し元は到来日バッチ `DokusyaKaiyakuService`（dokusya-apply-due の第1段）。
+ *
+ * - 適用日 = 中止日+1日(電子版=2 / 併読=3) または 中止日(紙版=1)。併読は電子版契約を
+ *   含むので電子版と同じ扱い（顧客要件 2026-07 改訂）。バッチの抽出条件も同じ枝
+ *   （<= 当日-1）に揃える必要がある — 片方だけ直すと確定が1日ずれる。
  * - `before` = 解約日時点の有効行(G3, NOT INFINITY) — 同夜有効化の未来変更を継承(case D)。
- * - 冪等: 中止日なし or 解約済みならスキップ。対象範囲(併読/電子版クレカ除外)はバッチの責務。§4.3。
+ * - 冪等: 中止日なし or 解約済みならスキップ（この場合 `null` を返す）。戻り値が
+ *   non-null＝**この呼び出しで実際に解約が確定した**ことの証。バッチはこれを見て
+ *   監査ログ(t_log)を書くので、冪等スキップした夜には監査行が積まれない。
+ * - **対象範囲の決定はバッチ側の責務**。顧客要件 2026-07 改訂で全購読種別・全支払方法が
+ *   対象になった（併読・電子版クレカも確定する）。read-only ガードは画面操作の禁止で
+ *   あって解約確定を止める趣旨ではなく、確定しないと相手システムと状態が食い違うため。
+ * §4.3。
  */
 export async function insertKaiyaku(
   m: EntityManager,
   dokusyaId: number,
   asOf: DateOnly,
-): Promise<void> {
+): Promise<KaiyakuResult | null> {
   const ref = await loadEffectiveRow(m, dokusyaId, asOf);
-  if (ref?.dokusyaChushiDate == null || ref.kaiyakuFlg) return;
+  if (ref?.dokusyaChushiDate == null || ref.kaiyakuFlg) return null;
 
-  const isDenshi = ref.dokusyaShubetsu === DokusyaShubetsu.DIGITAL; // 電子版 → +1日
+  // 併読(3) も電子版契約を含むため 電子版(2) と同じ +1日（顧客要件 2026-07 改訂）。
+  // 判定はファイル先頭の DENSHI_SHUBETSU を再利用し、`=== DIGITAL` を書かない
+  // （併読の扱いを取りこぼす典型の書き方）。
+  const isDenshi = DENSHI_SHUBETSU.has(Number(ref.dokusyaShubetsu));
   const kaiyakuJoho = isDenshi
     ? addDaysIso(ref.dokusyaChushiDate, 1)
     : ref.dokusyaChushiDate;
 
   const before = await findBefore(m, dokusyaId, kaiyakuJoho);
-  if (!before) return;
+  if (!before) return null;
 
   const no = await nextRirekiNo(m, dokusyaId);
   const row = buildKaiyakuRow(before, {
@@ -194,7 +271,8 @@ export async function insertKaiyaku(
     chushiDate: ref.dokusyaChushiDate,
   });
   await insertRow(m, row);
-  await recomputeMaster(m, dokusyaId, asOf);
+  const master = await recomputeMaster(m, dokusyaId, asOf);
+  return { rirekiNo: no, master };
 }
 
 /**

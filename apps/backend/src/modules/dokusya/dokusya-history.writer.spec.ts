@@ -22,6 +22,18 @@ function rireki(fields: Record<string, unknown>): DokusyaRireki {
   return fields as unknown as DokusyaRireki;
 }
 
+/**
+ * `loadCurrentLifecycleEffectiveRow` は有効行と一緒に現LC起点(startRirekiNo)も返す。
+ * 起点は直後の `loadScheduledChushiDate` へ渡され、向こうが同じ探索をやり直さずに済む。
+ * テストの関心は有効行だけなので、起点は行から機械的に導く薄いラッパを使う。
+ */
+function mockLcEffective(r: DokusyaRireki | null) {
+  return q.loadCurrentLifecycleEffectiveRow.mockResolvedValue({
+    row: r,
+    startRirekiNo: r ? (r.rirekiNo ?? 1) : null,
+  });
+}
+
 describe('recomputeMaster', () => {
   let update: jest.Mock;
   let m: EntityManager;
@@ -29,7 +41,13 @@ describe('recomputeMaster', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     update = jest.fn().mockResolvedValue(undefined);
-    m = { update } as unknown as EntityManager;
+    // findOne は writeMaster の差分判定用。既定 null = 「master 未取得」枝 →
+    // 従来どおり全列 UPDATE。各テストで上書きして差分あり/なしを作り分ける。
+    m = {
+      update,
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager;
     q.setSaishinFlags.mockResolvedValue(undefined);
   });
 
@@ -41,7 +59,7 @@ describe('recomputeMaster', () => {
       dokusyaBusu: 8,
       hanbaitenId: 460,
     });
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(eff);
+    mockLcEffective(eff);
 
     await recomputeMaster(m, 1001, '2026-07-01');
 
@@ -61,7 +79,7 @@ describe('recomputeMaster', () => {
   });
 
   it('no row at all → all saishin false, t_dokusya untouched', async () => {
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(null);
+    mockLcEffective(null);
 
     await recomputeMaster(m, 1001, '2026-07-01');
 
@@ -72,7 +90,7 @@ describe('recomputeMaster', () => {
   it('current-lifecycle effective row absent → loadCurrentLifecycleEffectiveRow returns the latest 新規行 (fallback): saishin on it + t_dokusya overwritten (顧客要件 2026-07)', async () => {
     // 未来 購読開始日 の新規/再購読。asOf 時点で現ライフサイクルの有効行は無いが、
     // loadCurrentLifecycleEffectiveRow が最新の新規行を返す → 即 saishin=true。
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+    mockLcEffective(
       rireki({ dokusyaRirekiId: 7, dokusyaId: 1001, dokusyaBusu: 2 }),
     );
 
@@ -80,6 +98,128 @@ describe('recomputeMaster', () => {
 
     expect(q.setSaishinFlags).toHaveBeenCalledWith(m, 1001, 7);
     expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  // ── [touch-only-changed] writeMaster の 3 分岐 ──────────────────────────
+  // 無条件 UPDATE だと業務値が変わらない夜も updated_at が動き、購読者一覧の
+  // 既定ソート `updated_at DESC` が壊れる（誰も触っていない購読者が先頭に来る）。
+
+  it('業務値に差分あり → 全列 UPDATE（updated_at も更新される）', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 8, // master は 1 → 業務変更
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 1,
+      johoHenkoTekiyoDate: '2026-04-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(m.query).not.toHaveBeenCalled();
+  });
+
+  it('業務値は同一・ポインタだけ前進 → 2列だけ生SQL更新（updated_at は据え置き）', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 1, // master と同値
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 1,
+      johoHenkoTekiyoDate: '2026-04-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    // m.update だと TypeORM が updated_at = CURRENT_TIMESTAMP を自動付与するため使わない
+    expect(update).not.toHaveBeenCalled();
+    const [sql, params] = (m.query as jest.Mock).mock.calls[0];
+    expect(sql).toContain('joho_henko_tekiyo_date');
+    expect(sql).toContain('rireki_no');
+    expect(sql).not.toContain('updated_at');
+    expect(params).toEqual(['2026-05-01', 2, 1001]);
+  });
+
+  it('完全に同一 → 一切書き込まない', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 1,
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 2,
+      johoHenkoTekiyoDate: '2026-05-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect(update).not.toHaveBeenCalled();
+    expect(m.query).not.toHaveBeenCalled();
+  });
+
+  // [single-roundtrip] 現LC起点は loadCurrentLifecycleEffectiveRow が確定させた値を
+  // そのまま loadScheduledChushiDate へ渡す。渡さないと向こうが副問い合わせで同じ
+  // 探索をやり直し、同一 tx 内で全く同一の結果を2度引くことになる
+  // （部分インデックス ix_t_dokusya_rireki_shinki への seek 1回ぶんの無駄）。
+  it('現LC起点を loadScheduledChushiDate へ引き渡す（同一探索の二度引きを避ける）', async () => {
+    mockLcEffective(rireki({ dokusyaRirekiId: 9, rirekiNo: 5 }));
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect(q.loadScheduledChushiDate).toHaveBeenCalledWith(m, 1001, 5);
+  });
+
+  it('履歴なし（起点 null）なら loadScheduledChushiDate も呼ばない', async () => {
+    mockLcEffective(null);
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect(q.loadScheduledChushiDate).not.toHaveBeenCalled();
+  });
+
+  it('ポインタは業務値でなくても必ず同期する（recompute バッチの抽出基準そのもの）', async () => {
+    // ここを書かないと master の (joho, rireki_no) が古いままになり、
+    // 同じ購読者が毎晩 R0 に再抽出され続ける（無限ループ）。
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 9,
+        rirekiNo: 5,
+        johoHenkoTekiyoDate: '2026-06-01',
+        dokusyaBusu: 3,
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 4,
+      johoHenkoTekiyoDate: '2026-06-01', // 同日・rireki_no だけ違う
+      dokusyaBusu: 3,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    expect((m.query as jest.Mock).mock.calls[0][1]).toEqual([
+      '2026-06-01',
+      5,
+      1001,
+    ]);
   });
 });
 
@@ -205,6 +345,8 @@ describe('applyChange', () => {
     m = {
       update: jest.fn().mockResolvedValue(undefined),
       save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
     } as unknown as EntityManager;
     q.insertRow.mockImplementation(
       async (_m, r) =>
@@ -214,7 +356,7 @@ describe('applyChange', () => {
     q.setSaishinFlags.mockResolvedValue(undefined);
     q.findNext.mockResolvedValue(null); // no successors in orchestration tests
     // recomputeMaster の有効行選択（現ライフサイクル）を既定でモック。
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+    mockLcEffective(
       rireki({ dokusyaRirekiId: 10, dokusyaShubetsu: 1 }),
     );
   });
@@ -259,7 +401,7 @@ describe('applyChange', () => {
     q.loadMaster.mockResolvedValue(
       master({ dokusyaId: 2002, dokusyaShubetsu: 1 }),
     );
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+    mockLcEffective(
       rireki({ dokusyaRirekiId: 10, dokusyaShubetsu: 1 }),
     );
 
@@ -439,6 +581,8 @@ describe('insertKaiyaku', () => {
     m = {
       update,
       save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
     } as unknown as EntityManager;
     q.insertRow.mockImplementation(
       async (_m, r) => ({ ...(r as object), dokusyaRirekiId: 99 }) as DokusyaRireki,
@@ -456,7 +600,7 @@ describe('insertKaiyaku', () => {
       hanbaitenId: 459,
     });
     q.loadEffectiveRow.mockResolvedValueOnce(ref); // ref read (chushi source)
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+    mockLcEffective(
       rireki({ dokusyaRirekiId: 99, tetsuzukiShurui: 0 }),
     ); // recompute
     q.findBefore.mockResolvedValue(ref);
@@ -482,7 +626,7 @@ describe('insertKaiyaku', () => {
       kaiyakuFlg: false,
     });
     q.loadEffectiveRow.mockResolvedValueOnce(ref);
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(ref);
+    mockLcEffective(ref);
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(2);
 
@@ -491,6 +635,29 @@ describe('insertKaiyaku', () => {
     expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-07-01'); // chushi + 1
     const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
     expect(row.johoHenkoTekiyoDate).toBe('2026-07-01');
+  });
+
+  // 顧客要件 2026-07 改訂: 併読(3) も電子版契約を含むため 電子版(2) と同じ +1日。
+  // `=== DIGITAL` で判定すると併読を取りこぼすので DENSHI_SHUBETSU を使う。
+  // バッチの抽出条件も同じ枝（<= 当日-1）に入れており、片方だけ変わると確定が
+  // 1日ずれる — その回帰をここで止める。
+  it('併読: joho = chushi + 1 day（電子版と同じ扱い）', async () => {
+    const ref = rireki({
+      dokusyaChushiDate: '2026-06-30',
+      dokusyaShubetsu: 3, // 併読
+      kaiyakuFlg: false,
+    });
+    q.loadEffectiveRow.mockResolvedValueOnce(ref);
+    mockLcEffective(ref);
+    q.findBefore.mockResolvedValue(ref);
+    q.nextRirekiNo.mockResolvedValue(2);
+
+    await insertKaiyaku(m, 1001, '2026-07-01');
+
+    expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-07-01'); // chushi + 1
+    const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(row.johoHenkoTekiyoDate).toBe('2026-07-01');
+    expect(row.kaiyakuFlg).toBe(true);
   });
 
   it('case D: 解約 inherits the new hanbaiten from the future-activated row', async () => {
@@ -502,7 +669,7 @@ describe('insertKaiyaku', () => {
     });
     const activated = rireki({ hanbaitenId: 460, dokusyaChushiDate: '2026-07-15' });
     q.loadEffectiveRow.mockResolvedValueOnce(ref);
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(activated);
+    mockLcEffective(activated);
     q.findBefore.mockResolvedValue(activated); // as-of chushi → the 販売店 change
     q.nextRirekiNo.mockResolvedValue(4);
 
@@ -621,6 +788,8 @@ describe('applyTorikeshi', () => {
     m = {
       update,
       save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
     } as unknown as EntityManager;
     q.insertRow.mockImplementation(
       async (_m, r) => ({ ...(r as object), dokusyaRirekiId: 88 }) as DokusyaRireki,
@@ -642,7 +811,7 @@ describe('applyTorikeshi', () => {
     });
     q.loadRireki.mockResolvedValue(target);
     q.loadEffectiveRow.mockResolvedValueOnce(target); // canTorikeshi tail = target
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(
+    mockLcEffective(
       rireki({ dokusyaRirekiId: 1 }),
     ); // recompute
     q.nextRirekiNo.mockResolvedValue(4);
@@ -683,7 +852,7 @@ describe('applyTorikeshi', () => {
     });
     q.loadRireki.mockResolvedValue(target);
     q.loadEffectiveRow.mockResolvedValueOnce(target); // canTorikeshi tail
-    q.loadCurrentLifecycleEffectiveRow.mockResolvedValue(target); // recompute
+    mockLcEffective(target); // recompute
     q.nextRirekiNo.mockResolvedValue(5);
 
     await applyTorikeshi(m, 1001, 4, '取消', 'u');

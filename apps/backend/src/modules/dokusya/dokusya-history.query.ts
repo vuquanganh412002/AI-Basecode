@@ -4,7 +4,11 @@ import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 
 import { SORT_CHAIN_ASC, SORT_CHAIN_DESC } from './dokusya-history.constants';
-import { DateOnly, DokusyaSnapshot } from './dokusya-history.types';
+import {
+  DateOnly,
+  DokusyaSnapshot,
+  LifecycleEffective,
+} from './dokusya-history.types';
 
 /**
  * 複数列のチェーン順序を orderBy/addOrderBy の連続呼出しで適用。合成文字列
@@ -83,22 +87,30 @@ function loadLatestShinki(
 export async function loadScheduledChushiDate(
   m: EntityManager,
   dokusyaId: number,
+  startRirekiNo: number | null,
 ): Promise<DokusyaRireki['dokusyaChushiDate'] | null> {
-  const latestShinki = await loadLatestShinki(m, dokusyaId);
-  if (!latestShinki) return null; // 履歴なし
+  // 現LC起点(最新の新規行の rireki_no)は呼出し元
+  // ({@link loadCurrentLifecycleEffectiveRow}) が同一 tx で既に確定させているので、
+  // 引数で受け取る。以前はここで副問い合わせとして引き直しており、同じ tx 内で
+  // 全く同一の探索を2度していた（部分インデックス ix_t_dokusya_rireki_shinki への
+  // seek 1回ぶんの無駄）。
+  //
+  // null = 履歴なし（新規行が無い）。旧実装は `rireki_no >= NULL` が NULL になって
+  // 全行が除外され結果0件だったので、明示的に早期 return して同じ結果にする。
+  if (startRirekiNo == null) return null;
 
-  const row = await applyChainOrder(
-    m
-      .createQueryBuilder(DokusyaRireki, 'r')
-      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
-      .andWhere('r.torikeshi_flg = false')
-      .andWhere('r.rireki_no >= :minNo', { minNo: latestShinki.rirekiNo })
-      .andWhere('r.dokusya_chushi_date IS NOT NULL'),
-    SORT_CHAIN_DESC,
-  )
-    .limit(1)
-    .getOne();
-  return row?.dokusyaChushiDate ?? null;
+  const rows: Array<{ dokusya_chushi_date: string | null }> = await m.query(
+    `SELECT r.dokusya_chushi_date
+       FROM t_dokusya_rireki r
+      WHERE r.dokusya_id = $1
+        AND r.torikeshi_flg = false
+        AND r.dokusya_chushi_date IS NOT NULL
+        AND r.rireki_no >= $2
+      ORDER BY r.joho_henko_tekiyo_date DESC, r.rireki_no DESC
+      LIMIT 1`,
+    [dokusyaId, startRirekiNo],
+  );
+  return rows[0]?.dokusya_chushi_date ?? null;
 }
 
 /**
@@ -140,9 +152,9 @@ export async function loadCurrentLifecycleEffectiveRow(
   m: EntityManager,
   dokusyaId: number,
   asOf: DateOnly,
-): Promise<DokusyaRireki | null> {
+): Promise<LifecycleEffective> {
   const latestShinki = await loadLatestShinki(m, dokusyaId);
-  if (!latestShinki) return null; // 履歴なし
+  if (!latestShinki) return { row: null, startRirekiNo: null }; // 履歴なし
 
   const effective = await applyChainOrder(
     m
@@ -155,7 +167,12 @@ export async function loadCurrentLifecycleEffectiveRow(
   )
     .limit(1)
     .getOne();
-  return effective ?? latestShinki;
+  // 起点(startRirekiNo)も返すのは loadScheduledChushiDate がこの値を必要とするため。
+  // 返さないと向こうで同じ探索をやり直すことになる（同一 tx・同一結果の二度引き）。
+  return {
+    row: effective ?? latestShinki,
+    startRirekiNo: latestShinki.rirekiNo,
+  };
 }
 
 /**
@@ -230,10 +247,20 @@ export async function setSaishinFlags(
 ): Promise<void> {
   // bind param を明示 int cast: pg wire は text 送信で COALESCE(text, -1) が int リテラルと
   // 統一できない（pg-mem で失敗・strict PG で脆い）。$1::int は NULL(有効行なし)も綺麗に処理。
+  //
+  // [touch-only-changed] WHERE の最終条件で「今の値と違う行」だけに絞る。これが無いと
+  // 該当購読者の全履歴行（K行）を書き直すが、実際に値が変わるのは高々2行（旧有効行の
+  // true→false と新有効行の false→true）。PostgreSQL は同値 UPDATE でも行の新バージョンを
+  // 作るので、K-2 行ぶんの dead tuple が毎回発生し、テーブル肥大と VACUUM 負荷になる。
+  // 結果は完全に同一（絞り込まれた行は既に正しい値を持っている）。
+  // 両辺とも NOT NULL（saishin_data_flg / dokusya_rireki_id + COALESCE）なので
+  // `<>` で足り、IS DISTINCT FROM は不要。
   await m.query(
     `UPDATE t_dokusya_rireki
         SET saishin_data_flg = (dokusya_rireki_id = COALESCE($1::int, -1))
-      WHERE dokusya_id = $2::int AND torikeshi_flg = false`,
+      WHERE dokusya_id = $2::int
+        AND torikeshi_flg = false
+        AND saishin_data_flg <> (dokusya_rireki_id = COALESCE($1::int, -1))`,
     [effectiveRirekiId, dokusyaId],
   );
 }

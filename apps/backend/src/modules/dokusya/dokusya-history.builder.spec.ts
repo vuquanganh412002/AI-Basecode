@@ -398,6 +398,25 @@ describe('mapRirekiToMaster', () => {
     }
   });
 
+  // [cloud-owned-column] denshi_kaiin_id は電子版同期バッチが master へ直接書く列で、
+  // 履歴側は常に NULL。ここに漏れると毎晩 NULL で上書きされ、電子版の会員紐付けが
+  // 消える（UI からは復旧できない）。
+  //
+  // 今これを防いでいるのは MASTER_EXCLUDE_FIELDS ではなく「DokusyaRireki エンティティが
+  // この列を宣言していない」という事実だけ — DB の t_dokusya_rireki には列が存在する。
+  // MASTER_EXCLUDE_FIELDS の型は `keyof DokusyaRireki` なので、エンティティに無い列は
+  // そもそも追加できない。つまり将来 rireki エンティティに denshi_kaiin_id を足した
+  // 瞬間、無言で上書きが始まる。このテストがその時に赤くなる番人。
+  it('never emits denshi_kaiin_id (cloud-owned column — see comment)', () => {
+    const withCloudColumn = row({
+      dokusyaBusu: 8,
+      ...({ denshiKaiinId: null } as Record<string, unknown>),
+    });
+    expect(mapRirekiToMaster(withCloudColumn)).not.toHaveProperty(
+      'denshiKaiinId',
+    );
+  });
+
   it('does not overwrite master creation metadata or the update key', () => {
     const m = mapRirekiToMaster(rireki);
     expect(m).not.toHaveProperty('createdBy');

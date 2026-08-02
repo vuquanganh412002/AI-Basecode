@@ -3042,28 +3042,98 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
       data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    // 電子版はマウント直後から当日変更モード（selectMode 不要）。帳票影響項目も編集可。
+    // 紙版と同じく参照で開くのでモード選択が要る。当日変更でも電子版は帳票影響
+    // 項目まで編集可（紙版はここが非活性）— モードの入り方だけを揃え、
+    // 版ごとの編集範囲の違いは維持する。
+    (wrapper.vm as any).selectMode('today');
     await flushPromises();
     expect(fieldDisabled(wrapper, 'yubin_no')).toBe(false);
   });
 
-  it('電子版は編集マウント直後から当日変更モード（モードバーなし・当日変更ノート表示・submit 表示）', async () => {
-    // 顧客要件 2026-07 改訂: 電子版は当日変更のみ。モードバー（当日変更/予約変更の
-    // 2択）は出さず、当日変更である旨のノートだけ表示し、直接編集可能にする。
+  // UI 統一（顧客要件 2026-07 改訂）: 電子版も紙版と同じく「参照で開く → モードを
+  // 選ぶ」。以前は電子版だけ開いた瞬間に編集可能で、同じ画面が購読種別によって
+  // 参照/編集で開き分かれていた（誤操作で保存しやすい）。
+  it('電子版も参照モードで開き、モードバーが出る（紙版と同じ導線）', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
       data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    expect((wrapper.vm as any).viewMode).toBe('today');
-    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(false);
+    expect((wrapper.vm as any).viewMode).toBe('reference');
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(true);
+    // 参照モードなので更新ボタンは出さない（紙版と同じ）。
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+  });
+
+  it('電子版は「予約変更」を disabled にする（隠さない）', async () => {
+    // 隠すと「この画面に予約変更という機能が無い」と読めてしまい、紙版との違いが
+    // 伝わらない。押せない状態で見せ、理由を補足テキストで示す。
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const reserved = wrapper.find('[data-test="mode-reserved"]');
+    expect(reserved.exists()).toBe(true);
+    expect(reserved.attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-test="mode-today"]').attributes('disabled')).toBe(
+      undefined,
+    );
     expect(
-      wrapper.find('[data-test="dokusya-digital-today-note"]').exists(),
+      wrapper.find('[data-test="dokusya-reserved-disabled-note"]').exists(),
     ).toBe(true);
-    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  });
+
+  it('電子版で selectMode("reserved") を直接呼んでもポップアップを開かない', async () => {
+    // disabled は UI の都合でしかない。予約変更へ入れると未来日の履歴行ができ、
+    // BE の当日変更前提と食い違うのでロジック側でも弾く。
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    (wrapper.vm as any).selectMode('reserved');
+    await flushPromises();
+    expect((wrapper.vm as any).reservedJohoModalOpen).toBe(false);
+    expect((wrapper.vm as any).viewMode).toBe('reference');
+  });
+
+  it('紙版は「予約変更」を押せる（電子版だけの制限であること）', async () => {
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(
+      wrapper.find('[data-test="mode-reserved"]').attributes('disabled'),
+    ).toBe(undefined);
+    expect(
+      wrapper.find('[data-test="dokusya-reserved-disabled-note"]').exists(),
+    ).toBe(false);
+  });
+
+  it('電子版で当日変更を選ぶと joho=本日・submit が出る', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, email: 'd@x.jp' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    (wrapper.vm as any).selectMode('today');
+    await flushPromises();
+    expect((wrapper.vm as any).viewMode).toBe('today');
     expect((wrapper.vm as any).formState.joho_henko_tekiyo_date).toBe(
       todayIsoTokyo(),
     );
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  });
+
+  it('当日変更に入っただけでは「変更がありません」でスキップされる', async () => {
+    // モード選択は適用日を本日へ動かすが、それは業務変更ではない。基準を取り直さ
+    // ないと editGuard が dirty と誤判定し、中身が同じ履歴行が生まれる。
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(updateDokusya).mockClear();
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    (wrapper.vm as any).selectMode('today');
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(vi.mocked(updateDokusya)).not.toHaveBeenCalled();
   });
 
   it('電子版 submit は change_mode=today を送る', async () => {
@@ -3073,6 +3143,8 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     });
     vi.mocked(updateDokusya).mockClear();
     const { wrapper } = await renderView({ dokusyaId: 100 });
+    (wrapper.vm as any).selectMode('today');
+    await flushPromises();
     // 実際に業務項目を変更しないと編集ガードで PUT がスキップされる。
     (wrapper.vm as any).formState.biko = '電子版変更メモ';
     await flushPromises();

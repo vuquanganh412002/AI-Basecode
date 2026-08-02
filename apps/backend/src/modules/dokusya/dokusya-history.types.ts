@@ -69,3 +69,49 @@ export interface ChangeEvent {
   joho: DateOnly;
   values: DokusyaFields;
 }
+
+/**
+ * `recomputeMaster` の結果。バッチ（dokusya-apply-due 第2段）が
+ * 「業務値が実際に動いた購読者だけ」監査ログ(t_log)を書くために使う。
+ *
+ * `changedFields` が空でも書き込みが起きたケースはある（ポインタ2列だけの前進）。
+ * それは業務変更ではないので監査対象外 — updated_at を動かさないのと同じ理屈。
+ */
+export interface RecomputeResult {
+  /** 業務値として変わった master 列名。空 = 業務変更なし。 */
+  changedFields: string[];
+  /** 再計算前の master（履歴なし・master 未作成なら null）。 */
+  before: DokusyaSnapshot | null;
+  /** master へ書き込んだ値。 */
+  after: Record<string, unknown>;
+}
+
+/**
+ * `insertKaiyaku` の結果。解約行を実際に追加したときだけ返る（冪等スキップ時は null）。
+ * バッチはこれを見て「本当に解約が確定した購読者」だけ監査ログを書く。
+ */
+export interface KaiyakuResult {
+  /** 追加した解約行の rireki_no。 */
+  rirekiNo: number;
+  /**
+   * 解約反映による master の前/後。監査ログの before/after はこれを使う
+   * （target_table = `t_dokusya`）。UI 経由の applyChange も master スナップショットを
+   * 記録しているので、t_log 上で「誰が解約したか（UI/バッチ）」以外は同じ形になる。
+   */
+  master: RecomputeResult;
+}
+
+/**
+ * `loadCurrentLifecycleEffectiveRow` の結果。
+ *
+ * `startRirekiNo`（現ライフサイクル起点＝最新の新規行の rireki_no）を一緒に返すのは、
+ * 直後に呼ばれる `loadScheduledChushiDate` が同じ値を必要とするため。返さないと
+ * 向こうが副問い合わせで同じ探索をやり直し、同一トランザクション内で全く同じ結果を
+ * 2度引くことになる。
+ */
+export interface LifecycleEffective {
+  /** 現LCの有効行。`joho <= asOf` が無ければ最新の新規行へフォールバック。履歴なしは null。 */
+  row: DokusyaRireki | null;
+  /** 現LC起点の rireki_no。`row` が null のときのみ null。 */
+  startRirekiNo: number | null;
+}
