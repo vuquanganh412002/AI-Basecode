@@ -487,7 +487,13 @@ async function fetchHanbaitenOptions(includeId?: number): Promise<void> {
     // active_only=true → 営業中(haiten_flg=false)のみ。廃店は購読者の販売店
     // 選択から除外する。編集で既存の選択が廃店の場合は include_id で現在の
     // 販売店を先頭にピンし、ラベルが解決できるようにする。
-    const base: HanbaitenDropdownQuery = { active_only: true };
+    const base: HanbaitenDropdownQuery = {
+      active_only: true,
+      // 購読種別で候補が排他に分かれる（顧客要件 2026-08）。電子版は紙を配達
+      // しないため受け皿のダミー販売店(9999999999)のみ、紙を含む種別は逆に
+      // ダミーを候補から外す。絞り込みは BE の SQL 側。
+      dummy: isDigital.value ? 'only' : 'exclude',
+    };
     if (sessionJaId.value !== null) base.ja_id = sessionJaId.value;
     const resp = await getHanbaitenDropdown(
       includeId == null ? base : { ...base, include_id: includeId },
@@ -727,6 +733,12 @@ watch(
     } else if (formState.mail_magazine_flg == null) {
       formState.mail_magazine_flg = 0;
     }
+    // 販売店の候補は購読種別で排他に分かれる（電子版=ダミーのみ / それ以外=
+    // ダミー以外）。切替前の選択は新しい候補に必ず存在しないので破棄してから
+    // 取り直す — 残すと画面にはコードが出るのに候補に無い（＝BE も別種別の
+    // 販売店を受ける）不整合になる。編集では購読種別が不変なので発火しない。
+    formState.hanbaiten_id = null;
+    void fetchHanbaitenOptions();
   },
 );
 

@@ -10,5 +10,5 @@ Các API dùng chung giữa nhiều màn hình. Chi tiết xem tại file API g�
 | ACSMS-API-COMMON-004  | Get Kanri Shiten Dropdown | GET      | /api/v1/kanri-shiten/dropdown | 管理支店プルダウンリストを取得する（カスケード絞込み） | SCR-024   | SCR-007, SCR-024, SCR-025         |
 | ACSMS-API-COMMON-005  | Get Account Dropdown      | GET      | /api/v1/account/dropdown      | アカウントプルダウンリストを取得する（DataScope自動適用） | SCR-030   | SCR-030                           |
 | ACSMS-API-COMMON-006  | Get Shiten Dropdown       | GET      | /api/v1/shiten/dropdown       | 支店プルダウンリストを取得する（管理支店IDで絞込み、DataScope自動適用） | SCR-015   | SCR-015                           |
-| ACSMS-API-COMMON-007  | Get Hanbaiten Dropdown    | GET      | /api/v1/hanbaiten/dropdown    | 販売店プルダウンリストを取得する（DataScope自動適用） | SCR-015   | SCR-015                           |
+| ACSMS-API-COMMON-007  | Get Hanbaiten Dropdown    | GET      | /api/v1/hanbaiten/dropdown    | 販売店プルダウンリストを取得する（DataScope自動適用。`dummy=only`／`exclude` で電子版ダミー販売店 `9999999999` のみ／除外に絞込 — SCR-011 の購読種別と連動） | SCR-015   | SCR-011, SCR-015                  |
 | ACSMS-API-COMMON-008  | Get Koza Shiten Dropdown  | GET      | /api/v1/shiten/koza-dropdown  | 口座支店（金融機関支店フラグ=TRUE）プルダウンリストを取得する（管理支店IDで絞込み、DataScope自動適用） | SCR-020   | SCR-020                           |

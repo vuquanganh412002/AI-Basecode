@@ -22,6 +22,7 @@ import * as historyWriter from '@/modules/dokusya/dokusya-history.writer';
 import { DokusyaAccountFlagService } from '@/modules/dokusya/dokusya-account-flag.service';
 import { DokusyaImportService } from '@/modules/dokusya/dokusya-import.service';
 import { DokusyaImportValidator } from '@/modules/dokusya/dokusya-import-validator.service';
+import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
 import { DokusyaSearchService } from '@/modules/dokusya/dokusya-search.service';
 import { DokusyaReplaceService } from '@/modules/dokusya/dokusya-replace.service';
@@ -74,7 +75,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
   let dataSource: any;
   let txManager: any;
   /** 電子版 push ファサードの mock。SCR-014 購読中止の cancel push を検証する。 */
-  let denshiPush: { pushOnWrite: jest.Mock };
+  let denshiPush: { pushOnWrite: jest.Mock; push: jest.Mock };
   // [layer4-fk-guard] JA that the FK-scope mocks report. Default 1 (matches
   // the ja_id:1 sessions / before rows used across these tests); the
   // body-ja_id-ignored test flips it to its session JA.
@@ -106,6 +107,14 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
       update: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
       execute: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -125,6 +134,9 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       update: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn(() => dokusyaQb),
+      // 購読部数合計は DISTINCT サブクエリを manager.query で実行する。
+      // 既定 0 部。合計を検証するテストが個別に上書きする。
+      manager: { query: jest.fn().mockResolvedValue([{ total_busu: 0 }]) },
     };
     rirekiRepo = {
       findOne: jest.fn(),
@@ -223,7 +235,12 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       })),
     };
 
-    denshiPush = { pushOnWrite: jest.fn().mockResolvedValue(undefined) };
+    // pushOnWrite は「実際に送ったか」を返す（一括中止の補償対象の記録に使う）。
+    // 既定 false = 非対象（紙版）。電子版のテストが true に上書きする。
+    denshiPush = {
+      pushOnWrite: jest.fn().mockResolvedValue(false),
+      push: jest.fn().mockResolvedValue(null),
+    };
 
     const accountFlags = new DokusyaAccountFlagService(accountRepo as any);
     const rireki = new DokusyaRirekiService();
@@ -3120,7 +3137,8 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           baseReq,
         );
 
-        expect(result.dokusya_id).toBe(100);
+        expect(result.data.dokusya_id).toBe(100);
+        expect(result.message).toBe('購読停止を予約しました。');
         expect(spy).toHaveBeenCalledTimes(1);
         expect(spy.mock.calls[0][1]).toEqual(
           expect.objectContaining({
@@ -3483,6 +3501,249 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       } finally {
         spy.mockRestore();
       }
+    });
+
+    // ── 顧客要件 2026-08: 電子版は同じポップアップから予約変更・予約取消できる ──
+    // 電子版は履歴画面の取消(赤伝)が canTorikeshi の種別ガードで禁止されているため、
+    // この経路が唯一の変更・取消導線。どちらも旧予約行を赤伝で無効化し、電子版へ
+    // cancel を push する（変更=新 cancel_ym / 取消=空文字）。
+    describe('電子版の予約変更・予約取消', () => {
+      const RESERVATION_ROW = {
+        dokusyaRirekiId: 9,
+        dokusyaChushiDate: '2030-07-31',
+        kaiyakuFlg: false,
+        torikeshiFlg: false,
+      };
+
+      /** 予約中の電子版購読者 + 有効な解約予約行(未確定) をセットする。 */
+      function arrangeReserved(): void {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: 2, // 電子版
+            seikyuKaishiMonth: '202604',
+            dokusyaKaishiDate: '2026-04-01',
+            denshiKaiinId: 555,
+          }),
+        );
+        // loadActiveKaiyakuRow → 予約行あり（kaiyaku_flg=false＝バッチ未確定）。
+        rirekiRepo.findOne.mockImplementation((opts: any) =>
+          Promise.resolve(opts?.where?.dokusyaChushiDate ? RESERVATION_ROW : null),
+        );
+        // service は行ロック取得後に予約行を tx 内で読み直す（並行取消対策）ので、
+        // txManager.findOne も entity で振り分ける。既定の findOne は master を
+        // 返すだけなので、DokusyaRireki の問い合わせだけ予約行に差し替える。
+        const masterFindOne = txManager.findOne;
+        txManager.findOne = jest.fn(async (entity: any, opts?: any) =>
+          entity === DokusyaRireki
+            ? RESERVATION_ROW
+            : masterFindOne(entity, opts),
+        );
+        dokusyaQb.getRawOne.mockResolvedValue({});
+      }
+
+      it('予約変更: 旧予約を赤伝で無効化してから新しい月で予約し直す', async () => {
+        const revokeSpy = jest
+          .spyOn(historyWriter, 'revokeScheduledKaiyaku')
+          .mockResolvedValue(undefined);
+        const insertSpy = spyScheduledKaiyaku({
+          dokusyaShubetsu: 2,
+          denshiKaiinId: 555,
+        });
+        try {
+          arrangeReserved();
+
+          const result = await service.stop(
+            100,
+            { dokusya_chushi_date: '2030-09-30' }, // 07月末 → 09月末へ変更
+            buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          );
+
+          // 旧予約行(rireki_id=9)を無効化 → 新予約を append、の順で 1 tx。
+          expect(revokeSpy).toHaveBeenCalledTimes(1);
+          expect(revokeSpy.mock.calls[0][2]).toEqual(
+            expect.objectContaining({ dokusyaRirekiId: 9 }),
+          );
+          expect(insertSpy).toHaveBeenCalledTimes(1);
+          expect(insertSpy.mock.calls[0][1]).toEqual(
+            expect.objectContaining({ chushiDate: '2030-09-30', shubetsu: 2 }),
+          );
+          // 電子版へは新しい解約月で cancel を再送する（上書きさせる）。
+          expect(denshiPush.pushOnWrite.mock.calls[0][1]).toEqual(
+            expect.objectContaining({ action: 'cancel', cancelYm: '203009' }),
+          );
+          expect(result.message).toBe('購読停止を予約しました。');
+        } finally {
+          revokeSpy.mockRestore();
+          insertSpy.mockRestore();
+        }
+      });
+
+      it('予約取消: 空文字なら赤伝だけ打ち、cancel_ym 空で push する', async () => {
+        const revokeSpy = jest
+          .spyOn(historyWriter, 'revokeScheduledKaiyaku')
+          .mockResolvedValue(undefined);
+        const insertSpy = spyScheduledKaiyaku({ dokusyaShubetsu: 2 });
+        try {
+          arrangeReserved();
+
+          const result = await service.stop(
+            100,
+            { dokusya_chushi_date: '' },
+            buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          );
+
+          expect(revokeSpy).toHaveBeenCalledTimes(1);
+          // 取消なので新しい予約行は作らない。
+          expect(insertSpy).not.toHaveBeenCalled();
+          // 電子版APIに解約取消の action_kbn が無いため cancel + 空 cancel_ym
+          // （顧客判断 2026-08）。先方が拒否すれば tx ごとロールバックされる。
+          expect(denshiPush.pushOnWrite.mock.calls[0][1]).toEqual(
+            expect.objectContaining({ action: 'cancel', cancelYm: '' }),
+          );
+          expect(result.message).toBe('購読中止を取り消しました。');
+        } finally {
+          revokeSpy.mockRestore();
+          insertSpy.mockRestore();
+        }
+      });
+
+      it('予約が無いのに空文字が来たら VALIDATION_ERROR（画面と DB のずれ）', async () => {
+        const insertSpy = spyScheduledKaiyaku({ dokusyaShubetsu: 2 });
+        try {
+          dokusyaRepo.findOne.mockResolvedValue(
+            buildDokusya({
+              dokusyaId: 100,
+              jaId: 1,
+              dokusyaShubetsu: 2,
+              seikyuKaishiMonth: '202604',
+            }),
+          );
+          rirekiRepo.findOne.mockResolvedValue(null); // 予約なし
+
+          await expect(
+            service.stop(
+              100,
+              { dokusya_chushi_date: '' },
+              buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+              baseReq,
+            ),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              error_code: 'VALIDATION_ERROR',
+              errors: expect.arrayContaining([
+                expect.objectContaining({
+                  field: 'dokusya_chushi_date',
+                  message: expect.stringContaining('解約予約がありません'),
+                }),
+              ]),
+            }),
+          });
+          expect(denshiPush.pushOnWrite).not.toHaveBeenCalled();
+        } finally {
+          insertSpy.mockRestore();
+        }
+      });
+
+      it('到来日バッチで解約確定済み(kaiyaku_flg=true)なら変更も取消も拒否', async () => {
+        const revokeSpy = jest
+          .spyOn(historyWriter, 'revokeScheduledKaiyaku')
+          .mockResolvedValue(undefined);
+        const insertSpy = spyScheduledKaiyaku({ dokusyaShubetsu: 2 });
+        try {
+          dokusyaRepo.findOne.mockResolvedValue(
+            buildDokusya({
+              dokusyaId: 100,
+              jaId: 1,
+              dokusyaShubetsu: 2,
+              seikyuKaishiMonth: '202604',
+            }),
+          );
+          rirekiRepo.findOne.mockImplementation((opts: any) =>
+            Promise.resolve(
+              opts?.where?.dokusyaChushiDate
+                ? {
+                    dokusyaRirekiId: 9,
+                    dokusyaChushiDate: '2026-07-31',
+                    kaiyakuFlg: true, // バッチ確定済み
+                    torikeshiFlg: false,
+                  }
+                : null,
+            ),
+          );
+
+          await expect(
+            service.stop(
+              100,
+              { dokusya_chushi_date: '2030-09-30' },
+              buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+              baseReq,
+            ),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              error_code: 'VALIDATION_ERROR',
+              errors: expect.arrayContaining([
+                expect.objectContaining({
+                  message: expect.stringContaining('解約が確定済み'),
+                }),
+              ]),
+            }),
+          });
+          expect(revokeSpy).not.toHaveBeenCalled();
+          expect(insertSpy).not.toHaveBeenCalled();
+          expect(denshiPush.pushOnWrite).not.toHaveBeenCalled();
+        } finally {
+          revokeSpy.mockRestore();
+          insertSpy.mockRestore();
+        }
+      });
+
+      it('紙版は空文字での取消を受け付けない（履歴画面の取消が既存導線）', async () => {
+        const revokeSpy = jest
+          .spyOn(historyWriter, 'revokeScheduledKaiyaku')
+          .mockResolvedValue(undefined);
+        try {
+          dokusyaRepo.findOne.mockResolvedValue(
+            buildDokusya({
+              dokusyaId: 100,
+              jaId: 1,
+              dokusyaShubetsu: 1, // 紙版
+              dokusyaKaishiDate: '2026-04-01',
+            }),
+          );
+          rirekiRepo.findOne.mockImplementation((opts: any) =>
+            Promise.resolve(
+              opts?.where?.dokusyaChushiDate
+                ? {
+                    dokusyaRirekiId: 9,
+                    dokusyaChushiDate: '2030-07-31',
+                    kaiyakuFlg: false,
+                    torikeshiFlg: false,
+                  }
+                : null,
+            ),
+          );
+
+          await expect(
+            service.stop(
+              100,
+              { dokusya_chushi_date: '' },
+              buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+              baseReq,
+            ),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              error_code: 'VALIDATION_ERROR',
+            }),
+          });
+          expect(revokeSpy).not.toHaveBeenCalled();
+        } finally {
+          revokeSpy.mockRestore();
+        }
+      });
     });
   });
 
@@ -4065,7 +4326,6 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       take: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
-      offset: jest.fn().mockReturnThis(),
       setParameters: jest.fn().mockReturnThis(),
       getOne: jest.fn(),
       getRawOne: jest.fn(),
@@ -4073,6 +4333,14 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
       update: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
       execute: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -4093,6 +4361,9 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       softDelete: jest.fn().mockResolvedValue({ affected: 1 }),
       count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn(() => dokusyaQb),
+      // 購読部数合計は DISTINCT サブクエリを manager.query で実行する。
+      // 既定 0 部。合計を検証するテストが個別に上書きする。
+      manager: { query: jest.fn().mockResolvedValue([{ total_busu: 0 }]) },
     };
     rirekiRepo = {
       findOne: jest.fn(),
@@ -4194,6 +4465,56 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
   // API-014-001 — GET /api/v1/dokusya (search)
   // ════════════════════════════════════════════════════════════════════════
   describe('search', () => {
+    // 顧客要件 2026-08: 件数の横に購読部数の合計を出す。件数と同じ絞り込みで
+    // 集計するので、ページングの影響を受けない（表示中のページではなく全件）。
+    it('should return meta.total_busu summed over the filtered set', async () => {
+      dokusyaQb.getRawMany.mockResolvedValue([buildDokusyaListRow({ dokusya_id: 1 })]);
+      dokusyaQb.getCount.mockResolvedValue(3);
+      dokusyaRepo.manager.query.mockResolvedValue([{ total_busu: 7 }]);
+
+      const result = await service.search(
+        buildSearchDokusyaQuery(),
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.meta).toEqual(
+        expect.objectContaining({ total: 3, total_busu: 7 }),
+      );
+    });
+
+    // 適用日で絞ると t_dokusya_rireki を INNER JOIN するため 1購読者が履歴行の数だけ
+    // 重複する。素の SUM だと部数が水増しされるので、購読者ごとに1行へ畳んでから
+    // 外側で合計する（件数側は COUNT(DISTINCT) なので影響を受けず、合計だけずれる）。
+    it('should collapse duplicate rows before summing 部数 (適用日 JOIN)', async () => {
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(1);
+      dokusyaRepo.manager.query.mockResolvedValue([{ total_busu: 2 }]);
+
+      await service.search(
+        buildSearchDokusyaQuery({ joho_henko_tekiyo_date_from: '2026/01/01' }),
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      // DISTINCT で購読者ごとに畳んだ結果を外側の SUM が受ける形になっていること。
+      const [sql] = dokusyaRepo.manager.query.mock.calls[0];
+      expect(sql).toContain('SUM(t.dokusya_busu)');
+      const [selectArg] = dokusyaQb.select.mock.calls.at(-1) as [string];
+      expect(selectArg).toContain('DISTINCT d.dokusya_id');
+    });
+
+    it('should report 0 部 when nothing matches', async () => {
+      dokusyaQb.getRawMany.mockResolvedValue([]);
+      dokusyaQb.getCount.mockResolvedValue(0);
+      dokusyaRepo.manager.query.mockResolvedValue([{ total_busu: 0 }]);
+
+      const result = await service.search(
+        buildSearchDokusyaQuery(),
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.meta.total_busu).toBe(0);
+    });
+
     it('should return { data, meta } envelope with project pagination shape when query is valid', async () => {
       // COVERS: §4.5 happy-path + §4.6 レスポンス生成
       const rows = [buildDokusyaListRow({ dokusya_id: 1001 })];
@@ -5447,12 +5768,19 @@ describe('DokusyaService — 購読者履歴情報画面 (SCR-013) getRirekiList
       take: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
-      offset: jest.fn().mockReturnThis(),
       getRawOne: jest.fn(),
       getRawMany: jest.fn().mockResolvedValue([]),
       getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
     };
   }
 
@@ -5868,7 +6196,6 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       take: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
-      offset: jest.fn().mockReturnThis(),
       setParameters: jest.fn().mockReturnThis(),
       getOne: jest.fn(),
       getRawOne: jest.fn(),
@@ -5877,6 +6204,14 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       getRawAndEntities: jest.fn().mockResolvedValue({ entities: [], raw: [] }),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
     };
   }
 
@@ -5887,6 +6222,9 @@ describe('DokusyaService — SCR-015 (replace-hanbaiten search + bulk replace)',
       findOne: jest.fn(),
       find: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(() => dokusyaQb),
+      // 購読部数合計は DISTINCT サブクエリを manager.query で実行する。
+      // 既定 0 部。合計を検証するテストが個別に上書きする。
+      manager: { query: jest.fn().mockResolvedValue([{ total_busu: 0 }]) },
     };
     rirekiRepo = {
       findOne: jest.fn(),
@@ -7861,13 +8199,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           import_mode: 'UPDATE',
           dokusya_shubetsu: 2, // 画面ラジオ = 電子版
           selected_columns: ['dokusya_id', 'biko'],
-          rows: [
-            buildImportRow({
-              dokusya_id: 7001,
-              biko: 'メモ更新',
-              joho_henko_tekiyo_date: '', // 空欄でもエラーにならない
-            }),
-          ],
+          // 適用日は payload 直下。電子版は当日固定なので未指定を許す。
+          joho_henko_tekiyo_date: undefined,
+          rows: [buildImportRow({ dokusya_id: 7001, biko: 'メモ更新' })],
         }),
         buildJaHontenSession({ ja_id: 1, account_id: 11 }),
         baseReq,
@@ -7898,13 +8232,9 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
             import_mode: 'UPDATE',
             dokusya_shubetsu: 1,
             selected_columns: ['dokusya_id', 'biko'],
-            rows: [
-              buildImportRow({
-                dokusya_id: 7001,
-                biko: 'メモ更新',
-                joho_henko_tekiyo_date: '',
-              }),
-            ],
+            // 適用日は payload 直下の入力欄。未指定は行エラーではなくフォームエラー。
+            joho_henko_tekiyo_date: undefined,
+            rows: [buildImportRow({ dokusya_id: 7001, biko: 'メモ更新' })],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
@@ -7912,7 +8242,7 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       } catch (e) {
         caught = e;
       }
-      expect(caught).toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+      expect(caught).toMatchObject({ code: 'VALIDATION_ERROR' });
       const body = caught?.response ?? caught?.getResponse?.() ?? caught;
       const errors = body?.errors ?? caught?.errors ?? [];
       expect(
@@ -8146,12 +8476,12 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
         buildImportBody({
           import_mode: 'UPDATE',
           selected_columns: ['dokusya_id', 'dokusya_busu', 'hanbaiten_code'],
+          joho_henko_tekiyo_date: '2099-03-01', // payload 直下（1ファイル1つ）
           rows: [
             buildImportRow({
               dokusya_id: 7001,
               dokusya_busu: 6,
               hanbaiten_code: 'H009', // 5 → 9（販売店変更）
-              joho_henko_tekiyo_date: '2099-03-01',
             }),
           ],
         }),
@@ -8164,6 +8494,172 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
       expect(Number(input.values.hanbaitenId)).toBe(9); // H009 → 9
       expect(input.johoDate).toBe('2099-03-01'); // 唯一の適用日(joho)
       expect(input.hanbaitenDate).toBeUndefined(); // 販売店適用日は廃止
+    });
+
+    // ── 顧客要件 2026-08: 適用日 / 中止日 は payload 直下の入力欄 ──────────
+    // 行ではなくファイル単位なので、検証は行ループ前に1回だけ。FE も相互排他で
+    // 入力させるが UI の抑止は境界ではないため BE でも弾く。
+    describe('payload の適用日 / 中止日', () => {
+      it('should reject when BOTH 適用日 and 中止日 are given (更新か一括中止か決まらない)', async () => {
+        primeImport({
+          existing: [
+            { dokusya_id: 7001, kumiaiin_code: 'K00001', ja_id: 1, kanri_shiten_id: 101 },
+          ],
+        });
+        await expect(
+          service.importExcel(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              selected_columns: ['dokusya_id', 'biko'],
+              joho_henko_tekiyo_date: '2099-03-01',
+              dokusya_chushi_date: '2099-05-31',
+              rows: [buildImportRow({ dokusya_id: 7001, biko: 'x' })],
+            }),
+            buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      });
+
+      it.each([
+        ['joho_henko_tekiyo_date', { joho_henko_tekiyo_date: '2099-03-01' }],
+        ['dokusya_chushi_date', { dokusya_chushi_date: '2099-05-31' }],
+      ])('should reject %s on NEW (新規登録に適用日/中止日の概念が無い)', async (_label, extra) => {
+        primeImport({ existing: [] });
+        await expect(
+          service.importExcel(
+            buildImportBody({ ...extra }),
+            buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      });
+
+      it('should reject 電子版 一括中止 over 500 rows (同期処理のタイムアウト回避)', async () => {
+        primeImport({ existing: [] });
+        await expect(
+          service.importExcel(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 2, // 電子版
+              selected_columns: ['dokusya_id'],
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: '2099-05-31',
+              rows: Array.from({ length: 501 }, (_, i) =>
+                buildImportRow({ dokusya_id: 9000 + i }),
+              ),
+            }),
+            buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      });
+
+      // 電子版の解約は月末で終了する（SCR-014 の購読中止と同じ）。画面は終了月を
+      // 選ばせて月末へ丸めるが、UI の丸めは境界ではないので BE でも見る。
+      it('should reject a 電子版 中止日 that is not the last day of its month', () => {
+        const validator = new DokusyaImportValidator();
+        expect(() =>
+          validator.assertPayloadDates(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 2,
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: '2099-05-15', // 月末ではない
+            }) as never,
+          ),
+        ).toThrow();
+      });
+
+      it.each([
+        ['2099-05-31', '31日月'],
+        ['2099-02-28', '平年2月'],
+        ['2096-02-29', '閏年2月'],
+        ['2099-04-30', '30日月'],
+      ])('should accept 電子版 中止日 %s (%s) as a month end', (chushi) => {
+        const validator = new DokusyaImportValidator();
+        expect(() =>
+          validator.assertPayloadDates(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 2,
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: chushi,
+            }) as never,
+          ),
+        ).not.toThrow();
+      });
+
+      it('should reject a 電子版 中止日 in a past month', () => {
+        const validator = new DokusyaImportValidator();
+        expect(() =>
+          validator.assertPayloadDates(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 2,
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: '2020-01-31', // 月末だが過去月
+            }) as never,
+          ),
+        ).toThrow();
+      });
+
+      it('should NOT apply the month-end rule to 紙版 (日付単位で指定する)', () => {
+        const validator = new DokusyaImportValidator();
+        expect(() =>
+          validator.assertPayloadDates(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 1,
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: '2099-05-15', // 月中でよい
+            }) as never,
+          ),
+        ).not.toThrow();
+      });
+
+      it('should ALLOW 紙版 一括中止 over 500 rows (外部連携が無く従来コストのまま)', () => {
+        // 上限は電子版だけの制約。紙版は通常の 30000 行まで。
+        const validator = new DokusyaImportValidator();
+        expect(() =>
+          validator.assertPayloadDates(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 1, // 紙版
+              joho_henko_tekiyo_date: undefined,
+              dokusya_chushi_date: '2099-05-31',
+              rows: Array.from({ length: 501 }, () => buildImportRow()),
+            }) as never,
+          ),
+        ).not.toThrow();
+      });
+
+      it('should reject UPDATE with neither date on 紙版', async () => {
+        primeImport({
+          existing: [
+            {
+              dokusya_id: 7001,
+              kumiaiin_code: 'K00001',
+              ja_id: 1,
+              kanri_shiten_id: 101,
+              dokusya_shubetsu: 1,
+            },
+          ],
+        });
+        await expect(
+          service.importExcel(
+            buildImportBody({
+              import_mode: 'UPDATE',
+              dokusya_shubetsu: 1,
+              selected_columns: ['dokusya_id', 'biko'],
+              joho_henko_tekiyo_date: undefined,
+              rows: [buildImportRow({ dokusya_id: 7001, biko: 'x' })],
+            }),
+            buildJaHontenSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      });
     });
 
     it('should throw IMPORT_VALIDATION_ERROR when an UPDATE row omits joho_henko_tekiyo_date', async () => {
@@ -8179,18 +8675,13 @@ describe('DokusyaService — SCR-016 (Excel import: template + bulk import)', ()
           buildImportBody({
             import_mode: 'UPDATE',
             selected_columns: ['dokusya_id', 'dokusya_busu'],
-            rows: [
-              buildImportRow({
-                dokusya_id: 7001,
-                dokusya_busu: 6,
-                joho_henko_tekiyo_date: '', // 必須を空に
-              }),
-            ],
+            joho_henko_tekiyo_date: undefined, // 必須を未指定に
+            rows: [buildImportRow({ dokusya_id: 7001, dokusya_busu: 6 })],
           }),
           buildJaHontenSession({ ja_id: 1, account_id: 11 }),
           baseReq,
         ),
-      ).rejects.toMatchObject({ code: 'IMPORT_VALIDATION_ERROR' });
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     });
 
     it('should set haitatsu_same_flg=false in values and forceZougen for UPDATE when a selected 配達先 column has data', async () => {
@@ -8579,6 +9070,14 @@ describe('DokusyaService — SCR-010 (pending-approval count)', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
     };
   }
 
@@ -8718,6 +9217,14 @@ describe('DokusyaService — rireki UI↔Excel取込 同一性 (parity)', () => 
       limit: jest.fn().mockReturnThis(),
       getOne: jest.fn(),
       getCount: jest.fn().mockResolvedValue(0),
+      offset: jest.fn().mockReturnThis(),
+      // 購読部数合計は絞り込み済み qb を clone して DISTINCT サブクエリにする。
+      // clone は自分自身を返し、getQueryAndParameters はダミー SQL を返す
+      // （実際の集計は manager.query のモックが返す）。
+      clone: jest.fn(function (this: unknown) {
+        return this;
+      }),
+      getQueryAndParameters: jest.fn().mockReturnValue(['SELECT 1', []]),
       getRawOne: jest.fn().mockResolvedValue({ new_rireki_no: 2 }),
       getRawMany: jest.fn().mockResolvedValue([]),
       getMany: jest.fn().mockResolvedValue([]),

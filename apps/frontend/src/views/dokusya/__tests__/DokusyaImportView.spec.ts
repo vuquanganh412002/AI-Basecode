@@ -32,7 +32,9 @@ import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
 import Antd, { message, Modal } from 'ant-design-vue';
 
+import dayjs from 'dayjs';
 import DokusyaImportView from '@/views/dokusya/DokusyaImportView.vue';
+import { todayIsoTokyo } from '@/utils/datetime';
 import { buildAuthUser, buildCodesSeed } from '@test/fixtures/dokusya.fixture';
 import {
   DOKUSYA_IMPORT_JP_HEADERS,
@@ -198,6 +200,44 @@ async function uploadFile(
  * screen radio (顧客要件 2026-07) applied uniformly to every imported row —
  * it is NOT an Excel column, so digital-only rules are driven by this.
  */
+/**
+ * 適用日 / 中止日 は antd の <a-date-picker>（SCR-014 と同じ部品）なので、
+ * ネイティブ input のように setValue できない。vm の Dayjs を直接差し替える
+ * （DokusyaListView.spec の stopMonth と同じ扱い）。
+ */
+async function setPickerDate(
+  wrapper: ReturnType<typeof mount>,
+  field: 'johoDateFe' | 'chushiDateFe',
+  iso: string | null,
+): Promise<void> {
+  (wrapper.vm as unknown as Record<string, unknown>)[field] = iso
+    ? dayjs(iso)
+    : null;
+  await flushPromises();
+}
+
+/** <a-date-picker> の内側の <input>（placeholder / disabled の観測用）。 */
+function pickerInput(
+  wrapper: ReturnType<typeof mount>,
+  testId: string,
+): HTMLInputElement {
+  return wrapper
+    .find(`[data-test="${testId}"]`)
+    .find('input')
+    .element as HTMLInputElement;
+}
+
+/** antd は無効化を .ant-picker の class で表す（内側 input だけを見ない）。 */
+function isPickerDisabled(
+  wrapper: ReturnType<typeof mount>,
+  testId: string,
+): boolean {
+  return wrapper
+    .find(`[data-test="${testId}"] .ant-picker`)
+    .classes()
+    .includes('ant-picker-disabled');
+}
+
 async function setShubetsu(
   wrapper: ReturnType<typeof mount>,
   value: 1 | 2,
@@ -219,21 +259,16 @@ beforeEach(() => {
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
-  it('should render the selectable column checkboxes all checked in NEW mode, excluding the UPDATE-only date column', async () => {
+  it('should render every column checkbox checked in NEW mode', async () => {
     const { wrapper } = await renderView();
-    // 機能 1.1 — 取込列パネルは展開済み。新規登録では変更イベント日
-    // （読者情報変更適用日）は対象外でチェックボックスを出さずグレー表示にする
-    // （48列中1列を除く47列がチェックボックス＋全選択済み。購読種別は画面ラジオ
-    // で指定する単一ソースのため列に無い・顧客要件 2026-07）。
+    // 機能 1.1 — 取込列パネルは展開済み。46列すべてにチェックボックスが出て
+    // 全選択済み。購読種別 / 読者情報変更適用日 / 購読中止日 は画面で指定する
+    // 単一ソースのため列に無い（顧客要件 2026-07 / 2026-08）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes).toHaveLength(47);
+    expect(colCheckboxes).toHaveLength(46);
     for (const cb of colCheckboxes) {
-      const el = cb.element as HTMLInputElement;
-      expect(el.value).not.toBe('joho_henko_tekiyo_date');
-      expect(el.checked).toBe(true);
+      expect((cb.element as HTMLInputElement).checked).toBe(true);
     }
-    // 除外列(joho)はラベルとしては表示される（グレー）。販売店適用日は列自体が無い。
-    expect(wrapper.text()).toContain('読者情報変更適用日');
     expect(wrapper.text()).not.toContain('販売店適用日');
   });
 
@@ -327,26 +362,194 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
   // 電子版は即時連携で適用日が当日固定（BE も未来日を弾く）。UPDATE × 電子版 では
   // 読者情報変更適用日 の列を強制未チェック＋グレーアウトし、BE が空欄を当日として
   // 扱う。紙版は予約変更（未来日）が必要なので従来どおり選択可（顧客要件 2026-07）。
-  it('should grey out 読者情報変更適用日 on 更新 × 電子版 but keep it selectable on 更新 × 紙版', async () => {
+  // 顧客要件 2026-08: 適用日は Excel 列ではなく画面の入力欄。電子版は当日固定で
+  // 入力欄自体を disable にする（列のグレーアウトではなくなった）。
+  it('should disable the 適用日 input on 更新 × 電子版 and keep it editable on 更新 × 紙版', async () => {
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue();
     await flushPromises();
 
-    // 紙版（既定）→ 選択可。
-    await setShubetsu(wrapper, 1);
-    let cb = wrapper.find('input[type="checkbox"][value="joho_henko_tekiyo_date"]');
-    expect(cb.exists()).toBe(true);
-    expect((cb.element as HTMLInputElement).disabled).toBe(false);
+    await setShubetsu(wrapper, 1); // 紙版 → 入力可
+    expect(isPickerDisabled(wrapper, 'import-joho-date')).toBe(false);
 
-    // 電子版 → 強制未チェック扱い。他の編集不可列と同じくチェックボックスを
-    // 描画せずラベルだけグレー表示にする（既存の forced-OFF 表現に合わせる）。
+    await setShubetsu(wrapper, 2); // 電子版 → 当日固定
+    expect(isPickerDisabled(wrapper, 'import-joho-date')).toBe(true);
+    // 空欄ではなく当日を見せる（何が適用されるのかを利用者に示すため）。
+    expect(pickerInput(wrapper, 'import-joho-date').value).toBe(
+      dayjs(todayIsoTokyo()).format('YYYY/MM/DD'),
+    );
+    expect(wrapper.find('[data-test="import-joho-fixed-note"]').exists()).toBe(
+      true,
+    );
+  });
+
+  it('should clear + disable 中止日 once 適用日 is entered (and vice versa)', async () => {
+    // 排他: 同じ操作が「更新」なのか「一括中止」なのか決まらなくなるため。
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+
+    await setPickerDate(wrapper, 'johoDateFe', '2099-03-01');
+    expect(isPickerDisabled(wrapper, 'import-chushi-date')).toBe(true);
+
+    // 適用日を消してから中止日を入れると、今度は適用日側が閉じる。
+    await setPickerDate(wrapper, 'johoDateFe', null);
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+    expect(isPickerDisabled(wrapper, 'import-joho-date')).toBe(true);
+  });
+
+  it('should collapse the column grid to the key column when 中止日 is entered (一括中止)', async () => {
+    // 一括中止は解約予約を入れるだけ。他の列を書かないので選ばせない。
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+
+    const boxes = wrapper.findAll('input[type="checkbox"][name="col"]');
+    expect(boxes).toHaveLength(1);
+    expect((boxes[0].element as HTMLInputElement).value).toBe('dokusya_id');
+    expect(wrapper.find('[data-test="import-bulk-stop-note"]').exists()).toBe(true);
+  });
+
+  it('should lock the 12 帳票影響項目 when 紙版 × 適用日=当日', async () => {
+    // 紙版の当日変更は帳票影響項目を反映できない（予約変更＝未来日が要る）。
+    // BE も弾くが、選べてから弾かれるより選べない方が原因が見える。
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setShubetsu(wrapper, 1);
+    await setPickerDate(wrapper, 'johoDateFe', todayIsoTokyo());
+
+    for (const col of ['dokusya_busu', 'hanbaiten_code', 'yubin_no']) {
+      expect(
+        wrapper.find(`input[type="checkbox"][value="${col}"]`).exists(),
+      ).toBe(false);
+    }
+    // 帳票に影響しない列は選べたまま。
+    expect(wrapper.find('input[type="checkbox"][value="biko"]').exists()).toBe(
+      true,
+    );
+    expect(
+      wrapper.find('[data-test="import-report-locked-note"]').exists(),
+    ).toBe(true);
+
+    // 未来日にすると解放される（＝予約変更）。
+    await setPickerDate(wrapper, 'johoDateFe', '2099-03-01');
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_busu"]').exists(),
+    ).toBe(true);
+  });
+
+  it('should send 適用日 / 中止日 at payload level, not inside rows', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+    vi.mocked(importDokusyaExcel).mockResolvedValue(
+      buildImportSuccessResponse({ data: { import_mode: 'UPDATE' } }) as any,
+    );
+    await uploadFile(wrapper, [buildImportRow()]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(body.dokusya_chushi_date).toBe('2099-05-31');
+    expect(body.joho_henko_tekiyo_date).toBeUndefined();
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).not.toHaveProperty('dokusya_chushi_date');
+    expect(rows[0]).not.toHaveProperty('joho_henko_tekiyo_date');
+  });
+
+  it('should use a MONTH picker for 中止日 on 電子版 and send the month end', async () => {
+    // 電子版の解約は月末で終了する（SCR-014 と同じ）。日付ではなく終了月を選ばせ、
+    // 送信時にその月末へ丸める。
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setShubetsu(wrapper, 2); // 電子版
+    await flushPromises();
+
+    // antd は picker 種別を DOM 属性で出さないので placeholder で判別する
+    // （SCR-014 と同じ「終了月を選択」）。
+    expect(pickerInput(wrapper, 'import-chushi-date').placeholder).toBe(
+      '終了月を選択',
+    );
+    expect(
+      wrapper.find('[data-test="import-chushi-month-end-note"]').exists(),
+    ).toBe(true);
+
+    vi.mocked(importDokusyaExcel).mockResolvedValue(
+      buildImportSuccessResponse({ data: { import_mode: 'UPDATE' } }) as any,
+    );
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-02-10'); // 平年2月 → 28日へ丸まる
+    await uploadFile(wrapper, [buildImportRow()]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(body.dokusya_chushi_date).toBe('2099-02-28');
+  });
+
+  it('should keep a DATE picker for 中止日 on 紙版', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setShubetsu(wrapper, 1);
+    await flushPromises();
+    expect(pickerInput(wrapper, 'import-chushi-date').placeholder).toBe(
+      '購読中止日を選択',
+    );
+    expect(
+      wrapper.find('[data-test="import-chushi-month-end-note"]').exists(),
+    ).toBe(false);
+  });
+
+  // 紙版の解約予定日は「本日より後」。BE の collectChushiViolations が
+  // `chushi <= today` を弾くので、当日を選べると画面は通って送信時に落ちる。
+  it('should block today (and allow tomorrow) on the 紙版 中止日 picker', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setShubetsu(wrapper, 1);
+    await flushPromises();
+
+    const disabled = (wrapper.vm as unknown as {
+      disabledChushiDate: (d: unknown) => boolean;
+    }).disabledChushiDate;
+    const today = dayjs(todayIsoTokyo());
+    expect(disabled(today.subtract(1, 'day'))).toBe(true); // 昨日
+    expect(disabled(today)).toBe(true); // 当日も不可
+    expect(disabled(today.add(1, 'day'))).toBe(false); // 翌日から可
+  });
+
+  // 電子版は月末で終了するので月単位。当月末はまだ来ていないため当月は選べる。
+  it('should allow the current month (but not past months) on the 電子版 中止日 picker', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
     await setShubetsu(wrapper, 2);
-    cb = wrapper.find('input[type="checkbox"][value="joho_henko_tekiyo_date"]');
-    expect(cb.exists()).toBe(false);
-    const label = wrapper
-      .findAll('label')
-      .find((l) => l.text().includes('読者情報変更適用日'));
-    expect(label?.classes()).toContain('cursor-not-allowed');
+    await flushPromises();
+
+    const disabled = (wrapper.vm as unknown as {
+      disabledChushiDate: (d: unknown) => boolean;
+    }).disabledChushiDate;
+    const thisMonth = dayjs(todayIsoTokyo());
+    expect(disabled(thisMonth.subtract(1, 'month'))).toBe(true);
+    expect(disabled(thisMonth)).toBe(false);
+    expect(disabled(thisMonth.add(1, 'month'))).toBe(false);
+  });
+
+  it('should disable both date inputs in 新規登録 mode', async () => {
+    const { wrapper } = await renderView();
+    for (const t of ['import-joho-date', 'import-chushi-date']) {
+      expect(isPickerDisabled(wrapper, t)).toBe(true);
+    }
   });
 
   it('should set UPDATE (更新) column states: ID checked+disabled, immutable fields rendered WITHOUT a checkbox, others enabled', async () => {
@@ -617,6 +820,9 @@ describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue(true);
     await flushPromises();
+    // 更新は適用日 or 中止日 が必須（payload 直下・顧客要件 2026-08）。未来日を入れる
+    // — 当日だと帳票影響項目が選択不可になり「すべて選択」の意味が変わるため。
+    await setPickerDate(wrapper, 'johoDateFe', '2099-03-01');
     // 更新は既定で列未チェック → 送信のため「すべて選択」で全列チェックする。
     await wrapper.find('[data-test="select-all-checkbox"]').setValue(true);
     await flushPromises();

@@ -2806,6 +2806,44 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       expect(flt).toBeUndefined();
     });
 
+    // ダミー販売店(9999999999)の絞り込み — SCR-011 の購読種別と連動。
+    // 'only'=電子版(2) / 'exclude'=紙を含む種別 / 未指定=絞らない。
+    const dummyWhere = () =>
+      qbMock.andWhere.mock.calls.find(
+        ([sql]: unknown[]) =>
+          typeof sql === 'string' && /m\.hanbaiten_code\s*(=|<>)\s*:dummyCode/.test(sql),
+      );
+
+    it('should keep only the dummy store when dummy=only (電子版)', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown(
+        { dummy: 'only' },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const flt = dummyWhere();
+      expect(flt).toBeDefined();
+      expect(flt[0]).toMatch(/=\s*:dummyCode/);
+      expect(flt[1]).toEqual({ dummyCode: '9999999999' });
+    });
+
+    it('should exclude the dummy store when dummy=exclude (紙版・併読)', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown(
+        { dummy: 'exclude' },
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+      const flt = dummyWhere();
+      expect(flt).toBeDefined();
+      expect(flt[0]).toMatch(/<>\s*:dummyCode/);
+      expect(flt[1]).toEqual({ dummyCode: '9999999999' });
+    });
+
+    it('should NOT filter by hanbaiten_code when dummy is absent (既存呼び出しは無影響)', async () => {
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+      expect(dummyWhere()).toBeUndefined();
+    });
+
     it('should pin include_id in non-paginate mode even when the store is 廃店 (filtered out)', async () => {
       // COVERS: 編集で既に廃店の販売店へ紐づく購読者は、営業中フィルタ
       // (active_only) で除外されても include_id で現在の選択を先頭に復元する

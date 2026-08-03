@@ -134,6 +134,11 @@ export interface HanbaitenDropdownQuery {
   include_id?: number;
   /** true → 営業中(haiten_flg=false)のみ。購読者の販売店選択（登録/編集）用。 */
   active_only?: boolean;
+  /**
+   * 電子版ダミー販売店(hanbaiten_code=9999999999)の扱い。SCR-011 の購読種別と連動:
+   * 'only'=電子版のみ / 'exclude'=ダミーを除く。未指定は絞らない。
+   */
+  dummy?: 'only' | 'exclude';
 }
 
 /**

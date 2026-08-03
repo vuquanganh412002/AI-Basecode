@@ -29,7 +29,7 @@ import { DokusyaRowLimitExceededException } from './exceptions/row-limit-exceede
 import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
 import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
 import { DokusyaImportValidator } from './dokusya-import-validator.service';
-import { applyChange } from './dokusya-history.writer';
+import { applyChange, insertScheduledKaiyaku } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
 
 /** SCR-016 — 監査コンテキストの画面名ラベル。 */
@@ -72,10 +72,16 @@ interface ImportRowLookups {
 type MCodeInput = number | string | undefined;
 
 /**
- * SCR-016 — 取込テンプレート48列のヘッダー順（api.md §テンプレートファイル仕様）。
- * 各要素は生成ブックの1行目に出る日本語ヘッダー名。購読種別は画面ラジオ（紙版/
- * 電子版）で選び全行へ一律適用するため Excel 列ではない（顧客要件 2026-07: 取込を
- * 紙版/電子版の2モードに分離）。
+ * SCR-016 — 取込テンプレート46列のヘッダー順（api.md §テンプレートファイル仕様）。
+ * 各要素は生成ブックの1行目に出る日本語ヘッダー名。
+ *
+ * Excel 列でないもの:
+ *   - 購読種別         … 画面ラジオ（紙版/電子版）で選び全行へ一律適用（顧客要件 2026-07）
+ *   - 読者情報変更適用日 … 画面の入力欄。1ファイル1つの適用日（顧客要件 2026-08）
+ *   - 購読中止日        … 同上。入力すると「一括中止」になる（joho と排他）
+ *
+ * 後ろ2つを列から外したのは、入力源を二重に持たないため。行ごとに別の適用日を
+ * 持てる状態だと、画面の入力欄とどちらが勝つのかが仕様として説明できない。
  */
 const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   'ID',
@@ -123,9 +129,7 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   '購読者層分類',
   '農業者分類',
   '購読開始日',
-  '購読中止日',
   '備考',
-  '読者情報変更適用日',
 ] as const;
 
 /**
@@ -133,10 +137,9 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
  * フォーマットを示す完全記入例 — 新規(NEW)、口座引落(1)+引落口座一式、購読者情報と
  * 同じ=FALSE+配達先一式、email あり（紙版/電子版とも有効）、ひらがなかな、郵便番号
  * 7桁、連絡先は数字のみ、日付は YYYY-MM-DD。
- * 購読種別（電子版/紙版）は画面ラジオで選ぶ取込モードのため列は無い。
+ * 購読種別（電子版/紙版）・読者情報変更適用日・購読中止日は画面で指定するため列は無い。
  * 意図的に空欄（空が正しい値）:
  *   - ID       : UPDATE のキー。新規は必ず空。
- *   - 購読中止日 : 新規の有効会員は空（値を入れると解約予約になる）。
  * FK コード列（管理支店/支店/新聞単価/販売店コード）は placeholder コード。顧客が
  * 自組織のマスタコード（IDでなく）に書き換えてから取込む。備考にも記載。
  */
@@ -186,9 +189,7 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '0', // 購読者層分類 (自組織の分類コード)
   '0', // 農業者分類 (自組織の分類コード)
   '2026-04-01', // 購読開始日 (YYYY-MM-DD)
-  '', // 購読中止日 (新規の有効会員は空。値を入れると解約予約になる)
   'サンプル行です。管理支店・支店・新聞単価・販売店コードは自組織のマスタコードに書き換えてからインポートしてください。', // 備考
-  '2026-04-01', // 読者情報変更適用日（販売店を含む全変更の唯一の適用日。新規は購読開始日と同一でよい）
 ] as const;
 
 /** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
@@ -326,6 +327,9 @@ export class DokusyaImportService {
 
     // §4.1 — NEW モードは必須13列を含むこと。
     this.validator.assertNewModeRequiredColumns(dto);
+    // 適用日 / 中止日は payload 単位（1ファイル1つ・顧客要件 2026-08）。行ループの
+    // 前に見る — 行ごとに出すと同じ内容のエラーが行数ぶん並ぶ。
+    this.validator.assertPayloadDates(dto);
 
     const jaId = Number(session.ja_id ?? 0);
     const errors: Array<{ row: number; field: string; message: string }> = [];
@@ -370,11 +374,35 @@ export class DokusyaImportService {
     // UPDATE は partial 相当のため既存 IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換）。
     const importOperation = IMPORT_OPERATION_BY_MODE[dto.import_mode];
 
+    // 一括中止で電子版へ cancel を送った会員ID。tx の外に置く — ロールバックしても
+    // 「既に送ってしまった」事実は消えないので、補償 push の対象として残す必要がある。
+    const pushedKaiinIds: number[] = [];
+
     try {
       await this.dataSource.transaction(async (manager) => {
+        // Phase 2 — cloud 側の DML を全行ぶん。一括中止の push はここでは送らず、
+        // 後段でまとめて送る（送信済みの記録を tx の外に残すため）。
+        const pendingStopPushes: Array<{ after: Dokusya }> = [];
         for (const row of dto.rows) {
-          await this.applyImportRow(manager, dto, row, session, fkMaps);
+          await this.applyImportRow(
+            manager,
+            dto,
+            row,
+            session,
+            fkMaps,
+            pendingStopPushes,
+          );
         }
+
+        // Phase 3 — 一括中止の電子版連携。1件でも失敗すれば例外が上へ抜け、
+        // tx はロールバックされる（＝cloud 側は無かったことになる）。
+        // 紙版は pushOnWrite が対象外として false を返すので何も送られない。
+        await this.pushBulkStops(
+          manager,
+          dto,
+          pendingStopPushes,
+          pushedKaiinIds,
+        );
 
         // §4.5 — 取込1回につき集約監査1行、tx に参加。
         await this.auditLog.logOperation(
@@ -402,6 +430,10 @@ export class DokusyaImportService {
         );
       });
     } catch (err) {
+      // Phase 4b — cloud 側はロールバック済み。だが既に電子版へ送った cancel は
+      // 取り消されないので、送った分へ補償（cancel_ym 空 ＝ 解約予約の取消）を投げる。
+      // これをしないと「電子版では解約・cloud では購読中」という乖離が残る。
+      await this.compensateBulkStops(pushedKaiinIds, auditCtx);
       // §4.7 — エラーログは standalone 接続（manager なし）でロールバックを生き残らせる。
       await this.auditLog.logError(auditCtx, importOperation, err as Error);
       throw err;
@@ -420,6 +452,91 @@ export class DokusyaImportService {
       },
       message: '取り込みました。',
     };
+  }
+
+  /**
+   * 一括中止 Phase 3 — 予約を入れた行を電子版へ cancel として送る（顧客要件 2026-08）。
+   *
+   * 行ループの中で送らないのは、途中失敗したときに「どこまで送ったか」を tx の外へ
+   * 残す必要があるため。tx 内のローカル変数に積むと、ロールバックと一緒に呼び出し側の
+   * catch から見えなくなる。
+   *
+   * 1件でも失敗すれば例外がそのまま上へ抜け tx がロールバックする。cloud 側は
+   * 無かったことになるが、それまでに送った分は `pushedKaiinIds` に残り
+   * {@link compensateBulkStops} が打ち消す。
+   *
+   * 紙版は `pushOnWrite` が対象外として false を返すので、この関数を通っても
+   * 何も送られず `pushedKaiinIds` も空のまま（＝補償も no-op）。種別の分岐を
+   * ここに書かないのは、対象判定を isPushTarget の一箇所に保つため。
+   */
+  private async pushBulkStops(
+    manager: EntityManager,
+    dto: ImportDokusyaDto,
+    targets: ReadonlyArray<{ after: Dokusya }>,
+    pushedKaiinIds: number[],
+  ): Promise<void> {
+    if (targets.length === 0) return;
+    const chushi = dbDateOrNull(dto.dokusya_chushi_date);
+    if (!chushi) return;
+    const cancelYm = chushi.replaceAll('-', '').slice(0, 6);
+
+    for (const t of targets) {
+      const pushed = await this.denshiPush.pushOnWrite(manager, {
+        action: 'cancel',
+        after: t.after,
+        source: 'IMPORT',
+        cancelYm,
+      });
+      // 送れた分だけ控える。会員IDが無い（電子版に未登録）行は push 自体が
+      // skip されるので補償対象にもならない。
+      if (pushed && t.after.denshiKaiinId != null) {
+        pushedKaiinIds.push(Number(t.after.denshiKaiinId));
+      }
+    }
+  }
+
+  /**
+   * 一括中止 Phase 4b — ロールバック後の補償。送信済みの解約予約を打ち消す。
+   *
+   * 電子版APIには「解約取消」専用の処理区分が無いため、SCR-014 の予約取消と同じく
+   * `cancel` に空の `cancel_ym` を送る（顧客判断 2026-08）。
+   *
+   * 補償そのものが失敗した分は救えない。握りつぶすと「電子版だけ解約済み」の会員が
+   * 誰か分からなくなるので、必ず ERROR ログに会員IDを残す（運用が手で戻すための唯一の
+   * 手がかり）。補償の失敗で元の例外を差し替えないよう、ここでは throw しない。
+   */
+  private async compensateBulkStops(
+    pushedKaiinIds: readonly number[],
+    auditCtx: ReturnType<typeof buildAuditCtx>,
+  ): Promise<void> {
+    if (pushedKaiinIds.length === 0) return;
+    this.logger.warn(
+      `bulk-stop rollback: compensating ${pushedKaiinIds.length} pushed cancel(s)`,
+    );
+
+    const failed: number[] = [];
+    for (const kaiinId of pushedKaiinIds) {
+      try {
+        await this.denshiPush.push(
+          this.dataSource.manager,
+          'cancel',
+          { denshiKaiinId: kaiinId } as Dokusya,
+          { cancelYm: '' },
+        );
+      } catch {
+        failed.push(kaiinId);
+      }
+    }
+
+    if (failed.length > 0) {
+      const detail = `電子版で解約予約が残った可能性のある会員ID: ${failed.join(', ')}`;
+      this.logger.error(`bulk-stop compensation failed — ${detail}`);
+      await this.auditLog.logError(
+        auditCtx,
+        AuditOperation.IMPORT_UPDATE_PARTIAL,
+        new Error(`一括中止の補償に失敗しました。${detail}`),
+      );
+    }
   }
 
   /**
@@ -530,9 +647,17 @@ export class DokusyaImportService {
       dokusyaIds.length === 0 && kumiaiinCodes.length === 0
         ? []
         : await this.dataSource.query(
+            // 帳票影響項目（REPORT_FIELD_PAIRS の12項目）も読む。当日変更の制限判定
+            // (collectTodayModeReportViolations) は「既存値と違うか」で判断するため、
+            // 既存値が無いと Excel 側の値が undefined と比較され、値が同じ行でも
+            // 常に「変更あり」になってしまう（＝紙版の当日取込が理由なく弾かれる）。
             `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id, shiten_id,
                     dokusya_shubetsu, email, hanbaiten_id,
-                    dokusya_kaishi_date, dokusya_chushi_date
+                    dokusya_kaishi_date, dokusya_chushi_date, seikyu_kaishi_month,
+                    dokusya_busu,
+                    yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+                    haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+                    haitatsu_chome_banchi, haitatsu_tatemono_mei
                FROM t_dokusya
               WHERE ja_id = $1
                 AND (dokusya_id = ANY($2::bigint[])
@@ -765,7 +890,9 @@ export class DokusyaImportService {
       nogyosyaBunrui: str(row.nogyosya_bunrui),
       shokiDokusyaKaishiDate: kaishiDate,
       dokusyaKaishiDate: kaishiDate,
-      dokusyaChushiDate: normalizeDbDate(row.dokusya_chushi_date ?? null),
+      // NEW は購読中止日を持たない（画面で新規登録時は入力不可・顧客要件 2026-08）。
+      // 一括中止は UPDATE 側の専用経路が担う。
+      dokusyaChushiDate: null,
       johoHenkoTekiyoDate: kaishiDate,
       biko: str(row.biko),
       // 電子版(2)は承認済(1)で取込む（紙版は null）。Excel一括取込は職員操作の
@@ -896,7 +1023,6 @@ export class DokusyaImportService {
       hikiotoshi_koza_meigi: { field: 'hikiotoshiKozaMeigi', value: str_('hikiotoshi_koza_meigi') },
       dokusyaso_bunrui: { field: 'dokusyasoBunrui', value: str_('dokusyaso_bunrui') },
       nogyosya_bunrui: { field: 'nogyosyaBunrui', value: str_('nogyosya_bunrui') },
-      dokusya_chushi_date: { field: 'dokusyaChushiDate', value: () => dbDateOrNull(row.dokusya_chushi_date) },
       biko: { field: 'biko', value: str_('biko') },
     };
 
@@ -940,9 +1066,12 @@ export class DokusyaImportService {
       kanriShitenIdByCode: Map<string, number>;
       shitenIdByCode: Map<string, number>;
     },
+    /** 一括中止で push 待ちの行を積む先（呼び出し側が Phase 3 でまとめて送る）。 */
+    pendingStopPushes: Array<{ after: Dokusya }> = [],
   ): Promise<void> {
     const updatedBy = String(session.account_id);
     const jaId = Number(session.ja_id ?? 0);
+    const bulkStopChushi = dbDateOrNull(dto.dokusya_chushi_date);
     // 配達先7項目に入力があれば「別住所」扱い: haitatsu_same_flg を false、
     // zougen_hokoku_flg を true（NEW は全配達先列書込みのため row 単位、UPDATE は選択列のみ）。
     const hasHaitatsuData =
@@ -996,6 +1125,26 @@ export class DokusyaImportService {
       return;
     }
 
+    // 一括中止 — 中止日が指定された取込は「解約予約を入れる」だけの操作
+    // （顧客要件 2026-08）。他の列は書かない（画面も列グリッドをキー列へ縮退させる）。
+    // 電子版への cancel push は行ループでは行わず、DML を全行終えてから
+    // まとめて送る（importExcel 側の Phase 3）— 途中失敗時に「送った分だけ」
+    // 補償する必要があり、行ごとに送ると送信済みの記録が tx と一緒に消えるため。
+    if (bulkStopChushi) {
+      const stopId = await this.resolveImportTargetId(manager, jaId, row);
+      if (stopId == null) return;
+      await this.rireki.lockDokusyaRow(manager, stopId);
+      const result = await insertScheduledKaiyaku(manager, {
+        dokusyaId: stopId,
+        chushiDate: bulkStopChushi,
+        shubetsu: Number(dto.dokusya_shubetsu),
+        actor: updatedBy,
+      });
+      await manager.update(Dokusya, { dokusyaId: stopId }, { updatedBy });
+      pendingStopPushes.push({ after: result.after });
+      return;
+    }
+
     // UPDATE — 選択列のみ applyChange(UPDATE) に集約 (S3.2c)。対象 dokusya_id を解決し
     // 選択された編集可能列だけ values に載せる（未選択列は省略＝前値維持、空欄はスキップ）。
     // 全列更新は FE が全列を selected_columns に含めて実現。販売店含む全変更は単一適用日
@@ -1005,7 +1154,9 @@ export class DokusyaImportService {
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。
     await this.rireki.lockDokusyaRow(manager, dokusyaId);
-    const updateJoho = dbDateOrNull(row.joho_henko_tekiyo_date) ?? todayIsoJst();
+    // 適用日は payload 直下（1ファイル1つ）。電子版は画面で当日固定・省略可のため
+    // 未指定なら当日を補う（従来の行単位フォールバックと同じ意味）。
+    const updateJoho = dbDateOrNull(dto.joho_henko_tekiyo_date) ?? todayIsoJst();
     const updateResult = await applyChange(manager, {
       mode: 'UPDATE',
       dokusyaId,

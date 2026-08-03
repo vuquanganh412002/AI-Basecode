@@ -76,6 +76,7 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
     service = {
       findAll: jest.fn(),
       remove: jest.fn(),
+      listDropdown: jest.fn(),
     };
     // Default: NICHINO_STAFF — has both hanbaiten.view (yes) but NOT hanbaiten.delete
     // per seeder.md §3. Each test overrides as needed.
@@ -290,6 +291,33 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
   // ═════════════════════════════════════════════════════════════════════
   // API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id
   // ═════════════════════════════════════════════════════════════════════
+  describe('GET /api/v1/hanbaiten/dropdown — dummy パラメータ', () => {
+    const arrange = () => service.listDropdown.mockResolvedValue({ data: [], has_more: false });
+
+    it.each(['only', 'exclude'] as const)(
+      'should pass dummy=%s through to the service',
+      async (dummy) => {
+        // COVERS: SCR-011 購読種別 → ダミー販売店(9999999999)の絞り込み。
+        arrange();
+        await http().get(apiUrl('hanbaiten/dropdown')).query({ dummy }).expect(200);
+        expect(service.listDropdown.mock.calls[0][0]).toMatchObject({ dummy });
+      },
+    );
+
+    it.each([undefined, '', 'yes', 'ONLY'])(
+      'should drop an unknown dummy value (%s) instead of filtering',
+      async (dummy) => {
+        // COVERS: 未知の値は「絞らない」に倒す — 既存の呼び出し（dummy 無し）が無影響。
+        arrange();
+        await http()
+          .get(apiUrl('hanbaiten/dropdown'))
+          .query(dummy === undefined ? {} : { dummy })
+          .expect(200);
+        expect(service.listDropdown.mock.calls[0][0].dummy).toBeUndefined();
+      },
+    );
+  });
+
   describe('DELETE /api/v1/hanbaiten/:hanbaiten_id (API-018-002)', () => {
     beforeEach(() => {
       // Restore default: CHUOKAI has hanbaiten.delete permission

@@ -9,10 +9,13 @@
 // import させない — 同一ソース同士の比較になりトートロジーになるため。
 
 /**
- * 物理カラム名 49 個 — api.md §テンプレートファイル仕様 の並び順どおり
- * （v1.3: 販売店適用日を廃止し、適用日は読者情報変更適用日に統一。1更新1レコード・
- * UI/置換と同一）。index N が index-N の日本語ヘッダ + チェックボックスの value
- * 属性に対応する。
+ * 物理カラム名 46 個 — api.md §テンプレートファイル仕様 の並び順どおり。
+ * index N が index-N の日本語ヘッダ + チェックボックスの value 属性に対応する。
+ *
+ * ここに **無い**もの（画面で指定するため Excel 列ではない）:
+ *   - 購読種別          … 画面ラジオ（紙版/電子版）
+ *   - 読者情報変更適用日 … 画面の入力欄。1ファイル1つ（顧客要件 2026-08）
+ *   - 購読中止日        … 同上。入力すると一括中止になる（適用日と排他）
  */
 export const PHYSICAL_COLUMNS = [
   'dokusya_id',
@@ -60,9 +63,7 @@ export const PHYSICAL_COLUMNS = [
   'dokusyaso_bunrui',
   'nogyosya_bunrui',
   'dokusya_kaishi_date',
-  'dokusya_chushi_date',
   'biko',
-  'joho_henko_tekiyo_date',
 ] as const;
 export type PhysicalColumn = (typeof PHYSICAL_COLUMNS)[number];
 
@@ -113,9 +114,7 @@ export const JP_HEADERS: Record<PhysicalColumn, string> = {
   dokusyaso_bunrui: '購読者層分類',
   nogyosya_bunrui: '農業者分類',
   dokusya_kaishi_date: '購読開始日',
-  dokusya_chushi_date: '購読中止日',
   biko: '備考',
-  joho_henko_tekiyo_date: '読者情報変更適用日',
 };
 
 /** ヘッダ（日本語）→ 物理カラム。sheet_to_json のキーは 1 行目の文字列。 */
@@ -128,11 +127,7 @@ export const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
 })();
 
 /** 日付列（XLSX のシリアル値を YYYY-MM-DD へ変換する対象）。 */
-export const DATE_PHYSICAL_COLUMNS = new Set<string>([
-  'dokusya_kaishi_date',
-  'dokusya_chushi_date',
-  'joho_henko_tekiyo_date',
-]);
+export const DATE_PHYSICAL_COLUMNS = new Set<string>(['dokusya_kaishi_date']);
 
 /** 真偽値列（Excel のチェック/文字列を boolean へ変換する対象）。 */
 export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
@@ -185,14 +180,30 @@ export const EDIT_IMMUTABLE_COLUMNS: readonly PhysicalColumn[] = [
 export const EDIT_IMMUTABLE_SET = new Set<string>(EDIT_IMMUTABLE_COLUMNS);
 
 /**
- * 新規登録（NEW）で対象外の列。読者情報変更適用日 は履歴の「変更イベント日」で
- * あり新規登録には概念が無いため NEW では未チェック＋disable にする（UPDATE で
- * のみ使用）。販売店適用日は廃止し joho に統一（顧客要件 2026-07）。
+ * 帳票影響項目 — 紙版の当日変更（適用日=本日）では変更できない列
+ * （顧客要件2026-07。部数・販売店・購読者住所・配達先住所）。
+ *
+ * BE の `REPORT_FIELD_PAIRS`（`dokusya-shubetsu.rules.ts`）と対で保つこと。
+ * ただし **販売店だけキー名が違う** — 単票 dto は `hanbaiten_id` を見るが、
+ * 取込の列は `hanbaiten_code`。ここは取込の列名で持つ。
+ *
+ * 電子版は帳票を生成しないため対象外（全項目 当日反映可）。
  */
-export const NEW_EXCLUDED_COLUMNS: readonly PhysicalColumn[] = [
-  'joho_henko_tekiyo_date',
+export const REPORT_IMPACT_COLUMNS: readonly PhysicalColumn[] = [
+  'dokusya_busu',
+  'hanbaiten_code',
+  'yubin_no',
+  'todofuken_code',
+  'shikuchoson',
+  'chome_banchi',
+  'tatemono_mei',
+  'haitatsu_yubin_no',
+  'haitatsu_todofuken_code',
+  'haitatsu_shikuchoson',
+  'haitatsu_chome_banchi',
+  'haitatsu_tatemono_mei',
 ];
-export const NEW_EXCLUDED_SET = new Set<string>(NEW_EXCLUDED_COLUMNS);
+export const REPORT_IMPACT_SET = new Set<string>(REPORT_IMPACT_COLUMNS);
 
 /** 取込み可能な最大行数（DTO @ArrayMaxSize と一致）。 */
 export const MAX_IMPORT_ROWS = 30000;

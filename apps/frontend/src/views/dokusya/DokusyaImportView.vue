@@ -11,6 +11,7 @@
 // Spec contract: src/views/dokusya/__tests__/DokusyaImportView.spec.ts.
 
 import { computed, reactive, ref, watch } from 'vue';
+import type { Dayjs } from 'dayjs';
 import { message, Modal } from 'ant-design-vue';
 import * as XLSX from 'xlsx';
 
@@ -36,11 +37,16 @@ import {
   REQUIRED_SET,
   KEY_COLUMN,
   EDIT_IMMUTABLE_SET,
-  NEW_EXCLUDED_SET,
+  REPORT_IMPACT_SET,
   MAX_IMPORT_ROWS,
   normalizeImportBool,
 } from '@/utils/dokusya-import';
-import { normalizeImportDate } from '@/utils/datetime';
+import {
+  normalizeImportDate,
+  todayIsoTokyo,
+  isPastDayTokyo,
+  nowTokyo,
+} from '@/utils/datetime';
 import { downloadBlob } from '@/utils/download';
 
 // FE radio display value → BE wire value。取込モードは 新規登録 / 更新 の2択。
@@ -93,6 +99,113 @@ const shubetsuOptions = computed(() =>
         Number(o.value) === DokusyaShubetsu.DIGITAL,
     ),
 );
+
+// ─── 適用日 / 中止日（顧客要件 2026-08: Excel 列から画面入力へ）────────────
+//
+// 1ファイルに1つ。行ごとに別々の適用日は持てない（列を残すと画面と Excel の
+// どちらが勝つのか説明できないため列から撤去した）。
+//   適用日   … 通常の更新
+//   中止日   … 一括中止（解約予約を作る）
+// 排他: 片方を入力すると他方はクリア + disable。BE も両方指定を 400 で弾く。
+// SCR-014 の購読中止ポップアップと同じ antd ピッカーを使う（画面間で見た目と
+// 操作を揃える）。値は Dayjs。送信直前に文字列へ整形する。
+const johoDateFe = ref<Dayjs | null>(null);
+const chushiDateFe = ref<Dayjs | null>(null);
+
+/**
+ * 電子版の一括中止の行数上限（暫定・顧客合意 2026-08）。1行 = 電子版APIへの
+ * 1往復なので、同期処理のままでは大きいファイルが ALB/CloudFront のタイムアウトに
+ * かかる。将来ジョブ化したら撤廃する。紙版は外部連携が無いため通常の上限のまま。
+ * BE 側にも同じ上限がある（UI の抑止は境界ではない）。
+ */
+const MAX_DIGITAL_BULK_STOP_ROWS = 500;
+
+/** 一括中止モードか（中止日が入っている）。列グリッドはキー列だけに縮退する。 */
+const isBulkStop = computed(() => chushiDateFe.value !== null);
+
+/**
+ * 電子版の解約は**月末で終了**する。よって中止日は日付ではなく「終了月」を選び、
+ * 送信時にその月末へ丸める（SCR-014 の購読中止ポップアップと同じ扱い）。
+ * 紙版は従来どおり日付をそのまま指定する。
+ */
+const isChushiMonthPicker = computed(() => isDigitalBatchSelected.value);
+
+/** 実際に送る中止日。電子版は選択した月の月末日（SCR-014 と同じ丸め）。 */
+const effectiveChushiDate = computed(() => {
+  const d = chushiDateFe.value;
+  if (!d) return '';
+  return isChushiMonthPicker.value
+    ? d.endOf('month').format('YYYY-MM-DD')
+    : d.format('YYYY-MM-DD');
+});
+
+/** 適用日/中止日を入力できるか（新規登録は両方とも概念が無い）。 */
+const canEnterDates = computed(() => importModeFe.value === 'update');
+
+/**
+ * 電子版は適用日=当日固定。画面では当日を表示したまま disable にし、送信時も
+ * 当日を送る（BE は未指定でも当日を補うが、利用者に何が適用されるか見せる）。
+ */
+const isJohoFixedToday = computed(
+  () => canEnterDates.value && isDigitalBatchSelected.value,
+);
+
+/**
+ * ピッカーへ渡す適用日。電子版は当日固定なので **当日を表示したまま** disable にする
+ * （空欄だと何が適用されるのか利用者に見えない）。書き込みは素の ref へ流す。
+ */
+const johoPickerValue = computed<Dayjs | null>({
+  get: () => (isJohoFixedToday.value ? nowTokyo().startOf('day') : johoDateFe.value),
+  set: (v) => {
+    johoDateFe.value = v;
+  },
+});
+
+/** 実際に送る適用日。電子版は当日固定。 */
+const effectiveJohoDate = computed(() =>
+  isJohoFixedToday.value
+    ? todayIsoTokyo()
+    : (johoDateFe.value?.format('YYYY-MM-DD') ?? ''),
+);
+
+/**
+ * 紙版 × 適用日=当日 のとき、帳票影響項目は選択できない（顧客要件2026-07）。
+ * 予約変更（未来日）でのみ変更できるので、当日を選んだ時点でグレーアウトする。
+ * 電子版は帳票を生成しないため対象外。
+ */
+const reportColumnsLocked = computed(
+  () =>
+    canEnterDates.value &&
+    !isDigitalBatchSelected.value &&
+    !isBulkStop.value &&
+    johoDateFe.value?.format('YYYY-MM-DD') === todayIsoTokyo(),
+);
+
+/**
+ * 適用日ピッカー: 過去日は選べない（当日・未来日のみ）。共通ヘルパー経由 —
+ * `current.isBefore(...)` を自前で書くとブラウザ TZ で日境界を再計算してしまう
+ * （`.claude/rules/vue.md §Date/Time`）。
+ */
+const disabledJohoDate = isPastDayTokyo;
+
+/**
+ * 中止日ピッカーの選択不可判定。**適用日とルールが違う**ので isPastDayTokyo は使わない。
+ *
+ *   紙版   … 解約予定日は「本日より後」。当日も選ばせない
+ *            （BE の collectChushiViolations が `chushi <= today` を弾くため、
+ *            当日を選べると画面は通って送信時にエラーになる）。
+ *            SCR-014 の disabledStopPaperDate と同じ比較。
+ *   電子版 … 月末で終了するので月単位。当月は選べる（当月末はまだ来ていない）。
+ *            SCR-014 の disabledStopMonth と同じ判定。請求開始月は購読者ごとなので
+ *            この画面では見られず、BE が行単位で弾く。
+ */
+function disabledChushiDate(current: Dayjs | null): boolean {
+  if (!current) return false;
+  if (isChushiMonthPicker.value) {
+    return current.format('YYYYMM') < nowTokyo().format('YYYYMM');
+  }
+  return current.format('YYYY-MM-DD') <= todayIsoTokyo();
+}
 
 /** 選択列 — 物理列は初期状態で全てチェック。 */
 const selected = reactive<Record<PhysicalColumn, boolean>>(
@@ -152,18 +265,17 @@ function isLocked(col: PhysicalColumn): boolean {
 
 /**
  * 強制 未チェック＋disable（forced OFF）になる列か。
- * 更新モードの編集不可項目（氏名4 / 購読開始日）は更新対象外なので
- * 未チェック＋disable（購読種別は画面ラジオで指定する単一ソースのため列に無い）。
+ * 更新モードの編集不可項目（購読開始日）は更新対象外なので未チェック＋disable
+ * （購読種別・適用日・中止日は画面で指定する単一ソースのため列に無い）。
  */
 function isForcedUnchecked(col: PhysicalColumn): boolean {
-  // 新規登録: 読者情報変更適用日 / 販売店適用日 は対象外（UPDATE 専用の変更イベント日）。
-  if (importModeFe.value === 'new') return NEW_EXCLUDED_SET.has(col);
-  // 更新 × 電子版: 読者情報変更適用日 は当日固定（電子版は即時連携で未来日を
-  // 指定できず、BE も当日以外を弾く）。入力させる意味が無いのでグレーアウトし、
-  // BE が空欄を当日として扱う（顧客要件 2026-07）。
-  if (col === 'joho_henko_tekiyo_date' && isDigitalBatchSelected.value) {
-    return true;
-  }
+  if (importModeFe.value === 'new') return false;
+  // 一括中止は「解約予約を入れる」だけの操作。キー以外の列は書かないので、
+  // 中止日を入れた時点で列グリッドをキー列だけに縮退させる。
+  if (isBulkStop.value) return col !== KEY_COLUMN;
+  // 紙版 × 適用日=当日: 帳票影響項目は当日反映できない（予約変更＝未来日が要る）。
+  // BE も同ルールで弾くが、選べてから弾かれるより選べない方が分かりやすい。
+  if (reportColumnsLocked.value && REPORT_IMPACT_SET.has(col)) return true;
   // 更新: キー以外の編集不可列は更新対象外。
   return col !== KEY_COLUMN && EDIT_IMMUTABLE_SET.has(col);
 }
@@ -215,6 +327,12 @@ const allChecked = computed<boolean>({
 watch(
   importModeFe,
   () => {
+    // 新規登録に適用日/中止日の概念は無い。モードを戻したときに前の入力が
+    // 残っていると送信時に 400 になるのでクリアする。
+    if (importModeFe.value === 'new') {
+      johoDateFe.value = null;
+      chushiDateFe.value = null;
+    }
     for (const col of PHYSICAL_COLUMNS) {
       if (isLocked(col)) selected[col] = true;
       else if (isForcedUnchecked(col)) selected[col] = false;
@@ -223,6 +341,30 @@ watch(
   },
   { immediate: true },
 );
+
+// 適用日/中止日/購読種別 が変わると選べる列が変わる（一括中止は キー列のみ、
+// 紙版の当日は帳票影響項目が不可）。既にチェック済みの列が選択不可になった場合は
+// 黙って外す — 送信時に BE から弾かれるより、画面上で外れる方が原因が見える。
+watch([chushiDateFe, johoDateFe, dokusyaShubetsuFe], () => {
+  for (const col of PHYSICAL_COLUMNS) {
+    if (isLocked(col)) selected[col] = true;
+    else if (isForcedUnchecked(col)) selected[col] = false;
+  }
+});
+
+// 排他: 片方に入力したら他方をクリアする（BE も両方指定を 400 で弾く）。
+watch(johoDateFe, (v) => {
+  if (v) chushiDateFe.value = null;
+});
+watch(chushiDateFe, (v) => {
+  if (v) johoDateFe.value = null;
+});
+
+// 購読種別を切り替えると中止日の粒度が変わる（紙版=日付 / 電子版=終了月）。
+// 日付のまま月ピッカーへ残すと利用者の意図とずれるのでクリアする。
+watch(isChushiMonthPicker, () => {
+  chushiDateFe.value = null;
+});
 
 // ─── ファイル変更 → xlsx 解析 → プレビュー ─────────────────────────────
 
@@ -323,6 +465,23 @@ function validateBeforeSubmit(): string | null {
   // no-file は onSubmit が warning で先に処理するためここには来ない。
   if (parsedRows.value.length > MAX_IMPORT_ROWS) return MSG_016_006;
 
+  // 適用日 / 中止日（payload 単位）— 行ではなくフォームのエラーなので
+  // rowErrors ではなくメッセージで返す。
+  if (canEnterDates.value) {
+    if (!effectiveJohoDate.value && !effectiveChushiDate.value) {
+      return '読者情報変更適用日または購読中止日を入力してください。';
+    }
+    // 電子版の一括中止は1回あたりの件数を絞る（1行 = 電子版APIへの1往復のため、
+    // 同期処理では大きいファイルがタイムアウトする）。紙版は外部連携が無いので対象外。
+    if (
+      isBulkStop.value &&
+      isDigitalBatchSelected.value &&
+      parsedRows.value.length > MAX_DIGITAL_BULK_STOP_ROWS
+    ) {
+      return `電子版の一括中止は${MAX_DIGITAL_BULK_STOP_ROWS}件までです。ファイルを分割してください。`;
+    }
+  }
+
   const errors: RowError[] = [];
   const isNew = importModeFe.value === 'new';
   // 購読種別は画面ラジオで一括指定する単一ソース（全行共通）。
@@ -377,20 +536,6 @@ function validateBeforeSubmit(): string | null {
         row: rowNo,
         field: 'dokusya_busu',
         message: '購読部数は1以上で入力してください。',
-      });
-    }
-    // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日）。
-    // 電子版は当日固定で列自体をグレーアウトしているため必須チェックの対象外
-    // （BE も同条件で必須を外し、空欄は当日として扱う）。
-    if (
-      !isNew &&
-      !isDigitalBatchSelected.value &&
-      !String(row.joho_henko_tekiyo_date ?? '').trim()
-    ) {
-      errors.push({
-        row: rowNo,
-        field: 'joho_henko_tekiyo_date',
-        message: '読者情報変更適用日を入力してください。',
       });
     }
   });
@@ -452,10 +597,16 @@ async function runImport(): Promise<void> {
       return out;
     });
 
+    // 適用日 / 中止日 は payload 直下（1ファイル1つ）。空は載せない — BE は
+    // 「未指定」と「空文字」を同じ扱いにするが、キーを落とす方が意図が明確。
+    const joho = effectiveJohoDate.value;
+    const chushi = effectiveChushiDate.value;
     const body = {
       import_mode: MODE_TO_BE[importModeFe.value],
       dokusya_shubetsu: dokusyaShubetsuFe.value,
       selected_columns: selectedCols,
+      ...(joho ? { joho_henko_tekiyo_date: joho } : {}),
+      ...(chushi ? { dokusya_chushi_date: chushi } : {}),
       rows,
     };
     const res = await importDokusyaExcel(body);
@@ -534,48 +685,8 @@ function renderCell(value: unknown): string {
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
       <form class="space-y-4" @submit.prevent>
-        <!-- 1行目（lg・5カラム）: [file ×2] [購読種別] [取込モード] [テンプレート右] -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-4 items-start">
-          <div class="md:col-span-2 lg:col-span-2">
-            <label
-              class="block text-sm font-semibold text-text-main mb-1.5"
-              for="file-input"
-            >
-              Excelファイル名
-              <span class="text-error ml-1">*</span>
-            </label>
-            <!--
-              ネイティブのファイル選択欄はボタン文言と未選択メッセージを
-              ブラウザのロケールで表示し日本語に固定できないため、非表示にして
-              日本語のカスタムボタン＋ファイル名表示に置き換える（機能は不変）。
-              クリック時はピッカーを開く前に選択値をクリアし、同一ファイルの
-              再選択でも再取り込みされるようにする。
-            -->
-            <div
-              class="flex items-center gap-3 w-full border border-border-strong rounded bg-surface-card px-3 py-1"
-            >
-              <button
-                type="button"
-                class="shrink-0 rounded border-0 bg-primary/10 px-3 py-1 text-sm font-medium text-primary hover:bg-primary/20 cursor-pointer"
-                @click="fileInputEl?.click()"
-              >
-                ファイルを選択
-              </button>
-              <span class="text-sm text-text-description truncate">
-                {{ fileName || 'ファイルが選択されていません。' }}
-              </span>
-            </div>
-            <input
-              id="file-input"
-              ref="fileInputEl"
-              type="file"
-              accept=".xlsx,.xls"
-              class="hidden"
-              @click="resetFileInput"
-              @change="onFileChange"
-            />
-          </div>
-
+        <!-- 1行目: 購読種別 / 取込モード / 読者情報変更適用日 / 購読中止日 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-4 items-start">
           <div>
             <span
               id="import-shubetsu-label"
@@ -640,8 +751,134 @@ function renderCell(value: unknown): string {
             </div>
           </div>
 
+          <div>
+            <label
+              class="block text-sm font-semibold text-text-main mb-1.5"
+              for="joho-date-input"
+            >
+              読者情報変更適用日
+            </label>
+            <!-- antd の <a-date-picker> は未知の属性を DOM へ通さないため、
+                 スペックの掴み手として親 div に data-test を置く。 -->
+            <div data-test="import-joho-date">
+              <a-date-picker
+                id="joho-date-input"
+                v-model:value="johoPickerValue"
+                format="YYYY/MM/DD"
+                placeholder="適用日を選択"
+                aria-label="読者情報変更適用日"
+                :disabled-date="disabledJohoDate"
+                :disabled="!canEnterDates || isBulkStop || isJohoFixedToday"
+                class="w-full"
+              />
+            </div>
+            <p
+              v-if="isJohoFixedToday"
+              class="mt-1 text-xs text-text-description"
+              data-test="import-joho-fixed-note"
+            >
+              電子版は当日のみ変更できます。
+            </p>
+            <p
+              v-else-if="reportColumnsLocked"
+              class="mt-1 text-xs text-text-description"
+              data-test="import-report-locked-note"
+            >
+              当日を指定したため、帳票に影響する項目（購読部数・販売店・住所）は選択できません。予約変更する場合は未来日を指定してください。
+            </p>
+          </div>
+
+          <div>
+            <label
+              class="block text-sm font-semibold text-text-main mb-1.5"
+              for="chushi-date-input"
+            >
+              購読中止日
+            </label>
+            <!-- 電子版は月末で終了するため「終了月」を選ぶ（SCR-014 と同じ扱い）。
+                 紙版は日付をそのまま指定する。 -->
+            <div class="flex items-center gap-2">
+              <div class="flex-1" data-test="import-chushi-date">
+                <a-date-picker
+                  id="chushi-date-input"
+                  v-model:value="chushiDateFe"
+                  :picker="isChushiMonthPicker ? 'month' : 'date'"
+                  :format="isChushiMonthPicker ? 'YYYY/MM' : 'YYYY/MM/DD'"
+                  :placeholder="
+                    isChushiMonthPicker ? '終了月を選択' : '購読中止日を選択'
+                  "
+                  aria-label="購読中止日"
+                  :disabled-date="disabledChushiDate"
+                  :disabled="!canEnterDates || johoDateFe !== null"
+                  class="w-full"
+                />
+              </div>
+              <span
+                v-if="isChushiMonthPicker"
+                class="text-sm text-text-main whitespace-nowrap"
+                data-test="import-chushi-month-end-note"
+              >
+                月末で終了
+              </span>
+            </div>
+            <p
+              v-if="isBulkStop"
+              class="mt-1 text-xs text-text-description"
+              data-test="import-bulk-stop-note"
+            >
+              一括中止として取込みます。対象はIDで特定し、他の項目は更新しません。
+            </p>
+          </div>
+        </div>
+
+        <!-- 2行目: Excelファイル選択 + テンプレートダウンロード。
+             1行目と同じ4カラムに乗せ、ファイル欄は半分（2/4）— 上の
+             購読種別・取込モードと左右の位置が揃う。 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-4 items-start">
+          <div class="lg:col-span-2">
+            <label
+              class="block text-sm font-semibold text-text-main mb-1.5"
+              for="file-input"
+            >
+              Excelファイル名
+              <span class="text-error ml-1">*</span>
+            </label>
+            <!--
+              ネイティブのファイル選択欄はボタン文言と未選択メッセージを
+              ブラウザのロケールで表示し日本語に固定できないため、非表示にして
+              日本語のカスタムボタン＋ファイル名表示に置き換える（機能は不変）。
+              クリック時はピッカーを開く前に選択値をクリアし、同一ファイルの
+              再選択でも再取り込みされるようにする。
+            -->
+            <div
+              class="flex items-center gap-3 w-full border border-border-strong rounded bg-surface-card px-3 py-1"
+            >
+              <button
+                type="button"
+                class="shrink-0 rounded border-0 bg-primary/10 px-3 py-1 text-sm font-medium text-primary hover:bg-primary/20 cursor-pointer"
+                @click="fileInputEl?.click()"
+              >
+                ファイルを選択
+              </button>
+              <span class="text-sm text-text-description truncate">
+                {{ fileName || 'ファイルが選択されていません。' }}
+              </span>
+            </div>
+            <input
+              id="file-input"
+              ref="fileInputEl"
+              type="file"
+              accept=".xlsx,.xls"
+              class="hidden"
+              @click="resetFileInput"
+              @change="onFileChange"
+            />
+          </div>
+
+          <!-- 残りの2カラムを占め右端へ寄せる。ファイル欄のラベル分だけ下げて
+               底辺を揃える。 -->
           <div
-            class="md:col-span-2 lg:col-span-1 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
+            class="lg:col-span-2 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
           >
             <button
               data-test="template-download-btn"
@@ -654,7 +891,6 @@ function renderCell(value: unknown): string {
             </button>
           </div>
         </div>
-
         <!-- Column selector accordion -->
         <div class="border border-border rounded">
           <div

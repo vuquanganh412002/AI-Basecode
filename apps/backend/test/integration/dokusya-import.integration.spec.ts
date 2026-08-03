@@ -116,6 +116,14 @@ const SCR016_SEED_SQL: string[] = [
       '', '', '', '', '', '', '', '',
       NULL, false,
       NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
+     -- 同一 JA の2店目。販売店「変更」を作るのに要る（hanbaiten_code は
+     -- (ja_id, hanbaiten_code) で UNIQUE ＝ JA を跨ぐと重複しうるため、
+     -- ja_id=2 の H999 では同一 JA 内の変更を表現できない）。
+     (7, 1, 'H002', '麹町販売店', 'ｺｳｼﾞﾏﾁ',
+      '', '13', '1020083', '東京都千代田区麹町1-1', '', '',
+      '', '', '', '', '', '', '', '',
+      NULL, false,
+      NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
      (6, 2, 'H999', '大阪販売店', 'ｵｵｻｶ',
       '', '27', '5300001', '大阪府大阪市1-1', '', '',
       '', '', '', '', '', '', '', '',
@@ -261,15 +269,16 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
 
       const header = (sheet.getRow(1).values as unknown[]).slice(1);
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
-      // v1.4（顧客要件 2026-07）: 購読種別は画面ラジオ（紙版/電子版）で一括指定する
-      // 単一ソースにしたため Excel 列から撤去（49 → 48 列）。v1.3 で販売店適用日を
-      // 廃止し適用日を読者情報変更適用日に統一済み（1更新1レコード・UI/置換と同一）。
-      expect(header).toHaveLength(48);
+      // 顧客要件 2026-08: 読者情報変更適用日 / 購読中止日 も画面の入力欄へ移し
+      // Excel 列から撤去（48 → 46 列）。画面と列の二重入力源を作らないため。
+      // それ以前: 購読種別を画面ラジオへ（49 → 48）、販売店適用日を廃止し joho に統一。
+      expect(header).toHaveLength(46);
       expect(header).not.toContain('購読種別'); // 撤去（画面ラジオで一括指定）
       expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）
       expect(header).toContain('購読者情報と同じ');
       expect(header).not.toContain('販売店適用日'); // 廃止（joho に統一）
-      expect(header).toContain('読者情報変更適用日'); // 唯一の適用日
+      expect(header).not.toContain('読者情報変更適用日'); // 撤去（画面の入力欄へ）
+      expect(header).not.toContain('購読中止日'); // 撤去（画面の入力欄＝一括中止）
       expect(String(sample[header.indexOf('備考')])).toContain('書き換えて');
     });
   });
@@ -585,11 +594,11 @@ describeRealPg(
           buildImportBody({
             import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            joho_henko_tekiyo_date: todayIsoJst(),
             rows: [
               buildImportRow({
                 kumiaiin_code: 'KDATE0',
                 dokusya_busu: 9, // 1 → 9（帳票影響項目の変更）
-                joho_henko_tekiyo_date: todayIsoJst(),
               }),
             ],
           }),
@@ -599,6 +608,104 @@ describeRealPg(
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
       // 当日は許容されるが帳票影響項目の変更で dokusya_busu にエラー。
       expect(fields).toContain('dokusya_busu');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR when 販売店 is changed on 当日 UPDATE (紙版)', async () => {
+      // [hanbaiten-key] REPORT_FIELD_PAIRS は販売店を `hanbaiten_id` で見るが、
+      // 取込行は `hanbaiten_code` で持つ。変換しないと販売店の変更だけが
+      // 帳票影響項目として検出されず、「当日変更で販売店は変えられない」ルールが
+      // Excel 経路からすり抜ける（SCR-011 画面では機能していた）。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KHAN01', hanbaiten_code: 'H001' })],
+          }),
+        )
+        .expect(200);
+      // 購読開始日を過去へ。NEW は未来日で作るため、これが無いと joho=当日 が
+      // 「購読開始日以降」の相対チェックにも触れ、当日ルール単体の検証にならない。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_kaishi_date = '2020-01-01'
+          WHERE ja_id = 1 AND kumiaiin_code = 'KHAN01'`,
+      );
+
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['kumiaiin_code', 'hanbaiten_code'],
+            joho_henko_tekiyo_date: todayIsoJst(),
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KHAN01',
+                hanbaiten_code: 'H002', // H001 → H002（同一 JA の別店＝帳票影響）
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      // エラー項目は Excel の列名で返る（利用者に `hanbaiten_id` を見せても通じない）。
+      expect(fields).toContain('hanbaiten_code');
+      expect(fields).not.toContain('hanbaiten_id');
+    });
+
+    it('should ACCEPT 当日 UPDATE when a selected 帳票影響項目 holds the SAME value', async () => {
+      // 既存値ロード漏れの回帰: 既存レコード取得の SELECT に帳票影響項目が無いと、
+      // Excel の値が undefined と比較されて「値が同じ行」でも常に変更ありと誤判定し、
+      // 紙版の当日取込が理由なく弾かれていた。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KHAN02', yubin_no: '1000001' })],
+          }),
+        )
+        .expect(200);
+      // 購読開始日と履歴の適用日を過去へ揃える。NEW は両方を未来日で作るため、
+      // master だけ過去にすると joho=当日 の前行が見つからず（findBefore が
+      // `joho <= 当日` で空）、履歴生成が ja_id NULL で落ちる。製品上は起きない
+      // 組み合わせで、テスト用の状態を作るための調整。
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya SET dokusya_kaishi_date = '2020-01-01'
+          WHERE ja_id = 1 AND kumiaiin_code = 'KHAN02'`,
+      );
+      await ctx.dataSource.query(
+        `UPDATE t_dokusya_rireki SET joho_henko_tekiyo_date = '2020-01-01',
+                                     dokusya_kaishi_date = '2020-01-01'
+          WHERE dokusya_id IN (
+            SELECT dokusya_id FROM t_dokusya
+             WHERE ja_id = 1 AND kumiaiin_code = 'KHAN02')`,
+      );
+
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['kumiaiin_code', 'yubin_no'],
+            joho_henko_tekiyo_date: todayIsoJst(),
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KHAN02',
+                yubin_no: '1000001', // 既存と同値 → 変更ではない
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+      expect(res.body.data.updated_count).toBe(1);
     });
 
     // NOTE: 「紙版 当日 + 非帳票項目 → 200」の正常系は、取込 NEW が購読開始日を
@@ -650,11 +757,11 @@ describeRealPg(
           buildImportBody({
             import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
+            joho_henko_tekiyo_date: '2026-09-01',
             rows: [
               buildImportRow({
                 kumiaiin_code: 'KDATE2',
-                dokusya_busu: 5,
-                joho_henko_tekiyo_date: '2026-09-01', // >= chushi & >= today
+                dokusya_busu: 5, // >= chushi & >= today
               }),
             ],
           }),
@@ -663,6 +770,146 @@ describeRealPg(
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
       expect(fields).toContain('joho_henko_tekiyo_date');
+    });
+
+    // ── 一括中止（顧客要件 2026-08）— 中止日を指定した取込は解約予約を入れるだけ ──
+    it('should insert a 解約予約 row and reflect the 中止日 on master (紙版 一括中止)', async () => {
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({ rows: [buildImportRow({ kumiaiin_code: 'KSTOP1' })] }),
+        )
+        .expect(200);
+      const [{ dokusya_id: id }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KSTOP1'`,
+      );
+
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['dokusya_id'],
+            joho_henko_tekiyo_date: undefined,
+            dokusya_chushi_date: '2099-05-31',
+            rows: [buildImportRow({ dokusya_id: Number(id) })],
+          }),
+        )
+        .expect(200);
+      expect(res.body.data.import_mode).toBe('UPDATE');
+
+      // 予約行: 部数0・中止日あり・kaiyaku_flg=false（確定は到来日バッチ）。
+      const [reservation] = await ctx.dataSource.query(
+        `SELECT dokusya_busu, dokusya_chushi_date, kaiyaku_flg, torikeshi_flg
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = $1 AND dokusya_chushi_date IS NOT NULL
+          ORDER BY rireki_no DESC LIMIT 1`,
+        [id],
+      );
+      expect(Number(reservation.dokusya_busu)).toBe(0);
+      expect(reservation.kaiyaku_flg).toBe(false);
+      expect(reservation.torikeshi_flg).toBe(false);
+
+      // 中止日は予約時点で master にも出る（一覧/詳細へ即時表示するため）。
+      const [master] = await ctx.dataSource.query(
+        `SELECT dokusya_chushi_date, tetsuzuki_shurui FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(String(master.dokusya_chushi_date)).toContain('2099-05-31');
+      // 解約の確定は到来日バッチ。取込時点では購読中のまま。
+      expect(Number(master.tetsuzuki_shurui)).toBe(1);
+    });
+
+    it('should reject 電子版 一括中止 when 請求開始月 is not set (料金徴収未開始)', async () => {
+      // SCR-014 の購読中止は請求開始月が未設定の電子版を停止させない。取込にも
+      // 同じルールを適用する（画面からはできないのに Excel からはできる、を作らない）。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            dokusya_shubetsu: 2, // 電子版
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KSEIKYU',
+                email: 'seikyu@example.com',
+                dokusya_busu: 1, // 電子版は1固定
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: id }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KSEIKYU'`,
+      );
+      // 取込 NEW は請求開始月を設定しない → 未設定のまま。
+
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 2,
+            selected_columns: ['dokusya_id'],
+            joho_henko_tekiyo_date: undefined,
+            dokusya_chushi_date: '2099-05-31',
+            rows: [buildImportRow({ dokusya_id: Number(id) })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const msgs = (res.body.errors ?? []).map(
+        (e: { message: string }) => e.message,
+      );
+      expect(msgs.join()).toContain('徴収はまだ開始されていません');
+    });
+
+    it('should NOT write other columns on 一括中止 even when they are selected', async () => {
+      // 一括中止は「解約予約を入れる」だけ。画面も列グリッドをキー列へ縮退させるが、
+      // 直接呼ばれても他の列を書かないことを BE 側で担保する。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KSTOP2', dokusya_busu: 3 })],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: id }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KSTOP2'`,
+      );
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['dokusya_id', 'biko'],
+            joho_henko_tekiyo_date: undefined,
+            dokusya_chushi_date: '2099-05-31',
+            rows: [
+              buildImportRow({ dokusya_id: Number(id), biko: '書き込まれないはず' }),
+            ],
+          }),
+        )
+        .expect(200);
+
+      const [master] = await ctx.dataSource.query(
+        `SELECT biko FROM t_dokusya WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(String(master.biko ?? '')).not.toContain('書き込まれないはず');
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (解約予定日 過去日) on UPDATE import (顧客要件 2026-07)', async () => {
@@ -681,13 +928,10 @@ describeRealPg(
           buildImportBody({
             import_mode: 'UPDATE',
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
-            rows: [
-              buildImportRow({
-                kumiaiin_code: 'KDATE3',
-                dokusya_busu: 5,
-                dokusya_chushi_date: '2020-01-01', // 過去日
-              }),
-            ],
+            // 中止日は payload 直下（一括中止）。適用日とは排他なので joho は外す。
+            dokusya_chushi_date: '2020-01-01', // 過去日
+            joho_henko_tekiyo_date: undefined,
+            rows: [buildImportRow({ kumiaiin_code: 'KDATE3', dokusya_busu: 5 })],
           }),
         )
         .expect(400);

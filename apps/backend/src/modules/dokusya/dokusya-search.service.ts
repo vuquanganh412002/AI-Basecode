@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 
@@ -130,6 +130,9 @@ export class DokusyaSearchService {
     const qb = this.dokusyaRepo.createQueryBuilder('d');
     this.buildSearchQuery(qb, query, session);
 
+    // 購読部数の合計用に、ORDER BY / LIMIT を付ける前の絞り込み条件だけを複製する。
+    const busuQb = qb.clone();
+
     // ORDER BY + LIMIT + OFFSET はデータ取得パスのみ。
     qb.orderBy(sortColumn, sortOrder);
     // limit/offset を使う（take/skip 不可）: take/skip は getMany() のみ効き
@@ -138,13 +141,43 @@ export class DokusyaSearchService {
     qb.limit(perPage);
     qb.offset((page - 1) * perPage);
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, totalBusu] = await Promise.all([
       qb.getRawMany<Record<string, unknown>>(),
       qb.getCount(),
+      this.sumDokusyaBusu(busuQb),
     ]);
 
     const data = rows.map((row) => toDokusyaListItem(row));
-    return paginate(data, Number(total), page, perPage);
+    return paginate(data, Number(total), page, perPage, {
+      total_busu: totalBusu,
+    });
+  }
+
+  /**
+   * 検索条件に一致する購読者の購読部数合計（顧客要件 2026-08。画面は
+   * 「全 N 件　全 M 部」と併記する）。
+   *
+   * 素の `SUM(d.dokusya_busu)` は使えない。適用日で絞ると `t_dokusya_rireki` を
+   * INNER JOIN するため 1購読者が履歴行の数だけ重複し、部数が水増しされる
+   * （件数側は `getCount()` が `COUNT(DISTINCT)` なので影響を受けず、合計だけが
+   * ずれる — 気付きにくい形の不一致になる）。
+   *
+   * そこで「購読者ごとに1行」へ畳んでから外側で合計する。DISTINCT の対象に
+   * dokusya_id を含めるので、同部数の別購読者が潰れることもない。
+   */
+  private async sumDokusyaBusu(
+    filteredQb: SelectQueryBuilder<Dokusya>,
+  ): Promise<number> {
+    const [sql, params] = filteredQb
+      .select('DISTINCT d.dokusya_id', 'dokusya_id')
+      .addSelect('d.dokusya_busu', 'dokusya_busu')
+      .getQueryAndParameters();
+    const rows: Array<{ total_busu: string | number | null }> =
+      await this.dokusyaRepo.manager.query(
+        `SELECT COALESCE(SUM(t.dokusya_busu), 0)::int AS total_busu FROM (${sql}) t`,
+        params,
+      );
+    return Number(rows[0]?.total_busu ?? 0);
   }
 
   // ─── API-014-003 — GET /api/v1/dokusya/export ───────────────────────

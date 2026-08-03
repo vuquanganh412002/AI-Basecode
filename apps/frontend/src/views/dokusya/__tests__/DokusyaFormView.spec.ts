@@ -459,6 +459,38 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     expect(Number(vm.formState.dokusya_busu)).toBe(1);
   });
 
+  // 販売店ドロップダウンは購読種別で候補が排他に分かれる（顧客要件 2026-08）:
+  // 電子版(2)=ダミー販売店(9999999999)のみ / それ以外=ダミーを除外。
+  it('should request dummy=exclude for the 販売店 dropdown on a 紙版 create', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    await renderView({ user: buildAuthUser({ paper_flg: true, denshi_flg: true }) });
+    expect(vi.mocked(getHanbaitenDropdown).mock.calls.at(-1)?.[0]).toMatchObject({
+      dummy: 'exclude',
+    });
+  });
+
+  it('should re-request the 販売店 dropdown with dummy=only and drop the selection when switching to 電子版', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    const { wrapper } = await renderView({
+      user: buildAuthUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const vm = wrapper.vm as unknown as {
+      formState: { dokusya_shubetsu: number; hanbaiten_id: number | null };
+    };
+    vm.formState.hanbaiten_id = 1; // 紙版で選んだ販売店
+    await flushPromises();
+
+    vm.formState.dokusya_shubetsu = 2; // 電子版へ切替
+    await flushPromises();
+
+    expect(vi.mocked(getHanbaitenDropdown).mock.calls.at(-1)?.[0]).toMatchObject({
+      dummy: 'only',
+    });
+    // 切替前の選択は新候補に存在しない → 残すと候補に無いコードが表示され、
+    // BE も別種別の販売店を受けてしまうので破棄する。
+    expect(vm.formState.hanbaiten_id).toBeNull();
+  });
+
   it('should show 購読開始日 radio (今日/翌月1日) + read-only 中止日 for ANY 電子版 create — not only 口座引落 (顧客要件 2026-07)', async () => {
     const { wrapper } = await renderView({
       user: buildAuthUser({ paper_flg: true, denshi_flg: true }),

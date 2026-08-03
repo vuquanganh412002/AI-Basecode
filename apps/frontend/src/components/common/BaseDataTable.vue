@@ -24,6 +24,11 @@ interface Props {
    * 標準的な使い方は `apps/frontend/src/views/file-download/FileDownloadView.vue` 参照。
    */
   rowSelection?: Record<string, unknown>;
+  /**
+   * 「全 N 件」の後ろへ追記する画面固有の集計（例: 購読者検索の「全 M 部」）。
+   * 省略時は従来どおり件数だけ。全リストへ波及させたくない指標をここで足す。
+   */
+  totalSuffix?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -91,7 +96,8 @@ function handleChange(
         total: props.total,
         showSizeChanger: true,
         pageSizeOptions: ['10', '20', '50', '100'],
-        showTotal: (t: number) => `全 ${t} 件`,
+        showTotal: (t: number) =>
+          props.totalSuffix ? `全 ${t} 件　${props.totalSuffix}` : `全 ${t} 件`,
         /* ページネーションバーを常に表示 — 顧客要件で結果が 1 行でも size-changer +
            '全 N 件' 総数を見せる。antd の既定は単一ページでも表示なので
            `hideOnSinglePage: true` を渡さないだけでよい。 */

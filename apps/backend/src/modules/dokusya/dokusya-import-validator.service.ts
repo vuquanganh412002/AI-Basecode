@@ -58,6 +58,11 @@ interface ImportRowLookups {
   existingDigitalEmailToIds: Map<string, Set<number>>;
 }
 
+/** unknown → string。DB 生値は常にスカラだが、Object の既定文字列化を型で防ぐ。 */
+function str(v: unknown): string {
+  return v == null ? '' : String(v as string | number);
+}
+
 /** 行エラー蓄積用エントリ。 */
 type ImportRowError = { row: number; field: string; message: string };
 
@@ -67,6 +72,9 @@ const EMAIL_REQUIRED_DIGITAL_MSG = SHUBETSU_MSG.EMAIL_REQUIRED_DIGITAL;
 /** 電子版・併読で 読者属性 未選択時のメッセージ（共通ルール由来）。 */
 const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
   SHUBETSU_MSG.DOKUSYASO_BUNRUI_REQUIRED_DIGITAL;
+
+/** 電子版で請求開始月が未設定＝停止不可（SCR-014 の購読中止と同一文言）。 */
+const SEIKYU_NOT_STARTED_MSG = SHUBETSU_MSG.SEIKYU_NOT_STARTED;
 
 /**
  * 1フィールドの errors[] を持つ VALIDATION_ERROR を投げる。ValidationPipe の例外と
@@ -132,6 +140,32 @@ const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
 const IMPORT_ERROR_CAP = 10;
 
 /**
+ * 電子版の一括中止の行数上限（暫定・顧客合意 2026-08）。将来ジョブ化したら撤廃する。
+ * FE 側にも同じ値がある（`utils/dokusya-import` 経由の画面チェック）が、UI の抑止は
+ * 境界ではないのでここが実際のガード。
+ */
+const MAX_DIGITAL_BULK_STOP_ROWS = 500;
+
+/** 'YYYY-MM-DD' → その月の月末日 'YYYY-MM-DD'（翌月0日で月跨ぎを自前計算しない）。 */
+function lastDayOfMonthIso(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  const end = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${iso.slice(0, 7)}-${String(end).padStart(2, '0')}`;
+}
+
+/**
+ * 帳票影響項目（`REPORT_FIELD_PAIRS`）のキーのうち、単票 dto と取込の列名が
+ * 食い違うもの: 単票は販売店を id で受けるが、Excel は **コード** で受ける。
+ *
+ * `computeChangedReportFields` は単票 dto のキーで結果を返すので、取込側では
+ * この表で列名へ戻してから `selected_columns` と突き合わせ、エラーの field にも使う
+ * （利用者に見せるのは Excel の列名でなければ意味が通らない）。
+ */
+const REPORT_FIELD_IMPORT_ALIAS: Readonly<Record<string, string>> = {
+  hanbaiten_id: 'hanbaiten_code',
+};
+
+/**
  * SCR-016 — 購読者Excelデータ取込の純粋バリデーションを担うサービス。
  *
  * DokusyaImportService から「行バリデーション + 分類」concern を切り出したもの。
@@ -161,6 +195,91 @@ export class DokusyaImportValidator {
       enumerable: true,
     });
     throw exc;
+  }
+
+  /**
+   * payload 直下の 読者情報変更適用日 / 購読中止日 を検証する（顧客要件 2026-08）。
+   * 行ではなくファイル単位の指定なので、行ループではなくここで1回だけ見る。
+   *
+   *   - 両方指定 … 同じ操作が「更新」なのか「一括中止」なのか決まらない → 400。
+   *     FE も相互排他で入力させるが、UI の抑止は境界ではないので BE でも弾く。
+   *   - NEW で日付指定 … 新規登録に変更適用日・中止日の概念が無い → 400。
+   *   - UPDATE で両方未指定 … 何を適用するのか決まらない → 400。ただし電子版は
+   *     適用日が当日固定（画面も disable）なので省略を許し、BE が当日を補う。
+   */
+  public assertPayloadDates(dto: ImportDokusyaDto): void {
+    const joho = String(dto.joho_henko_tekiyo_date ?? '').trim();
+    const chushi = String(dto.dokusya_chushi_date ?? '').trim();
+
+    if (joho && chushi) {
+      throw this.payloadDateError(
+        'dokusya_chushi_date',
+        '読者情報変更適用日と購読中止日は同時に指定できません。',
+      );
+    }
+
+    if (dto.import_mode === 'NEW') {
+      if (joho) {
+        throw this.payloadDateError(
+          'joho_henko_tekiyo_date',
+          '新規登録では読者情報変更適用日を指定できません。',
+        );
+      }
+      if (chushi) {
+        throw this.payloadDateError(
+          'dokusya_chushi_date',
+          '新規登録では購読中止日を指定できません。',
+        );
+      }
+      return;
+    }
+
+    // UPDATE — 電子版は当日固定で省略可（importUpdateRow が当日を補う）。
+    if (!joho && !chushi && !isDigitalOrBoth(dto.dokusya_shubetsu)) {
+      throw this.payloadDateError(
+        'joho_henko_tekiyo_date',
+        '読者情報変更適用日を入力してください。',
+      );
+    }
+
+    if (chushi && isDigitalOrBoth(dto.dokusya_shubetsu)) {
+      // 電子版の一括中止だけ行数を絞る。1行 = 電子版APIへの1往復なので、同期処理の
+      // ままでは大きいファイルが ALB/CloudFront のタイムアウトにかかる。紙版は外部連携が
+      // 無く従来と同じコストなので通常の上限（30000）のまま。
+      // DTO の @ArrayMaxSize は種別を跨いだ形式契約なので、種別依存の上限はここに置く。
+      if (dto.rows.length > MAX_DIGITAL_BULK_STOP_ROWS) {
+        throw this.payloadDateError(
+          'dokusya_chushi_date',
+          `電子版の一括中止は${MAX_DIGITAL_BULK_STOP_ROWS}件までです。ファイルを分割してください。`,
+        );
+      }
+      // 電子版の解約は**月末で終了**する（SCR-014 の購読中止と同じ）。画面は終了月を
+      // 選ばせて月末へ丸めるが、UI の丸めは境界ではないのでここでも検証する。
+      if (chushi !== lastDayOfMonthIso(chushi)) {
+        throw this.payloadDateError(
+          'dokusya_chushi_date',
+          '電子版の購読中止日は月末日を指定してください。',
+        );
+      }
+      // 当月以降（過ぎた月では止められない）。日単位の未来判定は紙版のルールで、
+      // 電子版は月単位で見る — 当月末は「まだ来ていない」ので許す。
+      if (chushi.slice(0, 7) < todayIsoJst().slice(0, 7)) {
+        throw this.payloadDateError(
+          'dokusya_chushi_date',
+          '購読中止日は当月以降の月を選択してください。',
+        );
+      }
+    }
+  }
+
+  /** payload 日付エラー — `.code` を own property で公開（サービス単体テスト互換）。 */
+  private payloadDateError(field: string, message: string): ValidationException {
+    const exc = fieldValidationError(field, message);
+    Object.defineProperty(exc, 'code', {
+      value: 'VALIDATION_ERROR',
+      enumerable: true,
+    });
+    return exc;
   }
 
   /**
@@ -281,28 +400,9 @@ export class DokusyaImportValidator {
     )) {
       this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
     }
-    // UPDATE は読者情報変更適用日が必須（履歴の情報変更イベント日。顧客要件
-    // 2026-06）。販売店適用日は「販売店が変わる行」で classifyImportRow が検証する。
-    //
-    // ただし **電子版は当日以外を指定できない**（下の collectDigitalTodayModeViolation
-    // が未来日を弾く）ため、入力させる意味が無い。顧客要件 2026-07: 電子版の UPDATE
-    // では列を入力不可（FE 側でグレーアウト）にし、空欄なら当日を自動採用する
-    // （importUpdateRow の `?? todayIsoJst()`）。よって必須チェックは紙版のみ。
-    // 取込モードの購読種別は dto のラジオ値で、UPDATE では既存レコードの種別と
-    // 一致することを validateImportRowShubetsuMatch が別途保証している。
-    const isUpdate = dto.import_mode === 'UPDATE';
-    const isDigitalBatch = isDigitalOrBoth(dto.dokusya_shubetsu);
-    if (
-      isUpdate &&
-      !isDigitalBatch &&
-      !String(row.joho_henko_tekiyo_date ?? '').trim()
-    ) {
-      this.pushImportError(errors, {
-        row: rowNo,
-        field: 'joho_henko_tekiyo_date',
-        message: '読者情報変更適用日を入力してください。',
-      });
-    }
+    // 読者情報変更適用日の必須チェックは payload 単位へ移動
+    // （assertPayloadDates・顧客要件 2026-08: 1ファイル1つの入力欄になったため、
+    // 行ループで見ると同じ内容のエラーが行数ぶん並ぶ）。
   }
 
   /**
@@ -356,8 +456,10 @@ export class DokusyaImportValidator {
   ): void {
     const isUpdate =
       dto.import_mode === 'UPDATE';
-    const joho = dbDateOrNull(row.joho_henko_tekiyo_date);
-    const chushi = dbDateOrNull(row.dokusya_chushi_date);
+    // 適用日 / 中止日は payload 直下（1ファイル1つ・顧客要件 2026-08）。
+    // 行ごとの値は無くなったので、全行が同じ日付で検証される。
+    const joho = dbDateOrNull(dto.joho_henko_tekiyo_date);
+    const chushi = dbDateOrNull(dto.dokusya_chushi_date);
     const today = todayIsoJst();
 
     // 参照レコード（UPDATE時の既存行）。購読開始日/解約予定日の相対チェックに使う。
@@ -369,22 +471,18 @@ export class DokusyaImportValidator {
         )
       : undefined;
 
-    // ── 解約予定日の整合性（NEW / UPDATE 両方・入力時のみ）───────────────
+    // ── 解約予定日の整合性（入力時のみ）─────────────────────────────────
+    // 種別でルールが違う（SCR-014 の購読中止と同じ切り分け）:
+    //   紙版   … 日付単位。購読開始日以降 かつ 本日より後。
+    //   電子版 … 月単位。月末で終了するため「本日より後」の日付判定は使わない
+    //            （当月末を選ぶのは正当だが、月末当日だと日付判定に引っかかる）。
+    //            月末であること・当月以降であることは payload 単位で検証済み。
+    //            ここでは購読者ごとの 請求開始月 を見る。
     if (chushi) {
-      const kaishiRef = isUpdate
-        ? (existing?.dokusya_kaishi_date as string | null | undefined)
-        : dbDateOrNull(row.dokusya_kaishi_date);
-      for (const v of collectChushiViolations({
-        chushiDate: chushi,
-        kaishiDate: kaishiRef,
-        today,
-      })) {
-        this.pushImportError(errors, {
-          row: rowNo,
-          field: tekiyoViolationField(v.kind),
-          message: v.message,
-        });
-      }
+      this.checkImportRowChushi(
+        { chushi, rowNo, dto, row, existing, isUpdate, today },
+        errors,
+      );
     }
 
     // 適用日の単項目（未来日/過去日）チェック。NEW は購読開始日、UPDATE は
@@ -423,21 +521,119 @@ export class DokusyaImportValidator {
       })) {
         this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
       }
-      // 取込 UPDATE は selected_columns の列だけが変更対象。行は全列に既定値を持つため
-      // 選択列に限定して帳票影響項目の変更を判定（UI は全項目送信で不要だが取込では必須）。
-      const selected = new Set(dto.selected_columns ?? []);
-      const changedReportFields = computeChangedReportFields(
-        row as unknown as Record<string, unknown>,
-        existing,
-      ).filter((f) => selected.has(f));
       for (const v of collectTodayModeReportViolations({
         shubetsu,
         joho,
         today,
-        changedReportFields,
+        changedReportFields: this.changedReportFieldsForImport(
+          row,
+          existing,
+          dto,
+          lookups,
+        ),
       })) {
         this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
       }
+    }
+  }
+
+  /**
+   * 当日変更の制限判定に渡す「変更された帳票影響項目」を取込用に算出する。
+   *
+   * 取込 UPDATE は `selected_columns` の列だけが変更対象。行は全列に既定値を持つため、
+   * 選択列に限定しないと未選択列の既定値まで「変更」に数えてしまう（UI は全項目送信
+   * なので単票側では不要な絞り込み）。
+   *
+   * [hanbaiten-key] 取込行は販売店を **コード** で持つが、`REPORT_FIELD_PAIRS` は
+   * 単票 dto に合わせて `hanbaiten_id` を見る。変換しないと
+   * `computeChangedReportFields` が `newValues['hanbaiten_id']` を undefined と見なして
+   * continue し、**販売店の変更だけが帳票影響項目として検出されない** —
+   * 「当日変更で販売店は変えられない」ルールが Excel 経路からすり抜ける。
+   * 解決できないコードは別途「販売店コードが見つかりません」で弾かれるため、
+   * ここでは id を立てず比較対象から外す（同じ行に二重エラーを出さない）。
+   */
+  private changedReportFieldsForImport(
+    row: ImportDokusyaRowDto,
+    existing: Record<string, unknown>,
+    dto: ImportDokusyaDto,
+    lookups: ImportRowLookups,
+  ): string[] {
+    const rowForReport: Record<string, unknown> = {
+      ...(row as unknown as Record<string, unknown>),
+    };
+    const code = row.hanbaiten_code;
+    if (code !== undefined && code !== null && String(code) !== '') {
+      const id = lookups.hanbaitenIdByCode.get(String(code));
+      if (id !== undefined) rowForReport.hanbaiten_id = id;
+    }
+
+    const selected = new Set(dto.selected_columns ?? []);
+    return (
+      computeChangedReportFields(rowForReport, existing)
+        // 戻り値は単票 dto のキー。取込の列名へ戻してから選択列で絞り、
+        // そのままエラーの field にもなる（利用者に見せるのは Excel の列名）。
+        .map((f) => REPORT_FIELD_IMPORT_ALIAS[f] ?? f)
+        .filter((f) => selected.has(f))
+    );
+  }
+
+  /**
+   * 解約予定日の行単位チェック。種別でルールが違う（SCR-014 の購読中止と同じ切り分け）。
+   *
+   *   紙版   … 日付単位。購読開始日以降 かつ 本日より後。
+   *   電子版 … 月単位。月末で終了するため「本日より後」の日付判定は使わない
+   *            （当月末を選ぶのは正当だが、月末**当日**だと日付判定に引っかかり
+   *            正しい操作が弾かれる）。月末であること・当月以降であることは
+   *            payload 単位で検証済みなので、ここは購読者ごとの 請求開始月 を見る。
+   */
+  private checkImportRowChushi(
+    input: {
+      chushi: string;
+      rowNo: number;
+      dto: ImportDokusyaDto;
+      row: ImportDokusyaRowDto;
+      existing: Record<string, unknown> | undefined;
+      isUpdate: boolean;
+      today: string;
+    },
+    errors: ImportRowError[],
+  ): void {
+    const { chushi, rowNo, dto, row, existing, isUpdate, today } = input;
+    if (isDigitalOrBoth(dto.dokusya_shubetsu)) {
+      // 請求開始月が未設定 = 料金徴収が始まっていない → 停止できない（SCR-014 と同じ）。
+      const seikyu = str(existing?.seikyu_kaishi_month).trim();
+      if (!seikyu) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: 'dokusya_chushi_date',
+          message: SEIKYU_NOT_STARTED_MSG,
+        });
+        return;
+      }
+      const chushiMonth = chushi.slice(0, 4) + chushi.slice(5, 7); // YYYYMM
+      if (chushiMonth < seikyu) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: 'dokusya_chushi_date',
+          message: `購読中止日は請求開始月（${seikyu.slice(0, 4)}/${seikyu.slice(4, 6)}）以降の月を選択してください。`,
+        });
+      }
+      return;
+    }
+
+    const kaishiRef = isUpdate
+      ? (existing?.dokusya_kaishi_date as string | null | undefined)
+      : dbDateOrNull(row.dokusya_kaishi_date);
+    for (const v of collectChushiViolations({
+      chushiDate: chushi,
+      kaishiDate: kaishiRef,
+      today,
+    })) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: tekiyoViolationField(v.kind),
+        message: v.message,
+      });
     }
   }
 

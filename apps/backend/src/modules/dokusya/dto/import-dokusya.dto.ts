@@ -11,6 +11,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -402,27 +403,14 @@ export class ImportDokusyaRowDto {
   @MaxLength(10, { message: '購読開始日は10文字以内で入力してください。' })
   dokusya_kaishi_date?: string;
 
-  @ApiPropertyOptional({ description: '購読中止日（YYYY-MM-DD）' })
-  @Transform(blankToUndef)
-  @IsOptional()
-  @IsString()
-  @MaxLength(10, { message: '購読中止日は10文字以内で入力してください。' })
-  dokusya_chushi_date?: string;
-
   @ApiPropertyOptional({ description: '備考' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
   biko?: string;
 
-  // 読者情報変更適用日（YYYY-MM-DD）— 販売店・支払方法を含む全変更の唯一の適用日
-  // （顧客要件 2026-07: 販売店適用日を廃止し joho に統一。1更新1レコード）。
-  @ApiPropertyOptional({ description: '読者情報変更適用日（YYYY-MM-DD）' })
-  @Transform(blankToUndef)
-  @IsOptional()
-  @IsString()
-  @MaxLength(10, { message: '読者情報変更適用日は10文字以内で入力してください。' })
-  joho_henko_tekiyo_date?: string;
+  // 読者情報変更適用日 / 購読中止日 は行ではなく payload 直下へ移した
+  // （顧客要件 2026-08: 画面の入力欄で1ファイル1つ指定する）。ImportDokusyaDto を参照。
 }
 
 export class ImportDokusyaDto {
@@ -459,6 +447,40 @@ export class ImportDokusyaDto {
   @ArrayMaxSize(50, { message: '取込対象の列は50件以内で指定してください。' })
   @IsString({ each: true })
   selected_columns!: string[];
+
+  // ─── 適用日 / 中止日（顧客要件 2026-08: Excel 列から画面入力へ）──────────
+  //
+  // 1ファイルに1つ。行ごとに別々の適用日は持てない。どちらを入れたかで動作が変わる:
+  //   joho あり  … 通常の更新（従来どおり）
+  //   chushi あり … 一括中止（解約予約を作る）
+  // 両方指定は矛盾（同じ操作が更新なのか中止なのか決まらない）ため 400 で弾く。
+  // FE も相互排他で入力させるが、UI の抑止は境界ではないのでここでも検証する。
+
+  @ApiPropertyOptional({
+    description:
+      '読者情報変更適用日（YYYY-MM-DD）。UPDATE で必須（電子版は当日固定のため省略可・' +
+      'BE が当日を補う）。dokusya_chushi_date とは排他。',
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: '読者情報変更適用日の形式が正しくありません。',
+  })
+  joho_henko_tekiyo_date?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '購読中止日（YYYY-MM-DD）。指定すると一括中止（解約予約）になる。' +
+      'joho_henko_tekiyo_date とは排他。空文字による一括取消は受け付けない。',
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: '購読中止日の形式が正しくありません。',
+  })
+  dokusya_chushi_date?: string;
 
   @ApiProperty({ description: '取込データ行の配列', type: [ImportDokusyaRowDto] })
   @IsArray({ message: '取込データ行は配列で指定してください。' })

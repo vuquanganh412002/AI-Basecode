@@ -351,15 +351,19 @@ export class DokusyaController {
   }
 
   // ─── API-014-004 ────────────────────────────────────────────────────
-  // SCR-014 一覧の「購読を停止する」ボタン専用 — 購読中止日(解約予定日)だけを
-  // 受け取り Phase 1 の解約予約行を挿入する。フル更新 DTO を要さない slim API。
+  // SCR-014 一覧の「購読中止」ボタン専用 — 購読中止日(解約予定日)だけを受け取り
+  // Phase 1 の解約予約行を挿入する。フル更新 DTO を要さない slim API。
+  // body の値で 3 操作を兼ねる（顧客要件 2026-08）: 日付=新規予約 / 予約ありなら変更
+  // （電子版のみ）/ 空文字=予約取消（電子版のみ）。
   // 権限は更新系(dokusya.update)。two-segment path なので GET /:dokusya_id と衝突しない。
   @Post(':dokusya_id/stop')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.update')
-  @ApiOperation({ summary: '購読者明細検索画面 — 購読停止（解約予約）（SCR-014）' })
+  @ApiOperation({
+    summary: '購読者明細検索画面 — 購読中止（解約予約・予約変更・予約取消）（SCR-014）',
+  })
   @ApiResponse({ status: 200, type: DokusyaMutationResponseDto })
-  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR（購読中止日の相対チェック / 電子版の請求開始月未設定 など）' })
+  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR（購読中止日の相対チェック / 電子版の請求開始月未設定 / 解約確定済み など）' })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。 / 編集不可レコード（併読・電子版クレカ）' })
   @ApiResponse({ status: 404, description: '指定された購読者が見つかりません。' })
@@ -368,8 +372,10 @@ export class DokusyaController {
     @Body() dto: StopDokusyaDto,
     @Req() req: Request & { user: SessionPayload },
   ) {
-    const data = await this.service.stop(dokusyaId, dto, req.user, req);
-    return { data, message: '購読停止を予約しました。' };
+    // message は service が決める（新規予約・予約変更＝「購読停止を予約しました。」/
+    // 予約取消＝「購読中止を取り消しました。」）。操作の分岐は body の値で決まるため、
+    // 判定を持たない controller 側では文言を固定できない。
+    return this.service.stop(dokusyaId, dto, req.user, req);
   }
 
   // ─── API-011-006 ────────────────────────────────────────────────────

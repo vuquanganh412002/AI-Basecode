@@ -20,7 +20,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message, type TableColumnsType } from 'ant-design-vue';
-import type { Dayjs } from 'dayjs';
+// dayjs 直呼びは「予約中の中止日(BE が返す YYYY-MM-DD)をピッカー値へ復元する」用途のみ。
+// ピッカー枠の値どうしを比較するだけで「今」を求めないため、Tokyo 固定ヘルパーは不要
+// （.claude/rules/vue.md §Date/Time — dayjs() 直呼びが許される条件）。
+import dayjs, { type Dayjs } from 'dayjs';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -44,7 +47,7 @@ import {
   nowTokyo,
   todayIsoTokyo,
 } from '@/utils/datetime';
-import { confirmDelete } from '@/utils/confirm';
+import { confirmDanger, confirmDelete } from '@/utils/confirm';
 import { downloadBlob } from '@/utils/download';
 import {
   listDokusya,
@@ -168,6 +171,15 @@ const {
   });
 
 const rows = ref<DokusyaListItem[]>([]);
+
+/**
+ * 検索条件に一致する購読者の購読部数合計（顧客要件 2026-08）。件数と同じ絞り込みで
+ * BE が集計するのでページングの影響を受けない（表示中のページではなく全件）。
+ */
+const totalBusu = ref(0);
+
+/** ページネーションの「全 N 件」へ併記する部数。 */
+const totalSuffix = computed(() => `全 ${totalBusu.value} 部`);
 
 // 詳細検索トグル — index.html row 471 に従い既定は折りたたみ。
 const showAdvanced = ref(false);
@@ -472,12 +484,14 @@ async function fetchList(): Promise<void> {
     const res = await listDokusya(buildSearchParams());
     rows.value = res.data;
     total.value = res.meta.total;
+    totalBusu.value = res.meta.total_busu ?? 0;
   } catch {
     // 想定内・無視: global axios interceptor が FORBIDDEN / 500 をトースト済み。
     // 再 throw は onMounted の fire-and-forget で unhandled rejection になる。
     // .claude/rules/vue.md の「想定内で意図的に無視」ケース。
     rows.value = [];
     total.value = 0;
+    totalBusu.value = 0;
   } finally {
     loading.value = false;
   }
@@ -573,15 +587,23 @@ function askDelete(row: DokusyaListItem): void {
   });
 }
 
-// ─── 購読停止（解約予約）— 一覧の「購読停止」ボタン → ポップアップ ────────
+// ─── 購読中止（解約予約）— 一覧の「購読中止」ボタン → ポップアップ ────────
 //
 // 顧客要件 2026-07: 購読中止日を選んで停止予約する。行データだけでは
 // 請求開始月 / 最終変更適用日 / 解約予約有無 が分からないため、クリック時に
 // 詳細(GET /dokusya/:id)を取得してからポップアップを開く。
 //   - 紙版(1): カレンダーで購読中止日を選ぶ（未来日 + 購読開始日以降 + 最終変更
-//     適用日より後）。
+//     適用日より後）。既に予約があれば開かず警告（変更は履歴画面の取消経由）。
 //   - 電子版(2): 「終了月」を選び月末日で停止する（当月以降 + 請求開始月以降）。
 //     請求開始月が未設定なら料金徴収未開始 → クリック時に toast 警告して開かない。
+//
+// 顧客要件 2026-08（電子版のみ）: 予約済みでもポップアップを開き、予約中の終了月を
+// 復元して見せる。そのうえで
+//   - 別の月を選び直す → 予約変更（BE が旧予約を赤伝で無効化 + 新予約を append）
+//   - 終了月をクリアして確定 → 予約取消（BE が旧予約を無効化するだけ）
+// のどちらも同じ「確認」で送る。いずれも電子版へ cancel を push する（BE 側）。
+// 電子版は履歴画面の取消(赤伝)が種別で禁止されており、ここが唯一の変更・取消導線。
+//
 // OK で専用 API(POST /dokusya/:id/stop)を叩き、成功したら一覧を再取得する。
 
 const SEIKYU_NOT_STARTED_MSG = 'この読者料金の徴収はまだ開始されていません。';
@@ -594,6 +616,8 @@ const stopDate = ref<Dayjs | null>(null); // 紙版カレンダー
 const stopMonth = ref<Dayjs | null>(null); // 電子版 終了月
 const stopSubmitting = ref(false);
 const stopFieldError = ref<string | null>(null);
+/** ポップアップを開いた時点で解約予約があったか（＝クリア確定が「取消」になる）。 */
+const stopHasReservation = ref(false);
 
 /** 停止ポップアップ対象が電子版か（月ピッカー vs 日ピッカーの切替）。 */
 const isStopDigital = computed(
@@ -617,22 +641,29 @@ async function openStopModal(row: DokusyaListItem): Promise<void> {
     // 詳細取得失敗 (403/404/500) は interceptor が toast 済み。
     return;
   }
-  // 既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要）。
-  if (detail.has_active_kaiyaku) {
+  const digital = Number(detail.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL;
+  // 紙版で既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要）。電子版は
+  // 予約済みでも開いて変更・取消できる（顧客要件 2026-08）。
+  if (!digital && detail.has_active_kaiyaku) {
     message.warning(ALREADY_RESERVED_MSG);
     return;
   }
   // 電子版で請求開始月が未設定＝料金徴収未開始 → 停止不可（顧客要件 2026-07）。
-  if (
-    Number(detail.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-    !detail.seikyu_kaishi_month?.trim()
-  ) {
+  if (digital && !detail.seikyu_kaishi_month?.trim()) {
     message.warning(SEIKYU_NOT_STARTED_MSG);
     return;
   }
   stopTarget.value = detail;
   stopDate.value = null;
-  stopMonth.value = null;
+  // 予約中の終了月を復元する。予約行は未来日で有効行にならないが、購読中止日だけは
+  // 予約時点で master へ反映されている（BE recomputeMaster・SCR-014 api.md v1.5）ので
+  // 詳細の dokusya_chushi_date がそのまま「予約中の中止日」になる。
+  const reserved = digital && detail.has_active_kaiyaku;
+  stopHasReservation.value = reserved;
+  stopMonth.value =
+    reserved && detail.dokusya_chushi_date
+      ? dayjs(detail.dokusya_chushi_date)
+      : null;
   stopFieldError.value = null;
   stopModalOpen.value = true;
 }
@@ -642,6 +673,7 @@ function closeStopModal(): void {
   stopTarget.value = null;
   stopDate.value = null;
   stopMonth.value = null;
+  stopHasReservation.value = false;
   stopFieldError.value = null;
 }
 
@@ -691,13 +723,24 @@ async function confirmStop(): Promise<void> {
   stopFieldError.value = null;
 
   // 中止日を組み立てる: 紙版=選択日、電子版=選択月の月末日。
+  // 電子版で予約中に終了月をクリアした場合だけ空文字 = 予約取消（顧客要件 2026-08）。
   let chushi: string;
   if (isStopDigital.value) {
     if (!stopMonth.value) {
-      stopFieldError.value = '購読中止日を入力してください。';
-      return;
+      if (!stopHasReservation.value) {
+        stopFieldError.value = '購読中止日を入力してください。';
+        return;
+      }
+      chushi = ''; // 予約取消
+    } else {
+      chushi = stopMonth.value.endOf('month').format('YYYY-MM-DD');
+      // 予約中の月と同じものを選び直しただけ → 履歴も push も増やさない。
+      // 「変更がありません。」は SCR-011 と同じ no-change 文言。
+      if (stopHasReservation.value && chushi === t.dokusya_chushi_date) {
+        stopFieldError.value = '変更がありません。';
+        return;
+      }
     }
-    chushi = stopMonth.value.endOf('month').format('YYYY-MM-DD');
   } else {
     if (!stopDate.value) {
       stopFieldError.value = '購読中止日を入力してください。';
@@ -706,13 +749,55 @@ async function confirmStop(): Promise<void> {
     chushi = stopDate.value.format('YYYY-MM-DD');
   }
 
+  // 最終確認ダイアログ。ここまでの入力チェックを通ってから出すので、
+  // 「はい」を押した後にフォームエラーで弾かれることはない。
+  const text = buildStopConfirmText(chushi);
+  // ダイアログを出す間は1枚目を隠す。モーダルが2枚重なると、確認文の後ろに
+  // 入力欄と案内文が透けて読みづらい。閉じるのは表示フラグだけで、選択内容
+  // (stopMonth / stopDate / stopHasReservation) は残す —「いいえ」で入力を
+  // 失わずに戻すため。closeStopModal() は全部リセットするのでここでは使わない。
+  stopModalOpen.value = false;
+  confirmDanger(
+    '購読中止確認',
+    text,
+    () => submitStop(t.dokusya_id, chushi),
+    () => {
+      stopModalOpen.value = true; // いいえ / ✕ / ESC → 入力内容のまま戻す
+    },
+  );
+}
+
+/**
+ * 確認ダイアログ本文。何がどう変わるかを日付付きで言い切る
+ * （「よろしいですか？」だけだと、変更なのか取消なのか読み取れない）。
+ */
+function buildStopConfirmText(chushi: string): string {
+  if (chushi === '') {
+    return '購読中止の予約を取り消します。よろしいですか？';
+  }
+  // 電子版は「選んだ月の月末」で止まるので、選択値(月)と実日付の両方を出す。
+  const when = isStopDigital.value
+    ? `${stopMonth.value?.format('YYYY/MM')}の月末（${formatDate(chushi)}）`
+    : formatDate(chushi);
+  return stopHasReservation.value
+    ? `購読中止日を${when}に変更します。よろしいですか？`
+    : `${when}で購読を中止します。よろしいですか？`;
+}
+
+/** 確認後の送信本体。エラー時はポップアップを開いたままフィールドエラーを出す。 */
+async function submitStop(dokusyaId: number, chushi: string): Promise<void> {
   stopSubmitting.value = true;
   try {
-    await stopDokusya(t.dokusya_id, { dokusya_chushi_date: chushi });
-    notify.success('購読停止を予約しました。');
+    const res = await stopDokusya(dokusyaId, { dokusya_chushi_date: chushi });
+    // 文言は BE が操作（予約 / 取消）に応じて決める。念のためのフォールバック付き。
+    notify.success(res.message || '購読停止を予約しました。');
     closeStopModal();
     await fetchList();
   } catch (err) {
+    // 失敗したら1枚目を出し直す（確認ダイアログを出す時に隠している）。エラーを
+    // 出す場所であり、選択内容を直して再送する場でもあるので、閉じたままにすると
+    // 操作が行き止まりになる。
+    stopModalOpen.value = true;
     // VALIDATION_ERROR(400) は interceptor が toast しない設計なので、
     // フィールドエラーとしてポップアップ内に表示する。403/500 は interceptor
     // が toast 済み。
@@ -1184,6 +1269,7 @@ defineExpose({ state });
       :page="state.page"
       :per-page="state.per_page"
       :total="total"
+      :total-suffix="totalSuffix"
       row-key="dokusya_id"
       @change="onPageChange"
     >
@@ -1291,7 +1377,9 @@ defineExpose({ state });
           <span class="text-sm font-medium whitespace-nowrap text-text-main">
             購読中止日
           </span>
-          <!-- 電子版: 終了月ピッカー + 「月末で終了」。当月以降 + 請求開始月以降。 -->
+          <!-- 電子版: 終了月ピッカー + 「月末で終了」。当月以降 + 請求開始月以降。
+               予約中は選択済みの月が入った状態で開く。allow-clear でクリアして確定
+               すると予約取消になる（顧客要件 2026-08）。 -->
           <template v-if="isStopDigital">
             <a-date-picker
               v-model:value="stopMonth"
@@ -1300,6 +1388,7 @@ defineExpose({ state });
               placeholder="終了月を選択"
               aria-label="購読中止日"
               :disabled-date="disabledStopMonth"
+              :allow-clear="stopHasReservation"
               class="flex-1"
               data-test="stop-month-picker"
             />
@@ -1318,6 +1407,15 @@ defineExpose({ state });
             />
           </template>
         </div>
+        <!-- 予約中(電子版)のときだけ、この画面で何ができるかを明示する。ピッカーの
+             × が「予約取消」を意味することは見ただけでは分からないため。 -->
+        <p
+          v-if="stopHasReservation"
+          class="text-text-description text-sm"
+          data-test="stop-reserved-note"
+        >
+          解約予約中です。終了月を選び直すと予約を変更し、空にすると予約を取り消します。
+        </p>
         <p
           v-if="stopFieldError"
           class="text-error text-sm"

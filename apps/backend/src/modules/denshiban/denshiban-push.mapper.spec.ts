@@ -158,12 +158,63 @@ describe('denshiban-push.mapper', () => {
       });
     });
 
-    it('備考 255 文字超は切り詰め・改行は空白へ', () => {
+    // 顧客要件 2026-08: biko の行を remarks1〜5 へ割り当てる。pull 側
+    // (dokusya-sync.mapper#joinRemarks) が remarks を '\n' で連結して biko を
+    // 作るので、その逆変換にあたる。
+    it('備考は行ごとに remarks1〜4 へ割り当てる', () => {
+      const p = toCreatePayload(
+        buildDokusya({ biko: '1行目\n2行目\n3行目\n4行目' }),
+        '1301002001',
+      );
+      expect(p.remarks1).toBe('1行目');
+      expect(p.remarks2).toBe('2行目');
+      expect(p.remarks3).toBe('3行目');
+      expect(p.remarks4).toBe('4行目');
+      expect(p).not.toHaveProperty('remarks5');
+    });
+
+    it('備考 5行目以降は改行を保ったまま remarks5 へまとめる', () => {
+      const p = toCreatePayload(
+        buildDokusya({ biko: '1\n2\n3\n4\n5\n6\n7' }),
+        '1301002001',
+      );
+      expect(p.remarks4).toBe('4');
+      // 改行を潰すと 電子版→cloud→電子版 の往復で行が失われるため保持する。
+      expect(p.remarks5).toBe('5\n6\n7');
+    });
+
+    it('備考が1行なら remarks2〜5 はキーごと送らない', () => {
+      const p = toCreatePayload(buildDokusya({ biko: 'ひとことだけ' }), '1301002001');
+      expect(p.remarks1).toBe('ひとことだけ');
+      for (const k of ['remarks2', 'remarks3', 'remarks4', 'remarks5']) {
+        expect(p).not.toHaveProperty(k);
+      }
+    });
+
+    it('備考が空なら remarks は1つも送らない', () => {
+      const p = toCreatePayload(buildDokusya({ biko: '' }), '1301002001');
+      for (const k of ['remarks1', 'remarks2', 'remarks3', 'remarks4', 'remarks5']) {
+        expect(p).not.toHaveProperty(k);
+      }
+    });
+
+    it('remarks は各スロット 255 文字で切り詰める', () => {
       const long = 'あ'.repeat(300);
-      const p = toCreatePayload(buildDokusya({ biko: `1行目\n2行目` }), '1301002001');
-      expect(p.remarks1).toBe('1行目 2行目');
-      const p2 = toCreatePayload(buildDokusya({ biko: long }), '1301002001');
-      expect(p2.remarks1 ?? '').toHaveLength(255);
+      const p = toCreatePayload(
+        buildDokusya({ biko: `${long}\n${long}` }),
+        '1301002001',
+      );
+      expect(p.remarks1).toHaveLength(255);
+      expect(p.remarks2).toHaveLength(255);
+    });
+
+    it('CRLF 改行でも行として分割する（Excel 取込由来の備考）', () => {
+      const p = toCreatePayload(
+        buildDokusya({ biko: '1行目\r\n2行目' }),
+        '1301002001',
+      );
+      expect(p.remarks1).toBe('1行目');
+      expect(p.remarks2).toBe('2行目');
     });
   });
 

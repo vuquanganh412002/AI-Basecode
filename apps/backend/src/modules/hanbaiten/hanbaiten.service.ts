@@ -4,6 +4,7 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 
 import { AuditOperation, ItakuKubun } from '@/common/enums';
+import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
@@ -361,6 +362,11 @@ export class HanbaitenService {
       include_id?: number;
       /** true のとき営業中(haiten_flg=false)のみに絞る（購読者の販売店選択用）。 */
       active_only?: boolean;
+      /**
+       * 電子版ダミー販売店(hanbaiten_code=9999999999)の扱い。SCR-011 の
+       * 購読種別と連動：'only'=電子版、'exclude'=紙を含む種別。未指定は絞らない。
+       */
+      dummy?: 'only' | 'exclude';
     },
     session: SessionPayload,
   ): Promise<{
@@ -393,6 +399,18 @@ export class HanbaitenService {
     // 既定（一覧検索・販売店入替）は廃店も対象。
     if (query.active_only) {
       qb.andWhere('m.haiten_flg = false');
+    }
+    // 電子版(購読種別=2)はダミー販売店だけ、それ以外はダミーを除外する。
+    // include_id ピンより前に掛ける（ピンは下で別クエリなので、種別に合わない
+    // 現在値は候補に混ざらない — 種別を切り替えたら FE 側で選択も破棄される）。
+    if (query.dummy === 'only') {
+      qb.andWhere('m.hanbaiten_code = :dummyCode', {
+        dummyCode: HANBAITEN_DUMMY_CODE,
+      });
+    } else if (query.dummy === 'exclude') {
+      qb.andWhere('m.hanbaiten_code <> :dummyCode', {
+        dummyCode: HANBAITEN_DUMMY_CODE,
+      });
     }
     if (query.q) {
       const like = `%${query.q}%`;

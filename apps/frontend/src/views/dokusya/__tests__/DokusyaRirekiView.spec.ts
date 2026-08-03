@@ -262,10 +262,10 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
     expect(wrapper.text()).toContain('Web申込以外');
   });
 
-  it('shows 増部日 (dokusya_kaishi_date) when 部数 increased vs 前回', async () => {
-    // 部数 2 > 前回 1 → 増部日に購読開始日(dokusya_kaishi_date)を表示。
-    // dokusya_kaishi_date は 増部日/減部日 だけが参照する列なので、他の日付列と
-    // 重複しない一意な日付にして「表示された」ことを検証する。
+  it('shows 増部日 (読者情報変更適用日) when 部数 increased vs 前回', async () => {
+    // 部数 2 > 前回 1 → 増部日に 読者情報変更適用日 を表示（顧客要件 2026-08。
+    // 購読開始日は途中の部数変更では動かないため、増減が効く日と食い違う）。
+    // 他の日付列と重複しない一意な日付にして「表示された」ことを検証する。
     const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusyaRirekiList).mockResolvedValue(
       buildDokusyaRirekiListResponse({
@@ -273,7 +273,7 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
           buildDokusyaRirekiRow({
             dokusya_busu: 2,
             zenkai_dokusya_busu: 1,
-            dokusya_kaishi_date: '2027-09-09',
+            joho_henko_tekiyo_date: '2027-09-09',
           }),
         ],
         meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
@@ -284,8 +284,9 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
   });
 
   it('hides 増部日/減部日 when 部数 unchanged vs 前回 (顧客要件)', async () => {
-    // 部数 2 == 前回 2 かつ 前回≠null → 増部日・減部日とも空欄。dokusya_kaishi_date
-    // は他の日付列に出ないので、表示されていないことを text で検証する。
+    // 部数 2 == 前回 2 かつ 前回≠null → 増部日・減部日とも空欄。
+    // 参照元の joho は「変更適用日」列にも出るので「出ない」では検証できない。
+    // 出現回数で見る: 増減なし = その列の1回だけ。
     const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusyaRirekiList).mockResolvedValue(
       buildDokusyaRirekiListResponse({
@@ -293,9 +294,10 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
           buildDokusyaRirekiRow({
             dokusya_busu: 2,
             zenkai_dokusya_busu: 2,
-            dokusya_kaishi_date: '2027-09-09',
+            // 増減日の参照元は joho。変化なしなのでこの日付は出ないはず。
+            joho_henko_tekiyo_date: '2027-09-09',
+            dokusya_kaishi_date: '2026-04-01',
             shoki_dokusya_kaishi_date: '2024-04-01',
-            joho_henko_tekiyo_date: '2026-04-01',
             dokusya_chushi_date: null,
           }),
         ],
@@ -303,10 +305,10 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
       }),
     );
     const { wrapper } = await renderView();
-    expect(wrapper.text()).not.toContain('2027/09/09');
+    expect(wrapper.text().split('2027/09/09').length - 1).toBe(1);
   });
 
-  it('shows 減部日 (dokusya_kaishi_date) when 部数 decreased vs 前回', async () => {
+  it('shows 減部日 (読者情報変更適用日) when 部数 decreased vs 前回', async () => {
     const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusyaRirekiList).mockResolvedValue(
       buildDokusyaRirekiListResponse({
@@ -314,7 +316,7 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
           buildDokusyaRirekiRow({
             dokusya_busu: 1,
             zenkai_dokusya_busu: 3,
-            dokusya_kaishi_date: '2027-09-09',
+            joho_henko_tekiyo_date: '2027-09-09',
           }),
         ],
         meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
@@ -327,8 +329,8 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
   it('shows ONLY 増部日 (not 減部日) when 前回部数=null — 新規作成・再購読の初回行 (顧客要件)', async () => {
     // 前回部数 null（新規作成 / 再購読の初回行 = 0→N の増加）は増部として扱い、
     // 増部日のみに適用日を表示する。減部日は空欄（両方は出さない）。
-    // 一意な日付は 増部日/減部日 のみが参照する dokusya_kaishi_date に置き、
-    // 増部日セルに1回だけ現れることを検証する。
+    // joho は「変更適用日」列にも出るため、増部日と合わせて2回。
+    // 減部日にも出れば3回になるので、この回数で「増部のみ」を担保できる。
     const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusyaRirekiList).mockResolvedValue(
       buildDokusyaRirekiListResponse({
@@ -336,9 +338,9 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
           buildDokusyaRirekiRow({
             dokusya_busu: 2,
             zenkai_dokusya_busu: null,
-            dokusya_kaishi_date: '2027-09-09',
+            joho_henko_tekiyo_date: '2027-09-09',
+            dokusya_kaishi_date: '2026-04-01',
             shoki_dokusya_kaishi_date: '2024-04-01',
-            joho_henko_tekiyo_date: '2026-04-01',
             dokusya_chushi_date: null,
           }),
         ],
@@ -346,10 +348,8 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
       }),
     );
     const { wrapper } = await renderView();
-    // dokusya_kaishi_date は 増部日/減部日 だけが参照する列。増部のみ表示なので
-    // ちょうど1回だけ現れる（減部日にも出れば2回になる）。
     const occurrences = wrapper.text().split('2027/09/09').length - 1;
-    expect(occurrences).toBe(1);
+    expect(occurrences).toBe(2); // 変更適用日 + 増部日
   });
 
   it('should NOT crash and still render the table when a nullable join (kanri_shiten_name) is null', async () => {

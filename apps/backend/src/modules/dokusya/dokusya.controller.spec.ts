@@ -1043,13 +1043,32 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
     const body = { dokusya_chushi_date: '2030-08-31' };
 
     it('should return 200 with { data, message: "購読停止を予約しました。" } on happy path', async () => {
-      service.stop.mockResolvedValue({ dokusya_id: 1001 });
+      // message は service が操作（予約 / 取消）に応じて決め、controller はそのまま返す。
+      service.stop.mockResolvedValue({
+        data: { dokusya_id: 1001 },
+        message: '購読停止を予約しました。',
+      });
       const res = await http()
         .post(apiUrl('dokusya/1001/stop'))
         .send(body)
         .expect(200);
       expect(res.body.message).toBe('購読停止を予約しました。');
       expect(res.body.data).toEqual({ dokusya_id: 1001 });
+    });
+
+    it('should pass through the 取消 message when the body clears the date', async () => {
+      service.stop.mockResolvedValue({
+        data: { dokusya_id: 1001 },
+        message: '購読中止を取り消しました。',
+      });
+      const res = await http()
+        .post(apiUrl('dokusya/1001/stop'))
+        .send({ dokusya_chushi_date: '' })
+        .expect(200);
+      expect(res.body.message).toBe('購読中止を取り消しました。');
+      expect(service.stop.mock.calls[0][1]).toEqual({
+        dokusya_chushi_date: '',
+      });
     });
 
     it('should parse dokusya_id path param as Number and forward the DTO', async () => {

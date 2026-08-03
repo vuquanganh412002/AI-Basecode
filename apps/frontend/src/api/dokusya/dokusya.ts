@@ -281,14 +281,18 @@ export async function updateDokusya(
 
 /**
  * POST /api/v1/dokusya/:id/stop request body (ACSMS-API-014-004).
- * 購読停止（解約予約）— 購読中止日(解約予定日)だけを送る。紙版はカレンダー選択日、
+ * 購読中止（解約予約）— 購読中止日(解約予定日)だけを送る。紙版はカレンダー選択日、
  * 電子版は選択した終了月の月末日（FE が丸める）。どちらも `YYYY-MM-DD`。
+ *
+ * 空文字 `''` = 解約予約の取消（電子版のみ・顧客要件 2026-08）。ポップアップで
+ * 終了月をクリアして確定したときに送る。BE は既存予約行を赤伝で無効化し、
+ * 電子版へ `cancel`(cancel_ym 空) を push する。
  */
 export interface StopDokusyaRequest {
   dokusya_chushi_date: string;
 }
 
-/** POST /api/v1/dokusya/:id/stop — ACSMS-API-014-004 (購読停止・解約予約). */
+/** POST /api/v1/dokusya/:id/stop — ACSMS-API-014-004 (購読中止・予約変更・予約取消). */
 export async function stopDokusya(
   dokusyaId: number,
   body: StopDokusyaRequest,
@@ -427,6 +431,12 @@ export interface DokusyaListResponse {
     page: number;
     per_page: number;
     total_pages: number;
+    /**
+     * 検索条件に一致する購読者の購読部数合計（顧客要件 2026-08）。
+     * 一覧では「全 N 件　全 M 部」と併記する。件数と同じ絞り込みで集計され、
+     * ページングの影響を受けない（表示中のページではなく全件の合計）。
+     */
+    total_busu: number;
   };
 }
 

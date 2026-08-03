@@ -7,6 +7,7 @@ import * as query from './dokusya-history.query';
 import {
   applyChange,
   applyTorikeshi,
+  revokeScheduledKaiyaku,
   canTorikeshi,
   insertKaiyaku,
   recomputeAfterChain,
@@ -860,5 +861,87 @@ describe('applyTorikeshi', () => {
     const counter = q.insertRow.mock.calls[0][1] as DokusyaRireki;
     expect(counter.tetsuzukiShurui).toBe(1);
     expect(counter.kaiyakuFlg).toBe(false);
+  });
+});
+
+// 顧客要件 2026-08 — 電子版の「購読中止」ポップアップからの予約変更・予約取消。
+// applyTorikeshi と同じ赤伝だが canTorikeshi(紙版のみ・末尾・未来日) を通さない。
+// 呼び出し元(DokusyaService.stop)が同一 tx で電子版へ cancel を push するため、
+// 「電子版は連携が切れるから取消不可」という canTorikeshi の前提が当てはまらない。
+describe('revokeScheduledKaiyaku', () => {
+  let m: EntityManager;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    m = {
+      update: jest.fn().mockResolvedValue(undefined),
+      save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager;
+    q.insertRow.mockImplementation(
+      async (_m, r) => ({ ...(r as object), dokusyaRirekiId: 88 }) as DokusyaRireki,
+    );
+    q.setSaishinFlags.mockResolvedValue(undefined);
+    q.markTorikeshi.mockResolvedValue(undefined);
+    q.nextRirekiNo.mockResolvedValue(4);
+  });
+
+  /** 電子版の解約予約行（Phase 1・バッチ未確定）。 */
+  function reservation(over: Partial<DokusyaRireki> = {}): DokusyaRireki {
+    return rireki({
+      dokusyaRirekiId: 3,
+      dokusyaId: 1001,
+      dokusyaShubetsu: 2, // 電子版 — canTorikeshi ならここで弾かれる
+      dokusyaChushiDate: '2030-07-31',
+      johoHenkoTekiyoDate: '2030-07-31',
+      kaiyakuFlg: false,
+      shinkiFlg: false,
+      torikeshiFlg: false,
+      ...over,
+    });
+  }
+
+  it('電子版の予約行でも取消できる（mark + 打ち消し行 + recompute）', async () => {
+    const target = reservation();
+    mockLcEffective(rireki({ dokusyaRirekiId: 1 })); // recompute
+
+    await revokeScheduledKaiyaku(m, 1001, target, '変更', 'u1');
+
+    expect(q.markTorikeshi).toHaveBeenCalledWith(m, 3, '変更');
+    const counter = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(counter.torikeshiFlg).toBe(true);
+    expect(counter.createdBy).toBe('u1');
+    // 対象行・打ち消し行とも torikeshi_flg=true になるので、recomputeMaster の
+    // loadScheduledChushiDate から外れ master の購読中止日は null に戻る。
+    expect(q.setSaishinFlags).toHaveBeenCalled();
+  });
+
+  it('バッチ確定済み(kaiyaku_flg=true)は取消不可 — 再購読の領域', async () => {
+    await expect(
+      revokeScheduledKaiyaku(m, 1001, reservation({ kaiyakuFlg: true }), 'r', 'u'),
+    ).rejects.toThrow();
+    expect(q.markTorikeshi).not.toHaveBeenCalled();
+    expect(q.insertRow).not.toHaveBeenCalled();
+  });
+
+  it('中止日を持たない通常の変更行は取消不可（この入口は予約専用）', async () => {
+    await expect(
+      revokeScheduledKaiyaku(
+        m,
+        1001,
+        reservation({ dokusyaChushiDate: null }),
+        'r',
+        'u',
+      ),
+    ).rejects.toThrow();
+    expect(q.markTorikeshi).not.toHaveBeenCalled();
+  });
+
+  it('取消済み行は二重に取消さない', async () => {
+    await expect(
+      revokeScheduledKaiyaku(m, 1001, reservation({ torikeshiFlg: true }), 'r', 'u'),
+    ).rejects.toThrow();
+    expect(q.markTorikeshi).not.toHaveBeenCalled();
   });
 });

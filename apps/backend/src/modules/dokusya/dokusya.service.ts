@@ -76,9 +76,11 @@ import {
   canTorikeshi,
   insertResubscribe,
   insertScheduledKaiyaku,
+  revokeScheduledKaiyaku,
 } from './dokusya-history.writer';
 import {
   loadEffectiveRow,
+  loadMaster,
   nextRirekiNo,
   insertRow,
 } from './dokusya-history.query';
@@ -173,7 +175,24 @@ const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
  * 電子版停止で請求開始月(seikyu_kaishi_month)未設定時のメッセージ
  * （料金徴収未開始の読者は停止予約不可・顧客要件 2026-07）。BE/FE 共通文言。
  */
-const SEIKYU_NOT_STARTED_MSG = 'この読者料金の徴収はまだ開始されていません。';
+const SEIKYU_NOT_STARTED_MSG = SHUBETSU_MSG.SEIKYU_NOT_STARTED;
+
+/**
+ * 紙版で既に解約予約がある場合のメッセージ（変更は履歴画面の取消経由）。電子版は
+ * 顧客要件 2026-08 で同一ポップアップからの変更・取消に対応したため使わない。
+ */
+const ALREADY_RESERVED_MSG =
+  '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。';
+
+/** 解約が到来日バッチで確定済み（＝もう予約ではない）ときのメッセージ。 */
+const ALREADY_CONFIRMED_MSG =
+  '解約が確定済みのため変更できません。再購読は購読者編集画面から行ってください。';
+
+/** 取消しようとしたが予約が無いときのメッセージ（画面の状態と DB がずれている）。 */
+const NO_RESERVATION_MSG = '解約予約がありません。画面を再読み込みしてください。';
+
+/** 解約予約の変更・取消で履歴に残す取消理由（対象行と打ち消し行の備考）。 */
+const KAIYAKU_REVOKE_REASON = '購読中止日の変更・取消（SCR-014 購読中止）';
 
 /** 'YYYYMM'（seikyu_kaishi_month / 月比較値）→ 'YYYY/MM'（顧客向けメッセージ用）。 */
 function fmtYearMonth(ym: string): string {
@@ -885,12 +904,23 @@ export class DokusyaService {
   // API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop
   // ════════════════════════════════════════════════════════════════════
   /**
-   * 購読停止(解約予約) — SCR-014 一覧の「購読を停止する」ボタン専用。購読中止日(解約予定日)
-   * だけ受け取り Phase 1 の予約行(insertScheduledKaiyaku)を1件挿入する slim エンドポイント。
+   * 購読中止 — SCR-014 一覧の「購読中止」ボタン専用。購読中止日(解約予定日)だけ受け取り
+   * Phase 1 の予約行(insertScheduledKaiyaku)を1件挿入する slim エンドポイント。
+   *
+   * 3 つの操作を 1 エンドポイントで受ける（顧客要件 2026-08。`dto.dokusya_chushi_date` の値で決まる）:
+   *   1. 新規予約 — 予約が無い + 日付あり → 予約行を1件 append。
+   *   2. 予約変更 — 予約あり + 日付あり → 既存予約を赤伝で無効化してから新しい予約行を append（電子版のみ）。
+   *   3. 予約取消 — 予約あり + 空文字   → 既存予約を赤伝で無効化するだけ（電子版のみ）。
+   * 2/3 は「1操作 = 1履歴」を保つため、旧予約行の無効化と新予約の挿入を同一 tx で行う。
+   * 無効化により master の購読中止日は自動で null に戻る（recomputeMaster が取消行を除外）。
+   *
+   * 紙版(1)を 2/3 に含めないのは、履歴画面の取消(赤伝)が既存導線としてあるため。電子版は
+   * `canTorikeshi` が種別で弾いており取消手段が無かった — そこを本エンドポイントで埋める。
    *
    * バリデーション（購読種別で分岐）:
-   *   - 共通: 編集不可レコード(併読/電子版クレカ)は 403、二重解約は VALIDATION_ERROR。
-   *   - 紙版(1): 解約予定日 >= 購読開始日 / > 本日 / > 最終変更適用日(同日不可)。
+   *   - 共通: 編集不可レコード(併読/電子版クレカ)は 403、解約確定済み(バッチ適用後)は VALIDATION_ERROR。
+   *   - 紙版(1): 既に予約あり → VALIDATION_ERROR（履歴画面で取消要）。空文字も不可。
+   *     日付は 解約予定日 >= 購読開始日 / > 本日 / > 最終変更適用日(同日不可)。
    *   - 電子版(2): 請求開始月(seikyu_kaishi_month)未設定なら停止不可(料金徴収未開始)。
    *     選択月(中止日の YYYYMM)は 請求開始月以降 かつ 当月以降。中止日は選択月の月末日(FE が丸めて送る)。
    *
@@ -902,8 +932,9 @@ export class DokusyaService {
     dto: StopDokusyaDto,
     session: SessionPayload,
     req: Request,
-  ): Promise<DokusyaResponseDto> {
-    const chushi = normalizeDbDate(dto.dokusya_chushi_date);
+  ): Promise<{ data: DokusyaResponseDto; message: string }> {
+    const chushi = normalizeDbDate(dto.dokusya_chushi_date ?? '').trim();
+    const revoking = chushi === '';
     const before = await this.fetchInScope(id, session);
 
     // [read-only guard] 併読(3) / 電子版クレカ決済者 は編集不可 → 停止も不可(403)。
@@ -916,16 +947,35 @@ export class DokusyaService {
       throw new DokusyaReadOnlyException();
     }
 
-    // [double-cancel] 既に有効な解約予約あり → 二重解約は不可（履歴画面で取消要）。
-    if (await this.hasActiveKaiyaku(id)) {
-      throw fieldValidationError(
-        'dokusya_chushi_date',
-        '既に解約予約されています。変更する場合は履歴画面で解約を取消してください。',
-      );
+    const shubetsu = Number(before.dokusyaShubetsu);
+    const isDigital = shubetsu === DokusyaShubetsu.DIGITAL;
+    const active = await this.loadActiveKaiyakuRow(id);
+
+    // [確定済み] 到来日バッチが解約を確定させた後は予約ではない → 変更経路は再購読。
+    // 種別を問わず先に弾く（紙版の「履歴画面で取消」案内より、こちらが実態に即す）。
+    if (active?.kaiyakuFlg) {
+      throw fieldValidationError('dokusya_chushi_date', ALREADY_CONFIRMED_MSG);
     }
 
-    const shubetsu = Number(before.dokusyaShubetsu);
-    if (shubetsu === DokusyaShubetsu.DIGITAL) {
+    if (!isDigital) {
+      // 紙版: 変更・取消は履歴画面の取消(赤伝)が担う。本エンドポイントは新規予約のみ。
+      if (revoking) {
+        throw fieldValidationError(
+          'dokusya_chushi_date',
+          '購読中止日を入力してください。',
+        );
+      }
+      if (active) {
+        throw fieldValidationError('dokusya_chushi_date', ALREADY_RESERVED_MSG);
+      }
+    } else if (revoking && !active) {
+      // 電子版: 取消しようとしたが予約が無い（別タブで取消済み等）。
+      throw fieldValidationError('dokusya_chushi_date', NO_RESERVATION_MSG);
+    }
+
+    if (revoking) {
+      // 取消は日付バリデーション不要（消すだけ）。ここまでのガードで十分。
+    } else if (isDigital) {
       // 電子版: 請求開始月が未設定＝料金徴収未開始 → 停止予約不可。
       const seikyu = (before.seikyuKaishiMonth ?? '').trim();
       if (!seikyu) {
@@ -985,12 +1035,38 @@ export class DokusyaService {
       refreshed = await this.dataSource.transaction(async (manager) => {
         // rireki_no 採番の直列化（update と同じ理由）。
         await this.rireki.lockDokusyaRow(manager, id);
-        const result = await insertScheduledKaiyaku(manager, {
-          dokusyaId: id,
-          chushiDate: chushi,
-          shubetsu,
-          actor: String(session.account_id),
-        });
+
+        // 変更・取消: 先に旧予約行を赤伝で無効化する。これで master の購読中止日が
+        // null に戻り、続く insertScheduledKaiyaku は「予約が無い状態」から積める。
+        //
+        // 予約行はロック取得後に読み直す。上のガードは tx の外で読んだ行に対する
+        // 判定なので、その間に別リクエストが同じ予約を取消していると、取消済み行に
+        // もう一度 markTorikeshi + 打ち消し行を打つことになる（履歴が二重に残る）。
+        // ロック下で読み直せば、ガードした行＝実際に取消す行 になる。
+        // 読み直して消えていた場合（並行取消）は何もしない: 取消要求なら最終状態は
+        // 同じで、変更要求なら新予約の挿入だけ行えばよい。
+        const target =
+          active != null ? await this.loadActiveKaiyakuRow(id, manager) : null;
+        if (target) {
+          await revokeScheduledKaiyaku(
+            manager,
+            id,
+            target,
+            KAIYAKU_REVOKE_REASON,
+            String(session.account_id),
+          );
+        }
+
+        const after = revoking
+          ? await loadMaster(manager, id)
+          : (
+              await insertScheduledKaiyaku(manager, {
+                dokusyaId: id,
+                chushiDate: chushi,
+                shubetsu,
+                actor: String(session.account_id),
+              })
+            ).after;
         await manager.update(
           Dokusya,
           { dokusyaId: id },
@@ -1013,11 +1089,21 @@ export class DokusyaService {
         //      Campagna_flg 立ちを取込対象から外しており、方向は逆でも同じ方針）
         //   - DENSHIBAN_PUSH_ENABLED=false … 同じく isPushTarget が false
         // いずれも throw せず no-op なので、cloud 側の解約予約はそのまま成立する。
-        await this.pushUiIfDenshi(manager, 'cancel', result.after, {
-          cancelYm: toCancelYm(chushi),
+        //
+        // 予約変更(2)も予約取消(3)も同じ 'cancel' を発行する。電子版APIの action_kbn は
+        // create/update/reread/cancel/approve/unapprove の6種で、解約予約を取り消す
+        // 専用 action は無い（20260723_読者管理連携用API使用方法.xlsx）。
+        //   - 変更 … 新しい cancel_ym で cancel を再送し上書きさせる。
+        //   - 取消 … cancel_ym を空文字で送る（顧客判断 2026-08）。
+        // 空文字は先方仕様上 必須 + YYYYMM のため拒否される可能性があるが、push は
+        // この tx 内なので拒否されれば履歴行・master・監査ごとロールバックし、
+        // 利用者には電子版が返した理由がそのまま出る。cloud だけ取消済みという
+        // 食い違いは起きない。
+        await this.pushUiIfDenshi(manager, 'cancel', after, {
+          cancelYm: revoking ? '' : toCancelYm(chushi),
         });
-        await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
-        return result.after;
+        await this.auditLog.logUpdate(auditCtx, before, after, manager);
+        return after;
       });
     } catch (err) {
       await this.auditLog.logError(auditCtx, AuditOperation.UPDATE, err as Error);
@@ -1025,7 +1111,12 @@ export class DokusyaService {
     }
 
     const joins = await this.fetchJoinFieldsViaQB(id);
-    return toDokusyaResponse(refreshed, joins);
+    return {
+      data: toDokusyaResponse(refreshed, joins),
+      message: revoking
+        ? '購読中止を取り消しました。'
+        : '購読停止を予約しました。',
+    };
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -1852,19 +1943,35 @@ export class DokusyaService {
   }
 
   /**
-   * 有効な解約予約が存在するか。存在する間は追加の解約予約を禁止（変更は履歴画面で当該解約を
-   * 取消してから・顧客要件 2026-07）。
+   * 有効な解約予約(または確定済み解約)の履歴行。無ければ null。
    *
    * 検出キー = 購読中止日(dokusya_chushi_date)が入った未取消行。Phase 1(2フェーズ化)で予約行は
    * kaiyaku_flg=false(解約確定はバッチ)になり kaiyaku_flg では検出できない。中止日は解約予約行に
    * のみ入るため「予約あり」の判定キーになる（Phase 2 バッチが作る実解約行にも中止日は入る）。
+   *
+   * 予約 と 確定 の区別は返り値の `kaiyakuFlg` を見る（バッチ確定後は true）。stop() は
+   * これで「まだ変更できる予約か」を判定するため、boolean ではなく行を返す。
    */
+  private loadActiveKaiyakuRow(
+    dokusyaId: number,
+    manager?: EntityManager,
+  ): Promise<DokusyaRireki | null> {
+    const where = {
+      dokusyaId,
+      torikeshiFlg: false,
+      dokusyaChushiDate: Not(IsNull()),
+    };
+    const order = { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' } as const;
+    // manager 指定時は呼び出し元の tx（＋行ロック）内で読む。ロック取得後に読み直す
+    // ことで、ガードした行と実際に取消す行が同一であることを保証する。
+    return manager
+      ? manager.findOne(DokusyaRireki, { where, order })
+      : this.rirekiRepo.findOne({ where, order });
+  }
+
+  /** {@link loadActiveKaiyakuRow} の有無だけを見る版（詳細レスポンスの meta 用）。 */
   private async hasActiveKaiyaku(dokusyaId: number): Promise<boolean> {
-    const row = await this.rirekiRepo.findOne({
-      where: { dokusyaId, torikeshiFlg: false, dokusyaChushiDate: Not(IsNull()) },
-      order: { johoHenkoTekiyoDate: 'DESC', rirekiNo: 'DESC' },
-    });
-    return row != null;
+    return (await this.loadActiveKaiyakuRow(dokusyaId)) != null;
   }
 
   /**

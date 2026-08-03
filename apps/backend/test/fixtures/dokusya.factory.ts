@@ -754,10 +754,8 @@ export function buildImportRow(
     // UTC 基準 futureDate と JST 基準 service のズレ吸収で +2 日。
     dokusya_kaishi_date: futureDate(2),
     biko: '',
-    // UPDATE は読者情報変更適用日が必須・未来日のみ（当日・過去日 不可・顧客要件
-    // 2026-07 改訂）。既定を未来日にして happy-path の UPDATE 取込を通す。当日/過去日
-    // 検証は各テストが明示上書き。
-    joho_henko_tekiyo_date: futureDate(2),
+    // 読者情報変更適用日 / 購読中止日 は行ではなく payload 直下（顧客要件 2026-08:
+    // 画面の入力欄で1ファイル1つ指定）。buildImportBody 側を参照。
     ...overrides,
   };
 }
@@ -771,12 +769,16 @@ export function buildImportRow(
 export function buildImportBody(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
+  const mode = (overrides.import_mode as string | undefined) ?? 'NEW';
   return {
     import_mode: 'NEW',
     // 購読種別は画面ラジオで選ぶ取込モード（顧客要件 2026-07・既定は紙版=1）。
     dokusya_shubetsu: 1,
     selected_columns: buildImportRequiredColumns(),
     rows: [buildImportRow()],
+    // 読者情報変更適用日は UPDATE でのみ有効（NEW に指定すると 400）。既定を未来日に
+    // して happy-path の UPDATE 取込を通す。当日/過去日・一括中止は各テストが明示上書き。
+    ...(mode === 'UPDATE' ? { joho_henko_tekiyo_date: futureDate(2) } : {}),
     ...overrides,
   };
 }

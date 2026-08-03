@@ -111,6 +111,11 @@ export class DenshibanPushService {
    * @param immediateJohoDate 指定時、適用日==当日 のみ push（未来適用の併読予約は
    *   到来日に recompute バッチが反映）。create/approve 等は省略。
    */
+  /**
+   * @returns 実際に電子版へ送ったか。非対象・未来適用で no-op だった場合は false。
+   *   一括中止のように「送った分だけ補償する」呼び出し側が、対象判定を自前で
+   *   写さずに済むようにするための戻り値（判定の二重管理を避ける）。
+   */
   async pushOnWrite(
     manager: EntityManager,
     params: {
@@ -121,19 +126,20 @@ export class DenshibanPushService {
       /** action='cancel' 用の解約対象月（YYYYMM）。 */
       cancelYm?: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { action, after, source, immediateJohoDate, cancelYm } = params;
     // 未来適用は batch に委譲（即 push しない）。
     if (immediateJohoDate !== undefined && immediateJohoDate !== todayIsoJst()) {
-      return;
+      return false;
     }
-    if (!(await this.isTarget(manager, after, source))) return;
+    if (!(await this.isTarget(manager, after, source))) return false;
     const kaiinId = await this.push(manager, action, after, { cancelYm });
     // create（create フォールバックした update/reread 含む）の採番IDを entity にも反映
     // （応答用。DB は push 内で更新済み）。
     if (kaiinId != null) {
       after.denshiKaiinId = kaiinId;
     }
+    return true;
   }
 
   /** UI / 取込 の push 対象判定。source==='BATCH'（pull sync の押し戻し）は echo 防止で false。 */

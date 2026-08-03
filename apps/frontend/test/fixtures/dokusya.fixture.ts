@@ -781,6 +781,8 @@ export interface DokusyaListRow {
 /** Pagination meta envelope — common across SCR list endpoints. */
 export interface DokusyaListMeta {
   total: number;
+  /** 検索条件に一致する購読者の購読部数合計（顧客要件 2026-08）。 */
+  total_busu: number;
   page: number;
   per_page: number;
   total_pages: number;
@@ -863,6 +865,8 @@ export function buildDokusyaListResponse(
     ],
     meta: overrides.meta ?? {
       total: 2,
+      // 既定行は 部数1 の購読者2件 → 合計2部。
+      total_busu: 2,
       page: 1,
       per_page: 20,
       total_pages: 1,

@@ -11,7 +11,7 @@
 //   exportDokusyaExcel  → ACSMS-API-014-003 (Excel 出力)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
@@ -71,6 +71,20 @@ vi.mock('@/api/tanka/tanka', () => ({
 // PromiseLike — return undefined via cast so the spy compiles even
 // once `@ts-nocheck` is removed.
 const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
+/**
+ * `Modal.confirm` を「はい」即押下に差し替える。削除・購読中止の確認ダイアログは
+ * jsdom では実際に描画しても押せないため、onOk を同期実行して先へ進める。
+ *
+ * beforeEach の `vi.clearAllMocks()` は呼び出し履歴を消すだけで実装は残るため、
+ * 確認ダイアログを通る各テストで明示的に呼び直す（前のテストの spy に依存しない）。
+ */
+function autoConfirm(): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
+    void opts?.onOk?.();
+    return { destroy: () => undefined, update: () => undefined } as any;
+  });
+}
+
 vi.spyOn(message, 'success').mockImplementation(() => noopMessage);
 vi.spyOn(message, 'error').mockImplementation(() => noopMessage);
 vi.spyOn(message, 'warning').mockImplementation(() => noopMessage);
@@ -339,7 +353,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
             hanbaiten_name: 'テスト販売店',
           }),
         ],
-        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+        meta: { total: 1, total_busu: 1, page: 1, per_page: 20, total_pages: 1 },
       }),
     );
     const { wrapper } = await renderView();
@@ -591,7 +605,7 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
             full_name: '田中 一郎',
           }),
         ],
-        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+        meta: { total: 1, total_busu: 1, page: 1, per_page: 20, total_pages: 1 },
       }),
     );
 
@@ -1474,7 +1488,38 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
     expect(vm.stopModalOpen).toBe(false);
   });
 
-  it('should WARN and NOT open the popup when 解約予約 already exists (has_active_kaiyaku)', async () => {
+  // 顧客要件 2026-08: 件数の右に購読部数の合計を併記する（「全 N 件　全 M 部」）。
+  // 合計は BE が検索条件と同じ絞り込みで出すので、表示中のページではなく全件。
+  it('should render the total 部数 next to the total count', async () => {
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockResolvedValue(
+      buildDokusyaListResponse({
+        meta: { total: 3, total_busu: 7, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    const text = wrapper.text().replace(/\s+/g, ' ');
+    expect(text).toContain('全 3 件');
+    expect(text).toContain('全 7 部');
+  });
+
+  // 0件時は antd がページネーションバー自体を描かないので、DOM ではなく
+  // 併記文言を作る computed を見る（BE が 0 を返したときに壊れないこと）。
+  it('should fall back to 全 0 部 when the search returns nothing', async () => {
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockResolvedValue(
+      buildDokusyaListResponse({
+        data: [],
+        meta: { total: 0, total_busu: 0, page: 1, per_page: 20, total_pages: 0 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    expect((wrapper.vm as unknown as { totalSuffix: string }).totalSuffix).toBe(
+      '全 0 部',
+    );
+  });
+
+  it('should WARN and NOT open the popup when a 紙版 row already has a 解約予約', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValue({
       data: buildDokusyaDetail({
@@ -1514,6 +1559,7 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
       stopDate: unknown;
       stopModalOpen: boolean;
     };
+    const confirmSpy = autoConfirm();
     await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
     await flushPromises();
     // 紙版カレンダーで日付を選択（Dayjs）。
@@ -1521,6 +1567,14 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
     vi.mocked(listDokusya).mockClear();
     await vm.confirmStop();
     await flushPromises();
+    // 「確認」→ 最終確認ダイアログ →「はい」で初めて API が飛ぶ。
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0][0]).toMatchObject({
+      title: '購読中止確認',
+      content: '2030/09/15で購読を中止します。よろしいですか？',
+      okText: 'はい',
+      cancelText: 'いいえ',
+    });
     expect(stopDokusya).toHaveBeenCalledWith(100, {
       dokusya_chushi_date: '2030-09-15',
     });
@@ -1547,15 +1601,78 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
       confirmStop: () => Promise<void>;
       stopMonth: unknown;
     };
+    const confirmSpy = autoConfirm();
     await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
     await flushPromises();
     // 終了月に 2030/07 を選択 → 月末 2030-07-31 で停止する。
     vm.stopMonth = dayjs('2030-07-10');
     await vm.confirmStop();
     await flushPromises();
+    // 電子版は「選んだ月」と「実際に止まる日」の両方を確認文に出す。
+    expect(confirmSpy.mock.calls[0][0]).toMatchObject({
+      content: '2030/07の月末（2030/07/31）で購読を中止します。よろしいですか？',
+    });
     expect(stopDokusya).toHaveBeenCalledWith(101, {
       dokusya_chushi_date: '2030-07-31',
     });
+  });
+
+  it('should NOT call stopDokusya when the final confirm dialog is dismissed', async () => {
+    const { getDokusya, stopDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_shubetsu: 1 }),
+    });
+    // 「いいえ」= onCancel だけ呼ぶ（onOk は呼ばない）。
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(
+      (opts: any) => {
+        opts?.onCancel?.();
+        return { destroy: () => undefined, update: () => undefined } as any;
+      },
+    );
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      confirmStop: () => Promise<void>;
+      stopDate: Dayjs | null;
+      stopModalOpen: boolean;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    vm.stopDate = dayjs('2030-09-15');
+    await vm.confirmStop();
+    await flushPromises();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(stopDokusya).not.toHaveBeenCalled();
+    // 確認ダイアログ表示中は1枚目を隠すが、「いいえ」で入力内容ごと戻す。
+    expect(vm.stopModalOpen).toBe(true);
+    expect(vm.stopDate?.format('YYYY-MM-DD')).toBe('2030-09-15');
+  });
+
+  it('should HIDE the stop popup while the confirm dialog is shown', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 100, dokusya_shubetsu: 1 }),
+    });
+    // ダイアログが出ている「最中」の状態を観測する — onOk/onCancel を呼ばない。
+    let openWhileConfirming: boolean | null = null;
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      confirmStop: () => Promise<void>;
+      stopDate: unknown;
+      stopModalOpen: boolean;
+    };
+    vi.spyOn(Modal, 'confirm').mockImplementation(() => {
+      openWhileConfirming = vm.stopModalOpen;
+      return { destroy: () => undefined, update: () => undefined } as any;
+    });
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    vm.stopDate = dayjs('2030-09-15');
+    await vm.confirmStop();
+    await flushPromises();
+    // モーダル2枚重ねだと確認文の後ろに入力欄が透けて読みづらいため隠す。
+    expect(openWhileConfirming).toBe(false);
   });
 
   it('should surface a VALIDATION_ERROR message inside the popup (no re-toast)', async () => {
@@ -1586,6 +1703,7 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
       stopFieldError: string | null;
       stopModalOpen: boolean;
     };
+    autoConfirm();
     await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
     await flushPromises();
     vm.stopDate = dayjs('2030-09-15');
@@ -1595,5 +1713,130 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
       '購読中止日は本日より後の日付を指定してください。',
     );
     expect(vm.stopModalOpen).toBe(true); // エラーでは閉じない
+  });
+
+  // ── 顧客要件 2026-08: 電子版は同じポップアップから予約変更・予約取消できる ──
+  // 電子版は履歴画面の取消(赤伝)が種別で禁止されているため、ここが唯一の導線。
+  // 予約中の中止日は master に反映済み(dokusya_chushi_date)なのでそこから復元する。
+
+  interface StopVm {
+    openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+    confirmStop: () => Promise<void>;
+    stopModalOpen: boolean;
+    stopMonth: unknown;
+    stopHasReservation: boolean;
+    stopFieldError: string | null;
+  }
+
+  /** 予約中の電子版詳細を返す getDokusya をセットして view を描画する。 */
+  async function renderWithReservedDigital(chushi = '2030-07-31') {
+    const { getDokusya, stopDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 101,
+        dokusya_shubetsu: 2,
+        seikyu_kaishi_month: '202604',
+        has_active_kaiyaku: true,
+        dokusya_chushi_date: chushi,
+      }),
+    });
+    vi.mocked(stopDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 101, dokusya_shubetsu: 2 }),
+      message: '購読停止を予約しました。',
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as StopVm;
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
+    await flushPromises();
+    return { wrapper, vm, stopDokusya };
+  }
+
+  it('should OPEN the popup for a reserved 電子版 row and restore the reserved month', async () => {
+    const { vm } = await renderWithReservedDigital('2030-07-31');
+    expect(vm.stopModalOpen).toBe(true);
+    expect(vm.stopHasReservation).toBe(true);
+    // 予約中の中止日(月末)から終了月を復元する。
+    expect((vm.stopMonth as Dayjs).format('YYYY-MM')).toBe('2030-07');
+  });
+
+  it('should send the NEW end-of-month date when the reserved month is changed', async () => {
+    const { vm, stopDokusya } = await renderWithReservedDigital('2030-07-31');
+    const confirmSpy = autoConfirm();
+    vm.stopMonth = dayjs('2030-09-05'); // 07月 → 09月へ選び直す
+    await vm.confirmStop();
+    await flushPromises();
+    // 予約中なので「中止します」ではなく「変更します」と言い切る。
+    expect(confirmSpy.mock.calls[0][0]).toMatchObject({
+      content:
+        '購読中止日を2030/09の月末（2030/09/30）に変更します。よろしいですか？',
+    });
+    expect(stopDokusya).toHaveBeenCalledWith(101, {
+      dokusya_chushi_date: '2030-09-30',
+    });
+    expect(vm.stopModalOpen).toBe(false);
+  });
+
+  it('should send an EMPTY date (=予約取消) when the reserved month is cleared', async () => {
+    const { vm, stopDokusya } = await renderWithReservedDigital('2030-07-31');
+    const confirmSpy = autoConfirm();
+    vm.stopMonth = null; // ピッカーの × でクリア
+    await vm.confirmStop();
+    await flushPromises();
+    expect(confirmSpy.mock.calls[0][0]).toMatchObject({
+      content: '購読中止の予約を取り消します。よろしいですか？',
+    });
+    expect(stopDokusya).toHaveBeenCalledWith(101, { dokusya_chushi_date: '' });
+    expect(vm.stopModalOpen).toBe(false);
+  });
+
+  it('should NOT open the confirm dialog when the same reserved month is re-selected', async () => {
+    const { vm, stopDokusya } = await renderWithReservedDigital('2030-07-31');
+    const confirmSpy = autoConfirm();
+    vm.stopMonth = dayjs('2030-07-20'); // 同じ 2030/07 → 月末も同じ
+    await vm.confirmStop();
+    await flushPromises();
+    // 無変更で履歴行と電子版 push を増やさない（SCR-011 と同じ no-change 文言）。
+    // 確認ダイアログも出さない — 押す意味のある選択肢が無いため。
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(stopDokusya).not.toHaveBeenCalled();
+    expect(vm.stopFieldError).toBe('変更がありません。');
+    expect(vm.stopModalOpen).toBe(true);
+  });
+
+  it('should require a month for a 電子版 row with NO reservation (clearing is not 取消)', async () => {
+    const { getDokusya, stopDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 101,
+        dokusya_shubetsu: 2,
+        seikyu_kaishi_month: '202604',
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as StopVm;
+    const confirmSpy = autoConfirm();
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
+    await flushPromises();
+    vm.stopMonth = null;
+    await vm.confirmStop();
+    await flushPromises();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(stopDokusya).not.toHaveBeenCalled();
+    expect(vm.stopFieldError).toBe('購読中止日を入力してください。');
+  });
+
+  it('should show the BE message returned by stopDokusya (予約 vs 取消)', async () => {
+    const { vm, stopDokusya } = await renderWithReservedDigital('2030-07-31');
+    autoConfirm();
+    vi.mocked(stopDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ dokusya_id: 101, dokusya_shubetsu: 2 }),
+      message: '購読中止を取り消しました。',
+    });
+    vm.stopMonth = null;
+    await vm.confirmStop();
+    await flushPromises();
+    // useNotify().success(...) は内部で antd の message.success を呼ぶ。
+    expect(message.success).toHaveBeenCalledWith('購読中止を取り消しました。');
   });
 });

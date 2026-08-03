@@ -65,9 +65,7 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
   '購読者層分類',
   '農業者分類',
   '購読開始日',
-  '購読中止日',
   '備考',
-  '読者情報変更適用日',
 ] as const;
 
 /**
@@ -122,10 +120,7 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'dokusyaso_bunrui',
   'nogyosya_bunrui',
   'dokusya_kaishi_date',
-  'dokusya_chushi_date',
   'biko',
-  'joho_henko_tekiyo_date',
-  'hanbaiten_tekiyo_date',
 ] as const;
 
 /**
@@ -215,8 +210,8 @@ export function buildImportRow(
     yubin_kubun: '0',
     shiharai_hoho: 1, // 口座引落
     dokusya_kaishi_date: '2026-05-01',
-    // UPDATE は読者情報変更適用日が必須（顧客要件 2026-06）。既定で入れておく。
-    joho_henko_tekiyo_date: '2026-05-01',
+    // 読者情報変更適用日 / 購読中止日 は行ではなく payload 直下
+    // （顧客要件 2026-08: 画面の入力欄で1ファイル1つ指定）。
     biko: '',
     ...overrides,
   };

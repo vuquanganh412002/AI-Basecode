@@ -42,6 +42,25 @@ export function paginate<T>(
   total: number,
   page: number,
   per_page: number,
+): PaginatedResponse<T>;
+/**
+ * 画面固有の集計を meta に足したい場合の形。第5引数のキーが `meta` へ合流する。
+ * 全リストへ波及させたくない項目（例: 購読者検索の `total_busu`）はこちらを使い、
+ * `{ data, meta: {...} }` を呼び出し側で組み立てない（規約: 形状は本ヘルパーに集約）。
+ */
+export function paginate<T, M extends object>(
+  data: T[],
+  total: number,
+  page: number,
+  per_page: number,
+  extraMeta: M,
+): { data: T[]; meta: PageMeta & M };
+export function paginate<T>(
+  data: T[],
+  total: number,
+  page: number,
+  per_page: number,
+  extraMeta?: object,
 ): PaginatedResponse<T> {
   return {
     data,
@@ -50,6 +69,7 @@ export function paginate<T>(
       page,
       per_page,
       total_pages: per_page > 0 ? Math.ceil(total / per_page) : 0,
+      ...extraMeta,
     },
   };
 }

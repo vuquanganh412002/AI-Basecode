@@ -90,7 +90,7 @@ const columns: TableColumnsType = [
   { title: '前回販売店名', dataIndex: 'zenkai_hanbaiten_name', key: 'zenkai_hanbaiten_name', width: 150 },
   // 初回購読開始日（shoki）を 前回販売店名 の後・増部日 の前へ移動（旧「購読開始日」を改称）。
   { title: '初回購読開始日', key: 'shoki_dokusya_kaishi_date', width: 130 },
-  // 増部日 / 減部日 は dokusya_kaishi_date を条件付きで表示（部数の増減時のみ）。
+  // 増部日 / 減部日 は 読者情報変更適用日 を条件付きで表示（部数の増減時のみ）。
   { title: '増部日', key: 'zoubu_date', width: 120 },
   { title: '減部日', key: 'genbu_date', width: 120 },
   { title: '購読中止日', key: 'dokusya_chushi_date', width: 120 },
@@ -144,28 +144,33 @@ function tankaLabel(r: DokusyaRirekiItem): string {
 }
 
 /**
- * 増部日: この行の購読部数が前回より増えたとき、増減の適用日(dokusya_kaishi_date)
- * を表示する。前回部数が null（新規作成・再購読の初回行＝0→N の増加）も増部として
- * 扱う。それ以外は空欄（顧客要件 SCR-013）。
+ * 増部日: この行の購読部数が前回より増えたとき、その変更が効く日
+ * （t_dokusya_rireki.joho_henko_tekiyo_date）を表示する。前回部数が null
+ * （新規作成・再購読の初回行＝0→N の増加）も増部として扱う。それ以外は空欄。
+ *
+ * 参照するのは購読開始日ではなく**読者情報変更適用日**（顧客要件 2026-08）。
+ * 購読開始日は購読者が読み始めた日で、途中の部数変更では動かない。増減が
+ * 実際に効くのは変更適用日なので、部数を増やした行でも購読開始日を出すと
+ * 「いつ増えたのか」と食い違う。
  */
 function zoubuDate(r: DokusyaRirekiItem): string {
   const zenkai = r.zenkai_dokusya_busu;
   if (zenkai == null || r.dokusya_busu > zenkai) {
-    return formatDate(r.dokusya_kaishi_date);
+    return formatDate(r.joho_henko_tekiyo_date);
   }
   return '';
 }
 
 /**
- * 減部日: この行の購読部数が前回より減ったとき、増減の適用日(dokusya_kaishi_date)
- * を表示する。前回部数が null（新規作成・再購読の初回行）は増部であって減部では
- * ないため空欄にする（顧客要件 SCR-013：新規・再購読は 増部日 のみ表示し、減部日は
- * 出さない。両方表示しない）。
+ * 減部日: この行の購読部数が前回より減ったとき、その変更が効く日
+ * （t_dokusya_rireki.joho_henko_tekiyo_date）を表示する。前回部数が null
+ * （新規作成・再購読の初回行）は増部であって減部ではないため空欄にする
+ * （顧客要件 SCR-013：新規・再購読は 増部日 のみ表示し、減部日は出さない）。
  */
 function genbuDate(r: DokusyaRirekiItem): string {
   const zenkai = r.zenkai_dokusya_busu;
   if (zenkai != null && r.dokusya_busu < zenkai) {
-    return formatDate(r.dokusya_kaishi_date);
+    return formatDate(r.joho_henko_tekiyo_date);
   }
   return '';
 }

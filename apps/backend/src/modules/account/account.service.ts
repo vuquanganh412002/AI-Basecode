@@ -716,21 +716,27 @@ export class AccountService {
     const stripScope = isNichinoRole(roleCode);
     const isKanriShitenRole = roleCode === RoleCode.JA_KANRI_SHITEN;
 
-    // FK guard + Layer 4 DataScope — 新 kanri_shiten(指定時)は存在し、かつ既存アカウントと
-    // 同一 JA(before.jaId)に属す必要あり。制限役職では session.ja_id と一致、NICHINO_* が
-    // 任意 JA のアカウントを操作する場合もその JA に束縛される。
+    // [effective-ja] — 更新後に実際に保存される JA。DTO は ja_id を差し替え可能なので
+    // 「JA と 管理支店 を同時に別 JA へ付け替える」正常フロー（SCR-025 で都道府県を
+    // 変更すると FE が JA/管理支店をリセットし新 JA 配下から選び直す）では before.jaId
+    // で検証すると必ず DATA_SCOPE_VIOLATION になる。buildAccountSharedPartial が
+    // `jaId: dto.ja_id ?? null` を書くのと同じ実効値で検証する。
+    const effectiveJaId = stripScope ? null : (dto.ja_id ?? before.jaId ?? null);
+
+    // FK guard + Layer 4 DataScope — 新 kanri_shiten(指定時)は存在し、かつ更新後の
+    // JA(effectiveJaId)に属す必要あり。NICHINO_* が任意 JA のアカウントを操作する
+    // 場合もその JA に束縛される。
     if (
       !stripScope &&
       dto.kanri_shiten_id !== undefined &&
       dto.kanri_shiten_id !== null
     ) {
-      const expectedJaId = before.jaId;
-      if (expectedJaId !== null && expectedJaId !== undefined) {
+      if (effectiveJaId !== null && effectiveJaId !== undefined) {
         await fetchFkInJa(
           this.kanriShitenRepo,
           'kanriShitenId',
           dto.kanri_shiten_id,
-          Number(expectedJaId),
+          Number(effectiveJaId),
           '管理支店',
         );
       }
@@ -739,11 +745,11 @@ export class AccountService {
     // 所属支店(shiten_id)は JA管理支店アカウントのみ・実効管理支店配下（顧客要件
     // 2026-07）。実効管理支店 = dto.kanri_shiten_id ?? before.kanriShitenId。
     if (isKanriShitenRole && dto.shiten_id != null) {
-      // (以下同一)
+      // (以下同一) — JA も上と同じ実効値で判定。
       await this.assertShitenBelongsToKanriShiten(
         dto.shiten_id,
         dto.kanri_shiten_id ?? before.kanriShitenId,
-        before.jaId,
+        effectiveJaId,
       );
     }
 

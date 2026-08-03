@@ -51,9 +51,34 @@ function digitsOnly(v: string | null | undefined): string {
   return (v ?? '').replace(/\D/g, '');
 }
 
-/** maxLen で切り詰め（改行は半角空白へ畳む — remarks は1行想定）。 */
+/** maxLen で切り詰め（改行は半角空白へ畳む — 単一行を想定する項目用）。 */
 function clamp(v: string | null | undefined, max: number): string {
   return (v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * `t_dokusya.biko`（複数行）→ 電子版 remarks1〜5（顧客要件 2026-08）。
+ *   1行目 → remarks1 ／ 2行目 → remarks2 ／ 3行目 → remarks3 ／ 4行目 → remarks4
+ *   5行目以降 → remarks5（改行を保ったまとめ）
+ *
+ * pull 側 `dokusya-sync.mapper.ts#joinRemarks` が remarks1〜5 を `\n` で連結して
+ * biko を作るので、その逆変換にあたる。5行目以降の改行を潰さないのはそのため —
+ * 潰すと 電子版→cloud→電子版 と往復した時に行が失われる。
+ *
+ * `clamp` は使わない（あれは改行を空白へ畳むので、行の区切りが消えてこの分割の
+ * 意味がなくなる）。各スロットは trim + 255文字で切り詰める。
+ *
+ * @returns 長さ5の配列（remarks1..remarks5 の順・値が無いスロットは空文字）
+ */
+function splitBikoToRemarks(biko: string | null | undefined): string[] {
+  const lines = (biko ?? '').replace(/\r\n?/g, '\n').split('\n');
+  return [
+    lines[0] ?? '',
+    lines[1] ?? '',
+    lines[2] ?? '',
+    lines[3] ?? '',
+    lines.slice(4).join('\n'), // 5行目以降はまとめて remarks5
+  ].map((s) => s.trim().slice(0, MAX_TEXT_LEN));
 }
 
 /** カンマ区切りコード列を逆変換表でマッピングして再結合（未知値は捨てる）。 */
@@ -109,8 +134,12 @@ function buildProfile(f: Dokusya): Record<string, string> {
   const building = clamp(f.tatemonoMei, MAX_TEXT_LEN);
   if (building) payload.building = building;
 
-  const remarks1 = clamp(f.biko, MAX_TEXT_LEN);
-  if (remarks1) payload.remarks1 = remarks1;
+  // biko の各行を remarks1〜5 へ割り当てる。空スロットはキーごと落とす
+  // （共通フロー「値が存在しないパラメータはキーを含めない」）。電子版の
+  // isPresent は空文字をキー無しと同一視するので、送っても落としても同義。
+  splitBikoToRemarks(f.biko).forEach((v, i) => {
+    if (v) payload[`remarks${i + 1}`] = v;
+  });
 
   if (f.birthYear != null && /^\d{4}$/.test(String(f.birthYear))) {
     payload.birthyear = String(f.birthYear);

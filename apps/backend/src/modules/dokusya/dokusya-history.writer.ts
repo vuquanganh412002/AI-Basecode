@@ -437,6 +437,44 @@ export async function applyTorikeshi(
 }
 
 /**
+ * 解約予約の取消（電子版の「購読中止」再操作・顧客要件 2026-08）。赤伝は
+ * {@link applyTorikeshi} と同形（対象行に torikeshi_flg + 打ち消し行を append）だが、
+ * `canTorikeshi` は通さない。
+ *
+ * 理由: `canTorikeshi` は「紙版のみ」を課している。電子版を弾いていたのは、履歴画面から
+ * 個別に取消されると電子版へ何も伝わらず両システムが食い違うため。ここは SCR-014 の
+ * 「購読中止」操作専用の入口で、呼び出し元(`DokusyaService.stop`)が同一 tx 内で
+ * 電子版へ cancel を push する。連携が伴う以上、その禁止理由は当てはまらない。
+ *
+ * 代わりに「予約行であること」を自前で守る:
+ *   - `dokusya_chushi_date` を持つ（＝解約予約/解約行）
+ *   - `kaiyaku_flg=false`（到来日バッチが確定させた実解約行は取消不可 — 再購読の領域）
+ *   - `torikeshi_flg=false`（二重取消しない）
+ * 適用日が未来かは問わない: 電子版の予約行は 適用日=中止日(月末) なので、月末当日に
+ * 変更したい要求が正当に起こりうる。確定済みか否かは `kaiyaku_flg` が正しい境界。
+ */
+export async function revokeScheduledKaiyaku(
+  m: EntityManager,
+  dokusyaId: number,
+  target: DokusyaRireki,
+  reason: string,
+  actor: string,
+): Promise<void> {
+  if (
+    target.dokusyaChushiDate == null ||
+    target.kaiyakuFlg ||
+    target.torikeshiFlg
+  ) {
+    throw new TorikeshiNotAllowedException();
+  }
+  await markTorikeshi(m, target.dokusyaRirekiId, reason);
+  const no = await nextRirekiNo(m, dokusyaId);
+  const counter = buildCounterRow(target, { rirekiNo: no, actor, reason });
+  await insertRow(m, counter);
+  await recomputeMaster(m, dokusyaId, todayIsoJst());
+}
+
+/**
  * `inserted` を既存2行の間に挿入した後、直後行1件だけを更新する: `zenkai_*` を挿入行へ
  * relink し `zougen_hokoku_flg` を再計算。顧客要件2026-07「B-thuần」方針:
  *
