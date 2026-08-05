@@ -158,6 +158,158 @@ describe('denshiban-push.mapper', () => {
       });
     });
 
+    /**
+     * 顧客DB設計 2026-08 の従属 4 項目。electronic 側では products と同じ
+     * 「条件付き項目」で、profession / products が条件コードを含まないのに値を
+     * 送ると V26〜V30 で create/update ごと弾かれる（denshiban-demo
+     * validators.js の CONDITIONAL 表）。よって「送らない」判定が仕様の一部。
+     */
+    describe('読者属性の従属項目', () => {
+      it('農業者(0) のとき profession_and_ja を 0/1 で送る', () => {
+        const checked = toCreatePayload(
+          buildDokusya({ dokusyasoBunrui: '0', jaYakushokuinFlg: true }),
+          '1301002001',
+        );
+        expect(checked.profession_and_ja).toBe('1');
+
+        const unchecked = toCreatePayload(
+          buildDokusya({ dokusyasoBunrui: '0', jaYakushokuinFlg: false }),
+          '1301002001',
+        );
+        // 未チェックでも '0' を明示する。'' で省略すると電子版は「変更なし」と
+        // みなして旧値を残すため、チェックを外した操作が同期されない。
+        expect(unchecked.profession_and_ja).toBe('0');
+      });
+
+      it('農業者(0) 以外では profession_and_ja を空で送る（V26 回避）', () => {
+        const p = toCreatePayload(
+          buildDokusya({ dokusyasoBunrui: '3', jaYakushokuinFlg: true }),
+          '1301002001',
+        );
+        expect(p).toHaveProperty('profession_and_ja');
+        expect(p.profession_and_ja).toBe('');
+      });
+
+      it('企業・団体(2) のとき profession_and_agri を 0/1 で送る', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({ dokusyasoBunrui: '2', nogyoKankeiFlg: true }),
+            '1301002001',
+          ).profession_and_agri,
+        ).toBe('1');
+        expect(
+          toCreatePayload(
+            buildDokusya({ dokusyasoBunrui: '2', nogyoKankeiFlg: false }),
+            '1301002001',
+          ).profession_and_agri,
+        ).toBe('0');
+      });
+
+      it('企業・団体(2) 以外では profession_and_agri を空で送る（V27 回避）', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({ dokusyasoBunrui: '0', nogyoKankeiFlg: true }),
+            '1301002001',
+          ).profession_and_agri,
+        ).toBe('');
+      });
+
+      it('その他(999) のとき others_profession に自由記述を送る', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({
+              dokusyasoBunrui: '999',
+              dokusyasoBunruiSonota: '自営業',
+            }),
+            '1301002001',
+          ).others_profession,
+        ).toBe('自営業');
+      });
+
+      it('その他(999) 以外では others_profession を空で送る（V28 回避）', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({
+              dokusyasoBunrui: '3',
+              dokusyasoBunruiSonota: '自営業',
+            }),
+            '1301002001',
+          ).others_profession,
+        ).toBe('');
+      });
+
+      it('主な生産物に その他(999) を含むとき others_products を送る', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({
+              dokusyasoBunrui: '0',
+              nogyosyaBunrui: '0,999',
+              nogyosyaBunruiSonota: 'きのこ',
+            }),
+            '1301002001',
+          ).others_products,
+        ).toBe('きのこ');
+      });
+
+      it('主な生産物に その他 が無ければ others_products を空で送る（V30 回避）', () => {
+        expect(
+          toCreatePayload(
+            buildDokusya({
+              dokusyasoBunrui: '0',
+              nogyosyaBunrui: '0',
+              nogyosyaBunruiSonota: 'きのこ',
+            }),
+            '1301002001',
+          ).others_products,
+        ).toBe('');
+      });
+
+      /**
+       * others_products の条件は電子版側では
+       * `isPresent(products) && listHas(products, '999')`。products 自体が
+       * profession に 0 を含まないと送れないので、非農業者では products が空に
+       * なり others_products も送れない。入力値ではなく**送信値**で判定して
+       * いることを担保する。
+       */
+      it('非農業者なら 主な生産物その他 が入っていても送らない', () => {
+        const p = toCreatePayload(
+          buildDokusya({
+            dokusyasoBunrui: '2',
+            nogyosyaBunrui: '999',
+            nogyosyaBunruiSonota: 'きのこ',
+          }),
+          '1301002001',
+        );
+        expect(p.products).toBe('');
+        expect(p.others_products).toBe('');
+      });
+
+      it('自由記述は 255 文字で切り詰める', () => {
+        const p = toCreatePayload(
+          buildDokusya({
+            dokusyasoBunrui: '999',
+            dokusyasoBunruiSonota: 'あ'.repeat(300),
+          }),
+          '1301002001',
+        );
+        expect(p.others_profession).toHaveLength(255);
+      });
+
+      it('update payload にも従属 4 項目のキーを含める', () => {
+        const p = toUpdatePayload(
+          buildDokusya({ dokusyasoBunrui: '0', jaYakushokuinFlg: true }),
+          '1301002001',
+          555,
+        );
+        expect(p).toMatchObject({
+          profession_and_ja: '1',
+          profession_and_agri: '',
+          others_profession: '',
+        });
+        expect(p).toHaveProperty('others_products');
+      });
+    });
+
     // 顧客要件 2026-08: biko の行を remarks1〜5 へ割り当てる。pull 側
     // (dokusya-sync.mapper#joinRemarks) が remarks を '\n' で連結して biko を
     // 作るので、その逆変換にあたる。

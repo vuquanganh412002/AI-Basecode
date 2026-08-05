@@ -46,6 +46,47 @@ describe('CreateAccountDto', () => {
       const errs = await check({ ...VALID, login_id: 'admin_001' });
       expect(errs.some((e) => e.property === 'login_id')).toBe(false);
     });
+
+    /**
+     * システム予約名（顧客要件 2026-08）。禁止は名前の見た目の問題ではなく、
+     * `t_dokusya_rireki.created_by` の最古行で「電子版同期由来の読者か」を
+     * 判別しているため。一般ユーザが SYSTEM_DENSHI_SYNC を名乗れると、その人が
+     * 登録した読者が同期由来と誤判定される。
+     */
+    describe('システム予約名は使えない', () => {
+      it.each([
+        ['SYSTEM'],
+        ['SYSTEM_DENSHI_SYNC'],
+        ['SYSTEM_BATCH_NIGHTLY'],
+        ['SYSTEM_MIGRATION'], // 未実装だが接頭辞で先に塞がる
+        ['SYSTEM_'],
+        ['SYSTEM_anything'],
+        // 大文字小文字は区別しない。created_by の突合自体は case-sensitive だが、
+        // 監査列を目視で追う運用で紛らわしいため紛れ込む余地を残さない。
+        ['system'],
+        ['System_Denshi_Sync'],
+      ])('should reject login_id %s', async (loginId) => {
+        const errs = await check({ ...VALID, login_id: loginId });
+        expect(errs.some((e) => e.property === 'login_id')).toBe(true);
+      });
+
+      it.each([
+        ['SYSTEMATIC'], // SYSTEM で始まるが `_` 区切りではない → 予約対象外
+        ['SYSTEMS'],
+        ['MY_SYSTEM'],
+        ['sys_admin'],
+      ])('should accept login_id %s (予約名ではない)', async (loginId) => {
+        const errs = await check({ ...VALID, login_id: loginId });
+        expect(errs.some((e) => e.property === 'login_id')).toBe(false);
+      });
+
+      it('should report the reserved-name message, not the charset one', async () => {
+        const [err] = await check({ ...VALID, login_id: 'SYSTEM_DENSHI_SYNC' });
+        expect(Object.values(err.constraints ?? {}).join()).toContain(
+          'ログインIDに「SYSTEM」から始まる文字列は使用できません。',
+        );
+      });
+    });
   });
 
   describe('password (required, length 8..32, 2+ of letter/digit/symbol)', () => {

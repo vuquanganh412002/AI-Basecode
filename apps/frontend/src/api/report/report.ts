@@ -9,6 +9,12 @@ export interface MeiboReportQuery {
   report_type: 'hanbaiten' | 'kanri_shiten';
   hanbaiten_ids?: number[];
   kanri_shiten_ids?: number[];
+  /**
+   * 支店ID（配達担当支店・複数選択可・任意）。report_type=kanri_shiten のときのみ
+   * 有効で、選択した管理支店配下をさらに絞る（顧客要件2026-08）。
+   * ※支店未設定の購読者は本条件を指定すると対象外になる。
+   */
+  shiten_ids?: number[];
   /** 1: 紙版, 2: 電子版（併読(3)は本帳票では選択不可）。 */
   dokusya_shubetsu?: number;
   /** 支払方法（m_code SHIHARAI_HOHO: 1=口座引落 … 9=その他）。両帳票種別で有効。 */

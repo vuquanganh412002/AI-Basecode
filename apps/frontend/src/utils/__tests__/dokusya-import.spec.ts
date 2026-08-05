@@ -14,11 +14,16 @@ import {
 // したため、そのテストは utils/__tests__/datetime.spec.ts 側にある。
 
 describe('dokusya-import — column model', () => {
-  it('has 46 physical columns (画面で指定する項目は Excel 列に持たない)', () => {
-    // 顧客要件 2026-08: 読者情報変更適用日 / 購読中止日 を画面の入力欄へ移し
-    // 列から撤去（48 → 46）。それ以前に 購読種別 を画面ラジオへ（49 → 48）、
-    // 販売店適用日を廃止し joho に統一（v1.3）。
-    expect(PHYSICAL_COLUMNS).toHaveLength(46);
+  it('has 50 physical columns (画面で指定する項目は Excel 列に持たない)', () => {
+    // 顧客要件 2026-08: 購読者層分類の従属 4 項目を追加（46 → 50）。
+    // それ以前に 読者情報変更適用日 / 購読中止日 を画面の入力欄へ移して列から
+    // 撤去（48 → 46）、購読種別 を画面ラジオへ（49 → 48）、販売店適用日を廃止し
+    // joho に統一（v1.3）。
+    expect(PHYSICAL_COLUMNS).toHaveLength(50);
+    expect(PHYSICAL_COLUMNS).toContain('ja_yakushokuin_flg');
+    expect(PHYSICAL_COLUMNS).toContain('nogyo_kankei_flg');
+    expect(PHYSICAL_COLUMNS).toContain('dokusyaso_bunrui_sonota');
+    expect(PHYSICAL_COLUMNS).toContain('nogyosya_bunrui_sonota');
     expect(PHYSICAL_COLUMNS).toContain('haitatsu_same_flg');
     for (const gone of [
       'dokusya_shubetsu',

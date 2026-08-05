@@ -219,56 +219,74 @@ export class DokusyaImportValidator {
     }
 
     if (dto.import_mode === 'NEW') {
-      if (joho) {
-        throw this.payloadDateError(
-          'joho_henko_tekiyo_date',
-          '新規登録では読者情報変更適用日を指定できません。',
-        );
-      }
-      if (chushi) {
-        throw this.payloadDateError(
-          'dokusya_chushi_date',
-          '新規登録では購読中止日を指定できません。',
-        );
-      }
+      this.assertNewModeDates(joho, chushi);
       return;
     }
+    this.assertUpdateModeDates(dto, joho, chushi);
+  }
 
-    // UPDATE — 電子版は当日固定で省略可（importUpdateRow が当日を補う）。
-    if (!joho && !chushi && !isDigitalOrBoth(dto.dokusya_shubetsu)) {
+  /** NEW — 新規登録に「変更適用日」「中止日」の概念は無い。 */
+  private assertNewModeDates(joho: string, chushi: string): void {
+    if (joho) {
+      throw this.payloadDateError(
+        'joho_henko_tekiyo_date',
+        '新規登録では読者情報変更適用日を指定できません。',
+      );
+    }
+    if (chushi) {
+      throw this.payloadDateError(
+        'dokusya_chushi_date',
+        '新規登録では購読中止日を指定できません。',
+      );
+    }
+  }
+
+  /** UPDATE — 電子版は適用日が当日固定（画面も disable）なので省略を許す。 */
+  private assertUpdateModeDates(
+    dto: ImportDokusyaDto,
+    joho: string,
+    chushi: string,
+  ): void {
+    const digital = isDigitalOrBoth(dto.dokusya_shubetsu);
+
+    if (!joho && !chushi && !digital) {
       throw this.payloadDateError(
         'joho_henko_tekiyo_date',
         '読者情報変更適用日を入力してください。',
       );
     }
+    if (chushi && digital) {
+      this.assertDigitalBulkStop(dto, chushi);
+    }
+  }
 
-    if (chushi && isDigitalOrBoth(dto.dokusya_shubetsu)) {
-      // 電子版の一括中止だけ行数を絞る。1行 = 電子版APIへの1往復なので、同期処理の
-      // ままでは大きいファイルが ALB/CloudFront のタイムアウトにかかる。紙版は外部連携が
-      // 無く従来と同じコストなので通常の上限（30000）のまま。
-      // DTO の @ArrayMaxSize は種別を跨いだ形式契約なので、種別依存の上限はここに置く。
-      if (dto.rows.length > MAX_DIGITAL_BULK_STOP_ROWS) {
-        throw this.payloadDateError(
-          'dokusya_chushi_date',
-          `電子版の一括中止は${MAX_DIGITAL_BULK_STOP_ROWS}件までです。ファイルを分割してください。`,
-        );
-      }
-      // 電子版の解約は**月末で終了**する（SCR-014 の購読中止と同じ）。画面は終了月を
-      // 選ばせて月末へ丸めるが、UI の丸めは境界ではないのでここでも検証する。
-      if (chushi !== lastDayOfMonthIso(chushi)) {
-        throw this.payloadDateError(
-          'dokusya_chushi_date',
-          '電子版の購読中止日は月末日を指定してください。',
-        );
-      }
-      // 当月以降（過ぎた月では止められない）。日単位の未来判定は紙版のルールで、
-      // 電子版は月単位で見る — 当月末は「まだ来ていない」ので許す。
-      if (chushi.slice(0, 7) < todayIsoJst().slice(0, 7)) {
-        throw this.payloadDateError(
-          'dokusya_chushi_date',
-          '購読中止日は当月以降の月を選択してください。',
-        );
-      }
+  /** 電子版の一括中止だけに掛かる制約（行数上限・月末・当月以降）。 */
+  private assertDigitalBulkStop(dto: ImportDokusyaDto, chushi: string): void {
+    // 1行 = 電子版APIへの1往復なので、同期処理のままでは大きいファイルが
+    // ALB/CloudFront のタイムアウトにかかる。紙版は外部連携が無く従来と同じ
+    // コストなので通常の上限（30000）のまま。DTO の @ArrayMaxSize は種別を
+    // 跨いだ形式契約なので、種別依存の上限はここに置く。
+    if (dto.rows.length > MAX_DIGITAL_BULK_STOP_ROWS) {
+      throw this.payloadDateError(
+        'dokusya_chushi_date',
+        `電子版の一括中止は${MAX_DIGITAL_BULK_STOP_ROWS}件までです。ファイルを分割してください。`,
+      );
+    }
+    // 電子版の解約は**月末で終了**する（SCR-014 の購読中止と同じ）。画面は終了月を
+    // 選ばせて月末へ丸めるが、UI の丸めは境界ではないのでここでも検証する。
+    if (chushi !== lastDayOfMonthIso(chushi)) {
+      throw this.payloadDateError(
+        'dokusya_chushi_date',
+        '電子版の購読中止日は月末日を指定してください。',
+      );
+    }
+    // 当月以降（過ぎた月では止められない）。日単位の未来判定は紙版のルールで、
+    // 電子版は月単位で見る — 当月末は「まだ来ていない」ので許す。
+    if (chushi.slice(0, 7) < todayIsoJst().slice(0, 7)) {
+      throw this.payloadDateError(
+        'dokusya_chushi_date',
+        '購読中止日は当月以降の月を選択してください。',
+      );
     }
   }
 

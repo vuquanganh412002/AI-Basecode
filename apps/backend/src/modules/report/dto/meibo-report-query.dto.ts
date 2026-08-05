@@ -77,6 +77,20 @@ export class MeiboReportQueryDto {
 
   @ApiPropertyOptional({
     description:
+      '支店ID（配達担当支店 t_dokusya_rireki.shiten_id、複数選択可・任意）。' +
+      'report_type=kanri_shiten のときのみ有効で、選択した管理支店配下をさらに絞る。' +
+      'report_type=hanbaiten では帳票に支店列が無いため無視する。' +
+      '※支店未設定（shiten_id IS NULL）の購読者は、本条件を指定すると対象外になる',
+    type: [Number],
+  })
+  @IsOptional()
+  @Transform(toNumberArray)
+  @IsArray({ message: '支店IDの形式が不正です。' })
+  @IsInt({ each: true, message: '支店IDは整数で指定してください。' })
+  shiten_ids?: number[];
+
+  @ApiPropertyOptional({
+    description:
       '購読種別フィルタ ※m_code.code_category=DOKUSYA_SHUBETSU を参照（1:紙版, 2:電子版）。併読(3)は本帳票では選択不可。未指定時は紙版＋電子版の両方',
     example: 1,
   })

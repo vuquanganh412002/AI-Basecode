@@ -7,7 +7,7 @@ format_version: "1.0"
 issue_date: 2019-02-22
 created_date: 2026/03/17
 created_by: Tran Duc Tuyen
-updated_date: 2026/04/02
+updated_date: 2026/08/04
 updated_by: Tran Duc Tuyen
 ---
 
@@ -18,6 +18,9 @@ updated_by: Tran Duc Tuyen
 | 1 | 2026/03/17 | 1 | Tran Duc Tuyen | 作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/03/27 | 1.1 | Tran Duc Tuyen | 作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3 | 2026/07/14 | 1.12 | Tran Duc Tuyen | m_account に shiten_id（所属支店ID）とインデックス IX_m_account_shiten_id を追加。JA管理支店アカウントの購読者スコープを支店単位に制限（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4 | 2026/08/04 | 1.13 | Tran Duc Tuyen | 実装との差分を同期。m_roles_permissions に locked、t_file_upload に notified_at を追記。t_file_download.ja_id を NULL 許容へ訂正。t_dokusya / t_dokusya_rireki の mail_magazine_flg を NULL 許容へ訂正。インデックス ix_t_dokusya_kaiyaku_due / ix_t_dokusya_rireki_shinki と t_denshi_sync_state テーブルを追記 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5 | 2026/08/04 | 1.14 | Tran Duc Tuyen | 全テーブルで監査列（deleted_at / created_at / created_by / updated_at / updated_by）を末尾に統一。m_roles_permissions.locked、t_file_upload.notified_at、t_dokusya の denshi_shonin_status / denshi_kaiin_id / honshi_kodoku_flg、t_dokusya_rireki の torikeshi_flg / honshi_kodoku_flg を監査列の前へ移動。あわせて m_tanka の列順ずれと t_koza_furikae の項番抜けを修正（型・制約の変更なし） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6 | 2026/08/04 | 1.15 | Tran Duc Tuyen | 顧客DB設計更新を反映。t_dokusya / t_dokusya_rireki に ja_yakushokuin_flg（かつJAグループ役職員フラグ）・nogyo_kankei_flg（農業関係フラグ）・dokusyaso_bunrui_sonota（購読者層分類その他）・nogyosya_bunrui_sonota（農業者分類その他）の4項目を追加し、以降のNoを再採番。dokusyaso_bunrui の備考を「複数カンマ区切り」から「単一選択」へ変更。m_code シードに DOKUSYASO_BUNRUI 5件・NOGYOSYA_BUNRUI 7件を追加 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -54,7 +57,7 @@ updated_by: Tran Duc Tuyen
 | No | 項目名 | PK | 属性 | サイズ | IDENTITY | NULL許容 | 備考 |
 |---|---|---|---|---|---|---|---|
 | 1 | account_id | 〇 | BIGINT |  | 〇 |  | アカウントID（IDENTITY） |
-| 2 | login_id |  | VARCHAR | 20 |  |  | ログインID |
+| 2 | login_id |  | VARCHAR | 20 |  |  | ログインID。`SYSTEM` 単体および `SYSTEM_` 始まり（大文字小文字を区別しない）はシステム予約名のため登録不可（CHECK制約 ck_m_account_login_id_not_reserved）。バッチの実行者名と衝突すると t_dokusya_rireki.created_by による電子版同期由来の判別が壊れるため |
 | 3 | password_hash |  | VARCHAR | 256 |  |  | パスワードハッシュ |
 | 4 | account_name |  | VARCHAR | 50 |  |  | アカウント名 |
 | 5 | role_id |  | INTEGER |  |  |  | 管理者区分。m_roles.role_idを参照する外部キー |
@@ -150,11 +153,12 @@ updated_by: Tran Duc Tuyen
 | 1 | role_permission_id | 〇 | BIGINT |  | 〇 |  | ロール権限ID（IDENTITY） |
 | 2 | role_id |  | BIGINT |  |  |  | ロールID（m_roles.role_id） |
 | 3 | permission_id |  | BIGINT |  |  |  | 権限ID（m_permissions.permission_id） |
-| 4 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除日時（soft delete） |
-| 5 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 6 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 7 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 8 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 4 | locked |  | BOOLEAN |  |  |  | シード由来の固定権限フラグ（TRUE=SCR-027 ロール管理画面で解除不可、DEFAULT FALSE、NOT NULL）。マイグレーションのシードで投入した行のみ TRUE |
+| 5 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除日時（soft delete） |
+| 6 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 7 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 8 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 9 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -316,9 +320,9 @@ updated_by: Tran Duc Tuyen
 | 8 | tax_rate |  | NUMERIC | 5.2 |  |  | 税率（%）例:10.00 |
 | 9 | tekiyo_start_date |  | DATE |  |  |  | 適用開始日 |
 | 10 | tekiyo_end_date |  | DATE |  |  | 〇 | 適用終了日 |
-| 11 | active_flg |  | BOOLEAN |  |  |  | 運用上の有効フラグ（DEFAULT TRUE）。FALSE時は新規割当不可。適用期間判定（tekiyo_start_date / tekiyo_end_date）とは独立 |
-| 12 | campaign_flg |  | BOOLEAN |  |  |  | キャンペーンフラグ（TRUE: 有効, FALSE: 無効、DEFAULT FALSE、NOT NULL） |
-| 13 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 11 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 12 | active_flg |  | BOOLEAN |  |  |  | 運用上の有効フラグ（DEFAULT TRUE）。FALSE時は新規割当不可。適用期間判定（tekiyo_start_date / tekiyo_end_date）とは独立 |
+| 13 | campaign_flg |  | BOOLEAN |  |  |  | キャンペーンフラグ（TRUE: 有効, FALSE: 無効、DEFAULT FALSE、NOT NULL） |
 | 14 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
 | 15 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
 | 16 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
@@ -447,10 +451,11 @@ updated_by: Tran Duc Tuyen
 | 10 | error_count |  | INTEGER |  |  | 〇 | エラー件数 |
 | 11 | status |  | INTEGER |  |  |  | 処理ステータス（1:処理中, 2:完了, 3:エラー） |
 | 12 | error_file_path |  | VARCHAR | 500 |  |  | エラーファイルパス※空文字許容 |
-| 13 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 14 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 15 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 16 | notification_status |  | INTEGER |  |  |  | 通知ステータス（1:未送信, 2:送信中, 3:完了, 4:一部失敗）※m_code.code_category='NOTIFICATION_STATUS'を参照（DEFAULT 1） |
+| 13 | notification_status |  | INTEGER |  |  |  | 通知ステータス（1:未送信, 2:送信中, 3:完了, 4:一部失敗）※m_code.code_category='NOTIFICATION_STATUS'を参照（DEFAULT 1） |
+| 14 | notified_at |  | TIMESTAMPTZ |  |  | 〇 | 通知メール送信完了日時。ワーカーが notification_status を 3:完了 または 4:一部失敗 に更新する際に記録する |
+| 15 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 16 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 17 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
 
 ## インデックス
 
@@ -467,7 +472,7 @@ updated_by: Tran Duc Tuyen
 | No | 項目名 | PK | 属性 | サイズ | IDENTITY | NULL許容 | 備考 |
 |---|---|---|---|---|---|---|---|
 | 1 | file_download_id | 〇 | BIGINT |  | 〇 |  | ファイルダウンロードID（IDENTITY） |
-| 2 | ja_id |  | BIGINT |  |  |  | JA ID（FK:m_ja） |
+| 2 | ja_id |  | BIGINT |  |  | 〇 | JA ID（FK:m_ja）※日農が全JA向けファイル（t_file_upload.ja_id IS NULL）をダウンロードした場合は NULL |
 | 3 | download_datetime |  | TIMESTAMPTZ |  |  |  | ダウンロード日時 |
 | 4 | download_type |  | INTEGER |  |  |  | ダウンロード種別（1:口座振替, 2:その他, 3:増減連絡票, 4:増減通知書, 5:購読者名簿） |
 | 5 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | 削除予定日 |
@@ -476,7 +481,7 @@ updated_by: Tran Duc Tuyen
 | 8 | file_path |  | VARCHAR | 500 |  |  | ファイルパス |
 | 9 | file_size |  | INTEGER |  |  |  | ファイルサイズ（バイト） |
 | 10 | record_count |  | INTEGER |  |  |  | レコード件数 |
-| 11 | target_month |  | VARCHAR | 6 |  | 〇 | 対象年月（YYYYMM）※空文字許容 |
+| 11 | target_month |  | VARCHAR | 6 |  | 〇 | 対象年月（YYYYMM）※空文字許容・NULL許容（月次でない出力は NULL） |
 | 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL） |
 | 13 | created_at |  | TIMESTAMPTZ |  |  | 〇 | 作成日時 |
 | 14 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
@@ -601,7 +606,7 @@ updated_by: Tran Duc Tuyen
 | 19 | renrakusaki_1 |  | VARCHAR | 15 |  |  | 連絡先１※空文字許容 |
 | 20 | renrakusaki_2 |  | VARCHAR | 15 |  |  | 連絡先２※空文字許容 |
 | 21 | email |  | VARCHAR | 100 |  |  | メールアドレス※空文字許容 |
-| 22 | mail_magazine_flg |  | INTEGER |  |  |  | メールマガジン（0:配信しない, 1:配信する） |
+| 22 | mail_magazine_flg |  | INTEGER |  |  | 〇 | メールマガジン（0:配信しない, 1:配信する）※電子版用項目のため購読種別=紙版(1)指定時は NULL |
 | 23 | birth_year |  | INTEGER |  |  | 〇 | 生年（西暦） |
 | 24 | gender |  | INTEGER |  |  | 〇 | 性別（1:男性, 2:女性, 9:回答しない） |
 | 25 | haitatsu_same_flg |  | BOOLEAN |  |  |  | 配達先情報指定（TRUE:購読者と同じ） |
@@ -616,8 +621,8 @@ updated_by: Tran Duc Tuyen
 | 34 | haitatsu_shimei_mei |  | VARCHAR | 50 |  |  | 配達先氏名（名・漢字）※空文字許容 |
 | 35 | haitatsu_shimei_kana_sei |  | VARCHAR | 100 |  |  | 配達先氏名かな（姓）※空文字許容 |
 | 36 | haitatsu_shimei_kana_mei |  | VARCHAR | 100 |  |  | 配達先氏名かな（名）※空文字許容 |
-| 37 | hanbaiten_id |  | BIGINT |  |  |  | 販売店ID（外部キー） |
-| 38 | tanka_id |  | BIGINT |  |  |  | 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1） |
+| 37 | hanbaiten_id |  | BIGINT |  |  | 〇 | 販売店ID（外部キー）※未設定あり（電子版単独のバッチ取込等） |
+| 38 | tanka_id |  | BIGINT |  |  | 〇 | 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1）。承認時に画面登録するため未設定あり |
 | 39 | yubin_kubun |  | VARCHAR | 1 |  |  | 郵送区分（0:空, 1:郵送）DEFAULT 0 |
 | 40 | shiharai_hoho |  | INTEGER |  |  |  | 支払方法（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
 | 41 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 購読料支払サイクル（月数） |
@@ -626,23 +631,27 @@ updated_by: Tran Duc Tuyen
 | 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
 | 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
 | 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容 |
-| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容 |
-| 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
-| 50 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
-| 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
-| 52 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
-| 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
-| 54 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 55 | rireki_no |  | INTEGER |  |  |  | 履歴No（最新の履歴番号） |
-| 56 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 57 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | 電子版会員ID（外部システムの会員ID。外部連携機能が設定。全体一意） |
-| 58 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。購読種別=電子版の場合のみ画面に「紙版購読状況有り」と表示する。 |
-| 59 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
-| 60 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 61 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 62 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 63 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（単一選択。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。m_code.code_category=DOKUSYASO_BUNRUI）※空文字許容 |
+| 48 | ja_yakushokuin_flg |  | BOOLEAN |  |  |  | かつJAグループ役職員フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝農業者の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_ja（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE |
+| 49 | nogyo_kankei_flg |  | BOOLEAN |  |  |  | 農業関係フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝企業・団体の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_agri（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE |
+| 50 | dokusyaso_bunrui_sonota |  | VARCHAR | 255 |  |  | 購読者層分類その他（自由記述）※空文字許容。購読者層分類（dokusyaso_bunrui）＝その他の場合のみ入力可。電子版読者管理システムの users.others_profession（255文字以下）を連携 |
+| 51 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。m_code.code_category=NOGYOSYA_BUNRUI）※空文字許容 |
+| 52 | nogyosya_bunrui_sonota |  | VARCHAR | 255 |  |  | 農業者分類その他（自由記述）※空文字許容。農業者分類（nogyosya_bunrui）に「その他」を含む場合のみ入力可。電子版読者管理システムの users.others_products（255文字以下）を連携 |
+| 53 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
+| 54 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
+| 55 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
+| 56 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
+| 57 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
+| 58 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 59 | rireki_no |  | INTEGER |  |  |  | 履歴No（最新の履歴番号） |
+| 60 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 61 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | 電子版会員ID（外部システムの会員ID。外部連携機能が設定。全体一意） |
+| 62 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。購読種別=電子版の場合のみ画面に「紙版購読状況有り」と表示する。 |
+| 63 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | 削除フラグ（DEFAULT NULL) |
+| 64 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 65 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 66 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 67 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -657,6 +666,7 @@ updated_by: Tran Duc Tuyen
 | 7 | IX_t_dokusya_ja_kumiaiin | ja_id, kumiaiin_code |  |  | 組合員コード複合検索 |
 | 8 | IX_t_dokusya_hierarchy | ja_id, kanri_shiten_id, shiten_id |  |  | 階層検索 |
 | 9 | UQ_t_dokusya_denshi_kaiin_id | denshi_kaiin_id |  | 〇 | 電子版会員ID一意（全レコード対象。NULL・削除済みを除く部分UNIQUE） |
+| 10 | ix_t_dokusya_kaiyaku_due | dokusya_chushi_date, dokusya_shubetsu, tetsuzuki_shurui |  |  | 解約確定バッチの抽出用。部分インデックス（deleted_at IS NULL AND dokusya_chushi_date IS NOT NULL） |
 
 ---
 
@@ -687,7 +697,7 @@ updated_by: Tran Duc Tuyen
 | 21 | renrakusaki_1 |  | VARCHAR | 15 |  |  | 連絡先１※空文字許容 |
 | 22 | renrakusaki_2 |  | VARCHAR | 15 |  |  | 連絡先２※空文字許容 |
 | 23 | email |  | VARCHAR | 100 |  |  | メールアドレス※空文字許容 |
-| 24 | mail_magazine_flg |  | INTEGER |  |  |  | メールマガジン（0:配信しない, 1:配信する） |
+| 24 | mail_magazine_flg |  | INTEGER |  |  | 〇 | メールマガジン（0:配信しない, 1:配信する）※電子版用項目のため購読種別=紙版(1)指定時は NULL |
 | 25 | birth_year |  | INTEGER |  |  | 〇 | 生年（西暦） |
 | 26 | gender |  | INTEGER |  |  | 〇 | 性別（1:男性, 2:女性, 9:回答しない） |
 | 27 | haitatsu_same_flg |  | BOOLEAN |  |  |  | 配達先情報指定（TRUE:購読者と同じ） |
@@ -702,8 +712,8 @@ updated_by: Tran Duc Tuyen
 | 36 | haitatsu_shimei_mei |  | VARCHAR | 50 |  |  | 配達先氏名（名・漢字）※空文字許容 |
 | 37 | haitatsu_shimei_kana_sei |  | VARCHAR | 100 |  |  | 配達先氏名かな（姓）※空文字許容 |
 | 38 | haitatsu_shimei_kana_mei |  | VARCHAR | 100 |  |  | 配達先氏名かな（名）※空文字許容 |
-| 39 | hanbaiten_id |  | BIGINT |  |  |  | 販売店ID |
-| 40 | tanka_id |  | BIGINT |  |  |  | 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1） |
+| 39 | hanbaiten_id |  | BIGINT |  |  | 〇 | 販売店ID ※未設定あり |
+| 40 | tanka_id |  | BIGINT |  |  | 〇 | 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1）。承認時に画面登録するため未設定あり |
 | 41 | yubin_kubun |  | VARCHAR | 1 |  |  | 郵送区分（0:空, 1:郵送）DEFAULT 0 |
 | 42 | shiharai_hoho |  | INTEGER |  |  |  | 支払方法（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他） |
 | 43 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | 購読料支払サイクル（月数） |
@@ -712,30 +722,34 @@ updated_by: Tran Duc Tuyen
 | 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | 引落口座貯金種目（1:普通, 2:当座） |
 | 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | 引落口座番号※空文字許容 |
 | 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | 引落口座名義※空文字許容 |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容 |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容 |
-| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
-| 52 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
-| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
-| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
-| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
-| 56 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
-| 57 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
-| 58 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
-| 59 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
-| 60 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
-| 61 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
-| 62 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
-| 63 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
-| 64 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
-| 65 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
-| 66 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
-| 67 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
-| 68 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
-| 69 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
-| 70 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
-| 71 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
-| 72 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。t_dokusya.honshi_kodoku_flg の履歴スナップショット。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。 |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | 購読者層分類（単一選択。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。m_code.code_category=DOKUSYASO_BUNRUI）※空文字許容 |
+| 50 | ja_yakushokuin_flg |  | BOOLEAN |  |  |  | かつJAグループ役職員フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝農業者の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_ja（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE |
+| 51 | nogyo_kankei_flg |  | BOOLEAN |  |  |  | 農業関係フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝企業・団体の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_agri（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE |
+| 52 | dokusyaso_bunrui_sonota |  | VARCHAR | 255 |  |  | 購読者層分類その他（自由記述）※空文字許容。購読者層分類（dokusyaso_bunrui）＝その他の場合のみ入力可。電子版読者管理システムの users.others_profession（255文字以下）を連携 |
+| 53 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | 農業者分類（複数カンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。m_code.code_category=NOGYOSYA_BUNRUI）※空文字許容 |
+| 54 | nogyosya_bunrui_sonota |  | VARCHAR | 255 |  |  | 農業者分類その他（自由記述）※空文字許容。農業者分類（nogyosya_bunrui）に「その他」を含む場合のみ入力可。電子版読者管理システムの users.others_products（255文字以下）を連携 |
+| 55 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | 初回購読開始日（変更時も保持） |
+| 56 | dokusya_kaishi_date |  | DATE |  |  |  | 購読開始日 |
+| 57 | dokusya_chushi_date |  | DATE |  |  | 〇 | 購読中止日 |
+| 58 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | 読者情報変更適用日 |
+| 59 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | 請求開始月（YYYYMM）※空文字許容 |
+| 60 | biko |  | TEXT |  |  |  | 備考※空文字許容 |
+| 61 | saishin_data_flg |  | BOOLEAN |  |  |  | 最新データフラグ（DEFAULT false, TRUE=最新レコード）※アプリ側でトランザクション制御必須 |
+| 62 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | 増減報告フラグ（DEFAULT false, TRUE=増減報告対象の変更） |
+| 63 | shinki_flg |  | BOOLEAN |  |  |  | 新規フラグ（DEFAULT false, TRUE=新規購読開始/解約→再購読） |
+| 64 | kaiyaku_flg |  | BOOLEAN |  |  |  | 解約フラグ（DEFAULT false, TRUE=購読→解約） |
+| 65 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | 前回販売店ID（初回履歴はNULL） |
+| 66 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | 前回購読部数（初回履歴はNULL） |
+| 67 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | 前回郵便番号（初回履歴はNULL） |
+| 68 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | 前回都道府県コード（初回履歴はNULL） |
+| 69 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | 前回市町村郡（初回履歴はNULL） |
+| 70 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | 前回丁目番地（初回履歴はNULL） |
+| 71 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | 前回建物名（初回履歴はNULL） |
+| 72 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
+| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
+| 74 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。t_dokusya.honshi_kodoku_flg の履歴スナップショット。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。 |
+| 75 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
+| 76 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
 
 ## インデックス
 
@@ -750,6 +764,7 @@ updated_by: Tran Duc Tuyen
 | 7 | IX_t_dokusya_rireki_shiten_id | shiten_id |  |  | 販売支店別検索 |
 | 8 | IX_t_dokusya_rireki_hanbaiten_id | hanbaiten_id |  |  | 販売店別検索 |
 | 9 | IX_t_dokusya_rireki_chain | dokusya_id, joho_henko_tekiyo_date, rireki_no |  |  | 双時制チェーン探索（findBefore/findNext/有効レコード判定を適用日順で行う） |
+| 10 | ix_t_dokusya_rireki_shinki | dokusya_id, joho_henko_tekiyo_date DESC, rireki_no DESC |  |  | 現ライフサイクル起点（最新の新規/再購読行）の探索用。部分インデックス（shinki_flg = true AND torikeshi_flg = false） |
 
 ---
 
@@ -763,17 +778,17 @@ updated_by: Tran Duc Tuyen
 | 4 | target_month |  | VARCHAR | 6 |  |  | 対象年月（YYYYMM） |
 | 5 | furikae_date |  | DATE |  |  | 〇 | 振替日 |
 | 6 | furikae_kingaku |  | NUMERIC | 10 |  | 〇 | 振替金額 |
-| 8 | koza_no |  | VARCHAR | 10 |  |  | 口座番号 |
-| 9 | koza_meigi |  | VARCHAR | 50 |  |  | 口座名義 |
-| 10 | yokin_shubetsu |  | INTEGER |  |  | 〇 | 預金種別（1:普通, 2:当座）※出力時点のスナップショット |
-| 11 | bank_code |  | VARCHAR | 4 |  |  | 銀行コード |
-| 12 | bank_name |  | VARCHAR | 100 |  |  | 銀行名 |
-| 13 | bank_branch_code |  | VARCHAR | 3 |  |  | 支店コード |
-| 14 | bank_branch_name |  | VARCHAR | 100 |  |  | 支店名 |
-| 15 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
-| 16 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
-| 17 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
-| 18 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
+| 7 | koza_no |  | VARCHAR | 10 |  |  | 口座番号 |
+| 8 | koza_meigi |  | VARCHAR | 50 |  |  | 口座名義 |
+| 9 | yokin_shubetsu |  | INTEGER |  |  | 〇 | 預金種別（1:普通, 2:当座）※出力時点のスナップショット |
+| 10 | bank_code |  | VARCHAR | 4 |  |  | 銀行コード |
+| 11 | bank_name |  | VARCHAR | 100 |  |  | 銀行名 |
+| 12 | bank_branch_code |  | VARCHAR | 3 |  |  | 支店コード |
+| 13 | bank_branch_name |  | VARCHAR | 100 |  |  | 支店名 |
+| 14 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時 |
+| 15 | created_by |  | VARCHAR | 50 |  |  | 作成者 |
+| 16 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時 |
+| 17 | updated_by |  | VARCHAR | 50 |  |  | 更新者 |
 
 ## インデックス
 
@@ -785,3 +800,25 @@ updated_by: Tran Duc Tuyen
 | 4 | IX_t_koza_furikae_dokusya_id | dokusya_id |  |  | 購読者別検索 |
 | 5 | IX_t_koza_furikae_target_month | target_month |  |  | 対象年月検索 |
 | 6 | IX_t_koza_furikae_dokusya_month | dokusya_id, target_month |  |  | 月次振替検索高速化 |
+
+---
+
+# t_denshi_sync_state (電子版同期チェックポイントテーブル)
+
+電子版読者管理システム → クラウド版の同期バッチ（`dokusya-sync`）が差分取込の起点
+（watermark）を記録する。1バッチ = 1行で、`batch_name` が主キー。初期行
+`dokusya-sync` は watermark 未設定（NULL＝初回は全件取込）で投入される。
+
+| No | 項目名 | PK | 属性 | サイズ | IDENTITY | NULL許容 | 備考 |
+|---|---|---|---|---|---|---|---|
+| 1 | batch_name | 〇 | VARCHAR | 50 |  |  | バッチ名（例: dokusya-sync） |
+| 2 | last_source_id |  | BIGINT |  |  | 〇 | 最後に取込んだ連携元レコードのID（同一更新日時内の続きを取るためのキー） |
+| 3 | last_source_updated_at |  | TIMESTAMPTZ |  |  | 〇 | 最後に取込んだ連携元レコードの更新日時（watermark 本体。NULL=未実行） |
+| 4 | last_run_at |  | TIMESTAMPTZ |  |  | 〇 | 最終実行日時 |
+| 5 | updated_at |  | TIMESTAMPTZ |  |  |  | 更新日時（DEFAULT NOW()） |
+
+## インデックス
+
+| 項番 | インデックス名 | カラム名 | 主キー | ユニーク | 備考 |
+|---|---|---|---|---|---|
+| 1 | PK_t_denshi_sync_state | batch_name | 〇 | 〇 | 主キー |

@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { Request } from 'express';
 
 import { AuditOperation, ItakuKubun } from '@/common/enums';
@@ -393,51 +393,16 @@ export class HanbaitenService {
     };
 
     const qb = buildScoped();
-    // active_only=true（購読者の販売店選択：登録/編集）のみ営業中に絞り、
-    // 廃店(haiten_flg=true)を新規選択から除外。既に廃店へ紐づく購読者の編集は
-    // 下の include_id ピン（haiten_flg を掛けない）で現在の選択を復元。
-    // 既定（一覧検索・販売店入替）は廃店も対象。
-    if (query.active_only) {
-      qb.andWhere('m.haiten_flg = false');
-    }
-    // 電子版(購読種別=2)はダミー販売店だけ、それ以外はダミーを除外する。
-    // include_id ピンより前に掛ける（ピンは下で別クエリなので、種別に合わない
-    // 現在値は候補に混ざらない — 種別を切り替えたら FE 側で選択も破棄される）。
-    if (query.dummy === 'only') {
-      qb.andWhere('m.hanbaiten_code = :dummyCode', {
-        dummyCode: HANBAITEN_DUMMY_CODE,
-      });
-    } else if (query.dummy === 'exclude') {
-      qb.andWhere('m.hanbaiten_code <> :dummyCode', {
-        dummyCode: HANBAITEN_DUMMY_CODE,
-      });
-    }
-    if (query.q) {
-      const like = `%${query.q}%`;
-      if (query.match_field === 'name') {
-        qb.andWhere('m.hanbaiten_name ILIKE :q', { q: like });
-      } else {
-        qb.andWhere(
-          '(m.hanbaiten_code ILIKE :q OR m.hanbaiten_name ILIKE :q)',
-          { q: like },
-        );
-      }
-    }
+    HanbaitenService.applyDropdownFilters(qb, query);
     qb.orderBy('m.hanbaiten_code', 'ASC');
 
     const paginate = query.page !== undefined;
     const page = Math.max(query.page ?? 1, 1);
-    let hasMore = false;
-    let rows: Hanbaiten[];
-    if (paginate) {
-      const perPage = clampPerPage(query.per_page, 50);
-      // take(perPage + 1) で次ページ有無を1クエリ判定。
-      rows = await qb.skip((page - 1) * perPage).take(perPage + 1).getMany();
-      hasMore = rows.length > perPage;
-      if (hasMore) rows = rows.slice(0, perPage);
-    } else {
-      rows = await qb.getMany();
-    }
+    const { rows: fetched, hasMore } = await HanbaitenService.fetchDropdownPage(
+      qb,
+      paginate ? { page, perPage: clampPerPage(query.per_page, 50) } : null,
+    );
+    const rows = fetched;
 
     // 編集ピン：選択中IDが結果に無ければ先頭に差込（ラベル解決用）。ページング時は
     // 1ページ目のみ。廃店フィルタで除外された既存選択もここで復元（haiten_flg を掛けない）。
@@ -921,4 +886,67 @@ export class HanbaitenService {
   }> {
     return this.requireImportService().importExcel(body, session, req);
   }
+
+  /**
+   * dropdown の絞り込み条件（営業中・ダミー販売店・検索語）。
+   *
+   * - active_only=true（購読者の販売店選択：登録/編集）のみ営業中に絞り、
+   *   廃店(haiten_flg=true)を新規選択から除外。既に廃店へ紐づく購読者の編集は
+   *   include_id ピン（haiten_flg を掛けない）で現在の選択を復元する。
+   *   既定（一覧検索・販売店入替）は廃店も対象。
+   * - 電子版(購読種別=2)はダミー販売店だけ、それ以外はダミーを除外。include_id
+   *   ピンより前に掛ける（ピンは別クエリなので種別に合わない現在値は混ざらない）。
+   */
+  private static applyDropdownFilters(
+    qb: SelectQueryBuilder<Hanbaiten>,
+    query: {
+      q?: string;
+      match_field?: 'both' | 'name';
+      active_only?: boolean;
+      dummy?: 'only' | 'exclude';
+    },
+  ): void {
+    if (query.active_only) {
+      qb.andWhere('m.haiten_flg = false');
+    }
+    if (query.dummy === 'only') {
+      qb.andWhere('m.hanbaiten_code = :dummyCode', {
+        dummyCode: HANBAITEN_DUMMY_CODE,
+      });
+    } else if (query.dummy === 'exclude') {
+      qb.andWhere('m.hanbaiten_code <> :dummyCode', {
+        dummyCode: HANBAITEN_DUMMY_CODE,
+      });
+    }
+    if (!query.q) return;
+    const like = `%${query.q}%`;
+    if (query.match_field === 'name') {
+      qb.andWhere('m.hanbaiten_name ILIKE :q', { q: like });
+    } else {
+      qb.andWhere('(m.hanbaiten_code ILIKE :q OR m.hanbaiten_name ILIKE :q)', {
+        q: like,
+      });
+    }
+  }
+
+  /**
+   * ページング取得。`paging` が null なら全件（従来の非ページング呼び出し）。
+   * take(perPage + 1) で次ページ有無を1クエリ判定する。
+   */
+  private static async fetchDropdownPage(
+    qb: SelectQueryBuilder<Hanbaiten>,
+    paging: { page: number; perPage: number } | null,
+  ): Promise<{ rows: Hanbaiten[]; hasMore: boolean }> {
+    if (!paging) {
+      return { rows: await qb.getMany(), hasMore: false };
+    }
+    const { page, perPage } = paging;
+    const rows = await qb
+      .skip((page - 1) * perPage)
+      .take(perPage + 1)
+      .getMany();
+    const hasMore = rows.length > perPage;
+    return { rows: hasMore ? rows.slice(0, perPage) : rows, hasMore };
+  }
+
 }

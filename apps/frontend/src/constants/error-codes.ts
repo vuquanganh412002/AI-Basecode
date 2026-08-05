@@ -66,7 +66,9 @@ export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
  * BE の GlobalExceptionFilter が返す標準 API エラーレスポンスボディ。
  */
 export interface ApiErrorResponse {
-  error_code: ErrorCode | string;
+  // `| (string & {})` — 素の `| string` だと ErrorCode のリテラル補完が
+  // 消える。BE が未知コードを返しても受け取れるようにしつつ補完を残す。
+  error_code: ErrorCode | (string & {});
   message: string;
   errors?: { field: string; message: string }[];
 }

@@ -12,6 +12,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 旧版で投入していた 3 件のログイン画面用サンプル
  * （メンテナンス / 一括取込 / 利用規約改訂）は dev 専用の
  * `seed-dev.ts buildOshiraseSeeds()` に移行済。
+ *
+ * 2026-08-04: consolidated patch AddPublishLocationMenuDeadline1711900900013
+ *             — see git history for the split version. その patch は本行を
+ *             publish_location=2 → 3 へ UPDATE していたので、最初から 3 で
+ *             INSERT する（m_code の '3' は SeedMCode1711900900005 で投入）。
  */
 export class SeedTOshirase1711900900007 implements MigrationInterface {
   name = 'SeedTOshirase1711900900007';
@@ -25,7 +30,7 @@ export class SeedTOshirase1711900900007 implements MigrationInterface {
       ) VALUES (
         NULL,         -- 全JA向け
         4,            -- oshirase_type=4: 締め切り時間
-        2,            -- publish_location=2: メニュー画面（ダッシュボードヘッダー）
+        3,            -- publish_location=3: メニュー画面（締め切り時間）専用枠
         2,            -- status=2: 公開
         '締め切り時間　14時まで',
         '当日処理分の集計を14時までに確定してください。14時以降の更新は翌営業日扱いとなります。',

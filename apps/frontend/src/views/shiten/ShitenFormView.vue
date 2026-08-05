@@ -32,6 +32,10 @@ import {
 } from '@/utils/kana';
 import { RoleCode } from '@/constants/enums';
 import {
+  TYOKIN_SHUBETSU_OPTIONS,
+  TYOKIN_SHUBETSU_RE,
+} from '@/constants/tyokin-shubetsu';
+import {
   createShiten,
   getShiten,
   updateShiten,
@@ -183,14 +187,6 @@ const TYOKIN_SHUBETSU_FORMAT_MSG =
   '貯金種別は 1（普通貯金）/ 2（当座貯金）/ 9（その他）のいずれかを指定してください。';
 const KOZA_NO_FORMAT_MSG = '口座番号は半角数字で入力してください。';
 const DIGITS_RE = /^\d+$/;
-const TYOKIN_SHUBETSU_RE = /^[129]$/;
-
-// JASTEM Zengin 仕様で固定の3値（m_code 非依存）。labels are spec-mandated.
-const TYOKIN_SHUBETSU_OPTIONS = [
-  { value: '1', label: '1（普通）' },
-  { value: '2', label: '2（当座）' },
-  { value: '9', label: '9（その他）' },
-];
 
 /**
  * JASTEM 1項目: まず必須（金融機関支店フラグ=true のとき）、次に非空のときのみ

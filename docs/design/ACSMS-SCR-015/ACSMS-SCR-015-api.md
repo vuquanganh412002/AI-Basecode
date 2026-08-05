@@ -122,7 +122,7 @@ updated_by: Tran Duc Tuyen
 | 8   | →shimei                         | String  |              | -        | 氏名（`shimei_sei + ' ' + shimei_mei` を結合）                                                  |
 | 9   | →haitatsu_yubin_no              | String  |              | -        | 配達先郵便番号（空文字許容）                                                                   |
 | 10  | →haitatsu_address               | String  |              | -        | 配達先住所（`m_todofuken.todofuken_name + haitatsu_shikuchoson + haitatsu_chome_banchi + haitatsu_tatemono_mei` を結合） |
-| 11  | →hanbaiten_id                   | Number  |              | -        | 販売店ID                                                                                        |
+| 11  | →hanbaiten_id                   | Number  |              |  〇       | 販売店ID※未設定(NULL)あり                                                                            |
 | 12  | →hanbaiten_code                 | String  |              | -        | 販売店コード（`m_hanbaiten.hanbaiten_code` を JOIN）                                            |
 | 13  | →hanbaiten_name                 | String  |              | -        | 販売店名（`m_hanbaiten.hanbaiten_name` を JOIN）                                                |
 | 14  | →dokusya_shubetsu               | Number  |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）             |
@@ -867,7 +867,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 | #   | 項目ID           | タイプ | フォーマット | Nullable | 説明                                  |
 | --- | ---------------- | ------ | ------------ | -------- | ------------------------------------- |
 | 1   | data             | Array  |              | -        | 販売店一覧                            |
-| 2   | →hanbaiten_id    | Number |              | -        | 販売店ID                              |
+| 2   | →hanbaiten_id    | Number |              |  〇       | 販売店ID※未設定(NULL)あり                  |
 | 3   | →hanbaiten_code  | String |              | -        | 販売店コード                          |
 | 4   | →hanbaiten_name  | String |              | -        | 販売店名                              |
 | 5   | meta             | Object |              | -        | ページネーション情報                  |

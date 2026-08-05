@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Account } from '@/database/entities/account.entity';
+import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { Ja } from '@/database/entities/ja.entity';
 import { AuditLogModule } from '@/modules/audit-log/audit-log.module';
@@ -17,8 +18,9 @@ import { NotificationQueueService } from './notification-queue.service';
 @Module({
   imports: [
     // Account + Ja は FileUploadNotificationWorker が宛先取得(m_account)と
-    // template の ja_name(m_ja)に使用。
-    TypeOrmModule.forFeature([FileUpload, Account, Ja]),
+    // template の ja_name(m_ja)に使用。FileDownload はアップロード時に
+    // ペア行を登録する（SCR-022 から取得可能にする）ため。
+    TypeOrmModule.forFeature([FileUpload, FileDownload, Account, Ja]),
     AuditLogModule,
     AuthModule, // [auth-guard] SessionAuthGuard が SessionService に依存
     MailModule, // [worker-mail] FileUploadNotificationWorker が MailService を使用

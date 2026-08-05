@@ -225,10 +225,14 @@ defineExpose({ formState });
             <div class="text-sm font-medium text-text-main mb-2">
               販売店<span class="text-error ml-1">*</span>
             </div>
+            <!-- 電子版ダミー販売店は候補に出さない（顧客要件 2026-08）。本帳票の
+                 集計対象は紙版のみで、ダミーに紐づく電子版読者は入らないため、
+                 選ばせると必ず0件になる。 -->
             <BaseHanbaitenSelect
               v-model:value="formState.hanbaiten_id"
               placeholder="販売店を選択（「全て」で全件）"
               allow-select-all
+              dummy="exclude"
               data-test="hanbaiten-select"
             />
             <!-- エラーは入力欄の下に表示（ラベル直下だと右列とベースラインがずれるため）。 -->

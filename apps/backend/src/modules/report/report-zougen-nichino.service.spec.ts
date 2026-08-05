@@ -433,20 +433,35 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(call).toBeDefined();
     });
 
-    it('should count only 承認済 electronic subscribers (電子版=2 → denshi_shonin_status=1)', async () => {
-      // COVERS: 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(1)のみ集計対象。
-      // 承認待ち(0)/否認(2)の電子版は増減通知から除外する。
+    /**
+     * 顧客要件 2026-08: 集計対象は紙版(1)のみ。増減通知も部数の増減を伝える帳票で、
+     * 電子版・併読は配達を伴わないため対象外（SCR-028 増減連絡票と同方針）。
+     *
+     * 以前は「電子版は承認済(denshi_shonin_status=1)のみ集計」だった。紙版限定は
+     * それを包含するので、旧条件は残さず置き換えている。
+     */
+    it('should extract 紙版 (dokusya_shubetsu = 1) only', async () => {
       mockNichinoPage([buildZougenNichinoRawRow()]);
       await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
 
       const call = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
-          typeof sql === 'string' &&
-          /dokusya_shubetsu\s*<>/.test(sql) &&
-          /denshi_shonin_status\s*=/.test(sql),
+          typeof sql === 'string' && /dokusya_shubetsu\s*=/.test(sql),
       );
       expect(call).toBeDefined();
-      expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
+      expect(call[1]).toMatchObject({ paperShubetsu: 1 });
+    });
+
+    it('should no longer carry the 電子版承認済 condition (紙版限定が包含する)', async () => {
+      // 常に真になる条件を残すと「電子版も入りうる」と誤読させるため。
+      mockNichinoPage([buildZougenNichinoRawRow()]);
+      await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
+
+      const stale = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /denshi_shonin_status\s*=/.test(sql),
+      );
+      expect(stale).toBeUndefined();
     });
 
     it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {

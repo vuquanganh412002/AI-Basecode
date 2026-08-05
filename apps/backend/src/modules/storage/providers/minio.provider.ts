@@ -35,7 +35,7 @@ export class MinioStorageProvider implements StorageProvider {
     const url = new URL(config.endpoint);
     this.client = new Minio.Client({
       endPoint: url.hostname,
-      port: parseInt(url.port || '9000', 10),
+      port: Number.parseInt(url.port || '9000', 10),
       useSSL: url.protocol === 'https:',
       accessKey: config.accessKey,
       secretKey: config.secretKey,

@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/06/01 | 1.0  | Nguyen Truong An | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書との整合：住所変更テーブルの住所カラム組（変更前=zenkai_*, 変更後=haitatsu_*）を4.5に明記、システムエラーメッセージ（ACSMS-MSG-028-003）の句点を統一 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更。表示名とS3キー(タイムスタンプ)を分離。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4 | 2026/08/05 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-08：出力条件の「販売店」候補から**電子版ダミー販売店**（hanbaiten_code=9999999999）を除外。本帳票の集計対象は紙版のみでダミーに紐づく電子版読者は含まれず、選んでも結果は0件になるため。集計条件そのものは既に紙版限定で変更なし。 | | |
 
 ## システム概要
 
@@ -298,6 +299,12 @@ GET /api/v1/report/zougen-hanbaiten/preview?tekiyo_date=2026-05-01&hanbaiten_id=
 - 抽出条件を設定する：
   - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。**`<=` ではない**：その日の変動のみを対象とする）
   - `r.zougen_hokoku_flg = true`（増減報告対象の変更）
+  - `r.torikeshi_flg = false`（取消(赤伝)行を除外）
+  - **`r.dokusya_shubetsu = 1`（紙版のみ集計。顧客要件2026-08）**
+    本帳票は販売店へ配達部数の増減を伝えるもので、電子版・併読には配達という概念が無い
+    （電子版単独はダミー販売店に紐づく）。従来の「電子版は承認済(`denshi_shonin_status = 1`)
+    のみ集計」条件は紙版限定に包含されるため廃止した。
+    ※ SCR-029 増減通知（日本農業新聞）も同じく紙版限定（同条件を個別に持つ）。
   - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
   - hanbaiten_id 指定時：`r.hanbaiten_id = ANY(:hanbaiten_ids)` **OR** `r.zenkai_hanbaiten_id = ANY(:hanbaiten_ids)`
     （販売店変更の「転出元（旧店）」も拾うため、現販売店・前回販売店のどちらかが一致すれば対象）

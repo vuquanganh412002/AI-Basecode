@@ -9,7 +9,7 @@
 // import させない — 同一ソース同士の比較になりトートロジーになるため。
 
 /**
- * 物理カラム名 46 個 — api.md §テンプレートファイル仕様 の並び順どおり。
+ * 物理カラム名 50 個 — api.md §テンプレートファイル仕様 の並び順どおり。
  * index N が index-N の日本語ヘッダ + チェックボックスの value 属性に対応する。
  *
  * ここに **無い**もの（画面で指定するため Excel 列ではない）:
@@ -61,7 +61,11 @@ export const PHYSICAL_COLUMNS = [
   'hikiotoshi_koza_no',
   'hikiotoshi_koza_meigi',
   'dokusyaso_bunrui',
+  'ja_yakushokuin_flg',
+  'nogyo_kankei_flg',
+  'dokusyaso_bunrui_sonota',
   'nogyosya_bunrui',
+  'nogyosya_bunrui_sonota',
   'dokusya_kaishi_date',
   'biko',
 ] as const;
@@ -112,7 +116,11 @@ export const JP_HEADERS: Record<PhysicalColumn, string> = {
   hikiotoshi_koza_no: '引落口座番号',
   hikiotoshi_koza_meigi: '引落口座名義',
   dokusyaso_bunrui: '購読者層分類',
+  ja_yakushokuin_flg: 'かつJAグループ役職員',
+  nogyo_kankei_flg: '農業関係',
+  dokusyaso_bunrui_sonota: '読者属性（その他の内容）',
   nogyosya_bunrui: '農業者分類',
+  nogyosya_bunrui_sonota: '主な生産物（その他の内容）',
   dokusya_kaishi_date: '購読開始日',
   biko: '備考',
 };
@@ -130,7 +138,13 @@ export const HEADER_TO_PHYSICAL: Record<string, PhysicalColumn> = (() => {
 export const DATE_PHYSICAL_COLUMNS = new Set<string>(['dokusya_kaishi_date']);
 
 /** 真偽値列（Excel のチェック/文字列を boolean へ変換する対象）。 */
-export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>(['haitatsu_same_flg']);
+export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>([
+  'haitatsu_same_flg',
+  // 顧客DB設計 2026-08 の従属フラグ。Excel の TRUE/FALSE・1/0・チェックを
+  // boolean へ寄せる（DTO が @IsBoolean で受けるため文字列のままだと 400）。
+  'ja_yakushokuin_flg',
+  'nogyo_kankei_flg',
+]);
 
 /**
  * 取込モード = 新規登録（NEW）のとき、必須 + 常時チェック + disable の物理カラム。

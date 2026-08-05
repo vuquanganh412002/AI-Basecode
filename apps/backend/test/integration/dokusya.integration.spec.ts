@@ -1296,7 +1296,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       expect(numbers).toEqual(sorted);
     });
 
-    it('should include tetsuzuki_shurui_label resolved from m_code', async () => {
+    it('should return tetsuzuki_shurui as a code value with no *_label field', async () => {
       const sid = await asChuokai(1);
       await http()
         .post(apiUrl('dokusya'))
@@ -1310,7 +1310,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .expect(200);
 
-      expect(res.body.data[0].tetsuzuki_shurui_label).toBe('新規');
+      // 認証エンドポイントはコード値のみ返し、ラベルは FE の useCodesStore が
+      // 解決する（.claude/rules/nestjs.md §m_code response serialization）。
+      expect(res.body.data[0].tetsuzuki_shurui).toBe(1);
+      expect(res.body.data[0]).not.toHaveProperty('tetsuzuki_shurui_label');
     });
 
     it('should return 404 when target dokusya does not exist', async () => {

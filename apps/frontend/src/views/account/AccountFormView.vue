@@ -24,7 +24,7 @@ import {
   listRolesDropdown,
   type RoleDropdownItem,
 } from '@/api/roles/roles';
-import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 import { DROPDOWN_MAX_PAGE_SIZE } from '@/constants/pagination';
 import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 import {
@@ -103,7 +103,8 @@ const submitting = ref(false);
 
 // ─── ドロップダウン状態 ───────────────────────────────────────────────
 const roleOptions = ref<RoleDropdownItem[]>([]);
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）に任せる。
 const jaOptions = ref<JaDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 const shitenOptions = ref<ShitenDropdownItem[]>([]);
@@ -150,19 +151,6 @@ async function fetchRoleOptions(): Promise<void> {
     roleOptions.value = resp.data;
   } catch {
     roleOptions.value = [];
-  }
-}
-
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    // BE envelope は `{ data: [...] }`。spec fixture は素の配列も渡す
-    // （buildTodofukenList）— 両形を受理。
-    todofukenOptions.value = Array.isArray(resp)
-      ? (resp as unknown as TodofukenItem[])
-      : resp.data;
-  } catch {
-    todofukenOptions.value = [];
   }
 }
 
@@ -239,7 +227,6 @@ onMounted(async () => {
   if (!isAdmin.value) return;
 
   void fetchRoleOptions();
-  void fetchTodofukenOptions();
 
   if (isEdit.value && accountId.value !== null) {
     try {
@@ -614,20 +601,10 @@ defineExpose({ formState, fieldErrors });
                 <span>都道府県</span>
                 <span v-if="showTodofuken" class="text-error ml-1">*</span>
               </template>
-              <a-select
+              <BaseTodofukenSelect
                 v-model:value="formState.todofuken_code"
-                placeholder="選択してください"
-                allow-clear
                 :disabled="!showTodofuken"
-              >
-                <a-select-option
-                  v-for="opt in todofukenOptions"
-                  :key="opt.todofuken_code"
-                  :value="opt.todofuken_code"
-                >
-                  {{ opt.todofuken_name }}
-                </a-select-option>
-              </a-select>
+              />
             </a-form-item>
 
             <a-form-item

@@ -273,12 +273,11 @@ function validateClient(form: TankaFormState): Record<string, string> {
   if (!errs.tekiyo_start_date && isStartDateInPast(form)) {
     errs.tekiyo_start_date = START_DATE_NOT_PAST_MSG;
   }
-  // tanka_type — string ('1'/'2' radio) と number (1/2 fixture・BE応答) の
-  // 両方を受理。String() で比較形を統一し数値payload が誤って必須違反にならないよう。
-  {
-    const t = String(form.tanka_type ?? '');
-    if (t !== '1' && t !== '2') errs.tanka_type = REQUIRED_MSG;
-  }
+  // tanka_type — m_code TANKA_TYPE に存在する値だけ受理。`'1' | '2'` 決め打ちは
+  // 不可: TANKA_TYPE は Group B（顧客が実行時に値を追加できる）で、radio は
+  // codes.options('TANKA_TYPE') から描画するため、追加値を選べるのに保存できない
+  // という不整合になる。codes.has() は string/number 差も吸収する。
+  if (!codes.has('TANKA_TYPE', form.tanka_type)) errs.tanka_type = REQUIRED_MSG;
 
   // active_flg — 必須（有効 or 無効）。boolean v-model でクリア不可だが、payload が
   // 省略/null を渡す場合に備え、必須マーカーと整合させるためガード。

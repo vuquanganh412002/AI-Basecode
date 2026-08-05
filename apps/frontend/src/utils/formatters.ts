@@ -59,12 +59,18 @@ export function formatTaxRate(value: number | null | undefined): string {
 /* ────────────────────────── date / time ───────────────────────────── */
 
 /**
+ * 日付系フォーマッタが受け取る入力。ISO 文字列 / Date / dayjs のいずれか、
+ * 未設定は null | undefined（呼び出し側で `?? ''` を書かなくて済むよう空文字を返す）。
+ */
+type DateInput = string | Date | dayjs.Dayjs | null | undefined;
+
+/**
  * `YYYY/MM/DD` — 日本の業務 UI で標準の日付表示。
  * ISO 文字列 / Date / dayjs を受ける。
  *   formatDate('2026-04-25')  -> "2026/04/25"
  */
 export function formatDate(
-  value: string | Date | dayjs.Dayjs | null | undefined,
+  value: DateInput,
 ): string {
   if (!value) return '';
   return dayjs(value).tz(APP_TIMEZONE).format('YYYY/MM/DD');
@@ -74,7 +80,7 @@ export function formatDate(
  * `YYYY/MM/DD HH:mm` — ログ一覧・監査証跡・最終更新日時向け。
  */
 export function formatDateTime(
-  value: string | Date | dayjs.Dayjs | null | undefined,
+  value: DateInput,
 ): string {
   if (!value) return '';
   return dayjs(value).tz(APP_TIMEZONE).format('YYYY/MM/DD HH:mm');
@@ -84,7 +90,7 @@ export function formatDateTime(
  * `YYYY/MM` — 請求期間・月次帳票向け。
  */
 export function formatYearMonth(
-  value: string | Date | dayjs.Dayjs | null | undefined,
+  value: DateInput,
 ): string {
   if (!value) return '';
   return dayjs(value).tz(APP_TIMEZONE).format('YYYY/MM');

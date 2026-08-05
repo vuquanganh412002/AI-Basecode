@@ -466,15 +466,21 @@ describe('buildKaiyakuRow', () => {
     expect(r.dokusyaRirekiId).toBeUndefined(); // PK dropped → INSERTs
   });
 
-  it("created_by defaults to 'batch' when actor is omitted (到来日バッチ)", () => {
+  /**
+   * 以前は createdBy 省略時に 'batch' へ落としていたが、created_by は
+   * 電子版同期由来の読者を判別するキーになったので（顧客要件 2026-08）、
+   * 呼出し元に必ず渡させる。既定値に落ちると誰が作った行か分からなくなる。
+   */
+  it('carries the caller の actor into created_by (到来日バッチ)', () => {
     const before = row({ dokusyaBusu: 6, dokusyaChushiDate: '2026-07-15' });
     const r = buildKaiyakuRow(before, {
       dokusyaId: 1001,
       rirekiNo: 5,
       kaiyakuJoho: '2026-07-15',
       chushiDate: '2026-07-15',
+      createdBy: 'SYSTEM_BATCH_NIGHTLY',
     });
-    expect(r.createdBy).toBe('batch');
+    expect(r.createdBy).toBe('SYSTEM_BATCH_NIGHTLY');
   });
 
   it('case D: inherits the new hanbaiten from the (future-activated) before row', () => {
@@ -488,6 +494,7 @@ describe('buildKaiyakuRow', () => {
       rirekiNo: 3,
       kaiyakuJoho: '2026-07-15',
       chushiDate: '2026-07-15',
+      createdBy: 'batch-test',
     });
     expect(r.hanbaitenId).toBe(460);
     expect(r.zenkaiHanbaitenId).toBe(460);

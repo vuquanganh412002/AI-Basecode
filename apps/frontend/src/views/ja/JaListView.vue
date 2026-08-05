@@ -11,7 +11,7 @@ import { useTableQuery } from '@/composables/useTableQuery';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
 import { listJa, removeJa, type JaListItem, type ListJaQuery } from '@/api/ja/ja';
-import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 
 interface JaFilters {
   ja_code: string;
@@ -54,7 +54,6 @@ const {
 const rows = ref<JaListItem[]>([]);
 
 /** 都道府県 dropdown options（ACSMS-API-COMMON-001）。mount 時に一度取得。 */
-const todofukenOptions = ref<TodofukenItem[]>([]);
 
 // 全列に width を明示し、ソートアイコン追加でテーブルが崩れないようにする。
 // antd 既定 `tableLayout: 'auto'` は余白を flex 列に分配するため、ソート矢印が
@@ -102,23 +101,9 @@ async function fetchList(): Promise<void> {
   }
 }
 
-async function fetchTodofuken(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    // BE envelope は `{ data: TodofukenItem[] }`。spec fixture は素の配列を
-    // 直接渡す場合あり（buildTodofukenList）— 両形を受理。
-    todofukenOptions.value = Array.isArray(resp)
-      ? (resp as unknown as TodofukenItem[])
-      : resp.data;
-  } catch {
-    // 非致命的 — 取得失敗なら dropdown を空のままにする。
-    todofukenOptions.value = [];
-  }
-}
-
 onMounted(() => {
   void fetchList();
-  void fetchTodofuken();
+  // 都道府県候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
 });
 
 // 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
@@ -192,21 +177,11 @@ function askDelete(row: JaListItem): void {
       </label>
       <label for="ja-filter-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">都道府県</span>
-        <a-select
+        <BaseTodofukenSelect
           id="ja-filter-todofuken"
           v-model:value="state.filters.todofuken_code"
-          placeholder="選択してください"
-          allow-clear
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in todofukenOptions"
-            :key="opt.todofuken_code"
-            :value="opt.todofuken_code"
-          >
-            {{ opt.todofuken_name }}
-          </a-select-option>
-        </a-select>
+        />
       </label>
     </BaseSearchForm>
 

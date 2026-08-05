@@ -322,19 +322,27 @@ export class TankaService {
     // 終了が開始より前でも誤った開始が報告されるようにする。
     assertCreateDateRange(dto.tekiyo_start_date, dto.tekiyo_end_date);
 
-    // [uniqueness-check] — 重複コードチェック。`withDeleted: true` — コード再利用は
-    // 生涯禁止(論理削除後も行に予約される)。deleted_at で絞らない DB UNIQUE INDEX に一致。
-    // tanka_code は api.md SQL 例に従いプロジェクト全体で一意。
+    const jaId = Number(session.ja_id ?? 0);
+    const accountId = String(session.account_id);
+
+    // [uniqueness-check] — 重複コードチェック。
+    //
+    // スコープは **JA 単位**。DB の UNIQUE INDEX が `(ja_id, tanka_code)` で、
+    // 画面設計書 SCR-003 の項目定義も「単価はJAごとに持つ」と明記している。
+    // 以前はここが `tanka_code` だけで数えており、他 JA が使っているコードまで
+    // 重複扱いして登録できなかった（api.md §4.3 の SQL 例が ja_id を WHERE に
+    // 入れ忘れており、それをそのまま実装していた。api.md 側も併せて訂正済み）。
+    //
+    // `withDeleted: true` — コード再利用は生涯禁止(論理削除後も行に予約される)。
+    // deleted_at で絞らない DB UNIQUE INDEX に一致させるため。
     const dup = await this.repo.count({
-      where: { tankaCode: dto.tanka_code },
+      where: { jaId, tankaCode: dto.tanka_code },
       withDeleted: true,
     });
     if (dup > 0) {
       throw new DuplicateCodeException('単価コード', dto.tanka_code);
     }
 
-    const jaId = Number(session.ja_id ?? 0);
-    const accountId = String(session.account_id);
     const ctxBuilder = (id?: number | null): AuditOperationContext =>
       buildAuditCtx(session, req, SCREEN_NAME_SCR003, TABLE_NAME, id ?? null);
 

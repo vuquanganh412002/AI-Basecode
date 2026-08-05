@@ -7,6 +7,10 @@ import {
 import {
   DOKUSYASO_BUNRUI_CODES,
   NOGYOSYA_BUNRUI_CODES,
+  allowsDokusyasoBunruiSonota,
+  allowsJaYakushokuinFlg,
+  allowsNogyoKankeiFlg,
+  allowsNogyosyaBunruiSonota,
 } from '@/common/constants/dokusya-bunrui.constant';
 import {
   GENDER_MALE,
@@ -84,6 +88,16 @@ function str(v: unknown): string {
   }
   if (v instanceof Date) return v.toISOString();
   return ''; // 想定外の型（オブジェクト等）は空扱い — users 列はスカラのみ
+}
+
+/** 電子版の 1 桁フラグ（'0'|'1'）→ boolean。'1' 以外はすべて false。 */
+function flagToBool(v: unknown): boolean {
+  return numOrNull(v) === 1;
+}
+
+/** VARCHAR(255) 列へ入れる自由記述。超過分は切り捨てる。 */
+function clampText255(v: unknown): string {
+  return str(v).slice(0, 255);
 }
 
 /** 数値化（空・非数値 → null）。 */
@@ -215,6 +229,10 @@ export function mapUserToDokusyaFields(
     toIsoDate(u.application_date) ??
     toIsoDate(u.created_at);
 
+  // 従属項目のゲート判定に使うので、分類は返却リテラルの前に確定させる。
+  const dokusyasoBunrui = mapCsvCodes(u.profession, PROFESSION_TO_BUNRUI);
+  const nogyosyaBunrui = mapCsvCodes(u.products, PRODUCTS_TO_BUNRUI);
+
   // 配達先住所: 電子版(same=TRUE)は購読者住所、併読(same=FALSE)は paper_*。
   const haitatsu = haitatsuSameFlg
     ? {
@@ -288,8 +306,32 @@ export function mapUserToDokusyaFields(
     hikiotoshiKozaNo: '',
     hikiotoshiKozaMeigi: '',
     // ─ 分類 ─
-    dokusyasoBunrui: mapCsvCodes(u.profession, PROFESSION_TO_BUNRUI),
-    nogyosyaBunrui: mapCsvCodes(u.products, PRODUCTS_TO_BUNRUI),
+    dokusyasoBunrui,
+    nogyosyaBunrui,
+    // 従属 4 項目（顧客DB設計 2026-08）。電子版 users の
+    // profession_and_ja / profession_and_agri（0|1）→ BOOLEAN、
+    // others_profession / others_products → 自由記述、で 1:1 に写す。
+    //
+    // 親の分類が条件コードを含むときだけ値を持たせるのは、列 COMMENT の
+    // 「〜の場合のみ設定可 / 入力可」と画面・CRUD API の保存ルールに揃えるため。
+    // 電子版側も同じ条件を自分の API で強制している（条件付き項目 V26〜V30）ので、
+    // 正常に登録されたデータならこのゲートは素通りする。効くのは電子版の
+    // バリデータを経由していない行（旧データ・DB 直編集）だけで、そこを
+    // そのまま取り込むと今度はクラウドから push する時に弾かれる。
+    //
+    // 判定は取り込み後の値で行う。mapCsvCodes が未知コードを落とすため、
+    // u.profession と dokusyasoBunrui は必ずしも一致しない。
+    jaYakushokuinFlg:
+      allowsJaYakushokuinFlg(dokusyasoBunrui) &&
+      flagToBool(u.profession_and_ja),
+    nogyoKankeiFlg:
+      allowsNogyoKankeiFlg(dokusyasoBunrui) && flagToBool(u.profession_and_agri),
+    dokusyasoBunruiSonota: allowsDokusyasoBunruiSonota(dokusyasoBunrui)
+      ? clampText255(u.others_profession)
+      : '',
+    nogyosyaBunruiSonota: allowsNogyosyaBunruiSonota(nogyosyaBunrui)
+      ? clampText255(u.others_products)
+      : '',
     // ─ 日付 ─
     shokiDokusyaKaishiDate: kaishiDate,
     dokusyaKaishiDate: kaishiDate,

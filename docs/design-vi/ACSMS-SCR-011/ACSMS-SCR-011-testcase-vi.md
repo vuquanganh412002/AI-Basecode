@@ -2177,7 +2177,7 @@ Mở màn hình đăng ký thông tin độc giả ở chế độ sửa, click 
 Xác nhận response của GET `/api/v1/dokusya/100/history` qua tab Network của DevTools
 
 ステップ3：
-Xác nhận thứ tự sắp xếp danh sách lịch sử và項目 từng dòng (rireki_no・tetsuzuki_shurui_label・saishin_data_flg)
+Xác nhận thứ tự sắp xếp danh sách lịch sử và項目 từng dòng (rireki_no・tetsuzuki_shurui・saishin_data_flg)
 
 ### 期待結果
 
@@ -2188,7 +2188,7 @@ Màn hình thông tin lịch sử độc giả (danh sách lịch sử thay đ�
 Trả về HTTP 200 (mảng `data` chứa record lịch sử)
 
 ステップ3：
-Danh sách lịch sử hiển thị theo thứ tự giảm dần của rireki_no, từng dòng hiển thị label loại thủ tục (tetsuzuki_shurui_label)・cờ dữ liệu mới nhất (saishin_data_flg)
+Danh sách lịch sử hiển thị theo thứ tự giảm dần của rireki_no, từng dòng hiển thị loại thủ tục (label m_code của tetsuzuki_shurui)・cờ dữ liệu mới nhất (saishin_data_flg)
 
 補足：
 ・Click button「履歴表示」thì chuyển về màn hình thông tin lịch sử độc giả (ACSMS-SCR-013) (機能定義 §5.1)

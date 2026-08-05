@@ -28,6 +28,30 @@ export interface UpdateUserInfoResult {
  * 「'0' ではない」＝失敗と判定されて push が絶対に成功しない。どちらが正なのか
  * 顧客確認が取れるまでは両方を受け付ける（実サーバ優先）。確定したら一本化する。
  */
+/**
+ * `unknown` をログ/レスポンス用に安全に文字列化する。
+ *
+ * 素の `String(v)` はオブジェクトを '[object Object]' にしてしまい、
+ * 「値が無い」のか「想定外の形が来た」のか区別が付かなくなる（S6551）。
+ * スカラだけ文字列化し、それ以外は JSON へ落として原形を残す。
+ */
+function scalarToString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value);
+  }
+  // 配列/オブジェクトが来るのは電子版側の仕様変更か障害。原形を残して調査可能にする。
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
 interface UpdateUserInfoRawResponse {
   /** 実サーバのキー（優先）。 */
   satusCd?: unknown;
@@ -158,9 +182,9 @@ export class DenshibanApiService {
       // satusCd が実サーバのキー、statusCode は仕様書上のキー。詳細は
       // UpdateUserInfoRawResponse の説明を参照。
       const result: UpdateUserInfoResult = {
-        statusCode: String(json.satusCd ?? json.statusCode ?? ''),
-        id: String(json.id ?? ''),
-        message: String(json.message ?? ''),
+        statusCode: scalarToString(json.satusCd ?? json.statusCode),
+        id: scalarToString(json.id),
+        message: scalarToString(json.message),
       };
 
       // 失敗時は「何を送って何が返ったか」を対で残す。応答だけでは P99
@@ -198,7 +222,7 @@ export class DenshibanApiService {
         masked[key] = value;
         continue;
       }
-      const len = String(value ?? '').length;
+      const len = scalarToString(value).length;
       masked[key] = len === 0 ? '<empty>' : `<len:${len}>`;
     }
     return masked;

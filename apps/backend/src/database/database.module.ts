@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { Logger, Module, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';

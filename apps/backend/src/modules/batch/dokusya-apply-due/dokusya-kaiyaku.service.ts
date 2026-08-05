@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
 import { DokusyaShubetsu } from '@/common/enums/dokusya-shubetsu.enum';
 import { TetsuzukiShurui } from '@/common/enums/tetsuzuki-shurui.enum';
+import { SystemActor } from '@/common/constants/system-actor.constant';
 import { insertKaiyaku } from '@/modules/dokusya/dokusya-history.writer';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { todayIsoJst } from '@/common/utils/datetime';
@@ -146,7 +147,7 @@ export class DokusyaKaiyakuService {
   private async confirmOne(id: number, today: string): Promise<boolean> {
     try {
       await this.db.transaction(async (m) => {
-        const res = await insertKaiyaku(m, id, today);
+        const res = await insertKaiyaku(m, id, today, SystemActor.BATCH_NIGHTLY);
         if (!res) return;
         await this.auditLog.logOperation(
           {

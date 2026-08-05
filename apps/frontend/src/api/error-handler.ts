@@ -74,7 +74,7 @@ export async function handleApiError(
   // ネットワークエラー / 非JSON body は汎用トースト。
   if (!status || !data) {
     message.error('ネットワークエラーが発生しました。接続をご確認ください。');
-    return Promise.reject(error);
+    throw error;
   }
 
   switch (code) {
@@ -155,5 +155,5 @@ export async function handleApiError(
       break;
   }
 
-  return Promise.reject(error);
+  throw error;
 }

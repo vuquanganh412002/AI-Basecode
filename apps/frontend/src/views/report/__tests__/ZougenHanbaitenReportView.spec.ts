@@ -129,6 +129,16 @@ beforeEach(async () => {
 // 1. 画面初期表示 (機能定義 1)
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenHanbaitenReportView — 画面初期表示', () => {
+
+  it('should exclude the 電子版ダミー販売店 from the 販売店 dropdown (顧客要件 2026-08)', async () => {
+    // ダミーは電子版読者の受け皿であって実在の販売店ではない。本帳票の集計対象
+    // （紙版のみ）にも入らないので、選ばせると必ず0件になる。
+    const { wrapper } = await renderView();
+    const select = wrapper.findComponent({ name: 'BaseHanbaitenSelect' });
+    expect(select.exists()).toBe(true);
+    expect(select.props('dummy')).toBe('exclude');
+  });
+
   it('should render the 適用日 / 販売店 / 管理支店 labels when mounted', async () => {
     const { wrapper } = await renderView();
     const text = wrapper.text();

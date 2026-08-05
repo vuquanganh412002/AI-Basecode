@@ -11,6 +11,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
+
+import { resetTodofukenCache } from '@/composables/useTodofuken';
 import Antd, { message } from 'ant-design-vue';
 
 import FileDownloadView from '@/views/file-download/FileDownloadView.vue';
@@ -67,6 +69,8 @@ beforeEach(() => {
 interface RenderOptions {
   /** Override the default NICHINO_ADMIN user (e.g. revoke file.download). */
   user?: ReturnType<typeof buildFileDownloadUser>;
+  /** アップロード通知メールのディープリンク (`?file_name=...`) を再現する。 */
+  query?: Record<string, string>;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -81,7 +85,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
       { path: '/file-download', name: 'FileDownload', component: { template: '<div />' } },
     ],
   });
-  await router.push({ name: 'FileDownload' });
+  await router.push({ name: 'FileDownload', query: opts.query });
   await router.isReady();
 
   const wrapper = mount(FileDownloadView, {
@@ -119,6 +123,9 @@ beforeEach(async () => {
 
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse());
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
 
   const { getJaDropdown } = await import('@/api/ja/ja');
   vi.mocked(getJaDropdown).mockResolvedValue({
@@ -146,6 +153,13 @@ describe('FileDownloadView — initial render (機能定義 1.x)', () => {
     await renderView();
     const { getTodofukenList } = await import('@/api/todofuken/todofuken');
     expect(getTodofukenList).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render 都道府県 via the shared BaseTodofukenSelect (SCR-023 と同表記)', async () => {
+    // 同じ都道府県を扱う SCR-023 アップロード画面と表記・検索を揃えるため、
+    // 画面側で props を上書きしない。実挙動は BaseTodofukenSelect.spec.ts。
+    const { wrapper } = await renderView();
+    expect(wrapper.findComponent({ name: 'BaseTodofukenSelect' }).exists()).toBe(true);
   });
 
   it('should render the ファイル名 + 都道府県 search labels when mounted', async () => {
@@ -981,5 +995,49 @@ describe('FileDownloadView — empty 検索 is a no-op', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
     expect(listFiles).not.toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// メールのディープリンク — SCR-023 のアップロード通知メールは
+// `/file-download?file_name=...` を載せる（顧客要件2026-08）。受信者が一覧を
+// 探さずに該当ファイルへ着地できるよう、クエリを検索条件へ流し込む。
+// ───────────────────────────────────────────────────────────────────────
+describe('FileDownloadView — mail deep link (?file_name=)', () => {
+  it('should seed the file name filter from the query and fetch with it', async () => {
+    const { listFiles } = await import('@/api/file-download/file-download');
+    const { wrapper } = await renderView({
+      query: { file_name: '増減通知 2026年04月.pdf' },
+    });
+
+    expect(vi.mocked(listFiles).mock.calls[0][0]).toMatchObject({
+      file_name: '増減通知 2026年04月.pdf',
+    });
+    // 検索欄にも反映され、ユーザーが条件を確認・編集できること。
+    const vm = wrapper.vm as unknown as {
+      state: { filters: { file_name: string } };
+    };
+    expect(vm.state.filters.file_name).toBe('増減通知 2026年04月.pdf');
+  });
+
+  it('should count the seeded filter as applied so 検索クリア can undo it', async () => {
+    // applyFilters ではなく state.filters を直接書くと「未検索の入力」扱いになり、
+    // pristine 判定が崩れる。クリアが実際に効くことで applied 側の更新を確認する。
+    const { listFiles } = await import('@/api/file-download/file-download');
+    const { wrapper } = await renderView({ query: { file_name: 'a.csv' } });
+    vi.mocked(listFiles).mockClear();
+
+    const clearBtn = wrapper.findAll('button').find((b) => b.text().includes('クリア'));
+    await clearBtn!.trigger('click');
+    await flushPromises();
+
+    expect(listFiles).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(listFiles).mock.calls[0][0]?.file_name).toBeUndefined();
+  });
+
+  it('should ignore a blank file_name query and fetch unfiltered', async () => {
+    const { listFiles } = await import('@/api/file-download/file-download');
+    await renderView({ query: { file_name: '   ' } });
+    expect(vi.mocked(listFiles).mock.calls[0][0]?.file_name).toBeUndefined();
   });
 });

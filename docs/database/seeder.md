@@ -58,7 +58,7 @@
 | 9 | hanbaiten.update | 販売店編集 | 販売店情報の編集 |
 | 10 | hanbaiten.delete | 販売店削除 | 販売店情報の削除 |
 | 11 | hanbaiten.import | 販売店Excelデータ取込 | 販売店情報のExcel一括取込 |
-| 44 | hanbaiten.daiko_input | 販売店代行入力 | 日農担当者によるJAの販売店代行入力（account_concept.md ※2 / ACSMS-SCR-010 §3.2） |
+| 45 | hanbaiten.daiko_input | 販売店代行入力 | 日農担当者によるJAの販売店代行入力（account_concept.md ※2 / ACSMS-SCR-010 §3.2） |
 
 ### 2.3 単価マスタ（tanka）
 
@@ -151,7 +151,7 @@
 
 | permission_id | permission_code | permission_name | description |
 | --- | --- | --- | --- |
-| 45 | role.view | ロール参照 | ロール・権限マスタの参照 |
+| 44 | role.view | ロール参照 | ロール・権限マスタの参照 |
 
 ### 共通カラム（全レコード共通）
 
@@ -228,15 +228,15 @@
 | 41 | report.export_meibo | × | × | ○ | ○ | ○ |
 | 42 | report.export_zougen_hanbaiten | × | × | ○ | ○ | ○ |
 | 43 | report.export_zougen_nichino | × | × | ○ | ○ | ○ |
-| 44 | hanbaiten.daiko_input | × | ○ | × | × | × |
-| 45 | role.view | ○ | × | × | × | × |
+| 44 | role.view | ○ | × | × | × | × |
+| 45 | hanbaiten.daiko_input | × | ○ | × | × | × |
 
 ### ロール別権限サマリ
 
 | ロール | role_id | 権限数 | 付与される権限 |
 | --- | --- | --- | --- |
 | 日農（管理者） | 1 | 20 | ja.*, kanri_shiten.*, account.*, oshirase.*, file.upload, file.download, log.view, role.view |
-| 日農（担当者） | 2 | 8 | hanbaiten.{create,view,update,import,daiko_input}, file.upload, file.download, log.view |
+| 日農（担当者） | 2 | 7 | hanbaiten.{create,view,update,daiko_input}, file.upload, file.download, log.view |
 | 中央会 | 3 | 30 | dokusya.*, hanbaiten.{create,view,update,delete,import}, tanka.*, ja.{view,update}, shiten.*, kanri_shiten.{view,update}, file.download, log.view, koza_furikae.export, haitatsuryo.export, report.* |
 | JA本店 | 4 | 30 | （中央会と同一） |
 | JA管理支店 | 5 | 28 | （JA本店から ja.view, ja.update を除いた権限） |
@@ -276,14 +276,14 @@
 | 17 | 1 | 36 | file.upload |
 | 18 | 1 | 37 | file.download |
 | 19 | 1 | 38 | log.view |
-| 112 | 1 | 45 | role.view |
+| 114 | 1 | 44 | role.view |
 
-※ role_permission_id=112 は移行マイグレーション 1711900900008-SeedRoleAndDaikoPermissions で追加。
+※ role.view は後から追加された権限のため、role_permission_id は連番の末尾（114）になる。
 
 #### role_id=2 日農（担当者）— 7件
 
 ※ 販売店代行入力権限。新規登録（代行）・修正・検索が可能。削除・Excel取込は不可（※2）。
-※ 2026-06: hanbaiten.import（permission_id=11）を剥奪（migration 1711900900017）。
+※ 2026-06: hanbaiten.import（permission_id=11）は付与しない（当初は付与→剥奪していたが、シードから除外済み）。
    日農担当者は Excel 一括取込不可。サイドバーの「販売店Excelデータ取込」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
@@ -291,56 +291,56 @@
 | 20 | 2 | 7 | hanbaiten.create |
 | 21 | 2 | 8 | hanbaiten.view |
 | 22 | 2 | 9 | hanbaiten.update |
-| 24 | 2 | 36 | file.upload |
-| 25 | 2 | 37 | file.download |
-| 26 | 2 | 38 | log.view |
-| 113 | 2 | 44 | hanbaiten.daiko_input |
+| 23 | 2 | 36 | file.upload |
+| 24 | 2 | 37 | file.download |
+| 25 | 2 | 38 | log.view |
+| 115 | 2 | 45 | hanbaiten.daiko_input |
 
-※ role_permission_id=113 は移行マイグレーション 1711900900008-SeedRoleAndDaikoPermissions で追加。
+※ hanbaiten.daiko_input は後から追加された権限のため、role_permission_id は連番の末尾（115）になる。
 
 #### role_id=3 中央会 — 30件
 
 ※ 自中央会のみ選択可（データスコープはService層で制御）
-※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+※ 2026-06: file.upload（permission_id=36）は付与しない（当初は付与→剥奪していたが、シードから除外済み）。
    ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
-| 27 | 3 | 1 | dokusya.create |
-| 28 | 3 | 2 | dokusya.view |
-| 29 | 3 | 3 | dokusya.update |
-| 30 | 3 | 4 | dokusya.delete |
-| 31 | 3 | 5 | dokusya.import |
-| 32 | 3 | 6 | dokusya.replace_hanbaiten |
-| 33 | 3 | 7 | hanbaiten.create |
-| 34 | 3 | 8 | hanbaiten.view |
-| 35 | 3 | 9 | hanbaiten.update |
-| 36 | 3 | 10 | hanbaiten.delete |
-| 37 | 3 | 11 | hanbaiten.import |
-| 38 | 3 | 12 | tanka.create |
-| 39 | 3 | 13 | tanka.view |
-| 40 | 3 | 14 | tanka.update |
-| 41 | 3 | 15 | tanka.delete |
-| 42 | 3 | 17 | ja.view |
-| 43 | 3 | 18 | ja.update |
-| 44 | 3 | 20 | shiten.create |
-| 45 | 3 | 21 | shiten.view |
-| 46 | 3 | 22 | shiten.update |
-| 47 | 3 | 23 | shiten.delete |
-| 49 | 3 | 37 | file.download |
-| 50 | 3 | 38 | log.view |
-| 51 | 3 | 39 | koza_furikae.export |
-| 52 | 3 | 40 | haitatsuryo.export |
-| 53 | 3 | 41 | report.export_meibo |
-| 54 | 3 | 42 | report.export_zougen_hanbaiten |
-| 55 | 3 | 43 | report.export_zougen_nichino |
-| 114 | 3 | 25 | kanri_shiten.view |
-| 115 | 3 | 26 | kanri_shiten.update |
+| 26 | 3 | 1 | dokusya.create |
+| 27 | 3 | 2 | dokusya.view |
+| 28 | 3 | 3 | dokusya.update |
+| 29 | 3 | 4 | dokusya.delete |
+| 30 | 3 | 5 | dokusya.import |
+| 31 | 3 | 6 | dokusya.replace_hanbaiten |
+| 32 | 3 | 7 | hanbaiten.create |
+| 33 | 3 | 8 | hanbaiten.view |
+| 34 | 3 | 9 | hanbaiten.update |
+| 35 | 3 | 10 | hanbaiten.delete |
+| 36 | 3 | 11 | hanbaiten.import |
+| 37 | 3 | 12 | tanka.create |
+| 38 | 3 | 13 | tanka.view |
+| 39 | 3 | 14 | tanka.update |
+| 40 | 3 | 15 | tanka.delete |
+| 41 | 3 | 17 | ja.view |
+| 42 | 3 | 18 | ja.update |
+| 43 | 3 | 20 | shiten.create |
+| 44 | 3 | 21 | shiten.view |
+| 45 | 3 | 22 | shiten.update |
+| 46 | 3 | 23 | shiten.delete |
+| 47 | 3 | 37 | file.download |
+| 48 | 3 | 38 | log.view |
+| 49 | 3 | 39 | koza_furikae.export |
+| 50 | 3 | 40 | haitatsuryo.export |
+| 51 | 3 | 41 | report.export_meibo |
+| 52 | 3 | 42 | report.export_zougen_hanbaiten |
+| 53 | 3 | 43 | report.export_zougen_nichino |
+| 54 | 3 | 25 | kanri_shiten.view |
+| 55 | 3 | 26 | kanri_shiten.update |
 
 #### role_id=4 JA本店 — 30件
 
 ※ 自JAのみ選択可。中央会と同一権限セット。
-※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+※ 2026-06: file.upload（permission_id=36）は付与しない（当初は付与→剥奪していたが、シードから除外済み）。
    ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
@@ -366,43 +366,43 @@
 | 74 | 4 | 21 | shiten.view |
 | 75 | 4 | 22 | shiten.update |
 | 76 | 4 | 23 | shiten.delete |
-| 78 | 4 | 37 | file.download |
-| 79 | 4 | 38 | log.view |
-| 80 | 4 | 39 | koza_furikae.export |
-| 81 | 4 | 40 | haitatsuryo.export |
-| 82 | 4 | 41 | report.export_meibo |
-| 83 | 4 | 42 | report.export_zougen_hanbaiten |
-| 84 | 4 | 43 | report.export_zougen_nichino |
-| 116 | 4 | 25 | kanri_shiten.view |
-| 117 | 4 | 26 | kanri_shiten.update |
+| 77 | 4 | 37 | file.download |
+| 78 | 4 | 38 | log.view |
+| 79 | 4 | 39 | koza_furikae.export |
+| 80 | 4 | 40 | haitatsuryo.export |
+| 81 | 4 | 41 | report.export_meibo |
+| 82 | 4 | 42 | report.export_zougen_hanbaiten |
+| 83 | 4 | 43 | report.export_zougen_nichino |
+| 84 | 4 | 25 | kanri_shiten.view |
+| 85 | 4 | 26 | kanri_shiten.update |
 
 #### role_id=5 JA管理支店 — 28件
 
 ※ 自管理支店のみ選択可。JA本店から ja.view, ja.update を除いた権限。
-※ 2026-06: file.upload（permission_id=36）を剥奪（migration 1711900900020）。
+※ 2026-06: file.upload（permission_id=36）は付与しない（当初は付与→剥奪していたが、シードから除外済み）。
    ファイルアップロード画面は日農のみ。サイドバーの「ファイルアップロード」は非表示。
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
-| 85 | 5 | 1 | dokusya.create |
-| 86 | 5 | 2 | dokusya.view |
-| 87 | 5 | 3 | dokusya.update |
-| 88 | 5 | 4 | dokusya.delete |
-| 89 | 5 | 5 | dokusya.import |
-| 90 | 5 | 6 | dokusya.replace_hanbaiten |
-| 91 | 5 | 7 | hanbaiten.create |
-| 92 | 5 | 8 | hanbaiten.view |
-| 93 | 5 | 9 | hanbaiten.update |
-| 94 | 5 | 10 | hanbaiten.delete |
-| 95 | 5 | 11 | hanbaiten.import |
-| 96 | 5 | 12 | tanka.create |
-| 97 | 5 | 13 | tanka.view |
-| 98 | 5 | 14 | tanka.update |
-| 99 | 5 | 15 | tanka.delete |
-| 100 | 5 | 20 | shiten.create |
-| 101 | 5 | 21 | shiten.view |
-| 102 | 5 | 22 | shiten.update |
-| 103 | 5 | 23 | shiten.delete |
+| 86 | 5 | 1 | dokusya.create |
+| 87 | 5 | 2 | dokusya.view |
+| 88 | 5 | 3 | dokusya.update |
+| 89 | 5 | 4 | dokusya.delete |
+| 90 | 5 | 5 | dokusya.import |
+| 91 | 5 | 6 | dokusya.replace_hanbaiten |
+| 92 | 5 | 7 | hanbaiten.create |
+| 93 | 5 | 8 | hanbaiten.view |
+| 94 | 5 | 9 | hanbaiten.update |
+| 95 | 5 | 10 | hanbaiten.delete |
+| 96 | 5 | 11 | hanbaiten.import |
+| 97 | 5 | 12 | tanka.create |
+| 98 | 5 | 13 | tanka.view |
+| 99 | 5 | 14 | tanka.update |
+| 100 | 5 | 15 | tanka.delete |
+| 101 | 5 | 20 | shiten.create |
+| 102 | 5 | 21 | shiten.view |
+| 103 | 5 | 22 | shiten.update |
+| 104 | 5 | 23 | shiten.delete |
 | 105 | 5 | 37 | file.download |
 | 106 | 5 | 38 | log.view |
 | 107 | 5 | 39 | koza_furikae.export |
@@ -410,8 +410,8 @@
 | 109 | 5 | 41 | report.export_meibo |
 | 110 | 5 | 42 | report.export_zougen_hanbaiten |
 | 111 | 5 | 43 | report.export_zougen_nichino |
-| 118 | 5 | 25 | kanri_shiten.view |
-| 119 | 5 | 26 | kanri_shiten.update |
+| 112 | 5 | 25 | kanri_shiten.view |
+| 113 | 5 | 26 | kanri_shiten.update |
 
 ### データスコープ制御（参考：Service層で実装）
 
@@ -584,72 +584,72 @@
 | 33 | OSHIRASE_TYPE | 1 | システム | システム | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 | 34 | OSHIRASE_TYPE | 2 | 重要 | 重要 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 | 35 | OSHIRASE_TYPE | 3 | 一般 | 一般 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 60 | OSHIRASE_TYPE | 4 | 締め切り時間 | 締切時間 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 36 | OSHIRASE_TYPE | 4 | 締め切り時間 | 締切時間 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.14 お知らせ公開場所 (PUBLISH_LOCATION)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 36 | PUBLISH_LOCATION | 1 | ログイン画面 | ログイン画面 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 37 | PUBLISH_LOCATION | 2 | メニュー画面 | メニュー画面 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 64 | PUBLISH_LOCATION | 3 | メニュー画面（締め切り時間） | 締切時間 | 3 | お知らせ種別=4 (締め切り時間) 専用枠。1件のみ運用される。 | NULL | 2026-05-28 | SYSTEM | 2026-05-28 | SYSTEM |
+| 37 | PUBLISH_LOCATION | 1 | ログイン画面 | ログイン画面 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 38 | PUBLISH_LOCATION | 2 | メニュー画面 | メニュー画面 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 39 | PUBLISH_LOCATION | 3 | メニュー画面（締め切り時間） | 締切時間 | 3 | お知らせ種別=4 (締め切り時間) 専用枠。1件のみ運用される。 | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.15 お知らせ状態 (OSHIRASE_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 38 | OSHIRASE_STATUS | 1 | 下書き | 下書き | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 39 | OSHIRASE_STATUS | 2 | 公開 | 公開 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 40 | OSHIRASE_STATUS | 3 | 非公開 | 非公開 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 40 | OSHIRASE_STATUS | 1 | 下書き | 下書き | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 41 | OSHIRASE_STATUS | 2 | 公開 | 公開 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 42 | OSHIRASE_STATUS | 3 | 非公開 | 非公開 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.16 ログ種別 (LOG_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 41 | LOG_TYPE | 1 | ユーザー操作 | ユーザー操作 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 42 | LOG_TYPE | 2 | システム | システム | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 43 | LOG_TYPE | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 44 | LOG_TYPE | 4 | ファイルアップロード | ファイルUP | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 43 | LOG_TYPE | 1 | ユーザー操作 | ユーザー操作 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 44 | LOG_TYPE | 2 | システム | システム | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 45 | LOG_TYPE | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 46 | LOG_TYPE | 4 | ファイルアップロード | ファイルUP | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.17 結果ステータス (RESULT_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 45 | RESULT_STATUS | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 46 | RESULT_STATUS | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 47 | RESULT_STATUS | 3 | 警告 | 警告 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 47 | RESULT_STATUS | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 48 | RESULT_STATUS | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 49 | RESULT_STATUS | 3 | 警告 | 警告 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.18 ファイルアップロードステータス (FILE_UPLOAD_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 48 | FILE_UPLOAD_STATUS | 1 | 処理中 | 処理中 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 49 | FILE_UPLOAD_STATUS | 2 | 完了 | 完了 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 50 | FILE_UPLOAD_STATUS | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 50 | FILE_UPLOAD_STATUS | 1 | 処理中 | 処理中 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 51 | FILE_UPLOAD_STATUS | 2 | 完了 | 完了 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 52 | FILE_UPLOAD_STATUS | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.19 ダウンロード種別 (DOWNLOAD_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 51 | DOWNLOAD_TYPE | 1 | 口座振替 | 口座振替 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 52 | DOWNLOAD_TYPE | 2 | その他 | その他 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 53 | DOWNLOAD_TYPE | 3 | 増減連絡票 | 増減連絡票 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 54 | DOWNLOAD_TYPE | 4 | 増減通知書 | 増減通知書 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 55 | DOWNLOAD_TYPE | 5 | 購読者名簿 | 購読者名簿 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 53 | DOWNLOAD_TYPE | 1 | 口座振替 | 口座振替 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 54 | DOWNLOAD_TYPE | 2 | その他 | その他 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 55 | DOWNLOAD_TYPE | 3 | 増減連絡票 | 増減連絡票 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 56 | DOWNLOAD_TYPE | 4 | 増減通知書 | 増減通知書 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 57 | DOWNLOAD_TYPE | 5 | 購読者名簿 | 購読者名簿 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.20 ログイン結果 (LOGIN_RESULT)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 56 | LOGIN_RESULT | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 57 | LOGIN_RESULT | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 58 | LOGIN_RESULT | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 59 | LOGIN_RESULT | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.21 OTP種別 (OTP_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 58 | OTP_TYPE | 1 | ログイン | ログイン | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 59 | OTP_TYPE | 2 | パスワードリセット | PW変更 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 60 | OTP_TYPE | 1 | ログイン | ログイン | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 61 | OTP_TYPE | 2 | パスワードリセット | PW変更 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ### 5.22 通知ステータス (NOTIFICATION_STATUS)
 
@@ -657,10 +657,36 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 60 | NOTIFICATION_STATUS | 1 | 未送信 | 未送信 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 61 | NOTIFICATION_STATUS | 2 | 送信中 | 送信中 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 62 | NOTIFICATION_STATUS | 3 | 完了 | 完了 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 63 | NOTIFICATION_STATUS | 4 | 一部失敗 | 一部失敗 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 62 | NOTIFICATION_STATUS | 1 | 未送信 | 未送信 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 63 | NOTIFICATION_STATUS | 2 | 送信中 | 送信中 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 64 | NOTIFICATION_STATUS | 3 | 完了 | 完了 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 65 | NOTIFICATION_STATUS | 4 | 一部失敗 | 一部失敗 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+
+### 5.23 購読者層分類 (DOKUSYASO_BUNRUI)
+
+`t_dokusya.dokusyaso_bunrui` / `t_dokusya_rireki.dokusyaso_bunrui` の値域（**単一選択**）。電子版読者管理システムの `users.profession` と 1:1（顧客DB設計 2026-08）。`0:農業者` を選んだときのみ `ja_yakushokuin_flg`、`2:企業・団体` のときのみ `nogyo_kankei_flg`、`999:その他` のときのみ `dokusyaso_bunrui_sonota` を設定できる。
+
+| code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 66 | DOKUSYASO_BUNRUI | 0 | 農業者 | 農業者 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 67 | DOKUSYASO_BUNRUI | 1 | JAグループ役職員 | JA役職員 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 68 | DOKUSYASO_BUNRUI | 2 | 企業・団体 | 企業・団体 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 69 | DOKUSYASO_BUNRUI | 3 | 学生 | 学生 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 70 | DOKUSYASO_BUNRUI | 999 | その他 | その他 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+
+### 5.24 農業者分類 (NOGYOSYA_BUNRUI)
+
+`t_dokusya.nogyosya_bunrui` / `t_dokusya_rireki.nogyosya_bunrui` の値域（**複数選択・カンマ区切り**）。電子版読者管理システムの `users.products` と 1:1（顧客DB設計 2026-08）。`999:その他` を含むときのみ `nogyosya_bunrui_sonota` を設定できる。
+
+| code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 71 | NOGYOSYA_BUNRUI | 0 | 米 | 米 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 72 | NOGYOSYA_BUNRUI | 1 | 野菜 | 野菜 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 73 | NOGYOSYA_BUNRUI | 2 | 果実 | 果実 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 74 | NOGYOSYA_BUNRUI | 3 | 花 | 花 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 75 | NOGYOSYA_BUNRUI | 4 | 畜産 | 畜産 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 76 | NOGYOSYA_BUNRUI | 5 | 酪農 | 酪農 | 6 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 77 | NOGYOSYA_BUNRUI | 999 | その他 | その他 | 7 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
 
 ---
 

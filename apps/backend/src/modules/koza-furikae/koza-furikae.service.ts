@@ -12,11 +12,14 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import {
   AuditOperation,
+  DenshiShoninStatus,
+  DokusyaShubetsu,
   DownloadType,
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/common/enums';
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
+import { DENSHI_DOKUSYA_SHUBETSU_YURYO } from '@/common/constants/denshi-dokusya-shubetsu.constant';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
@@ -519,6 +522,17 @@ const KOZA_FURIKAE_AGG_SQL = `
    WHERE d.deleted_at IS NULL
      AND d.shiharai_hoho = ${ShiharaiHoho.KOZA_HIKIOTOSHI}
      AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
+     -- 集計対象は 紙版(1) と 電子版(2) のみ（顧客要件 2026-08 / #56600）。
+     -- 電子版は承認済(denshi_shonin_status=1)かつ有料(denshi_dokusya_shubetsu=1)
+     -- に限る（未承認・無料は購読料が発生しないため引き落とす対象が無い）。
+     -- 併読(3)は対象外。従来は購読種別で絞っておらず、併読も無料の電子版も
+     -- 口座引落の対象になり得た。
+     AND (
+           d.dokusya_shubetsu = ${DokusyaShubetsu.PAPER}
+        OR (d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL}
+            AND d.denshi_shonin_status = ${DenshiShoninStatus.APPROVED}
+            AND d.denshi_dokusya_shubetsu = ${DENSHI_DOKUSYA_SHUBETSU_YURYO})
+         )
      AND d.dokusya_kaishi_date <= $1
      AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > $1)
      AND d.ja_id = $2
@@ -558,6 +572,17 @@ const KOZA_FURIKAE_INACTIVE_TANKA_SQL = `
    WHERE d.deleted_at IS NULL
      AND d.shiharai_hoho = ${ShiharaiHoho.KOZA_HIKIOTOSHI}
      AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
+     -- 集計対象は 紙版(1) と 電子版(2) のみ（顧客要件 2026-08 / #56600）。
+     -- 電子版は承認済(denshi_shonin_status=1)かつ有料(denshi_dokusya_shubetsu=1)
+     -- に限る（未承認・無料は購読料が発生しないため引き落とす対象が無い）。
+     -- 併読(3)は対象外。従来は購読種別で絞っておらず、併読も無料の電子版も
+     -- 口座引落の対象になり得た。
+     AND (
+           d.dokusya_shubetsu = ${DokusyaShubetsu.PAPER}
+        OR (d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL}
+            AND d.denshi_shonin_status = ${DenshiShoninStatus.APPROVED}
+            AND d.denshi_dokusya_shubetsu = ${DENSHI_DOKUSYA_SHUBETSU_YURYO})
+         )
      AND d.dokusya_kaishi_date <= $1
      AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > $1)
      AND d.ja_id = $2

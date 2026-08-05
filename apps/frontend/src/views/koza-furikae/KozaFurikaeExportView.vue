@@ -14,6 +14,7 @@ import { useNotify } from '@/composables/useNotify';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { downloadBlob } from '@/utils/download';
 import { formatYen } from '@/utils/formatters';
+import { tyokinShubetsuLabel } from '@/constants/tyokin-shubetsu';
 import {
   getInitialKozaFurikae,
   previewKozaFurikae,
@@ -164,13 +165,6 @@ watch(selectedKozaRows, (rows) => {
   formState.jastem_tyokin_shubetsu = first?.jastem_tyokin_shubetsu ?? '1';
   formState.jastem_koza_no = first?.jastem_koza_no ?? '';
 });
-
-// 貯金種目は JASTEM 固定値（m_code ではない — api.md に m_code 参照記載なし）。
-const TYOKIN_SHUBETSU_OPTIONS = [
-  { value: '1', label: '普通貯金' },
-  { value: '2', label: '当座貯金' },
-  { value: '9', label: 'その他' },
-];
 
 const REQUIRED_MSG = '必須項目です。'; // ACSMS-MSG-020-004
 
@@ -605,7 +599,7 @@ defineExpose({
                 {{ row.jastem_tenpo_name || '—' }}
               </td>
               <td class="border border-border px-3 py-2 text-text-main">
-                {{ TYOKIN_SHUBETSU_OPTIONS.find((o) => o.value === row.jastem_tyokin_shubetsu)?.label || '—' }}
+                {{ tyokinShubetsuLabel(row.jastem_tyokin_shubetsu) || '—' }}
               </td>
               <td class="border border-border px-3 py-2 text-right text-text-main">
                 {{ row.jastem_koza_no || '—' }}

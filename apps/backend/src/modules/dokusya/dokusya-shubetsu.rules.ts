@@ -30,6 +30,8 @@ export const SHUBETSU_MSG = {
   DIGITAL_TODAY_ONLY: '電子版は当日のみ変更できます。予約変更（未来日）はできません。',
   /** 電子版で請求開始月が未設定＝料金徴収が始まっておらず停止できない。 */
   SEIKYU_NOT_STARTED: 'この読者料金の徴収はまだ開始されていません。',
+  /** 削除は紙版のみ（電子版・併読は電子版読者管理システムが正）。 */
+  DELETE_PAPER_ONLY: '紙版の購読者のみ削除できます。',
 } as const;
 
 /** 帳票影響項目 — dto/取込行の項目名(snake) ↔ エンティティ列名(camel)。紙版の当日変更で
@@ -85,6 +87,23 @@ export function isDokusyaReadOnly(
   hoho: number | null | undefined,
 ): boolean {
   return isBoth(shubetsu) || isDigitalCreditCard(shubetsu, hoho);
+}
+
+/**
+ * 論理削除できるのは紙版(1)だけ（顧客要件 2026-08）。
+ *
+ * `isDokusyaReadOnly` では足りない。あちらは 併読(3) と 電子版クレカ(2+6) を弾くが、
+ * 電子版でクレカ以外の支払方法（口座引落など）は素通りしていた。電子版の会員は
+ * 電子版読者管理システムが正で、こちら側で消すと同期のたびに復活したり、
+ * 相手システムには居るのにクラウド版から見えない状態を作る。
+ *
+ * 停止（解約予約）は従来どおり — 電子版も「購読中止」からは止められる。
+ * 消せないのは行そのものであって、購読をやめられないという意味ではない。
+ */
+export function isDokusyaDeletable(
+  shubetsu: number | null | undefined,
+): boolean {
+  return Number(shubetsu) === DokusyaShubetsu.PAPER;
 }
 
 // ─── 違反コレクタ（`{ field, message }[]` を返す）──────────────────────────────

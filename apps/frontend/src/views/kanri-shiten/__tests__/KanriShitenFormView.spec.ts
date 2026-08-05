@@ -16,6 +16,8 @@ import KanriShitenFormView from '@/views/kanri-shiten/KanriShitenFormView.vue';
 import { buildAuthUser } from '@test/fixtures/kanri-shiten.fixture';
 import { buildTodofukenList } from '@test/fixtures/ja.fixture';
 
+import { resetTodofukenCache } from '@/composables/useTodofuken';
+
 // Mock the kanri-shiten API client — /gen-code-frontend adds the form
 // methods (getKanriShiten, createKanriShiten, updateKanriShiten)
 // alongside the existing list/delete from SCR-008.
@@ -185,6 +187,9 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 }
 
 beforeEach(async () => {
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
   vi.clearAllMocks();
   const { getKanriShiten, createKanriShiten, updateKanriShiten } = await import(
     '@/api/kanri-shiten/kanri-shiten'

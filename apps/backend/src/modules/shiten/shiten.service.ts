@@ -279,6 +279,13 @@ export class ShitenService {
     query: {
       ja_id?: number;
       kanri_shiten_id?: number;
+      /**
+       * 複数の管理支店で絞る（SCR-026 名簿出力は管理支店が複数選択のため）。
+       * `kanri_shiten_id` と併用された場合は両方 AND で効く（実際の呼び出し側は
+       * どちらか一方のみ送る）。空配列は「絞らない」ではなく「該当なし」——
+       * 呼び出し側で未選択時は undefined を渡すこと。
+       */
+      kanri_shiten_ids?: number[];
       kinyu_shiten_flg?: boolean;
       q?: string;
     },
@@ -310,6 +317,13 @@ export class ShitenService {
     // これは選択管理支店配下のみに絞る UI 用フィルタ。
     if (query.kanri_shiten_id !== undefined) {
       qb.andWhere('m.kanri_shiten_id = :qks', { qks: query.kanri_shiten_id });
+    }
+    // 複数指定版（SCR-026）。空配列だと TypeORM が `IN ()` を生成して構文エラーに
+    // なるため、長さ 0 は「絞らない」に倒す。
+    if (query.kanri_shiten_ids !== undefined && query.kanri_shiten_ids.length > 0) {
+      qb.andWhere('m.kanri_shiten_id IN (:...qksList)', {
+        qksList: query.kanri_shiten_ids,
+      });
     }
     if (query.kinyu_shiten_flg !== undefined) {
       qb.andWhere('m.kinyu_shiten_flg = :ksf', {

@@ -951,7 +951,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result).toBeDefined();
     });
 
-    it('should throw DUPLICATE_EMAIL HTTP 400 when email already exists among 電子版 records in same ja_id', async () => {
+    it('should throw DUPLICATE_EMAIL HTTP 400 when email already exists among 電子版 records', async () => {
       // COVERS: §4.3 + err:DUPLICATE_EMAIL (row 9)
       // 一意性は電子版(2)・併読(3) のみ — 電子版で作成して重複を検知させる。
       mockBankShitenLookup(true);
@@ -969,6 +969,29 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
           error_code: 'DUPLICATE_EMAIL',
         }),
       });
+    });
+
+    it('should look for duplicate email ACROSS all JA, not only the caller ja_id (#56568)', async () => {
+      // 顧客要件 2026-08 — 電子版ではメールが会員の同定キー（ログインID）なので、
+      // 他 JA に同じメールの電子版読者がいれば作れない。以前は WHERE に
+      // `d.ja_id = :ja_id` が入っており自 JA 内しか見ていなかった。
+      mockBankShitenLookup(true);
+      dokusyaQb.getCount.mockResolvedValue(0);
+      dokusyaRepo.count.mockResolvedValue(0);
+
+      await service.create(
+        buildCreateDokusyaBody({ dokusya_shubetsu: 2, email: 'x@example.com' }),
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+      );
+
+      // 重複チェックの WHERE 句に ja_id 条件が無いこと（種別と論理削除だけで絞る）。
+      const whereCalls = dokusyaQb.where.mock.calls.map((c: any[]) => String(c[0]));
+      const dupWhere = whereCalls.find((w: string) => w.includes('d.email = :email'));
+      expect(dupWhere).toBeDefined();
+      expect(dupWhere).not.toContain('ja_id');
+      expect(dupWhere).toContain('d.deleted_at IS NULL');
+      expect(dupWhere).toContain('d.dokusya_shubetsu IN');
     });
 
     it('should NOT run email duplicate check when email is empty string', async () => {
@@ -2325,7 +2348,7 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(excluded).toBeDefined();
     });
 
-    it('should throw DUPLICATE_EMAIL HTTP 400 when another 電子版 row in same ja_id has same email', async () => {
+    it('should throw DUPLICATE_EMAIL HTTP 400 when another 電子版 row has same email (JA を問わない)', async () => {
       // COVERS: §4.3 + err:DUPLICATE_EMAIL
       // 一意性は電子版(2)・併読(3) のみ — before を電子版にして検知させる。
       const before = buildDokusya({
@@ -3980,6 +4003,194 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         );
       expect(errorAuditCalled).toBe(true);
     });
+
+    // ─── #56524 — 承認時に引落口座4項目も保存する ───────────────────────
+    it('should persist the 4 引落口座 fields passed in the approve body', async () => {
+      // 電子版申込の口座情報は自己申告で誤りが多く、承認と同時に直せる必要が
+      // ある（顧客要件 2026-08 / #56524）。bank_shiten_id は m_shiten 逆引きの
+      // 結果（shiten_code / jastem_tenpo_name）として保存される。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      shitenRepo.findOne = jest.fn(async () => ({
+        shitenId: 7,
+        jaId: 1,
+        kinyuShitenFlg: true,
+        shitenCode: '123',
+        jastemTenpoName: 'ﾎﾝﾃﾝ',
+      }));
+
+      await service.approve(
+        100,
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+        {
+          bank_shiten_id: 7,
+          hikiotoshi_yokin_shubetsu: 2,
+          hikiotoshi_koza_no: '9876543210',
+          hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+        },
+      );
+
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2]).toMatchObject({
+        bankBranchCode: '123',
+        bankBranchName: 'ﾎﾝﾃﾝ',
+        hikiotoshiYokinShubetsu: 2,
+        hikiotoshiKozaNo: '9876543210',
+        hikiotoshiKozaMeigi: 'ﾀﾅｶ ﾀﾛｳ',
+      });
+    });
+
+    it('should leave 引落口座 columns untouched when the body omits them', async () => {
+      // 部分更新 — 触っていない項目を空文字で潰さない。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await service.approve(
+        100,
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+        { hikiotoshi_koza_no: '1112223334' },
+      );
+
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2].hikiotoshiKozaNo).toBe('1112223334');
+      expect(dokusyaUpdate?.[2]).not.toHaveProperty('hikiotoshiKozaMeigi');
+      expect(dokusyaUpdate?.[2]).not.toHaveProperty('bankBranchCode');
+    });
+
+    it('should persist 支払方法 passed in the approve body', async () => {
+      // #56524 — 支払方法も承認画面で直せる（自己申告の誤りが多いため）。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+        shiharaiHoho: 1,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await service.approve(
+        100,
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+        { shiharai_hoho: 2 },
+      );
+
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2].shiharaiHoho).toBe(2);
+    });
+
+    it('should reject クレジットカード as 支払方法 (電子版専用ワークフロー)', async () => {
+      // クレカは電子版読者管理システム連携専用。FE は選択肢を disabled にするが
+      // API 直叩きでも同じ規則を課す。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await expect(
+        service.approve(
+          100,
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+          { shiharai_hoho: 6 },
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'shiharai_hoho' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should require bank_shiten_id when 支払方法 is switched to 口座引落 with no existing branch', async () => {
+      // 口座引落へ切り替えたのに引落先が無いまま確定すると、口座振替データ作成
+      // (SCR-020) で引き落とせないレコードが生まれる。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+        shiharaiHoho: 2, bankBranchCode: '',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await expect(
+        service.approve(
+          100,
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+          { shiharai_hoho: 1 },
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'bank_shiten_id' }),
+          ]),
+        }),
+      });
+    });
+
+    it('should allow switching to 口座引落 when the record already has a branch', async () => {
+      // 既存の引落先をそのまま使うケース。部分更新なので支店を送り直さなくてよい。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+        shiharaiHoho: 2, bankBranchCode: '123',
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await service.approve(
+        100,
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+        { shiharai_hoho: 1 },
+      );
+
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2].shiharaiHoho).toBe(1);
+      expect(dokusyaUpdate?.[2]).not.toHaveProperty('bankBranchCode');
+    });
+
+    it('should reject a bank_shiten_id from another tenant (layer4 FK guard)', async () => {
+      // 他 JA の銀行支店 id を承認ボディに載せてクロステナント参照するのを防ぐ。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+      shitenRepo.findOne = jest.fn(async () => null); // JA 外 → 見つからない
+
+      await expect(
+        service.approve(
+          100,
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+          { bank_shiten_id: 999 },
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'bank_shiten_id' }),
+          ]),
+        }),
+      });
+    });
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -4179,6 +4390,34 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
         );
       expect(errorAuditCalled).toBe(true);
     });
+
+    // ─── #56524 — 否認時も引落口座4項目を保存する ───────────────────────
+    it('should persist the 4 引落口座 fields passed in the reject body', async () => {
+      // 担当者が口座情報を直してから否認するケース。入力を捨てると再審査で
+      // 同じ誤りを手で直すことになるため、承認と同じ4項目を保存する。
+      const before = buildDokusya({
+        dokusyaId: 100, jaId: 1, denshiShoninStatus: 0,
+      });
+      dokusyaRepo.findOne.mockResolvedValue(before);
+
+      await service.reject(
+        100,
+        buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+        baseReq,
+        { hikiotoshi_koza_no: '5556667778', hikiotoshi_koza_meigi: 'ｽｽﾞｷ ﾊﾅｺ' },
+      );
+
+      const dokusyaUpdate = txManager.update.mock.calls.find(
+        (c: any[]) =>
+          c[2] && typeof c[2] === 'object' && 'denshiShoninStatus' in c[2] &&
+          c[1]?.dokusyaId === 100,
+      );
+      expect(dokusyaUpdate?.[2]).toMatchObject({
+        denshiShoninStatus: 2,
+        hikiotoshiKozaNo: '5556667778',
+        hikiotoshiKozaMeigi: 'ｽｽﾞｷ ﾊﾅｺ',
+      });
+    });
   });
 
   // ════════════════════════════════════════════════════════════════════════
@@ -4211,24 +4450,26 @@ describe('DokusyaService — SCR-011 (create + update + approve/reject + history
       expect(result.data[1].rireki_no).toBe(1);
     });
 
-    it('should map tetsuzuki_shurui value to label via CodeService.getLabel("TETSUZUKI_SHURUI", value)', async () => {
-      // COVERS: §4.5 — tetsuzuki_shurui_label mapping
+    it('should return tetsuzuki_shurui as a raw code value without a *_label field', async () => {
+      // COVERS: §4.5 — 認証エンドポイントはコード値のみ
+      // (.claude/rules/nestjs.md §m_code response serialization)。以前は
+      // CodeService.getLabel で解決した tetsuzuki_shurui_label を同梱していたが、
+      // 画面は useCodesStore から引いており誰も読んでいなかったので削除した。
       const target = buildDokusya({ dokusyaId: 100, jaId: 1 });
       dokusyaRepo.findOne.mockResolvedValue(target);
       const row = buildDokusyaRireki({ tetsuzukiShurui: 1, rirekiNo: 1 });
       rirekiRepo.find.mockResolvedValue([row]);
       rirekiQb.getMany.mockResolvedValue([row]);
-      codeService.getLabel = jest.fn((cat: string, v: any) => {
-        if (cat === 'TETSUZUKI_SHURUI' && v === 1) return '新規';
-        return '';
-      });
+      codeService.getLabel = jest.fn(() => '新規');
 
       const result = await service.getHistory(
         100,
         buildChuokaiSession({ ja_id: 1 }),
       );
 
-      expect(result.data[0].tetsuzuki_shurui_label).toBe('新規');
+      expect(result.data[0].tetsuzuki_shurui).toBe(1);
+      expect(result.data[0]).not.toHaveProperty('tetsuzuki_shurui_label');
+      expect(codeService.getLabel).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException when target dokusya does not exist', async () => {
@@ -5258,12 +5499,76 @@ describe('DokusyaService — search / delete / export (SCR-014)', () => {
       });
     });
 
-    it('should NOT throw DOKUSYA_READ_ONLY when 電子版 + non-クレカ payment (dokusya_shubetsu=2, shiharai_hoho=1)', async () => {
-      // COVERS: §4.3 — 電子版 but 口座引落 → deletable
-      const denshi = buildDokusya({
-        dokusyaId: 100, jaId: 1, dokusyaShubetsu: 2, shiharaiHoho: 1,
+    /**
+     * 顧客要件 2026-08: 削除できるのは紙版(1)のみ。
+     *
+     * read-only guard（併読 / 電子版クレカ）では足りない。電子版で口座引落など
+     * クレカ以外の支払方法は素通りしていた。電子版の会員は電子版読者管理システムが
+     * 正なので、こちら側で消すと同期で復活するか、相手には居るのにクラウド版から
+     * 見えない状態になる。
+     */
+    it.each([
+      [2, 1, '電子版 + 口座引落'],
+      [2, 2, '電子版 + 現金集金'],
+      [3, 1, '併読'],
+    ])(
+      'should refuse to delete dokusya_shubetsu=%s shiharai_hoho=%s (%s)',
+      async (shubetsu, hoho) => {
+        dokusyaRepo.findOne.mockResolvedValue(
+          buildDokusya({
+            dokusyaId: 100,
+            jaId: 1,
+            dokusyaShubetsu: shubetsu,
+            shiharaiHoho: hoho,
+          }),
+        );
+        dataSource.query = jest.fn(async () => [{ count: '0' }]);
+
+        await expect(
+          service.remove(
+            100,
+            buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+            baseReq,
+          ),
+        ).rejects.toBeDefined();
+      },
+    );
+
+    it('should report 紙版のみ削除可 for 電子版 with a non-クレカ payment', async () => {
+      // 併読・電子版クレカ は既存の read-only guard が先に落とすので、
+      // 本メッセージが出る唯一の経路がこのケース。
+      dokusyaRepo.findOne.mockResolvedValue(
+        buildDokusya({
+          dokusyaId: 100, jaId: 1, dokusyaShubetsu: 2, shiharaiHoho: 1,
+        }),
+      );
+      dataSource.query = jest.fn(async () => [{ count: '0' }]);
+
+      await expect(
+        service.remove(
+          100,
+          buildChuokaiSession({ ja_id: 1, account_id: 11 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'dokusya_shubetsu',
+              message: '紙版の購読者のみ削除できます。',
+            }),
+          ]),
+        }),
       });
-      dokusyaRepo.findOne.mockResolvedValue(denshi);
+    });
+
+    it('should still allow deleting 紙版 (dokusya_shubetsu=1)', async () => {
+      dokusyaRepo.findOne.mockResolvedValue(
+        buildDokusya({
+          dokusyaId: 100, jaId: 1, dokusyaShubetsu: 1, shiharaiHoho: 1,
+        }),
+      );
       dataSource.query = jest.fn(async () => [{ count: '0' }]);
 
       await expect(

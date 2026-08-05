@@ -30,6 +30,7 @@ import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ApproveDokusyaDto } from './dto/approve-dokusya.dto';
+import { RejectDokusyaDto } from './dto/reject-dokusya.dto';
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
 import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
@@ -313,7 +314,7 @@ export class DokusyaController {
     @Body() dto: ApproveDokusyaDto,
     @Req() req: Request & { user: SessionPayload },
   ) {
-    return this.service.approve(dokusyaId, req.user, req, dto.tanka_id);
+    return this.service.approve(dokusyaId, req.user, req, dto);
   }
 
   // ─── API-011-005 ────────────────────────────────────────────────────
@@ -328,9 +329,10 @@ export class DokusyaController {
   @ApiResponse({ status: 404, description: '指定された購読者が見つかりません。' })
   async reject(
     @Param('dokusya_id', ParseIntPipe) dokusyaId: number,
+    @Body() dto: RejectDokusyaDto,
     @Req() req: Request & { user: SessionPayload },
   ) {
-    return this.service.reject(dokusyaId, req.user, req);
+    return this.service.reject(dokusyaId, req.user, req, dto);
   }
 
   // ─── API-014-002 ────────────────────────────────────────────────────

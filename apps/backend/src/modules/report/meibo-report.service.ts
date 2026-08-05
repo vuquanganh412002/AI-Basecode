@@ -1,3 +1,4 @@
+import { DENSHI_DOKUSYA_SHUBETSU_YURYO } from '@/common/constants/denshi-dokusya-shubetsu.constant';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
@@ -293,17 +294,9 @@ export class MeiboReportService {
       )
       .andWhere('r.tetsuzuki_shurui = :tetsuzuki', {
         tetsuzuki: TetsuzukiShurui.SHINKI,
-      })
-      .andWhere('r.dokusya_shubetsu <> :heiyo', { heiyo: DokusyaShubetsu.BOTH });
+      });
 
-    // 電子版(DIGITAL=2)は承認済(denshi_shonin_status=1)のみ対象。承認待ち(0)/否認(2)は除外。紙版は対象外。
-    qb.andWhere(
-      '(r.dokusya_shubetsu <> :denshiShubetsu OR r.denshi_shonin_status = :denshiApproved)',
-      {
-        denshiShubetsu: DokusyaShubetsu.DIGITAL,
-        denshiApproved: DenshiShoninStatus.APPROVED,
-      },
-    );
+    this.applyShubetsuScope(qb, query.report_type);
 
     if (query.dokusya_shubetsu != null) {
       qb.andWhere('r.dokusya_shubetsu = :shubetsu', {
@@ -318,6 +311,22 @@ export class MeiboReportService {
       qb.andWhere('r.kanri_shiten_id IN (:...kanri_shiten_ids)', {
         kanri_shiten_ids: query.kanri_shiten_ids,
       });
+      // [shiten-filter] 配達担当支店で更に絞る（任意条件）。管理支店別のみ —
+      // 販売店別は帳票に支店列が無く、絞ったのに理由が紙面から読み取れないため
+      // 対象外（画面でも入力欄を出さない）。`r.shiten_id` は行に持っているので
+      // 追加 JOIN は不要。
+      //
+      // 未選択（空配列/未指定）＝ 絞り込まない。shiten_id は NULL 許容
+      // （購読者登録で任意・電子版連携は常に NULL）なので、条件を付けると
+      // `NULL IN (...)` が UNKNOWN になり支店未設定の購読者が黙って落ちる。
+      // 一時期この条件を必須にしていたが、それだと電子版と支店未設定の紙版が
+      // どう操作しても名簿に出せなくなるため任意へ戻した（顧客要件 2026-08 改訂）。
+      // 選択時は従来どおり指定支店のみに絞る（＝支店未設定は対象外）。
+      if (query.shiten_ids != null && query.shiten_ids.length > 0) {
+        qb.andWhere('r.shiten_id IN (:...shiten_ids)', {
+          shiten_ids: query.shiten_ids,
+        });
+      }
     }
     if (query.shiharai_hoho != null) {
       // 支払方法（m_code SHIHARAI_HOHO）で絞込。旧支払区分（dokusyaryo_shiharai_cycle）から変更。
@@ -804,4 +813,51 @@ export class MeiboReportService {
     const [y, m] = tekiyoDate.split('-');
     return `meibo_${reportType}_${y}${m}.xlsx`;
   }
+
+  /**
+   * 帳票種別ごとの集計対象（購読種別）— 顧客要件 2026-08。
+   *
+   * 販売店別: **紙版のみ**。併読・電子版（有料/無料とも）は対象外。ダミー販売店に
+   *   紐づく電子版読者が販売店別の集計に混ざらないよう、種別で明示的に閉じる
+   *   （画面でもダミーを選択肢から外している）。
+   *
+   * 管理支店別: **紙版 + 併読(有料) + 電子版(有料・承認済)**。無料(0)は電子版・
+   *   併読とも対象外。顧客回答 2026-08 — 有料判定は denshi_dokusya_shubetsu = 1、
+   *   電子版には承認済条件も必要。
+   */
+  private applyShubetsuScope(
+    qb: SelectQueryBuilder<DokusyaRireki>,
+    reportType: 'hanbaiten' | 'kanri_shiten',
+  ): void {
+    if (reportType === 'hanbaiten') {
+      qb.andWhere('r.dokusya_shubetsu = :paperShubetsu', {
+        paperShubetsu: DokusyaShubetsu.PAPER,
+      });
+      return;
+    }
+    // 管理支店別: 紙版 + 併読(有料) + 電子版(有料・承認済)。
+    //
+    // 有料判定は `denshi_dokusya_shubetsu = 1`（顧客回答 2026-08）。この列は電子版・
+    // 併読なら値を持ち、NULL になるのは紙版だけ、という前提。無料(0)は電子版・併読
+    // とも集計対象外。
+    //
+    // 電子版のみ承認済(denshi_shonin_status=1)も条件に加える（顧客回答）。併読には
+    // 承認済条件を課さない — 要件で言及が無いため文面どおりにしている。
+    qb.andWhere(
+      `(r.dokusya_shubetsu = :paperShubetsu
+        OR (r.dokusya_shubetsu = :heiyoShubetsu
+            AND r.denshi_dokusya_shubetsu = :denshiYuryo)
+        OR (r.dokusya_shubetsu = :denshiShubetsu
+            AND r.denshi_shonin_status = :denshiApproved
+            AND r.denshi_dokusya_shubetsu = :denshiYuryo))`,
+      {
+        paperShubetsu: DokusyaShubetsu.PAPER,
+        heiyoShubetsu: DokusyaShubetsu.BOTH,
+        denshiShubetsu: DokusyaShubetsu.DIGITAL,
+        denshiApproved: DenshiShoninStatus.APPROVED,
+        denshiYuryo: DENSHI_DOKUSYA_SHUBETSU_YURYO,
+      },
+    );
+  }
+
 }

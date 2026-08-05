@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/07/11 | 1.1  | VTI Japan | プレビュー→金額編集→ファイル作成の2ステップ化。API-020-003（preview）追加。API-020-002 に rows（編集金額）追加＋スコープ再集計の注記。JASTEM は readonly（マスタ書き戻し撤廃）。ダウンロード名 ZENOUTFD（拡張子なし）。 | | |
 | 3   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 実装との整合更新：§4.5 の m_ja/m_shiten 書き戻しSQLを撤廃（readonly 反映）、手順を 4.5 t_koza_furikae→4.6 t_file_download→4.7 ログ→4.8 応答→4.9 例外 に再採番。全銀種別を 21→**91**（預金口座振替・固定長120バイト）に修正。応答 Content-Type を text/plain・固定名 ZENOUTFD に統一。集計SQLに shiten_name_kana 追加。t_file_download に scheduled_delete_date / nichino_download_allowed_flg 反映。 | | |
 | 4   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用）反映：集計SQLの単価有効判定を **`active_flg = TRUE` のみ**に変更し、適用期間の日付判定（tekiyo_start/end vs target_month）を撤廃（日付↔active_flg の整合は 0:05 の失効バッチが担保）。出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する購読者が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（errors[]＝該当購読者）で出力を止める。エラー一覧 #9 追加。 | | |
+| 5  | 2026/08/05 | 1.2 | Tran Duc Tuyen | 顧客要件 2026-08（#56600）：集計対象を**紙版(1)と電子版(2)のみ**に限定。電子版は**承認済（denshi_shonin_status = 1）かつ有料（denshi_dokusya_shubetsu = 1）**に限る（未承認・無料は購読料が発生せず引き落とす対象が無いため）。**併読(3)は対象外**。従来は購読種別で一切絞っておらず、併読も無料の電子版も口座引落の対象になり得た。集計SQLと失効単価チェックSQLの双方に条件を追加する — 片方だけだと「引落対象ではない購読者が参照する失効単価でエラーになり出力できない」という不整合が起きるため。 | | |
 
 ## システム概要
 
@@ -462,6 +463,11 @@ SELECT d.dokusya_id,
  WHERE d.deleted_at IS NULL
    AND d.shiharai_hoho = 1
    AND d.tetsuzuki_shurui = 1
+   -- 集計対象は紙版(1)と電子版(2)のみ。電子版は承認済かつ有料に限る（#56600）
+   AND ( d.dokusya_shubetsu = 1
+      OR (d.dokusya_shubetsu = 2
+          AND d.denshi_shonin_status = 1
+          AND d.denshi_dokusya_shubetsu = 1) )
    AND d.dokusya_kaishi_date <= :target_month
    AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :target_month)
    AND d.ja_id = :user_ja_id
@@ -512,6 +518,11 @@ SELECT d.dokusya_id,
  WHERE d.deleted_at IS NULL
    AND d.shiharai_hoho = 1
    AND d.tetsuzuki_shurui = 1
+   -- 集計対象は紙版(1)と電子版(2)のみ。電子版は承認済かつ有料に限る（#56600）
+   AND ( d.dokusya_shubetsu = 1
+      OR (d.dokusya_shubetsu = 2
+          AND d.denshi_shonin_status = 1
+          AND d.denshi_dokusya_shubetsu = 1) )
    AND d.dokusya_kaishi_date <= :target_month
    AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :target_month)
    /* DataScope */

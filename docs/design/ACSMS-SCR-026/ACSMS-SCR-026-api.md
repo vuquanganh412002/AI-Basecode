@@ -19,6 +19,8 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/06/05 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書（画面項目No.5「併読は除外」）に合わせ購読種別フィルタを修正：dokusya_shubetsu は 1/2 のみ許可、併読(3)は常に除外（リクエストパラメータ・4.1/4.3/4.4 SQL） | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3  | 2026/08/05 | 1.2  | Tran Duc Tuyen | 顧客要件 2026-08 改訂：管理支店別購読者名簿の「支店」を**必須から任意へ戻す**（未選択＝管理支店配下すべて）。必須にしていた間、`t_dokusya_rireki.shiten_id` が NULL の購読者——電子版連携は常に NULL、紙版も購読者登録で支店は任意——が `shiten_id IN (...)` の NULL 比較で常に対象外となり、支店を全選択しても名簿へ出力できなかった（全選択は実在する支店IDを列挙するだけで NULL は拾えない）。未選択時は支店条件を付けず、支店未設定の購読者も含めて出力する。支店を選択した場合の挙動は従来どおり（指定支店のみ＝支店未設定は対象外）。ACSMS-MSG-026-007 は不要となり削除。 | | |
+| 4 | 2026/08/05 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-08（#56597）：①出力条件の「販売店」候補から**電子版ダミー販売店**（hanbaiten_code=9999999999）を除外。ダミーは電子版読者を紐づける受け皿であり実在の販売店ではないため、選んでも結果は0件になる。②**集計対象（購読種別）を帳票種別ごとに分離**した。従来は両種別で「併読を除外し電子版は承認済のみ」という共通条件だったため、販売店別に電子版が混ざり、管理支店別からは対象にすべき併読が落ちていた。<br>・販売店別＝紙版のみ（併読・電子版は有料/無料とも対象外）<br>・管理支店別＝紙版（無条件）＋併読（有料）＋電子版（有料かつ承認済）。無料（`denshi_dokusya_shubetsu = 0`）は併読・電子版とも対象外<br>※確認事項の回答：管理支店別に販売店の絞り込み欄は追加しない／電子版（有料）にも承認済（`denshi_shonin_status = 1`）条件は必要／併読の部数は入力値のまま扱う（1に丸めない）／`denshi_dokusya_shubetsu` は電子版・併読なら必ず値を持ち NULL は紙版のみ | | |
 
 ## システム概要
 
@@ -91,8 +93,9 @@ updated_by: Tran Duc Tuyen
 | 2   | report_type     | String   | -        | 〇   |        |        | 帳票種別。`hanbaiten`: 販売店別購読者名簿（照会用、デフォルト）／`kanri_shiten`: 管理支店別購読者名簿                                                  |
 | 3   | hanbaiten_ids   | Number[] | 〇       | △    |        |        | 販売店ID（複数選択可）。`report_type=hanbaiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-002                                                      |
 | 4   | kanri_shiten_ids| Number[] | 〇       | △    |        |        | 管理支店ID（複数選択可）。`report_type=kanri_shiten` のとき必須（1件以上）。未選択時 ACSMS-MSG-026-003                                                 |
-| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外（画面項目No.5「併読は除外」） |
-| 6   | shiharai_hoho   | Number   | -        | -    |        |        | 支払方法（m_code SHIHARAI_HOHO: 1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）。`t_dokusya_rireki.shiharai_hoho` で絞込み。両帳票種別で有効（画面項目No.6 常時表示）。未指定の場合すべて出力。旧 `shiharai_cycle`（支払サイクル）から変更 |
+| 5   | shiten_ids      | Number[] | 〇       | -    |        |        | 支店ID（配達担当支店・複数選択可）。**任意**（顧客要件2026-08 改訂。一時期必須だったが、支店未設定の購読者が出力できなくなるため戻した）。未指定・空配列なら絞り込まない（＝支店未設定の購読者も出力対象）。指定時は選択した管理支店配下をさらに絞る（`t_dokusya_rireki.shiten_id` が指定値のいずれかに一致）。`report_type=hanbaiten` では帳票に支店列が無いため無視する。画面の候補は金融機関支店以外（`kinyu_shiten_flg=FALSE`）のみ。※**指定した場合のみ**、支店未設定（shiten_id が NULL）の購読者は対象外になる（`NULL IN (...)` は成立しないため）。電子版連携の購読者は常に shiten_id=NULL |
+| 6   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外（画面項目No.6「併読は除外」） |
+| 7   | shiharai_hoho   | Number   | -        | -    |        |        | 支払方法（m_code SHIHARAI_HOHO: 1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）。`t_dokusya_rireki.shiharai_hoho` で絞込み。両帳票種別で有効（画面項目No.7 常時表示）。未指定の場合すべて出力。旧 `shiharai_cycle`（支払サイクル）から変更 |
 
 ## レスポンスデータ
 
@@ -281,7 +284,8 @@ GET /api/v1/report/meibo/preview?tekiyo_date=2026-04-01&report_type=hanbaiten&ha
   - report_type = `hanbaiten` の場合：hanbaiten_ids が1件以上必須。未選択の場合：`{ field: "hanbaiten_ids", message: "販売店を1件以上選択してください。" }`（ACSMS-MSG-026-002）
   - report_type = `kanri_shiten` の場合：kanri_shiten_ids が1件以上必須。未選択の場合：`{ field: "kanri_shiten_ids", message: "管理支店を1件以上選択してください。" }`（ACSMS-MSG-026-003）
   - dokusya_shubetsu：指定時は 1（紙版）または 2（電子版）のみ許可（CodeService で検証）。併読(3)は本帳票では選択不可
-  - shiharai_cycle：指定時は数値（月数）
+  - shiten_ids：任意。未指定・空配列なら絞り込まない（支店未設定の購読者も対象）。`report_type=hanbaiten` では無視する
+  - shiharai_hoho：任意。指定時は整数（m_code SHIHARAI_HOHO）※旧記載の `shiharai_cycle` は実装に存在しない誤記のため訂正
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 
 ### 4.2 認証・認可チェック
@@ -301,11 +305,19 @@ GET /api/v1/report/meibo/preview?tekiyo_date=2026-04-01&report_type=hanbaiten&ha
 - 各 dokusya_id について `joho_henko_tekiyo_date <= :tekiyo_date` を満たす最大 rireki_no（適用日時点の最新スナップショット）を対象とする。
 - 抽出条件：
   - `tetsuzuki_shurui = 1`（新規）のみ。解約（`tetsuzuki_shurui = 0`）は除外
-  - 併読（`dokusya_shubetsu = 3`）は常に除外（画面項目No.5「併読は除外」）。未指定時は紙版(1)＋電子版(2)の両方を出力
+  - **集計対象（購読種別）は帳票種別ごとに異なる（顧客要件 2026-08）**:
+    - `hanbaiten`（販売店別）: `dokusya_shubetsu = 1`（紙版のみ）。併読・電子版は有料/無料とも対象外
+    - `kanri_shiten`（管理支店別）: 紙版(1) は無条件で対象。併読(3) は
+      `denshi_dokusya_shubetsu = 1`（有料）のみ対象。電子版(2) は
+      `denshi_dokusya_shubetsu = 1`（有料）かつ `denshi_shonin_status = 1`（承認済）
+      のみ対象。無料（`denshi_dokusya_shubetsu = 0`）は併読・電子版とも対象外
+    - `denshi_dokusya_shubetsu` は電子版・併読なら値を持ち、NULL になるのは紙版のみ
+      という前提（顧客確認 2026-08）
   - dokusya_shubetsu 指定時は該当値（1 または 2）で絞込み
   - report_type = `hanbaiten`: `hanbaiten_id IN (:hanbaiten_ids)`
   - report_type = `kanri_shiten`: `kanri_shiten_id IN (:kanri_shiten_ids)`
-  - shiharai_cycle 指定時は `dokusyaryo_shiharai_cycle = :shiharai_cycle`（両帳票種別で適用）
+  - report_type = `kanri_shiten` かつ shiten_ids 指定時は `shiten_id IN (:shiten_ids)` を追加（配達担当支店で絞込み）。空配列・未指定なら絞らない。`hanbaiten` では適用しない
+  - shiharai_hoho 指定時は `shiharai_hoho = :shiharai_hoho`（両帳票種別で適用）※旧記載の `dokusyaryo_shiharai_cycle` は実装に存在しない誤記のため訂正
   - DataScope 条件を付与
 
 ### 4.4 データ取得
@@ -352,8 +364,11 @@ WHERE l.rn = 1
   AND (:hanbaiten_ids IS NULL OR l.hanbaiten_id = ANY(:hanbaiten_ids))
   /* report_type = kanri_shiten */
   AND (:kanri_shiten_ids IS NULL OR l.kanri_shiten_id = ANY(:kanri_shiten_ids))
-  /* 支払区分（購読料支払サイクル）— 両帳票種別で適用 */
-  AND (:shiharai_cycle IS NULL OR l.dokusyaryo_shiharai_cycle = :shiharai_cycle)
+  /* 支店（配達担当支店）— 管理支店別のみ・任意。shiten_id は NULL 許容のため、
+     指定すると支店未設定の購読者は対象外になる */
+  AND (:shiten_ids IS NULL OR l.shiten_id = ANY(:shiten_ids))
+  /* 支払方法（m_code SHIHARAI_HOHO）— 両帳票種別で適用 */
+  AND (:shiharai_hoho IS NULL OR l.shiharai_hoho = :shiharai_hoho)
   /* DataScope: JA_KANRI_SHITEN */
   AND (:user_kanri_shiten_id IS NULL OR l.kanri_shiten_id = :user_kanri_shiten_id)
 ORDER BY
@@ -403,8 +418,9 @@ ACSMS-API-026-001（Preview）と同一。
 | 2   | report_type     | String   | -        | 〇   |        |        | 帳票種別（`hanbaiten` / `kanri_shiten`）                                                                     |
 | 3   | hanbaiten_ids   | Number[] | 〇       | △    |        |        | 販売店ID（複数選択可）。`report_type=hanbaiten` のとき必須                                                    |
 | 4   | kanri_shiten_ids| Number[] | 〇       | △    |        |        | 管理支店ID（複数選択可）。`report_type=kanri_shiten` のとき必須                                               |
-| 5   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外 |
-| 6   | shiharai_cycle  | Number   | -        | -    |        |        | 購読料支払サイクル（月数）。両帳票種別で有効                                                                  |
+| 5   | shiten_ids      | Number[] | 〇       | -    |        |        | 支店ID（配達担当支店・複数選択可）。**任意**（顧客要件2026-08 改訂。一時期必須だったが、支店未設定の購読者が出力できなくなるため戻した）。未指定・空配列なら絞り込まない（＝支店未設定の購読者も出力対象）。指定時は選択した管理支店配下をさらに絞る（`t_dokusya_rireki.shiten_id` が指定値のいずれかに一致）。`report_type=hanbaiten` では帳票に支店列が無いため無視する。画面の候補は金融機関支店以外（`kinyu_shiten_flg=FALSE`）のみ。※**指定した場合のみ**、支店未設定（shiten_id が NULL）の購読者は対象外になる（`NULL IN (...)` は成立しないため）。電子版連携の購読者は常に shiten_id=NULL |
+| 6   | dokusya_shubetsu| Number   | -        | -    |        |        | 購読種別フィルタ ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版）。未指定時は紙版＋電子版（両方）を出力。併読(3)は本帳票では常に除外 |
+| 7   | shiharai_hoho   | Number   | -        | -    |        |        | 支払方法（m_code SHIHARAI_HOHO）。両帳票種別で有効。※旧記載の `shiharai_cycle`（支払サイクル）は実装に存在しない誤記のため訂正 |
 
 ## レスポンスデータ
 

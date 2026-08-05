@@ -18,6 +18,7 @@ updated_by: Nguyen Duyen Manh
 | No  | 発行日     | 版数 | 担当者         | 変更内容 | 確認者         | 承認者         |
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/20 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2  | 2026/08/05 | 1.1 | Tran Duc Tuyen | 顧客要件 2026-08：ログ保持期間が 1年 → **5年** に延びたため、ログ参照の検索期間上限も5年へ変更（ACSMS-MSG-030-002 の文言も「5年以内」へ）。判定はミリ秒定数ではなく暦で加算する（365日×5 だとうるう年ぶん2日足りず、ちょうど5年の指定が弾かれるため）。あわせて **期間（開始）・期間（終了）とも未来日時を指定できない** ようにした（ACSMS-MSG-030-007 / 030-008 を新設）。未来にログは存在せず 0件が返るだけで、条件の誤りに気付けないため。画面はカレンダー側でも未来日を選択不可にするが、時刻部分は手入力でき API 直叩きもあるのでサーバでも弾く。 エラーコードは範囲超過が `DATE_RANGE_TOO_LONG`、未来日時が **`DATE_RANGE_FUTURE`**（いずれも HTTP 400）。 | | |
 
 ## システム概要
 
@@ -55,7 +56,8 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | DATE_RANGE_INVALID    | 「開始日」は「終了日」以前の日付を入力してください。                   | HTTP 400 |
-| 9   | 画面固有     | DATE_RANGE_TOO_LONG   | 検索期間は1年以内で指定してください。                                  | HTTP 400 |
+| 9   | 画面固有     | DATE_RANGE_TOO_LONG   | 検索期間は5年以内で指定してください。                                  | HTTP 400 |
+| 10  | 画面固有     | DATE_RANGE_FUTURE     | 「開始日」／「終了日」に未来の日時は指定できません。（原因の欄名を文言に含む） | HTTP 400 |
 
 ---
 
@@ -219,7 +221,12 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
 - クエリパラメータの検証：
   - date_from / date_to：有効な日時形式（YYYY/MM/DD HH:mm:ss）
   - date_from > date_to の場合：HTTP 400 (`DATE_RANGE_INVALID`)
-  - date_to - date_from > 365日 の場合：HTTP 400 (`DATE_RANGE_TOO_LONG`)
+  - date_to - date_from > 5年 の場合：HTTP 400 (`DATE_RANGE_TOO_LONG`)。判定は暦で
+    5年加算（うるう年ぶんで丁度5年が弾かれないように、ミリ秒定数比較にしない）
+  - date_from / date_to が現在日時より後の場合：HTTP 400 (`DATE_RANGE_FUTURE`)。
+    どちらか一方のみの指定でも判定する（両方揃っているかの確認より前に実施）。
+    メッセージには原因の欄名を含める（開始日→ACSMS-MSG-030-008 /
+    終了日→ACSMS-MSG-030-007）
   - log_type：1〜4 または未指定
   - account_id：数値型
   - page：1以上
@@ -422,7 +429,12 @@ GET /api/v1/log/export?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:5
 - クエリパラメータの検証：
   - date_from / date_to：有効な日時形式（YYYY/MM/DD HH:mm:ss）
   - date_from > date_to の場合：HTTP 400 (`DATE_RANGE_INVALID`)
-  - date_to - date_from > 365日 の場合：HTTP 400 (`DATE_RANGE_TOO_LONG`)
+  - date_to - date_from > 5年 の場合：HTTP 400 (`DATE_RANGE_TOO_LONG`)。判定は暦で
+    5年加算（うるう年ぶんで丁度5年が弾かれないように、ミリ秒定数比較にしない）
+  - date_from / date_to が現在日時より後の場合：HTTP 400 (`DATE_RANGE_FUTURE`)。
+    どちらか一方のみの指定でも判定する（両方揃っているかの確認より前に実施）。
+    メッセージには原因の欄名を含める（開始日→ACSMS-MSG-030-008 /
+    終了日→ACSMS-MSG-030-007）
   - log_type：1〜4 または未指定
   - account_id：数値型
 - 不正なパラメータの場合：HTTP 400 (`BAD_REQUEST`) または HTTP 400 (`VALIDATION_ERROR`)

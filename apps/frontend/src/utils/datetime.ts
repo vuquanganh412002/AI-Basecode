@@ -79,6 +79,18 @@ export function isTodayOrPastDayTokyo(current: Dayjs | null): boolean {
   return current.format('YYYY-MM-DD') <= todayIsoTokyo();
 }
 
+/**
+ * a-date-picker の `:disabled-date` 用。「本日 (Asia/Tokyo) より後の暦日」を無効化
+ * する（本日 + 過去日のみ選択可）。
+ *
+ * ログ参照の検索終了日など「未来を指定しても結果が存在し得ない」条件に使う。
+ * {@link isPastDayTokyo} と対の関係で、判定基準（JST の暦日を文字列比較）も同じ。
+ */
+export function isFutureDayTokyo(current: Dayjs | null): boolean {
+  if (!current) return false;
+  return current.format('YYYY-MM-DD') > todayIsoTokyo();
+}
+
 /** 翌日 (Asia/Tokyo) の YYYY-MM-DD。「未来日のみ許可」フィールドの既定値に使う。 */
 export function tomorrowIsoTokyo(): string {
   return todayStartTokyo().add(1, 'day').format('YYYY-MM-DD');

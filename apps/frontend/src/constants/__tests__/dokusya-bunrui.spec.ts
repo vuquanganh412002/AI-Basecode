@@ -1,40 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
+import { DokusyasoBunrui, NogyosyaBunrui } from '@/constants/enums';
 import {
-  DOKUSYASO_BUNRUI_OPTIONS,
-  DokusyaSoBunrui,
-  NOGYOSYA_BUNRUI_OPTIONS,
-  NogyosyaBunrui,
-  dokusyaSoBunruiLabel,
-  nogyosyaBunruiLabel,
+  DOKUSYASO_BUNRUI_NOGYOSYA,
+  bunruiCsvToLabel,
   splitBunruiCsv,
 } from '@/constants/dokusya-bunrui';
 
-describe('dokusya-bunrui constants', () => {
-  it('should expose 電子版 profession codes as the option values (not labels)', () => {
-    expect(DOKUSYASO_BUNRUI_OPTIONS.map((o) => o.value)).toEqual([
-      '0',
-      '2',
-      '999',
-      '1',
-      '3',
-    ]);
-    expect(DOKUSYASO_BUNRUI_OPTIONS[0]).toEqual({ value: '0', label: '農業者' });
-    expect(DokusyaSoBunrui.NOGYOSYA).toBe('0');
-  });
-
-  it('should expose 電子版 products codes as the option values (酪農 は画面選択不可)', () => {
-    expect(NOGYOSYA_BUNRUI_OPTIONS.map((o) => o.value)).toEqual([
-      '0',
-      '1',
-      '2',
-      '3',
-      '4',
-      '999',
-    ]);
-    expect(NOGYOSYA_BUNRUI_OPTIONS.map((o) => o.value)).not.toContain(
-      NogyosyaBunrui.RAKUNO,
-    );
+/**
+ * コード値の出所は enum、ラベルの出所は m_code（`useCodesStore`）。
+ * このファイルは「両者をつなぐ CSV 処理」だけを見る。選択肢の中身や
+ * ラベル文字列そのものは m_code 側の責務なのでここでは検証しない。
+ */
+describe('dokusya-bunrui CSV helpers', () => {
+  it('should derive 農業者 sentinel from the enum, as a string (column is CSV VARCHAR)', () => {
+    expect(DOKUSYASO_BUNRUI_NOGYOSYA).toBe(String(DokusyasoBunrui.NOGYOSYA));
+    expect(typeof DOKUSYASO_BUNRUI_NOGYOSYA).toBe('string');
   });
 
   describe('splitBunruiCsv', () => {
@@ -49,20 +30,25 @@ describe('dokusya-bunrui constants', () => {
     });
   });
 
-  describe('label helpers', () => {
-    it('should render 読者属性 codes as Japanese labels', () => {
-      expect(dokusyaSoBunruiLabel('0')).toBe('農業者');
-      expect(dokusyaSoBunruiLabel('0,3')).toBe('農業者、学生');
-      expect(dokusyaSoBunruiLabel('')).toBe('');
-    });
+  describe('bunruiCsvToLabel', () => {
+    // m_code の代役。実行時は useCodesStore().label(category, code)。
+    const resolve = (table: Record<string, string>) => (c: string) =>
+      table[c] ?? '';
 
-    it('should render 主な生産物 codes as Japanese labels (酪農 を含む)', () => {
-      expect(nogyosyaBunruiLabel('0,5')).toBe('米、酪農');
+    it('should join resolved labels with 、', () => {
+      const r = resolve({
+        [String(DokusyasoBunrui.NOGYOSYA)]: '農業者',
+        [String(DokusyasoBunrui.GAKUSEI)]: '学生',
+      });
+      expect(bunruiCsvToLabel('0', r)).toBe('農業者');
+      expect(bunruiCsvToLabel('0,3', r)).toBe('農業者、学生');
+      expect(bunruiCsvToLabel('', r)).toBe('');
     });
 
     it('should keep unknown codes verbatim so 電子版側の新コードを落とさない', () => {
-      expect(dokusyaSoBunruiLabel('0,7')).toBe('農業者、7');
-      expect(nogyosyaBunruiLabel('9')).toBe('9');
+      const r = resolve({ [String(NogyosyaBunrui.KOME)]: '米' });
+      expect(bunruiCsvToLabel('0,7', r)).toBe('米、7');
+      expect(bunruiCsvToLabel('9', r)).toBe('9');
     });
   });
 });

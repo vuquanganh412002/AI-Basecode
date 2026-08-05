@@ -230,11 +230,47 @@ export class DokusyaRireki {
   })
   hikiotoshiKozaMeigi: string;
 
+  /**
+   * 購読者層分類（単一選択）。m_code.code_category='DOKUSYASO_BUNRUI'。
+   * 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。※空文字許容
+   */
   @Column({ name: 'dokusyaso_bunrui', type: 'varchar', length: 50, default: '' })
   dokusyasoBunrui: string;
 
+  /**
+   * かつJAグループ役職員フラグ。購読者層分類＝農業者のときのみ TRUE を設定可。
+   * 電子版読者管理システムの `users.profession_and_ja`（0/1）を連携。
+   */
+  @Column({ name: 'ja_yakushokuin_flg', type: 'boolean', default: false })
+  jaYakushokuinFlg: boolean;
+
+  /**
+   * 農業関係フラグ。購読者層分類＝企業・団体のときのみ TRUE を設定可。
+   * 電子版読者管理システムの `users.profession_and_agri`（0/1）を連携。
+   */
+  @Column({ name: 'nogyo_kankei_flg', type: 'boolean', default: false })
+  nogyoKankeiFlg: boolean;
+
+  /**
+   * 購読者層分類その他（自由記述）。購読者層分類＝その他のときのみ入力可。
+   * 電子版読者管理システムの `users.others_profession`（255文字以下）を連携。※空文字許容
+   */
+  @Column({ name: 'dokusyaso_bunrui_sonota', type: 'varchar', length: 255, default: '' })
+  dokusyasoBunruiSonota: string;
+
+  /**
+   * 農業者分類（複数カンマ区切り）。m_code.code_category='NOGYOSYA_BUNRUI'。
+   * 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。※空文字許容
+   */
   @Column({ name: 'nogyosya_bunrui', type: 'varchar', length: 50, default: '' })
   nogyosyaBunrui: string;
+
+  /**
+   * 農業者分類その他（自由記述）。農業者分類に「その他」を含むときのみ入力可。
+   * 電子版読者管理システムの `users.others_products`（255文字以下）を連携。※空文字許容
+   */
+  @Column({ name: 'nogyosya_bunrui_sonota', type: 'varchar', length: 255, default: '' })
+  nogyosyaBunruiSonota: string;
 
   @Column({
     name: 'shoki_dokusya_kaishi_date',

@@ -56,9 +56,9 @@ export class DokusyaResponseDto {
   @ApiProperty() haitatsu_shimei_mei: string;
   @ApiProperty() haitatsu_shimei_kana_sei: string;
   @ApiProperty() haitatsu_shimei_kana_mei: string;
-  @ApiProperty() hanbaiten_id: number;
+  @ApiProperty({ nullable: true }) hanbaiten_id: number | null;
   @ApiProperty() hanbaiten_name: string;
-  @ApiProperty() tanka_id: number;
+  @ApiProperty({ nullable: true }) tanka_id: number | null;
   @ApiProperty() tanka_name: string;
   @ApiProperty() yubin_kubun: string;
   @ApiProperty() shiharai_hoho: number;
@@ -72,7 +72,11 @@ export class DokusyaResponseDto {
   @ApiProperty() hikiotoshi_koza_no: string;
   @ApiProperty() hikiotoshi_koza_meigi: string;
   @ApiProperty() dokusyaso_bunrui: string;
+  @ApiProperty() ja_yakushokuin_flg: boolean;
+  @ApiProperty() nogyo_kankei_flg: boolean;
+  @ApiProperty() dokusyaso_bunrui_sonota: string;
   @ApiProperty() nogyosya_bunrui: string;
+  @ApiProperty() nogyosya_bunrui_sonota: string;
   @ApiProperty() shoki_dokusya_kaishi_date: string;
   @ApiProperty() dokusya_kaishi_date: string;
   @ApiProperty({ nullable: true }) dokusya_chushi_date: string | null;

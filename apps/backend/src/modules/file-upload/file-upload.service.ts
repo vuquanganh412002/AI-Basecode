@@ -6,6 +6,7 @@ import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import {
   AuditOperation,
+  DownloadType,
   LogType,
   ResultStatus,
   RoleCode,
@@ -30,6 +31,7 @@ import {
   contentTypeFor,
   type DownloadResult,
 } from '@/common/utils/file-delivery';
+import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -63,6 +65,22 @@ const TABLE_NAME = 't_file_upload';
 const PREVIEW_TTL_SECONDS = 3600;
 /** 削除予定日の既定オフセット（アップロード日 + N 日）。FE が値を省略した時のみ適用。 */
 const DEFAULT_RETENTION_DAYS = 180;
+/** ペア登録する `t_file_download` の表名（監査ログ・ログ出力用）。 */
+const DOWNLOAD_TABLE_NAME = 't_file_download';
+/**
+ * アップロードされたファイルは帳票ではないので出力種別は「その他」で登録する
+ * （`m_code.DOWNLOAD_TYPE` に「アップロード」区分は無い）。
+ */
+const UPLOAD_DOWNLOAD_TYPE = DownloadType.OTHER;
+/**
+ * ペア行の `nichino_download_allowed_flg`。アップロードは日農↔JA 間の受け渡しが
+ * 目的で、日農・中央会が自分で上げたファイルを取り直せないと運用が回らないため
+ * 常に true（顧客要件 2026-08）。帳票出力(SCR-021/026/028/029)は画面ごとに
+ * 固定 or 選択なので、この既定は本画面限定。
+ */
+const UPLOAD_NICHINO_DOWNLOAD_ALLOWED = true;
+/** ペア行の `record_count`（NOT NULL）。アップロードは明細を持たないので 0。 */
+const UPLOAD_RECORD_COUNT = 0;
 
 /**
  * SCR-023 ファイル形式チェック（顧客レビュー 2026-05）。
@@ -455,6 +473,37 @@ export class FileUploadService {
           });
           savedRows.push(saved);
 
+          // [download-pair] ダウンロード画面(SCR-022)は t_file_download しか見ない
+          // ため、同じ S3 オブジェクトを指す行をここで登録する。これが無いと
+          // アップロードしたファイルを JA 側(role 3/4/5)が取得できない
+          // （顧客要件 2026-08）。同一 tx なので t_file_upload だけ残る片落ちは
+          // 起きない。ja_id は選択された JA なので SCR-022 の DataScope
+          // （JA ロールは自 JA 行のみ）にそのまま乗る。
+          const download = manager.create(FileDownload, {
+            jaId,
+            downloadDatetime: now,
+            downloadType: UPLOAD_DOWNLOAD_TYPE,
+            // t_file_upload と同じ削除予定日にする。別々にすると片方だけ
+            // 消えて「一覧に出るのに実体が無い」行が生まれる。
+            scheduledDeleteDate: deleteDate,
+            nichinoDownloadAllowedFlg: UPLOAD_NICHINO_DOWNLOAD_ALLOWED,
+            fileName: file.originalname,
+            // file_path は upload 側と同一キー。remove() のペア解決もこの値で
+            // 行う（キーに randomUUID を含むので衝突しない）。
+            filePath,
+            fileSize: file.size,
+            recordCount: UPLOAD_RECORD_COUNT,
+            targetMonth: null,
+            createdBy: String(session.account_id),
+          });
+          const savedDownload = await manager.save(FileDownload, download);
+          this.logger.log({
+            event: 'file_upload.download_pair.insert.ok',
+            file_upload_id: Number(saved.fileUploadId),
+            file_download_id: Number(savedDownload.fileDownloadId),
+            ja_id: jaId,
+          });
+
           await this.auditLog.logOperation(
             {
               logType: LogType.FILE_OPERATION,
@@ -468,6 +517,8 @@ export class FileUploadService {
               beforeValue: '',
               afterValue: JSON.stringify({
                 file_upload_id: Number(saved.fileUploadId),
+                // ペアで作った t_file_download 行。削除時の追跡用。
+                file_download_id: Number(savedDownload.fileDownloadId),
                 ja_id: jaId,
                 file_name: file.originalname,
                 file_path: filePath,
@@ -635,9 +686,18 @@ export class FileUploadService {
     let committed = false;
     try {
       await this.dataSource.transaction(async (manager) => {
-        await manager.update(FileUpload, before.fileUploadId, {
-          deletedAt: new Date(),
-        });
+        const deletedAt = new Date();
+        await manager.update(FileUpload, before.fileUploadId, { deletedAt });
+        // [download-pair] upload 時に登録したダウンロード行も同時に落とす。
+        // 下の [4.6] で S3 実体を消すので、残すと SCR-022 の一覧に出るのに
+        // 押すと storage 404 になる行が生まれる。突合は file_path — キーに
+        // randomUUID を含むため一意で、FK 列の追加(マイグレーション + 既存
+        // 帳票行への影響)を伴わずにペアを解決できる。
+        await manager.update(
+          FileDownload,
+          { filePath: before.filePath, deletedAt: IsNull() },
+          { deletedAt },
+        );
         await this.auditLog.logOperation(
           {
             logType: LogType.FILE_OPERATION,

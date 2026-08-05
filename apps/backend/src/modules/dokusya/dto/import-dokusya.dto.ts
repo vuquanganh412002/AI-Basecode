@@ -389,12 +389,48 @@ export class ImportDokusyaRowDto {
   @MaxLength(50, { message: '購読者層分類は50文字以内で入力してください。' })
   dokusyaso_bunrui?: string;
 
+  // 従属 4 項目（顧客DB設計 2026-08）。電子版・併読の読者だけが値を持てる
+  // （電子版 users.profession_and_* / others_* との連携用で、紙版には送り先が
+  // 無い）。親の分類が条件コードを含まない組合せは service 側で落とす —
+  // 画面登録（SCR-011）と同じ buildBunruiPayload を通す。
+  @ApiPropertyOptional({ description: 'かつJAグループ役職員（購読者層分類=農業者のときのみ）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsBoolean({
+    message: 'かつJAグループ役職員は TRUE / FALSE で入力してください。',
+  })
+  ja_yakushokuin_flg?: boolean;
+
+  @ApiPropertyOptional({ description: '農業関係（購読者層分類=企業・団体のときのみ）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsBoolean({ message: '農業関係は TRUE / FALSE で入力してください。' })
+  nogyo_kankei_flg?: boolean;
+
+  @ApiPropertyOptional({ description: '読者属性（その他の内容）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString()
+  @MaxLength(255, {
+    message: '読者属性（その他の内容）は255文字以内で入力してください。',
+  })
+  dokusyaso_bunrui_sonota?: string;
+
   @ApiPropertyOptional({ description: '農業者分類' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
   @MaxLength(50, { message: '農業者分類は50文字以内で入力してください。' })
   nogyosya_bunrui?: string;
+
+  @ApiPropertyOptional({ description: '主な生産物（その他の内容）' })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString()
+  @MaxLength(255, {
+    message: '主な生産物（その他の内容）は255文字以内で入力してください。',
+  })
+  nogyosya_bunrui_sonota?: string;
 
   @ApiPropertyOptional({ description: '購読開始日（YYYY-MM-DD）' })
   @Transform(blankToUndef)

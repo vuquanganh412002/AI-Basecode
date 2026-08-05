@@ -1,78 +1,26 @@
 /**
- * 読者属性 (dokusyaso_bunrui) / 主な生産物 (nogyosya_bunrui) のコード定義。
+ * 読者属性 (dokusyaso_bunrui) / 主な生産物 (nogyosya_bunrui) の CSV 取り扱い。
  *
- * DB には**電子版システムと同じコード値**をカンマ区切りで保存する
- * （dokusyaso_bunrui ⇔ profession / nogyosya_bunrui ⇔ products が 1:1）。
- * 日本語ラベルは画面表示専用 — ラベルを保存しない（顧客要件 2026-07）。
- * BE ミラー: `apps/backend/src/common/constants/dokusya-bunrui.constant.ts`。
+ * **コード値もラベルもここでは定義しない。**
+ *   - コード値 … `@/constants/enums` の `DokusyasoBunrui` / `NogyosyaBunrui`
+ *     （BE `apps/backend/src/common/enums/` のミラー。`enum-sync.spec.ts` が監視）
+ *   - ラベル・選択肢 … `useCodesStore()` 経由の `m_code`
+ *     （`DOKUSYASO_BUNRUI` / `NOGYOSYA_BUNRUI`）
  *
- * m_code ではなく定数で持つ理由: 値の集合が電子版 API の仕様
- * (create_パラメータ仕様 職業／農畜産物) で固定されており、顧客が
- * DB から増やせる類の分類ではないため。
+ * 以前はここに `*_LABELS` / `*_OPTIONS` を持っていた。当時は「値の集合が電子版
+ * API 仕様で固定で、顧客が DB から増やす類ではない」ため m_code を使わない判断
+ * だったが、顧客DB設計 2026-08 で両分類が m_code に入ったので前提が変わった。
+ * ラベルは顧客が DB から変更できるため、コード側に焼き込むと画面と DB がズレる
+ * （`.claude/rules/vue.md §Code Master`）。
+ *
+ * このファイルに残るのは CSV 固有の処理だけ。両列は `VARCHAR(50)` にカンマ区切り
+ * で入るが enum と m_code は数値を返すので、突き合わせるときは `String()` に
+ * 寄せる（`TANKA_TYPE` の `:value="String(opt.value)"` と同じ境界処理）。
  */
+import { DokusyasoBunrui, NogyosyaBunrui } from '@/constants/enums';
 
-/** 読者属性コード。 */
-export const DokusyaSoBunrui = {
-  NOGYOSYA: '0',
-  JA_GROUP: '1',
-  KIGYO_DANTAI: '2',
-  GAKUSEI: '3',
-  SONOTA: '999',
-} as const;
-export type DokusyaSoBunrui =
-  (typeof DokusyaSoBunrui)[keyof typeof DokusyaSoBunrui];
-
-/** 主な生産物コード（酪農=5 は画面に選択肢が無いが電子版連携で入りうる）。 */
-export const NogyosyaBunrui = {
-  KOME: '0',
-  YASAI: '1',
-  KAJITSU: '2',
-  HANA: '3',
-  CHIKUSAN: '4',
-  RAKUNO: '5',
-  SONOTA: '999',
-} as const;
-export type NogyosyaBunrui =
-  (typeof NogyosyaBunrui)[keyof typeof NogyosyaBunrui];
-
-/** 読者属性 コード→ラベル（表示専用）。 */
-export const DOKUSYASO_BUNRUI_LABELS: Record<string, string> = {
-  [DokusyaSoBunrui.NOGYOSYA]: '農業者',
-  [DokusyaSoBunrui.JA_GROUP]: 'JAグループ役職員',
-  [DokusyaSoBunrui.KIGYO_DANTAI]: '企業・団体',
-  [DokusyaSoBunrui.GAKUSEI]: '学生',
-  [DokusyaSoBunrui.SONOTA]: 'その他',
-};
-
-/** 主な生産物 コード→ラベル（表示専用）。 */
-export const NOGYOSYA_BUNRUI_LABELS: Record<string, string> = {
-  [NogyosyaBunrui.KOME]: '米',
-  [NogyosyaBunrui.YASAI]: '野菜',
-  [NogyosyaBunrui.KAJITSU]: '果実',
-  [NogyosyaBunrui.HANA]: '花',
-  [NogyosyaBunrui.CHIKUSAN]: '畜産',
-  [NogyosyaBunrui.RAKUNO]: '酪農',
-  [NogyosyaBunrui.SONOTA]: 'その他',
-};
-
-/** 読者属性 選択肢（画面 mockup index.html の並び順）。 */
-export const DOKUSYASO_BUNRUI_OPTIONS = [
-  { value: DokusyaSoBunrui.NOGYOSYA, label: '農業者' },
-  { value: DokusyaSoBunrui.KIGYO_DANTAI, label: '企業・団体' },
-  { value: DokusyaSoBunrui.SONOTA, label: 'その他' },
-  { value: DokusyaSoBunrui.JA_GROUP, label: 'JAグループ役職員' },
-  { value: DokusyaSoBunrui.GAKUSEI, label: '学生' },
-];
-
-/** 主な生産物 選択肢（画面 mockup index.html の並び順・酪農は選択不可）。 */
-export const NOGYOSYA_BUNRUI_OPTIONS = [
-  { value: NogyosyaBunrui.KOME, label: '米' },
-  { value: NogyosyaBunrui.YASAI, label: '野菜' },
-  { value: NogyosyaBunrui.KAJITSU, label: '果実' },
-  { value: NogyosyaBunrui.HANA, label: '花' },
-  { value: NogyosyaBunrui.CHIKUSAN, label: '畜産' },
-  { value: NogyosyaBunrui.SONOTA, label: 'その他' },
-];
+/** 読者属性「農業者」— 主な生産物(農業者分類) を表示・送信する条件。 */
+export const DOKUSYASO_BUNRUI_NOGYOSYA = String(DokusyasoBunrui.NOGYOSYA);
 
 /** CSV 文字列をトークン配列へ（空要素は除去）。 */
 export function splitBunruiCsv(csv: string | null | undefined): string[] {
@@ -82,22 +30,61 @@ export function splitBunruiCsv(csv: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+// ─── 従属項目のゲート ────────────────────────────────────────────────
+//
+// 顧客DB設計 2026-08 の 4 項目は、親の分類が特定コードを含むときだけ入力できる。
+// BE `apps/backend/src/common/constants/dokusya-bunrui.constant.ts` の同名関数と
+// 対で保つこと — 画面はここで入力欄の出し分けとクリアを行い、BE は保存時に同じ
+// ゲートで落とす。ズレると「画面で入力できたのに保存されない」形になる。
+//
+// このゲートは電子版 API の条件付き項目（profession_and_ja / profession_and_agri /
+// others_profession / others_products）の受理条件そのもの。満たさない値を送ると
+// V26〜V30 で create/update ごと失敗するため、UI 側の親切機能ではなく契約の一部。
+
+/** CSV に指定コードが含まれるか。 */
+function bunruiCsvHas(csv: string | null | undefined, code: string): boolean {
+  return splitBunruiCsv(csv).includes(code);
+}
+
+/** 「かつJAグループ役職員」チェックを出すか（読者属性＝農業者）。 */
+export function allowsJaYakushokuinFlg(
+  dokusyasoBunrui: string | null | undefined,
+): boolean {
+  return bunruiCsvHas(dokusyasoBunrui, DOKUSYASO_BUNRUI_NOGYOSYA);
+}
+
+/** 「農業関係」チェックを出すか（読者属性＝企業・団体）。 */
+export function allowsNogyoKankeiFlg(
+  dokusyasoBunrui: string | null | undefined,
+): boolean {
+  return bunruiCsvHas(dokusyasoBunrui, String(DokusyasoBunrui.KIGYO_DANTAI));
+}
+
+/** 読者属性その他の自由記述欄を出すか（読者属性＝その他）。 */
+export function allowsDokusyasoBunruiSonota(
+  dokusyasoBunrui: string | null | undefined,
+): boolean {
+  return bunruiCsvHas(dokusyasoBunrui, String(DokusyasoBunrui.SONOTA));
+}
+
+/** 主な生産物その他の自由記述欄を出すか（主な生産物に「その他」を含む）。 */
+export function allowsNogyosyaBunruiSonota(
+  nogyosyaBunrui: string | null | undefined,
+): boolean {
+  return bunruiCsvHas(nogyosyaBunrui, String(NogyosyaBunrui.SONOTA));
+}
+
 /**
- * CSV コード列 → 「農業者, 学生」形式のラベル列（一覧・履歴の表示用）。
- * 未知コードはそのまま残す（電子版側の新コードを取りこぼさないため）。
+ * CSV コード列 → 「農業者、学生」形式のラベル列（一覧・履歴の表示用）。
+ *
+ * `resolve` には `useCodesStore().label` を部分適用して渡す。ラベルを引けない
+ * コードはそのまま残す（電子版側の新コードを取りこぼさないため）。
  */
-function labelCsv(csv: string | null | undefined, table: Record<string, string>): string {
+export function bunruiCsvToLabel(
+  csv: string | null | undefined,
+  resolve: (code: string) => string,
+): string {
   return splitBunruiCsv(csv)
-    .map((c) => table[c] ?? c)
+    .map((c) => resolve(c) || c)
     .join('、');
-}
-
-/** 読者属性 CSV → 表示ラベル。 */
-export function dokusyaSoBunruiLabel(csv: string | null | undefined): string {
-  return labelCsv(csv, DOKUSYASO_BUNRUI_LABELS);
-}
-
-/** 主な生産物 CSV → 表示ラベル。 */
-export function nogyosyaBunruiLabel(csv: string | null | undefined): string {
-  return labelCsv(csv, NOGYOSYA_BUNRUI_LABELS);
 }

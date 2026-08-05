@@ -35,6 +35,15 @@ interface Props {
   perPage?: number;
   /** リスト先頭に「全て」オプションを追加（選択すると入力欄に「全て」タグ=全件選択）。 */
   allowSelectAll?: boolean;
+  /**
+   * 電子版ダミー販売店（hanbaiten_code=9999999999）の扱い。
+   *
+   * ダミーは「電子版読者を紐づける受け皿」であって実在の販売店ではない
+   * （t_dokusya.hanbaiten_id が NOT NULL のため用意している）。帳票の出力条件など
+   * 実在の販売店だけを選ばせたい画面は 'exclude' を渡す。
+   * 未指定は絞らない（従来の呼び出しの挙動を変えない）。
+   */
+  dummy?: 'only' | 'exclude';
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -44,6 +53,7 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: '販売店を選択（未選択＝全件）',
   perPage: DROPDOWN_PAGE_SIZE,
   allowSelectAll: false,
+  dummy: undefined,
 });
 
 const emit = defineEmits<{ 'update:value': [v: number[]] }>();
@@ -71,8 +81,11 @@ const {
   buildExtraParams: () => {
     const extra: Partial<HanbaitenDropdownQuery> = {};
     if (props.jaId) extra.ja_id = props.jaId;
+    if (props.dummy) extra.dummy = props.dummy;
     return extra;
   },
+  // dummy を切り替えたら候補集合が変わるので取り直す（帳票種別の切替など）。
+  resetTriggers: [toRef(props, 'dummy')],
 });
 
 // 「全て」= 全件を選択肢1つ(sentinel)として扱う共通ロジック（BaseKanriShitenSelect と共有）。

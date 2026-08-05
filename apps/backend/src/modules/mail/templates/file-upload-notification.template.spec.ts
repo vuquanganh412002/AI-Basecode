@@ -2,13 +2,17 @@
 
 import { renderFileUploadNotificationMail } from './file-upload-notification.template';
 
-function render(overrides: { uploaderAccountName?: string } = {}) {
+function render(
+  overrides: { uploaderAccountName?: string; downloadUrl?: string } = {},
+) {
   return renderFileUploadNotificationMail({
     jaName: 'JA北海道',
     fileName: 'Checklist_Project Management Audit.xlsx',
     uploadDatetime: new Date('2026-07-14T09:37:00Z'), // JST 18:37
     uploaderLoginId: 'chuokai01_zg',
     uploaderAccountName: '東京中央会 担当者',
+    downloadUrl:
+      'https://app.example.com/file-download?file_name=Checklist_Project%20Management%20Audit.xlsx',
     ...overrides,
   });
 }
@@ -40,12 +44,22 @@ describe('renderFileUploadNotificationMail', () => {
     );
   });
 
-  // 顧客要件2026-07: 環境依存の URL リンク・ダウンロード画面への遷移案内は含めない。
-  it('should NOT include any download URL or screen-navigation guidance', () => {
+  // 顧客要件2026-08: 本文にダウンロード画面(SCR-022)へのリンクを載せる
+  // （2026-07 の「URL を含めない」方針からの変更）。
+  it('should include the download link with a short guidance line', () => {
     const { text } = render();
+    expect(text).toContain('下記のリンクからダウンロードしてください。');
+    expect(text).toContain(
+      'https://app.example.com/file-download?file_name=Checklist_Project%20Management%20Audit.xlsx',
+    );
+  });
+
+  it('should drop the link block entirely when downloadUrl is empty', () => {
+    // FRONTEND_URL 未設定環境で見出しだけ残ると不自然なため、行ごと落とす。
+    const { text } = render({ downloadUrl: '' });
+    expect(text).not.toContain('下記のリンクからダウンロードしてください。');
     expect(text).not.toContain('http');
-    expect(text).not.toContain('file-download');
-    expect(text).not.toContain('ファイルダウンロード画面にアクセス');
-    expect(text).not.toContain('URL');
+    // 他の項目は従来どおり出ること。
+    expect(text).toContain('アップロード者: chuokai01_zg');
   });
 });

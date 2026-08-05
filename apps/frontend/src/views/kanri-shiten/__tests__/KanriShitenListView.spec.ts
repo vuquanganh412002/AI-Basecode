@@ -22,6 +22,8 @@ import { buildTodofukenList } from '@test/fixtures/ja.fixture';
 import type { KanriShitenListResponse } from '@/api/kanri-shiten/kanri-shiten';
 import type { TodofukenListEnvelope } from '@/api/todofuken/todofuken';
 
+import { resetTodofukenCache } from '@/composables/useTodofuken';
+
 // Mock the kanri-shiten API client — /gen-code-frontend will create it
 // alongside the existing JA / Tanka API wrappers.
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
@@ -91,6 +93,9 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 }
 
 beforeEach(async () => {
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
   vi.clearAllMocks();
   const { listKanriShiten, removeKanriShiten } = await import(
     '@/api/kanri-shiten/kanri-shiten'

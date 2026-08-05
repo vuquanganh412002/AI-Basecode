@@ -10,7 +10,6 @@ import { buildAuditCtx } from '@/common/utils/audit-context';
 import { applyBranchScope } from '@/common/utils/data-scope';
 import {
   AuditOperation,
-  DenshiShoninStatus,
   DokusyaShubetsu,
   DownloadType,
   RoleCode,
@@ -509,15 +508,18 @@ export class ZougenReportService {
       // export / 同日履歴取得 で共用のため、この1箇所で 028・029 双方に効く。
       .andWhere('r.torikeshi_flg = false');
 
-    // 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(denshi_shonin_status=1)のみ
-    // 集計対象とする。承認待ち(0)/否認(2)の電子版は増減連絡票から除外する。
-    qb.andWhere(
-      '(r.dokusya_shubetsu <> :denshiShubetsu OR r.denshi_shonin_status = :denshiApproved)',
-      {
-        denshiShubetsu: DokusyaShubetsu.DIGITAL,
-        denshiApproved: DenshiShoninStatus.APPROVED,
-      },
-    );
+    // 集計対象は紙版(DokusyaShubetsu.PAPER=1)のみ（顧客要件 2026-08）。
+    // 増減連絡票は販売店へ配達部数の増減を伝える帳票で、電子版・併読には
+    // 配達という概念が無い（電子版単独はダミー販売店 9999999999 に紐づく）。
+    //
+    // 以前は「電子版は承認済(denshi_shonin_status=1)のみ集計」という条件だった。
+    // 紙版限定はそれを包含する（電子版・併読は承認状態を問わず対象外）ので、
+    // 条件を重ねずに置き換える — 残しても常に真で、読む側に「電子版も入りうる」と
+    // 誤解させるだけ。SCR-029 増減通知は別の土台(nichinoBaseQuery)だが、そちらも
+    // 同じく紙版限定（同条件を個別に持つ）。
+    qb.andWhere('r.dokusya_shubetsu = :paperShubetsu', {
+      paperShubetsu: DokusyaShubetsu.PAPER,
+    });
 
     if (query.hanbaiten_id && query.hanbaiten_id.length > 0) {
       // 販売店変更で「転出元（旧店）」も拾えるよう、現販売店 OR 前回販売店で絞る。
@@ -672,15 +674,16 @@ export class ZougenReportService {
         'NOT (COALESCE(r.zenkai_dokusya_busu, 0) = 0 AND r.dokusya_busu = 0)',
       );
 
-    // 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(denshi_shonin_status=1)のみ
-    // 集計対象とする。承認待ち(0)/否認(2)の電子版は増減通知から除外する。
-    qb.andWhere(
-      '(r.dokusya_shubetsu <> :denshiShubetsu OR r.denshi_shonin_status = :denshiApproved)',
-      {
-        denshiShubetsu: DokusyaShubetsu.DIGITAL,
-        denshiApproved: DenshiShoninStatus.APPROVED,
-      },
-    );
+    // 集計対象は紙版(DokusyaShubetsu.PAPER=1)のみ（顧客要件 2026-08）。
+    // 増減通知も部数の増減を伝える帳票で、電子版・併読は配達を伴わないため
+    // 対象外（SCR-028 増減連絡票と同方針）。
+    //
+    // 以前は「電子版は承認済(denshi_shonin_status=1)のみ集計」だった。紙版限定は
+    // それを包含するので条件を重ねずに置き換える — 残しても常に真で、読む側に
+    // 「電子版も入りうる」と誤解させるだけ。
+    qb.andWhere('r.dokusya_shubetsu = :paperShubetsu', {
+      paperShubetsu: DokusyaShubetsu.PAPER,
+    });
 
     if (query.kanri_shiten_id && query.kanri_shiten_id.length > 0) {
       qb.andWhere('r.kanri_shiten_id IN (:...kanri_shiten_id)', {

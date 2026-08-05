@@ -7,17 +7,17 @@
  *   - m_account x 1 (login_id='admin', role_id=1 NICHINO_ADMIN, ja_id=NULL)
  *
  * Invoke with:
- *   npm run seed
+ *   npm run seed:admin
  *
  * NOT wired into migrationsRun — never auto-runs at boot. Idempotent:
  * skips when login_id='admin' already exists.
  *
- * For development test fixtures (5 extra accounts + 10 JA rows + 管理支店),
- * run the separate `npm run seed:dev` AFTER this script (refuses to run
- * in production).
+ * 顧客提供のサンプルマスタ（JA 5 / 管理支店 6 / 電子版ダミー販売店 5 /
+ * アカウント 13）は `npm run seed:sample` を本スクリプトの後に実行する
+ * （NODE_ENV=production では起動を拒否する）。
  *
  * Env vars:
- *   INITIAL_ADMIN_EMAIL      — default 'admin@agrinews.jp' (MFA OTP destination)
+ *   INITIAL_ADMIN_EMAIL      — default 'admin@agrinews-manage.com' (MFA OTP destination)
  *   INITIAL_ADMIN_PASSWORD   — required in production. In dev, defaults to
  *                              the fixed 'admin@1234567' so developers can
  *                              log in without grepping logs.
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   const isProd = process.env.NODE_ENV === 'production';
   const loginId = process.env.INITIAL_ADMIN_LOGIN_ID ?? 'admin';
   const accountName = process.env.INITIAL_ADMIN_NAME ?? '日農 管理者';
-  const email = process.env.INITIAL_ADMIN_EMAIL ?? 'admin@agrinews.jp';
+  const email = process.env.INITIAL_ADMIN_EMAIL ?? 'admin@agrinews-manage.com';
 
   let password = process.env.INITIAL_ADMIN_PASSWORD;
   let passwordSource: 'env' | 'default' = 'env';
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     );
     if (existing.length > 0) {
       console.log(
-        `[seed] admin '${loginId}' already exists (account_id=${existing[0].account_id}) — skipping`,
+        `[seed:admin] admin '${loginId}' already exists (account_id=${existing[0].account_id}) — skipping`,
       );
       return;
     }
@@ -100,9 +100,9 @@ async function main(): Promise<void> {
       [loginId, passwordHash, accountName, email],
     );
 
-    console.log(`[seed] created admin '${loginId}' (role_id=1, mfa_enable_flg=true, email=${email})`);
+    console.log(`[seed:admin] created admin '${loginId}' (role_id=1, mfa_enable_flg=true, email=${email})`);
     if (passwordSource === 'default') {
-      console.log(`[seed] password = '${DEV_DEFAULT_PASSWORD}' (dev default — pass INITIAL_ADMIN_PASSWORD to override)`);
+      console.log(`[seed:admin] password = '${DEV_DEFAULT_PASSWORD}' (dev default — pass INITIAL_ADMIN_PASSWORD to override)`);
     }
   } finally {
     await dataSource.destroy();
@@ -110,6 +110,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[seed] failed:', err.message);
+  console.error('[seed:admin] failed:', err.message);
   process.exit(1);
 });

@@ -8,8 +8,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * IF NOT EXISTS / ON CONFLICT で冪等化。
  * See docs/dokusya-sync-implementation-plan.md §2.
  */
-export class CreateTDenshiSyncState1784000000000 implements MigrationInterface {
-  name = 'CreateTDenshiSyncState1784000000000';
+export class CreateTDenshiSyncState1711900800021 implements MigrationInterface {
+  name = 'CreateTDenshiSyncState1711900800021';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

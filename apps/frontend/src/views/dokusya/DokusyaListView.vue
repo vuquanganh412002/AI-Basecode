@@ -9,6 +9,8 @@
 //   - dokusya.view   : 検索 + Excel出力 を有効化（閲覧連動）。
 //   - dokusya.create : 購読者情報登録 ボタンを有効化（無ければグレー）。
 //   - dokusya.delete : 行ごとの 削除 リンクを有効化（無ければグレー）。
+//     削除できるのは紙版(dokusya_shubetsu=1)のみ — 電子版・併読は電子版読者
+//     管理システムが正のため（顧客要件 2026-08）。
 //   - dokusya.update : 購読者名 アンカーからの 編集 遷移（無い場合はアンカー
 //                      非表示 = デッドリンクを出さない）。
 // 行単位オーバーライド: is_read_only=true は dokusya.delete 保有時も常に 削除 を
@@ -623,6 +625,26 @@ const stopHasReservation = ref(false);
 const isStopDigital = computed(
   () => Number(stopTarget.value?.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
 );
+
+/**
+ * 削除ボタン非活性の条件。
+ *
+ * 削除できるのは紙版(1)だけ（顧客要件 2026-08）。電子版・併読の会員は電子版
+ * 読者管理システムが正なので、こちら側で消しても同期で戻るか、相手には居るのに
+ * クラウド版から見えない状態になる。停止（購読中止）は電子版でも可能 — 消せない
+ * のは行であって、購読をやめられないという意味ではない。
+ *
+ * `is_read_only` だけでは足りない。あれは 併読 と 電子版クレカ しか落とさず、
+ * 電子版で口座引落などの支払方法は削除できてしまっていた。
+ */
+function isDeleteDisabled(row: DokusyaListItem): boolean {
+  return (
+    !canDelete.value ||
+    !hasAnyDokusyaFlag.value ||
+    row.is_read_only ||
+    Number(row.dokusya_shubetsu) !== DokusyaShubetsu.PAPER
+  );
+}
 
 /** 停止ボタン非活性: 更新権限なし / 編集不可(併読・電子版クレカ) / 既に解約済み。 */
 function isStopDisabled(row: DokusyaListItem): boolean {
@@ -1329,17 +1351,11 @@ defineExpose({ state });
             >
               購読中止
             </button>
-            <!-- 削除 は表示のまま非活性:
-                   (a) 行が is_read_only=true、または
-                   (b) ユーザーが dokusya.delete を持たない。
+            <!-- 削除 は表示のまま非活性（条件は isDeleteDisabled 参照）。
                  編集導線は上の 購読者名 アンカー（ここではない）。 -->
             <BaseActionColumn
               :can-edit="false"
-              :disable-delete="
-                !canDelete ||
-                !hasAnyDokusyaFlag ||
-                (record as DokusyaListItem).is_read_only
-              "
+              :disable-delete="isDeleteDisabled(record as DokusyaListItem)"
               @delete="askDelete(record as DokusyaListItem)"
             />
           </div>

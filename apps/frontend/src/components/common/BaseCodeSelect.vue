@@ -24,9 +24,12 @@
 import { computed } from 'vue';
 import { useCodesStore } from '@/stores/codes.store';
 
+/** 格納コード値の型。INTEGER 列は number、VARCHAR 列は string、未選択は null。 */
+type CodeValue = number | string | null;
+
 interface Props {
   /** 格納コード値。INTEGER 列は number、VARCHAR 列は string。 */
-  value?: number | string | null;
+  value?: CodeValue;
   /** m_code.code_category — docs/database/seeder.md §5 参照。 */
   category: string;
   placeholder?: string;
@@ -49,8 +52,8 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  'update:value': [value: number | string | null];
-  change: [value: number | string | null];
+  'update:value': [value: CodeValue];
+  change: [value: CodeValue];
 }>();
 
 const codes = useCodesStore();
@@ -62,7 +65,7 @@ const options = computed(() =>
   })),
 );
 
-function onChange(v: number | string | null): void {
+function onChange(v: CodeValue): void {
   emit('update:value', v);
   emit('change', v);
 }

@@ -3,12 +3,14 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
+import { SystemActor } from '@/common/constants/system-actor.constant';
 import { DenshibanDbService } from '@/modules/denshiban/denshiban-db.service';
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
 import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DenshiSyncState } from '@/database/entities/denshi-sync-state.entity';
 import { DenshiShoninStatus, ShiharaiHoho } from '@/common/enums';
+import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { todayIsoJst } from '@/common/utils/datetime';
 import type { BatchJob } from '@/batch/batch-job.interface';
 import type { DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
@@ -51,6 +53,9 @@ type KanriShitenMap = Map<string, { kanriShitenId: number; jaId: number }>;
 type HanbaitenMap = Map<string, number>;
 
 /** ページングの読み取り位置（`ORDER BY chg_ts, id` 上の直前行）。 */
+/** doSync の停止理由。null = 差分を読み切った（正常完走）。 */
+type SyncStop = 'blocked' | 'cap';
+
 interface PageCursor {
   ts: Date;
   id: number;
@@ -159,62 +164,87 @@ export class DokusyaSyncService implements BatchJob {
       if (groupTs !== null && ts.getTime() !== groupTs.getTime()) commitGroup();
     };
 
-    let cursor: PageCursor | null = null;
-    let blocked = false;
-    let capHit = false;
-    let pages = 0;
+    // ダミー販売店が未整備の JA を記録し、警告を 1 実行 1 JA に抑える
+    // （数万件の電子版読者がいる JA だと行ごとに出すとログが溢れる）。
+    const warnedNoDummyJa = new Set<number>();
 
-    // ── ページング: 差分が尽きるまで反復（plan §2.2）─────────────────────
-    while (!blocked && !capHit) {
-      const rows = await this.fetchPage(state, fullSync, cursor);
-      pages++;
-      if (rows.length === 0) break;
+    // 1行ぶんの処理。watermark の前進は「グループ完了」時だけなので、
+    // 呼び出し側（processPage）へ判定結果を返して制御を任せる。
+    const handleRow = async (u: DenshiUserRow): Promise<'ok' | 'failed'> => {
+      const id = Number(u.id);
+      const ts: Date = this.chgTs(u) ?? groupTs ?? safeTs;
+      try {
+        await this.upsertOne(u, kanriMap, hanbaitenMap, counts, warnedNoDummyJa);
+      } catch (err) {
+        // 失敗行のグループは未コミットのまま残し、次回必ず読み直させる。
+        commitIfNewGroup(ts);
+        counts.failed++;
+        this.logger.error({
+          event: 'dokusya_sync.record_error',
+          denshi_kaiin_id: u.id,
+          message: (err as Error).message,
+        });
+        return 'failed';
+      }
+      // skip 行は「業務判断で取り込まない」と決めた行なので前進してよい
+      // （マスタ整備後の取込は全件同期で拾う）。
+      commitIfNewGroup(ts);
+      groupTs = ts;
+      if (Number.isFinite(id) && id > groupMaxId) groupMaxId = id;
+      return 'ok';
+    };
 
+    // 1ページぶんを処理し、停止理由（あれば）と読み取り位置を返す。
+    const processPage = async (
+      rows: DenshiUserRow[],
+      startCursor: PageCursor | null,
+    ): Promise<{ cursor: PageCursor | null; stop: SyncStop | null }> => {
+      let cursor = startCursor;
+      let stop: SyncStop | null = null;
       for (const u of rows) {
-        const id = Number(u.id);
-        // chg_ts が取れない行（updated_at/created_at とも空）は直前グループに畳む。
         const ts: Date = this.chgTs(u) ?? groupTs ?? safeTs;
         // 読み取り位置は成否に関わらず進める（同じページを再取得しないため）。
-        cursor = { ts, id };
+        cursor = { ts, id: Number(u.id) };
 
         if (counts.read >= MAX_ROWS_PER_RUN) {
           commitIfNewGroup(ts); // 未処理行のグループは残す
-          capHit = true;
+          stop = 'cap';
           break;
         }
         counts.read++;
 
-        try {
-          await this.upsertOne(u, kanriMap, hanbaitenMap, counts);
-        } catch (err) {
-          // 失敗行のグループは未コミットのまま残し、次回必ず読み直させる。
-          // 同一ページ内の残りは診断目的で処理を続ける（watermark は進めない）。
-          commitIfNewGroup(ts);
-          blocked = true;
-          counts.failed++;
-          this.logger.error({
-            event: 'dokusya_sync.record_error',
-            denshi_kaiin_id: u.id,
-            message: (err as Error).message,
-          });
-          continue;
-        }
-        if (blocked) continue; // 失敗行を追い越さない
-        // skip 行は「業務判断で取り込まない」と決めた行なので前進してよい
-        // （マスタ整備後の取込は全件同期で拾う）。
-        commitIfNewGroup(ts);
-        groupTs = ts;
-        if (Number.isFinite(id) && id > groupMaxId) groupMaxId = id;
+        const result = await handleRow(u);
+        // 失敗後も同一ページの残りは診断目的で処理を続けるが、watermark は
+        // 進めない（失敗行を追い越さない）。
+        if (result === 'failed') stop = 'blocked';
       }
+      return { cursor, stop };
+    };
 
+    let cursor: PageCursor | null = null;
+    let stop: SyncStop | null = null;
+    let pages = 0;
+
+    // ── ページング: 差分が尽きるまで反復（plan §2.2）─────────────────────
+    while (stop === null) {
+      const rows = await this.fetchPage(state, fullSync, cursor);
+      pages++;
+      if (rows.length === 0) break;
+
+      const page = await processPage(rows, cursor);
+      cursor = page.cursor;
+      if (page.stop !== null) {
+        stop = page.stop;
+        break;
+      }
       // 端数ページ＝差分を読み切った。
       if (rows.length < PAGE_SIZE) break;
     }
 
     // 完走したときだけ最終グループをコミットする。
-    if (!blocked && !capHit) commitGroup();
+    if (stop === null) commitGroup();
 
-    if (capHit) {
+    if (stop === 'cap') {
       this.logger.warn({
         event: 'dokusya_sync.cap_hit',
         cap: MAX_ROWS_PER_RUN,
@@ -228,7 +258,7 @@ export class DokusyaSyncService implements BatchJob {
       ...counts,
       pages,
       full_sync: fullSync,
-      stopped: blocked ? 'blocked' : capHit ? 'cap' : 'done',
+      stopped: stop ?? 'done',
     });
   }
 
@@ -367,6 +397,8 @@ export class DokusyaSyncService implements BatchJob {
     kanriMap: KanriShitenMap,
     hanbaitenMap: HanbaitenMap,
     counts: SyncCounts,
+    /** ダミー販売店が無い JA。1 実行 1 JA につき 1 回だけ警告するための既出集合。 */
+    warnedNoDummyJa: Set<number>,
   ): Promise<void> {
     // FK 解決: JACd（ハイフン除去）→ 管理支店/JA。未解決は作成不可なので skip。
     const jacd = normalizeJacd(String(u.JACd ?? ''));
@@ -383,11 +415,35 @@ export class DokusyaSyncService implements BatchJob {
 
     const status = Number(u.status);
     const isHeidoku = hasValue(u.paper_permission_dt);
-    // 販売店: 併読は ShopCd を m_hanbaiten で解決。電子版単独はダミー販売店（§9・
-    // 具体レコード未確定のため暫定 null）。
-    const hanbaitenId = isHeidoku
-      ? hanbaitenMap.get(`${kanri.jaId}:${String(u.ShopCd ?? '')}`) ?? null
-      : null;
+    // 販売店の解決:
+    //   併読       → 紙を配達するので ShopCd を m_hanbaiten で実店に解決。
+    //   電子版単独 → 配達が無いので当該 JA のダミー販売店
+    //                （hanbaiten_code=9999999999・顧客要件2026-08）。
+    // ダミーが未整備の JA は null のまま取り込む（hanbaiten_id は NULL 許容）。
+    // 行を落とすと watermark が止まり後続の正常行まで巻き添えになるため、
+    // 取り込みは通し、運用が気付けるよう JA 単位で 1 回だけ警告する。
+    //
+    // ※ 併読で ShopCd が解決できない場合にダミーへ倒さないのは、ダミーが
+    //   「配達先の販売店が無い」を意味するため。紙を配る読者に付けると
+    //   増減連絡票・名簿の配達担当が誤る。SCR-011 の候補絞り込み
+    //   （電子版=ダミーのみ / それ以外=ダミー除外）とも一致する。
+    let hanbaitenId: number | null;
+    if (isHeidoku) {
+      hanbaitenId =
+        hanbaitenMap.get(`${kanri.jaId}:${String(u.ShopCd ?? '')}`) ?? null;
+    } else {
+      hanbaitenId =
+        hanbaitenMap.get(`${kanri.jaId}:${HANBAITEN_DUMMY_CODE}`) ?? null;
+      if (hanbaitenId === null && !warnedNoDummyJa.has(kanri.jaId)) {
+        warnedNoDummyJa.add(kanri.jaId);
+        this.logger.warn({
+          event: 'dokusya_sync.no_dummy_hanbaiten',
+          ja_id: kanri.jaId,
+          hanbaiten_code: HANBAITEN_DUMMY_CODE,
+          note: 'この JA の電子版単独読者は販売店未設定(NULL)で取り込む。ダミー販売店を登録すること。',
+        });
+      }
+    }
 
     const fk: DenshiFkResolution = {
       jaId: kanri.jaId,
@@ -397,7 +453,10 @@ export class DokusyaSyncService implements BatchJob {
     const values = mapUserToDokusyaFields(u, fk);
     const denshiKaiinId = Number(u.id);
     const johoDate = todayIsoJst();
-    const actor = `batch:${BATCH_NAME}`;
+    // 監査列に入る実行者名。t_dokusya_rireki の最古行(rireki_no=1)の created_by を
+    // 見て「クラウド版で作成された電子版読者」と区別するための判別キーでもある
+    // （顧客要件 2026-08）。表示ラベルではないので勝手に変えないこと。
+    const actor: string = SystemActor.DENSHI_SYNC;
 
     await this.mainDb.transaction(async (m) => {
       const existing = await m.findOne(Dokusya, {

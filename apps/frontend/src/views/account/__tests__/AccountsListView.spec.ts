@@ -13,6 +13,8 @@ import { createTestingPinia } from '@pinia/testing';
 import Antd, { message, Modal } from 'ant-design-vue';
 
 import AccountsListView from '@/views/account/AccountsListView.vue';
+
+import { resetTodofukenCache } from '@/composables/useTodofuken';
 import {
   buildAccountListResponse,
   buildRoleDropdownList,
@@ -99,6 +101,9 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 }
 
 beforeEach(async () => {
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
   vi.clearAllMocks();
   const { listAccounts, removeAccount } = await import('@/api/account/account');
   vi.mocked(listAccounts).mockResolvedValue(buildAccountListResponse());

@@ -18,14 +18,22 @@ import {
   timestampForFilenameJst,
 } from '@/common/utils/datetime';
 
+import dayjs from 'dayjs';
+
 import type { SearchLogDto } from './dto/search-log.dto';
 import type { ExportLogDto } from './dto/export-log.dto';
 import { DateRangeInvalidException } from './exceptions/date-range-invalid.exception';
 import { DateRangeTooLongException } from './exceptions/date-range-too-long.exception';
+import { DateRangeFutureException } from './exceptions/date-range-future.exception';
 
 const SCREEN_NAME = 'ログ参照画面 (ACSMS-SCR-030)';
 const TABLE_NAME = 't_log';
-const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+/**
+ * 検索期間の上限（年）。ログ保持期間が 1年 → 5年 へ延びたのに合わせる
+ * （顧客要件 2026-08）。ミリ秒定数ではなく暦で加算する — 365日×5 だと
+ * うるう年ぶん2日足りず、ちょうど5年を指定したリクエストが弾かれる。
+ */
+const MAX_RANGE_YEARS = 5;
 
 const CSV_HEADER = [
   'ログID',
@@ -256,14 +264,23 @@ export class LogService {
   // ─── private helpers ─────────────────────────────────────────────
 
   private assertDateRange(from?: string, to?: string): void {
+    // 未来日時にログは存在しない。片側だけの指定でも弾きたいので、両方揃って
+    // いるかの判定より前に置く。どちらの欄が原因かは文言で伝える。
+    const now = Date.now();
+    const fromDate = from ? parseDatetimeJst(from) : null;
+    const toDate = to ? parseDatetimeJst(to) : null;
+    if (fromDate && fromDate.getTime() > now) {
+      throw new DateRangeFutureException('開始日');
+    }
+    if (toDate && toDate.getTime() > now) {
+      throw new DateRangeFutureException('終了日');
+    }
     if (!from || !to) return;
-    const fromDate = parseDatetimeJst(from);
-    const toDate = parseDatetimeJst(to);
     if (!fromDate || !toDate) return; // 不正値は DTO validator が既に拒否済み
     if (fromDate.getTime() > toDate.getTime()) {
       throw new DateRangeInvalidException();
     }
-    if (toDate.getTime() - fromDate.getTime() > ONE_YEAR_MS) {
+    if (dayjs(fromDate).add(MAX_RANGE_YEARS, 'year').isBefore(dayjs(toDate))) {
       throw new DateRangeTooLongException();
     }
   }

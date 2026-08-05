@@ -10,6 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
+
+import { resetTodofukenCache } from '@/composables/useTodofuken';
 import Antd, { Modal, message } from 'ant-design-vue';
 
 import FileUploadView from '@/views/file-upload/FileUploadView.vue';
@@ -135,6 +137,9 @@ beforeEach(async () => {
 
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenResponse() as any);
+  // 都道府県はモジュールレベルの共有キャッシュ（useTodofuken）。テスト間で
+  // 持ち越すと2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
 });
 
 // Synthetic JaDropdownItem reused across describe blocks. The 対象JA
@@ -190,6 +195,13 @@ describe('FileUploadView — initial render (機能定義 1.x)', () => {
     await renderView();
     const { getTodofukenList } = await import('@/api/todofuken/todofuken');
     expect(getTodofukenList).toHaveBeenCalledTimes(1);
+  });
+
+  it('should render 都道府県 via the shared BaseTodofukenSelect', async () => {
+    // 表記・検索の実挙動は BaseTodofukenSelect.spec.ts が持つ。ここは共通部品を
+    // 使っていること（＝画面ごとに select を書き起こしていないこと）だけ固定する。
+    const { wrapper } = await renderView();
+    expect(wrapper.findComponent({ name: 'BaseTodofukenSelect' }).exists()).toBe(true);
   });
 
   it('should fetch the JA dropdown once when mounted (COMMON-003)', async () => {

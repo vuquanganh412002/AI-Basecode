@@ -209,10 +209,10 @@ describe('LogController (HTTP)', () => {
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
     });
 
-    it('should return 400 DATE_RANGE_TOO_LONG when service rejects with range > 365 days', async () => {
+    it('should return 400 DATE_RANGE_TOO_LONG when service rejects with range > 5 years', async () => {
       service.getLogList.mockRejectedValue(
         new HttpException(
-          { code: 'DATE_RANGE_TOO_LONG', error_code: 'DATE_RANGE_TOO_LONG', message: '検索期間は1年以内で指定してください。' },
+          { code: 'DATE_RANGE_TOO_LONG', error_code: 'DATE_RANGE_TOO_LONG', message: '検索期間は5年以内で指定してください。' },
           HttpStatus.BAD_REQUEST,
         ),
       );
@@ -317,10 +317,10 @@ describe('LogController (HTTP)', () => {
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
     });
 
-    it('should return 400 DATE_RANGE_TOO_LONG when service rejects with range > 365 days', async () => {
+    it('should return 400 DATE_RANGE_TOO_LONG when service rejects with range > 5 years', async () => {
       service.exportLogCsv.mockRejectedValue(
         new HttpException(
-          { code: 'DATE_RANGE_TOO_LONG', error_code: 'DATE_RANGE_TOO_LONG', message: '検索期間は1年以内で指定してください。' },
+          { code: 'DATE_RANGE_TOO_LONG', error_code: 'DATE_RANGE_TOO_LONG', message: '検索期間は5年以内で指定してください。' },
           HttpStatus.BAD_REQUEST,
         ),
       );

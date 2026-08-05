@@ -37,10 +37,7 @@ import {
   type CreateHanbaitenBody,
   type UpdateHanbaitenBody,
 } from '@/api/hanbaiten/hanbaiten';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import { useTodofuken } from '@/composables/useTodofuken';
 import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 
 // ─── フォーム状態 ─────────────────────────────────────────────────
@@ -183,21 +180,10 @@ const isStaff = computed(() =>
 
 // ─── ドロップダウン options ─────────────────────────────────────────
 
-const todofukenOptions = ref<TodofukenItem[]>([]);
-
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    // BE envelope は `{ data: [...] }`。一部 spec fixture は素の配列（旧契約）を
-    // 渡すため両形を受理。
-    todofukenOptions.value = Array.isArray(resp)
-      ? (resp as unknown as TodofukenItem[])
-      : resp.data;
-  } catch {
-    // axios interceptor が既にエラーをトースト済み。
-    todofukenOptions.value = [];
-  }
-}
+// この画面の都道府県は read-only 表示（JA に追従）。候補リストは持たず、
+// コード→名称の解決だけ共有キャッシュから行う。
+const { items: todofukenOptions, load: loadTodofuken, name: todofukenNameOf } =
+  useTodofuken();
 
 // ─── [pref-from-ja] 都道府県 は read-only で常に hanbaiten の JA
 // （m_ja.todofuken_code）をミラーする。ユーザー編集は不可:
@@ -211,8 +197,9 @@ async function fetchTodofukenOptions(): Promise<void> {
 const todofukenName = computed<string>(() => {
   const code = formState.todofuken_code;
   if (!code) return '';
-  const hit = todofukenOptions.value.find((o) => o.todofuken_code === code);
-  return hit?.todofuken_name ?? code;
+  // マスタ未取得・未知コードでも空にしない — コードをそのまま出して
+  // 「値はあるが名称が引けない」ことが画面から分かるようにする。
+  return todofukenNameOf(code) || code;
 });
 
 /** 新たに選ばれた JA から read-only 都道府県を同期（staff 経路）。 */
@@ -332,7 +319,7 @@ async function applyRouteMode(): Promise<void> {
 }
 
 onMounted(() => {
-  void fetchTodofukenOptions();
+  void loadTodofuken();
   void applyRouteMode();
 });
 

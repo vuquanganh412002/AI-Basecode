@@ -16,7 +16,10 @@ export interface ValidationErrorDetail {
 export class DomainException extends HttpException {
   constructor(
     message: string,
-    public readonly code: ErrorCode | string,
+    // `ErrorCode | (string & {})` — 素の `| string` だとリテラル union が
+    // string に吸収され ErrorCode の補完も型チェックも効かなくなる。
+    // BE 追加コードや将来の未知コードは受けたいのでこの形にする。
+    public readonly code: ErrorCode | (string & {}),
     status: HttpStatus = HttpStatus.INTERNAL_SERVER_ERROR,
     /**
      * VALIDATION_ERROR のフィールド詳細。GlobalExceptionFilter が `errors[]` に

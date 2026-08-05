@@ -112,7 +112,11 @@ export interface ShitenDropdownEnvelope {
 export interface ShitenDropdownQuery {
   /** 任意の JA フィルタ（NICHINO_* 代行入力のみ — JA スコープのロールは session.ja_id 優先）。 */
   ja_id?: number;
-  /** true = 金融機関支店のみ（引落口座支店 picker）、false / undefined = 全件。 */
+  /**
+   * true = 金融機関支店のみ（引落口座支店 picker）、false = 金融機関支店を除く
+   * （SCR-026 名簿出力の配達担当支店）、undefined = 絞らない。
+   * BE は `!== undefined` で条件を付けるので `false` は「全件」ではない。
+   */
   kinyu_shiten_flg?: boolean;
   /**
    * 管理支店IDで絞込み（ACSMS-API-COMMON-006）。SCR-015 は選択した 管理支店 に
@@ -120,6 +124,11 @@ export interface ShitenDropdownQuery {
    * 検証する（クエリ改ざんガード）。
    */
   kanri_shiten_id?: number;
+  /**
+   * 複数の管理支店で絞込み（顧客要件2026-08・SCR-026 名簿出力は管理支店が
+   * 複数選択）。`kanri_shiten_id` の複数版で、送るのはどちらか一方。
+   */
+  kanri_shiten_ids?: number[];
   q?: string;
   page?: number;
   per_page?: number;

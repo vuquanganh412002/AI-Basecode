@@ -16,7 +16,7 @@ import {
   type KanriShitenListItem,
   type ListKanriShitenQuery,
 } from '@/api/kanri-shiten/kanri-shiten';
-import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 
 interface KanriShitenFilters {
   kanri_shiten_code: string;
@@ -61,7 +61,8 @@ const {
 const rows = ref<KanriShitenListItem[]>([]);
 
 /** 検索 dropdown 用の都道府県 options。mount 時に一度取得。 */
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）に任せる。
 
 // 列は screen-design.md §画面項目定義 §検索結果テーブルをミラー。
 // ソート可能列は §機能定義§8.1 の3列に限定。
@@ -112,21 +113,8 @@ async function fetchList(): Promise<void> {
   }
 }
 
-async function fetchTodofuken(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    // BE envelope は `{ data: TodofukenItem[] }`。spec mock は素の配列を直接
-    // 渡す場合あり（buildTodofukenList）— 両形を受理。
-    todofukenOptions.value = Array.isArray(resp) ? resp : resp.data;
-  } catch {
-    // dropdown は非致命的 — 取得失敗でも view を機能させる。
-    todofukenOptions.value = [];
-  }
-}
-
 onMounted(() => {
   void fetchList();
-  void fetchTodofuken();
 });
 
 // 検索 / 検索クリア — 共通の guard+fetch 配線（useTableQuery.searchActions）。
@@ -202,21 +190,11 @@ function askDelete(row: KanriShitenListItem): void {
       </label>
       <label for="kanri-shiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">都道府県</span>
-        <a-select
+        <BaseTodofukenSelect
           id="kanri-shiten-filter-3"
           v-model:value="state.filters.todofuken_code"
-          placeholder="選択してください"
-          allow-clear
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in todofukenOptions"
-            :key="opt.todofuken_code"
-            :value="opt.todofuken_code"
-          >
-            {{ opt.todofuken_name }}
-          </a-select-option>
-        </a-select>
+        />
       </label>
       <label for="kanri-shiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">電話番号</span>

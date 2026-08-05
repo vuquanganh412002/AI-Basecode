@@ -1,3 +1,9 @@
+import {
+  allowsDokusyasoBunruiSonota,
+  allowsJaYakushokuinFlg,
+  allowsNogyoKankeiFlg,
+  allowsNogyosyaBunruiSonota,
+} from '@/common/constants/dokusya-bunrui.constant';
 import { DokusyaShubetsu, ShiharaiHoho } from '@/common/enums';
 import { todayIsoJst } from '@/common/utils/datetime';
 import { Dokusya } from '@/database/entities/dokusya.entity';
@@ -65,6 +71,48 @@ export interface DokusyaHistoryMeta {
   max_joho_date?: string | null;
 }
 
+/** buildBunruiPayload の入力（create/update DTO の該当項目だけ）。 */
+export interface BunruiDtoFields {
+  dokusyaso_bunrui?: string;
+  ja_yakushokuin_flg?: boolean;
+  nogyo_kankei_flg?: boolean;
+  dokusyaso_bunrui_sonota?: string;
+  nogyosya_bunrui?: string;
+  nogyosya_bunrui_sonota?: string;
+}
+
+/**
+ * 購読者層分類まわり 6 項目の保存値を組み立てる（顧客DB設計 2026-08）。
+ *
+ * 従属 4 項目は親の分類が該当コードを含むときだけ値を持てる（列 COMMENT の
+ * 「〜の場合のみ設定可 / 入力可」）。画面は選択に応じて入力欄を出し分け、外れた
+ * 値をクリアしてから送るが、ここでも同じゲートで落とす。理由は 2 つ:
+ *
+ *  1. DTO 単体では表現できない項目間の制約なので、API を直接叩けば
+ *     「購読者層分類=学生 なのに ja_yakushokuin_flg=true」が保存できてしまう。
+ *  2. その組合せは電子版 push で V26〜V30 を踏み、create/update ごと失敗する
+ *     （条件付き項目 — denshiban-push.mapper.ts 参照）。保存できてしまうと
+ *     「画面では登録できたのに電子版だけ同期されない」形の不整合になる。
+ */
+export function buildBunruiPayload(dto: BunruiDtoFields): Partial<Dokusya> {
+  const dokusyasoBunrui = dto.dokusyaso_bunrui ?? '';
+  const nogyosyaBunrui = dto.nogyosya_bunrui ?? '';
+  return {
+    dokusyasoBunrui,
+    jaYakushokuinFlg:
+      allowsJaYakushokuinFlg(dokusyasoBunrui) && dto.ja_yakushokuin_flg === true,
+    nogyoKankeiFlg:
+      allowsNogyoKankeiFlg(dokusyasoBunrui) && dto.nogyo_kankei_flg === true,
+    dokusyasoBunruiSonota: allowsDokusyasoBunruiSonota(dokusyasoBunrui)
+      ? (dto.dokusyaso_bunrui_sonota ?? '')
+      : '',
+    nogyosyaBunrui,
+    nogyosyaBunruiSonota: allowsNogyosyaBunruiSonota(nogyosyaBunrui)
+      ? (dto.nogyosya_bunrui_sonota ?? '')
+      : '',
+  };
+}
+
 export function toDokusyaResponse(
   entity: Dokusya,
   joins: DokusyaJoinFields,
@@ -110,9 +158,12 @@ export function toDokusyaResponse(
     haitatsu_shimei_mei: entity.haitatsuShimeiMei ?? '',
     haitatsu_shimei_kana_sei: entity.haitatsuShimeiKanaSei ?? '',
     haitatsu_shimei_kana_mei: entity.haitatsuShimeiKanaMei ?? '',
-    hanbaiten_id: coerceNumber(entity.hanbaitenId),
+    // hanbaiten_id / tanka_id も NULL 許容（1783700000000 の DROP NOT NULL）。
+    // 上の kanri_shiten_id と同じ理由で 0 へ丸めない — 0 は実在しない ID なので
+    // FE が echo すると FK ガードが 400 を返し、画面上も未選択なのに 0 と表示される。
+    hanbaiten_id: coerceNullableNumber(entity.hanbaitenId),
     hanbaiten_name: joins.hanbaiten_name,
-    tanka_id: coerceNumber(entity.tankaId),
+    tanka_id: coerceNullableNumber(entity.tankaId),
     tanka_name: joins.tanka_name,
     yubin_kubun: entity.yubinKubun ?? '',
     shiharai_hoho: coerceNumber(entity.shiharaiHoho),
@@ -130,7 +181,11 @@ export function toDokusyaResponse(
     hikiotoshi_koza_no: entity.hikiotoshiKozaNo ?? '',
     hikiotoshi_koza_meigi: entity.hikiotoshiKozaMeigi ?? '',
     dokusyaso_bunrui: entity.dokusyasoBunrui ?? '',
+    ja_yakushokuin_flg: entity.jaYakushokuinFlg ?? false,
+    nogyo_kankei_flg: entity.nogyoKankeiFlg ?? false,
+    dokusyaso_bunrui_sonota: entity.dokusyasoBunruiSonota ?? '',
     nogyosya_bunrui: entity.nogyosyaBunrui ?? '',
+    nogyosya_bunrui_sonota: entity.nogyosyaBunruiSonota ?? '',
     shoki_dokusya_kaishi_date: entity.shokiDokusyaKaishiDate ?? '',
     dokusya_kaishi_date: entity.dokusyaKaishiDate ?? '',
     dokusya_chushi_date: entity.dokusyaChushiDate ?? null,
@@ -175,7 +230,8 @@ export interface DokusyaListItem {
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
-  hanbaiten_id: number;
+  /** NULL 許容 — 未設定の読者（バッチ取込の電子版単独など）は null。 */
+  hanbaiten_id: number | null;
   hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
@@ -239,7 +295,7 @@ export function toDokusyaListItem(
     haitatsu_full_name: stringOrEmpty(row.haitatsu_full_name).trim(),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu: stringOrEmpty(row.haitatsu),
-    hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
+    hanbaiten_id: coerceNullableNumber(row.hanbaiten_id as number | string),
     hanbaiten_code: stringOrEmpty(row.hanbaiten_code),
     hanbaiten_name: stringOrEmpty(row.hanbaiten_name),
     dokusya_shubetsu: dokusyaShubetsu,
@@ -323,7 +379,7 @@ export function toDokusyaExcelRow(
  * SCR-013 — 購読者履歴情報画面: `GET /api/v1/dokusya/:dokusya_id/rireki` の1行完全形
  * （api.md §API-013-001 §レスポンスデータ #2-#61）。
  *
- * DokusyaHistoryItemDto（SCR-011 /history — 軽量・tetsuzuki_shurui_label 付き）とは別物。
+ * DokusyaHistoryItemDto（SCR-011 /history — 軽量）とは別物。
  * 本エンドポイントは名称 lookup（管理支店/支店/都道府県×3/販売店×2）を JOIN した完全スナップショットを
  * 返し、nestjs.md §Response serialization + api.md §m_code note に従い CODE 値のみ
  * （*_label なし；FE が useCodesStore で解決）。
@@ -368,8 +424,8 @@ export interface DokusyaRirekiListItem {
   gender: number | null;
   dokusyaso_bunrui: string;
   nogyosya_bunrui: string;
-  /** 新聞単価 (m_tanka.tanka_id)。*/
-  tanka_id: number;
+  /** 新聞単価 (m_tanka.tanka_id)。NULL 許容 — 未設定は null。*/
+  tanka_id: number | null;
   /** 新聞単価名 (m_tanka.tanka_name)。単価削除済み等は null。*/
   tanka_name: string | null;
   /** 新聞単価の表示金額。JA の税区分で BE 解決（zei_kubun=1 内税→税込, else 税抜）。*/
@@ -390,7 +446,8 @@ export interface DokusyaRirekiListItem {
   zenkai_shikuchoson: string | null;
   zenkai_chome_banchi: string | null;
   zenkai_tatemono_mei: string | null;
-  hanbaiten_id: number;
+  /** NULL 許容 — 未設定は null（hanbaiten_name と揃える）。 */
+  hanbaiten_id: number | null;
   hanbaiten_name: string | null;
   zenkai_hanbaiten_id: number | null;
   zenkai_hanbaiten_name: string | null;
@@ -511,7 +568,7 @@ export function toDokusyaRirekiListItem(
     gender: coerceNullableNumber(row.gender as RawScalarNullable),
     dokusyaso_bunrui: stringOrEmpty(row.dokusyaso_bunrui),
     nogyosya_bunrui: stringOrEmpty(row.nogyosya_bunrui),
-    tanka_id: coerceNumber(row.tanka_id as number | string),
+    tanka_id: coerceNullableNumber(row.tanka_id as number | string),
     tanka_name: nullableString(row.tanka_name),
     tanka_kingaku: coerceNullableNumber(row.tanka_kingaku as RawScalarNullable),
     dokusya_busu: coerceNumber(row.dokusya_busu as number | string),
@@ -532,7 +589,7 @@ export function toDokusyaRirekiListItem(
     zenkai_shikuchoson: nullableString(row.zenkai_shikuchoson),
     zenkai_chome_banchi: nullableString(row.zenkai_chome_banchi),
     zenkai_tatemono_mei: nullableString(row.zenkai_tatemono_mei),
-    hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
+    hanbaiten_id: coerceNullableNumber(row.hanbaiten_id as number | string),
     hanbaiten_name: nullableString(row.hanbaiten_name),
     zenkai_hanbaiten_id: coerceNullableNumber(
       row.zenkai_hanbaiten_id as RawScalarNullable,
@@ -567,20 +624,13 @@ export function toDokusyaRirekiListItem(
   };
 }
 
-/**
- * DokusyaRireki エンティティ → history list item へマップ。caller が行ごとに
- * CodeService.getLabel(...) で tetsuzuki_shurui_label を解決（in-memory cache なので lookup は無料）。
- */
-export function toDokusyaHistoryItem(
-  row: DokusyaRireki,
-  tetsuzukiShuruiLabel: string,
-): DokusyaHistoryItemDto {
+/** DokusyaRireki エンティティ → history list item へマップ。 */
+export function toDokusyaHistoryItem(row: DokusyaRireki): DokusyaHistoryItemDto {
   return {
     dokusya_rireki_id: coerceNumber(row.dokusyaRirekiId),
     dokusya_id: coerceNumber(row.dokusyaId),
     rireki_no: coerceNumber(row.rirekiNo),
     tetsuzuki_shurui: coerceNumber(row.tetsuzukiShurui),
-    tetsuzuki_shurui_label: tetsuzukiShuruiLabel,
     saishin_data_flg: Boolean(row.saishinDataFlg),
     shinki_flg: Boolean(row.shinkiFlg),
     kaiyaku_flg: Boolean(row.kaiyakuFlg),
@@ -609,7 +659,8 @@ export interface ReplaceSearchItem {
   shimei: string;
   haitatsu_yubin_no: string;
   haitatsu_address: string;
-  hanbaiten_id: number;
+  /** NULL 許容 — 未設定は null。 */
+  hanbaiten_id: number | null;
   hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
@@ -643,7 +694,7 @@ export function toReplaceSearchItem(
     shimei: `${sei} ${mei}`.trim(),
     haitatsu_yubin_no: stringOrEmpty(row.haitatsu_yubin_no),
     haitatsu_address: `${todofuken}${shikuchoson}${chomeBanchi}${tatemono}`,
-    hanbaiten_id: coerceNumber(row.hanbaiten_id as number | string),
+    hanbaiten_id: coerceNullableNumber(row.hanbaiten_id as number | string),
     hanbaiten_code: stringOrEmpty(row.hanbaiten_code),
     hanbaiten_name: stringOrEmpty(row.hanbaiten_name),
     dokusya_shubetsu: coerceNumber(row.dokusya_shubetsu as number | string),

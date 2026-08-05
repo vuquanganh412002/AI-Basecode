@@ -127,6 +127,85 @@ describe('recomputeMaster', () => {
     expect(m.query).not.toHaveBeenCalled();
   });
 
+  /**
+   * master の監査列は履歴側に対応列が無い（t_dokusya_rireki は created_by のみで
+   * 行は不変）。mapRirekiToMaster も updated_by を運ばないので、actor を渡さない
+   * 限り t_dokusya.updated_by は登録時の値のまま固まる。夜間バッチ（情報変更反映）は
+   * 履歴行を作らないため、ここが唯一の実行者の記録になる（顧客要件 2026-08）。
+   */
+  it('actor を渡すと updated_by も差し替える（created_by は触らない）', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 8, // 業務変更あり
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 1,
+      johoHenkoTekiyoDate: '2026-04-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01', 'SYSTEM_BATCH_NIGHTLY');
+
+    const fields = update.mock.calls[0][2] as Record<string, unknown>;
+    expect(fields.updatedBy).toBe('SYSTEM_BATCH_NIGHTLY');
+    // created_by は「誰が作ったか」の事実で、電子版同期由来の判別にも使うため不変。
+    expect(fields).not.toHaveProperty('createdBy');
+  });
+
+  it('actor を渡さなければ updated_by は据え置く（既存呼出しの挙動を変えない）', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 8,
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 1,
+      johoHenkoTekiyoDate: '2026-04-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01');
+
+    const fields = update.mock.calls[0][2] as Record<string, unknown>;
+    expect(fields).not.toHaveProperty('updatedBy');
+  });
+
+  /**
+   * ポインタ前進は業務値の変更ではないので updated_at を動かさない。updated_by も
+   * 同じ扱い — 片方だけ動くと「更新者は新しいのに更新日時は古い」行になる。
+   */
+  it('ポインタ前進だけのときは actor を渡しても updated_by を動かさない', async () => {
+    mockLcEffective(
+      rireki({
+        dokusyaRirekiId: 3,
+        rirekiNo: 2,
+        johoHenkoTekiyoDate: '2026-05-01',
+        dokusyaBusu: 1, // master と同値
+      }),
+    );
+    (m.findOne as jest.Mock).mockResolvedValue({
+      dokusyaId: 1001,
+      rirekiNo: 1,
+      johoHenkoTekiyoDate: '2026-04-01',
+      dokusyaBusu: 1,
+    });
+
+    await recomputeMaster(m, 1001, '2026-07-01', 'SYSTEM_BATCH_NIGHTLY');
+
+    expect(update).not.toHaveBeenCalled();
+    const [sql] = (m.query as jest.Mock).mock.calls[0];
+    expect(sql).not.toContain('updated_by');
+  });
+
   it('業務値は同一・ポインタだけ前進 → 2列だけ生SQL更新（updated_at は据え置き）', async () => {
     mockLcEffective(
       rireki({
@@ -607,7 +686,7 @@ describe('insertKaiyaku', () => {
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(3);
 
-    await insertKaiyaku(m, 1001, '2026-07-15');
+    await insertKaiyaku(m, 1001, '2026-07-15', 'batch-test');
 
     expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-07-15'); // as-of chushi
     expect(q.insertRow).toHaveBeenCalledTimes(1);
@@ -615,7 +694,7 @@ describe('insertKaiyaku', () => {
     expect(row.tetsuzukiShurui).toBe(0);
     expect(row.kaiyakuFlg).toBe(true);
     expect(row.johoHenkoTekiyoDate).toBe('2026-07-15');
-    expect(row.createdBy).toBe('batch');
+    expect(row.createdBy).toBe('batch-test'); // 呼出し元の actor がそのまま入る
     expect(q.setSaishinFlags).toHaveBeenCalled(); // reflected
     expect(update).toHaveBeenCalled();
   });
@@ -631,7 +710,7 @@ describe('insertKaiyaku', () => {
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(2);
 
-    await insertKaiyaku(m, 1001, '2026-07-01');
+    await insertKaiyaku(m, 1001, '2026-07-01', 'batch-test');
 
     expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-07-01'); // chushi + 1
     const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
@@ -653,7 +732,7 @@ describe('insertKaiyaku', () => {
     q.findBefore.mockResolvedValue(ref);
     q.nextRirekiNo.mockResolvedValue(2);
 
-    await insertKaiyaku(m, 1001, '2026-07-01');
+    await insertKaiyaku(m, 1001, '2026-07-01', 'batch-test');
 
     expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-07-01'); // chushi + 1
     const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
@@ -674,7 +753,7 @@ describe('insertKaiyaku', () => {
     q.findBefore.mockResolvedValue(activated); // as-of chushi → the 販売店 change
     q.nextRirekiNo.mockResolvedValue(4);
 
-    await insertKaiyaku(m, 1001, '2026-07-15');
+    await insertKaiyaku(m, 1001, '2026-07-15', 'batch-test');
 
     const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
     expect(row.hanbaitenId).toBe(460); // inherited new hanbaiten
@@ -684,7 +763,7 @@ describe('insertKaiyaku', () => {
     q.loadEffectiveRow.mockResolvedValueOnce(
       rireki({ dokusyaChushiDate: null, dokusyaShubetsu: 1 }),
     );
-    await insertKaiyaku(m, 1001, '2026-07-15');
+    await insertKaiyaku(m, 1001, '2026-07-15', 'batch-test');
     expect(q.insertRow).not.toHaveBeenCalled();
   });
 
@@ -696,7 +775,7 @@ describe('insertKaiyaku', () => {
         dokusyaShubetsu: 1,
       }),
     );
-    await insertKaiyaku(m, 1001, '2026-07-15');
+    await insertKaiyaku(m, 1001, '2026-07-15', 'batch-test');
     expect(q.insertRow).not.toHaveBeenCalled();
   });
 });

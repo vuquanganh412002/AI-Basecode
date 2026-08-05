@@ -32,6 +32,9 @@ export function buildKanriShitenMeiboQuery(overrides: Record<string, unknown> = 
     report_type: 'kanri_shiten',
     hanbaiten_ids: undefined,
     kanri_shiten_ids: [10],
+    // 支店も必須（顧客要件 2026-08）。既定で 1 件入れておく — 空だと全ケースが
+    // 必須エラーで落ちて、本来検証したい集計・整形のテストが動かない。
+    shiten_ids: [21],
     ...overrides,
   });
 }

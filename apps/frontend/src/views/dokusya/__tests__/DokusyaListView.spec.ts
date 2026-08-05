@@ -967,16 +967,74 @@ describe('DokusyaListView — row navigation (機能定義 5.x)', () => {
           el.text().trim() === '削除' || el.text().includes('削除'),
       );
     expect(deleteEl).toBeDefined();
-    // Accept either an HTML disabled attribute, an antd is-disabled
-    // class, or aria-disabled — all three satisfy the visible-but-
-    // disabled UX rule.
-    const html = deleteEl!.html();
-    const hasDisabledSignal =
-      /disabled(?:=|>|\s)/.test(html) ||
-      html.includes('is-disabled') ||
-      html.includes('ant-btn-disabled') ||
-      deleteEl!.attributes('aria-disabled') === 'true';
-    expect(hasDisabledSignal).toBe(true);
+    // `<button>` の DOM プロパティで判定する。以前は HTML 文字列に
+    // /disabled(\s)/ が含まれるかを見ていたが、BaseActionColumn の class に
+    // Tailwind の `text-text-disabled` があるため活性なボタンでも真になり、
+    // 実質「削除ボタンが存在する」以上の検証になっていなかった。
+    expect((deleteEl!.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /**
+   * 顧客要件 2026-08: 削除できるのは紙版(1)のみ。電子版・併読は電子版読者管理
+   * システムが正なので、こちら側で消しても同期で戻るか、相手には居るのに
+   * クラウド版から見えない状態になる。
+   *
+   * `is_read_only` だけでは足りない。あれは 併読 と 電子版クレカ しか落とさず、
+   * 電子版で口座引落などの支払方法は削除できてしまっていた。
+   */
+  describe('削除ボタンは紙版のみ活性 (顧客要件 2026-08)', () => {
+    const deleteElOf = (wrapper: any, name: string) => {
+      const rowEl = wrapper
+        .findAll('tr')
+        .find((tr: any) => tr.text().includes(name));
+      expect(rowEl).toBeDefined();
+      return rowEl!
+        .findAll('a, button')
+        .find((el: any) => el.text().includes('削除'));
+    };
+    // `<button>` の DOM プロパティで見る。HTML 文字列の部分一致は使えない —
+    // BaseActionColumn の class に Tailwind の `text-text-disabled` があるため、
+    // /disabled(\s)/ 系の判定は活性なボタンにもマッチしてしまう。
+    const isDisabled = (el: any) => (el.element as HTMLButtonElement).disabled;
+
+    it.each([
+      [2, 1, '電子版 + 口座引落'],
+      [2, 2, '電子版 + 現金集金'],
+      [3, 1, '併読'],
+    ])(
+      'should disable 削除 for dokusya_shubetsu=%s shiharai_hoho=%s (%s)',
+      async (shubetsu, hoho) => {
+        const { listDokusya } = await import('@/api/dokusya/dokusya');
+        vi.mocked(listDokusya).mockResolvedValue(
+          buildDokusyaListResponse({
+            data: [
+              buildDokusyaListRow({
+                dokusya_id: 1001,
+                full_name: '電子 太郎',
+                dokusya_shubetsu: shubetsu,
+                shiharai_hoho: hoho,
+                // 電子版+口座引落 は read-only ではない。この行を残したまま
+                // 非活性になることが、今回の修正の要点。
+                is_read_only: shubetsu === 3,
+              }),
+            ],
+          }),
+        );
+
+        const { wrapper } = await renderView();
+        const el = deleteElOf(wrapper, '電子 太郎');
+        expect(el).toBeDefined();
+        expect(isDisabled(el)).toBe(true);
+      },
+    );
+
+    it('should keep 削除 enabled for 紙版 (dokusya_shubetsu=1)', async () => {
+      const { wrapper } = await renderView();
+      // 既定フィクスチャの 山田 太郎 は紙版・is_read_only=false。
+      const el = deleteElOf(wrapper, '山田 太郎');
+      expect(el).toBeDefined();
+      expect(isDisabled(el)).toBe(false);
+    });
   });
 
   it('should navigate to DokusyaCreate when 購読者情報登録 button is clicked', async () => {

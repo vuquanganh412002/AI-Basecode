@@ -23,6 +23,7 @@ import {
   buildEmptyPreviewResponse,
   buildHanbaitenDropdownResponse,
   buildKanriShitenDropdownResponse,
+  buildShitenDropdownResponse,
 } from '@test/fixtures/report.fixture';
 
 // API wrappers — /gen-code-frontend creates these.
@@ -35,6 +36,9 @@ vi.mock('@/api/hanbaiten/hanbaiten', () => ({
 }));
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   getKanriShitenDropdown: vi.fn(),
+}));
+vi.mock('@/api/shiten/shiten', () => ({
+  getShitenDropdown: vi.fn(),
 }));
 
 const noopMessage = (() => undefined) as unknown as ReturnType<typeof message.success>;
@@ -133,12 +137,24 @@ beforeEach(async () => {
   vi.mocked(getHanbaitenDropdown).mockResolvedValue(buildHanbaitenDropdownResponse());
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
   vi.mocked(getKanriShitenDropdown).mockResolvedValue(buildKanriShitenDropdownResponse());
+  const { getShitenDropdown } = await import('@/api/shiten/shiten');
+  vi.mocked(getShitenDropdown).mockResolvedValue(buildShitenDropdownResponse());
 });
 
 // ───────────────────────────────────────────────────────────────────────
 // 1. 画面初期表示 (機能定義 1)
 // ───────────────────────────────────────────────────────────────────────
 describe('MeiboReportView — 画面初期表示', () => {
+
+  it('should exclude the 電子版ダミー販売店 from the 販売店 dropdown (顧客要件 2026-08)', async () => {
+    // ダミーは電子版読者の受け皿であって実在の販売店ではない。本帳票の集計対象
+    // （紙版のみ）にも入らないので、選ばせると必ず0件になる。
+    const { wrapper } = await renderView();
+    const select = wrapper.findComponent({ name: 'BaseHanbaitenSelect' });
+    expect(select.exists()).toBe(true);
+    expect(select.props('dummy')).toBe('exclude');
+  });
+
   it('should render the 適用日 / 帳票種別 / 購読種別 labels when mounted', async () => {
     const { wrapper } = await renderView();
     const text = wrapper.text();
@@ -180,6 +196,170 @@ describe('MeiboReportView — 帳票種別切替', () => {
     await flushPromises();
     expect(wrapper.find('[data-test="kanri-shiten-select"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="kanri-shiten-checkbox"]').exists()).toBe(false);
+  });
+
+  // ─── 支店フィルタ（顧客要件2026-08）────────────────────────────────────
+  it('should render the 支店 multi-select only for the kanri_shiten report', async () => {
+    // 販売店別に出さないのは、帳票に支店列が無く「絞ったのに理由が紙面から
+    // 読めない」状態になるため。
+    const { wrapper } = await renderView();
+    const shitenBox = () => wrapper.find('[data-test="shiten-select"]');
+    expect(shitenBox().exists()).toBe(true); // v-show なので DOM には存在
+    expect(shitenBox().element.closest('[style*="display: none"]')).not.toBeNull();
+
+    (wrapper.vm as any).formState.report_type = 'kanri_shiten';
+    await flushPromises();
+    expect(shitenBox().element.closest('[style*="display: none"]')).toBeNull();
+  });
+
+  it('should send shiten_ids to previewMeibo for the kanri_shiten report', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.tekiyo_date = '2026-04-01';
+    vm.formState.kanri_shiten_ids = [10];
+    // 管理支店を確定させてから支店を選ぶ（実際の操作順）。同一 tick で両方
+    // 入れると、管理支店変更に反応する支店クリアが後から走って消える。
+    await flushPromises();
+    vm.formState.shiten_ids = [21, 22];
+    await flushPromises();
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(previewMeibo).mock.calls.at(-1)?.[0]).toMatchObject({
+      report_type: 'kanri_shiten',
+      shiten_ids: [21, 22],
+    });
+  });
+
+  /**
+   * 支店は任意（顧客要件 2026-08 改訂）。必須にしていた時期があるが、それだと
+   * shiten_id が NULL の購読者（電子版連携は常に NULL・紙版も登録時は任意）が
+   * どう操作しても名簿に出せなくなるため戻した。未選択なら shiten_ids を送らず
+   * BE 側で絞り込みしない ＝ 支店未設定も含めて出力される。
+   */
+  it('should preview without shiten_ids when 支店 is not selected', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockClear();
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.tekiyo_date = '2026-04-01';
+    vm.formState.kanri_shiten_ids = [10];
+    await flushPromises();
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(previewMeibo).toHaveBeenCalledTimes(1);
+    expect(vm.fieldErrors.shiten_ids).toBe('');
+    expect(vi.mocked(previewMeibo).mock.calls[0]?.[0]).not.toHaveProperty(
+      'shiten_ids',
+    );
+  });
+
+  it('should send shiten_ids when 支店 is selected', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    vi.mocked(previewMeibo).mockClear();
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.tekiyo_date = '2026-04-01';
+    vm.formState.kanri_shiten_ids = [10];
+    // 管理支店を変えると支店の選択は解除される（watcher）。解除が走ってから
+    // 支店を入れないと、この後の送信で消えてしまう。
+    await flushPromises();
+    vm.formState.shiten_ids = [21, 22];
+    await flushPromises();
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(previewMeibo).mock.calls[0]?.[0]).toMatchObject({
+      shiten_ids: [21, 22],
+    });
+  });
+
+  /**
+   * 管理支店が未選択のうちは支店セレクトが非活性。支店は任意になったので、
+   * ここで出るエラーは管理支店の1件だけであることを固定する。
+   */
+  it('should show only the 管理支店 error while 管理支店 is still unselected', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.tekiyo_date = '2026-04-01';
+    await flushPromises();
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(vm.fieldErrors.kanri_shiten_ids).toBe(
+      '管理支店を1件以上選択してください。',
+    );
+    expect(vm.fieldErrors.shiten_ids).toBe('');
+  });
+
+  /**
+   * ここの支店は配達担当支店（t_dokusya_rireki.shiten_id）。金融機関支店は
+   * 引落口座の紐付け先で購読者の配達先にはならないので候補から外す
+   * （顧客要件 2026-08）。BE は `kinyu_shiten_flg` が undefined のときだけ
+   * 条件を付けないため、`false` を明示的に渡す必要がある。
+   */
+  it('should ask the dropdown for non-financial branches only', async () => {
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.report_type = 'kanri_shiten';
+    await flushPromises();
+
+    const select = wrapper.findComponent({ name: 'BaseShitenSelect' });
+    expect(select.exists()).toBe(true);
+    expect(select.props('kinyuShitenFlg')).toBe(false);
+  });
+
+  it('should never send shiten_ids on the hanbaiten report even if the state holds some', async () => {
+    const { wrapper } = await renderView();
+    const { previewMeibo } = await import('@/api/report/report');
+    const vm = wrapper.vm as any;
+    vm.formState.tekiyo_date = '2026-04-01';
+    vm.formState.hanbaiten_ids = [1];
+    vm.formState.shiten_ids = [21]; // 管理支店別から戻ってきた残り値を想定
+    await flushPromises();
+
+    await wrapper.find('[data-test="preview-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(previewMeibo).mock.calls.at(-1)?.[0]).not.toHaveProperty('shiten_ids');
+  });
+
+  it('should fetch 支店 candidates scoped to the selected 管理支店', async () => {
+    const { wrapper } = await renderView();
+    const { getShitenDropdown } = await import('@/api/shiten/shiten');
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.kanri_shiten_ids = [10, 11];
+    await flushPromises();
+
+    expect(vi.mocked(getShitenDropdown).mock.calls.at(-1)?.[0]).toMatchObject({
+      kanri_shiten_ids: [10, 11],
+    });
+  });
+
+  it('should drop the 支店 selection when the 管理支店 selection changes', async () => {
+    // 残すと配下に無い支店で絞ることになり、0 件の理由が画面から読めない。
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    vm.formState.report_type = 'kanri_shiten';
+    vm.formState.kanri_shiten_ids = [10];
+    await flushPromises();
+    vm.formState.shiten_ids = [21];
+    await flushPromises();
+
+    vm.formState.kanri_shiten_ids = [11];
+    await flushPromises();
+
+    expect(vm.formState.shiten_ids).toEqual([]);
   });
 
   it('should always render the 支払い方法 condition when report_type is hanbaiten or kanri_shiten', async () => {

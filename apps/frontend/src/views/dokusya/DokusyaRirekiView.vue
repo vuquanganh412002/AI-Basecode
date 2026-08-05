@@ -19,10 +19,7 @@ import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import { formatDate, formatYen } from '@/utils/formatters';
-import {
-  dokusyaSoBunruiLabel,
-  nogyosyaBunruiLabel,
-} from '@/constants/dokusya-bunrui';
+import { bunruiCsvToLabel } from '@/constants/dokusya-bunrui';
 import { denshiShoninStatusLabel } from '@/constants/denshi-shonin-status-labels';
 import {
   getDokusyaRirekiList,
@@ -33,6 +30,12 @@ import {
 const route = useRoute();
 const router = useRouter();
 const codes = useCodesStore();
+
+/** 分類 CSV → m_code のラベル列。コードは文字列、m_code は数値なので label 側で吸収。 */
+const dokusyasoBunruiLabel = (csv: string | null | undefined): string =>
+  bunruiCsvToLabel(csv, (c) => codes.label('DOKUSYASO_BUNRUI', c));
+const nogyosyaBunruiLabel = (csv: string | null | undefined): string =>
+  bunruiCsvToLabel(csv, (c) => codes.label('NOGYOSYA_BUNRUI', c));
 const authStore = useAuthStore();
 const notify = useNotify();
 
@@ -372,9 +375,10 @@ async function confirmTorikeshi(): Promise<void> {
         <template v-else-if="column.key === 'denshi_shonin_status'">
           {{ denshiShoninStatusLabel((record as DokusyaRirekiItem).denshi_shonin_status) }}
         </template>
-        <!-- 分類はコード保存 (電子版 profession/products と 1:1) → ラベル表示。 -->
+        <!-- 分類はコード保存 (電子版 profession/products と 1:1)。ラベルは
+             m_code から解決する（実行時編集可・vue.md §Code Master）。 -->
         <template v-else-if="column.key === 'dokusyaso_bunrui'">
-          {{ dokusyaSoBunruiLabel((record as DokusyaRirekiItem).dokusyaso_bunrui) }}
+          {{ dokusyasoBunruiLabel((record as DokusyaRirekiItem).dokusyaso_bunrui) }}
         </template>
         <template v-else-if="column.key === 'nogyosya_bunrui'">
           {{ nogyosyaBunruiLabel((record as DokusyaRirekiItem).nogyosya_bunrui) }}

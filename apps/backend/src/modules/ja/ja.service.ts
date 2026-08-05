@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditOperation } from '@/common/enums';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { Request } from 'express';
 
 import { Ja } from '@/database/entities/ja.entity';
@@ -503,60 +503,10 @@ export class JaService {
       ])
       .where('mj.deleted_at IS NULL');
 
-    // [scope=todofuken] SCR-022 ファイルダウンロード画面専用の拡大（顧客要件 2026-07）。
-    // 中央会に限り 自JA → 自都道府県の全JA。拡大先の県はクライアント指定ではなく
-    // セッションの todofuken_code なので、他県を覗くことはできない。中央会以外・
-    // todofuken_code 未設定（旧セッション）は通常の applyJaScope へフォールバック。
-    const chuokaiTodofuken =
-      query.scope === 'todofuken' &&
-      session.role_code === RoleCode.CHUOKAI &&
-      (session.todofuken_code ?? '').trim() !== ''
-        ? (session.todofuken_code as string).trim()
-        : null;
-    if (chuokaiTodofuken != null) {
-      qb.andWhere('mj.todofuken_code = :scopeTodofuken', {
-        scopeTodofuken: chuokaiTodofuken,
-      });
-    } else {
-      applyJaScope(qb, 'mj', 'jaId', session);
-    }
+    this.applyDropdownScope(qb, query, session);
+    this.applyDropdownFilters(qb, query);
 
-    if (query.q) {
-      // [match-field] 'name' = ja_name のみ(SCR-024 は ja_code 非表示で
-      // コード検索がユーザに見えないため)。既定 'both' は他呼び元の従来動作。
-      if (query.match_field === 'name') {
-        qb.andWhere('mj.ja_name ILIKE :q', { q: `%${query.q}%` });
-      } else {
-        qb.andWhere('(mj.ja_code ILIKE :q OR mj.ja_name ILIKE :q)', {
-          q: `%${query.q}%`,
-        });
-      }
-    }
-
-    if (query.todofuken_code) {
-      qb.andWhere('mj.todofuken_code = :tdcode', {
-        tdcode: query.todofuken_code,
-      });
-    }
-
-    // role_id → chuokai_flg カスケード。分岐前に(DB採番 BIGSERIAL の)role_id を
-    // 安定した role_code へ解決し、m_roles PK 値をハードコードしない(挿入順依存
-    // — SeedMRoles migration 参照)。中央会→TRUE、単協(JA本店/JA管理支店)→FALSE。
-    // 不明な role_id / 日農ロールは 400 でなく素通り(SCR-024 spec に一致)。
-    if (query.role_id !== undefined) {
-      const role = await this.roleRepo.findOne({
-        where: { roleId: query.role_id },
-        select: ['roleCode'],
-      });
-      if (role?.roleCode === RoleCode.CHUOKAI) {
-        qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: true });
-      } else if (
-        role?.roleCode === RoleCode.JA_HONTEN ||
-        role?.roleCode === RoleCode.JA_KANRI_SHITEN
-      ) {
-        qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: false });
-      }
-    }
+    await this.applyRoleCascade(qb, query.role_id);
 
     qb.orderBy('mj.ja_code', 'ASC')
       .take(per_page)
@@ -567,22 +517,10 @@ export class JaService {
 
     // include_id: 指定行が scope 内だが現ページ範囲外の場合、先頭に付加し、
     // FE が選択済みオプションを GET /api/v1/ja/:id の再取得なしで描画できるように。
-    let pinned: Ja | null = null;
-    if (query.include_id && !pageIds.has(query.include_id)) {
-      const pinnedQb = this.repo
-        .createQueryBuilder('mj')
-        .select([
-          'mj.jaId',
-          'mj.jaCode',
-          'mj.jaName',
-          'mj.todofukenCode',
-          'mj.chuokaiFlg',
-        ])
-        .where('mj.deleted_at IS NULL')
-        .andWhere('mj.ja_id = :id', { id: query.include_id });
-      applyJaScope(pinnedQb, 'mj', 'jaId', session);
-      pinned = await pinnedQb.getOne();
-    }
+    const pinned =
+      query.include_id && !pageIds.has(query.include_id)
+        ? await this.fetchPinnedJa(query.include_id, session)
+        : null;
 
     // ja_id を BIGINT-as-string から number へ変換(TypeORM+pg は entity が
     // number 型でも BIGINT を string で返す)。放置すると FE <a-select> の
@@ -598,4 +536,106 @@ export class JaService {
 
     return paginateCursor(data, total, page, per_page);
   }
+
+  /**
+   * dropdown のスコープ WHERE。
+   *
+   * [scope=todofuken] SCR-022 ファイルダウンロード画面専用の拡大（顧客要件 2026-07）。
+   * 中央会に限り 自JA → 自都道府県の全JA。拡大先の県はクライアント指定ではなく
+   * セッションの todofuken_code なので、他県を覗くことはできない。中央会以外・
+   * todofuken_code 未設定（旧セッション）は通常の applyJaScope へフォールバック。
+   */
+  private applyDropdownScope(
+    qb: SelectQueryBuilder<Ja>,
+    query: JaDropdownQueryDto,
+    session: SessionPayload,
+  ): void {
+    const chuokaiTodofuken =
+      query.scope === 'todofuken' &&
+      session.role_code === RoleCode.CHUOKAI &&
+      (session.todofuken_code ?? '').trim() !== ''
+        ? (session.todofuken_code as string).trim()
+        : null;
+    if (chuokaiTodofuken != null) {
+      qb.andWhere('mj.todofuken_code = :scopeTodofuken', {
+        scopeTodofuken: chuokaiTodofuken,
+      });
+      return;
+    }
+    applyJaScope(qb, 'mj', 'jaId', session);
+  }
+
+  /** 検索語・都道府県の絞り込み。 */
+  private applyDropdownFilters(
+    qb: SelectQueryBuilder<Ja>,
+    query: JaDropdownQueryDto,
+  ): void {
+    if (query.q) {
+      // [match-field] 'name' = ja_name のみ(SCR-024 は ja_code 非表示で
+      // コード検索がユーザに見えないため)。既定 'both' は他呼び元の従来動作。
+      if (query.match_field === 'name') {
+        qb.andWhere('mj.ja_name ILIKE :q', { q: `%${query.q}%` });
+      } else {
+        qb.andWhere('(mj.ja_code ILIKE :q OR mj.ja_name ILIKE :q)', {
+          q: `%${query.q}%`,
+        });
+      }
+    }
+    if (query.todofuken_code) {
+      qb.andWhere('mj.todofuken_code = :tdcode', {
+        tdcode: query.todofuken_code,
+      });
+    }
+  }
+
+  /**
+   * role_id → chuokai_flg カスケード。分岐前に(DB採番 BIGSERIAL の)role_id を
+   * 安定した role_code へ解決し、m_roles PK 値をハードコードしない(挿入順依存
+   * — SeedMRoles migration 参照)。中央会→TRUE、単協(JA本店/JA管理支店)→FALSE。
+   * 不明な role_id / 日農ロールは 400 でなく素通り(SCR-024 spec に一致)。
+   */
+  private async applyRoleCascade(
+    qb: SelectQueryBuilder<Ja>,
+    roleId: number | undefined,
+  ): Promise<void> {
+    if (roleId === undefined) return;
+    const role = await this.roleRepo.findOne({
+      where: { roleId },
+      select: ['roleCode'],
+    });
+    if (role?.roleCode === RoleCode.CHUOKAI) {
+      qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: true });
+      return;
+    }
+    if (
+      role?.roleCode === RoleCode.JA_HONTEN ||
+      role?.roleCode === RoleCode.JA_KANRI_SHITEN
+    ) {
+      qb.andWhere('mj.chuokai_flg = :chuokaiFlg', { chuokaiFlg: false });
+    }
+  }
+
+  /**
+   * include_id: 指定行が scope 内だが現ページ範囲外の場合に単独取得する。
+   * FE が選択済みオプションを GET /api/v1/ja/:id の再取得なしで描画できる。
+   */
+  private async fetchPinnedJa(
+    includeId: number,
+    session: SessionPayload,
+  ): Promise<Ja | null> {
+    const pinnedQb = this.repo
+      .createQueryBuilder('mj')
+      .select([
+        'mj.jaId',
+        'mj.jaCode',
+        'mj.jaName',
+        'mj.todofukenCode',
+        'mj.chuokaiFlg',
+      ])
+      .where('mj.deleted_at IS NULL')
+      .andWhere('mj.ja_id = :id', { id: includeId });
+    applyJaScope(pinnedQb, 'mj', 'jaId', session);
+    return pinnedQb.getOne();
+  }
+
 }

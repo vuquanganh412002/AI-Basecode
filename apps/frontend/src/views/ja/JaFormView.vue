@@ -40,10 +40,7 @@ import {
   type CreateJaRequest,
   type UpdateJaRequest,
 } from '@/api/ja/ja';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -78,8 +75,6 @@ const jaIdParam = computed<number | undefined>(() => {
 
 const isEdit = computed(() => jaIdParam.value !== undefined);
 
-const todofukenOptions = ref<TodofukenItem[]>([]);
-
 const formState = reactive<CreateJaRequest>({
   ja_code: '',
   ja_name: '',
@@ -107,14 +102,7 @@ const editGuard = useEditGuard(() => formState);
 /* ─── ライフサイクル ───────────────────────────────────────────────── */
 
 onMounted(async () => {
-  // 都道府県 dropdown options（§API-COMMON-001）。
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = resp.data;
-  } catch {
-    // axios interceptor が既にエラーをトースト済み。
-    todofukenOptions.value = [];
-  }
+  // 都道府県の候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
 
   // 編集モードの事前ロード。
   if (jaIdParam.value !== undefined) {
@@ -176,54 +164,78 @@ const JA_NAME_FORMAT_MSG = jastemNameFormatMessage('農協名');
 const ITAKUSHA_CODE_RE = /^[A-Za-z0-9]+$/;
 const DIGITS_RE = /^\d+$/;
 
-function validateClient(form: CreateJaRequest): Record<string, string> {
-  const errs: Record<string, string> = {};
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  // ─── 必須チェック（先に実施。下の形式チェックは非空のときのみ発火し
-  //     ユーザーは一度に1エラーを見る）。
-  //
-  //     `?.trim()` は必須 — `<a-select allow-clear>` は × クリアで v-model を
-  //     `undefined`（""ではない）にする。undefined への `.trim()` は throw し
-  //     グローバルエラーハンドラ（「エラーが発生しました…」）に届き、必須違反を隠す。
-  // ──────────────────────────────────────────────────────────────
+/**
+ * 非空のときだけ形式チェックする項目表。
+ *
+ * 以前は `if (form.x && !RE.test(form.x)) errs.x = MSG;` を9本並べていて、
+ * validateClient の Cognitive Complexity が 24（上限15）だった。判定の形が全部
+ * 同じなので表に落とし、ループ1本にする。項目を足すときはここへ1行足すだけ。
+ */
+const FORMAT_RULES: ReadonlyArray<{
+  field: keyof CreateJaRequest;
+  re: RegExp;
+  message: string;
+}> = [
+  { field: 'yubin_no', re: DIGITS_RE, message: POSTAL_DIGITS_ONLY_MSG },
+  { field: 'tel', re: DIGITS_RE, message: TEL_DIGITS_ONLY_MSG },
+  { field: 'fax', re: DIGITS_RE, message: FAX_DIGITS_ONLY_MSG },
+  { field: 'email', re: EMAIL_RE, message: EMAIL_INVALID_MSG },
+  { field: 'ja_name_kana', re: HALF_WIDTH_KATAKANA_RE, message: KANA_FORMAT_MSG },
+  {
+    field: 'jastem_itakusha_code',
+    re: ITAKUSHA_CODE_RE,
+    message: ITAKUSHA_CODE_FORMAT_MSG,
+  },
+  {
+    field: 'jastem_itakusha_name',
+    re: JASTEM_NAME_RE,
+    message: ITAKUSHA_NAME_FORMAT_MSG,
+  },
+  { field: 'jastem_ja_code', re: DIGITS_RE, message: JA_NUM_FORMAT_MSG },
+  { field: 'jastem_ja_name', re: JASTEM_NAME_RE, message: JA_NAME_FORMAT_MSG },
+];
+
+/**
+ * 必須チェック。形式チェックより先に行い、空欄には「必須項目です。」だけを出す
+ * （ユーザーが一度に見るエラーを1つにする）。
+ *
+ * `?.trim()` は必須 — `<a-select allow-clear>` は × クリアで v-model を
+ * `undefined`（""ではない）にする。undefined への `.trim()` は throw し
+ * グローバルエラーハンドラ（「エラーが発生しました…」）に届き、必須違反を隠す。
+ */
+function validateRequired(
+  form: CreateJaRequest,
+  errs: Record<string, string>,
+): void {
   if (!isEdit.value && !form.ja_code?.trim()) errs.ja_code = REQUIRED_MSG;
   if (!form.ja_name?.trim()) errs.ja_name = REQUIRED_MSG;
   if (!form.todofuken_code?.trim()) errs.todofuken_code = REQUIRED_MSG;
-  if (form.zei_kubun !== '1' && form.zei_kubun !== '2') {
-    errs.zei_kubun = REQUIRED_MSG;
-  }
+  // zei_kubun — m_code ZEI_KUBUN に存在する値だけ受理。`'1' | '2'` 決め打ちは
+  // 不可: ZEI_KUBUN は Group B（顧客が実行時に値を追加できる）で、radio は
+  // codes.options('ZEI_KUBUN') から描画するため、追加値を選べるのに保存できない
+  // という不整合になる。
+  if (!codes.has('ZEI_KUBUN', form.zei_kubun)) errs.zei_kubun = REQUIRED_MSG;
+}
 
-  // ─── 形式チェック（非空の値のみ。空は上の必須チェックで短絡）。 ────────
-  if (form.yubin_no && !/^[0-9]+$/.test(form.yubin_no)) {
-    errs.yubin_no = POSTAL_DIGITS_ONLY_MSG;
+/** FORMAT_RULES に沿った形式チェック。空欄は必須チェックに任せて素通しする。 */
+function validateFormats(
+  form: CreateJaRequest,
+  errs: Record<string, string>,
+): void {
+  for (const { field, re, message } of FORMAT_RULES) {
+    const value = form[field];
+    if (typeof value === 'string' && value && !re.test(value)) {
+      errs[field] = message;
+    }
   }
-  if (form.tel && !/^[0-9]+$/.test(form.tel)) {
-    errs.tel = TEL_DIGITS_ONLY_MSG;
-  }
-  if (form.fax && !/^[0-9]+$/.test(form.fax)) {
-    errs.fax = FAX_DIGITS_ONLY_MSG;
-  }
-  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errs.email = EMAIL_INVALID_MSG;
-  }
-  if (form.ja_name_kana && !HALF_WIDTH_KATAKANA_RE.test(form.ja_name_kana)) {
-    errs.ja_name_kana = KANA_FORMAT_MSG;
-  }
+}
 
-  // JASTEM 4項目 — 非空のときのみ形式チェック（任意）。
-  if (form.jastem_itakusha_code && !ITAKUSHA_CODE_RE.test(form.jastem_itakusha_code)) {
-    errs.jastem_itakusha_code = ITAKUSHA_CODE_FORMAT_MSG;
-  }
-  if (form.jastem_itakusha_name && !JASTEM_NAME_RE.test(form.jastem_itakusha_name)) {
-    errs.jastem_itakusha_name = ITAKUSHA_NAME_FORMAT_MSG;
-  }
-  if (form.jastem_ja_code && !DIGITS_RE.test(form.jastem_ja_code)) {
-    errs.jastem_ja_code = JA_NUM_FORMAT_MSG;
-  }
-  if (form.jastem_ja_name && !JASTEM_NAME_RE.test(form.jastem_ja_name)) {
-    errs.jastem_ja_name = JA_NAME_FORMAT_MSG;
-  }
-
+function validateClient(form: CreateJaRequest): Record<string, string> {
+  const errs: Record<string, string> = {};
+  validateRequired(form, errs);
+  validateFormats(form, errs);
   return errs;
 }
 
@@ -387,14 +399,9 @@ defineExpose({ submitWith });
               <span>都道府県</span>
               <span class="text-error ml-1">*</span>
             </template>
-            <a-select
+            <BaseTodofukenSelect
               v-model:value="formState.todofuken_code"
               :disabled="isRestrictedEditor"
-              placeholder="選択してください"
-              :options="
-                todofukenOptions.map((t) => ({ value: t.todofuken_code, label: t.todofuken_name }))
-              "
-              allow-clear
             />
           </a-form-item>
           <a-form-item

@@ -27,7 +27,7 @@ import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
 } from '@/api/kanri-shiten/kanri-shiten';
-import { getTodofukenList, type TodofukenItem } from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 
 interface AccountFilters {
   login_id: string;
@@ -74,7 +74,8 @@ const rows = ref<AccountListItem[]>([]);
 // 50/page 無限スクロール）が提供 — ローカル ref なし。
 const roleOptions = ref<RoleDropdownItem[]>([]);
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）に任せる。
 
 // 列順は ACSMS-SCR-024 v1.x 顧客仕様:
 // ログインID → アカウント名 → 管理者区分 → 都道府県 → JA → 管理支店 →
@@ -105,7 +106,10 @@ async function fetchList(): Promise<void> {
     const params: ListAccountsQuery = {
       login_id: state.filters.login_id || undefined,
       role_id: state.filters.role_id ?? undefined,
-      todofuken_code: state.filters.todofuken_code ?? undefined,
+      // `||` は '' も落とす — <BaseTodofukenSelect> は × クリアで '' を返す
+      // （呼び出し側の空表現を string に揃えるため）。`??` だと '' がそのまま
+      // クエリに載り、BE 側で「空文字の都道府県」で絞って0件になる。
+      todofuken_code: state.filters.todofuken_code || undefined,
       ja_id: state.filters.ja_id ?? undefined,
       kanri_shiten_id: state.filters.kanri_shiten_id ?? undefined,
       page: state.page,
@@ -145,15 +149,6 @@ async function fetchKanriShitenOptions(jaId: number): Promise<void> {
   }
 }
 
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = Array.isArray(resp) ? resp : resp.data;
-  } catch {
-    todofukenOptions.value = [];
-  }
-}
-
 // 都道府県 と JA は独立した検索条件。両方選択時は AND で絞り込む
 // (BE applyAccountSearchFilters が両方を andWhere)。都道府県を変えても
 // JA選択はリセットしない — 互いに関連付けない仕様。
@@ -178,7 +173,6 @@ onMounted(() => {
   if (!isAdmin.value) return;
   void fetchList();
   void fetchRoleOptions();
-  void fetchTodofukenOptions();
   // JA dropdown は <BaseJaDropdown> の onMounted で自己 hydrate。
 });
 
@@ -267,23 +261,11 @@ function askDelete(row: AccountListItem): void {
       </label>
       <label for="accounts-filter-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">都道府県</span>
-        <a-select
+        <BaseTodofukenSelect
           id="accounts-filter-todofuken"
           v-model:value="state.filters.todofuken_code"
-          placeholder="すべて"
-          allow-clear
-          show-search
-          option-filter-prop="children"
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in todofukenOptions"
-            :key="opt.todofuken_code"
-            :value="opt.todofuken_code"
-          >
-            {{ opt.todofuken_name }}
-          </a-select-option>
-        </a-select>
+        />
       </label>
       <label for="accounts-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">JA名</span>

@@ -239,17 +239,65 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
       expect(res.body.error_code).toBe('DATE_RANGE_INVALID');
     });
 
-    it('should return 400 DATE_RANGE_TOO_LONG when range exceeds 365 days', async () => {
+    it('should return 400 DATE_RANGE_TOO_LONG when range exceeds 5 years', async () => {
+      // ログ保持が5年になったので上限も5年（顧客要件 2026-08）。
       const cookie = await asAdmin();
       const res = await http()
         .get(apiUrl('log'))
         .query({
-          date_from: '2024/01/01 00:00:00',
-          date_to: '2026/04/01 00:00:00',
+          date_from: '2019/01/01 00:00:00',
+          date_to: '2025/04/01 00:00:00',
         })
         .set('Cookie', cookie)
         .expect(400);
       expect(res.body.error_code).toBe('DATE_RANGE_TOO_LONG');
+    });
+
+    it('should accept a range of exactly 5 years', async () => {
+      // うるう年ぶんで弾かれないこと（ミリ秒定数ではなく暦で加算している）。
+      const cookie = await asAdmin();
+      await http()
+        .get(apiUrl('log'))
+        .query({
+          date_from: '2020/02/29 00:00:00',
+          date_to: '2025/02/28 00:00:00',
+        })
+        .set('Cookie', cookie)
+        .expect(200);
+    });
+
+    it('should return 400 DATE_RANGE_FUTURE when date_from is in the future', async () => {
+      // 開始日だけの指定でも弾く（両方揃っているかの判定より前に置いている）。
+      const cookie = await asAdmin();
+      const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateFrom =
+        `${future.getFullYear()}/${pad(future.getMonth() + 1)}/` +
+        `${pad(future.getDate())} 00:00:00`;
+      const res = await http()
+        .get(apiUrl('log'))
+        .query({ date_from: dateFrom })
+        .set('Cookie', cookie)
+        .expect(400);
+      expect(res.body.error_code).toBe('DATE_RANGE_FUTURE');
+      expect(res.body.message).toContain('開始日');
+    });
+
+    it('should return 400 DATE_RANGE_FUTURE when date_to is in the future', async () => {
+      // 未来日時にログは存在しない。0件で返すより誤指定と伝える。
+      const cookie = await asAdmin();
+      const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dateTo =
+        `${future.getFullYear()}/${pad(future.getMonth() + 1)}/` +
+        `${pad(future.getDate())} 00:00:00`;
+      const res = await http()
+        .get(apiUrl('log'))
+        .query({ date_from: '2026/01/01 00:00:00', date_to: dateTo })
+        .set('Cookie', cookie)
+        .expect(400);
+      expect(res.body.error_code).toBe('DATE_RANGE_FUTURE');
+      expect(res.body.message).toContain('終了日');
     });
   });
 

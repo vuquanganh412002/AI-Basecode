@@ -221,8 +221,12 @@ export interface KaiyakuRowContext {
   kaiyakuJoho: DateOnly;
   /** 行に記録する解約予定日(購読中止日)（電子版では joho と異なりうる）。 */
   chushiDate: DateOnly;
-  /** 行作成者。UI 解約予約=account_id; 到来日バッチ='batch'(既定)。 */
-  createdBy?: string;
+  /**
+   * `created_by`。UI 解約予約=account_id、到来日バッチ=SYSTEM_BATCH_NIGHTLY。
+   * 既定値は持たせない — 電子版同期由来の読者を判別するキーになったので
+   * （顧客要件 2026-08）、渡し忘れを型で落とす。
+   */
+  createdBy: string;
 }
 
 /**
@@ -246,7 +250,7 @@ export function buildKaiyakuRow(
   row.dokusyaBusu = 0; // 解約=部数なし
   row.dokusyaChushiDate = ctx.chushiDate;
   row.johoHenkoTekiyoDate = ctx.kaiyakuJoho;
-  row.createdBy = ctx.createdBy ?? 'batch';
+  row.createdBy = ctx.createdBy;
 
   const built = row as unknown as DokusyaRireki;
   fillZenkai(built, before);

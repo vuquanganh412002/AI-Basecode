@@ -517,12 +517,13 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         message: '承認しました。',
       });
       await http().put(apiUrl('dokusya/42/approve')).expect(200);
-      // 4th arg = optional tanka_id from the body (undefined when no body sent).
+      // 4th arg = ApproveDokusyaDto（新聞単価 + 引落口座4項目・#56524）。
+      // ボディ無しなら空 DTO。
       expect(service.approve).toHaveBeenCalledWith(
         42,
         expect.anything(),
         expect.anything(),
-        undefined,
+        {},
       );
     });
 
@@ -536,7 +537,36 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         42,
         expect.anything(),
         expect.anything(),
-        7,
+        { tanka_id: 7 },
+      );
+    });
+
+    it('should pass the 4 引落口座 fields from the body to service.approve (#56524)', async () => {
+      service.approve.mockResolvedValue({
+        data: buildDokusyaDetailResponse({ dokusya_id: 42, denshi_shonin_status: 1 }),
+        message: '承認しました。',
+      });
+      await http()
+        .put(apiUrl('dokusya/42/approve'))
+        .send({
+          tanka_id: 7,
+          bank_shiten_id: 5,
+          hikiotoshi_yokin_shubetsu: 1,
+          hikiotoshi_koza_no: '1234567890',
+          hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+        })
+        .expect(200);
+      expect(service.approve).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        {
+          tanka_id: 7,
+          bank_shiten_id: 5,
+          hikiotoshi_yokin_shubetsu: 1,
+          hikiotoshi_koza_no: '1234567890',
+          hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+        },
       );
     });
 
@@ -611,7 +641,30 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         message: '否認しました。',
       });
       await http().put(apiUrl('dokusya/42/reject')).expect(200);
-      expect(service.reject).toHaveBeenCalledWith(42, expect.anything(), expect.anything());
+      // 4th arg = RejectDokusyaDto（引落口座4項目・#56524）。ボディ無しなら空 DTO。
+      expect(service.reject).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        {},
+      );
+    });
+
+    it('should pass the 4 引落口座 fields from the body to service.reject (#56524)', async () => {
+      service.reject.mockResolvedValue({
+        data: buildDokusyaDetailResponse({ dokusya_id: 42, denshi_shonin_status: 2 }),
+        message: '否認しました。',
+      });
+      await http()
+        .put(apiUrl('dokusya/42/reject'))
+        .send({ hikiotoshi_koza_no: '1234567890' })
+        .expect(200);
+      expect(service.reject).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        { hikiotoshi_koza_no: '1234567890' },
+      );
     });
 
     it('should return 400 BAD_REQUEST when dokusya_id is non-numeric', async () => {
@@ -671,14 +724,14 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         data: [
           {
             dokusya_rireki_id: 200, dokusya_id: 100, rireki_no: 2,
-            tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
+            tetsuzuki_shurui: 1,
             saishin_data_flg: true, shinki_flg: false, kaiyaku_flg: false,
             zougen_hokoku_flg: true, denshi_shonin_status: null,
             created_at: '2026-05-07T14:30:00.000Z', created_by: 'user01',
           },
           {
             dokusya_rireki_id: 100, dokusya_id: 100, rireki_no: 1,
-            tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
+            tetsuzuki_shurui: 1,
             saishin_data_flg: false, shinki_flg: true, kaiyaku_flg: false,
             zougen_hokoku_flg: true, denshi_shonin_status: null,
             created_at: '2026-04-01T10:00:00.000Z', created_by: 'user01',
@@ -693,13 +746,15 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       expect(res.body.data[1].rireki_no).toBe(1);
     });
 
-    it('should include tetsuzuki_shurui_label in each row', async () => {
-      // COVERS: §4.5 — tetsuzuki_shurui_label mapping
+    it('should return the raw code value without a *_label field', async () => {
+      // COVERS: §4.5 — 認証エンドポイントはコード値のみ返す
+      // (.claude/rules/nestjs.md §m_code response serialization)。ラベルは
+      // 顧客が m_code から変更できるため FE の useCodesStore が解決する。
       service.getHistory.mockResolvedValue({
         data: [
           {
             dokusya_rireki_id: 100, dokusya_id: 100, rireki_no: 1,
-            tetsuzuki_shurui: 1, tetsuzuki_shurui_label: '新規',
+            tetsuzuki_shurui: 1,
             saishin_data_flg: true, shinki_flg: true,
             kaiyaku_flg: false, zougen_hokoku_flg: true,
             denshi_shonin_status: null,
@@ -708,7 +763,8 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
         ],
       });
       const res = await http().get(apiUrl('dokusya/100/history')).expect(200);
-      expect(res.body.data[0].tetsuzuki_shurui_label).toBe('新規');
+      expect(res.body.data[0].tetsuzuki_shurui).toBe(1);
+      expect(res.body.data[0]).not.toHaveProperty('tetsuzuki_shurui_label');
     });
 
     it('should call service.getHistory with parsed numeric dokusya_id + session', async () => {

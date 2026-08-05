@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { SystemActor } from '@/common/constants/system-actor.constant';
 import { recomputeMaster } from '@/modules/dokusya/dokusya-history.writer';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { AuditOperation, LogType, ResultStatus } from '@/common/enums';
@@ -109,7 +110,12 @@ export class DokusyaRecomputeService {
   private async applyOne(id: number, today: string): Promise<boolean> {
     try {
       await this.db.transaction(async (m) => {
-        const res = await recomputeMaster(m, id, today);
+        const res = await recomputeMaster(
+          m,
+          id,
+          today,
+          SystemActor.BATCH_NIGHTLY,
+        );
         if (res.changedFields.length === 0) return;
         await this.auditLog.logOperation(
           {

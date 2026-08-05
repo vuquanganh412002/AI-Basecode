@@ -35,11 +35,11 @@ export default defineConfig({
         },
       },
     },
-    // ant-design-vue alone is ~1.45 MB raw / ~450 KB gzip — legitimate for an
-    // internal admin tool. Now that it lives in its own cacheable chunk,
-    // raise the warning ceiling above it so the build log stays signal,
-    // not noise. (xlsx stays a separate lazy chunk; see manualChunks above.)
-    chunkSizeWarningLimit: 1500,
+    // ant-design-vue は使用コンポーネントのみ登録して ~907 kB raw / ~280 kB
+    // gzip（src/plugins/antd.ts）。自前の cacheable チャンクに分けてあるので
+    // 少し余裕を持たせつつ、再び全体登録へ戻る等で膨らんだら気付けるよう
+    // 1000 kB で止める。(xlsx は lazy な別チャンク — 上の manualChunks 参照)
+    chunkSizeWarningLimit: 1000,
   },
   resolve: {
     alias: {

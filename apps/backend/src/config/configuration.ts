@@ -57,12 +57,12 @@ function assertProductionSecrets(): void {
   }
 }
 
-export default () => {
+export default function configuration() {
   assertProductionSecrets();
   const storageProvider = process.env.STORAGE_PROVIDER || 'minio';
 
   return {
-    port: parseInt(process.env.PORT ?? '3000', 10),
+    port: Number.parseInt(process.env.PORT ?? '3000', 10),
     nodeEnv: process.env.NODE_ENV || 'development',
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || [
       DEFAULT_FRONTEND_URL,
@@ -85,7 +85,7 @@ export default () => {
     },
     database: {
       host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT ?? '5432', 10),
+      port: Number.parseInt(process.env.DB_PORT ?? '5432', 10),
       username: process.env.DB_USERNAME || 'postgres',
       // dev fallback — assertProductionSecrets() rejects this in prod.
       password: process.env.DB_PASSWORD || DEV_FALLBACKS.DB_PASSWORD,
@@ -104,7 +104,7 @@ export default () => {
       // REDIS_HOST 未設定でも NODE_ENV=local を動かす。Docker 利用者は .env で
       // REDIS_HOST=redis を設定可。
       host: process.env.REDIS_HOST || (isLocalNodeEnv() ? 'localhost' : 'redis'),
-      port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
+      port: Number.parseInt(process.env.REDIS_PORT ?? '6379', 10),
       // ElastiCache AUTH トークン — ECS は `REDIS_AUTH_TOKEN` で公開。ローカルの
       // `REDIS_PASSWORD` 規約と一致不要なので両名を受ける。
       password: process.env.REDIS_PASSWORD || process.env.REDIS_AUTH_TOKEN || '',
@@ -187,7 +187,7 @@ export default () => {
       // MAIL_PROVIDER=smtp を設定。
       provider: process.env.MAIL_PROVIDER || 'smtp',
       host: process.env.MAIL_HOST || DEFAULT_MAIL_HOST,
-      port: parseInt(process.env.MAIL_PORT ?? '1025', 10),
+      port: Number.parseInt(process.env.MAIL_PORT ?? '1025', 10),
       user: process.env.MAIL_USER || '',
       pass: process.env.MAIL_PASS || '',
       from: process.env.MAIL_FROM || DEFAULT_MAIL_FROM,

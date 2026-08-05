@@ -14,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 
+import { IsNotReservedLoginId } from '@/common/decorators/not-reserved-login-id.decorator';
 import { IsStrongPassword } from '@/common/decorators/strong-password.decorator';
 
 /**
@@ -36,6 +37,7 @@ export class CreateAccountDto {
   @Matches(/^\w+$/, {
     message: 'ログインIDは半角英数字とアンダースコアのみで指定してください。',
   })
+  @IsNotReservedLoginId()
   login_id!: string;
 
   @ApiProperty({ description: 'パスワード（8〜32文字、半角英字・数字・記号の3種のうち2種以上）', minLength: 8, maxLength: 32 })

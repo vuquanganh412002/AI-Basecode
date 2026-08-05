@@ -15,6 +15,15 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *   適用済み DB には別マイグレーションで反映済み（そのマイグレーションは適用完了後に
  *   削除）。本ファイルの更新は新規構築 DB の COMMENT を実態に揃えるためのもので、
  *   DDL（型・制約）は初版から変更していない。
+ *
+ * 2026-08-04: consolidated patches — see git history for the split versions.
+ *   - AlterTDokusyaRirekiNoDefault1711900900014         rireki_no に DEFAULT 1
+ *   - AlterTDokusyaShitenIdNullable1783500000000        shiten_id NULL 許容
+ *   - AlterTDokusyaMailMagazineNullable1783500000001    mail_magazine_flg NULL 許容
+ *   - AlterTDokusyaHanbaitenTankaNullable1783700000000  hanbaiten_id / tanka_id NULL 許容
+ *   - AddTDokusyaHonshiKodokuFlg1783800000000           honshi_kodoku_flg 追加
+ *   - AddDokusyaKaiyakuBatchIndexes1784300000000        ix_t_dokusya_kaiyaku_due
+ *   （AlterTDokusyaAddDenshiKaiinId1711900900019 は既に本ファイルへ取込済み）
  */
 export class CreateTDokusya1711900800016 implements MigrationInterface {
   name = 'CreateTDokusya1711900800016';
@@ -43,7 +52,7 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
         renrakusaki_1 VARCHAR(15) NOT NULL DEFAULT '',                      -- 連絡先１※空文字許容
         renrakusaki_2 VARCHAR(15) NOT NULL DEFAULT '',                      -- 連絡先２※空文字許容
         email VARCHAR(100) NOT NULL DEFAULT '',                             -- メールアドレス※空文字許容
-        mail_magazine_flg INTEGER NOT NULL,                                 -- メールマガジン（0:配信しない, 1:配信する）
+        mail_magazine_flg INTEGER,                                          -- メールマガジン（0:配信しない, 1:配信する）※紙版のみ指定時は NULL
         birth_year INTEGER,                                                 -- 生年（西暦）
         gender INTEGER,                                                     -- 性別（1:男性, 2:女性, 9:回答しない）
         haitatsu_same_flg BOOLEAN NOT NULL DEFAULT false,                   -- 配達先情報指定（TRUE:購読者と同じ）
@@ -58,8 +67,8 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
         haitatsu_shimei_mei VARCHAR(50) NOT NULL DEFAULT '',                -- 配達先氏名（名・漢字）※空文字許容
         haitatsu_shimei_kana_sei VARCHAR(100) NOT NULL DEFAULT '',          -- 配達先氏名かな（姓）※空文字許容
         haitatsu_shimei_kana_mei VARCHAR(100) NOT NULL DEFAULT '',          -- 配達先氏名かな（名）※空文字許容
-        hanbaiten_id BIGINT NOT NULL,                                       -- 販売店ID（外部キー）
-        tanka_id BIGINT NOT NULL,                                           -- 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1）
+        hanbaiten_id BIGINT,                                                -- 販売店ID（外部キー）※未設定は NULL
+        tanka_id BIGINT,                                                    -- 単価ID（FK:m_tanka）※購読料単価のみ（tanka_type=1）。未設定は NULL
         yubin_kubun VARCHAR(1) NOT NULL DEFAULT '0',                        -- 郵送区分（0:空, 1:郵送）DEFAULT 0
         shiharai_hoho INTEGER NOT NULL,                                     -- 支払方法（1:口座引落, 2:現金集金, ...）
         dokusyaryo_shiharai_cycle INTEGER,                                  -- 購読料支払サイクル（月数）
@@ -68,22 +77,27 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
         hikiotoshi_yokin_shubetsu INTEGER,                                  -- 引落口座貯金種目（1:普通, 2:当座）
         hikiotoshi_koza_no VARCHAR(10) NOT NULL DEFAULT '',                 -- 引落口座番号※空文字許容
         hikiotoshi_koza_meigi VARCHAR(50) NOT NULL DEFAULT '',              -- 引落口座名義※空文字許容
-        dokusyaso_bunrui VARCHAR(50) NOT NULL DEFAULT '',                   -- 購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容
-        nogyosya_bunrui VARCHAR(50) NOT NULL DEFAULT '',                    -- 農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容
+        dokusyaso_bunrui VARCHAR(50) NOT NULL DEFAULT '',                   -- 購読者層分類（単一選択。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。m_code.code_category=DOKUSYASO_BUNRUI）※空文字許容
+        ja_yakushokuin_flg BOOLEAN NOT NULL DEFAULT false,                  -- かつJAグループ役職員フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝農業者の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_ja（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE
+        nogyo_kankei_flg BOOLEAN NOT NULL DEFAULT false,                    -- 農業関係フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝企業・団体の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_agri（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE
+        dokusyaso_bunrui_sonota VARCHAR(255) NOT NULL DEFAULT '',           -- 購読者層分類その他（自由記述）※空文字許容。購読者層分類（dokusyaso_bunrui）＝その他の場合のみ入力可。電子版読者管理システムの users.others_profession（255文字以下）を連携
+        nogyosya_bunrui VARCHAR(50) NOT NULL DEFAULT '',                    -- 農業者分類（複数カンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。m_code.code_category=NOGYOSYA_BUNRUI）※空文字許容
+        nogyosya_bunrui_sonota VARCHAR(255) NOT NULL DEFAULT '',            -- 農業者分類その他（自由記述）※空文字許容。農業者分類（nogyosya_bunrui）に「その他」を含む場合のみ入力可。電子版読者管理システムの users.others_products（255文字以下）を連携
         shoki_dokusya_kaishi_date DATE NOT NULL,                            -- 初回購読開始日（変更時も保持）
         dokusya_kaishi_date DATE NOT NULL,                                  -- 購読開始日
         dokusya_chushi_date DATE,                                           -- 購読中止日
         joho_henko_tekiyo_date DATE,                                        -- 読者情報変更適用日
         seikyu_kaishi_month VARCHAR(6) NOT NULL DEFAULT '',                 -- 請求開始月（YYYYMM）※空文字許容
         biko TEXT NOT NULL DEFAULT '',                                      -- 備考※空文字許容
-        rireki_no INTEGER NOT NULL,                                         -- 履歴No（最新の履歴番号）。DEFAULT 1 は 1711900900014-AlterTDokusyaRirekiNoDefault で後付け。新規作成時は DB DEFAULT 1, 更新時は service が MAX(rireki_no)+1 で明示セット
+        rireki_no INTEGER NOT NULL DEFAULT 1,                               -- 履歴No（最新の履歴番号）。新規作成時は DB DEFAULT 1, 更新時は service が MAX(rireki_no)+1 で明示セット
+        denshi_shonin_status INTEGER,                                       -- 電子申込承認ステータス
+        denshi_kaiin_id BIGINT,                                             -- 電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）
+        honshi_kodoku_flg BOOLEAN NOT NULL DEFAULT FALSE,                   -- 本紙購読フラグ（電子版読者管理システムの users.subscribe_flg を連携。0→FALSE, 1→TRUE）
         deleted_at TIMESTAMPTZ DEFAULT NULL,                                -- 削除フラグ（DEFAULT NULL）
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                      -- 作成日時
         created_by VARCHAR(50) NOT NULL,                                    -- 作成者
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                      -- 更新日時
         updated_by VARCHAR(50) NOT NULL,                                    -- 更新者
-        denshi_shonin_status INTEGER,                                       -- 電子申込承認ステータス
-        denshi_kaiin_id BIGINT,                                             -- 電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）
         CONSTRAINT FK_t_dokusya_m_ja FOREIGN KEY (ja_id) REFERENCES m_ja (ja_id),
         CONSTRAINT FK_t_dokusya_m_kanri_shiten FOREIGN KEY (kanri_shiten_id) REFERENCES m_kanri_shiten (kanri_shiten_id),
         CONSTRAINT FK_t_dokusya_m_shiten FOREIGN KEY (shiten_id) REFERENCES m_shiten (shiten_id),
@@ -99,6 +113,18 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_hanbaiten_id ON t_dokusya (hanbaiten_id)`);
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_ja_kumiaiin ON t_dokusya (ja_id, kumiaiin_code)`);
     await queryRunner.query(`CREATE INDEX IX_t_dokusya_hierarchy ON t_dokusya (ja_id, kanri_shiten_id, shiten_id)`);
+    // 解約確定バッチ（dokusya-apply-due 第1段）の抽出用。解約予定日ありの未削除行だけを
+    // 載せる部分インデックス。述語に tetsuzuki_shurui を入れないのが要点 — 抽出クエリは
+    // その値をバインドパラメータで渡すため、述語に含めるとプランナが包含を証明できず
+    // インデックスが使われないことがある（generic plan 時）。
+    await queryRunner.query(`
+      CREATE INDEX ix_t_dokusya_kaiyaku_due
+          ON t_dokusya (dokusya_chushi_date, dokusya_shubetsu, tetsuzuki_shurui)
+       WHERE deleted_at IS NULL AND dokusya_chushi_date IS NOT NULL
+    `);
+    await queryRunner.query(
+      `COMMENT ON INDEX ix_t_dokusya_kaiyaku_due IS '解約確定バッチの抽出用（解約予定日ありの未削除行のみ）'`,
+    );
     // 電子版会員IDは全レコードで一意（NULL・削除済みは除外する部分 UNIQUE）。
     await queryRunner.query(
       `CREATE UNIQUE INDEX UQ_t_dokusya_denshi_kaiin_id ON t_dokusya (denshi_kaiin_id) WHERE denshi_kaiin_id IS NOT NULL AND deleted_at IS NULL`,
@@ -151,22 +177,27 @@ export class CreateTDokusya1711900800016 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.hikiotoshi_yokin_shubetsu IS '引落口座貯金種目（1:普通, 2:当座）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.hikiotoshi_koza_no IS '引落口座番号※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.hikiotoshi_koza_meigi IS '引落口座名義※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusyaso_bunrui IS '購読者層分類（コードのカンマ区切り。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。電子版 profession と 1:1）※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.nogyosya_bunrui IS '農業者分類（コードのカンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。電子版 products と 1:1）※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusyaso_bunrui IS '購読者層分類（単一選択。0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他。m_code.code_category=DOKUSYASO_BUNRUI）※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.ja_yakushokuin_flg IS 'かつJAグループ役職員フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝農業者の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_ja（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.nogyo_kankei_flg IS '農業関係フラグ（DEFAULT FALSE）。購読者層分類（dokusyaso_bunrui）＝企業・団体の場合のみ TRUE を設定可。電子版読者管理システムの users.profession_and_agri（0:チェック無し, 1:チェックあり）を連携。0→FALSE, 1→TRUE'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusyaso_bunrui_sonota IS '購読者層分類その他（自由記述）※空文字許容。購読者層分類（dokusyaso_bunrui）＝その他の場合のみ入力可。電子版読者管理システムの users.others_profession（255文字以下）を連携'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.nogyosya_bunrui IS '農業者分類（複数カンマ区切り。0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他。m_code.code_category=NOGYOSYA_BUNRUI）※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.nogyosya_bunrui_sonota IS '農業者分類その他（自由記述）※空文字許容。農業者分類（nogyosya_bunrui）に「その他」を含む場合のみ入力可。電子版読者管理システムの users.others_products（255文字以下）を連携'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.shoki_dokusya_kaishi_date IS '初回購読開始日（変更時も保持）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusya_kaishi_date IS '購読開始日'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.dokusya_chushi_date IS '購読中止日'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.joho_henko_tekiyo_date IS '読者情報変更適用日'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.seikyu_kaishi_month IS '請求開始月（YYYYMM）※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.biko IS '備考※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.rireki_no IS '履歴No（最新の履歴番号）'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.rireki_no IS '履歴No（最新の履歴番号）。新規作成時は DEFAULT 1, 更新時は service が MAX(rireki_no)+1 で明示セット'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_shonin_status IS '電子申込承認ステータス'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_kaiin_id IS '電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.honshi_kodoku_flg IS '本紙購読フラグ（電子版読者管理システムの users.subscribe_flg を連携。0→FALSE, 1→TRUE。DEFAULT FALSE）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.deleted_at IS '削除フラグ（DEFAULT NULL）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.created_at IS '作成日時'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.created_by IS '作成者'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.updated_at IS '更新日時'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya.updated_by IS '更新者'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_shonin_status IS '電子申込承認ステータス'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya.denshi_kaiin_id IS '電子版会員ID（外部システムの会員ID, NULL許容, 全体一意）'`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

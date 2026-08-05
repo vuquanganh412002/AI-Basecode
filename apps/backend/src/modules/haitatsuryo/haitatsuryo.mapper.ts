@@ -6,7 +6,7 @@
 // TypeORM QueryBuilder では表現できないため、パラメータ化した raw SQL 文字列
 // （位置指定 $1..$5、ユーザー入力は絶対に文字列展開しない）を dataSource.query で実行する。
 
-import { TetsuzukiShurui } from '@/common/enums';
+import { DokusyaShubetsu, TetsuzukiShurui } from '@/common/enums';
 import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
 import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
 import { HaitatsuryoQueryDto } from './dto/haitatsuryo-query.dto';
@@ -120,6 +120,12 @@ export function buildHaitatsuryoSql(
         FROM t_dokusya d
        WHERE d.deleted_at IS NULL
          AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
+         -- 配達手数料は「紙を配達した対価」なので紙版(1)のみ集計する
+         -- （顧客要件 2026-08 / #56599）。電子版(2)は配達自体が無く、併読(3)も
+         -- 対象外とする。従来は種別で絞っておらず、実在の販売店に紐づく併読は
+         -- そのまま加算され、電子版もダミー販売店に配達手数料単価が設定されて
+         -- いれば加算されていた（＝データ次第で金額が変わる状態だった）。
+         AND d.dokusya_shubetsu = ${DokusyaShubetsu.PAPER}
          AND d.joho_henko_tekiyo_date
              <= DATE_TRUNC('month', $1::date) + INTERVAL '1 month' - INTERVAL '1 day'
          AND d.ja_id = $2
@@ -218,6 +224,12 @@ export function buildInactiveHaitatsuryoTankaSql(
         FROM t_dokusya d
        WHERE d.deleted_at IS NULL
          AND d.tetsuzuki_shurui = ${TetsuzukiShurui.SHINKI}
+         -- 配達手数料は「紙を配達した対価」なので紙版(1)のみ集計する
+         -- （顧客要件 2026-08 / #56599）。電子版(2)は配達自体が無く、併読(3)も
+         -- 対象外とする。従来は種別で絞っておらず、実在の販売店に紐づく併読は
+         -- そのまま加算され、電子版もダミー販売店に配達手数料単価が設定されて
+         -- いれば加算されていた（＝データ次第で金額が変わる状態だった）。
+         AND d.dokusya_shubetsu = ${DokusyaShubetsu.PAPER}
          AND d.joho_henko_tekiyo_date
              <= DATE_TRUNC('month', $1::date) + INTERVAL '1 month' - INTERVAL '1 day'
          AND d.ja_id = $2

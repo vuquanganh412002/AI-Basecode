@@ -15,7 +15,11 @@ import {
   type ExportLogQuery,
   type LogListItem,
 } from '@/api/log/log';
+import dayjs from 'dayjs';
+
 import {
+  isFutureDayTokyo,
+  nowTokyo,
   parseDatetimeWithSecondsTokyo,
   timestampForFilenameTokyo,
 } from '@/utils/datetime';
@@ -30,7 +34,12 @@ interface LogFilters {
   account_id: number | null;
 }
 
-const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+/**
+ * 検索期間の上限（年）。ログ保持期間が 1年 → 5年 へ延びたのに合わせる
+ * （顧客要件 2026-08）。ミリ秒定数ではなく暦で加算する — 365日×5 だと
+ * うるう年ぶん2日足りず、ちょうど5年を指定したユーザーが弾かれる。
+ */
+const MAX_RANGE_YEARS = 5;
 
 const {
   state, loading, total, onChange, searchActions,
@@ -85,16 +94,31 @@ function buildQuery(): ListLogsQuery {
 function validateDateRange(): boolean {
   const from = state.filters.date_from?.trim();
   const to = state.filters.date_to?.trim();
+
+  // 未来日時にログは存在しないので、片側だけの指定でも先に弾く。カレンダーは
+  // 未来日を無効化しているが、時刻部分は手入力できるため検証側でも見る。
+  const now = nowTokyo().valueOf();
+  const fromOnly = from ? parseDatetimeWithSecondsTokyo(from) : null;
+  const toOnly = to ? parseDatetimeWithSecondsTokyo(to) : null;
+  if (fromOnly && fromOnly.getTime() > now) {
+    message.error('「開始日」に未来の日時は指定できません。');
+    return false;
+  }
+  if (toOnly && toOnly.getTime() > now) {
+    message.error('「終了日」に未来の日時は指定できません。');
+    return false;
+  }
+
   if (!from || !to) return true;
-  const fromDate = parseDatetimeWithSecondsTokyo(from);
-  const toDate = parseDatetimeWithSecondsTokyo(to);
+  const fromDate = fromOnly;
+  const toDate = toOnly;
   if (!fromDate || !toDate) return true;
   if (fromDate.getTime() > toDate.getTime()) {
     message.error('「開始日」は「終了日」以前の日付を入力してください。');
     return false;
   }
-  if (toDate.getTime() - fromDate.getTime() > ONE_YEAR_MS) {
-    message.error('検索期間は1年以内で指定してください。');
+  if (dayjs(fromDate).add(MAX_RANGE_YEARS, 'year').isBefore(dayjs(toDate))) {
+    message.error(`検索期間は${MAX_RANGE_YEARS}年以内で指定してください。`);
     return false;
   }
   return true;
@@ -188,6 +212,7 @@ defineExpose({ state, fetchList });
            とも YYYY/MM/DD HH:mm:ss にし、form-state を BE 受理の素の文字列に保つ。 -->
       <label for="log-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">期間（開始）</span>
+        <!-- 未来日はログが存在しないので選ばせない（JST 基準・共通ヘルパー）。 -->
         <a-date-picker
           id="log-filter-1"
           v-model:value="state.filters.date_from"
@@ -196,11 +221,13 @@ defineExpose({ state, fetchList });
           value-format="YYYY/MM/DD HH:mm:ss"
           placeholder="YYYY/MM/DD HH:mm:ss"
           allow-clear
+          :disabled-date="isFutureDayTokyo"
           class="flex-1"
         />
       </label>
       <label for="log-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">期間（終了）</span>
+        <!-- 未来日はログが存在しないので選ばせない（JST 基準・共通ヘルパー）。 -->
         <a-date-picker
           id="log-filter-2"
           v-model:value="state.filters.date_to"
@@ -209,6 +236,7 @@ defineExpose({ state, fetchList });
           value-format="YYYY/MM/DD HH:mm:ss"
           placeholder="YYYY/MM/DD HH:mm:ss"
           allow-clear
+          :disabled-date="isFutureDayTokyo"
           class="flex-1"
         />
       </label>

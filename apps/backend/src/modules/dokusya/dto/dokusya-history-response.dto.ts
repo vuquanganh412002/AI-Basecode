@@ -3,21 +3,17 @@ import { ApiProperty } from '@nestjs/swagger';
 /**
  * `GET /api/v1/dokusya/:dokusya_id/history` の1行（ACSMS-API-011-006）。
  *
- * レスポンスは `CodeService.getLabel('TETSUZUKI_SHURUI', value)` で解決した
- * `tetsuzuki_shurui_label` を持つ — 履歴は意図的に「認証エンドポイントに
- * `*_label` を持たない」ルール（`.claude/rules/nestjs.md §m_code response
- * serialization`）の例外。履歴テーブルがラベルを主列として描画するため
- * （タイムライン UI で FE の m_code 逆引きが不要）。
+ * コード値のみを返す（`.claude/rules/nestjs.md §m_code response serialization`）。
+ * 以前は `tetsuzuki_shurui_label` を同梱していたが、画面 (SCR-012 履歴タブ) は
+ * `useCodesStore().label('TETSUZUKI_SHURUI', …)` で描画しており誰も読んでいな
+ * かったため削除した。ラベルは顧客が m_code から変更できるので、キャッシュ済み
+ * の値をレスポンスに焼き込まない方が乖離しない。
  */
 export class DokusyaHistoryItemDto {
   @ApiProperty() dokusya_rireki_id: number;
   @ApiProperty() dokusya_id: number;
   @ApiProperty() rireki_no: number;
   @ApiProperty() tetsuzuki_shurui: number;
-  @ApiProperty({
-    description: 'm_code.code_name の解決済みラベル。',
-  })
-  tetsuzuki_shurui_label: string;
   @ApiProperty() saishin_data_flg: boolean;
   @ApiProperty() shinki_flg: boolean;
   @ApiProperty() kaiyaku_flg: boolean;

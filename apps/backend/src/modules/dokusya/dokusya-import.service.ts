@@ -18,6 +18,13 @@ import {
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 import { MAIL_MAGAZINE_FLG_OFF } from '@/common/constants/mail-magazine-flg.constant';
 import { YUBIN_KUBUN_NASHI } from '@/common/constants/yubin-kubun.constant';
+import {
+  allowsDokusyasoBunruiSonota,
+  allowsJaYakushokuinFlg,
+  allowsNogyoKankeiFlg,
+  allowsNogyosyaBunruiSonota,
+} from '@/common/constants/dokusya-bunrui.constant';
+import { buildBunruiPayload } from './dokusya.mapper';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
@@ -127,7 +134,11 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   '引落口座番号',
   '引落口座名義',
   '購読者層分類',
+  'かつJAグループ役職員',
+  '農業関係',
+  '読者属性（その他の内容）',
   '農業者分類',
+  '主な生産物（その他の内容）',
   '購読開始日',
   '備考',
 ] as const;
@@ -187,7 +198,11 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '1234567', // 引落口座番号
   'ノウギョウ タロウ', // 引落口座名義
   '0', // 購読者層分類 (自組織の分類コード)
+  'TRUE', // かつJAグループ役職員 (購読者層分類=0:農業者 のときのみ有効)
+  'FALSE', // 農業関係 (購読者層分類=2:企業・団体 のときのみ有効)
+  '', // 読者属性（その他の内容）(購読者層分類=999:その他 のときのみ入力)
   '0', // 農業者分類 (自組織の分類コード)
+  '', // 主な生産物（その他の内容）(農業者分類に 999:その他 を含むときのみ入力)
   '2026-04-01', // 購読開始日 (YYYY-MM-DD)
   'サンプル行です。管理支店・支店・新聞単価・販売店コードは自組織のマスタコードに書き換えてからインポートしてください。', // 備考
 ] as const;
@@ -665,18 +680,18 @@ export class DokusyaImportService {
                 AND deleted_at IS NULL`,
             [jaId, dokusyaIds, kumiaiinCodes],
           );
-    // 顧客要件 — メール一意性は電子版(2)・併読(3) レコード間のみ担保するため、JA
-    // 全件の電子版/併読 email を email → dokusya_id 群で事前ロード（紙版は重複可で対象外）。
+    // 顧客要件 2026-08（#56568）— メール一意性は電子版(2)・併読(3) レコード間で
+    // **JA を跨いで全件**担保する（電子版ではメールが会員の同定キーのため）。
+    // 紙版は重複可で対象外。論理削除済みは再利用できるので除外。
     // NEW 行が既存電子版メールを再利用するケースも検知できるよう全件読む。
     const digitalEmailRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
         `SELECT dokusya_id, email
            FROM t_dokusya
-          WHERE ja_id = $1
-            AND dokusya_shubetsu = ANY($2::int[])
+          WHERE dokusya_shubetsu = ANY($1::int[])
             AND email <> ''
             AND deleted_at IS NULL`,
-        [jaId, [DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH]],
+        [[DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH]],
       );
     const existingDigitalEmailToIds = new Map<string, Set<number>>();
     for (const r of digitalEmailRows) {
@@ -886,8 +901,19 @@ export class DokusyaImportService {
       hikiotoshiYokinShubetsu: this.toYokinCode(row.hikiotoshi_yokin_shubetsu),
       hikiotoshiKozaNo: str(row.hikiotoshi_koza_no),
       hikiotoshiKozaMeigi: str(row.hikiotoshi_koza_meigi),
-      dokusyasoBunrui: str(row.dokusyaso_bunrui),
-      nogyosyaBunrui: str(row.nogyosya_bunrui),
+      // 分類まわり 6 項目は画面登録(SCR-011)と同じゲートを通す。従属 4 項目は
+      // 親の分類が条件コードを含むときだけ値を持てる（列 COMMENT の
+      // 「〜の場合のみ設定可 / 入力可」）。取込だけ素通しにすると、画面では
+      // 作れない組合せが Excel から入り、しかもその組合せは電子版 push で
+      // V26〜V30 に当たって同期できない読者になる。
+      ...buildBunruiPayload({
+        dokusyaso_bunrui: str(row.dokusyaso_bunrui),
+        ja_yakushokuin_flg: row.ja_yakushokuin_flg,
+        nogyo_kankei_flg: row.nogyo_kankei_flg,
+        dokusyaso_bunrui_sonota: str(row.dokusyaso_bunrui_sonota),
+        nogyosya_bunrui: str(row.nogyosya_bunrui),
+        nogyosya_bunrui_sonota: str(row.nogyosya_bunrui_sonota),
+      }),
       shokiDokusyaKaishiDate: kaishiDate,
       dokusyaKaishiDate: kaishiDate,
       // NEW は購読中止日を持たない（画面で新規登録時は入力不可・顧客要件 2026-08）。
@@ -958,73 +984,7 @@ export class DokusyaImportService {
     const intOrNull = (v: unknown): number | null =>
       v === undefined || v === null || v === '' ? null : Number(v);
     const str_ = (k: keyof ImportDokusyaRowDto) => () => str(row[k]);
-    // import 選択列名 → { entity プロパティ(camelCase), 値, optionalFk }。
-    // optionalFk=true は解決できたときのみ載せる（空欄は既存値維持）。
-    const MAP: Record<
-      string,
-      { field: string; value: () => unknown; optionalFk?: boolean }
-    > = {
-      kanri_shiten_code: {
-        field: 'kanriShitenId',
-        value: () => fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null,
-        optionalFk: true,
-      },
-      shiten_code: {
-        field: 'shitenId',
-        value: () => fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null,
-        optionalFk: true,
-      },
-      kumiaiin_code: { field: 'kumiaiinCode', value: str_('kumiaiin_code') },
-      // 氏名4列は更新可（顧客要件 2026-07・改姓等。SCR-011 編集画面と同じ扱い）。
-      shimei_sei: { field: 'shimeiSei', value: str_('shimei_sei') },
-      shimei_mei: { field: 'shimeiMei', value: str_('shimei_mei') },
-      shimei_kana_sei: { field: 'shimeiKanaSei', value: str_('shimei_kana_sei') },
-      shimei_kana_mei: { field: 'shimeiKanaMei', value: str_('shimei_kana_mei') },
-      dokusya_busu: { field: 'dokusyaBusu', value: () => Number(row.dokusya_busu ?? 0) },
-      yubin_no: { field: 'yubinNo', value: str_('yubin_no') },
-      todofuken_code: { field: 'todofukenCode', value: str_('todofuken_code') },
-      shikuchoson: { field: 'shikuchoson', value: str_('shikuchoson') },
-      chome_banchi: { field: 'chomeBanchi', value: str_('chome_banchi') },
-      tatemono_mei: { field: 'tatemonoMei', value: str_('tatemono_mei') },
-      renrakusaki_1: { field: 'renrakusaki1', value: str_('renrakusaki_1') },
-      renrakusaki_2: { field: 'renrakusaki2', value: str_('renrakusaki_2') },
-      email: { field: 'email', value: str_('email') },
-      mail_magazine_flg: { field: 'mailMagazineFlg', value: () => Number(row.mail_magazine_flg ?? MAIL_MAGAZINE_FLG_OFF) },
-      birth_year: { field: 'birthYear', value: () => intOrNull(row.birth_year) },
-      gender: { field: 'gender', value: () => this.toGenderCode(row.gender) },
-      haitatsu_yubin_no: { field: 'haitatsuYubinNo', value: str_('haitatsu_yubin_no') },
-      haitatsu_todofuken_code: { field: 'haitatsuTodofukenCode', value: str_('haitatsu_todofuken_code') },
-      haitatsu_shikuchoson: { field: 'haitatsuShikuchoson', value: str_('haitatsu_shikuchoson') },
-      haitatsu_chome_banchi: { field: 'haitatsuChomeBanchi', value: str_('haitatsu_chome_banchi') },
-      haitatsu_tatemono_mei: { field: 'haitatsuTatemonoMei', value: str_('haitatsu_tatemono_mei') },
-      haitatsu_renrakusaki_1: { field: 'haitatsuRenrakusaki1', value: str_('haitatsu_renrakusaki_1') },
-      haitatsu_renrakusaki_2: { field: 'haitatsuRenrakusaki2', value: str_('haitatsu_renrakusaki_2') },
-      haitatsu_shimei_sei: { field: 'haitatsuShimeiSei', value: str_('haitatsu_shimei_sei') },
-      haitatsu_shimei_mei: { field: 'haitatsuShimeiMei', value: str_('haitatsu_shimei_mei') },
-      haitatsu_shimei_kana_sei: { field: 'haitatsuShimeiKanaSei', value: str_('haitatsu_shimei_kana_sei') },
-      haitatsu_shimei_kana_mei: { field: 'haitatsuShimeiKanaMei', value: str_('haitatsu_shimei_kana_mei') },
-      hanbaiten_code: {
-        field: 'hanbaitenId',
-        value: () => fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null,
-        optionalFk: true,
-      },
-      tanka_code: {
-        field: 'tankaId',
-        value: () => fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
-        optionalFk: true,
-      },
-      yubin_kubun: { field: 'yubinKubun', value: () => row.yubin_kubun ?? YUBIN_KUBUN_NASHI },
-      shiharai_hoho: { field: 'shiharaiHoho', value: () => intOrNull(row.shiharai_hoho), optionalFk: true },
-      dokusyaryo_shiharai_cycle: { field: 'dokusyaryoShiharaiCycle', value: () => intOrNull(row.dokusyaryo_shiharai_cycle) },
-      bank_branch_code: { field: 'bankBranchCode', value: str_('bank_branch_code') },
-      bank_branch_name: { field: 'bankBranchName', value: str_('bank_branch_name') },
-      hikiotoshi_yokin_shubetsu: { field: 'hikiotoshiYokinShubetsu', value: () => this.toYokinCode(row.hikiotoshi_yokin_shubetsu) },
-      hikiotoshi_koza_no: { field: 'hikiotoshiKozaNo', value: str_('hikiotoshi_koza_no') },
-      hikiotoshi_koza_meigi: { field: 'hikiotoshiKozaMeigi', value: str_('hikiotoshi_koza_meigi') },
-      dokusyaso_bunrui: { field: 'dokusyasoBunrui', value: str_('dokusyaso_bunrui') },
-      nogyosya_bunrui: { field: 'nogyosyaBunrui', value: str_('nogyosya_bunrui') },
-      biko: { field: 'biko', value: str_('biko') },
-    };
+    const MAP = this.buildImportColumnMap(row, fkMaps, str, intOrNull, str_);
 
     const values: DokusyaFields = {};
     const out = values as Record<string, unknown>;
@@ -1037,6 +997,11 @@ export class DokusyaImportService {
       if (entry.optionalFk && v == null) continue; // 空欄 FK → 既存値維持
       out[entry.field] = v;
     }
+    DokusyaImportService.dropOrphanBunruiValues(out, selectedColumns, {
+      dokusyaso: str(row.dokusyaso_bunrui),
+      nogyosya: str(row.nogyosya_bunrui),
+    });
+
     // haitatsu_same_flg: 明示選択+指定ならその値、未指定でも選択配達先列に入力が
     // あれば「別住所」(false) に下ろす（buildPartialUpdate と同ルール）。
     if (
@@ -1177,6 +1142,144 @@ export class DokusyaImportService {
       source: 'IMPORT',
       immediateJohoDate: updateJoho,
     });
+  }
+
+
+  /**
+   * import 選択列名 → { entity プロパティ(camelCase), 値, optionalFk } の対応表。
+   *
+   * buildUpdatePartialValues から切り出した宣言部（50列超のテーブルがそのまま
+   * 関数本体にあると Cognitive Complexity が 27 になっていた）。ロジックは持たず、
+   * 「どの列がどのエンティティ項目になるか」だけを表す。
+   * optionalFk=true は解決できたときのみ載せる（空欄は既存値維持）。
+   */
+  private buildImportColumnMap(
+    row: ImportDokusyaRowDto,
+    fkMaps: {
+      tankaIdByCode: Map<string, number>;
+      hanbaitenIdByCode: Map<string, number>;
+      kanriShitenIdByCode: Map<string, number>;
+      shitenIdByCode: Map<string, number>;
+    },
+    str: (v: unknown) => string,
+    intOrNull: (v: unknown) => number | null,
+    str_: (k: keyof ImportDokusyaRowDto) => () => string,
+  ): Record<string, { field: string; value: () => unknown; optionalFk?: boolean }> {
+    return {
+      kanri_shiten_code: {
+        field: 'kanriShitenId',
+        value: () => fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null,
+        optionalFk: true,
+      },
+      shiten_code: {
+        field: 'shitenId',
+        value: () => fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null,
+        optionalFk: true,
+      },
+      kumiaiin_code: { field: 'kumiaiinCode', value: str_('kumiaiin_code') },
+      // 氏名4列は更新可（顧客要件 2026-07・改姓等。SCR-011 編集画面と同じ扱い）。
+      shimei_sei: { field: 'shimeiSei', value: str_('shimei_sei') },
+      shimei_mei: { field: 'shimeiMei', value: str_('shimei_mei') },
+      shimei_kana_sei: { field: 'shimeiKanaSei', value: str_('shimei_kana_sei') },
+      shimei_kana_mei: { field: 'shimeiKanaMei', value: str_('shimei_kana_mei') },
+      dokusya_busu: { field: 'dokusyaBusu', value: () => Number(row.dokusya_busu ?? 0) },
+      yubin_no: { field: 'yubinNo', value: str_('yubin_no') },
+      todofuken_code: { field: 'todofukenCode', value: str_('todofuken_code') },
+      shikuchoson: { field: 'shikuchoson', value: str_('shikuchoson') },
+      chome_banchi: { field: 'chomeBanchi', value: str_('chome_banchi') },
+      tatemono_mei: { field: 'tatemonoMei', value: str_('tatemono_mei') },
+      renrakusaki_1: { field: 'renrakusaki1', value: str_('renrakusaki_1') },
+      renrakusaki_2: { field: 'renrakusaki2', value: str_('renrakusaki_2') },
+      email: { field: 'email', value: str_('email') },
+      mail_magazine_flg: { field: 'mailMagazineFlg', value: () => Number(row.mail_magazine_flg ?? MAIL_MAGAZINE_FLG_OFF) },
+      birth_year: { field: 'birthYear', value: () => intOrNull(row.birth_year) },
+      gender: { field: 'gender', value: () => this.toGenderCode(row.gender) },
+      haitatsu_yubin_no: { field: 'haitatsuYubinNo', value: str_('haitatsu_yubin_no') },
+      haitatsu_todofuken_code: { field: 'haitatsuTodofukenCode', value: str_('haitatsu_todofuken_code') },
+      haitatsu_shikuchoson: { field: 'haitatsuShikuchoson', value: str_('haitatsu_shikuchoson') },
+      haitatsu_chome_banchi: { field: 'haitatsuChomeBanchi', value: str_('haitatsu_chome_banchi') },
+      haitatsu_tatemono_mei: { field: 'haitatsuTatemonoMei', value: str_('haitatsu_tatemono_mei') },
+      haitatsu_renrakusaki_1: { field: 'haitatsuRenrakusaki1', value: str_('haitatsu_renrakusaki_1') },
+      haitatsu_renrakusaki_2: { field: 'haitatsuRenrakusaki2', value: str_('haitatsu_renrakusaki_2') },
+      haitatsu_shimei_sei: { field: 'haitatsuShimeiSei', value: str_('haitatsu_shimei_sei') },
+      haitatsu_shimei_mei: { field: 'haitatsuShimeiMei', value: str_('haitatsu_shimei_mei') },
+      haitatsu_shimei_kana_sei: { field: 'haitatsuShimeiKanaSei', value: str_('haitatsu_shimei_kana_sei') },
+      haitatsu_shimei_kana_mei: { field: 'haitatsuShimeiKanaMei', value: str_('haitatsu_shimei_kana_mei') },
+      hanbaiten_code: {
+        field: 'hanbaitenId',
+        value: () => fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null,
+        optionalFk: true,
+      },
+      tanka_code: {
+        field: 'tankaId',
+        value: () => fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
+        optionalFk: true,
+      },
+      yubin_kubun: { field: 'yubinKubun', value: () => row.yubin_kubun ?? YUBIN_KUBUN_NASHI },
+      shiharai_hoho: { field: 'shiharaiHoho', value: () => intOrNull(row.shiharai_hoho), optionalFk: true },
+      dokusyaryo_shiharai_cycle: { field: 'dokusyaryoShiharaiCycle', value: () => intOrNull(row.dokusyaryo_shiharai_cycle) },
+      bank_branch_code: { field: 'bankBranchCode', value: str_('bank_branch_code') },
+      bank_branch_name: { field: 'bankBranchName', value: str_('bank_branch_name') },
+      hikiotoshi_yokin_shubetsu: { field: 'hikiotoshiYokinShubetsu', value: () => this.toYokinCode(row.hikiotoshi_yokin_shubetsu) },
+      hikiotoshi_koza_no: { field: 'hikiotoshiKozaNo', value: str_('hikiotoshi_koza_no') },
+      hikiotoshi_koza_meigi: { field: 'hikiotoshiKozaMeigi', value: str_('hikiotoshi_koza_meigi') },
+      dokusyaso_bunrui: { field: 'dokusyasoBunrui', value: str_('dokusyaso_bunrui') },
+      ja_yakushokuin_flg: {
+        field: 'jaYakushokuinFlg',
+        value: () => row.ja_yakushokuin_flg === true,
+      },
+      nogyo_kankei_flg: {
+        field: 'nogyoKankeiFlg',
+        value: () => row.nogyo_kankei_flg === true,
+      },
+      dokusyaso_bunrui_sonota: {
+        field: 'dokusyasoBunruiSonota',
+        value: str_('dokusyaso_bunrui_sonota'),
+      },
+      nogyosya_bunrui: { field: 'nogyosyaBunrui', value: str_('nogyosya_bunrui') },
+      nogyosya_bunrui_sonota: {
+        field: 'nogyosyaBunruiSonota',
+        value: str_('nogyosya_bunrui_sonota'),
+      },
+      biko: { field: 'biko', value: str_('biko') },
+    }
+  }
+
+  /**
+   * 従属 4 項目は親の分類が条件コードを含むときだけ値を持てる。**親の列も同時に
+   * 更新対象のときだけ**ここで落とす — 親が未選択なら既存値が維持されるので、
+   * 取込行だけを見て判定できない（既存値の読み出しはこの純関数の責務外）。
+   *
+   * 判定できないケースが残るのは許容する。矛盾した組合せが DB に残っても、
+   * 電子版 push は保存値から profession を組み直したうえで条件付き項目を出し
+   * 分ける（denshiban-push.mapper）ので、V26〜V30 で同期が壊れることはない。
+   * 実害は「意味の無いフラグが残る」だけで、画面から開いて保存し直せば
+   * buildBunruiPayload が整える。
+   */
+  private static dropOrphanBunruiValues(
+    out: Record<string, unknown>,
+    selectedColumns: string[],
+    parents: { dokusyaso: string; nogyosya: string },
+  ): void {
+    if (selectedColumns.includes('dokusyaso_bunrui')) {
+      const parent = parents.dokusyaso;
+      if ('jaYakushokuinFlg' in out && !allowsJaYakushokuinFlg(parent)) {
+        out.jaYakushokuinFlg = false;
+      }
+      if ('nogyoKankeiFlg' in out && !allowsNogyoKankeiFlg(parent)) {
+        out.nogyoKankeiFlg = false;
+      }
+      if ('dokusyasoBunruiSonota' in out && !allowsDokusyasoBunruiSonota(parent)) {
+        out.dokusyasoBunruiSonota = '';
+      }
+    }
+    if (
+      selectedColumns.includes('nogyosya_bunrui') &&
+      'nogyosyaBunruiSonota' in out &&
+      !allowsNogyosyaBunruiSonota(parents.nogyosya)
+    ) {
+      out.nogyosyaBunruiSonota = '';
+    }
   }
 
 }

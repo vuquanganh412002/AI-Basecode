@@ -122,11 +122,11 @@ Backend optional (in apps/backend/.env.deploy):
   BACKEND_RUN_MIGRATIONS       Run migration:run:prod before ECS rollout (default: 1)
   BACKEND_RUN_S3_CHECK         Run an ECS one-off S3 write check before migrations
                                (default: 1; only when STORAGE_PROVIDER=s3)
-  BACKEND_RUN_SEED_DEV         Run seed:prod + seed:dev:prod once (default: once).
+  BACKEND_RUN_SEED_DEV         Run seed:admin:prod + seed:sample:prod once (default: once).
                                Values: once | always | never. "once" writes an S3 marker
                                to BACKEND_SEED_DEV_S3_BUCKET when set.
-  BACKEND_SEED_DEV_S3_BUCKET   S3 bucket for the seed:dev marker object
-  BACKEND_SEED_DEV_MARKER_KEY  S3 object key for the seed:dev marker (default:
+  BACKEND_SEED_DEV_S3_BUCKET   S3 bucket for the seed:sample marker object
+  BACKEND_SEED_DEV_MARKER_KEY  S3 object key for the seed:sample marker (default:
                                .deploy/<cluster>-backend-seed-dev.done)
 
 Frontend optional (in apps/frontend/.env.deploy):
@@ -320,7 +320,7 @@ write_backend_seed_dev_marker() {
   marker_key="$(backend_seed_dev_marker_key)"
   local marker_file
   marker_file="$(mktemp)"
-  printf 'seed:dev completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$marker_file"
+  printf 'seed:sample completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$marker_file"
   run aws ${AWS_PROFILE_OPT[@]+"${AWS_PROFILE_OPT[@]}"} s3 cp \
     "$marker_file" \
     "s3://${bucket}/${marker_key}" \

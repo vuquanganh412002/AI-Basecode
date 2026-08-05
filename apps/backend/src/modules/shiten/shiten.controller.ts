@@ -36,6 +36,17 @@ import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { Permissions } from '@/common/decorators/permissions.decorator';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
+/**
+ * クエリの ID リスト（`?k=1&k=2` は配列、`?k=1` は文字列）を number[] へ。
+ * 数値化できない要素は捨てる。全滅・未指定は undefined（＝絞らない）。
+ */
+function toIdList(raw: string | string[] | undefined): number[] | undefined {
+  if (raw === undefined) return undefined;
+  const arr = Array.isArray(raw) ? raw : [raw];
+  const ids = arr.map(Number).filter((n) => Number.isInteger(n));
+  return ids.length > 0 ? ids : undefined;
+}
+
 @ApiTags('shiten')
 @ApiCookieAuth('session_id')
 @Controller('shiten')
@@ -66,6 +77,7 @@ export class ShitenController {
     query: {
       ja_id?: string;
       kanri_shiten_id?: string;
+      kanri_shiten_ids?: string | string[];
       kinyu_shiten_flg?: string;
       q?: string;
     },
@@ -78,13 +90,24 @@ export class ShitenController {
       query.kanri_shiten_id === undefined
         ? undefined
         : Number(query.kanri_shiten_id);
+    // 複数指定版（顧客要件2026-08・SCR-026 名簿出力は管理支店が複数選択）。
+    // Express は `?k=1&k=2` を配列、`?k=1` を文字列で渡すので両方受ける。
+    // 数値化できない要素は捨てる（NaN を IN に混ぜると 0 件になるだけで
+    // 原因が分からないため）。
+    const kanriShitenIds = toIdList(query.kanri_shiten_ids);
     // クエリ boolean は 'true' / 'false' / undefined で届くため coerce。
     let kinyuFlg: boolean | undefined;
     if (query.kinyu_shiten_flg === 'true') kinyuFlg = true;
     else if (query.kinyu_shiten_flg === 'false') kinyuFlg = false;
     const q = typeof query.q === 'string' ? query.q : undefined;
     const data = await this.service.listDropdown(
-      { ja_id: jaId, kanri_shiten_id: kanriShitenId, kinyu_shiten_flg: kinyuFlg, q },
+      {
+        ja_id: jaId,
+        kanri_shiten_id: kanriShitenId,
+        kanri_shiten_ids: kanriShitenIds,
+        kinyu_shiten_flg: kinyuFlg,
+        q,
+      },
       req.user,
     );
     return {

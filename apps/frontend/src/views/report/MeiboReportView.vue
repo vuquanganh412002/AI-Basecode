@@ -15,6 +15,7 @@ import {
 } from '@/api/report/report';
 import BaseHanbaitenSelect from '@/components/common/BaseHanbaitenSelect.vue';
 import BaseKanriShitenSelect from '@/components/common/BaseKanriShitenSelect.vue';
+import BaseShitenSelect from '@/components/common/BaseShitenSelect.vue';
 import BaseReportPager from '@/components/common/BaseReportPager.vue';
 import { formatPostalCode, formatDate } from '@/utils/formatters';
 import { nowTokyo, endOfMonthIsoTokyo } from '@/utils/datetime';
@@ -35,6 +36,7 @@ const formState = reactive<{
   report_type: 'hanbaiten' | 'kanri_shiten';
   hanbaiten_ids: number[];
   kanri_shiten_ids: number[];
+  shiten_ids: number[];
   dokusya_shubetsu: number | undefined;
   shiharai_hoho: number | undefined;
 }>({
@@ -43,6 +45,7 @@ const formState = reactive<{
   report_type: 'hanbaiten',
   hanbaiten_ids: [],
   kanri_shiten_ids: [],
+  shiten_ids: [],
   dokusya_shubetsu: undefined,
   shiharai_hoho: undefined,
 });
@@ -51,7 +54,8 @@ const fieldErrors = reactive<{
   tekiyo_date: string;
   hanbaiten_ids: string;
   kanri_shiten_ids: string;
-}>({ tekiyo_date: '', hanbaiten_ids: '', kanri_shiten_ids: '' });
+  shiten_ids: string;
+}>({ tekiyo_date: '', hanbaiten_ids: '', kanri_shiten_ids: '', shiten_ids: '' });
 
 const previewData = ref<MeiboPreviewData | null>(null);
 
@@ -97,6 +101,7 @@ watch(
     currentPage.value = 1;
     fieldErrors.hanbaiten_ids = '';
     fieldErrors.kanri_shiten_ids = '';
+    fieldErrors.shiten_ids = '';
   },
 );
 
@@ -104,6 +109,7 @@ function validate(): boolean {
   fieldErrors.tekiyo_date = '';
   fieldErrors.hanbaiten_ids = '';
   fieldErrors.kanri_shiten_ids = '';
+  fieldErrors.shiten_ids = '';
 
   if (!formState.tekiyo_date?.trim()) {
     fieldErrors.tekiyo_date = '必須項目です。'; // ACSMS-MSG-026-006
@@ -117,7 +123,8 @@ function validate(): boolean {
   return (
     !fieldErrors.tekiyo_date &&
     !fieldErrors.hanbaiten_ids &&
-    !fieldErrors.kanri_shiten_ids
+    !fieldErrors.kanri_shiten_ids &&
+    !fieldErrors.shiten_ids
   );
 }
 
@@ -130,6 +137,9 @@ function buildQuery(page?: number): MeiboReportQuery {
     q.hanbaiten_ids = formState.hanbaiten_ids;
   } else {
     q.kanri_shiten_ids = formState.kanri_shiten_ids;
+    // 支店は任意。空配列は送らない — BE で「未指定＝絞らない」と同義だが、
+    // `IN ()` を組む余地を作らないため送信段階で落とす。
+    if (formState.shiten_ids.length > 0) q.shiten_ids = formState.shiten_ids;
   }
   if (formState.dokusya_shubetsu != null) q.dokusya_shubetsu = formState.dokusya_shubetsu;
   // 支払方法（m_code SHIHARAI_HOHO）は両帳票種別で有効。
@@ -315,31 +325,72 @@ defineExpose({ formState });
         <p v-if="fieldErrors.hanbaiten_ids" class="text-error text-sm mb-2">
           {{ fieldErrors.hanbaiten_ids }}
         </p>
+        <!-- 電子版ダミー販売店は候補に出さない（顧客要件 2026-08）。ダミーは
+             電子版読者の受け皿であって実在の販売店ではなく、販売店別名簿の
+             集計対象（紙版のみ）にも入らないため、選ばせると必ず0件になる。 -->
         <BaseHanbaitenSelect
           v-model:value="formState.hanbaiten_ids"
           placeholder="販売店を選択（1件以上）"
           allow-select-all
+          dummy="exclude"
           data-test="hanbaiten-select"
         />
       </div>
 
-      <!-- 管理支店（管理支店別のみ）— マルチセレクトのドロップダウン。 -->
-      <div v-show="formState.report_type !== 'hanbaiten'" class="mt-4">
-        <div class="text-sm font-medium text-text-main mb-1">
-          管理支店<span class="text-error ml-1">*</span>
+      <!-- 管理支店 + 支店（管理支店別のみ）— 親子関係の条件なので横1行に並べる。
+           支店は管理支店の配下だけを候補にする。販売店別に出さないのは、帳票に
+           支店列が無く「絞ったのに理由が紙面から読めない」状態になるため
+           （顧客要件2026-08）。
+           v-show は2つを束ねる外側に置く — 個別に付けると片方だけ消えた時に
+           グリッドの列が詰まって幅が変わる。 -->
+      <div
+        v-show="formState.report_type !== 'hanbaiten'"
+        class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+      >
+        <div>
+          <div class="text-sm font-medium text-text-main mb-1">
+            管理支店<span class="text-error ml-1">*</span>
+          </div>
+          <BaseKanriShitenSelect
+            v-if="jaId != null"
+            v-model:value="formState.kanri_shiten_ids"
+            :ja-id="jaId"
+            placeholder="管理支店を選択（1件以上）"
+            allow-select-all
+            data-test="kanri-shiten-select"
+          />
+          <!-- エラーはコントロールの下。横並びにした都合上、ラベル直下に出すと
+               エラー表示時だけ左列が下へ伸び、右の支店セレクトと高さがずれる。
+               適用日のエラーも同じくコントロール下なので表示位置も揃う。 -->
+          <p v-if="fieldErrors.kanri_shiten_ids" class="text-error text-sm mt-1">
+            {{ fieldErrors.kanri_shiten_ids }}
+          </p>
         </div>
-        <!-- エラーはラベル直下に表示する -->
-        <p v-if="fieldErrors.kanri_shiten_ids" class="text-error text-sm mb-2">
-          {{ fieldErrors.kanri_shiten_ids }}
-        </p>
-        <BaseKanriShitenSelect
-          v-if="jaId != null"
-          v-model:value="formState.kanri_shiten_ids"
-          :ja-id="jaId"
-          placeholder="管理支店を選択（1件以上）"
-          allow-select-all
-          data-test="kanri-shiten-select"
-        />
+
+        <div>
+          <div class="text-sm font-medium text-text-main mb-1">支店</div>
+          <!-- 候補は金融機関支店以外のみ（顧客要件 2026-08）。ここの支店は
+               配達担当支店（t_dokusya_rireki.shiten_id）で、金融機関支店は
+               引落口座の紐付け先なので購読者の配達先にはならない。
+               任意条件 — 未選択なら支店未設定(NULL)の購読者も含めて出力する。 -->
+          <BaseShitenSelect
+            v-model:value="formState.shiten_ids"
+            :kanri-shiten-ids="formState.kanri_shiten_ids"
+            :ja-id="jaId"
+            :kinyu-shiten-flg="false"
+            :disabled="formState.kanri_shiten_ids.length === 0"
+            :placeholder="
+              formState.kanri_shiten_ids.length === 0
+                ? '先に管理支店を選択してください'
+                : '支店を選択（未選択＝支店未設定を含むすべて）'
+            "
+            allow-select-all
+            data-test="shiten-select"
+          />
+          <p v-if="fieldErrors.shiten_ids" class="text-error text-sm mt-1">
+            {{ fieldErrors.shiten_ids }}
+          </p>
+        </div>
       </div>
 
       <!-- 日農ダウンロード許可フラグは画面から選択させず常に false（許可しない）で

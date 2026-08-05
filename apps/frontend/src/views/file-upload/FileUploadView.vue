@@ -37,10 +37,8 @@ import {
   type JaDropdownItem,
   type JaDropdownQuery,
 } from '@/api/ja/ja';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
+import { useTodofuken } from '@/composables/useTodofuken';
 
 // ──────────────────── 定数 ────────────────────
 const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB（機能定義 4.2）
@@ -68,7 +66,9 @@ interface TargetJa {
   ja_name: string;
 }
 
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 候補リストの取得・保持は <BaseTodofukenSelect>（= useTodofuken の共有
+// キャッシュ）に任せる。この画面は選択値と、隣に出す名称だけを持つ。
+const { name: todofukenNameOf } = useTodofuken();
 const selectedTodofukenCode = ref<string | null>(null);
 /**
  * アップロード対象 JA 一覧（= マルチセレクトで選んだ JA、送信時に ja_ids[]
@@ -198,16 +198,6 @@ const {
 });
 
 // ──────────────────── 初期取得 ────────────────────
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = resp.data;
-  } catch {
-    // [interceptor-handled] global axios interceptor がトースト済み。
-    todofukenOptions.value = [];
-  }
-}
-
 async function fetchHistory(): Promise<void> {
   loading.value = true;
   try {
@@ -229,7 +219,7 @@ async function fetchHistory(): Promise<void> {
 }
 
 onMounted(() => {
-  void fetchTodofukenOptions();
+  // 都道府県候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
   void fetchHistory();
 });
 
@@ -237,11 +227,9 @@ onMounted(() => {
 // 再読込する。選択済み targetJas は意図的に保持する（都道府県を変えても既選択
 // は消さない）。
 
-const todofukenName = computed(() => {
-  const code = selectedTodofukenCode.value;
-  if (!code) return '';
-  return todofukenOptions.value.find((o) => o.todofuken_code === code)?.todofuken_name ?? '';
-});
+// 都道府県名は隣の読取専用 input に出すだけ。候補リストは
+// <BaseTodofukenSelect> が共有キャッシュから読むので、ここでは名前引きのみ。
+const todofukenName = computed(() => todofukenNameOf(selectedTodofukenCode.value));
 
 function removeJa(jaId: number): void {
   targetJas.value = targetJas.value.filter((j) => j.ja_id !== jaId);
@@ -477,24 +465,11 @@ defineExpose({
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start mb-4">
         <label for="file-upload-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">都道府県</span>
-          <a-select
+          <BaseTodofukenSelect
             id="file-upload-todofuken"
             v-model:value="selectedTodofukenCode"
-            placeholder="都道府県を選択"
-            allow-clear
-            show-search
-            :filter-option="(input: string, option: { children?: unknown }) =>
-              String(option?.children ?? '').includes(input)"
             class="flex-1"
-          >
-            <a-select-option
-              v-for="opt in todofukenOptions"
-              :key="opt.todofuken_code"
-              :value="opt.todofuken_code"
-            >
-              {{ opt.todofuken_code }}: {{ opt.todofuken_name }}
-            </a-select-option>
-          </a-select>
+          />
         </label>
         <label for="file-upload-todofuken-name" class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">都道府県名</span>

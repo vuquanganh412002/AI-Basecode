@@ -143,6 +143,36 @@ export function buildHanbaitenDropdownResponse() {
 }
 
 /** 管理支店プルダウン (ACSMS-API-COMMON-004). */
+/**
+ * SCR-026 支店フィルタ（顧客要件2026-08）のドロップダウン応答。
+ * 管理支店 10 配下に 2 件 — 上の buildKanriShitenDropdownResponse と ID を揃える。
+ */
+export function buildShitenDropdownResponse() {
+  return {
+    data: [
+      {
+        shiten_id: 21,
+        shiten_code: 'S021',
+        shiten_name: '中央支店',
+        kanri_shiten_id: 10,
+        kinyu_shiten_flg: false,
+        jastem_toriatsukai_tenpo_code: '',
+        jastem_tenpo_name: '',
+      },
+      {
+        shiten_id: 22,
+        shiten_code: 'S022',
+        shiten_name: '東支店',
+        kanri_shiten_id: 10,
+        kinyu_shiten_flg: false,
+        jastem_toriatsukai_tenpo_code: '',
+        jastem_tenpo_name: '',
+      },
+    ],
+    meta: { total: 2, page: 1, per_page: 50, has_more: false },
+  };
+}
+
 export function buildKanriShitenDropdownResponse() {
   return {
     data: [

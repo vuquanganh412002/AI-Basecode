@@ -1,12 +1,13 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import Antd, { message } from 'ant-design-vue';
+import { message } from 'ant-design-vue';
 // Antd reset は styles/tailwind.css 内で `layer(antd)` として import する。
 // これにより Tailwind ユーティリティ（後で宣言する layer(utilities)）が
 // カスケードで勝つ。ここで reset.css を直接 import すると unlayered になり、
 // CSS 仕様上あらゆる layer に勝ってしまう。
 import './styles/tailwind.css';
 import App from './App.vue';
+import { installAntd } from './plugins/antd';
 import router from './router';
 import { useAuthStore } from './stores/auth.store';
 
@@ -35,8 +36,9 @@ async function bootstrap() {
   await authStore.refreshSession();
 
   app.use(router);
-  app.use(Antd);
+  // 使用コンポーネントだけを登録（バンドル削減の理由は plugins/antd.ts）。
+  installAntd(app);
   app.mount('#app');
 }
 
-void bootstrap();
+await bootstrap();

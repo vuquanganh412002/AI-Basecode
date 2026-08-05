@@ -273,7 +273,8 @@ export class RolesService {
   /**
    * 有効 permission_ids のうち行が locked=true（seed ベースライン）の部分集合。FE は
    * 該当チェックボックスを disabled にし、BE はこれを外す PATCH を拒否。
-   * migration 1711900900012-AlterMRolesPermissionsAddLocked 参照。
+   * 列定義は migration 1711900800003-CreateMRolesPermissions、TRUE の付与は
+   * 1711900900003-SeedMRolesPermissions 末尾の UPDATE を参照。
    */
   private async findLockedPermissionIds(roleId: number): Promise<number[]> {
     const rows = await this.rolePermissionRepo.find({

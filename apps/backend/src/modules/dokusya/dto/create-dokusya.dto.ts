@@ -485,6 +485,39 @@ export class CreateDokusyaDto {
 
   @ApiPropertyOptional({
     description:
+      'かつJAグループ役職員フラグ。購読者層分類＝農業者(0)のときのみ有効 — 満たさない場合はサーバ側で false に落とす。電子版 profession_and_ja と 1:1。',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean({
+    message: 'かつJAグループ役職員フラグは true/false で指定してください。',
+  })
+  ja_yakushokuin_flg?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      '農業関係フラグ。購読者層分類＝企業・団体(2)のときのみ有効 — 満たさない場合はサーバ側で false に落とす。電子版 profession_and_agri と 1:1。',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean({ message: '農業関係フラグは true/false で指定してください。' })
+  nogyo_kankei_flg?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      '購読者層分類その他（自由記述）。購読者層分類＝その他(999)のときのみ有効 — 満たさない場合はサーバ側で空にする。電子版 others_profession と 1:1。',
+    maxLength: 255,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '購読者層分類その他は文字列で指定してください。' })
+  @MaxLength(255, {
+    message: '購読者層分類その他は最大255文字で指定してください。',
+  })
+  dokusyaso_bunrui_sonota?: string;
+
+  @ApiPropertyOptional({
+    description:
       '農業者分類 — コードのカンマ区切り（0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他）。電子版 products と 1:1。',
     maxLength: 50,
     example: '0,1',
@@ -497,6 +530,19 @@ export class CreateDokusyaDto {
   })
   @Matches(NOGYOSYA_BUNRUI_CSV_RE, { message: NOGYOSYA_BUNRUI_INVALID_MSG })
   nogyosya_bunrui?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '農業者分類その他（自由記述）。農業者分類に その他(999) を含むときのみ有効 — 満たさない場合はサーバ側で空にする。電子版 others_products と 1:1。',
+    maxLength: 255,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '農業者分類その他は文字列で指定してください。' })
+  @MaxLength(255, {
+    message: '農業者分類その他は最大255文字で指定してください。',
+  })
+  nogyosya_bunrui_sonota?: string;
 
   @ApiProperty({ description: '購読開始日 (YYYY/MM/DD)' })
   @IsString({ message: '購読開始日は文字列で指定してください。' })

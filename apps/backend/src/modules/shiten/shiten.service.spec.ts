@@ -347,6 +347,33 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(ksFilterCall()).toBeUndefined();
     });
 
+    // 顧客要件2026-08: SCR-026 名簿出力は管理支店が複数選択のため複数指定版。
+    function ksListFilterCall() {
+      return qbMock.andWhere.mock.calls.find(
+        ([sql]: [string]) => sql === 'm.kanri_shiten_id IN (:...qksList)',
+      );
+    }
+
+    it('should filter by kanri_shiten_ids when a list is provided', async () => {
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown(
+        { ja_id: 1, kanri_shiten_ids: [20, 21] },
+        buildSession({ ja_id: null }),
+      );
+      const call = ksListFilterCall();
+      expect(call).toBeDefined();
+      expect(call?.[1]).toEqual({ qksList: [20, 21] });
+    });
+
+    it('should NOT add the kanri_shiten_ids filter for an empty list (IN () は構文エラー)', async () => {
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown(
+        { ja_id: 1, kanri_shiten_ids: [] },
+        buildSession({ ja_id: null }),
+      );
+      expect(ksListFilterCall()).toBeUndefined();
+    });
+
     it('should return the minimal projection mapped from rows', async () => {
       qbMock.getMany.mockResolvedValue([
         buildShiten({ shitenId: 5, shitenCode: 'S05', shitenName: '本店', kanriShitenId: 20 }),

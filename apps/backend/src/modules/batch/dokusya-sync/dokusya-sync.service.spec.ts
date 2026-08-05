@@ -19,6 +19,8 @@ const KANRI_ROWS = [
 ];
 const HANBAITEN_ROWS = [
   { hanbaiten_id: '55', ja_id: '10', hanbaiten_code: 'H001' },
+  // 電子版単独の受け皿となるダミー販売店（顧客要件2026-08）。
+  { hanbaiten_id: '99', ja_id: '10', hanbaiten_code: '9999999999' },
 ];
 
 function buildUser(overrides: Partial<DenshiUserRow> = {}): DenshiUserRow {
@@ -50,6 +52,8 @@ function buildUser(overrides: Partial<DenshiUserRow> = {}): DenshiUserRow {
 
 interface Opts {
   deltaRows?: DenshiUserRow[];
+  /** m_hanbaiten の行（ダミー販売店の有無を切り替えるテスト用）。 */
+  hanbaitenRows?: Array<{ hanbaiten_id: string; ja_id: string; hanbaiten_code: string }>;
   existing?: { dokusyaId: number; denshiShoninStatus?: number | null } | null;
   lockLocked?: boolean;
   fullSync?: boolean;
@@ -61,6 +65,7 @@ function buildService(opts: Opts = {}) {
     existing = null,
     lockLocked = true,
     fullSync = false,
+    hanbaitenRows = HANBAITEN_ROWS,
   } = opts;
 
   const managerMock = {
@@ -95,7 +100,7 @@ function buildService(opts: Opts = {}) {
     getRepository: jest.fn(() => stateRepo),
     query: jest.fn((sql: string) => {
       if (sql.includes('m_kanri_shiten')) return Promise.resolve(KANRI_ROWS);
-      if (sql.includes('m_hanbaiten')) return Promise.resolve(HANBAITEN_ROWS);
+      if (sql.includes('m_hanbaiten')) return Promise.resolve(hanbaitenRows);
       return Promise.resolve([]);
     }),
     transaction: jest.fn((cb: (m: unknown) => unknown) => cb(managerMock)),
@@ -156,6 +161,10 @@ describe('DokusyaSyncService', () => {
     expect(input.mode).toBe('CREATE');
     expect(input.source).toBe('BATCH');
     expect(input.johoDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // actor は監査列に入るだけでなく、t_dokusya_rireki の最古行(rireki_no=1)の
+    // created_by として「電子版から同期された読者」を判別するキー（顧客要件
+    // 2026-08）。値を変えると判別が壊れるので固定で検証する。
+    expect(input.actor).toBe('SYSTEM_DENSHI_SYNC');
     // 作成後に master へ denshi_kaiin_id を set する。
     const setKaiin = managerMock.update.mock.calls.find(
       (c: unknown[]) =>
@@ -185,6 +194,55 @@ describe('DokusyaSyncService', () => {
     expect(input.mode).toBe('UPDATE');
     expect(input.values.dokusyaBusu).toBe(0);
     expect(managerMock.softDelete).toHaveBeenCalled();
+  });
+
+  // 販売店の解決（顧客要件2026-08）: 電子版単独は当該 JA のダミー販売店
+  // （hanbaiten_code=9999999999）、併読は ShopCd の実店。
+  describe('hanbaiten resolution', () => {
+    it('should assign the JA dummy hanbaiten for a 電子版単独 row', async () => {
+      const { service } = buildService({ existing: null });
+      await service.run();
+
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBe(99);
+    });
+
+    it('should set null when the JA has no dummy hanbaiten (行は落とさない)', async () => {
+      const { service } = buildService({
+        existing: null,
+        hanbaitenRows: [{ hanbaiten_id: '55', ja_id: '10', hanbaiten_code: 'H001' }],
+      });
+      await service.run();
+
+      // 取り込みは通ること（skip も throw もしない）。
+      expect(mockApplyChange).toHaveBeenCalledTimes(1);
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBeNull();
+    });
+
+    it('should resolve ShopCd to the real store for a 併読 row (ダミーへ倒さない)', async () => {
+      // ダミーは「配達先の販売店が無い」の意味。紙を配る読者に付けると
+      // 増減連絡票・名簿の配達担当が誤る。
+      const { service } = buildService({
+        existing: null,
+        deltaRows: [
+          buildUser({ paper_permission_dt: '2026-04-01', ShopCd: 'H001' }),
+        ],
+      });
+      await service.run();
+
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBe(55);
+    });
+
+    it('should NOT fall back to the dummy when a 併読 row has an unresolvable ShopCd', async () => {
+      const { service } = buildService({
+        existing: null,
+        deltaRows: [
+          buildUser({ paper_permission_dt: '2026-04-01', ShopCd: 'UNKNOWN' }),
+        ],
+      });
+      await service.run();
+
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBeNull();
+    });
   });
 
   it('SKIP: JACd not resolvable to 管理支店 → no applyChange', async () => {

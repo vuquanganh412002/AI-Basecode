@@ -10,6 +10,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 2026-05-20: consolidated patch RolesPermissionsPartialUniqueIndex1715990400000
  *             — see git history for the split version. The partial UNIQUE
  *             index (WHERE deleted_at IS NULL) is now declared inline below.
+ * 2026-08-04: consolidated patch AlterMRolesPermissionsAddLocked1711900900012
+ *             — see git history for the split version. The `locked` column is
+ *             now declared inline below; the seeded baseline rows are flipped
+ *             to TRUE at the end of SeedMRolesPermissions1711900900003.
  */
 export class CreateMRolesPermissions1711900800003 implements MigrationInterface {
   name = 'CreateMRolesPermissions1711900800003';
@@ -20,6 +24,7 @@ export class CreateMRolesPermissions1711900800003 implements MigrationInterface 
         role_permission_id BIGSERIAL PRIMARY KEY,                           -- ロール権限ID（IDENTITY）
         role_id BIGINT NOT NULL,                                            -- ロールID（FK:m_roles）
         permission_id BIGINT NOT NULL,                                      -- 権限ID（FK:m_permissions）
+        locked BOOLEAN NOT NULL DEFAULT FALSE,                              -- シード由来の固定権限（TRUE=SCR-027 で解除不可）。DEFAULT FALSE は管理画面からの追加分
         deleted_at TIMESTAMPTZ DEFAULT NULL,                                -- 削除日時（soft delete）
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                      -- 作成日時
         created_by VARCHAR(50) NOT NULL,                                    -- 作成者

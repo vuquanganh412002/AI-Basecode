@@ -195,4 +195,97 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     expect(v.dokusyasoBunrui).toBe('0');
     expect(v.nogyosyaBunrui).toBe('0,1');
   });
+
+  /**
+   * 顧客DB設計 2026-08 の従属 4 項目。push 側 denshiban-push.mapper の逆変換。
+   * 実データ（cmsDB_real.users 153,929 行）では 1桁フラグは char(1) の '0'/'1'、
+   * 自由記述は NULL または 255 文字以内で入っている。
+   */
+  describe('従属 4 項目', () => {
+    const map = (o: Partial<DenshiUserRow>) =>
+      mapUserToDokusyaFields(buildUser(o), FK);
+
+    it("maps profession_and_ja '1'/'0' to jaYakushokuinFlg true/false", () => {
+      expect(
+        map({ profession: '0', profession_and_ja: '1' }).jaYakushokuinFlg,
+      ).toBe(true);
+      expect(
+        map({ profession: '0', profession_and_ja: '0' }).jaYakushokuinFlg,
+      ).toBe(false);
+    });
+
+    it("maps profession_and_agri '1'/'0' to nogyoKankeiFlg true/false", () => {
+      expect(
+        map({ profession: '2', profession_and_agri: '1' }).nogyoKankeiFlg,
+      ).toBe(true);
+      expect(
+        map({ profession: '2', profession_and_agri: '0' }).nogyoKankeiFlg,
+      ).toBe(false);
+    });
+
+    it('maps others_profession to dokusyasoBunruiSonota', () => {
+      expect(
+        map({ profession: '999', others_profession: '地方公務員' })
+          .dokusyasoBunruiSonota,
+      ).toBe('地方公務員');
+    });
+
+    it('maps others_products to nogyosyaBunruiSonota', () => {
+      expect(
+        map({
+          profession: '0',
+          products: '999',
+          others_products: '麦、大豆、麦後作そば',
+        }).nogyosyaBunruiSonota,
+      ).toBe('麦、大豆、麦後作そば');
+    });
+
+    it('treats NULL / missing as false / empty (列は NOT NULL)', () => {
+      const v = map({
+        profession: '0',
+        profession_and_ja: null,
+        profession_and_agri: null,
+        others_profession: null,
+        products: null,
+        others_products: null,
+      });
+      expect(v.jaYakushokuinFlg).toBe(false);
+      expect(v.nogyoKankeiFlg).toBe(false);
+      expect(v.dokusyasoBunruiSonota).toBe('');
+      expect(v.nogyosyaBunruiSonota).toBe('');
+    });
+
+    /**
+     * 電子版も同じ条件を自分の API で強制している（条件付き項目 V26〜V30）ので、
+     * 実データ 153,929 行では 1 件も該当しない。効くのはバリデータを経由して
+     * いない行だけで、そのまま取り込むと今度は push で弾かれる。
+     */
+    it('drops values whose parent 分類 does not allow them', () => {
+      const v = map({
+        profession: '3', // 学生 — どの従属項目も持てない
+        profession_and_ja: '1',
+        profession_and_agri: '1',
+        others_profession: '自営業',
+        products: '999',
+        others_products: 'きのこ',
+      });
+      expect(v.jaYakushokuinFlg).toBe(false);
+      expect(v.nogyoKankeiFlg).toBe(false);
+      expect(v.dokusyasoBunruiSonota).toBe('');
+      // 主な生産物その他のゲートは「取り込んだ nogyosyaBunrui が 999 を含むか」。
+      // pull は products を読者属性と無関係に取り込む既存仕様なので、ここでは
+      // 999 が残り自由記述も残る — 保存された分類と内容の対応は保たれている。
+      // （実データ 153,929 行では profession<>0 で products を持つ行は 0 件。）
+      expect(v.nogyosyaBunrui).toBe('999');
+      expect(v.nogyosyaBunruiSonota).toBe('きのこ');
+    });
+
+    it('clamps 自由記述 to the column width (VARCHAR(255))', () => {
+      const v = map({
+        profession: '999',
+        others_profession: 'あ'.repeat(300),
+      });
+      expect(v.dokusyasoBunruiSonota).toHaveLength(255);
+    });
+  });
 });

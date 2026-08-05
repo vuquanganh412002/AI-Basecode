@@ -269,10 +269,11 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
 
       const header = (sheet.getRow(1).values as unknown[]).slice(1);
       const sample = (sheet.getRow(2).values as unknown[]).slice(1);
-      // 顧客要件 2026-08: 読者情報変更適用日 / 購読中止日 も画面の入力欄へ移し
-      // Excel 列から撤去（48 → 46 列）。画面と列の二重入力源を作らないため。
-      // それ以前: 購読種別を画面ラジオへ（49 → 48）、販売店適用日を廃止し joho に統一。
-      expect(header).toHaveLength(46);
+      // 顧客要件 2026-08: 購読者層分類の従属 4 項目を追加（46 → 50 列）。
+      // それ以前: 読者情報変更適用日 / 購読中止日 を画面の入力欄へ移して列から撤去
+      // （48 → 46。画面と列の二重入力源を作らないため）、購読種別を画面ラジオへ
+      // （49 → 48）、販売店適用日を廃止し joho に統一。
+      expect(header).toHaveLength(50);
       expect(header).not.toContain('購読種別'); // 撤去（画面ラジオで一括指定）
       expect(header).not.toContain('手続種類'); // 削除（取込で解約は扱わない）
       expect(header).toContain('購読者情報と同じ');
@@ -280,6 +281,26 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
       expect(header).not.toContain('読者情報変更適用日'); // 撤去（画面の入力欄へ）
       expect(header).not.toContain('購読中止日'); // 撤去（画面の入力欄＝一括中止）
       expect(String(sample[header.indexOf('備考')])).toContain('書き換えて');
+
+      // 従属 4 項目は親の分類の直後に並べる（画面 SCR-011 の項目順・DB の列順と同じ）。
+      // 取込は列名で突合するので順序自体は動作に影響しないが、テンプレートを
+      // 目視で埋める顧客にとって親子が離れていると対応が読めない。
+      for (const col of [
+        'かつJAグループ役職員',
+        '農業関係',
+        '読者属性（その他の内容）',
+        '主な生産物（その他の内容）',
+      ]) {
+        expect(header).toContain(col);
+      }
+      expect(header.indexOf('かつJAグループ役職員')).toBe(
+        header.indexOf('購読者層分類') + 1,
+      );
+      expect(header.indexOf('主な生産物（その他の内容）')).toBe(
+        header.indexOf('農業者分類') + 1,
+      );
+      // サンプル行も全列ぶん埋まっている（ヘッダとズレると顧客が列を取り違える）。
+      expect(sample).toHaveLength(header.length);
     });
   });
 

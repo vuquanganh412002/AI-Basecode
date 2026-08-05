@@ -112,7 +112,7 @@ export async function applyChange(
   // 再計算基準日は常に当日。未来日レコードは当日時点で有効化されない（夜間バッチが
   // 到来日に有効化）。ただし全行が未来（未来 購読開始日 の新規）の場合、recomputeMaster が
   // 最早行へ fallback し saishin=true を保証（顧客要件2026-07: 新規は saishin=true）。
-  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  await recomputeMaster(m, dokusyaId, todayIsoJst(), actor);
   const after = await loadMaster(m, dokusyaId);
 
   return {
@@ -151,6 +151,7 @@ export async function recomputeMaster(
   m: EntityManager,
   dokusyaId: number,
   asOf: DateOnly,
+  actor?: string,
 ): Promise<RecomputeResult> {
   const { row: effectiveRow, startRirekiNo } =
     await loadCurrentLifecycleEffectiveRow(m, dokusyaId, asOf);
@@ -169,7 +170,7 @@ export async function recomputeMaster(
     if (scheduledChushi != null) {
       masterFields.dokusyaChushiDate = scheduledChushi;
     }
-    return writeMaster(m, dokusyaId, masterFields);
+    return writeMaster(m, dokusyaId, masterFields, actor);
   }
   return { changedFields: [], before: null, after: {} };
 }
@@ -196,6 +197,7 @@ async function writeMaster(
   m: EntityManager,
   dokusyaId: number,
   masterFields: Partial<Dokusya>,
+  actor?: string,
 ): Promise<RecomputeResult> {
   const before = await m.findOne(Dokusya, { where: { dokusyaId } });
   if (!before) {
@@ -208,7 +210,16 @@ async function writeMaster(
     masterFields as DokusyaFields,
   );
   if (changedFields.length > 0) {
-    await m.update(Dokusya, { dokusyaId }, masterFields);
+    // [updated-by] 業務値が動いたときだけ更新者を差し替える。master の監査列は
+    // 履歴側に対応列が無く（t_dokusya_rireki は created_by のみ・行は不変）、
+    // mapRirekiToMaster も updated_by を運ばないので、actor を渡さないと登録時の
+    // 値が残り続ける。created_by は触らない — 「誰が作ったか」は作成時の事実で、
+    // かつ電子版同期由来の読者を判別する手掛かりとして使う（顧客要件 2026-08）。
+    await m.update(
+      Dokusya,
+      { dokusyaId },
+      actor ? { ...masterFields, updatedBy: actor } : masterFields,
+    );
     return { changedFields, before, after: masterFields };
   }
 
@@ -219,6 +230,9 @@ async function writeMaster(
     Number(before.rirekiNo ?? -1) === Number(no ?? -1);
   if (samePointer) return { changedFields: [], before, after: masterFields };
 
+  // ポインタ前進は業務値の変更ではないので updated_at を動かさない（上の
+  // docblock 参照）。updated_by も同じ理由で据え置く — 片方だけ動かすと
+  // 「更新者は変わったのに更新日時は古い」という読めない行になる。
   await m.query(
     `UPDATE t_dokusya
         SET joho_henko_tekiyo_date = $1, rireki_no = $2
@@ -248,6 +262,7 @@ export async function insertKaiyaku(
   m: EntityManager,
   dokusyaId: number,
   asOf: DateOnly,
+  actor: string,
 ): Promise<KaiyakuResult | null> {
   const ref = await loadEffectiveRow(m, dokusyaId, asOf);
   if (ref?.dokusyaChushiDate == null || ref.kaiyakuFlg) return null;
@@ -269,9 +284,10 @@ export async function insertKaiyaku(
     rirekiNo: no,
     kaiyakuJoho,
     chushiDate: ref.dokusyaChushiDate,
+    createdBy: actor,
   });
   await insertRow(m, row);
-  const master = await recomputeMaster(m, dokusyaId, asOf);
+  const master = await recomputeMaster(m, dokusyaId, asOf, actor);
   return { rirekiNo: no, master };
 }
 
@@ -313,7 +329,7 @@ export async function insertScheduledKaiyaku(
   const saved = await insertRow(m, row);
 
   // 再計算基準日は当日。未来予約は当日時点で未反映（saishin=false のまま）。
-  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  await recomputeMaster(m, dokusyaId, todayIsoJst(), actor);
   const after = await loadMaster(m, dokusyaId);
 
   return {
@@ -365,7 +381,7 @@ export async function insertResubscribe(
   );
   const saved = await insertRow(m, row);
 
-  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  await recomputeMaster(m, dokusyaId, todayIsoJst(), actor);
   const after = await loadMaster(m, dokusyaId);
 
   return {
@@ -433,7 +449,7 @@ export async function applyTorikeshi(
   const no = await nextRirekiNo(m, dokusyaId);
   const counter = buildCounterRow(target, { rirekiNo: no, actor, reason });
   await insertRow(m, counter);
-  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  await recomputeMaster(m, dokusyaId, todayIsoJst(), actor);
 }
 
 /**
@@ -471,7 +487,7 @@ export async function revokeScheduledKaiyaku(
   const no = await nextRirekiNo(m, dokusyaId);
   const counter = buildCounterRow(target, { rirekiNo: no, actor, reason });
   await insertRow(m, counter);
-  await recomputeMaster(m, dokusyaId, todayIsoJst());
+  await recomputeMaster(m, dokusyaId, todayIsoJst(), actor);
 }
 
 /**

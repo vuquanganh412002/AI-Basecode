@@ -117,6 +117,24 @@ describe('HaitatsuryoService', () => {
       expect(row.biko).toBe('');
     });
 
+    it('should aggregate 紙版 only (#56599)', async () => {
+      // 配達手数料は「紙を配達した対価」。電子版(2)は配達自体が無く、併読(3)も
+      // 対象外（顧客要件 2026-08）。集計SQL・失効単価チェックSQLの両方に
+      // 種別条件が入っていることを確認する — 片方だけだと「金額は0円なのに
+      // 失効単価エラーで出力できない」といった不整合が起きる。
+      mockAgg([buildHaitatsuryoAggRow()]);
+
+      await service.previewHaitatsuryo(buildHaitatsuryoQuery(), hSession());
+
+      const sqls = dataSource.query.mock.calls
+        .map((c: any[]) => String(c[0]))
+        .filter((sql: string) => sql.includes('FROM t_dokusya d'));
+      expect(sqls.length).toBeGreaterThanOrEqual(2);
+      for (const sql of sqls) {
+        expect(sql).toContain('d.dokusya_shubetsu = 1');
+      }
+    });
+
     it('should compute meta.total / grand_total_busu / grand_total_kingaku from the rows', async () => {
       // COVERS: 4.5 meta 集計サマリ
       mockAgg([

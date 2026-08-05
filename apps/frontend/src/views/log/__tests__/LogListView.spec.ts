@@ -298,22 +298,94 @@ describe('LogListView — search (機能定義 2.x)', () => {
     expect(listLogs).not.toHaveBeenCalled();
   });
 
-  it('should display ACSMS-MSG-030-002 検索期間は1年以内... when range exceeds 365 days (機能定義 2.1)', async () => {
+  it('should display ACSMS-MSG-030-002 検索期間は5年以内... when range exceeds 5 years (機能定義 2.1)', async () => {
+    // ログ保持が 1年 → 5年 になったので上限も5年（顧客要件 2026-08）。
     const { listLogs } = await import('@/api/log/log');
     const { wrapper } = await renderView();
     vi.mocked(listLogs).mockClear();
 
     const vm = wrapper.vm as any;
     if (vm.state?.filters) {
-      vm.state.filters.date_from = '2024/01/01 00:00:00';
-      vm.state.filters.date_to = '2026/04/01 00:00:00';
+      vm.state.filters.date_from = '2019/01/01 00:00:00';
+      vm.state.filters.date_to = '2025/04/01 00:00:00';
     }
     await flushPromises();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
     expect(message.error).toHaveBeenCalledWith(
-      '検索期間は1年以内で指定してください。',
+      '検索期間は5年以内で指定してください。',
+    );
+    expect(listLogs).not.toHaveBeenCalled();
+  });
+
+  it('should accept a range of exactly 5 years', async () => {
+    // うるう年ぶんで弾かれないこと（365日×5 のミリ秒定数ではなく暦で加算）。
+    const { listLogs } = await import('@/api/log/log');
+    const { wrapper } = await renderView();
+    vi.mocked(listLogs).mockClear();
+    vi.mocked(message.error).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.date_from = '2020/02/29 00:00:00';
+      vm.state.filters.date_to = '2025/02/28 00:00:00';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(message.error).not.toHaveBeenCalled();
+    expect(listLogs).toHaveBeenCalled();
+  });
+
+  it('should reject a future 開始日 and NOT call the API', async () => {
+    // 開始日側も未来は不可（顧客要件 2026-08）。どちらの欄が原因かを文言で示す。
+    const { listLogs } = await import('@/api/log/log');
+    const { wrapper } = await renderView();
+    vi.mocked(listLogs).mockClear();
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.date_from =
+        `${tomorrow.getFullYear()}/${pad(tomorrow.getMonth() + 1)}/` +
+        `${pad(tomorrow.getDate())} 00:00:00`;
+      vm.state.filters.date_to = '';
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(message.error).toHaveBeenCalledWith(
+      '「開始日」に未来の日時は指定できません。',
+    );
+    expect(listLogs).not.toHaveBeenCalled();
+  });
+
+  it('should reject a future 終了日 and NOT call the API', async () => {
+    // 未来日時にログは存在しない。カレンダーでも未来日は無効化しているが、
+    // 時刻部分は手入力できるので検証側でも弾く（顧客要件 2026-08）。
+    const { listLogs } = await import('@/api/log/log');
+    const { wrapper } = await renderView();
+    vi.mocked(listLogs).mockClear();
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.date_from = '2026/01/01 00:00:00';
+      vm.state.filters.date_to =
+        `${tomorrow.getFullYear()}/${pad(tomorrow.getMonth() + 1)}/` +
+        `${pad(tomorrow.getDate())} 00:00:00`;
+    }
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(message.error).toHaveBeenCalledWith(
+      '「終了日」に未来の日時は指定できません。',
     );
     expect(listLogs).not.toHaveBeenCalled();
   });

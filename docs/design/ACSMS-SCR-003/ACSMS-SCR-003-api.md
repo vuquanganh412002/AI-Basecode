@@ -390,13 +390,18 @@ Content-Type: application/json
 ### 4.3 重複チェック
 
 - ログインユーザーのスコープを取得する（ja_id）。
-- 以下の条件で重複を確認する。
+- 以下の条件で重複を確認する。**単価コードの一意性は JA 単位**（DB の
+  `UQ_m_tanka_ja_code (ja_id, tanka_code)`、画面項目定義 No.2「単価はJAごとに持つ」）。
+  他 JA が同じコードを使っていても登録できる。
 
 ```sql
 SELECT COUNT(*) FROM m_tanka
-WHERE tanka_code = :tanka_code
-  AND deleted_at IS NULL
+WHERE ja_id = :ja_id
+  AND tanka_code = :tanka_code
 ```
+
+- `deleted_at` では絞らない。DB の UNIQUE INDEX に `deleted_at` の条件が無く、
+  論理削除した単価のコードは再利用できない（生涯予約）ため。
 
 - 重複がある場合：HTTP 400 (`DUPLICATE_CODE`)
 

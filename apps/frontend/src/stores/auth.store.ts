@@ -15,6 +15,11 @@ export type LoginOutcome =
   | { mfa_required: true; mfa_token: string; expires_in: number }
   | { mfa_required: false; user: User };
 
+/** MFA コード再送。store 状態に依存しないためモジュールスコープに置く。 */
+async function resendMfa(mfaToken: string) {
+  return authApi.resendMfa(mfaToken);
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
 
@@ -45,9 +50,9 @@ export const useAuthStore = defineStore('auth', () => {
     return data.user;
   }
 
-  async function resendMfa(mfaToken: string) {
-    return authApi.resendMfa(mfaToken);
-  }
+  // resendMfa は store 状態を触らない純ラッパ（MFA 画面が store 経由で API を
+  // 呼べるようにするためだけの存在）。setup 内で毎回関数を作り直す必要がないので
+  // モジュールスコープの resendMfaApi を再エクスポートする。
 
   /**
    * セッション TTL を延長し、キャッシュ済み user ペイロードを再水和。

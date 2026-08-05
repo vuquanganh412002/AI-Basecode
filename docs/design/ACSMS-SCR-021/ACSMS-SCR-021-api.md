@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/22 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 『手数料』列の表示を配達手数料単価から振込手数料負担区分（m_hanbaiten.furikomi_tesuryo_futan_kubun、m_code TESURYO_KUBUN ラベル）に変更。レスポンスに furikomi_tesuryo_futan_kubun を追加。tesuryo は当月金額算出用に継続保持（非表示）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/16 | 1.2  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用・⑨-2）反映：集計SQLの配達手数料単価判定を `active_flg = TRUE` のみに変更。プレビュー・出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する販売店が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（total＋errors[]先頭15件）で止める。エラー一覧 #8 追加。 | | |
+| 4  | 2026/08/05 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-08（#56599）：集計対象を**紙版（dokusya_shubetsu = 1）のみ**に限定。配達手数料は「紙を配達した対価」であり、電子版(2)は配達自体が無く、併読(3)も対象外とする。従来は購読種別で絞っておらず、実在の販売店に紐づく併読はそのまま加算され、電子版もダミー販売店に配達手数料単価が設定されていれば加算されていた（＝マスタの整備状況によって支払金額が変わる状態）。集計SQLと失効単価チェックSQLの双方に条件を追加する — 片方だけだと「金額は0円なのに失効単価エラーで出力できない」という不整合が起きるため。 | | |
 
 ## システム概要
 
@@ -293,6 +294,7 @@ WITH latest_dokusya AS (
     FROM t_dokusya d
    WHERE d.deleted_at IS NULL
      AND d.tetsuzuki_shurui = 1
+     AND d.dokusya_shubetsu = 1                                    -- 紙版のみ（#56599）
      AND d.joho_henko_tekiyo_date <= DATE_TRUNC('month', :target_month::date) + INTERVAL '1 month' - INTERVAL '1 day'
      AND d.ja_id = :user_ja_id
      AND (:user_kanri_shiten_id IS NULL OR d.kanri_shiten_id = :user_kanri_shiten_id)
@@ -334,6 +336,7 @@ WITH latest_dokusya AS (
     FROM t_dokusya d
    WHERE d.deleted_at IS NULL
      AND d.tetsuzuki_shurui = 1                                    -- 新規のみ
+     AND d.dokusya_shubetsu = 1                                    -- 紙版のみ（#56599）
      AND d.joho_henko_tekiyo_date <= DATE_TRUNC('month', :target_month::date) + INTERVAL '1 month' - INTERVAL '1 day'
      /* DataScope */
      AND d.ja_id = :user_ja_id

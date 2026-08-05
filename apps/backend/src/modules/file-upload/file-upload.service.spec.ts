@@ -13,6 +13,8 @@
 // a background notification job AFTER commit (no transaction).
 
 import { NotFoundException } from '@/common/exceptions/common.exceptions';
+import { FileDownload } from '@/database/entities/file-download.entity';
+import { FileUpload } from '@/database/entities/file-upload.entity';
 
 import { FileUploadService } from '@/modules/file-upload/file-upload.service';
 import {
@@ -640,9 +642,47 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
         buildSession(),
         baseReq,
       );
-      // 2 JAs × 2 files = 4 saves in the transaction.
-      expect(txManager.save).toHaveBeenCalledTimes(4);
+      // 2 JAs × 2 files = 4 t_file_upload 行 + ペアの t_file_download 行 4 件。
+      const savedBy = (entity: unknown) =>
+        txManager.save.mock.calls.filter(([e]: unknown[]) => e === entity).length;
+      expect(savedBy(FileUpload)).toBe(4);
+      expect(savedBy(FileDownload)).toBe(4);
+      expect(txManager.save).toHaveBeenCalledTimes(8);
       expect(result.data).toHaveLength(4);
+    });
+
+    it('should register a paired t_file_download row so SCR-022 can serve the uploaded file', async () => {
+      // COVERS: [download-pair] 顧客要件2026-08 — ダウンロード画面は
+      // t_file_download しか見ないため、この行が無いと JA(role 3/4/5) は
+      // アップロードされたファイルを取得できない。
+      const file = buildUploadedFile({ originalname: 'a.csv' });
+      await service.upload([12345], [file], buildSession({ account_id: 7 }), baseReq);
+
+      const call = txManager.save.mock.calls.find(
+        ([entity]: unknown[]) => entity === FileDownload,
+      );
+      expect(call).toBeDefined();
+      const row = call[1];
+      expect(row).toMatchObject({
+        jaId: 12345,
+        // ダミー区分は無いので「その他」(DOWNLOAD_TYPE=2)。
+        downloadType: 2,
+        // 日農・中央会が自組織で上げたファイルを取り直せるよう常に許可。
+        nichinoDownloadAllowedFlg: true,
+        fileName: 'a.csv',
+        fileSize: file.size,
+        // 明細を持たないファイルなので 0（列は NOT NULL）。
+        recordCount: 0,
+        targetMonth: null,
+        createdBy: '7',
+      });
+      // 実体は同一 S3 オブジェクト — upload 行と file_path が一致すること。
+      const uploadRow = txManager.save.mock.calls.find(
+        ([entity]: unknown[]) => entity === FileUpload,
+      )[1];
+      expect(row.filePath).toBe(uploadRow.filePath);
+      // 削除予定日がずれると片方だけ消えて実体無しの行が残る。
+      expect(row.scheduledDeleteDate).toBe(uploadRow.scheduledDeleteDate);
     });
 
     it('should wrap all file INSERTs + audit log entries in a single dataSource.transaction', async () => {
@@ -987,6 +1027,24 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
   describe('remove', () => {
     beforeEach(() => {
       repo.findOne.mockResolvedValue(buildFileUpload());
+    });
+
+    it('should soft-delete the paired t_file_download row in the SAME transaction', async () => {
+      // COVERS: [download-pair] — 実体(S3)を消すので、SCR-022 の一覧に出るのに
+      // 押すと 404 になる行を残さない。突合は file_path（UUID 入りキーで一意）。
+      const before = buildFileUpload();
+      repo.findOne.mockResolvedValue(before);
+
+      await service.remove(101, buildSession(), baseReq);
+
+      const pairCall = txManager.update.mock.calls.find(
+        ([entity]: unknown[]) => entity === FileDownload,
+      );
+      expect(pairCall).toBeDefined();
+      expect(pairCall[1]).toEqual({ filePath: before.filePath, deletedAt: expect.anything() });
+      expect(pairCall[2].deletedAt).toBeInstanceOf(Date);
+      // アップロード行と同じ tx（呼び出しは 1 回の transaction 内）。
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     });
 
     it('should soft-delete the file and call AuditLogService with operation="DELETE" (bare verb)', async () => {

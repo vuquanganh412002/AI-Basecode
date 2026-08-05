@@ -52,9 +52,11 @@ export interface DokusyaDetail {
   haitatsu_shimei_mei: string;
   haitatsu_shimei_kana_sei: string;
   haitatsu_shimei_kana_mei: string;
-  hanbaiten_id: number;
+  /** NULL 許容 — 未設定の読者は null（BE の coerceNullableNumber）。 */
+  hanbaiten_id: number | null;
   hanbaiten_name: string;
-  tanka_id: number;
+  /** NULL 許容 — 未設定の読者は null。 */
+  tanka_id: number | null;
   tanka_name: string;
   yubin_kubun: string;
   shiharai_hoho: number;
@@ -68,7 +70,11 @@ export interface DokusyaDetail {
   hikiotoshi_koza_no: string;
   hikiotoshi_koza_meigi: string;
   dokusyaso_bunrui: string;
+  ja_yakushokuin_flg: boolean;
+  nogyo_kankei_flg: boolean;
+  dokusyaso_bunrui_sonota: string;
   nogyosya_bunrui: string;
+  nogyosya_bunrui_sonota: string;
   shoki_dokusya_kaishi_date: string;
   dokusya_kaishi_date: string;
   dokusya_chushi_date: string | null;
@@ -89,7 +95,6 @@ export interface DokusyaHistoryItem {
   dokusya_id: number;
   rireki_no: number;
   tetsuzuki_shurui: number;
-  tetsuzuki_shurui_label: string;
   saishin_data_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
@@ -153,7 +158,11 @@ export interface CreateDokusyaForm {
   hikiotoshi_koza_no: string;
   hikiotoshi_koza_meigi: string;
   dokusyaso_bunrui: string;
+  ja_yakushokuin_flg: boolean;
+  nogyo_kankei_flg: boolean;
+  dokusyaso_bunrui_sonota: string;
   nogyosya_bunrui: string;
+  nogyosya_bunrui_sonota: string;
   dokusya_kaishi_date: string;
   dokusya_chushi_date: string | null;
   joho_henko_tekiyo_date: string | null;
@@ -220,7 +229,11 @@ export function buildDokusyaDetail(
     hikiotoshi_koza_no: '1234567',
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '0',
+    ja_yakushokuin_flg: false,
+    nogyo_kankei_flg: false,
+    dokusyaso_bunrui_sonota: '',
     nogyosya_bunrui: '0,1',
+    nogyosya_bunrui_sonota: '',
     shoki_dokusya_kaishi_date: '2026-01-01',
     dokusya_kaishi_date: '2026-04-01',
     dokusya_chushi_date: null,
@@ -290,7 +303,11 @@ export function buildCreateDokusyaForm(
     hikiotoshi_koza_no: '1234567',
     hikiotoshi_koza_meigi: 'ヤマダタロウ',
     dokusyaso_bunrui: '0',
+    ja_yakushokuin_flg: false,
+    nogyo_kankei_flg: false,
+    dokusyaso_bunrui_sonota: '',
     nogyosya_bunrui: '0,1',
+    nogyosya_bunrui_sonota: '',
     // 購読開始日は未来日のみ（当日・過去日 不可・顧客要件 2026-07 改訂）。翌日を
     // 既定にして create happy-path が通るようにする（固定日だと時間経過で過去日に
     // なり検証に弾かれるため動的）。
@@ -328,7 +345,6 @@ export function buildDokusyaHistoryItem(
     dokusya_id: 100,
     rireki_no: 2,
     tetsuzuki_shurui: 1,
-    tetsuzuki_shurui_label: '新規',
     saishin_data_flg: true,
     shinki_flg: false,
     kaiyaku_flg: false,

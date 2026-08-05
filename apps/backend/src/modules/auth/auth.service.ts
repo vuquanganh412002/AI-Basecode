@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { randomInt, randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { MailService } from '@/modules/mail/mail.service';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';

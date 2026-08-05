@@ -2,6 +2,10 @@ import {
   DOKUSYASO_BUNRUI_CODES,
   DOKUSYASO_BUNRUI_NOGYOSYA,
   NOGYOSYA_BUNRUI_CODES,
+  allowsDokusyasoBunruiSonota,
+  allowsJaYakushokuinFlg,
+  allowsNogyoKankeiFlg,
+  allowsNogyosyaBunruiSonota,
 } from '@/common/constants/dokusya-bunrui.constant';
 import { GENDER_MALE, GENDER_FEMALE } from '@/common/constants/gender.constant';
 import { MAIL_MAGAZINE_FLG_ON } from '@/common/constants/mail-magazine-flg.constant';
@@ -93,6 +97,11 @@ function mapCsvCodes(raw: string | null | undefined, table: Record<string, strin
     .join(',');
 }
 
+/** BOOLEAN 列 → 電子版の 1 桁フラグ（'0'|'1'）。 */
+function boolToFlag(v: boolean | null | undefined): string {
+  return v ? '1' : '0';
+}
+
 /** gender(1男/2女/9回答しない) → sex(1男/0女/9回答しない)。 */
 function genderToSex(gender: number | null | undefined): string {
   if (gender === GENDER_MALE) return '1';
@@ -151,8 +160,33 @@ function buildProfile(f: Dokusya): Record<string, string> {
   // V29 を返す — 該当しない／未選択なら '' を送る。電子版の isPresent は
   // 空文字を「キー無し」と同一視するため、'' なら形式チェックも条件チェックも
   // 発火しない。
-  payload.products = profession.split(',').includes(DOKUSYASO_BUNRUI_NOGYOSYA)
+  const products = profession.split(',').includes(DOKUSYASO_BUNRUI_NOGYOSYA)
     ? mapCsvCodes(f.nogyosyaBunrui, BUNRUI_TO_PRODUCTS)
+    : '';
+  payload.products = products;
+
+  // 従属 4 項目（顧客DB設計 2026-08）。products と同じ条件付き項目で、親の分類が
+  // 該当コードを含まないのに値を送ると V26〜V30 で create/update ごと弾かれる。
+  //
+  // 条件を満たすかは `profession` / `products`（＝**送信する値**）で判定する。
+  // f.dokusyasoBunrui ではなく変換後を見るのは、toProfession が空を '999' へ
+  // 既定化する・mapCsvCodes が未知コードを落とす、といった変換で送信値が入力値と
+  // ズレうるため。電子版が実際に見るのは送信値なので、そちらに揃える。
+  //
+  // フラグは条件を満たすとき必ず 0/1 を送る（未チェック＝'0'）。'' で省略すると
+  // 電子版側は「変更なし」と解釈して旧値が残り、チェックを外した操作が反映されない。
+  payload.profession_and_ja = allowsJaYakushokuinFlg(profession)
+    ? boolToFlag(f.jaYakushokuinFlg)
+    : '';
+  payload.profession_and_agri = allowsNogyoKankeiFlg(profession)
+    ? boolToFlag(f.nogyoKankeiFlg)
+    : '';
+  // 自由記述は逆に、条件を満たしても未入力なら '' のまま（省略と同義）。
+  payload.others_profession = allowsDokusyasoBunruiSonota(profession)
+    ? clamp(f.dokusyasoBunruiSonota, MAX_TEXT_LEN)
+    : '';
+  payload.others_products = allowsNogyosyaBunruiSonota(products)
+    ? clamp(f.nogyosyaBunruiSonota, MAX_TEXT_LEN)
     : '';
 
   return payload;

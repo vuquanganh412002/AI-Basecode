@@ -54,22 +54,62 @@ ln -s ./backend/.env apps/.env
 # 4. Bring the stack up
 docker compose -f apps/docker-compose.yml up -d
 
-# 5. Schema + master data + the first admin account
+# 5. Schema + the first admin account + customer sample data
 docker compose -f apps/docker-compose.yml exec backend npm run migration:run
 docker compose -f apps/docker-compose.yml exec backend \
-  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'   # prints the password ONCE
-docker compose -f apps/docker-compose.yml exec backend npm run seed:dev   # sample data
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed:admin'    # login_id='admin'
+docker compose -f apps/docker-compose.yml exec backend npm run seed:sample   # JA / 管理支店 / accounts
 
 # 6. Open the app — OTP mail lands in MailHog
 open https://agrinews.jp/login
 open http://localhost:8025
 ```
 
-To wipe and rebuild the dev database in one step (drop → migrate → seed → seed:dev):
+To wipe and rebuild the dev database in one step (drop → migrate → seed:admin → seed:sample):
 
 ```bash
 ./scripts/reset-dev-db.sh
 ```
+
+### Sample data (`npm run seed:sample`)
+
+Loads the customer-supplied JA master data — 5 JA (3 単協 + 2 中央会),
+6 管理支店, and the accounts below. It refuses to run when
+`NODE_ENV=production`, and re-running is a no-op.
+
+The source Excel is real customer data, so it is **not** in this repo — the
+values are transcribed into `apps/backend/scripts/seed-sample-data.ts`. Ask the
+team for the original if you need to re-check a cell.
+
+Two things are seeded that the Excel does **not** contain, because without them
+you cannot reach the screens that create everything else: one dummy 販売店 per
+JA with code `9999999999` (the 電子版 placeholder — see
+`apps/backend/src/common/constants/hanbaiten-dummy.constant.ts`) and the two
+日農 accounts below. 支店 / 単価 / お知らせ / 購読者 are deliberately **not**
+seeded — create them from the UI so real and fixture data never blur together.
+
+| login_id | password | Role | Scope |
+| --- | --- | --- | --- |
+| `admin` | `admin@1234567` | NICHINO_ADMIN | from `seed:admin` |
+| `admin01` | `admin@1234567` | NICHINO_ADMIN | — |
+| `staff01` | `admin@1234567` | NICHINO_STAFF | — |
+| `1165741000` | `1165741000` | JA_HONTEN | 松本ハイランド |
+| `1165741000_ks` | `1165741000` | JA_KANRI_SHITEN | 松本ハイランド |
+| `1275570000` | `1275570000` | JA_HONTEN | 大阪泉州 |
+| `1275570050` | `1275570050` | JA_KANRI_SHITEN | 大阪泉州購買口 |
+| `1275570055` | `1275570055` | JA_KANRI_SHITEN | 大阪泉州総務口 |
+| `1275506000` | `1275506000` | JA_HONTEN | たかつき |
+| `1275506000_ks` | `1275506000` | JA_KANRI_SHITEN | たかつき |
+| `1275506010` | `1275506010` | JA_KANRI_SHITEN | たかつき・総務 |
+| `1275506015` | `1275506015` | JA_KANRI_SHITEN | たかつき・経済 |
+| `1333300000` | `1333300000` | CHUOKAI | 愛媛県中央会 |
+| `1083300000` | `1083300000` | CHUOKAI | 茨城県中央会 |
+
+JA passwords come from the Excel's `password_hash` column (= the code itself).
+The `_ks` suffix exists only because the Excel gives the 本店 and its 管理支店
+account the same `login_id`, which is UNIQUE — the password stays the bare code.
+Deviations from the Excel are listed at the top of
+`apps/backend/scripts/seed-sample-data.ts`.
 
 ### Local services
 
@@ -297,22 +337,22 @@ All secrets via AWS Secrets Manager. See `.claude/rules/security.md`.
 
 ### First-deploy admin bootstrap
 
-The initial `NICHINO_ADMIN` account is **not** auto-seeded by migrations. After `npm run migration:run` on a fresh environment, run `npm run seed` explicitly. The seed is idempotent (skips if `login_id='admin'` exists), sets `mfa_enable_flg=true`, and never writes a cleartext password anywhere.
+The initial `NICHINO_ADMIN` account is **not** auto-seeded by migrations. After `npm run migration:run` on a fresh environment, run `npm run seed:admin` explicitly. The seed is idempotent (skips if `login_id='admin'` exists), sets `mfa_enable_flg=true`, and never writes a cleartext password anywhere.
 
 #### Local dev
 
 ```bash
-# Create admin — password generated + printed to stdout ONCE
+# Create admin. In dev the password defaults to the fixed 'admin@1234567'
+# so nobody has to grep logs; the script prints it.
 docker compose -f apps/docker-compose.yml exec backend \
-  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'
-# → copy the printed password into your password manager
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed:admin'
 ```
 
 To set a password yourself instead of letting the script generate one:
 
 ```bash
 docker compose -f apps/docker-compose.yml exec backend \
-  sh -c 'INITIAL_ADMIN_EMAIL=dev@local INITIAL_ADMIN_PASSWORD="MyDev@Pass123" npm run seed'
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local INITIAL_ADMIN_PASSWORD="MyDev@Pass123" npm run seed:admin'
 ```
 
 To reset (forgot password, or after `docker compose down -v`):
@@ -321,7 +361,7 @@ To reset (forgot password, or after `docker compose down -v`):
 docker compose -f apps/docker-compose.yml exec postgres \
   psql -U postgres -d agrinews_dev -c "DELETE FROM m_account WHERE login_id='admin';"
 docker compose -f apps/docker-compose.yml exec backend \
-  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed'
+  sh -c 'INITIAL_ADMIN_EMAIL=dev@local npm run seed:admin'
 ```
 
 #### Production / staging
@@ -329,20 +369,20 @@ docker compose -f apps/docker-compose.yml exec backend \
 `INITIAL_ADMIN_PASSWORD` is **required** in production — the script throws if missing. Generate it out-of-band, store in Secrets Manager, then bootstrap once via ECS exec / bastion:
 
 ```bash
-INITIAL_ADMIN_EMAIL=ops@agrinews.jp \
+INITIAL_ADMIN_EMAIL=ops@agrinews-manage.com \
 INITIAL_ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
   --secret-id prod/agrinews/initial-admin-password \
   --query SecretString --output text)" \
-  npm run seed
+  npm run seed:admin
 ```
 
 #### Env vars
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `INITIAL_ADMIN_EMAIL` | ✅ always | — | Used for MFA OTP delivery |
-| `INITIAL_ADMIN_PASSWORD` | ✅ in prod / optional in dev | random base64(18) | Min 12 chars |
+| `INITIAL_ADMIN_EMAIL` | ✅ always | `admin@agrinews-manage.com` | MFA OTP destination. Always pass it explicitly in prod — the default is a dev convenience, not a real mailbox. |
+| `INITIAL_ADMIN_PASSWORD` | ✅ in prod / optional in dev | `admin@1234567` (dev only) | Min 12 chars. Production throws when unset — no fallback. |
 | `INITIAL_ADMIN_LOGIN_ID` | optional | `admin` | |
 | `INITIAL_ADMIN_NAME` | optional | `日農 管理者` | |
 
-> Subsequent admin accounts are created via the in-app account-management screen by the first admin — **not** via `npm run seed`. The seed script exists only to break the chicken-and-egg problem of the very first account.
+> Subsequent admin accounts are created via the in-app account-management screen by the first admin — **not** via `npm run seed:admin`. The seed script exists only to break the chicken-and-egg problem of the very first account.

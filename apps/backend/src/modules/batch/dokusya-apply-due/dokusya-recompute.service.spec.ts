@@ -52,12 +52,21 @@ describe('DokusyaRecomputeService', () => {
     const [sql] = db.query.mock.calls[0] as [string];
     expect(sql).toContain('deleted_at IS NULL');
     expect(sql).toContain('dokusya_id > $1');
+    // 情報変更反映は履歴行を作らず master を書き換えるだけなので、実行者は
+    // t_dokusya.updated_by にしか残らない。actor を渡さないと登録時の値のままに
+    // なるため、値を固定して検証する（顧客要件 2026-08）。
     expect(mockRecomputeMaster).toHaveBeenCalledWith(
       managerMock,
       4,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      'SYSTEM_BATCH_NIGHTLY',
     );
-    expect(mockRecomputeMaster).toHaveBeenCalledWith(managerMock, 9, expect.any(String));
+    expect(mockRecomputeMaster).toHaveBeenCalledWith(
+      managerMock,
+      9,
+      expect.any(String),
+      'SYSTEM_BATCH_NIGHTLY',
+    );
   });
 
   it('should page with a keyset cursor when a full chunk (500) is returned', async () => {

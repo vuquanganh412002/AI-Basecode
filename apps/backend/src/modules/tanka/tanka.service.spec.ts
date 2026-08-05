@@ -1098,6 +1098,50 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
       ).rejects.toThrow(DuplicateCodeException);
     });
 
+    /**
+     * 単価コードの一意性は **JA 単位**（DB `UQ_m_tanka_ja_code (ja_id, tanka_code)`、
+     * 画面設計書 SCR-003「単価はJAごとに持つ」）。
+     *
+     * 以前はここが tanka_code だけで数えており、ja_id=60 が使っているコードを
+     * ja_id=139 で登録できなかった。count の戻り値だけを見るテストでは
+     * WHERE 句の欠落を検知できないので、条件そのものを検証する。
+     */
+    it('should scope the duplicate check to the session JA', async () => {
+      repo.count.mockResolvedValue(0);
+      const payload = buildCreateTankaPayload({ tanka_code: 'T2026' });
+
+      await service.create(payload, buildChuokaiSession({ ja_id: 139 }), baseReq);
+
+      expect(repo.count).toHaveBeenCalledWith({
+        where: { jaId: 139, tankaCode: 'T2026' },
+        // 論理削除後もコードは予約したまま（DB の UNIQUE INDEX に deleted_at の
+        // 条件が無いのに合わせる）。
+        withDeleted: true,
+      });
+    });
+
+    it('should let another JA reuse a tanka_code held by a different JA', async () => {
+      // 既存行は ja_id=60 / tanka_code=T2026 の 1 件だけ、という DB を模す。
+      // jaId 条件が無い（＝以前の実装）クエリはこの行に当たって 1 を返すので、
+      // WHERE を落とすと本ケースは失敗する。
+      repo.count.mockImplementation((opts: any) => {
+        const where = opts?.where ?? {};
+        const hitsExistingRow =
+          where.tankaCode === 'T2026' &&
+          (where.jaId === undefined || where.jaId === 60);
+        return Promise.resolve(hitsExistingRow ? 1 : 0);
+      });
+
+      const result = await service.create(
+        buildCreateTankaPayload({ tanka_code: 'T2026' }),
+        buildChuokaiSession({ ja_id: 139 }),
+        baseReq,
+      );
+
+      expect(result.ja_id).toBe(139);
+      expect(result.tanka_code).toBe('T2026');
+    });
+
     it('should include the conflicting value in the duplicate error message', async () => {
       // Convention per .claude/rules/nestjs.md §BE message — error names
       // value so user can fix the row: 「単価コード「T001」はすでに登録…」

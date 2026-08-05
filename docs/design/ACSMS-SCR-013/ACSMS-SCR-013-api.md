@@ -129,7 +129,7 @@ updated_by: Tran Duc Tuyen
 | 39  | →zenkai_shikuchoson          | String  | -        |              | 〇       | 前回市町村郡（初回履歴は null）                                                                               |
 | 40  | →zenkai_chome_banchi         | String  | -        |              | 〇       | 前回丁目番地（初回履歴は null）                                                                               |
 | 41  | →zenkai_tatemono_mei         | String  | -        |              | 〇       | 前回建物名（初回履歴は null）                                                                                 |
-| 42  | →hanbaiten_id                | Number  | -        |              |          | 販売店ID                                                                                                      |
+| 42  | →hanbaiten_id                | Number  | -        |              |  〇       | 販売店ID※未設定(NULL)あり                                                                                          |
 | 43  | →hanbaiten_name              | String  | -        |              | 〇       | 販売店名（m_hanbaiten 結合）                                                                                  |
 | 44  | →zenkai_hanbaiten_id         | Number  | -        |              | 〇       | 前回販売店ID（初回履歴は null）                                                                               |
 | 45  | →zenkai_hanbaiten_name       | String  | -        |              | 〇       | 前回販売店名（m_hanbaiten 結合、初回履歴は null）                                                             |
@@ -150,7 +150,7 @@ updated_by: Tran Duc Tuyen
 | 60  | →created_at                  | String  | -        | ISO8601      |          | 履歴作成日時                                                                                                  |
 | 61  | →created_by                  | String  | -        |              |          | 履歴作成者                                                                                                    |
 | 62  | →dokusya_shubetsu            | Number  | -        |              |          | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧の 履歴番号 直後に表示 |
-| 63  | →tanka_id                    | Number  | -        |              |          | 新聞単価ID（m_tanka）                                                                                          |
+| 63  | →tanka_id                    | Number  | -        |              |  〇       | 新聞単価ID（m_tanka）※未設定(NULL)あり                                                                              |
 | 64  | →tanka_name                  | String  | -        |              | 〇       | 新聞単価名（m_tanka 結合、単価削除済み等は null）。一覧は「単価名 + 半角スペース + 金額」で表示                 |
 | 65  | →tanka_kingaku               | Number  | -        |              | 〇       | 新聞単価の表示金額。JA の税区分(m_ja.zei_kubun)で解決（1:内税→税込 / それ以外→税抜）。単価削除済み等は null    |
 | 66  | →shiharai_hoho               | Number  | -        |              |          | 支払い方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                                                        |

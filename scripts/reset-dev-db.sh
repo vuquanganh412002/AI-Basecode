@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Wipe + rebuild the dev DB from scratch
-#          (drop database → migration:run → seed → seed:dev)
+#          (drop database → migration:run → seed:admin → seed:sample)
 # Usage:   ./scripts/reset-dev-db.sh
 # Dependencies: docker, docker compose; postgres + backend containers running
 # Exit Codes: 0=success, 1=missing dependency, 2=container not running, 3=production-env block
@@ -65,20 +65,23 @@ docker compose -f "${COMPOSE_FILE}" exec -T backend npm run migration:run
 # ── 3. Production-safe seed (admin account) ──────────────────────────────
 echo ""
 echo "▶ Seeding initial admin account..."
-docker compose -f "${COMPOSE_FILE}" exec -T backend npm run seed
+docker compose -f "${COMPOSE_FILE}" exec -T backend npm run seed:admin
 
 # ── 4. Dev fixtures ──────────────────────────────────────────────────────
 echo ""
-echo "▶ Seeding dev fixtures (100 m_ja + 4 m_kanri_shiten + 100 m_tanka + 20 accounts)..."
-docker compose -f "${COMPOSE_FILE}" exec -T backend npm run seed:dev
+echo "▶ Seeding customer sample data (5 m_ja + 6 m_kanri_shiten + 5 m_hanbaiten + 13 accounts)..."
+docker compose -f "${COMPOSE_FILE}" exec -T backend npm run seed:sample
 
 # ── Summary ──────────────────────────────────────────────────────────────
 echo ""
 echo "─────────────────────────────────────────────────────────────────"
 echo "✓ Dev DB reset complete."
-echo "  Login IDs : admin (id=1) + admin01..04 / staff01..04 /"
-echo "              chuokai01..04 / honten01..04 / kanri01..04 (id=2..21)"
-echo "  Password  : admin@1234567"
+echo "  日農      : admin / admin01 / staff01      password: admin@1234567"
+echo "  JA        : 1165741000 / 1165741000_ks / 1275570000 / 1275570050 /"
+echo "              1275570055 / 1275506000 / 1275506000_ks / 1275506010 /"
+echo "              1275506015 / 1333300000 / 1083300000"
+echo "              password = login_id（_ks は接尾辞なしのコード）"
+echo "  See README.md 'Sample data' for the role / scope of each account."
 echo "─────────────────────────────────────────────────────────────────"
 
 exit "${EXIT_SUCCESS}"

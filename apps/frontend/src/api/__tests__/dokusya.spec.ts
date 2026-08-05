@@ -243,3 +243,53 @@ describe('dokusya API wrapper — exportDokusyaExcel (API-014-003)', () => {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// approveDokusya / rejectDokusya — 引落口座4項目の同時保存 (#56524)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — approve/reject body (#56524)', () => {
+  it('PUTs the 引落口座 fields + tanka_id to /approve', async () => {
+    const { approveDokusya } = await import('@/api/dokusya/dokusya');
+    put.mockResolvedValue({ data: { data: {}, message: '承認しました。' } });
+
+    await approveDokusya(100, {
+      tanka_id: 5,
+      bank_shiten_id: 7,
+      hikiotoshi_yokin_shubetsu: 1,
+      hikiotoshi_koza_no: '1234567890',
+      hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+    });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/dokusya/100/approve', {
+      tanka_id: 5,
+      bank_shiten_id: 7,
+      hikiotoshi_yokin_shubetsu: 1,
+      hikiotoshi_koza_no: '1234567890',
+      hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+    });
+  });
+
+  it('PUTs the 引落口座 fields to /reject', async () => {
+    const { rejectDokusya } = await import('@/api/dokusya/dokusya');
+    put.mockResolvedValue({ data: { data: {}, message: '否認しました。' } });
+
+    await rejectDokusya(100, { hikiotoshi_koza_no: '1234567890' });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/dokusya/100/reject', {
+      hikiotoshi_koza_no: '1234567890',
+    });
+  });
+
+  it('omits the body entirely when nothing was edited', async () => {
+    // 空オブジェクトを送ると BE は「4項目とも undefined」で patch 無しになるが、
+    // ボディ自体を省く方が意図が明確（＝ステータス変更のみ）。
+    const { approveDokusya, rejectDokusya } = await import('@/api/dokusya/dokusya');
+    put.mockResolvedValue({ data: { data: {}, message: 'ok' } });
+
+    await approveDokusya(100);
+    await rejectDokusya(100, {});
+
+    expect(put).toHaveBeenNthCalledWith(1, '/api/v1/dokusya/100/approve', undefined);
+    expect(put).toHaveBeenNthCalledWith(2, '/api/v1/dokusya/100/reject', undefined);
+  });
+});

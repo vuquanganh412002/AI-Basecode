@@ -38,6 +38,7 @@ import {
   updateDokusya,
   approveDokusya,
   rejectDokusya,
+  type DenshiShoninEditBody,
   type CreateDokusyaRequest,
   type UpdateDokusyaRequest,
   type DokusyaDetail,
@@ -59,10 +60,7 @@ import {
   getTankaDropdown,
   type TankaDropdownItem,
 } from '@/api/tanka/tanka';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 import { useCodesStore } from '@/stores/codes.store';
 import {
   DenshiShoninStatus,
@@ -71,9 +69,11 @@ import {
   TetsuzukiShurui,
 } from '@/constants/enums';
 import {
-  DOKUSYASO_BUNRUI_OPTIONS,
-  DokusyaSoBunrui,
-  NOGYOSYA_BUNRUI_OPTIONS,
+  DOKUSYASO_BUNRUI_NOGYOSYA,
+  allowsDokusyasoBunruiSonota,
+  allowsJaYakushokuinFlg,
+  allowsNogyoKankeiFlg,
+  allowsNogyosyaBunruiSonota,
   splitBunruiCsv,
 } from '@/constants/dokusya-bunrui';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
@@ -139,7 +139,11 @@ interface DokusyaFormState {
   hikiotoshi_koza_no: string;
   hikiotoshi_koza_meigi: string;
   dokusyaso_bunrui: string;
+  ja_yakushokuin_flg: boolean;
+  nogyo_kankei_flg: boolean;
+  dokusyaso_bunrui_sonota: string;
   nogyosya_bunrui: string;
+  nogyosya_bunrui_sonota: string;
   dokusya_kaishi_date: string;
   dokusya_chushi_date: string | null;
   // 読者情報変更適用日 — 販売店・支払方法を含む全変更の唯一の適用日（顧客要件
@@ -196,7 +200,11 @@ function defaultFormState(): DokusyaFormState {
     hikiotoshi_koza_no: '',
     hikiotoshi_koza_meigi: '',
     dokusyaso_bunrui: '',
+    ja_yakushokuin_flg: false,
+    nogyo_kankei_flg: false,
+    dokusyaso_bunrui_sonota: '',
     nogyosya_bunrui: '',
+    nogyosya_bunrui_sonota: '',
     dokusya_kaishi_date: '',
     dokusya_chushi_date: null,
     joho_henko_tekiyo_date: null,
@@ -359,7 +367,8 @@ const isDenshiRejected = computed(
 
 // ─── ドロップダウン選択肢 ──────────────────────────────────────────────
 
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）。この画面は2つセレクトがあるが HTTP は1回で済む。
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 const shitenOptions = ref<ShitenDropdownItem[]>([]);
 const hanbaitenOptions = ref<HanbaitenDropdownItem[]>([]);
@@ -442,18 +451,6 @@ watch(
     formState.shiten_id = null;
   },
 );
-
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = Array.isArray(resp)
-      ? (resp as unknown as TodofukenItem[])
-      : resp.data;
-  } catch {
-    // global axios interceptor がトースト済み — 空リストのまま。
-    todofukenOptions.value = [];
-  }
-}
 
 async function fetchKanriShitenOptions(): Promise<void> {
   // KanriShitenDropdownQueryDto は `@Min(1)` で ja_id を要求。NICHINO_*
@@ -568,6 +565,8 @@ function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
     haitatsu_shimei_mei: data.haitatsu_shimei_mei,
     haitatsu_shimei_kana_sei: data.haitatsu_shimei_kana_sei,
     haitatsu_shimei_kana_mei: data.haitatsu_shimei_kana_mei,
+    // NULL 許容。BE は未設定を null で返す（dokusya.mapper.ts の
+    // coerceNullableNumber）ので、そのまま「未選択」として流す。
     hanbaiten_id: data.hanbaiten_id,
     tanka_id: data.tanka_id,
     yubin_kubun: data.yubin_kubun,
@@ -577,8 +576,16 @@ function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
     hikiotoshi_yokin_shubetsu: data.hikiotoshi_yokin_shubetsu,
     hikiotoshi_koza_no: data.hikiotoshi_koza_no,
     hikiotoshi_koza_meigi: data.hikiotoshi_koza_meigi,
-    dokusyaso_bunrui: data.dokusyaso_bunrui,
+    // 読者属性は購読種別を問わず単一選択。列は CSV VARCHAR なので旧データや
+    // pull 由来の多値が入っていることがあり、ラジオが 1 つしか表示できない以上
+    // そのままだと画面と保存値がズレる。先頭コードへ寄せて
+    // 「表示＝保存される値」を保つ。
+    dokusyaso_bunrui: splitBunruiCsv(data.dokusyaso_bunrui)[0] ?? '',
+    ja_yakushokuin_flg: data.ja_yakushokuin_flg,
+    nogyo_kankei_flg: data.nogyo_kankei_flg,
+    dokusyaso_bunrui_sonota: data.dokusyaso_bunrui_sonota,
     nogyosya_bunrui: data.nogyosya_bunrui,
+    nogyosya_bunrui_sonota: data.nogyosya_bunrui_sonota,
     dokusya_kaishi_date: data.dokusya_kaishi_date,
     dokusya_chushi_date: data.dokusya_chushi_date,
     joho_henko_tekiyo_date: johoValue,
@@ -1107,21 +1114,8 @@ watch(
 
 // §11 — 農業者 unchecked → clear 主な生産物 (nogyosya_bunrui).
 const hasNogyosha = computed(() =>
-  splitBunruiCsv(formState.dokusyaso_bunrui).includes(DokusyaSoBunrui.NOGYOSYA),
+  splitBunruiCsv(formState.dokusyaso_bunrui).includes(DOKUSYASO_BUNRUI_NOGYOSYA),
 );
-
-/**
- * 購読者層分類 (画面項目定義 No.50) — カンマ区切り VARCHAR で保存する複数選択。
- * 保存値は電子版と同じコード ('0'|'1'|'2'|'3'|'999') — ラベルは保存しない。
- * この getter/setter computed に <a-checkbox-group> をバインドし、
- * 配列⇔csv 変換をテンプレート層から隠す。
- */
-const dokusyaSoBunruiArr = computed<string[]>({
-  get: () => splitBunruiCsv(formState.dokusyaso_bunrui),
-  set: (next: string[]) => {
-    formState.dokusyaso_bunrui = next.join(',');
-  },
-});
 
 /**
  * 主な生産物 (画面項目定義 No.51) — agrarian sub-category, same
@@ -1134,9 +1128,23 @@ const nogyosyaBunruiArr = computed<string[]>({
   },
 });
 
-/** 読者属性 / 主な生産物 の選択肢（コード値＋表示ラベル）。 */
-const dokusyaSoBunruiOptions = DOKUSYASO_BUNRUI_OPTIONS;
-const nogyosyaBunruiOptions = NOGYOSYA_BUNRUI_OPTIONS;
+/**
+ * 読者属性 / 主な生産物 の選択肢 — m_code から取得（実行時にラベル変更可）。
+ * m_code は数値 value を返すが、両列は CSV VARCHAR なので String() で寄せる
+ * （vue.md §Code Master の type-coercion gotcha）。
+ */
+const dokusyaSoBunruiOptions = computed(() =>
+  codes.options('DOKUSYASO_BUNRUI').map((o) => ({
+    value: String(o.value),
+    label: o.label,
+  })),
+);
+const nogyosyaBunruiOptions = computed(() =>
+  codes.options('NOGYOSYA_BUNRUI').map((o) => ({
+    value: String(o.value),
+    label: o.label,
+  })),
+);
 
 watch(hasNogyosha, (next) => {
   if (isHydrating.value) return;
@@ -1146,30 +1154,80 @@ watch(hasNogyosha, (next) => {
 });
 
 // §7 — 電子版 / 併読 hides the 配達先 section content.
+// 値を受け取る素の関数として切り出していたが、唯一の呼出し元だった
+// ハイドレートの読者属性分岐が無くなった（紙版も単一選択に統一）ので畳んだ。
 const isDigitalOrBoth = computed(
-  () => Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL ||
+  () =>
+    Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL ||
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH,
 );
 
+// ─── 読者属性の従属項目（顧客DB設計 2026-08）────────────────────────
+//
+// 読者属性で選んだコードに応じて、追加のチェック / 自由記述欄を出す。
+//
+// **電子版・併読のみの機能**（顧客要件 2026-08）。4 項目はいずれも電子版
+// users.profession_and_* / others_* との連携用で、紙版には送り先が無い。
+// 紙版は従来どおり読者属性＝複数選択、従属項目なしで据え置く。
+//
+// 出す条件は電子版 API の条件付き項目の受理条件と同一（allowsXxx を BE と共有）。
+// 条件から外れた値を送ると V26〜V30 で push ごと失敗するため、欄を隠すときは
+// 必ず値もクリアする。BE も保存時に同じゲートで落とすので二重防御。
+const showJaYakushokuin = computed(
+  () => isDigitalOrBoth.value && allowsJaYakushokuinFlg(formState.dokusyaso_bunrui),
+);
+const showNogyoKankei = computed(
+  () => isDigitalOrBoth.value && allowsNogyoKankeiFlg(formState.dokusyaso_bunrui),
+);
+const showDokusyasoSonota = computed(
+  () =>
+    isDigitalOrBoth.value &&
+    allowsDokusyasoBunruiSonota(formState.dokusyaso_bunrui),
+);
+const showNogyosyaSonota = computed(
+  () =>
+    isDigitalOrBoth.value &&
+    allowsNogyosyaBunruiSonota(formState.nogyosya_bunrui),
+);
+
+/** 読者属性の右カラムに何か出るか（レイアウトを 2 カラムへ切り替える条件）。 */
+const hasDokusyasoDependent = computed(
+  () => showJaYakushokuin.value || showNogyoKankei.value || showDokusyasoSonota.value,
+);
+
+watch(showJaYakushokuin, (next) => {
+  if (isHydrating.value) return;
+  if (!next) formState.ja_yakushokuin_flg = false;
+});
+watch(showNogyoKankei, (next) => {
+  if (isHydrating.value) return;
+  if (!next) formState.nogyo_kankei_flg = false;
+});
+watch(showDokusyasoSonota, (next) => {
+  if (isHydrating.value) return;
+  if (!next) formState.dokusyaso_bunrui_sonota = '';
+});
+watch(showNogyosyaSonota, (next) => {
+  if (isHydrating.value) return;
+  if (!next) formState.nogyosya_bunrui_sonota = '';
+});
+
 /**
- * 読者属性 — 電子版/併読 は単一選択（ラジオ）。電子版 API の profession は
- * 1 値運用のため、複数選択を許すと push 時に丸められる（顧客要件 2026-07）。
- * 紙版は従来どおり複数選択（チェックボックス）なので、保存形式は共通の
- * カンマ区切り VARCHAR のまま。
+ * 読者属性 — 購読種別を問わず単一選択（ラジオ・顧客要件 2026-08 で紙版も統一）。
+ *
+ * 従属項目（かつJAグループ役職員 / 農業関係）は**主分類を修飾する**設計なので
+ * 単一選択が前提。それは電子版だけの機能だが、紙版だけ複数選択のまま残すと
+ * 購読種別を切り替えるたびに UI の意味が変わり、保存値も 1 値/多値で揺れる。
+ * 入力方法は揃える。
+ *
+ * 列は引き続きカンマ区切り VARCHAR（電子版 profession が多値仕様で、pull で
+ * 複数コードが降ってくる余地を残す）。画面側だけ 1 値に固定する。
  */
 const dokusyaSoBunruiSingle = computed<string>({
-  get: () => dokusyaSoBunruiArr.value[0] ?? '',
+  get: () => splitBunruiCsv(formState.dokusyaso_bunrui)[0] ?? '',
   set: (next: string) => {
     formState.dokusyaso_bunrui = next;
   },
-});
-
-// 紙版（複数選択）→ 電子版/併読（単一選択）へ切り替えたとき、先頭 1 件だけ残す。
-watch(isDigitalOrBoth, (next) => {
-  if (isHydrating.value) return;
-  if (next) {
-    formState.dokusyaso_bunrui = dokusyaSoBunruiArr.value[0] ?? '';
-  }
 });
 
 // ─── 購読開始日・中止日 — create-mode 電子版 の特例 ──────────────────
@@ -1270,6 +1328,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
 const BIKO_MAX = 500;
 const BIKO_MSG = '備考は500文字以内で入力してください。';
+/** 読者属性/主な生産物の「その他」自由記述 — DB VARCHAR(255) と電子版の maxLen(255)。 */
+const BUNRUI_SONOTA_MAX = 255;
+const DOKUSYASO_SONOTA_MSG =
+  '読者属性（その他の内容）は255文字以内で入力してください。';
+const NOGYOSYA_SONOTA_MSG =
+  '主な生産物（その他の内容）は255文字以内で入力してください。';
 const KAISHI_DATE_FUTURE_MSG = '購読開始日は本日より後の日付を入力してください。';
 const BUSU_MIN_MSG = '購読部数は1以上で入力してください。';
 const DIGITAL_BUSU_MSG = '電子版の購読部数は1で登録してください。';
@@ -1438,6 +1502,21 @@ function validateMisc(errs: Record<string, string>): void {
   if (isDigitalOrBoth.value && !formState.dokusyaso_bunrui?.trim()) {
     errs.dokusyaso_bunrui = REQUIRED_MSG;
   }
+  // 「その他」の自由記述は入力欄が出ている時だけ検証する（隠れている間の値は
+  // watch がクリア済み）。maxlength 属性で打ち止めになるが、IME 確定やペースト
+  // 経路で超過しうるので BE と同じ 255 をここでも見る。
+  if (
+    showDokusyasoSonota.value &&
+    formState.dokusyaso_bunrui_sonota.length > BUNRUI_SONOTA_MAX
+  ) {
+    errs.dokusyaso_bunrui_sonota = DOKUSYASO_SONOTA_MSG;
+  }
+  if (
+    showNogyosyaSonota.value &&
+    formState.nogyosya_bunrui_sonota.length > BUNRUI_SONOTA_MAX
+  ) {
+    errs.nogyosya_bunrui_sonota = NOGYOSYA_SONOTA_MSG;
+  }
   // 購読部数: 解約以外は 1 以上（解約 (手続種類=0) は §8 で 0 固定・readonly）。
   if (!isCancelTetsuzuki.value && Number(formState.dokusya_busu) <= 0) {
     errs.dokusya_busu = BUSU_MIN_MSG;
@@ -1553,7 +1632,9 @@ const FIELD_ORDER: readonly string[] = [
   'hikiotoshi_koza_no',
   'hikiotoshi_koza_meigi',
   'dokusyaso_bunrui',
+  'dokusyaso_bunrui_sonota',
   'nogyosya_bunrui',
+  'nogyosya_bunrui_sonota',
   'dokusya_kaishi_date',
   'dokusya_chushi_date',
   'joho_henko_tekiyo_date',
@@ -1620,7 +1701,13 @@ function buildRequestBody(): CreateDokusyaRequest {
     hikiotoshi_koza_no: formState.hikiotoshi_koza_no,
     hikiotoshi_koza_meigi: formState.hikiotoshi_koza_meigi,
     dokusyaso_bunrui: formState.dokusyaso_bunrui,
+    // 従属 4 項目 — 欄が隠れたタイミングで watch がクリア済みなので、そのまま
+    // 送れば条件を外れた値は載らない。BE も同じゲートで再度落とす。
+    ja_yakushokuin_flg: formState.ja_yakushokuin_flg,
+    nogyo_kankei_flg: formState.nogyo_kankei_flg,
+    dokusyaso_bunrui_sonota: formState.dokusyaso_bunrui_sonota,
     nogyosya_bunrui: formState.nogyosya_bunrui,
+    nogyosya_bunrui_sonota: formState.nogyosya_bunrui_sonota,
     // 電子版 (create): 購読開始日はラジオで確定、購読中止日は
     // null (月末で終了)、請求開始月は送らない (空)。それ以外は従来通り
     // formState の値をそのまま送る。
@@ -1715,8 +1802,11 @@ async function onSubmit(): Promise<void> {
     if (isEdit.value && dokusyaId.value !== null) {
       // Edit + 承認待ち → submit performs approve. Otherwise: regular update.
       if (isPending.value) {
-        // 承認待ちは単価のみ編集可 → 編集後の単価を承認時に保存する。
-        await approveDokusya(dokusyaId.value, formState.tanka_id ?? undefined);
+        // 承認待ちは新聞単価 + 支払方法 + 引落口座4項目のみ編集可（#56524）→ 承認時に保存。
+        await approveDokusya(dokusyaId.value, {
+          tanka_id: formState.tanka_id ?? undefined,
+          ...buildShoninEditBody(),
+        });
         notify.success('承認しました。');
       } else {
         // 購読中止日（解約予約）は本APIでは送らない（顧客要件 2026-07 改訂）。
@@ -1752,11 +1842,25 @@ async function onSubmit(): Promise<void> {
 // 発火する。approveDokusya を直接呼び、成功トースト後に一覧へ遷移する。
 async function onApproveClick(): Promise<void> {
   if (dokusyaId.value === null) return;
+  // 承認画面で編集できる引落口座4項目も、通常編集と同じ条件必須を課す（#56524）。
+  // 口座引落なのに項目を空にしたまま承認すると、BE は bank_shiten_id しか弾かない
+  // ので残り3項目が空で確定してしまう。全項目チェックではなく口座クラスタだけを
+  // 対象にする — 他項目は承認画面で編集できず、既存値に触れられないため。
+  const kozaErrs: Record<string, string> = {};
+  validateBankCluster(kozaErrs);
+  if (Object.keys(kozaErrs).length > 0) {
+    fieldErrors.value = kozaErrs;
+    focusFirstError(FIELD_ORDER, kozaErrs);
+    return;
+  }
   if (submitting.value) return;
   submitting.value = true;
   try {
-    // 承認待ちは単価のみ編集可 → 編集後の単価を承認時に保存する。
-    await approveDokusya(dokusyaId.value, formState.tanka_id ?? undefined);
+    // 承認待ちは新聞単価 + 支払方法 + 引落口座4項目のみ編集可（#56524）→ 承認時に保存。
+    await approveDokusya(dokusyaId.value, {
+      tanka_id: formState.tanka_id ?? undefined,
+      ...buildShoninEditBody(),
+    });
     notify.success('承認しました。');
     await router.push({ name: 'DokusyaList' });
   } catch (err) {
@@ -1764,6 +1868,21 @@ async function onApproveClick(): Promise<void> {
   } finally {
     submitting.value = false;
   }
+}
+
+/**
+ * 承認/否認 時に送る編集項目（支払方法 + 引落口座4項目・#56524）。承認待ち画面
+ * ではこの5項目と新聞単価だけが編集可能なので、フォームの現在値をそのまま載せる。
+ * 空欄は BE 側 DTO が blank→undefined に寄せるため送っても変更扱いにならない。
+ */
+function buildShoninEditBody(): DenshiShoninEditBody {
+  return {
+    shiharai_hoho: formState.shiharai_hoho ?? undefined,
+    bank_shiten_id: formState.bank_shiten_id ?? undefined,
+    hikiotoshi_yokin_shubetsu: formState.hikiotoshi_yokin_shubetsu ?? undefined,
+    hikiotoshi_koza_no: formState.hikiotoshi_koza_no,
+    hikiotoshi_koza_meigi: formState.hikiotoshi_koza_meigi,
+  };
 }
 
 // ─── 否認 (機能定義 §4.x) ────────────────────────────────────────────
@@ -1779,7 +1898,8 @@ function onClickReject(): void {
     cancelText: 'いいえ',
     onOk: async () => {
       try {
-        await rejectDokusya(dokusyaId.value as number);
+        // 否認時も編集された支払方法・引落口座4項目を保存する（#56524）。
+        await rejectDokusya(dokusyaId.value as number, buildShoninEditBody());
         notify.success('否認しました。');
         await router.push({ name: 'DokusyaList' });
       } catch {
@@ -1936,7 +2056,7 @@ async function applyRouteMode(): Promise<void> {
 
 onMounted(() => {
   // ドロップダウン取得を並列展開 — 相互依存はない。
-  void fetchTodofukenOptions();
+  // 都道府県は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
   void fetchKanriShitenOptions();
   void fetchShitenOptions();
   void fetchTankaOptions();
@@ -2064,11 +2184,16 @@ defineExpose({
       </a-form-item>
     </a-modal>
 
+    <!-- 参照（読取専用）モードでは antd の disabled 既定色だと値がほぼ読めない。
+         `readonly-legible` は文字色だけ通常色へ戻す（背景のグレー・not-allowed
+         カーソルはそのまま）ので「読めるが編集できない」が一目で伝わる。 -->
     <a-form
       layout="vertical"
       :model="formState"
       :disabled="readOnlyForm"
       class="space-y-6"
+      :class="{ 'readonly-legible': readOnlyForm }"
+      data-test="dokusya-form"
       @keydown="preventEnterImplicitSubmit"
       @finish="onSubmit"
     >
@@ -2389,11 +2514,9 @@ defineExpose({
               <span>都道府県</span>
               <span class="text-error ml-1">*</span>
             </template>
-            <a-select
+            <BaseTodofukenSelect
               v-model:value="formState.todofuken_code"
-              :options="todofukenOptions.map((t) => ({ value: t.todofuken_code, label: t.todofuken_name }))"
               placeholder="選択してください"
-              allow-clear
               :disabled="reportFieldDisabled"
             />
           </a-form-item>
@@ -2588,11 +2711,9 @@ defineExpose({
                 <span>都道府県</span>
                 <span v-if="haitatsuRequired" class="text-error ml-1">*</span>
               </template>
-              <a-select
+              <BaseTodofukenSelect
                 v-model:value="formState.haitatsu_todofuken_code"
-                :options="todofukenOptions.map((t) => ({ value: t.todofuken_code, label: t.todofuken_name }))"
                 placeholder="選択してください"
-                allow-clear
                 :disabled="reportFieldDisabled"
               />
             </a-form-item>
@@ -2769,11 +2890,14 @@ defineExpose({
               <span>支払方法</span>
               <span class="text-error ml-1">*</span>
             </template>
+            <!-- 承認待ち(電子版)でも支払方法は編集可（#56524）。口座引落へ切り替えた
+                 場合は下の引落口座4項目が必須になる（validateBankCluster）。 -->
             <a-select
               v-model:value="formState.shiharai_hoho"
               :options="shiharaiHohoOptions"
               placeholder="選択してください"
               allow-clear
+              :disabled="formLocked"
             />
           </a-form-item>
 
@@ -2809,11 +2933,14 @@ defineExpose({
               <span>引落口座支店</span>
               <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
             </template>
+            <!-- 承認待ち(電子版)でも引落口座4項目は編集可（#56524）→ 承認待ちを
+                 含まない formLocked を用い、他項目がロックされる中でも操作可能にする。 -->
             <a-select
               v-model:value="formState.bank_shiten_id"
               :options="kinyuShitenOptions.map((s) => ({ value: s.shiten_id, label: s.shiten_name }))"
               placeholder="選択してください"
               allow-clear
+              :disabled="formLocked"
             />
           </a-form-item>
 
@@ -2844,6 +2971,7 @@ defineExpose({
               :options="yokinShubetsuOptions.map((o) => ({ value: Number(o.value), label: o.label }))"
               placeholder="選択してください"
               allow-clear
+              :disabled="formLocked"
             />
           </a-form-item>
 
@@ -2856,7 +2984,11 @@ defineExpose({
               <span>引落口座番号</span>
               <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
             </template>
-            <a-input v-model:value="formState.hikiotoshi_koza_no" :maxlength="10" />
+            <a-input
+              v-model:value="formState.hikiotoshi_koza_no"
+              :maxlength="10"
+              :disabled="formLocked"
+            />
           </a-form-item>
 
           <a-form-item
@@ -2868,7 +3000,11 @@ defineExpose({
               <span>引落口座名義</span>
               <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
             </template>
-            <a-input v-model:value="formState.hikiotoshi_koza_meigi" :maxlength="50" />
+            <a-input
+              v-model:value="formState.hikiotoshi_koza_meigi"
+              :maxlength="50"
+              :disabled="formLocked"
+            />
           </a-form-item>
         </div>
       </section>
@@ -2879,49 +3015,128 @@ defineExpose({
 
         <div class="space-y-6">
           <!--
-            読者属性 — 電子版/併読 は単一選択(ラジオ)、紙版は複数選択
-            (チェックボックス)。いずれも CSV で dokusyaso_bunrui に保存。
+            読者属性 — 購読種別を問わず単一選択(ラジオ)。CSV で
+            dokusyaso_bunrui に保存する点は従来どおり。
+
+            従属項目が出るとき（電子版/併読のみ）は行を 2 カラムに分け、左に
+            読者属性・右に従属項目を置く。従属項目は選択肢が排他なので同時に
+            出るのは 1 つだけ。紙版は従属項目が無いので 1 カラムのまま
+            全幅で表示する（空の右カラムのために選択肢を狭めない）。
           -->
-          <a-form-item
-            name="dokusyaso_bunrui"
-            :validate-status="fieldErrors.dokusyaso_bunrui ? 'error' : ''"
-            :help="fieldErrors.dokusyaso_bunrui"
+          <div
+            class="grid grid-cols-1 gap-4"
+            :class="{ 'md:grid-cols-2': hasDokusyasoDependent }"
+            data-test="dokusyaso-bunrui-row"
           >
-            <template #label>
-              <span>読者属性</span>
-              <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group
-              v-if="isDigitalOrBoth"
-              v-model:value="dokusyaSoBunruiSingle"
-              :options="dokusyaSoBunruiOptions"
-              class="flex flex-wrap gap-x-6 gap-y-2"
-            />
-            <a-checkbox-group
-              v-else
-              v-model:value="dokusyaSoBunruiArr"
-              :options="dokusyaSoBunruiOptions"
-              class="flex flex-wrap gap-x-6 gap-y-2"
-            />
-          </a-form-item>
+            <a-form-item
+              name="dokusyaso_bunrui"
+              :validate-status="fieldErrors.dokusyaso_bunrui ? 'error' : ''"
+              :help="fieldErrors.dokusyaso_bunrui"
+            >
+              <template #label>
+                <span>読者属性</span>
+                <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
+              </template>
+              <a-radio-group
+                v-model:value="dokusyaSoBunruiSingle"
+                :options="dokusyaSoBunruiOptions"
+                class="flex flex-wrap gap-x-6 gap-y-2"
+              />
+            </a-form-item>
+
+            <!--
+              読者属性=農業者。電子版 profession_and_ja(0/1) と 1:1。
+              チェックボックス自体が「かつJAグループ役職員」と名乗るのでラベルは
+              重複になる。ただし枠だけは残す — 消すとラベル 1 行分せり上がり、
+              左のラジオと高さが揃わない。読み上げには出さない。
+            -->
+            <a-form-item v-if="showJaYakushokuin" name="ja_yakushokuin_flg">
+              <template #label>
+                <span aria-hidden="true" class="invisible">かつJAグループ役職員</span>
+              </template>
+              <a-checkbox
+                v-model:checked="formState.ja_yakushokuin_flg"
+                data-test="ja-yakushokuin-flg"
+              >
+                かつJAグループ役職員
+              </a-checkbox>
+            </a-form-item>
+
+            <!-- 読者属性=企業・団体。電子版 profession_and_agri(0/1) と 1:1。 -->
+            <a-form-item v-if="showNogyoKankei" name="nogyo_kankei_flg">
+              <template #label>
+                <span aria-hidden="true" class="invisible">農業関係</span>
+              </template>
+              <a-checkbox
+                v-model:checked="formState.nogyo_kankei_flg"
+                data-test="nogyo-kankei-flg"
+              >
+                農業関係
+              </a-checkbox>
+            </a-form-item>
+
+            <!-- 読者属性=その他。電子版 others_profession(255文字以下) と 1:1。 -->
+            <a-form-item
+              v-if="showDokusyasoSonota"
+              name="dokusyaso_bunrui_sonota"
+              :validate-status="
+                fieldErrors.dokusyaso_bunrui_sonota ? 'error' : ''
+              "
+              :help="fieldErrors.dokusyaso_bunrui_sonota"
+            >
+              <template #label><span>読者属性（その他の内容）</span></template>
+              <a-input
+                v-model:value="formState.dokusyaso_bunrui_sonota"
+                :maxlength="BUNRUI_SONOTA_MAX"
+                data-test="dokusyaso-bunrui-sonota"
+              />
+            </a-form-item>
+          </div>
 
           <!--
             機能定義 §11 — 「農業者」を選択した場合のみ「主な生産物」を表示
             する。未チェック・解除時は nogyosya_bunrui を clear (watch側で)。
+            こちらは複数選択のままなのでチェックボックス。
+            読者属性の行と同じく、左に選択肢・右に「その他」の自由記述。
           -->
-          <a-form-item
+          <div
             v-if="hasNogyosha"
-            name="nogyosya_bunrui"
-            :validate-status="fieldErrors.nogyosya_bunrui ? 'error' : ''"
-            :help="fieldErrors.nogyosya_bunrui"
+            class="grid grid-cols-1 gap-4"
+            :class="{ 'md:grid-cols-2': showNogyosyaSonota }"
+            data-test="nogyosya-bunrui-row"
           >
-            <template #label><span>主な生産物（農業者の場合）</span></template>
-            <a-checkbox-group
-              v-model:value="nogyosyaBunruiArr"
-              :options="nogyosyaBunruiOptions"
-              class="flex flex-wrap gap-x-6 gap-y-2"
-            />
-          </a-form-item>
+            <a-form-item
+              name="nogyosya_bunrui"
+              :validate-status="fieldErrors.nogyosya_bunrui ? 'error' : ''"
+              :help="fieldErrors.nogyosya_bunrui"
+            >
+              <template #label><span>主な生産物（農業者の場合）</span></template>
+              <a-checkbox-group
+                v-model:value="nogyosyaBunruiArr"
+                :options="nogyosyaBunruiOptions"
+                class="flex flex-wrap gap-x-6 gap-y-2"
+              />
+            </a-form-item>
+
+            <!-- 「その他」を含むときだけ。電子版 others_products(255文字以下) と 1:1。 -->
+            <a-form-item
+              v-if="showNogyosyaSonota"
+              name="nogyosya_bunrui_sonota"
+              :validate-status="
+                fieldErrors.nogyosya_bunrui_sonota ? 'error' : ''
+              "
+              :help="fieldErrors.nogyosya_bunrui_sonota"
+            >
+              <template #label
+                ><span>主な生産物（その他の内容）</span></template
+              >
+              <a-input
+                v-model:value="formState.nogyosya_bunrui_sonota"
+                :maxlength="BUNRUI_SONOTA_MAX"
+                data-test="nogyosya-bunrui-sonota"
+              />
+            </a-form-item>
+          </div>
         </div>
       </section>
 
@@ -3168,3 +3383,51 @@ defineExpose({
     </a-form>
   </div>
 </template>
+
+<style scoped>
+/*
+  参照モード（読取専用）の可読性。
+  antd の disabled 既定色は `--text-disabled`(不透明度 .25) のため、値がほぼ
+  読めない。読取専用フォームでは「文字色だけ」通常色へ戻す:
+    - 背景のグレー（--surface-disabled）と not-allowed カーソルは維持する
+      → 「編集できない」ことは引き続き視覚的に伝わる。
+    - `-webkit-text-fill-color` も併記が必須。WebKit(Safari/iOS) は
+      disabled な input/textarea の描画色を color ではなくこの UA プロパティで
+      決めるため、color だけ上書きしても灰色のままになる。
+  色は runtime トークン（var(--text-main)）なのでダークモードでも自動追随。
+*/
+.readonly-legible :deep(.ant-input-disabled),
+.readonly-legible :deep(.ant-input[disabled]),
+.readonly-legible :deep(textarea[disabled]),
+.readonly-legible :deep(.ant-input-affix-wrapper-disabled),
+.readonly-legible :deep(.ant-input-number-disabled),
+.readonly-legible :deep(.ant-input-number-disabled .ant-input-number-input),
+.readonly-legible
+  :deep(
+    .ant-select-disabled:not(.ant-select-customize-input) .ant-select-selector
+  ),
+.readonly-legible :deep(.ant-select-disabled .ant-select-selection-item),
+.readonly-legible :deep(.ant-picker-disabled input),
+.readonly-legible :deep(.ant-radio-wrapper-disabled),
+.readonly-legible :deep(.ant-radio-wrapper-disabled span),
+.readonly-legible :deep(.ant-radio-disabled + span),
+.readonly-legible :deep(.ant-checkbox-wrapper-disabled),
+.readonly-legible :deep(.ant-checkbox-wrapper-disabled span),
+.readonly-legible :deep(.ant-checkbox-disabled + span) {
+  color: var(--text-main);
+  -webkit-text-fill-color: var(--text-main);
+}
+
+/*
+  プレースホルダは薄いまま戻す。
+  `-webkit-text-fill-color` は継承するため、上のルールだけだと WebKit で
+  ::placeholder / .ant-select-selection-placeholder まで本文色で描画され、
+  未入力欄の「選択してください」が入力済みの値に見えてしまう。
+*/
+.readonly-legible :deep(.ant-select-selection-placeholder),
+.readonly-legible :deep(input::placeholder),
+.readonly-legible :deep(textarea::placeholder) {
+  color: var(--text-disabled);
+  -webkit-text-fill-color: var(--text-disabled);
+}
+</style>

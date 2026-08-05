@@ -21,6 +21,7 @@ import {
   buildAdminUser,
   futureDateString,
 } from '@test/fixtures/oshirase.fixture';
+import { buildRoleDropdownList } from '@test/fixtures/accounts.fixture';
 
 // API wrappers — /gen-code-frontend will create src/api/oshirase/oshirase.ts.
 vi.mock('@/api/oshirase/oshirase', () => ({
@@ -34,6 +35,11 @@ vi.mock('@/api/oshirase/oshirase', () => ({
 // JA dropdown (COMMON-003) — already exists, just mock.
 vi.mock('@/api/ja/ja', () => ({
   getJaDropdown: vi.fn(),
+}));
+
+// Roles dropdown (COMMON-002) — 対象管理者区分 の選択肢は m_roles 由来。
+vi.mock('@/api/roles/roles', () => ({
+  listRolesDropdown: vi.fn(),
 }));
 
 // Antd toast spies.
@@ -129,6 +135,11 @@ beforeEach(async () => {
 
   const { getJaDropdown } = await import('@/api/ja/ja');
   vi.mocked(getJaDropdown).mockResolvedValue(buildJaDropdownResponse());
+
+  const { listRolesDropdown } = await import('@/api/roles/roles');
+  vi.mocked(listRolesDropdown).mockResolvedValue({
+    data: buildRoleDropdownList(),
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -329,6 +340,24 @@ describe('OshiraseManagementView — create (機能定義 2.x)', () => {
     expect(createOshirase).toHaveBeenCalledWith(
       expect.objectContaining({ target_kanri_kubun: '1,2,3,4,5' }),
     );
+  });
+
+  it('should label 対象管理者区分 from m_roles (/roles/dropdown), not a hardcoded list', async () => {
+    // ロール名は DB の値。改称されたら画面も追随しなければならないので、
+    // 画面側にラベルを持たない（= role_name をそのまま描画する）ことを固定する。
+    const { listRolesDropdown } = await import('@/api/roles/roles');
+    vi.mocked(listRolesDropdown).mockResolvedValueOnce({
+      data: [
+        { role_id: 1, role_code: 'NICHINO_ADMIN', role_name: '日農（改称後）' },
+        { role_id: 3, role_code: 'CHUOKAI', role_name: '中央会' },
+      ],
+    });
+
+    const { wrapper } = await renderView();
+
+    expect(listRolesDropdown).toHaveBeenCalled();
+    expect(wrapper.text()).toContain('日農（改称後）');
+    expect(wrapper.text()).not.toContain('日農（管理者）');
   });
 
   it('should reload the form from the server after a successful create so saved values display', async () => {

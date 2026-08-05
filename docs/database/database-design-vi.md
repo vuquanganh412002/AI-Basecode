@@ -7,7 +7,7 @@ format_version: "1.0"
 issue_date: 2019-02-22
 created_date: 2026/03/17
 created_by: Tran Duc Tuyen
-updated_date: 2026/04/02
+updated_date: 2026/08/04
 updated_by: Tran Duc Tuyen
 ---
 
@@ -18,6 +18,9 @@ updated_by: Tran Duc Tuyen
 | 1 | 2026/03/17 | 1 | Tran Duc Tuyen | Tạo mới | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2 | 2026/03/27 | 1.1 | Tran Duc Tuyen | Tạo mới | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3 | 2026/07/14 | 1.12 | Tran Duc Tuyen | Thêm cột shiten_id (ID chi nhánh trực thuộc) và chỉ mục IX_m_account_shiten_id vào m_account. Giới hạn phạm vi người đọc của tài khoản JA chi nhánh quản lý xuống mức chi nhánh (Yêu cầu khách hàng 2026-07) | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4 | 2026/08/04 | 1.13 | Tran Duc Tuyen | Đồng bộ với hiện trạng cài đặt. Bổ sung locked vào m_roles_permissions, notification_status / notified_at vào t_file_upload. Sửa t_file_download.ja_id thành cho phép NULL. Sửa mail_magazine_flg / hanbaiten_id / tanka_id của t_dokusya và t_dokusya_rireki thành cho phép NULL. Bổ sung chỉ mục ix_t_dokusya_kaiyaku_due / ix_t_dokusya_rireki_shinki và bảng t_denshi_sync_state | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5 | 2026/08/04 | 1.14 | Tran Duc Tuyen | Thống nhất đưa các cột audit (deleted_at / created_at / created_by / updated_at / updated_by) xuống cuối ở tất cả các bảng. Chuyển locked của m_roles_permissions, notified_at của t_file_upload, denshi_shonin_status / denshi_kaiin_id / honshi_kodoku_flg của t_dokusya, torikeshi_flg / honshi_kodoku_flg của t_dokusya_rireki lên trước nhóm audit. Đồng thời sửa lệch thứ tự cột của m_tanka và thiếu số thứ tự của t_koza_furikae (không đổi kiểu dữ liệu / ràng buộc) | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6 | 2026/08/04 | 1.15 | Tran Duc Tuyen | Phản ánh cập nhật thiết kế DB từ khách hàng. Thêm 4 cột ja_yakushokuin_flg (cờ kiêm cán bộ nhóm JA), nogyo_kankei_flg (cờ liên quan nông nghiệp), dokusyaso_bunrui_sonota (phân loại tầng lớp - khác), nogyosya_bunrui_sonota (phân loại nông dân - khác) vào t_dokusya / t_dokusya_rireki và đánh số lại các No phía sau. Đổi ghi chú dokusyaso_bunrui từ "nhiều giá trị phân cách dấu phẩy" thành "chọn một". Thêm 5 dòng DOKUSYASO_BUNRUI và 7 dòng NOGYOSYA_BUNRUI vào seed m_code | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## Tổng quan hệ thống
 
@@ -54,7 +57,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | STT | Tên cột | PK | Kiểu dữ liệu | Kích thước | IDENTITY | Cho phép NULL | Ghi chú |
 |---|---|---|---|---|---|---|---|
 | 1 | account_id | 〇 | BIGINT |  | 〇 |  | ID tài khoản (IDENTITY) |
-| 2 | login_id |  | VARCHAR | 20 |  |  | ID đăng nhập |
+| 2 | login_id |  | VARCHAR | 20 |  |  | ID đăng nhập. Riêng `SYSTEM` và các chuỗi bắt đầu bằng `SYSTEM_` (không phân biệt hoa thường) là tên hệ thống dành riêng, không được đăng ký (ràng buộc CHECK ck_m_account_login_id_not_reserved). Nếu trùng với tên tiến trình batch thì việc phân biệt độc giả đồng bộ từ bản điện tử qua t_dokusya_rireki.created_by sẽ hỏng |
 | 3 | password_hash |  | VARCHAR | 256 |  |  | Hash mật khẩu |
 | 4 | account_name |  | VARCHAR | 50 |  |  | Tên tài khoản |
 | 5 | role_id |  | INTEGER |  |  |  | Phân loại quản trị viên. Khóa ngoại tham chiếu m_roles.role_id |
@@ -150,11 +153,12 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 1 | role_permission_id | 〇 | BIGINT |  | 〇 |  | ID vai trò - quyền hạn (IDENTITY) |
 | 2 | role_id |  | BIGINT |  |  |  | ID vai trò (m_roles.role_id) |
 | 3 | permission_id |  | BIGINT |  |  |  | ID quyền hạn (m_permissions.permission_id) |
-| 4 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ xóa (soft delete) |
-| 5 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 6 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 7 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 8 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 4 | locked |  | BOOLEAN |  |  |  | Cờ quyền cố định từ seed (TRUE = không thể bỏ chọn ở màn hình quản lý vai trò SCR-027, DEFAULT FALSE, NOT NULL). Chỉ các dòng do migration seed tạo mới có giá trị TRUE |
+| 5 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ xóa (soft delete) |
+| 6 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 7 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 8 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 9 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -316,9 +320,9 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 8 | tax_rate |  | NUMERIC | 5.2 |  |  | Thuế suất (%) ví dụ: 10.00 |
 | 9 | tekiyo_start_date |  | DATE |  |  |  | Ngày bắt đầu áp dụng |
 | 10 | tekiyo_end_date |  | DATE |  |  | 〇 | Ngày kết thúc áp dụng |
-| 11 | active_flg |  | BOOLEAN |  |  |  | Cờ có hiệu lực vận hành (DEFAULT TRUE). Khi FALSE thì không cho phép gán mới. Độc lập với khoảng áp dụng (tekiyo_start_date / tekiyo_end_date) |
-| 12 | campaign_flg |  | BOOLEAN |  |  |  | Cờ chiến dịch (TRUE: có hiệu lực, FALSE: không hiệu lực, DEFAULT FALSE, NOT NULL) |
-| 13 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 11 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 12 | active_flg |  | BOOLEAN |  |  |  | Cờ có hiệu lực vận hành (DEFAULT TRUE). Khi FALSE thì không cho phép gán mới. Độc lập với khoảng áp dụng (tekiyo_start_date / tekiyo_end_date) |
+| 13 | campaign_flg |  | BOOLEAN |  |  |  | Cờ chiến dịch (TRUE: có hiệu lực, FALSE: không hiệu lực, DEFAULT FALSE, NOT NULL) |
 | 14 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
 | 15 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
 | 16 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
@@ -438,7 +442,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 1 | file_upload_id | 〇 | BIGINT |  | 〇 |  | ID tải lên tệp (IDENTITY) |
 | 2 | ja_id |  | BIGINT |  |  | 〇 | JA ID (FK: m_ja) ※NULL = dành cho tất cả JA |
 | 3 | upload_datetime |  | TIMESTAMPTZ |  |  |  | Ngày giờ tải lên |
-| 4 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | Ngày dự kiến xóa |
+| 4 | scheduled_delete_date |  | DATE |  |  | 〇 | Ngày dự kiến xóa (ngày lịch, không có giờ/múi giờ) |
 | 5 | file_name |  | VARCHAR | 255 |  |  | Tên tệp |
 | 6 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
 | 7 | file_size |  | INTEGER |  |  | 〇 | Kích thước tệp (byte) |
@@ -447,9 +451,11 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 10 | error_count |  | INTEGER |  |  | 〇 | Số lượng lỗi |
 | 11 | status |  | INTEGER |  |  |  | Trạng thái xử lý (1: Đang xử lý, 2: Hoàn thành, 3: Lỗi) |
 | 12 | error_file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp lỗi ※Cho phép chuỗi rỗng |
-| 13 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 14 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 15 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 13 | notification_status |  | INTEGER |  |  |  | Trạng thái thông báo (1: Chưa gửi, 2: Đang gửi, 3: Hoàn thành, 4: Thất bại một phần) ※Tham chiếu m_code.code_category='NOTIFICATION_STATUS' (DEFAULT 1) |
+| 14 | notified_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ gửi xong email thông báo. Worker ghi lại khi cập nhật notification_status thành 3: Hoàn thành hoặc 4: Thất bại một phần |
+| 15 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 16 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 17 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
 
 ## Chỉ mục
 
@@ -466,7 +472,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | STT | Tên cột | PK | Kiểu dữ liệu | Kích thước | IDENTITY | Cho phép NULL | Ghi chú |
 |---|---|---|---|---|---|---|---|
 | 1 | file_download_id | 〇 | BIGINT |  | 〇 |  | ID tải xuống tệp (IDENTITY) |
-| 2 | ja_id |  | BIGINT |  |  |  | JA ID (FK: m_ja) |
+| 2 | ja_id |  | BIGINT |  |  | 〇 | JA ID (FK: m_ja) ※NULL khi Nichino tải xuống tệp dành cho tất cả JA (t_file_upload.ja_id IS NULL) |
 | 3 | download_datetime |  | TIMESTAMPTZ |  |  |  | Ngày giờ tải xuống |
 | 4 | download_type |  | INTEGER |  |  |  | Loại tải xuống (1: Chuyển khoản ngân hàng, 2: Khác, 3: Phiếu liên lạc tăng giảm, 4: Thông báo tăng giảm, 5: Danh sách người đăng ký) |
 | 5 | scheduled_delete_date |  | TIMESTAMPTZ |  |  | 〇 | Ngày dự kiến xóa |
@@ -475,7 +481,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 8 | file_path |  | VARCHAR | 500 |  |  | Đường dẫn tệp |
 | 9 | file_size |  | INTEGER |  |  |  | Kích thước tệp (byte) |
 | 10 | record_count |  | INTEGER |  |  |  | Số lượng bản ghi |
-| 11 | target_month |  | VARCHAR | 6 |  | 〇 | Tháng đối tượng (YYYYMM) ※Cho phép chuỗi rỗng |
+| 11 | target_month |  | VARCHAR | 6 |  | 〇 | Tháng đối tượng (YYYYMM) ※Cho phép chuỗi rỗng・cho phép NULL (bản xuất không theo tháng thì NULL) |
 | 12 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
 | 13 | created_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ tạo |
 | 14 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
@@ -600,7 +606,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 19 | renrakusaki_1 |  | VARCHAR | 15 |  |  | Liên hệ 1 ※Cho phép chuỗi rỗng |
 | 20 | renrakusaki_2 |  | VARCHAR | 15 |  |  | Liên hệ 2 ※Cho phép chuỗi rỗng |
 | 21 | email |  | VARCHAR | 100 |  |  | Địa chỉ email ※Cho phép chuỗi rỗng |
-| 22 | mail_magazine_flg |  | INTEGER |  |  |  | Bản tin email (0: Không gửi, 1: Gửi) |
+| 22 | mail_magazine_flg |  | INTEGER |  |  | 〇 | Bản tin email (0: Không gửi, 1: Gửi) ※Là mục dành cho bản điện tử nên khi chọn loại đăng ký = bản giấy (1) thì lưu NULL |
 | 23 | birth_year |  | INTEGER |  |  | 〇 | Năm sinh (Dương lịch) |
 | 24 | gender |  | INTEGER |  |  | 〇 | Giới tính (1: Nam, 2: Nữ, 9: Không trả lời) |
 | 25 | haitatsu_same_flg |  | BOOLEAN |  |  |  | Chỉ định thông tin giao hàng (TRUE: Giống người đăng ký) |
@@ -615,8 +621,8 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 34 | haitatsu_shimei_mei |  | VARCHAR | 50 |  |  | Tên nơi giao hàng (Kanji) ※Cho phép chuỗi rỗng |
 | 35 | haitatsu_shimei_kana_sei |  | VARCHAR | 100 |  |  | Họ nơi giao hàng (Kana) ※Cho phép chuỗi rỗng |
 | 36 | haitatsu_shimei_kana_mei |  | VARCHAR | 100 |  |  | Tên nơi giao hàng (Kana) ※Cho phép chuỗi rỗng |
-| 37 | hanbaiten_id |  | BIGINT |  |  |  | ID đại lý bán hàng (Khóa ngoại) |
-| 38 | tanka_id |  | BIGINT |  |  |  | ID đơn giá (FK: m_tanka) ※Chỉ đơn giá phí đăng ký (tanka_type=1) |
+| 37 | hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng (Khóa ngoại) ※Có trường hợp chưa thiết lập (batch nhập bản điện tử đơn lẻ, v.v.) |
+| 38 | tanka_id |  | BIGINT |  |  | 〇 | ID đơn giá (FK: m_tanka) ※Chỉ đơn giá phí đăng ký (tanka_type=1). Có trường hợp chưa thiết lập vì được nhập trên màn hình khi phê duyệt |
 | 39 | yubin_kubun |  | VARCHAR | 1 |  |  | Phân loại bưu điện (0: Trống, 1: Gửi bưu điện) DEFAULT 0 |
 | 40 | shiharai_hoho |  | INTEGER |  |  |  | Phương thức thanh toán (1: Trích tài khoản, 2: Thu tiền mặt, 3: Thu chuyển khoản, 4: Cơ sở JA v.v., 5: Trừ lương, 6: Thẻ tín dụng, 9: Khác) |
 | 41 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí đăng ký (số tháng) |
@@ -625,23 +631,27 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 44 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
 | 45 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
 | 46 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (mã phân cách bằng dấu phẩy. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. Ánh xạ 1:1 với profession của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
-| 48 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (mã phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. Ánh xạ 1:1 với products của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
-| 49 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
-| 50 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
-| 51 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
-| 52 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
-| 53 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
-| 54 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 55 | rireki_no |  | INTEGER |  |  |  | Số lịch sử (số lịch sử mới nhất) |
-| 56 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 57 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | ID hội viên bản điện tử (ID hội viên của hệ thống ngoài. Do tính năng liên kết ngoài thiết lập. Duy nhất toàn bộ) |
-| 58 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. Chỉ khi loại đăng ký = bản điện tử mới hiển thị "Có tình trạng đăng ký bản giấy" trên màn hình. |
-| 59 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
-| 60 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 61 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 62 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 63 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 47 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (chọn một. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. m_code.code_category=DOKUSYASO_BUNRUI) ※Cho phép chuỗi rỗng |
+| 48 | ja_yakushokuin_flg |  | BOOLEAN |  |  |  | Cờ kiêm cán bộ nhân viên nhóm JA (DEFAULT FALSE). Chỉ đặt TRUE được khi phân loại tầng lớp người đăng ký (dokusyaso_bunrui) = 農業者. Liên kết users.profession_and_ja (0:không tích, 1:có tích) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE |
+| 49 | nogyo_kankei_flg |  | BOOLEAN |  |  |  | Cờ liên quan nông nghiệp (DEFAULT FALSE). Chỉ đặt TRUE được khi phân loại tầng lớp người đăng ký (dokusyaso_bunrui) = 企業・団体. Liên kết users.profession_and_agri (0:không tích, 1:có tích) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE |
+| 50 | dokusyaso_bunrui_sonota |  | VARCHAR | 255 |  |  | Phân loại tầng lớp người đăng ký - khác (tự do nhập) ※Cho phép chuỗi rỗng. Chỉ nhập được khi dokusyaso_bunrui = その他. Liên kết users.others_profession (tối đa 255 ký tự) |
+| 51 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị, phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. m_code.code_category=NOGYOSYA_BUNRUI) ※Cho phép chuỗi rỗng |
+| 52 | nogyosya_bunrui_sonota |  | VARCHAR | 255 |  |  | Phân loại nông dân - khác (tự do nhập) ※Cho phép chuỗi rỗng. Chỉ nhập được khi nogyosya_bunrui có chứa その他. Liên kết users.others_products (tối đa 255 ký tự) |
+| 53 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
+| 54 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
+| 55 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
+| 56 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
+| 57 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
+| 58 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 59 | rireki_no |  | INTEGER |  |  |  | Số lịch sử (số lịch sử mới nhất) |
+| 60 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 61 | denshi_kaiin_id |  | BIGINT |  |  | 〇 | ID hội viên bản điện tử (ID hội viên của hệ thống ngoài. Do tính năng liên kết ngoài thiết lập. Duy nhất toàn bộ) |
+| 62 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. Chỉ khi loại đăng ký = bản điện tử mới hiển thị "Có tình trạng đăng ký bản giấy" trên màn hình. |
+| 63 | deleted_at |  | TIMESTAMPTZ |  |  | 〇 | Cờ xóa (DEFAULT NULL) |
+| 64 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 65 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 66 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 67 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -656,6 +666,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 7 | IX_t_dokusya_ja_kumiaiin | ja_id, kumiaiin_code |  |  | Tìm kiếm kết hợp mã thành viên |
 | 8 | IX_t_dokusya_hierarchy | ja_id, kanri_shiten_id, shiten_id |  |  | Tìm kiếm phân cấp |
 | 9 | UQ_t_dokusya_denshi_kaiin_id | denshi_kaiin_id |  | 〇 | Duy nhất ID hội viên bản điện tử (toàn bộ bản ghi. UNIQUE một phần, loại trừ NULL và đã xóa) |
+| 10 | ix_t_dokusya_kaiyaku_due | dokusya_chushi_date, dokusya_shubetsu, tetsuzuki_shurui |  |  | Dùng cho batch chốt hủy đăng ký. Chỉ mục một phần (deleted_at IS NULL AND dokusya_chushi_date IS NOT NULL) |
 
 ---
 
@@ -686,7 +697,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 21 | renrakusaki_1 |  | VARCHAR | 15 |  |  | Liên hệ 1 ※Cho phép chuỗi rỗng |
 | 22 | renrakusaki_2 |  | VARCHAR | 15 |  |  | Liên hệ 2 ※Cho phép chuỗi rỗng |
 | 23 | email |  | VARCHAR | 100 |  |  | Địa chỉ email ※Cho phép chuỗi rỗng |
-| 24 | mail_magazine_flg |  | INTEGER |  |  |  | Bản tin email (0: Không gửi, 1: Gửi) |
+| 24 | mail_magazine_flg |  | INTEGER |  |  | 〇 | Bản tin email (0: Không gửi, 1: Gửi) ※Là mục dành cho bản điện tử nên khi chọn loại đăng ký = bản giấy (1) thì lưu NULL |
 | 25 | birth_year |  | INTEGER |  |  | 〇 | Năm sinh (Dương lịch) |
 | 26 | gender |  | INTEGER |  |  | 〇 | Giới tính (1: Nam, 2: Nữ, 9: Không trả lời) |
 | 27 | haitatsu_same_flg |  | BOOLEAN |  |  |  | Chỉ định thông tin giao hàng (TRUE: Giống người đăng ký) |
@@ -701,8 +712,8 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 36 | haitatsu_shimei_mei |  | VARCHAR | 50 |  |  | Tên nơi giao hàng (Kanji) ※Cho phép chuỗi rỗng |
 | 37 | haitatsu_shimei_kana_sei |  | VARCHAR | 100 |  |  | Họ nơi giao hàng (Kana) ※Cho phép chuỗi rỗng |
 | 38 | haitatsu_shimei_kana_mei |  | VARCHAR | 100 |  |  | Tên nơi giao hàng (Kana) ※Cho phép chuỗi rỗng |
-| 39 | hanbaiten_id |  | BIGINT |  |  |  | ID đại lý bán hàng |
-| 40 | tanka_id |  | BIGINT |  |  |  | ID đơn giá (FK: m_tanka) ※Chỉ đơn giá phí đăng ký (tanka_type=1) |
+| 39 | hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng ※Có trường hợp chưa thiết lập |
+| 40 | tanka_id |  | BIGINT |  |  | 〇 | ID đơn giá (FK: m_tanka) ※Chỉ đơn giá phí đăng ký (tanka_type=1). Có trường hợp chưa thiết lập vì được nhập trên màn hình khi phê duyệt |
 | 41 | yubin_kubun |  | VARCHAR | 1 |  |  | Phân loại bưu điện (0: Trống, 1: Gửi bưu điện) DEFAULT 0 |
 | 42 | shiharai_hoho |  | INTEGER |  |  |  | Phương thức thanh toán (1: Trích tài khoản, 2: Thu tiền mặt, 3: Thu chuyển khoản, 4: Cơ sở JA v.v., 5: Trừ lương, 6: Thẻ tín dụng, 9: Khác) |
 | 43 | dokusyaryo_shiharai_cycle |  | INTEGER |  |  | 〇 | Chu kỳ thanh toán phí đăng ký (số tháng) |
@@ -711,30 +722,34 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 46 | hikiotoshi_yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi tài khoản trích nợ (1: Thông thường, 2: Vãng lai) |
 | 47 | hikiotoshi_koza_no |  | VARCHAR | 10 |  |  | Số tài khoản trích nợ ※Cho phép chuỗi rỗng |
 | 48 | hikiotoshi_koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản trích nợ ※Cho phép chuỗi rỗng |
-| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (mã phân cách bằng dấu phẩy. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. Ánh xạ 1:1 với profession của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
-| 50 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (mã phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. Ánh xạ 1:1 với products của hệ thống bản điện tử) ※Cho phép chuỗi rỗng |
-| 51 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
-| 52 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
-| 53 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
-| 54 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
-| 55 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
-| 56 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
-| 57 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
-| 58 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
-| 59 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
-| 60 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
-| 61 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
-| 62 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
-| 63 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
-| 64 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
-| 65 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
-| 66 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
-| 67 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
-| 68 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
-| 69 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
-| 70 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
-| 71 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
-| 72 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
+| 49 | dokusyaso_bunrui |  | VARCHAR | 50 |  |  | Phân loại tầng lớp người đăng ký (chọn một. 0:農業者 1:JAグループ役職員 2:企業・団体 3:学生 999:その他. m_code.code_category=DOKUSYASO_BUNRUI) ※Cho phép chuỗi rỗng |
+| 50 | ja_yakushokuin_flg |  | BOOLEAN |  |  |  | Cờ kiêm cán bộ nhân viên nhóm JA (DEFAULT FALSE). Chỉ đặt TRUE được khi phân loại tầng lớp người đăng ký (dokusyaso_bunrui) = 農業者. Liên kết users.profession_and_ja (0:không tích, 1:có tích) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE |
+| 51 | nogyo_kankei_flg |  | BOOLEAN |  |  |  | Cờ liên quan nông nghiệp (DEFAULT FALSE). Chỉ đặt TRUE được khi phân loại tầng lớp người đăng ký (dokusyaso_bunrui) = 企業・団体. Liên kết users.profession_and_agri (0:không tích, 1:có tích) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE |
+| 52 | dokusyaso_bunrui_sonota |  | VARCHAR | 255 |  |  | Phân loại tầng lớp người đăng ký - khác (tự do nhập) ※Cho phép chuỗi rỗng. Chỉ nhập được khi dokusyaso_bunrui = その他. Liên kết users.others_profession (tối đa 255 ký tự) |
+| 53 | nogyosya_bunrui |  | VARCHAR | 50 |  |  | Phân loại nông dân (nhiều giá trị, phân cách bằng dấu phẩy. 0:米 1:野菜 2:果実 3:花 4:畜産 5:酪農 999:その他. m_code.code_category=NOGYOSYA_BUNRUI) ※Cho phép chuỗi rỗng |
+| 54 | nogyosya_bunrui_sonota |  | VARCHAR | 255 |  |  | Phân loại nông dân - khác (tự do nhập) ※Cho phép chuỗi rỗng. Chỉ nhập được khi nogyosya_bunrui có chứa その他. Liên kết users.others_products (tối đa 255 ký tự) |
+| 55 | shoki_dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký lần đầu (giữ nguyên khi thay đổi) |
+| 56 | dokusya_kaishi_date |  | DATE |  |  |  | Ngày bắt đầu đăng ký |
+| 57 | dokusya_chushi_date |  | DATE |  |  | 〇 | Ngày ngừng đăng ký |
+| 58 | joho_henko_tekiyo_date |  | DATE |  |  | 〇 | Ngày áp dụng thay đổi thông tin người đọc |
+| 59 | seikyu_kaishi_month |  | VARCHAR | 6 |  |  | Tháng bắt đầu tính phí (YYYYMM) ※Cho phép chuỗi rỗng |
+| 60 | biko |  | TEXT |  |  |  | Ghi chú ※Cho phép chuỗi rỗng |
+| 61 | saishin_data_flg |  | BOOLEAN |  |  |  | Cờ dữ liệu mới nhất (DEFAULT false, TRUE = bản ghi mới nhất) ※Bắt buộc kiểm soát transaction phía ứng dụng |
+| 62 | zougen_hokoku_flg |  | BOOLEAN |  |  |  | Cờ báo cáo tăng giảm (DEFAULT false, TRUE = thay đổi thuộc đối tượng báo cáo tăng giảm) |
+| 63 | shinki_flg |  | BOOLEAN |  |  |  | Cờ mới (DEFAULT false, TRUE = bắt đầu đăng ký mới/tái đăng ký sau hủy) |
+| 64 | kaiyaku_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = đăng ký -> hủy) |
+| 65 | zenkai_hanbaiten_id |  | BIGINT |  |  | 〇 | ID đại lý bán hàng lần trước (NULL cho lịch sử đầu tiên) |
+| 66 | zenkai_dokusya_busu |  | INTEGER |  |  | 〇 | Số bản đăng ký lần trước (NULL cho lịch sử đầu tiên) |
+| 67 | zenkai_yubin_no |  | VARCHAR | 7 |  | 〇 | Mã bưu điện lần trước (NULL cho lịch sử đầu tiên) |
+| 68 | zenkai_todofuken_code |  | VARCHAR | 2 |  | 〇 | Mã tỉnh/thành phố lần trước (NULL cho lịch sử đầu tiên) |
+| 69 | zenkai_shikuchoson |  | VARCHAR | 100 |  | 〇 | Thành phố/quận/huyện lần trước (NULL cho lịch sử đầu tiên) |
+| 70 | zenkai_chome_banchi |  | VARCHAR | 100 |  | 〇 | Số nhà/đường lần trước (NULL cho lịch sử đầu tiên) |
+| 71 | zenkai_tatemono_mei |  | VARCHAR | 100 |  | 〇 | Tên tòa nhà lần trước (NULL cho lịch sử đầu tiên) |
+| 72 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
+| 73 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
+| 74 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
+| 75 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
+| 76 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
 
 ## Chỉ mục
 
@@ -749,6 +764,7 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 7 | IX_t_dokusya_rireki_shiten_id | shiten_id |  |  | Tìm kiếm theo chi nhánh bán hàng |
 | 8 | IX_t_dokusya_rireki_hanbaiten_id | hanbaiten_id |  |  | Tìm kiếm theo cửa hàng |
 | 9 | IX_t_dokusya_rireki_chain | dokusya_id, joho_henko_tekiyo_date, rireki_no |  |  | Tìm chuỗi bitemporal (findBefore/findNext/xác định bản ghi hữu hiệu theo thứ tự ngày áp dụng) |
+| 10 | ix_t_dokusya_rireki_shinki | dokusya_id, joho_henko_tekiyo_date DESC, rireki_no DESC |  |  | Tìm điểm khởi đầu vòng đời hiện tại (dòng đăng ký mới/tái đăng ký mới nhất). Chỉ mục một phần (shinki_flg = true AND torikeshi_flg = false) |
 
 ---
 
@@ -762,17 +778,17 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 4 | target_month |  | VARCHAR | 6 |  |  | Tháng đối tượng (YYYYMM) |
 | 5 | furikae_date |  | DATE |  |  | 〇 | Ngày chuyển khoản |
 | 6 | furikae_kingaku |  | NUMERIC | 10 |  | 〇 | Số tiền chuyển khoản |
-| 8 | koza_no |  | VARCHAR | 10 |  |  | Số tài khoản |
-| 9 | koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản |
-| 10 | yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi (1: Thông thường, 2: Vãng lai) ※Snapshot tại thời điểm xuất |
-| 11 | bank_code |  | VARCHAR | 4 |  |  | Mã ngân hàng |
-| 12 | bank_name |  | VARCHAR | 100 |  |  | Tên ngân hàng |
-| 13 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh ngân hàng |
-| 14 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh ngân hàng |
-| 15 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
-| 16 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
-| 17 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
-| 18 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
+| 7 | koza_no |  | VARCHAR | 10 |  |  | Số tài khoản |
+| 8 | koza_meigi |  | VARCHAR | 50 |  |  | Tên chủ tài khoản |
+| 9 | yokin_shubetsu |  | INTEGER |  |  | 〇 | Loại tiền gửi (1: Thông thường, 2: Vãng lai) ※Snapshot tại thời điểm xuất |
+| 10 | bank_code |  | VARCHAR | 4 |  |  | Mã ngân hàng |
+| 11 | bank_name |  | VARCHAR | 100 |  |  | Tên ngân hàng |
+| 12 | bank_branch_code |  | VARCHAR | 3 |  |  | Mã chi nhánh ngân hàng |
+| 13 | bank_branch_name |  | VARCHAR | 100 |  |  | Tên chi nhánh ngân hàng |
+| 14 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo |
+| 15 | created_by |  | VARCHAR | 50 |  |  | Người tạo |
+| 16 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật |
+| 17 | updated_by |  | VARCHAR | 50 |  |  | Người cập nhật |
 
 ## Chỉ mục
 
@@ -784,3 +800,26 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 4 | IX_t_koza_furikae_dokusya_id | dokusya_id |  |  | Tìm kiếm theo người đăng ký |
 | 5 | IX_t_koza_furikae_target_month | target_month |  |  | Tìm kiếm theo tháng đối tượng |
 | 6 | IX_t_koza_furikae_dokusya_month | dokusya_id, target_month |  |  | Tối ưu hóa tìm kiếm chuyển khoản hàng tháng |
+
+---
+
+# t_denshi_sync_state (Bảng checkpoint đồng bộ bản điện tử)
+
+Batch đồng bộ từ hệ thống quản lý độc giả bản điện tử sang bản đám mây
+(`dokusya-sync`) ghi lại điểm khởi đầu lấy dữ liệu chênh lệch (watermark).
+Mỗi batch = 1 dòng, khóa chính là `batch_name`. Dòng khởi tạo `dokusya-sync`
+được thêm với watermark chưa thiết lập (NULL = lần đầu lấy toàn bộ).
+
+| STT | Tên cột | PK | Kiểu dữ liệu | Kích thước | IDENTITY | Cho phép NULL | Ghi chú |
+|---|---|---|---|---|---|---|---|
+| 1 | batch_name | 〇 | VARCHAR | 50 |  |  | Tên batch (ví dụ: dokusya-sync) |
+| 2 | last_source_id |  | BIGINT |  |  | 〇 | ID bản ghi nguồn cuối cùng đã lấy (khóa để lấy tiếp trong cùng một mốc thời gian cập nhật) |
+| 3 | last_source_updated_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ cập nhật của bản ghi nguồn cuối cùng đã lấy (chính là watermark. NULL = chưa chạy) |
+| 4 | last_run_at |  | TIMESTAMPTZ |  |  | 〇 | Ngày giờ chạy gần nhất |
+| 5 | updated_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ cập nhật (DEFAULT NOW()) |
+
+## Chỉ mục
+
+| STT | Tên chỉ mục | Tên cột | Khóa chính | Duy nhất | Ghi chú |
+|---|---|---|---|---|---|
+| 1 | PK_t_denshi_sync_state | batch_name | 〇 | 〇 | Khóa chính |

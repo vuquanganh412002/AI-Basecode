@@ -60,9 +60,9 @@ export interface DokusyaDetail {
   haitatsu_shimei_mei: string;
   haitatsu_shimei_kana_sei: string;
   haitatsu_shimei_kana_mei: string;
-  hanbaiten_id: number;
+  hanbaiten_id: number | null;
   hanbaiten_name: string;
-  tanka_id: number;
+  tanka_id: number | null;
   tanka_name: string;
   /** m_code.code_category='YUBIN_KUBUN' — '0'=空, '1'=郵送. */
   yubin_kubun: string;
@@ -79,8 +79,18 @@ export interface DokusyaDetail {
   hikiotoshi_yokin_shubetsu: number | null;
   hikiotoshi_koza_no: string;
   hikiotoshi_koza_meigi: string;
+  /** m_code.code_category='DOKUSYASO_BUNRUI' — 単一選択だが列は CSV VARCHAR。 */
   dokusyaso_bunrui: string;
+  /** 購読者層分類=農業者(0) の時だけ true になりうる。 */
+  ja_yakushokuin_flg: boolean;
+  /** 購読者層分類=企業・団体(2) の時だけ true になりうる。 */
+  nogyo_kankei_flg: boolean;
+  /** 購読者層分類=その他(999) の時だけ値を持ちうる。 */
+  dokusyaso_bunrui_sonota: string;
+  /** m_code.code_category='NOGYOSYA_BUNRUI' — 複数選択の CSV。 */
   nogyosya_bunrui: string;
+  /** 農業者分類に その他(999) を含む時だけ値を持ちうる。 */
+  nogyosya_bunrui_sonota: string;
   /** YYYY-MM-DD. */
   shoki_dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
@@ -166,7 +176,16 @@ export interface CreateDokusyaRequest {
   hikiotoshi_koza_no?: string;
   hikiotoshi_koza_meigi?: string;
   dokusyaso_bunrui?: string;
+  /**
+   * 従属 4 項目。親の分類が条件コードを含まない場合は BE 側で false / '' に
+   * 落とされる（電子版 API の条件付き項目 profession_and_* / others_* と 1:1 で、
+   * 不整合な組合せは push 時に弾かれるため）。
+   */
+  ja_yakushokuin_flg?: boolean;
+  nogyo_kankei_flg?: boolean;
+  dokusyaso_bunrui_sonota?: string;
   nogyosya_bunrui?: string;
+  nogyosya_bunrui_sonota?: string;
   /** YYYY-MM-DD. */
   dokusya_kaishi_date: string;
   /** YYYY-MM-DD. */
@@ -214,8 +233,6 @@ export interface DokusyaHistoryItem {
   dokusya_id: number;
   rireki_no: number;
   tetsuzuki_shurui: number;
-  /** CodeService.getLabel('TETSUZUKI_SHURUI', value) で解決。 */
-  tetsuzuki_shurui_label: string;
   saishin_data_flg: boolean;
   shinki_flg: boolean;
   kaiyaku_flg: boolean;
@@ -305,26 +322,49 @@ export async function stopDokusya(
 }
 
 /**
+ * 承認/否認 画面で編集できる項目（支払方法 + 引落口座4項目・#56524）。
+ * 省略したキーは変更されない。
+ */
+export interface DenshiShoninEditBody {
+  shiharai_hoho?: number;
+  bank_shiten_id?: number;
+  hikiotoshi_yokin_shubetsu?: number;
+  hikiotoshi_koza_no?: string;
+  hikiotoshi_koza_meigi?: string;
+}
+
+/** PUT /api/v1/dokusya/:id/approve のボディ（ACSMS-API-011-004）。 */
+export interface ApproveDokusyaBody extends DenshiShoninEditBody {
+  tanka_id?: number;
+}
+
+/**
  * PUT /api/v1/dokusya/:id/approve — ACSMS-API-011-004 (電子版承認).
- * 承認待ち画面で編集した新聞単価(tankaId) を任意で同時保存する（省略時は変更なし）。
+ * 承認待ち画面で編集した新聞単価・支払方法・引落口座4項目を任意で同時保存する
+ * （省略時は変更なし）。
  */
 export async function approveDokusya(
   dokusyaId: number,
-  tankaId?: number,
+  body?: ApproveDokusyaBody,
 ): Promise<DokusyaMutationEnvelope> {
   const res = await axiosInstance.put<DokusyaMutationEnvelope>(
     `/api/v1/dokusya/${dokusyaId}/approve`,
-    tankaId != null ? { tanka_id: tankaId } : undefined,
+    body && Object.keys(body).length > 0 ? body : undefined,
   );
   return res.data;
 }
 
-/** PUT /api/v1/dokusya/:id/reject — ACSMS-API-011-005 (電子版否認). */
+/**
+ * PUT /api/v1/dokusya/:id/reject — ACSMS-API-011-005 (電子版否認).
+ * 否認時も支払方法・引落口座4項目を同時保存できる（#56524）。
+ */
 export async function rejectDokusya(
   dokusyaId: number,
+  body?: DenshiShoninEditBody,
 ): Promise<DokusyaMutationEnvelope> {
   const res = await axiosInstance.put<DokusyaMutationEnvelope>(
     `/api/v1/dokusya/${dokusyaId}/reject`,
+    body && Object.keys(body).length > 0 ? body : undefined,
   );
   return res.data;
 }
@@ -367,7 +407,7 @@ export interface DokusyaListItem {
   haitatsu_full_name: string;
   haitatsu_yubin_no: string;
   haitatsu: string;
-  hanbaiten_id: number;
+  hanbaiten_id: number | null;
   hanbaiten_code: string;
   hanbaiten_name: string;
   dokusya_shubetsu: number;
@@ -526,7 +566,7 @@ export interface DokusyaRirekiItem {
   dokusyaso_bunrui: string;
   nogyosya_bunrui: string;
   /** 新聞単価 (m_tanka.tanka_id)。*/
-  tanka_id: number;
+  tanka_id: number | null;
   /** 新聞単価名。単価削除済み等は null。*/
   tanka_name: string | null;
   /** 新聞単価の表示金額（JA の税区分で BE 解決：内税→税込 / 外税→税抜）。*/
@@ -547,7 +587,7 @@ export interface DokusyaRirekiItem {
   zenkai_shikuchoson: string | null;
   zenkai_chome_banchi: string | null;
   zenkai_tatemono_mei: string | null;
-  hanbaiten_id: number;
+  hanbaiten_id: number | null;
   hanbaiten_name: string | null;
   zenkai_hanbaiten_id: number | null;
   zenkai_hanbaiten_name: string | null;
@@ -658,7 +698,7 @@ export interface ReplaceSearchItem {
   shimei: string;
   haitatsu_yubin_no: string;
   haitatsu_address: string;
-  hanbaiten_id: number;
+  hanbaiten_id: number | null;
   hanbaiten_code: string;
   hanbaiten_name: string;
   /** m_code.code_category='DOKUSYA_SHUBETSU' — 1:紙版, 2:電子版, 3:併読. */

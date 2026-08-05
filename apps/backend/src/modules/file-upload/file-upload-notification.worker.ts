@@ -1,11 +1,13 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { AuditOperation } from '@/common/enums';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Job } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
 
 import { collectAccountEmails } from '@/common/utils/account-emails';
+import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
 import { Account } from '@/database/entities/account.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { Ja } from '@/database/entities/ja.entity';
@@ -55,8 +57,29 @@ export class FileUploadNotificationWorker extends WorkerHost {
     private readonly jaRepo: Repository<Ja>,
     private readonly mailService: MailService,
     private readonly auditLog: AuditLogService,
+    // [optional-config] 既存 spec は ConfigService を provide せずに worker を
+    // 組み立てるため任意注入。未注入時は DEFAULT_FRONTEND_URL へフォールバック。
+    @Optional() private readonly configService?: ConfigService,
   ) {
     super();
+  }
+
+  /**
+   * メール本文へ載せるダウンロード画面(SCR-022)の絶対 URL。ファイル名で絞り込んだ
+   * 状態で開くので、受信者は一覧を探さずに該当行へ着地する。
+   *
+   * API の直リンク(`/api/v1/file-download/:id/download`)にしないのは、未ログイン
+   * だと 401 JSON が返るだけでログイン導線が無いため。画面 URL ならルーターガードが
+   * `?redirect=` を付けてログインへ回し、認証後に元の URL へ戻す。
+   */
+  private buildDownloadUrl(fileName: string): string {
+    const base =
+      this.configService?.get<string>('app.frontendUrl') ?? DEFAULT_FRONTEND_URL;
+    if (!base) return '';
+    // 末尾スラッシュの有無で `//file-download` にならないよう正規化。
+    let normalized = base;
+    while (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
+    return `${normalized}/file-download?file_name=${encodeURIComponent(fileName)}`;
   }
 
   async process(job: Job<FileUploadNotificationJob>): Promise<void> {
@@ -126,6 +149,8 @@ export class FileUploadNotificationWorker extends WorkerHost {
     // [send-loop] ジョブ内は直列。1 JA に数百宛先でも SES を叩き潰さない。
     // ジョブ間(=JA 間)の並列は BullMQ concurrency が担当。
     const failedEmails: string[] = [];
+    // 宛先ごとに同じ URL なのでループ外で 1 回だけ組み立てる。
+    const downloadUrl = this.buildDownloadUrl(row.fileName);
     for (const email of recipients) {
       try {
         await this.mailService.sendFileUploadNotification(email, {
@@ -134,6 +159,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
           uploadDatetime: row.uploadDatetime,
           uploaderLoginId,
           uploaderAccountName,
+          downloadUrl,
         });
       } catch (err) {
         failedEmails.push(email);

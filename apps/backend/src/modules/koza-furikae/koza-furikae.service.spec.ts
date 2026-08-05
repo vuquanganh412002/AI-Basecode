@@ -221,6 +221,27 @@ describe('KozaFurikaeService', () => {
       });
     });
 
+    it('should aggregate 紙版 + 電子版(承認済・有料) only (#56600)', async () => {
+      // 口座振替は購読料の引き落とし。紙版と、購読料が発生する電子版（承認済かつ
+      // 有料）だけが対象で、併読(3)・未承認・無料の電子版は対象外。
+      // 集計SQLと失効単価チェックSQLの双方に条件が要る — 片方だけだと「引落対象
+      // ではない購読者の失効単価でエラーになり出力できない」不整合が起きる。
+      await service.previewData(buildPreviewKozaFurikaeQuery(), kSession());
+
+      const sqls = dataSource.query.mock.calls
+        .map((c: any[]) => String(c[0]))
+        .filter((sql: string) => /FROM t_dokusya d/i.test(sql));
+      expect(sqls.length).toBeGreaterThanOrEqual(2);
+      for (const sql of sqls) {
+        expect(sql).toContain('d.dokusya_shubetsu = 1');
+        expect(sql).toContain('d.dokusya_shubetsu = 2');
+        expect(sql).toContain('d.denshi_shonin_status = 1');
+        expect(sql).toContain('d.denshi_dokusya_shubetsu = 1');
+        // 併読(3)は条件に現れない。
+        expect(sql).not.toContain('d.dokusya_shubetsu = 3');
+      }
+    });
+
     it('should bind the session ja_id into the preview aggregation params', async () => {
       // COVERS: 4.2 DataScope ja_id = user.ja_id（preview も同一集計）
       await service.previewData(buildPreviewKozaFurikaeQuery(), kSession({ ja_id: 8 }));

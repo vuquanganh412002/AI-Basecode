@@ -411,9 +411,7 @@ describe('ReportService', () => {
 
       const call = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
-          typeof sql === 'string' &&
-          /dokusya_shubetsu\s*<>/.test(sql) &&
-          /denshi_shonin_status\s*=/.test(sql),
+          typeof sql === 'string' && /denshi_shonin_status\s*=/.test(sql),
       );
       expect(call).toBeDefined();
       expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
@@ -478,6 +476,132 @@ describe('ReportService', () => {
         ([sql]: any[]) => typeof sql === 'string' && /kanri_shiten_id/.test(sql),
       );
       expect(inCall).toBeDefined();
+    });
+
+    // ─── 支店フィルタ（顧客要件2026-08・管理支店別のみ・任意）──────────────
+    const shitenWhere = () =>
+      qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /r\.shiten_id IN/.test(sql),
+      );
+
+    it('should bind r.shiten_id IN when shiten_ids is provided on report_type=kanri_shiten', async () => {
+      await service.previewMeibo(
+        buildKanriShitenMeiboQuery({ kanri_shiten_ids: [10], shiten_ids: [21, 22] }),
+        jaSession(),
+      );
+      const call = shitenWhere();
+      expect(call).toBeDefined();
+      expect(call[1]).toEqual({ shiten_ids: [21, 22] });
+    });
+
+    /**
+     * 支店は任意（顧客要件 2026-08 改訂）。必須にしていた時期があるが、それだと
+     * shiten_id が NULL の購読者（電子版連携は常に NULL・紙版も登録時は任意）が
+     * どう操作しても名簿に出せなくなるため戻した。未選択＝絞り込まない。
+     */
+    it.each([[undefined], [[]]])(
+      'should NOT filter by shiten and include shiten_id NULL rows when shiten_ids is %p',
+      async (shitenIds) => {
+        await service.previewMeibo(
+          buildKanriShitenMeiboQuery({
+            kanri_shiten_ids: [10],
+            shiten_ids: shitenIds,
+          }),
+          jaSession(),
+        );
+
+        // `r.kanri_shiten_id IN` も部分文字列として 'shiten_id IN' を含むので
+        // 支店の条件は必ず `r.shiten_id IN` で判定する。
+        const wheres = qbMock.andWhere.mock.calls.map((c: any[]) => String(c[0]));
+        expect(wheres.some((w: string) => w.includes('r.shiten_id IN'))).toBe(
+          false,
+        );
+      },
+    );
+
+    it('should restrict 販売店別 to 紙版 only (顧客要件 2026-08)', async () => {
+      // 販売店別名簿は併読・電子版（有料/無料とも）を集計対象にしない。ダミー販売店に
+      // 紐づく電子版読者が混ざらないよう、種別で明示的に閉じる。
+      await service.previewMeibo(
+        buildMeiboQuery({ hanbaiten_ids: [1] }),
+        jaSession(),
+      );
+
+      const wheres = qbMock.andWhere.mock.calls.map((c: any[]) => String(c[0]));
+      const params = qbMock.andWhere.mock.calls.map((c: any[]) => c[1]);
+      const idx = wheres.findIndex((w: string) =>
+        w.includes('r.dokusya_shubetsu = :paperShubetsu'),
+      );
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(params[idx]).toMatchObject({ paperShubetsu: 1 });
+      // 併読除外・電子版承認済の条件は 販売店別 では使わない（種別=紙版で足りる）。
+      expect(wheres.some((w: string) => w.includes(':heiyo'))).toBe(false);
+      expect(wheres.some((w: string) => w.includes(':denshiApproved'))).toBe(false);
+    });
+
+    it('should aggregate 紙版 + 併読(有料) + 電子版(有料・承認済) for 管理支店別 (顧客要件 2026-08)', async () => {
+      await service.previewMeibo(
+        buildKanriShitenMeiboQuery({ kanri_shiten_ids: [10] }),
+        jaSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find((c: any[]) =>
+        String(c[0]).includes('heiyoShubetsu'),
+      );
+      expect(call).toBeDefined();
+      const [sql, params] = call as [string, Record<string, unknown>];
+      // 紙版(1) は無条件。併読(3)・電子版(2) は有料(1)のみ。
+      expect(params.paperShubetsu).toBe(1);
+      expect(params.heiyoShubetsu).toBe(3);
+      expect(params.denshiShubetsu).toBe(2);
+      expect(params.denshiYuryo).toBe(1);
+      // 電子版だけ承認済も条件に入る（併読には課さない）。
+      expect(params.denshiApproved).toBe(1);
+      expect(sql).toContain('r.denshi_shonin_status = :denshiApproved');
+      // 紙版は無条件（他の2種別と OR で並ぶ1つ目の枝）。
+      expect(sql).toContain('r.dokusya_shubetsu = :paperShubetsu');
+    });
+
+    it('should exclude 無料 for both 併読 and 電子版 in 管理支店別', async () => {
+      // 無料(denshi_dokusya_shubetsu=0)は種別を問わず集計対象外。有料の等値条件に
+      // なっていることで担保する（`<> 0` だと NULL も通ってしまう）。
+      await service.previewMeibo(
+        buildKanriShitenMeiboQuery({ kanri_shiten_ids: [10] }),
+        jaSession(),
+      );
+
+      const sql = String(
+        qbMock.andWhere.mock.calls.find((c: any[]) =>
+          String(c[0]).includes('heiyoShubetsu'),
+        )?.[0],
+      );
+      const yuryoConditions = sql.match(/denshi_dokusya_shubetsu = :denshiYuryo/g);
+      expect(yuryoConditions).toHaveLength(2); // 併読・電子版の2箇所
+      expect(sql).not.toContain('IS NULL');
+    });
+
+    it('should filter by shiten_id when shiten_ids is given', async () => {
+      await service.previewMeibo(
+        buildKanriShitenMeiboQuery({
+          kanri_shiten_ids: [10],
+          shiten_ids: [21, 22],
+        }),
+        jaSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find((c: any[]) =>
+        String(c[0]).includes('r.shiten_id IN'),
+      );
+      expect(call).toBeDefined();
+      expect(call?.[1]).toMatchObject({ shiten_ids: [21, 22] });
+    });
+
+    it('should ignore shiten_ids on report_type=hanbaiten (帳票に支店列が無い)', async () => {
+      await service.previewMeibo(
+        buildMeiboQuery({ hanbaiten_ids: [1], shiten_ids: [21] }),
+        jaSession(),
+      );
+      expect(shitenWhere()).toBeUndefined();
     });
 
     it('should bind the shiharai_hoho filter when shiharai_hoho is provided (m_code SHIHARAI_HOHO)', async () => {
@@ -1165,20 +1289,35 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(call).toBeDefined();
     });
 
-    it('should count only 承認済 electronic subscribers (電子版=2 → denshi_shonin_status=1)', async () => {
-      // COVERS: 電子版(DokusyaShubetsu.DIGITAL=2)は承認済(1)のみ集計対象。
-      // 承認待ち(0)/否認(2)の電子版は増減連絡票から除外する。
+    /**
+     * 顧客要件 2026-08: 集計対象は紙版(1)のみ。増減連絡票は販売店へ配達部数の
+     * 増減を伝える帳票で、電子版・併読には配達という概念が無い。
+     *
+     * 以前は「電子版は承認済(denshi_shonin_status=1)のみ集計」だった。紙版限定は
+     * それを包含するので、旧条件は残さず置き換えている。
+     */
+    it('should extract 紙版 (dokusya_shubetsu = 1) only', async () => {
       mockZougenPage([buildZougenRawRow()]);
       await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
 
       const call = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
-          typeof sql === 'string' &&
-          /dokusya_shubetsu\s*<>/.test(sql) &&
-          /denshi_shonin_status\s*=/.test(sql),
+          typeof sql === 'string' && /dokusya_shubetsu\s*=/.test(sql),
       );
       expect(call).toBeDefined();
-      expect(call[1]).toMatchObject({ denshiShubetsu: 2, denshiApproved: 1 });
+      expect(call[1]).toMatchObject({ paperShubetsu: 1 });
+    });
+
+    it('should no longer carry the 電子版承認済 condition (紙版限定が包含する)', async () => {
+      // 常に真になる条件を残すと「電子版も入りうる」と誤読させるため。
+      mockZougenPage([buildZougenRawRow()]);
+      await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const stale = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /denshi_shonin_status\s*=/.test(sql),
+      );
+      expect(stale).toBeUndefined();
     });
 
     it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {

@@ -548,6 +548,36 @@ RETURNING *
 
 - `status = 1`（処理中）／`notification_status = 1`（未送信）で初期化する。`notification_status` はバックグラウンドワーカーが順次 2:送信中 → 3:完了 または 4:一部失敗 に更新する。
 
+#### 4.5.1 ダウンロード行のペア登録（顧客要件2026-08）
+
+ファイルダウンロード画面（SCR-022）は `t_file_download` のみを一覧・取得対象とするため、
+`t_file_upload` の INSERT と**同一トランザクション内**で、同じ S3 オブジェクトを指す
+`t_file_download` 行も登録する。これが無いと、アップロードされたファイルを
+CHUOKAI(3) / JA_HONTEN(4) / JA_KANRI_SHITEN(5) がダウンロードできない。
+
+```sql
+INSERT INTO t_file_download (ja_id, download_datetime, download_type,
+                             scheduled_delete_date, nichino_download_allowed_flg,
+                             file_name, file_path, file_size, record_count,
+                             target_month, created_at, created_by)
+VALUES (:ja_id, NOW(), 2,
+        :scheduled_delete_date, TRUE,
+        :file_name, :file_path, :file_size, 0,
+        NULL, NOW(), :user_account_id)
+RETURNING *
+```
+
+| 列 | 値 | 理由 |
+| --- | --- | --- |
+| `ja_id` | アップロード画面のJAドロップダウンで選択したJA | SCR-022 の DataScope（JAロールは自JA行のみ）にそのまま乗せるため |
+| `download_type` | `2:その他` | `m_code.DOWNLOAD_TYPE` に「アップロード」区分が無いため（帳票ではない） |
+| `nichino_download_allowed_flg` | `TRUE` 固定 | 日農・中央会が自組織で上げたファイルを取り直せないと運用が回らないため。帳票出力（SCR-021/026/028/029）は画面ごとに固定／選択なので、この既定は本画面限定 |
+| `scheduled_delete_date` | `t_file_upload` と同値 | 別々にすると片方だけ消え「一覧に出るのに実体が無い」行が生じる |
+| `file_path` | `t_file_upload` と同一キー | 実体は同じS3オブジェクト。削除時のペア解決キーでもある（キーに UUID を含むため一意） |
+| `record_count` | `0` | NOT NULL 列だが、アップロードファイルは明細を持たない |
+
+- 生成した `file_download_id` は `t_file_upload` の操作ログ `after_value` にも含め、削除時の追跡を可能にする。
+
 ### 4.6 操作ログ記録
 
 - 各 t_file_upload INSERT について、以下のSQLを実行して操作ログを記録する。
@@ -770,6 +800,17 @@ SET deleted_at = NOW()
 WHERE file_upload_id = :file_upload_id
   AND deleted_at IS NULL
 RETURNING *
+```
+
+同一トランザクション内で、§4.5.1 で登録したダウンロード行も論理削除する。
+§4.6 で S3 実体を削除するため、残すと SCR-022 の一覧に表示されるのにダウンロード時に
+404 となる行が生じる。突合キーは `file_path`（キーに UUID を含むため一意）。
+
+```sql
+UPDATE t_file_download
+SET deleted_at = NOW()
+WHERE file_path = :file_path
+  AND deleted_at IS NULL
 ```
 
 ### 4.5 操作ログ記録

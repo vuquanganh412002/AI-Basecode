@@ -57,6 +57,9 @@ import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
 import { ReplaceHanbaitenDto } from './dto/replace-hanbaiten.dto';
 import { StopDokusyaDto } from './dto/stop-dokusya.dto';
+import { ApproveDokusyaDto } from './dto/approve-dokusya.dto';
+import { RejectDokusyaDto } from './dto/reject-dokusya.dto';
+import { DenshiShoninEditDto } from './dto/denshi-shonin-edit.dto';
 import { DokusyaRirekiQueryDto } from './dto/dokusya-rireki-query.dto';
 import {
   DokusyaHistoryItemDto,
@@ -99,6 +102,7 @@ import {
 } from '@/modules/denshiban/denshiban-push.service';
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
 import {
+  buildBunruiPayload,
   DokusyaJoinFields,
   DokusyaListItem,
   DokusyaRirekiListItem,
@@ -110,6 +114,7 @@ import {
 } from './dokusya.mapper';
 import {
   isDigitalOrBoth,
+  isDokusyaDeletable,
   collectDigitalBusuViolation,
   collectTodayModeReportViolations,
   computeChangedReportFields,
@@ -513,12 +518,7 @@ export class DokusyaService {
       dto.dokusyaso_bunrui,
       dto.dokusya_shubetsu,
     );
-    await this.assertEmailUnique(
-      dto.email,
-      dto.dokusya_shubetsu,
-      effectiveJaId,
-      null,
-    );
+    await this.assertEmailUnique(dto.email, dto.dokusya_shubetsu, null);
 
     const bankBranch = await this.resolveBankBranch(
       dto.shiharai_hoho,
@@ -768,12 +768,7 @@ export class DokusyaService {
       dto.dokusyaso_bunrui,
       dto.dokusya_shubetsu,
     );
-    await this.assertEmailUnique(
-      dto.email,
-      dto.dokusya_shubetsu,
-      effectiveJaId,
-      id,
-    );
+    await this.assertEmailUnique(dto.email, dto.dokusya_shubetsu, id);
 
     const bankBranch = await this.resolveBankBranch(
       dto.shiharai_hoho,
@@ -957,69 +952,10 @@ export class DokusyaService {
       throw fieldValidationError('dokusya_chushi_date', ALREADY_CONFIRMED_MSG);
     }
 
-    if (!isDigital) {
-      // 紙版: 変更・取消は履歴画面の取消(赤伝)が担う。本エンドポイントは新規予約のみ。
-      if (revoking) {
-        throw fieldValidationError(
-          'dokusya_chushi_date',
-          '購読中止日を入力してください。',
-        );
-      }
-      if (active) {
-        throw fieldValidationError('dokusya_chushi_date', ALREADY_RESERVED_MSG);
-      }
-    } else if (revoking && !active) {
-      // 電子版: 取消しようとしたが予約が無い（別タブで取消済み等）。
-      throw fieldValidationError('dokusya_chushi_date', NO_RESERVATION_MSG);
-    }
-
-    if (revoking) {
-      // 取消は日付バリデーション不要（消すだけ）。ここまでのガードで十分。
-    } else if (isDigital) {
-      // 電子版: 請求開始月が未設定＝料金徴収未開始 → 停止予約不可。
-      const seikyu = (before.seikyuKaishiMonth ?? '').trim();
-      if (!seikyu) {
-        throw fieldValidationError('dokusya_chushi_date', SEIKYU_NOT_STARTED_MSG);
-      }
-      // 選択月 = 中止日(月末日)の YYYYMM。請求開始月以降 かつ 当月以降。
-      const chushiMonth = chushi.slice(0, 4) + chushi.slice(5, 7); // YYYYMM
-      const currentMonth = (() => {
-        const today = todayIsoJst(); // YYYY-MM-DD
-        return today.slice(0, 4) + today.slice(5, 7);
-      })();
-      if (chushiMonth < seikyu) {
-        throw fieldValidationError(
-          'dokusya_chushi_date',
-          `購読中止日は請求開始月（${fmtYearMonth(seikyu)}）以降の月を選択してください。`,
-        );
-      }
-      if (chushiMonth < currentMonth) {
-        throw fieldValidationError(
-          'dokusya_chushi_date',
-          '購読中止日は当月以降の月を選択してください。',
-        );
-      }
-    } else {
-      // 紙版: 解約予定日ルール（購読開始日以降・未来日・最終変更適用日より後）。
-      const violations = [
-        ...collectChushiViolations({
-          chushiDate: chushi,
-          kaishiDate: before.dokusyaKaishiDate,
-          today: todayIsoJst(),
-        }),
-        ...collectChushiVsMaxJoho({
-          chushiDate: chushi,
-          maxJoho: await this.loadMaxJoho(id),
-        }),
-      ];
-      if (violations.length > 0) {
-        throw new ValidationException(
-          violations.map((v) => ({
-            field: tekiyoViolationField(v.kind),
-            message: v.message,
-          })),
-        );
-      }
+    this.assertStopReservationState(isDigital, revoking, active);
+    if (!revoking) {
+      // 取消（chushi 空）は日付検証不要 — 消すだけで、上のガードで十分。
+      await this.assertStopDateRules(id, before, isDigital, chushi);
     }
 
     const auditCtx = buildAuditCtx(
@@ -1126,12 +1062,13 @@ export class DokusyaService {
     id: number,
     session: SessionPayload,
     req: Request,
-    tankaId?: number,
+    dto: ApproveDokusyaDto = {},
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     return this.changeApprovalStatus(id, session, req, {
       newStatus: DenshiShoninStatus.APPROVED,
       message: '承認しました。',
-      tankaId,
+      tankaId: dto.tanka_id,
+      edit: dto,
     });
   }
 
@@ -1142,10 +1079,12 @@ export class DokusyaService {
     id: number,
     session: SessionPayload,
     req: Request,
+    dto: RejectDokusyaDto = {},
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     return this.changeApprovalStatus(id, session, req, {
       newStatus: DenshiShoninStatus.REJECTED,
       message: '否認しました。',
+      edit: dto,
     });
   }
 
@@ -1153,8 +1092,8 @@ export class DokusyaService {
   // API-011-006 — GET /api/v1/dokusya/:dokusya_id/history
   // ════════════════════════════════════════════════════════════════════
   /**
-   * 購読者の履歴を rireki_no DESC で取得。各行は m_code 解決した tetsuzuki_shurui_label
-   * を持つ（no-label ルールの意図的例外 — dokusya-history-response.dto.ts ヘッダ参照）。
+   * 購読者の履歴を rireki_no DESC で取得。行はコード値のみを返し、ラベルは FE が
+   * useCodesStore から引く（.claude/rules/nestjs.md §m_code response serialization）。
    */
   async getHistory(
     id: number,
@@ -1166,12 +1105,7 @@ export class DokusyaService {
       where: { dokusyaId: id },
       order: { rirekiNo: 'DESC' },
     });
-    const data: DokusyaHistoryItemDto[] = rows.map((row) =>
-      toDokusyaHistoryItem(
-        row,
-        this.codeService.getLabel('TETSUZUKI_SHURUI', Number(row.tetsuzukiShurui)),
-      ),
-    );
+    const data: DokusyaHistoryItemDto[] = rows.map(toDokusyaHistoryItem);
     return { data };
   }
 
@@ -1761,24 +1695,31 @@ export class DokusyaService {
 
   /**
    * Email 重複ガード。email が blank/null（匿名 dokusya は設計上許可）または行が紙版のとき NO-OP。
-   * 顧客要件: 一意性は電子版(2)・併読(3) のレコード間のみ担保、紙版は重複可。既存行側も
-   * dokusya_shubetsu IN (2,3) に絞るため同メールの紙版は衝突扱いしない。exclusion 句で
-   * UPDATE 経路が自身の行をフラグしないようにする。
+   *
+   * 顧客要件 2026-08（#56568）: 一意性は電子版(2)・併読(3) のレコード間で担保し、
+   * **JA を跨いで全件**を対象にする。電子版側ではメールアドレスが会員の同定キー
+   * （ログインID）なので、JA が違っても同じメールの会員は作れない。以前は
+   * `ja_id = :ja_id` で自 JA 内だけを見ており、他 JA に同じメールの電子版読者が
+   * いても登録できてしまった。
+   *
+   * 紙版(1)は必須でも一意でもない。既存行側も dokusya_shubetsu IN (2,3) に絞るため、
+   * 同じメールの紙版レコードは衝突扱いしない。論理削除済み(deleted_at IS NOT NULL)は
+   * 対象外 — 削除済みのメールは再利用できる。
+   *
+   * exclusion 句で UPDATE 経路が自身の行をフラグしないようにする。
    */
   private async assertEmailUnique(
     email: string | null | undefined,
     dokusyaShubetsu: number | null | undefined,
-    jaId: number,
     excludeDokusyaId: number | null,
   ): Promise<void> {
     if (!email || !isDigitalOrBoth(dokusyaShubetsu)) return;
     const qb = this.dokusyaRepo
       .createQueryBuilder('d')
       .where(
-        `d.ja_id = :ja_id AND d.email = :email AND d.deleted_at IS NULL
+        `d.email = :email AND d.deleted_at IS NULL
            AND d.dokusya_shubetsu IN (:...digital)`,
         {
-          ja_id: jaId,
           email,
           digital: [DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH],
         },
@@ -1865,8 +1806,7 @@ export class DokusyaService {
       hikiotoshiYokinShubetsu: dto.hikiotoshi_yokin_shubetsu ?? null,
       hikiotoshiKozaNo: dto.hikiotoshi_koza_no ?? '',
       hikiotoshiKozaMeigi: dto.hikiotoshi_koza_meigi ?? '',
-      dokusyasoBunrui: dto.dokusyaso_bunrui ?? '',
-      nogyosyaBunrui: dto.nogyosya_bunrui ?? '',
+      ...buildBunruiPayload(dto),
       shokiDokusyaKaishiDate: normalizeDbDate(dto.dokusya_kaishi_date),
       dokusyaKaishiDate: normalizeDbDate(dto.dokusya_kaishi_date),
       dokusyaChushiDate: normalizeDbDate(dto.dokusya_chushi_date ?? null),
@@ -2011,6 +1951,83 @@ export class DokusyaService {
    * approve/reject 共通のトランザクション内更新 (api.md §4.4 ステップ3)。master のステータスを
    * 反転、新履歴行がスナップショットを記録、audit 行も同一 tx で commit。
    */
+  /**
+   * 承認/否認 時に編集された項目（支払方法 + 引落口座4項目）を patch へ変換する（#56524）。
+   *
+   * - 省略されたフィールドは patch に載せない（部分更新 — 触っていない項目を
+   *   空文字で潰さないため）。
+   * - `shiharai_hoho` は m_code 検証 + 電子版クレカ禁止（create/update と同じ規則）を
+   *   通す。承認/否認は電子版専用ワークフローなので購読種別の判定は不要。
+   * - `bank_shiten_id` は resolveBankBranch を通す。他テナント/非存在/非金融支店は
+   *   VALIDATION_ERROR(bank_shiten_id) になり、保存用の bank_branch_code /
+   *   bank_branch_name も同時に解決される。支払方法は「編集後の値（未指定なら
+   *   既存値）」で判定する — 口座引落へ切り替えた瞬間に支店必須が効く必要がある。
+   */
+  private async buildShoninEditPatch(
+    edit: DenshiShoninEditDto | undefined,
+    before: Dokusya,
+  ): Promise<Record<string, unknown>> {
+    if (!edit) return {};
+    const patch: Record<string, unknown> = {};
+
+    // 編集後の実効支払方法（未指定なら既存値）。以降の口座必須判定はこれで行う。
+    const effectiveShiharaiHoho =
+      edit.shiharai_hoho !== undefined
+        ? Number(edit.shiharai_hoho)
+        : Number(before.shiharaiHoho);
+
+    if (edit.shiharai_hoho !== undefined) {
+      assertMCodeValues(this.codeService, [
+        {
+          field: 'shiharai_hoho',
+          value: edit.shiharai_hoho,
+          category: 'SHIHARAI_HOHO',
+          label: '支払方法',
+        },
+      ]);
+      // 電子版はクレカ不可（電子版読者管理システム連携専用）。FE も選択肢を
+      // disabled にしているが、API 直叩きを想定して BE でも同じ規則を課す。
+      if (effectiveShiharaiHoho === ShiharaiHoho.CREDIT_CARD) {
+        throw fieldValidationError(
+          'shiharai_hoho',
+          '電子版の場合、クレジットカードは選択できません。',
+        );
+      }
+      patch.shiharaiHoho = effectiveShiharaiHoho;
+    }
+
+    if (edit.bank_shiten_id !== undefined) {
+      const branch = await this.resolveBankBranch(
+        effectiveShiharaiHoho,
+        edit.bank_shiten_id,
+        Number(before.jaId),
+      );
+      patch.bankBranchCode = branch.code;
+      patch.bankBranchName = branch.name;
+    } else if (
+      effectiveShiharaiHoho === ShiharaiHoho.KOZA_HIKIOTOSHI &&
+      !before.bankBranchCode
+    ) {
+      // 支払方法を口座引落へ切り替えたのに支店が未指定で、既存レコードにも
+      // 引落先が無い。口座引落は支店必須（create/update と同条件）。
+      throw fieldValidationError(
+        'bank_shiten_id',
+        '銀行支店IDは口座引落の場合は必須です。',
+      );
+    }
+
+    if (edit.hikiotoshi_yokin_shubetsu !== undefined) {
+      patch.hikiotoshiYokinShubetsu = Number(edit.hikiotoshi_yokin_shubetsu);
+    }
+    if (edit.hikiotoshi_koza_no !== undefined) {
+      patch.hikiotoshiKozaNo = edit.hikiotoshi_koza_no;
+    }
+    if (edit.hikiotoshi_koza_meigi !== undefined) {
+      patch.hikiotoshiKozaMeigi = edit.hikiotoshi_koza_meigi;
+    }
+    return patch;
+  }
+
   private async changeApprovalStatus(
     id: number,
     session: SessionPayload,
@@ -2019,6 +2036,7 @@ export class DokusyaService {
       newStatus: number;
       message: string;
       tankaId?: number;
+      edit?: DenshiShoninEditDto;
     },
   ): Promise<{ data: DokusyaResponseDto; message: string }> {
     const before = await this.fetchInScope(id, session);
@@ -2043,6 +2061,12 @@ export class DokusyaService {
     }
     const tankaPatch = updateTanka ? { tankaId: Number(options.tankaId) } : {};
 
+    // 承認/否認 画面で編集できる項目（支払方法 + 引落口座4項目・#56524）。
+    // 承認・否認とも同じ扱い。bank_shiten_id は他テナントの支店を参照できないよう
+    // resolveBankBranch で検証し（Layer 4 FK ガード）、保存用の
+    // bank_branch_code / _name も同時に解決する。
+    const editPatch = await this.buildShoninEditPatch(options.edit, before);
+
     const auditCtx = buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id);
 
     let refreshed: Dokusya;
@@ -2058,6 +2082,7 @@ export class DokusyaService {
         const patch: Record<string, unknown> = {
           denshiShoninStatus: options.newStatus,
           ...tankaPatch,
+          ...editPatch,
         };
 
         // 現行の有効履歴行（master が指す行）。不変条件により 1 行だけ存在。
@@ -2113,6 +2138,7 @@ export class DokusyaService {
           denshiShoninStatus: options.newStatus,
           updatedBy: String(session.account_id),
           ...tankaPatch,
+          ...editPatch,
         } as Dokusya;
 
         // cloud → 電子版 push（承認=approve / 否認=unapprove）。承認ワークフローは電子版専用だが
@@ -2199,6 +2225,18 @@ export class DokusyaService {
       )
     ) {
       throw new DokusyaReadOnlyException();
+    }
+
+    // 削除は紙版のみ（顧客要件 2026-08）。上の read-only guard は 併読 と
+    // 電子版クレカしか弾かないので、電子版で口座引落などの支払方法は素通りして
+    // いた。FE は 削除 ボタンを非活性にするが、それは UX であって境界はここ。
+    if (!isDokusyaDeletable(Number(target.dokusyaShubetsu))) {
+      throw new ValidationException([
+        {
+          field: 'dokusya_shubetsu',
+          message: SHUBETSU_MSG.DELETE_PAPER_ONLY,
+        },
+      ]);
     }
 
     // 削除権限: 紙版→paper_flg / 電子版→denshi_flg (account_concept §139-145)。
@@ -2310,4 +2348,90 @@ export class DokusyaService {
   ): ReturnType<DokusyaImportService['importExcel']> {
     return this.importService.importExcel(dto, session, req);
   }
+
+  /**
+   * 停止予約の「今の予約状態」ガード（紙版/電子版で許される操作が違う）。
+   *
+   * - 紙版: 変更・取消は履歴画面の取消(赤伝)が担う。本エンドポイントは新規予約のみ。
+   * - 電子版: 取消可。ただし予約が無ければ取り消すものが無い（別タブで取消済み等）。
+   */
+  private assertStopReservationState(
+    isDigital: boolean,
+    revoking: boolean,
+    active: DokusyaRireki | null,
+  ): void {
+    if (!isDigital) {
+      if (revoking) {
+        throw fieldValidationError(
+          'dokusya_chushi_date',
+          '購読中止日を入力してください。',
+        );
+      }
+      if (active) {
+        throw fieldValidationError('dokusya_chushi_date', ALREADY_RESERVED_MSG);
+      }
+      return;
+    }
+    if (revoking && !active) {
+      throw fieldValidationError('dokusya_chushi_date', NO_RESERVATION_MSG);
+    }
+  }
+
+  /** 中止日そのものの妥当性。電子版は月単位、紙版は日単位でルールが異なる。 */
+  private async assertStopDateRules(
+    id: number,
+    before: Dokusya,
+    isDigital: boolean,
+    chushi: string,
+  ): Promise<void> {
+    if (isDigital) {
+      this.assertDigitalStopMonth(before, chushi);
+      return;
+    }
+    // 紙版: 解約予定日ルール（購読開始日以降・未来日・最終変更適用日より後）。
+    const violations = [
+      ...collectChushiViolations({
+        chushiDate: chushi,
+        kaishiDate: before.dokusyaKaishiDate,
+        today: todayIsoJst(),
+      }),
+      ...collectChushiVsMaxJoho({
+        chushiDate: chushi,
+        maxJoho: await this.loadMaxJoho(id),
+      }),
+    ];
+    if (violations.length > 0) {
+      throw new ValidationException(
+        violations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
+  }
+
+  /** 電子版: 請求開始月以降 かつ 当月以降（選択月 = 中止日(月末日)の YYYYMM）。 */
+  private assertDigitalStopMonth(before: Dokusya, chushi: string): void {
+    // 請求開始月が未設定＝料金徴収未開始 → 停止予約不可。
+    const seikyu = (before.seikyuKaishiMonth ?? '').trim();
+    if (!seikyu) {
+      throw fieldValidationError('dokusya_chushi_date', SEIKYU_NOT_STARTED_MSG);
+    }
+    const chushiMonth = chushi.slice(0, 4) + chushi.slice(5, 7); // YYYYMM
+    const today = todayIsoJst(); // YYYY-MM-DD
+    const currentMonth = today.slice(0, 4) + today.slice(5, 7);
+    if (chushiMonth < seikyu) {
+      throw fieldValidationError(
+        'dokusya_chushi_date',
+        `購読中止日は請求開始月（${fmtYearMonth(seikyu)}）以降の月を選択してください。`,
+      );
+    }
+    if (chushiMonth < currentMonth) {
+      throw fieldValidationError(
+        'dokusya_chushi_date',
+        '購読中止日は当月以降の月を選択してください。',
+      );
+    }
+  }
+
 }

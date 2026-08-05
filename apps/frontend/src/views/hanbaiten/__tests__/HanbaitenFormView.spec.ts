@@ -24,6 +24,8 @@ import {
 } from '@test/fixtures/hanbaiten-form.fixture';
 import { buildAuthUser } from '@test/fixtures/hanbaiten.fixture';
 
+import { resetTodofukenCache } from '@/composables/useTodofuken';
+
 // API wrapper for SCR-017 endpoints. The existing
 // `src/api/hanbaiten/hanbaiten.ts` (SCR-018) exports `listHanbaiten` +
 // `removeHanbaiten`; /gen-code-frontend will EXTEND that file with
@@ -172,6 +174,9 @@ async function fillForm(
 }
 
 beforeEach(async () => {
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
   vi.clearAllMocks();
   // Clear any router history state set by a prior test so the staff
   // ?ja_id prefill (read from globalThis.history.state.jaId) doesn't leak.

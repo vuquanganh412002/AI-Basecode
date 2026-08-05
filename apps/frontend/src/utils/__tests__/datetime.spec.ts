@@ -26,6 +26,7 @@ import {
   timestampForFilenameTokyo,
   excelSerialToIsoDate,
   normalizeImportDate,
+  isFutureDayTokyo,
 } from '@/utils/datetime';
 
 dayjs.extend(utc);
@@ -109,6 +110,35 @@ describe('todayIsoTokyo', () => {
     vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
     expect(todayIsoTokyo()).toBe('2026-05-28');
     vi.useRealTimers();
+  });
+});
+
+describe('isFutureDayTokyo', () => {
+  // isPastDayTokyo と同じ境界固定。2026-05-27 22:00 UTC = 2026-05-28 07:00 JST
+  // → JST 当日は 2026-05-28。ブラウザ TZ が JST より遅れていても判定がズレない
+  // ことを保証する（ログ参照の検索終了日はこの関数で未来日を無効化する）。
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-27T22:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns false when current is null', () => {
+    expect(isFutureDayTokyo(null)).toBe(false);
+  });
+
+  it('returns true for the day after JST today', () => {
+    expect(isFutureDayTokyo(dayjs('2026-05-29'))).toBe(true);
+  });
+
+  it('returns false for JST today (same-day is selectable)', () => {
+    expect(isFutureDayTokyo(dayjs('2026-05-28'))).toBe(false);
+  });
+
+  it('returns false for a past day', () => {
+    expect(isFutureDayTokyo(dayjs('2026-05-27'))).toBe(false);
   });
 });
 

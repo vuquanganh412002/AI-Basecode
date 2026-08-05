@@ -63,7 +63,11 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
   '引落口座番号',
   '引落口座名義',
   '購読者層分類',
+  'かつJAグループ役職員',
+  '農業関係',
+  '読者属性（その他の内容）',
   '農業者分類',
+  '主な生産物（その他の内容）',
   '購読開始日',
   '備考',
 ] as const;
@@ -118,7 +122,11 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
   'hikiotoshi_koza_no',
   'hikiotoshi_koza_meigi',
   'dokusyaso_bunrui',
+  'ja_yakushokuin_flg',
+  'nogyo_kankei_flg',
+  'dokusyaso_bunrui_sonota',
   'nogyosya_bunrui',
+  'nogyosya_bunrui_sonota',
   'dokusya_kaishi_date',
   'biko',
 ] as const;

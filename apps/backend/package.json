@@ -18,10 +18,10 @@
     "migration:run:prod": "typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "swagger:export": "ts-node -r tsconfig-paths/register src/swagger-export.ts",
-    "seed": "ts-node -r tsconfig-paths/register scripts/seed.ts",
-    "seed:prod": "ts-node -r tsconfig-paths/register scripts/seed.ts",
-    "seed:dev": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
-    "seed:dev:prod": "ts-node -r tsconfig-paths/register scripts/seed-dev.ts",
+    "seed:admin": "ts-node -r tsconfig-paths/register scripts/seed-admin.ts",
+    "seed:admin:prod": "ts-node -r tsconfig-paths/register scripts/seed-admin.ts",
+    "seed:sample": "ts-node -r tsconfig-paths/register scripts/seed-sample-data.ts",
+    "seed:sample:prod": "ts-node -r tsconfig-paths/register scripts/seed-sample-data.ts",
     "dokusya:sync:dev": "ts-node -r tsconfig-paths/register src/batch/dokusya-sync.main.ts",
     "dokusya:sync:prod": "node dist/batch/dokusya-sync.main.js",
     "tanka:expire:dev": "ts-node -r tsconfig-paths/register src/batch/tanka-expire.main.ts",
@@ -63,7 +63,7 @@
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.28",
-    "uuid": "^9.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -90,6 +90,10 @@
     "typescript-eslint": "^8.61.0"
   },
   "overrides": {
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "@nestjs/swagger": {
+      "js-yaml": "^5.2.3"
+    },
+    "uuid": "^11.1.1"
   }
 }

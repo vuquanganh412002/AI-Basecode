@@ -92,12 +92,20 @@ describe('DokusyaKaiyakuService', () => {
     await service.run();
 
     expect(db.transaction).toHaveBeenCalledTimes(2);
+    // actor は監査列に入るだけでなく、電子版同期由来の読者を判別するキーでも
+    // ある（顧客要件 2026-08）。値そのものを固定して取り違えを検知する。
     expect(mockInsertKaiyaku).toHaveBeenCalledWith(
       managerMock,
       4,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      'SYSTEM_BATCH_NIGHTLY',
     );
-    expect(mockInsertKaiyaku).toHaveBeenCalledWith(managerMock, 7, expect.any(String));
+    expect(mockInsertKaiyaku).toHaveBeenCalledWith(
+      managerMock,
+      7,
+      expect.any(String),
+      'SYSTEM_BATCH_NIGHTLY',
+    );
   });
 
   it('should continue with the rest when one subscriber fails (per-row isolation)', async () => {
@@ -136,7 +144,12 @@ describe('DokusyaKaiyakuService', () => {
 
     // master 参照そのものが不要になった（push 用の findOne が消えた）。
     expect(managerMock.findOne).not.toHaveBeenCalled();
-    expect(mockInsertKaiyaku).toHaveBeenCalledWith(managerMock, 4, expect.any(String));
+    expect(mockInsertKaiyaku).toHaveBeenCalledWith(
+      managerMock,
+      4,
+      expect.any(String),
+      'SYSTEM_BATCH_NIGHTLY',
+    );
   });
 
   // 外部呼び出しが無くなったので、同日に2回流しても DB 書込みは insertKaiyaku の

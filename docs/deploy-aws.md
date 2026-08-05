@@ -207,7 +207,7 @@ Two sections (see comments in the file):
 1. Build `apps/docker/backend/Dockerfile.prod` → push to ECR  
 2. Register ECS task definition (new image + runtime env from `apps/backend/.env.deploy`)  
 3. ECS one-off task: `migration:run:prod` (every deploy)  
-4. ECS one-off task: `seed:prod` + `seed:dev:prod` (first deploy, or `BACKEND_RUN_SEED_DEV=always`)  
+4. ECS one-off task: `seed:admin:prod` + `seed:sample:prod` (first deploy, or `BACKEND_RUN_SEED_DEV=always`)  
 5. `update-service` with the new task definition  
 
 ### Seed / migration

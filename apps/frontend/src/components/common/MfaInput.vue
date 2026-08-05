@@ -93,12 +93,24 @@ function onPaste(e: ClipboardEvent): void {
 </script>
 
 <template>
-  <div class="flex justify-between gap-2">
+  <!--
+    6桁 OTP は「1文字入力 × 6」。桁ごとに見えるラベルを置くとレイアウトが壊れる
+    ため、グループ名は視覚的に隠した見出しで、各桁の位置は読み上げ用ラベル
+    （「認証コード 3桁目」）で伝える。各入力の id は見えるラベルとの紐付け用では
+    なく、支援技術と自動テストのための識別子。
+
+    グループ化に ARIA ロール属性ではなくネイティブのフォームグループ要素を使うのは、
+    支援技術の対応範囲が広いため（Sonar Web:S6819）。
+  -->
+  <fieldset class="flex justify-between gap-2 border-0 p-0 m-0 min-w-0">
+    <legend class="sr-only">認証コード（6桁）</legend>
     <input
       v-for="(digit, idx) in digits"
+      :id="`mfa-digit-${idx + 1}`"
       :key="idx"
       :ref="(el) => (inputs[idx] = el as HTMLInputElement | null)"
       :value="digit"
+      :aria-label="`認証コード ${idx + 1}桁目`"
       :disabled="props.disabled"
       type="text"
       inputmode="numeric"
@@ -109,5 +121,5 @@ function onPaste(e: ClipboardEvent): void {
       @keydown="(e: KeyboardEvent) => onKeydown(idx, e)"
       @paste="onPaste"
     />
-  </div>
+  </fieldset>
 </template>

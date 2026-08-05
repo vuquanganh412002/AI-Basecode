@@ -28,6 +28,7 @@ import {
   parseDatetimeTokyo,
   pickerToTokyoWallclock,
 } from '@/utils/datetime';
+import { listRolesDropdown } from '@/api/roles/roles';
 import { useCodesStore } from '@/stores/codes.store';
 import { OshiraseStatus, OshiraseType, PublishLocation } from '@/constants/enums';
 
@@ -282,13 +283,24 @@ const availableTypeOptions = computed(() =>
     : OSHIRASE_TYPE_OPTIONS.value.filter((o) => o.value !== OshiraseType.DEADLINE),
 );
 
-const TARGET_KANRI_KUBUN_OPTIONS = [
-  { value: '1', label: '日農（管理者）' },
-  { value: '2', label: '日農（担当者）' },
-  { value: '3', label: '中央会' },
-  { value: '4', label: 'JA本店' },
-  { value: '5', label: 'JA管理支店' },
-];
+// 対象管理者区分 = m_roles.role_id のカンマ区切り（BE: oshirase.service.ts の
+// `target_kanri_kubun`）。ロール名は DB の値なので画面にハードコードせず
+// COMMON-002 `/roles/dropdown` から取る — 改称や増減で表示が乖離しないように。
+const targetKanriKubunOptions = ref<{ value: string; label: string }[]>([]);
+
+async function fetchRoleOptions(): Promise<void> {
+  try {
+    const resp = await listRolesDropdown();
+    targetKanriKubunOptions.value = resp.data.map((r) => ({
+      value: String(r.role_id),
+      label: r.role_name,
+    }));
+  } catch {
+    // 想定内で握りつぶす: HTTP エラーは共通 interceptor が既にトースト済み。
+    // 一覧の対象管理者区分セルは生の role_id 表示にフォールバックする。
+    targetKanriKubunOptions.value = [];
+  }
+}
 
 // 列順は ACSMS-SCR-031/index.html モックアップに一致:
 // 編集 / 場所 / 状態 / お知らせタイトル / 表示期間 / JA名 / お知らせ種別 /
@@ -330,6 +342,7 @@ async function fetchList(): Promise<void> {
 onMounted(() => {
   if (!canView.value) return;
   void fetchList();
+  void fetchRoleOptions();
   // JA ドロップダウンは <BaseJaDropdown> 内で自己読込。表セルの ja_name は
   // BE 一覧レスポンス（leftJoin m_ja）由来で別途取得不要。
 });
@@ -398,7 +411,7 @@ function buildBody(): CreateOshiraseBody {
   // 選択をそのまま尊重する。
   const kanriCodes =
     !isEdit.value && formState.target_kanri_kubun_codes.length === 0
-      ? TARGET_KANRI_KUBUN_OPTIONS.map((o) => o.value)
+      ? targetKanriKubunOptions.value.map((o) => o.value)
       : formState.target_kanri_kubun_codes;
   return {
     title: formState.title.trim(),
@@ -666,7 +679,9 @@ function targetKanriKubunLabel(value: string): string {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((v) => TARGET_KANRI_KUBUN_OPTIONS.find((o) => o.value === v)?.label ?? v)
+    .map(
+      (v) => targetKanriKubunOptions.value.find((o) => o.value === v)?.label ?? v,
+    )
     .join('、');
 }
 
@@ -925,7 +940,7 @@ defineExpose({ formState, state, fetchList, editingId });
             </span>
             <a-checkbox-group
               v-model:value="formState.target_kanri_kubun_codes"
-              :options="TARGET_KANRI_KUBUN_OPTIONS"
+              :options="targetKanriKubunOptions"
             />
           </div>
         </a-form-item>

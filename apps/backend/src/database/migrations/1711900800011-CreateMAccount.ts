@@ -11,6 +11,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * カラム順序・型・NULL許容は docs/database/database-design.md §m_account に従う。
  * sub_email_1〜3 は通知先サブメールアドレス（最大3件）。
  * mfa_enable_flg は多要素認証の有効化フラグ。
+ *
+ * 2026-08-04: consolidated patch AlterMAccountAddShitenId1783600000000
+ *             — see git history for the split version. The `shiten_id` column,
+ *             its FK to m_shiten and IX_m_account_shiten_id are now declared
+ *             inline below.
  */
 export class CreateMAccount1711900800011 implements MigrationInterface {
   name = 'CreateMAccount1711900800011';
@@ -25,6 +30,7 @@ export class CreateMAccount1711900800011 implements MigrationInterface {
         role_id INTEGER NOT NULL,                                           -- 管理者区分（FK:m_roles）
         ja_id BIGINT,                                                       -- JA ID（日農はNULL、中央会・JA本店・JA管理支店は必須）
         kanri_shiten_id BIGINT,                                             -- 管理支店ID（JA管理支店のみ）
+        shiten_id BIGINT,                                                   -- 所属支店ID（FK: m_shiten）。設定時はその支店の読者のみ参照・編集・追加可、帳票5画面は使用不可。NULL は従来どおり（顧客要件 2026-07）
         todofuken_code VARCHAR(2),                                          -- 都道府県コード（中央会・JA本店・JA管理支店で必須）※NULL許容
         paper_flg BOOLEAN NOT NULL DEFAULT false,                           -- 紙版取扱フラグ（DEFAULT false）
         denshi_flg BOOLEAN NOT NULL DEFAULT false,                          -- 電子版取扱フラグ（DEFAULT false）
@@ -47,12 +53,27 @@ export class CreateMAccount1711900800011 implements MigrationInterface {
         CONSTRAINT FK_m_account_m_roles FOREIGN KEY (role_id) REFERENCES m_roles (role_id),
         CONSTRAINT FK_m_account_m_ja FOREIGN KEY (ja_id) REFERENCES m_ja (ja_id),
         CONSTRAINT FK_m_account_m_kanri_shiten FOREIGN KEY (kanri_shiten_id) REFERENCES m_kanri_shiten (kanri_shiten_id),
-        CONSTRAINT FK_m_account_m_todofuken FOREIGN KEY (todofuken_code) REFERENCES m_todofuken (todofuken_code)
+        CONSTRAINT fk_m_account_shiten FOREIGN KEY (shiten_id) REFERENCES m_shiten (shiten_id) ON DELETE RESTRICT,
+        CONSTRAINT FK_m_account_m_todofuken FOREIGN KEY (todofuken_code) REFERENCES m_todofuken (todofuken_code),
+        -- システム予約名の登録禁止（顧客要件 2026-08）。SYSTEM 単体はシード
+        -- migration が監査列に入れる値、SYSTEM_* はバッチの実行者名
+        -- （src/common/constants/system-actor.constant.ts）。t_dokusya_rireki の
+        -- created_by で「電子版同期由来の読者か」を判別するため、一般ユーザが
+        -- これらを名乗れると判定が壊れる。
+        -- DTO 側（IsNotReservedLoginId）だけでは seeder や直接 SQL を素通しする
+        -- ため DB でも塞ぐ。大文字小文字を区別しないのは DTO 側と同じ理由。
+        -- LIKE を使わないのは、パターン中の下線がワイルドカード扱いになり、その
+        -- エスケープ（バックスラッシュ+下線）が TS のテンプレートリテラルで潰れて
+        -- SYSTEMATIC まで弾いてしまうため。LEFT との比較なら曖昧さが無い。
+        CONSTRAINT CK_m_account_login_id_not_reserved
+          CHECK (UPPER(login_id) <> 'SYSTEM' AND LEFT(UPPER(login_id), 7) <> 'SYSTEM_')
       )
     `);
     await queryRunner.query(`CREATE UNIQUE INDEX UQ_m_account_login_id ON m_account (login_id)`);
     await queryRunner.query(`CREATE INDEX IX_m_account_ja_id ON m_account (ja_id)`);
     await queryRunner.query(`CREATE INDEX IX_m_account_kanri_shiten_id ON m_account (kanri_shiten_id)`);
+    // 引用符付き — 大文字のまま作られる（AlterMAccountAddShitenId1783600000000 と同じ）。
+    await queryRunner.query(`CREATE INDEX "IX_m_account_shiten_id" ON m_account (shiten_id)`);
     await queryRunner.query(`CREATE INDEX IX_m_account_todofuken_code ON m_account (todofuken_code)`);
     await queryRunner.query(`CREATE INDEX IX_m_account_role_id ON m_account (role_id)`);
 
@@ -64,6 +85,7 @@ export class CreateMAccount1711900800011 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN m_account.role_id IS '管理者区分（FK:m_roles）'`);
     await queryRunner.query(`COMMENT ON COLUMN m_account.ja_id IS 'JA ID（日農はNULL、中央会・JA本店・JA管理支店は必須）'`);
     await queryRunner.query(`COMMENT ON COLUMN m_account.kanri_shiten_id IS '管理支店ID（JA管理支店のみ）'`);
+    await queryRunner.query(`COMMENT ON COLUMN m_account.shiten_id IS '所属支店ID（FK: m_shiten）。設定時はその支店の読者のみ参照・編集・追加可、帳票5画面は使用不可。NULL は従来どおり（顧客要件 2026-07）'`);
     await queryRunner.query(`COMMENT ON COLUMN m_account.todofuken_code IS '都道府県コード（中央会・JA本店・JA管理支店で必須）※NULL許容'`);
     await queryRunner.query(`COMMENT ON COLUMN m_account.paper_flg IS '紙版取扱フラグ（DEFAULT false）'`);
     await queryRunner.query(`COMMENT ON COLUMN m_account.denshi_flg IS '電子版取扱フラグ（DEFAULT false）'`);

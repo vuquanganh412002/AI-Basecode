@@ -4,6 +4,7 @@
 // docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md (API-022-001/002/003).
 
 import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { message, type TableColumnsType } from 'ant-design-vue';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
@@ -24,10 +25,7 @@ import {
   type ListFilesQuery,
   type FileDownloadListItem,
 } from '@/api/file-download/file-download';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 
 interface FileFilters {
   file_name: string;
@@ -63,8 +61,10 @@ const scopedTodofukenCode = isChuokai.value
   ? (authStore.user?.todofuken_code ?? '')
   : '';
 
+const route = useRoute();
+
 const {
-  state, loading, total, onChange, searchActions,
+  state, loading, total, onChange, applyFilters, searchActions,
 } =
   useTableQuery<FileFilters>({
     defaultFilters: {
@@ -77,7 +77,8 @@ const {
   });
 
 const rows = ref<FileDownloadListItem[]>([]);
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）に任せる。この画面はフィルタ値だけ持てばよい。
 
 // [deleted-row] 論理削除済み (deleted_at が立っている) ファイルはダウンロード／
 // プレビュー対象外。一覧には表示するが、選択チェックボックスを disabled にし、
@@ -221,18 +222,20 @@ async function fetchList(): Promise<void> {
   }
 }
 
-async function fetchTodofukenOptions(): Promise<void> {
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = resp.data;
-  } catch {
-    todofukenOptions.value = [];
-  }
-}
-
 onMounted(() => {
+  // [mail-deeplink] アップロード通知メール(SCR-023)のリンクは
+  // `/file-download?file_name=...` で来る。ファイル名を検索欄へ流し込んでから
+  // 取得することで、受信者が一覧を探さずに該当行へ着地する。
+  // useTableQuery の syncUrl は page/sort しか復元しないため、フィルタは
+  // ここで明示的に読む。
+  const fromMail = route.query.file_name;
+  if (typeof fromMail === 'string' && fromMail.trim() !== '') {
+    // applyFilters は「適用済み」基準も更新する。state.filters を直接書くと
+    // 未検索の入力扱いになり、以降 filtersChangedSinceApplied が誤検知する。
+    applyFilters({ file_name: fromMail.trim() } as Partial<FileFilters>);
+  }
   void fetchList();
-  void fetchTodofukenOptions();
+  // 都道府県候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
 });
 
 // 検索 / 検索クリア — shared guard+fetch wiring (useTableQuery.searchActions).
@@ -294,27 +297,16 @@ defineExpose({
       </label>
       <label for="file-download-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">都道府県</span>
-        <a-select
+        <!-- 表記・検索とも共通部品 <BaseTodofukenSelect> の既定に任せる
+             （ラベル「コード 名称」/ プレースホルダ）。片方の画面だけ props で
+             上書きすると再びズレるため、ここでは何も指定しない。 -->
+        <BaseTodofukenSelect
           id="file-download-filter-2"
           v-model:value="state.filters.todofuken_code"
-          placeholder="すべて"
           :allow-clear="!scopedTodofukenCode"
           :disabled="!!scopedTodofukenCode"
-          show-search
-          :filter-option="
-            (input: string, option: { children?: unknown }) =>
-              String(option?.children ?? '').includes(input)
-          "
           class="flex-1"
-        >
-          <a-select-option
-            v-for="opt in todofukenOptions"
-            :key="opt.todofuken_code"
-            :value="opt.todofuken_code"
-          >
-            {{ opt.todofuken_name }}
-          </a-select-option>
-        </a-select>
+        />
       </label>
       <!-- JA 絞り込み — 共通 <BaseJaDropdown>（サーバ側ページング・JAコード/JA名
            検索・単一選択）。/ja/dropdown が DataScope を適用するため、JA本店/

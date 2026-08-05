@@ -2,6 +2,9 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { getCodes, type CodeItem, type CodeMap } from '@/api/codes/codes';
 
+/** 画面/BE から渡りうるコード値の型（radio は string、API 応答は number）。 */
+type CodeValue = number | string | null | undefined;
+
 /**
  * コードマスタストア。
  *
@@ -46,14 +49,31 @@ export const useCodesStore = defineStore('codes', () => {
     return all.value?.[category] ?? [];
   }
 
+  /**
+   * 値がそのカテゴリの m_code に存在するか（BE `CodeService.has()` のミラー）。
+   *
+   * Group B カテゴリ（TANKA_TYPE, ZEI_KUBUN, GENDER …）は顧客が実行時に値を
+   * 追加できるため、画面側の入力チェックで `'1' | '2'` を決め打ちしてはいけない
+   * （追加された値が radio に出るのに保存できない、という不整合になる）。
+   *
+   * `String()` で寄せるのは、form state は radio 由来の string、BE 応答と
+   * `CodeService.normalizeValue()` は number を返すため。
+   */
+  function has(category: string, value: CodeValue): boolean {
+    if (value === null || value === undefined || value === '') return false;
+    return (all.value?.[category] ?? []).some(
+      (x) => String(x.value) === String(value),
+    );
+  }
+
   /** 保存済みコード値の表示ラベルを引く。 */
-  function label(category: string, value: number | string | null | undefined): string {
+  function label(category: string, value: CodeValue): string {
     if (value === null || value === undefined) return '';
     return all.value?.[category]?.find((x) => x.value === value)?.label ?? '';
   }
 
   /** 短縮表示ラベル（列幅が狭いテーブルで使用）。 */
-  function labelShort(category: string, value: number | string | null | undefined): string {
+  function labelShort(category: string, value: CodeValue): string {
     if (value === null || value === undefined) return '';
     return all.value?.[category]?.find((x) => x.value === value)?.label_short ?? '';
   }
@@ -70,6 +90,7 @@ export const useCodesStore = defineStore('codes', () => {
     loadAll,
     reload,
     options,
+    has,
     label,
     labelShort,
     reset,

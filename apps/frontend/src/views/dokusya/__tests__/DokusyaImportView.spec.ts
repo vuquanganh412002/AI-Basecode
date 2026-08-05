@@ -265,7 +265,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     // 全選択済み。購読種別 / 読者情報変更適用日 / 購読中止日 は画面で指定する
     // 単一ソースのため列に無い（顧客要件 2026-07 / 2026-08）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes).toHaveLength(46);
+    expect(colCheckboxes).toHaveLength(50); // 46 + 購読者層分類の従属4項目
     for (const cb of colCheckboxes) {
       expect((cb.element as HTMLInputElement).checked).toBe(true);
     }

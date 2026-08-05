@@ -38,10 +38,7 @@ import {
   type CreateKanriShitenRequest,
   type UpdateKanriShitenRequest,
 } from '@/api/kanri-shiten/kanri-shiten';
-import {
-  getTodofukenList,
-  type TodofukenItem,
-} from '@/api/todofuken/todofuken';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 
 const route = useRoute();
@@ -76,7 +73,8 @@ const kanriShitenIdParam = computed<number | undefined>(() => {
 
 const isEdit = computed(() => kanriShitenIdParam.value !== undefined);
 
-const todofukenOptions = ref<TodofukenItem[]>([]);
+// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
+// キャッシュ）に任せる。
 
 // ja_id は request DTO では number 型だが、登録フォームは未設定で始め antd の
 // <a-select> が "0" ではなく placeholder（"JAを選択してください"）を表示するように
@@ -124,12 +122,6 @@ onMounted(async () => {
   // 事前取得は不要。検索 / 無限スクロール / edit-mode include_id は内部処理。
 
   // 都道府県 dropdown options。
-  try {
-    const resp = await getTodofukenList();
-    todofukenOptions.value = resp.data;
-  } catch {
-    todofukenOptions.value = [];
-  }
 
   // 編集モードの事前ロード。
   if (kanriShitenIdParam.value !== undefined) {
@@ -502,17 +494,9 @@ defineExpose({
               <span>都道府県</span>
               <span class="text-error ml-1">*</span>
             </template>
-            <a-select
+            <BaseTodofukenSelect
               v-model:value="formState.todofuken_code"
               :disabled="isRestrictedEditor"
-              placeholder="選択してください"
-              :options="
-                todofukenOptions.map((t) => ({
-                  value: t.todofuken_code,
-                  label: t.todofuken_name,
-                }))
-              "
-              allow-clear
             />
           </a-form-item>
         </div>

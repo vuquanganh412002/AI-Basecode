@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
+
+import { resetTodofukenCache } from '@/composables/useTodofuken';
 import Antd, { message } from 'ant-design-vue';
 
 import JaFormView from '@/views/ja/JaFormView.vue';
@@ -101,6 +103,9 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 }
 
 beforeEach(async () => {
+  // 都道府県は useTodofuken のモジュール共有キャッシュ。テスト間で持ち越すと
+  // 2件目以降が「取得済み」になり HTTP 回数の検証が崩れる。
+  resetTodofukenCache();
   vi.clearAllMocks();
   // Default: prefecture list resolves to a small set so the dropdown renders.
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');

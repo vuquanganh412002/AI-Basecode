@@ -145,7 +145,7 @@ updated_by: Nguyen Duyen Manh
 | 14  | →haitatsu_full_name          | String  | -        |              | -        | 配達先氏名（haitatsu_shimei_sei + " " + haitatsu_shimei_mei、前後空白トリム） |
 | 15  | →haitatsu_yubin_no           | String  | -        |              | -        | 配達先郵便番号（空文字許容）                                               |
 | 16  | →haitatsu                    | String  | -        |              | -        | 配達先住所（todofuken_name + shikuchoson + chome_banchi + tatemono_mei）   |
-| 17  | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                                                   |
+| 17  | →hanbaiten_id                | Number  | -        |              |  〇       | 販売店ID※未設定(NULL)あり                                                       |
 | 17.5 | →hanbaiten_code             | String  | -        |              | -        | 販売店コード（検索結果テーブルの「販売店コード」列に表示）                 |
 | 18  | →hanbaiten_name              | String  | -        |              | -        | 販売店名                                                                   |
 | 19  | →dokusya_shubetsu            | Number  | -        |              | -        | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読） |
@@ -153,7 +153,7 @@ updated_by: Nguyen Duyen Manh
 | 21  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子版承認ステータス（NULL=Web申込以外, 0:未承認, 1:承認済み, 2:否認）     |
 | 22  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY/MM/DD   | -        | 初回購読開始日                                                             |
 | 23  | →dokusya_chushi_date         | String  | -        | YYYY/MM/DD   | 〇       | 購読中止日                                                                 |
-| 24  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ（true=電子版クレジットカード決済者または併読者）        |
+| 24  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ（true=電子版クレジットカード決済者または併読者）。※削除ボタンの活性判定はこれに加えて `dokusya_shubetsu = 1`（紙版）も必要（顧客要件2026-08） |
 | 25  | meta                         | Object  | -        |              | -        | ページネーション情報                                                       |
 | 26  | →total                       | Number  | -        |              | -        | 総件数                                                                     |
 | 27  | →page                        | Number  | -        |              | -        | 現在ページ番号                                                             |
@@ -417,6 +417,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 - 取得結果を data 配列として返却する。
 - `meta` オブジェクトにページネーション情報（total / page / per_page / total_pages）を含める。
 - `is_read_only` フラグは BE 側で算出し、FE 側で「編集」「削除」ボタンの活性制御に使用する。HTTP 200。
+- 「削除」ボタンは `is_read_only` に加えて `dokusya_shubetsu = 1`（紙版）のときだけ活性にする（顧客要件2026-08）。
 
 ### 4.7 例外処理
 
@@ -563,6 +564,12 @@ WHERE dokusya_id = :dokusya_id
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
 - 読み取り専用判定（`(dokusya_shubetsu = 2 AND shiharai_hoho = 6) OR dokusya_shubetsu = 3`）が真の場合：HTTP 403 (`DOKUSYA_READ_ONLY`)
+- **削除できるのは紙版のみ**（顧客要件2026-08）。`dokusya_shubetsu <> 1` の場合：HTTP 400 (`VALIDATION_ERROR`)
+  `{ field: "dokusya_shubetsu", message: "紙版の購読者のみ削除できます。" }`。
+  上の読み取り専用判定は 併読 と 電子版クレカ しか弾かないため、電子版で口座引落など
+  クレカ以外の支払方法がここで初めて拒否される。電子版・併読の会員は電子版読者管理
+  システムが正で、クラウド版で行を消すと同期で復活するか相手システムとの整合が崩れる。
+  なお購読停止（解約予約）は電子版でも可能 — 消せないのは行であって購読の停止ではない。
 - 関連データの存在確認（将来の拡張に備えた整合性チェック）：関連テーブルに購読者IDが紐づくレコードが存在する場合、削除を拒否する。
   - 関連データが存在する場合：HTTP 409 (`CONFLICT`)
 

@@ -53,13 +53,23 @@ function buildMocks(): Mocks {
   };
 }
 
-function buildWorker(m: Mocks): FileUploadNotificationWorker {
+function buildWorker(
+  m: Mocks,
+  // null = ConfigService 未注入（DEFAULT_FRONTEND_URL フォールバック経路）。
+  // undefined を番兵にすると既定引数が発動して区別できない。
+  frontendUrl: string | null = 'https://app.example.com',
+): FileUploadNotificationWorker {
+  const configService =
+    frontendUrl === null
+      ? undefined
+      : ({ get: jest.fn(() => frontendUrl) } as any);
   return new FileUploadNotificationWorker(
     m.fileUploadRepo as any,
     m.accountRepo as any,
     m.jaRepo as any,
     m.mailService as any,
     m.auditLog as any,
+    configService,
   );
 }
 
@@ -222,6 +232,46 @@ describe('FileUploadNotificationWorker', () => {
         'real@example.com',
         expect.any(Object),
       );
+    });
+  });
+
+  // 顧客要件2026-08 — 通知メールにダウンロード画面(SCR-022)へのリンクを載せる。
+  describe('download link', () => {
+    function arrangeOneRecipient(): void {
+      m.fileUploadRepo.findOne.mockResolvedValue(
+        buildFileUploadRow({ fileName: '増減通知 2026年04月.pdf' }),
+      );
+      m.jaRepo.findOne.mockResolvedValue(buildJa());
+      m.accountRepo.find.mockResolvedValue([buildAccount()]);
+      m.accountRepo.findOne.mockResolvedValue(buildAccount());
+    }
+
+    it('should pass a FRONTEND_URL-based link filtered by the file name', async () => {
+      arrangeOneRecipient();
+      await worker.process(buildJob());
+      const [, input] = m.mailService.sendFileUploadNotification.mock.calls[0];
+      // スペース・日本語はエンコードされること（生のままだとメーラーが
+      // リンクをスペースで切る）。
+      expect(input.downloadUrl).toBe(
+        'https://app.example.com/file-download?file_name=%E5%A2%97%E6%B8%9B%E9%80%9A%E7%9F%A5%202026%E5%B9%B404%E6%9C%88.pdf',
+      );
+    });
+
+    it('should not double the slash when FRONTEND_URL has a trailing one', async () => {
+      worker = buildWorker(m, 'https://app.example.com/');
+      arrangeOneRecipient();
+      await worker.process(buildJob());
+      const [, input] = m.mailService.sendFileUploadNotification.mock.calls[0];
+      expect(input.downloadUrl).toContain('https://app.example.com/file-download?');
+      expect(input.downloadUrl).not.toContain('.com//');
+    });
+
+    it('should fall back to the default frontend URL when ConfigService is absent', async () => {
+      worker = buildWorker(m, null);
+      arrangeOneRecipient();
+      await worker.process(buildJob());
+      const [, input] = m.mailService.sendFileUploadNotification.mock.calls[0];
+      expect(input.downloadUrl).toContain('http://localhost:5173/file-download?');
     });
   });
 

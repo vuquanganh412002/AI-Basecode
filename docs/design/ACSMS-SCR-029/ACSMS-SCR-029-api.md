@@ -22,6 +22,7 @@ updated_by: Nguyen Truong An
 | 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：4.4 ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更＋表示名とS3キー(タイムスタンプ)を分離、削除予定日＝作成日+5年・日農DL許可フラグ=True を明記。4.5 メール件名/本文に都道府県＋発行アカウント（ログインID+アカウント名）を追記。4.6 INSERT に scheduled_delete_date / nichino_download_allowed_flg を追加。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/14 | 1.3  | Tran Duc Tuyen | 顧客コメント対応：減部数（gen_busu）をプレビュー・帳票でマイナス符号「▲」付き表示（例「▲2」）に戻す。値は正の減部数（Number）のまま、▲は表示フォーマット。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/15 | 1.4  | Tran Duc Tuyen | 顧客コメント対応：4.5 メールのシステム名【クラウド版購読者管理システム】を件名から外し本文先頭行へ移動。件名は【都道府県】【発行アカウント】+タイトルのみ。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 6 | 2026/08/05 | 1.5 | Tran Duc Tuyen | 顧客要件 2026-08 の確認結果：本画面は集計対象が紙版のみ（併読・電子版は対象外）で既に要件どおり。出力条件に販売店の入力欄が無いため、ダミー販売店の表示制御も対象外。**コード変更なし**（再確認時に調査し直さないための記録）。 | | |
 
 ## システム概要
 
@@ -303,6 +304,11 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
 - 抽出条件を設定する：
   - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。**`<=` ではない**：その日の変動のみ）
   - `r.zougen_hokoku_flg = true`（増減報告対象の変更）
+  - `r.torikeshi_flg = false`（取消(赤伝)行を除外）
+  - **`r.dokusya_shubetsu = 1`（紙版のみ集計。顧客要件2026-08）**
+    本帳票も部数の増減を伝えるもので、電子版・併読は配達を伴わないため対象外
+    （SCR-028 増減連絡票と同方針）。従来の「電子版は承認済(`denshi_shonin_status = 1`)
+    のみ集計」条件は紙版限定に包含されるため廃止した。
   - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
   - kanri_shiten_id 指定時：`r.kanri_shiten_id = ANY(:kanri_shiten_ids)`
   - DataScope条件（4.2 参照）を追加する。
@@ -345,6 +351,9 @@ LEFT JOIN m_todofuken td
         ON td.todofuken_code = ks.todofuken_code
 WHERE r.joho_henko_tekiyo_date = :tekiyo_date
   AND r.zougen_hokoku_flg = true
+  AND r.torikeshi_flg = false
+  /* 紙版のみ集計（顧客要件2026-08） */
+  AND r.dokusya_shubetsu = 1
   /* 管理支店フィルタ（任意） */
   AND (:kanri_shiten_ids IS NULL OR r.kanri_shiten_id = ANY(:kanri_shiten_ids))
   /* 現在部数 = 0 かつ 新部数 = 0 のレコードは除外 */
@@ -568,7 +577,7 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
 
 ### 4.3 データ取得
 
-- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`h.haiten_flg = false`、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用）。
+- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`torikeshi_flg = false`、`dokusya_shubetsu = 1`（紙版のみ）、`h.haiten_flg = false`、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用）。
 - 取得件数が0件の場合：HTTP 200 + `application/json` `{ data: { reports: [] } }`（ファイルは生成しない。FE が ACSMS-MSG-029-002 を画面内表示）。
 
 ### 4.4 PDF生成・S3保存

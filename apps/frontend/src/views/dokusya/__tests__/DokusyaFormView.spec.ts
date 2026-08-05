@@ -603,6 +603,46 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     const { wrapper } = await renderView({ dokusyaId: 100 });
     expect((busuInput(wrapper).element as HTMLInputElement).disabled).toBe(true);
   });
+
+  // hanbaiten_id / tanka_id は NULL 許容。BE は未設定を null で返す
+  // （dokusya.mapper.ts の coerceNullableNumber）。0 へ丸めていた頃は、
+  // セレクトが候補に無い「0」を素の値として描画し、未選択なのに 0 が入って
+  // いるように見えていた（バッチ取込の電子版読者で発生）。
+  it('should render hanbaiten_id / tanka_id = null from the API as 未選択', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ hanbaiten_id: null, tanka_id: null }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { hanbaiten_id: number | null; tanka_id: number | null };
+    };
+    expect(vm.formState.hanbaiten_id).toBeNull();
+    expect(vm.formState.tanka_id).toBeNull();
+    // 画面上も「未選択」であること。antd は値があるときだけ
+    // `.ant-select-selection-item` を描画するので、その不在が
+    // 「0 ではなくプレースホルダが出ている」ことの検証になる。
+    for (const name of ['hanbaiten_id', 'tanka_id']) {
+      const item = wrapper
+        .findAllComponents({ name: 'AFormItem' })
+        .find((it) => it.props('name') === name);
+      expect(item, `form item ${name} not found`).toBeDefined();
+      expect(item!.find('.ant-select-selection-item').exists()).toBe(false);
+    }
+  });
+
+  it('should keep a real hanbaiten_id / tanka_id untouched', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ hanbaiten_id: 5, tanka_id: 1 }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      formState: { hanbaiten_id: number | null; tanka_id: number | null };
+    };
+    expect(vm.formState.hanbaiten_id).toBe(5);
+    expect(vm.formState.tanka_id).toBe(1);
+  });
 });
 
 describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客要件 2026-06)', () => {
@@ -2641,6 +2681,145 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
     // No success toast on failure.
     expect(successSpy).not.toHaveBeenCalled();
   });
+
+  // ─── #56524 — 承認/否認 前に支払方法 + 引落口座4項目を編集できる ──────
+  //
+  // 電子版申込の支払方法・口座情報は読者の自己申告で誤りが多い。以前は承認画面
+  // で単価しか直せず「承認 → 編集」の2操作が要った。この5項目だけを開放し、
+  // 他項目は承認待ちロックのままであることも併せて固定する。
+
+  function kozaFieldDisabled(
+    wrapper: ReturnType<typeof mount>,
+    name: string,
+  ): boolean {
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === name);
+    if (!item) return false;
+    const input = item.find('input');
+    if (input.exists() && (input.element as HTMLInputElement).disabled) return true;
+    return item.find('.ant-select-disabled').exists();
+  }
+
+  async function renderPending() {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ denshi_shonin_status: 0, dokusya_shubetsu: 2 }),
+    });
+    return renderView({ dokusyaId: 100 });
+  }
+
+  const EDITABLE_FIELDS = [
+    'shiharai_hoho',
+    'bank_shiten_id',
+    'hikiotoshi_yokin_shubetsu',
+    'hikiotoshi_koza_no',
+    'hikiotoshi_koza_meigi',
+  ];
+
+  it('should enable 支払方法 + the 4 引落口座 fields while 承認待ち (#56524)', async () => {
+    const { wrapper } = await renderPending();
+    for (const name of EDITABLE_FIELDS) {
+      expect(kozaFieldDisabled(wrapper, name)).toBe(false);
+    }
+  });
+
+  it('should keep the other fields locked while 承認待ち (#56524 scope guard)', async () => {
+    // 開放するのは 支払方法 + 引落口座4項目 + 新聞単価だけ。ここが緩むと承認画面
+    // が実質フル編集になり、BE が受け取らない項目まで触れてしまう。
+    const { wrapper } = await renderPending();
+    expect(kozaFieldDisabled(wrapper, 'shimei_sei')).toBe(true);
+    expect(kozaFieldDisabled(wrapper, 'email')).toBe(true);
+    expect(kozaFieldDisabled(wrapper, 'kumiaiin_code')).toBe(true);
+  });
+
+  it('should send the edited 支払方法 to approveDokusya (#56524)', async () => {
+    const { approveDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(approveDokusya).mockClear();
+
+    const { wrapper } = await renderPending();
+    const vm = wrapper.vm as any;
+    vm.formState.shiharai_hoho = 2; // 現金集金 — 口座引落ではないので口座必須は掛からない
+    await flushPromises();
+
+    const approveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await approveBtn!.trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(approveDokusya).mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ shiharai_hoho: 2 }),
+    );
+  });
+
+  it('should send the edited 引落口座 fields to approveDokusya (#56524)', async () => {
+    const { approveDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(approveDokusya).mockClear();
+
+    const { wrapper } = await renderPending();
+    const vm = wrapper.vm as any;
+    vm.formState.hikiotoshi_koza_no = '9876543210';
+    vm.formState.hikiotoshi_koza_meigi = 'ﾀﾅｶ ﾀﾛｳ';
+    await flushPromises();
+
+    const approveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await approveBtn!.trigger('click');
+    await flushPromises();
+
+    expect(approveDokusya).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(approveDokusya).mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        hikiotoshi_koza_no: '9876543210',
+        hikiotoshi_koza_meigi: 'ﾀﾅｶ ﾀﾛｳ',
+      }),
+    );
+  });
+
+  it('should send the edited 引落口座 fields to rejectDokusya (#56524)', async () => {
+    const { rejectDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(rejectDokusya).mockClear();
+
+    const { wrapper } = await renderPending();
+    const vm = wrapper.vm as any;
+    vm.formState.hikiotoshi_koza_no = '1112223334';
+    await flushPromises();
+
+    const rejectBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認しない'));
+    await rejectBtn!.trigger('click');
+    await flushPromises();
+
+    expect(rejectDokusya).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(rejectDokusya).mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ hikiotoshi_koza_no: '1112223334' }),
+    );
+  });
+
+  it('should NOT approve when 口座引落 and a 引落口座 field was cleared (#56524)', async () => {
+    // BE は bank_shiten_id しか必須にしていないので、残り3項目は FE が止めない
+    // と空のまま確定してしまう。
+    const { approveDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(approveDokusya).mockClear();
+
+    const { wrapper } = await renderPending();
+    const vm = wrapper.vm as any;
+    vm.formState.shiharai_hoho = 1; // 口座引落へ切替 → 口座4項目が必須になる
+    vm.formState.hikiotoshi_koza_no = '';
+    await flushPromises();
+
+    const approveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await approveBtn!.trigger('click');
+    await flushPromises();
+
+    expect(approveDokusya).not.toHaveBeenCalled();
+    expect(vm.fieldErrors.hikiotoshi_koza_no).toBeTruthy();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2862,6 +3041,344 @@ describe('DokusyaFormView — 購読者層分類 conditional 主な生産物 (�
 
     expect(vm.formState.nogyosya_bunrui).toBe('');
   });
+
+  /**
+   * 顧客要件 2026-08 — 単一選択(ラジオ)にするのは 電子版/併読 のみ。従属チェック
+   * （かつJAグループ役職員 / 農業関係）が主分類を修飾する設計で、複数選択だと
+   * 「農業者かつ企業・団体」で両方の修飾が出て意味が決まらないため。
+   * 紙版はその従属項目が無く、従来どおり複数選択(チェックボックス)で据え置く。
+   */
+  describe('読者属性の選択方式は購読種別で切り替わる', () => {
+    const bunruiItem = (wrapper: any) =>
+      wrapper
+        .findAllComponents({ name: 'AFormItem' })
+        .find((i: any) => i.text().includes('読者属性'));
+
+    it('should render 読者属性 as radio for 電子版', async () => {
+      const { wrapper } = await renderView();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusya_shubetsu = 2; // 電子版
+      await flushPromises();
+
+      const item = bunruiItem(wrapper);
+      expect(item?.findComponent({ name: 'ARadioGroup' }).exists()).toBe(true);
+      expect(item?.findComponent({ name: 'ACheckboxGroup' }).exists()).toBe(
+        false,
+      );
+    });
+
+    it('should render 読者属性 as radio for 紙版 too', async () => {
+      const { wrapper } = await renderView();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusya_shubetsu = 1; // 紙版
+      await flushPromises();
+
+      const item = bunruiItem(wrapper);
+      expect(item?.findComponent({ name: 'ARadioGroup' }).exists()).toBe(true);
+      expect(item?.findComponent({ name: 'ACheckboxGroup' }).exists()).toBe(
+        false,
+      );
+    });
+
+    it('should keep a single 読者属性 code for 紙版', async () => {
+      const { wrapper } = await renderView();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusya_shubetsu = 1;
+      await flushPromises();
+
+      vm.dokusyaSoBunruiSingle = '2';
+      await flushPromises();
+      expect(vm.formState.dokusyaso_bunrui).toBe('2');
+    });
+
+    /**
+     * 列は CSV VARCHAR のままなので、旧データ（複数選択だった頃）や pull 由来の
+     * 多値が入っていることがある。ラジオは 1 つしか表示できないため、読込み時に
+     * 先頭コードへ寄せて「画面の表示＝保存される値」を保つ。購読種別は問わない。
+     */
+    it.each([[1], [2]])(
+      'should trim a multi-code value to the first one on load (dokusya_shubetsu=%s)',
+      async (shubetsu) => {
+        const { getDokusya } = await import('@/api/dokusya/dokusya');
+        vi.mocked(getDokusya).mockResolvedValueOnce({
+          data: buildDokusyaDetail({
+            dokusya_shubetsu: shubetsu,
+            dokusyaso_bunrui: '0,2',
+          }),
+        });
+
+        const { wrapper } = await renderView({ dokusyaId: 100 });
+        await flushPromises();
+
+        expect((wrapper.vm as any).formState.dokusyaso_bunrui).toBe('0');
+      },
+    );
+  });
+
+  /**
+   * 電子版 API の条件付き項目（profession_and_* / others_*）は、profession /
+   * products が条件コードを含まないのに値を送ると V26〜V30 で create/update ごと
+   * 弾かれる。よって「欄を隠したら値もクリアする」は UI の親切ではなく契約の一部。
+   */
+  describe('従属項目の表示条件とクリア (顧客DB設計 2026-08)', () => {
+    const findByTest = (wrapper: any, key: string) =>
+      wrapper.find(`[data-test="${key}"]`);
+
+    /** 従属項目は電子版/併読だけの機能なので、購読種別を電子版にして開く。 */
+    const renderDigital = async () => {
+      const mounted = await renderView();
+      const vm = mounted.wrapper.vm as any;
+      vm.formState.dokusya_shubetsu = 2;
+      await flushPromises();
+      return mounted;
+    };
+
+    it('should show かつJAグループ役職員 only when 農業者 is selected', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+
+      vm.formState.dokusyaso_bunrui = '0';
+      await flushPromises();
+      expect(findByTest(wrapper, 'ja-yakushokuin-flg').exists()).toBe(true);
+
+      vm.formState.dokusyaso_bunrui = '3';
+      await flushPromises();
+      expect(findByTest(wrapper, 'ja-yakushokuin-flg').exists()).toBe(false);
+    });
+
+    it('should show 農業関係 only when 企業・団体 is selected', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+
+      vm.formState.dokusyaso_bunrui = '2';
+      await flushPromises();
+      expect(findByTest(wrapper, 'nogyo-kankei-flg').exists()).toBe(true);
+
+      vm.formState.dokusyaso_bunrui = '0';
+      await flushPromises();
+      expect(findByTest(wrapper, 'nogyo-kankei-flg').exists()).toBe(false);
+    });
+
+    it('should show 読者属性その他 textbox only when その他 is selected', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+
+      vm.formState.dokusyaso_bunrui = '999';
+      await flushPromises();
+      expect(findByTest(wrapper, 'dokusyaso-bunrui-sonota').exists()).toBe(true);
+
+      vm.formState.dokusyaso_bunrui = '1';
+      await flushPromises();
+      expect(findByTest(wrapper, 'dokusyaso-bunrui-sonota').exists()).toBe(
+        false,
+      );
+    });
+
+    it('should show 主な生産物その他 textbox only when 主な生産物 contains その他', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusyaso_bunrui = '0';
+
+      vm.formState.nogyosya_bunrui = '0,999';
+      await flushPromises();
+      expect(findByTest(wrapper, 'nogyosya-bunrui-sonota').exists()).toBe(true);
+
+      vm.formState.nogyosya_bunrui = '0';
+      await flushPromises();
+      expect(findByTest(wrapper, 'nogyosya-bunrui-sonota').exists()).toBe(false);
+    });
+
+    it('should clear 従属項目 when the parent 読者属性 no longer allows them', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.ja_yakushokuin_flg = true;
+      await flushPromises();
+      vm.formState.dokusyaso_bunrui = '2';
+      vm.formState.nogyo_kankei_flg = true;
+      await flushPromises();
+      // 農業者 を外した時点で JA役職員 は false へ戻る。
+      expect(vm.formState.ja_yakushokuin_flg).toBe(false);
+
+      vm.formState.dokusyaso_bunrui = '999';
+      vm.formState.dokusyaso_bunrui_sonota = '自営業';
+      await flushPromises();
+      expect(vm.formState.nogyo_kankei_flg).toBe(false);
+
+      vm.formState.dokusyaso_bunrui = '3';
+      await flushPromises();
+      expect(vm.formState.dokusyaso_bunrui_sonota).toBe('');
+    });
+
+    it('should clear 主な生産物その他 when その他 is removed from 主な生産物', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.nogyosya_bunrui = '999';
+      vm.formState.nogyosya_bunrui_sonota = 'きのこ';
+      await flushPromises();
+
+      vm.formState.nogyosya_bunrui = '0';
+      await flushPromises();
+
+      expect(vm.formState.nogyosya_bunrui_sonota).toBe('');
+    });
+
+    /**
+     * 行を 2 カラムに分け、左に親の選択肢・右に従属項目を置く。同じ行に並ぶので
+     * どの選択肢に掛かる項目かが位置で分かる。
+     */
+    it('should place 従属項目 in the same row as the parent choices', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      const rowOf = (key: string) =>
+        findByTest(wrapper, key).element.closest('[data-test$="-bunrui-row"]');
+
+      vm.formState.dokusyaso_bunrui = '999';
+      await flushPromises();
+      expect(rowOf('dokusyaso-bunrui-sonota')?.getAttribute('data-test')).toBe(
+        'dokusyaso-bunrui-row',
+      );
+
+      vm.formState.dokusyaso_bunrui = '2';
+      await flushPromises();
+      expect(rowOf('nogyo-kankei-flg')?.getAttribute('data-test')).toBe(
+        'dokusyaso-bunrui-row',
+      );
+
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.nogyosya_bunrui = '999';
+      await flushPromises();
+      // 農業者の修飾は読者属性の行、生産物の自由記述は主な生産物の行に付く。
+      expect(rowOf('ja-yakushokuin-flg')?.getAttribute('data-test')).toBe(
+        'dokusyaso-bunrui-row',
+      );
+      expect(rowOf('nogyosya-bunrui-sonota')?.getAttribute('data-test')).toBe(
+        'nogyosya-bunrui-row',
+      );
+    });
+
+    /**
+     * 自由記述にはラベルを付ける（無いと何を書く欄か分からない）。ラベルが
+     * あるので a-form-item を素直に使え、255 文字超過は :help に出る。
+     */
+    it('should label the 自由記述 fields and show their length error in :help', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      const itemOf = (label: string) =>
+        wrapper
+          .findAllComponents({ name: 'AFormItem' })
+          .find((i) => i.text().includes(label));
+
+      await fillForm(
+        vm,
+        buildCreateDokusyaForm({
+          dokusya_shubetsu: 2,
+          dokusyaso_bunrui: '999',
+        }),
+      );
+      await flushPromises();
+      expect(itemOf('読者属性（その他の内容）')).toBeDefined();
+
+      vm.formState.dokusyaso_bunrui_sonota = 'あ'.repeat(256);
+      await flushPromises();
+      await vm.onSubmit();
+      await flushPromises();
+
+      expect(itemOf('読者属性（その他の内容）')?.text()).toContain(
+        '255文字以内',
+      );
+    });
+
+    it('should label the 主な生産物 自由記述 field', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.nogyosya_bunrui = '999';
+      await flushPromises();
+
+      const item = wrapper
+        .findAllComponents({ name: 'AFormItem' })
+        .find((i) => i.text().includes('主な生産物（その他の内容）'));
+      expect(item).toBeDefined();
+    });
+
+    /**
+     * 顧客要件 2026-08 — 従属 4 項目は電子版/併読だけの機能。紙版には送り先
+     * （電子版 users.profession_and_* / others_*）が無いので出さない。
+     */
+    it('should show no 従属項目 for 紙版, whatever 読者属性 is chosen', async () => {
+      const { wrapper } = await renderView();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusya_shubetsu = 1; // 紙版
+
+      for (const code of ['0', '2', '999']) {
+        vm.formState.dokusyaso_bunrui = code;
+        await flushPromises();
+        expect(findByTest(wrapper, 'ja-yakushokuin-flg').exists()).toBe(false);
+        expect(findByTest(wrapper, 'nogyo-kankei-flg').exists()).toBe(false);
+        expect(findByTest(wrapper, 'dokusyaso-bunrui-sonota').exists()).toBe(
+          false,
+        );
+      }
+
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.nogyosya_bunrui = '999';
+      await flushPromises();
+      // 主な生産物そのものは紙版でも出る（従来どおり）。その他の内容だけ出ない。
+      expect(findByTest(wrapper, 'nogyosya-bunrui-row').exists()).toBe(true);
+      expect(findByTest(wrapper, 'nogyosya-bunrui-sonota').exists()).toBe(false);
+    });
+
+    it('should clear the 従属項目 when switching 電子版 to 紙版', async () => {
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      vm.formState.dokusyaso_bunrui = '0';
+      vm.formState.nogyosya_bunrui = '999';
+      await flushPromises();
+      vm.formState.ja_yakushokuin_flg = true;
+      vm.formState.nogyosya_bunrui_sonota = 'きのこ';
+      await flushPromises();
+
+      vm.formState.dokusya_shubetsu = 1; // 紙版へ
+      await flushPromises();
+
+      expect(vm.formState.ja_yakushokuin_flg).toBe(false);
+      expect(vm.formState.nogyosya_bunrui_sonota).toBe('');
+    });
+
+    it('should send 従属項目 in the create request body', async () => {
+      const { createDokusya } = await import('@/api/dokusya/dokusya');
+      const { wrapper } = await renderDigital();
+      const vm = wrapper.vm as any;
+      // 電子版としてフォーム全体を埋める（従属項目は電子版だけの機能）。
+      await fillForm(
+        vm,
+        buildCreateDokusyaForm({
+          dokusya_shubetsu: 2,
+          dokusyaso_bunrui: '0',
+          nogyosya_bunrui: '0,999',
+        }),
+      );
+      await flushPromises();
+      vm.formState.ja_yakushokuin_flg = true;
+      vm.formState.nogyosya_bunrui_sonota = 'きのこ';
+      await flushPromises();
+
+      await vm.onSubmit();
+      await flushPromises();
+
+      expect(vi.mocked(createDokusya)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ja_yakushokuin_flg: true,
+          nogyo_kankei_flg: false,
+          dokusyaso_bunrui_sonota: '',
+          nogyosya_bunrui_sonota: 'きのこ',
+        }),
+      );
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3042,6 +3559,20 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(true);
     expect((wrapper.vm as any).viewMode).toBe('reference');
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+  });
+
+  it('参照モードのフォームは readonly-legible（値が読める）で、編集モードでは付かない', async () => {
+    // antd の disabled 既定色だと参照モードで値がほぼ読めない。文字色だけ通常色へ
+    // 戻すクラスを参照モード時だけ付ける（背景グレー・not-allowed は維持）。
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const form = wrapper.find('[data-test="dokusya-form"]');
+    expect(form.classes()).toContain('readonly-legible');
+
+    (wrapper.vm as any).selectMode('today');
+    await flushPromises();
+    expect(
+      wrapper.find('[data-test="dokusya-form"]').classes(),
+    ).not.toContain('readonly-legible');
   });
 
   it('当日変更を選ぶと joho=本日、紙版の帳票影響項目（部数/販売店/住所）は非活性', async () => {

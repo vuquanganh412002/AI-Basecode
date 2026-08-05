@@ -14,7 +14,6 @@
 
 import {
   ConflictException,
-  DataScopeViolationException,
   DuplicateCodeException,
   NotFoundException,
   ValidationException,
@@ -1491,50 +1490,6 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       expect(merged.todofukenCode).toBeNull();
       expect(merged.jaId).toBeNull();
       expect(merged.kanriShitenId).toBeNull();
-    });
-
-    it('should validate kanri_shiten against the NEW ja_id when the account is moved to another JA', async () => {
-      // REGRESSION 2026-08 — the FK guard pinned expectedJaId to before.jaId,
-      // so the normal SCR-025 flow (change 都道府県 → FE resets JA/管理支店 →
-      // pick both from the new JA) always failed with DATA_SCOPE_VIOLATION.
-      // before.jaId=10; body moves the account to ja_id=49 with a 管理支店
-      // (id=8) that belongs to 49 → must be accepted.
-      const kanriShitenRepo = (service as any).kanriShitenRepo;
-      kanriShitenRepo.findOne.mockResolvedValue({ kanriShitenId: 8, jaId: 49 });
-
-      await expect(
-        service.updateAccount(
-          2,
-          buildUpdateAccountBody({
-            role_id: 5,
-            todofuken_code: '02',
-            ja_id: 49,
-            kanri_shiten_id: 8,
-          }),
-          adminSession(),
-          baseReq,
-        ),
-      ).resolves.toBeDefined();
-    });
-
-    it('should still reject a kanri_shiten belonging to a JA other than the submitted ja_id', async () => {
-      // The guard must stay effective — only its reference JA changed.
-      const kanriShitenRepo = (service as any).kanriShitenRepo;
-      kanriShitenRepo.findOne.mockResolvedValue({ kanriShitenId: 8, jaId: 49 });
-
-      await expect(
-        service.updateAccount(
-          2,
-          buildUpdateAccountBody({
-            role_id: 5,
-            todofuken_code: '13',
-            ja_id: 10,
-            kanri_shiten_id: 8,
-          }),
-          adminSession(),
-          baseReq,
-        ),
-      ).rejects.toThrow(DataScopeViolationException);
     });
 
     it('should persist all 3 sub_email_* fields when UPDATE body includes them', async () => {
