@@ -436,19 +436,26 @@ defineExpose({
           :validate-status="allFieldErrors.tanka_type ? 'error' : ''"
           :help="allFieldErrors.tanka_type"
         >
-          <template #label>
-            <span>単価種別</span>
-            <span class="text-error ml-1">*</span>
-          </template>
-          <a-radio-group v-model:value="formState.tanka_type">
-            <a-radio
-              v-for="opt in codes.options('TANKA_TYPE')"
-              :key="opt.value"
-              :value="String(opt.value)"
-            >
-              {{ opt.label }}
-            </a-radio>
-          </a-radio-group>
+          <fieldset class="border-0 p-0 m-0 min-w-0">
+            <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+              <span>単価種別</span>
+              <span class="text-error ml-1">*</span>
+            </legend>
+            <div class="flex items-center min-h-8">
+              <a-radio-group
+                name="tanka_type"
+                v-model:value="formState.tanka_type"
+              >
+                <a-radio
+                  v-for="opt in codes.options('TANKA_TYPE')"
+                  :key="opt.value"
+                  :value="String(opt.value)"
+                >
+                  {{ opt.label }}
+                </a-radio>
+              </a-radio-group>
+            </div>
+          </fieldset>
         </a-form-item>
 
         <!-- 行2: 単価コード + 単価名（コード 1/3、名前 2/3）。 -->
@@ -598,14 +605,21 @@ defineExpose({
             :validate-status="allFieldErrors.active_flg ? 'error' : ''"
             :help="allFieldErrors.active_flg"
           >
-            <template #label>
-              <span>有効単価フラグ</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.active_flg">
-              <a-radio :value="true">有効</a-radio>
-              <a-radio :value="false">無効</a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>有効単価フラグ</span>
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="active_flg"
+                  v-model:value="formState.active_flg"
+                >
+                  <a-radio :value="true">有効</a-radio>
+                  <a-radio :value="false">無効</a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
 
           <!-- キャンペーンフラグ — ラジオ（有効=true / 無効=false）。必須。
@@ -615,14 +629,21 @@ defineExpose({
             :validate-status="allFieldErrors.campaign_flg ? 'error' : ''"
             :help="allFieldErrors.campaign_flg"
           >
-            <template #label>
-              <span>キャンペーンフラグ</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.campaign_flg">
-              <a-radio :value="true">有効</a-radio>
-              <a-radio :value="false">無効</a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>キャンペーンフラグ</span>
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="campaign_flg"
+                  v-model:value="formState.campaign_flg"
+                >
+                  <a-radio :value="true">有効</a-radio>
+                  <a-radio :value="false">無効</a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
         </div>
 

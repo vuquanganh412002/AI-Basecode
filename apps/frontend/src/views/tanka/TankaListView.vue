@@ -183,9 +183,15 @@ function askDelete(row: TankaListItem): void {
     >
       <!-- 単価種別 — ラジオ（画面項目定義 row 1.0）。"未選択" は暗黙:
            値 '' でフィルタ解除、onClear 後の既定状態。 -->
-      <label for="tanka-filter-1" class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">単価種別</span>
-        <a-radio-group id="tanka-filter-1" v-model:value="state.filters.tanka_type">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap">単価種別</span>
+        <a-radio-group
+          name="tanka_type"
+          id="tanka-filter-1"
+          role="radiogroup"
+          aria-label="単価種別"
+          v-model:value="state.filters.tanka_type"
+        >
           <a-radio
             v-for="opt in codes.options('TANKA_TYPE')"
             :key="opt.value"
@@ -194,7 +200,7 @@ function askDelete(row: TankaListItem): void {
             {{ opt.label }}
           </a-radio>
         </a-radio-group>
-      </label>
+      </div>
 
       <label for="tanka-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">単価名</span>
@@ -203,7 +209,7 @@ function askDelete(row: TankaListItem): void {
           v-model:value="state.filters.tanka_name"
           placeholder="単価名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
@@ -218,7 +224,7 @@ function askDelete(row: TankaListItem): void {
           format="YYYY/MM/DD"
           value-format="YYYY-MM-DD"
           placeholder="YYYY/MM/DD"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
@@ -230,29 +236,41 @@ function askDelete(row: TankaListItem): void {
           format="YYYY/MM/DD"
           value-format="YYYY-MM-DD"
           placeholder="YYYY/MM/DD"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
       <!-- 有効単価フラグ — ラジオ。オン状態は 有効=1 / 無効=0。未選択（''）が
            既定で「両方を返却」（api.md §4.3）。検索クリアで '' に戻る。 -->
-      <label for="tanka-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">有効単価フラグ</span>
-        <a-radio-group id="tanka-filter-5" v-model:value="state.filters.active_flg">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap">有効単価フラグ</span>
+        <a-radio-group
+          name="active_flg"
+          id="tanka-filter-5"
+          role="radiogroup"
+          aria-label="有効単価フラグ"
+          v-model:value="state.filters.active_flg"
+        >
           <a-radio value="1">有効</a-radio>
           <a-radio value="0">無効</a-radio>
         </a-radio-group>
-      </label>
+      </div>
 
       <!-- キャンペーンフラグ — ラジオ。有効単価フラグと同様。未選択（''）=
            両方を返却。検索クリアで '' に戻る。 -->
-      <label for="tanka-filter-6" class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">キャンペーンフラグ</span>
-        <a-radio-group id="tanka-filter-6" v-model:value="state.filters.campaign_flg">
+      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap">キャンペーンフラグ</span>
+        <a-radio-group
+          name="campaign_flg"
+          id="tanka-filter-6"
+          role="radiogroup"
+          aria-label="キャンペーンフラグ"
+          v-model:value="state.filters.campaign_flg"
+        >
           <a-radio value="1">有効</a-radio>
           <a-radio value="0">無効</a-radio>
         </a-radio-group>
-      </label>
+      </div>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-002-001 — 空結果メッセージはテーブル外の兄弟 <p> で描画。

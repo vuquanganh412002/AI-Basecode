@@ -709,7 +709,11 @@ defineExpose({ formState, fieldErrors });
                 <span>通知先メールアドレス</span>
                 <span class="text-error ml-1">*</span>
               </template>
-              <a-input v-model:value="formState.email" :maxlength="100" />
+              <a-input
+                autocomplete="off"
+                v-model:value="formState.email"
+                :maxlength="100"
+              />
             </a-form-item>
           </div>
 
@@ -747,11 +751,16 @@ defineExpose({ formState, fieldErrors });
              セル#3 は意図的に空 — 取扱い区分 + ロック状態 を左（セル1+2）に
              寄せ、単独の ロック 列を引き伸ばさない。狭幅では1列スタックに畳む。 -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <a-form-item label="取扱い区分">
-            <div class="flex items-center gap-6">
-              <a-checkbox v-model:checked="formState.paper_flg">紙版の取扱い</a-checkbox>
-              <a-checkbox v-model:checked="formState.denshi_flg">電子版の取扱い</a-checkbox>
-            </div>
+          <a-form-item>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                取扱い区分
+              </legend>
+              <div class="flex items-center gap-6 min-h-8">
+                <a-checkbox name="paper_flg" v-model:checked="formState.paper_flg">紙版の取扱い</a-checkbox>
+                <a-checkbox name="denshi_flg" v-model:checked="formState.denshi_flg">電子版の取扱い</a-checkbox>
+              </div>
+            </fieldset>
           </a-form-item>
 
           <!-- 編集専用: admin はここでアカウントのロックを解除できる。
@@ -761,7 +770,7 @@ defineExpose({ formState, fieldErrors });
             <!-- QA バグ 2026-05 — checkbox ラベルが既に「ロック」と表示するため
                  右に出していた赤い ロック pill は重複だった。ロック状態は
                  checkbox の checked 状態のみで伝える。 -->
-            <a-checkbox v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
+            <a-checkbox name="account_lock_flg" v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
           </a-form-item>
         </div>
 

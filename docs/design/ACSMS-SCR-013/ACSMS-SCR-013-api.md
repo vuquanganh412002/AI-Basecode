@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/05/30 | 1.1  | Tran Duc Tuyen    | 画面設計書 v1.2 / index.html に整合。`t_dokusya_rireki` に存在しない `bank_code` / `bank_name` をレスポンスから削除し、`bank_branch_code` / `bank_branch_name` を論理名「引落元口座店舗コード／名」に改称（画面項目 No.40・41） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/17 | 1.2  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加・並べ替え）: レスポンスに `dokusya_shubetsu`（購読種別）・`tanka_id`/`tanka_name`/`tanka_kingaku`（新聞単価。金額は JA 税区分で解決）・`shiharai_hoho`（支払い方法）・`yubin_kubun`（郵送区分）・`dokusyaryo_shiharai_cycle`（購読料支払サイクル）・`biko`（備考）を追加。SELECT に `m_tanka` / `m_ja` を LEFT JOIN。列並び: 履歴番号→購読種別→手続種別、新聞単価は購読部数の前、初回購読開始日（旧「購読開始日」）→増部日→減部日、支払い方法/郵送区分/購読料サイクルは引落口座貯金種目の前、備考は最終データ列。増部日/減部日は部数の増減時のみ `dokusya_kaishi_date` を表示。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/30 | 1.3  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加）: レスポンスに `denshi_dokusya_shubetsu`（電子版読者種別）・`denshi_shonin_status`（電子申込承認ステータス）を追加し、一覧では 履歴番号 → 購読種別 → 電子版読者種別 → 電子申込承認ステータス → 手続種別 の順に表示する。どちらも `t_dokusya_rireki` の既存列で JOIN 追加は不要。紙版は両方 null。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/08/06 | 1.4  | Tran Duc Tuyen    | 実装との差分是正（仕様変更ではなく記載漏れの補完）：①レスポンスに実際は含まれている `torikeshi_flg`（取消済フラグ）と `can_torikeshi`（取消可否）をレスポンス項目表へ追記。前者は API-013-002 で取消された行の識別、後者は取消ボタンの活性制御にFE が使用しており、API-013-002 の追加時に本表への追記が漏れていた。②`created_by` の説明とサンプルを実装に合わせて修正。ログインID（例 `ja_honten01`）ではなく、画面操作は `m_account.account_id` の文字列（例 `"539"`）、バッチ実行は `SYSTEM_DENSHI_SYNC` / `SYSTEM_BATCH_NIGHTLY` 等の固定名（#55719 でバッチ実行者名を SYSTEM_* に統一）が入る。③履歴取消API（ACSMS-API-013-002 / `POST /api/v1/dokusya/{dokusya_id}/rireki/{dokusya_rireki_id}/torikeshi`）の節を新規追記。画面設計書 §4 と本書の変更履歴では参照していたが、API 定義そのものが本書に存在しなかった。あわせてエラー一覧に `TORIKESHI_NOT_ALLOWED` を追加。 | | |
 
 ## システム概要
 
@@ -55,7 +56,8 @@ updated_by: Tran Duc Tuyen
 | 5   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 8   | 画面固有     | NOT_FOUND             | 指定された購読者が見つかりません。                                     | HTTP 404 |
+| 8   | 画面固有     | NOT_FOUND             | 指定された購読者が見つかりません。／指定された履歴が見つかりません。   | HTTP 404 |
+| 9   | 画面固有     | TORIKESHI_NOT_ALLOWED | 取消できないレコードです（紙版・適用日が未来の末尾レコードのみ取消可能。新規・取消済・中間レコード・電子版・適用日到来済みは取消できません）。 | HTTP 400（API-013-002） |
 
 ---
 
@@ -148,7 +150,9 @@ updated_by: Tran Duc Tuyen
 | 58  | →hikiotoshi_koza_no          | String  | -        |              |          | 引落口座番号（空文字許容）                                                                                    |
 | 59  | →hikiotoshi_koza_meigi       | String  | -        |              |          | 引落口座名義（空文字許容）                                                                                    |
 | 60  | →created_at                  | String  | -        | ISO8601      |          | 履歴作成日時                                                                                                  |
-| 61  | →created_by                  | String  | -        |              |          | 履歴作成者                                                                                                    |
+| 61  | →created_by                  | String  | -        |              |          | 履歴作成者。画面操作は `m_account.account_id`（例 `"539"`）、バッチは `SYSTEM_DENSHI_SYNC` / `SYSTEM_BATCH_NIGHTLY` 等の固定名（#55719）                    |
+| 62  | →torikeshi_flg               | Boolean | -        |              |          | 取消済フラグ（TRUE=API-013-002 で取消された行。画面では打ち消し線で表示）                                      |
+| 63  | →can_torikeshi               | Boolean | -        |              |          | 取消可否（この行に対して API-013-002 を実行できるか。取消ボタンの活性制御に使う）                              |
 | 62  | →dokusya_shubetsu            | Number  | -        |              |          | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧の 履歴番号 直後に表示 |
 | 63  | →tanka_id                    | Number  | -        |              |  〇       | 新聞単価ID（m_tanka）※未設定(NULL)あり                                                                              |
 | 64  | →tanka_name                  | String  | -        |              | 〇       | 新聞単価名（m_tanka 結合、単価削除済み等は null）。一覧は「単価名 + 半角スペース + 金額」で表示                 |
@@ -252,7 +256,9 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
       "hikiotoshi_koza_no": "1234567",
       "hikiotoshi_koza_meigi": "ヤマダタロウ",
       "created_at": "2026-04-01T10:00:00Z",
-      "created_by": "ja_honten01"
+      "created_by": "539",
+      "torikeshi_flg": false,
+      "can_torikeshi": true
     }
   ],
   "meta": {
@@ -449,3 +455,136 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 
 - DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
 - 本APIは参照系のため操作ログ（`t_log`）の記録は不要。ただしエラー発生時はアプリケーションロガーへ出力する（log_type=3 相当）。
+
+---
+
+# API ACSMS-API-013-002
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | Torikeshi Dokusya History (赤伝)                                                                                                                                                                                                              |
+| 概要                   | 指定した履歴行を取消する。対象行に `torikeshi_flg` を立て、値を前回値と入れ替えた打ち消し行（赤伝）を追加し、購読者マスタ（`t_dokusya`）を再計算する                                                                                          |
+| URI                    | /api/v1/dokusya/{dokusya_id}/rireki/{dokusya_rireki_id}/torikeshi                                                                                                                                                                             |
+| メソッド               | POST                                                                                                                                                                                                                                          |
+| リクエストボディー     | あり（`reason`）                                                                                                                                                                                                                              |
+| リクエストパラメーター | dokusya_id / dokusya_rireki_id（パスパラメータ）                                                                                                                                                                                              |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                        |
+| 必要権限               | `dokusya.update`                                                                                                                                                                                                                              |
+| HTTPレスポンスコード   | 200:取消しました, 400:取消できないレコードです／入力値が不正です, 401:セッションが切れました, 403:この画面へのアクセス権限がありません, 404:指定された購読者／履歴が見つかりません, 429:リクエスト回数が上限を超えました, 500:システムエラー |
+
+## リクエストパラメータ
+
+| #   | パラメーターID    | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                            |
+| --- | ----------------- | ------ | -------- | ---- | ------ | ------ | ----------------------------------------------------------------------------------------------- |
+| 1   | dokusya_id        | Number | -        | 〇   |        |        | 対象購読者の dokusya_id（パスパラメータ）                                                       |
+| 2   | dokusya_rireki_id | Number | -        | 〇   |        |        | 取消対象の履歴ID（パスパラメータ）。当該 dokusya_id に属する行であること                        |
+| 3   | reason            | String | -        | 〇   | 1      | 500    | 取消理由。対象行と打ち消し行の `biko` に書き込み、`t_log` の afterValue にも記録する（顧客要件） |
+
+## レスポンスデータ
+
+| #   | 項目ID  | タイプ | 繰り返し | フォーマット | Nullable | 説明                          |
+| --- | ------- | ------ | -------- | ------------ | -------- | ----------------------------- |
+| 1   | message | String | -        |              |          | 固定文言 `取消しました。`     |
+
+## リクエスト例
+
+```
+POST /api/v1/dokusya/459/rireki/1024/torikeshi
+Content-Type: application/json
+
+{
+  "reason": "誤入力のため取消"
+}
+```
+
+## レスポンス成功例
+
+```json
+{
+  "message": "取消しました。"
+}
+```
+
+## レスポンス失敗例
+
+### 400 Torikeshi Not Allowed
+
+```json
+{
+  "error_code": "TORIKESHI_NOT_ALLOWED",
+  "message": "取消できないレコードです（紙版・適用日が未来の末尾レコードのみ取消可能。新規・取消済・中間レコード・電子版・適用日到来済みは取消できません）。"
+}
+```
+
+### 400 Validation Error
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [{ "field": "reason", "message": "取消理由を入力してください。" }]
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error_code": "FORBIDDEN",
+  "message": "この画面へのアクセス権限がありません。"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error_code": "NOT_FOUND",
+  "message": "指定された履歴が見つかりません。"
+}
+```
+
+## 処理手順
+
+### 4.1 リクエストのバリデーション
+
+- `dokusya_id` / `dokusya_rireki_id` を整数に変換する（`ParseIntPipe`）。変換できない場合 HTTP 400 `BAD_REQUEST`。
+- `reason` は必須・500文字以内（`TorikeshiRirekiDto`）。違反時 HTTP 400 `VALIDATION_ERROR`。
+
+### 4.2 認証・認可チェック
+
+- `SessionAuthGuard` → セッション不正なら HTTP 401 `UNAUTHORIZED`。
+- `PermissionsGuard` で `dokusya.update` を検査 → 権限が無ければ HTTP 403 `FORBIDDEN`。
+- DataScope（購読者の所属JA／管理支店）を検査し、範囲外なら HTTP 404 でマスクする（行の存在を秘匿するため 403 ではなく 404）。
+
+### 4.3 対象履歴の特定と取消可否判定
+
+- `dokusya_rireki_id` かつ `dokusya_id` の AND で 1 行取得する。当該購読者に属さない履歴IDを指定された場合は HTTP 404 `NOT_FOUND`（他購読者の履歴IDの探索を防ぐ）。
+- `canTorikeshi` で可否を判定し、不可なら HTTP 400 `TORIKESHI_NOT_ALLOWED`。条件は画面設計書 §4.2 と同一：
+
+  1. 紙版（`dokusya_shubetsu=1`）であること。電子版(2)・併読(3)は電子版読者管理システムへ即時連携済みのため不可。
+  2. 新規でないこと（`shinki_flg=false`）。
+  3. 取消済でないこと（`torikeshi_flg=false`）。
+  4. 適用日が未来であること（本日 < `joho_henko_tekiyo_date`、JST）。
+  5. 適用日チェーンの末尾（有効レコード）であること。`torikeshi_flg=false` の行のうち（適用日最大・同日 `rireki_no` 最大）で判定する。
+
+- 判定はトランザクション開始前に行い、期待される検証失敗（400）をエラーログ（`log_type=3`）に残さない。境界競合に備え、トランザクション内の `applyTorikeshi` でも同じ判定を再実行する。
+
+### 4.4 取消処理（トランザクション）
+
+1. `t_dokusya` の対象行をロックする（打ち消し行の `rireki_no` 採番を他更新と直列化するため）。
+2. 対象行を更新：`torikeshi_flg=true`、`biko=reason`。
+3. 打ち消し行（赤伝）を採番して追加する。対象行の複製に対し、現在値と前回値（`*_zenkai`）を入れ替え、`rireki_no` は次番、`joho_henko_tekiyo_date` は対象行と同じ、`torikeshi_flg=true`、`saishin_data_flg=false`、`biko=reason`、`created_by=account_id` を設定する。
+4. 有効な履歴チェーンから購読者マスタ（`t_dokusya`）を再計算する。
+5. 操作ログ（`t_log`）へ UPDATE を記録する（afterValue に `torikeshi_reason` を含む）。本ステップは同一トランザクション内で実行し、業務更新と監査証跡が食い違わないようにする。
+
+### 4.5 レスポンス生成
+
+- `{ "message": "取消しました。" }` を HTTP 200 で返却する。
+
+### 4.6 例外処理
+
+- トランザクションが失敗した場合はロールバックし、エラーログ（`log_type=3`）をトランザクション外で記録したうえで例外を再送出する。
+- DB接続エラー等：HTTP 500 `INTERNAL_SERVER_ERROR`。

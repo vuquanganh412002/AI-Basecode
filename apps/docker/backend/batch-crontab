@@ -1,0 +1,39 @@
+# ローカル開発用のバッチスケジュール（busybox crond）。
+#
+# 本番は EventBridge → ECS RunTask で動く。定義は agrinews-terraform の
+# envs/<env>/scheduled-batches.tf（dev / stg / prod とも同一スケジュール）。
+#
+# ⚠️ 時刻の書き方が本番と違う。ここは container の TZ=Asia/Tokyo が効くので
+#    JST をそのまま書く。EventBridge の cron は UTC 固定（timezone 指定不可）
+#    なので terraform 側は 9 時間引いた値になっている。両者を書き写すときは
+#    必ず変換すること。
+#
+#      このファイル            terraform                    実際の時刻
+#      5  0 * * *             cron(5 15 * * ? *)           00:05 JST
+#      15 0 * * *             cron(15 15 * * ? *)          00:15 JST
+#      45 23 * * *            cron(45 14 * * ? *)          23:45 JST
+#
+# ⚠️ 実行コマンドも違う。本番イメージは dist をビルド済みなので `:prod`
+#    (node dist/...) を叩くが、ローカルは src を bind mount しているだけで
+#    dist が無いため `:dev` (ts-node) を使う。
+#
+# 重複実行は batch 側の pg_try_advisory_lock が弾くので、前回が終わって
+# いなくても安全（後発がすぐ抜ける）。
+#
+# ⚠️ 各行末の `> /proc/1/fd/1 2>&1` は必須。busybox crond はジョブの出力を
+#    sendmail に渡す実装で、コンテナには sendmail が無いため何も残らず
+#    「動いたのか失敗したのか分からない」状態になる。PID 1 の stdout へ
+#    向けると `docker compose logs batch-scheduler` で追える。
+
+# 読者同期: 電子版 users → t_dokusya 差分取込。本番 rate(10 minutes) と同じ。
+*/10 * * * * cd /app && npm run dokusya:sync:dev > /proc/1/fd/1 2>&1
+
+# 以下は 1 日 1 回・深夜のバッチ。ローカルでは有効にしても検証しづらい
+# （00:05 まで待つ意味が薄い）ので既定では止めてある。動作を見るときは
+# コメントを外すより手で叩くほうが早い:
+#   docker compose -f apps/docker-compose.yml exec backend \
+#     sh -c 'cd /app && npm run dokusya:apply-due:dev'
+#
+# 5  0  * * * cd /app && npm run dokusya:apply-due:dev > /proc/1/fd/1 2>&1
+# 15 0  * * * cd /app && npm run tanka:expire:dev > /proc/1/fd/1 2>&1
+# 45 23 * * * cd /app && npm run file:cleanup:dev > /proc/1/fd/1 2>&1

@@ -201,13 +201,28 @@ Run as ECS one-off tasks, scheduled by EventBridge rules defined in
 
 | Job | Schedule (JST) | Purpose |
 | --- | --- | --- |
-| `dokusya:sync` | every 10 min | Pull 電子版 `users` → `t_dokusya` (incremental; nightly full reconcile via `DENSHIBAN_FULL_SYNC=true`) |
-| `dokusya:apply-due` | daily | Finalise subscriptions whose 購読中止日 has arrived; apply scheduled info changes |
-| `tanka:expire` | 00:05 | Flip `m_tanka.active_flg` to FALSE once `tekiyo_end_date` has passed |
-| `log:cleanup` | 23:00 | Hard-delete `t_log` / `t_login_log` older than `LOG_RETENTION_YEARS` (default 5) |
-| `file:cleanup` | daily | Delete S3 objects past `scheduled_delete_date`; soft-delete the DB rows |
+| `dokusya:sync` | every 10 min | Pull 電子版 `users` → `t_dokusya` (incremental; force a full reconcile with `DENSHIBAN_FULL_SYNC=true`) |
+| `dokusya:apply-due` | 00:05 | Finalise subscriptions whose 購読中止日 has arrived; apply scheduled info changes |
+| `tanka:expire` | 00:15 | Flip `m_tanka.active_flg` to FALSE once `tekiyo_end_date` has passed |
+| `file:cleanup` | 23:45 | Delete S3 objects past `scheduled_delete_date`; soft-delete the DB rows |
+| `log:cleanup` | **not scheduled** | Hard-delete `t_log` / `t_login_log` older than `LOG_RETENTION_YEARS` (default 5). The entrypoint exists but no EventBridge rule creates it — run it by hand, or add it to `scheduled-batches.tf`. |
 
-Locally: `npm run <job>:dev --workspace=apps/backend`.
+Schedules above are the source of truth in
+`agrinews-terraform/envs/<env>/scheduled-batches.tf` (dev / stg / prod are
+identical). Those files express the same times in **UTC** because EventBridge
+cron has no timezone — e.g. 00:05 JST is written `cron(5 15 * * ? *)`.
+
+Locally:
+
+- One-off: `npm run <job>:dev --workspace=apps/backend`, or inside Docker
+  `docker compose -f apps/docker-compose.yml exec backend sh -c 'cd /app && npm run <job>:dev'`
+- On a schedule: the `batch-scheduler` compose service runs busybox `crond`
+  against `apps/docker/backend/batch-crontab`. It reuses the backend image, so
+  no extra tooling. Only `dokusya:sync` is enabled by default — the nightly
+  jobs are commented out there because waiting until 00:05 to observe one is
+  rarely what you want. That crontab is written in **JST** (the container sets
+  `TZ=Asia/Tokyo`), so do not copy cron expressions between it and terraform
+  without converting.
 
 ## 電子版 Integration
 

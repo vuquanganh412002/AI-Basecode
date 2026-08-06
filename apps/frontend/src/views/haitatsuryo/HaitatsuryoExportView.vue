@@ -226,31 +226,34 @@ defineExpose({
   <div class="space-y-6">
     <!-- 出力条件エリア（年月日 / 配達手数料支払サイクル） -->
     <div class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
-      <!-- items-start: 年月日 直下にエラーが出ても配達サイクルが上下にずれない。 -->
-      <div class="flex flex-wrap items-start gap-x-8 gap-y-4">
+      <!-- 4カラムグリッド（SCR-026 と同じ）。項目ごとにカード幅の 1/4 を占め、
+           狭幅では 2列 → 1列へ畳む。items-start: 年月日 直下にエラーが出ても
+           配達サイクルが上下にずれない。 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+        <!-- ラベルは入力欄の上。「配達手数料支払サイクル」は約150px あり、
+             1/4 セル（1280px 幅で212px）に横並びで置くと入力欄が50pxしか
+             残らない。縦積みなら入力欄がセル幅いっぱい＝カードの 1/4 を使える。 -->
         <!-- 年月日 -->
         <div>
-          <div class="flex items-center gap-2">
-            <label for="haitatsuryo-target-month" class="text-sm font-medium whitespace-nowrap text-text-main">
-              年月日<span class="text-error ml-1">*</span>
-            </label>
-            <a-date-picker
-              id="haitatsuryo-target-month"
-              v-model:value="formState.target_month"
-              value-format="YYYY-MM-DD"
-              format="YYYY/MM/DD"
-              placeholder="YYYY/MM/DD"
-              style="width: 180px"
-            />
-          </div>
+          <label for="haitatsuryo-target-month" class="block mb-2 text-sm font-medium text-text-main">
+            年月日<span class="text-error ml-1">*</span>
+          </label>
+          <a-date-picker
+            id="haitatsuryo-target-month"
+            v-model:value="formState.target_month"
+            value-format="YYYY-MM-DD"
+            format="YYYY/MM/DD"
+            placeholder="YYYY/MM/DD"
+            class="w-full"
+          />
           <p v-if="fieldErrors.target_month" class="text-error text-sm mt-1">
             {{ fieldErrors.target_month }}
           </p>
         </div>
 
         <!-- 配達手数料支払サイクル（任意） -->
-        <div class="flex items-center gap-2">
-          <label for="haitatsuryo-cycle" class="text-sm font-medium whitespace-nowrap text-text-main">
+        <div>
+          <label for="haitatsuryo-cycle" class="block mb-2 text-sm font-medium text-text-main">
             配達手数料支払サイクル
           </label>
           <a-select
@@ -259,7 +262,7 @@ defineExpose({
             :options="cycleOptions"
             allow-clear
             placeholder="全サイクル"
-            style="width: 140px"
+            class="w-full"
             data-test="cycle-select"
           />
         </div>

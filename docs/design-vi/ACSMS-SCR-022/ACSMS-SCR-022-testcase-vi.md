@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-27 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật (bản này dừng ở 2026-05-27, trước cả bản JA v1.1 ngày 2026-07-02 vốn đã đổi nguồn dữ liệu): ①thay `t_file_upload`→`t_file_download`, `file_upload_id`→`file_download_id`, `アップロード日時`→`ダウンロード日時` trên toàn tài liệu. ②cập nhật danh sách cột ở TC-009 (bỏ「対象年月」, thêm「JA名」「ダウンロード種別」「操作」). ③bổ sung 11 ca kiểm thử (050〜060) và tạo カテゴリ9: cờ cho phép Nichino tải + tải hàng loạt ZIP + lọc theo loại tải, mở rộng DataScope của trung ương hội ra toàn bộ JA cùng tỉnh (#52132), và ngoại lệ không xét cờ với file do chính mình xuất |  |  |
 
 
 ## システム概要
@@ -61,7 +62,8 @@ Tài liệu tham khảo ISTQB và IEEE 829, đáp ứng các tiêu chuẩn chấ
 | 6 | Business logic — Preview (Function — Preview) | 4 |
 | 7 | Business logic — Download (Function — Download) | 6 |
 | 8 | Xử lý lỗi chung (Common Error Handling) | 8 |
-|  | Tổng cộng | 49 |
+| 9 | Mở rộng DataScope・Ngoại lệ cho phép tải (Scope / Download Gate) | 11 |
+|  | Tổng cộng | 60 |
 
 ---
 
@@ -88,7 +90,7 @@ Truy cập trực tiếp URL `/file-upload`
 Trên tab Network của DevTools, kiểm tra response của GET `/api/v1/file-upload`
 
 ステップ4：
-Trên DB, thực thi `SELECT COUNT(*) FROM t_file_upload WHERE deleted_at IS NULL` và kiểm tra số dòng trả về có khớp không
+Trên DB, thực thi `SELECT COUNT(*) FROM t_file_download WHERE deleted_at IS NULL` và kiểm tra số dòng trả về có khớp không
 
 ### 期待結果
 
@@ -105,7 +107,7 @@ Trả về HTTP 200, array `data` chứa file thuộc nhiều JA khác nhau
 Tổng số dòng trên DB khớp với `meta.total` của response (NICHINO_ADMIN có thể tham chiếu toàn bộ, không có DataScope filter)
 
 補足：
-・NICHINO_ADMIN là role có thể tham chiếu toàn bộ dòng trong `t_file_upload`, kể cả file `ja_id IS NULL` (gửi tới toàn bộ JA) và file của JA khác
+・NICHINO_ADMIN là role có thể tham chiếu toàn bộ dòng trong `t_file_download`, kể cả file `ja_id IS NULL` (gửi tới toàn bộ JA) và file của JA khác
 ・Item menu được hiển thị trên sidebar, không bị ẩn nhầm
 
 ### テスト結果（1回目）
@@ -203,7 +205,7 @@ Truy cập URL `/file-upload`
 Gọi GET `/api/v1/file-upload?per_page=100`, kiểm tra giá trị `data[].ja_id`
 
 ステップ3：
-Gọi trực tiếp API download GET `/api/v1/file-upload/{file_upload_id}/download` với file của JA ngoài quản hạt (`ja_id` ngoài scope)
+Gọi trực tiếp API download GET `/api/v1/file-upload/{file_download_id}/download` với file của JA ngoài quản hạt (`ja_id` ngoài scope)
 
 ### 期待結果
 
@@ -259,7 +261,7 @@ Trả về HTTP 404 (`error_code: NOT_FOUND`, message `指定されたファイ�
 Truy cập URL `/file-upload`, kiểm tra danh sách
 
 ステップ2：
-Lấy file ID của JA khác từ DevTools, truyền vào GET `/api/v1/file-upload/{file_upload_id}/preview` và gọi trực tiếp
+Lấy file ID của JA khác từ DevTools, truyền vào GET `/api/v1/file-upload/{file_download_id}/preview` và gọi trực tiếp
 
 ### 期待結果
 
@@ -311,7 +313,7 @@ Trả về HTTP 404 (`error_code: NOT_FOUND`)
 Truy cập URL `/file-upload`, kiểm tra danh sách
 
 ステップ2：
-Truyền trực tiếp file ID của JA khác vào GET `/api/v1/file-upload/{file_upload_id}/download` và gọi
+Truyền trực tiếp file ID của JA khác vào GET `/api/v1/file-upload/{file_download_id}/download` và gọi
 
 ### 期待結果
 
@@ -520,7 +522,7 @@ Kiểm tra label và vị trí của từng button
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Test data: `t_file_upload` tồn tại ≥ 5 file
+  - ・Test data: `t_file_download` tồn tại ≥ 5 file
 
 ### 手順
 
@@ -533,10 +535,12 @@ Kiểm tra 1 row data được hiển thị với giá trị tương ứng cho t
 ### 期待結果
 
 ステップ1：
-Các column được hiển thị từ trái sang phải theo thứ tự `選択（チェックボックス） / アップロード日時 / 作成者 / ファイル名 / サイズ`
+Các column được hiển thị từ trái sang phải theo thứ tự `選択（チェックボックス） / ダウンロード日時 / 作成者 / JA名 / ダウンロード種別 / ファイル名 / サイズ / 操作` (column「対象年月」cũ đã bị bỏ, thêm mới column「JA名」và「ダウンロード種別」)
 
 ステップ2：
-・Column アップロード日時 hiển thị giá trị định dạng `YYYY/MM/DD HH:mm:ss`
+・Column ダウンロード日時 hiển thị giá trị định dạng `YYYY/MM/DD HH:mm:ss` (`download_datetime`)
+・Column JA名 hiển thị kết hợp `ja_code` + `ja_name` (file gửi toàn bộ JA với `ja_id IS NULL` thì để trống)
+・Column ダウンロード種別 hiển thị nhãn m_code `DOWNLOAD_TYPE` (1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿)
 ・Column 作成者 hiển thị kết quả JOIN từ `m_account.account_name`
 ・Column ファイル名 hiển thị dạng link với màu nhấn
 ・Column サイズ hiển thị kích thước dạng human-readable (ví dụ: `1.2 MB`)
@@ -575,7 +579,7 @@ Các column được hiển thị từ trái sang phải theo thứ tự `選択
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Test data: `t_file_upload` tồn tại ≥ 100 file
+  - ・Test data: `t_file_download` tồn tại ≥ 100 file
 
 ### 手順
 
@@ -1254,7 +1258,7 @@ Gửi GET `/api/v1/file-upload?sort_by=DROP TABLE`
 ### 期待結果
 
 ステップ1：
-Trả về HTTP 400 (`error_code: VALIDATION_ERROR`) — chỉ cho phép `upload_datetime / file_name / created_by`
+Trả về HTTP 400 (`error_code: VALIDATION_ERROR`) — chỉ cho phép `download_datetime / file_name / created_by`
 
 ステップ2：
 Trả về HTTP 400, không bị thực thi như SQL injection (bị chặn bằng parameterized query)
@@ -1300,10 +1304,10 @@ Trả về HTTP 400, không bị thực thi như SQL injection (bị chặn bằ
 Nhập `' OR '1'='1` vào textbox ファイル名 và nhấn button 検索
 
 ステップ2：
-Nhập `'; DROP TABLE t_file_upload; --` vào textbox ファイル名 và nhấn button 検索
+Nhập `'; DROP TABLE t_file_download; --` vào textbox ファイル名 và nhấn button 検索
 
 ステップ3：
-Trên DB thực thi `SELECT COUNT(*) FROM t_file_upload`, xác nhận bảng vẫn tồn tại
+Trên DB thực thi `SELECT COUNT(*) FROM t_file_download`, xác nhận bảng vẫn tồn tại
 
 ### 期待結果
 
@@ -1314,7 +1318,7 @@ Trả về HTTP 200, giá trị nhập được xử lý an toàn như parameter
 Trả về HTTP 200, không thực thi thao tác phá hủy bảng
 
 ステップ3：
-Bảng `t_file_upload` vẫn tồn tại (không bị phá hủy), không phát sinh sai lệch dữ liệu
+Bảng `t_file_download` vẫn tồn tại (không bị phá hủy), không phát sinh sai lệch dữ liệu
 
 補足：
 ・Parameterized query (`ILIKE '%' || :file_name || '%'`) chặn SQL injection
@@ -1347,14 +1351,14 @@ Bảng `t_file_upload` vẫn tồn tại (không bị phá hủy), không phát 
 
 # カテゴリ 5: Business logic — Tìm kiếm / Danh sách (Function — Search)
 
-## ACSMS-TC-022-024 — Hiển thị ban đầu — Sort mặc định (upload_datetime DESC)
+## ACSMS-TC-022-024 — Hiển thị ban đầu — Sort mặc định (download_datetime DESC)
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Test data: `t_file_upload` tồn tại ≥ 5 record với upload_datetime khác nhau
+  - ・Test data: `t_file_download` tồn tại ≥ 5 record với download_datetime khác nhau
 
 ### 手順
 
@@ -1362,7 +1366,7 @@ Bảng `t_file_upload` vẫn tồn tại (không bị phá hủy), không phát 
 Truy cập URL `/file-upload`
 
 ステップ2：
-Kiểm tra thứ tự sắp xếp của column アップロード日時 trong danh sách kết quả
+Kiểm tra thứ tự sắp xếp của column ダウンロード日時 trong danh sách kết quả
 
 ステップ3：
 Kiểm tra response của GET `/api/v1/file-upload`
@@ -1373,13 +1377,13 @@ Kiểm tra response của GET `/api/v1/file-upload`
 Màn hình được hiển thị
 
 ステップ2：
-アップロード日時 được xếp theo thứ tự mới nhất trước (DESC)
+ダウンロード日時 được xếp theo thứ tự mới nhất trước (DESC)
 
 ステップ3：
-Array `data` của response được trả về theo `upload_datetime` DESC, `meta.page = 1`, `meta.per_page = 20`
+Array `data` của response được trả về theo `download_datetime` DESC, `meta.page = 1`, `meta.per_page = 20`
 
 補足：
-・Sort order mặc định là `upload_datetime DESC` (api.md §4.1)
+・Sort order mặc định là `download_datetime DESC` (api.md §4.1)
 
 ### テスト結果（1回目）
 
@@ -1431,7 +1435,7 @@ Giá trị nhập được phản ánh trên màn hình
 Trả về HTTP 200, request được gửi với `?file_name=meibo&todofuken_code=13`, chỉ hiển thị 3 file gắn JA của 東京都 (file gửi toàn bộ JA bị loại khi filter theo todofuken)
 
 補足：
-・Đi qua JOIN chain `t_file_upload.ja_id → m_ja.ja_id → m_ja.todofuken_code`
+・Đi qua JOIN chain `t_file_download.ja_id → m_ja.ja_id → m_ja.todofuken_code`
 ・File `ja_id IS NULL` do LEFT JOIN nên `j.todofuken_code IS NULL`, `NULL = 13` là FALSE nên bị loại (api.md §4.3)
 
 ### テスト結果（1回目）
@@ -1517,7 +1521,7 @@ Hiển thị 2 file `ja_id IS NULL` và 1 file của JA 東京都, tổng 3 dòn
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Test data: trong `t_file_upload` không tồn tại file name chứa `'XYZNOTFOUND'`
+  - ・Test data: trong `t_file_download` không tồn tại file name chứa `'XYZNOTFOUND'`
 
 ### 手順
 
@@ -1580,7 +1584,7 @@ Hiển thị kết quả search với số dòng khớp điều kiện
 ステップ2：
 ・Textbox ファイル名 trở thành rỗng
 ・Dropdown 都道府県 trở thành chưa chọn
-・Danh sách kết quả được hiển thị lại như danh sách mặc định (toàn bộ, `upload_datetime DESC`)
+・Danh sách kết quả được hiển thị lại như danh sách mặc định (toàn bộ, `download_datetime DESC`)
 ・Điều kiện search được clear
 
 補足：
@@ -1639,7 +1643,7 @@ Trang 1 hiển thị danh sách 20 file
 Chuyển sang danh sách file của trang 2, điều kiện search `zougen` được giữ trên textbox
 
 ステップ3：
-Request được gửi dưới dạng `?file_name=zougen&page=2&per_page=20&sort_by=upload_datetime&sort_order=desc`, điều kiện search được giữ lại
+Request được gửi dưới dạng `?file_name=zougen&page=2&per_page=20&sort_by=download_datetime&sort_order=desc`, điều kiện search được giữ lại
 
 補足：
 ・Khi đổi số trang, điều kiện search user đã nhập vẫn được giữ
@@ -1697,10 +1701,10 @@ Click lần thứ 3 vào header column ファイル名
 Được sắp xếp theo ファイル名 DESC, request được gửi dưới dạng `?sort_by=file_name&sort_order=desc`
 
 ステップ3：
-Trở về trạng thái bỏ sort hoặc mặc định (`upload_datetime DESC`) (phụ thuộc policy FE, Sort order đúng)
+Trở về trạng thái bỏ sort hoặc mặc định (`download_datetime DESC`) (phụ thuộc policy FE, Sort order đúng)
 
 補足：
-・Có 3 loại column sort được hỗ trợ: `upload_datetime / file_name / created_by` (api.md §4.1)
+・Có 3 loại column sort được hỗ trợ: `download_datetime / file_name / created_by` (api.md §4.1)
 
 ### テスト結果（1回目）
 
@@ -1741,7 +1745,7 @@ Trở về trạng thái bỏ sort hoặc mặc định (`upload_datetime DESC`)
 Truy cập URL `/file-upload`, kiểm tra số dòng trong danh sách kết quả
 
 ステップ2：
-Trên DB thực thi `SELECT COUNT(*) FROM t_file_upload WHERE deleted_at IS NULL`
+Trên DB thực thi `SELECT COUNT(*) FROM t_file_download WHERE deleted_at IS NULL`
 
 ### 期待結果
 
@@ -1797,7 +1801,7 @@ Số dòng valid trên DB là 3, khớp với số dòng hiển thị trên màn
 Từ danh sách kết quả, bật checkbox của 1 file PDF
 
 ステップ2：
-Nhấn button プレビュー, kiểm tra response của GET `/api/v1/file-upload/{file_upload_id}/preview`
+Nhấn button プレビュー, kiểm tra response của GET `/api/v1/file-upload/{file_download_id}/preview`
 
 ステップ3：
 Xác nhận PDF được render trong modal preview
@@ -1907,7 +1911,7 @@ Hiển thị warning message `ファイルを選択してください。` (ACSMS
 Bật checkbox của file tương ứng và nhấn button プレビュー
 
 ステップ2：
-Kiểm tra response của GET `/api/v1/file-upload/{file_upload_id}/preview`
+Kiểm tra response của GET `/api/v1/file-upload/{file_download_id}/preview`
 
 ### 期待結果
 
@@ -2014,7 +2018,7 @@ Toàn bộ checkbox trở thành chưa chọn, highlight của toàn bộ row đ
 Từ danh sách kết quả bật checkbox của file tương ứng và nhấn button ダウンロード実行
 
 ステップ2：
-Kiểm tra response của GET `/api/v1/file-upload/{file_upload_id}/download`
+Kiểm tra response của GET `/api/v1/file-upload/{file_download_id}/download`
 
 ステップ3：
 Lưu file qua save dialog của browser và xác nhận nội dung đúng
@@ -2023,7 +2027,7 @@ Lưu file qua save dialog của browser và xác nhận nội dung đúng
 Trên DB thực thi `SELECT * FROM t_file_download WHERE created_by = :login_id ORDER BY download_datetime DESC LIMIT 1`
 
 ステップ5：
-Trên DB thực thi `SELECT * FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND target_id = :file_upload_id ORDER BY log_datetime DESC LIMIT 1`
+Trên DB thực thi `SELECT * FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND target_id = :file_download_id ORDER BY log_datetime DESC LIMIT 1`
 
 ### 期待結果
 
@@ -2186,7 +2190,7 @@ Hiển thị warning message `ファイルを選択してください。` (ACSMS
 - 前提条件:
   - ・role: JA_HONTEN (ja_id = 5 của JA mình)
   - ・Đã login + đã xác thực MFA
-  - ・Test data: tồn tại file file_upload_id = 999 gắn JA khác (ja_id = 10)
+  - ・Test data: tồn tại file file_download_id = 999 gắn JA khác (ja_id = 10)
 
 ### 手順
 
@@ -2586,7 +2590,7 @@ Trả về HTTP 429 (`error_code: TOO_MANY_REQUESTS`, message `リクエスト�
 ### 手順
 
 ステップ1：
-Ngắt kết nối DB (hoặc từ BE process từ chối truy cập bảng `t_file_upload`)
+Ngắt kết nối DB (hoặc từ BE process từ chối truy cập bảng `t_file_download`)
 
 ステップ2：
 Trên màn hình nhấn button 検索
@@ -2632,7 +2636,7 @@ Sau khi khôi phục, search hoạt động bình thường
 
 (なし)
 
-## ACSMS-TC-022-047 — NOT_FOUND — Chỉ định file_upload_id không tồn tại
+## ACSMS-TC-022-047 — NOT_FOUND — Chỉ định file_download_id không tồn tại
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)
@@ -2690,7 +2694,7 @@ Trả về HTTP 404 (`error_code: NOT_FOUND`), xử lý download KHÔNG được
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Test data: file ID = 500 tồn tại đến trước đó được xóa logical bằng `UPDATE t_file_upload SET deleted_at = NOW() WHERE file_upload_id = 500`
+  - ・Test data: file ID = 500 tồn tại đến trước đó được xóa logical bằng `UPDATE t_file_download SET deleted_at = NOW() WHERE file_download_id = 500`
 
 ### 手順
 
@@ -2791,3 +2795,696 @@ Sau khi khôi phục network, search hoạt động bình thường, không ản
 ### 備考
 
 (なし)
+
+# カテゴリ 9: Mở rộng DataScope・Ngoại lệ cho phép tải (Scope / Download Gate)
+
+## ACSMS-TC-022-050 — Role Nichino × nichino_download_allowed_flg=false thì cấm tải (403 + dòng bị disabled)
+
+- 観点ID: VP-A-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (role ID = 1)
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: trong `t_file_download` có 1 file với `nichino_download_allowed_flg = false` (không cho phép Nichino tải) (thực thể tồn tại trên S3)
+
+### Các bước
+
+Bước 1:
+Truy cập URL `/file-download` và kiểm tra file tương ứng có hiển thị trong danh sách không
+
+Bước 2:
+Kiểm tra trạng thái checkbox và các nút thao tác (preview / download) của dòng file đó
+
+Bước 3:
+Từ DevTools gửi trực tiếp GET `/api/v1/file-download/{file_download_id}/download`
+
+Bước 4:
+Từ DevTools gửi trực tiếp GET `/api/v1/file-download/{file_download_id}/preview`
+
+### Kết quả mong đợi
+
+Bước 1:
+File tương ứng hiển thị trong danh sách (bản thân dòng không bị ẩn)
+
+Bước 2:
+Checkbox・thao tác của dòng đó ở trạng thái vô hiệu hóa (disabled)
+
+Bước 3:
+Trả về HTTP status code 403 (`error_code: FORBIDDEN`, thông báo `このファイルは日農のダウンロードが許可されていません。`), xử lý tải không được thực thi
+
+Bước 4:
+Trả về HTTP status code 403 (`error_code: FORBIDDEN`, thông báo `このファイルは日農のダウンロードが許可されていません。`), preview không được thực thi
+
+Bổ sung:
+・**Role bị hạn chế tải** (NICHINO_ADMIN role1 / NICHINO_STAFF role2 / **CHUOKAI role3**) không thể tải / preview file có `nichino_download_allowed_flg = false` (việc thêm trung ương hội là yêu cầu khách hàng 2026-07). Tuy nhiên **file do chính mình xuất ra thì không xét cờ này** (#52132・xem ACSMS-TC-022-060)
+・Dòng vẫn hiển thị trong danh sách nhưng thao tác bị vô hiệu hóa (disabled)
+・Điều kiện disabled của dòng: (a) đã xóa logic (`deleted_at ≠ NULL`) HOẶC (b) role bị hạn chế tải (Nichino + trung ương hội) và `nichino_download_allowed_flg = false` và **không phải file do chính mình xuất ra**
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-051 — Role Nichino × nichino_download_allowed_flg=true thì cho phép tải
+
+- 観点ID: VP-A-03
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_STAFF (role ID = 2)
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: trong `t_file_download` có 1 file với `nichino_download_allowed_flg = true` (cho phép Nichino tải) (thực thể tồn tại trên S3)
+
+### Các bước
+
+Bước 1:
+Truy cập URL `/file-download` và kiểm tra trạng thái checkbox・thao tác của dòng file tương ứng
+
+Bước 2:
+Bật checkbox của file đó, bấm nút thực thi tải và kiểm tra response của GET `/api/v1/file-download/{file_download_id}/download`
+
+### Kết quả mong đợi
+
+Bước 1:
+Checkbox・thao tác của dòng đó ở trạng thái có hiệu lực (không bị disabled)
+
+Bước 2:
+Trả về HTTP status code 200, file được tải xuống và hiển thị thông báo thành công `ダウンロードが完了しました。` (ACSMS-MSG-022-005)
+
+Bổ sung:
+・File có `nichino_download_allowed_flg = true` thì role Nichino cũng tải được bình thường
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-052 — JA_HONTEN / JA_KANRI_SHITEN không bị ảnh hưởng bởi nichino_download_allowed_flg
+
+- 観点ID: VP-A-03
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: 1 file gắn với JA của mình có `nichino_download_allowed_flg = false` (thực thể tồn tại trên S3, nằm trong DataScope)
+
+### Các bước
+
+Bước 1:
+Truy cập URL `/file-download` và kiểm tra trạng thái checkbox・thao tác của dòng file tương ứng
+
+Bước 2:
+Bật checkbox của file đó, bấm nút thực thi tải và kiểm tra response của GET `/api/v1/file-download/{file_download_id}/download`
+
+### Kết quả mong đợi
+
+Bước 1:
+Checkbox・thao tác của dòng đó ở trạng thái có hiệu lực (không bị disabled)
+
+Bước 2:
+Trả về HTTP status code 200, file được tải xuống và hiển thị thông báo thành công `ダウンロードが完了しました。` (ACSMS-MSG-022-005)
+
+Bổ sung:
+・`nichino_download_allowed_flg` là kiểm soát tác động lên role bị hạn chế tải (Nichino role1 / role2 + **trung ương hội role3**); JA_HONTEN / JA_KANRI_SHITEN nếu nằm trong phạm vi DataScope của mình thì tải / preview được bất kể giá trị cờ. Trung ương hội đã được thêm vào đối tượng hạn chế theo yêu cầu khách hàng 2026-07 (xem ACSMS-TC-022-060)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-053 — Gửi trực tiếp giá trị ngoài phạm vi cho phép của loại tải (download_type)
+
+- 観点ID: VP-B-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+
+### Các bước
+
+Bước 1:
+Từ DevTools gửi trực tiếp GET `/api/v1/file-download?download_type=1` (giá trị hợp lệ)
+
+Bước 2:
+Gửi trực tiếp GET `/api/v1/file-download?download_type=9` (giá trị không tồn tại trong m_code DOWNLOAD_TYPE)
+
+Bước 3:
+Gửi trực tiếp GET `/api/v1/file-download?download_type=ABC` (không phải số)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 200, chỉ lọc ra các file có `download_type = 1` (trích nợ tài khoản)
+
+Bước 2:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, trong `errors` có lỗi giá trị không hợp lệ với `field: download_type`) — chỉ chấp nhận m_code `DOWNLOAD_TYPE` (1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿)
+
+Bước 3:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, lỗi định dạng)
+
+Bổ sung:
+・Loại tải chỉ chấp nhận một trong 5 loại của m_code `DOWNLOAD_TYPE`
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-054 — Tìm kiếm lọc theo loại tải
+
+- 観点ID: VP-C-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: trong `t_file_download` có `download_type = 1` (trích nợ tài khoản) 2 file, `download_type = 4` (thông báo tăng giảm) 2 file, `download_type = 5` (danh sách người đọc) 1 file
+
+### Các bước
+
+Bước 1:
+Chọn "増減通知書" ở dropdown loại tải rồi bấm nút tìm kiếm
+
+Bước 2:
+Kiểm tra tham số của GET request và danh sách kết quả
+
+Bước 3:
+Đưa dropdown loại tải về trạng thái chưa chọn rồi bấm nút tìm kiếm
+
+### Kết quả mong đợi
+
+Bước 1:
+Giá trị nhập được phản ánh lên màn hình
+
+Bước 2:
+Trả về HTTP status code 200, request được gửi với `?download_type=4`, chỉ hiển thị 2 file có `download_type = 4` (thông báo tăng giảm)
+
+Bước 3:
+Bộ lọc loại tải được gỡ bỏ và hiển thị đủ 5 file
+
+Bổ sung:
+・Loại tải được chọn từ dropdown m_code `DOWNLOAD_TYPE` (1:口座振替 / 2:その他 / 3:増減連絡票 / 4:増減通知書 / 5:購読者名簿)
+・Có thể kết hợp với các điều kiện tìm kiếm khác (tên file・tỉnh thành・JA) bằng điều kiện AND
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-055 — Tải hàng loạt nhiều file (ZIP) — trường hợp bình thường
+
+- 観点ID: VP-D-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: 5 file có thể tải mà các màn hình xuất báo biểu đã đăng ký vào `t_file_download` (thực thể tồn tại trên S3)
+
+### Các bước
+
+Bước 0 (đo trước):
+Thực thi `SELECT COUNT(*) FROM t_file_download` trên DB và ghi lại tổng số trước khi test
+
+Bước 1:
+Từ danh sách kết quả bật checkbox 5 file rồi bấm nút thực thi tải
+
+Bước 2:
+Kiểm tra response của POST `/api/v1/file-download/download-zip` (body `{ "file_download_ids": [id1, id2, id3, id4, id5] }`)
+
+Bước 3:
+Giải nén file ZIP đã tải và kiểm tra nội dung
+
+Bước 4:
+Thực thi lại `SELECT COUNT(*) FROM t_file_download` trên DB và so sánh với Bước 0
+
+Bước 5:
+Thực thi `SELECT COUNT(*) FROM t_log WHERE log_type = 4 AND operation = 'DOWNLOAD' AND account_id = :account_id AND log_datetime >= :test_start_time` trên DB
+
+### Kết quả mong đợi
+
+Bước 1:
+Xử lý tải hàng loạt được bắt đầu
+
+Bước 2:
+Trả về HTTP status code 200, trả về ZIP với `Content-Type: application/zip`, hiển thị thông báo thành công `ダウンロードが完了しました。` (ACSMS-MSG-022-005)
+
+Bước 3:
+Giải nén ZIP thấy có đủ cả 5 file đã chọn
+
+Bước 4:
+Tổng số của `t_file_download` không tăng so với Bước 0 (tải hàng loạt ZIP cũng không INSERT mới)
+
+Bước 5:
+Log thao tác `t_log` (`log_type = 4` / `operation = 'DOWNLOAD'`) chỉ được ghi 1 bản ghi
+
+Bổ sung:
+・`file_download_ids` là 1〜50 phần tử・không được trùng
+・Tải hàng loạt ZIP cũng không INSERT vào `t_file_download`, `t_log` chỉ 1 bản ghi
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-056 — Tải hàng loạt ZIP — chọn 0 file (chưa chọn file)
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+
+### Các bước
+
+Bước 1:
+Bấm nút thực thi tải khi tất cả checkbox đều chưa chọn
+
+Bước 2:
+(Kiểm chứng trực tiếp BE) Từ DevTools gửi POST `/api/v1/file-download/download-zip` (body `{ "file_download_ids": [] }`)
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị thông báo cảnh báo `ファイルを選択してください。` (ACSMS-MSG-022-002), API tải ZIP không được gọi (FE phát hiện số lượng chọn = 0)
+
+Bước 2:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, thông báo `ファイルを選択してください。`)
+
+Bổ sung:
+・`file_download_ids` bắt buộc tối thiểu 1 phần tử
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-057 — Tải hàng loạt ZIP — chọn 51 file (vượt giới hạn)
+
+- 観点ID: VP-B-02
+- 種類: Boundary (境界)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: tồn tại từ 51 file có thể tải trở lên
+
+### Các bước
+
+Bước 1:
+(Kiểm chứng trực tiếp BE) Từ DevTools gửi POST `/api/v1/file-download/download-zip` (body `{ "file_download_ids": [51 ID duy nhất] }`)
+
+Bước 2:
+Gửi POST `/api/v1/file-download/download-zip` (body `{ "file_download_ids": [50 ID duy nhất] }`) (giá trị biên: đúng bằng giới hạn)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, thông báo `一括ダウンロードは最大50件までです。`)
+
+Bước 2:
+Trả về HTTP status code 200, ZIP được trả về bình thường (50 nằm trong phạm vi cho phép)
+
+Bổ sung:
+・Giới hạn của `file_download_ids` là 50 phần tử (1〜50)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-058 — Tải hàng loạt ZIP — chỉ định ID trùng lặp
+
+- 観点ID: VP-B-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Test data: tồn tại từ 2 file có thể tải trở lên
+
+### Các bước
+
+Bước 1:
+(Kiểm chứng trực tiếp BE) Từ DevTools gửi POST `/api/v1/file-download/download-zip` (body `{ "file_download_ids": [id1, id1, id2] }`: `id1` bị trùng)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, thông báo `ファイルIDが重複しています。`), ZIP không được sinh ra
+
+Bổ sung:
+・`file_download_ids` không được trùng lặp
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-059 — Mở rộng DataScope của trung ương hội — toàn bộ JA cùng tỉnh (#52132)
+
+- 観点ID: VP-A-02
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: CHUOKAI (JA của mình = ja_id 5, `todofuken_code='13'`)
+  - ・Cùng tỉnh (13) có 2 JA khác ngoài JA của mình, mỗi JA đã xuất file
+  - ・Có 1 file của JA thuộc tỉnh khác (ví dụ: 14)
+  - ・File của JA cùng tỉnh phải chuẩn bị cả loại `nichino_download_allowed_flg = true` và `false`
+  - ・Chuẩn bị cả session **không có** `todofuken_code` (được phát hành trước khi triển khai tính năng này)
+
+### Các bước
+
+Bước 1:
+Hiển thị danh sách và kiểm tra `ja_id` của các file được trả về
+
+Bước 2:
+Kiểm tra các lựa chọn trong dropdown lọc JA
+
+Bước 3:
+Kiểm tra trạng thái của dropdown tỉnh thành
+
+Bước 4:
+Tải riêng lẻ・preview・tải hàng loạt ZIP file của JA cùng tỉnh (`nichino_download_allowed_flg = true`)
+
+Bước 5:
+Tải riêng lẻ file của JA cùng tỉnh có `nichino_download_allowed_flg = false`
+
+Bước 6:
+Chỉ định trực tiếp `file_download_id` của file thuộc JA tỉnh khác và gọi API tải
+
+Bước 7:
+Hiển thị danh sách bằng session không có `todofuken_code`
+
+Bước 8:
+Hiển thị danh sách bằng tài khoản có role JA_HONTEN / JA_KANRI_SHITEN (có `todofuken_code`)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về file của JA mình + 2 JA cùng tỉnh + file gửi toàn bộ JA (`ja_id IS NULL`). Không bao gồm file của JA tỉnh khác
+
+Bước 2:
+Toàn bộ JA của tỉnh mình hiển thị làm lựa chọn (`GET /api/v1/ja/dropdown?scope=todofuken`). JA của tỉnh khác không xuất hiện
+
+Bước 3:
+Tỉnh thành được **cố định là tỉnh của mình** (không chọn được tỉnh khác). Phía BE cũng chặn tỉnh khác nên chủ trương là không cho chọn
+
+Bước 4:
+Tất cả đều thành công. **Dòng đã xuất hiện trong danh sách thì cũng qua được tải riêng lẻ・preview・ZIP** (điều kiện bất biến: dùng cùng một tập ja_id để đánh giá)
+
+Bước 5:
+Trả về HTTP status code 403 (`FORBIDDEN`, thông báo `このファイルは日農のダウンロードが許可されていません。`). **Thấy trong danh sách nhưng không tải được** (đánh giá phạm vi và đánh giá khả năng tải là hai việc khác nhau)
+
+Bước 6:
+Trả về HTTP status code 404 (`NOT_FOUND`) (ngoài phạm vi thì che giấu sự tồn tại)
+
+Bước 7:
+**Chỉ trả về file của JA mình** (fallback về hành vi cũ). Không được báo lỗi
+
+Bước 8:
+Chỉ trả về file của JA mình. Dù có `todofuken_code` cũng không mở rộng ra toàn bộ JA trong tỉnh
+
+Bổ sung:
+・Tỉnh được mở rộng tới được quyết định bởi `todofuken_code` **của session chứ không phải do client chỉ định**, nên không thể xem trộm tỉnh khác
+・Lý do coi `todofuken_code` là optional: session hiện có trên Redis được phát hành trước khi triển khai tính năng này không có mục đó. Nếu khai báo kiểu bắt buộc sẽ lệch với thực tế lúc chạy
+・Lý do giới hạn đánh giá ở `role_code = CHUOKAI`: JA_HONTEN / JA_KANRI_SHITEN cũng có `todofuken_code`. Nếu rẽ nhánh chỉ dựa vào việc có mã hay không thì cả hai role cũng bị mở rộng ra toàn bộ JA trong tỉnh (Bước 8 là kiểm tra hồi quy cho việc này)
+・Nếu ở FE để bộ lọc JA cố định vào JA của mình kèm disable thì điều kiện tìm kiếm luôn là `ja_id = JA của mình`, khiến việc mở rộng ở BE hoàn toàn vô hiệu (Bước 2 là kiểm tra hồi quy cho việc này)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-022-060 — Cho phép tải của Nichino — Thêm trung ương hội vào đối tượng và ngoại lệ cho file do chính mình xuất (#52132)
+
+- 観点ID: VP-A-03
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Chuẩn bị các file sau
+    - ・(a) `nichino_download_allowed_flg = false`・`created_by` = **tài khoản khác**
+    - ・(b) `nichino_download_allowed_flg = false`・`created_by` = **`account_id` của tài khoản đang đăng nhập**
+    - ・(c) `nichino_download_allowed_flg = false`・`created_by` = **chuỗi rỗng**
+    - ・(d) `nichino_download_allowed_flg = true`・`created_by` = tài khoản khác
+  - ・Các tài khoản role: NICHINO_ADMIN / NICHINO_STAFF / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
+
+### Các bước
+
+Bước 1:
+Hiển thị danh sách bằng CHUOKAI và kiểm tra trạng thái vô hiệu hóa (checkbox・link tên file) của các dòng (a)〜(d)
+
+Bước 2:
+Tải／preview (a) bằng CHUOKAI
+
+Bước 3:
+Tải (b) bằng CHUOKAI
+
+Bước 4:
+Tải (c) bằng CHUOKAI
+
+Bước 5:
+Xác nhận với NICHINO_ADMIN / NICHINO_STAFF cũng cho kết quả (a) là 403 và (b) thành công
+
+Bước 6:
+Tải (a) bằng JA_HONTEN / JA_KANRI_SHITEN
+
+Bước 7:
+Chọn nhiều file bao gồm (a) rồi tải hàng loạt ZIP
+
+### Kết quả mong đợi
+
+Bước 1:
+(a) và (c) bị vô hiệu hóa. **(b) không bị vô hiệu hóa** (file do chính mình xuất ra). (d) không bị vô hiệu hóa
+
+Bước 2:
+Trả về HTTP status code 403 (`FORBIDDEN`, thông báo `このファイルは日農のダウンロードが許可されていません。`). Trung ương hội đã được thêm vào role đối tượng (yêu cầu khách hàng 2026-07. Trước đây chỉ có Nichino)
+
+Bước 3:
+**Tải thành công**. Cờ này là để phía JA quyết định "có cho tổ chức khác xem file của tổ chức mình hay không", không có ý định chặn cả chính người đã xuất file
+
+Bước 4:
+Trả về 403 (dòng có `created_by` là chuỗi rỗng thì **không coi là chính mình** ＝ nghiêng về phía an toàn)
+
+Bước 5:
+Ngoại lệ là chung cho cả 3 role bị hạn chế tải (không phải đặc cách riêng cho trung ương hội)
+
+Bước 6:
+Tải thành công (role hệ JA không bị ảnh hưởng bởi cờ này)
+
+Bước 7:
+Trả về 403 và ZIP không được sinh ra (ZIP cũng đi qua cùng kiểm tra với tải riêng lẻ)
+
+Bổ sung:
+・Do giá trị mặc định là FALSE, nếu không có ngoại lệ này thì trung ương hội không thể tải ngay tại chỗ chính báo biểu mà mình vừa xuất (đây là khởi nguồn của #52132)
+・Việc xác định chính mình dựa trên `t_file_download.created_by` (lưu `m_account.account_id` dưới dạng varchar), đối chiếu sau khi đưa cả hai vế về chuỗi đã trim. Cùng tiền đề với `m_account.account_id::text = fd.created_by` trong SQL danh sách
+・Do dòng vẫn hiển thị trong danh sách nên trả về 403 chứ không phải 404 (vốn dùng để che giấu sự tồn tại)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

@@ -896,7 +896,7 @@ defineExpose({ state });
         <BaseKanriShitenDropdown
           v-model:value="state.filters.kanri_shiten_id"
           :ja-id="filterJaId"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -906,7 +906,7 @@ defineExpose({ state });
         <BaseShitenDropdown
           v-model:value="state.filters.shiten_id"
           :ja-id="filterJaId"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -914,10 +914,11 @@ defineExpose({ state });
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
+          id="kumiaiin_code"
           v-model:value="state.filters.kumiaiin_code"
           placeholder="組合員コード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -925,10 +926,11 @@ defineExpose({ state });
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
+          id="full_name"
           v-model:value="state.filters.full_name"
           placeholder="氏名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -936,10 +938,11 @@ defineExpose({ state });
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
+          id="full_name_kana"
           v-model:value="state.filters.full_name_kana"
           placeholder="かな氏名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -947,10 +950,11 @@ defineExpose({ state });
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">住所</span>
         <a-input
+          id="haitatsu"
           v-model:value="state.filters.haitatsu"
           placeholder="住所"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -960,7 +964,7 @@ defineExpose({ state });
         <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
           :ja-id="filterJaId"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -968,6 +972,7 @@ defineExpose({ state });
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">手続種類</span>
         <a-radio-group
+          name="tetsuzuki_shurui"
           v-model:value="state.filters.tetsuzuki_shurui"
           class="flex-1"
         >
@@ -988,21 +993,23 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読開始日</span>
           <a-date-picker
+            id="shoki_dokusya_kaishi_date_from"
             v-model:value="state.filters.shoki_dokusya_kaishi_date_from"
             value-format="YYYY/MM/DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
           <span class="text-text-description">-</span>
           <a-date-picker
+            id="shoki_dokusya_kaishi_date_to"
             v-model:value="state.filters.shoki_dokusya_kaishi_date_to"
             value-format="YYYY/MM/DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1010,21 +1017,23 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読中止日</span>
           <a-date-picker
+            id="dokusya_chushi_date_from"
             v-model:value="state.filters.dokusya_chushi_date_from"
             value-format="YYYY/MM/DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
           <span class="text-text-description">-</span>
           <a-date-picker
+            id="dokusya_chushi_date_to"
             v-model:value="state.filters.dokusya_chushi_date_to"
             value-format="YYYY/MM/DD"
             format="YYYY/MM/DD"
             placeholder="YYYY/MM/DD"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
       </div>
@@ -1038,6 +1047,7 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読種別</span>
           <a-radio-group
+            name="dokusya_shubetsu"
             v-model:value="state.filters.dokusya_shubetsu"
             class="flex-1 flex flex-wrap gap-y-2"
           >
@@ -1055,6 +1065,7 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">電子版承認ステータス</span>
           <a-radio-group
+            name="denshi_shonin_status"
             v-model:value="state.filters.denshi_shonin_status"
             class="flex-1 flex flex-wrap gap-y-2"
           >
@@ -1092,10 +1103,11 @@ defineExpose({ state });
         <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">引落元口座支店</span>
           <a-input
+            id="bank_branch"
             v-model:value="state.filters.bank_branch"
             placeholder="引落元口座支店コード・名称"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1103,10 +1115,11 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">連絡先</span>
           <a-input
+            id="renrakusaki"
             v-model:value="state.filters.renrakusaki"
             placeholder="連絡先"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1114,10 +1127,11 @@ defineExpose({ state });
         <div class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">メールアドレス</span>
           <a-input
+            id="email"
             v-model:value="state.filters.email"
             placeholder="メールアドレス"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1128,23 +1142,25 @@ defineExpose({ state });
           <div class="flex items-center gap-2 text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">請求開始月</span>
             <a-date-picker
+              id="seikyu_kaishi_month_from"
               v-model:value="state.filters.seikyu_kaishi_month_from"
               picker="month"
               value-format="YYYYMM"
               format="YYYYMM"
               placeholder="YYYYMM"
               allow-clear
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
             <span class="text-text-description">-</span>
             <a-date-picker
+              id="seikyu_kaishi_month_to"
               v-model:value="state.filters.seikyu_kaishi_month_to"
               picker="month"
               value-format="YYYYMM"
               format="YYYYMM"
               placeholder="YYYYMM"
               allow-clear
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
           </div>
 
@@ -1152,21 +1168,23 @@ defineExpose({ state });
           <div class="flex items-center gap-2 text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">適用日</span>
             <a-date-picker
+              id="joho_henko_tekiyo_date_from"
               v-model:value="state.filters.joho_henko_tekiyo_date_from"
               value-format="YYYY/MM/DD"
               format="YYYY/MM/DD"
               placeholder="YYYY/MM/DD"
               allow-clear
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
             <span class="text-text-description">-</span>
             <a-date-picker
+              id="joho_henko_tekiyo_date_to"
               v-model:value="state.filters.joho_henko_tekiyo_date_to"
               value-format="YYYY/MM/DD"
               format="YYYY/MM/DD"
               placeholder="YYYY/MM/DD"
               allow-clear
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
           </div>
         </div>
@@ -1177,6 +1195,7 @@ defineExpose({ state });
         <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">支払方法</span>
           <a-radio-group
+            name="shiharai_hoho"
             v-model:value="state.filters.shiharai_hoho"
             class="flex-1 flex flex-wrap gap-y-2"
           >
@@ -1197,7 +1216,7 @@ defineExpose({ state });
             v-model:value="state.filters.yubin_kubun"
             placeholder="郵送区分"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           >
             <a-select-option
               v-for="opt in codes.options('YUBIN_KUBUN')"
@@ -1217,7 +1236,7 @@ defineExpose({ state });
             :ja-id="filterJaId"
             placeholder="新聞単価"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1225,10 +1244,11 @@ defineExpose({ state });
         <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">備考</span>
           <a-input
+            id="biko"
             v-model:value="state.filters.biko"
             placeholder="備考"
             allow-clear
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -1239,6 +1259,7 @@ defineExpose({ state });
         <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">有効単価フラグ</span>
           <a-radio-group
+            name="active_tanka_flg"
             v-model:value="state.filters.active_tanka_flg"
             data-test="active-tanka-filter"
           >
@@ -1398,6 +1419,7 @@ defineExpose({ state });
                すると予約取消になる（顧客要件 2026-08）。 -->
           <template v-if="isStopDigital">
             <a-date-picker
+              id="stopMonth"
               v-model:value="stopMonth"
               picker="month"
               format="YYYY/MM"
@@ -1405,7 +1427,7 @@ defineExpose({ state });
               aria-label="購読中止日"
               :disabled-date="disabledStopMonth"
               :allow-clear="stopHasReservation"
-              class="flex-1"
+              class="flex-1 min-w-0"
               data-test="stop-month-picker"
             />
             <span class="text-text-main whitespace-nowrap">月末で終了</span>
@@ -1413,12 +1435,13 @@ defineExpose({ state });
           <!-- 紙版: カレンダー。未来日 + 購読開始日以降 + 最終変更適用日より後。 -->
           <template v-else>
             <a-date-picker
+              id="stopDate"
               v-model:value="stopDate"
               format="YYYY/MM/DD"
               placeholder="購読中止日を選択"
               aria-label="購読中止日"
               :disabled-date="disabledStopPaperDate"
-              class="flex-1"
+              class="flex-1 min-w-0"
               data-test="stop-date-picker"
             />
           </template>

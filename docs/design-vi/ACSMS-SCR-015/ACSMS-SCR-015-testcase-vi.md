@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-04 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Bổ sung 4 ca kiểm thử (047〜050): đánh giá điều kiện có thể thay thế theo as-of ngày áp dụng và loại trừ bản điện tử (2 ca — đồng bộ với bản tiếng Nhật), cửa hàng giao báo đích là điều kiện tìm kiếm bắt buộc kèm loại trừ người đọc đang được cửa hàng đích giao, và cửa hàng giao báo (nguồn) là tùy chọn |  |  |
 
 ## システム概要
 
@@ -51,7 +52,8 @@ Hệ thống này là hệ thống quản lý độc giả dạng cloud dành ch
 | 5 | Nghiệp vụ - Tìm kiếm (Function — Search) | 6 |
 | 6 | Nghiệp vụ - Thay thế (Function — Replace) | 9 |
 | 7 | Xử lý lỗi chung (Common Error Handling) | 7 |
-| 合計 | | 46 |
+| 8 | Nghiệp vụ - Đánh giá as-of・Điều kiện cửa hàng đích (Function — As-of / Destination) | 4 |
+| 合計 | | 50 |
 
 # カテゴリ 1: Kiểm soát quyền truy cập (Access Control)
 
@@ -2473,3 +2475,256 @@ Lỗi giao tiếp được bắt ở phía frontend, và toast lỗi mạng đư
 ### 備考
 
 (なし)
+
+# カテゴリ 8: Logic nghiệp vụ — Đánh giá as-of・Điều kiện cửa hàng đích (Function — As-of / Destination)
+
+## ACSMS-TC-015-047 — Chỉ những người đọc có thể thay thế tại thời điểm ngày áp dụng mới hiển thị trong kết quả tìm kiếm
+
+- 観点ID: VP-F-07
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: CHUOKAI
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Người đọc A: ngày bắt đầu đọc báo=2026-05-01, ngày dự kiến hủy=không có
+  - ・Người đọc B: ngày bắt đầu đọc báo=2026-05-01, ngày dự kiến hủy=2026-08-01
+  - ・Người đọc C: ngày bắt đầu đọc báo=2026-10-01 (bắt đầu ở tương lai), ngày dự kiến hủy=không có
+
+### Các bước
+
+Bước 1:
+Chỉ định "Ngày áp dụng" là 2026-07-01 rồi bấm nút "検索".
+
+Bước 2:
+Chỉ định "Ngày áp dụng" là 2026-09-01 rồi bấm nút "検索".
+
+### Kết quả mong đợi
+
+Bước 1:
+Người đọc A・B được hiển thị, người đọc C (ngày bắt đầu đọc báo sau ngày áp dụng) không hiển thị (điều kiện có thể thay thế: ngày bắt đầu đọc báo <= ngày áp dụng).
+
+Bước 2:
+Người đọc A được hiển thị; người đọc B (ngày dự kiến hủy 2026-08-01 <= ngày áp dụng 2026-09-01) không hiển thị. Người đọc C (ngày bắt đầu đọc báo 2026-10-01 > ngày áp dụng) cũng không hiển thị (điều kiện có thể thay thế: không có ngày dự kiến hủy hoặc ngày dự kiến hủy sau ngày áp dụng).
+
+Bổ sung:
+・Điều kiện có thể thay thế dùng chung một tiêu chuẩn cho cả tìm kiếm và thực thi thay thế. Mỗi dòng trả về ở đây đều có thể thay thế độc lập theo ngày áp dụng, nên chọn tập con bất kỳ để thực thi thay thế vẫn qua được kiểm tra lúc thực thi (yêu cầu khách hàng 2026-07).
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-015-048 — Khi chọn bản điện tử ở loại đăng ký thì hiển thị thông báo ngoài phạm vi và không tìm kiếm được
+
+- 観点ID: VP-B-06
+- 種類: Normal (chính thường・yêu cầu khách hàng bản sửa đổi 2026-07)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Đã đăng nhập + đã xác thực MFA
+  - ・Radio loại đăng ký hiển thị "紙版" (bản giấy) và "電子版" (bản điện tử) (không hiển thị 併読 - kết hợp)
+
+### Các bước
+
+Bước 1:
+Chọn radio "電子版" ở loại đăng ký.
+
+Bước 2:
+(Vẫn giữ bản điện tử đang chọn) Kiểm tra trạng thái của nút "検索".
+
+Bước 3:
+Chuyển loại đăng ký sang "紙版".
+
+### Kết quả mong đợi
+
+Bước 1:
+Toast hiển thị "電子版は本画面では対象外です。" (ACSMS-MSG-015-009) (không hiển thị thông báo inline trong form). Ngày áp dụng bị xóa trống và vẫn ở trạng thái không nhập được (bị vô hiệu hóa).
+
+Bước 2:
+Nút "検索" bị vô hiệu hóa (disabled) và API tìm kiếm người đọc không được gọi. Nếu gọi trực tiếp API thì phía server trả về 400 (`VALIDATION_ERROR`, errors=[{ field: "dokusya_shubetsu", message: "電子版は本画面では対象外です。" }]) (chốt chặn phòng thủ phía server).
+
+Bước 3:
+Thông báo "電子版は本画面では対象外です。" biến mất, ngày áp dụng nhập được bằng lịch (được kích hoạt), và nút "検索" được kích hoạt trở lại.
+
+Bổ sung:
+・Bản điện tử = phân phối điện tử nên không có cửa hàng bán, vì vậy nằm ngoài phạm vi thay thế hàng loạt (bản sửa đổi yêu cầu khách hàng 2026-07 đã rút lại "bản điện tử = thay thế trong ngày"). Bản thân radio vẫn chọn được, khi chọn thì thông báo ngoài phạm vi bằng toast (không hiện thông báo inline). Cả API tìm kiếm và API thực thi thay thế đều từ chối `dokusya_shubetsu=2` bất kể ngày tháng.
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-015-049 — Cửa hàng giao báo đích là điều kiện tìm kiếm (bắt buộc) và loại trừ người đọc đang được cửa hàng đích giao
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `dokusya.replace_hanbaiten`)
+  - ・Tồn tại người đọc loại đăng ký=bản giấy・đang đọc báo như sau (ngày áp dụng là 2030/09/01)
+    - ・(a) 3 người có cửa hàng giao báo của lịch sử hiệu lực tại ngày áp dụng = cửa hàng A (nguồn thay thế)
+    - ・(b) 2 người có cửa hàng giao báo của lịch sử hiệu lực tại ngày áp dụng = cửa hàng B (đích thay thế)
+    - ・(c) 2 người có cửa hàng giao báo của lịch sử hiệu lực tại ngày áp dụng = cửa hàng C (không phải A cũng không phải B)
+
+### Các bước
+
+Bước 1:
+Kiểm tra bố cục các mục trong khu vực tìm kiếm (có "置換先配達販売店" ngay sau ngày áp dụng)
+
+Bước 2:
+Bấm "検索" khi chưa chọn cửa hàng giao báo đích
+
+Bước 3:
+Tìm kiếm với loại đăng ký=bản giấy・ngày áp dụng=2030/09/01・cửa hàng giao báo=cửa hàng A・cửa hàng giao báo đích=cửa hàng B
+
+Bước 4:
+Tìm kiếm với cửa hàng giao báo=cửa hàng B・cửa hàng giao báo đích=cửa hàng B
+
+Bước 5:
+Chọn kết quả tìm kiếm, thực thi "置換" và xác nhận đích thay thế là cửa hàng B đã chọn trong điều kiện tìm kiếm
+
+### Kết quả mong đợi
+
+Bước 1:
+"置換先配達販売店" luôn hiển thị ngay sau ngày áp dụng trong khu vực tìm kiếm. Ô nhập đích thay thế từng hiển thị sau khi chọn kết quả tìm kiếm không còn tồn tại (đã bỏ theo yêu cầu khách hàng 2026-07)
+
+Bước 2:
+ACSMS-MSG-015-010 `置換先配達販売店を選択してください。` hiển thị ngay dưới trường đích thay thế và API không được gọi
+
+Bước 3:
+Chỉ 3 bản ghi của (a) được hiển thị. 2 bản ghi của (b) bị **loại trừ** bởi `eff.hanbaiten_id <> :new_hanbaiten_id`. 2 bản ghi của (c) nằm ngoài phạm vi do bộ lọc cửa hàng giao báo
+
+Bước 4:
+ACSMS-MSG-015-011 `配達販売店と置換先配達販売店が同じです。異なる販売店を選択してください。` được hiển thị và API không được gọi. Nếu gọi trực tiếp API thì trả về 0 bản ghi (vì `eff.hanbaiten_id = B` và `eff.hanbaiten_id <> B` không thể đồng thời thỏa mãn)
+
+Bước 5:
+Đích thay thế đã chọn trong điều kiện tìm kiếm (cửa hàng B) trở thành mục tiêu thực thi thay thế. Sau khi thay thế hiển thị ACSMS-MSG-015-008 `置換処理が完了しました。`
+
+Bổ sung:
+・Đưa đích thay thế vào điều kiện tìm kiếm và dùng chính giá trị đó làm mục tiêu thay thế (yêu cầu khách hàng 2026-07・tài liệu thiết kế API v1.7). Ở quy cách cũ khi "tập hợp đã tìm" và "đích thay thế" là hai ô nhập riêng, vẫn còn khả năng đổi đích sau khi tìm kiếm rồi thay thế trong khi tập hợp còn chứa người đọc vốn đã được cửa hàng đó giao
+・Điều kiện loại trừ được đánh giá theo **dòng lịch sử hiệu lực tại thời điểm ngày áp dụng**, không phải master (kể cả ngày áp dụng ở tương lai vẫn trả về tập hợp đúng)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-015-050 — Cửa hàng giao báo (nguồn thay thế) là tùy chọn, khi không chỉ định thì đối tượng là toàn bộ cửa hàng trừ cửa hàng đích
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `dokusya.replace_hanbaiten`)
+  - ・Dữ liệu giống ACSMS-TC-015-049 (cửa hàng A 3 bản ghi・cửa hàng B 2 bản ghi・cửa hàng C 2 bản ghi)
+
+### Các bước
+
+Bước 1:
+Kiểm tra nhãn và sự tồn tại của dấu bắt buộc ở "配達販売店" trong khu vực tìm kiếm
+
+Bước 2:
+Để **trống** cửa hàng giao báo và tìm kiếm với loại đăng ký=bản giấy・ngày áp dụng=2030/09/01・cửa hàng giao báo đích=cửa hàng B
+
+Bước 3:
+Chỉ định cửa hàng giao báo=cửa hàng A và tìm kiếm với cùng điều kiện, đối chiếu khác biệt với Bước 2
+
+Bước 4:
+Chọn toàn bộ kết quả tìm kiếm khi để trống cửa hàng giao báo rồi thực thi thay thế
+
+### Kết quả mong đợi
+
+Bước 1:
+Nhãn là "配達販売店" (không phải "置換元配達販売店") và không có dấu bắt buộc (`*`) (bản sửa đổi yêu cầu khách hàng 2026-07 đã đưa từ bắt buộc trở lại tùy chọn)
+
+Bước 2:
+Hiển thị 3 bản ghi của cửa hàng A và 2 bản ghi của cửa hàng C, tổng 5 bản ghi (đối tượng là toàn bộ cửa hàng trừ cửa hàng đích B). 2 bản ghi của cửa hàng B bị loại trừ
+
+Bước 3:
+Chỉ hiển thị 3 bản ghi của cửa hàng A (điều kiện `eff.hanbaiten_id = :hanbaiten_id` có thêm hiệu lực)
+
+Bước 4:
+Người đọc của cửa hàng A・cửa hàng C được thay thế đồng loạt sang cửa hàng B
+
+Bổ sung:
+・Cửa hàng giao báo là điều kiện "chỉ lọc khi có chỉ định". Kể cả khi để trống thì `≠ cửa hàng đích` vẫn luôn được áp dụng nên người đọc đang được cửa hàng đích giao không thể lọt vào (tài liệu thiết kế API v1.8・§4.3)
+・Đây là bản sửa đổi phục vụ nghiệp vụ gom nhiều cửa hàng nguồn về một cửa hàng đích. Nếu giữ bắt buộc thì phải lặp lại việc tìm kiếm・thay thế cho từng cửa hàng
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

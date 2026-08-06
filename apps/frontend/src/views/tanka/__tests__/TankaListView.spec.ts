@@ -123,7 +123,7 @@ describe('TankaListView — initial render (機能定義 1.x)', () => {
 
   it('should render the search form with 単価種別 / 単価名 / 有効単価フラグ filters when mounted', async () => {
     const { wrapper } = await renderView();
-    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    const labelTexts = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labelTexts.some((t) => t.includes('単価種別'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('単価名'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('有効単価フラグ'))).toBe(true);
@@ -462,7 +462,7 @@ describe('TankaListView — active_flg filter (有効単価フラグ)', () => {
 describe('TankaListView — campaign_flg filter (キャンペーンフラグ)', () => {
   it('should render the キャンペーンフラグ filter when mounted', async () => {
     const { wrapper } = await renderView();
-    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    const labelTexts = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labelTexts.some((t) => t.includes('キャンペーンフラグ'))).toBe(true);
   });
 

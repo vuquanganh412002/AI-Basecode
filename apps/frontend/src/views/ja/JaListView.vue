@@ -162,7 +162,7 @@ function askDelete(row: JaListItem): void {
           v-model:value="state.filters.ja_code"
           placeholder="JAコード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="ja-filter-name" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -172,7 +172,7 @@ function askDelete(row: JaListItem): void {
           v-model:value="state.filters.ja_name"
           placeholder="JA名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="ja-filter-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -180,7 +180,7 @@ function askDelete(row: JaListItem): void {
         <BaseTodofukenSelect
           id="ja-filter-todofuken"
           v-model:value="state.filters.todofuken_code"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
     </BaseSearchForm>

@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-03 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Bổ sung 7 ca kiểm thử (044〜050): thay đổi・hủy bỏ đặt trước ngừng đọc báo của bản điện tử (#56087, 5 ca — đồng bộ với bản tiếng Nhật), hiển thị tổng số bản "全 M 部" bên cạnh "全 N 件" (#56240), và giới hạn chỉ bản giấy mới được xóa (#56422) |  |  |
 
 
 ## システム概要
@@ -58,7 +59,8 @@ Tài liệu này tham khảo ISTQB và IEEE 829, đáp ứng các tiêu chuẩn 
 | 3 | Kiểm tra input (Input Validation) | 8 |
 | 4 | Logic nghiệp vụ — Tìm kiếm・Xóa・Xuất Excel (Function — Search / Delete / Export) | 16 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-|  | 合計 | 43 |
+| 6 | Ngừng đọc báo・Hiển thị tổng số bản・Giới hạn xóa (Function — Stop / Total-busu / Delete) | 7 |
+|  | 合計 | 50 |
 
 ---
 
@@ -2746,3 +2748,526 @@ Kết quả tìm kiếm được hiển thị bình thường
 ### 備考
 
 (なし)
+
+# カテゴリ 6: Ngừng đọc báo・Hiển thị tổng số bản・Giới hạn xóa (Function — Stop / Total-busu / Delete)
+
+## ACSMS-TC-014-044 — Ngừng đọc báo — Bản điện tử: tháng kết thúc đang đặt trước được khôi phục trong popup
+
+- 観点ID: VP-B-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: người đọc bản điện tử (`dokusya_id=1020, dokusya_shubetsu=2, shiharai_hoho≠6, seikyu_kaishi_month='202604'`) đã đăng ký đặt trước hủy vào 2030/07 (batch ngày đến hạn chưa chạy ＝ `kaiyaku_flg=false`)
+
+### Các bước
+
+Bước 1:
+Tại màn hình tìm kiếm chi tiết người đọc, bấm liên kết "購読中止" trên dòng tương ứng
+
+Bước 2:
+Kiểm tra ô "購読中止日" trong popup
+
+Bước 3:
+Kiểm tra hiển thị của thông báo hướng dẫn
+
+### Kết quả mong đợi
+
+Bước 1:
+Popup "購読中止" được hiển thị (không hiển thị cảnh báo `既に解約予約されています。…` như trước, mà mở popup)
+
+Bước 2:
+Bộ chọn tháng kết thúc được thiết lập là `2030/07` (năm-tháng của ngày ngừng đọc báo đang đặt trước 2030-07-31). Nút xóa (×) được hiển thị
+
+Bước 3:
+Hiển thị ACSMS-MSG-014-016 `解約予約中です。終了月を選び直すと予約を変更し、空にすると予約を取り消します。`
+
+Bổ sung:
+・Dòng đặt trước có ngày ở tương lai nên không trở thành dòng hiệu lực, nhưng riêng ngày ngừng đọc báo được phản ánh vào `t_dokusya.dokusya_chushi_date` ngay tại thời điểm đặt trước nên có thể khôi phục từ giá trị của API lấy chi tiết (tài liệu thiết kế API v1.5)
+・Bản giấy (loại đăng ký=1) vẫn không mở popup như trước và hiển thị ACSMS-MSG-014-014
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-045 — Ngừng đọc báo — Bản điện tử: chọn lại tháng kết thúc để thay đổi đặt trước
+
+- 観点ID: VP-B-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: giống ACSMS-TC-014-044 (có đặt trước hủy 2030/07)
+  - ・Liên kết bản điện tử (DENSHIBAN_PUSH_ENABLED=true) đang bật
+
+### Các bước
+
+Bước 1:
+Trong popup "購読中止", đổi tháng kết thúc thành `2030/09` rồi bấm "確認"
+
+Bước 2:
+Kiểm tra DB: `SELECT rireki_no, dokusya_chushi_date, torikeshi_flg, kaiyaku_flg FROM t_dokusya_rireki WHERE dokusya_id = 1020 ORDER BY rireki_no`
+
+Bước 3:
+Kiểm tra DB: `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = 1020`
+
+Bước 4:
+Kiểm tra log liên kết bản điện tử
+
+Bước 5:
+Kiểm tra DB: `SELECT gamen_name, operation, target_table FROM t_log WHERE target_id = 1020 ORDER BY log_id DESC LIMIT 1`
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị toast ACSMS-MSG-014-018 `購読停止を予約しました。`, popup đóng lại và danh sách được lấy lại
+
+Bước 2:
+Dòng đặt trước cũ có `torikeshi_flg` thành `true` và thêm 1 dòng đỏ (`torikeshi_flg=true`). Ngoài ra thêm 1 dòng đặt trước mới với `dokusya_chushi_date='2030-09-30'`・`kaiyaku_flg=false`・`torikeshi_flg=false`
+
+Bước 3:
+`dokusya_chushi_date` được cập nhật thành `2030-09-30`
+
+Bước 4:
+Đã liên kết sang bản điện tử với `action_kbn=cancel`・`cancel_ym=203009` (chỉ 1 lần)
+
+Bước 5:
+Ghi log thao tác với `gamen_name='購読者明細検索画面 (ACSMS-SCR-014)'`・`operation='UPDATE'`・`target_table='t_dokusya'`
+
+Bổ sung:
+・Việc vô hiệu hóa đặt trước cũ, chèn đặt trước mới, liên kết bản điện tử và log thao tác nằm trong một transaction duy nhất (theo tài liệu thiết kế API "処理手順 4.5／4.5.1")
+・Nếu bấm "確認" khi vẫn giữ nguyên tháng kết thúc đang đặt trước thì hiển thị ACSMS-MSG-014-017 `変更がありません。` và không gọi API
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-046 — Ngừng đọc báo — Bản điện tử: xóa trống tháng kết thúc để hủy đặt trước
+
+- 観点ID: VP-B-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: giống ACSMS-TC-014-044 (có đặt trước hủy 2030/07)
+  - ・Liên kết bản điện tử (DENSHIBAN_PUSH_ENABLED=true) đang bật
+
+### Các bước
+
+Bước 1:
+Trong popup "購読中止", bấm nút xóa (×) của tháng kết thúc để ô trống rồi bấm "確認"
+
+Bước 2:
+Kiểm tra DB: `SELECT rireki_no, dokusya_chushi_date, torikeshi_flg FROM t_dokusya_rireki WHERE dokusya_id = 1020 ORDER BY rireki_no`
+
+Bước 3:
+Kiểm tra DB: `SELECT dokusya_chushi_date, tetsuzuki_shurui FROM t_dokusya WHERE dokusya_id = 1020`
+
+Bước 4:
+Kiểm tra log liên kết bản điện tử
+
+Bước 5:
+Kiểm tra cột "購読中止日" trên danh sách
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị toast ACSMS-MSG-014-019 `購読中止を取り消しました。`, popup đóng lại và danh sách được lấy lại
+
+Bước 2:
+Dòng đặt trước cũ có `torikeshi_flg` thành `true` và thêm 1 dòng đỏ (`torikeshi_flg=true`). Không thêm dòng đặt trước mới
+
+Bước 3:
+`dokusya_chushi_date` trở lại `NULL`, `tetsuzuki_shurui` vẫn giữ nguyên `1` (đăng ký mới ＝ đang đọc báo)
+
+Bước 4:
+Đã liên kết sang bản điện tử với `action_kbn=cancel`・`cancel_ym=` (chuỗi rỗng)
+
+Bước 5:
+Cột "購読中止日" của dòng tương ứng để trống
+
+Bổ sung:
+・Do API bản điện tử không có mã xử lý riêng cho việc hủy bỏ đặt trước, nên gửi `cancel` kèm `cancel_ym` rỗng (quyết định của khách hàng 2026-08)
+・Nếu bản điện tử từ chối request đó thì lịch sử・master・log thao tác đều được rollback, và lý do bản điện tử trả về được hiển thị trong popup (không để riêng phía cloud ở trạng thái đã hủy)
+・Nếu bấm "確認" khi ô trống mà không có đặt trước nào thì trả về ACSMS-MSG-014-020
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-047 — Ngừng đọc báo — Sau khi hủy đăng ký đã xác định thì không thể thay đổi・hủy bỏ
+
+- 観点ID: VP-C-05
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: người đọc bản điện tử (`dokusya_id=1021, dokusya_shubetsu=2`) đã có việc hủy đăng ký được batch ngày đến hạn xác định (có dòng hủy thực tế với `kaiyaku_flg=true`・`tetsuzuki_shurui=0`)
+
+### Các bước
+
+Bước 1:
+Kiểm tra trạng thái liên kết "購読中止" trên dòng tương ứng trong kết quả tìm kiếm
+
+Bước 2:
+Dùng DevTools gọi trực tiếp POST `/api/v1/dokusya/1021/stop` (body: `{"dokusya_chushi_date": "2030-09-30"}`)
+
+Bước 3:
+Dùng DevTools gọi trực tiếp POST `/api/v1/dokusya/1021/stop` (body: `{"dokusya_chushi_date": ""}`)
+
+Bước 4:
+Kiểm tra DB: `SELECT COUNT(*) FROM t_dokusya_rireki WHERE dokusya_id = 1021`
+
+### Kết quả mong đợi
+
+Bước 1:
+Liên kết "購読中止" bị vô hiệu hóa (do loại thủ tục=0: đã hủy đăng ký)
+
+Bước 2:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`, `errors[0].message` là ACSMS-MSG-014-015 `解約が確定済みのため変更できません。再購読は購読者編集画面から行ってください。`)
+
+Bước 3:
+Trả về lỗi 400 giống Bước 2
+
+Bước 4:
+Số lượng lịch sử không thay đổi trước và sau khi gọi (không thêm・không hủy dòng nào)
+
+Bổ sung:
+・Việc xác định "đã hoàn tất hủy" dựa trên sự tồn tại của dòng hủy thực tế có `kaiyaku_flg=true`, không phải dòng đặt trước hủy (theo tài liệu thiết kế API "処理手順 4.4")
+・Việc khôi phục được thực hiện bằng chức năng đăng ký lại tại màn hình chỉnh sửa người đọc (SCR-011)
+・Phía frontend liên kết bị vô hiệu hóa, nhưng phía backend cũng phải từ chối lời gọi trực tiếp (quan điểm VP-C-05)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-048 — Ngừng đọc báo — Hộp thoại xác nhận cuối cùng (Có／Không)
+
+- 観点ID: VP-E-02
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: người đọc bản giấy (`dokusya_id=1022, dokusya_shubetsu=1`／không có đặt trước hủy), người đọc bản điện tử (`dokusya_id=1020, dokusya_shubetsu=2, seikyu_kaishi_month='202604'`／có đặt trước hủy 2030/07)
+
+### Các bước
+
+Bước 1:
+Trong popup "購読中止" của bản giấy (1022), chọn ngày ngừng đọc báo là `2030/09/15` rồi bấm "確認"
+
+Bước 2:
+Bấm "いいえ" trong hộp thoại xác nhận
+
+Bước 3:
+Bấm "確認" lại rồi bấm "はい" trong hộp thoại xác nhận
+
+Bước 4:
+Trong popup "購読中止" của bản điện tử (1020), đổi tháng kết thúc thành `2030/09` rồi bấm "確認"
+
+Bước 5:
+Trong popup "購読中止" của bản điện tử (1020), xóa trống tháng kết thúc rồi bấm "確認"
+
+Bước 6:
+Trong popup "購読中止" của bản điện tử (1020), giữ nguyên tháng kết thúc đang đặt trước rồi bấm "確認"
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị hộp thoại xác nhận "購読中止確認". Nội dung là ACSMS-MSG-014-021 `2030/09/15で購読を中止します。よろしいですか？`, các nút là "はい" (màu đỏ)／"いいえ"
+
+Bước 2:
+API không được gọi. Popup ngừng đọc báo hiển thị lại và giữ nguyên giá trị `2030/09/15` đã chọn (trong lúc hộp thoại xác nhận hiển thị thì popup bị ẩn)
+
+Bước 3:
+API được gọi, hiển thị ACSMS-MSG-014-018 và popup đóng lại
+
+Bước 4:
+Nội dung là ACSMS-MSG-014-022 `購読中止日を2030/09の月末（2030/09/30）に変更します。よろしいですか？` (bản điện tử phải nêu cả tháng đã chọn và ngày thực tế dừng)
+
+Bước 5:
+Nội dung là ACSMS-MSG-014-023 `購読中止の予約を取り消します。よろしいですか？`
+
+Bước 6:
+Hộp thoại xác nhận không hiển thị. ACSMS-MSG-014-017 `変更がありません。` hiển thị trong popup và API cũng không được gọi
+
+Bổ sung:
+・Hộp thoại xác nhận chỉ hiển thị sau khi đã qua kiểm tra input (phạm vi chọn・không có thay đổi). Sau khi bấm "はい" không được bị chặn bởi lỗi form
+・Trong lúc hộp thoại xác nhận hiển thị thì ẩn popup ngừng đọc báo. Dù bấm "いいえ", "✕", "ESC" hay click vào lớp phủ đều phải hiển thị lại popup với nội dung đã chọn được giữ nguyên
+・Kể cả khi API trả về lỗi, popup ngừng đọc báo cũng hiển thị lại và nội dung lỗi được hiển thị
+・Nhãn nút dùng はい／いいえ chung của dự án (ý định phá hủy được thể hiện bằng nút màu đỏ・`.claude/rules/vue.md §Modal Confirmation`)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-049 — Kết quả tìm kiếm — Hiển thị tổng số bản đọc "全 M 部" bên cạnh "全 N 件" (#56240)
+
+- 観点ID: VP-B-02
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100)
+  - ・JA của mình có từ 25 người đọc trở lên, và tổng `dokusya_busu` khác với tổng của 1 trang (ví dụ: 25 bản ghi・tổng 40 bản, tổng của 20 bản ghi ở trang 1 là 32 bản)
+  - ・Trong đó có người đọc sở hữu nhiều dòng lịch sử (dùng để kiểm chứng trùng lặp khi lọc theo ngày áp dụng)
+
+### Các bước
+
+Bước 1:
+Tìm kiếm không chỉ định điều kiện và kiểm tra hiển thị ở phần phân trang
+
+Bước 2:
+Kiểm tra `meta` trong response của API
+```
+GET /api/v1/dokusya?page=1&per_page=20
+```
+
+Bước 3:
+Chuyển sang trang 2 và xác nhận giá trị "全 M 部" không thay đổi
+
+Bước 4:
+Chỉ định điều kiện tìm kiếm (ví dụ: chi nhánh quản lý) để lọc và kiểm tra giá trị "全 N 件"・"全 M 部"
+
+Bước 5:
+Tìm kiếm có chỉ định **ngày áp dụng** (điều kiện có INNER JOIN `t_dokusya_rireki`) và đối chiếu tổng số bản với giá trị thực trong DB
+```sql
+SELECT COALESCE(SUM(t.dokusya_busu), 0) FROM (
+  SELECT DISTINCT d.dokusya_id, d.dokusya_busu
+  FROM t_dokusya d /* cùng điều kiện lọc với màn hình */
+) t;
+```
+
+Bước 6:
+Tìm kiếm với điều kiện cho ra 0 kết quả và kiểm tra hiển thị
+
+### Kết quả mong đợi
+
+Bước 1:
+"全 M 部" được hiển thị bên cạnh "全 N 件" ở phần phân trang
+
+Bước 2:
+`meta` có chứa `total_busu`, giá trị là tổng `dokusya_busu` của toàn bộ bản ghi (ví dụ: 40). **Không phải** tổng của 20 bản ghi đang hiển thị ở trang 1 (ví dụ: 32)
+
+Bước 3:
+Giá trị "全 M 部" không đổi khi chuyển trang (không bị ảnh hưởng bởi phân trang)
+
+Bước 4:
+Cả số bản ghi và số bản sau khi lọc đều được tính lại trên toàn bộ bản ghi khớp điều kiện
+
+Bước 5:
+Dù có người đọc sở hữu nhiều dòng lịch sử, số bản cũng không bị thổi phồng và khớp với giá trị thực trong DB
+
+Bước 6:
+Hiển thị "全 0 件　全 0 部"
+
+Bổ sung:
+・Không dùng được `SUM(d.dokusya_busu)` thuần: khi lọc theo ngày áp dụng sẽ INNER JOIN `t_dokusya_rireki` khiến 1 người đọc bị lặp theo số dòng lịch sử và số bản bị thổi phồng. Phía số bản ghi dùng `COUNT(DISTINCT)` nên không bị ảnh hưởng, **chỉ riêng tổng bị lệch** nên rất khó phát hiện (tài liệu thiết kế API §4.4.1)
+・Bước 5 là kiểm tra hồi quy để phát hiện sự lệch này. Chỉ với người đọc có 1 dòng lịch sử thì không thể phát hiện, nên bắt buộc phải có người đọc sở hữu nhiều dòng lịch sử
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-014-050 — Xóa — Chỉ bản giấy mới được xóa (#56422)
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.delete`)
+  - ・JA của mình có các người đọc sau:
+    - ・(a) Bản giấy (dokusya_shubetsu=1)
+    - ・(b) Bản điện tử・phương thức thanh toán=trích nợ tài khoản (không phải thẻ tín dụng)
+    - ・(c) Bản điện tử・thanh toán bằng thẻ tín dụng
+    - ・(d) Kết hợp (dokusya_shubetsu=3)
+
+### Các bước
+
+Bước 1:
+Kiểm tra trạng thái kích hoạt của nút "削除" cho (a)〜(d) trong danh sách kết quả tìm kiếm
+
+Bước 2:
+Kiểm tra `is_read_only` trong response của API
+```
+GET /api/v1/dokusya
+```
+
+Bước 3:
+Gọi trực tiếp API xóa cho người đọc (b) bản điện tử・trích nợ tài khoản
+```
+DELETE /api/v1/dokusya/{dokusya_id}
+```
+
+Bước 4:
+Gọi trực tiếp API xóa cho (c) bản điện tử・thẻ tín dụng và (d) kết hợp
+
+Bước 5:
+Thực hiện xóa người đọc (a) bản giấy
+
+Bước 6:
+Sau khi thực hiện, kiểm tra trạng thái xóa logic trong DB
+```sql
+SELECT dokusya_id, dokusya_shubetsu, deleted_at FROM t_dokusya WHERE dokusya_id IN (...);
+```
+
+### Kết quả mong đợi
+
+Bước 1:
+Chỉ (a) có nút "削除" được kích hoạt. (b)(c)(d) bị vô hiệu hóa
+
+Bước 2:
+(c) người thanh toán thẻ tín dụng và (d) người đọc kết hợp có `is_read_only: true`. (b) bản điện tử・trích nợ tài khoản có `is_read_only: false` nhưng nút xóa vẫn bị vô hiệu hóa theo điều kiện `dokusya_shubetsu = 1`
+
+Bước 3:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`), trong `errors` có `{"field": "dokusya_shubetsu", "message": "紙版の購読者のみ削除できます。"}`. Do `is_read_only` chỉ chặn người đọc kết hợp và bản điện tử thẻ tín dụng, trường hợp này lần đầu bị từ chối tại đây
+
+Bước 4:
+Tất cả đều bị từ chối xóa
+
+Bước 5:
+Xóa thành công và hiển thị `削除しました。`
+
+Bước 6:
+Chỉ (a) có `deleted_at` được thiết lập, (b)(c)(d) vẫn giữ `deleted_at IS NULL`
+
+Bổ sung:
+・Hội viên bản điện tử・kết hợp lấy hệ thống quản lý người đọc bản điện tử làm chuẩn; nếu xóa dòng ở phía cloud thì bản ghi sẽ sống lại khi đồng bộ hoặc phá vỡ tính nhất quán với hệ thống đối tác (yêu cầu khách hàng 2026-08)
+・Việc ngừng đọc báo (đặt trước hủy) vẫn thực hiện được với bản điện tử. Thứ không xóa được là **dòng dữ liệu**, không phải việc ngừng đọc báo
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

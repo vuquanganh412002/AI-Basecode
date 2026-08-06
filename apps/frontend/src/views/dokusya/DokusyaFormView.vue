@@ -1153,13 +1153,24 @@ watch(hasNogyosha, (next) => {
   }
 });
 
-// §7 — 電子版 / 併読 hides the 配達先 section content.
+// §7 — 電子版 は 配達先 セクションを隠す。併読は紙も届くので表示する
+// （顧客要件 2026-08）。読者同期も併読には paper_* 由来の配達先を入れており、
+// 隠したままだと同期済みの住所を画面から確認・修正できなかった。
 // 値を受け取る素の関数として切り出していたが、唯一の呼出し元だった
 // ハイドレートの読者属性分岐が無くなった（紙版も単一選択に統一）ので畳んだ。
 const isDigitalOrBoth = computed(
   () =>
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL ||
     Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH,
+);
+
+/**
+ * 配達先セクションの表示可否だけに使う。メール必須・読者属性必須などの
+ * 「電子版寄りの入力ルール」は併読にも効くので `isDigitalOrBoth` のまま。
+ * 配達の有無だけが 電子版(2) と 併読(3) で分かれる。
+ */
+const isDigitalOnly = computed(
+  () => Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL,
 );
 
 // ─── 読者属性の従属項目（顧客DB設計 2026-08）────────────────────────
@@ -1304,11 +1315,11 @@ const seikyuMonthDisplay = computed(() =>
 /**
  * §9.2 — 配達先住所 + 配達先氏名 が「必須」になる条件:
  *   haitatsu_same_flg = false   (購読者情報と同じ をオフ)
- *   AND 紙版/併読 (= !isDigitalOrBoth)
- * 電子版/併読 のときはセクション全体が消えるためこの値は参照されない。
+ *   AND 紙版/併読 (= !isDigitalOnly)
+ * 電子版のときはセクション全体が消えるためこの値は参照されない。
  */
 const haitatsuRequired = computed(
-  () => !formState.haitatsu_same_flg && !isDigitalOrBoth.value,
+  () => !formState.haitatsu_same_flg && !isDigitalOnly.value,
 );
 
 // ─── Validation (機能定義 §2.1 + メッセージ情報) ──────────────────────
@@ -2164,7 +2175,10 @@ defineExpose({
       <p class="text-text-description text-sm mb-3">
         変更を適用する未来日を指定してください。指定日時点で有効な内容を読み込みます。
       </p>
+      <!-- `name` が無いと antd は id を生成しないので、<label for> の宛先も
+           入力側の id も両方欠ける。ここで明示的に結び付ける。 -->
       <a-form-item
+        html-for="reserved-joho-input"
         :validate-status="reservedJohoError ? 'error' : ''"
         :help="reservedJohoError"
       >
@@ -2173,6 +2187,7 @@ defineExpose({
           <span class="text-error ml-1">*</span>
         </template>
         <a-date-picker
+          id="reserved-joho-input"
           v-model:value="reservedJohoInput"
           format="YYYY/MM/DD"
           value-format="YYYY-MM-DD"
@@ -2216,10 +2231,7 @@ defineExpose({
               :validate-status="fieldErrors.dokusya_shubetsu ? 'error' : ''"
               :help="fieldErrors.dokusya_shubetsu"
             >
-              <template #label>
-                <span>購読種別</span>
-                <span class="text-error ml-1">*</span>
-              </template>
+              
               <!--
                 画面項目定義 No.1 — 「※併読はJAユーザー選択不可」.
                 併読 (value=3) は紙版 + 電子版の両方を購読している
@@ -2231,23 +2243,32 @@ defineExpose({
                 にし、BE も update 時に既存値へ pin する（UI は UX、
                 BE が実際の境界 — security.md Layer 3 同様）。
               -->
-              <a-radio-group
-                v-model:value="formState.dokusya_shubetsu"
-                :disabled="isEdit"
-              >
-                <a-radio
-                  v-for="opt in dokusyaShubetsuOptions"
-                  :key="opt.value"
-                  :value="Number(opt.value)"
-                  :disabled="
-                    !isEdit &&
-                    (Number(opt.value) === DokusyaShubetsu.BOTH ||
-                      !isShubetsuAllowed(Number(opt.value)))
-                  "
-                >
-                  {{ opt.label }}
-                </a-radio>
-              </a-radio-group>
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>購読種別</span>
+                  <span class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="dokusya_shubetsu"
+                    v-model:value="formState.dokusya_shubetsu"
+                    :disabled="isEdit"
+                  >
+                    <a-radio
+                      v-for="opt in dokusyaShubetsuOptions"
+                      :key="opt.value"
+                      :value="Number(opt.value)"
+                      :disabled="
+                        !isEdit &&
+                        (Number(opt.value) === DokusyaShubetsu.BOTH ||
+                          !isShubetsuAllowed(Number(opt.value)))
+                      "
+                    >
+                      {{ opt.label }}
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </fieldset>
             </a-form-item>
 
             <a-form-item
@@ -2255,10 +2276,7 @@ defineExpose({
               :validate-status="fieldErrors.tetsuzuki_shurui ? 'error' : ''"
               :help="fieldErrors.tetsuzuki_shurui"
             >
-              <template #label>
-                <span>手続種類</span>
-                <span class="text-error ml-1">*</span>
-              </template>
+              
               <!--
                 編集画面では原則 手続種類を変更不可（作成時に確定。顧客要件）。
                 例外: 再加入可（canResubscribe = 解約済みの 紙版 / 電子版(非クレカ)）
@@ -2266,19 +2284,28 @@ defineExpose({
                 新規作成では解約(0)を選択不可（解約は既存購読者に対する更新操作。
                 BE も create() で同値を VALIDATION_ERROR で弾く）。
               -->
-              <a-radio-group
-                v-model:value="formState.tetsuzuki_shurui"
-                :disabled="isEdit && !canResubscribe"
-              >
-                <a-radio
-                  v-for="opt in tetsuzukiShuruiOptions"
-                  :key="opt.value"
-                  :value="Number(opt.value)"
-                  :disabled="!isEdit && Number(opt.value) === TetsuzukiShurui.KAIYAKU"
-                >
-                  {{ opt.label }}
-                </a-radio>
-              </a-radio-group>
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>手続種類</span>
+                  <span class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="tetsuzuki_shurui"
+                    v-model:value="formState.tetsuzuki_shurui"
+                    :disabled="isEdit && !canResubscribe"
+                  >
+                    <a-radio
+                      v-for="opt in tetsuzukiShuruiOptions"
+                      :key="opt.value"
+                      :value="Number(opt.value)"
+                      :disabled="!isEdit && Number(opt.value) === TetsuzukiShurui.KAIYAKU"
+                    >
+                      {{ opt.label }}
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </fieldset>
             </a-form-item>
 
             <!--
@@ -2286,20 +2313,30 @@ defineExpose({
               入力不可 (電子版読者管理システムからの連携結果を表示).
               新規作成モードでは非表示。
             -->
-            <a-form-item v-if="isEdit" name="denshi_dokusya_shubetsu">
-              <template #label><span>電子版読者種別</span></template>
-              <a-radio-group
-                :value="detailDenshiDokusyaShubetsu"
-                disabled
-              >
-                <a-radio
-                  v-for="opt in denshiDokusyaShubetsuOptions"
-                  :key="opt.value"
-                  :value="Number(opt.value)"
-                >
-                  {{ opt.label }}
-                </a-radio>
-              </a-radio-group>
+            <a-form-item
+              v-if="isEdit"
+              name="denshi_dokusya_shubetsu"
+            >
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>電子版読者種別</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="denshi_dokusya_shubetsu"
+                    :value="detailDenshiDokusyaShubetsu"
+                    disabled
+                  >
+                    <a-radio
+                      v-for="opt in denshiDokusyaShubetsuOptions"
+                      :key="opt.value"
+                      :value="Number(opt.value)"
+                    >
+                      {{ opt.label }}
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </fieldset>
             </a-form-item>
 
             <!--
@@ -2369,7 +2406,7 @@ defineExpose({
             <a-form-item v-if="isEdit" name="rireki_no">
               <template #label><span>履歴No</span></template>
               <div class="flex gap-2 items-center">
-                <a-input :value="String(detailRireki ?? '')" disabled class="flex-1" />
+                <a-input :value="String(detailRireki ?? '')" disabled class="flex-1 min-w-0" />
                 <button
                   type="button"
                   class="px-3 py-1 bg-primary hover:bg-primary-hover text-white rounded text-sm whitespace-nowrap"
@@ -2502,7 +2539,12 @@ defineExpose({
               <span>郵便番号</span>
               <span class="text-error ml-1">*</span>
             </template>
-            <a-input v-model:value="formState.yubin_no" :maxlength="7" :disabled="reportFieldDisabled" />
+            <a-input
+              autocomplete="off"
+              v-model:value="formState.yubin_no"
+              :maxlength="7"
+              :disabled="reportFieldDisabled"
+            />
           </a-form-item>
 
           <a-form-item
@@ -2588,7 +2630,11 @@ defineExpose({
               <span>メールアドレス</span>
               <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
             </template>
-            <a-input v-model:value="formState.email" :maxlength="100" />
+            <a-input
+              autocomplete="off"
+              v-model:value="formState.email"
+              :maxlength="100"
+            />
           </a-form-item>
 
           <a-form-item
@@ -2607,34 +2653,55 @@ defineExpose({
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <a-form-item name="mail_magazine_flg">
-            <template #label><span>メールマガジン</span></template>
+          <a-form-item
+            name="mail_magazine_flg"
+          >
+            
             <!-- 電子版用項目 — 紙版指定時はグレーアウト（顧客要件）。 -->
-            <a-radio-group
-              v-model:value="formState.mail_magazine_flg"
-              :disabled="isPaper"
-            >
-              <a-radio
-                v-for="opt in mailMagazineOptions"
-                :key="opt.value"
-                :value="Number(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>メールマガジン</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="mail_magazine_flg"
+                  v-model:value="formState.mail_magazine_flg"
+                  :disabled="isPaper"
+                >
+                  <a-radio
+                    v-for="opt in mailMagazineOptions"
+                    :key="opt.value"
+                    :value="Number(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
 
-          <a-form-item name="gender">
-            <template #label><span>性別</span></template>
-            <a-radio-group v-model:value="formState.gender">
-              <a-radio
-                v-for="opt in genderOptions"
-                :key="opt.value"
-                :value="Number(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
+          <a-form-item
+            name="gender"
+          >
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>性別</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="gender"
+                  v-model:value="formState.gender"
+                >
+                  <a-radio
+                    v-for="opt in genderOptions"
+                    :key="opt.value"
+                    :value="Number(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
         </div>
       </section>
@@ -2648,8 +2715,11 @@ defineExpose({
             ┌─ 配達先苗字漢字 + 配達先名前漢字 ─┐  ┌─ 配達先苗字かな + 配達先名前かな ─┐
 
         Visibility (機能定義 §7.5 + §9.x):
-          - 電子版/併読 (isDigitalOrBoth): セクション全体を `v-if` で消す。
-            テスト側の「label.closest(...)」検査をスキップさせる。
+          - 電子版 (isDigitalOnly): セクション全体を `v-if` で消す。配達が
+            無いので配達先を持たない。
+          - 併読: 紙も届くので表示する（顧客要件 2026-08）。読者同期が
+            paper_* 由来の配達先を入れているため、隠すと同期済みの住所を
+            画面で確認・修正できない。
           - 紙版/併読 + 購読者情報と同じ チェック時: 入力ブロックのみ消す。
             ヘッダー (title + checkbox) はそのまま残す → ユーザーが
             チェックを外したくなったときに UI が消えてしまわない。
@@ -2657,7 +2727,7 @@ defineExpose({
             `hidden-field` クラス挙動と一致).
       -->
       <section
-        v-if="!isDigitalOrBoth"
+        v-if="!isDigitalOnly"
         class="bg-surface-card border border-border rounded-ant p-6"
       >
         <div class="flex justify-between items-start pb-4 mb-6 border-b border-border">
@@ -2673,6 +2743,7 @@ defineExpose({
             "
           >
             <input
+              name="haitatsu_same_flg"
               type="checkbox"
               v-model="formState.haitatsu_same_flg"
               :disabled="isRecordReadOnly || isCancelledLocked"
@@ -2699,7 +2770,12 @@ defineExpose({
                 <span>郵便番号</span>
                 <span v-if="haitatsuRequired" class="text-error ml-1">*</span>
               </template>
-              <a-input v-model:value="formState.haitatsu_yubin_no" :maxlength="7" :disabled="reportFieldDisabled" />
+              <a-input
+                autocomplete="off"
+                v-model:value="formState.haitatsu_yubin_no"
+                :maxlength="7"
+                :disabled="reportFieldDisabled"
+              />
             </a-form-item>
 
             <a-form-item
@@ -2848,8 +2924,13 @@ defineExpose({
             />
           </a-form-item>
 
+          <!-- 表示専用（フォーム部品が無い）項目。<label> は必ず 1 つの部品を
+               指すものなので、見出しは素の <span> で描画する。寸法は antd の
+               ラベル欄と同じ 22px + 8px。 -->
           <a-form-item name="hanbaiten_name">
-            <template #label><span>販売店名</span></template>
+            <span class="form-item-title block h-[22px] leading-[22px] mb-2 text-sm text-text-main">
+              販売店名
+            </span>
             <!--
               機能定義 §6.2 — 販売店コード選択後に販売店名を表示。
               `<a-input :value="hanbaitenName" disabled>` で出すと値が
@@ -2908,7 +2989,7 @@ defineExpose({
                 v-model:value="formState.dokusyaryo_shiharai_cycle"
                 :min="0"
                 :max="99"
-                class="flex-1"
+                class="flex-1 min-w-0"
               />
               <span class="text-sm whitespace-nowrap text-text-description">ヶ月</span>
             </div>
@@ -3033,15 +3114,20 @@ defineExpose({
               :validate-status="fieldErrors.dokusyaso_bunrui ? 'error' : ''"
               :help="fieldErrors.dokusyaso_bunrui"
             >
-              <template #label>
-                <span>読者属性</span>
-                <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
-              </template>
-              <a-radio-group
-                v-model:value="dokusyaSoBunruiSingle"
-                :options="dokusyaSoBunruiOptions"
-                class="flex flex-wrap gap-x-6 gap-y-2"
-              />
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>読者属性</span>
+                  <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="dokusyaSoBunruiSingle"
+                    v-model:value="dokusyaSoBunruiSingle"
+                    :options="dokusyaSoBunruiOptions"
+                    class="flex flex-wrap gap-x-6 gap-y-2"
+                  />
+                </div>
+              </fieldset>
             </a-form-item>
 
             <!--
@@ -3054,7 +3140,7 @@ defineExpose({
               <template #label>
                 <span aria-hidden="true" class="invisible">かつJAグループ役職員</span>
               </template>
-              <a-checkbox
+              <a-checkbox name="ja_yakushokuin_flg"
                 v-model:checked="formState.ja_yakushokuin_flg"
                 data-test="ja-yakushokuin-flg"
               >
@@ -3067,7 +3153,7 @@ defineExpose({
               <template #label>
                 <span aria-hidden="true" class="invisible">農業関係</span>
               </template>
-              <a-checkbox
+              <a-checkbox name="nogyo_kankei_flg"
                 v-model:checked="formState.nogyo_kankei_flg"
                 data-test="nogyo-kankei-flg"
               >
@@ -3110,12 +3196,19 @@ defineExpose({
               :validate-status="fieldErrors.nogyosya_bunrui ? 'error' : ''"
               :help="fieldErrors.nogyosya_bunrui"
             >
-              <template #label><span>主な生産物（農業者の場合）</span></template>
-              <a-checkbox-group
-                v-model:value="nogyosyaBunruiArr"
-                :options="nogyosyaBunruiOptions"
-                class="flex flex-wrap gap-x-6 gap-y-2"
-              />
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>主な生産物（農業者の場合）</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-checkbox-group
+                    name="nogyosyaBunruiArr"
+                    v-model:value="nogyosyaBunruiArr"
+                    :options="nogyosyaBunruiOptions"
+                    class="flex flex-wrap gap-x-6 gap-y-2"
+                  />
+                </div>
+              </fieldset>
             </a-form-item>
 
             <!-- 「その他」を含むときだけ。電子版 others_products(255文字以下) と 1:1。 -->
@@ -3163,32 +3256,40 @@ defineExpose({
               :validate-status="fieldErrors.dokusya_kaishi_date ? 'error' : ''"
               :help="fieldErrors.dokusya_kaishi_date"
             >
-              <template #label>
-                <span>購読開始日</span>
-                <span class="text-error ml-1">*</span>
-              </template>
+              
               <!--
                 電子版 (create) はラジオ「今日/翌月1日」で指定し、
                 実際の保存値は buildRequestBody で確定する。それ以外は
                 a-date-picker（作成時のみ入力可、編集モードは読取専用）。
               -->
-              <a-radio-group
-                v-if="isDigitalCreate"
-                v-model:value="kaishiDateMode"
-              >
-                <a-radio value="today">今日</a-radio>
-                <a-radio value="next_month_first">翌月1日</a-radio>
-              </a-radio-group>
-              <a-date-picker
-                v-else
-                v-model:value="formState.dokusya_kaishi_date"
-                format="YYYY/MM/DD"
-                value-format="YYYY-MM-DD"
-                placeholder="YYYY/MM/DD"
-                :disabled="isEdit && !isResubscribing"
-                :disabled-date="disabledKaishiDate"
-                class="w-full"
-              />
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>購読開始日</span>
+                  <span class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="kaishiDateMode"
+                    v-if="isDigitalCreate"
+                    v-model:value="kaishiDateMode"
+                  >
+                    <a-radio value="today">今日</a-radio>
+                    <a-radio value="next_month_first">翌月1日</a-radio>
+                  </a-radio-group>
+                  <!-- v-else の相手はラジオなので、両分岐とも fieldset の中に置く
+                       （legend はどちらが描画されてもこの項目の名前になる）。 -->
+                  <a-date-picker
+                    v-else
+                    v-model:value="formState.dokusya_kaishi_date"
+                    format="YYYY/MM/DD"
+                    value-format="YYYY-MM-DD"
+                    placeholder="YYYY/MM/DD"
+                    :disabled="isEdit && !isResubscribing"
+                    :disabled-date="disabledKaishiDate"
+                    class="w-full"
+                  />
+                </div>
+              </fieldset>
             </a-form-item>
 
             <!-- 購読中止日は編集モードで、かつ中止日(値)がある場合のみ表示。
@@ -3226,7 +3327,7 @@ defineExpose({
                 v-else-if="chushiReadonlyMonthEdit"
                 class="flex items-center gap-2"
               >
-                <a-input :value="chushiMonthDisplay" disabled class="flex-1" />
+                <a-input :value="chushiMonthDisplay" disabled class="flex-1 min-w-0" />
                 <span class="text-text-description text-sm whitespace-nowrap">月末で終了</span>
               </div>
               <!-- 購読中止日は読取専用（顧客要件 2026-07 改訂）。停止（解約予約）は

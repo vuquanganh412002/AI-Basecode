@@ -89,6 +89,48 @@ services:
       denshiban-mysql:
         condition: service_healthy
 
+  # 定期バッチ。本番は EventBridge → ECS RunTask（agrinews-terraform の
+  # envs/<env>/scheduled-batches.tf）。ローカルは backend と同じイメージで
+  # busybox crond を回すだけ — docker socket も別イメージも要らない。
+  # スケジュールと注意点は docker/backend/batch-crontab を参照。
+  batch-scheduler:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
+    volumes:
+      # backend と同じ bind mount。src を直接読むので ts-node で動く。
+      - ./backend/src:/app/src
+      - ./backend/scripts:/app/scripts
+      - ./backend/tsconfig.json:/app/tsconfig.json
+      - ./backend/package.json:/app/package.json
+      - ./docker/certs:/app/certs:ro
+      - ./docker/backend/batch-crontab:/etc/crontabs/root:ro
+    environment:
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+      - STORAGE_ENDPOINT=http://minio:9000
+      - MAIL_HOST=mailhog
+      - DENSHIBAN_DB_HOST=denshiban-mysql
+      - DENSHIBAN_DB_PORT=3306
+      # crontab の時刻を JST として解釈させる（本番 EventBridge は UTC 固定）。
+      - TZ=Asia/Tokyo
+      # .env は開発者が全件同期を試すため true にしていることがある。10分毎に
+      # 23,000 行を舐め直すとローカルが張り付くので、ここでは必ず差分同期。
+      # 本番も watermark ベースの差分。
+      - DENSHIBAN_FULL_SYNC=false
+    env_file:
+      - ./backend/.env
+    # -f: フォアグラウンド（コンテナが即終了しない）
+    # -l 2: 実行したコマンドを stdout に出す → docker compose logs で追える
+    command: ["crond", "-f", "-l", "2"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      denshiban-mysql:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontend

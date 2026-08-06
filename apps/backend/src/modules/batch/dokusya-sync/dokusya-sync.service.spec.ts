@@ -197,7 +197,8 @@ describe('DokusyaSyncService', () => {
   });
 
   // 販売店の解決（顧客要件2026-08）: 電子版単独は当該 JA のダミー販売店
-  // （hanbaiten_code=9999999999）、併読は ShopCd の実店。
+  // （hanbaiten_code=9999999999）。併読も同じ扱いで、電子版側の ShopCd は
+  // 参照しない（顧客要件 2026-08）。
   describe('hanbaiten resolution', () => {
     it('should assign the JA dummy hanbaiten for a 電子版単独 row', async () => {
       const { service } = buildService({ existing: null });
@@ -218,9 +219,9 @@ describe('DokusyaSyncService', () => {
       expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBeNull();
     });
 
-    it('should resolve ShopCd to the real store for a 併読 row (ダミーへ倒さない)', async () => {
-      // ダミーは「配達先の販売店が無い」の意味。紙を配る読者に付けると
-      // 増減連絡票・名簿の配達担当が誤る。
+    it('should assign the dummy for a 併読 row too, ignoring ShopCd', async () => {
+      // 紙の配達担当は cloud 側（SCR-011 / SCR-017）で設定する運用に統一した
+      // ので、同期は販売店を決めない。実在する ShopCd でもダミーを付ける。
       const { service } = buildService({
         existing: null,
         deltaRows: [
@@ -229,10 +230,10 @@ describe('DokusyaSyncService', () => {
       });
       await service.run();
 
-      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBe(55);
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBe(99);
     });
 
-    it('should NOT fall back to the dummy when a 併読 row has an unresolvable ShopCd', async () => {
+    it('should assign the dummy for a 併読 row with an unknown ShopCd', async () => {
       const { service } = buildService({
         existing: null,
         deltaRows: [
@@ -241,7 +242,7 @@ describe('DokusyaSyncService', () => {
       });
       await service.run();
 
-      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBeNull();
+      expect(mockApplyChange.mock.calls[0][1].values.hanbaitenId).toBe(99);
     });
   });
 

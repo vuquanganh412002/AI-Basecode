@@ -420,7 +420,7 @@ defineExpose({ submitWith, form: formState });
           <!-- 金融機関支店フラグは作成後変更不可（顧客要件 2026-07）。編集画面では
                disabled にして固定する。BE も PUT で変更要求を 400 で拒否する（二重防御）。 -->
           <a-form-item name="kinyu_shiten_flg" label=" ">
-            <a-checkbox
+            <a-checkbox name="kinyu_shiten_flg"
               v-model:checked="formState.kinyu_shiten_flg"
               :disabled="isViewOnly || isEdit"
             >

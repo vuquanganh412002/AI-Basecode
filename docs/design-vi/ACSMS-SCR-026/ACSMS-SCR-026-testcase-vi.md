@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: tạo カテゴリ6 và bổ sung 3 ca (042〜044). 042＝lọc theo chi nhánh (điều kiện tùy chọn, người đọc có shiten_id NULL — vốn luôn NULL với người nhập từ liên kết bản điện tử — bị loại khi chọn chi nhánh). 043＝tách đối tượng tổng hợp theo loại báo biểu (#56597): theo cửa hàng bán ＝ chỉ bản giấy; theo chi nhánh quản lý ＝ bản giấy (vô điều kiện) ＋ kết hợp (trả phí) ＋ bản điện tử (trả phí và đã duyệt). 044＝loại cửa hàng bán dummy khỏi lựa chọn (`dummy=exclude`) |  |  |
 
 ## システム概要
 
@@ -47,7 +48,8 @@ Ngoài ra, hệ thống hỗ trợ các chức năng bảo mật・kiểm toán 
 | 3 | Kiểm tra đầu vào (Input Validation) | 6 |
 | 4 | Logic nghiệp vụ (Business Logic) | 12 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-| | 合計 | 41 |
+| 6 | Đối tượng tổng hợp・Lựa chọn cửa hàng bán (Scope / Hanbaiten Options) | 3 |
+| | 合計 | 44 |
 
 ---
 
@@ -1978,3 +1980,232 @@ Bảng t_dokusya_rireki không bị xóa và tồn tại
 ### 備考
 
 (なし)
+
+# カテゴリ6: Đối tượng tổng hợp・Lựa chọn cửa hàng bán (Scope / Hanbaiten Options)
+
+## ACSMS-TC-026-042 — Lọc theo chi nhánh (chỉ với loại báo biểu theo chi nhánh quản lý・điều kiện tùy chọn)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (ja_id=100・có quyền `report.export_meibo`)
+  - ・Dưới chi nhánh quản lý A (kanri_shiten_id=10) có chi nhánh X (shiten_id=21)／chi nhánh Y (shiten_id=22)
+  - ・Dưới chi nhánh quản lý B (kanri_shiten_id=11) có chi nhánh Z (shiten_id=31)
+  - ・Người đọc còn hiệu lực tại thời điểm ngày áp dụng: chi nhánh X có 3 người, chi nhánh Y có 2 người, chưa đặt chi nhánh (shiten_id là NULL) có 1 người (tất cả đều thuộc chi nhánh quản lý A)
+
+### Các bước
+
+Bước 1:
+Ở trạng thái đã chọn loại báo biểu「販売店別購読者名簿」, kiểm tra xem ô nhập chi nhánh có hiển thị không
+
+Bước 2:
+Chuyển loại báo biểu sang「管理支店別購読者名簿」, thao tác ô nhập chi nhánh khi chưa chọn chi nhánh quản lý
+
+Bước 3:
+Chọn A cho chi nhánh quản lý, mở dropdown chi nhánh và kiểm tra các lựa chọn
+
+Bước 4:
+Bấm「レポートプレビュー」mà không chọn chi nhánh
+
+Bước 5:
+Chỉ chọn X cho chi nhánh rồi bấm「レポートプレビュー」
+
+Bước 6:
+Giữ nguyên chi nhánh đang chọn là X, đổi chi nhánh quản lý từ A sang B
+
+Bước 7:
+Bấm「レポートデータExcel出力」với điều kiện chi nhánh quản lý A ＋ chi nhánh X
+
+### Kết quả mong đợi
+
+Bước 1:
+Ô nhập chi nhánh không hiển thị (vì báo biểu theo cửa hàng bán không có cột chi nhánh)
+
+Bước 2:
+Ô nhập chi nhánh có hiển thị nhưng bị vô hiệu hóa, kèm hướng dẫn「先に管理支店を選択してください」
+
+Bước 3:
+Chỉ chi nhánh X và chi nhánh Y xuất hiện trong lựa chọn. Chi nhánh Z thuộc chi nhánh quản lý B không xuất hiện
+
+Bước 4:
+Do chi nhánh là điều kiện tùy chọn nên không báo lỗi kiểm tra, và toàn bộ 6 người thuộc chi nhánh quản lý A (bao gồm 1 người chưa đặt chi nhánh) được xuất ra
+
+Bước 5:
+Chỉ 3 người của chi nhánh X được xuất ra. **1 người chưa đặt chi nhánh không được bao gồm**
+
+Bước 6:
+Lựa chọn chi nhánh tự động bị gỡ (trở về trống) và danh sách lựa chọn đổi thành chi nhánh Z
+
+Bước 7:
+Cùng 3 người như preview được xuất ra Excel và được đăng ký vào `t_file_download`
+
+Bổ sung:
+・Chi nhánh = chi nhánh phụ trách giao báo (`t_dokusya_rireki.shiten_id`), không phải chi nhánh ngân hàng (`bank_shiten_id`)
+・`shiten_id` là mục tùy chọn khi đăng ký người đọc nên có thể NULL. **Người đọc nhập từ liên kết bản điện tử thì luôn NULL** (vì bản điện tử không có khái niệm chi nhánh phụ trách giao báo). Nếu chọn dù chỉ 1 chi nhánh thì người đọc có giá trị NULL sẽ cho kết quả so sánh IN là NULL nên nằm ngoài đối tượng (Bước 5)
+・Đã có giai đoạn đặt điều kiện chi nhánh này là bắt buộc, nhưng khi đó người đọc có NULL dù thao tác thế nào cũng không đưa vào danh sách được (chọn「全て」cũng chỉ liệt kê các ID chi nhánh có thật chứ không lấy được NULL) nên đã đưa về tùy chọn (bản sửa đổi yêu cầu khách hàng 2026-08). Bước 4 là kiểm tra hồi quy cho việc này
+・Lý do không giữ lại lựa chọn chi nhánh khi đổi chi nhánh quản lý: nếu vẫn lọc bằng chi nhánh không thuộc cấp dưới thì nhìn màn hình không đọc được lý do vì sao kết quả là 0
+・Lý do không hiện điều kiện chi nhánh ở báo biểu theo cửa hàng bán: báo biểu không có cột chi nhánh nên không đọc được lý do lọc từ bản in. Phía API cũng bỏ qua `shiten_ids` khi `report_type=hanbaiten`
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-026-043 — Đối tượng tổng hợp được tách theo loại báo biểu (#56597)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `report.export_meibo`)
+  - ・Dưới cùng một chi nhánh quản lý・cửa hàng bán có thật, tồn tại người đọc đang đọc báo trong kỳ xuất như sau
+    - ・(a) Bản giấy (dokusya_shubetsu=1) 2 người
+    - ・(b) Kết hợp (3)・trả phí (denshi_dokusya_shubetsu=1) 1 người
+    - ・(c) Kết hợp (3)・miễn phí (denshi_dokusya_shubetsu=0) 1 người
+    - ・(d) Bản điện tử (2)・trả phí・đã duyệt (denshi_shonin_status=1) 1 người
+    - ・(e) Bản điện tử (2)・trả phí・chưa duyệt 1 người
+    - ・(f) Bản điện tử (2)・miễn phí・đã duyệt 1 người
+  - ・Số bản đọc của (b) là 2 bản
+
+### Các bước
+
+Bước 1:
+Xuất với loại báo biểu ＝ **theo cửa hàng bán** và kiểm tra người đọc có trong danh sách
+
+Bước 2:
+Xuất với loại báo biểu ＝ **theo chi nhánh quản lý** và kiểm tra người đọc có trong danh sách
+
+Bước 3:
+Kiểm tra số bản của (b) kết hợp trong bản xuất theo chi nhánh quản lý
+
+Bước 4:
+Kiểm tra tổng số bản của cả hai loại báo biểu
+
+### Kết quả mong đợi
+
+Bước 1:
+**Chỉ (a) bản giấy 2 người** được xuất ra. Kết hợp (b)(c)・bản điện tử (d)(e)(f) đều nằm ngoài đối tượng (vì báo biểu theo cửa hàng bán tổng hợp theo đơn vị "đối giá cho việc giao báo giấy")
+
+Bước 2:
+**(a) bản giấy 2 người + (b) kết hợp・trả phí 1 người + (d) bản điện tử・trả phí・đã duyệt 1 người, tổng 4 người** được xuất ra. (c) kết hợp・miễn phí, (e) bản điện tử・chưa duyệt, (f) bản điện tử・miễn phí nằm ngoài đối tượng
+
+Bước 3:
+Số bản của kết hợp được xử lý **nguyên giá trị nhập là 2 bản** (không làm tròn về 1)
+
+Bước 4:
+Tổng số bản tương ứng với số người thuộc đối tượng của từng loại được xuất ra
+
+Bổ sung:
+・Trước đây bất kể loại báo biểu đều dùng **điều kiện chung** "loại trừ kết hợp, bản điện tử chỉ lấy đã duyệt", nên báo biểu theo cửa hàng bán bị lẫn bản điện tử, còn báo biểu theo chi nhánh quản lý lại rớt mất kết hợp vốn phải thuộc đối tượng (yêu cầu khách hàng 2026-08 / #56597)
+・Phán định trả phí dùng **đẳng thức** `denshi_dokusya_shubetsu = 1`. Nếu dùng `<> 0` thì NULL cũng lọt qua. Tiền đề là `denshi_dokusya_shubetsu` luôn có giá trị với bản điện tử・kết hợp, chỉ bản giấy mới NULL
+・Điều kiện đã duyệt (`denshi_shonin_status = 1`) **chỉ áp cho bản điện tử** (yêu cầu khách hàng không đề cập tới kết hợp nên làm đúng theo văn bản)
+・Xuất dữ liệu trích nợ tài khoản (SCR-020)・xuất thông tin thanh toán phí giao báo (SCR-021) còn có điều kiện khác nữa. Đối tượng khác nhau theo từng báo biểu nên không được dùng lại
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-026-044 — Cửa hàng bán dummy của bản điện tử bị loại khỏi lựa chọn (#56597)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `report.export_meibo`)
+  - ・JA của mình có cửa hàng bán dummy của bản điện tử (`hanbaiten_code = 9999999999`)
+  - ・Có người đọc bản điện tử gắn với cửa hàng dummy
+  - ・Cũng tồn tại từ 2 cửa hàng bán có thật trở lên
+
+### Các bước
+
+Bước 1:
+Chọn loại báo biểu ＝ theo cửa hàng bán và kiểm tra các lựa chọn của dropdown「販売店」
+
+Bước 2:
+Kiểm tra tham số request của `GET /api/v1/hanbaiten/dropdown`
+
+Bước 3:
+Chuyển loại báo biểu theo chi nhánh quản lý → theo cửa hàng bán và xác nhận danh sách lựa chọn được lấy lại
+
+Bước 4:
+Từ DevTools chỉ định trực tiếp `hanbaiten_id` của cửa hàng dummy và gọi API xuất
+
+### Kết quả mong đợi
+
+Bước 1:
+Chỉ các cửa hàng bán có thật hiển thị trong lựa chọn, **cửa hàng dummy (9999999999) không xuất hiện**
+
+Bước 2:
+Có chỉ định `dummy=exclude`
+
+Bước 3:
+Danh sách lựa chọn được lấy lại khi chuyển loại báo biểu (vì giá trị `dummy` đổi thì tập lựa chọn cũng đổi)
+
+Bước 4:
+Kết quả là 0 bản ghi (vì người đọc dưới cửa hàng dummy không vào đối tượng tổng hợp, nên dù chọn được cũng chắc chắn ra 0)
+
+Bổ sung:
+・Cửa hàng bán dummy của bản điện tử là "nơi hứng để gắn người đọc bản điện tử", không phải cửa hàng bán có thật. Nó tồn tại vì `t_dokusya.hanbaiten_id` là NOT NULL
+・Việc loại trừ tương tự cũng áp dụng cho phiếu liên lạc tăng giảm (SCR-028)
+・`/hanbaiten/dropdown` phía BE vốn đã nhận `dummy=only|exclude` từ trước, nhưng component dùng chung `BaseHanbaitenSelect` không có prop và chỉ SCR-011 chỉ định trực tiếp. Lần này đã cho cả hai màn truyền `exclude`
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

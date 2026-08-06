@@ -293,7 +293,7 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     ['履歴No', false],
   ])('label %s presence should be %s in create mode', async (needle, present) => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes(needle))).toBe(present);
   });
 
@@ -355,7 +355,7 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     [['購読開始日', '備考']],
   ])('should render labels %j when mounted', async (needles) => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     for (const needle of needles) {
       expect(labels.some((t) => t.includes(needle))).toBe(true);
     }
@@ -363,7 +363,7 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
 
   it('should render the 4 name input labels (氏 / 名 / かな_氏 / かな_名) when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('購読者氏名_氏'))).toBe(true);
     expect(labels.some((t) => t.includes('購読者氏名_名'))).toBe(true);
     expect(labels.some((t) => t.includes('購読者かな_氏'))).toBe(true);
@@ -372,7 +372,7 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
 
   it('should render the address-section labels (郵便番号 / 都道府県 / 市町村郡 / 丁目番地) when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('郵便番号'))).toBe(true);
     expect(labels.some((t) => t.includes('都道府県'))).toBe(true);
     expect(labels.some((t) => t.includes('市町村郡'))).toBe(true);
@@ -389,14 +389,14 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
 
   it('should render the 支払方法 / 購読料支払サイクル labels when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('支払方法'))).toBe(true);
     expect(labels.some((t) => t.includes('購読料支払サイクル'))).toBe(true);
   });
 
   it('should render the bank-section labels (引落口座支店 / 引落口座貯金種目 / 引落口座番号 / 引落口座名義) when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('引落口座支店'))).toBe(true);
     expect(labels.some((t) => t.includes('引落口座貯金種目'))).toBe(true);
     expect(labels.some((t) => t.includes('引落口座番号'))).toBe(true);
@@ -999,7 +999,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     // ネイティブ checkbox「購読者情報と同じ」は form-level 対象外 → 明示ロックを確認。
     const sameFlgCheckbox = () =>
       wrapper
-        .findAll('label')
+        .findAll('label, legend, .form-item-title')
         .find((l) => l.text().includes('購読者情報と同じ'))!
         .find('input[type="checkbox"]').element as HTMLInputElement;
 
@@ -1250,7 +1250,7 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
 
   it('should render the 履歴No label when mounted in edit mode', async () => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('履歴No'))).toBe(true);
   });
 
@@ -1856,6 +1856,20 @@ describe('DokusyaFormView — 購読種別 conditional rules (機能定義 7.x /
     expect(body.haitatsu_shimei_kana_mei).toBe('はなこ');
   });
 
+  it('should KEEP the 配達先情報 section for 併読 (紙も届くため・顧客要件 2026-08)', async () => {
+    // 電子版と併読をひとまとめに隠していたが、併読は紙が配達される。読者同期も
+    // paper_* 由来の配達先を入れており、隠したままだと同期済みの住所を画面で
+    // 確認・修正できなかった。
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({ dokusya_shubetsu: 3 }));
+
+    const titles = wrapper
+      .findAll('label, legend, .form-item-title')
+      .map((l) => l.text());
+    expect(titles.some((t) => t.includes('配達先苗字'))).toBe(true);
+  });
+
   it('should hide the 配達先情報 section content when dokusya_shubetsu is 電子版 (機能定義 7.5)', async () => {
     // 電子版/併読 → 配達先情報エリアを非活性化 (入力不要).
     const { wrapper } = await renderView();
@@ -1866,7 +1880,7 @@ describe('DokusyaFormView — 購読種別 conditional rules (機能定義 7.x /
     // — assert at least one of the address subsection input/select is
     // not active.
     const haitatsuYubinLabel = wrapper
-      .findAll('label')
+      .findAll('label, legend, .form-item-title')
       .find((l) => l.text().includes('配達先') || l.attributes('for')?.includes('haitatsu'));
     if (haitatsuYubinLabel) {
       const parent = haitatsuYubinLabel.element.closest('section, fieldset, div');
@@ -1880,7 +1894,7 @@ describe('DokusyaFormView — 購読種別 conditional rules (機能定義 7.x /
       // If the entire section is removed from the DOM, that's also a
       // valid implementation — pass when no haitatsu labels render.
       expect(
-        wrapper.findAll('label').filter((l) => l.text().includes('配達先苗字')),
+        wrapper.findAll('label, legend, .form-item-title').filter((l) => l.text().includes('配達先苗字')),
       ).toHaveLength(0);
     }
   });

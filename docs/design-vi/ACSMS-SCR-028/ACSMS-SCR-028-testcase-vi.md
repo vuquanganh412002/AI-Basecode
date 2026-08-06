@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: tạo カテゴリ6 và bổ sung 7 ca. 041〜044・047 vốn đã có ở bản tiếng Nhật nhưng chưa được dịch (cộng dồn nhiều lịch sử cùng ngày, hủy đăng ký vào giảm bản, đổi cửa hàng bán, người đọc mới không vào phần đổi địa chỉ, phân trang theo đơn vị người đọc). 048＝giới hạn đối tượng tổng hợp chỉ bản giấy (#56408): điều kiện cũ "bản điện tử chỉ tổng hợp khi đã duyệt" đã bị bỏ vì nằm gọn trong giới hạn này. 049＝loại cửa hàng bán dummy khỏi lựa chọn (#56597・`dummy=exclude`), kèm xác nhận cửa hàng đã ngừng kinh doanh cũng không xuất hiện |  |  |
 
 ## システム概要
 
@@ -47,7 +48,8 @@ Ngoài ra, hệ thống còn hỗ trợ các chức năng bảo mật・kiểm t
 | 3 | Kiểm tra đầu vào (Input Validation) | 4 |
 | 4 | Logic nghiệp vụ (Business Logic) | 14 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-| | 合計 | 40 |
+| 6 | Đối tượng tổng hợp・Lựa chọn cửa hàng bán (Scope / Hanbaiten Options) | 7 |
+| | 合計 | 47 |
 
 ---
 
@@ -1950,3 +1952,394 @@ Bảng t_dokusya_rireki không bị xóa và vẫn tồn tại
 ### 備考
 
 (なし)
+
+# カテゴリ6: Đối tượng tổng hợp・Lựa chọn cửa hàng bán (Scope / Hanbaiten Options)
+
+## ACSMS-TC-028-041 — Cộng dồn nhiều lịch sử trong cùng ngày (1→3→5 thành 1→5)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại lịch sử cùng một người đọc đổi số bản nhiều lần trong cùng ngày áp dụng theo 1→3→5 (từ 2 bản ghi trở lên trong cùng ngày)
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra người đọc tương ứng trong bảng tăng bản
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Người đọc tương ứng hiển thị bằng **1 dòng chứ không phải 2 dòng** (cộng dồn trong ngày)
+・Số bản hiển thị là **「1 → 5」** (số bản trước đó lúc đầu ngày → số bản hiện tại lúc cuối ngày)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-028-042 — Hủy đăng ký (…→0) được phản ánh vào giảm bản
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại người đọc đã hủy đăng ký (số bản đọc 2→0) vào ngày áp dụng đó
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra nội dung của bảng giảm bản
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Người đọc đã hủy đăng ký hiển thị trong bảng giảm bản
+・Số bản hiển thị là **「2 → 0」**
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-028-043 — Đổi cửa hàng bán (giảm ở cửa hàng cũ / tăng ở cửa hàng mới)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại người đọc đã đổi cửa hàng bán từ A→B vào ngày áp dụng đó (số bản không đổi 1→1)
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra báo biểu của cửa hàng cũ A và cửa hàng mới B
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Người đọc tương ứng hiển thị ở phần **giảm bản** của cửa hàng cũ A (số bản「1 → 0」)
+・Người đọc tương ứng hiển thị ở phần **tăng bản** của cửa hàng mới B (số bản「0 → 1」)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+Do chi nhánh quản lý của cửa hàng bán cũ không được lưu trong lịch sử, tạm thời dùng chi nhánh quản lý của bản ghi cuối cùng trong ngày.
+
+## ACSMS-TC-028-044 — Người đọc mới không đưa vào phần thay đổi địa chỉ
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại người đọc bắt đầu đăng ký mới vào ngày áp dụng đó (lịch sử đầu tiên・địa chỉ lần trước trống)
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra bảng tăng bản và bảng thay đổi địa chỉ
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Người đọc mới hiển thị ở phần **tăng bản** (「0 → 1」)
+・Người đọc mới **không hiển thị trong bảng thay đổi địa chỉ** (vì địa chỉ lần trước trống)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-028-047 — Phân trang (SQL OFFSET/LIMIT・theo đơn vị người đọc・API riêng)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại từ 16 người đọc thuộc đối tượng tăng giảm trở lên vào ngày áp dụng đó
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Chuyển sang trang 2 bằng pager ở dưới phần preview
+
+### 期待結果
+
+ステップ1：
+・Trang 1 hiển thị tối đa **15 người đọc** (≒15 bản ghi. Phần lớn là 1 bản ghi/người đọc. Do đổi cửa hàng bán＝2 / đổi số bản＋địa chỉ＝2 nên không chính xác đúng 15 dòng)
+・Pager (tổng N bản ghi ＝ số người đọc thuộc đối tượng・trang 1/M) được hiển thị
+・「ページ数」ở header báo biểu là `1/M`
+・BE chỉ load chi tiết của số người đọc trong 1 trang bằng `COUNT(DISTINCT dokusya_id)` ＋ OFFSET/LIMIT trên `dokusya_id` (không load toàn bộ)
+
+ステップ2：
+・Lấy lại trang 2 bằng API riêng và hiển thị những người đọc còn lại (trình duyệt chỉ vẽ 1 trang)
+・「ページ数」được cập nhật thành `2/M`
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+Việc xuất báo biểu điện tử (PDF) không phân trang mà xuất toàn bộ vào 1 file PDF.
+
+## ACSMS-TC-028-048 — Giới hạn đối tượng tổng hợp chỉ bản giấy (#56408)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `report.export_zougen_hanbaiten`)
+  - ・Lấy ngày áp dụng là 2026/09/01, chuẩn bị người đọc có lịch sử thuộc đối tượng báo cáo tăng giảm (`zougen_hokoku_flg = true`) trong cùng ngày như sau (tất cả đều thuộc cửa hàng bán A có thật)
+    - ・(a) Bản giấy (dokusya_shubetsu=1) tăng từ 1 → 3 bản, 1 người
+    - ・(b) Kết hợp (3) có thay đổi số bản, 1 người
+    - ・(c) Bản điện tử (2)・đã duyệt (denshi_shonin_status=1) 1 người
+    - ・(d) Bản điện tử (2)・chưa duyệt 1 người
+
+### 手順
+
+ステップ1：
+Hiển thị preview với ngày áp dụng 2026/09/01 và kiểm tra người đọc thuộc đối tượng
+
+ステップ2：
+Xuất PDF và kiểm tra số bản tăng・số bản giảm của cửa hàng bán A
+
+ステップ3：
+Kiểm tra người đọc (b) kết hợp có nằm trong bản xuất không
+
+ステップ4：
+Kiểm tra người đọc (c) bản điện tử・đã duyệt có nằm trong bản xuất không
+
+ステップ5：
+Xuất ở trạng thái chỉ giữ lại (a) và xóa các trường hợp còn lại, xác nhận số lượng khớp
+
+### 期待結果
+
+ステップ1：
+**Chỉ (a) bản giấy 1 người** thuộc đối tượng
+
+ステップ2：
+Số bản tăng của cửa hàng bán A chỉ gồm phần tăng của (a) (+2 bản)
+
+ステップ3：
+**Không nằm trong bản xuất**. Kết hợp không có biến động tương ứng với mục đích của báo biểu này là "truyền đạt tăng giảm số bản giao báo tới cửa hàng bán"
+
+ステップ4：
+**Không nằm trong bản xuất**. Trước đây có điều kiện "bản điện tử chỉ tổng hợp khi đã duyệt", nhưng điều kiện đó đã bị bỏ vì nằm gọn trong giới hạn chỉ bản giấy (yêu cầu khách hàng 2026-08 / #56408)
+
+ステップ5：
+Nội dung xuất ra không thay đổi
+
+補足：
+・Báo biểu này truyền đạt tăng giảm số bản giao báo tới cửa hàng bán, mà bản điện tử・kết hợp không có khái niệm giao báo (bản điện tử đơn thuần thì gắn với cửa hàng dummy)
+・Thông báo tăng giảm (SCR-029) cũng giới hạn chỉ bản giấy, nhưng điều kiện do từng màn tự giữ (không dùng chung nên nếu chỉ sửa một bên sẽ lệch nhau)
+・Danh sách người đọc (SCR-026) có đối tượng khác nhau theo loại báo biểu (theo chi nhánh quản lý thì kết hợp・bản điện tử cũng thuộc đối tượng). Không được dùng lại nguyên điều kiện của màn hình này
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-028-049 — Loại cửa hàng bán dummy của bản điện tử khỏi lựa chọn (#56597)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `report.export_zougen_hanbaiten`)
+  - ・JA của mình có cửa hàng bán dummy của bản điện tử (`hanbaiten_code = 9999999999`) và có người đọc bản điện tử gắn vào
+  - ・Tồn tại từ 2 cửa hàng bán có thật trở lên
+  - ・Chuẩn bị thêm 1 cửa hàng bán có cờ ngừng kinh doanh (`haiten_flg = true`)
+
+### 手順
+
+ステップ1：
+Mở dropdown「販売店」trong điều kiện xuất và kiểm tra các lựa chọn
+
+ステップ2：
+Kiểm tra tham số request của `GET /api/v1/hanbaiten/dropdown`
+
+ステップ3：
+Kiểm tra cửa hàng bán đã ngừng kinh doanh có xuất hiện trong lựa chọn không
+
+ステップ4：
+Từ DevTools chỉ định trực tiếp `hanbaiten_id` của cửa hàng dummy và gọi API xuất
+
+### 期待結果
+
+ステップ1：
+Chỉ các cửa hàng bán có thật và chưa ngừng kinh doanh hiển thị trong lựa chọn, **cửa hàng dummy (9999999999) không xuất hiện**
+
+ステップ2：
+Có chỉ định `dummy=exclude`
+
+ステップ3：
+Cửa hàng bán đã ngừng kinh doanh cũng không xuất hiện trong lựa chọn (phía SQL tổng hợp cũng loại bằng `h.haiten_flg = false`)
+
+ステップ4：
+Kết quả là 0 bản ghi. Đối tượng tổng hợp của báo biểu này chỉ là bản giấy, mà gắn với dummy chỉ có người đọc bản điện tử, nên dù chọn được cũng chắc chắn ra 0
+
+補足：
+・Cửa hàng bán dummy của bản điện tử là "nơi hứng để gắn người đọc bản điện tử", không phải cửa hàng bán có thật (tồn tại vì `t_dokusya.hanbaiten_id` là NOT NULL)
+・Việc loại trừ tương tự cũng áp dụng cho danh sách người đọc theo cửa hàng bán (SCR-026) (xem ACSMS-TC-026-044)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+---

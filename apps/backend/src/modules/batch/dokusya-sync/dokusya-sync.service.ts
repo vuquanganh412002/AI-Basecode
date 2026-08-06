@@ -414,35 +414,24 @@ export class DokusyaSyncService implements BatchJob {
     }
 
     const status = Number(u.status);
-    const isHeidoku = hasValue(u.paper_permission_dt);
-    // 販売店の解決:
-    //   併読       → 紙を配達するので ShopCd を m_hanbaiten で実店に解決。
-    //   電子版単独 → 配達が無いので当該 JA のダミー販売店
-    //                （hanbaiten_code=9999999999・顧客要件2026-08）。
+    // 販売店は 電子版単独 / 併読 とも当該 JA のダミー販売店
+    // （hanbaiten_code=9999999999）を割り当てる。電子版側の ShopCd は参照しない
+    // （顧客要件 2026-08）。紙の配達担当は cloud 側で SCR-011 / SCR-017 から
+    // 設定する運用に統一するため、同期は販売店を決めない。
+    //
     // ダミーが未整備の JA は null のまま取り込む（hanbaiten_id は NULL 許容）。
     // 行を落とすと watermark が止まり後続の正常行まで巻き添えになるため、
     // 取り込みは通し、運用が気付けるよう JA 単位で 1 回だけ警告する。
-    //
-    // ※ 併読で ShopCd が解決できない場合にダミーへ倒さないのは、ダミーが
-    //   「配達先の販売店が無い」を意味するため。紙を配る読者に付けると
-    //   増減連絡票・名簿の配達担当が誤る。SCR-011 の候補絞り込み
-    //   （電子版=ダミーのみ / それ以外=ダミー除外）とも一致する。
-    let hanbaitenId: number | null;
-    if (isHeidoku) {
-      hanbaitenId =
-        hanbaitenMap.get(`${kanri.jaId}:${String(u.ShopCd ?? '')}`) ?? null;
-    } else {
-      hanbaitenId =
-        hanbaitenMap.get(`${kanri.jaId}:${HANBAITEN_DUMMY_CODE}`) ?? null;
-      if (hanbaitenId === null && !warnedNoDummyJa.has(kanri.jaId)) {
-        warnedNoDummyJa.add(kanri.jaId);
-        this.logger.warn({
-          event: 'dokusya_sync.no_dummy_hanbaiten',
-          ja_id: kanri.jaId,
-          hanbaiten_code: HANBAITEN_DUMMY_CODE,
-          note: 'この JA の電子版単独読者は販売店未設定(NULL)で取り込む。ダミー販売店を登録すること。',
-        });
-      }
+    let hanbaitenId =
+      hanbaitenMap.get(`${kanri.jaId}:${HANBAITEN_DUMMY_CODE}`) ?? null;
+    if (hanbaitenId === null && !warnedNoDummyJa.has(kanri.jaId)) {
+      warnedNoDummyJa.add(kanri.jaId);
+      this.logger.warn({
+        event: 'dokusya_sync.no_dummy_hanbaiten',
+        ja_id: kanri.jaId,
+        hanbaiten_code: HANBAITEN_DUMMY_CODE,
+        note: 'この JA の同期読者は販売店未設定(NULL)で取り込む。ダミー販売店を登録すること。',
+      });
     }
 
     const fk: DenshiFkResolution = {

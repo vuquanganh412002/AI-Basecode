@@ -468,12 +468,12 @@ defineExpose({
           <BaseTodofukenSelect
             id="file-upload-todofuken"
             v-model:value="selectedTodofukenCode"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </label>
         <label for="file-upload-todofuken-name" class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">都道府県名</span>
-          <a-input id="file-upload-todofuken-name" :value="todofukenName" disabled class="flex-1" />
+          <a-input id="file-upload-todofuken-name" :value="todofukenName" disabled class="flex-1 min-w-0" />
         </label>
         <label for="file-upload-ja" class="md:col-span-2 flex items-start gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap pt-1">対象JA</span>
@@ -491,7 +491,7 @@ defineExpose({
             :filter-option="false"
             option-filter-prop="label"
             placeholder="JAコード・JA名で検索して選択（複数可）"
-            class="flex-1"
+            class="flex-1 min-w-0"
             @change="onJaChange"
             @search="onJaSearch"
             @popup-scroll="onJaPopupScroll"
@@ -554,7 +554,7 @@ defineExpose({
             placeholder="yyyy/mm/dd"
             :status="dateError ? 'error' : ''"
             :disabled-date="isPastDayTokyo"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </label>
         <p
@@ -570,6 +570,8 @@ defineExpose({
         class="block border-2 border-dashed border-border rounded-ant p-8 text-center text-text-description cursor-pointer hover:bg-surface-hover transition-colors"
       >
         <input
+          id="file-upload-input"
+          name="files"
           type="file"
           multiple
           :accept="ACCEPT_ATTR"

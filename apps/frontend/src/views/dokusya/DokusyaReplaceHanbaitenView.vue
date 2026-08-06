@@ -566,7 +566,7 @@ defineExpose({
         <BaseKanriShitenDropdown
           v-model:value="state.filters.kanri_shiten_id"
           :ja-id="filterJaId"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -578,7 +578,7 @@ defineExpose({
           placeholder="選択してください"
           allow-clear
           :disabled="isShitenDisabled"
-          class="flex-1"
+          class="flex-1 min-w-0"
         >
           <a-select-option
             v-for="opt in shitenOptions"
@@ -594,10 +594,11 @@ defineExpose({
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
+          id="kumiaiin_code"
           v-model:value="state.filters.kumiaiin_code"
           placeholder="組合員コード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -605,10 +606,11 @@ defineExpose({
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
+          id="shimei"
           v-model:value="state.filters.shimei"
           placeholder="氏名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -616,10 +618,11 @@ defineExpose({
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
+          id="shimei_kana"
           v-model:value="state.filters.shimei_kana"
           placeholder="かな氏名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -627,10 +630,11 @@ defineExpose({
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達先住所</span>
         <a-input
+          id="haitatsu_address"
           v-model:value="state.filters.haitatsu_address"
           placeholder="配達先住所"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -641,7 +645,7 @@ defineExpose({
         <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
           :ja-id="filterJaId"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -649,21 +653,23 @@ defineExpose({
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">購読開始日</span>
         <a-date-picker
+          id="dokusya_kaishi_date_from"
           v-model:value="state.filters.dokusya_kaishi_date_from"
           value-format="YYYY-MM-DD"
           format="YYYY/MM/DD"
           placeholder="YYYY/MM/DD"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
         <span class="text-text-description">-</span>
         <a-date-picker
+          id="dokusya_kaishi_date_to"
           v-model:value="state.filters.dokusya_kaishi_date_to"
           value-format="YYYY-MM-DD"
           format="YYYY/MM/DD"
           placeholder="YYYY/MM/DD"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </div>
 
@@ -674,6 +680,7 @@ defineExpose({
           <span class="whitespace-nowrap">購読種別</span>
           <span class="text-error">*</span>
           <a-radio-group
+            name="dokusya_shubetsu"
             v-model:value="state.filters.dokusya_shubetsu"
             data-test="replace-shubetsu"
             class="flex-1"
@@ -704,6 +711,7 @@ defineExpose({
           <span class="whitespace-nowrap">適用日</span>
           <span class="text-error">*</span>
           <a-date-picker
+            id="joho_henko_tekiyo_date"
             v-model:value="state.filters.joho_henko_tekiyo_date"
             value-format="YYYY-MM-DD"
             format="YYYY/MM/DD"
@@ -712,7 +720,7 @@ defineExpose({
             :disabled="isTekiyoDateDisabled"
             :disabled-date="isTodayOrPastDayTokyo"
             data-test="replace-tekiyo-date"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
         <p
@@ -734,7 +742,7 @@ defineExpose({
           <BaseHanbaitenDropdown
             v-model:value="state.filters.new_hanbaiten_id"
             :ja-id="filterJaId"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
         <p

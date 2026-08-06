@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: tạo カテゴリ6 và bổ sung 5 ca. 044〜047 vốn đã có ở bản tiếng Nhật nhưng chưa được dịch (cộng dồn nhiều lịch sử cùng ngày, hủy đăng ký vào số bản giảm, đổi cửa hàng bán, phân trang 15 dòng/trang khớp với PDF). 048＝giới hạn đối tượng tổng hợp chỉ bản giấy (#56410): điều kiện cũ "bản điện tử chỉ tổng hợp khi đã duyệt" đã bị bỏ vì nằm gọn trong giới hạn này; có kèm bước đối chiếu với SCR-028 vì hai màn giữ điều kiện riêng |  |  |
 
 ## システム概要
 
@@ -45,9 +46,10 @@ Ngoài ra, hệ thống hỗ trợ các chức năng bảo mật・kiểm toán 
 | 1 | Kiểm soát quyền truy cập (Access Control) | 8 |
 | 2 | Hiển thị màn hình (Layout / Rendering) | 7 |
 | 3 | Kiểm tra input (Input Validation) | 5 |
-| 4 | Logic nghiệp vụ (Business Logic) | 16 |
-| 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-| | 合計 | 43 |
+| 4 | Logic nghiệp vụ (Business Logic) | 19 |
+| 5 | Xử lý lỗi chung (Common Error Handling) | 8 |
+| 6 | Đối tượng tổng hợp (Scope) | 1 |
+| | 合計 | 48 |
 
 ---
 
@@ -1157,6 +1159,152 @@ Danh sách được hiển thị
 
 (なし)
 
+## ACSMS-TC-029-044 — Cộng dồn nhiều lịch sử trong cùng ngày (1→3→5 thành hiện tại 1/mới 5/tăng 4)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại lịch sử cùng một người đọc đổi số bản nhiều lần trong cùng ngày áp dụng theo 1→3→5 (từ 2 bản ghi trở lên trong cùng ngày)
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra dòng chi tiết của cửa hàng bán tương ứng
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Biến động của người đọc tương ứng được tính vào **1 dòng** (cộng dồn chứ không phải 2 dòng)
+・Số bản hiện tại **1**, số bản mới **5**, số bản tăng **4**, số bản giảm **0**
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-029-045 — Hủy đăng ký (…→0) được phản ánh vào số bản giảm
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại người đọc đã hủy đăng ký (số bản đọc 2→0) vào ngày áp dụng đó
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra dòng chi tiết của cửa hàng bán tương ứng
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Số bản hiện tại **2**, số bản giảm **2**, số bản mới **0**, số bản tăng **0**
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-029-046 — Đổi cửa hàng bán (giảm ở cửa hàng cũ / tăng ở cửa hàng mới)
+
+- 観点ID: VP-C-08
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại người đọc đã đổi cửa hàng bán từ A→B vào ngày áp dụng đó (số bản không đổi 1→1)
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng đó rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Kiểm tra dòng chi tiết của cửa hàng cũ A và cửa hàng mới B
+
+### 期待結果
+
+ステップ1：
+Danh sách được hiển thị
+
+ステップ2：
+・Cửa hàng cũ A: hiển thị số bản hiện tại **1** / số bản giảm **1** / số bản mới **0**
+・Cửa hàng mới B: hiển thị số bản hiện tại **0** / số bản tăng **1** / số bản mới **1**
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+Do chi nhánh quản lý của cửa hàng cũ không được lưu trong lịch sử, tạm thời tính vào chi nhánh quản lý của bản ghi cuối cùng trong ngày.
+
 ## ACSMS-TC-029-024 — Hiển thị cột 委託
 
 - 観点ID: VP-C-08
@@ -2101,3 +2249,145 @@ Bảng t_dokusya_rireki không bị xóa và tồn tại
 ### 備考
 
 (なし)
+
+## ACSMS-TC-029-047 — Phân trang (15 dòng cửa hàng bán/trang・API riêng・khớp với PDF)
+
+- 観点ID: VP-D-07
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Tồn tại từ 16 người đọc thuộc đối tượng tăng giảm trở lên vào ngày áp dụng đó
+
+### 手順
+
+ステップ1：
+Nhập ngày áp dụng rồi thực thi「レポートプレビュー」
+
+ステップ2：
+Chuyển sang trang 2 bằng pager ở dưới phần preview
+
+ステップ3：
+Thực thi「電子帳票作成」với cùng điều kiện và kiểm tra cấu trúc trang của PDF xuất ra
+
+### 期待結果
+
+ステップ1：
+・Trang 1 hiển thị tối đa **15 dòng cửa hàng bán** (≒15 người đọc. Phần lớn là 1 dòng/người đọc. Do đổi cửa hàng bán có thể thành 2 dòng nên không chính xác đúng 15 dòng)
+・Pager (tổng N bản ghi ＝ số người đọc thuộc đối tượng・trang 1/M) được hiển thị
+・「Page」ở header báo biểu là `1/M`
+・BE chỉ load chi tiết của số người đọc trong 1 trang bằng `COUNT(DISTINCT dokusya_id)` ＋ OFFSET/LIMIT trên `dokusya_id` (không load toàn bộ)
+
+ステップ2：
+・Lấy lại trang 2 bằng API riêng và hiển thị những người đọc còn lại (trình duyệt chỉ vẽ 1 trang)
+・「Page」được cập nhật thành `2/M`
+
+ステップ3：
+・Trang thứ n của PDF xuất ra có cùng nội dung・cùng vị trí ngắt trang với trang thứ n của preview (gộp toàn bộ chi nhánh quản lý vào 1 PDF, chỉ ngắt trang ở đầu trang)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+Tổng của mỗi chi nhánh quản lý được tính từ các dòng trong trang đó (nếu chi nhánh quản lý trải qua nhiều trang thì là tổng trong trang).
+
+# カテゴリ6: Đối tượng tổng hợp (Scope)
+
+## ACSMS-TC-029-048 — Giới hạn đối tượng tổng hợp chỉ bản giấy (#56410)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `report.export_zougen_nichino`)
+  - ・Lấy ngày áp dụng là 2026/09/01, chuẩn bị người đọc có lịch sử thuộc đối tượng báo cáo tăng giảm (`zougen_hokoku_flg = true`) trong cùng ngày như sau (tất cả đều thuộc cửa hàng bán A có thật・cùng chi nhánh quản lý)
+    - ・(a) Bản giấy (dokusya_shubetsu=1) tăng từ 1 → 3 bản, 1 người
+    - ・(b) Kết hợp (3) có thay đổi số bản, 1 người
+    - ・(c) Bản điện tử (2)・đã duyệt (denshi_shonin_status=1) 1 người
+    - ・(d) Bản điện tử (2)・chưa duyệt 1 người
+
+### 手順
+
+ステップ1：
+Hiển thị preview với ngày áp dụng 2026/09/01 và kiểm tra dòng cửa hàng bán cùng số bản được tổng hợp
+
+ステップ2：
+Xuất PDF và kiểm tra số bản tăng・số bản giảm・chênh lệch của cửa hàng bán A
+
+ステップ3：
+Kiểm tra biến động của (b) kết hợp có được phản ánh vào số bản không
+
+ステップ4：
+Kiểm tra biến động của (c) bản điện tử・đã duyệt có được phản ánh vào số bản không
+
+ステップ5：
+Xuất ở trạng thái chỉ giữ lại (a) và xóa các trường hợp còn lại, xác nhận số bản không đổi
+
+ステップ6：
+Xuất phiếu liên lạc tăng giảm (cửa hàng bán) SCR-028 với cùng điều kiện và xác nhận người đọc thuộc đối tượng khớp nhau
+
+### 期待結果
+
+ステップ1：
+Số bản tăng của cửa hàng bán A **chỉ gồm phần tăng của (a) (+2 bản)**
+
+ステップ2：
+Giá trị trong PDF khớp với preview
+
+ステップ3：
+**Không được phản ánh**. Báo biểu này cũng truyền đạt tăng giảm số bản, mà kết hợp không kèm việc giao báo nên nằm ngoài đối tượng
+
+ステップ4：
+**Không được phản ánh**. Điều kiện cũ "bản điện tử chỉ tổng hợp khi đã duyệt" đã bị bỏ vì nằm gọn trong giới hạn chỉ bản giấy (yêu cầu khách hàng 2026-08 / #56410)
+
+ステップ5：
+Nội dung xuất ra không thay đổi
+
+ステップ6：
+Người đọc thuộc đối tượng của hai báo biểu khớp nhau
+
+補足：
+・Cùng phương châm với phiếu liên lạc tăng giảm (cửa hàng bán) SCR-028, nhưng **điều kiện do từng màn tự giữ** (không dùng chung nên nếu chỉ sửa một bên sẽ lệch nhau). ステップ6 là để phát hiện sự lệch đó
+・Màn hình này không có ô nhập cửa hàng bán trong điều kiện xuất nên việc điều khiển hiển thị cửa hàng dummy (#56597) nằm ngoài phạm vi. Tuy vậy phía SQL tổng hợp vẫn loại cửa hàng ngừng kinh doanh・cửa hàng dummy bằng `h.haiten_flg = false`
+・Danh sách người đọc (SCR-026) có đối tượng khác nhau theo loại báo biểu (theo chi nhánh quản lý thì kết hợp・bản điện tử cũng thuộc đối tượng). Không được dùng lại nguyên điều kiện của màn hình này
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+---

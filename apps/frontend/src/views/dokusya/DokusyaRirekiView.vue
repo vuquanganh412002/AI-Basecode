@@ -463,11 +463,15 @@ async function confirmTorikeshi(): Promise<void> {
         :validate-status="torikeshiError ? 'error' : ''"
         :help="torikeshiError"
       >
+        <!-- 見出しは上の説明文が兼ねるため可視ラベルは無い。識別子と読み上げ名を
+             属性で補う（プレースホルダは支援技術向けの名前にならない）。 -->
         <a-textarea
+          id="torikeshi-reason"
           v-model:value="torikeshiReason"
           :rows="3"
           :maxlength="REASON_MAX"
           placeholder="取消理由を入力してください"
+          aria-label="取消理由"
           data-test="torikeshi-reason"
         />
       </a-form-item>

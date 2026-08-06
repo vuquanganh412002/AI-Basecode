@@ -80,6 +80,26 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     expect(heidoku.dokusyaShubetsu).toBe(DokusyaShubetsu.BOTH);
   });
 
+  // paper_permission_dt は char(8) で、実データは区切り無しの 'YYYYMMDD'
+  // （例 '20230220'）。区切りありしか受けない実装だと、日付が入っているのに
+  // 電子版(2) として取り込まれ、併読が永久に発生しなくなる。
+  it.each([
+    ['20230220', DokusyaShubetsu.BOTH],       // 実データのフォーマット
+    ['2026-04-01', DokusyaShubetsu.BOTH],
+    ['2026/04/01', DokusyaShubetsu.BOTH],
+    ['', DokusyaShubetsu.DIGITAL],
+    [null, DokusyaShubetsu.DIGITAL],
+    ['00000000', DokusyaShubetsu.DIGITAL],    // 桁は合うが実在しない日付
+    ['20230230', DokusyaShubetsu.DIGITAL],    // 2月30日
+    ['2023022', DokusyaShubetsu.DIGITAL],     // 7桁
+  ])('paper_permission_dt=%p → dokusya_shubetsu=%s', (ppd, expected) => {
+    const v = mapUserToDokusyaFields(
+      buildUser({ paper_permission_dt: ppd }),
+      FK,
+    );
+    expect(v.dokusyaShubetsu).toBe(expected);
+  });
+
   it('sets haitatsu_same_flg TRUE for 電子版 and copies subscriber address', () => {
     const v = mapUserToDokusyaFields(buildUser(), FK);
     expect(v.haitatsuSameFlg).toBe(true);

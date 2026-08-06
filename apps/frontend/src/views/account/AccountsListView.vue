@@ -238,7 +238,7 @@ function askDelete(row: AccountListItem): void {
           v-model:value="state.filters.login_id"
           placeholder="ログインID"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="accounts-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -248,7 +248,7 @@ function askDelete(row: AccountListItem): void {
           v-model:value="state.filters.role_id"
           placeholder="すべて"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         >
           <a-select-option
             v-for="opt in roleOptions"
@@ -264,7 +264,7 @@ function askDelete(row: AccountListItem): void {
         <BaseTodofukenSelect
           id="accounts-filter-todofuken"
           v-model:value="state.filters.todofuken_code"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="accounts-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -291,7 +291,7 @@ function askDelete(row: AccountListItem): void {
           placeholder="すべて"
           allow-clear
           :disabled="!state.filters.ja_id"
-          class="flex-1"
+          class="flex-1 min-w-0"
         >
           <a-select-option
             v-for="opt in kanriShitenOptions"

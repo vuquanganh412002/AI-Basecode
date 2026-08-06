@@ -27,6 +27,7 @@ updated_by: Nguyen Duyen Manh
 | 8   | 2026/07/24 | 1.7  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：詳細検索エリアの「支払方法」の後に検索条件を3件追加 — `yubin_kubun`（郵送区分・m_code YUBIN_KUBUN 0:空/1:郵送・完全一致）、`tanka_id`（新聞単価・完全一致）、`biko`（備考・部分一致）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 9   | 2026/07/24 | 1.8  | Tran Duc Tuyen | 不具合修正：検索結果テーブル・Excel出力の「販売店コード」列が販売店ID（hanbaiten_id）を表示していたため、`m_hanbaiten` を JOIN した実コード `hanbaiten_code` を表示するよう修正。一覧レスポンスに `hanbaiten_code` を追加、ソート許可カラムに `hanbaiten_code` を追加（列クリックのソートも code 基準）。検索条件の「配達販売店」(hanbaiten_id) は不変。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 10  | 2026/08/03 | 1.9  | Tran Duc Tuyen | 顧客要件 2026-08 反映（電子版の解約予約を変更・取消できるようにする）：<br>1. ACSMS-API-014-004 を「解約予約」専用から **解約予約 / 予約変更 / 予約取消** の3操作を兼ねるエンドポイントへ拡張。`dokusya_chushi_date` に **空文字**を許容し、電子版では予約取消を意味する。<br>2. 電子版（dokusya_shubetsu=2）は既存予約があっても 400 にせず受け付ける。旧予約行を取消（赤伝）してから、日付ありなら新予約を append する。紙版は従来どおり二重解約を 400 で拒否（変更・取消は履歴画面の取消経由）。<br>3. 到来日バッチが確定させた実解約行（kaiyaku_flg=true）に対する変更・取消は種別を問わず 400（`解約が確定済みのため変更できません。…`）。復帰は再購読（SCR-011）。<br>4. 予約変更・予約取消のいずれも同一トランザクション内で電子版へ `cancel` を push する。変更は新しい `cancel_ym`、取消は `cancel_ym` 空文字（電子版APIに解約取消の処理区分が無いため・顧客判断 2026-08）。push 失敗時は全ロールバック。<br>5. 応答 `message` を操作で出し分け：新規予約・予約変更＝`購読停止を予約しました。` / 予約取消＝`購読中止を取り消しました。`<br>6. 一覧のポップアップは予約中でも開き、予約中の終了月を復元表示する（クリアして確定＝取消）。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 11  | 2026/08/06 | 2.0  | Tran Duc Tuyen | 実装との差分是正（記載漏れの補完）：ACSMS-API-014-001 のレスポンス `meta` に `total_busu`（検索条件に一致する購読者の購読部数合計・顧客要件2026-08 #56240）を追記。画面はページネーションの「全 N 件」の横に「全 M 部」と併記する。あわせて処理手順に §4.4.1 を新設し、適用日絞り込み時に `t_dokusya_rireki` を INNER JOIN すると購読者が履歴行数だけ重複して部数が水増しされるため、`DISTINCT dokusya_id` で畳んでから外側で合計する実装を明記した（件数側は `COUNT(DISTINCT)` のため影響を受けず、合計だけがずれる） | | |
 
 ## システム概要
 
@@ -159,6 +160,7 @@ updated_by: Nguyen Duyen Manh
 | 27  | →page                        | Number  | -        |              | -        | 現在ページ番号                                                             |
 | 28  | →per_page                    | Number  | -        |              | -        | 1ページの件数                                                              |
 | 29  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                 |
+| 30  | →total_busu                  | Number  | -        |              | -        | 検索条件に一致する購読者の購読部数合計（顧客要件2026-08。画面はページネーションの「全 N 件」の横に「全 M 部」と併記する）。ページングの影響を受けず、件数と同じ絞り込みで全件を集計する |
 
 ## リクエスト例
 
@@ -228,7 +230,8 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
     "total": 250,
     "page": 1,
     "per_page": 20,
-    "total_pages": 13
+    "total_pages": 13,
+    "total_busu": 318
   }
 }
 ```
@@ -377,6 +380,23 @@ WHERE d.deleted_at IS NULL
   /* ... 他の検索条件は省略 */
 ```
 
+#### 4.4.1 購読部数合計の取得（顧客要件2026-08）
+
+件数と同じ絞り込み条件で、購読部数（`d.dokusya_busu`）の合計を別途取得する。画面はページネーションの「全 N 件」の横に「全 M 部」と併記するため、**表示中のページではなく検索条件に一致する全件**が対象となる。
+
+素の `SUM(d.dokusya_busu)` は使用できない。適用日で絞り込むと `t_dokusya_rireki` を INNER JOIN するため、1購読者が履歴行の数だけ重複して部数が水増しされるため。件数側は `COUNT(DISTINCT)` のため影響を受けず、**合計だけがずれる**（気付きにくい形の不一致になる）。
+
+そこで購読者ごとに1行へ畳んでから外側で合計する。DISTINCT の対象に `dokusya_id` を含めるため、同じ部数の別購読者が潰れることはない。
+
+```sql
+SELECT COALESCE(SUM(t.dokusya_busu), 0)::int AS total_busu
+FROM (
+  SELECT DISTINCT d.dokusya_id, d.dokusya_busu
+  FROM t_dokusya d
+  /* 4.4 と同一の JOIN・DataScope・検索条件 */
+) t;
+```
+
 ### 4.5 データ取得
 
 ```sql
@@ -415,7 +435,7 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 ### 4.6 レスポンス生成
 
 - 取得結果を data 配列として返却する。
-- `meta` オブジェクトにページネーション情報（total / page / per_page / total_pages）を含める。
+- `meta` オブジェクトにページネーション情報（total / page / per_page / total_pages）および購読部数合計（`total_busu`）を含める。
 - `is_read_only` フラグは BE 側で算出し、FE 側で「編集」「削除」ボタンの活性制御に使用する。HTTP 200。
 - 「削除」ボタンは `is_read_only` に加えて `dokusya_shubetsu = 1`（紙版）のときだけ活性にする（顧客要件2026-08）。
 

@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-04 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: ①sửa số cột template từ 49 cột → 50 cột (12 chỗ). Bản này dừng ở 2026-06-05 nên chưa phản ánh 49→48 (bỏ loại đăng ký khỏi cột), 48→46 (chuyển ngày áp dụng・ngày ngừng sang ô nhập màn hình) và 46→50 (#56405 thêm 4 mục phụ thuộc của phân loại tầng lớp người đọc). ②bổ sung 6 ca kiểm thử 052〜057 và tạo カテゴリ10 (tổng 51 → 57) |  |  |
 
 
 ## システム概要
@@ -56,7 +57,8 @@ Tài liệu mô tả chi tiết Test Specification được tạo mới trên h�
 | 7 | Business logic — Xử lý import (chế độ UPDATE_ALL) | 4 |
 | 8 | Business logic — Xử lý import (chế độ UPDATE_PARTIAL) | 3 |
 | 9 | Xử lý lỗi chung (Common Error Handling) | 10 |
-|  | Tổng | 51 |
+| 10 | Business logic — Ngày áp dụng／Ngừng hàng loạt・Mở rộng cột nhập (Function — Dates / Bulk-stop / Columns) | 6 |
+|  | Tổng | 57 |
 
 ---
 
@@ -508,7 +510,7 @@ Kiểm tra label và thứ tự của từng checkbox trên panel
 ### 期待結果
 
 ステップ1：
-Panel cột import được hiển thị, checkbox cho cả 49 cột được hiển thị
+Panel cột import được hiển thị, checkbox cho cả 50 cột được hiển thị
 
 ステップ2：
 Ở chế độ đăng ký mới, các cột bắt buộc (`dokusya_shubetsu`／`tetsuzuki_shurui`／`kanri_shiten_id`／`dokusya_busu`／`tanka_id`／`yubin_no`／`todofuken_code`／`shikuchoson`／`chome_banchi`／`renrakusaki_1`／`hanbaiten_id`／`shiharai_hoho`／`dokusya_kaishi_date`) được hiển thị ở trạng thái disable và đã tick
@@ -517,7 +519,7 @@ Panel cột import được hiển thị, checkbox cho cả 49 cột được hi
 Label cột được hiển thị theo thứ tự của `screen-design.md §画面項目定義` và định nghĩa cột template trong `api.md`
 
 補足：
-・Thứ tự cột khớp với file template (cố định 49 cột)
+・Thứ tự cột khớp với file template (cố định 50 cột)
 ・Checkbox "すべて選択／解除" được hiển thị ở góc phải header panel
 
 ### テスト結果（1回目）
@@ -938,7 +940,7 @@ User profile được hiển thị ở phía trên bên phải màn hình
 - 前提条件:
   - ・role: JA_HONTEN
   - ・Đã login + đã xác thực MFA
-  - ・File test: `.xlsx` chứa 3 dòng độc giả, sheet name "購読者", 49 cột header
+  - ・File test: `.xlsx` chứa 3 dòng độc giả, sheet name "購読者", 50 cột header
 
 ### 手順
 
@@ -1055,7 +1057,7 @@ Hiển thị toast `Excelファイルの取り込みに失敗しました。フ�
 ### 手順
 
 ステップ1：
-Xác nhận preview ban đầu hiển thị đủ 49 cột
+Xác nhận preview ban đầu hiển thị đủ 50 cột
 
 ステップ2：
 Bỏ tick 3 cột bất kỳ như "住所（市町村郡）"/"連絡先2"/"備考"
@@ -1066,13 +1068,13 @@ Kiểm tra preview lại
 ### 期待結果
 
 ステップ1：
-Preview hiển thị header 49 cột và 3 dòng data
+Preview hiển thị header 50 cột và 3 dòng data
 
 ステップ2：
 Checkbox được bỏ tick
 
 ステップ3：
-3 cột bị bỏ tick không hiển thị trên preview, chỉ hiển thị header và data của 46 cột
+3 cột bị bỏ tick không hiển thị trên preview, chỉ hiển thị header và data của các cột còn lại (trong tổng 50 cột, trừ đi các cột bị bỏ tick)
 
 補足：
 ・Preview vẽ lại tự động khi thay đổi checkbox
@@ -1467,10 +1469,10 @@ Dialog download file được hiển thị, tên file là `購読者Excelデー�
 GET `/api/v1/dokusya/import/template` được gọi, trả về HTTP 200, có chứa `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="購読者Excelデータ取込_テンプレート.xlsx"`
 
 ステップ3：
-Sheet name là "購読者", dòng 1 chứa 49 cột header
+Sheet name là "購読者", dòng 1 chứa 50 cột header
 
 補足：
-・Thứ tự cột theo `screen-design.md §3.1` và `api.md §テンプレートファイル仕様` (cố định 49 cột)
+・Thứ tự cột theo `screen-design.md §3.1` và `api.md §テンプレートファイル仕様` (cố định 50 cột)
 
 ### テスト結果（1回目）
 
@@ -1496,7 +1498,7 @@ Sheet name là "購読者", dòng 1 chứa 49 cột header
 
 (なし)
 
-## ACSMS-TC-016-026 — Template — kiểm tra thứ tự · số lượng 49 cột header
+## ACSMS-TC-016-026 — Template — kiểm tra thứ tự · số lượng 50 cột header
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1511,15 +1513,15 @@ Sheet name là "購読者", dòng 1 chứa 49 cột header
 Mở template đã download, kiểm tra dòng 1
 
 ステップ2：
-Kiểm tra chuỗi header và số lượng của 49 cột
+Kiểm tra chuỗi header và số lượng của 50 cột
 
 ### 期待結果
 
 ステップ1：
-Trên sheet "購読者", dòng 1 hiển thị 49 cột header
+Trên sheet "購読者", dòng 1 hiển thị 50 cột header
 
 ステップ2：
-Các header xếp theo thứ tự định nghĩa của `screen-design.md §画面項目定義` và `api.md §テンプレートファイル仕様`, số cột đúng bằng 49 cột
+Các header xếp theo thứ tự định nghĩa của `screen-design.md §画面項目定義` và `api.md §テンプレートファイル仕様`, số cột đúng bằng 50 cột
 
 補足：
 ・Dòng header bold, có set màu nền (api.md §テンプレートファイル仕様)
@@ -2920,3 +2922,475 @@ Network error được catch phía frontend, hiển thị toast `ネットワー
 ### 備考
 
 Message lỗi network được quản lý bởi handler chung trong `src/api/error-handler.ts`.
+
+# カテゴリ 10: Logic nghiệp vụ — Ngày áp dụng／Ngừng hàng loạt・Mở rộng cột nhập (Function — Dates / Bulk-stop / Columns)
+
+## ACSMS-TC-016-052 — Ngày áp dụng／Ngày ngừng — Nhập trên màn hình・loại trừ lẫn nhau・khả dụng theo chế độ
+
+- 観点ID: VP-B-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có `dokusya.import`)
+  - ・Đã tải template (50 cột)
+
+### Các bước
+
+Bước 1:
+Kiểm tra dòng header của template
+
+Bước 2:
+Ở trạng thái chế độ nhập ＝ đăng ký mới, kiểm tra ô nhập "読者情報変更適用日" và "購読中止日"
+
+Bước 3:
+Chuyển sang chế độ nhập ＝ cập nhật, nhập ngày ở tương lai vào ngày áp dụng thay đổi thông tin người đọc
+
+Bước 4:
+Tiếp đó thử nhập ngày vào ngày ngừng đọc báo
+
+Bước 5:
+Xóa trống ngày áp dụng thay đổi thông tin người đọc rồi nhập ngày vào ngày ngừng đọc báo
+
+Bước 6:
+Ở chế độ cập nhật, để trống cả hai rồi bấm "取込開始"
+
+### Kết quả mong đợi
+
+Bước 1:
+Cột "読者情報変更適用日" và "購読中止日" **không tồn tại** (50 cột. Cũng không có loại đăng ký)
+
+Bước 2:
+Cả hai ô nhập đều bị vô hiệu hóa (đăng ký mới không có khái niệm ngày áp dụng thay đổi・ngày ngừng)
+
+Bước 3:
+Nhập được. Ô nhập ngày ngừng đọc báo trở nên bị vô hiệu hóa
+
+Bước 4:
+Không nhập được ngày ngừng đọc báo (loại trừ lẫn nhau)
+
+Bước 5:
+Nhập được ngày ngừng đọc báo và ngày áp dụng thay đổi thông tin người đọc trở nên bị vô hiệu hóa. ACSMS-MSG-016-014 được hiển thị
+
+Bước 6:
+ACSMS-MSG-016-008 được hiển thị và API không được gọi
+
+Bổ sung:
+・Nếu gửi cả hai cùng lúc bằng DevTools thì trả về 400 (`VALIDATION_ERROR` / ACSMS-MSG-016-007). Việc chặn ở màn hình không phải ranh giới, BE cũng phải chặn
+・Nếu gửi một trong hai ở chế độ đăng ký mới thì trả về 400 (ACSMS-MSG-016-009 / ACSMS-MSG-016-010)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-016-053 — Cập nhật — Quy tắc ngày áp dụng theo loại đăng ký và khóa các mục ảnh hưởng đến báo biểu
+
+- 観点ID: VP-B-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: người đọc hiện có của bản giấy・bản điện tử (ngày bắt đầu đọc báo ở quá khứ)
+
+### Các bước
+
+Bước 1:
+Chọn chế độ cập nhật × bản điện tử, kiểm tra ô nhập ngày áp dụng thay đổi thông tin người đọc
+
+Bước 2:
+Chuyển sang chế độ cập nhật × bản giấy, nhập **ngày hiện tại** vào ngày áp dụng thay đổi thông tin người đọc
+
+Bước 3:
+Kiểm tra checkbox của số bản đọc / mã cửa hàng bán / mã bưu điện trong bảng chọn cột nhập
+
+Bước 4:
+Đổi ngày áp dụng thay đổi thông tin người đọc thành **ngày ở tương lai**
+
+Bước 5:
+Giữ nguyên ngày hiện tại và dùng DevTools gửi request có chứa `hanbaiten_code` trong `selected_columns`
+
+### Kết quả mong đợi
+
+Bước 1:
+Ô nhập hiển thị ngày hiện tại và bị vô hiệu hóa. ACSMS-MSG-016-012 được hiển thị
+
+Bước 2:
+Nhập được
+
+Bước 3:
+12 cột ảnh hưởng đến báo biểu (số bản đọc・mã cửa hàng bán・4 mục địa chỉ người đọc・5 mục địa chỉ nơi giao báo) không chọn được. ACSMS-MSG-016-013 được hiển thị. Các cột không ảnh hưởng đến báo biểu như ghi chú thì chọn được
+
+Bước 4:
+Các mục ảnh hưởng đến báo biểu trở lại chọn được (＝ thay đổi đặt trước)
+
+Bước 5:
+Trả về 400 (`IMPORT_VALIDATION_ERROR`) và `errors[].field` là **`hanbaiten_code`** (không phải `hanbaiten_id`)
+
+Bổ sung:
+・Bước 5 là kiểm tra hồi quy cho lỗi mà quy tắc "thay đổi trong ngày thì không đổi được cửa hàng bán" bị lọt qua đường Excel. Do dòng nhập giữ cửa hàng bán dưới dạng mã, nếu để nguyên `hanbaiten_id` của dto đơn lẻ thì không phát hiện được thay đổi
+・Nếu giá trị của mục ảnh hưởng báo biểu đã chọn giống với giá trị hiện có thì coi là "không thay đổi" và trả về 200 (kiểm tra hồi quy việc thiếu load giá trị hiện có)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-016-054 — Ngừng hàng loạt — Tạo đặt trước hủy (bản giấy・không liên kết)
+
+- 観点ID: VP-B-02
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: người đọc hiện có của bản giấy (đang đọc báo・số bản đọc=3)
+
+### Các bước
+
+Bước 1:
+Ở chế độ cập nhật, nhập ngày ở tương lai vào ngày ngừng đọc báo
+
+Bước 2:
+Kiểm tra bảng chọn cột nhập
+
+Bước 3:
+"取込開始" → bấm "はい" ở hộp thoại xác nhận
+
+Bước 4:
+Kiểm tra DB: `SELECT dokusya_busu, dokusya_chushi_date, kaiyaku_flg, torikeshi_flg FROM t_dokusya_rireki WHERE dokusya_id = :id ORDER BY rireki_no DESC LIMIT 1`
+
+Bước 5:
+Kiểm tra DB: `SELECT dokusya_chushi_date, tetsuzuki_shurui, dokusya_busu FROM t_dokusya WHERE dokusya_id = :id`
+
+Bước 6:
+Kiểm tra cột "購読中止日" của dòng tương ứng trên danh sách (SCR-014)
+
+### Kết quả mong đợi
+
+Bước 1:
+Nhập được và ACSMS-MSG-016-014 được hiển thị
+
+Bước 2:
+Checkbox thu hẹp lại chỉ còn cột ID
+
+Bước 3:
+ACSMS-MSG-016-004 được hiển thị
+
+Bước 4:
+Thêm 1 dòng đặt trước với `dokusya_busu=0`・`dokusya_chushi_date=ngày đã nhập`・`kaiyaku_flg=false`・`torikeshi_flg=false`
+
+Bước 5:
+`dokusya_chushi_date` được phản ánh bằng ngày đã nhập. `tetsuzuki_shurui=1` (vẫn đang đọc báo ＝ việc xác định do batch ngày đến hạn), `dokusya_busu` vẫn giữ nguyên 3 (đặt trước không làm thay đổi số bản của master)
+
+Bước 6:
+Ngày ngừng đã nhập được hiển thị
+
+Bổ sung:
+・Dù dùng DevTools gửi kèm các cột khác trong `selected_columns` thì các cột đó cũng không được cập nhật (ngừng hàng loạt chỉ dùng cột khóa)
+・Bản giấy không thực hiện liên kết sang hệ thống bản điện tử
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-016-055 — Ngừng hàng loạt — Liên kết bản điện tử thất bại thì rollback toàn bộ ＋ gửi bù trừ
+
+- 観点ID: VP-D-08
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN
+  - ・Dữ liệu chuẩn bị: 3 người đọc hiện có của bản điện tử (có ID hội viên bản điện tử・không phải thẻ tín dụng)
+  - ・Liên kết bản điện tử đang bật (DENSHIBAN_PUSH_ENABLED=true)
+  - ・Thiết lập môi trường giả lập để liên kết của bản ghi thứ 3 trả về lỗi
+
+### Các bước
+
+Bước 1:
+Ở chế độ cập nhật, nhập ngày ở tương lai vào ngày ngừng đọc báo và nhập 3 bản ghi
+
+Bước 2:
+Kiểm tra DB: `SELECT COUNT(*) FROM t_dokusya_rireki WHERE dokusya_id IN (:ids) AND dokusya_chushi_date IS NOT NULL`
+
+Bước 3:
+Kiểm tra DB: `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id IN (:ids)`
+
+Bước 4:
+Kiểm tra log liên kết bản điện tử
+
+Bước 5:
+Kiểm tra `t_log` (`log_type=3`)
+
+Bước 6:
+Thử ngừng hàng loạt 501 bản ghi bản điện tử
+
+### Kết quả mong đợi
+
+Bước 1:
+Lỗi được hiển thị và việc nhập thất bại (lý do bản điện tử trả về được hiển thị)
+
+Bước 2:
+**Không có dòng đặt trước nào được tạo** (rollback toàn bộ)
+
+Bước 3:
+`dokusya_chushi_date` không được cập nhật
+
+Bước 4:
+Sau khi bản ghi thứ 1・2 đã gửi `action_kbn=cancel` + `cancel_ym=YYYYMM`, **cùng 2 bản ghi đó phải được gửi lệnh bù trừ (`cancel_ym` chuỗi rỗng)**
+
+Bước 5:
+Error log được ghi lại. Nếu lệnh bù trừ cũng thất bại thì ID hội viên bản điện tử của đối tượng phải có trong thông báo (để vận hành xử lý thủ công)
+
+Bước 6:
+Trả về 400 (`VALIDATION_ERROR` / ACSMS-MSG-016-011) và không bản ghi nào được xử lý
+
+Bổ sung:
+・Lệnh bù trừ dùng `cancel` + `cancel_ym` rỗng vì API bản điện tử không có mã xử lý hủy bỏ việc hủy đăng ký (quyết định của khách hàng 2026-08)
+・**Chưa kiểm chứng việc bản điện tử có chấp nhận `cancel_ym` rỗng hay không**. Nếu bị từ chối thì cả lệnh bù trừ này lẫn việc hủy đặt trước ở SCR-014 đều không thành lập, nên trong kiểm thử tích hợp phải xác nhận hạng mục này với mức ưu tiên cao nhất
+・Bản giấy không có liên kết nên nằm ngoài phạm vi ca này (chỉ rollback toàn bộ thông thường)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-016-056 — Cột nhập — 4 mục phụ thuộc của phân loại tầng lớp người đọc (#56405)
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (ja_id=100, có quyền `dokusya.import`)
+  - ・Đã tải template bản mới nhất
+
+### Các bước
+
+Bước 1:
+Tải template và kiểm tra số cột cùng thứ tự của header
+
+Bước 2:
+Ở chế độ NEW, nhập các dòng sau
+・Phân loại tầng lớp người đọc=0 (nông dân), kiêm cán bộ nhóm JA=TRUE, sản phẩm chính="0,1"
+・Phân loại tầng lớp người đọc=2 (doanh nghiệp・đoàn thể), liên quan nông nghiệp=1
+・Phân loại tầng lớp người đọc=999 (khác), thuộc tính người đọc (nội dung khác)=`自営業`
+・Dòng có phân loại nông dân chứa 999, sản phẩm chính (nội dung khác)=`きのこ`
+
+Bước 3:
+Kiểm tra kết quả lưu trong DB
+```sql
+SELECT dokusyaso_bunrui, ja_yakushokuin_flg, nogyo_kankei_flg,
+       nogyosya_bunrui, dokusyaso_bunrui_sonota, nogyosya_bunrui_sonota
+FROM t_dokusya WHERE dokusya_id IN (...);
+```
+
+Bước 4:
+Ở chế độ NEW, nhập các dòng **không thỏa mãn điều kiện của mục cha**
+・Phân loại tầng lớp người đọc=3 (sinh viên) nhưng kiêm cán bộ nhóm JA=TRUE
+・Phân loại tầng lớp người đọc=0 (nông dân) nhưng thuộc tính người đọc (nội dung khác)=`テスト`
+
+Bước 5:
+Ở chế độ UPDATE_PARTIAL, chỉ chọn **các cột của mục phụ thuộc** mà không chọn cột cha (phân loại tầng lớp người đọc) rồi nhập
+
+Bước 6:
+Ở chế độ UPDATE_PARTIAL, chọn **cả cột cha lẫn cột mục phụ thuộc** và nhập tổ hợp mà cha không cho phép
+
+### Kết quả mong đợi
+
+Bước 1:
+Header có 50 cột (46 → 50). 4 mục phụ thuộc nằm **ngay sau phân loại cha** (kiêm cán bộ nhóm JA・liên quan nông nghiệp・thuộc tính người đọc (nội dung khác) ngay sau phân loại tầng lớp người đọc; sản phẩm chính (nội dung khác) ngay sau phân loại nông dân). Độ dài dòng mẫu khớp với header
+
+Bước 2:
+Nhập thành công
+
+Bước 3:
+Đã lưu `ja_yakushokuin_flg=true`・`nogyo_kankei_flg=true`・`dokusyaso_bunrui_sonota='自営業'`・`nogyosya_bunrui_sonota='きのこ'`. Cả ký hiệu TRUE/FALSE lẫn 1/0 của Excel đều được chuyển thành boolean
+
+Bước 4:
+Giá trị không thỏa mãn điều kiện của cha bị phía server loại bỏ, lưu `ja_yakushokuin_flg=false`・`dokusyaso_bunrui_sonota=''` (do đi qua cùng `buildBunruiPayload` với đăng ký trên màn hình SCR-011, nên không thể đưa vào từ Excel những tổ hợp mà màn hình không tạo được)
+
+Bước 5:
+Giá trị của mục phụ thuộc được lưu nguyên trạng (khi cột cha không nằm trong đối tượng nhập thì giá trị hiện có được giữ lại, nên chỉ nhìn dòng nhập thì không phán đoán được mâu thuẫn. Quy cách chấp nhận trường hợp không phán đoán được)
+
+Bước 6:
+Tổ hợp mà cha không cho phép bị loại bỏ (chỉ phán đoán khi cột cha cũng đồng thời là đối tượng cập nhật)
+
+Bổ sung:
+・2 mục cờ được xử lý như cột BOOLEAN. Do DTO nhận bằng `@IsBoolean` nên nếu để nguyên chuỗi sẽ thành lỗi 400
+・Dù tổ hợp mâu thuẫn còn lại trong DB ở Bước 5, việc push sang bản điện tử vẫn dựng lại profession từ giá trị đã lưu rồi mới xuất các mục có điều kiện, nên đồng bộ không hỏng ở V26〜V30. Thiệt hại thực tế chỉ là "còn sót cờ vô nghĩa", mở từ màn hình lưu lại là chỉnh được
+・Việc đối chiếu cột dựa trên tên cột nên thứ tự vật lý không ảnh hưởng đến hoạt động, nhưng với khách hàng điền template bằng mắt thì cha con nằm xa nhau sẽ khó đọc quan hệ, vì vậy thứ tự được quy định
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-016-057 — Kiểm tra khi nhập — Trùng lặp email được đánh giá xuyên JA (#56568)
+
+- 観点ID: VP-D-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (ja_id=100, có quyền `dokusya.import`)
+  - ・Ở **JA khác** (ja_id=200) tồn tại người đọc loại đăng ký=bản điện tử・email `dup@example.com`
+  - ・Ở JA của mình (ja_id=100) tồn tại người đọc loại đăng ký=bản giấy・email `paper@example.com`
+  - ・Ở JA khác (ja_id=200) tồn tại người đọc loại đăng ký=bản điện tử・email `deleted@example.com` **đã xóa logic**
+
+### Các bước
+
+Bước 1:
+Ở chế độ NEW, nhập dòng có loại đăng ký=bản điện tử・email `dup@example.com`
+
+Bước 2:
+Ở chế độ NEW, nhập dòng có loại đăng ký=bản điện tử・email `paper@example.com`
+
+Bước 3:
+Ở chế độ NEW, nhập dòng có loại đăng ký=bản điện tử・email `deleted@example.com`
+
+Bước 4:
+Ở chế độ NEW, đưa 2 dòng có loại đăng ký=bản điện tử・cùng email `batch@example.com` vào **cùng một file** rồi nhập
+
+Bước 5:
+Ở chế độ NEW, nhập dòng có loại đăng ký=bản giấy・email `paper@example.com`
+
+Bước 6:
+Ở chế độ UPDATE_PARTIAL, cập nhật người đọc bản điện tử hiện có mà **không chọn** cột email
+
+### Kết quả mong đợi
+
+Bước 1:
+Dòng đó bị lỗi và trả về `{ row: <số dòng>, field: "email", message: "このメールアドレスは既に登録されています。" }`. **Bản ghi của JA khác cũng bị coi là trùng lặp**
+
+Bước 2:
+Nhập thành công (đối tượng đánh giá trùng lặp chỉ là `dokusya_shubetsu IN (2,3)`. Không xung đột với email của bản giấy)
+
+Bước 3:
+Nhập thành công (bản ghi đã xóa logic nằm ngoài đối tượng. Email có thể tái sử dụng)
+
+Bước 4:
+Dòng thứ 2 bị lỗi (cũng phát hiện trùng lặp giữa các dòng bản điện tử・kết hợp trong cùng một lô nhập)
+
+Bước 5:
+Nhập thành công (trùng email giữa các bản giấy vẫn được cho phép như trước)
+
+Bước 6:
+Kiểm tra trùng lặp email không được thực hiện, cập nhật thành công trong khi email hiện có được giữ nguyên (UPDATE mà cột email không nằm trong đối tượng thì bỏ qua kiểm tra)
+
+Bổ sung:
+・Với bản điện tử, email là khóa định danh hội viên (ID đăng nhập) nên phải duy nhất xuyên JA (yêu cầu khách hàng 2026-08 / #56568)
+・Trước đây có điều kiện `ja_id = :ja_id` nên chỉ nhìn trong JA của mình, dẫn tới có thể tạo người đọc bản điện tử cùng email ở JA khác
+・Cùng cách đánh giá này được áp dụng cho đăng ký trên màn hình (SCR-011)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

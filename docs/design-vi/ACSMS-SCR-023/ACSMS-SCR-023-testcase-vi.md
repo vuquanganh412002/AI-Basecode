@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-27 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật (bản này dừng ở 2026-05-27, trước bản JA v1.1 ngày 2026-07-02): ①bỏ 3 ca kiểm thử download theo quy cách v1.0 cũ (006・040・045 của bản cũ) — nội dung không còn đúng (giả định INSERT vào `t_file_download` với `download_type=2`, cài đặt hiện tại không làm vậy) và đã được TC-052/053 mới thay thế. ②đánh số lại 001〜049 để khớp 1:1 với bản tiếng Nhật (trước đó bị lệch 1〜3 số). Chưa ca nào được thực thi (toàn bộ ô kết quả là "-") nên việc đánh số lại không làm mất dữ liệu. ③tạo カテゴリ8 và bổ sung 5 ca (050〜054): liên kết với màn hình download SCR-022, link download trong email thông báo, preview, download đơn lẻ, và download hàng loạt ZIP |  |  |
 
 
 ## システム概要
@@ -53,14 +54,15 @@ Tài liệu này tham khảo ISTQB và IEEE 829, và phải đáp ứng các ti�
 
 | # | カテゴリ | テストケース数 |
 | --- | --- | --- |
-| 1 | Kiểm soát quyền truy cập (Access Control) | 7 |
+| 1 | Kiểm soát quyền truy cập (Access Control) | 6 |
 | 2 | Hiển thị màn hình & Responsive (Layout & Responsive) | 7 |
 | 3 | Header & Breadcrumb (Header & Breadcrumb) | 4 |
 | 4 | Kiểm tra dữ liệu nhập (Input Validation) | 12 |
 | 5 | Nghiệp vụ — Upload (Function — Upload) | 9 |
-| 6 | Nghiệp vụ — Download & Xóa (Function — Download & Delete) | 6 |
+| 6 | Nghiệp vụ — Xóa (Function — Delete) | 4 |
 | 7 | Xử lý lỗi chung (Common Error Handling) | 7 |
-|  | Tổng | 52 |
+| 8 | Nghiệp vụ — Liên kết・Preview・Download (Function — Link / Preview / Download) | 5 |
+|  | Tổng | 54 |
 
 ---
 
@@ -344,60 +346,7 @@ Trả về HTTP 200, và chỉ file của JA mình được hiển thị (DataSc
 
 (なし)
 
-## ACSMS-TC-023-006 — Vi phạm DataScope: JA_HONTEN download file của JA khác
-
-- 観点ID: VP-A-02
-- 種類: Abnormal (異常)
-- 前提条件:
-  - ・role: JA_HONTEN（ja_id = 12345）
-  - ・Đã đăng nhập + đã xác thực MFA
-  - ・Tồn tại file của JA khác（ja_id = 67890）（`file_upload_id = 202`）
-
-### 手順
-
-ステップ1：
-Gửi trực tiếp GET `/api/v1/file-upload/202/download` bằng DevTools (file ngoài scope JA của mình)
-
-ステップ2：
-Xác nhận DB: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 't_file_upload' ORDER BY log_datetime DESC LIMIT 1`
-
-### 期待結果
-
-ステップ1：
-Trả về HTTP 403 (`error_code: DATA_SCOPE_VIOLATION`, message `このデータへのアクセス権限がありません。`)
-
-ステップ2：
-・Có từ 1 error log trở lên được record
-・Binary của file không được trả về trong response
-
-補足：
-・Truy cập dữ liệu ngoài scope bị chặn bởi guard của BE API
-
-### テスト結果（1回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### テスト結果（2回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### 備考
-
-Critical — khi fail nghĩa là rò rỉ dữ liệu JA khác, xử lý như sự cố bảo mật.
-
-## ACSMS-TC-023-007 — Tấn công trực tiếp URL: JA_HONTEN chỉ định ID của JA khác để upload
+## ACSMS-TC-023-006 — Tấn công trực tiếp URL: JA_HONTEN chỉ định ID của JA khác để upload
 
 - 観点ID: VP-A-04
 - 種類: Abnormal (異常)
@@ -453,7 +402,7 @@ Critical — khi fail nghĩa là ghi dữ liệu trái phép vào JA khác.
 
 # カテゴリ 2: Hiển thị màn hình & Responsive (Layout & Responsive)
 
-## ACSMS-TC-023-008 — Hiển thị màn hình ban đầu (toàn bộ mục trống)
+## ACSMS-TC-023-007 — Hiển thị màn hình ban đầu (toàn bộ mục trống)
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -497,7 +446,7 @@ Chuyển sang URL `/file-upload` và hiển thị màn hình
 
 (なし)
 
-## ACSMS-TC-023-009 — Hiển thị khu vực chọn JA đối tượng
+## ACSMS-TC-023-008 — Hiển thị khu vực chọn JA đối tượng
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -547,7 +496,7 @@ Click select box「都道府県コード」, tiếp theo xác nhận select box�
 
 (なし)
 
-## ACSMS-TC-023-010 — Hiển thị khu vực chọn file
+## ACSMS-TC-023-009 — Hiển thị khu vực chọn file
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -596,7 +545,7 @@ Sau khi chọn 1 file, xác nhận mục「削除予定日」
 
 (なし)
 
-## ACSMS-TC-023-011 — Hiển thị action button
+## ACSMS-TC-023-010 — Hiển thị action button
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -638,7 +587,7 @@ Xác nhận khu vực action button ở phía dưới màn hình
 
 (なし)
 
-## ACSMS-TC-023-012 — Hiển thị bảng danh sách file đã upload
+## ACSMS-TC-023-011 — Hiển thị bảng danh sách file đã upload
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -690,7 +639,7 @@ Xác nhận trạng thái của cột「通知ステータス」và button「削
 
 (なし)
 
-## ACSMS-TC-023-013 — Hiển thị responsive (không vỡ layout)
+## ACSMS-TC-023-012 — Hiển thị responsive (không vỡ layout)
 
 - 観点ID: VP-E-02
 - 種類: Normal (正常)
@@ -733,7 +682,7 @@ Thay đổi chiều rộng browser sang các breakpoint 1280px / 768px / 375px v
 
 (なし)
 
-## ACSMS-TC-023-014 — Thao tác bàn phím (thứ tự Tab)
+## ACSMS-TC-023-013 — Thao tác bàn phím (thứ tự Tab)
 
 - 観点ID: VP-E-03
 - 種類: Normal (正常)
@@ -785,7 +734,7 @@ Focus vào button bằng phím Enter và xác nhận thao tác
 
 # カテゴリ 3: Header & Breadcrumb (Header & Breadcrumb)
 
-## ACSMS-TC-023-015 — Hiển thị breadcrumb
+## ACSMS-TC-023-014 — Hiển thị breadcrumb
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -827,7 +776,7 @@ Chuyển sang URL `/file-upload` và xác nhận breadcrumb ở phía trên màn
 
 (なし)
 
-## ACSMS-TC-023-016 — Click「ホーム」trên breadcrumb để chuyển về dashboard
+## ACSMS-TC-023-015 — Click「ホーム」trên breadcrumb để chuyển về dashboard
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -869,7 +818,7 @@ Click「ホーム」trên breadcrumb
 
 (なし)
 
-## ACSMS-TC-023-017 — Hiển thị tiêu đề trang
+## ACSMS-TC-023-016 — Hiển thị tiêu đề trang
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -911,7 +860,7 @@ Chuyển sang URL `/file-upload` và xác nhận tiêu đề trang
 
 (なし)
 
-## ACSMS-TC-023-018 — Tên người dùng đăng nhập được hiển thị trên header
+## ACSMS-TC-023-017 — Tên người dùng đăng nhập được hiển thị trên header
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -957,7 +906,7 @@ Xác nhận header ở phía trên màn hình
 
 # カテゴリ 4: Kiểm tra dữ liệu nhập (Input Validation)
 
-## ACSMS-TC-023-019 — Kiểm tra required khi chưa chọn JA đối tượng
+## ACSMS-TC-023-018 — Kiểm tra required khi chưa chọn JA đối tượng
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1005,7 +954,7 @@ Trả về HTTP 400 (`error_code: TARGET_JA_REQUIRED`, message `対象JAを1つ�
 
 (なし)
 
-## ACSMS-TC-023-020 — Kiểm tra thêm trùng cùng một JA
+## ACSMS-TC-023-019 — Kiểm tra thêm trùng cùng một JA
 
 - 観点ID: VP-B-08
 - 種類: Abnormal (異常)
@@ -1054,7 +1003,7 @@ Chọn lại cùng một JA và click button「追加」
 
 (なし)
 
-## ACSMS-TC-023-021 — Kiểm tra required khi chưa chọn file
+## ACSMS-TC-023-020 — Kiểm tra required khi chưa chọn file
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1097,7 +1046,7 @@ Chỉ nhập JA đối tượng và ngày dự định xóa, không chọn file 
 
 (なし)
 
-## ACSMS-TC-023-022 — Kiểm tra required khi chưa nhập ngày dự định xóa
+## ACSMS-TC-023-021 — Kiểm tra required khi chưa nhập ngày dự định xóa
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -1140,7 +1089,7 @@ Chỉ nhập JA đối tượng và file, để trống ngày dự định xóa 
 
 (なし)
 
-## ACSMS-TC-023-023 — Chọn ngày quá khứ cho ngày dự định xóa (không cho phép)
+## ACSMS-TC-023-022 — Chọn ngày quá khứ cho ngày dự định xóa (không cho phép)
 
 - 観点ID: VP-B-05
 - 種類: Abnormal (異常)
@@ -1182,7 +1131,7 @@ Chọn ngày quá khứ (ngày hôm trước) trên calendar ngày dự định 
 
 (なし)
 
-## ACSMS-TC-023-024 — Chọn ngày hôm nay cho ngày dự định xóa (giá trị biên・cho phép)
+## ACSMS-TC-023-023 — Chọn ngày hôm nay cho ngày dự định xóa (giá trị biên・cho phép)
 
 - 観点ID: VP-B-05
 - 種類: Boundary (境界)
@@ -1224,7 +1173,7 @@ Chọn ngày hôm nay trên calendar ngày dự định xóa
 
 Giá trị biên của không cho phép ngày quá khứ (ngày hôm nay được cho phép). Cần xác nhận với khách hàng về việc xử lý ngày hôm nay để kiểm tra giá trị biên theo spec.
 
-## ACSMS-TC-023-025 — File size vượt quá 30MB
+## ACSMS-TC-023-024 — File size vượt quá 30MB
 
 - 観点ID: VP-D-05
 - 種類: Abnormal (異常)
@@ -1274,7 +1223,7 @@ Trả về HTTP 400 (`error_code: FILE_SIZE_EXCEEDED`, message `ファイルサ�
 
 (なし)
 
-## ACSMS-TC-023-026 — File size đúng 30MB (giá trị biên・cho phép)
+## ACSMS-TC-023-025 — File size đúng 30MB (giá trị biên・cho phép)
 
 - 観点ID: VP-D-05
 - 種類: Boundary (境界)
@@ -1317,7 +1266,7 @@ Chọn file đúng 30MB
 
 (なし)
 
-## ACSMS-TC-023-027 — Chấp nhận file định dạng được cho phép
+## ACSMS-TC-023-026 — Chấp nhận file định dạng được cho phép
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
@@ -1360,7 +1309,7 @@ Chọn lần lượt các file có extension được cho phép
 
 (なし)
 
-## ACSMS-TC-023-028 — Từ chối file định dạng không được cho phép
+## ACSMS-TC-023-027 — Từ chối file định dạng không được cho phép
 
 - 観点ID: VP-D-05
 - 種類: Abnormal (異常)
@@ -1410,7 +1359,7 @@ Trả về HTTP 400 (`error_code: FILE_FORMAT_ERROR`, message `許可されて�
 
 (なし)
 
-## ACSMS-TC-023-029 — Chấp nhận extension chữ hoa (phán định bằng chuyển thành chữ thường)
+## ACSMS-TC-023-028 — Chấp nhận extension chữ hoa (phán định bằng chuyển thành chữ thường)
 
 - 観点ID: VP-D-05
 - 種類: Boundary (境界)
@@ -1453,7 +1402,7 @@ Chọn file có extension chữ hoa (`IMG.JPG`)
 
 (なし)
 
-## ACSMS-TC-023-030 — Chọn nhiều file và hiển thị định dạng tên file
+## ACSMS-TC-023-029 — Chọn nhiều file và hiển thị định dạng tên file
 
 - 観点ID: VP-D-05
 - 種類: Normal (正常)
@@ -1505,7 +1454,7 @@ Sau khi upload, xác nhận định dạng hiển thị tên file của「アッ
 
 # カテゴリ 5: Nghiệp vụ — Upload (Function — Upload)
 
-## ACSMS-TC-023-031 — Upload luồng bình thường (1 JA × 1 file)
+## ACSMS-TC-023-030 — Upload luồng bình thường (1 JA × 1 file)
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1565,7 +1514,7 @@ Click「OK」trên dialog xác nhận
 
 (なし)
 
-## ACSMS-TC-023-032 — Tạo N×M record (nhiều JA × nhiều file)
+## ACSMS-TC-023-031 — Tạo N×M record (nhiều JA × nhiều file)
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1614,7 +1563,7 @@ Xác nhận DB: `SELECT ja_id, file_name FROM t_file_upload WHERE created_by = :
 
 (なし)
 
-## ACSMS-TC-023-033 — Chọn toàn bộ JA (record có ja_id=NULL)
+## ACSMS-TC-023-032 — Chọn toàn bộ JA (record có ja_id=NULL)
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1662,7 +1611,7 @@ Xác nhận DB: `SELECT ja_id FROM t_file_upload WHERE created_by = :account_id 
 
 (なし)
 
-## ACSMS-TC-023-034 — Xác nhận persistence DB và status ban đầu
+## ACSMS-TC-023-033 — Xác nhận persistence DB và status ban đầu
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
@@ -1711,7 +1660,7 @@ Xác nhận DB: `SELECT status, notification_status, scheduled_delete_date, erro
 
 (なし)
 
-## ACSMS-TC-023-035 — Record audit log (upload)
+## ACSMS-TC-023-034 — Record audit log (upload)
 
 - 観点ID: VP-D-04
 - 種類: Normal (正常)
@@ -1760,7 +1709,7 @@ Xác nhận DB: `SELECT log_type, operation, result_status, target_table, accoun
 
 (なし)
 
-## ACSMS-TC-023-036 — Chuyển đổi badge trạng thái thông báo (bất đồng bộ)
+## ACSMS-TC-023-035 — Chuyển đổi badge trạng thái thông báo (bất đồng bộ)
 
 - 観点ID: VP-D-06
 - 種類: Normal (正常)
@@ -1812,7 +1761,7 @@ Sau một khoảng thời gian (sau khi background worker xử lý), reload màn
 
 (なし)
 
-## ACSMS-TC-023-037 — Gửi email thông báo thất bại tới một phần JA
+## ACSMS-TC-023-036 — Gửi email thông báo thất bại tới một phần JA
 
 - 観点ID: VP-D-06
 - 種類: Abnormal (異常)
@@ -1863,7 +1812,7 @@ Sau khi background worker xử lý, reload màn hình và xác nhận cột「�
 
 (なし)
 
-## ACSMS-TC-023-038 — Cancel dialog xác nhận
+## ACSMS-TC-023-037 — Cancel dialog xác nhận
 
 - 観点ID: VP-C-01
 - 種類: Abnormal (異常)
@@ -1917,7 +1866,7 @@ Xác nhận DB: `SELECT COUNT(*) FROM t_file_upload WHERE created_by = :account_
 
 (なし)
 
-## ACSMS-TC-023-039 — Hủy chọn bằng button clear
+## ACSMS-TC-023-038 — Hủy chọn bằng button clear
 
 - 観点ID: VP-E-07
 - 種類: Normal (正常)
@@ -1967,59 +1916,9 @@ Khi chọn「キャンセル」thì không thực hiện xử lý gì.
 
 ---
 
-# カテゴリ 6: Nghiệp vụ — Download & Xóa (Function — Download & Delete)
+# カテゴリ 6: Nghiệp vụ — Xóa (Function — Delete)
 
-## ACSMS-TC-023-040 — Download file luồng bình thường
-
-- 観点ID: VP-D-05
-- 種類: Normal (正常)
-- 前提条件:
-  - ・role: NICHINO_ADMIN
-  - ・Đã đăng nhập + đã xác thực MFA
-  - ・Tồn tại file đối tượng download (`file_upload_id = 201`)
-
-### 手順
-
-ステップ1：
-Thực hiện thao tác download file đối tượng ở「アップロードされたファイルリスト」
-
-ステップ2：
-Xác nhận DB: `SELECT download_type FROM t_file_download ORDER BY created_at DESC LIMIT 1` và `SELECT operation FROM t_log WHERE target_table = 't_file_upload' AND operation = 'DOWNLOAD' ORDER BY log_datetime DESC LIMIT 1`
-
-### 期待結果
-
-ステップ1：
-・Trả về HTTP 200 (Content-Disposition: `attachment; filename="..."`, binary của file được download)
-
-ステップ2：
-・Lịch sử download được record vào `t_file_download` (`download_type = 2`)
-・Audit log được record (`operation = 'DOWNLOAD'`, `log_type = 4`)
-
-### テスト結果（1回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### テスト結果（2回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### 備考
-
-(なし)
-
-## ACSMS-TC-023-041 — Xóa file luồng bình thường (xóa logical + xóa vật lý)
+## ACSMS-TC-023-039 — Xóa file luồng bình thường (xóa logical + xóa vật lý)
 
 - 観点ID: VP-C-03
 - 種類: Normal (正常)
@@ -2075,7 +1974,7 @@ Xác nhận DB: `SELECT deleted_at FROM t_file_upload WHERE file_upload_id = :id
 
 (なし)
 
-## ACSMS-TC-023-042 — Record audit log (xóa)
+## ACSMS-TC-023-040 — Record audit log (xóa)
 
 - 観点ID: VP-D-04
 - 種類: Normal (正常)
@@ -2125,7 +2024,7 @@ Xác nhận DB: `SELECT log_type, operation, result_status, before_value FROM t_
 
 (なし)
 
-## ACSMS-TC-023-043 — Điều khiển active／disable của button xóa
+## ACSMS-TC-023-041 — Điều khiển active／disable của button xóa
 
 - 観点ID: VP-E-01
 - 種類: Normal (正常)
@@ -2169,7 +2068,7 @@ Xác nhận trạng thái của button「削除」từng row ở「アップロ�
 
 (なし)
 
-## ACSMS-TC-023-044 — Cancel dialog xác nhận xóa
+## ACSMS-TC-023-042 — Cancel dialog xác nhận xóa
 
 - 観点ID: VP-C-03
 - 種類: Abnormal (異常)
@@ -2224,57 +2123,9 @@ Xác nhận DB: `SELECT deleted_at FROM t_file_upload WHERE file_upload_id = :id
 
 (なし)
 
-## ACSMS-TC-023-045 — Download file đã xóa (NOT_FOUND)
-
-- 観点ID: VP-C-03
-- 種類: Abnormal (異常)
-- 前提条件:
-  - ・role: NICHINO_ADMIN
-  - ・Đã đăng nhập + đã xác thực MFA
-  - ・Tồn tại file đã xóa logical (`deleted_at IS NOT NULL`) (`file_upload_id = 301`)
-
-### 手順
-
-ステップ1：
-Gửi trực tiếp GET `/api/v1/file-upload/301/download` bằng DevTools
-
-### 期待結果
-
-ステップ1：
-Trả về HTTP 404 (`error_code: NOT_FOUND`, message `指定されたファイルが見つかりません。`)
-
-補足：
-・Record đã xóa logical không phải là đối tượng download (bị loại trừ bằng điều kiện `deleted_at IS NULL`)
-
-### テスト結果（1回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### テスト結果（2回目）
-
-| Mục | Giá trị |
-| --- | --- |
-| Kết quả | - |
-| Thực tế/Output | - |
-| Người thực hiện | - |
-| Ngày xác nhận | - |
-| Bug ID | - |
-
-### 備考
-
-(なし)
-
----
-
 # カテゴリ 7: Xử lý lỗi chung (Common Error Handling)
 
-## ACSMS-TC-023-046 — Xử lý 401 khi session hết hạn
+## ACSMS-TC-023-043 — Xử lý 401 khi session hết hạn
 
 - 観点ID: VP-A-05
 - 種類: Abnormal (異常)
@@ -2318,7 +2169,7 @@ Sau khi session hết hạn, thực hiện thao tác bất kỳ trên màn hình
 
 (なし)
 
-## ACSMS-TC-023-047 — Gửi request parameter không hợp lệ (BAD_REQUEST)
+## ACSMS-TC-023-044 — Gửi request parameter không hợp lệ (BAD_REQUEST)
 
 - 観点ID: VP-A-04
 - 種類: Abnormal (異常)
@@ -2360,7 +2211,7 @@ Trả về HTTP 400 (`error_code: BAD_REQUEST`, message `リクエストパラ�
 
 (なし)
 
-## ACSMS-TC-023-048 — Lỗi validation (hình dạng mảng errors)
+## ACSMS-TC-023-045 — Lỗi validation (hình dạng mảng errors)
 
 - 観点ID: VP-B-01
 - 種類: Abnormal (異常)
@@ -2403,7 +2254,7 @@ Trả về HTTP 400 (`error_code: VALIDATION_ERROR`, message `入力値が不正
 
 (なし)
 
-## ACSMS-TC-023-049 — Vượt quá rate limit (TOO_MANY_REQUESTS)
+## ACSMS-TC-023-046 — Vượt quá rate limit (TOO_MANY_REQUESTS)
 
 - 観点ID: VP-A-08
 - 種類: Abnormal (異常)
@@ -2445,7 +2296,7 @@ Trả về HTTP 429 (`error_code: TOO_MANY_REQUESTS`, message `リクエスト�
 
 (なし)
 
-## ACSMS-TC-023-050 — Lỗi server (INTERNAL_SERVER_ERROR)
+## ACSMS-TC-023-047 — Lỗi server (INTERNAL_SERVER_ERROR)
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)
@@ -2496,7 +2347,7 @@ Trả về HTTP 500 (`error_code: INTERNAL_SERVER_ERROR`, message `システム�
 
 (なし)
 
-## ACSMS-TC-023-051 — Lấy resource đã xóa (NOT_FOUND)
+## ACSMS-TC-023-048 — Lấy resource đã xóa (NOT_FOUND)
 
 - 観点ID: VP-C-03
 - 種類: Abnormal (異常)
@@ -2539,7 +2390,7 @@ Trả về HTTP 404 (`error_code: NOT_FOUND`, message `指定されたファイ�
 
 (なし)
 
-## ACSMS-TC-023-052 — Xử lý khi mất kết nối mạng
+## ACSMS-TC-023-049 — Xử lý khi mất kết nối mạng
 
 - 観点ID: VP-D-08
 - 種類: Abnormal (異常)
@@ -2581,3 +2432,393 @@ Click「アップロード実行」ở trạng thái giả lập mất kết n�
 ### 備考
 
 (なし)
+
+# カテゴリ 8: Business logic — Liên kết・Preview・Download (Function — Link / Preview / Download)
+
+## ACSMS-TC-023-050 — File đã upload lấy được từ màn hình download (SCR-022)
+
+- 観点ID: VP-D-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đăng nhập bằng role NICHINO_STAFF (có quyền `file.upload`)
+  - ・Tồn tại JA「JA北海道」(ja_id=100), JA đó có tài khoản JA_HONTEN (role 4) với quyền `file.download`
+  - ・JA khác「JA東京」(ja_id=200) cũng có tài khoản JA_HONTEN (dùng để kiểm tra scope)
+
+### 手順
+
+ステップ1：
+Tại màn hình upload file, chọn JA đối tượng chỉ「JA北海道」, ngày dự định xóa là ngày 1 tháng sau, upload 1 file `検査結果.xlsx`
+
+ステップ2：
+Kiểm tra dòng tương ứng của `t_file_upload` và `t_file_download` trên DB
+
+ステップ3：
+Đăng nhập bằng tài khoản JA_HONTEN của「JA北海道」, mở màn hình download file, tìm theo tên file rồi bấm link tên file
+
+ステップ4：
+Đăng nhập bằng tài khoản JA_HONTEN của「JA東京」, tìm cùng tên file đó ở màn hình download file
+
+ステップ5：
+Quay lại màn hình upload bằng tài khoản đã upload (NICHINO_STAFF), thực hiện「削除」dòng đó rồi mở lại màn hình download file
+
+### 期待結果
+
+ステップ1：
+Trả về HTTP 202 và hiển thị ACSMS-MSG-023-006
+
+ステップ2：
+Ứng với 1 dòng `t_file_upload` cũng có 1 dòng được đăng ký vào `t_file_download`, với `ja_id`=100, `download_type`=2 (khác), `nichino_download_allowed_flg`=TRUE, `record_count`=0, `file_path` trùng khớp
+
+ステップ3：
+File tương ứng hiển thị trong danh sách, download thành công và nội dung khớp với file đã đưa vào
+
+ステップ4：
+0 bản ghi (theo DataScope thì không thấy file của JA khác)
+
+ステップ5：
+File tương ứng biến mất khỏi danh sách của màn hình download (`t_file_download.deleted_at` cũng được thiết lập). Không được rơi vào trạng thái thực thể (S3) đã mất nhưng vẫn còn trong danh sách
+
+補足：
+・Màn hình download chỉ lấy `t_file_download` làm đối tượng danh sách・truy xuất, nên nếu lúc upload không đăng ký dòng cặp thì phía JA (role 3/4/5) hoàn toàn không lấy được file (yêu cầu khách hàng 2026-08)
+・Cố định `nichino_download_allowed_flg`=TRUE là vì nếu Nichino・trung ương hội không lấy lại được file do chính tổ chức mình đưa lên thì vận hành không chạy được. Các màn xuất báo biểu (SCR-021/026/028/029) thì cố định／chọn theo từng màn; đây là mặc định riêng của màn này
+・Khóa đối chiếu của dòng cặp là `file_path`. Do khóa S3 có chứa UUID nên là duy nhất, giải quyết được cặp mà không cần thêm cột FK (kèm migration + ảnh hưởng tới các dòng báo biểu hiện có)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### 備考
+
+(không có)
+
+---
+
+## ACSMS-TC-023-051 — Link download trong email thông báo
+
+- 観点ID: VP-D-06
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đăng nhập bằng role NICHINO_STAFF (có quyền `file.upload`)
+  - ・「JA北海道」(ja_id=100) có từ 1 tài khoản trở lên với địa chỉ email nhận được thư
+  - ・`FRONTEND_URL` đã được thiết lập (ví dụ: `https://acsms.example.com`)
+  - ・Worker thông báo (file-upload-notification) đang chạy
+
+### 手順
+
+ステップ1：
+Upload `増減通知 2026年04月.pdf` cho「JA北海道」và chờ đến khi trạng thái thông báo chuyển thành「完了」
+
+ステップ2：
+Kiểm tra nội dung email thông báo đã nhận
+
+ステップ3：
+Mở link trong nội dung email bằng trình duyệt ở trạng thái chưa đăng nhập
+
+ステップ4：
+Đăng nhập bằng tài khoản JA_HONTEN của「JA北海道」
+
+ステップ5：
+Thực hiện cùng các bước trên ở môi trường chưa thiết lập `FRONTEND_URL` và kiểm tra nội dung email
+
+### 期待結果
+
+ステップ1：
+`notification_status` chuyển thành 3:完了
+
+ステップ2：
+Nội dung có câu hướng dẫn「下記のリンクからダウンロードしてください。」và URL dạng `https://acsms.example.com/file-download?file_name=%E5%A2%97%E6%B8%9B%E9%80%9A%E7%9F%A5%202026%E5%B9%B404%E6%9C%88.pdf`
+
+ステップ3：
+Chuyển sang màn hình đăng nhập, URL có kèm tham số `redirect` (không hiển thị JSON 401)
+
+ステップ4：
+Chuyển sang màn hình download file, ô tìm kiếm tên file đã điền sẵn `増減通知 2026年04月.pdf` và chỉ file tương ứng hiển thị trong danh sách. Bấm tiếp「検索クリア」thì bộ lọc được gỡ bỏ
+
+ステップ5：
+Dòng link (câu hướng dẫn và URL) bị lược bỏ khỏi nội dung, các mục khác (tên JA・tên file・thời gian upload・người upload・footer chỉ gửi đi) vẫn xuất ra như cũ
+
+補足：
+・Tại thời điểm 2026-07 chủ trương là「không đưa URL tuyệt đối phụ thuộc môi trường vào nội dung email」, nhưng 2026-08 đã đổi thành「có đưa link」
+・Lý do không dùng link trực tiếp tới API (`/api/v1/file-download/{id}/download`): nếu chưa đăng nhập thì chỉ trả về JSON 401 và không có đường dẫn tới trang đăng nhập. Nếu là URL màn hình thì router guard sẽ đưa về đăng nhập rồi quay lại URL ban đầu sau khi xác thực
+・Lý do bỏ hẳn dòng link khi `FRONTEND_URL` chưa thiết lập: để không đưa link hỏng kiểu `undefined/file-download` vào nội dung email
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### 備考
+
+(không có)
+
+---
+
+## ACSMS-TC-023-052 — Preview từ danh sách (ảnh / PDF)
+
+- 観点ID: VP-D-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `file.download`)
+  - ・Tồn tại 1 file PDF・1 file ảnh・1 file Excel đã upload
+  - ・Chuẩn bị thêm 1 file của JA khác và 1 file đã xóa logic
+
+### 手順
+
+ステップ1：
+Thực hiện thao tác preview file PDF ở danh sách file đã upload và kiểm tra response của GET `/api/v1/file-upload/{file_upload_id}/preview`
+
+ステップ2：
+Thực hiện thao tác tương tự với file ảnh
+
+ステップ3：
+Chỉ định trực tiếp ID file ngoài phạm vi DataScope (JA khác) và gọi API preview
+
+ステップ4：
+Chỉ định trực tiếp ID file đã xóa logic và gọi API preview
+
+ステップ5：
+Gọi API preview bằng role không có quyền `file.download`
+
+### 期待結果
+
+ステップ1：
+Trả về HTTP status code 200 kèm `data.preview_url` (URL có chữ ký) và `data.file_name`. Mở URL hiển thị được file
+
+ステップ2：
+Preview được tương tự
+
+ステップ3：
+Trả về HTTP status code 404 (`NOT_FOUND`) (che giấu sự tồn tại nên dùng 404 chứ không phải 403)
+
+ステップ4：
+Trả về HTTP status code 404 (`NOT_FOUND`) (bị loại theo điều kiện `deleted_at IS NULL`)
+
+ステップ5：
+Trả về HTTP status code 403 (`FORBIDDEN`)
+
+補足：
+・Chức năng này đã từng bị xóa khỏi màn hình này vào 2026/07/02 và chuyển sang màn hình download (SCR-022), nhưng theo yêu cầu khách hàng đã được **thêm lại** trong cùng tháng (2026/07/27). Xem tài liệu thiết kế màn hình v1.4 / tài liệu thiết kế API v1.2
+・Preview chỉ phát hành URL có chữ ký, không INSERT vào `t_file_upload`
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### 備考
+
+(không có)
+
+---
+
+## ACSMS-TC-023-053 — Download đơn lẻ từ danh sách và dấu vết
+
+- 観点ID: VP-D-05
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `file.download`)
+  - ・Tồn tại từ 1 file đã upload trở lên
+
+### 手順
+
+ステップ0 (đo trước)：
+Thực thi `SELECT COUNT(*) FROM t_file_download` trên DB và ghi lại tổng số trước khi test
+
+ステップ1：
+Chọn 1 checkbox ở danh sách rồi thực hiện download, kiểm tra response của GET `/api/v1/file-upload/{file_upload_id}/download`
+
+ステップ2：
+Kiểm tra nội dung file đã tải và `Content-Type`
+
+ステップ3：
+Thực thi lại `SELECT COUNT(*) FROM t_file_download` trên DB và so sánh với ステップ0
+
+ステップ4：
+Thực thi `SELECT operation, log_type FROM t_log WHERE target_table = 't_file_upload' ORDER BY log_id DESC LIMIT 1` trên DB
+
+ステップ5：
+Chỉ định trực tiếp ID file ngoài phạm vi DataScope・đã xóa logic rồi gọi API download
+
+### 期待結果
+
+ステップ1：
+Trả về HTTP status code 200, trả binary với `Content-Disposition: attachment; filename="..."`
+
+ステップ2：
+Nội dung khớp với file gốc. `Content-Type` được phán định đúng từ phần mở rộng (PDF → `application/pdf` v.v.)
+
+ステップ3：
+Tổng số của `t_file_download` **không tăng**. Việc download ở màn hình này không INSERT vào `t_file_download` (quy cách cũ tạo dòng lịch sử với `download_type = 2`, cài đặt hiện tại thì không tạo)
+
+ステップ4：
+Log thao tác `operation = 'DOWNLOAD'`・`log_type = 4` (FILE_OPERATION) được ghi lại
+
+ステップ5：
+Cả hai đều trả về HTTP status code 404 (`NOT_FOUND`)
+
+補足：
+・ステップ3 là kiểm tra hồi quy cho khác biệt với quy cách cũ. Đây là việc khác với xử lý đăng ký dòng cặp vào `t_file_download` lúc upload (#55935); thao tác download thì không làm tăng số dòng
+・Việc lấy file từ storage được thực hiện trước và nằm ngoài transaction, để khi lấy thất bại thì không để lại log thao tác
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### 備考
+
+(không có)
+
+---
+
+## ACSMS-TC-023-054 — Download hàng loạt ZIP từ danh sách (1〜50 file・không trùng)
+
+- 観点ID: VP-B-02
+- 種類: Boundary (境界)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `file.download`)
+  - ・Tồn tại từ 51 file đã upload trở lên
+  - ・Chuẩn bị thêm 1 file ngoài phạm vi DataScope
+
+### 手順
+
+ステップ1：
+Chọn 3 file ở danh sách rồi thực hiện download ZIP hàng loạt, kiểm tra response của POST `/api/v1/file-upload/download-zip` và nội dung ZIP
+
+ステップ2：
+Gửi trực tiếp với `file_upload_ids: []` (0 phần tử)
+
+ステップ3：
+Gửi trực tiếp với `file_upload_ids` gồm 51 ID duy nhất
+
+ステップ4：
+Gửi trực tiếp với `file_upload_ids` gồm 50 ID duy nhất (giá trị biên・đúng bằng giới hạn)
+
+ステップ5：
+Gửi trực tiếp với `file_upload_ids: [id1, id1, id2]` (có trùng lặp)
+
+ステップ6：
+Gửi trực tiếp với `file_upload_ids` có trộn đúng 1 ID ngoài phạm vi DataScope
+
+ステップ7：
+Kiểm tra số bản ghi được ghi vào `t_log`
+
+ステップ8：
+Thực hiện download ZIP hàng loạt 21 lần trong 1 phút
+
+### 期待結果
+
+ステップ1：
+Trả về HTTP status code 200・`Content-Type: application/zip`, ZIP chứa đủ cả 3 file đã chọn
+
+ステップ2：
+HTTP status code 400 (`VALIDATION_ERROR`, `errors[].message` là `ファイルを選択してください。`)
+
+ステップ3：
+HTTP status code 400 (`errors[].message` là `一括ダウンロードは最大50件までです。`)
+
+ステップ4：
+Trả về HTTP status code 200 (50 nằm trong phạm vi cho phép)
+
+ステップ5：
+HTTP status code 400 (`errors[].message` là `ファイルIDが重複しています。`)
+
+ステップ6：
+Trả về HTTP status code 404 (`NOT_FOUND`) và ZIP không được sinh ra. **Không có thành công một phần** (chỉ cần 1 file ngoài phạm vi là từ chối toàn bộ)
+
+ステップ7：
+Log thao tác chỉ được ghi **1 bản ghi** cho cả ZIP (không ghi theo từng file)
+
+ステップ8：
+Lần thứ 21 trả về HTTP status code 429 (`TOO_MANY_REQUESTS`) (giới hạn tốc độ 20 lần/phút)
+
+補足：
+・Nếu chỉ định giá trị không phải số nguyên thì `ファイルIDは整数で指定してください。`, nếu không phải mảng thì `ファイルIDの形式が不正です。`
+・「Không thành công một phần」ở ステップ6 là thiết kế từ chối toàn bộ, vì nếu thiếu file thì chỉ khi mở ZIP mới phát hiện ra
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế/Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| ID bug | - |
+
+### 備考
+
+(không có)
+
+---

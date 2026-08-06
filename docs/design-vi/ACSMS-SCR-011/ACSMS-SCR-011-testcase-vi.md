@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-03 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật (bổ sung 7 case còn thiếu): TC-011-015-2 kiểm tra họ tên cho phép Kanji/Hiragana/Katakana/Latin, TC-011-047 luồng chỉnh sửa của bản điện tử thuần, TC-011-048 dropdown cửa hàng liên động theo loại người đọc, TC-011-049 sửa phương thức thanh toán và 4 trường tài khoản trước khi duyệt (#56524), TC-011-050 4 trường phụ thuộc của thuộc tính người đọc, TC-011-051 kiểm tra trùng email xuyên JA (#56568), TC-011-052 vùng nơi giao báo hiển thị với loại kết hợp. | | |
 
 
 ## システム概要
@@ -981,6 +982,74 @@ Không hiển thị lỗi format (hiragana toàn角 có thể nhập)
 ### 備考
 
 (なし)
+
+## ACSMS-TC-011-015-2 — Kiểm tra họ tên người đọc cho phép Kanji / Hiragana / Katakana (yêu cầu khách hàng 2026-07)
+
+- ID quan điểm: VP-B-04
+- Loại: Abnormal (bất thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (thuộc ja_id=100)
+  - ・Đang mở màn hình đăng ký thông tin người đọc (chế độ tạo mới)
+
+### Các bước
+
+Bước 1:
+Nhập chuỗi nửa chiều rộng có số `Yamada12` vào Họ người đọc (shimei_sei) rồi bấm nút "Duyệt・Đăng ký"
+
+Bước 2:
+Nhập Hiragana toàn chiều rộng `やまだ` vào Họ người đọc (shimei_sei) rồi bấm nút "Duyệt・Đăng ký"
+
+Bước 3:
+Nhập Katakana toàn chiều rộng `タロウ` vào Tên người đọc (shimei_mei) rồi bấm nút "Duyệt・Đăng ký"
+
+Bước 4:
+Nhập Kanji `山田` vào Họ người đọc (shimei_sei) rồi bấm nút "Duyệt・Đăng ký"
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị lỗi định dạng (thông báo `漢字・ひらがな・カタカナ・アルファベットで入力してください。`)
+
+Bước 2:
+Không hiển thị lỗi định dạng (Hiragana toàn chiều rộng được chấp nhận)
+
+Bước 3:
+Không hiển thị lỗi định dạng (Katakana toàn chiều rộng được chấp nhận)
+
+Bước 4:
+Không hiển thị lỗi định dạng (Kanji được chấp nhận)
+
+Bổ sung:
+・Yêu cầu khách hàng 2026-07: để phục vụ những người có họ tên viết bằng Hiragana/Katakana, trường họ tên (Kanji) chấp nhận thêm Hiragana, Katakana và cả bảng chữ cái Latin
+・Áp dụng cho Họ/Tên người đọc (shimei_sei/shimei_mei) và Họ/Tên nơi giao báo (haitatsu_shimei_sei/haitatsu_shimei_mei)
+・Katakana nửa chiều rộng và chữ số vẫn không được chấp nhận (chỉ thêm bảng chữ cái Latin). Khi sai định dạng phải hiển thị `漢字・ひらがな・カタカナ・アルファベットで入力してください。`
+・Định dạng Hiragana toàn chiều rộng của các trường kana (shimei_kana_*) không thay đổi (xem ACSMS-TC-011-015)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
 
 ## ACSMS-TC-011-016 — Kiểm tra 7 chữ số mã bưu điện
 
@@ -2828,5 +2897,461 @@ Toast `ネットワークエラーが発生しました。しばらくしてか�
 ### 備考
 
 Văn bản toast lỗi mạng tuân theo hiện thực của axios interceptor phía frontend.
+
+---
+
+## ACSMS-TC-011-047 — Luồng chỉnh sửa của bản điện tử thuần (mở ở chế độ xem, "Thay đổi hẹn trước" bị vô hiệu)
+
+- ID quan điểm: VP-C-05
+- Loại: Normal (bình thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・Tồn tại người đọc loại điện tử (thanh toán **không phải** thẻ tín dụng, trạng thái duyệt=1 đã duyệt), dokusya_id=301
+  - ・Tồn tại người đọc loại báo giấy (dokusya_id=100) để đối chiếu
+
+### Các bước
+
+Bước 1:
+Từ danh sách màn hình tra cứu chi tiết người đọc, bấm vào dòng bản điện tử (dokusya_id=301) để mở màn hình ở chế độ chỉnh sửa
+
+Bước 2:
+Kiểm tra trạng thái hai nút "Thay đổi trong ngày" và "Thay đổi hẹn trước" trên thanh chế độ
+
+Bước 3:
+Bấm "Thay đổi trong ngày", không sửa dữ liệu nào rồi bấm "Cập nhật"
+
+Bước 4:
+Để đối chiếu, mở người đọc báo giấy (dokusya_id=100) ở chế độ chỉnh sửa và kiểm tra trạng thái nút "Thay đổi hẹn trước"
+
+### Kết quả mong đợi
+
+Bước 1:
+Hiển thị ở **chế độ xem** (toàn bộ trường read-only) giống báo giấy, và thanh chế độ được hiển thị. Nút cập nhật không hiển thị
+
+Bước 2:
+"Thay đổi trong ngày" bấm được, "Thay đổi hẹn trước" hiển thị **bị vô hiệu (làm mờ)**. Nút **không bị ẩn đi**. Đồng thời hiển thị chú thích "電子版は当日変更のみです（予約変更は使用できません）。"
+
+Bước 3:
+Chuyển sang chế độ thay đổi trong ngày, ngày áp dụng thay đổi thông tin là ngày hôm nay. Do không sửa trường nghiệp vụ nào nên hiển thị ACSMS-MSG-011-018 (変更がありません。) và không phát sinh cập nhật (PUT) lẫn lịch sử (t_dokusya_rireki)
+
+Bước 4:
+Ở báo giấy, "Thay đổi hẹn trước" bấm được (hạn chế chỉ áp dụng cho bản điện tử)
+
+Bổ sung:
+・Trước đây riêng bản điện tử không hiển thị thanh chế độ và mở ra là sửa được ngay (cố định thay đổi trong ngày). Cùng một màn hình lại mở ra ở chế độ xem hoặc chỉnh sửa tuỳ loại người đọc nên dễ lưu nhầm, vì vậy đã thống nhất luồng với báo giấy (định nghĩa chức năng §15.0)
+・Lý do làm mờ thay vì ẩn "Thay đổi hẹn trước": nếu ẩn, người dùng sẽ hiểu nhầm "màn hình này không có chức năng thay đổi hẹn trước" và khác biệt so với báo giấy không thể hiện được trên màn hình
+・Việc làm mờ chỉ là kiểm soát ở UI, nên FE còn chặn chuyển sang chế độ hẹn trước ở phía selectMode, và BE cũng từ chối `change_mode='reserved'` bằng VALIDATION_ERROR (ba lớp phòng vệ)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-011-048 — Dropdown cửa hàng liên động theo loại người đọc (lọc cửa hàng dummy)
+
+- ID quan điểm: VP-C-05
+- Loại: Normal (bình thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.create` / `dokusya.update`)
+  - ・ja_id=100 có 3 cửa hàng: `1000000001` (đang hoạt động), `1000000002` (đang hoạt động), `9999999999` (dummy cho bản điện tử, đang hoạt động)
+  - ・Tồn tại người đọc loại điện tử (dokusya_id=301, cửa hàng=`9999999999`)
+
+### Các bước
+
+Bước 1:
+Mở màn hình đăng ký thông tin người đọc (tạo mới), giữ nguyên loại người đọc=1:báo giấy (mặc định) rồi mở dropdown mã cửa hàng
+
+Bước 2:
+Chọn mã cửa hàng=`1000000001`, sau đó chuyển loại người đọc sang 2:điện tử và kiểm tra hiển thị cùng danh sách gợi ý của mã cửa hàng
+
+Bước 3:
+Chuyển loại người đọc sang 3:kết hợp và kiểm tra danh sách gợi ý của mã cửa hàng
+
+Bước 4:
+Mở người đọc bản điện tử (dokusya_id=301) ở chế độ chỉnh sửa và kiểm tra hiển thị cùng danh sách gợi ý của mã cửa hàng
+
+### Kết quả mong đợi
+
+Bước 1:
+Chỉ `1000000001` và `1000000002` xuất hiện trong danh sách, cửa hàng dummy `9999999999` **không xuất hiện**
+
+Bước 2:
+Lựa chọn mã cửa hàng bị **huỷ** (trở về rỗng) và danh sách gợi ý thay thế **chỉ còn 1 mục** là `9999999999`. `1000000001` đã chọn trước đó không còn trong danh sách
+
+Bước 3:
+Danh sách quay lại `1000000001` / `1000000002`, `9999999999` không xuất hiện. Do đã đổi loại người đọc nên lựa chọn lại bị huỷ
+
+Bước 4:
+Loại người đọc không đổi được khi chỉnh sửa, nên danh sách chỉ có 1 mục `9999999999` và lựa chọn hiện tại `9999999999` được hiển thị nguyên trạng
+
+Bổ sung:
+・Bản điện tử không giao báo giấy nên không gắn với cửa hàng có thật, nhưng `t_dokusya.hanbaiten_id` là NOT NULL. Vì vậy mỗi JA chuẩn bị một cửa hàng dummy `hanbaiten_code = 9999999999` làm nơi tiếp nhận, và bản điện tử gắn vào đó (yêu cầu khách hàng 2026-08)
+・Việc lọc được thực hiện ở SQL phía BE (`GET /api/v1/hanbaiten/dropdown` với `dummy=only` / `dummy=exclude`), FE chỉ gửi lên là bên nào. Nếu FE lọc mảng gợi ý sau khi nhận thì khi phân trang sẽ trả về trang "0 mục sau khi lọc" và cuộn vô hạn bị dừng
+・Lý do huỷ lựa chọn khi chuyển loại: nếu giữ lại, màn hình sẽ hiển thị một mã không có trong danh sách, và nếu cập nhật luôn thì BE sẽ nhận cửa hàng thuộc loại khác
+・Độc lập với bộ lọc đang hoạt động (`active_only`). Người đọc đang gắn với cửa hàng đã đóng thì khi chỉnh sửa vẫn khôi phục lựa chọn hiện tại bằng ghim `include_id` như trước
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-011-049 — Sửa phương thức thanh toán và 4 trường tài khoản rút tiền trước khi duyệt/từ chối (#56524)
+
+- ID quan điểm: VP-C-01
+- Loại: Normal (bình thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có cờ xử lý bản điện tử)
+  - ・Tồn tại người đọc loại điện tử với denshi_shonin_status=0 (chờ duyệt), dokusya_id=200
+  - ・Phương thức thanh toán=rút tài khoản (shiharai_hoho=1), JA của mình có từ 2 chi nhánh ngân hàng (kinyu_shiten_flg=true) trở lên
+
+### Các bước
+
+Bước 1:
+Mở người đọc đang chờ duyệt ở chế độ chỉnh sửa và kiểm tra trạng thái hoạt động của từng trường
+
+Bước 2:
+Giữ nguyên phương thức thanh toán=rút tài khoản, đổi chi nhánh tài khoản rút tiền sang chi nhánh khác, nhập loại tiền gửi=vãng lai, số tài khoản=`9876543210`, tên chủ tài khoản=`ﾀﾅｶ ﾀﾛｳ` rồi bấm nút "Duyệt・Đăng ký"
+
+Bước 3:
+Kiểm tra kết quả lưu trong DB
+```sql
+SELECT denshi_shonin_status, shiharai_hoho, bank_branch_code, bank_branch_name,
+       hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi
+FROM t_dokusya WHERE dokusya_id = 200;
+```
+
+Bước 4:
+Mở một người đọc chờ duyệt khác, để trống số tài khoản rút tiền rồi bấm nút "Duyệt・Đăng ký"
+
+Bước 5:
+Mở một người đọc chờ duyệt khác, sửa tên chủ tài khoản rồi bấm nút "Không duyệt", chọn "Có" ở hộp thoại xác nhận
+
+Bước 6:
+Mở một người đọc chờ duyệt khác (phương thức thanh toán=thu tiền mặt, chưa có nơi rút tiền), đổi phương thức thanh toán sang rút tài khoản, để trống chi nhánh tài khoản rồi bấm nút "Duyệt・Đăng ký"
+
+### Kết quả mong đợi
+
+Bước 1:
+5 trường (phương thức thanh toán, chi nhánh tài khoản rút tiền, loại tiền gửi, số tài khoản, tên chủ tài khoản) cùng đơn giá báo **hoạt động**. Các trường khác (họ tên người đọc, email, mã thành viên...) vẫn **bị vô hiệu**. Trong các lựa chọn phương thức thanh toán, thẻ tín dụng **bị vô hiệu**
+
+Bước 2:
+Hiển thị "承認しました。" và chuyển sang màn hình tra cứu chi tiết người đọc
+
+Bước 3:
+Ngoài `denshi_shonin_status=1`, 4 trường đã nhập được lưu lại. `bank_branch_code` / `bank_branch_name` là giá trị tra ngược từ chi nhánh đã chọn
+
+Bước 4:
+Duyệt vẫn thành công (khi phương thức thanh toán là rút tài khoản, số tài khoản không bắt buộc ở bước duyệt)
+
+Bước 5:
+Hiển thị "否認しました。" và cả `denshi_shonin_status=2` lẫn tên chủ tài khoản đã sửa đều được lưu
+
+Bước 6:
+API duyệt không được gọi, hiển thị "必須項目です。" ngay dưới chi nhánh tài khoản rút tiền
+
+Bổ sung:
+・Phương thức thanh toán và thông tin tài khoản của đơn đăng ký bản điện tử do chính người đọc tự khai nên hay sai. Trước đây màn hình duyệt chỉ sửa được đơn giá báo nên phải làm 2 thao tác "duyệt → sửa lại" (yêu cầu khách hàng 2026-08 / #56524)
+・Bản điện tử không chọn được thẻ tín dụng (dành riêng cho liên kết hệ thống quản lý người đọc bản điện tử). Gửi thẳng `shiharai_hoho=6` vào API cũng nhận `VALIDATION_ERROR` (shiharai_hoho)
+・Chi nhánh tài khoản rút tiền chỉ chọn được chi nhánh ngân hàng của JA mình. Gửi thẳng ID chi nhánh của JA khác vào API cũng nhận `VALIDATION_ERROR` (bank_shiten_id)
+・Khi phương thức thanh toán khác rút tài khoản, 4 trường là tuỳ chọn (để trống vẫn duyệt được)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-011-050 — 4 trường phụ thuộc của thuộc tính người đọc (kiêm cán bộ JA / liên quan nông nghiệp / nội dung khác)
+
+- ID quan điểm: VP-B-01
+- Loại: Normal (bình thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (ja_id=100, có cờ xử lý bản điện tử)
+  - ・Đang mở màn hình đăng ký mới với loại người đọc=điện tử
+  - ・Thuộc tính người đọc (dokusyaso_bunrui) là lựa chọn đơn (nông dân / cán bộ nhóm JA / doanh nghiệp・tổ chức / học sinh / khác)
+
+### Các bước
+
+Bước 1:
+Chọn "Nông dân" ở thuộc tính người đọc và kiểm tra trạng thái hiển thị của checkbox "Kiêm cán bộ nhóm JA" bên phải
+
+Bước 2:
+Tick "Kiêm cán bộ nhóm JA", chọn "Gạo" và "Rau" ở sản phẩm chính rồi đăng ký
+
+Bước 3:
+Kiểm tra kết quả lưu trong DB
+```sql
+SELECT dokusyaso_bunrui, ja_yakushokuin_flg, nogyo_kankei_flg,
+       nogyosya_bunrui, dokusyaso_bunrui_sonota, nogyosya_bunrui_sonota
+FROM t_dokusya WHERE dokusya_id = :ID vừa tạo;
+```
+
+Bước 4:
+Ở màn hình đăng ký mới, chọn thuộc tính người đọc "Doanh nghiệp・Tổ chức", kiểm tra hiển thị checkbox "Liên quan nông nghiệp", tick vào rồi đăng ký
+
+Bước 5:
+Ở màn hình đăng ký mới, chọn thuộc tính người đọc "Khác", nhập `自営業` vào ô "Nội dung khác" rồi đăng ký
+
+Bước 6:
+Ở màn hình đăng ký mới, chọn thuộc tính người đọc "Học sinh" và kiểm tra trạng thái hiển thị của các trường phụ thuộc
+
+Bước 7:
+Chọn thuộc tính người đọc "Nông dân" + sản phẩm chính "Khác", nhập `きのこ` vào ô "Sản phẩm chính (nội dung khác)" rồi đăng ký
+
+### Kết quả mong đợi
+
+Bước 1:
+Checkbox "Kiêm cán bộ nhóm JA" hiển thị và hoạt động (chỉ khi thuộc tính người đọc=Nông dân)
+
+Bước 2:
+Hiển thị "登録しました。" và chuyển sang màn hình tra cứu chi tiết người đọc
+
+Bước 3:
+Lưu được `dokusyaso_bunrui='0'`, `ja_yakushokuin_flg=true`, `nogyosya_bunrui='0,1'`. `nogyo_kankei_flg` là false, `dokusyaso_bunrui_sonota` / `nogyosya_bunrui_sonota` là chuỗi rỗng
+
+Bước 4:
+Checkbox "Liên quan nông nghiệp" hiển thị và hoạt động (chỉ khi thuộc tính=Doanh nghiệp・Tổ chức), lưu được `nogyo_kankei_flg=true`
+
+Bước 5:
+Ô "Nội dung khác" hiển thị và hoạt động (chỉ khi thuộc tính=Khác), lưu được `dokusyaso_bunrui_sonota='自営業'`
+
+Bước 6:
+"Kiêm cán bộ nhóm JA", "Liên quan nông nghiệp", "Nội dung khác" đều **không hiển thị** (Học sinh không có trường phụ thuộc)
+
+Bước 7:
+Ô "Sản phẩm chính (nội dung khác)" hiển thị và hoạt động (chỉ khi sản phẩm chính có chứa "Khác"), lưu được `nogyosya_bunrui_sonota='きのこ'`
+
+Bổ sung:
+・4 trường phụ thuộc chỉ được mang giá trị khi phân loại cha chứa mã tương ứng (thiết kế DB khách hàng 2026-08)
+・Nếu gửi giá trị mà không thoả điều kiện của phân loại cha, phía liên kết bản điện tử sẽ chặn cả lệnh create/update bằng validation (V26〜V30), nên cùng một cổng điều kiện được đặt ở cả màn hình lẫn API
+・2 trường cờ khi thoả điều kiện thì luôn gửi 0/1 (chưa tick = 0). Nếu bỏ trống, phía bản điện tử hiểu là "không thay đổi" và thao tác bỏ tick sẽ không được phản ánh
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-011-051 — Kiểm tra trùng email của bản điện tử phải xuyên JA (#56568)
+
+- ID quan điểm: VP-D-01
+- Loại: Abnormal (bất thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (ja_id=100)
+  - ・Ở **JA khác** (ja_id=200) tồn tại người đọc loại điện tử với email `dup@example.com`
+  - ・Ở JA của mình (ja_id=100) tồn tại người đọc loại báo giấy với email `paper@example.com`
+  - ・Ở JA khác (ja_id=200) tồn tại người đọc loại điện tử **đã xoá mềm** với email `deleted@example.com`
+
+### Các bước
+
+Bước 1:
+Ở JA của mình, đăng ký mới loại điện tử với email `dup@example.com`
+
+Bước 2:
+Ở JA của mình, đăng ký mới loại điện tử với email `paper@example.com`
+
+Bước 3:
+Ở JA của mình, đăng ký mới loại điện tử với email `deleted@example.com`
+
+Bước 4:
+Ở JA của mình, đăng ký mới loại **báo giấy** với email `paper@example.com`
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP 400 (`error_code: DUPLICATE_EMAIL`) và hiển thị thông báo lỗi ở ô email. **Bản ghi thuộc JA khác vẫn bị coi là trùng**
+
+Bước 2:
+Đăng ký thành công (đối tượng kiểm tra trùng chỉ gồm `dokusya_shubetsu IN (2,3)`, không đụng email của báo giấy)
+
+Bước 3:
+Đăng ký thành công (bản ghi đã xoá mềm nằm ngoài phạm vi kiểm tra, email được tái sử dụng)
+
+Bước 4:
+Đăng ký thành công (báo giấy trùng email với nhau vẫn được chấp nhận như trước)
+
+Bổ sung:
+・Ở bản điện tử, email là khoá định danh thành viên (ID đăng nhập) nên phải duy nhất xuyên suốt các JA (yêu cầu khách hàng 2026-08 / #56568)
+・Trước đây điều kiện có kèm `ja_id = :ja_id` nên chỉ nhìn trong JA của mình, dẫn tới việc có thể tạo người đọc điện tử trùng email ở JA khác
+・Cùng một logic kiểm tra cũng áp dụng cho nhập liệu hàng loạt bằng Excel (SCR-016)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-011-052 — Vùng thông tin nơi giao báo phải hiển thị với loại kết hợp (yêu cầu khách hàng 2026-08)
+
+- ID quan điểm: VP-B-02
+- Loại: Normal (bình thường)
+- Điều kiện tiên quyết:
+  - ・role: JA_HONTEN (ja_id=100)
+  - ・Tồn tại người đọc loại **kết hợp** (dokusya_shubetsu=3)
+  - ・Người đọc đó được tạo qua batch đồng bộ và có nơi giao báo lấy từ nhóm `paper_*` của bản điện tử
+  - ・Tồn tại 1 người đọc loại điện tử (dokusya_shubetsu=2) để đối chiếu
+
+### Các bước
+
+Bước 1:
+Mở người đọc loại kết hợp ở màn hình chi tiết và kiểm tra vùng "Thông tin nơi giao báo" có hiển thị không
+
+Bước 2:
+Kiểm tra mã bưu chính / tỉnh thành / quận huyện / số nhà của nơi giao báo có khớp với `paper_zip` / `paper_pref_id` / `paper_addr` / `paper_city` bên bản điện tử không
+```sql
+SELECT haitatsu_same_flg, haitatsu_yubin_no, haitatsu_todofuken_code,
+       haitatsu_shikuchoson, haitatsu_chome_banchi, haitatsu_tatemono_mei
+FROM t_dokusya WHERE dokusya_id = :ID của bản kết hợp;
+```
+
+Bước 3:
+Kiểm tra các trường nhập trên cùng màn hình có sửa được không
+
+Bước 4:
+Mở người đọc loại điện tử (dokusya_shubetsu=2) và kiểm tra vùng "Thông tin nơi giao báo" có hiển thị không
+
+### Kết quả mong đợi
+
+Bước 1:
+Vùng "Thông tin nơi giao báo" **được hiển thị** (trước đây bị ẩn vì xử lý chung với bản điện tử)
+
+Bước 2:
+`haitatsu_same_flg=false`, và địa chỉ giao báo khớp với giá trị lấy từ `paper_*` của bản điện tử chứ không phải địa chỉ người đọc
+
+Bước 3:
+Bản ghi loại kết hợp do hệ thống quản lý người đọc bản điện tử quản lý qua liên kết batch, nên toàn bộ trường **chỉ để xem** (API cập nhật trả `DOKUSYA_READ_ONLY` 403)
+
+Bước 4:
+Ở bản điện tử, vùng "Thông tin nơi giao báo" **không hiển thị** (vì không có giao báo)
+
+Bổ sung:
+・Loại kết hợp vẫn nhận báo giấy nên nơi giao báo là có thật. Với quy cách cũ (ẩn vùng này), không thể xem được địa chỉ giao báo đã đồng bộ trên màn hình (yêu cầu khách hàng 2026-08)
+・Đối tượng bị vô hiệu hoá chỉ còn loại người đọc=điện tử
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
 
 ---

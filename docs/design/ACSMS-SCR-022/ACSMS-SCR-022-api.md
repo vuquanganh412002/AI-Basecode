@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/07 | 1.0  | Tran Duc Tuyen | 初版作成                                                                                                                                       | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/08 | 1.1  | Tran Duc Tuyen | データソースを `t_file_upload` に変更（ファイルはアップロード時に S3 + DB に登録、本画面では検索 / プレビュー / ダウンロードのみ）。都道府県プルダウンは既存の共用 API `ACSMS-API-COMMON-001`（`GET /api/v1/todofuken`、定義元: SCR-009）を使用し、全 47 都道府県を返却する。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/02 | 1.2  | Tran Duc Tuyen | データソースを t_file_download に変更（各帳票出力画面が生成したファイルを参照）。ダウンロード種別(download_type)・日農ダウンロード許可フラグ(nichino_download_allowed_flg)・作成者(created_by/created_by_name)を追加。ダウンロード実行時は t_file_download へINSERTせず t_log(log_type=4/DOWNLOAD)のみ記録。複数ファイル一括ダウンロード(ZIP)API ACSMS-API-022-004 を追加。 | Tran Duc Tuyen | Tran Duc Tuyen |
+| 4   | 2026/08/06 | 1.3  | Tran Duc Tuyen | 実装との差分是正（2026-07 の 2 件が本書へ未反映だった）：①日農DL許可チェック（`nichino_download_allowed_flg = false` → 403）の対象ロールに **CHUOKAI** を追加（従来は NICHINO_ADMIN / NICHINO_STAFF のみ）。②**自分が出力したファイルは本フラグを見ない**例外を追加（#52132）。本フラグは他組織へ見せてよいかを JA 側が決めるもので出力者本人を締め出す意図は無く、既定 FALSE のため例外が無いと自分の帳票をDLできなかった。突合は `t_file_download.created_by`（trim 済み文字列。空文字は本人扱いしない）。DL制限3ロール共通。③CHUOKAI の DataScope を「自JAのみ」→ **同一都道府県の全JA**（`fd.ja_id IS NULL OR j.todofuken_code = :user_todofuken_code`）へ拡大（#52132）。拡大先の県はセッションの `todofuken_code` で決まり他県は参照不可。セッションに当該項目が無い場合は自JAのみへフォールバック。一覧・個別DL・プレビュー・ZIP で同じ ja_id 集合を用い「一覧に出た行は個別DLでも通る」を不変条件とする | | |
 
 ## システム概要
 
@@ -240,7 +241,11 @@ GET /api/v1/file-download?file_name=zougen&todofuken_code=13&download_type=4&pag
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
 - DataScope（`t_file_download.ja_id` ベース）:
   - `NICHINO_ADMIN` / `NICHINO_STAFF`: 全件参照可能（フィルタなし）
-  - `CHUOKAI`: 自中央会 + 管轄 JA のファイル + 全 JA 向けファイル（`fd.ja_id IN (:managed_ja_ids) OR fd.ja_id IS NULL`）
+  - `CHUOKAI`: **同一都道府県の全 JA** のファイル + 全 JA 向けファイル（`fd.ja_id IS NULL OR j.todofuken_code = :user_todofuken_code`。`m_ja` は既に LEFT JOIN 済みのため追加 JOIN は不要）。判定は `role_code = CHUOKAI` で限定する — `todofuken_code` の有無だけで分岐すると JA_HONTEN / JA_KANRI_SHITEN も県内全 JA へ広がってしまうため（顧客要件 2026-07 / #52132。従来は自 JA のみ）
+    - 拡大先の県は**クライアント指定ではなくセッションの `todofuken_code`** から決まるため、他県を参照することはできない
+    - セッションに `todofuken_code` が無い場合（本機能のデプロイ前に発行された Redis 上の既存セッション等）は**従来どおり自 JA のみ**へフォールバックする
+    - 一覧に出た行は個別ダウンロード／プレビュー／ZIP でも通ることを不変条件とする（同じ ja_id 集合で判定する）
+    - ただし DL 可否は別判定。同県他 JA のファイルは「一覧には見えるが `nichino_download_allowed_flg = false` なら 403」となる
   - `JA_HONTEN`: 自 JA のファイル + 全 JA 向けファイル（`fd.ja_id = :user_ja_id OR fd.ja_id IS NULL`）
   - `JA_KANRI_SHITEN`: 自 JA のファイル + 全 JA 向けファイル（`fd.ja_id = :user_ja_id OR fd.ja_id IS NULL`）※管理支店単位の絞り込みは行わない
 
@@ -455,8 +460,12 @@ SELECT
 
 ### 4.4 日農ダウンロード許可チェック
 
-- ログインユーザが日農（NICHINO_ADMIN / NICHINO_STAFF）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。
-- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA 系ロールは本フラグの影響を受けない。
+- ログインユーザが**DL制限ロール**（NICHINO_ADMIN / NICHINO_STAFF / **CHUOKAI**）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。中央会が対象に加わったのは顧客要件 2026-07 による。
+- **例外：自分が出力したファイルは本フラグを見ない**（顧客要件 2026-07 / #52132）。本フラグは「他組織（日農・中央会）へ自組織のファイルを見せてよいか」を JA 側が決めるものであり、出力した本人まで締め出す意図は無い。既定値が FALSE のため、この例外が無いと中央会が自分で出力した帳票をその場でダウンロードできなかった。
+  - 本人判定は `t_file_download.created_by`（`m_account.account_id` を varchar で保持。一覧 SQL の `m_account.account_id::text = fd.created_by` と同じ前提）で行い、両辺を trim 済み文字列に揃えて突合する。
+  - `created_by` が空文字の行は**本人扱いしない**（安全側に倒す）。
+  - 例外は DL制限3ロール共通。日農にも同じ穴があるため中央会だけの特例にはしない。
+- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA_HONTEN / JA_KANRI_SHITEN は本フラグの影響を受けない。
 
 ### 4.5 レスポンス生成
 
@@ -604,8 +613,12 @@ SELECT
 
 ### 4.4 日農ダウンロード許可チェック
 
-- ログインユーザが日農（NICHINO_ADMIN / NICHINO_STAFF）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。
-- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA 系ロールは本フラグの影響を受けない。
+- ログインユーザが**DL制限ロール**（NICHINO_ADMIN / NICHINO_STAFF / **CHUOKAI**）で、かつ対象レコードの `nichino_download_allowed_flg = false` の場合、HTTP 403 (`FORBIDDEN`) を返却する（メッセージ: `このファイルは日農のダウンロードが許可されていません。`）。中央会が対象に加わったのは顧客要件 2026-07 による。
+- **例外：自分が出力したファイルは本フラグを見ない**（顧客要件 2026-07 / #52132）。本フラグは「他組織（日農・中央会）へ自組織のファイルを見せてよいか」を JA 側が決めるものであり、出力した本人まで締め出す意図は無い。既定値が FALSE のため、この例外が無いと中央会が自分で出力した帳票をその場でダウンロードできなかった。
+  - 本人判定は `t_file_download.created_by`（`m_account.account_id` を varchar で保持。一覧 SQL の `m_account.account_id::text = fd.created_by` と同じ前提）で行い、両辺を trim 済み文字列に揃えて突合する。
+  - `created_by` が空文字の行は**本人扱いしない**（安全側に倒す）。
+  - 例外は DL制限3ロール共通。日農にも同じ穴があるため中央会だけの特例にはしない。
+- 行は一覧に表示されるため、存在を隠す 404 ではなく 403 を返す（`assertNichinoDownloadAllowed` 規則）。JA_HONTEN / JA_KANRI_SHITEN は本フラグの影響を受けない。
 
 ### 4.5 ファイル取得
 

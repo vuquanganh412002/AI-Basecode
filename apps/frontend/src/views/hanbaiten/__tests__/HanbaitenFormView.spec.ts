@@ -209,13 +209,13 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
     ['都道府県', 'mounted'],
   ])('should render the %s label when %s', async (labelText) => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes(labelText))).toBe(true);
   });
 
   it('should render the 郵便番号 / 住所 / 電話番号 / FAX labels when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('郵便番号'))).toBe(true);
     expect(labels.some((t) => t.includes('住所'))).toBe(true);
     expect(labels.some((t) => t.includes('電話番号'))).toBe(true);
@@ -224,7 +224,7 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
 
   it('should render the 所長名 / 委託区分 / 配達手数料単価 / インボイス番号 labels when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('所長名'))).toBe(true);
     expect(labels.some((t) => t.includes('委託区分'))).toBe(true);
     expect(labels.some((t) => t.includes('配達手数料単価'))).toBe(true);
@@ -233,7 +233,7 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
 
   it('should render the bank-section labels (金融機関コード / 金融機関名 / 口座支店コード / 口座支店名 / 口座種別 / 口座番号 / 口座名義) when mounted', async () => {
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('金融機関コード'))).toBe(true);
     expect(labels.some((t) => t.includes('金融機関名'))).toBe(true);
     expect(labels.some((t) => t.includes('口座支店コード'))).toBe(true);
@@ -248,7 +248,7 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
     // (customer 2026-05-26 — new hanbaiten are always 営業中). The edit
     // mode below asserts it DOES render.
     const { wrapper } = await renderView();
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('配達手数料支払サイクル'))).toBe(true);
     expect(labels.some((t) => t.includes('振込手数料負担区分'))).toBe(true);
     expect(labels.some((t) => t.includes('振込手数料'))).toBe(true);
@@ -274,7 +274,7 @@ describe('HanbaitenFormView — initial render (機能定義 1.1 / 1.2)', () => 
     // [haiten-edit-only] EDIT mode keeps the toggle so ops can mark a
     // store as 廃店.
     const { wrapper } = await renderView({ hanbaitenId: 1 });
-    const labels = wrapper.findAll('label').map((l) => l.text());
+    const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes('廃店フラグ'))).toBe(true);
   });
 

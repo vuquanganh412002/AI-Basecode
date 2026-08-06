@@ -428,8 +428,10 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
         .expect(200);
 
       expect(res.body.data.user).toEqual(userPayload);
-      // Cookie re-issued so the browser extends Max-Age too.
-      expect(res.headers['set-cookie']).toBeDefined();
+      // The cookie is NOT re-issued: the session expires an absolute 24h after
+      // login, and the login cookie's Max-Age already lands on that deadline.
+      // Re-issuing here would let the browser outlive the server-side session.
+      expect(res.headers['set-cookie']).toBeUndefined();
     });
 
     it('should return 401 UNAUTHORIZED when service throws UnauthorizedException', async () => {
@@ -712,77 +714,74 @@ describe('AuthController — branch coverage', () => {
   });
 
   describe('readSessionId branches', () => {
+    // refresh no longer re-issues the cookie (the session now expires an
+    // absolute 24h after login, and the login cookie already carries that
+    // deadline). The observable effect of cookie precedence is therefore the
+    // sessionId handed to authService.refreshSession.
     function ctrl() {
-      return new AuthController(
-        {
-          refreshSession: jest.fn().mockResolvedValue({}),
-          logout: jest.fn().mockResolvedValue(undefined),
-        } as any,
-        buildConfig({
-          'session.cookieName': 'session_id',
-          'session.ttlSeconds': 60,
-          nodeEnv: 'test',
-        }),
-      );
+      const refreshSession = jest.fn().mockResolvedValue({});
+      return {
+        c: new AuthController(
+          { refreshSession, logout: jest.fn().mockResolvedValue(undefined) } as any,
+          buildConfig({
+            'session.cookieName': 'session_id',
+            'session.ttlSeconds': 60,
+            nodeEnv: 'test',
+          }),
+        ),
+        refreshSession,
+      };
     }
 
     it('should use the signed cookie when present', async () => {
-      const c = ctrl();
-      const res = buildRes();
-      await c.refresh(
-        { signedCookies: { session_id: 'signed-sid' }, cookies: {} } as any,
-        res,
-      );
-      expect(res.cookie).toHaveBeenCalledWith(
-        'session_id',
-        'signed-sid',
-        expect.anything(),
-      );
+      const { c, refreshSession } = ctrl();
+      await c.refresh({
+        signedCookies: { session_id: 'signed-sid' },
+        cookies: {},
+      } as any);
+      expect(refreshSession).toHaveBeenCalledWith('signed-sid');
     });
 
     it('should fall back to the plain cookie when signed is missing', async () => {
-      const c = ctrl();
-      const res = buildRes();
-      await c.refresh(
-        { signedCookies: undefined, cookies: { session_id: 'plain-sid' } } as any,
-        res,
-      );
-      expect(res.cookie).toHaveBeenCalledWith(
-        'session_id',
-        'plain-sid',
-        expect.anything(),
-      );
+      const { c, refreshSession } = ctrl();
+      await c.refresh({
+        signedCookies: undefined,
+        cookies: { session_id: 'plain-sid' },
+      } as any);
+      expect(refreshSession).toHaveBeenCalledWith('plain-sid');
     });
 
-    it('should return undefined sessionId and SKIP cookie re-issue when neither cookie is present', async () => {
-      const c = ctrl();
-      const res = buildRes();
-      await c.refresh({ signedCookies: undefined, cookies: undefined } as any, res);
-      expect(res.cookie).not.toHaveBeenCalled();
+    it('should pass undefined when neither cookie is present', async () => {
+      const { c, refreshSession } = ctrl();
+      await c.refresh({ signedCookies: undefined, cookies: undefined } as any);
+      expect(refreshSession).toHaveBeenCalledWith(undefined);
     });
 
     it('should ignore non-string signed cookie values (defensive)', async () => {
-      const c = ctrl();
-      const res = buildRes();
-      await c.refresh(
-        { signedCookies: { session_id: false }, cookies: { session_id: 'plain' } } as any,
-        res,
-      );
-      // Falls through to plain cookie.
-      expect(res.cookie).toHaveBeenCalledWith(
-        'session_id',
-        'plain',
-        expect.anything(),
-      );
+      const { c, refreshSession } = ctrl();
+      await c.refresh({
+        signedCookies: { session_id: false },
+        cookies: { session_id: 'plain' },
+      } as any);
+      expect(refreshSession).toHaveBeenCalledWith('plain');
     });
 
     it('should ignore non-string plain cookie values (defensive)', async () => {
-      const c = ctrl();
+      const { c, refreshSession } = ctrl();
+      await c.refresh({
+        signedCookies: undefined,
+        cookies: { session_id: { foo: 1 } },
+      } as any);
+      expect(refreshSession).toHaveBeenCalledWith(undefined);
+    });
+
+    it('should NOT re-issue the session cookie', async () => {
+      const { c } = ctrl();
       const res = buildRes();
-      await c.refresh(
-        { signedCookies: undefined, cookies: { session_id: { foo: 1 } } } as any,
-        res,
-      );
+      await c.refresh({
+        signedCookies: { session_id: 'sid' },
+        cookies: {},
+      } as any);
       expect(res.cookie).not.toHaveBeenCalled();
     });
   });

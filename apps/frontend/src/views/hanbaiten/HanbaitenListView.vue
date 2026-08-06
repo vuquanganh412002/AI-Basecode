@@ -303,7 +303,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.hanbaiten_code"
           placeholder="販売店コード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="hanbaiten-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -313,7 +313,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.hanbaiten_name"
           placeholder="販売店名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="hanbaiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -323,7 +323,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.tel"
           placeholder="電話番号"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="hanbaiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -333,7 +333,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.fax"
           placeholder="FAX番号"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="hanbaiten-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -343,7 +343,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.address"
           placeholder="住所"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="hanbaiten-filter-6" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -353,7 +353,7 @@ function askDelete(row: HanbaitenListItem): void {
           v-model:value="state.filters.shocho_name"
           placeholder="所長名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <div class="flex items-center gap-2">
@@ -366,7 +366,7 @@ function askDelete(row: HanbaitenListItem): void {
         >
           廃店フラグ
         </span>
-        <a-checkbox v-model:checked="state.filters.haiten_flg">
+        <a-checkbox name="haiten_flg" v-model:checked="state.filters.haiten_flg">
           <span class="text-sm font-medium whitespace-nowrap text-text-main">
             廃店フラグ
           </span>
@@ -379,6 +379,7 @@ function askDelete(row: HanbaitenListItem): void {
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium whitespace-nowrap text-text-main">有効単価フラグ</span>
         <a-radio-group
+          name="active_tanka_flg"
           v-model:value="state.filters.active_tanka_flg"
           data-test="active-tanka-filter"
         >

@@ -175,7 +175,7 @@ function askDelete(row: KanriShitenListItem): void {
           v-model:value="state.filters.kanri_shiten_code"
           placeholder="選択してください"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="kanri-shiten-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -185,7 +185,7 @@ function askDelete(row: KanriShitenListItem): void {
           v-model:value="state.filters.kanri_shiten_name"
           placeholder="選択してください"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="kanri-shiten-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -193,7 +193,7 @@ function askDelete(row: KanriShitenListItem): void {
         <BaseTodofukenSelect
           id="kanri-shiten-filter-3"
           v-model:value="state.filters.todofuken_code"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="kanri-shiten-filter-4" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -203,7 +203,7 @@ function askDelete(row: KanriShitenListItem): void {
           v-model:value="state.filters.tel"
           placeholder="選択してください"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="kanri-shiten-filter-5" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -213,7 +213,7 @@ function askDelete(row: KanriShitenListItem): void {
           v-model:value="state.filters.fax"
           placeholder="選択してください"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
     </BaseSearchForm>

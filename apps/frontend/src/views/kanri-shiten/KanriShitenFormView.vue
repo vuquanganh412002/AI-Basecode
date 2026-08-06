@@ -482,7 +482,11 @@ defineExpose({
             :validate-status="allFieldErrors.yubin_no ? 'error' : ''"
             :help="allFieldErrors.yubin_no"
           >
-            <BaseCodeInput v-model:value="formState.yubin_no" :maxlength="7" />
+            <BaseCodeInput
+              autocomplete="off"
+              v-model:value="formState.yubin_no"
+              :maxlength="7"
+            />
           </a-form-item>
           <a-form-item
             class="md:col-span-2"
@@ -504,7 +508,11 @@ defineExpose({
         <!-- 行4: 住所 / 電話番号 / FAX -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item label="住所" name="address">
-            <a-input v-model:value="formState.address" :maxlength="200" />
+            <a-input
+              autocomplete="off"
+              v-model:value="formState.address"
+              :maxlength="200"
+            />
           </a-form-item>
           <a-form-item
             label="電話番号"
@@ -513,6 +521,7 @@ defineExpose({
             :help="allFieldErrors.tel"
           >
             <a-input
+              autocomplete="off"
               v-model:value="formState.tel"
               :maxlength="15"
               placeholder="0312345678"
@@ -525,6 +534,7 @@ defineExpose({
             :help="allFieldErrors.fax"
           >
             <a-input
+              autocomplete="off"
               v-model:value="formState.fax"
               :maxlength="15"
               placeholder="0312345679"
@@ -534,13 +544,13 @@ defineExpose({
 
         <!-- 行5: 紙版 / 電子版 フラグ -->
         <div class="flex items-center gap-6 pt-2">
-          <a-checkbox
+          <a-checkbox name="paper_flg"
             v-model:checked="formState.paper_flg"
             :disabled="isRestrictedEditor"
           >
             紙版フラグ
           </a-checkbox>
-          <a-checkbox
+          <a-checkbox name="denshi_flg"
             v-model:checked="formState.denshi_flg"
             :disabled="isRestrictedEditor"
           >

@@ -113,14 +113,17 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Extend the session TTL by another 24h and return the user profile',
+    summary: 'Validate the session and return the current user profile',
   })
   @ApiResponse({ status: 200, type: AuthUserEnvelopeDto })
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async refresh(@Req() req: Request) {
     const sessionId = this.readSessionId(req);
     const user = await this.authService.refreshSession(sessionId);
-    // cookie を再発行しブラウザ側 Max-Age も延長。
-    if (sessionId) this.setSessionCookie(res, sessionId);
+    // cookie は再発行しない。セッションはログインから ttlSeconds の絶対失効で、
+    // ログイン時に発行した cookie の Max-Age がちょうどその時刻に切れる
+    // （顧客要件 2026-08）。ここで再発行すると、サーバが失効させたあとも
+    // ブラウザだけが cookie を持ち続け「ログイン済みに見えるのに全 API が 401」
+    // という状態を作ってしまう。
     return { data: { user } };
   }
 

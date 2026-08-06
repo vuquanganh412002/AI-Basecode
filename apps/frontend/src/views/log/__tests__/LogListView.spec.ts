@@ -13,6 +13,15 @@ import { createTestingPinia } from '@pinia/testing';
 import Antd, { message } from 'ant-design-vue';
 
 import LogListView from '@/views/log/LogListView.vue';
+
+/** Y/M/D of `epochMs` as seen in Asia/Tokyo — the timezone the view validates in. */
+function tokyoParts(epochMs: number): { getFullYear(): number; getMonth(): number; getDate(): number } {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(epochMs)).split('-').map(Number);
+  return { getFullYear: () => y, getMonth: () => m - 1, getDate: () => d };
+}
+
 import {
   buildLogListResponse,
   buildAccountDropdownResponse,
@@ -345,7 +354,11 @@ describe('LogListView — search (機能定義 2.x)', () => {
     const { wrapper } = await renderView();
     vi.mocked(listLogs).mockClear();
 
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // JST で翌日を作る。ブラウザ local（開発機は UTC+7）で組み立てると、
+    // 現地 22:00 以降は JST がすでに翌日に入っており「翌日 00:00」が JST では
+    // 過去になる — 毎晩2時間だけ落ちる時限テストになっていた。検証側は
+    // parseDatetimeWithSecondsTokyo で JST 解釈するので、生成側も JST に揃える。
+    const tomorrow = tokyoParts(Date.now() + 24 * 60 * 60 * 1000);
     const pad = (n: number) => String(n).padStart(2, '0');
     const vm = wrapper.vm as any;
     if (vm.state?.filters) {
@@ -371,7 +384,11 @@ describe('LogListView — search (機能定義 2.x)', () => {
     const { wrapper } = await renderView();
     vi.mocked(listLogs).mockClear();
 
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // JST で翌日を作る。ブラウザ local（開発機は UTC+7）で組み立てると、
+    // 現地 22:00 以降は JST がすでに翌日に入っており「翌日 00:00」が JST では
+    // 過去になる — 毎晩2時間だけ落ちる時限テストになっていた。検証側は
+    // parseDatetimeWithSecondsTokyo で JST 解釈するので、生成側も JST に揃える。
+    const tomorrow = tokyoParts(Date.now() + 24 * 60 * 60 * 1000);
     const pad = (n: number) => String(n).padStart(2, '0');
     const vm = wrapper.vm as any;
     if (vm.state?.filters) {

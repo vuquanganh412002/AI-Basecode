@@ -29,6 +29,14 @@ export interface SessionPayload {
   permissions: string[];
   created_at: string;      // ISO-8601
   last_activity_at: string; // ISO-8601 — 成功リクエストごとに更新
+  /**
+   * 絶対失効時刻（ISO-8601 = `created_at` + `session.ttlSeconds`）。操作を続けても
+   * 延びない — この時刻を過ぎたら再ログインを強制する（顧客要件 2026-08）。
+   *
+   * 本項目の導入前に発行された Redis 上の既存セッションには存在しないため optional。
+   * 読み取り側は `created_at + ttl` にフォールバックすること（`deadlineOf`）。
+   */
+  expires_at?: string;
 }
 
 const SESSION_PREFIX = 'session:';
@@ -58,11 +66,15 @@ export class SessionService {
   // 新規セッションを作成し opaque ID(UUID v4)を返す。
   async create(payload: Omit<SessionPayload, 'created_at' | 'last_activity_at'>): Promise<string> {
     const sessionId = randomUUID();
-    const now = new Date().toISOString();
+    const createdAt = new Date();
+    const now = createdAt.toISOString();
     const full: SessionPayload = {
       ...payload,
       created_at: now,
       last_activity_at: now,
+      expires_at: new Date(
+        createdAt.getTime() + this.ttlSeconds * 1000,
+      ).toISOString(),
     };
 
     const sessionKey = SESSION_PREFIX + sessionId;
@@ -93,19 +105,59 @@ export class SessionService {
     }
   }
 
-  // TTL を1窓分延長(スライディング)し last_activity_at を更新。期限切れ済みなら no-op。
+  /**
+   * `last_activity_at` を更新しつつ、Redis の TTL を**絶対失効時刻までの残り**へ
+   * 詰め直す。操作しても寿命は延びない（顧客要件 2026-08 — ログインから
+   * `session.ttlSeconds` 経過で必ず再ログイン）。
+   *
+   * 残りが 0 以下ならセッションを破棄して null を返す。Redis 側の TTL でも
+   * ほぼ同時に消えるが、時刻ずれや `expires_at` 未設定の旧セッションのために
+   * アプリ側でも判定する。
+   */
   async touch(sessionId: string): Promise<SessionPayload | null> {
     const payload = await this.get(sessionId);
     if (!payload) return null;
 
-    payload.last_activity_at = new Date().toISOString();
-    const sessionKey = SESSION_PREFIX + sessionId;
-    const indexKey = ACCOUNT_INDEX_PREFIX + payload.account_id;
+    const remaining = this.remainingSeconds(payload);
+    if (remaining <= 0) {
+      await this.destroy(sessionId).catch(() => undefined);
+      return null;
+    }
 
-    await this.redis.setEx(sessionKey, this.ttlSeconds, JSON.stringify(payload));
-    await this.redis.expire(indexKey, this.ttlSeconds);
+    payload.last_activity_at = new Date().toISOString();
+    await this.redis.setEx(
+      SESSION_PREFIX + sessionId,
+      remaining,
+      JSON.stringify(payload),
+    );
+    // index の TTL はここでは触らない。`create()` が毎ログインで
+    // 「そのログイン + ttlSeconds」へ引き直しており、どのセッションも自分の
+    // ログインから ttlSeconds で失効する以上、最後のログイン基準の TTL は
+    // 常に全セッションの失効以降になる。ここで自分の残りへ詰めると、後から
+    // ログインした別ブラウザのセッションが index から先に消え、パスワード
+    // リセット時の一括破棄が取りこぼす。
     return payload;
   }
+
+  /** 絶対失効時刻までの残り秒（切り上げ）。0 以下なら失効済み。 */
+  private remainingSeconds(payload: SessionPayload): number {
+    const deadline = this.deadlineOf(payload);
+    return Math.ceil((deadline - Date.now()) / 1000);
+  }
+
+  /**
+   * 絶対失効時刻(ms)。`expires_at` 導入前に発行された旧セッションには本項目が
+   * 無いので `created_at + ttl` で補う。どちらも読めない壊れた payload は
+   * 「いま失効」とみなす（延命しない）。
+   */
+  private deadlineOf(payload: SessionPayload): number {
+    const explicit = Date.parse(payload.expires_at ?? '');
+    if (!Number.isNaN(explicit)) return explicit;
+    const created = Date.parse(payload.created_at ?? '');
+    if (!Number.isNaN(created)) return created + this.ttlSeconds * 1000;
+    return 0;
+  }
+
 
   // 単一セッションを破棄。
   async destroy(sessionId: string): Promise<void> {

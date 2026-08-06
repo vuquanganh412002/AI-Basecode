@@ -731,7 +731,7 @@ defineExpose({ formState, state, fetchList, editingId });
             <a-input
               v-model:value="formState.title"
               :maxlength="200"
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
           </div>
         </a-form-item>
@@ -748,6 +748,7 @@ defineExpose({ formState, state, fetchList, editingId });
               公開場所<span class="text-error ml-1">*</span>
             </span>
             <a-radio-group
+              name="publish_location"
               v-model:value="formState.publish_location"
               :disabled="isLocationReadOnly"
             >
@@ -772,7 +773,10 @@ defineExpose({ formState, state, fetchList, editingId });
             <span class="text-sm font-medium whitespace-nowrap text-text-main">
               状態<span class="text-error ml-1">*</span>
             </span>
-            <a-radio-group v-model:value="formState.status">
+            <a-radio-group
+              name="status"
+              v-model:value="formState.status"
+            >
               <a-radio
                 v-for="opt in STATUS_OPTIONS"
                 :key="opt.value"
@@ -809,6 +813,7 @@ defineExpose({ formState, state, fetchList, editingId });
                  :default-picker-value で v-model 空時のカレンダーも JST。
                  -->
             <a-date-picker
+              id="publish_start_date"
               v-model:value="formState.publish_start_date"
               :show-time="{ format: 'HH:mm', defaultValue: nowForPickerHeader() }"
               format="YYYY/MM/DD HH:mm"
@@ -845,7 +850,10 @@ defineExpose({ formState, state, fetchList, editingId });
                 :validate-status="fieldErrors.publish_end_date ? 'error' : ''"
                 :help="fieldErrors.publish_end_date"
               >
+                <!-- 内側の a-form-item に name が無いため antd は id を生成しない。
+                     明示的に振る（この行の見出しは兄弟の <span>）。 -->
                 <a-date-picker
+                  id="publish_end_date"
                   v-model:value="formState.publish_end_date"
                   :show-time="{ format: 'HH:mm', defaultValue: nowForPickerHeader() }"
                   format="YYYY/MM/DD HH:mm"
@@ -914,7 +922,7 @@ defineExpose({ formState, state, fetchList, editingId });
                 placeholder="選択してください"
                 allow-clear
                 :disabled="isTypeReadOnly"
-                class="flex-1"
+                class="flex-1 min-w-0"
               >
                 <a-select-option
                   v-for="opt in availableTypeOptions"
@@ -939,6 +947,7 @@ defineExpose({ formState, state, fetchList, editingId });
               対象管理者区分
             </span>
             <a-checkbox-group
+              name="target_kanri_kubun_codes"
               v-model:value="formState.target_kanri_kubun_codes"
               :options="targetKanriKubunOptions"
             />

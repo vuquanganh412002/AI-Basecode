@@ -119,8 +119,24 @@ function toIsoDate(v: unknown): string | null {
     return `${y}-${m}-${d}`;
   }
   const s = str(v).trim();
-  const m = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(s);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  // 区切りあり（'2026-04-01' / '2026/04/01'）と、区切り無しの 8 桁（'20230220'）。
+  // 後者は char(8) 列（paper_permission_dt / approval_date 等）の実フォーマットで、
+  // これを受けないと「日付が入っているのに未設定扱い」になる。
+  const m =
+    /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(s) ?? /^(\d{4})(\d{2})(\d{2})$/.exec(s);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  // '00000000' や '20239999' のような桁数だけ合う値を弾く。カレンダー上実在
+  // するかまで見る（4/31 は Date が 5/1 へ繰り上がるので再確認する）。
+  const date = new Date(Number(y), Number(mo) - 1, Number(d));
+  if (
+    date.getFullYear() !== Number(y) ||
+    date.getMonth() !== Number(mo) - 1 ||
+    date.getDate() !== Number(d)
+  ) {
+    return null;
+  }
+  return `${y}-${mo}-${d}`;
 }
 
 /** 郵便番号: zip1(上3)+zip2(下4) をハイフン無し連結（7桁想定）。 */

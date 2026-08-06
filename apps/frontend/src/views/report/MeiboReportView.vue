@@ -264,7 +264,7 @@ defineExpose({ formState });
               value-format="YYYY-MM-DD"
               format="YYYY/MM/DD"
               placeholder="YYYY/MM/DD"
-              class="flex-1"
+              class="flex-1 min-w-0"
             />
           </div>
           <p v-if="fieldErrors.tekiyo_date" class="text-error text-sm mt-1">
@@ -281,7 +281,7 @@ defineExpose({ formState });
             :options="shubetsuOptions"
             allow-clear
             placeholder="選択してください"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -292,7 +292,7 @@ defineExpose({ formState });
             id="meibo-report-type"
             v-model:value="formState.report_type"
             :options="reportTypeOptions"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
 
@@ -305,7 +305,7 @@ defineExpose({ formState });
             :options="shiharaiHohoOptions"
             allow-clear
             placeholder="選択してください"
-            class="flex-1"
+            class="flex-1 min-w-0"
           />
         </div>
       </div>

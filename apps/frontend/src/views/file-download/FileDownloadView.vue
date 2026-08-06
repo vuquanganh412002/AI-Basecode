@@ -292,7 +292,7 @@ defineExpose({
           v-model:value="state.filters.file_name"
           placeholder="ファイル名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="file-download-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -305,7 +305,7 @@ defineExpose({
           v-model:value="state.filters.todofuken_code"
           :allow-clear="!scopedTodofukenCode"
           :disabled="!!scopedTodofukenCode"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <!-- JA 絞り込み — 共通 <BaseJaDropdown>（サーバ側ページング・JAコード/JA名
@@ -322,7 +322,7 @@ defineExpose({
           placeholder="JAコード・JA名で検索"
           :disabled="isJaScopedRole"
           :scope="scopedTodofukenCode ? 'todofuken' : 'own'"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
     </BaseSearchForm>

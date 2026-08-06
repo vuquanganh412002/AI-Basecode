@@ -234,7 +234,7 @@ function askDelete(row: ShitenListItem): void {
           v-model:value="state.filters.shiten_code"
           placeholder="支店コード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
@@ -245,7 +245,7 @@ function askDelete(row: ShitenListItem): void {
           v-model:value="state.filters.shiten_name"
           placeholder="支店名"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
@@ -256,7 +256,7 @@ function askDelete(row: ShitenListItem): void {
           v-model:value="state.filters.kanri_shiten_id"
           placeholder="管理支店"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
           :options="
             kanriShitenOptions.map((k) => ({
               value: k.kanri_shiten_id,
@@ -273,7 +273,7 @@ function askDelete(row: ShitenListItem): void {
           v-model:value="state.filters.jastem_toriatsukai_tenpo_code"
           placeholder="取扱店舗コード"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
 
@@ -282,6 +282,7 @@ function askDelete(row: ShitenListItem): void {
           金融機関支店フラグ
         </span>
         <a-radio-group
+          name="kinyu_shiten_flg"
           v-model:value="state.filters.kinyu_shiten_flg"
           aria-labelledby="shiten-filter-kinyu-shiten-flg-label"
         >

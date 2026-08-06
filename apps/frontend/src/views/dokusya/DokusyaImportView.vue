@@ -921,6 +921,7 @@ function renderCell(value: unknown): string {
             >
               <input
                 v-model="allChecked"
+                name="select-all-columns"
                 data-test="select-all-checkbox"
                 type="checkbox"
                 class="w-3.5 h-3.5 rounded border-border-strong accent-primary focus:ring-primary/20 disabled:cursor-not-allowed"

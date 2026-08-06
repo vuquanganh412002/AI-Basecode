@@ -26,6 +26,7 @@ updated_by: Tran Duc Tuyen
 | 7   | 2026/07/24 | 1.6  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API の `hanbaiten_id`（**置換元配達販売店**）を**必須**化。置換対象の判定を現行 master の販売店から **as-of 適用日** に変更：各購読者の「適用日時点で有効な履歴レコード」（`t_dokusya_rireki` で `joho_henko_tekiyo_date ≦ 適用日` の最大 joho・`DISTINCT ON(dokusya_id)`）の配達販売店 = 置換元、かつ適用日時点で購読中（購読中/種別/`kaishi ≦ 適用日 < chushi`）の購読者のみ返す。未来の適用日でもその時点の販売店で母集合を確定する。§4.3 §4.4 §4.5・リクエストパラメータ No.7 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 8   | 2026/07/24 | 1.7  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API に `new_hanbaiten_id`（**置換先配達販売店**）を**必須**追加。検索は「= 置換元 かつ ≠ 置換先」で絞り込み（as-of 有効レコードの配達販売店に `eff.hanbaiten_id <> :new_hanbaiten_id` を追加）、既に置換先を配達している購読者を除外する（置換元 = 置換先 は 0 件・FE で事前弾き）。FE は置換先を検索エリア（適用日の直後）へ移動し、選択後の置換先入力欄を廃止して検索条件の値を置換実行にそのまま用いる。リクエストパラメータ No.7.5・§概要・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 9   | 2026/07/25 | 1.8  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：`hanbaiten_id`（配達販売店）を**必須→任意**へ戻す（ラベルも「置換元配達販売店」→「配達販売店」）。指定時のみ `eff.hanbaiten_id = :hanbaiten_id` で追加絞り込み、未指定なら「置換先以外の全販売店」が対象。`new_hanbaiten_id`（置換先）は引き続き必須で `≠ 置換先` を常に適用。§概要・リクエストパラメータ No.7・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 10  | 2026/08/06 | 1.9  | Tran Duc Tuyen | 記載不整合の是正：§4.3「検索条件を追加する」に v1.7 時点の記述「hanbaiten_id（置換元・必須）」が残っており、同じ §4.3 の「置換可能条件」および リクエストパラメータ No.7（いずれも v1.8 で任意へ更新済み）と矛盾していた。当該行を「配達販売店・任意（指定時のみ絞り込み・未指定なら置換先以外の全販売店）」へ修正し、あわせて `new_hanbaiten_id`（置換先・必須）の行を追加した。API の挙動は v1.8 のまま変更なし | | |
 
 ## システム概要
 
@@ -293,7 +294,8 @@ GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&k
   - shimei 指定時：`CONCAT(d.shimei_sei, d.shimei_mei) LIKE :shimei_like`（部分一致）
   - shimei_kana 指定時：`CONCAT(d.shimei_kana_sei, d.shimei_kana_mei) LIKE :shimei_kana_like`（部分一致）
   - haitatsu_address 指定時：`CONCAT(t.todofuken_name, d.haitatsu_shikuchoson, d.haitatsu_chome_banchi, d.haitatsu_tatemono_mei) LIKE :haitatsu_like`（部分一致）
-  - hanbaiten_id（置換元・必須）：master ではなく上記 as-of 有効レコードの `eff.hanbaiten_id = :hanbaiten_id` で判定（§置換可能条件）
+  - hanbaiten_id（配達販売店・**任意**）：指定時のみ、master ではなく上記 as-of 有効レコードの `eff.hanbaiten_id = :hanbaiten_id` で判定（§置換可能条件）。未指定なら「置換先以外の全販売店」が対象
+  - new_hanbaiten_id（置換先・**必須**）：`eff.hanbaiten_id <> :new_hanbaiten_id` を常に適用（§置換可能条件）
   - dokusya_kaishi_date_from 指定時：`d.shoki_dokusya_kaishi_date >= :date_from`
   - dokusya_kaishi_date_to 指定時：`d.shoki_dokusya_kaishi_date <= :date_to`
 - 固定条件：

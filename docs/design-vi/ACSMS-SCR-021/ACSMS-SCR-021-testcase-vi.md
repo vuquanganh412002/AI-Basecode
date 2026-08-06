@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: ①bổ sung cột「手数料」vào TC-012 (hiển thị grid) và TC-029 (header Excel) — bản v1.1 tiếng Nhật (2026/07/02) đã đổi cột này từ đơn giá phí giao báo sang phân loại bên chịu phí chuyển khoản (nhãn m_code TESURYO_KUBUN) nhưng bản này chưa phản ánh. ②tạo カテゴリ6 và thêm 2 ca (041〜042): giới hạn đối tượng tổng hợp chỉ bản giấy (#56599) và chặn xuất file khi có cửa hàng bán tham chiếu đơn giá phí giao báo hết hiệu lực (HTTP 409 INACTIVE_TANKA_REFERENCED) |  |  |
 
 ## システム概要
 
@@ -47,7 +48,8 @@ Ngoài ra, hệ thống còn hỗ trợ các chức năng bảo mật・kiểm t
 | 3 | Kiểm tra đầu vào (Input Validation) | 5 |
 | 4 | Logic nghiệp vụ (Business Logic) | 14 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-| | 合計 | 40 |
+| 6 | Giới hạn đối tượng tổng hợp・Chặn xuất file (Scope / Export Gate) | 2 |
+| | 合計 | 42 |
 
 ---
 
@@ -625,7 +627,8 @@ Xác nhận tiêu đề cột và dòng tổng của grid
 Danh sách được hiển thị
 
 ステップ2：
-・Các cột対象月・販売店コード・販売店名・当月部数・当月金額・支払サイクル・金融機関コード・金融機関名・口座支店コード・口座支店名・貯金種目・口座番号・口座名義・備考 được hiển thị
+・Các cột対象月・販売店コード・販売店名・当月部数・当月金額・支払サイクル・金融機関コード・金融機関名・口座支店コード・口座支店名・貯金種目・口座番号・口座名義・手数料・備考 được hiển thị
+・Cột「手数料」hiển thị phân loại bên chịu phí chuyển khoản (m_hanbaiten.furikomi_tesuryo_futan_kubun) bằng nhãn m_code TESURYO_KUBUN (1:JA / 2:販売店), không hiển thị số tiền (¥đơn giá)
 ・Cuối cùng dòng tổng（合計部数・合計金額）được hiển thị
 
 ### テスト結果（1回目）
@@ -1427,7 +1430,8 @@ Có thể mở file Excel
 
 ステップ2：
 ・Tên sheet là「配達手数料支払情報」
-・Dòng header hiển thị対象月・販売店コード・販売店名・当月部数・当月金額・支払サイクル・金融機関コード・金融機関名・口座支店コード・口座支店名・貯金種目・口座番号・口座名義・備考
+・Dòng header hiển thị対象月・販売店コード・販売店名・当月部数・当月金額・支払サイクル・金融機関コード・金融機関名・口座支店コード・口座支店名・貯金種目・口座番号・口座名義・手数料・備考
+・Cột「手数料」xuất phân loại bên chịu phí chuyển khoản (m_hanbaiten.furikomi_tesuryo_futan_kubun) bằng nhãn m_code TESURYO_KUBUN (1:JA / 2:販売店), không xuất số tiền (¥đơn giá)
 ・Cuối cùng dòng tổng（label「合計」＋合計部数＋合計金額）được hiển thị
 
 ### テスト結果（1回目）
@@ -1983,3 +1987,165 @@ Bảng t_dokusya không bị xóa và tồn tại
 ### 備考
 
 (なし)
+
+# カテゴリ6: Giới hạn đối tượng tổng hợp・Chặn xuất file (Scope / Export Gate)
+
+## ACSMS-TC-021-041 — Đối tượng tổng hợp — Giới hạn chỉ bản giấy (#56599)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `haitatsuryo.export`)
+  - ・Cùng một cửa hàng bán A có thật, gắn với các người đọc đang được giao báo trong năm-tháng đối tượng xuất như sau
+    - ・(a) Bản giấy (dokusya_shubetsu=1) 3 bản ghi
+    - ・(b) Kết hợp (3) 2 bản ghi
+    - ・(c) Bản điện tử (2) 1 bản ghi (ở trạng thái gắn với cửa hàng bán A có thật, không phải cửa hàng dummy)
+  - ・Cửa hàng dummy (9999999999) có thiết lập đơn giá phí giao báo và có người đọc bản điện tử gắn vào
+
+### 手順
+
+ステップ1：
+Chỉ định năm-tháng đối tượng xuất, hiển thị preview và kiểm tra số bản・số tiền của cửa hàng bán A
+
+ステップ2：
+Xuất Excel và xác nhận số bản・số tiền của dòng cửa hàng bán A khớp với preview
+
+ステップ3：
+Kiểm tra xem dòng của cửa hàng dummy có xuất hiện trong preview・Excel hay không
+
+ステップ4：
+Xuất với cửa hàng bán B chỉ có (b) kết hợp và (c) bản điện tử gắn vào
+
+ステップ5：
+Cho đơn giá phí giao báo mà người đọc (b) hoặc (c) tham chiếu **hết hiệu lực** rồi xuất
+
+### 期待結果
+
+ステップ1：
+Số bản của cửa hàng bán A được tổng hợp **chỉ 3 bản ghi** (chỉ bản giấy). 2 kết hợp・1 bản điện tử không được cộng vào
+
+ステップ2：
+Giá trị trong Excel khớp với preview
+
+ステップ3：
+Dù cửa hàng dummy có thiết lập đơn giá phí giao báo, nếu chỉ có bản điện tử gắn vào thì số tiền không được cộng
+
+ステップ4：
+Cửa hàng bán B là 0 bản ghi (hoặc không xuất hiện trong danh sách)
+
+ステップ5：
+Việc xuất **không bị chặn** (không phát sinh INACTIVE_TANKA_REFERENCED)
+
+補足：
+・Phí giao báo là "đối giá cho việc giao báo giấy", nên bản điện tử (2) vốn không có việc giao báo và kết hợp (3) đều nằm ngoài đối tượng (yêu cầu khách hàng 2026-08 / #56599)
+・Trước đây không lọc theo loại đăng ký, nên kết hợp gắn với cửa hàng bán có thật vẫn được cộng vào, và bản điện tử cũng được cộng nếu cửa hàng dummy có thiết lập đơn giá phí giao báo. Tức là **số tiền thanh toán thay đổi tùy theo tình trạng chỉnh trang master**
+・Bước 5 là để xác nhận điều kiện loại đăng ký giống nhau đã được đưa vào **cả hai** SQL tổng hợp và SQL kiểm tra đơn giá hết hiệu lực. Nếu chỉ một bên có thì xảy ra bất nhất "số tiền là 0 yên nhưng không xuất được vì lỗi đơn giá hết hiệu lực"
+・Xuất dữ liệu trích nợ tài khoản (SCR-020) có điều kiện khác — "bản giấy ＋ bản điện tử đã duyệt・trả phí". Không được dùng lại nguyên điều kiện của màn hình này
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+## ACSMS-TC-021-042 — Chặn xuất file — Khi tồn tại cửa hàng bán tham chiếu đơn giá phí giao báo đã hết hiệu lực (INACTIVE_TANKA_REFERENCED)
+
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `haitatsuryo.export`)
+  - ・Trong tập đối tượng xuất tồn tại từ 1 cửa hàng bán trở lên có đơn giá phí giao báo (tanka_type=2) với `active_flg = FALSE`
+  - ・Chuẩn bị riêng cả mẫu có từ 20 bản ghi trở lên (để xác nhận việc cắt bớt)
+
+### 手順
+
+ステップ1：
+Thực hiện **preview** ở trạng thái chỉ có 1 cửa hàng bán tham chiếu đơn giá hết hiệu lực
+
+ステップ2：
+Thực hiện **xuất Excel** ở cùng trạng thái
+
+ステップ3：
+Kiểm tra `error_code`・`message`・`errors[]`・`total` của response
+
+ステップ4：
+Thực hiện ở trạng thái có 20 bản ghi và kiểm tra số phần tử của `errors[]` cùng `total`
+
+ステップ5：
+Kiểm tra hiển thị thông báo trên màn hình và nơi được điều hướng đến
+
+ステップ6：
+Đổi đơn giá phí giao báo của cửa hàng bán tương ứng sang đơn giá còn hiệu lực rồi thực hiện lại
+
+ステップ7：
+Xuất với cửa hàng bán tham chiếu đơn giá có kỳ áp dụng nằm ngoài năm-tháng đối tượng xuất nhưng `active_flg = TRUE`
+
+### 期待結果
+
+ステップ1：
+Preview bị chặn và trả về HTTP status code 409
+
+ステップ2：
+Việc xuất cũng bị chặn và file không được sinh ra (kiểm tra ở cả preview lẫn xuất file)
+
+ステップ3：
+`error_code: INACTIVE_TANKA_REFERENCED`, `message` là `失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。`. Mỗi phần tử của `errors[]` có dạng `{ field: "<hanbaiten_id>", message: "<mã cửa hàng bán> <tên cửa hàng bán>（単価: <mã đơn giá> <tên đơn giá>）" }`
+
+ステップ4：
+`errors[]` bị **cắt bớt ở 15 phần tử đầu**. `total` vẫn giữ nguyên là 20
+
+ステップ5：
+Được tóm tắt là "hiển thị 15 trong số 20 bản ghi tương ứng". Việc xác nhận toàn bộ・đổi đơn giá được điều hướng đến **màn hình tìm kiếm chi tiết cửa hàng bán (lọc tham chiếu đơn giá phí giao báo hết hiệu lực)**
+
+ステップ6：
+Xuất thành công
+
+ステップ7：
+Xuất thành công (việc đánh giá còn hiệu lực chỉ dựa trên `active_flg`, không đánh giá theo ngày của kỳ áp dụng)
+
+補足：
+・Thông báo có nội dung khác với xuất dữ liệu trích nợ tài khoản (SCR-020) (là "配達手数料単価" chứ không phải "単価", đối tượng là "販売店" chứ không phải "購読者"). Do cài đặt truyền nội dung riêng theo màn hình vào cùng một `InactiveTankaReferencedException`, nên khi kiểm thử hai màn không được nhầm lẫn nội dung
+・`errors[].field` là **`hanbaiten_id`** chứ không phải số dòng (SCR-020 là số dòng)
+・Đơn giá hết hiệu lực mà người đọc ngoài đối tượng tổng hợp (bản điện tử・kết hợp bị loại theo #56599) tham chiếu cũng không nằm trong tập của kiểm tra này (xem ACSMS-TC-021-041 Bước 5)
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### 備考
+
+(không có)
+
+---

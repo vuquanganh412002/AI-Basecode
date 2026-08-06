@@ -162,7 +162,7 @@ describe('TankaFormView — mount + initial render', () => {
   it('should render the 単価種別 / 単価コード / 単価名 labels when mounted', async () => {
     // COVERS: 画面項目定義 rows 1, 2, 3 — required field labels visible.
     const { wrapper } = await renderView();
-    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    const labelTexts = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labelTexts.some((t) => t.includes('単価種別'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('単価コード'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('単価名'))).toBe(true);
@@ -171,7 +171,7 @@ describe('TankaFormView — mount + initial render', () => {
   it('should render the 適用開始日 / 適用終了日 labels when mounted', async () => {
     // COVERS: 画面項目定義 rows 7, 8
     const { wrapper } = await renderView();
-    const labelTexts = wrapper.findAll('label').map((l) => l.text());
+    const labelTexts = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labelTexts.some((t) => t.includes('適用開始日'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('適用終了日'))).toBe(true);
   });

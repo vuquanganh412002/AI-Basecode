@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-06-03 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Bổ sung 7 ca kiểm thử cho API hủy lịch sử (ACSMS-API-013-002): điều kiện kích hoạt nút "取消", luồng hủy thành công (thêm dòng đỏ + tính lại master), kiểm tra lý do hủy, gọi API trực tiếp vào dòng không được hủy, DataScope/quyền sở hữu của dòng lịch sử, hiển thị dòng đã hủy, và nội dung cột người tạo (created_by) |  |  |
 
 
 ## システム概要
@@ -58,7 +59,8 @@ Tài liệu này tham khảo ISTQB và IEEE 829, thỏa mãn các tiêu chuẩn 
 | 3 | Kiểm tra input (Input Validation) | 7 |
 | 4 | Logic nghiệp vụ (Function) | 6 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 7 |
-|  | 合計 | 33 |
+| 6 | Hủy lịch sử・Hiển thị người tạo (Function — Torikeshi / Created-by) | 7 |
+|  | 合計 | 40 |
 
 ---
 
@@ -1980,5 +1982,494 @@ Toast `ネットワークエラーが発生しました。しばらくしてか�
 ### 備考
 
 Văn bản toast lỗi mạng tuân theo implementation của axios interceptor phía frontend.
+
+---
+
+# カテゴリ 6: Hủy lịch sử・Hiển thị người tạo (Function — Torikeshi / Created-by)
+
+## ACSMS-TC-013-034 — Logic nghiệp vụ — Điều kiện kích hoạt nút "取消" (yêu cầu khách hàng 2026-07)
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・Người đọc bản giấy (dokusya_shubetsu=1) có các dòng lịch sử sau:
+    - ・(a) Dòng đăng ký mới (rireki_no=1, shinki_flg=true)
+    - ・(b) Dòng cuối chuỗi có ngày áp dụng ở tương lai (thay đổi thông thường: tăng số bản, đổi địa chỉ...)
+    - ・(c) Dòng trung gian nằm trước (b) (phía sau còn dòng chưa hủy)
+    - ・(d) Dòng có ngày áp dụng đã đến (ngày áp dụng ≤ hôm nay, JST)
+    - ・(e) Dòng đã hủy (torikeshi_flg=true)
+  - ・Tồn tại mỗi loại 1 người đọc bản điện tử (dokusya_shubetsu=2) và người đọc kết hợp (3)
+
+### Các bước
+
+Bước 1:
+Mở màn hình thông tin lịch sử người đọc của người đọc bản giấy và kiểm tra trạng thái hiển thị・kích hoạt của nút "取消" trên từng dòng
+
+Bước 2:
+Kiểm tra `can_torikeshi` trong response của API
+```
+GET /api/v1/dokusya/{dokusya_id}/rireki
+```
+
+Bước 3:
+Mở màn hình lịch sử của người đọc bản điện tử (dokusya_shubetsu=2) và kiểm tra trạng thái kích hoạt của nút "取消"
+
+Bước 4:
+Mở màn hình lịch sử của người đọc kết hợp (dokusya_shubetsu=3) và kiểm tra trạng thái kích hoạt của nút "取消"
+
+### Kết quả mong đợi
+
+Bước 1:
+Nút "取消" **hiển thị** trên tất cả các dòng, nhưng chỉ dòng (b) — dòng cuối chuỗi có ngày áp dụng ở tương lai — được kích hoạt. Các dòng (a) đăng ký mới, (c) trung gian, (d) ngày áp dụng đã đến, (e) đã hủy đều **bị vô hiệu hóa**
+
+Bước 2:
+Chỉ dòng (b) có `can_torikeshi: true`, tất cả các dòng còn lại đều `can_torikeshi: false`. Dòng (e) có `torikeshi_flg: true`
+
+Bước 3:
+Nút "取消" của tất cả các dòng đều bị vô hiệu hóa (bản điện tử đã được đồng bộ ngay sang hệ thống quản lý người đọc bản điện tử nên không thể hủy)
+
+Bước 4:
+Nút "取消" của tất cả các dòng đều bị vô hiệu hóa (người đọc kết hợp cũng thuộc đối tượng liên kết bản điện tử)
+
+Bổ sung:
+・Chỉ những dòng thỏa mãn đủ 5 điều kiện mới được hủy (tài liệu thiết kế màn hình §4.2): bản giấy／không phải đăng ký mới／chưa bị hủy／ngày áp dụng ở tương lai (JST)／là dòng cuối của chuỗi ngày áp dụng
+・Việc xác định dòng cuối không dựa trên `rireki_no` lớn nhất mà dựa trên các dòng có `torikeshi_flg=false` với (ngày áp dụng lớn nhất・cùng ngày thì `rireki_no` lớn nhất). Dòng trung gian chỉ có thể hủy theo thứ tự LIFO (từ cuối lên)
+・Dòng hủy đăng ký của bản giấy có `joho_henko_tekiyo_date = ngày ngừng đọc báo`, nên trước khi ngày ngừng đến vẫn có thể hủy theo điều kiện này (tức là "rút lại việc hủy đăng ký")
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-035 — Logic nghiệp vụ — Luồng hủy lịch sử thành công (thêm dòng đỏ và tính lại master)
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・Người đọc bản giấy có dòng cuối chuỗi với ngày áp dụng ở tương lai (ví dụ: tăng số bản đọc từ 1 lên 3)
+  - ・Số bản đọc trong `t_dokusya` trước khi hủy là 1
+
+### Các bước
+
+Bước 1:
+Bấm nút "取消" trên dòng đối tượng, nhập lý do hủy `誤入力のため取消` rồi thực thi
+
+Bước 2:
+Kiểm tra thông báo toast và kết quả tải lại danh sách
+
+Bước 3:
+Kiểm tra dòng đối tượng và dòng đỏ trong DB
+```sql
+SELECT dokusya_rireki_id, rireki_no, joho_henko_tekiyo_date, torikeshi_flg,
+       saishin_data_flg, dokusya_busu, dokusya_busu_zenkai, biko, created_by
+FROM t_dokusya_rireki WHERE dokusya_id = :ID ORDER BY rireki_no;
+```
+
+Bước 4:
+Kiểm tra kết quả tính lại của bảng master người đọc trong DB
+```sql
+SELECT dokusya_busu FROM t_dokusya WHERE dokusya_id = :ID;
+```
+
+Bước 5:
+Kiểm tra log thao tác (`t_log`)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 200, response là `{"message": "取消しました。"}`
+
+Bước 2:
+Hiển thị toast `取消しました。` và danh sách được tải lại
+
+Bước 3:
+Dòng đối tượng được cập nhật thành `torikeshi_flg=true`・`biko='誤入力のため取消'`. Đồng thời thêm 1 dòng đỏ với `rireki_no` kế tiếp, thỏa mãn:
+・Giá trị hiện tại và giá trị lần trước được hoán đổi (`dokusya_busu=1`・`dokusya_busu_zenkai=3`)
+・`joho_henko_tekiyo_date` giống dòng đối tượng
+・`torikeshi_flg=true`・`saishin_data_flg=false`・`biko='誤入力のため取消'`
+・`created_by` là chuỗi `m_account.account_id` của người thao tác
+
+Bước 4:
+`t_dokusya.dokusya_busu` được tính lại từ chuỗi lịch sử còn hiệu lực và quay về giá trị 1 như trước khi hủy
+
+Bước 5:
+Ghi 1 bản ghi UPDATE vào `t_log`, trong `after_value` có chứa lý do hủy dưới khóa `torikeshi_reason`. Bản ghi này được tạo trong cùng transaction với cập nhật nghiệp vụ
+
+Bổ sung:
+・Trước khi đánh số dòng đỏ, dòng đối tượng trong `t_dokusya` được khóa để tránh tranh chấp `rireki_no` với các cập nhật khác
+・Lý do hủy được ghi ở 3 nơi: `biko` của dòng đối tượng, `biko` của dòng đỏ, và `t_log` (yêu cầu khách hàng)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-036 — Kiểm tra input — Lý do hủy bắt buộc và độ dài tối đa
+
+- 観点ID: VP-C-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・Tồn tại dòng lịch sử có thể hủy (dòng cuối bản giấy có ngày áp dụng ở tương lai)
+
+### Các bước
+
+Bước 1:
+Thực thi hủy khi để trống lý do hủy
+
+Bước 2:
+Nhập chỉ toàn dấu cách nửa chiều rộng vào lý do hủy rồi thực thi hủy
+
+Bước 3:
+Nhập 501 ký tự vào lý do hủy rồi thực thi hủy
+
+Bước 4:
+Nhập 500 ký tự vào lý do hủy rồi thực thi hủy
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`), trong `errors` có `{"field": "reason", "message": "取消理由を入力してください。"}`
+
+Bước 2:
+Lỗi giống Bước 1 (chuỗi chỉ có khoảng trắng được coi là chưa nhập)
+
+Bước 3:
+Trả về HTTP status code 400 (`error_code: VALIDATION_ERROR`), trong `errors` có `{"field": "reason", "message": "取消理由は500文字以内で入力してください。"}`
+
+Bước 4:
+Hủy thành công và hiển thị `取消しました。` (giá trị biên: 500 ký tự được chấp nhận)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-037 — Logic nghiệp vụ — Gọi API trực tiếp vào bản ghi không được hủy (TORIKESHI_NOT_ALLOWED)
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・Tồn tại các dòng lịch sử (a)〜(e) giống ACSMS-TC-013-034
+  - ・Có thể gọi API trực tiếp mà không đi qua nút bị vô hiệu hóa trên màn hình (curl / DevTools)
+
+### Các bước
+
+Bước 1:
+Gọi trực tiếp API hủy trên dòng (a) đăng ký mới
+```
+POST /api/v1/dokusya/{dokusya_id}/rireki/{ID dòng đăng ký mới}/torikeshi
+{ "reason": "テスト" }
+```
+
+Bước 2:
+Gọi trực tiếp API hủy trên dòng (c) trung gian
+
+Bước 3:
+Gọi trực tiếp API hủy trên dòng (d) có ngày áp dụng đã đến
+
+Bước 4:
+Gọi trực tiếp API hủy trên dòng (e) đã hủy
+
+Bước 5:
+Gọi trực tiếp API hủy trên dòng lịch sử của bản điện tử (dokusya_shubetsu=2)
+
+Bước 6:
+Sau khi thực hiện một trong các bước trên, kiểm tra `t_dokusya_rireki` và `t_log`
+
+### Kết quả mong đợi
+
+Bước 1〜5:
+Tất cả đều trả về HTTP status code 400 (`error_code: TORIKESHI_NOT_ALLOWED`) với thông báo `取消できないレコードです（紙版・適用日が未来の末尾レコードのみ取消可能。新規・取消済・中間レコード・電子版・適用日到来済みは取消できません）。`
+
+Bước 6:
+Dòng lịch sử hoàn toàn không bị thay đổi (không set `torikeshi_flg`, không thêm dòng đỏ). Ngoài ra, do đây là lỗi kiểm tra nằm trong dự kiến nên không ghi error log (`log_type=3`)
+
+Bổ sung:
+・Việc vô hiệu hóa nút ở FE chỉ là UX, không phải ranh giới bảo mật. BE kiểm tra lại bằng cùng điều kiện trước khi mở transaction, và kiểm tra thêm một lần nữa trong `applyTorikeshi` bên trong transaction
+・Việc chặn trước transaction giúp lỗi 400 nằm trong dự kiến không bị ghi vào error log (cùng phương châm với API duyệt/từ chối)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-038 — Kiểm soát quyền truy cập — DataScope và kiểm tra quyền sở hữu dòng lịch sử của API hủy
+
+- 観点ID: VP-A-04
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100, có quyền `dokusya.update`)
+  - ・JA của mình (ja_id=100) có người đọc A sở hữu dòng lịch sử có thể hủy
+  - ・JA khác (ja_id=200) có người đọc B sở hữu dòng lịch sử có thể hủy
+
+### Các bước
+
+Bước 1:
+Gọi API hủy với ID của người đọc A (JA mình) nhưng chỉ định **ID dòng lịch sử của người đọc B**
+
+Bước 2:
+Gọi API hủy với ID của người đọc B (JA khác) và ID dòng lịch sử của người đọc B
+
+Bước 3:
+Gọi API hủy với ID dòng lịch sử không tồn tại (ví dụ: 99999999)
+
+Bước 4:
+Gọi API hủy bằng role không có quyền `dokusya.update` (ví dụ: tài khoản chỉ có quyền xem)
+
+### Kết quả mong đợi
+
+Bước 1:
+Trả về HTTP status code 404 (`error_code: NOT_FOUND`). Do lịch sử được truy vấn bằng điều kiện AND của `dokusya_rireki_id` và `dokusya_id`, nên dù đưa ID dòng lịch sử của người đọc khác cũng không bị hủy
+
+Bước 2:
+Trả về HTTP status code 404 (`error_code: NOT_FOUND`). Trường hợp ngoài phạm vi DataScope được **che bằng 404** thay vì 403 để giấu sự tồn tại của bản ghi
+
+Bước 3:
+Trả về HTTP status code 404 (`error_code: NOT_FOUND`)
+
+Bước 4:
+Trả về HTTP status code 403 (`error_code: FORBIDDEN`, thông báo `この画面へのアクセス権限がありません。`). Trên màn hình, nút "取消" của tất cả các dòng cũng bị vô hiệu hóa
+
+Bổ sung:
+・Bước 1 nhằm ngăn việc dò tuần tự ID lịch sử để sửa dữ liệu của người đọc khác
+・Việc che bằng 404 ở Bước 2 tuân theo phương châm của Layer 2 DataScope (`security.md`)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-039 — Hiển thị màn hình — Hiển thị dòng đã hủy (gạch ngang) và vị trí dòng đỏ
+
+- 観点ID: VP-B-02
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100)
+  - ・Đã thực hiện ACSMS-TC-013-035, tồn tại dòng đã hủy và dòng đỏ
+
+### Các bước
+
+Bước 1:
+Mở màn hình thông tin lịch sử người đọc và kiểm tra kiểu hiển thị của dòng đã hủy
+
+Bước 2:
+Kiểm tra vị trí hiển thị và nội dung của dòng đỏ
+
+Bước 3:
+Kiểm tra thứ tự sắp xếp của danh sách (giảm dần theo số thứ tự lịch sử)
+
+### Kết quả mong đợi
+
+Bước 1:
+Dòng có `torikeshi_flg=true` được hiển thị kèm gạch ngang
+
+Bước 2:
+Dòng đỏ hiển thị ở đầu danh sách với tư cách bản ghi mới nhất (số thứ tự lịch sử lớn nhất), và giá trị đã quay về giá trị lần trước của dòng bị hủy. Bản thân dòng đỏ cũng có `torikeshi_flg=true` nên cũng được hiển thị kèm gạch ngang
+
+Bước 3:
+Thứ tự mặc định là giảm dần theo số thứ tự lịch sử (bản ghi mới nhất ở đầu)
+
+Bổ sung:
+・Dòng đỏ có cùng ngày áp dụng với dòng đối tượng nên khi sắp xếp theo ngày áp dụng, hai dòng sẽ nằm cạnh nhau
+・Hai dòng đã hủy (dòng đối tượng・dòng đỏ) không còn là đối tượng hủy về sau (`can_torikeshi=false`)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
+
+## ACSMS-TC-013-040 — Hiển thị màn hình — Nội dung cột người tạo (created_by) (#55719)
+
+- 観点ID: VP-B-03
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (thuộc ja_id=100)
+  - ・Tồn tại dòng lịch sử được tạo bằng thao tác trên màn hình
+  - ・Tồn tại dòng lịch sử được tạo bởi batch đồng bộ người đọc (liên kết bản điện tử)
+
+### Các bước
+
+Bước 1:
+Kiểm tra `created_by` của dòng lịch sử được tạo bằng thao tác trên màn hình
+```
+GET /api/v1/dokusya/{dokusya_id}/rireki
+```
+
+Bước 2:
+Kiểm tra `created_by` của dòng lịch sử được tạo bởi batch đồng bộ người đọc
+```sql
+SELECT DISTINCT created_by FROM t_dokusya_rireki WHERE dokusya_id = :ID;
+```
+
+Bước 3:
+Kiểm tra hiển thị của cột tương ứng trên màn hình
+
+### Kết quả mong đợi
+
+Bước 1:
+`created_by` là chuỗi `m_account.account_id` của người thao tác (ví dụ `"539"`), không phải ID đăng nhập (ví dụ `ja_honten01`)
+
+Bước 2:
+Dòng do batch tạo có giá trị cố định dạng `SYSTEM_*` như `SYSTEM_DENSHI_SYNC` (#55719 đã thống nhất tên người thực thi batch thành `SYSTEM_*`)
+
+Bước 3:
+Giá trị được hiển thị nguyên trạng và không làm vỡ layout
+
+Bổ sung:
+・Đây là ca kiểm thử tương ứng với việc chỉnh sửa mô tả trong tài liệu thiết kế API v1.4 (phần cài đặt đã lưu account_id dạng chuỗi / SYSTEM_* từ trước)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
 
 ---

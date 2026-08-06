@@ -410,10 +410,18 @@ defineExpose({ submitWith });
             :validate-status="allFieldErrors.yubin_no ? 'error' : ''"
             :help="allFieldErrors.yubin_no"
           >
-            <BaseCodeInput v-model:value="formState.yubin_no" :maxlength="7" />
+            <BaseCodeInput
+              autocomplete="off"
+              v-model:value="formState.yubin_no"
+              :maxlength="7"
+            />
           </a-form-item>
           <a-form-item label="住所" name="address">
-            <a-input v-model:value="formState.address" :maxlength="200" />
+            <a-input
+              autocomplete="off"
+              v-model:value="formState.address"
+              :maxlength="200"
+            />
           </a-form-item>
         </div>
 
@@ -426,6 +434,7 @@ defineExpose({ submitWith });
             :help="allFieldErrors.tel"
           >
             <a-input
+              autocomplete="off"
               v-model:value="formState.tel"
               :maxlength="15"
               placeholder="0312345678"
@@ -438,6 +447,7 @@ defineExpose({ submitWith });
             :help="allFieldErrors.fax"
           >
             <a-input
+              autocomplete="off"
               v-model:value="formState.fax"
               :maxlength="15"
               placeholder="0312345679"
@@ -454,6 +464,7 @@ defineExpose({ submitWith });
                  独自のクライアント検証（`validateClient()` の EMAIL_INVALID_MSG regex）を
                  使い `<a-form-item :help>` に日本語でエラーを出す。 -->
             <a-input
+              autocomplete="off"
               v-model:value="formState.email"
               :maxlength="100"
               placeholder="example@gmail.com"
@@ -477,32 +488,47 @@ defineExpose({ submitWith });
               :validate-status="allFieldErrors.zei_kubun ? 'error' : ''"
               :help="allFieldErrors.zei_kubun"
             >
-              <template #label>
-                <span>税区分</span>
-                <span class="text-error ml-1">*</span>
-              </template>
-              <a-radio-group v-model:value="formState.zei_kubun">
-                <a-radio
-                  v-for="opt in codes.options('ZEI_KUBUN')"
-                  :key="opt.value"
-                  :value="String(opt.value)"
-                >
-                  {{ opt.label }}
-                </a-radio>
-              </a-radio-group>
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>税区分</span>
+                  <span class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="zei_kubun"
+                    v-model:value="formState.zei_kubun"
+                  >
+                    <a-radio
+                      v-for="opt in codes.options('ZEI_KUBUN')"
+                      :key="opt.value"
+                      :value="String(opt.value)"
+                    >
+                      {{ opt.label }}
+                    </a-radio>
+                  </a-radio-group>
+                </div>
+              </fieldset>
             </a-form-item>
-            <a-form-item class="flex-1 mb-0" name="chuokai_flg">
-              <template #label>
-                <span>中央会フラグ</span>
-                <span class="text-error ml-1">*</span>
-              </template>
-              <a-radio-group
-                v-model:value="formState.chuokai_flg"
-                :disabled="isRestrictedEditor"
-              >
-                <a-radio :value="true">中央会</a-radio>
-                <a-radio :value="false">JA</a-radio>
-              </a-radio-group>
+            <a-form-item
+              class="flex-1 mb-0"
+              name="chuokai_flg"
+            >
+              <fieldset class="border-0 p-0 m-0 min-w-0">
+                <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                  <span>中央会フラグ</span>
+                  <span class="text-error ml-1">*</span>
+                </legend>
+                <div class="flex items-center min-h-8">
+                  <a-radio-group
+                    name="chuokai_flg"
+                    v-model:value="formState.chuokai_flg"
+                    :disabled="isRestrictedEditor"
+                  >
+                    <a-radio :value="true">中央会</a-radio>
+                    <a-radio :value="false">JA</a-radio>
+                  </a-radio-group>
+                </div>
+              </fieldset>
             </a-form-item>
           </div>
         </div>

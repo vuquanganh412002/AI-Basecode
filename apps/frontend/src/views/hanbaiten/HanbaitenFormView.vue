@@ -607,6 +607,7 @@ defineExpose({ formState, fieldErrors });
         <!-- ─── 基本情報 ─────────────────────────────────────── -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
+            html-for="hanbaiten_code"
             name="hanbaiten_code"
             :validate-status="fieldErrors.hanbaiten_code ? 'error' : ''"
             :help="fieldErrors.hanbaiten_code"
@@ -624,6 +625,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="hanbaiten_name"
             name="hanbaiten_name"
             :validate-status="fieldErrors.hanbaiten_name ? 'error' : ''"
             :help="fieldErrors.hanbaiten_name"
@@ -640,6 +642,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="hanbaiten_name_kana"
             name="hanbaiten_name_kana"
             :validate-status="fieldErrors.hanbaiten_name_kana ? 'error' : ''"
             :help="fieldErrors.hanbaiten_name_kana"
@@ -656,7 +659,8 @@ defineExpose({ formState, fieldErrors });
 
         <!-- ─── 住所・連絡先 ─────────────────────────────────── -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <a-form-item name="todofuken_code" label="都道府県">
+          <a-form-item
+            html-for="todofuken_code" name="todofuken_code" label="都道府県">
             <!-- [pref-from-ja] read-only — 都道府県 は常に hanbaiten の JA
                  （m_ja の都道府県コード）をミラーし、ユーザー編集不可。
                  staff: 選んだ JA、role 3/4/5: session ユーザーの JA、edit: detail。
@@ -677,12 +681,14 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="yubin_no"
             name="yubin_no"
             :validate-status="fieldErrors.yubin_no ? 'error' : ''"
             :help="fieldErrors.yubin_no"
             label="郵便番号"
           >
             <BaseCodeInput
+              autocomplete="off"
               id="yubin_no"
               v-model:value="formState.yubin_no"
               :maxlength="7"
@@ -690,12 +696,14 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="address"
             name="address"
             :validate-status="fieldErrors.address ? 'error' : ''"
             :help="fieldErrors.address"
             label="住所"
           >
             <a-input
+              autocomplete="off"
               id="address"
               v-model:value="formState.address"
               :maxlength="200"
@@ -705,24 +713,37 @@ defineExpose({ formState, fieldErrors });
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
+            html-for="tel"
             name="tel"
             :validate-status="fieldErrors.tel ? 'error' : ''"
             :help="fieldErrors.tel"
             label="電話番号"
           >
-            <a-input id="tel" v-model:value="formState.tel" :maxlength="15" />
+            <a-input
+              autocomplete="off"
+              id="tel"
+              v-model:value="formState.tel"
+              :maxlength="15"
+            />
           </a-form-item>
 
           <a-form-item
+            html-for="fax"
             name="fax"
             :validate-status="fieldErrors.fax ? 'error' : ''"
             :help="fieldErrors.fax"
             label="FAX"
           >
-            <a-input id="fax" v-model:value="formState.fax" :maxlength="15" />
+            <a-input
+              autocomplete="off"
+              id="fax"
+              v-model:value="formState.fax"
+              :maxlength="15"
+            />
           </a-form-item>
 
           <a-form-item
+            html-for="shocho_name"
             name="shocho_name"
             :validate-status="fieldErrors.shocho_name ? 'error' : ''"
             :help="fieldErrors.shocho_name"
@@ -763,6 +784,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="torihikisaki_no"
             name="torihikisaki_no"
             :validate-status="fieldErrors.torihikisaki_no ? 'error' : ''"
             :help="fieldErrors.torihikisaki_no"
@@ -780,25 +802,33 @@ defineExpose({ formState, fieldErrors });
             :validate-status="fieldErrors.itaku_kubun ? 'error' : ''"
             :help="fieldErrors.itaku_kubun"
           >
-            <template #label>
-              <span>委託区分</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.itaku_kubun">
-              <a-radio
-                v-for="opt in codes.options('ITAKU_KUBUN')"
-                :key="opt.value"
-                :value="Number(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>委託区分</span>
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="itaku_kubun"
+                  v-model:value="formState.itaku_kubun"
+                >
+                  <a-radio
+                    v-for="opt in codes.options('ITAKU_KUBUN')"
+                    :key="opt.value"
+                    :value="Number(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
         </div>
 
         <!-- ─── 振込先情報 (itaku_kubun=1 のとき必須) ───────────── -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
+            html-for="bank_code"
             name="bank_code"
             :validate-status="fieldErrors.bank_code ? 'error' : ''"
             :help="fieldErrors.bank_code"
@@ -815,6 +845,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="bank_name"
             name="bank_name"
             :validate-status="fieldErrors.bank_name ? 'error' : ''"
             :help="fieldErrors.bank_name"
@@ -831,6 +862,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="haitatsuryo_shiharai_cycle"
             name="haitatsuryo_shiharai_cycle"
             :validate-status="
               fieldErrors.haitatsuryo_shiharai_cycle ? 'error' : ''
@@ -851,6 +883,7 @@ defineExpose({ formState, fieldErrors });
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
+            html-for="bank_branch_code"
             name="bank_branch_code"
             :validate-status="fieldErrors.bank_branch_code ? 'error' : ''"
             :help="fieldErrors.bank_branch_code"
@@ -867,6 +900,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="bank_branch_name"
             name="bank_branch_name"
             :validate-status="fieldErrors.bank_branch_name ? 'error' : ''"
             :help="fieldErrors.bank_branch_name"
@@ -887,24 +921,32 @@ defineExpose({ formState, fieldErrors });
             :validate-status="fieldErrors.yokin_shubetsu ? 'error' : ''"
             :help="fieldErrors.yokin_shubetsu"
           >
-            <template #label>
-              <span>口座種別</span>
-              <span v-if="formState.itaku_kubun === ItakuKubun.FURIKOMI" class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.yokin_shubetsu">
-              <a-radio
-                v-for="opt in codes.options('YOKIN_SHUBETSU')"
-                :key="opt.value"
-                :value="Number(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>口座種別</span>
+                <span v-if="formState.itaku_kubun === ItakuKubun.FURIKOMI" class="text-error ml-1">*</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="yokin_shubetsu"
+                  v-model:value="formState.yokin_shubetsu"
+                >
+                  <a-radio
+                    v-for="opt in codes.options('YOKIN_SHUBETSU')"
+                    :key="opt.value"
+                    :value="Number(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <a-form-item
+            html-for="koza_no"
             name="koza_no"
             :validate-status="fieldErrors.koza_no ? 'error' : ''"
             :help="fieldErrors.koza_no"
@@ -921,6 +963,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="koza_meigi"
             name="koza_meigi"
             :validate-status="fieldErrors.koza_meigi ? 'error' : ''"
             :help="fieldErrors.koza_meigi"
@@ -937,6 +980,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
 
           <a-form-item
+            html-for="furikomi_tesuryo"
             name="furikomi_tesuryo"
             :validate-status="fieldErrors.furikomi_tesuryo ? 'error' : ''"
             :help="fieldErrors.furikomi_tesuryo"
@@ -958,19 +1002,26 @@ defineExpose({ formState, fieldErrors });
             :validate-status="fieldErrors.furikomi_tesuryo_futan_kubun ? 'error' : ''"
             :help="fieldErrors.furikomi_tesuryo_futan_kubun"
           >
-            <template #label>
-              <span>振込手数料負担区分</span>
-              <span class="text-error ml-1">*</span>
-            </template>
-            <a-radio-group v-model:value="formState.furikomi_tesuryo_futan_kubun">
-              <a-radio
-                v-for="opt in codes.options('TESURYO_KUBUN')"
-                :key="opt.value"
-                :value="Number(opt.value)"
-              >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                <span>振込手数料負担区分</span>
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div class="flex items-center min-h-8">
+                <a-radio-group
+                  name="furikomi_tesuryo_futan_kubun"
+                  v-model:value="formState.furikomi_tesuryo_futan_kubun"
+                >
+                  <a-radio
+                    v-for="opt in codes.options('TESURYO_KUBUN')"
+                    :key="opt.value"
+                    :value="Number(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </a-radio>
+                </a-radio-group>
+              </div>
+            </fieldset>
           </a-form-item>
 
           <!-- [haiten-edit-only] 廃店フラグ は CREATE で非表示 — 新規 hanbaiten は
@@ -981,7 +1032,7 @@ defineExpose({ formState, fieldErrors });
             label="廃店フラグ"
             data-test="hanbaiten-haiten-flg-form-item"
           >
-            <a-checkbox v-model:checked="formState.haiten_flg">廃店</a-checkbox>
+            <a-checkbox name="haiten_flg" v-model:checked="formState.haiten_flg">廃店</a-checkbox>
           </a-form-item>
         </div>
 

@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-21 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: tạo カテゴリ8 và bổ sung 2 ca (069〜070). 069＝hủy toàn bộ session khi có thay đổi quan trọng về bảo mật (xử lý cho security review 2026-07): đổi mật khẩu/khóa(true)/đổi role/đổi nơi trực thuộc thì hủy; mở khóa・chỉ đổi họ tên/email/ghi chú・cập nhật mà giá trị không đổi thì không hủy; xóa thì hủy vô điều kiện; Redis lỗi thì cập nhật vẫn thành lập và hiển thị thành công. 070＝kiểm tra tên dành riêng `SYSTEM` cho ID đăng nhập (#55719): từ chối `SYSTEM` đơn lẻ và tiền tố `SYSTEM_` bất kể hoa thường, cho phép `SYSTEMS`/`MYSYSTEM`, phòng thủ ở cả DTO lẫn ràng buộc CHECK của DB |  |  |
 
 
 ## システム概要
@@ -55,7 +56,8 @@ Tài liệu này mô tả chi tiết test specification cho "Màn hình đăng k
 | 5 | Logic nghiệp vụ — Đăng ký (Function — Create) | 8 |
 | 6 | Logic nghiệp vụ — Cập nhật (Function — Edit) | 8 |
 | 7 | Xử lý lỗi chung (Common Error Handling) | 7 |
-|  | Tổng | 68 |
+| 8 | Hủy session・Kiểm tra tên dành riêng (Session / Reserved-name) | 2 |
+|  | Tổng | 70 |
 
 ---
 
@@ -3832,3 +3834,184 @@ Request được gửi đi bình thường, trả về HTTP 201
 ### 備考
 
 Hành vi khi mất kết nối mạng.
+
+# カテゴリ 8: Hủy session・Kiểm tra tên dành riêng (Session / Reserved-name)
+
+## ACSMS-TC-025-069 — Hủy session khi có thay đổi quan trọng về bảo mật (de-provisioning)
+
+- 観点ID: VP-A-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `account.update` / `account.delete`)
+  - ・Tài khoản đối tượng B (JA_HONTEN) **đang đăng nhập ở trình duyệt khác** (đang giữ session cookie hợp lệ)
+  - ・Chuẩn bị cả môi trường có thể tạm dừng Redis (dùng cho Bước 8)
+
+### Các bước
+
+Bước 1:
+Quản trị viên buộc reset mật khẩu của B. Sau đó thao tác bất kỳ màn hình nào trên trình duyệt của B
+
+Bước 2:
+Cho B đăng nhập lại, rồi quản trị viên đổi phân loại quản trị (role) của B. Sau đó thao tác trên trình duyệt của B
+
+Bước 3:
+Cho B đăng nhập lại, rồi quản trị viên đổi nơi trực thuộc của B (một trong JA・chi nhánh quản lý・chi nhánh trực thuộc). Sau đó thao tác trên trình duyệt của B
+
+Bước 4:
+Cho B đăng nhập lại, rồi quản trị viên **khóa** B. Sau đó thao tác trên trình duyệt của B
+
+Bước 5:
+Cho B đăng nhập lại, rồi quản trị viên **mở khóa** B. Sau đó thao tác trên trình duyệt của B
+
+Bước 6:
+Cho B đăng nhập lại, rồi quản trị viên **chỉ đổi họ tên・địa chỉ email・ghi chú** của B. Sau đó thao tác trên trình duyệt của B
+
+Bước 7:
+Cho B đăng nhập lại, rồi quản trị viên **xóa** B. Sau đó thao tác trên trình duyệt của B
+
+Bước 8:
+Ở trạng thái đã dừng Redis, quản trị viên đổi role của B
+
+Bước 9:
+Thực hiện cập nhật mà nơi trực thuộc "không thay đổi" (gửi lại cùng giá trị)
+
+### Kết quả mong đợi
+
+Bước 1:
+Session của B bị hủy, chuyển sang 401 → màn hình đăng nhập (bắt buộc đăng nhập lại)
+
+Bước 2:
+Session cũng bị hủy tương tự. **Quyền của role cũ không còn sót lại** (payload của session được cố định lúc đăng nhập, nên nếu không hủy thì việc giáng quyền không được phản ánh)
+
+Bước 3:
+Session cũng bị hủy tương tự (`ja_id` / `kanri_shiten_id` / `shiten_id` cũng được cố định lúc đăng nhập)
+
+Bước 4:
+Session bị hủy và từ đó B cũng không đăng nhập được nữa
+
+Bước 5:
+**Session không bị hủy**. Vì thao tác mở khóa không được phép cắt session của chính quản trị viên
+
+Bước 6:
+**Session không bị hủy** (thay đổi không nhạy cảm)
+
+Bước 7:
+Session bị hủy (xóa thì hủy vô điều kiện)
+
+Bước 8:
+Bản thân việc cập nhật vẫn thành công và màn hình hiển thị thông báo thành công. Log phía server xuất ra cảnh báo hủy session thất bại (việc hủy là best-effort sau khi commit. Ghi nghiệp vụ đã thành lập và session sẽ hết hạn trong TTL 24 giờ)
+
+Bước 9:
+Session không bị hủy (chuẩn hóa `undefined` ＝ không nằm trong nội dung cập nhật và `null` ＝ không có phạm vi; **chỉ coi là thay đổi khi giá trị thực sự chuyển đổi**)
+
+Bổ sung:
+・Đây là xử lý cho security review 2026-07. `SessionAuthGuard` chỉ truy vấn session trên Redis mà không kiểm tra lại DB, nên nếu không hủy thì người đã nghỉ việc・tài khoản bị vô hiệu vẫn giữ nguyên quyền cũ bằng cookie (de-provisioning bypass)
+・Bước 5・6・9 là để xác nhận "không hủy quá mức". Nếu hủy quá tay thì quản trị viên tự cắt session của mình／người dùng bị đá ra mỗi lần có thay đổi vặt
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-025-070 — Kiểm tra tên dành riêng SYSTEM cho ID đăng nhập (#55719)
+
+- 観点ID: VP-C-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: NICHINO_ADMIN (có quyền `account.create`)
+  - ・Đang mở màn hình đăng ký tài khoản (chế độ tạo mới)
+
+### Các bước
+
+Bước 1:
+Nhập `SYSTEM` vào ID đăng nhập rồi đăng ký
+
+Bước 2:
+Nhập `system` (chữ thường) vào ID đăng nhập rồi đăng ký
+
+Bước 3:
+Nhập `SYSTEM_DENSHI_SYNC` vào ID đăng nhập rồi đăng ký
+
+Bước 4:
+Nhập `System_batch` vào ID đăng nhập rồi đăng ký
+
+Bước 5:
+Nhập `SYSTEMS` (bắt đầu bằng `SYSTEM` nhưng không phải `SYSTEM_`) vào ID đăng nhập rồi đăng ký
+
+Bước 6:
+Nhập `MYSYSTEM` (kết thúc bằng SYSTEM) vào ID đăng nhập rồi đăng ký
+
+Bước 7:
+Từ DevTools gửi request tương đương INSERT trực tiếp, vòng qua DTO (để kiểm tra ràng buộc CHECK của DB)
+
+### Kết quả mong đợi
+
+Bước 1:
+Báo lỗi nhập liệu và không đăng ký được
+
+Bước 2:
+Báo lỗi nhập liệu (**không phân biệt chữ hoa chữ thường**)
+
+Bước 3:
+Báo lỗi nhập liệu (chuỗi bắt đầu bằng `SYSTEM_` là dành riêng)
+
+Bước 4:
+Báo lỗi nhập liệu (không phân biệt hoa thường và phán định là bắt đầu bằng `SYSTEM_`)
+
+Bước 5:
+Đăng ký được (không phải `SYSTEM` đơn lẻ, cũng không bắt đầu bằng `SYSTEM_`)
+
+Bước 6:
+Đăng ký được (chỉ cấm khớp tiền tố)
+
+Bước 7:
+Bị từ chối bởi ràng buộc CHECK `ck_m_account_login_id_not_reserved` của DB (phòng thủ ở **cả hai** phía DTO và DB)
+
+Bổ sung:
+・Nếu trùng với tên người thực thi batch (`SYSTEM_DENSHI_SYNC` v.v.) thì việc phán định "xuất phát từ đồng bộ bản điện tử hay từ thao tác màn hình" dựa trên `t_dokusya_rireki.created_by` sẽ hỏng (#55719)
+・Ở danh sách lịch sử của SCR-013, việc hiển thị được phân biệt theo `created_by` có phải `SYSTEM_*` hay không (xem ACSMS-TC-013-040)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---

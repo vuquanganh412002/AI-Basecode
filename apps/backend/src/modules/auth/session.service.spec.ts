@@ -131,31 +131,84 @@ describe('SessionService', () => {
     });
   });
 
-  describe('touch (sliding expiration)', () => {
-    it('should refresh the TTL and stamp last_activity_at when the session exists', async () => {
+  describe('touch (absolute expiration)', () => {
+    it('should stamp last_activity_at and shrink the TTL to the remaining life', async () => {
+      // Logged in 10 minutes ago with a 3600s window -> 3000s left.
+      const createdAt = new Date(Date.now() - 600_000);
       const stored = {
         ...buildBasePayload(),
-        created_at: '2026-01-01T00:00:00.000Z',
-        last_activity_at: '2026-01-01T00:00:00.000Z',
+        created_at: createdAt.toISOString(),
+        last_activity_at: createdAt.toISOString(),
+        expires_at: new Date(createdAt.getTime() + 3600_000).toISOString(),
       };
       redis.get.mockResolvedValue(JSON.stringify(stored));
 
       const result = await service.touch('sid');
 
       expect(result).not.toBeNull();
-      // last_activity_at gets re-stamped (different from created_at).
-      expect(result?.last_activity_at).not.toBe('2026-01-01T00:00:00.000Z');
-      // Session key re-written with same TTL.
-      expect(redis.setEx).toHaveBeenCalledWith(
-        'session:sid',
-        3600,
-        expect.any(String),
+      expect(result?.last_activity_at).not.toBe(stored.created_at);
+
+      // The window does NOT reset to 3600 — activity must not extend the session.
+      const [key, ttl] = redis.setEx.mock.calls[0];
+      expect(key).toBe('session:sid');
+      expect(ttl).toBeLessThanOrEqual(3000);
+      expect(ttl).toBeGreaterThan(2990);
+    });
+
+    it('should destroy the session and return null once the deadline has passed', async () => {
+      const createdAt = new Date(Date.now() - 7200_000); // 2h ago, 1h window
+      redis.get.mockResolvedValue(
+        JSON.stringify({
+          ...buildBasePayload(),
+          created_at: createdAt.toISOString(),
+          last_activity_at: createdAt.toISOString(),
+          expires_at: new Date(createdAt.getTime() + 3600_000).toISOString(),
+        }),
       );
-      // Account index TTL extended.
-      expect(redis.expire).toHaveBeenCalledWith(
-        `account_sessions:${stored.account_id}`,
-        3600,
+
+      const result = await service.touch('sid');
+
+      expect(result).toBeNull();
+      expect(redis.setEx).not.toHaveBeenCalled();
+      expect(redis.del).toHaveBeenCalledWith('session:sid');
+    });
+
+    it('should fall back to created_at + ttl for sessions issued before expires_at existed', async () => {
+      // Rolled out mid-flight: payloads already in Redis carry no expires_at.
+      const createdAt = new Date(Date.now() - 600_000);
+      redis.get.mockResolvedValue(
+        JSON.stringify({
+          ...buildBasePayload(),
+          created_at: createdAt.toISOString(),
+          last_activity_at: createdAt.toISOString(),
+        }),
       );
+
+      const result = await service.touch('sid');
+
+      expect(result).not.toBeNull();
+      const [, ttl] = redis.setEx.mock.calls[0];
+      expect(ttl).toBeLessThanOrEqual(3000);
+    });
+
+    it('should leave the account index TTL alone', async () => {
+      // create() already pushes the index to "newest login + ttl", which is at
+      // or beyond every session's own deadline. Re-expiring it here to this
+      // session's remaining life would drop a newer session from the index and
+      // make password-reset revoke miss it.
+      const createdAt = new Date(Date.now() - 600_000);
+      redis.get.mockResolvedValue(
+        JSON.stringify({
+          ...buildBasePayload(),
+          created_at: createdAt.toISOString(),
+          last_activity_at: createdAt.toISOString(),
+          expires_at: new Date(createdAt.getTime() + 3600_000).toISOString(),
+        }),
+      );
+
+      await service.touch('sid');
+
+      expect(redis.expire).not.toHaveBeenCalled();
     });
 
     it('should return null and skip refresh when the session is gone', async () => {

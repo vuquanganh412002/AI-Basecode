@@ -222,7 +222,7 @@ defineExpose({ state, fetchList });
           placeholder="YYYY/MM/DD HH:mm:ss"
           allow-clear
           :disabled-date="isFutureDayTokyo"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="log-filter-2" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -237,7 +237,7 @@ defineExpose({ state, fetchList });
           placeholder="YYYY/MM/DD HH:mm:ss"
           allow-clear
           :disabled-date="isFutureDayTokyo"
-          class="flex-1"
+          class="flex-1 min-w-0"
         />
       </label>
       <label for="log-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
@@ -247,7 +247,7 @@ defineExpose({ state, fetchList });
           v-model:value="state.filters.log_type"
           placeholder="すべて"
           allow-clear
-          class="flex-1"
+          class="flex-1 min-w-0"
         >
           <a-select-option
             v-for="opt in LOG_TYPE_OPTIONS"

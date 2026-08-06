@@ -18,6 +18,7 @@ reviewer: Nguyen Huy Dat
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026/06/17 | 1.0 | Kieu Thi Diem | Tạo bản đầu tiên | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/06 | 1.1 | Tran Duc Tuyen | Đồng bộ với bản tiếng Nhật: bổ sung 10 ca kiểm thử. カテゴリ6 (048〜055) preview → sửa số tiền → tạo file của v1.1 vốn chưa được dịch. カテゴリ7 (056〜057) mới: giới hạn đối tượng tổng hợp chỉ gồm bản giấy và bản điện tử đã duyệt・trả phí, loại kết hợp (#56600), và việc chặn xuất file khi có người đọc tham chiếu đơn giá hết hiệu lực (HTTP 409 INACTIVE_TANKA_REFERENCED) |  |  |
 
 ## システム概要
 
@@ -47,7 +48,9 @@ Ngoài ra, hệ thống còn hỗ trợ các chức năng bảo mật・kiểm t
 | 3 | Kiểm tra đầu vào (Input Validation) | 13 |
 | 4 | Logic nghiệp vụ (Business Logic) | 12 |
 | 5 | Xử lý lỗi chung (Common Error Handling) | 8 |
-| | 合計 | 47 |
+| 6 | v1.1 Preview → Sửa số tiền → Tạo file (Preview / Edit / Make File) | 8 |
+| 7 | Giới hạn đối tượng tổng hợp・Chặn xuất file (Scope / Export Gate) | 2 |
+| | 合計 | 57 |
 
 ---
 
@@ -2391,3 +2394,508 @@ Bảng m_ja không bị xóa và vẫn tồn tại
 ### 備考
 
 (なし)
+
+# カテゴリ6: v1.1 Preview → Sửa số tiền → Tạo file (Preview / Edit / Make File)
+
+## ACSMS-TC-020-048 — Bấm "作成開始" hiển thị danh sách preview (không xuất file)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Có người đọc thuộc đối tượng tổng hợp trong năm-tháng đối tượng
+
+### Các bước
+
+Bước 1:
+Nhập năm-tháng-ngày・ngày trích nợ rồi thực thi "作成開始"
+
+### Kết quả mong đợi
+
+Bước 1:
+・POST /api/v1/koza-furikae/preview được gọi và trả về 200 với `{ data, meta }`
+・Bảng danh sách preview (tên người gửi tiền／chi nhánh trích nợ／số tài khoản／số tiền) được hiển thị
+・Nút "ファイル作成" được hiển thị
+・**Tại thời điểm này file không được tải xuống, cũng không lưu S3・không cập nhật t_koza_furikae・không ghi log audit**
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-049 — Preview 0 bản ghi (MSG-020-002)
+
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI
+  - ・Không có đối tượng tổng hợp với điều kiện đã chỉ định
+
+### Các bước
+
+Bước 1:
+Thực thi "作成開始" với điều kiện cho ra 0 đối tượng
+
+### Kết quả mong đợi
+
+Bước 1:
+・preview trả về 404 (`NO_TARGET_DATA`)
+・"対象データがありません。" (ACSMS-MSG-020-002) được hiển thị trong màn hình
+・Nút "ファイル作成" không được hiển thị
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-050 — Việc sửa số tiền được phản ánh vào file
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã hiển thị preview bằng "作成開始"
+
+### Các bước
+
+Bước 1:
+Sửa số tiền của dòng 1 trong bảng preview từ 4900 → 8000
+
+Bước 2:
+Thực thi "ファイル作成"
+
+### Kết quả mong đợi
+
+Bước 1:
+・Tổng số tiền được cập nhật theo nội dung đã sửa
+
+Bước 2:
+・Body của POST /export có chứa `rows: [{ dokusya_id, furikae_kingaku: 8000 }, ...]`
+・Số tiền trích nợ ở bản ghi dữ liệu và tổng số tiền ở trailer của CSV Zengin được xuất bằng giá trị đã sửa (8000)
+・t_koza_furikae cũng lưu số tiền đã sửa (8000)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-051 — Tạo file và tải xuống (không có phần mở rộng, ZENOUTFD)
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã hiển thị preview・đã thiết lập thông tin JASTEM
+
+### Các bước
+
+Bước 1:
+Thực thi "ファイル作成"
+
+### Kết quả mong đợi
+
+Bước 1:
+・File độ dài cố định theo định dạng Zengin được tải xuống
+・**Tên tải xuống là `ZENOUTFD` (không có phần mở rộng, không kèm .txt/.csv v.v.)**
+・Tên lưu trên S3 và t_file_download.file_name cũng không có phần mở rộng
+・"口座振替データの作成が完了しました。" (ACSMS-MSG-020-001) được hiển thị
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-052 — Từ chối dokusya_id ngoài phạm vi (bảo mật)
+
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Đã đăng nhập bằng CHUOKAI (chỉ JA của mình)
+
+### Các bước
+
+Bước 1:
+Gửi request export có trộn vào `rows` một `dokusya_id` ngoài phạm vi JA của mình／không tồn tại (ví dụ: 999) kèm số tiền cực lớn
+
+### Kết quả mong đợi
+
+Bước 1:
+・Server đối chiếu với đối tượng đã tổng hợp lại theo phạm vi và **bỏ qua dokusya_id ngoài phạm vi／không hợp lệ**
+・File xuất ra và t_koza_furikae không chứa dòng ID giả mạo・số tiền cực lớn đã trộn vào
+・Các dòng thực tế trong phạm vi được xuất với số tiền đúng
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-053 — Đổi bộ lọc thì hủy bỏ preview
+
+- 種類: Normal (正常)
+- 前提条件:
+  - ・Đã hiển thị preview
+
+### Các bước
+
+Bước 1:
+Sau khi hiển thị preview, đổi năm-tháng-ngày hoặc bộ lọc chi nhánh quản lý／chi nhánh／chi nhánh tài khoản
+
+### Kết quả mong đợi
+
+Bước 1:
+・Preview bị hủy bỏ và nút "ファイル作成" trở nên ẩn
+・Không tạo được file cho đến khi bấm "作成開始" lại (không cho xuất bằng preview cũ)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-054 — Lỗi chưa thiết lập JASTEM thì không xuất được
+
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Đã hiển thị preview
+  - ・Thông tin JASTEM (bên ủy thác/hợp tác xã nông nghiệp/cửa hàng/tài khoản) chưa được thiết lập (chưa chọn chi nhánh tài khoản hoặc chưa đăng ký master)
+
+### Các bước
+
+Bước 1:
+Thực thi "ファイル作成" ở trạng thái chưa thiết lập thông tin JASTEM
+
+### Kết quả mong đợi
+
+Bước 1:
+・Lỗi "JASTEM委託者情報・金融機関支店情報が未設定のため出力できません。…" được hiển thị
+・POST /export không được gọi và file không được tải xuống
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-055 — Kiểm tra phạm vi số tiền (0〜10 chữ số)
+
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Đã hiển thị preview
+
+### Các bước
+
+Bước 1:
+Nhập số âm (ví dụ: -5) hoặc quá 10 chữ số (ví dụ: 10,000,000,000) vào số tiền rồi thực thi "ファイル作成"
+
+### Kết quả mong đợi
+
+Bước 1:
+・Lỗi phạm vi số tiền được hiển thị và POST /export không được gọi
+・(Phía FE, a-input-number cũng ràng buộc trong khoảng 0〜9,999,999,999)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+# カテゴリ7: Giới hạn đối tượng tổng hợp・Chặn xuất file (Scope / Export Gate)
+
+## ACSMS-TC-020-056 — Đối tượng tổng hợp — Giới hạn theo loại đăng ký (chỉ bản giấy và bản điện tử đã duyệt・trả phí／#56600)
+
+- 観点ID: VP-B-01
+- 種類: Normal (正常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `koza_furikae.export`)
+  - ・Tồn tại người đọc có phương thức thanh toán=trích nợ tài khoản・loại thủ tục=đăng ký mới (tiếp tục)・đang đọc báo trong năm-tháng đối tượng xuất như sau
+    - ・(a) Bản giấy (dokusya_shubetsu=1) 2 bản ghi
+    - ・(b) Bản điện tử (2)・đã duyệt (denshi_shonin_status=1)・trả phí (denshi_dokusya_shubetsu=1) 2 bản ghi
+    - ・(c) Bản điện tử (2)・**chưa duyệt** (denshi_shonin_status=0)・trả phí 1 bản ghi
+    - ・(d) Bản điện tử (2)・đã duyệt・**miễn phí** (denshi_dokusya_shubetsu=0) 1 bản ghi
+    - ・(e) Bản điện tử (2)・**bị từ chối** (denshi_shonin_status=2)・trả phí 1 bản ghi
+    - ・(f) Kết hợp (dokusya_shubetsu=3) 1 bản ghi
+
+### Các bước
+
+Bước 1:
+Chỉ định năm-tháng đối tượng xuất, bấm "作成開始" và kiểm tra số bản ghi cùng chi tiết của danh sách preview
+
+Bước 2:
+Tạo file và kiểm tra số bản ghi dữ liệu cùng tổng số tiền
+
+Bước 3:
+Xác nhận người đọc (f) kết hợp không có trong cả preview lẫn file
+
+Bước 4:
+Xuất với điều kiện chỉ còn lại (a) 1 bản giấy và (d) 1 bản điện tử miễn phí (lọc theo chi nhánh quản lý v.v.) và xác nhận đối tượng chỉ còn 1 bản giấy
+
+Bước 5:
+Đặt một trong (c)(d)(e)(f) ở trạng thái tham chiếu **đơn giá đã hết hiệu lực** rồi xuất
+
+### Kết quả mong đợi
+
+Bước 1:
+Chỉ hiển thị **tổng 4 bản ghi** gồm 2 của (a) và 2 của (b). (c)(d)(e)(f) không hiển thị
+
+Bước 2:
+Bản ghi dữ liệu là 4. Tổng số tiền khớp với tổng của 4 bản ghi đối tượng
+
+Bước 3:
+Kết hợp nằm ngoài đối tượng tổng hợp (trước đây không lọc theo loại đăng ký nên kết hợp cũng có thể trở thành đối tượng trích nợ tài khoản)
+
+Bước 4:
+Chỉ 1 bản giấy trở thành đối tượng (bản điện tử miễn phí không phát sinh phí đọc báo nên không có gì để trích nợ)
+
+Bước 5:
+Việc xuất **không bị chặn** (không phát sinh INACTIVE_TANKA_REFERENCED). Đơn giá hết hiệu lực mà người đọc ngoài đối tượng tổng hợp tham chiếu không ảnh hưởng đến khả năng xuất
+
+Bổ sung:
+・Bản điện tử chỉ là đối tượng khi thỏa mãn **cả hai** điều kiện "đã duyệt và trả phí". Chưa duyệt・bị từ chối・miễn phí đều bị loại (yêu cầu khách hàng 2026-08 / #56600)
+・Bước 5 là để xác nhận điều kiện loại đăng ký giống nhau đã được đưa vào **cả hai** SQL tổng hợp và SQL kiểm tra đơn giá hết hiệu lực. Nếu chỉ một bên có thì sẽ xảy ra bất nhất "không xuất được vì lỗi đơn giá hết hiệu lực do người đọc vốn không phải đối tượng trích nợ tham chiếu"
+・Giới hạn tương tự ở phiếu liên lạc tăng giảm (SCR-028)・thông báo tăng giảm (SCR-029) theo tiêu chuẩn khác, nên không được dùng lại nguyên điều kiện của màn hình này
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+## ACSMS-TC-020-057 — Chặn xuất file — Khi tồn tại người đọc tham chiếu đơn giá đã hết hiệu lực (INACTIVE_TANKA_REFERENCED)
+
+- 観点ID: VP-D-02
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・role: JA_HONTEN (có quyền `koza_furikae.export`)
+  - ・Trong tập đối tượng xuất tồn tại từ 1 người đọc trở lên tham chiếu đơn giá có `active_flg = FALSE`
+  - ・Chuẩn bị riêng cả mẫu có từ 20 bản ghi trở lên (để xác nhận việc cắt bớt)
+
+### Các bước
+
+Bước 1:
+Bấm "作成開始" ở trạng thái chỉ có 1 người đọc tham chiếu đơn giá hết hiệu lực
+
+Bước 2:
+Kiểm tra `error_code`・`message`・`errors[]`・`total` của response
+
+Bước 3:
+Thực hiện thao tác tương tự ở trạng thái có 20 bản ghi và kiểm tra số phần tử của `errors[]` cùng `total`
+
+Bước 4:
+Kiểm tra hiển thị thông báo trên màn hình và nơi được điều hướng đến
+
+Bước 5:
+Đổi đơn giá của người đọc tương ứng sang đơn giá còn hiệu lực rồi bấm "作成開始" lại
+
+Bước 6:
+Xuất với người đọc tham chiếu đơn giá có kỳ áp dụng (tekiyo_start / tekiyo_end) nằm ngoài năm-tháng đối tượng xuất nhưng `active_flg = TRUE`
+
+### Kết quả mong đợi
+
+Bước 1:
+Việc xuất bị chặn và trả về HTTP status code 409. File không được sinh ra
+
+Bước 2:
+`error_code: INACTIVE_TANKA_REFERENCED`, `message` là `失効した単価を参照している購読者が存在するため、口座振替データを出力できません。該当購読者の単価を変更してから再度実行してください。`. Mỗi phần tử của `errors[]` có dạng `{ field: "<số dòng>", message: "<tên chủ tài khoản>（単価: <mã đơn giá> <tên đơn giá>）" }`. `total` là tổng số bản ghi tương ứng
+
+Bước 3:
+`errors[]` bị **cắt bớt ở 15 phần tử đầu**. `total` vẫn giữ nguyên là 20
+
+Bước 4:
+Được tóm tắt là "hiển thị 15 trong số 20 bản ghi tương ứng". Việc xác nhận toàn bộ・đổi đơn giá được điều hướng đến **màn hình tìm kiếm chi tiết người đọc (lọc "tham chiếu đơn giá hết hiệu lực")**
+
+Bước 5:
+Xuất thành công
+
+Bước 6:
+Xuất thành công (việc đánh giá còn hiệu lực chỉ dựa trên `active_flg`, không đánh giá theo ngày của kỳ áp dụng)
+
+Bổ sung:
+・Đây là quy cách cắt bớt để tránh response・DOM phình to khi có nhiều bản ghi tương ứng (nhiều người đọc cùng tham chiếu một đơn giá hết hiệu lực)
+・Việc đánh giá hiệu lực của đơn giá chỉ dựa trên `active_flg` là để khớp với vận hành của batch làm hết hiệu lực đơn giá (tài liệu thiết kế API v1.1)
+・Người đọc ngoài đối tượng tổng hợp (kết hợp・bản điện tử chưa duyệt/miễn phí bị loại theo #56600) cũng không nằm trong tập của kiểm tra này (xem ACSMS-TC-020-056 Bước 5)
+
+### Kết quả kiểm thử (lần 1)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Kết quả kiểm thử (lần 2)
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế／Đầu ra | - |
+| Người phụ trách | - |
+| Ngày xác nhận | - |
+| ID lỗi | - |
+
+### Ghi chú
+
+(không có)
+
+---
