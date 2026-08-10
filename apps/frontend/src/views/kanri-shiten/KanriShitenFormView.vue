@@ -415,7 +415,7 @@ defineExpose({
         </a-form-item>
 
         <!-- 行2: 管理支店コード / 管理支店名 / 管理支店名(カナ) -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="kanri_shiten_code"
             :validate-status="allFieldErrors.kanri_shiten_code ? 'error' : ''"
@@ -475,7 +475,7 @@ defineExpose({
         </div>
 
         <!-- 行3: 郵便番号 / 都道府県 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             label="郵便番号"
             name="yubin_no"
@@ -489,7 +489,7 @@ defineExpose({
             />
           </a-form-item>
           <a-form-item
-            class="md:col-span-2"
+            class="@lg:col-span-2"
             name="todofuken_code"
             :validate-status="allFieldErrors.todofuken_code ? 'error' : ''"
             :help="allFieldErrors.todofuken_code"
@@ -506,7 +506,7 @@ defineExpose({
         </div>
 
         <!-- 行4: 住所 / 電話番号 / FAX -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item label="住所" name="address">
             <a-input
               autocomplete="off"

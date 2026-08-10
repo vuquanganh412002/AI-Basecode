@@ -3,6 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { BatchJob } from '@/batch/batch-job.interface';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+import { SystemActor } from '@/common/constants/system-actor.constant';
+import { logBatchRun } from '../batch-run-audit';
+
+/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
+const BATCH_SCREEN = 'ログ保持期間クリーンアップバッチ (log-cleanup)';
 
 /** 1回の DELETE で消す最大行数。大量削除でのロング・ロック／WAL 肥大を避けるため
  *  チャンク分割し、対象が無くなるまでループする。 */
@@ -53,6 +59,7 @@ export class LogCleanupService implements BatchJob {
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     private readonly config: ConfigService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async run(): Promise<void> {
@@ -65,11 +72,27 @@ export class LogCleanupService implements BatchJob {
       result[t.table] = await this.purge(t, retentionYears);
     }
 
+    const durationMs = Date.now() - startedAt;
     this.logger.log({
       event: 'log_cleanup.done',
       retentionYears,
       deleted: result,
-      durationMs: Date.now() - startedAt,
+      durationMs,
+    });
+
+    // 実行サマリを t_log へ 1 行（顧客要望 2026-08）。
+    //
+    // このバッチは t_log 自身を消すので、サマリ行を書くこと自体が次回以降の
+    // 削除対象になる（保持期間を過ぎれば消える）。それでも書く理由は、
+    // 「ログが無い」のが保持期間による正常な削除なのか障害なのかを、
+    // 後から区別できるようにするため。CloudWatch のログにも同じ内容が出るが
+    // あちらにも保持期間があり、DB 側の記録とは別管理になる。
+    await logBatchRun(this.auditLog, {
+      screen: BATCH_SCREEN,
+      operation: 'ログ保持期間削除',
+      actor: SystemActor.BATCH_NIGHTLY,
+      table: 't_log',
+      summary: { retentionYears, deleted: result, durationMs },
     });
   }
 

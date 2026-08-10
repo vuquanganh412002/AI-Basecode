@@ -76,7 +76,7 @@ const computedSubmitText = computed(
 
 <template>
   <div
-    class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2"
+    class="pt-4 mt-4 border-t border-border flex items-center flex-wrap justify-start gap-2"
   >
     <a-button
       type="primary"

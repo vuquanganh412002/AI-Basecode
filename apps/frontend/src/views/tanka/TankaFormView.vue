@@ -441,8 +441,9 @@ defineExpose({
               <span>単価種別</span>
               <span class="text-error ml-1">*</span>
             </legend>
-            <div class="flex items-center min-h-8">
+            <div class="flex items-center flex-wrap min-h-8">
               <a-radio-group
+                class="min-w-0"
                 name="tanka_type"
                 v-model:value="formState.tanka_type"
               >
@@ -459,7 +460,7 @@ defineExpose({
         </a-form-item>
 
         <!-- 行2: 単価コード + 単価名（コード 1/3、名前 2/3）。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="tanka_code"
             :validate-status="allFieldErrors.tanka_code ? 'error' : ''"
@@ -481,7 +482,7 @@ defineExpose({
           </a-form-item>
 
           <a-form-item
-            class="md:col-span-2"
+            class="@lg:col-span-2"
             name="tanka_name"
             :validate-status="allFieldErrors.tanka_name ? 'error' : ''"
             :help="allFieldErrors.tanka_name"
@@ -500,7 +501,7 @@ defineExpose({
 
         <!-- 行3: 税率 / 単価（税込）/ 単価（税抜）（3等分）。数値入力で、
              `addon-after` / `addon-before` がモックの ¥/% 装飾を再現。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="tax_rate"
             :validate-status="allFieldErrors.tax_rate ? 'error' : ''"
@@ -552,12 +553,16 @@ defineExpose({
              `format="YYYY/MM/DD"`（和式表示）と `value-format="YYYY-MM-DD"`
              （BE DTO regex が期待する wire 形式）。native date は非JPロケールで
              dd/mm/yyyy 表示になるため、OSロケールに依存しない antd picker を使う。 -->
-        <!-- 6列グリッド: 適用開始日 / 適用終了日 が各2（計2/3）、
-             有効単価フラグ / キャンペーンフラグ が各1で2列合わせて 1/3。 -->
-        <div class="grid grid-cols-1 md:grid-cols-6 gap-6">
+        <!-- 2列グリッド: 日付2件で1行、フラグ2件で1行（顧客要望 2026-08）。
+               行A: 適用開始日 | 適用終了日
+               行B: 有効単価フラグ | キャンペーンフラグ
+             以前は6列 + 日付を各2セルにしていたが、6列が成立するのは
+             コンテナ1152px以上（@6xl）だけで、それ未満の 3列 / 2列では
+             4項目が 2-1-1 や 1-1-2 と不揃いに割れ、日付とフラグが混ざった行に
+             なっていた。列数を2に固定すれば幅に関係なく必ずこの2行になる。 -->
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-6">
           <a-form-item
             name="tekiyo_start_date"
-            class="md:col-span-2"
             :validate-status="allFieldErrors.tekiyo_start_date ? 'error' : ''"
             :help="allFieldErrors.tekiyo_start_date"
           >
@@ -578,7 +583,6 @@ defineExpose({
 
           <a-form-item
             name="tekiyo_end_date"
-            class="md:col-span-2"
             :validate-status="allFieldErrors.tekiyo_end_date ? 'error' : ''"
             :help="allFieldErrors.tekiyo_end_date"
           >
@@ -610,8 +614,9 @@ defineExpose({
                 <span>有効単価フラグ</span>
                 <span class="text-error ml-1">*</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="active_flg"
                   v-model:value="formState.active_flg"
                 >
@@ -634,8 +639,9 @@ defineExpose({
                 <span>キャンペーンフラグ</span>
                 <span class="text-error ml-1">*</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="campaign_flg"
                   v-model:value="formState.campaign_flg"
                 >

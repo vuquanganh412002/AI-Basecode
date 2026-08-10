@@ -531,7 +531,7 @@ defineExpose({ formState, fieldErrors });
              showTodofuken / showJa / showKanriShiten でトグル。余白は正準の CRUD
              フォーム（JaFormView / TankaFormView 等）に合わせる:
              <a-form> に `p-4 space-y-2`、各 grid 行に `gap-6`。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
             <a-form-item
               name="login_id"
               :validate-status="fieldErrors.login_id ? 'error' : ''"
@@ -567,7 +567,7 @@ defineExpose({ formState, fieldErrors });
             </a-form-item>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-6">
             <a-form-item
               name="role_id"
               :validate-status="fieldErrors.role_id ? 'error' : ''"
@@ -659,7 +659,7 @@ defineExpose({ formState, fieldErrors });
           </div>
 
           <!-- 所属支店 + アカウント名 + 通知先メールアドレス を 1 行 3 列で表示。 -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
             <!-- 所属支店（顧客要件 2026-07）— JA管理支店ロールのみ・任意。
                  他ロール／管理支店未選択時は常に表示のうえグレーアウト
                  （都道府県 / JA / 管理支店 と同じ挙動）。設定すると当該
@@ -717,7 +717,7 @@ defineExpose({ formState, fieldErrors });
             </a-form-item>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
             <a-form-item
               name="sub_email_1"
               :validate-status="fieldErrors.sub_email_1 ? 'error' : ''"
@@ -747,10 +747,10 @@ defineExpose({ formState, fieldErrors });
           </div>
 
         <!-- 3列行、各セル = フォームカードの 1/3。上のサブメール行
-             （`md:grid-cols-3 gap-6`）に合わせ縦リズムを一定に保つ。
+             （`@lg:grid-cols-2 @3xl:grid-cols-3 gap-6`）に合わせ縦リズムを一定に保つ。
              セル#3 は意図的に空 — 取扱い区分 + ロック状態 を左（セル1+2）に
              寄せ、単独の ロック 列を引き伸ばさない。狭幅では1列スタックに畳む。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item>
             <fieldset class="border-0 p-0 m-0 min-w-0">
               <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">

@@ -891,7 +891,7 @@ defineExpose({ state });
       @clear="onClear"
     >
       <!-- 1. 管理支店 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
         <BaseKanriShitenDropdown
           v-model:value="state.filters.kanri_shiten_id"
@@ -901,7 +901,7 @@ defineExpose({ state });
       </div>
 
       <!-- 2. 支店 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">支店</span>
         <BaseShitenDropdown
           v-model:value="state.filters.shiten_id"
@@ -911,7 +911,7 @@ defineExpose({ state });
       </div>
 
       <!-- 3. 組合員コード -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
           id="kumiaiin_code"
@@ -923,7 +923,7 @@ defineExpose({ state });
       </div>
 
       <!-- 4. 氏名 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
           id="full_name"
@@ -935,7 +935,7 @@ defineExpose({ state });
       </div>
 
       <!-- 5. かな氏名 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
           id="full_name_kana"
@@ -947,7 +947,7 @@ defineExpose({ state });
       </div>
 
       <!-- 6. 住所（配達先住所4項目 + 購読者住所4項目を部分一致 OR 検索） -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">住所</span>
         <a-input
           id="haitatsu"
@@ -959,7 +959,7 @@ defineExpose({ state });
       </div>
 
       <!-- 7. 配達販売店 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達販売店</span>
         <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
@@ -969,12 +969,12 @@ defineExpose({ state });
       </div>
 
       <!-- 8. 手続種類 (radio group, m_code TETSUZUKI_SHURUI) -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="whitespace-nowrap">手続種類</span>
+      <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+        <span class="whitespace-nowrap leading-[22px]">手続種類</span>
         <a-radio-group
           name="tetsuzuki_shurui"
           v-model:value="state.filters.tetsuzuki_shurui"
-          class="flex-1"
+          class="flex-1 min-w-0"
         >
           <a-radio
             v-for="opt in codes.options('TETSUZUKI_SHURUI')"
@@ -986,11 +986,15 @@ defineExpose({ state });
         </a-radio-group>
       </div>
 
-      <!-- 9+10. 購読開始日 + 購読中止日 — wrapped in a 2-col sub-grid
-           (col-span-full) so each date-range field takes half the row. -->
-      <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
+      <!-- 9+10. 購読開始日 + 購読中止日 — 2-col sub-grid (col-span-full)。
+           2列化はカード実幅 896px 以上（@4xl）から。日付レンジは
+           「ラベル + ピッカー + - + ピッカー」で 1 項目あたり実質4要素あり、
+           @lg(512px) で2列にすると 1列 ≈310px しかなくピッカーが潰れて
+           日付が読めなくなる（iPad 縦 1024px + サイドバー展開で実機確認
+           2026-08）。それ未満では 1 項目 1 行にして横幅を確保する。 -->
+      <div class="col-span-full grid grid-cols-1 @4xl:grid-cols-2 gap-x-4 gap-y-3 items-start">
         <!-- 購読開始日 (date range) -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読開始日</span>
           <a-date-picker
             id="shoki_dokusya_kaishi_date_from"
@@ -1014,7 +1018,7 @@ defineExpose({ state });
         </div>
 
         <!-- 購読中止日 (date range) -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">購読中止日</span>
           <a-date-picker
             id="dokusya_chushi_date_from"
@@ -1038,14 +1042,20 @@ defineExpose({ state });
         </div>
       </div>
 
-      <!-- 11+12. 購読種別 + 電子版承認ステータス — wrapped in a 2-col
-           sub-grid (col-span-full) so the two always sit side by side on
-           one row, regardless of the field count above (index.html
-           grid-cols-2). -->
-      <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
+      <!-- 11+12. 購読種別 + 電子版承認ステータス — 2-col sub-grid
+           (col-span-full)。2列化は 9+10 と同じく @4xl から。ラジオは選択肢が
+           長く（併読（紙版＋電子版） / Web申込以外 …）、@lg(512px) の 2列だと
+           1列 ≈310px でラジオが2〜3行に折り返り、隣の列と行数が食い違って
+           読みにくい。1行1項目なら選択肢が横一列に収まる。
+
+           items-start（items-center ではない）: 2列に並んだとき、片方だけ
+           ラジオが折り返ると行の高さが2行分になり、items-center では1行しかない
+           側のセルが縦中央へ落ちてラベルの高さが左右で食い違う。上端揃えなら
+           どちらのラベルも常に1行目に並ぶ。 -->
+      <div class="col-span-full grid grid-cols-1 @4xl:grid-cols-2 gap-x-4 gap-y-3 items-start">
         <!-- 購読種別 (radio group, m_code DOKUSYA_SHUBETSU) -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">購読種別</span>
+        <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap leading-[22px]">購読種別</span>
           <a-radio-group
             name="dokusya_shubetsu"
             v-model:value="state.filters.dokusya_shubetsu"
@@ -1062,8 +1072,8 @@ defineExpose({ state });
         </div>
 
         <!-- 電子版承認ステータス（ラジオ・ハードコード、m_code ではない） -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">電子版承認ステータス</span>
+        <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap leading-[22px]">電子版承認ステータス</span>
           <a-radio-group
             name="denshi_shonin_status"
             v-model:value="state.filters.denshi_shonin_status"
@@ -1100,7 +1110,7 @@ defineExpose({ state });
       <template v-if="showAdvanced">
         <!-- 13. 引落元口座支店（コード・名称を横断部分一致検索）。
              4カラムグリッドで半行占有（lg で 2/4 カラム）。 -->
-        <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="@4xl:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">引落元口座支店</span>
           <a-input
             id="bank_branch"
@@ -1112,7 +1122,7 @@ defineExpose({ state });
         </div>
 
         <!-- 15. 連絡先（購読者連絡先1/2・配達先連絡先1/2を横断部分一致検索） -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">連絡先</span>
           <a-input
             id="renrakusaki"
@@ -1124,7 +1134,7 @@ defineExpose({ state });
         </div>
 
         <!-- 16. メールアドレス -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">メールアドレス</span>
           <a-input
             id="email"
@@ -1135,11 +1145,11 @@ defineExpose({ state });
           />
         </div>
 
-        <!-- 17+18. 請求開始月 + 適用日 — 2-col sub-grid (col-span-full)
-             so each field takes half the row. -->
-        <div class="col-span-full grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 items-center">
+        <!-- 17+18. 請求開始月 + 適用日 — 2-col sub-grid (col-span-full)。
+             9+10 と同じ日付レンジ2本の並びなので、2列化も同じく @4xl から。 -->
+        <div class="col-span-full grid grid-cols-1 @4xl:grid-cols-2 gap-x-4 gap-y-3 items-start">
           <!-- 請求開始月 (month range → YYYYMM 〜 YYYYMM) -->
-          <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">請求開始月</span>
             <a-date-picker
               id="seikyu_kaishi_month_from"
@@ -1165,7 +1175,7 @@ defineExpose({ state });
           </div>
 
           <!-- 適用日 (date range) -->
-          <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+          <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
             <span class="whitespace-nowrap">適用日</span>
             <a-date-picker
               id="joho_henko_tekiyo_date_from"
@@ -1192,8 +1202,8 @@ defineExpose({ state });
         <!-- 19. 支払方法（ラジオ、m_code SHIHARAI_HOHO）— 全幅
              (col-span-full) にし、狭いグリッドセルで折返さず1行に並べる
              （index.html 準拠）。 -->
-        <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">支払方法</span>
+        <div class="col-span-full flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap leading-[22px]">支払方法</span>
           <a-radio-group
             name="shiharai_hoho"
             v-model:value="state.filters.shiharai_hoho"
@@ -1210,7 +1220,7 @@ defineExpose({ state });
         </div>
 
         <!-- 20. 郵送区分 (dropdown, m_code YUBIN_KUBUN: 0:空 / 1:郵送) -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">郵送区分</span>
           <a-select
             v-model:value="state.filters.yubin_kubun"
@@ -1229,7 +1239,7 @@ defineExpose({ state });
         </div>
 
         <!-- 21. 新聞単価 (dropdown, tanka_id — JA スコープでカスケード) -->
-        <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">新聞単価</span>
           <BaseTankaDropdown
             v-model:value="state.filters.tanka_id"
@@ -1241,7 +1251,7 @@ defineExpose({ state });
         </div>
 
         <!-- 22. 備考 (text, 部分一致検索)。4カラムグリッドで半行占有（lg で 2/4）。 -->
-        <div class="lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
+        <div class="@4xl:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">備考</span>
           <a-input
             id="biko"
@@ -1256,8 +1266,8 @@ defineExpose({ state });
              (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者のみ、
              無効=失効単価を参照する購読者のみ、未選択=両方。口座振替出力の失効単価
              エラーからは ?inactive_tanka=1 で「無効」が初期選択される。 -->
-        <div class="col-span-full flex items-center gap-2 text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap">有効単価フラグ</span>
+        <div class="col-span-full flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+          <span class="whitespace-nowrap leading-[22px]">有効単価フラグ</span>
           <a-radio-group
             name="active_tanka_flg"
             v-model:value="state.filters.active_tanka_flg"

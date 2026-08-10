@@ -441,7 +441,7 @@ defineExpose({
 
       <div class="space-y-6">
         <!-- 年月日 / 引落日 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item
             name="target_month"
             :validate-status="fieldErrors.target_month ? 'error' : ''"
@@ -478,7 +478,7 @@ defineExpose({
         </div>
 
         <!-- 管理支店 / 支店 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item label="管理支店" name="kanri_shiten_ids">
             <a-select
               v-model:value="formState.kanri_shiten_ids"
@@ -538,7 +538,7 @@ defineExpose({
         Part A: 委託者/農協（m_ja）。Part B: 口座支店情報（m_shiten）を表で表示。
       -->
       <!-- Part A: 委託者コード/名・農協番号/名（m_ja） -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+      <div class="grid grid-cols-1 @lg:grid-cols-2 gap-x-8 gap-y-4">
         <div class="flex items-center gap-3">
           <span class="w-28 shrink-0 text-right text-sm text-text-description">委託者コード</span>
           <div
@@ -706,7 +706,7 @@ defineExpose({
     </section>
 
     <!-- フッター：作成開始（プレビュー）→ ファイル作成 -->
-    <div class="flex items-center justify-start gap-2">
+    <div class="flex items-center flex-wrap justify-start gap-2">
       <a-button
         type="primary"
         :loading="previewing"

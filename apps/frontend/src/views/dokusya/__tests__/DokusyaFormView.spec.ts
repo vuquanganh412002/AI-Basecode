@@ -724,7 +724,51 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
     expect(Number(vm.formState.dokusya_busu)).toBe(origBusu);
   });
 
-  it('(B) should disable 購読中止日 + show hint when has_active_kaiyaku (既に解約予約済み) — 顧客要件 2026-07', async () => {
+  // 顧客要件 2026-08 — 電子版 + 承認待ち(0) + 本紙購読フラグ true のときだけ
+  // 備考の直前に「紙版購読状況　有り」を出す。
+  describe('紙版購読状況 hint', () => {
+    async function renderWith(detail: Record<string, unknown>) {
+      const { getDokusya } = await import('@/api/dokusya/dokusya');
+      vi.mocked(getDokusya).mockResolvedValueOnce({
+        data: buildDokusyaDetail({
+          dokusya_shubetsu: 2, // 電子版
+          denshi_shonin_status: 0, // 承認待ち
+          honshi_kodoku_flg: true,
+          ...detail,
+        }),
+      });
+      return renderView({ dokusyaId: 100 });
+    }
+
+    it('should show the hint for 電子版 + 承認待ち + honshi_kodoku_flg', async () => {
+      const { wrapper } = await renderWith({});
+      const hint = wrapper.find('[data-test="honshi-kodoku-hint"]');
+      expect(hint.exists()).toBe(true);
+      expect(hint.text()).toBe('紙版購読状況　有り');
+    });
+
+    it('should NOT show the hint when honshi_kodoku_flg is false', async () => {
+      const { wrapper } = await renderWith({ honshi_kodoku_flg: false });
+      expect(wrapper.find('[data-test="honshi-kodoku-hint"]').exists()).toBe(false);
+    });
+
+    it('should NOT show the hint when 承認済み (status=1)', async () => {
+      const { wrapper } = await renderWith({ denshi_shonin_status: 1 });
+      expect(wrapper.find('[data-test="honshi-kodoku-hint"]').exists()).toBe(false);
+    });
+
+    it('should NOT show the hint for 紙版', async () => {
+      const { wrapper } = await renderWith({
+        dokusya_shubetsu: 1,
+        denshi_shonin_status: null,
+      });
+      expect(wrapper.find('[data-test="honshi-kodoku-hint"]').exists()).toBe(false);
+    });
+  });
+
+  // 解約予約済みの案内文（「既に解約予約されています。…」）は顧客要望 2026-08 で
+  // 削除した。中止日を disabled にする挙動自体は据え置きなのでそこだけ検証する。
+  it('(B) should disable 購読中止日 when has_active_kaiyaku (既に解約予約済み) — 顧客要件 2026-07', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
       // 有効な解約予約あり → 中止日(値)が入っているので項目は表示される。
@@ -734,7 +778,8 @@ describe('DokusyaFormView — 読者情報変更適用日 編集可否 (顧客�
       }),
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
-    expect(wrapper.find('[data-test="active-kaiyaku-hint"]').exists()).toBe(true);
+    // 案内文は出さない（顧客要望 2026-08 で削除）。
+    expect(wrapper.find('[data-test="active-kaiyaku-hint"]').exists()).toBe(false);
     const chushiItem = wrapper
       .findAllComponents({ name: 'AFormItem' })
       .find((it) => it.props('name') === 'dokusya_chushi_date');
@@ -2410,10 +2455,51 @@ describe('DokusyaFormView — update flow (edit mode)', () => {
     expect(updateDokusya).toHaveBeenCalledTimes(1);
   });
 
-  it('should default 読者情報変更適用日 to tomorrow (JST) when the edit form loads (未来日のみ・顧客要件 2026-07)', async () => {
+  // 顧客要件 2026-08 — 参照中は t_dokusya の実値をそのまま出し、編集を
+  // 始めた時点で初めて未来日（翌日）へ差し替える。以前は読込時点で翌日を
+  // 入れており、何も触っていないのに DB と違う日付が見えていた。
+  it('should show the stored 読者情報変更適用日 while the edit form is untouched', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ joho_henko_tekiyo_date: '2026-04-05' }),
+    });
     const { wrapper } = await renderView({ dokusyaId: 100 });
     const vm = wrapper.vm as any;
+    expect(vm.formState.joho_henko_tekiyo_date).toBe('2026-04-05');
+  });
+
+  it('should switch 読者情報変更適用日 to tomorrow (JST) once another field is edited (未来日のみ・顧客要件 2026-07)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ joho_henko_tekiyo_date: '2026-04-05' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    vm.formState.chome_banchi = 'まったく新しい住所99-99';
+    await flushPromises();
+
     expect(vm.formState.joho_henko_tekiyo_date).toBe(tomorrowIsoTokyo());
+  });
+
+  it('should restore the stored 読者情報変更適用日 when the edit is undone', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        chome_banchi: '元の住所1-1',
+        joho_henko_tekiyo_date: '2026-04-05',
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    vm.formState.chome_banchi = 'まったく新しい住所99-99';
+    await flushPromises();
+    expect(vm.formState.joho_henko_tekiyo_date).toBe(tomorrowIsoTokyo());
+
+    vm.formState.chome_banchi = '元の住所1-1';
+    await flushPromises();
+    expect(vm.formState.joho_henko_tekiyo_date).toBe('2026-04-05');
   });
 
   it('should send the user-entered 読者情報変更適用日 in the update body', async () => {

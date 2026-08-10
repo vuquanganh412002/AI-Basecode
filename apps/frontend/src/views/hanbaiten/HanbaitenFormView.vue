@@ -605,7 +605,7 @@ defineExpose({ formState, fieldErrors });
         </a-form-item>
 
         <!-- ─── 基本情報 ─────────────────────────────────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="hanbaiten_code"
             name="hanbaiten_code"
@@ -658,7 +658,7 @@ defineExpose({ formState, fieldErrors });
         </div>
 
         <!-- ─── 住所・連絡先 ─────────────────────────────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="todofuken_code" name="todofuken_code" label="都道府県">
             <!-- [pref-from-ja] read-only — 都道府県 は常に hanbaiten の JA
@@ -711,7 +711,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="tel"
             name="tel"
@@ -758,7 +758,7 @@ defineExpose({ formState, fieldErrors });
         </div>
 
         <!-- ─── 委託・配達手数料 ──────────────────────────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="haitatsuryo_tanka_id"
             :validate-status="fieldErrors.haitatsuryo_tanka_id ? 'error' : ''"
@@ -807,8 +807,9 @@ defineExpose({ formState, fieldErrors });
                 <span>委託区分</span>
                 <span class="text-error ml-1">*</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="itaku_kubun"
                   v-model:value="formState.itaku_kubun"
                 >
@@ -826,7 +827,7 @@ defineExpose({ formState, fieldErrors });
         </div>
 
         <!-- ─── 振込先情報 (itaku_kubun=1 のとき必須) ───────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="bank_code"
             name="bank_code"
@@ -881,7 +882,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="bank_branch_code"
             name="bank_branch_code"
@@ -926,8 +927,9 @@ defineExpose({ formState, fieldErrors });
                 <span>口座種別</span>
                 <span v-if="formState.itaku_kubun === ItakuKubun.FURIKOMI" class="text-error ml-1">*</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="yokin_shubetsu"
                   v-model:value="formState.yokin_shubetsu"
                 >
@@ -944,7 +946,7 @@ defineExpose({ formState, fieldErrors });
           </a-form-item>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             html-for="koza_no"
             name="koza_no"
@@ -996,7 +998,7 @@ defineExpose({ formState, fieldErrors });
         </div>
 
         <!-- ─── 振込手数料負担区分 / 廃店フラグ ──────────────── -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="furikomi_tesuryo_futan_kubun"
             :validate-status="fieldErrors.furikomi_tesuryo_futan_kubun ? 'error' : ''"
@@ -1007,8 +1009,9 @@ defineExpose({ formState, fieldErrors });
                 <span>振込手数料負担区分</span>
                 <span class="text-error ml-1">*</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="furikomi_tesuryo_futan_kubun"
                   v-model:value="formState.furikomi_tesuryo_futan_kubun"
                 >

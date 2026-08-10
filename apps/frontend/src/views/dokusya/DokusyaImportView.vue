@@ -684,9 +684,9 @@ function renderCell(value: unknown): string {
     <section
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
-      <form class="space-y-4" @submit.prevent>
+      <form class="@container space-y-4" @submit.prevent>
         <!-- 1行目: 購読種別 / 取込モード / 読者情報変更適用日 / 購読中止日 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-4 items-start">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-x-4 gap-y-4 items-start">
           <div>
             <span
               id="import-shubetsu-label"
@@ -798,7 +798,7 @@ function renderCell(value: unknown): string {
             <!-- 電子版は月末で終了するため「終了月」を選ぶ（SCR-014 と同じ扱い）。
                  紙版は日付をそのまま指定する。 -->
             <div class="flex items-center gap-2">
-              <div class="flex-1" data-test="import-chushi-date">
+              <div class="flex-1 min-w-0" data-test="import-chushi-date">
                 <a-date-picker
                   id="chushi-date-input"
                   v-model:value="chushiDateFe"
@@ -834,8 +834,8 @@ function renderCell(value: unknown): string {
         <!-- 2行目: Excelファイル選択 + テンプレートダウンロード。
              1行目と同じ4カラムに乗せ、ファイル欄は半分（2/4）— 上の
              購読種別・取込モードと左右の位置が揃う。 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-4 items-start">
-          <div class="lg:col-span-2">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-x-4 gap-y-4 items-start">
+          <div class="@4xl:col-span-2">
             <label
               class="block text-sm font-semibold text-text-main mb-1.5"
               for="file-input"
@@ -878,7 +878,7 @@ function renderCell(value: unknown): string {
           <!-- 残りの2カラムを占め右端へ寄せる。ファイル欄のラベル分だけ下げて
                底辺を揃える。 -->
           <div
-            class="lg:col-span-2 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
+            class="@4xl:col-span-2 flex flex-col items-end justify-end h-full @lg:pt-6"
           >
             <button
               data-test="template-download-btn"
@@ -932,7 +932,7 @@ function renderCell(value: unknown): string {
 
           <div v-show="!panelCollapsed" data-test="col-panel" class="px-4 py-3">
             <div
-              class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
+              class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 @4xl:grid-cols-4 @6xl:grid-cols-5 gap-2"
             >
               <label
                 v-for="col in PHYSICAL_COLUMNS"

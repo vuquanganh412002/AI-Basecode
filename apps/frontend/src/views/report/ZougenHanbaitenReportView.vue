@@ -220,8 +220,8 @@ defineExpose({ formState });
         <!-- ② 販売店（左 2/3）／③ 管理支店（右 1/3）— 必須（顧客要件 2026-07）。
              マルチセレクトのドロップダウン（コード・名称で検索、50件ずつ無限スクロール）。
              ドロップダウン先頭の「全て」で全件選択＝入力欄に「全て」タグ表示。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          <div class="md:col-span-2">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6 items-start">
+          <div class="@lg:col-span-2">
             <div class="text-sm font-medium text-text-main mb-2">
               販売店<span class="text-error ml-1">*</span>
             </div>
@@ -266,7 +266,7 @@ defineExpose({ formState });
         </div>
       </div>
 
-      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
+      <div class="pt-4 mt-3 flex items-center flex-wrap justify-start gap-2">
         <a-button
           type="primary"
           :disabled="!canUse"

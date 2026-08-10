@@ -3,6 +3,12 @@ import { FileUpload } from '@/database/entities/file-upload.entity';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { StorageService } from '@/modules/storage/storage.service';
 import { FileCleanupService } from './file-cleanup.service';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+
+/** 実行サマリの t_log 書込み。呼ばれたことだけ検証できればよいのでスパイで足りる。 */
+function auditMock(): { logOperation: jest.Mock } {
+  return { logOperation: jest.fn().mockResolvedValue(undefined) };
+}
 
 interface QbMock {
   where: jest.Mock;
@@ -55,6 +61,7 @@ describe('FileCleanupService', () => {
     service = new FileCleanupService(
       db as unknown as DataSource,
       storage as unknown as StorageService,
+      auditMock() as unknown as AuditLogService,
     );
   }
 

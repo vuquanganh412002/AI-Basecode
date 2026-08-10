@@ -279,4 +279,85 @@ describe('AppHeader', () => {
       expect(btn.attributes('aria-expanded')).toBeDefined();
     });
   });
+  // ───────────────────────────────────────────────────────────────────
+  // アカウント名の表示先（ヘッダー ⇄ ドロップダウン）
+  // ───────────────────────────────────────────────────────────────────
+  //
+  // 顧客要望 2026-08: 幅が足りるときはヘッダーのアイコン横に名前を出し、
+  // そのときドロップダウンには重複表示しない。狭いときは逆にする。
+  // 判定はヘッダー実幅（ResizeObserver）で、サイドバー開閉も拾う。
+  //
+  // jsdom は ResizeObserver も offsetWidth も持たないため、幅は
+  // offsetWidth を stub して与える。
+  describe('account name placement by header width', () => {
+    /** header 要素の offsetWidth を固定値に見せる。 */
+    function stubHeaderWidth(px: number): () => void {
+      const desc = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        'offsetWidth',
+      );
+      Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+        configurable: true,
+        get() {
+          return this.tagName === 'HEADER' ? px : 0;
+        },
+      });
+      return () => {
+        if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', desc);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>).offsetWidth;
+      };
+    }
+
+    it('should show the name in the header and NOT in the dropdown when wide', async () => {
+      const restore = stubHeaderWidth(1200);
+      try {
+        const { wrapper } = await renderHeader({
+          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+        });
+        await flushPromises();
+        // ヘッダー側に出ている
+        const headerName = wrapper.find('[data-test="account-name-header"]');
+        expect(headerName.exists()).toBe(true);
+        expect(headerName.text()).toBe('1013300000:JA本店');
+        // ドロップダウン側の複製は無い
+        expect(wrapper.find('[data-test="account-info"]').exists()).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    // 顧客指摘 2026-08: iPad + サイドバー展開（実幅 ≈842px）でヘッダーに
+    // 余白があるのに名前が出ていなかった。しきい値 640 の回帰テスト。
+    it('should show the name in the header on iPad width with the sidebar open', async () => {
+      const restore = stubHeaderWidth(842);
+      try {
+        const { wrapper } = await renderHeader({
+          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+        });
+        await flushPromises();
+        expect(wrapper.find('[data-test="account-name-header"]').exists()).toBe(true);
+        expect(wrapper.find('[data-test="account-info"]').exists()).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it('should hide the name in the header and show it in the dropdown when narrow', async () => {
+      const restore = stubHeaderWidth(600);
+      try {
+        const { wrapper } = await renderHeader({
+          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+        });
+        await flushPromises();
+        // ヘッダー側は消えている
+        expect(wrapper.find('[data-test="account-name-header"]').exists()).toBe(false);
+        // 代わりにドロップダウンに出ている
+        const info = wrapper.find('[data-test="account-info"]');
+        expect(info.exists()).toBe(true);
+        expect(info.text()).toBe('1013300000:JA本店');
+      } finally {
+        restore();
+      }
+    });
+  });
 });

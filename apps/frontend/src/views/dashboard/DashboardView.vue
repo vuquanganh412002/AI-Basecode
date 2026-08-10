@@ -226,7 +226,7 @@ onMounted(async () => {
 
     <!-- メニューカードグリッド — mobile 1列 → sm 2 → lg 3 → xl 4。
          useMenu() で権限フィルタ済み。権限なしはバナー+お知らせのみ表示。 -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+    <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 @4xl:grid-cols-4 gap-4 md:gap-6">
       <BaseCard
         v-for="section in visibleSections"
         :key="section.heading"

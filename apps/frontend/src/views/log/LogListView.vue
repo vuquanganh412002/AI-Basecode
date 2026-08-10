@@ -200,10 +200,18 @@ defineExpose({ state, fetchList });
 
 <template>
   <div class="space-y-6">
-    <!-- 検索条件エリア — 4カラムグリッド、4項目で1行を埋める。 -->
+    <!-- 検索条件エリア — 4項目を2列で 2 + 2 に割る（顧客要望 2026-08）。
+         期間の2項目は `show-time` 付きで表示が「YYYY/MM/DD HH:mm:ss」と長い。
+         4列だと 1 セルは
+           (コンテナ960px - カード padding 32 - gap 16×3) / 4 = 220px
+         しかなく、「期間（開始）」(6文字=84px) を引くとピッカーが 128px しか
+         残らず「YYYY/MM/…」で切れていた。2列なら
+           (960 - 32 - 16) / 2 = 456px → ピッカー 364px で日時が全部読める。
+           行1: 期間（開始） | 期間（終了）
+           行2: ログ種別 | ユーザー -->
     <BaseSearchForm
       :loading="loading"
-      :columns="4"
+      :columns="2"
       @search="onSearch"
       @clear="onClear"
     >
@@ -263,7 +271,7 @@ defineExpose({ state, fetchList });
         <!-- BaseAccountDropdown: サーバーページング(50/page)+無限スクロール。
              既定は意図的に表示 `${login_id} ${account_name}`（ログ調査で表示名が
              重複するアカウントを区別）＋ login_id・account_name 双方で検索。 -->
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <BaseAccountDropdown
             id="log-filter-4"
             v-model:value="state.filters.account_id"

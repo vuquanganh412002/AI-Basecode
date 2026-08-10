@@ -277,8 +277,8 @@ function askDelete(row: ShitenListItem): void {
         />
       </label>
 
-      <div class="flex items-center gap-2 md:col-span-2 lg:col-span-2">
-        <span id="shiten-filter-kinyu-shiten-flg-label" class="text-sm font-medium whitespace-nowrap text-text-main">
+      <div class="flex items-start flex-wrap gap-2 @lg:col-span-2">
+        <span id="shiten-filter-kinyu-shiten-flg-label" class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
           金融機関支店フラグ
         </span>
         <a-radio-group

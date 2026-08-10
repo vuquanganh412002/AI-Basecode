@@ -5,6 +5,12 @@ import { FileUpload } from '@/database/entities/file-upload.entity';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { StorageService } from '@/modules/storage/storage.service';
 import { todayIsoJst } from '@/common/utils/datetime';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+import { SystemActor } from '@/common/constants/system-actor.constant';
+import { logBatchRun } from '../batch-run-audit';
+
+/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
+const BATCH_SCREEN = 'ファイル削除バッチ (file-cleanup)';
 import type { BatchJob } from '@/batch/batch-job.interface';
 
 /** 1回のクエリで処理する最大行数。keyset(id>cursor)でページングし対象が尽きるまでループ。 */
@@ -62,6 +68,7 @@ export class FileCleanupService implements BatchJob {
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     private readonly storage: StorageService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async run(): Promise<void> {
@@ -84,12 +91,24 @@ export class FileCleanupService implements BatchJob {
       cutoffParams: {},
     });
 
+    const durationMs = Date.now() - startedAt;
     this.logger.log({
       event: 'file_cleanup.done',
       today,
       upload,
       download,
-      durationMs: Date.now() - startedAt,
+      durationMs,
+    });
+
+    // 実行サマリを t_log へ 1 行（顧客要望 2026-08）。
+    // S3 削除に失敗した行があれば WARNING にする（件数は summary で追える）。
+    await logBatchRun(this.auditLog, {
+      screen: BATCH_SCREEN,
+      operation: 'ファイル削除',
+      actor: SystemActor.BATCH_NIGHTLY,
+      table: 't_file_upload',
+      summary: { today, upload, download, durationMs },
+      hasFailure: upload.s3Failed > 0 || download.s3Failed > 0,
     });
   }
 

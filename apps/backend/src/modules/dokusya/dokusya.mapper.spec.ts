@@ -55,6 +55,33 @@ describe('dokusya.mapper — NULL 許容列の直列化', () => {
       expect(res.tanka_id).toBe(1);
     });
 
+    // 顧客要件 2026-08 — 画面の「紙版購読状況　有り」判定に使うので API に載せる。
+    it('should serialize honshi_kodoku_flg', () => {
+      expect(
+        toDokusyaResponse(
+          buildDokusya({ honshiKodokuFlg: true } as Partial<Dokusya>),
+          joins,
+        ).honshi_kodoku_flg,
+      ).toBe(true);
+      expect(
+        toDokusyaResponse(
+          buildDokusya({ honshiKodokuFlg: false } as Partial<Dokusya>),
+          joins,
+        ).honshi_kodoku_flg,
+      ).toBe(false);
+    });
+
+    // DB は NOT NULL DEFAULT FALSE だが、部分 select 等で欠けても
+    // 「有り」を誤表示しないよう false に倒す。
+    it('should fall back to false when honshi_kodoku_flg is missing', () => {
+      expect(
+        toDokusyaResponse(
+          buildDokusya({ honshiKodokuFlg: undefined } as Partial<Dokusya>),
+          joins,
+        ).honshi_kodoku_flg,
+      ).toBe(false);
+    });
+
     it('should coerce a bigint-as-string id to number', () => {
       // TypeORM は bigint 列を string で返す。JSON 契約は numeric を保つ。
       const entity = buildDokusya({

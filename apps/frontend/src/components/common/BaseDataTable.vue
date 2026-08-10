@@ -72,12 +72,12 @@ function handleChange(
     <!-- 任意のテーブルヘッダ -->
     <div
       v-if="props.title || $slots.headerActions"
-      class="p-4 border-b border-border flex items-center justify-between gap-4"
+      class="p-4 border-b border-border flex items-center flex-wrap justify-between gap-4"
     >
       <h3 v-if="props.title" class="font-bold text-text-main">
         {{ props.title }}
       </h3>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <slot name="headerActions" />
       </div>
     </div>

@@ -344,6 +344,11 @@ const johoHenkoBaseline = ref<string | null>(null);
 const detailDenshiShoninStatus = ref<number | null>(null);
 /** 電子版読者種別 (m_code DENSHI_DOKUSYA_SHUBETSU). Edit-mode readonly. */
 const detailDenshiDokusyaShubetsu = ref<number | null>(null);
+/**
+ * 本紙購読フラグ — 電子版読者管理システムの users.subscribe_flg 連携値。
+ * 読取専用（この画面から更新しない）ので formState ではなく detail 側に持つ。
+ */
+const detailHonshiKodokuFlg = ref(false);
 /** 購読者ID — DB の値 (dokusya_id) をそのまま表示する（プレフィックス無し）。 */
 const detailIdLabel = computed<string>(() => {
   if (dokusyaId.value === null) return '';
@@ -363,6 +368,18 @@ const isDenshiRejected = computed(
     isEdit.value &&
     isDigital.value &&
     detailDenshiShoninStatus.value === DenshiShoninStatus.REJECTED,
+);
+
+/**
+ * 「紙版購読状況　有り」を出すか（顧客要件 2026-08）。
+ *
+ * 電子版(2) の承認待ち(0) で、電子版読者管理システムから連携された
+ * 本紙購読フラグが true のときだけ表示する。承認者に「この申込者は既に
+ * 紙版も購読している」ことを知らせるための注記なので、承認待ち以外
+ * （承認済み / 否認 / 紙版 / 併読）では出さない。
+ */
+const showHonshiKodokuHint = computed(
+  () => isPending.value && detailHonshiKodokuFlg.value,
 );
 
 // ─── ドロップダウン選択肢 ──────────────────────────────────────────────
@@ -612,6 +629,7 @@ function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
   detailRireki.value = data.rireki_no;
   detailDenshiShoninStatus.value = data.denshi_shonin_status;
   detailDenshiDokusyaShubetsu.value = data.denshi_dokusya_shubetsu;
+  detailHonshiKodokuFlg.value = data.honshi_kodoku_flg ?? false;
   queueMicrotask(() => {
     isHydrating.value = false;
   });
@@ -620,8 +638,11 @@ function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
 async function loadDetail(id: number): Promise<void> {
   try {
     const resp = await getDokusya(id);
-    // 通常編集の初期適用日は翌日（未来日のみ許可・過去値は使わない）。
-    applyDetailResponse(resp.data, tomorrowIsoTokyo());
+    // 参照（未編集）の間は t_dokusya の実値をそのまま見せる（顧客要件 2026-08）。
+    // 以前は読込時点で翌日を入れていたが、何も触っていないのに DB と違う日付が
+    // 出て「この日付で登録済み」と誤読される。未来日への差し替えは編集を始めた
+    // 時点（johoEditable が true になる瞬間）で行う。
+    applyDetailResponse(resp.data, resp.data.joho_henko_tekiyo_date ?? '');
   } catch (err) {
     const ax = err as AxiosError<{ error_code?: string; message?: string }>;
     const code = ax?.response?.data?.error_code;
@@ -1056,6 +1077,19 @@ watch(
     }
   },
 );
+
+// 編集を始めた瞬間（johoEditable が false→true）に適用日を翌日で埋める
+// （顧客要件 2026-08）。参照中は DB 実値を出す方針にしたため、そのまま編集に
+// 入ると過去日が残り「本日より後」の検証で必ず落ちる。ここで一度だけ既定値を
+// 入れ、以降はユーザー入力を尊重する（true の間は再発火しない）。
+// 変更を戻して未編集に戻った場合は、上の watch が johoHenkoBaseline（＝DB 実値）
+// へ戻すので参照時の表示に復帰する。
+watch(johoEditable, (editable, wasEditable) => {
+  if (isHydrating.value) return;
+  if (editable && !wasEditable) {
+    formState.joho_henko_tekiyo_date = tomorrowIsoTokyo();
+  }
+});
 
 // 再購読中は情報変更適用日(joho)を購読開始日へ追随させる（新規登録と同じく joho=
 // 購読開始日。入力は disabled・顧客要件 2026-07）。手続種類 0→1 で otherInfoChanged
@@ -2011,6 +2045,7 @@ function resetFormState(): void {
   detailRireki.value = null;
   detailDenshiShoninStatus.value = null;
   detailDenshiDokusyaShubetsu.value = null;
+  detailHonshiKodokuFlg.value = false;
   notFoundMessage.value = '';
 }
 
@@ -2116,7 +2151,7 @@ defineExpose({
     <div
       v-if="isEdit && showModeBar"
       data-test="dokusya-mode-bar"
-      class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4 flex items-center justify-between gap-4"
+      class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4 flex items-center flex-wrap justify-between gap-4"
     >
       <div class="text-sm">
         <template v-if="isReferenceMode">
@@ -2220,12 +2255,27 @@ defineExpose({
             ┌─ 氏名_氏 + 氏名_名 ─┐  ┌─ かな_氏 + かな_名 ─┐  部数  単価
         電子版読者種別 と ID は編集モード専用 (画面項目定義 No.3 / No.4).
       -->
-      <section class="bg-surface-card border border-border rounded-ant p-6">
+      <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">一般情報</h3>
 
         <div class="space-y-6">
-          <!-- Row 1: 購読種別 / 手続種類 / 電子版読者種別 / ID ───────── -->
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <!-- Row 1: 購読種別 / 手続種類 / 電子版読者種別 / ID ─────────
+               2列化のしきい値が @3xl(768px) なのはサイドバーの開閉をまたぐため:
+                 サイドバー展開 → コンテナ 1024-288-64 = 672px → 1列（1項目1行）
+                 サイドバー格納 → コンテナ 1024-0-64  = 960px → 2列（各1/2）
+               672 < 768 <= 960 なので、この1つのしきい値で両方の見え方になる。
+
+               4列化は @7xl(1280px) 以上（顧客要望 2026-08）。この行はラジオの
+               選択肢が長く、紙版・電子版・併読の3件を折り返さず並べるのに実測
+               290px 要る（ラジオ余白を詰めた後の値）。4列で 290px を確保するには
+               290×4 + gap 16×3 = 1208px 必要なので、@6xl(1152px) では足りず
+               @7xl から。
+
+               電子版読者種別 と ID は編集モード専用だが、列数は編集/新規で
+               変えない。新規作成では左半分に 購読種別・手続種類 が各 1/4 で並び
+               右半分が空くが、これは編集モードと同じ桁位置に揃えるためで意図的
+               （顧客要望 2026-08）。 -->
+          <div class="grid grid-cols-1 @3xl:grid-cols-2 @7xl:grid-cols-4 gap-4">
             <a-form-item
               name="dokusya_shubetsu"
               :validate-status="fieldErrors.dokusya_shubetsu ? 'error' : ''"
@@ -2248,8 +2298,18 @@ defineExpose({
                   <span>購読種別</span>
                   <span class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <!-- 選択肢3件をスマホ幅でも1行に収める（顧客要望 2026-08）。
+                     antd は各ラベルに padding-inline 8px、各ラッパーに
+                     margin-inline-end 8px を入れるため、素のままだと
+                     「紙版 / 電子版 / 併読（紙版＋電子版）」で ≈322px 必要になり、
+                     スマホ（コンテナ358px - セクション p-4 = 326px）に対して
+                     ぎりぎり入らず 併読 だけ2行目へ落ちていた。
+                     余白を 4px へ詰めると ≈290px となり収まる。
+                     antd の CSS-in-JS は unlayered で Tailwind の utilities より
+                     強いため `!` が要る（.claude/rules/vue.md §a11y の脚注と同じ理由）。 -->
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0 [&_.ant-radio-wrapper]:!me-1 [&_.ant-radio+span]:!px-1"
                     name="dokusya_shubetsu"
                     v-model:value="formState.dokusya_shubetsu"
                     :disabled="isEdit"
@@ -2289,8 +2349,9 @@ defineExpose({
                   <span>手続種類</span>
                   <span class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0"
                     name="tetsuzuki_shurui"
                     v-model:value="formState.tetsuzuki_shurui"
                     :disabled="isEdit && !canResubscribe"
@@ -2321,8 +2382,9 @@ defineExpose({
                 <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
                   <span>電子版読者種別</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0"
                     name="denshi_dokusya_shubetsu"
                     :value="detailDenshiDokusyaShubetsu"
                     disabled
@@ -2350,7 +2412,7 @@ defineExpose({
           </div>
 
           <!-- Row 2: 管理支店 / 支店 / 組合員コード / 履歴No ───────── -->
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4">
             <a-form-item
               name="kanri_shiten_id"
               :validate-status="fieldErrors.kanri_shiten_id ? 'error' : ''"
@@ -2418,10 +2480,18 @@ defineExpose({
             </a-form-item>
           </div>
 
-          <!-- Row 3: 購読者氏名(subgrid) / 購読者かな(subgrid) -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Col 1 — 購読者氏名 (氏 + 名 サブグリッド) -->
-            <div class="grid grid-cols-2 gap-2">
+          <!-- Row 3: 購読者氏名(subgrid) / 購読者かな(subgrid)。
+               2列化は @4xl(896px) から — 各列がさらに 氏+名 の2列サブグリッドを
+               持つため、外側が2列になった時点で1行に入力欄が4つ並ぶ。@lg(512px)
+               で2列にすると 1欄 ≈155px しかなく氏名が読めない。それ未満では
+               漢字グループ / かなグループ を1行ずつに分ける。 -->
+          <div class="grid grid-cols-1 @4xl:grid-cols-2 gap-4">
+            <!-- Col 1 — 購読者氏名 (氏 + 名 サブグリッド)。
+                 氏+名 は本来ペアで横に並べたいが、スマホ幅では
+                 コンテナ ≈358px → 1セル ≈150px しかなく、
+                 「購読者氏名_氏」(7文字) のラベルに対して入力欄が狭すぎる。
+                 @md(448px) 未満は 1 項目 1 行へ落とす（顧客要望 2026-08）。 -->
+            <div class="grid grid-cols-1 @md:grid-cols-2 gap-2">
               <a-form-item
                 name="shimei_sei"
                 :validate-status="fieldErrors.shimei_sei ? 'error' : ''"
@@ -2448,7 +2518,7 @@ defineExpose({
             </div>
 
             <!-- Col 2 — 購読者かな (氏 + 名 サブグリッド) -->
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 @md:grid-cols-2 gap-2">
               <a-form-item
                 name="shimei_kana_sei"
                 :validate-status="fieldErrors.shimei_kana_sei ? 'error' : ''"
@@ -2476,7 +2546,7 @@ defineExpose({
           </div>
 
           <!-- Row 4: 購読部数 / 新聞単価 -->
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4">
             <!-- Col 1 — 購読部数 -->
             <a-form-item
               name="dokusya_busu"
@@ -2526,10 +2596,10 @@ defineExpose({
       </section>
 
       <!-- ─── Section 2: 購読者情報 ──────────────────────────────── -->
-      <section class="bg-surface-card border border-border rounded-ant p-6">
+      <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読者情報</h3>
 
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4">
           <a-form-item
             name="yubin_no"
             :validate-status="fieldErrors.yubin_no ? 'error' : ''"
@@ -2597,7 +2667,7 @@ defineExpose({
           <a-input v-model:value="formState.tatemono_mei" :maxlength="100" :disabled="reportFieldDisabled" />
         </a-form-item>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item
             name="renrakusaki_1"
             :validate-status="fieldErrors.renrakusaki_1 ? 'error' : ''"
@@ -2620,7 +2690,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item
             name="email"
             :validate-status="fieldErrors.email ? 'error' : ''"
@@ -2652,7 +2722,7 @@ defineExpose({
           </a-form-item>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item
             name="mail_magazine_flg"
           >
@@ -2662,8 +2732,9 @@ defineExpose({
               <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
                 <span>メールマガジン</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="mail_magazine_flg"
                   v-model:value="formState.mail_magazine_flg"
                   :disabled="isPaper"
@@ -2687,8 +2758,9 @@ defineExpose({
               <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
                 <span>性別</span>
               </legend>
-              <div class="flex items-center min-h-8">
+              <div class="flex items-center flex-wrap min-h-8">
                 <a-radio-group
+                  class="min-w-0"
                   name="gender"
                   v-model:value="formState.gender"
                 >
@@ -2760,7 +2832,7 @@ defineExpose({
         -->
         <div v-show="!formState.haitatsu_same_flg" class="space-y-4">
           <!-- Row 1: 4-col 住所 -->
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4">
             <a-form-item
               name="haitatsu_yubin_no"
               :validate-status="fieldErrors.haitatsu_yubin_no ? 'error' : ''"
@@ -2830,7 +2902,7 @@ defineExpose({
           </a-form-item>
 
           <!-- Row 3: 2-col 連絡先 -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
             <a-form-item name="haitatsu_renrakusaki_1">
               <template #label><span>連絡先1</span></template>
               <a-input v-model:value="formState.haitatsu_renrakusaki_1" :maxlength="15" />
@@ -2842,10 +2914,11 @@ defineExpose({
             </a-form-item>
           </div>
 
-          <!-- Row 4: 2-col with subgrid 配達先氏名 -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Row 4: 2-col with subgrid 配達先氏名。Row 3（購読者氏名）と同じく
+               列内が 2列サブグリッドなので、2列化は @4xl から。 -->
+          <div class="grid grid-cols-1 @4xl:grid-cols-2 gap-4">
             <!-- Col 1 — 漢字 group -->
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 @md:grid-cols-2 gap-2">
               <a-form-item
                 name="haitatsu_shimei_sei"
                 :validate-status="fieldErrors.haitatsu_shimei_sei ? 'error' : ''"
@@ -2872,7 +2945,7 @@ defineExpose({
             </div>
 
             <!-- Col 2 — かな group -->
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 @md:grid-cols-2 gap-2">
               <a-form-item
                 name="haitatsu_shimei_kana_sei"
                 :validate-status="fieldErrors.haitatsu_shimei_kana_sei ? 'error' : ''"
@@ -2902,10 +2975,10 @@ defineExpose({
       </section>
 
       <!-- ─── Section 4: 販売店・支払方法 ──────────────────────── -->
-      <section class="bg-surface-card border border-border rounded-ant p-6">
+      <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">販売店・支払方法</h3>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4">
           <a-form-item
             name="hanbaiten_id"
             :validate-status="fieldErrors.hanbaiten_id ? 'error' : ''"
@@ -2951,7 +3024,7 @@ defineExpose({
         </div>
 
         <!-- Row 2: 郵送区分 / 支払方法 / 購読料支払サイクル (with ヶ月 suffix) -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4 mt-2">
           <a-form-item name="yubin_kubun">
             <template #label><span>郵送区分</span></template>
             <a-select
@@ -3004,7 +3077,7 @@ defineExpose({
           オプション側にこれら値を保持しているため、選択 ID を computed
           で引いて 2 つの読取専用 input にバインドする。
         -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4 mt-2">
           <a-form-item
             name="bank_shiten_id"
             :validate-status="fieldErrors.bank_shiten_id ? 'error' : ''"
@@ -3037,7 +3110,7 @@ defineExpose({
         </div>
 
         <!-- Row 4: 銀行口座情報 (貯金種目 / 口座番号 / 名義) — ユーザー入力 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4 mt-2">
           <a-form-item
             name="hikiotoshi_yokin_shubetsu"
             :validate-status="fieldErrors.hikiotoshi_yokin_shubetsu ? 'error' : ''"
@@ -3091,7 +3164,7 @@ defineExpose({
       </section>
 
       <!-- ─── Section 5: 購読者層分類 (機能定義 §11.x + 画面項目定義 No.50-51) -->
-      <section class="bg-surface-card border border-border rounded-ant p-6">
+      <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読者層分類</h3>
 
         <div class="space-y-6">
@@ -3106,7 +3179,7 @@ defineExpose({
           -->
           <div
             class="grid grid-cols-1 gap-4"
-            :class="{ 'md:grid-cols-2': hasDokusyasoDependent }"
+            :class="{ '@lg:grid-cols-2': hasDokusyasoDependent }"
             data-test="dokusyaso-bunrui-row"
           >
             <a-form-item
@@ -3119,12 +3192,21 @@ defineExpose({
                   <span>読者属性</span>
                   <span v-if="isDigitalOrBoth" class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <!-- 狭幅は縦積み（flex-col）、@3xl(768px) 以上は横並び。
+                     選択肢5件を横一列に並べるには実測 ≈506px 要る。狭幅
+                     （特に従属項目が出て2カラムになり幅が半分になるとき）は
+                     「農業者 / JAグループ役職員」「企業・団体 / 学生」「その他」と
+                     2件・2件・1件で不揃いに折り返り、どこまでが1件か読み取り
+                     にくかった。そこで狭いうちは1行1件に統一する。
+                     幅が足りる大画面では下の 主な生産物 と同じ横並びに戻す
+                     （顧客要望 2026-08）。横並び時も flex-wrap なので、
+                     2カラム時など足りない場合は折り返して破綻しない。 -->
+                <div class="flex items-start flex-wrap min-h-8">
                   <a-radio-group
                     name="dokusyaSoBunruiSingle"
                     v-model:value="dokusyaSoBunruiSingle"
                     :options="dokusyaSoBunruiOptions"
-                    class="flex flex-wrap gap-x-6 gap-y-2"
+                    class="min-w-0 flex flex-col gap-y-2 @3xl:flex-row @3xl:flex-wrap @3xl:gap-x-6"
                   />
                 </div>
               </fieldset>
@@ -3135,8 +3217,21 @@ defineExpose({
               チェックボックス自体が「かつJAグループ役職員」と名乗るのでラベルは
               重複になる。ただし枠だけは残す — 消すとラベル 1 行分せり上がり、
               左のラジオと高さが揃わない。読み上げには出さない。
+
+              高さ合わせが要るのは 2 カラムに並ぶ @lg 以上だけ。1 カラムの
+              狭幅では上下に積むので、空ラベルはただの余白になってしまう
+              （顧客指摘 2026-08）。
+
+              消すのは span ではなく antd のラベル行そのもの。span を
+              display:none にしても antd が出す .ant-form-item-label
+              （label 22px + padding-bottom 8px）は残り、余白は変わらない。
+              antd の CSS-in-JS は unlayered で Tailwind より強いので ! が要る。
             -->
-            <a-form-item v-if="showJaYakushokuin" name="ja_yakushokuin_flg">
+            <a-form-item
+              v-if="showJaYakushokuin"
+              name="ja_yakushokuin_flg"
+              class="[&_.ant-form-item-label]:!hidden @lg:[&_.ant-form-item-label]:!block"
+            >
               <template #label>
                 <span aria-hidden="true" class="invisible">かつJAグループ役職員</span>
               </template>
@@ -3149,7 +3244,11 @@ defineExpose({
             </a-form-item>
 
             <!-- 読者属性=企業・団体。電子版 profession_and_agri(0/1) と 1:1。 -->
-            <a-form-item v-if="showNogyoKankei" name="nogyo_kankei_flg">
+            <a-form-item
+              v-if="showNogyoKankei"
+              name="nogyo_kankei_flg"
+              class="[&_.ant-form-item-label]:!hidden @lg:[&_.ant-form-item-label]:!block"
+            >
               <template #label>
                 <span aria-hidden="true" class="invisible">農業関係</span>
               </template>
@@ -3188,7 +3287,7 @@ defineExpose({
           <div
             v-if="hasNogyosha"
             class="grid grid-cols-1 gap-4"
-            :class="{ 'md:grid-cols-2': showNogyosyaSonota }"
+            :class="{ '@lg:grid-cols-2': showNogyosyaSonota }"
             data-test="nogyosya-bunrui-row"
           >
             <a-form-item
@@ -3200,12 +3299,12 @@ defineExpose({
                 <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
                   <span>主な生産物（農業者の場合）</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-checkbox-group
                     name="nogyosyaBunruiArr"
                     v-model:value="nogyosyaBunruiArr"
                     :options="nogyosyaBunruiOptions"
-                    class="flex flex-wrap gap-x-6 gap-y-2"
+                    class="min-w-0 flex flex-wrap gap-x-6 gap-y-2"
                   />
                 </div>
               </fieldset>
@@ -3246,11 +3345,11 @@ defineExpose({
         なので別行で残す (任意入力, 未来日チェックは validateClient
         側で実施).
       -->
-      <section class="bg-surface-card border border-border rounded-ant p-6">
+      <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
         <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読開始日、中止日</h3>
 
         <div class="space-y-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
             <a-form-item
               name="dokusya_kaishi_date"
               :validate-status="fieldErrors.dokusya_kaishi_date ? 'error' : ''"
@@ -3267,8 +3366,9 @@ defineExpose({
                   <span>購読開始日</span>
                   <span class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0"
                     name="kaishiDateMode"
                     v-if="isDigitalCreate"
                     v-model:value="kaishiDateMode"
@@ -3345,14 +3445,7 @@ defineExpose({
                 :disabled-date="disabledChushiDate"
               />
               <p
-                v-if="hasActiveKaiyaku"
-                class="text-text-description text-xs mt-1"
-                data-test="active-kaiyaku-hint"
-              >
-                既に解約予約されています。変更するには履歴画面で解約を取消してください。
-              </p>
-              <p
-                v-else-if="isEdit"
+                v-if="isEdit && !hasActiveKaiyaku"
                 class="text-text-description text-xs mt-1"
                 data-test="chushi-stop-hint"
               >
@@ -3361,39 +3454,20 @@ defineExpose({
             </a-form-item>
           </div>
 
-          <!--
-            画面項目定義 No.55 — 請求開始月 (seikyu_kaishi_month) は
-            電子版/併読の場合のみ表示, 読取専用 (電子版読者管理
-            システム決定後の値を受信して表示). ただし create の
-            電子版 create では非表示 (顧客要件)。
-          -->
+          <!-- 読者情報変更適用日 と 請求開始月 は 1 つのグリッドに入れて
+               横に並べる（顧客要望 2026-08）。以前はそれぞれ別の 2 列グリッドに
+               入っており、各項目が自分の行の左半分だけを使って右半分が空いたまま
+               縦に並んでいた。表示条件が違う（適用日=編集時のみ、
+               請求開始月=電子版/併読のみ）ので v-if は各 a-form-item 側へ移し、
+               両方とも出ないときだけ外側を消す（空の div が space-y-6 の
+               余白を作らないようにする）。
+               並び順は 適用日（左）→ 請求開始月（右）。 -->
           <div
-            v-if="isDigitalOrBoth && !isDigitalCreate"
-            class="grid grid-cols-1 md:grid-cols-2 gap-4"
+            v-if="(isDigitalOrBoth && !isDigitalCreate) || isEdit"
+            class="grid grid-cols-1 @lg:grid-cols-2 gap-4"
           >
-            <a-form-item name="seikyu_kaishi_month">
-              <template #label><span>請求開始月</span></template>
-              <!--
-                update: YYYYMM を YYYY/MM に整形して読取専用表示 (電子版読者
-                管理システムが決定した値を受信)。create: 未確定なので raw 値 +
-                「(電子版システムが決定)」placeholder のまま (従来ロジック)。
-                どちらも :value バインドのみで formState は変更しない。
-              -->
-              <a-input
-                :value="isEdit ? seikyuMonthDisplay : formState.seikyu_kaishi_month"
-                disabled
-                placeholder="(電子版システムが決定)"
-              />
-            </a-form-item>
-          </div>
-
-          <!--
-            読者情報変更適用日 (joho_henko_tekiyo_date / 画面項目定義 No.54)。
-            編集時のみ表示。顧客要件によりユーザー入力（既定は当日・過去日不可）。
-            備考の直前（末尾）に配置。
-          -->
-          <div v-if="isEdit" class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <a-form-item
+              v-if="isEdit"
               name="joho_henko_tekiyo_date"
               :validate-status="fieldErrors.joho_henko_tekiyo_date ? 'error' : ''"
               :help="fieldErrors.joho_henko_tekiyo_date"
@@ -3415,7 +3489,43 @@ defineExpose({
                 :disabled-date="isTodayOrPastDayTokyo"
               />
             </a-form-item>
+
+            <!--
+              画面項目定義 No.55 — 請求開始月 (seikyu_kaishi_month) は
+              電子版/併読の場合のみ表示, 読取専用 (電子版読者管理
+              システム決定後の値を受信して表示). ただし create の
+              電子版 create では非表示 (顧客要件)。
+            -->
+            <a-form-item
+              v-if="isDigitalOrBoth && !isDigitalCreate"
+              name="seikyu_kaishi_month"
+            >
+              <template #label><span>請求開始月</span></template>
+              <!--
+                update: YYYYMM を YYYY/MM に整形して読取専用表示 (電子版読者
+                管理システムが決定した値を受信)。create: 未確定なので raw 値 +
+                「(電子版システムが決定)」placeholder のまま (従来ロジック)。
+                どちらも :value バインドのみで formState は変更しない。
+              -->
+              <a-input
+                :value="isEdit ? seikyuMonthDisplay : formState.seikyu_kaishi_month"
+                disabled
+                placeholder="(電子版システムが決定)"
+              />
+            </a-form-item>
           </div>
+
+          <!-- 紙版購読状況（顧客要件 2026-08）— 備考の直前。
+               電子版の承認待ちで、電子版読者管理システム連携の
+               本紙購読フラグが立っている読者にだけ出す注記。入力項目ではなく
+               読取専用の表示なので a-form-item ではなく素のブロックで置く。 -->
+          <p
+            v-if="showHonshiKodokuHint"
+            class="text-sm font-medium text-text-main"
+            data-test="honshi-kodoku-hint"
+          >
+            紙版購読状況　有り
+          </p>
 
           <a-form-item
             name="biko"
@@ -3446,7 +3556,7 @@ defineExpose({
            無い場合は v-else の更新ボタンが出るが shubetsuPermitted=false で
            非活性となり、実質読み取り専用になる（権限が無い購読種別は
            登録/更新ボタンを非活性にするのみで、警告文は出さない）。 -->
-      <div class="flex justify-start gap-2 pt-4">
+      <div class="flex flex-wrap justify-start gap-2 pt-4">
           <!-- 明示 :disabled を持たせ、a-form の disabled コンテキスト（承認待ちは
                readOnlyForm=true）に飲まれてボタンが無効化されるのを防ぐ。 -->
           <a-button

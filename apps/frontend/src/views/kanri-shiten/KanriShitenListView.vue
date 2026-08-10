@@ -160,11 +160,18 @@ function askDelete(row: KanriShitenListItem): void {
 
 <template>
   <div class="space-y-6">
-    <!-- 検索エリア — 5フィールドを4列グリッドに配置し、都道府県 dropdown +
-         テキスト4項目が自然に2行へ折り返す。 -->
+    <!-- 検索エリア — 5フィールドを3列で 3 + 2 に割る（顧客要望 2026-08）。
+         4列では 4 + 1 になり FAX だけが次行に取り残されて座りが悪かった。
+         幅の面でも3列が要る: 4列だと 1 セルは
+           (コンテナ960px - カード padding 32 - gap 16×3) / 4 = 220px
+         しかなく、「管理支店コード」(7文字=98px) を引くと入力欄が 114px しか
+         残らずプレースホルダが「選択して…」で切れていた。3列なら
+           (960 - 32 - 16×2) / 3 = 298px → 入力欄 192px で全文入る。
+           行1: 管理支店コード | 管理支店名 | 都道府県
+           行2: 電話番号 | FAX -->
     <BaseSearchForm
       :loading="loading"
-      :columns="4"
+      :columns="3"
       @search="onSearch"
       @clear="onClear"
     >

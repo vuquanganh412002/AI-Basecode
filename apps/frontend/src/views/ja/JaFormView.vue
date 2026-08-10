@@ -343,7 +343,7 @@ defineExpose({ submitWith });
         @finish="onFormSubmit"
       >
         <!-- 行1: JAコード / JA名 / JA名(カナ) -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="ja_code"
             :validate-status="allFieldErrors.ja_code ? 'error' : ''"
@@ -389,7 +389,7 @@ defineExpose({ submitWith });
         </div>
 
         <!-- 行2: 都道府県 / 郵便番号 / 住所 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="todofuken_code"
             :validate-status="allFieldErrors.todofuken_code ? 'error' : ''"
@@ -426,7 +426,7 @@ defineExpose({ submitWith });
         </div>
 
         <!-- 行3: 電話番号 / FAX / メールアドレス -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             label="電話番号"
             name="tel"
@@ -474,7 +474,7 @@ defineExpose({ submitWith });
 
         <!-- 行4: 担当部署（1/3）/ 担当者（1/3）/ 税区分 + 中央会フラグ が
              最後の 1/3 を分け合う（各 radio group が半列に収まる）。 -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item label="担当部署名" name="tanto_busho">
             <a-input v-model:value="formState.tanto_busho" :maxlength="100" />
           </a-form-item>
@@ -493,8 +493,9 @@ defineExpose({ submitWith });
                   <span>税区分</span>
                   <span class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0"
                     name="zei_kubun"
                     v-model:value="formState.zei_kubun"
                   >
@@ -518,8 +519,9 @@ defineExpose({ submitWith });
                   <span>中央会フラグ</span>
                   <span class="text-error ml-1">*</span>
                 </legend>
-                <div class="flex items-center min-h-8">
+                <div class="flex items-center flex-wrap min-h-8">
                   <a-radio-group
+                    class="min-w-0"
                     name="chuokai_flg"
                     v-model:value="formState.chuokai_flg"
                     :disabled="isRestrictedEditor"
@@ -534,7 +536,7 @@ defineExpose({ submitWith });
         </div>
 
         <!-- 行5: JASTEM 決済メタデータ（任意、※空文字許容）。 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-6">
           <a-form-item
             label="委託者コード"
             name="jastem_itakusha_code"

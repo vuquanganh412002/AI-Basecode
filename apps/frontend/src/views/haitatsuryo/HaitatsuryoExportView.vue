@@ -225,11 +225,11 @@ defineExpose({
 <template>
   <div class="space-y-6">
     <!-- 出力条件エリア（年月日 / 配達手数料支払サイクル） -->
-    <div class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
+    <div class="@container bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
       <!-- 4カラムグリッド（SCR-026 と同じ）。項目ごとにカード幅の 1/4 を占め、
            狭幅では 2列 → 1列へ畳む。items-start: 年月日 直下にエラーが出ても
            配達サイクルが上下にずれない。 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+      <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4 items-start">
         <!-- ラベルは入力欄の上。「配達手数料支払サイクル」は約150px あり、
              1/4 セル（1280px 幅で212px）に横並びで置くと入力欄が50pxしか
              残らない。縦積みなら入力欄がセル幅いっぱい＝カードの 1/4 を使える。 -->
@@ -268,7 +268,7 @@ defineExpose({
         </div>
       </div>
 
-      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
+      <div class="pt-4 mt-3 flex items-center flex-wrap justify-start gap-2">
         <a-button type="primary" data-test="preview-btn" @click="onPreview">
           検索
         </a-button>

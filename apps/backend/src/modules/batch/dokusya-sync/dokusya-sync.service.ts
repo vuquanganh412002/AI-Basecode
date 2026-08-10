@@ -21,6 +21,8 @@ import {
   type DenshiUserRow,
   type DenshiFkResolution,
 } from './dokusya-sync.mapper';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+import { logBatchRun } from '../batch-run-audit';
 
 /** advisory lock キー（本バッチ専用の固定値・多重起動防止）。 */
 const SYNC_LOCK_KEY = 4210010;
@@ -36,6 +38,9 @@ export const PAGE_SIZE = 1_000;
  * 残りは次回実行が続きから読む。通常運用で到達しない値にしてある。
  */
 const MAX_ROWS_PER_RUN = 500_000;
+
+/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
+const BATCH_SCREEN = '電子版読者同期バッチ (dokusya-sync)';
 
 interface SyncCounts {
   read: number;
@@ -81,6 +86,7 @@ export class DokusyaSyncService implements BatchJob {
     private readonly rireki: DokusyaRirekiService,
     @InjectDataSource() private readonly mainDb: DataSource,
     private readonly configService: ConfigService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async run(): Promise<void> {
@@ -253,12 +259,28 @@ export class DokusyaSyncService implements BatchJob {
     }
 
     await this.saveState(safeId, safeTs);
-    this.logger.log({
-      event: 'dokusya_sync.summary',
+    const summary = {
       ...counts,
       pages,
       full_sync: fullSync,
       stopped: stop ?? 'done',
+    };
+    this.logger.log({ event: 'dokusya_sync.summary', ...summary });
+
+    // 実行サマリを t_log へ 1 行（顧客要望 2026-08）。
+    // 行単位の監査ではないので「どの購読者がどう変わったか」までは追えない。
+    // まずは「いつ・何件動いたか」を DB に残し、CloudWatch を見られない
+    // 運用者でも実行痕跡を追えるようにする段階的対応。
+    // counts.failed > 0 なら WARNING（個々の失敗は record_error のログを参照）。
+    await logBatchRun(this.auditLog, {
+      screen: BATCH_SCREEN,
+      // 実行者名は t_dokusya_rireki.created_by と同じ値。監査列と突き合わせて
+      // 「この行は同期バッチが書いた」と辿れるようにする。
+      operation: '電子版読者同期',
+      actor: SystemActor.DENSHI_SYNC,
+      table: 't_dokusya',
+      summary,
+      hasFailure: counts.failed > 0,
     });
   }
 
@@ -469,8 +491,20 @@ export class DokusyaSyncService implements BatchJob {
           source: 'BATCH',
           actor,
         });
-        // master 論理削除（購読中止日は values.dokusyaChushiDate に反映済み）。
-        await m.softDelete(Dokusya, existing.dokusyaId);
+        // master は論理削除しない（顧客要件 2026-08）。
+        //
+        // 以前はここで softDelete していたが、SCR-014 の購読停止は「予約」であり
+        // その時点で電子版へ cancel を push する（DokusyaService.stop）。電子版は
+        // 受信と同時に status=9 になるため、中止日が未来でも次の同期でこの分岐に
+        // 入り、master が即座に消えていた（予約したのに一覧から居なくなる）。
+        //
+        // 加えて到来日バッチ（dokusya-apply-due）は
+        // `WHERE deleted_at IS NULL AND tetsuzuki_shurui <> 解約` で対象を拾うため、
+        // ここで論理削除すると予約が永久に確定されない。
+        //
+        // 解約の確定形は「tetsuzuki_shurui=解約 + dokusya_chushi_date 保持、
+        // deleted_at は立てない」で到来日バッチと統一する。購読中止日は
+        // values.dokusyaChushiDate（電子版 users.deleted_at 由来）に反映済み。
         counts.cancelled++;
         return;
       }

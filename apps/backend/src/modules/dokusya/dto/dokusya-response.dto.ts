@@ -91,6 +91,12 @@ export class DokusyaResponseDto {
       '電子版会員ID（外部システムの会員ID）。外部連携機能が設定する読取専用値。',
   })
   denshi_kaiin_id: number | null;
+  @ApiProperty({
+    description:
+      '本紙購読フラグ。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携した値。' +
+      '購読種別=電子版のとき、画面に「紙版購読状況　有り」の表示を出すために使う。',
+  })
+  honshi_kodoku_flg: boolean;
   @ApiProperty() created_at: string;
   @ApiProperty() updated_at: string;
 

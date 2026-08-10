@@ -7,6 +7,7 @@ import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
 import { DenshiShoninStatus } from '@/common/enums';
 import { DokusyaSyncService, PAGE_SIZE } from './dokusya-sync.service';
 import type { DenshiUserRow } from './dokusya-sync.mapper';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 
 jest.mock('@/modules/dokusya/dokusya-history.writer', () => ({
   applyChange: jest.fn(),
@@ -115,14 +116,17 @@ function buildService(opts: Opts = {}) {
 
   const rireki = { lockDokusyaRow: jest.fn().mockResolvedValue(undefined) };
   const configService = { get: jest.fn(() => fullSync) };
+  /** 実行サマリの t_log 書込み（1 実行 1 行）。呼ばれたことを検証できれば足りる。 */
+  const auditLog = { logOperation: jest.fn().mockResolvedValue(undefined) };
 
   const service = new DokusyaSyncService(
     denshibanDb as unknown as DenshibanDbService,
     rireki as unknown as DokusyaRirekiService,
     mainDb as unknown as DataSource,
     configService as unknown as ConfigService,
+    auditLog as unknown as AuditLogService,
   );
-  return { service, mainDb, managerMock, stateRepo, lockQr, denshibanDb, denshibanQuery, rireki };
+  return { service, mainDb, managerMock, stateRepo, lockQr, denshibanDb, denshibanQuery, rireki, auditLog };
 }
 
 describe('DokusyaSyncService', () => {
@@ -183,7 +187,12 @@ describe('DokusyaSyncService', () => {
     expect(input.dokusyaId).toBe(77);
   });
 
-  it('CANCEL: status=9 on existing → applyChange(UPDATE, busu=0) + softDelete master', async () => {
+  // 顧客要件 2026-08 — 解約は「tetsuzuki_shurui=解約 + 中止日保持」で表し、
+  // master を論理削除しない。SCR-014 の購読停止は予約時点で電子版へ cancel を
+  // push するため、中止日が未来でも電子版は即 status=9 になる。ここで
+  // softDelete すると予約しただけで master が消え、さらに到来日バッチの抽出
+  // 条件（deleted_at IS NULL）から外れて予約が永久に確定されない。
+  it('CANCEL: status=9 on existing → applyChange(UPDATE, busu=0) and does NOT soft-delete master', async () => {
     const { service, managerMock } = buildService({
       existing: { dokusyaId: 88 },
       deltaRows: [buildUser({ status: 9 })],
@@ -193,7 +202,19 @@ describe('DokusyaSyncService', () => {
     const input = mockApplyChange.mock.calls[0][1];
     expect(input.mode).toBe('UPDATE');
     expect(input.values.dokusyaBusu).toBe(0);
-    expect(managerMock.softDelete).toHaveBeenCalled();
+    expect(managerMock.softDelete).not.toHaveBeenCalled();
+  });
+
+  // 中止日は電子版 users.deleted_at を正とする（顧客要件 2026-08）。
+  it('CANCEL: should carry users.deleted_at into dokusya_chushi_date', async () => {
+    const { service } = buildService({
+      existing: { dokusyaId: 88 },
+      deltaRows: [buildUser({ status: 9, deleted_at: '2030-09-30 00:00:00' })],
+    });
+    await service.run();
+
+    const input = mockApplyChange.mock.calls[0][1];
+    expect(input.values.dokusyaChushiDate).toBe('2030-09-30');
   });
 
   // 販売店の解決（顧客要件2026-08）: 電子版単独は当該 JA のダミー販売店
@@ -465,5 +486,30 @@ describe('DokusyaSyncService', () => {
     expect((patch.lastSourceUpdatedAt as Date).getTime()).toBe(
       new Date('2026-04-01 00:00:00').getTime(),
     );
+  });
+
+  // 顧客要望 2026-08 — 行単位ではなく「1 実行 1 行」の実行サマリを t_log へ残す。
+  describe('run summary audit log', () => {
+    it('should write exactly one t_log row per run with the counts', async () => {
+      const { service, auditLog } = buildService({
+        existing: null,
+        deltaRows: [buildUser({ id: 1 })],
+      });
+      await service.run();
+
+      expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
+      const arg = auditLog.logOperation.mock.calls[0][0];
+      // operation = 「処理内容 (実行者名)」（顧客指定 2026-08）。t_log には
+      // 実行者を入れる文字列列が無く account_id は bigint なのでここに載せる。
+      expect(arg.operation).toBe('電子版読者同期 (SYSTEM_DENSHI_SYNC)');
+      expect(arg.targetId).toBeNull();
+      expect(arg.targetTable).toBe('t_dokusya');
+      // 件数は afterValue に JSON で入る。
+      expect(JSON.parse(arg.afterValue)).toEqual(
+        expect.objectContaining({ read: expect.any(Number) }),
+      );
+      // 業務トランザクションとは別に書く（manager を渡さない）。
+      expect(auditLog.logOperation.mock.calls[0][1]).toBeUndefined();
+    });
   });
 });

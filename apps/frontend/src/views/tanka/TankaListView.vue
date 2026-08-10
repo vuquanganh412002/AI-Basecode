@@ -183,8 +183,8 @@ function askDelete(row: TankaListItem): void {
     >
       <!-- 単価種別 — ラジオ（画面項目定義 row 1.0）。"未選択" は暗黙:
            値 '' でフィルタ解除、onClear 後の既定状態。 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="form-item-title whitespace-nowrap">単価種別</span>
+      <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap leading-[22px]">単価種別</span>
         <a-radio-group
           name="tanka_type"
           id="tanka-filter-1"
@@ -242,8 +242,8 @@ function askDelete(row: TankaListItem): void {
 
       <!-- 有効単価フラグ — ラジオ。オン状態は 有効=1 / 無効=0。未選択（''）が
            既定で「両方を返却」（api.md §4.3）。検索クリアで '' に戻る。 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="form-item-title whitespace-nowrap">有効単価フラグ</span>
+      <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap leading-[22px]">有効単価フラグ</span>
         <a-radio-group
           name="active_flg"
           id="tanka-filter-5"
@@ -258,8 +258,8 @@ function askDelete(row: TankaListItem): void {
 
       <!-- キャンペーンフラグ — ラジオ。有効単価フラグと同様。未選択（''）=
            両方を返却。検索クリアで '' に戻る。 -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
-        <span class="form-item-title whitespace-nowrap">キャンペーンフラグ</span>
+      <div class="flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
+        <span class="form-item-title whitespace-nowrap leading-[22px]">キャンペーンフラグ</span>
         <a-radio-group
           name="campaign_flg"
           id="tanka-filter-6"

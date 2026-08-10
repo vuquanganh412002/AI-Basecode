@@ -45,7 +45,13 @@ watch(
 
   <aside
     :class="[
-      'bg-surface-card border-r border-border flex flex-col h-screen w-72 flex-shrink-0',
+      // 高さは dvh を優先する。iOS Safari の 100vh は「ツールバーを隠した状態」の
+      // 高さなので実際の可視領域より大きく、position:fixed のこの aside は下端
+      // （ダークモード切替を置くフッター）がツールバーの下へ潜って永久に触れない。
+      // 中の nav は overflow-y-auto でスクロールするが、フッターは nav の外なので
+      // スクロールでも出てこない（iPhone/iPad 実機で確認 2026-08）。
+      // dvh 非対応ブラウザ向けに h-screen を残し、対応時だけ supports で上書きする。
+      'bg-surface-card border-r border-border flex flex-col h-screen supports-[height:100dvh]:h-dvh w-72 flex-shrink-0',
       // モバイル: 左からスライドインする固定オーバーレイ。
       'fixed top-0 left-0 z-40 transition-transform duration-300',
       open ? 'translate-x-0' : '-translate-x-full',

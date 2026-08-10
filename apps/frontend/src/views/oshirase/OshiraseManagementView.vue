@@ -724,7 +724,7 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.title ? 'error' : ''"
           :help="fieldErrors.title"
         >
-          <div class="flex items-center gap-4">
+          <div class="flex items-center flex-wrap gap-4">
             <span class="text-sm font-medium whitespace-nowrap text-text-main">
               お知らせタイトル<span class="text-error ml-1">*</span>
             </span>
@@ -743,8 +743,8 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.publish_location ? 'error' : ''"
           :help="fieldErrors.publish_location"
         >
-          <div class="flex items-center gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+          <div class="flex items-start flex-wrap gap-4">
+            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
               公開場所<span class="text-error ml-1">*</span>
             </span>
             <a-radio-group
@@ -769,8 +769,8 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.status ? 'error' : ''"
           :help="fieldErrors.status"
         >
-          <div class="flex items-center gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+          <div class="flex items-start flex-wrap gap-4">
+            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
               状態<span class="text-error ml-1">*</span>
             </span>
             <a-radio-group
@@ -799,7 +799,17 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.publish_start_date ? 'error' : ''"
           :help="fieldErrors.publish_start_date"
         >
-          <div class="flex items-center gap-3">
+          <!-- 狭幅では 2 行に折り返す（顧客要望 2026-08）。
+               この行は「表示期間 / 開始日* / ピッカー / 〜 / 終了日 / ピッカー」の
+               6要素で、日時ピッカーは `YYYY/MM/DD HH:mm` 表示のため 1 つ ≈176px、
+               全部で ≈550px 必要。スマホ幅（コンテナ358px - カード padding = 326px）
+               では到底入らないが、ピッカーが `min-w-0` だったため折り返さずに
+               潰れて「Y··」になっていた。
+               flex-wrap + ピッカーに min-w-[11rem] の下限を与えることで
+                 1行目: 表示期間 開始日* [ピッカー]
+                 2行目: 〜 終了日 [ピッカー]
+               と分かれる。広い画面では従来どおり 1 行。 -->
+          <div class="flex items-center flex-wrap gap-3">
             <span class="text-sm font-medium whitespace-nowrap text-text-main">
               表示期間
             </span>
@@ -825,7 +835,7 @@ defineExpose({ formState, state, fetchList, editingId });
               :disabled="isStartReadOnly"
               :disabled-date="disabledStartDate"
               :disabled-time="disabledStartTime"
-              class="flex-1 min-w-0"
+              class="flex-1 min-w-[11rem]"
             >
               <template #renderExtraFooter>
                 <a-button
@@ -846,7 +856,7 @@ defineExpose({ formState, state, fetchList, editingId });
                  publish_end_date（日付順エラー、validateForm で手動検証）のみ持つ。 -->
             <a-form-item-rest>
               <a-form-item
-                class="mb-0 flex-1 min-w-0"
+                class="mb-0 flex-1 min-w-[11rem]"
                 :validate-status="fieldErrors.publish_end_date ? 'error' : ''"
                 :help="fieldErrors.publish_end_date"
               >
@@ -881,13 +891,13 @@ defineExpose({ formState, state, fetchList, editingId });
 
         <!-- JA名 + お知らせ種別 を1行に。各セルは公開場所 / 状態 と同じ
              インラインラベルパターン。 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
           <a-form-item
             name="ja_id"
             :validate-status="fieldErrors.ja_id ? 'error' : ''"
             :help="fieldErrors.ja_id"
           >
-            <div class="flex items-center gap-4">
+            <div class="flex items-center flex-wrap gap-4">
               <span
                 class="text-sm font-medium whitespace-nowrap text-text-main"
               >
@@ -895,7 +905,7 @@ defineExpose({ formState, state, fetchList, editingId });
               </span>
               <!-- BaseJaDropdown: サーバーページング（50/頁）+ 無限スクロール +
                    ja_name のみ ILIKE。SCR-024 アカウント画面と同じ挙動。 -->
-              <div class="flex-1">
+              <div class="flex-1 min-w-0">
                 <BaseJaDropdown
                   v-model:value="formState.ja_id"
                   placeholder="全JA向け"
@@ -911,7 +921,7 @@ defineExpose({ formState, state, fetchList, editingId });
             :validate-status="fieldErrors.oshirase_type ? 'error' : ''"
             :help="fieldErrors.oshirase_type"
           >
-            <div class="flex items-center gap-4">
+            <div class="flex items-center flex-wrap gap-4">
               <span
                 class="text-sm font-medium whitespace-nowrap text-text-main"
               >
@@ -942,8 +952,8 @@ defineExpose({ formState, state, fetchList, editingId });
           :help="fieldErrors.target_kanri_kubun"
           :validate-status="fieldErrors.target_kanri_kubun ? 'error' : ''"
         >
-          <div class="flex items-center gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+          <div class="flex items-start flex-wrap gap-4">
+            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
               対象管理者区分
             </span>
             <a-checkbox-group
@@ -971,7 +981,7 @@ defineExpose({ formState, state, fetchList, editingId });
         </a-form-item>
 
         <div
-          class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2"
+          class="pt-4 mt-4 border-t border-border flex items-center flex-wrap justify-start gap-2"
         >
           <a-button
             type="primary"

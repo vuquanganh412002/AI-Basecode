@@ -555,11 +555,31 @@ defineExpose({
     <BaseSearchForm
       :loading="loading"
       :disable-submit="hasSelection || isDigitalShubetsu"
-      :columns="4"
-      align-start
+      :columns="3"
       @search="onSearch"
       @clear="onClear"
     >
+      <!-- レイアウト — この画面だけ 4 列ではなく 3 列 ────────────────
+        この検索フォームは他より 1 項目あたりの必要幅が大きい。1 セルに
+        「ラベル + 必須 + ラジオ2件」を折り返さず収めるには 購読種別 で実測
+        ≈210px 要るが、4 列だと 1 セルは
+          (コンテナ960px - カード padding 32 - gap 16×3) / 4 = 220px
+        しかなく、ラベルと 紙版/電子版 が同じ行に並ばない（顧客指摘 2026-08）。
+        3 列なら (960 - 32 - 16×2) / 3 = 298px 取れて余裕を持って 1 行に入る。
+
+        3 列にすると項目数 11（購読開始日のみ2セル）がちょうど埋まり、
+        col-start のような小細工なしで最後の 3 項目が 1 行に並ぶ:
+          行1: 管理支店 | 支店 | 組合員コード
+          行2: 氏名 | かな氏名 | 配達先住所
+          行3: 配達販売店 | 購読開始日(2)
+          行4: 購読種別 | 適用日 | 置換先配達販売店
+
+        購読開始日 だけ @lg:col-span-2 なのは日付レンジ（ピッカー2つ + 区切り）
+        で実質2項目分の幅が要るため。しきい値が @lg なのは 2 列時にも効かせる
+        ため（2列 = 1セル ≈310px ではレンジが入らないので全幅にする）。
+        1 列時は span が意味を持たず、そのまま縦積みになる。
+      -->
+
       <!-- 管理支店 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">管理支店</span>
@@ -650,7 +670,7 @@ defineExpose({
       </div>
 
       <!-- 購読開始日 (date range) -->
-      <div class="flex items-center gap-2 text-sm font-medium text-text-main">
+      <div class="@lg:col-span-2 flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">購読開始日</span>
         <a-date-picker
           id="dokusya_kaishi_date_from"
@@ -676,14 +696,24 @@ defineExpose({
       <!-- 購読種別 (必須・紙版/電子版のみ) — 対象種別で購読者を絞り込む。選択するまで
            適用日は入力不可（顧客要件 2026-07）。電子版=当日のみ / 紙版=未来日のみ。 -->
       <div class="text-sm font-medium text-text-main">
-        <div class="flex items-center gap-2">
-          <span class="whitespace-nowrap">購読種別</span>
-          <span class="text-error">*</span>
+        <!-- 必須マークはラベル span の中に入れる（別の flex アイテムにしない）。
+             独立させると flex の gap が1つ増え、その分ラジオの使える幅が減る。
+
+             ラジオグループは flex-1 min-w-0 にしない: それだとラベルを引いた
+             残り幅まで縮められ、足りないと「紙版 / 電子版」がグループ内部で
+             2行に割れる。内容幅のまま + whitespace-nowrap にすることで
+             紙版・電子版の間では絶対に折り返さない。1セルに収まらない場合は
+             親の flex-wrap でグループごと次の行へ落ちる（ラベルの下に
+             ラジオ2件が1行で並ぶ）ので、最悪でも1行は保たれる。 -->
+        <div class="flex items-start flex-wrap gap-2">
+          <span class="whitespace-nowrap leading-[22px]">
+            購読種別<span class="text-error ml-1">*</span>
+          </span>
           <a-radio-group
             name="dokusya_shubetsu"
             v-model:value="state.filters.dokusya_shubetsu"
             data-test="replace-shubetsu"
-            class="flex-1"
+            class="whitespace-nowrap"
           >
             <a-radio
               v-for="opt in shubetsuOptions"

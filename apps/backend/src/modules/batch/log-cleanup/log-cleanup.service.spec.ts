@@ -1,6 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { LogCleanupService } from './log-cleanup.service';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+
+/** 実行サマリの t_log 書込み。呼ばれたことだけ検証できればよいのでスパイで足りる。 */
+function auditMock(): { logOperation: jest.Mock } {
+  return { logOperation: jest.fn().mockResolvedValue(undefined) };
+}
 
 describe('LogCleanupService', () => {
   let service: LogCleanupService;
@@ -14,6 +20,7 @@ describe('LogCleanupService', () => {
     service = new LogCleanupService(
       db as unknown as DataSource,
       config as unknown as ConfigService,
+      auditMock() as unknown as AuditLogService,
     );
   });
 

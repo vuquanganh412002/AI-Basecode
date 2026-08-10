@@ -195,6 +195,9 @@ export function toDokusyaResponse(
     rireki_no: coerceNumber(entity.rirekiNo),
     denshi_shonin_status: coerceNullableNumber(entity.denshiShoninStatus),
     denshi_kaiin_id: coerceNullableNumber(entity.denshiKaiinId),
+    // DB は NOT NULL DEFAULT FALSE。古い行や部分 select で undefined が来ても
+    // false に倒して、画面が「有り」を誤表示しないようにする。
+    honshi_kodoku_flg: entity.honshiKodokuFlg ?? false,
     created_at: isoOrEmpty(entity.createdAt),
     updated_at: isoOrEmpty(entity.updatedAt),
     has_active_kaiyaku: meta.has_active_kaiyaku ?? false,

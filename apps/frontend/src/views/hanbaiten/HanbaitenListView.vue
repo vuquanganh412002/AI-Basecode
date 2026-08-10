@@ -290,9 +290,18 @@ function askDelete(row: HanbaitenListItem): void {
          [staff-ja-filter] NICHINO_STAFF はフォーム末尾に8番目のセル
          （JA picker）が付き、検索パネルが一貫したブロックになる。JA picker は
          変更時に即再取得（検索クリック不要） — staff の初回着地時は他が空のため。 -->
+    <!-- 4 列ではなく 3 列。有効単価フラグ は「ラベル7文字 + ラジオ2件」で
+         実測 ≈226px 要るが、4 列だと 1 セルは
+           (コンテナ960px - カード padding 32 - gap 16×3) / 4 = 220px
+         しかなく、ラジオがラベルの下へ折り返っていた（顧客指摘 2026-08）。
+         3 列なら (960 - 32 - 16×2) / 3 = 298px 取れて 1 行に収まり、
+         有効単価フラグ 自体も 4列目→2列目 へ寄って 廃店フラグ の隣に並ぶ。
+           行1: 販売店コード | 販売店名 | 電話番号
+           行2: FAX番号 | 住所 | 所長名
+           行3: 廃店フラグ | 有効単価フラグ | (JA ※NICHINO_STAFF のみ) -->
     <BaseSearchForm
       :loading="loading"
-      :columns="4"
+      :columns="3"
       @search="onSearch"
       @clear="onClear"
     >
@@ -356,16 +365,10 @@ function askDelete(row: HanbaitenListItem): void {
           class="flex-1 min-w-0"
         />
       </label>
+      <!-- 他セルのラベル列幅に合わせる不可視スペーサーを以前は入れていたが、
+           チェックボックスだけが中途半端に右へ寄って見えるため廃止した
+           （顧客指摘 2026-08）。他セルのラベルと同じセル左端から始める。 -->
       <div class="flex items-center gap-2">
-        <!-- 不可視スペーサーラベルで他セル（販売店コード / 電話番号 / 住所 …）の
-             ラベル列幅に合わせ、checkbox を上の入力ボックスと揃える
-             （セル左端に寄せない）。 -->
-        <span
-          class="text-sm font-medium whitespace-nowrap invisible"
-          aria-hidden="true"
-        >
-          廃店フラグ
-        </span>
         <a-checkbox name="haiten_flg" v-model:checked="state.filters.haiten_flg">
           <span class="text-sm font-medium whitespace-nowrap text-text-main">
             廃店フラグ
@@ -376,8 +379,8 @@ function askDelete(row: HanbaitenListItem): void {
            (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する販売店のみ、
            無効=失効単価を参照する販売店のみ、未選択=両方。SCR-021 の失効単価エラー
            からは ?inactive_tanka=1 で「無効」が初期選択される。 -->
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-medium whitespace-nowrap text-text-main">有効単価フラグ</span>
+      <div class="flex items-start gap-2 flex-wrap">
+        <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">有効単価フラグ</span>
         <a-radio-group
           name="active_tanka_flg"
           v-model:value="state.filters.active_tanka_flg"
@@ -402,7 +405,7 @@ function askDelete(row: HanbaitenListItem): void {
           <span>JA名</span>
           <span class="text-error">*</span>
         </label>
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <BaseJaDropdown
             id="hanbaiten-filter-staff-ja"
             :value="state.filters.ja_id"

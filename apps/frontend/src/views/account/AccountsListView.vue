@@ -224,10 +224,15 @@ function askDelete(row: AccountListItem): void {
   </BaseCard>
 
   <div v-else class="space-y-6">
-    <!-- 検索エリア — 4列グリッドで4フィールドが行を埋める。 -->
+    <!-- 検索エリア — 5フィールドを3列で 3 + 2 に割る（顧客要望 2026-08）。
+         4列では 4 + 1 になり 管理支店 だけが次行に取り残されて座りが悪かった。
+         3列なら 1 セル (960 - 32 - 16×2) / 3 = 298px となり、
+         「都道府県を選択」のような長めのプレースホルダも切れずに入る。
+           行1: ログインID | 管理者区分 | 都道府県
+           行2: JA名 | 管理支店 -->
     <BaseSearchForm
       :loading="loading"
-      :columns="4"
+      :columns="3"
       @search="onSearch"
       @clear="onClear"
     >
@@ -273,7 +278,7 @@ function askDelete(row: AccountListItem): void {
              アカウント画面は option ラベルから ja_code を隠し ILIKE を ja_name のみに
              スコープ（label-format + search-field）。都道府県 とは独立 —
              全JAを表示し、両方選択時は AND 絞り込み。 -->
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <BaseJaDropdown
             id="accounts-filter-3"
             v-model:value="state.filters.ja_id"

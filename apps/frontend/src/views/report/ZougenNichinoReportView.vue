@@ -245,7 +245,7 @@ defineExpose({ formState });
         </div>
       </div>
 
-      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
+      <div class="pt-4 mt-3 flex items-center flex-wrap justify-start gap-2">
         <a-button
           type="primary"
           :disabled="!canUse"

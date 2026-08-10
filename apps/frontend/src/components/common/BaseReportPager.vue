@@ -33,7 +33,7 @@ function onChange(page: number): void {
 <template>
   <div
     v-if="props.totalPages > 1"
-    class="px-6 py-3 border-t border-border flex items-center justify-between"
+    class="px-6 py-3 border-t border-border flex items-center flex-wrap gap-2 justify-between"
     :data-test="props.dataTest"
   >
     <span class="text-text-description text-sm">

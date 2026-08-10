@@ -247,11 +247,11 @@ defineExpose({ formState });
 
     <!-- 出力条件エリア — 上段に単一選択フィルタ（適用日 / 購読種別 / 帳票種別 /
          支払区分）、下段に販売店(管理支店)をチェックボックスで複数選択。 -->
-    <div class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
+    <div class="@container bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
       <!-- items-start: 適用日 直下にエラーが出ても他フィルタが上下にずれないよう
            上揃えにする（items-center だとエラーで伸びた行に合わせて兄弟が中央寄せ
            されてズレる）。各フィルタ行は flex items-center で入力欄の高さが揃う。 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+      <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4 items-start">
         <!-- 適用日（バリデーションメッセージは直下に表示） -->
         <div>
           <div class="flex items-center gap-2">
@@ -345,7 +345,7 @@ defineExpose({ formState });
            グリッドの列が詰まって幅が変わる。 -->
       <div
         v-show="formState.report_type !== 'hanbaiten'"
-        class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+        class="mt-4 grid grid-cols-1 @lg:grid-cols-2 gap-4"
       >
         <div>
           <div class="text-sm font-medium text-text-main mb-1">
@@ -396,16 +396,31 @@ defineExpose({ formState });
       <!-- 日農ダウンロード許可フラグは画面から選択させず常に false（許可しない）で
            出力する（顧客要件）。ラジオは廃止し、export クエリで固定値を送る。 -->
 
-      <div class="pt-4 mt-3 flex items-center justify-start gap-2">
+      <!-- スマホ幅でも2ボタンを1行に並べる（顧客要望 2026-08）。
+           自然幅では「レポートプレビュー」≈158px +「レポートデータExcel出力」
+           ≈198px + gap で ≈364px 必要だが、スマホは
+           コンテナ358px - カード p-4 = 326px しかなく flex-wrap で縦積みになる。
+           @max-lg（コンテナ512px未満）に限り 2 ボタンを flex-1 で等分し、
+           入りきらないラベルはボタン内で折り返させる（!h-auto + !whitespace-normal。
+           antd は .ant-btn に固定高さと nowrap を当てるので `!` が要る）。
+           items-stretch で折り返した側に高さを揃える。
+           @lg 以上は従来どおり内容幅のまま。 -->
+      <div class="pt-4 mt-3 flex items-center @max-lg:items-stretch flex-wrap justify-start gap-2">
         <a-button
           type="primary"
+          class="@max-lg:flex-1 @max-lg:min-w-0 @max-lg:!h-auto @max-lg:!whitespace-normal"
           :disabled="!canUse"
           data-test="preview-btn"
           @click="onPreview"
         >
           レポートプレビュー
         </a-button>
-        <a-button :disabled="!canUse || !hasReportData" data-test="export-btn" @click="onExport">
+        <a-button
+          class="@max-lg:flex-1 @max-lg:min-w-0 @max-lg:!h-auto @max-lg:!whitespace-normal"
+          :disabled="!canUse || !hasReportData"
+          data-test="export-btn"
+          @click="onExport"
+        >
           レポートデータExcel出力
         </a-button>
       </div>

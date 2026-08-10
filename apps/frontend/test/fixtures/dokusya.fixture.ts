@@ -84,6 +84,7 @@ export interface DokusyaDetail {
   rireki_no: number;
   denshi_shonin_status: number | null;
   denshi_kaiin_id: number | null;
+  honshi_kodoku_flg: boolean;
   created_at: string;
   updated_at: string;
   has_active_kaiyaku: boolean;
@@ -243,6 +244,7 @@ export function buildDokusyaDetail(
     rireki_no: 1,
     denshi_shonin_status: null,
     denshi_kaiin_id: null,
+    honshi_kodoku_flg: false,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
     has_active_kaiyaku: false,

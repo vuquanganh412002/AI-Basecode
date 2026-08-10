@@ -4,6 +4,12 @@ import { DataSource } from 'typeorm';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { todayIsoJst } from '@/common/utils/datetime';
 import type { BatchJob } from '@/batch/batch-job.interface';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+import { SystemActor } from '@/common/constants/system-actor.constant';
+import { logBatchRun } from '../batch-run-audit';
+
+/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
+const BATCH_SCREEN = '単価有効期限切れバッチ (tanka-expire)';
 
 /**
  * 単価 有効期限切れバッチ（顧客レビュー 2026-07 No.1・「問題なし」で確定）。
@@ -27,7 +33,10 @@ import type { BatchJob } from '@/batch/batch-job.interface';
 export class TankaExpireService implements BatchJob {
   private readonly logger = new Logger(TankaExpireService.name);
 
-  constructor(@InjectDataSource() private readonly db: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly db: DataSource,
+    private readonly auditLog: AuditLogService,
+  ) {}
 
   async run(): Promise<void> {
     const startedAt = Date.now();
@@ -45,11 +54,23 @@ export class TankaExpireService implements BatchJob {
       .andWhere('deleted_at IS NULL')
       .execute();
 
+    const affected = res.affected ?? 0;
+    const durationMs = Date.now() - startedAt;
+
     this.logger.log({
       event: 'tanka_expire.done',
-      affected: res.affected ?? 0,
+      affected,
       today,
-      durationMs: Date.now() - startedAt,
+      durationMs,
+    });
+
+    // 実行サマリを t_log へ 1 行（顧客要望 2026-08）。
+    await logBatchRun(this.auditLog, {
+      screen: BATCH_SCREEN,
+      operation: '単価有効期限切れ',
+      actor: SystemActor.BATCH_NIGHTLY, // 0:05 JST の夜間バッチ
+      table: 'm_tanka',
+      summary: { today, affected, durationMs },
     });
   }
 }

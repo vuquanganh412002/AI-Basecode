@@ -496,12 +496,20 @@ function renderCell(value: unknown): string {
     <section
       class="bg-surface-card border border-border rounded-ant shadow-ant-card p-4"
     >
-      <form class="space-y-4" @submit.prevent>
-        <!-- Row 1（lg・5カラム）: [file ×2] [空き] [取込モード] [テンプレート右]。
+      <form class="@container space-y-4" @submit.prevent>
+        <!-- Row 1（4カラム）: [Excelファイル名 ×2] [取込モード] [テンプレート右端]。
              購読者取込(SCR-016)と同一グリッド（購読種別カラムは空きにする）にし、
-             Excelファイル名入力の幅を SCR-016 と完全一致させる。 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-x-4 gap-y-4 items-start">
-          <div class="md:col-span-2 lg:col-span-2">
+             Excelファイル名入力の幅を SCR-016 と完全一致させる。
+
+             狭幅の既定を 1 列ではなく `[1fr_auto]` の 2 列にしている。1 列だと
+             取込モード と テンプレート がそれぞれ 1 行を占め、ボタンの左側が
+             まるごと空いて間延びして見えた（顧客指摘 2026-08）。
+             2列目を `auto`（＝ボタンの内容幅 ≈132px）にすると、1列目には
+             スマホ幅でも 326 - 132 - 16 = 178px 残り、取込モードのラジオ
+             （新規登録 + 更新 ≈154px）が折り返さずに収まる。
+             Excelファイル名 は `col-span-2` で常に行全体を使う。 -->
+        <div class="grid grid-cols-[1fr_auto] @4xl:grid-cols-4 gap-x-4 gap-y-4 items-start">
+          <div class="col-span-2">
             <label
               class="block text-sm font-semibold text-text-main mb-1.5"
               for="file-input"
@@ -577,12 +585,18 @@ function renderCell(value: unknown): string {
             </div>
           </div>
 
-          <!-- 取込モードをファイル入力の直後に置き、テンプレートは右端に残すための
-               空きカラム（lg のみ占有）。 -->
-          <div class="hidden lg:block" aria-hidden="true"></div>
-
+          <!-- テンプレートは常に最終カラム（= カード右端）に置く。
+               以前は「空きカラム + テンプレートを2セル分」で右寄せしていたが、
+               空きカラムの表示条件が `hidden lg:block`（ビューポート基準）のまま
+               残っており、コンテナ基準になったグリッドと噛み合わなくなっていた:
+               ビューポート1024px以上で空きカラムが4列目を占め、2セル幅の
+               テンプレートが次の行へ押し出されて中途半端な位置に出ていた
+               （顧客指摘 2026-08）。
+               空きカラムを廃止して 1 セルに戻し、file(2) + 取込モード(1) +
+               テンプレート(1) = 4 列ちょうどにすることで、余計な要素なしに
+               右端へ収まる。 -->
           <div
-            class="md:col-span-2 lg:col-span-1 flex flex-col items-start md:items-end justify-end h-full md:pt-6"
+            class="flex flex-col items-end justify-end h-full @lg:pt-6"
           >
             <button
               data-test="template-download-btn"
@@ -637,7 +651,7 @@ function renderCell(value: unknown): string {
 
           <div v-show="!panelCollapsed" data-test="col-panel" class="px-4 py-3">
             <div
-              class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
+              class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 @4xl:grid-cols-4 @6xl:grid-cols-5 gap-2"
             >
               <label
                 v-for="col in PHYSICAL_COLUMNS"

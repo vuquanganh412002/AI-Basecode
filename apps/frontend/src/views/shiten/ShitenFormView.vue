@@ -392,9 +392,9 @@ defineExpose({ submitWith, form: formState });
         @finish="onFormSubmit"
       >
         <!-- 行1: 管理支店（全幅） + 金融機関支店フラグ -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
-            class="md:col-span-2"
+            class="@lg:col-span-2"
             name="kanri_shiten_id"
             :validate-status="allFieldErrors.kanri_shiten_id ? 'error' : ''"
             :help="allFieldErrors.kanri_shiten_id"
@@ -430,7 +430,7 @@ defineExpose({ submitWith, form: formState });
         </div>
 
         <!-- 行2: 支店コード / 支店名 / 支店名カナ -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
             name="shiten_code"
             :validate-status="allFieldErrors.shiten_code ? 'error' : ''"
@@ -483,7 +483,7 @@ defineExpose({ submitWith, form: formState });
              表示ラベルは顧客向け文言で JASTEM_ プレフィックスを外す
              （プレフィックスは DB 列 / docs コメントのみ）。
              桁数は database-design.md §m_shiten 行7-10 をミラー。 -->
-        <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr] gap-6">
+        <div class="grid grid-cols-1 @3xl:grid-cols-[1.5fr_1fr_1fr_1fr] gap-6">
           <a-form-item
             name="jastem_toriatsukai_tenpo_code"
             :validate-status="allFieldErrors.jastem_toriatsukai_tenpo_code ? 'error' : ''"

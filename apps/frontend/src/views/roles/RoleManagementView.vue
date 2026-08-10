@@ -313,7 +313,7 @@ watch(
     <BaseCard v-if="isEditMode" class="space-y-6">
       <a-form layout="vertical" :model="formState" @finish="onSubmit">
         <!-- 基本情報 grid -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-5">
           <a-form-item name="role_code">
             <template #label>
               <span>ロールコード</span>
@@ -426,7 +426,7 @@ watch(
 
         <!-- フッターボタン — 主アクションを左（vue.md §Form footer）。 -->
         <div
-          class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2"
+          class="pt-4 mt-4 border-t border-border flex items-center flex-wrap justify-start gap-2"
         >
           <a-button type="primary" html-type="submit" :loading="submitting">
             保存

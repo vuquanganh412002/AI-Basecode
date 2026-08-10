@@ -478,7 +478,7 @@ async function confirmTorikeshi(): Promise<void> {
     </a-modal>
 
     <!-- 機能定義 2.1 — 確認ダイアログ無しで前の画面に戻る。 -->
-    <div class="pt-4 mt-4 border-t border-border flex items-center justify-start gap-2">
+    <div class="pt-4 mt-4 border-t border-border flex items-center flex-wrap justify-start gap-2">
       <a-button @click="goBack">前の画面に戻る</a-button>
     </div>
   </div>

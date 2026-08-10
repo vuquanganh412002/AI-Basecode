@@ -110,6 +110,12 @@ export interface DokusyaDetail {
    * 読取専用値。未連携は null。
    */
   denshi_kaiin_id: number | null;
+  /**
+   * 本紙購読フラグ — 電子版読者管理システムの users.subscribe_flg
+   * （0:未購読 → false / 1:購読 → true）を連携した読取専用値。
+   * 購読種別=電子版のとき「紙版購読状況　有り」の表示判定に使う。
+   */
+  honshi_kodoku_flg: boolean;
   created_at: string;
   updated_at: string;
   /**

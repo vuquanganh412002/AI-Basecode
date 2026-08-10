@@ -1,6 +1,12 @@
 import { DataSource } from 'typeorm';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { TankaExpireService } from './tanka-expire.service';
+import { AuditLogService } from '@/modules/audit-log/audit-log.service';
+
+/** 実行サマリの t_log 書込み。呼ばれたことだけ検証できればよいのでスパイで足りる。 */
+function auditMock(): { logOperation: jest.Mock } {
+  return { logOperation: jest.fn().mockResolvedValue(undefined) };
+}
 
 describe('TankaExpireService', () => {
   let service: TankaExpireService;
@@ -12,6 +18,7 @@ describe('TankaExpireService', () => {
     execute: jest.Mock;
   };
   let db: { createQueryBuilder: jest.Mock };
+  let audit: { logOperation: jest.Mock };
 
   beforeEach(() => {
     qb = {
@@ -23,7 +30,11 @@ describe('TankaExpireService', () => {
     };
     db = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
     // 単体は plain new（Nest ライフサイクル不要）。
-    service = new TankaExpireService(db as unknown as DataSource);
+    audit = auditMock();
+    service = new TankaExpireService(
+      db as unknown as DataSource,
+      audit as unknown as AuditLogService,
+    );
   });
 
   it('should UPDATE m_tanka set active_flg=false for expired active rows', async () => {

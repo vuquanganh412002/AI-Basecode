@@ -462,7 +462,7 @@ defineExpose({
       <h3 class="font-bold text-text-main text-base mb-4">対象JA選択</h3>
       <!-- 都道府県 / 都道府県名 が上段で半々（各 1/2）、対象JA は下段に独立して
            全幅（タグが複数行でも横いっぱい使える）。 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start mb-4">
+      <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4 items-start mb-4">
         <label for="file-upload-todofuken" class="flex items-center gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">都道府県</span>
           <BaseTodofukenSelect
@@ -475,7 +475,7 @@ defineExpose({
           <span class="whitespace-nowrap">都道府県名</span>
           <a-input id="file-upload-todofuken-name" :value="todofukenName" disabled class="flex-1 min-w-0" />
         </label>
-        <label for="file-upload-ja" class="md:col-span-2 flex items-start gap-2 text-sm font-medium text-text-main">
+        <label for="file-upload-ja" class="@lg:col-span-2 flex items-start gap-2 text-sm font-medium text-text-main">
           <span class="whitespace-nowrap pt-1">対象JA</span>
           <!-- マルチセレクト：JAコード・JA名で検索（BE側 ILIKE・50件/ページ・
                無限スクロール）→ 選んだ JA は下の一覧へ即反映（box はタグ非保持）。
