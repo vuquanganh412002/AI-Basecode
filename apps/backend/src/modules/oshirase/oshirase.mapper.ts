@@ -1,4 +1,4 @@
-// SCR-031 管理エンドポイント用の純粋な entity → response DTO マッパー。
+// ACSMS-SCR-031 管理エンドポイント用の純粋な entity → response DTO マッパー。
 // Nest DI / repo / service なし — どこからでも import 可。
 //
 // [no-labels-policy] 認証エンドポイントは `*_label` を返さない

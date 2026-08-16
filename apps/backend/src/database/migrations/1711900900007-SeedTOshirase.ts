@@ -37,7 +37,7 @@ export class SeedTOshirase1711900900007 implements MigrationInterface {
         NOW(),        -- publish_start_date: 投入時から有効
         NULL,         -- publish_end_date: 無期限
         '',           -- target_kanri_kubun: 全選択
-        NOW(), 'SYSTEM', NOW(), 'SYSTEM'
+        NOW(), 'SYSTEM_MIGRATION', NOW(), 'SYSTEM_MIGRATION'
       )
     `);
   }

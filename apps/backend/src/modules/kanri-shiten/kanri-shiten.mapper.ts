@@ -30,7 +30,7 @@ export function toKanriShitenListItem(
 }
 
 /**
- * SCR-009 エンドポイント (GET by id / POST / PUT) の詳細マッピング。
+ * ACSMS-SCR-009 エンドポイント (GET by id / POST / PUT) の詳細マッピング。
  * list が省く列 (kana, biko, created_at, updated_at) を追加。
  */
 export function toKanriShitenDetail(

@@ -55,7 +55,7 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
 
   const http = () => request(ctx.app.getHttpServer() as Server);
 
-  // SCR-027 endpoints are gated by `@Permissions('role.view')` + the
+  // ACSMS-SCR-027 endpoints are gated by `@Permissions('role.view')` + the
   // real PermissionsGuard (the deprecated `RoleAdminGuard` that did
   // bespoke `role_code === 'NICHINO_ADMIN'` was removed). The session
   // payload must therefore carry the perm — matches seeder.md §3
@@ -83,7 +83,7 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/roles — API-027-001
+  // GET /api/v1/roles — ACSMS-API-027-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/roles', () => {
     it('should return all 5 seeded roles ordered by role_id ASC when NICHINO_ADMIN calls', async () => {
@@ -113,7 +113,7 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/roles/:role_id — API-027-002
+  // GET /api/v1/roles/:role_id — ACSMS-API-027-002
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/roles/:role_id', () => {
     it('should return role detail + permission_ids ASC when role exists', async () => {
@@ -150,7 +150,7 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // PUT /api/v1/roles/:role_id — API-027-003
+  // PUT /api/v1/roles/:role_id — ACSMS-API-027-003
   // ═══════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/roles/:role_id', () => {
     it('should update role + replace permission allocations atomically', async () => {
@@ -301,7 +301,7 @@ describe('ACSMS-SCR-027 integration — roles + permissions endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/permissions — API-027-004
+  // GET /api/v1/permissions — ACSMS-API-027-004
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/permissions', () => {
     it('should return all seeded permissions ordered by permission_id ASC', async () => {

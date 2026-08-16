@@ -4,7 +4,7 @@
 //
 // Fixture builders for the Dokusya entity, the DokusyaRireki entity, and
 // the create / update / search / detail-response payloads driven by
-// api.md §API-011-001 〜 §API-011-006 + §API-014-001 〜 §API-014-003.
+// api.md §ACSMS-API-011-001 〜 §ACSMS-API-011-006 + §ACSMS-API-014-001 〜 §ACSMS-API-014-003.
 //
 // Field values mirror `docs/database/database-design.md §t_dokusya` and
 // `§t_dokusya_rireki`. m_code values come from `docs/database/seeder.md`:
@@ -90,7 +90,10 @@ export function buildDokusya(overrides: Partial<Dokusya> = {}): Dokusya {
     biko: '',
     rirekiNo: 1,
     denshiShoninStatus: null,
-    denshiKaiinId: null,
+    // 既定は「外部システム連携済み」(非 null) — 新規追加の read-only ルール
+    // （電子版 + denshi_kaiin_id=null + 非campaign単価）が無関係な既存テストへ
+    // 波及しないようにする。null を明示的にテストする箇所は override で null を渡す。
+    denshiKaiinId: 12345,
     deletedAt: null,
     createdAt: now,
     createdBy: 'SYSTEM',
@@ -185,7 +188,7 @@ export function buildDokusyaRireki(
 
 /**
  * Default-valid CreateDokusyaDto payload — every required field per api.md
- * §API-011-002 リクエストパラメータ. Optional fields included with valid
+ * §ACSMS-API-011-002 リクエストパラメータ. Optional fields included with valid
  * defaults so happy-path tests don't need to repeat them.
  *
  * `bank_shiten_id` (口座引落用) is included by default because the default
@@ -252,7 +255,7 @@ export function buildCreateDokusyaBody(
 }
 
 /**
- * Default-valid UpdateDokusyaDto payload. api.md §API-011-003 marks the
+ * Default-valid UpdateDokusyaDto payload. api.md §ACSMS-API-011-003 marks the
  * request body as identical to Create — `dokusya_id` is on the URL, NOT in
  * the body.
  */
@@ -369,12 +372,12 @@ export function pastDate(daysAgo = 7): string {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SCR-014 — 購読者明細検索画面
+// ACSMS-SCR-014 — 購読者明細検索画面
 // ════════════════════════════════════════════════════════════════════════
 
 /**
  * Default-valid SearchDokusyaDto query — every documented parameter
- * (api.md §API-014-001 リクエストパラメータ) defaulted to a believable,
+ * (api.md §ACSMS-API-014-001 リクエストパラメータ) defaulted to a believable,
  * empty / minimum value. Override individual fields via `overrides`.
  *
  * Most fields are optional; only `page`/`per_page`/`sort_by`/`sort_order`
@@ -402,8 +405,8 @@ export function buildSearchDokusyaQuery(
  * full_name concatenation, is_read_only computed flag).
  *
  * Used in:
- *   - dokusya.service.spec (SCR-014 search/exportExcel happy-path)
- *   - dokusya.controller.spec (SCR-014 200 body shape)
+ *   - dokusya.service.spec (ACSMS-SCR-014 search/exportExcel happy-path)
+ *   - dokusya.controller.spec (ACSMS-SCR-014 200 body shape)
  */
 export function buildDokusyaListRow(
   overrides: Record<string, unknown> = {},
@@ -437,13 +440,13 @@ export function buildDokusyaListRow(
 }
 
 /**
- * Generic SessionPayload builder for SCR-014 specs.
+ * Generic SessionPayload builder for ACSMS-SCR-014 specs.
  *
  * The session.factory already exports `buildSession` /
  * `buildChuokaiSession` / `buildJaHontenSession` /
  * `buildJaKanriShitenSession` — this helper mirrors those for tests
  * that want full control over fields without selecting a role-flavoured
- * preset. New SCR-014 spec code uses the role-specific helpers
+ * preset. New ACSMS-SCR-014 spec code uses the role-specific helpers
  * directly; `buildSessionPayload` is kept here for parity with the
  * skill's contract.
  */
@@ -476,7 +479,7 @@ export function buildSessionPayload(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SCR-013 — 購読者履歴情報画面
+// ACSMS-SCR-013 — 購読者履歴情報画面
 // ════════════════════════════════════════════════════════════════════════
 
 /**
@@ -511,8 +514,8 @@ export function buildDokusyaRirekiQuery(
  * assert that absence.
  *
  * Used in:
- *   - dokusya.service.spec   (SCR-013 getRirekiList happy-path raw rows)
- *   - dokusya.controller.spec (SCR-013 200 body shape)
+ *   - dokusya.service.spec   (ACSMS-SCR-013 getRirekiList happy-path raw rows)
+ *   - dokusya.controller.spec (ACSMS-SCR-013 200 body shape)
  */
 export function buildDokusyaRirekiListRow(
   overrides: Record<string, unknown> = {},
@@ -591,7 +594,7 @@ export function buildDokusyaRirekiListRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SCR-015 — 購読者販売店一括置換画面
+// ACSMS-SCR-015 — 購読者販売店一括置換画面
 // ════════════════════════════════════════════════════════════════════════
 
 /**
@@ -675,7 +678,7 @@ export function buildReplaceCandidateRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SCR-016 — 購読者Excelデータ取込画面
+// ACSMS-SCR-016 — 購読者Excelデータ取込画面
 // ════════════════════════════════════════════════════════════════════════
 
 /**

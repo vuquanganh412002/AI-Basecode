@@ -6,7 +6,7 @@ import {
 } from '@/common/dto/responses.dto';
 
 /**
- * 一覧行の形状（SCR-024）。accounts.mapper.ts の `AccountListItem` をミラー。
+ * 一覧行の形状（ACSMS-SCR-024）。accounts.mapper.ts の `AccountListItem` をミラー。
  * null 許容は DB スキーマ準拠（役職により todofuken/ja/kanri_shiten が null）。
  */
 export class AccountListItemDto {
@@ -48,7 +48,7 @@ export class AccountListResponseDto {
   meta: PaginationMetaDto;
 }
 
-/** 詳細行（SCR-025）。`biko` を追加、他は一覧形状をミラー。 */
+/** 詳細行（ACSMS-SCR-025）。`biko` を追加、他は一覧形状をミラー。 */
 export class AccountDetailDto extends AccountListItemDto {
   @ApiProperty() biko: string;
 }

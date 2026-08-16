@@ -90,7 +90,7 @@ describe('ACSMS-SCR-024 integration — accounts endpoints', () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/accounts — API-024-001
+  // GET /api/v1/accounts — ACSMS-API-024-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/accounts', () => {
     it('should return all 3 seeded accounts paginated when NICHINO_ADMIN calls without filters', async () => {
@@ -196,7 +196,7 @@ describe('ACSMS-SCR-024 integration — accounts endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // DELETE /api/v1/accounts/:account_id — API-024-002
+  // DELETE /api/v1/accounts/:account_id — ACSMS-API-024-002
   // ═══════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/accounts/:account_id', () => {
     it('should soft-delete the account and return the success message when NICHINO_ADMIN deletes an existing account', async () => {

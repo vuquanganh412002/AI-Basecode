@@ -3,14 +3,14 @@
 // Drives src/views/haitatsuryo/HaitatsuryoExportView.vue. Each it() maps to a
 // clause in:
 //   docs/design/ACSMS-SCR-021/screen-design.md (機能定義 + メッセージ情報)
-//   docs/design/ACSMS-SCR-021/index.html (UI labels: 年月日 / 検索 / Excel出力 / table cols)
-//   docs/design/ACSMS-SCR-021/ACSMS-SCR-021-api.md (API-021-001 preview / 002 Excel)
+//   docs/design/ACSMS-SCR-021/index.html (UI labels: 年月日 / レポートプレビュー / Excel出力 / table cols)
+//   docs/design/ACSMS-SCR-021/ACSMS-SCR-021-api.md (ACSMS-API-021-001 preview / 002 Excel)
 //
 // The view defineExposes `{ formState, page, perPage, onPageChange }` so setup
 // can seed 年月日 / サイクル and drive pagination (antd controls aren't drivable
 // via jsdom DOM events). Buttons are clicked through `[data-test]` markers.
 // 対象0件は 200 + data:[] で返るため、no-data は画面内テキスト表示で表現される
-// （SCR-026/028 と同じ 200+empty 方針）。
+// （ACSMS-SCR-026/028 と同じ 200+empty 方針）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { endOfMonthIsoTokyo } from '@/utils/datetime';
@@ -27,7 +27,7 @@ import {
 } from '@test/fixtures/haitatsuryo.fixture';
 
 // API wrapper — /gen-code-frontend emits @/api/haitatsuryo/haitatsuryo with the
-// two SCR-021 functions.
+// two ACSMS-SCR-021 functions.
 vi.mock('@/api/haitatsuryo/haitatsuryo', () => ({
   previewHaitatsuryo: vi.fn(),
   exportHaitatsuryo: vi.fn(),
@@ -142,9 +142,11 @@ describe('HaitatsuryoExportView — 画面初期表示', () => {
     expect(text).toContain('サイクル');
   });
 
-  it('should render the 検索 and Excel出力 buttons when mounted', async () => {
+  // ボタン名は ACSMS-SCR-028/029 と統一（顧客要件2026-08、旧称: 検索）。
+  it('should render the レポートプレビュー and Excel出力 buttons when mounted', async () => {
     const { wrapper } = await renderView();
     expect(wrapper.find(previewBtn()).exists()).toBe(true);
+    expect(wrapper.find(previewBtn()).text()).toContain('レポートプレビュー');
     expect(wrapper.find(exportBtn()).exists()).toBe(true);
   });
 
@@ -470,5 +472,37 @@ describe('HaitatsuryoExportView — Excel出力', () => {
     await flushPromises();
 
     expect(exportHaitatsuryo).toHaveBeenCalled();
+  });
+
+  it('should ignore a second click while an export request is still in flight (regression: missing double-submit guard)', async () => {
+    const { wrapper } = await renderView();
+    const { exportHaitatsuryo } = await import('@/api/haitatsuryo/haitatsuryo');
+    await searchWithData(wrapper);
+
+    let resolveExport!: (blob: Blob) => void;
+    vi.mocked(exportHaitatsuryo).mockReturnValueOnce(
+      new Promise<Blob>((resolve) => {
+        resolveExport = resolve;
+      }),
+    );
+
+    const btn = wrapper.find(exportBtn());
+    await btn.trigger('click');
+    // Still pending — button must show :loading and be disabled so a second
+    // click can't fire a duplicate request/file.
+    expect((wrapper.vm as any).exporting).toBe(true);
+    expect((wrapper.find(exportBtn()).element as HTMLButtonElement).disabled).toBe(true);
+
+    await btn.trigger('click');
+    await flushPromises();
+    expect(exportHaitatsuryo).toHaveBeenCalledTimes(1);
+
+    resolveExport(
+      new Blob(['xlsx'], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    );
+    await flushPromises();
+    expect((wrapper.vm as any).exporting).toBe(false);
   });
 });

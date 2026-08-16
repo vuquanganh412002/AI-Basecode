@@ -105,7 +105,7 @@ export function buildFileDownloadListResponse(
   };
 }
 
-/** Preview API response (API-022-002). */
+/** Preview API response (ACSMS-API-022-002). */
 export function buildFilePreviewResponse(
   overrides: Partial<FilePreviewResponse['data']> = {},
 ): FilePreviewResponse {

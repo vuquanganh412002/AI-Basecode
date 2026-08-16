@@ -11,8 +11,8 @@ export interface ZipEntry {
 /**
  * `entries` を単一 ZIP（`nodebuffer`）にまとめる。
  *
- * 複数ファイルダウンロード全般で共有 — 一括DL (SCR-022), 増減通知 複数管理支店
- * (SCR-029), 将来の一括エクスポート。呼び出し側がファイル別バッファ（S3 / PDF /
+ * 複数ファイルダウンロード全般で共有 — 一括DL (ACSMS-SCR-022), 増減通知 複数管理支店
+ * (ACSMS-SCR-029), 将来の一括エクスポート。呼び出し側がファイル別バッファ（S3 / PDF /
  * …）を用意してここに渡し、`Content-Type: application/zip` でストリームする。
  *
  * 重複名は拡張子前に ` (n)` を付ける（`a.pdf` → `a (1).pdf`）。そうしないと JSZip

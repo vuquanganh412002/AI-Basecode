@@ -4,7 +4,7 @@ import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 import { LoginOshiraseItemDto } from './login-oshirase-query.dto';
 
-/** SCR-031 管理一覧行 — oshirase.mapper.ts の `OshiraseListItem` と一致。 */
+/** ACSMS-SCR-031 管理一覧行 — oshirase.mapper.ts の `OshiraseListItem` と一致。 */
 export class OshiraseListItemDto {
   @ApiProperty() oshirase_id: number;
   @ApiPropertyOptional({ nullable: true }) ja_id: number | null;
@@ -25,11 +25,11 @@ export class OshiraseListItemDto {
   @ApiProperty({ description: 'YYYY/MM/DD HH:mm (JST)' }) publish_start_date: string;
   @ApiPropertyOptional({ nullable: true }) publish_end_date: string | null;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     description:
       'Comma-separated 1〜5 role codes; empty string = 全管理者 (all).',
   })
-  target_kanri_kubun?: string;
+  target_kanri_kubun: string;
 
   @ApiProperty({ description: 'ISO 8601 (TIMESTAMPTZ)' }) created_at: string;
   @ApiProperty({ description: 'ISO 8601 (TIMESTAMPTZ)' }) updated_at: string;
@@ -71,7 +71,7 @@ export class LoginOshiraseListResponseDto {
 }
 
 /**
- * SCR-010 メニュー項目 — ダッシュボード表示用サブセット
+ * ACSMS-SCR-010 メニュー項目 — ダッシュボード表示用サブセット
  * （oshirase.service.ts の `MenuOshiraseItem` と一致）。
  */
 export class MenuOshiraseItemDto {

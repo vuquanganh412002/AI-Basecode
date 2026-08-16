@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-020 — 口座振替データ出力画面
 //
 // KozaFurikaeController HTTP specs for:
-//   - GET  /api/v1/koza-furikae/initial — API-020-001
-//   - POST /api/v1/koza-furikae/export  — API-020-002
+//   - GET  /api/v1/koza-furikae/initial — ACSMS-API-020-001
+//   - POST /api/v1/koza-furikae/export  — ACSMS-API-020-002
 //
 // Full Nest HTTP stack via Test.createTestingModule + supertest.
 
@@ -218,11 +218,11 @@ describe('KozaFurikaeController (HTTP)', () => {
 
   // ─── POST /api/v1/koza-furikae/export ─────────────────────────────────
   describe('POST /api/v1/koza-furikae/export', () => {
-    it('should return 200 with a text/plain attachment carrying the ASCII filename + RFC5987 filename* when データ exists', async () => {
+    it('should return 200 with an octet-stream attachment carrying the ASCII filename + RFC5987 filename* when データ exists', async () => {
       service.exportCsv.mockResolvedValue({
         buffer: Buffer.from('1,21,0,...'),
-        filename: 'ZENOUTFD',
-        asciiFilename: 'ZENOUTFD',
+        filename: '口座振替データ_2026年05月27日',
+        asciiFilename: '________2026_05_27_',
         recordCount: 2,
       });
 
@@ -231,12 +231,14 @@ describe('KozaFurikaeController (HTTP)', () => {
         .send(buildExportKozaFurikaeQuery())
         .expect(200);
 
-      expect(res.headers['content-type']).toContain('text/plain');
+      // 拡張子なしファイル名のため application/octet-stream 固定（text/plain 等の
+      // 既知タイプだとブラウザが .txt を自動付与してしまう — SCR-020バグ修正）。
+      expect(res.headers['content-type']).toContain('application/octet-stream');
       const cd = res.headers['content-disposition'];
       // ASCII別名は filename、日本語名は RFC 5987 の filename* に載る。
-      expect(cd).toContain('filename="ZENOUTFD"');
+      expect(cd).toContain('filename="________2026_05_27_"');
       expect(cd).toContain("filename*=UTF-8''");
-      expect(cd).toContain(encodeURIComponent('ZENOUTFD'));
+      expect(cd).toContain(encodeURIComponent('口座振替データ_2026年05月27日'));
     });
 
     it('should return 400 VALIDATION_ERROR when target_month is missing', async () => {

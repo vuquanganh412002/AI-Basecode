@@ -2,7 +2,7 @@
 // Screen: ACSMS-SCR-023 — ファイルアップロード画面 (extends list row shape +
 //                          adds an upload-request file fixture)
 //
-// Builders for t_file_upload + t_file_download rows used by SCR-022/023
+// Builders for t_file_upload + t_file_download rows used by ACSMS-SCR-022/023
 // specs. Time-bearing fields use `new Date()` per skill rule (avoid
 // hardcoded literals — they become flaky-by-calendar).
 

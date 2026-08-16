@@ -7,8 +7,8 @@
 // rule (`/api/v1/...` routes only resolve when setGlobalPrefix is set
 // inside the test app — production wires it in main.ts).
 //
-// SCR-023 sibling describe at the bottom of this file adds POST + DELETE
-// HTTP-layer assertions; the SCR-022 describe stays untouched.
+// ACSMS-SCR-023 sibling describe at the bottom of this file adds POST + DELETE
+// HTTP-layer assertions; the ACSMS-SCR-022 describe stays untouched.
 
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
@@ -89,7 +89,7 @@ describe('FileUploadController — SCR-022', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-022-001 — GET /api/v1/file-upload
+  // ACSMS-API-022-001 — GET /api/v1/file-upload
   // ──────────────────────────────────────────────────────────────
   describe('GET /api/v1/file-upload', () => {
     it('should return 200 with { data, meta } shape when service resolves the list', async () => {
@@ -219,7 +219,7 @@ describe('FileUploadController — SCR-022', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// SCR-023 — ファイルアップロード画面 (POST + DELETE HTTP layer)
+// ACSMS-SCR-023 — ファイルアップロード画面 (POST + DELETE HTTP layer)
 // ══════════════════════════════════════════════════════════════════════
 
 describe('FileUploadController — SCR-023 (POST upload + DELETE)', () => {
@@ -285,7 +285,7 @@ describe('FileUploadController — SCR-023 (POST upload + DELETE)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-002 — POST /api/v1/file-upload (multipart)
+  // ACSMS-API-023-002 — POST /api/v1/file-upload (multipart)
   // ──────────────────────────────────────────────────────────────
   describe('POST /api/v1/file-upload', () => {
     it('should return 202 Accepted with { data: [...], message } when upload succeeds', async () => {
@@ -439,7 +439,7 @@ describe('FileUploadController — SCR-023 (POST upload + DELETE)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-004 — DELETE /api/v1/file-upload/:id
+  // ACSMS-API-023-004 — DELETE /api/v1/file-upload/:id
   // ──────────────────────────────────────────────────────────────
   describe('DELETE /api/v1/file-upload/:id', () => {
     it('should return 200 with message "削除しました。" when service resolves', async () => {

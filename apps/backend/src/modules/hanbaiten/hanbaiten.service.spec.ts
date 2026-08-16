@@ -4,8 +4,8 @@
 //
 // All three SCRs share the HanbaitenService class. Tests are organised
 // as three sibling top-level describe blocks so each has its own mock
-// scope — SCR-018 uses QueryBuilder-heavy mocks, SCR-017 mixes
-// findOne / save / count, and SCR-019 (this file's third block) mixes
+// scope — ACSMS-SCR-018 uses QueryBuilder-heavy mocks, ACSMS-SCR-017 mixes
+// findOne / save / count, and ACSMS-SCR-019 (this file's third block) mixes
 // dataSource.query, dataSource.transaction, plus an ExcelJS-shaped
 // download method whose binary output is verified at integration
 // level. Spec count + assertions remain 1:1 with the originals; only
@@ -148,8 +148,8 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
     //     @InjectDataSource() dataSource,
     //     auditLog: AuditLogService,
     //   )
-    // 取込 (SCR-019) を切り出した HanbaitenImportService は @Optional。
-    // SCR-018 の CRUD テストは取込を呼ばないので未配線（undefined）で構築。
+    // 取込 (ACSMS-SCR-019) を切り出した HanbaitenImportService は @Optional。
+    // ACSMS-SCR-018 の CRUD テストは取込を呼ばないので未配線（undefined）で構築。
     service = new HanbaitenService(
       repo,
       todofukenRepo,
@@ -162,7 +162,7 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-001 — findAll / search (GET /api/v1/hanbaiten)
+  // ACSMS-API-018-001 — findAll / search (GET /api/v1/hanbaiten)
   // ═════════════════════════════════════════════════════════════════════
   describe('findAll (API-018-001)', () => {
     it('should return paginated { data, meta } when NICHINO_STAFF searches without filters', async () => {
@@ -289,7 +289,7 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
     });
 
     it('should add the 配達手数料単価 subquery with active_flg param=false when active_tanka_flg=false (失効単価のみ)', async () => {
-      // COVERS: 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）
+      // COVERS: 有効単価フラグ（ACSMS-SCR-021 error gate 連携・顧客要件2026-07 改訂）
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll(
@@ -676,7 +676,7 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-002 — remove (DELETE /api/v1/hanbaiten/:hanbaiten_id)
+  // ACSMS-API-018-002 — remove (DELETE /api/v1/hanbaiten/:hanbaiten_id)
   // ═════════════════════════════════════════════════════════════════════
   describe('remove (API-018-002)', () => {
     beforeEach(() => {
@@ -894,9 +894,9 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-017 — detail + create + update (separate top-level describe so its
+// ACSMS-SCR-017 — detail + create + update (separate top-level describe so its
 // mock setup, especially the 5th codeService dep, doesn't leak into the
-// SCR-018 block above).
+// ACSMS-SCR-018 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
@@ -1005,9 +1005,9 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
       query: jest.fn(async () => []),
     };
 
-    // Constructor signature MUST match the service after SCR-017 lands:
+    // Constructor signature MUST match the service after ACSMS-SCR-017 lands:
     //   (repo, todofukenRepo, dataSource, auditLog, codeService, tankaRepo)
-    // 取込 (SCR-019) は別 describe で検証するため、ここでは importService 未配線。
+    // 取込 (ACSMS-SCR-019) は別 describe で検証するため、ここでは importService 未配線。
     service = new HanbaitenService(
       repo,
       todofukenRepo,
@@ -1757,11 +1757,11 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-019 — Excel template download + bulk import (separate top-level
+// ACSMS-SCR-019 — Excel template download + bulk import (separate top-level
 // describe so the import-specific mock surface — dataSource.query
 // returning pre-check rows, txManager.query for batch INSERTs, plus a
-// mocked ExcelJS workbook return — doesn't leak into the SCR-017 /
-// SCR-018 blocks above).
+// mocked ExcelJS workbook return — doesn't leak into the ACSMS-SCR-017 /
+// ACSMS-SCR-018 blocks above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
@@ -1869,7 +1869,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       query: jest.fn(async () => []),
     };
 
-    // SCR-019 取込テストは HanbaitenImportService 経由で実行される。
+    // ACSMS-SCR-019 取込テストは HanbaitenImportService 経由で実行される。
     // facade である HanbaitenService が委譲できるよう、同一 mock から
     // importService を構築して末尾に配線する（テスト本体は不変）。
     const importService = new HanbaitenImportService(
@@ -2081,7 +2081,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           }),
         });
 
-        // koza_meigi is NOT in the SCR-019 conditional-required set.
+        // koza_meigi is NOT in the ACSMS-SCR-019 conditional-required set.
         try {
           await service.importExcel(body, importerSession(), baseReq);
         } catch (err: any) {
@@ -2778,6 +2778,24 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       );
       expect(res.data[0].hanbaiten_id).toBe(99);
       expect(res.data).toHaveLength(3);
+    });
+
+    it('should return nothing for a null-ja_id session lacking hanbaiten.view, even with an explicit ja_id query (NICHINO_ADMIN — バグ報告 2026-08)', async () => {
+      // dropdown は共有エンドポイントで @Permissions を掛けないため、サービス層の
+      // この分岐が唯一の防御線。NICHINO_ADMIN(デフォルト buildSession() は
+      // ja_id=null・hanbaiten.* なし)が ja_id を指定して全JA横断で販売店を
+      // 閲覧できてしまっていたバグの回帰テスト。
+      qbMock.getMany.mockResolvedValueOnce([mk(1)]);
+      await service.listDropdown({ ja_id: 2 }, buildSession());
+      const deny = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
+      );
+      expect(deny).toBeDefined();
+      const jaFilter = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' && sql.includes('ja_id') && params?.qja === 2,
+      );
+      expect(jaFilter).toBeUndefined(); // ja_id クエリを信用してはいけない
     });
 
     it('should restrict options to 営業中 (bind haiten_flg = false) when active_only=true', async () => {

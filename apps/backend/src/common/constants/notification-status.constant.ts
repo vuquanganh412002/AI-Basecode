@@ -1,6 +1,6 @@
 /**
  * `t_file_upload.notification_status` — {@link FileUploadNotificationWorker}
- * が駆動する通知状態機械（SCR-023 §6.5）。
+ * が駆動する通知状態機械（ACSMS-SCR-023 §6.5）。
  *
  *      [1] 未送信 → [2] 送信中 → [3] 完了            (全宛先成功)
  *                            ↘ [4] 一部失敗          (一部宛先失敗)

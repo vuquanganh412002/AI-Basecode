@@ -1,10 +1,10 @@
 // Screen: ACSMS-SCR-026 — 購読者名簿出力画面 + ACSMS-SCR-028 — 増減連絡票（販売店）出力画面
 //
 // ReportController HTTP specs for:
-//   - GET  /api/v1/report/meibo/preview            — API-026-001
-//   - GET  /api/v1/report/meibo/export             — API-026-002
-//   - GET  /api/v1/report/zougen-hanbaiten/preview — API-028-001
-//   - POST /api/v1/report/zougen-hanbaiten/export  — API-028-002
+//   - GET  /api/v1/report/meibo/preview            — ACSMS-API-026-001
+//   - GET  /api/v1/report/meibo/export             — ACSMS-API-026-002
+//   - GET  /api/v1/report/zougen-hanbaiten/preview — ACSMS-API-028-001
+//   - POST /api/v1/report/zougen-hanbaiten/export  — ACSMS-API-028-002
 //
 // Full Nest HTTP stack via Test.createTestingModule + supertest.
 

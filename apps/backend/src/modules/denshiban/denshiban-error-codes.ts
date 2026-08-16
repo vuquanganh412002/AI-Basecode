@@ -65,6 +65,18 @@ export const DENSHIBAN_ERROR_DESCRIPTIONS: Readonly<Record<string, string>> = {
   P99: 'その他のエラー',
 } as const;
 
+/** 電子版 `updateUserInfo` の成功ステータスコード。それ以外はエラーコード。 */
+export const DENSHIBAN_STATUS_SUCCESS = '0';
+
+/**
+ * cloud 起点の失敗（電子版まで到達していない）で使う擬似ステータスコード
+ * （例: `resolveJacd` で管理支店IDが解決できない等）。`isDenshibanErrorCode()`
+ * は必ず false を返すため、`DenshibanPushException` の `error_code` は
+ * {@link DENSHIBAN_ERROR_DESCRIPTIONS} を経由せず `DENSHIBAN_PUSH_FAILED`
+ * （denshiban-push.service.ts）に潰れる。
+ */
+export const CLOUD_ORIGIN_STATUS_CODE = 'CLOUD';
+
 /** 電子版のエラーコード書式（E/V/P + 2桁）。 */
 const DENSHIBAN_ERROR_CODE_RE = /^[EVP]\d{2}$/;
 

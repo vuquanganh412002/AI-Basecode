@@ -22,7 +22,7 @@ export class RolePermission {
    * ロール基準権限としてシードされた行で TRUE
    * （`1711900900003-SeedMRolesPermissions.ts`）。FE はチェックボックスを
    * `disabled` 表示し、BE はこの行を外す PATCH を拒否する。
-   * SCR-027 管理 UI で後から追加された行は FALSE。
+   * ACSMS-SCR-027 管理 UI で後から追加された行は FALSE。
    */
   @Column({ name: 'locked', type: 'boolean', default: false })
   locked: boolean;

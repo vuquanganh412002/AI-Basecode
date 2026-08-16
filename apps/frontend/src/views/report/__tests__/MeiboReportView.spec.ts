@@ -3,7 +3,7 @@
 // Drives src/views/report/MeiboReportView.vue. Each it() maps to a clause in
 //   docs/design/ACSMS-SCR-026/screen-design.md (機能定義 + メッセージ情報)
 //   docs/design/ACSMS-SCR-026/index.html (UI labels)
-//   docs/design/ACSMS-SCR-026/ACSMS-SCR-026-api.md (API-026-001 / 002)
+//   docs/design/ACSMS-SCR-026/ACSMS-SCR-026-api.md (ACSMS-API-026-001 / 002)
 //
 // The view defineExposes `{ formState }` so setup can seed the 適用日 /
 // 販売店 / 管理支店 selections (antd multi-selects aren't drivable via
@@ -177,6 +177,29 @@ describe('MeiboReportView — 画面初期表示', () => {
   it('should NOT render any preview rows when first mounted (empty preview area)', async () => {
     const { wrapper } = await renderView();
     expect(wrapper.text()).not.toContain('農業 太郎');
+  });
+
+  it('should associate the 販売店 title with its select via <label for> (regression: was a bare <div>)', async () => {
+    const { wrapper } = await renderView();
+    const label = wrapper.findAll('label').find((l) => l.text().includes('販売店'));
+    expect(label).toBeDefined();
+    const forId = label!.attributes('for')!;
+    expect(wrapper.find(`#${forId}`).exists()).toBe(true);
+  });
+
+  it('should associate 管理支店 / 支店 titles with their selects via <label for> when switched to 管理支店別 (regression)', async () => {
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.report_type = 'kanri_shiten';
+    await wrapper.vm.$nextTick();
+
+    const kanriShitenLabel = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('管理支店'));
+    const shitenLabel = wrapper.findAll('label').find((l) => l.text().trim() === '支店');
+    expect(kanriShitenLabel).toBeDefined();
+    expect(shitenLabel).toBeDefined();
+    expect(wrapper.find(`#${kanriShitenLabel!.attributes('for')}`).exists()).toBe(true);
+    expect(wrapper.find(`#${shitenLabel!.attributes('for')}`).exists()).toBe(true);
   });
 });
 
@@ -732,5 +755,52 @@ describe('MeiboReportView — ページ送り', () => {
     await flushPromises();
 
     expect(wrapper.find('[data-test="meibo-pager"]').exists()).toBe(false);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 出力日時 — プレビュー押下時刻で確定する（regression: frozen at first preview）
+// ───────────────────────────────────────────────────────────────────────
+describe('MeiboReportView — 出力日時', () => {
+  it('should show 出力日時 for the JST moment of the preview click', async () => {
+    vi.useFakeTimers();
+    // UTC 01:00 = JST 10:00。
+    vi.setSystemTime(new Date('2026-04-10T01:00:00Z'));
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('出力日：2026/04/10');
+    expect(wrapper.text()).toContain('出力時間：10:00:00');
+    vi.useRealTimers();
+  });
+
+  it('should update 出力日時 on a second preview instead of staying frozen at the first click (regression)', async () => {
+    // Bug: outputDate/outputTime were computed(() => nowTokyo()...) with no
+    // reactive dependency, so Vue cached the first-render value forever —
+    // a second preview kept showing the first preview's timestamp.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-10T01:00:00Z')); // JST 10:00
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    (wrapper.vm as any).formState.hanbaiten_ids = [1];
+
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('出力時間：10:00:00');
+
+    // Advance the clock and change filters, then preview again.
+    vi.setSystemTime(new Date('2026-04-10T05:30:00Z')); // JST 14:30
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-02';
+    await wrapper.find(preview()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('出力日：2026/04/10');
+    expect(wrapper.text()).toContain('出力時間：14:30:00');
+    expect(wrapper.text()).not.toContain('出力時間：10:00:00');
+    vi.useRealTimers();
   });
 });

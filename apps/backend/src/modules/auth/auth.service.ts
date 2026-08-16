@@ -1,10 +1,4 @@
-import {
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -28,7 +22,10 @@ import {
   OtpResendLimitException,
   PasswordResetRateLimitException,
 } from './exceptions/auth.exceptions';
-import { UnauthorizedException } from '@/common/exceptions/common.exceptions';
+import {
+  UnauthorizedException,
+  ValidationException,
+} from '@/common/exceptions/common.exceptions';
 import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
 import { Account } from '@/database/entities/account.entity';
 import { MfaOtp } from '@/database/entities/mfa-otp.entity';
@@ -53,7 +50,7 @@ const OTP_RESEND_COOLDOWN_SECONDS = 60;
 // ロック解除は admin のみ — パスワードリセットではフラグは解除されない。
 const LOGIN_FAILURE_LOCK_THRESHOLD = 5;
 
-// SCR-012 — password reset
+// ACSMS-SCR-012 — password reset
 const RESET_TOKEN_EXPIRY_MINUTES = 60;
 // PASSWORD_RESET（docs/database/seeder.md §5 OTP_TYPE）。マジックナンバー回避の別名。
 const PASSWORD_RESET_OTP_TYPE = OtpType.PASSWORD_RESET;
@@ -107,10 +104,10 @@ export class AuthService {
     private readonly permRepo: Repository<Permission>,
     // mfa_token→otp_id binding の共有ストア（マルチインスタンス安全）。
     private readonly redis: RedisService,
-    // SCR-012 は DML + audit log を transaction で包む。`@Optional()` は SCR-001 の
+    // ACSMS-SCR-012 は DML + audit log を transaction で包む。`@Optional()` は ACSMS-SCR-001 の
     // `new AuthService(...8 args)` specs を型維持させるため（実行時は DI が注入）。
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
-    // `@Optional()`: SCR-001 unit specs が ConfigService を渡さなくて済む（dev 既定に fallback）。
+    // `@Optional()`: ACSMS-SCR-001 unit specs が ConfigService を渡さなくて済む（dev 既定に fallback）。
     @Optional() private readonly configService?: ConfigService,
   ) {}
 
@@ -605,14 +602,20 @@ export class AuthService {
   }
 
   /**
-   * otp_type=2 の行を反復し raw token を各 otp_code_hash と bcrypt.compare。
-   * 最初の一致 or null。api.md の `WHERE otp_type = 2` が広いのはトークンが
-   * bcrypt-hash 保存でハッシュ直引き不可なため。反復数は同時有効トークン数（多忙な
-   * 環境でも数十件）で頭打ち。
+   * otp_type=2・未使用の行を反復し raw token を各 otp_code_hash と bcrypt.compare。
+   * 最初の一致 or null。`WHERE otp_type = 2` が広いのはトークンが bcrypt-hash 保存で
+   * ハッシュ直引き不可なため。expired_at では絞らない — 期限切れ行も候補に残し
+   * 呼び出し側で ExpiredResetTokenException（具体的なメッセージ）を出す（ここで
+   * 絞ると期限切れが InvalidResetTokenException にすり替わってしまう）。
+   * used_flg=true は絞ってもどちらの呼び出し元も同じ InvalidResetTokenException を
+   * 投げるため安全 — 消費済みトークンをループから除外し bcrypt.compare の回数を
+   * 減らす（バックエンドレビュー finding #10: 呼び出し元 verifyResetToken に
+   * @Throttle が無く、際限なく積み上がる行を毎回全走査する bcrypt ループが
+   * CPU 消費ベクトルになっていた）。
    */
   private async findResetTokenOtp(token: string): Promise<MfaOtp | null> {
     const candidates = await this.otpRepo.find({
-      where: { otpType: PASSWORD_RESET_OTP_TYPE },
+      where: { otpType: PASSWORD_RESET_OTP_TYPE, usedFlg: false },
     });
     for (const otp of candidates) {
       if (await bcrypt.compare(token, otp.otpCodeHash)) {
@@ -636,17 +639,11 @@ export class AuthService {
   }
 
   // FE 契約(`useApiForm` が `response.errors[].field` を期待, vue.md)に合わせた
-  // VALIDATION_ERROR HttpException を構築。
-  private passwordValidationError(field: string, message: string): HttpException {
-    return new HttpException(
-      {
-        code: 'VALIDATION_ERROR',
-        error_code: 'VALIDATION_ERROR',
-        message: '入力値が不正です。詳細はerrorsフィールドを確認してください。',
-        errors: [{ field, message }],
-      },
-      HttpStatus.BAD_REQUEST,
-    );
+  // VALIDATION_ERROR を構築。プロジェクト共通の ValidationException 経由 —
+  // 生の HttpException を直接投げていた箇所を統一（バックエンドコードレビュー
+  // finding #21）。DomainException が組み立てる body は従来の手組みと同一。
+  private passwordValidationError(field: string, message: string): ValidationException {
+    return new ValidationException([{ field, message }]);
   }
 
   // `dataSource` は SCR-001 specs(`new AuthService(...8 args)`)の型維持のため `@Optional()`。
@@ -770,7 +767,7 @@ export class AuthService {
     );
 
     try {
-      await this.mailService.sendOtp(email, accountName, otpCode);
+      await this.mailService.sendOtp(email, accountName, otpCode, OTP_EXPIRY_MINUTES);
     } catch (error) {
       this.logger.error({ event: 'auth.mfa.send_failed', error: String(error) });
       // OTP は保持（resend で再試行可）。仕様 §4.4 はロールバック不要。

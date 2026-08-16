@@ -10,15 +10,15 @@ const blankToUndef = ({ value }: { value: unknown }) =>
 // `GET /api/v1/ja/dropdown` 用 DTO (ACSMS-API-COMMON-003)。
 // {@link BaseDropdownQueryDto}(q/page/per_page/include_id)を継承し、
 // JA固有フィルタを追加：
-//   1. フォーム free-text + 無限スクロール(SCR-009 管理支店 create等)。
+//   1. フォーム free-text + 無限スクロール(ACSMS-SCR-009 管理支店 create等)。
 //      q は既定で ja_code OR ja_name、match_field='name' で ja_name のみ
-//      (ja_code 非表示の SCR-024 account list 向け)。
-//   2. カスケード絞込み(SCR-024 検索 / SCR-025 登録)：todofuken_code /
+//      (ja_code 非表示の ACSMS-SCR-024 account list 向け)。
+//   2. カスケード絞込み(ACSMS-SCR-024 検索 / ACSMS-SCR-025 登録)：todofuken_code /
 //      role_id を渡す。role_id∈{3}→chuokai_flg=TRUE、{4,5}→FALSE、他は素通り。
 // 返却は slim 行 {ja_id, ja_code, ja_name, todofuken_code, chuokai_flg}。
 // ソートは常に ja_code ASC(SearchJaDto と違い sort パラメータなし)。
 export class JaDropdownQueryDto extends BaseDropdownQueryDto {
-  // [match-field] ja_code 非表示の呼び元(SCR-024)向け name-only 検索の
+  // [match-field] ja_code 非表示の呼び元(ACSMS-SCR-024)向け name-only 検索の
   // opt-in。既定 'both'(ja_code OR ja_name)で既存呼び元は不変。不正値は
   // @IsIn で拒否(素通りさせず typo を検知)。
   @ApiPropertyOptional({
@@ -58,7 +58,7 @@ export class JaDropdownQueryDto extends BaseDropdownQueryDto {
    * DataScope の適用範囲（既定 `own` = 自組織階層のみ）。
    *
    * `todofuken` を指定すると **中央会(CHUOKAI)に限り** 自JAではなく
-   * 「自セッションの都道府県に属する全JA」を候補にする。SCR-022 ファイル
+   * 「自セッションの都道府県に属する全JA」を候補にする。ACSMS-SCR-022 ファイル
    * ダウンロード画面の JA 絞り込み専用（顧客要件 2026-07 で同画面の DataScope が
    * 同一都道府県へ拡大したため、絞り込み候補も揃える必要がある）。
    *

@@ -498,8 +498,8 @@ function renderCell(value: unknown): string {
     >
       <form class="@container space-y-4" @submit.prevent>
         <!-- Row 1（4カラム）: [Excelファイル名 ×2] [取込モード] [テンプレート右端]。
-             購読者取込(SCR-016)と同一グリッド（購読種別カラムは空きにする）にし、
-             Excelファイル名入力の幅を SCR-016 と完全一致させる。
+             購読者取込(ACSMS-SCR-016)と同一グリッド（購読種別カラムは空きにする）にし、
+             Excelファイル名入力の幅を ACSMS-SCR-016 と完全一致させる。
 
              狭幅の既定を 1 列ではなく `[1fr_auto]` の 2 列にしている。1 列だと
              取込モード と テンプレート がそれぞれ 1 行を占め、ボタンの左側が
@@ -550,39 +550,38 @@ function renderCell(value: unknown): string {
           </div>
 
           <div>
-            <span
-              class="block text-sm font-semibold text-text-main mb-1.5"
-              id="import-mode-label"
-            >
-              取込モード
-              <span class="text-error ml-1">*</span>
-            </span>
             <!-- [import-mode-radio] 顧客 2026-05-27 — ワンクリックのモード切替の
                  ため native dropdown からインライン radio へ変更。各 radio は
                  値ごとの test hook（IMPORT_MODE_OPTIONS 参照）を持ち、vitest が
-                 親 select の setValue なしで特定オプションを狙える。 -->
-            <div
-              role="radiogroup"
-              aria-labelledby="import-mode-label"
-              data-test="import-mode"
-              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
-            >
-              <label
-                v-for="opt in IMPORT_MODE_OPTIONS"
-                :key="opt.value"
-                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+                 親 select の setValue なしで特定オプションを狙える。
+                 native <fieldset>+<legend> で命名する（vue.md §1a — role="radiogroup"
+                 + aria-labelledby ではなく、素の radio 群には native 要素を使う）。 -->
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="block text-sm font-semibold text-text-main mb-1.5">
+                取込モード
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div
+                data-test="import-mode"
+                class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
               >
-                <input
-                  v-model="importModeFe"
-                  type="radio"
-                  name="import-mode"
-                  :value="opt.value"
-                  :data-test="`import-mode-${opt.value}`"
-                  class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
-                />
-                {{ opt.label }}
-              </label>
-            </div>
+                <label
+                  v-for="opt in IMPORT_MODE_OPTIONS"
+                  :key="opt.value"
+                  class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+                >
+                  <input
+                    v-model="importModeFe"
+                    type="radio"
+                    name="import-mode"
+                    :value="opt.value"
+                    :data-test="`import-mode-${opt.value}`"
+                    class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                  />
+                  {{ opt.label }}
+                </label>
+              </div>
+            </fieldset>
           </div>
 
           <!-- テンプレートは常に最終カラム（= カード右端）に置く。

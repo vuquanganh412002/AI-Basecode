@@ -10,6 +10,7 @@
 
 import { In, IsNull } from 'typeorm';
 
+import { RoleCode } from '@/common/enums/role-code.enum';
 import { ReportNotificationService } from '@/modules/report/report-notification.service';
 
 function acc(
@@ -25,6 +26,7 @@ function acc(
 describe('ReportNotificationService', () => {
   let service: ReportNotificationService;
   let accountRepo: any;
+  let roleRepo: any;
   let mailService: any;
 
   beforeEach(() => {
@@ -32,8 +34,11 @@ describe('ReportNotificationService', () => {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue({ accountName: '' }),
     };
+    roleRepo = {
+      find: jest.fn().mockResolvedValue([{ roleId: 1 }, { roleId: 2 }]),
+    };
     mailService = { sendNotification: jest.fn().mockResolvedValue(undefined) };
-    service = new ReportNotificationService(accountRepo, mailService);
+    service = new ReportNotificationService(accountRepo, roleRepo, mailService);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -104,7 +109,7 @@ describe('ReportNotificationService', () => {
     expect(mailService.sendNotification).not.toHaveBeenCalled();
   });
 
-  // 顧客要件2026-07 — SCR-029 メールレイアウト（都道府県 + 発行アカウント）。
+  // 顧客要件2026-07 — ACSMS-SCR-029 メールレイアウト（都道府県 + 発行アカウント）。
   describe('notifyNichinoExport', () => {
     const baseParams = {
       session: {
@@ -131,6 +136,41 @@ describe('ReportNotificationService', () => {
       expect(subject).toBe(
         '【東京都】【ja_kanri01 管理支店 太郎】増減通知（日本農業新聞）を出力しました',
       );
+    });
+
+    it('resolves NICHINO_ADMIN/NICHINO_STAFF role_ids from m_roles by role_code instead of a hardcoded id (regression: SERIAL採番依存)', async () => {
+      // role_id はハードコードせず role_code から都度解決する — m_roles の
+      // 採番順（SERIAL）が環境によってずれても正しいロールに通知できることを保証する。
+      accountRepo.findOne.mockResolvedValue({ accountName: '管理支店 太郎' });
+      roleRepo.find.mockResolvedValue([{ roleId: 7 }, { roleId: 9 }]);
+      accountRepo.find.mockResolvedValue([acc('n@x.jp', '', '', '', 7)]);
+
+      await service.notifyNichinoExport(baseParams);
+
+      expect(roleRepo.find).toHaveBeenCalledWith({
+        where: {
+          roleCode: In([RoleCode.NICHINO_ADMIN, RoleCode.NICHINO_STAFF]),
+          deletedAt: IsNull(),
+        },
+        select: ['roleId'],
+      });
+      // 解決された role_id ([7, 9])、ハードコード値 [1, 2] ではないことを検証。
+      expect(accountRepo.find).toHaveBeenCalledWith({
+        where: { roleId: In([7, 9]), deletedAt: IsNull() },
+      });
+    });
+
+    it('never throws and sends to 0 recipients when role resolution fails', async () => {
+      accountRepo.findOne.mockResolvedValue({ accountName: '管理支店 太郎' });
+      roleRepo.find.mockRejectedValue(new Error('db-down'));
+
+      await expect(service.notifyNichinoExport(baseParams)).resolves.toBe(0);
+      // role 解決失敗時は空配列で継続する（accountRepo.find(roleId: In([])) は
+      // 呼ばれるが該当ゼロ件のため送信は発生しない）。
+      expect(accountRepo.find).toHaveBeenCalledWith({
+        where: { roleId: In([]), deletedAt: IsNull() },
+      });
+      expect(mailService.sendNotification).not.toHaveBeenCalled();
     });
 
     it('includes issuer, 適用日(YYYYMMDD), ファイル名, 件数 and the download line in the body', async () => {

@@ -139,6 +139,39 @@ function toIsoDate(v: unknown): string | null {
   return `${y}-${mo}-${d}`;
 }
 
+/**
+ * #57986: `payment_end_ym`（'YYYYMM'）を正規化する。6桁数字・月01〜12以外は null。
+ * 解約分岐のゲート判定（現在年月との比較）と {@link paymentEndYmToChushiDate}
+ * の両方がこの正規化済み文字列を基準にする。
+ */
+export function normalizePaymentYm(v: unknown): string | null {
+  const s = str(v).trim();
+  const m = /^(\d{4})(\d{2})$/.exec(s);
+  if (!m) return null;
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return s;
+}
+
+/**
+ * #57986: `payment_end_ym`（'YYYYMM'・支払済み最終月）→ 購読中止日（'YYYY-MM-DD'）。
+ * 電子版/併読の中止日は「電子版が読める有効な最終日」（`insertKaiyaku` /
+ * `insertScheduledKaiyaku` の denshi +1日ロジックと同じ定義 — 中止日の翌日から
+ * 実際に読めなくなる）なので、**支払済み最終月の末日**とする
+ * （例: '202609' → '2026-09-30'。9月分まで支払い済みなので9月末まで有効、
+ * 実際に読めなくなるのは insertScheduledKaiyaku/insertKaiyaku が中止日+1日で
+ * 適用日を算出する 10月1日）。不正な形式は null。
+ */
+export function paymentEndYmToChushiDate(v: unknown): string | null {
+  const ym = normalizePaymentYm(v);
+  if (ym === null) return null;
+  const year = Number(ym.slice(0, 4));
+  const month = Number(ym.slice(4, 6));
+  // Date(year, month, 0) = 月初(day=1)の1日前 = `month`（1始まり）の末日。
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+
 /** 郵便番号: zip1(上3)+zip2(下4) をハイフン無し連結（7桁想定）。 */
 function joinZip(zip1: unknown, zip2: unknown): string {
   return (str(zip1) + str(zip2)).replace(/\D/g, '');
@@ -351,7 +384,12 @@ export function mapUserToDokusyaFields(
     // ─ 日付 ─
     shokiDokusyaKaishiDate: kaishiDate,
     dokusyaKaishiDate: kaishiDate,
-    dokusyaChushiDate: toIsoDate(u.deleted_at),
+    // #57986: dokusya_chushi_date はここでは設定しない。以前は users.deleted_at を
+    // そのまま写していたが、未来日解約は Denshiban 側で status=9 に切り替わった
+    // 時点ではまだ deleted_at が NULL のまま（実削除時にしか立たない）で、
+    // 中止日を正しく表せなかった。中止日は service 側の解約分岐（status=9）で
+    // payment_end_ym から算出し、insertScheduledKaiyaku 経由で予約行として書く
+    // （このフィールドを values に含めないことで通常行は前回値を carry-forward する）。
     seikyuKaishiMonth: str(u.payment_start_ym),
     // ─ その他 ─
     biko: joinRemarks(u),

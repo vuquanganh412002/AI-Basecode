@@ -113,6 +113,70 @@ describe('DenshibanPushService', () => {
     });
   });
 
+  // 顧客要件 2026-08 追補: campaign→通常 単価へ切替えた直後（denshi_kaiin_id が
+  // まだ null）は、この1回の更新では push しない — cloud が denshiban へ新規
+  // 登録してしまうのを防ぐ（denshi_kaiin_id の付与は pull sync のみを正とする）。
+  // push有効化前から存在し一度も campaign になったことがない「migration対象」
+  // レコード（beforeTankaId も非campaign）とは区別する。
+  describe('isTarget — beforeTankaId（campaign→通常 切替時の初回push抑止）', () => {
+    /** tankaId → campaignFlg のマップで振り分ける Tanka repo モック。 */
+    function buildManagerWithTankaRoute(campaignByTankaId: Record<number, boolean>) {
+      const kanriRepo = {
+        findOne: jest
+          .fn()
+          .mockResolvedValue({ kanriShitenId: 3, kanriShitenCode: '1301002001' }),
+      };
+      const tankaRepo = {
+        findOne: jest.fn(async (opts: { where?: { tankaId?: number } }) => {
+          const id = opts?.where?.tankaId;
+          return { campaignFlg: (id != null && campaignByTankaId[id]) ?? false };
+        }),
+      };
+      const manager = {
+        getRepository: jest.fn((entity: unknown) =>
+          entity === KanriShiten ? kanriRepo : tankaRepo,
+        ),
+        update: jest.fn(),
+      };
+      return manager as any;
+    }
+
+    it('should skip push when switching from a campaign tanka to a regular one while denshi_kaiin_id is still null', async () => {
+      const service = buildService(true);
+      const manager = buildManagerWithTankaRoute({ 1: false, 2: true }); // 1=通常, 2=campaign
+      const after = buildDokusya({ tankaId: 1, denshiKaiinId: null });
+      expect(await service.isTarget(manager, after, 'UI', 2)).toBe(false);
+    });
+
+    it('should push when neither before nor after tanka was ever campaign (pre-push migration record)', async () => {
+      const service = buildService(true);
+      const manager = buildManagerWithTankaRoute({ 1: false });
+      const after = buildDokusya({ tankaId: 1, denshiKaiinId: null });
+      expect(await service.isTarget(manager, after, 'UI', 1)).toBe(true);
+    });
+
+    it('should push normally when denshi_kaiin_id is already set, regardless of beforeTankaId being campaign', async () => {
+      const service = buildService(true);
+      const manager = buildManagerWithTankaRoute({ 1: false, 2: true });
+      const after = buildDokusya({ tankaId: 1, denshiKaiinId: 555 });
+      expect(await service.isTarget(manager, after, 'UI', 2)).toBe(true);
+    });
+
+    it('should still exclude when the current (after) tanka itself is campaign, regardless of beforeTankaId', async () => {
+      const service = buildService(true);
+      const manager = buildManagerWithTankaRoute({ 1: false, 2: true });
+      const after = buildDokusya({ tankaId: 2, denshiKaiinId: null }); // after が campaign
+      expect(await service.isTarget(manager, after, 'UI', 1)).toBe(false);
+    });
+
+    it('should behave as before when beforeTankaId is omitted (create など before が無い呼び出し)', async () => {
+      const service = buildService(true);
+      const manager = buildManagerWithTankaRoute({ 1: false });
+      const after = buildDokusya({ tankaId: 1, denshiKaiinId: null });
+      expect(await service.isTarget(manager, after, 'UI')).toBe(true);
+    });
+  });
+
   describe('push', () => {
     it("create 成功で採番IDを返し master.denshi_kaiin_id を書き戻す", async () => {
       const updateUserInfo = jest

@@ -2,7 +2,7 @@
 //
 // Drives src/modules/dokusya/dto/replace-hanbaiten.dto.ts (to be
 // generated). One test (or group) per row in
-// docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md §API-015-002
+// docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md §ACSMS-API-015-002
 // リクエストパラメータ + §4.1 リクエストのバリデーション.
 //
 // The DTO binds the JSON body of `POST /api/v1/dokusya/replace-hanbaiten`.

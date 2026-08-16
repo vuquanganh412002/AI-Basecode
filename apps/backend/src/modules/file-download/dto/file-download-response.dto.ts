@@ -3,7 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * `GET /api/v1/file-download`(SCR-022 一覧)の行形状。データ元は
+ * `GET /api/v1/file-download`(ACSMS-SCR-022 一覧)の行形状。データ元は
  * `t_file_download`。帳票各画面が生成したダウンロード対象ファイルを一覧表示する
  * （t_file_download への INSERT は各帳票画面が行う。本画面は読み取り＋DL専用）。
  *

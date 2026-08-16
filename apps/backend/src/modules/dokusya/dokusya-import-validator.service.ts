@@ -5,6 +5,7 @@ import {
   assertBranchScopeViolation,
   assertShitenScopeViolation,
 } from '@/common/utils/data-scope';
+import { normalizeForCache } from '@/common/utils/m-code-validation';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
@@ -56,6 +57,13 @@ interface ImportRowLookups {
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
    */
   existingDigitalEmailToIds: Map<string, Set<number>>;
+  /**
+   * m_code 参照列の許容値判定（バックエンドレビュー finding #9）。本サービスは
+   * 依存ゼロの leaf サービスのため CodeService を直接 inject せず、呼び出し側
+   * （DokusyaImportService）が `codeService.has(category, value)` をそのまま
+   * 束縛した関数を渡す — 他 *CodeSet と違い都度クエリなしの純粋関数呼び出し。
+   */
+  hasCode: (category: string, value: number | string) => boolean;
 }
 
 /** unknown → string。DB 生値は常にスカラだが、Object の既定文字列化を型で防ぐ。 */
@@ -73,7 +81,7 @@ const EMAIL_REQUIRED_DIGITAL_MSG = SHUBETSU_MSG.EMAIL_REQUIRED_DIGITAL;
 const DOKUSYASO_BUNRUI_REQUIRED_DIGITAL_MSG =
   SHUBETSU_MSG.DOKUSYASO_BUNRUI_REQUIRED_DIGITAL;
 
-/** 電子版で請求開始月が未設定＝停止不可（SCR-014 の購読中止と同一文言）。 */
+/** 電子版で請求開始月が未設定＝停止不可（ACSMS-SCR-014 の購読中止と同一文言）。 */
 const SEIKYU_NOT_STARTED_MSG = SHUBETSU_MSG.SEIKYU_NOT_STARTED;
 
 /**
@@ -89,13 +97,13 @@ function fieldValidationError(
 }
 
 /**
- * SCR-016 — NEW モードが selected_columns に必須とする物理列（api.md §4.1）。
+ * ACSMS-SCR-016 — NEW モードが selected_columns に必須とする物理列（api.md §4.1）。
  * 購読種別は画面ラジオ（紙版/電子版）の取込モードへ移動したため Excel 必須列から
  * 除外（顧客要件 2026-07）。
  *
  * `shiten_code`（支店）は **必須ではない** — api.md §4.1 で「NEW モードは必須」と
  * 明記されているのは kanri_shiten_code 側だけで、`t_dokusya.shiten_id` も NULL 許容。
- * SCR-011 の画面登録でも任意項目なので、取込だけ必須にすると同じ購読者を画面から
+ * ACSMS-SCR-011 の画面登録でも任意項目なので、取込だけ必須にすると同じ購読者を画面から
  * 登録できて Excel からは登録できない不整合になる。
  *
  * 逆に `dokusya_busu` / `shiharai_hoho` は api.md に必須の記載が無いが NOT NULL
@@ -117,7 +125,7 @@ const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
 ] as const;
 
 /**
- * SCR-016 — NEW 必須列の日本語ラベル。選択済み必須列が空欄のとき per-row
+ * ACSMS-SCR-016 — NEW 必須列の日本語ラベル。選択済み必須列が空欄のとき per-row
  * 「{label}は必須です。」メッセージを組み立てる。上の列選択チェックは列が対象かを
  * 見るだけで、空欄の必須 FK/項目が INSERT まで漏れて NOT NULL/FK 制約→500 になるのを
  * 防ぎ IMPORT_VALIDATION_ERROR として穏当に返す。
@@ -136,7 +144,7 @@ const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   dokusya_kaishi_date: '購読開始日',
 };
 
-/** SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
+/** ACSMS-SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
 const IMPORT_ERROR_CAP = 10;
 
 /**
@@ -264,7 +272,7 @@ export class DokusyaImportValidator {
   private assertDigitalBulkStop(dto: ImportDokusyaDto, chushi: string): void {
     // 1行 = 電子版APIへの1往復なので、同期処理のままでは大きいファイルが
     // ALB/CloudFront のタイムアウトにかかる。紙版は外部連携が無く従来と同じ
-    // コストなので通常の上限（30000）のまま。DTO の @ArrayMaxSize は種別を
+    // コストなので通常の上限（5000）のまま。DTO の @ArrayMaxSize は種別を
     // 跨いだ形式契約なので、種別依存の上限はここに置く。
     if (dto.rows.length > MAX_DIGITAL_BULK_STOP_ROWS) {
       throw this.payloadDateError(
@@ -332,6 +340,7 @@ export class DokusyaImportValidator {
       );
       this.validateImportRowDokusyaSoBunrui(row, rowNo, dto, lookups, errors);
       this.validateImportRowBunruiCodes(row, rowNo, errors);
+      this.validateImportRowCodeMaster(row, rowNo, lookups, errors);
       const category = this.classifyImportRow(
         row,
         rowNo,
@@ -815,6 +824,91 @@ export class DokusyaImportValidator {
         message: NOGYOSYA_BUNRUI_INVALID_MSG,
       });
     }
+  }
+
+  /**
+   * m_code 参照列（性別・メールマガジン・引落預金種別・郵送区分・支払方法）の
+   * 値が customer-editable キャッシュに存在するかを検証する（バックエンド
+   * レビュー finding #9）。単票 create/update は `assertMCodeValues` で即時
+   * throw するが、取込みは行単位で errors[] に蓄積し呼び出し側で最大
+   * `IMPORT_ERROR_CAP` 件へ丸めるため、同じ判定を pushImportError 経由で行う。
+   * 空欄（undefined/null/''）はスキップ — 必須チェックは
+   * `validateImportRowRequired` の責務。ラベル文字列（'男性' 等）は
+   * `DokusyaImportService.toMCodeValue` が事前にコードへ変換済みで本メソッド
+   * には来ない想定だが、念のため lookups の Set は `CodeService` の
+   * `normalizeValue` と同じ正規化（`normalizeForCache`）を経て構築されている
+   * ため、数値形の文字列もそのまま比較できる。
+   */
+  private validateImportRowCodeMaster(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    this.pushCodeMasterError(
+      row.gender,
+      'GENDER',
+      lookups,
+      rowNo,
+      'gender',
+      '性別',
+      errors,
+    );
+    this.pushCodeMasterError(
+      row.mail_magazine_flg,
+      'MAIL_MAGAZINE_FLG',
+      lookups,
+      rowNo,
+      'mail_magazine_flg',
+      'メールマガジン配信フラグ',
+      errors,
+    );
+    this.pushCodeMasterError(
+      row.hikiotoshi_yokin_shubetsu,
+      'YOKIN_SHUBETSU',
+      lookups,
+      rowNo,
+      'hikiotoshi_yokin_shubetsu',
+      '引落預金種別',
+      errors,
+    );
+    this.pushCodeMasterError(
+      row.yubin_kubun,
+      'YUBIN_KUBUN',
+      lookups,
+      rowNo,
+      'yubin_kubun',
+      '郵送区分',
+      errors,
+    );
+    this.pushCodeMasterError(
+      row.shiharai_hoho,
+      'SHIHARAI_HOHO',
+      lookups,
+      rowNo,
+      'shiharai_hoho',
+      '支払方法',
+      errors,
+    );
+  }
+
+  /** 1フィールド分の m_code 許容値チェック — 空欄はスキップ。 */
+  private pushCodeMasterError(
+    value: number | string | undefined,
+    category: string,
+    lookups: ImportRowLookups,
+    rowNo: number,
+    field: string,
+    label: string,
+    errors: ImportRowError[],
+  ): void {
+    if (value === undefined || value === null || value === '') return;
+    if (lookups.hasCode(category, normalizeForCache(value))) return;
+    this.pushImportError(errors, {
+      row: rowNo,
+      field,
+      message: `${label}の値が不正です。`,
+    });
   }
 
   /**

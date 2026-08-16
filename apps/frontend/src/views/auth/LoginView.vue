@@ -129,7 +129,7 @@ async function onSubmit(): Promise<void> {
             </a-button>
           </a-form-item>
 
-          <!-- SCR-012 入口。ログインボタン直下・利用規約行の上（screen-design.md）。
+          <!-- ACSMS-SCR-012 入口。ログインボタン直下・利用規約行の上（screen-design.md）。
                named routes only 規約に従い named route を使用。 -->
           <div class="text-center mb-4">
             <router-link

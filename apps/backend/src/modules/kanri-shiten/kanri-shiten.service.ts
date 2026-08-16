@@ -35,7 +35,7 @@ import { toKanriShitenDetail, toKanriShitenListItem } from './kanri-shiten.mappe
 
 /** 画面別 audit-context ラベル。 */
 const SCREEN_NAME = '管理支店マスタ明細検索画面 (ACSMS-SCR-008)';
-/** フォーム系 (find/create/update) は SCR-009。 */
+/** フォーム系 (find/create/update) は ACSMS-SCR-009。 */
 const SCREEN_NAME_SCR009 = '管理支店マスタ登録画面 (ACSMS-SCR-009)';
 const TABLE_NAME = 'm_kanri_shiten';
 
@@ -88,7 +88,7 @@ export class KanriShitenService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  // ─── API-008-001 — GET /api/v1/kanri-shiten ──────────────────────────
+  // ─── ACSMS-API-008-001 — GET /api/v1/kanri-shiten ──────────────────────────
   /**
    * m_kanri_shiten のページ検索。§4.3 DataScope 適用
    * （NICHINO_ADMIN 無制限 / CHUOKAI・JA_HONTEN は ja_id / JA_KANRI_SHITEN は

@@ -1,7 +1,7 @@
 // /api/v1/permissions 用の手書き axios wrapper。
-// SCR-027 (RoleManagementView) の権限チェックボックスグリッドのみが使用。
+// ACSMS-SCR-027 (RoleManagementView) の権限チェックボックスグリッドのみが使用。
 // unit spec は vi.mock('@/api/permissions/permissions') でモック。
-// 型は docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md §API-027-004 に準拠。
+// 型は docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md §ACSMS-API-027-004 に準拠。
 
 import axiosInstance from '@/api/axios-instance';
 

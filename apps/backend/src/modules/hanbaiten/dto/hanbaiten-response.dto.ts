@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * SCR-017 エンドポイントが返す詳細形レスポンス
+ * ACSMS-SCR-017 エンドポイントが返す詳細形レスポンス
  *   - ACSMS-API-017-001 GET /api/v1/hanbaiten/:hanbaiten_id
  *   - ACSMS-API-017-002 POST /api/v1/hanbaiten
  *   - ACSMS-API-017-003 PUT /api/v1/hanbaiten/:hanbaiten_id

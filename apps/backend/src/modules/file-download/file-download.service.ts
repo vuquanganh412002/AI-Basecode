@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import {
   AuditOperation,
@@ -96,7 +96,7 @@ function isCreatedBySelf(
 }
 
 /**
- * SCR-022 ファイルダウンロード画面サービス。データソースは `t_file_download`
+ * ACSMS-SCR-022 ファイルダウンロード画面サービス。データソースは `t_file_download`
  * (帳票各画面が生成時 INSERT。本画面は読取 + DL 専用)。DL 時は INSERT せず
  * `t_log`(log_type=4 / operation=DOWNLOAD)のみ記録。
  */
@@ -113,7 +113,7 @@ export class FileDownloadService {
     private readonly storage: StorageService,
   ) {}
 
-  // ── API-022-001 — GET /api/v1/file-download（一覧）─────────────────
+  // ── ACSMS-API-022-001 — GET /api/v1/file-download（一覧）─────────────────
   async findAll(
     query: SearchFileDownloadDto,
     session: SessionPayload,
@@ -247,7 +247,9 @@ export class FileDownloadService {
     fileDownloadId: number,
     session: SessionPayload,
   ): Promise<{ data: { preview_url: string; file_name: string } }> {
-    const row = await this.repo.findOne({ where: { fileDownloadId } });
+    const row = await this.repo.findOne({
+      where: { fileDownloadId, deletedAt: IsNull() },
+    });
     if (!row) throw new NotFoundException('ファイル');
     this.assertScope(row, session, await this.resolveAllowedJaIds(session));
     this.assertNichinoDownloadAllowed(row, session);
@@ -262,7 +264,9 @@ export class FileDownloadService {
     session: SessionPayload,
     req: Request,
   ): Promise<DownloadResult> {
-    const row = await this.repo.findOne({ where: { fileDownloadId } });
+    const row = await this.repo.findOne({
+      where: { fileDownloadId, deletedAt: IsNull() },
+    });
     if (!row) throw new NotFoundException('ファイル');
     this.assertScope(row, session, await this.resolveAllowedJaIds(session));
     this.assertNichinoDownloadAllowed(row, session);
@@ -318,7 +322,7 @@ export class FileDownloadService {
     req: Request,
   ): Promise<DownloadResult> {
     const rows = await this.repo.find({
-      where: { fileDownloadId: In(fileDownloadIds) },
+      where: { fileDownloadId: In(fileDownloadIds), deletedAt: IsNull() },
     });
     const byId = new Map(rows.map((r) => [Number(r.fileDownloadId), r]));
     // スコープ集合はループ前に1回だけ解決（行ごとに引くと N+1 になる）。

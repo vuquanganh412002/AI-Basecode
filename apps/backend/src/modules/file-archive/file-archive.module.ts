@@ -9,7 +9,7 @@ import { FileArchiveService } from './file-archive.service';
 
 @Module({
   // FileDownload / Ja — 帳票の S3 アーカイブ（FileArchiveService）。t_file_download
-  // に登録し SCR-022 ダウンロード画面の対象とする。帳票・配達手数料・口座振替など
+  // に登録し ACSMS-SCR-022 ダウンロード画面の対象とする。帳票・配達手数料・口座振替など
   // 複数モジュールから共通利用するため、独立した中立モジュールとして提供する。
   imports: [TypeOrmModule.forFeature([FileDownload, Ja]), StorageModule],
   providers: [FileArchiveService],

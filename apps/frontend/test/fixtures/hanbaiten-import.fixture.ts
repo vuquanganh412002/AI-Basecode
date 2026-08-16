@@ -1,8 +1,8 @@
 // Test fixtures for ACSMS-SCR-019 (販売店Excelデータ取込画面).
 //
 // Mirrors docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md:
-//   - API-019-001: GET /api/v1/hanbaiten/import/template (binary XLSX)
-//   - API-019-002: POST /api/v1/hanbaiten/import (3 import modes)
+//   - ACSMS-API-019-001: GET /api/v1/hanbaiten/import/template (binary XLSX)
+//   - ACSMS-API-019-002: POST /api/v1/hanbaiten/import (3 import modes)
 // And the 23-column physical layout from §テンプレートファイル仕様.
 
 // ─── 23-column shared layout ──────────────────────────────────────────
@@ -140,7 +140,7 @@ export function buildImportRequest(
   };
 }
 
-/** Happy-path success body returned by API-019-002. */
+/** Happy-path success body returned by ACSMS-API-019-002. */
 export function buildImportSuccessResponse(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
@@ -175,7 +175,7 @@ export function buildImportValidationErrorBody() {
 // ─── Auth user fixture — JA_HONTEN with hanbaiten.import ──────────────
 
 /**
- * SCR-019 access matrix (api.md §4.2 + seeder.md §3):
+ * ACSMS-SCR-019 access matrix (api.md §4.2 + seeder.md §3):
  * - NICHINO_STAFF / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN → hanbaiten.import
  * - NICHINO_ADMIN does NOT have hanbaiten.import (audit / governance role).
  * Default fixture seeds a JA_HONTEN user.

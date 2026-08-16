@@ -68,6 +68,36 @@ export const ZENKAI_ADDRESS_ZCOLS = [
 ] as const satisfies readonly (keyof DokusyaRireki)[];
 
 /**
+ * 配達先が「配達先同一(haitatsu_same_flg=true)」のときの実効連絡先・氏名
+ * ＝購読者本人の連絡先・氏名。`DokusyaFormView.vue` §9 は住所5列と合わせて
+ * この6列も同時にクリアする対象としており、UI上は住所と不可分の
+ * 「配達先ブロック」として扱われる。zenkai_* 列は存在しない（住所5列のみ
+ * 前回値追跡の対象）ため、キャリーフォワード判定自体は
+ * {@link ZENKAI_ADDRESS_ZCOLS} を代理指標として流用する（バグ報告 2026-08）。
+ */
+export const KODOKU_CONTACT_FIELDS = [
+  'renrakusaki1',
+  'renrakusaki2',
+  'shimeiSei',
+  'shimeiMei',
+  'shimeiKanaSei',
+  'shimeiKanaMei',
+] as const satisfies readonly (keyof DokusyaRireki)[];
+
+/**
+ * 配達先が「別住所(haitatsu_same_flg=false)」のときの実効連絡先・氏名
+ * ＝配達先の連絡先・氏名。{@link KODOKU_CONTACT_FIELDS} 参照。
+ */
+export const HAITATSU_CONTACT_FIELDS = [
+  'haitatsuRenrakusaki1',
+  'haitatsuRenrakusaki2',
+  'haitatsuShimeiSei',
+  'haitatsuShimeiMei',
+  'haitatsuShimeiKanaSei',
+  'haitatsuShimeiKanaMei',
+] as const satisfies readonly (keyof DokusyaRireki)[];
+
+/**
  * 業務項目 → その `zenkai_*`（前回値）列。全行に設定され、増減連絡票／
  * 増減通知が現在値と前回値を差分表示できるようにする。
  */

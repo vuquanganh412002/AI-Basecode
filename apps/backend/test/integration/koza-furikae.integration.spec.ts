@@ -33,7 +33,7 @@ describe('ACSMS-SCR-020 integration — koza-furikae endpoints', () => {
 
   const http = () => request(ctx.app.getHttpServer() as Server);
 
-  // GET /api/v1/koza-furikae/initial (API-020-001)
+  // GET /api/v1/koza-furikae/initial (ACSMS-API-020-001)
   it('should return 401 when session cookie is absent on initial', async () => {
     await http().get('/api/v1/koza-furikae/initial').expect(401);
   });
@@ -52,7 +52,7 @@ describe('ACSMS-SCR-020 integration — koza-furikae endpoints', () => {
     expect(res.body.error_code).toBe('FORBIDDEN');
   });
 
-  // POST /api/v1/koza-furikae/export (API-020-002)
+  // POST /api/v1/koza-furikae/export (ACSMS-API-020-002)
   it('should return 400 VALIDATION_ERROR when target_month / hikiotoshi_date are missing', async () => {
     // target_month + hikiotoshi_date are @IsNotEmpty on ExportKozaFurikaeDto —
     // an empty body trips the ValidationPipe (guards already passed).

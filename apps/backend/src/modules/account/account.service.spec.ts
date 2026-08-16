@@ -187,7 +187,7 @@ describe('AccountService', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-024 — アカウントマスタ明細検索画面 (search + delete). Sibling
+// ACSMS-SCR-024 — アカウントマスタ明細検索画面 (search + delete). Sibling
 // top-level describe so its QueryBuilder-heavy mocks and audit-log
 // helper signatures don't leak into the header MFA block above.
 // ═══════════════════════════════════════════════════════════════════════
@@ -438,6 +438,54 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       expect(allSql).toMatch(/deleted_?at\s+IS\s+NULL/i);
     });
 
+    // Regression: searchAccounts previously never applied Layer-2 DataScope,
+    // unlike the sibling getAccountDropdown in the same file. Currently a
+    // no-op in prod (only NICHINO_ADMIN holds account.view today, and that
+    // role bypasses scope by design) — but a landmine the moment account.view
+    // is granted to a JA-scoped role via the Roles screen.
+    it('should scope by ja_id when a CHUOKAI session calls searchAccounts', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts({}, buildChuokaiSession({ ja_id: 7 }));
+
+      const scopeCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /\bja_?id\b/i.test(sql) &&
+          params?.scopeJaId === 7,
+      );
+      expect(scopeCall).toBeDefined();
+    });
+
+    it('should scope by kanri_shiten_id when a JA_KANRI_SHITEN session calls searchAccounts', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        {},
+        buildJaKanriShitenSession({ ja_id: 7, kanri_shiten_id: 30 }),
+      );
+
+      const scopeCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /kanri_?shiten_?id/i.test(sql) &&
+          params?.scopeKsId === 30,
+      );
+      expect(scopeCall).toBeDefined();
+    });
+
+    it('should NOT scope by ja_id/kanri_shiten_id when NICHINO_ADMIN calls searchAccounts', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts({}, adminSession());
+
+      const scopeCall = qbMock.andWhere.mock.calls.find(
+        ([, params]: any[]) =>
+          params?.scopeJaId !== undefined || params?.scopeKsId !== undefined,
+      );
+      expect(scopeCall).toBeUndefined();
+    });
+
     it('should apply pagination LIMIT + OFFSET when page and per_page are provided', async () => {
       // COVERS: §4.5 — LIMIT :per_page OFFSET (page-1)*per_page.
       // limit/offset (NOT take/skip) — take/skip are ignored by getRawMany().
@@ -477,6 +525,24 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       // Second arg is DESC | 'DESC' | 'desc' depending on TypeORM signature.
       const arg2 = String(orderCall[1] ?? '').toLowerCase();
       expect(arg2).toBe('desc');
+    });
+
+    // 顧客要件 2026-08: アカウント編集後に一覧の先頭へ来るよう、他の一覧画面
+    // （JA/販売店/単価/支店/管理支店/購読者）と同じく updated_at でのソートを
+    // 受け付ける（FE の AccountsListView.vue はこれを既定値として送る）。
+    it('should sort by updated_at when sort_by=updated_at is requested', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { sort_by: 'updated_at', sort_order: 'asc' } as any,
+        adminSession(),
+      );
+
+      const orderCall = qbMock.orderBy.mock.calls.find(
+        ([col]: any[]) => typeof col === 'string' && /updated_?at/i.test(col),
+      );
+      expect(orderCall).toBeDefined();
+      expect(String(orderCall[1] ?? '').toLowerCase()).toBe('asc');
     });
 
     it('should LEFT JOIN m_roles to surface role_name when assembling the result row', async () => {
@@ -620,6 +686,18 @@ describe('AccountService — SCR-024 (search + delete)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    // Regression: deleteAccount previously never checked DataScope after
+    // fetching the target row, so a JA-scoped caller could delete an
+    // account belonging to a DIFFERENT JA once granted account.delete.
+    it('should throw NotFoundException (404 mask) when the target account belongs to a different JA', async () => {
+      // buildAccountEntity() default jaId=10 — a CHUOKAI session scoped to
+      // ja_id=1 must not be able to reach it.
+      await expect(
+        service.deleteAccount(5, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow(NotFoundException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
     it('should throw ConflictException when t_mfa_otp has unused, unexpired related rows', async () => {
       // COVERS: §4.3 related-data check — active MFA OTP exists
       dataSource.query = jest.fn(async (sql: string) => {
@@ -740,9 +818,9 @@ describe('AccountService — SCR-024 (search + delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-025 — アカウントマスタ登録画面 (detail + create + update). Sibling
+// ACSMS-SCR-025 — アカウントマスタ登録画面 (detail + create + update). Sibling
 // top-level describe so its audit-log helper signatures (logCreate /
-// logUpdate / logError) don't leak into the SCR-024 or header MFA
+// logUpdate / logError) don't leak into the ACSMS-SCR-024 or header MFA
 // blocks above.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1001,6 +1079,26 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
 
       await expect(
         service.getAccountDetail(2, adminSession()),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    // Regression: getAccountDetail previously never checked DataScope, so a
+    // JA-scoped caller could read the detail of an account in another JA.
+    it('should throw NotFoundException (404 mask) when the row belongs to a different JA', async () => {
+      qbMock.getRawOne.mockResolvedValue({
+        account_id: 2,
+        login_id: 'ja_honten001',
+        account_name: 'JA本店 花子',
+        role_id: 4,
+        ja_id: 10,
+        kanri_shiten_id: null,
+        email: '', sub_email_1: '', sub_email_2: '', sub_email_3: '',
+        paper_flg: true, denshi_flg: true, biko: '',
+        created_at: new Date(), updated_at: null,
+      });
+
+      await expect(
+        service.getAccountDetail(2, buildChuokaiSession({ ja_id: 1 })),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -1336,6 +1434,23 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    // Regression: updateAccount previously never checked DataScope after
+    // fetching `before`, so a JA-scoped caller could edit an account
+    // belonging to a DIFFERENT JA once granted account.update.
+    it('should throw NotFoundException (404 mask) when the target account belongs to a different JA', async () => {
+      // beforeEach seeds buildAccountFormEntity() with jaId=10 — a CHUOKAI
+      // session scoped to ja_id=1 must not be able to reach it.
+      await expect(
+        service.updateAccount(
+          2,
+          buildUpdateAccountBody(),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
     it('should NOT update password_hash when password is empty string (空欄=変更しない)', async () => {
       // COVERS: §4.4 — password が空欄の場合は変更しない
       await service.updateAccount(
@@ -1404,6 +1519,27 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       await service.updateAccount(
         2,
         buildUpdateAccountBody({ role_id: 3 }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    // Regression (backend review finding #8): isSecuritySensitiveUpdate()
+    // previously checked jaId/kanriShitenId/shitenId but not todofukenCode,
+    // even though that field widens a CHUOKAI session's DataScope from
+    // "own JA only" to "every JA in the same prefecture" (session.service.ts).
+    // Narrowing/correcting it must revoke existing sessions the same way a
+    // ja_id/kanri_shiten_id change does — otherwise the stale (wider) scope
+    // stays live for up to 24h after the correction.
+    it('should revoke sessions when todofuken_code changes', async () => {
+      // beforeEach seeds buildAccountFormEntity() with todofukenCode='13'
+      // (Tokyo) — change to '27' (Osaka).
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ todofuken_code: '27' }),
         adminSession(),
         baseReq,
       );
@@ -1608,9 +1744,9 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// COMMON-005 — AccountService.getAccountDropdown (consumed by SCR-030
+// COMMON-005 — AccountService.getAccountDropdown (consumed by ACSMS-SCR-030
 // ログ参照画面). Sibling top-level describe so its smaller QB shape and
-// DataScope-only mock surface stay isolated from SCR-024 / SCR-025.
+// DataScope-only mock surface stay isolated from ACSMS-SCR-024 / ACSMS-SCR-025.
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('AccountService.getAccountDropdown (COMMON-005)', () => {
@@ -1803,7 +1939,7 @@ describe('AccountService.getAccountDropdown (COMMON-005)', () => {
     });
   });
 
-  // [match-field] SCR-030 log view's ユーザ名 filter scopes ILIKE to
+  // [match-field] ACSMS-SCR-030 log view's ユーザ名 filter scopes ILIKE to
   // account_name only — a hit on login_id would be invisible to the
   // user and read as a bug.
   it('should scope ILIKE to account_name only when match_field=name', async () => {

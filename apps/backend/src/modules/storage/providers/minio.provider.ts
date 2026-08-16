@@ -1,5 +1,8 @@
 import * as Minio from 'minio';
-import { StorageProvider } from '@/modules/storage/interfaces/storage-provider.interface';
+import {
+  DEFAULT_SIGNED_URL_TTL_SECONDS,
+  StorageProvider,
+} from '@/modules/storage/interfaces/storage-provider.interface';
 
 interface MinioConfig {
   endpoint: string;
@@ -79,7 +82,10 @@ export class MinioStorageProvider implements StorageProvider {
     return Buffer.concat(chunks);
   }
 
-  async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
+  async getSignedUrl(
+    key: string,
+    expiresIn = DEFAULT_SIGNED_URL_TTL_SECONDS,
+  ): Promise<string> {
     // [signing-client] public-endpoint client を使い URL の host を SigV4 canonical
     // request の host と一致させる。presignedGetObject はローカルで URL を組んで署名するだけで通信しない。
     return this.signingClient.presignedGetObject(this.bucket, key, expiresIn);

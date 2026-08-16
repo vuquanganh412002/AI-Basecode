@@ -20,6 +20,7 @@ export const ACCOUNT_SEARCH_SORT_BY = [
   'role_name',
   'todofuken_code',
   'created_at',
+  'updated_at',
 ] as const;
 export type AccountSearchSortBy = (typeof ACCOUNT_SEARCH_SORT_BY)[number];
 
@@ -69,14 +70,15 @@ export class SearchAccountsDto extends PaginationDto {
   shiten_id?: number;
 
   @ApiPropertyOptional({
-    description: 'ソート対象（login_id / account_name / role_id / role_name / todofuken_code / created_at）',
+    description:
+      'ソート対象（login_id / account_name / role_id / role_name / todofuken_code / created_at / updated_at）',
     enum: ACCOUNT_SEARCH_SORT_BY,
     default: 'created_at',
   })
   @IsOptional()
   @IsIn(ACCOUNT_SEARCH_SORT_BY, {
     message:
-      'sort_byはlogin_id / account_name / role_id / role_name / todofuken_code / created_atのいずれかで指定してください。',
+      'sort_byはlogin_id / account_name / role_id / role_name / todofuken_code / created_at / updated_atのいずれかで指定してください。',
   })
   sort_by?: AccountSearchSortBy;
 

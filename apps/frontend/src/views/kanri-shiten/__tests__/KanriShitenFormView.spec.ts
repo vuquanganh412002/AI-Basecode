@@ -20,7 +20,7 @@ import { resetTodofukenCache } from '@/composables/useTodofuken';
 
 // Mock the kanri-shiten API client — /gen-code-frontend adds the form
 // methods (getKanriShiten, createKanriShiten, updateKanriShiten)
-// alongside the existing list/delete from SCR-008.
+// alongside the existing list/delete from ACSMS-SCR-008.
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   listKanriShiten: vi.fn(),
   removeKanriShiten: vi.fn(),
@@ -149,6 +149,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
     history: createMemoryHistory(),
     routes: [
       { path: '/', name: 'Home', component: { template: '<div />' } },
+      { path: '/dashboard', name: 'Dashboard', component: { template: '<div />' } },
       { path: '/kanri-shiten', name: 'KanriShitenList', component: { template: '<div />' } },
       { path: '/kanri-shiten/create', name: 'KanriShitenCreate', component: { template: '<div />' } },
       {
@@ -713,7 +714,7 @@ describe('KanriShitenFormView — back navigation (§4)', () => {
 describe('KanriShitenFormView — Enter-implicit-submit guard', () => {
   it('should NOT call createKanriShiten when Enter is pressed inside a text input', async () => {
     // COVERS: vue.md §Block Enter implicit submit on long CRUD forms.
-    // SCR-009 form has 11+ fields → must wire preventEnterImplicitSubmit
+    // ACSMS-SCR-009 form has 11+ fields → must wire preventEnterImplicitSubmit
     // on the <a-form> @keydown handler. If the handler is missing, the
     // form auto-submits on Enter and the API gets called → test fails.
     const { createKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
@@ -769,6 +770,15 @@ describe('KanriShitenFormView — defensive paths', () => {
     expect(wrapper.find('form').exists()).toBe(true);
   });
 
+  it('should redirect to Dashboard when getKanriShiten rejects with NOT_FOUND on edit-mode mount (直接URLアクセスで存在しないID・顧客要件 2026-08)', async () => {
+    const { getKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
+    vi.mocked(getKanriShiten).mockRejectedValueOnce({
+      response: { data: { error_code: 'NOT_FOUND' } },
+    });
+    const { router } = await renderView({ id: 999 });
+    expect(router.currentRoute.value.name).toBe('Dashboard');
+  });
+
   // ─── Format-validation branches for optional digit fields ────────
   it('should reject yubin_no when not 7 digits', async () => {
     const { wrapper } = await renderView();
@@ -807,5 +817,42 @@ describe('KanriShitenFormView — defensive paths', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     expect(wrapper.text()).toContain('FAXは半角数字のみ');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Route reuse — edit → create (and edit id → different edit id) must
+// reset/reload the form (regression — same class of bug HanbaitenFormView
+// fixed previously). vue-router reuses this component instance between
+// KanriShitenCreate and KanriShitenEdit, so onMounted alone does not re-run.
+// ═══════════════════════════════════════════════════════════════════════
+describe('KanriShitenFormView — route reuse (edit → create reset)', () => {
+  it('should reset the form to blank when navigating from edit to create', async () => {
+    const { wrapper, router } = await renderView({ id: 1 });
+    const vm = wrapper.vm as any;
+    await flushPromises();
+
+    expect(vm.form.kanri_shiten_name).toBe('東京中央支店');
+    expect(vm.form.ja_id).toBe(1);
+
+    // Jump to create via the SAME component instance (router reuses it).
+    await router.push({ name: 'KanriShitenCreate' });
+    await flushPromises();
+
+    expect(vm.form.kanri_shiten_name).toBe('');
+    expect(vm.form.kanri_shiten_code).toBe('');
+    expect(vm.form.ja_id).toBeNull();
+  });
+
+  it('should reload the new record when navigating between two edit ids', async () => {
+    const { getKanriShiten } = await import('@/api/kanri-shiten/kanri-shiten');
+    const { router } = await renderView({ id: 1 });
+    await flushPromises();
+    expect(getKanriShiten).toHaveBeenLastCalledWith(1);
+
+    await router.push({ name: 'KanriShitenEdit', params: { id: '8' } });
+    await flushPromises();
+
+    expect(getKanriShiten).toHaveBeenLastCalledWith(8);
   });
 });

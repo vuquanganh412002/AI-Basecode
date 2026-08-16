@@ -31,6 +31,8 @@ import {
   contentTypeFor,
   type DownloadResult,
 } from '@/common/utils/file-delivery';
+import { FileUploadStatus } from '@/common/constants/file-upload-status.constant';
+import { NotificationStatus } from '@/common/constants/notification-status.constant';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
@@ -45,9 +47,8 @@ import {
 import { FileUploadFormatException } from './exceptions/file-format-error.exception';
 import { FileSizeExceededException } from './exceptions/file-size-exceeded.exception';
 import { TargetJaRequiredException } from './exceptions/target-ja-required.exception';
-import { FileUploadStatus } from './file-upload-status.constant';
+import { matchesDeclaredFileType } from './file-signature';
 import { NotificationQueueService } from './notification-queue.service';
-import { NotificationStatus } from './notification-status.constant';
 
 /** 使用する `Express.Multer.File` の部分集合。`@types/multer` 依存回避のためローカル定義。 */
 export interface UploadedMulterFile {
@@ -75,7 +76,7 @@ const UPLOAD_DOWNLOAD_TYPE = DownloadType.OTHER;
 /**
  * ペア行の `nichino_download_allowed_flg`。アップロードは日農↔JA 間の受け渡しが
  * 目的で、日農・中央会が自分で上げたファイルを取り直せないと運用が回らないため
- * 常に true（顧客要件 2026-08）。帳票出力(SCR-021/026/028/029)は画面ごとに
+ * 常に true（顧客要件 2026-08）。帳票出力(ACSMS-SCR-021/026/028/029)は画面ごとに
  * 固定 or 選択なので、この既定は本画面限定。
  */
 const UPLOAD_NICHINO_DOWNLOAD_ALLOWED = true;
@@ -83,9 +84,19 @@ const UPLOAD_NICHINO_DOWNLOAD_ALLOWED = true;
 const UPLOAD_RECORD_COUNT = 0;
 
 /**
- * SCR-023 ファイル形式チェック（顧客レビュー 2026-05）。
+ * ACSMS-SCR-023 ファイルサイズ上限（1ファイルあたり）。screen-design.md 機能定義 4.2 /
+ * ACSMS-MSG-023-002 / api.md §エラー一覧 row 9 で規定される 30MB。
+ * 同期対象: FE MAX_FILE_SIZE (apps/frontend/src/views/file-upload/FileUploadView.vue)。
+ * export — file-upload.controller.ts の `FilesInterceptor` limits にも同値を渡す
+ * ため（Multer 側の上限とサービス側の業務チェックが食い違うと、コントローラは
+ * 通すのにサービスが弾く／その逆という分かりにくいエラーになる）。
+ */
+export const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024;
+
+/**
+ * ACSMS-SCR-023 ファイル形式チェック（顧客レビュー 2026-05）。
  * 当初「制限なし」を 12 拡張子ホワイトリストに厳格化。末尾拡張子を小文字化して照合（大小無視）。
- * プレビュー対応（別スコープ SCR-022）は PDF + JPG/JPEG/PNG のみインライン、他は DL のみ。
+ * プレビュー対応（別スコープ ACSMS-SCR-022）は PDF + JPG/JPEG/PNG のみインライン、他は DL のみ。
  * 同期対象: FE ALLOWED_EXTENSIONS (apps/frontend/src/views/file-upload/FileUploadView.vue) /
  * screen-design.md §B.4.1 + api.md §エラー一覧 row 10。
  */
@@ -105,6 +116,19 @@ function isAllowedExtension(fileName: string): boolean {
   const dotIdx = lower.lastIndexOf('.');
   if (dotIdx < 0) return false;
   return ALLOWED_EXTENSIONS.has(lower.slice(dotIdx));
+}
+
+/**
+ * アップロードファイル名を S3/MinIO キーへ安全に埋め込むためサニタイズする。
+ * `/` `\` を許すと `../../ja-9-OTHERJA/files/evil.pdf` のような originalname で
+ * `ja-{id}-{code}/files/` プレフィックスの外へキーが広がる — filesystem-backed
+ * MinIO（本プロジェクトの dev/stg 環境）では実際のパストラバーサルになる。
+ * 表示用の originalname（DB 保存・Content-Disposition・画面表示）はそのまま
+ * 保持し、S3 キー生成の直前にだけ適用する（buildJaFolder の ja_code
+ * サニタイズと同じ考え方）。
+ */
+function sanitizeFileNameForKey(fileName: string): string {
+  return fileName.replace(/[/\\]/g, '_');
 }
 
 /**
@@ -592,7 +616,7 @@ export class FileUploadService {
       for (const jaId of jaIds) {
         const folder = this.buildJaFolder(jaId, jaCodeById.get(Number(jaId)));
         for (const file of files) {
-          const filePath = `${folder}/files/${randomUUID()}-${file.originalname}`;
+          const filePath = `${folder}/files/${randomUUID()}-${sanitizeFileNameForKey(file.originalname)}`;
           this.logger.log({
             event: 'file_upload.storage.upload.start',
             ja_id: Number(jaId),
@@ -806,11 +830,18 @@ export class FileUploadService {
     }
     for (const f of files) {
       // [size-cap] 1 ファイル 30MB — screen-design.md 機能定義 4.2。
-      // (旧 api.md は 10MB だが顧客 spec 優先。)
-      if (f.size > 30 * 1024 * 1024) {
+      // api.md は元々 10MB のstale な例示が残っていたが、実装・screen-design.md
+      // 側の 30MB が正（api.md 側を是正済み）。
+      if (f.size > MAX_FILE_SIZE_BYTES) {
         throw new FileSizeExceededException();
       }
       if (!isAllowedExtension(f.originalname)) {
+        throw new FileUploadFormatException();
+      }
+      // [magic-bytes] 拡張子だけでなく実バイト列の先頭シグネチャも照合する。
+      // 拡張子チェックのみだと HTML/実行ファイルを許可拡張子（.pdf 等）へ
+      // リネームするだけで通過できていた（バックエンドコードレビュー finding #7）。
+      if (!matchesDeclaredFileType(f.originalname, f.buffer)) {
         throw new FileUploadFormatException();
       }
     }

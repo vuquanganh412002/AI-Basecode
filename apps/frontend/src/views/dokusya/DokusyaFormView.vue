@@ -2,7 +2,7 @@
 // ACSMS-SCR-011 — 購読者情報登録画面。
 //
 // CREATE（route DokusyaCreate）と EDIT（route DokusyaEdit、:id path param）を
-// 兼ねる単一コンポーネント。@/api/dokusya/dokusya の SCR-011 6エンドポイントを利用:
+// 兼ねる単一コンポーネント。@/api/dokusya/dokusya の ACSMS-SCR-011 6エンドポイントを利用:
 //   - getDokusya(id)        → ACSMS-API-011-001
 //   - createDokusya(body)   → ACSMS-API-011-002
 //   - updateDokusya(id, …)  → ACSMS-API-011-003
@@ -11,7 +11,7 @@
 //
 // 履歴表示ボタン（編集のみ）は購読者履歴情報画面（ACSMS-SCR-013,
 // DokusyaRireki route）へ遷移する — 旧インライン履歴（getDokusyaHistory）
-// は SCR-013 のフル履歴一覧に置き換えた。
+// は ACSMS-SCR-013 のフル履歴一覧に置き換えた。
 //
 // 条件付きルール（screen-design.md §機能定義）:
 //   §7   購読種別=電子版/併読 → email 必須 + 配達先セクション非表示
@@ -23,7 +23,7 @@
 // 編集モード + denshi_shonin_status=0（承認待ち）では、submit ボタンが
 // §3.3 に従い updateDokusya ではなく approveDokusya を発火する。
 
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, h, onMounted, reactive, ref, watch } from 'vue';
 import type { AxiosError } from 'axios';
 import { useRoute, useRouter } from 'vue-router';
 import { Modal, message } from 'ant-design-vue';
@@ -31,6 +31,7 @@ import { Modal, message } from 'ant-design-vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
 import { useEditGuard } from '@/composables/useEditGuard';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import {
   getDokusya,
   getDokusyaEffectiveAt,
@@ -221,6 +222,7 @@ const submitting = ref(false);
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const codes = useCodesStore();
 const authStore = useAuthStore();
 // 氏名系8項目 — 登録・更新時に前後空白がトリムされる対象。
@@ -314,16 +316,31 @@ const shubetsuPermitted = computed(() =>
 );
 
 /**
- * 併読(3) と 電子版クレカ決済者 は編集不可（どのアカウントでも） —
- * seeder.md §425 / api.md §is_read_only。VIEW（参照）で開けるが保存不可。
- * BE (update) も同じ条件で 403 を返す。
+ * 併読(3) / 電子版クレカ決済者 / 電子版かつ電子版読者管理システム未連携
+ * （denshi_kaiin_id=null）で単価が campaign でない読者 は編集不可
+ * （どのアカウントでも） — seeder.md §425 / api.md §is_read_only + 顧客要件
+ * 2026-08 追補。VIEW（参照）で開けるが保存不可。BE (update/stop) も同じ条件で
+ * 403 を返す。
+ *
+ * 3番目の条件は「ロード時点（DB の実値）の単価」で判定する — 編集中の
+ * formState.tanka_id（ドラフト）ではない。BE の guard も更新前の `before`
+ * （DB の実値）で判定しており（顧客要件2026-08追補のキャンペーン⇄通常切替
+ * ポップアップ機能と対）、campaign→通常へ切替える最中の編集セッションで
+ * ライブに読取専用へ倒すと、切替えを完了させるための保存ボタンごと
+ * 消えてしまうデッドロックになる（切替えた瞬間に「denshi_kaiin_id=null
+ * ＋もう campaign でない」という新条件へ自ら踏み込んでしまうため）。
+ * ロード時点の値で判定すれば、保存するまでは編集可能なまま、保存後の
+ * 再読込で正しく読取専用に切り替わる。
  */
 const isRecordReadOnly = computed(
   () =>
     isEdit.value &&
     (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH ||
       (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-        Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD)),
+        Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD) ||
+      (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+        detailDenshiKaiinId.value === null &&
+        !isCampaignTanka(originalTankaId.value))),
 );
 
 // 読込んだ詳細から導出する表示専用状態（編集モード）。
@@ -349,6 +366,17 @@ const detailDenshiDokusyaShubetsu = ref<number | null>(null);
  * 読取専用（この画面から更新しない）ので formState ではなく detail 側に持つ。
  */
 const detailHonshiKodokuFlg = ref(false);
+/**
+ * 電子版会員ID — 電子版読者管理システム連携済みなら non-null（顧客要件 2026-08）。
+ * null は未連携（isRecordReadOnly の3番目の条件で使用）。
+ */
+const detailDenshiKaiinId = ref<number | null>(null);
+/**
+ * ロード時点（DB の実値）の単価ID — isRecordReadOnly の3番目の条件が編集中の
+ * formState.tanka_id（ドラフト）ではなくこちらを参照する理由は同 computed の
+ * コメント参照。
+ */
+const originalTankaId = ref<number | null>(null);
 /** 購読者ID — DB の値 (dokusya_id) をそのまま表示する（プレフィックス無し）。 */
 const detailIdLabel = computed<string>(() => {
   if (dokusyaId.value === null) return '';
@@ -520,7 +548,7 @@ async function fetchHanbaitenOptions(includeId?: number): Promise<void> {
 
 async function fetchTankaOptions(): Promise<void> {
   try {
-    // SCR-011 picks the 新聞単価 tanka (tanka_type=1) per 画面項目定義 No.14.
+    // ACSMS-SCR-011 picks the 新聞単価 tanka (tanka_type=1) per 画面項目定義 No.14.
     // ログイン中の JA で絞り込む — shiten / hanbaiten と同じく、JA-scoped
     // roles は session.ja_id を渡し、NICHINO_* (session.ja_id=null) は
     // 渡さず全 JA 対象とする (BE 側で代行入力フロー時に解決)。
@@ -538,7 +566,6 @@ async function fetchTankaOptions(): Promise<void> {
 // ─── 編集モードのハイドレート ─────────────────────────────────────────────
 
 const isHydrating = ref(false);
-const notFoundMessage = ref<string>('');
 
 /**
  * ロード済み詳細レスポンス (master or predecessor) を formState + 各基準
@@ -630,6 +657,8 @@ function applyDetailResponse(data: DokusyaDetail, johoValue: string): void {
   detailDenshiShoninStatus.value = data.denshi_shonin_status;
   detailDenshiDokusyaShubetsu.value = data.denshi_dokusya_shubetsu;
   detailHonshiKodokuFlg.value = data.honshi_kodoku_flg ?? false;
+  detailDenshiKaiinId.value = data.denshi_kaiin_id ?? null;
+  originalTankaId.value = data.tanka_id;
   queueMicrotask(() => {
     isHydrating.value = false;
   });
@@ -647,10 +676,15 @@ async function loadDetail(id: number): Promise<void> {
     const ax = err as AxiosError<{ error_code?: string; message?: string }>;
     const code = ax?.response?.data?.error_code;
     if (code === 'NOT_FOUND') {
-      // ACSMS-MSG-011-016 — スペックの wrapper.text().toContain('見つかりません')
-      // が通るよう not-found 文言を view に表示（interceptor トーストとは別）。
-      notFoundMessage.value =
-        `購読者ID #${dokusyaId.value ?? ''} が見つかりません。`;
+      // ACSMS-MSG-011-016。以前は画面内にバナー表示していたが、他の編集画面
+      // （account/ja/kanri-shiten/shiten/tanka/hanbaiten）と同じくトースト＋
+      // ダッシュボードへの遷移に統一する（顧客要件 2026-08 —
+      // useNotFoundRedirect 共通化）。文言は顧客要件の固定文言（IDを含む）
+      // なので interceptor の一般メッセージとは別にここで明示的に出す。
+      await redirectToDashboard(
+        `購読者ID #${dokusyaId.value ?? ''} が見つかりません。`,
+      );
+      return;
     }
     // 他コード（403 / 500）は global axios interceptor がトースト — リダイレクト
     // せずフォームを空のままにする。
@@ -937,6 +971,18 @@ async function confirmReservedJoho(): Promise<void> {
       '情報変更適用日は本日より後の日付を指定してください。';
     return;
   }
+  // 解約予定日は同日も不可（顧客要件2026-08）。ここで弾けばポップアップ内で
+  // 即座に選び直せる（以前は update() 送信までこの検証が走らず、フォーム全項目
+  // 入力後に弾かれてやり直しになっていた）。この画面は解約済み読者では出せない
+  // （canSelectMode が originalTetsuzukiShurui=解約 を除外するため、モード選択
+  // バー自体が出ない）ので、再購読の除外は不要。BE(getEffectiveAt)も同じ基準
+  // （joho 時点で有効な解約予定日）で二重に検証する。
+  if (originalChushiDate.value && joho >= originalChushiDate.value) {
+    reservedJohoError.value = `情報変更適用日は解約予定日（${slashDate(
+      originalChushiDate.value,
+    )}）より前の日付を指定してください。`;
+    return;
+  }
   const id = dokusyaId.value;
   if (id === null) return;
   reservedJohoLoading.value = true;
@@ -948,8 +994,22 @@ async function confirmReservedJoho(): Promise<void> {
     reservedJohoModalOpen.value = false;
     // predecessor をロードした状態を基準にする（未編集 = 直前行と同一）。
     await editGuard.capture();
-  } catch {
-    // 全体エラーは axios interceptor が toast 済み。ポップアップは開いたまま。
+  } catch (err) {
+    // VALIDATION_ERROR は axios interceptor がトーストしない契約
+    // （.claude/rules/vue.md §Error Handling Architecture）ため、ここで拾って
+    // ポップアップ内に表示する（handleServerError と同じ errors[] マッピング）。
+    // 未来日という時点情報を含む範囲チェック（購読開始日以降 かつ 解約予定日
+    // より前）は t_dokusya_rireki の履歴を辿って初めて確定するため、
+    // originalChushiDate.value ベースのクライアント側事前チェックでは
+    // 再現できないケースがあり、最終的にはBE(getEffectiveAt)の応答が正。
+    const axiosErr = err as AxiosError<ServerErrorPayload>;
+    const errs = axiosErr?.response?.data?.errors;
+    const match = errs?.filter(
+      (e): e is { field: string; message: string } =>
+        e.field === 'joho_henko_tekiyo_date' && typeof e.message === 'string',
+    );
+    reservedJohoError.value = match && match.length > 0 ? match[match.length - 1].message : '';
+    // それ以外（NOT_FOUND 等）は axios interceptor が処理済み。ポップアップは開いたまま。
   } finally {
     reservedJohoLoading.value = false;
   }
@@ -1611,17 +1671,19 @@ function validateJohoTekiyoDate(
     errs.joho_henko_tekiyo_date = '情報変更適用日は本日より後の日付を指定してください。';
   } else if (ctx.kaishi && j < ctx.kaishi) {
     errs.joho_henko_tekiyo_date = `情報変更適用日は購読開始日（${slashDate(ctx.kaishi)}）以降の日付を指定してください。`;
-  } else if (ctx.effChushi && j > ctx.effChushi) {
-    errs.joho_henko_tekiyo_date = `情報変更適用日は解約予定日（${slashDate(ctx.effChushi)}）以前の日付を指定してください。`;
+  } else if (ctx.effChushi && j >= ctx.effChushi) {
+    // 解約予定日は同日も不可（顧客要件2026-08）。
+    errs.joho_henko_tekiyo_date = `情報変更適用日は解約予定日（${slashDate(ctx.effChushi)}）より前の日付を指定してください。`;
   }
 }
 
 /**
  * 情報変更適用日 (joho_henko_tekiyo_date) の必須・範囲検証。
  * BE(collectTekiyoDateViolations)と同一ルールを FE でも即時表示する（顧客要件
- * 2026-07 改訂）:
- *   - 情報変更適用日(joho): 未来日のみ(> today) かつ 購読開始日 <= 値 <= 解約予定日。
- *     販売店・支払方法を含む全変更の唯一の適用日（販売店適用日は廃止し joho に統一）。
+ * 2026-07 改訂、上限は2026-08改訂で同日不可に変更）:
+ *   - 情報変更適用日(joho): 未来日のみ(> today) かつ 購読開始日 <= 値 < 解約予定日
+ *     （解約予定日と同日は不可）。販売店・支払方法を含む全変更の唯一の適用日
+ *     （販売店適用日は廃止し joho に統一）。
  * 上限の解約予定日はロード値（既存の解約予約）を参照する。購読中止日そのものの
  * 検証は本フォームから撤去した（停止は専用ポップアップ + API）。再購読(解約済み→
  * 新規)時は旧解約予定日を無効化する。
@@ -1804,6 +1866,102 @@ function handleServerError(err: unknown): void {
   // 500 / 一般的な 400 — global axios interceptor がトースト。view は留まる。
 }
 
+// ─── キャンペーン単価の注意喚起（顧客要件 2026-08） ──────────────────────
+//
+// 電子版の読者で以下いずれかが起きたとき、必ず日農担当者へ連絡するよう
+// ポップアップで知らせる:
+//   ①② 新聞単価の選択が campaign⇄通常 の境界をまたいだ瞬間
+//        （新規作成で未選択→campaign を選ぶ／編集で campaign⇄通常へ切替、
+//        どちらも「選択した瞬間」に出す。保存を待たない — 顧客要望 2026-08
+//        改訂: 当初は保存成功後に出していたが、選んだ直後に気付けるよう
+//        前倒しした）。
+//   ②': 購読種別を「電子版でない」→「電子版」へ切替えた瞬間、既に campaign
+//        単価が選択されていた場合（顧客要件 2026-08 追補 — 紙版のとき
+//        campaign 単価を選んでも通知しないが、その後 電子版 へ切替えたら
+//        通知する必要があるケース）。
+//   ③ 承認/否認の時点でキャンペーン単価が選択されている
+// ①②②' は購読種別・単価どちらの変更が引き金でも判定できるよう、両方を
+// 1つの watch でまとめて見る（別々の watch にすると、購読種別と単価を
+// 同時に代入するケース — 新規作成の fillForm 等 — で二重発火する）。
+// ③ だけ別建てなのは、①②②' が拾えるのは「今回の編集セッションで値が
+// 変わった瞬間」だけだから — 承認待ちに入った時点で既に campaign 単価が
+// 入っていて今回は何も変更していない（=変化が発生しない）ケースを、
+// 承認/否認ボタンを押した瞬間に別途チェックして拾う。
+
+/**
+ * 指定 tanka_id が campaign_flg=true の単価か。tankaOptions はこのフォームで
+ * 選択可能な単価一覧（ユーザーが選んだ値は必ずここにある）。未選択(null)や
+ * 一覧に無い値（ロード直後で未 fetch 等）は false 扱いにする。
+ */
+function isCampaignTanka(tankaId: number | null): boolean {
+  if (tankaId == null) return false;
+  const found = tankaOptions.value.find(
+    (t) => t.tanka_id === Number(tankaId),
+  );
+  return found?.campaign_flg ?? false;
+}
+
+const CAMPAIGN_TANKA_NOTICE_LINE1 =
+  '電子版のキャンペーン単価が登録・更新されています。必ず日本農業新聞担当者に連絡してください。';
+const CAMPAIGN_TANKA_NOTICE_LINE2 =
+  '連絡先：日本農業新聞企画統括部電子版グループ　03-6281-5807';
+
+/**
+ * キャンペーン単価の登録・切替を知らせるポップアップ。はい/いいえ の
+ * Modal.confirm ではなく OK のみの Modal.warning を使う — ここで止める
+ * 操作ではなく、必ず連絡してほしいという注意喚起だけなので。内容は2行固定文で
+ * v-html は使わないため h() で組み立てる（本ファイル唯一の render 関数呼び出し）。
+ */
+function showCampaignTankaNotice(): void {
+  Modal.warning({
+    title: 'キャンペーン単価に関する処理',
+    content: h('div', { class: 'text-left' }, [
+      h('p', { class: 'mb-1' }, CAMPAIGN_TANKA_NOTICE_LINE1),
+      h('p', CAMPAIGN_TANKA_NOTICE_LINE2),
+    ]),
+    okText: '確認',
+  });
+}
+
+// ①②②': 購読種別 + 新聞単価 のペアが「電子版 かつ campaign⇄通常 の境界を
+// またいだ瞬間」または「非電子版→電子版 に変わった瞬間、単価が既に
+// campaign だった」ときに通知する。isHydrating 中（loadDetail /
+// resetFormToLoaded 等が formState を一括代入している間）は「ユーザーが
+// 選んだ」わけではないので無視する — 他の watch と同じガード。
+watch(
+  [() => formState.dokusya_shubetsu, () => formState.tanka_id],
+  ([nextShubetsu, nextTanka], prev) => {
+    if (isHydrating.value) return;
+    const [prevShubetsu, prevTanka] = prev ?? [nextShubetsu, nextTanka];
+    if (nextShubetsu === prevShubetsu && nextTanka === prevTanka) return;
+
+    const nowDigital = Number(nextShubetsu) === DokusyaShubetsu.DIGITAL;
+    const wasDigital = Number(prevShubetsu) === DokusyaShubetsu.DIGITAL;
+    if (!nowDigital) return; // 対象は電子版のみ（顧客要件「電子版の…」）
+
+    const nowCampaign = isCampaignTanka(nextTanka);
+    const tankaCrossedWhileDigital =
+      wasDigital && nowCampaign !== isCampaignTanka(prevTanka ?? null);
+    const becameDigitalWithCampaignAlready = !wasDigital && nowCampaign;
+
+    if (tankaCrossedWhileDigital || becameDigitalWithCampaignAlready) {
+      showCampaignTankaNotice();
+    }
+  },
+);
+
+/**
+ * ③: 承認/否認 ボタンを押した瞬間、選択中の単価が campaign なら通知する。
+ * 上の watch と違い「変化したか」ではなく「今 campaign か」だけを見る —
+ * 承認待ちに入った時点で既に campaign 単価が入っていて今回選び直していない
+ * ケースも拾うため。isPending 自体が isDigital 前提（承認/否認ボタンは
+ * isPending && canDenshi のときしか出ない）なので、ここでの isDigital
+ * チェックは不要。
+ */
+function notifyIfCurrentTankaIsCampaign(): void {
+  if (isCampaignTanka(formState.tanka_id)) showCampaignTankaNotice();
+}
+
 // ─── 送信パイプライン ────────────────────────────────────────────────
 
 /**
@@ -1853,6 +2011,7 @@ async function onSubmit(): Promise<void> {
           ...buildShoninEditBody(),
         });
         notify.success('承認しました。');
+        notifyIfCurrentTankaIsCampaign();
       } else {
         // 購読中止日（解約予約）は本APIでは送らない（顧客要件 2026-07 改訂）。
         // 停止は専用エンドポイント stopDokusya（一覧の「購読を停止する」）で行う。
@@ -1867,10 +2026,13 @@ async function onSubmit(): Promise<void> {
           .dokusya_chushi_date;
         await updateDokusya(dokusyaId.value, updateBody);
         notify.updated();
+        // キャンペーン単価の通知は選択した瞬間（上の watch）に既に出しているので
+        // ここでは出さない。
       }
     } else {
       await createDokusya(buildRequestBody());
       notify.created();
+      // 同上 — 選択した瞬間に通知済み。
     }
     await router.push({ name: 'DokusyaList' });
   } catch (err) {
@@ -1907,6 +2069,7 @@ async function onApproveClick(): Promise<void> {
       ...buildShoninEditBody(),
     });
     notify.success('承認しました。');
+    notifyIfCurrentTankaIsCampaign();
     await router.push({ name: 'DokusyaList' });
   } catch (err) {
     handleServerError(err);
@@ -1946,6 +2109,7 @@ function onClickReject(): void {
         // 否認時も編集された支払方法・引落口座4項目を保存する（#56524）。
         await rejectDokusya(dokusyaId.value as number, buildShoninEditBody());
         notify.success('否認しました。');
+        notifyIfCurrentTankaIsCampaign();
         await router.push({ name: 'DokusyaList' });
       } catch {
         // global interceptor がトースト。view は留まる。
@@ -1963,7 +2127,7 @@ function goBack(): void {
 // ─── 履歴情報画面 (ACSMS-SCR-013) への遷移 ───────────────────────────
 // 編集時のみ — 対象購読者の dokusya_id が必要。フル履歴一覧
 // (ページネーション + 全カラム) を別画面で表示する。画面上部の
-// 「履歴表示」ブロックは SCR-011 の簡易インライン履歴で別物。
+// 「履歴表示」ブロックは ACSMS-SCR-011 の簡易インライン履歴で別物。
 function goRireki(): void {
   if (dokusyaId.value === null) return;
   void router.push({ name: 'DokusyaRireki', params: { id: dokusyaId.value } });
@@ -2046,7 +2210,8 @@ function resetFormState(): void {
   detailDenshiShoninStatus.value = null;
   detailDenshiDokusyaShubetsu.value = null;
   detailHonshiKodokuFlg.value = false;
-  notFoundMessage.value = '';
+  detailDenshiKaiinId.value = null;
+  originalTankaId.value = null;
 }
 
 /**
@@ -2136,14 +2301,6 @@ defineExpose({
 
 <template>
   <div class="space-y-6">
-    <p
-      v-if="notFoundMessage"
-      data-test="dokusya-not-found"
-      class="bg-error-subtle text-error border border-error rounded-ant p-4"
-    >
-      {{ notFoundMessage }}
-    </p>
-
     <!-- 情報変更モードバー（顧客要件2026-07・参照→編集フロー）。a-form の外に
          置くことで、参照モードで form 全体が disabled でもボタンは押せる。
          紙版・電子版とも表示する（UI 統一）。電子版は「予約変更」を disabled にして
@@ -3346,7 +3503,7 @@ defineExpose({
         側で実施).
       -->
       <section class="bg-surface-card border border-border rounded-ant p-4 @md:p-6">
-        <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読開始日、中止日</h3>
+        <h3 class="text-lg font-bold mb-6 pb-4 border-b border-border">購読日</h3>
 
         <div class="space-y-4">
           <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
@@ -3373,21 +3530,23 @@ defineExpose({
                     v-if="isDigitalCreate"
                     v-model:value="kaishiDateMode"
                   >
-                    <a-radio value="today">今日</a-radio>
-                    <a-radio value="next_month_first">翌月1日</a-radio>
+                    <a-radio value="today">今日から</a-radio>
+                    <a-radio value="next_month_first">翌月1日から</a-radio>
                   </a-radio-group>
                   <!-- v-else の相手はラジオなので、両分岐とも fieldset の中に置く
                        （legend はどちらが描画されてもこの項目の名前になる）。 -->
-                  <a-date-picker
-                    v-else
-                    v-model:value="formState.dokusya_kaishi_date"
-                    format="YYYY/MM/DD"
-                    value-format="YYYY-MM-DD"
-                    placeholder="YYYY/MM/DD"
-                    :disabled="isEdit && !isResubscribing"
-                    :disabled-date="disabledKaishiDate"
-                    class="w-full"
-                  />
+                  <div v-else class="flex items-center gap-2 w-full">
+                    <a-date-picker
+                      v-model:value="formState.dokusya_kaishi_date"
+                      format="YYYY/MM/DD"
+                      value-format="YYYY-MM-DD"
+                      placeholder="YYYY/MM/DD"
+                      :disabled="isEdit && !isResubscribing"
+                      :disabled-date="disabledKaishiDate"
+                      class="flex-1 min-w-0"
+                    />
+                    <span class="text-text-main whitespace-nowrap">から</span>
+                  </div>
                 </div>
               </fieldset>
             </a-form-item>
@@ -3408,7 +3567,7 @@ defineExpose({
                 <span v-if="isCancelTetsuzuki" class="text-error ml-1">*</span>
               </template>
               <!-- 購読中止日はどの分岐でも入力不可（disabled）。中止＝解約予約は
-                   一覧画面(SCR-014)の「購読を停止する」ボタンで行うため、本フォーム
+                   一覧画面(ACSMS-SCR-014)の「購読を停止する」ボタンで行うため、本フォーム
                    では現在の解約予定日を表示するのみ（顧客要件 2026-07）。
                 ① 電子版 (create): 空欄で「月末で終了」を placeholder 表示。
                    submit は null (値があれば YYYY/MM 表示)。
@@ -3431,7 +3590,7 @@ defineExpose({
                 <span class="text-text-description text-sm whitespace-nowrap">月末で終了</span>
               </div>
               <!-- 購読中止日は読取専用（顧客要件 2026-07 改訂）。停止（解約予約）は
-                   一覧画面(SCR-014)の「購読を停止する」ボタン → ポップアップで行う。
+                   一覧画面(ACSMS-SCR-014)の「購読を停止する」ボタン → ポップアップで行う。
                    本フォームでは現在の解約予定日を表示するのみ（編集不可）。
                    disabled-date は残すが disabled のため実質無効。 -->
               <a-date-picker
@@ -3507,11 +3666,15 @@ defineExpose({
                 「(電子版システムが決定)」placeholder のまま (従来ロジック)。
                 どちらも :value バインドのみで formState は変更しない。
               -->
-              <a-input
-                :value="isEdit ? seikyuMonthDisplay : formState.seikyu_kaishi_month"
-                disabled
-                placeholder="(電子版システムが決定)"
-              />
+              <div class="flex items-center gap-2">
+                <a-input
+                  :value="isEdit ? seikyuMonthDisplay : formState.seikyu_kaishi_month"
+                  disabled
+                  placeholder="(電子版システムが決定)"
+                  class="flex-1 min-w-0"
+                />
+                <span class="text-text-main whitespace-nowrap">から</span>
+              </div>
             </a-form-item>
           </div>
 

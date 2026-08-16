@@ -12,7 +12,7 @@
  * フィールドレベルのロール制限（CHUOKAI / JA_HONTEN は api.md §4.4 の一部のみ
  * 編集可）はサーバ側で強制。FE は全項目を送り BE がスコープ外キーを無視する。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 
@@ -22,6 +22,7 @@ import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
@@ -45,9 +46,10 @@ import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const authStore = useAuthStore();
 const codes = useCodesStore();
-const { fieldErrors, submitting, submit } = useApiForm();
+const { fieldErrors, submitting, submit, clearErrors } = useApiForm();
 
 /**
  * フィールドレベル制限（編集モードのみ、security.md §Field-Level Restriction +
@@ -75,73 +77,99 @@ const jaIdParam = computed<number | undefined>(() => {
 
 const isEdit = computed(() => jaIdParam.value !== undefined);
 
-const formState = reactive<CreateJaRequest>({
-  ja_code: '',
-  ja_name: '',
-  ja_name_kana: '',
-  todofuken_code: '',
-  chuokai_flg: false,
-  yubin_no: '',
-  address: '',
-  tel: '',
-  fax: '',
-  email: '',
-  tanto_busho: '',
-  tanto_name: '',
-  zei_kubun: '1',
-  jastem_itakusha_code: '',
-  jastem_itakusha_name: '',
-  jastem_ja_code: '',
-  jastem_ja_name: '',
-  biko: '',
-});
+/** フォーム初期値。登録モード復帰時（[route-reuse] リセット）にも使う。 */
+function defaultFormState(): CreateJaRequest {
+  return {
+    ja_code: '',
+    ja_name: '',
+    ja_name_kana: '',
+    todofuken_code: '',
+    chuokai_flg: false,
+    yubin_no: '',
+    address: '',
+    tel: '',
+    fax: '',
+    email: '',
+    tanto_busho: '',
+    tanto_name: '',
+    zei_kubun: '1',
+    jastem_itakusha_code: '',
+    jastem_itakusha_name: '',
+    jastem_ja_code: '',
+    jastem_ja_name: '',
+    biko: '',
+  };
+}
+
+const formState = reactive<CreateJaRequest>(defaultFormState());
 
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
 
 /* ─── ライフサイクル ───────────────────────────────────────────────── */
 
-onMounted(async () => {
-  // 都道府県の候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
+function resetFormState(): void {
+  Object.assign(formState, defaultFormState());
+  clientErrors.value = {};
+  clearErrors();
+}
 
-  // 編集モードの事前ロード。
-  if (jaIdParam.value !== undefined) {
-    try {
-      const resp = await getJa(jaIdParam.value);
-      Object.assign(formState, {
-        ja_code: resp.data.ja_code,
-        ja_name: resp.data.ja_name,
-        ja_name_kana: resp.data.ja_name_kana,
-        todofuken_code: resp.data.todofuken_code,
-        chuokai_flg: resp.data.chuokai_flg,
-        yubin_no: resp.data.yubin_no,
-        address: resp.data.address,
-        tel: resp.data.tel,
-        fax: resp.data.fax,
-        email: resp.data.email,
-        tanto_busho: resp.data.tanto_busho,
-        tanto_name: resp.data.tanto_name,
-        // BE は zei_kubun を number（1=内税, 2=外税、m_code ZEI_KUBUN）で返すが、
-        // フォームは string radio ('1'/'2')。ここで変換しないと radio の
-        // strict-equal（`'1' !== 1`）で edit モードが未選択表示になる。
-        zei_kubun: String(resp.data.zei_kubun ?? ''),
-        jastem_itakusha_code: resp.data.jastem_itakusha_code,
-        jastem_itakusha_name: resp.data.jastem_itakusha_name,
-        jastem_ja_code: resp.data.jastem_ja_code,
-        jastem_ja_name: resp.data.jastem_ja_name,
-        biko: resp.data.biko,
-      });
-      await editGuard.capture();
-    } catch {
-      // 404 / 403 — axios interceptor がリダイレクトを処理。空の編集フォームを
-      // 描画しないよう dashboard へ戻す。
-      try {
-        await router.push({ name: 'Dashboard' });
-      } catch {
-        /* 一部テスト用ルーターは no-match — 無視 */
-      }
-    }
+async function loadDetail(id: number): Promise<void> {
+  try {
+    const resp = await getJa(id);
+    Object.assign(formState, {
+      ja_code: resp.data.ja_code,
+      ja_name: resp.data.ja_name,
+      ja_name_kana: resp.data.ja_name_kana,
+      todofuken_code: resp.data.todofuken_code,
+      chuokai_flg: resp.data.chuokai_flg,
+      yubin_no: resp.data.yubin_no,
+      address: resp.data.address,
+      tel: resp.data.tel,
+      fax: resp.data.fax,
+      email: resp.data.email,
+      tanto_busho: resp.data.tanto_busho,
+      tanto_name: resp.data.tanto_name,
+      // BE は zei_kubun を number（1=内税, 2=外税、m_code ZEI_KUBUN）で返すが、
+      // フォームは string radio ('1'/'2')。ここで変換しないと radio の
+      // strict-equal（`'1' !== 1`）で edit モードが未選択表示になる。
+      zei_kubun: String(resp.data.zei_kubun ?? ''),
+      jastem_itakusha_code: resp.data.jastem_itakusha_code,
+      jastem_itakusha_name: resp.data.jastem_itakusha_name,
+      jastem_ja_code: resp.data.jastem_ja_code,
+      jastem_ja_name: resp.data.jastem_ja_name,
+      biko: resp.data.biko,
+    });
+    await editGuard.capture();
+  } catch {
+    // 404 / 403 — axios interceptor が既にトースト済み。空の編集フォームを
+    // 描画しないよう dashboard へ戻す（顧客要件 2026-08 —
+    // useNotFoundRedirect 共通化）。
+    await redirectToDashboard();
   }
+}
+
+/**
+ * [route-reuse] 登録（`/ja/create`）と編集（`/ja/:id/edit`）は同じ JaFormView
+ * インスタンスに解決されるため、vue-router はコンポーネントを再利用する —
+ * 編集→登録や編集id→別編集id へ遷移しても `onMounted` は再実行されない。
+ * ここで再適用しないと、フォームが前レコードのデータを表示し続ける
+ * （HanbaitenFormView と同じ既知パターン）。id 変化時に再初期化する。
+ */
+async function applyRouteMode(): Promise<void> {
+  resetFormState();
+  if (jaIdParam.value !== undefined) {
+    await loadDetail(jaIdParam.value);
+  }
+}
+
+onMounted(() => {
+  // 都道府県の候補は <BaseTodofukenSelect> が自分で読む（共有キャッシュ）。
+  void applyRouteMode();
+});
+
+watch(jaIdParam, () => {
+  void applyRouteMode();
 });
 
 /* ─── 検証（screen-design.md メッセージ情報に準拠） ────────────────── */
@@ -545,6 +573,7 @@ defineExpose({ submitWith });
           >
             <a-input
               v-model:value="formState.jastem_itakusha_code"
+              :disabled="isRestrictedEditor"
               :maxlength="10"
             />
           </a-form-item>
@@ -556,6 +585,7 @@ defineExpose({ submitWith });
           >
             <a-input
               v-model:value="formState.jastem_itakusha_name"
+              :disabled="isRestrictedEditor"
               :maxlength="40"
             />
           </a-form-item>
@@ -567,6 +597,7 @@ defineExpose({ submitWith });
           >
             <a-input
               v-model:value="formState.jastem_ja_code"
+              :disabled="isRestrictedEditor"
               :maxlength="4"
             />
           </a-form-item>
@@ -578,6 +609,7 @@ defineExpose({ submitWith });
           >
             <a-input
               v-model:value="formState.jastem_ja_name"
+              :disabled="isRestrictedEditor"
               :maxlength="15"
             />
           </a-form-item>

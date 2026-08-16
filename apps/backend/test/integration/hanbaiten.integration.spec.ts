@@ -5,7 +5,7 @@
 // FK-conflict check, default haiten_flg=false filter, and audit log
 // atomicity (t_log row written in the same transaction as the DELETE).
 //
-// SCR-018 NOTE — the Hanbaiten entity ships with /gen-code-backend
+// ACSMS-SCR-018 NOTE — the Hanbaiten entity ships with /gen-code-backend
 // (which appends it to ALL_ENTITIES in test/utils/create-integration-app.ts).
 // In the meantime we declare the table inline via CREATE TABLE so
 // integration tests can boot. The same trick is used for the conflict-check
@@ -162,7 +162,7 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
   }
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-001 — GET /api/v1/hanbaiten
+  // ACSMS-API-018-001 — GET /api/v1/hanbaiten
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/hanbaiten — list + DataScope', () => {
     it('should return all rows when NICHINO_STAFF lists with no filters', async () => {
@@ -359,7 +359,7 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id
+  // ACSMS-API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id
   // ═════════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/hanbaiten/:hanbaiten_id', () => {
     it('should soft-delete the row + write t_log DELETE row in the same transaction when no conflicts', async () => {

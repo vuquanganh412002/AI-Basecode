@@ -46,7 +46,7 @@ function isPreviewable(fileName: string): boolean {
 /**
  * ファイル配信（チェックボックス選択 + プレビュー + ダウンロード）の共通ロジック。
  *
- * ファイルダウンロード画面(SCR-022) と ファイルアップロード画面(SCR-023) は
+ * ファイルダウンロード画面(ACSMS-SCR-022) と ファイルアップロード画面(ACSMS-SCR-023) は
  * 「選択→プレビュー(画像/PDF)→単一DL / 複数ZIP」の挙動が同一のため集約する。
  * 行の無効化条件（削除済み / 日農DL不可 等）や対象エンティティは画面依存なので
  * `isRowDisabled` / `idOf` / `fileNameOf` / `api` で注入する。

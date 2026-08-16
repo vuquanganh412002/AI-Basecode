@@ -29,7 +29,7 @@ vi.mock('@/api/shiten/shiten', () => ({
 }));
 
 // 管理支店 select feeds from the shared ACSMS-API-COMMON-004 dropdown
-// endpoint (cascade by session.ja_id) — NOT the SCR-008 admin list.
+// endpoint (cascade by session.ja_id) — NOT the ACSMS-SCR-008 admin list.
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   getKanriShitenDropdown: vi.fn(),
   listKanriShiten: vi.fn(),
@@ -644,7 +644,7 @@ describe('ShitenFormView — submit (§3.3, §3.4)', () => {
 // ═════════════════════════════════════════════════════════════════════
 describe('ShitenFormView — back navigation (§4)', () => {
   it('should navigate to ShitenList when 前の画面に戻る is clicked', async () => {
-    // Per established SCR-009 pattern (customer dropped the confirm modal),
+    // Per established ACSMS-SCR-009 pattern (customer dropped the confirm modal),
     // back button navigates straight to the list view.
     const { wrapper, pushSpy } = await renderView();
     const backBtn = wrapper
@@ -664,7 +664,7 @@ describe('ShitenFormView — back navigation (§4)', () => {
 describe('ShitenFormView — Enter-implicit-submit guard', () => {
   it('should NOT call createShiten when Enter is pressed inside a text input', async () => {
     // COVERS: vue.md §Block Enter implicit submit on long CRUD forms.
-    // SCR-007 form has 6 fields (>4) → must wire preventEnterImplicitSubmit
+    // ACSMS-SCR-007 form has 6 fields (>4) → must wire preventEnterImplicitSubmit
     // on the <a-form> @keydown handler.
     const { createShiten } = await import('@/api/shiten/shiten');
     const { wrapper } = await renderView();
@@ -726,6 +726,15 @@ describe('ShitenFormView — defensive paths', () => {
     expect(wrapper.find('form').exists()).toBe(true);
   });
 
+  it('should redirect to Dashboard when getShiten rejects with NOT_FOUND on edit-mode mount (直接URLアクセスで存在しないID・顧客要件 2026-08)', async () => {
+    const { getShiten } = await import('@/api/shiten/shiten');
+    vi.mocked(getShiten).mockRejectedValueOnce({
+      response: { data: { error_code: 'NOT_FOUND' } },
+    });
+    const { router } = await renderView({ id: 999 });
+    expect(router.currentRoute.value.name).toBe('Dashboard');
+  });
+
   it('should set kanriShitenOptions to [] when getKanriShitenDropdown rejects', async () => {
     const { getKanriShitenDropdown } = await import(
       '@/api/kanri-shiten/kanri-shiten'
@@ -750,5 +759,42 @@ describe('ShitenFormView — defensive paths', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     expect(wrapper.text()).toContain('必須項目です。');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Route reuse — edit → create (and edit id → different edit id) must
+// reset/reload the form (regression — same class of bug HanbaitenFormView
+// fixed previously). vue-router reuses this component instance between
+// ShitenCreate and ShitenEdit, so onMounted alone does not re-run.
+// ═══════════════════════════════════════════════════════════════════════
+describe('ShitenFormView — route reuse (edit → create reset)', () => {
+  it('should reset the form to blank when navigating from edit to create', async () => {
+    const { wrapper, router } = await renderView({ id: 1 });
+    const vm = wrapper.vm as any;
+    await flushPromises();
+
+    expect(vm.form.shiten_name).toBe('本店営業部');
+    expect(vm.form.kanri_shiten_id).toBe(1);
+
+    // Jump to create via the SAME component instance (router reuses it).
+    await router.push({ name: 'ShitenCreate' });
+    await flushPromises();
+
+    expect(vm.form.shiten_name).toBe('');
+    expect(vm.form.shiten_code).toBe('');
+    expect(vm.form.kanri_shiten_id).toBeUndefined();
+  });
+
+  it('should reload the new record when navigating between two edit ids', async () => {
+    const { getShiten } = await import('@/api/shiten/shiten');
+    const { router } = await renderView({ id: 1 });
+    await flushPromises();
+    expect(getShiten).toHaveBeenLastCalledWith(1);
+
+    await router.push({ name: 'ShitenEdit', params: { id: '8' } });
+    await flushPromises();
+
+    expect(getShiten).toHaveBeenLastCalledWith(8);
   });
 });

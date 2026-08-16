@@ -1,5 +1,6 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
 import { ErrorCode, ErrorMessage } from '@/common/constants/error-codes.constant';
+import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
  * 候補購読者が 販売店 を置換できない理由（行単位）— 併読者／電子版クレカ決済者。
@@ -14,26 +15,17 @@ export interface IneligibleDokusyaDetail {
  * — 併読者（dokusya_shubetsu=3）または 電子版クレカ決済者（dokusya_shubetsu=2 &&
  * shiharai_hoho=6）。api.md §4.3 業務ルール + §エラー一覧 row 10。
  *
- * `DomainException` ではなく `HttpException` を直接継承する — ボディが可変長の
- * `errors[]` 配列を持つため。`GlobalExceptionFilter` はレスポンスオブジェクトから
- * `code` / `error_code` / `errors` をそのまま読む。
+ * `DomainException<IneligibleDokusyaDetail>` — `errors[]` が既定の
+ * `{ field, message }` でなく `{ dokusya_id, reason }` なので型引数で形状を
+ * 差し替える（`.claude/rules/nestjs.md` 例外標準: 業務例外は必ず `DomainException`
+ * を継承）。`code` は基底クラスのコンストラクタパラメータプロパティとして自動公開
+ * されるため、`.rejects.toMatchObject({ code })` はそのまま動く。
  */
-export class IneligibleDokusyaException extends HttpException {
-  /** `.rejects.toMatchObject({ code })` が一致するよう `DomainException.code` をミラー。 */
-  public readonly code: string = ErrorCode.INELIGIBLE_DOKUSYA;
-
+export class IneligibleDokusyaException extends DomainException<IneligibleDokusyaDetail> {
   constructor(
     errors: IneligibleDokusyaDetail[],
     message: string = ErrorMessage.INELIGIBLE_DOKUSYA,
   ) {
-    super(
-      {
-        code: ErrorCode.INELIGIBLE_DOKUSYA,
-        error_code: ErrorCode.INELIGIBLE_DOKUSYA,
-        message,
-        errors,
-      },
-      HttpStatus.BAD_REQUEST,
-    );
+    super(message, ErrorCode.INELIGIBLE_DOKUSYA, HttpStatus.BAD_REQUEST, errors);
   }
 }

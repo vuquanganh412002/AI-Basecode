@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-011 — 購読者情報登録画面
 //
 // Drives src/modules/dokusya/dto/update-dokusya.dto.ts (to be generated).
-// Per api.md §API-011-003: "リクエストボディはACSMS-API-011-002と同一構造。
+// Per api.md §ACSMS-API-011-003: "リクエストボディはACSMS-API-011-002と同一構造。
 // dokusya_id は変更不可（URLから取得）". So UpdateDokusyaDto mirrors
 // CreateDokusyaDto exactly — same field set, same validators — minus the
 // `dokusya_id` (which lives on the URL path).

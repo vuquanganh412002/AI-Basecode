@@ -27,6 +27,8 @@ import {
   excelSerialToIsoDate,
   normalizeImportDate,
   isFutureDayTokyo,
+  pickerToTokyoWallclock,
+  dateToIsoDateTokyo,
 } from '@/utils/datetime';
 
 dayjs.extend(utc);
@@ -211,6 +213,38 @@ describe('isTodayOrPastDayTokyo', () => {
     expect(isTodayOrPastDayTokyo(jstTodayInVn)).toBe(true);
     const jstTomorrowInVn = dayjs.tz('2026-05-29', 'Asia/Ho_Chi_Minh');
     expect(isTodayOrPastDayTokyo(jstTomorrowInVn)).toBe(false);
+  });
+});
+
+describe('dateToIsoDateTokyo', () => {
+  it('converts a UTC instant to its Asia/Tokyo calendar day', () => {
+    // 2026-05-27 22:00 UTC = 2026-05-28 07:00 JST.
+    expect(dateToIsoDateTokyo(new Date('2026-05-27T22:00:00.000Z'))).toBe('2026-05-28');
+  });
+
+  it('should combine with pickerToTokyoWallclock to compare a picker cell against a parseDatetimeTokyo() Date without TZ drift (regression)', () => {
+    // Reproduces the OshiraseManagementView disabledEndDate bug: comparing a
+    // browser-local picker Dayjs directly against a parseDatetimeTokyo() Date
+    // via `.isBefore(date, 'day')` re-interprets the Date in the browser's
+    // local TZ, drifting the day boundary when the browser TZ isn't JST.
+    // Stringifying both sides to their JST calendar day first removes the
+    // ambiguity entirely.
+    const publishStart = parseDatetimeTokyo('2026/05/28 09:00')!; // JST 2026-05-28
+    expect(publishStart).not.toBeNull();
+
+    // Picker cell for JST 2026-05-27 (the day BEFORE the start date),
+    // expressed in a non-JST frame (Ho Chi Minh, UTC+7) exactly like a
+    // Vietnam-based developer's browser would produce.
+    const cellBeforeStartInVn = dayjs.tz('2026-05-27', 'Asia/Ho_Chi_Minh');
+    const cellIso = pickerToTokyoWallclock(cellBeforeStartInVn).format('YYYY-MM-DD');
+    const startIso = dateToIsoDateTokyo(publishStart);
+    expect(cellIso < startIso).toBe(true);
+
+    // The start date's own JST day, expressed the same way, must NOT be
+    // considered "before" itself.
+    const cellOnStartInVn = dayjs.tz('2026-05-28', 'Asia/Ho_Chi_Minh');
+    const cellOnStartIso = pickerToTokyoWallclock(cellOnStartInVn).format('YYYY-MM-DD');
+    expect(cellOnStartIso < startIso).toBe(false);
   });
 });
 

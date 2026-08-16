@@ -11,7 +11,7 @@ import {
 } from 'class-validator';
 
 /**
- * SCR-023 — multipart upload の body。`files` 欄は Multer の
+ * ACSMS-SCR-023 — multipart upload の body。`files` 欄は Multer の
  * `FilesInterceptor('files')` が消費し controller へ `Express.Multer.File[]`
  * で届くため本 DTO には現れない(テキスト欄 `ja_ids[]` のみ)。
  *

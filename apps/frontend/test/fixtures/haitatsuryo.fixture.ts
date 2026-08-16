@@ -21,7 +21,7 @@ export function buildHaitatsuryoUser(overrides: Record<string, unknown> = {}) {
 }
 
 /**
- * Preview envelope (`{ data: [...], meta: {...} }`, mirrors API-021-001
+ * Preview envelope (`{ data: [...], meta: {...} }`, mirrors ACSMS-API-021-001
  * レスポンス成功例). Two 販売店 aggregation rows + a meta summary (zei_kubun=1 内税).
  */
 export function buildHaitatsuryoPreviewResponse(overrides: Record<string, unknown> = {}) {

@@ -125,7 +125,7 @@ export function buildAuthUser(overrides: Record<string, unknown> = {}) {
 // ─── ACSMS-SCR-006 — 支店マスタ明細検索 (list endpoint) ────────────────
 
 /**
- * Single row in the SCR-006 list response. Same column set as
+ * Single row in the ACSMS-SCR-006 list response. Same column set as
  * `ShitenDetail` today — kept structurally identical so detail and list
  * fixtures stay aligned.
  */
@@ -152,7 +152,7 @@ export interface ShitenListResponse {
   meta: { total: number; page: number; per_page: number; total_pages: number };
 }
 
-/** Single row helper for SCR-006 list assertions. */
+/** Single row helper for ACSMS-SCR-006 list assertions. */
 export function buildShitenListItem(
   overrides: Partial<ShitenListItem> = {},
 ): ShitenListItem {

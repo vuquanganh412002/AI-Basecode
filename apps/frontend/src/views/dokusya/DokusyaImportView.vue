@@ -4,7 +4,7 @@
 // 単一ページフォーム: Excel 選択 → xlsx でクライアント解析 → プレビュー表示 →
 // 列サブセット切替 → 取込モード選択 → BE 取込エンドポイントへ送信。
 //
-// SCR-019 (HanbaitenImportView.vue) の前例に倣い、ネイティブ <input type="file"> +
+// ACSMS-SCR-019 (HanbaitenImportView.vue) の前例に倣い、ネイティブ <input type="file"> +
 // <input type="checkbox" name="col" value="..."> を使用。antd 内部を辿らず
 // vitest でスペックの name+value セレクタが機能するようにする。
 //
@@ -70,7 +70,7 @@ const MSG_016_001 =
 const MSG_016_002 = '取込処理を開始します。よろしいですか？';
 const MSG_016_004 = '取り込みました。';
 const MSG_016_006 =
-  'ファイルの行数が上限（30000行）を超えているため、取込みできません。';
+  'ファイルの行数が上限（5000行）を超えているため、取込みできません。';
 
 // 電子版クレカガード用の m_code 値（seeder §5）。
 
@@ -107,7 +107,7 @@ const shubetsuOptions = computed(() =>
 //   適用日   … 通常の更新
 //   中止日   … 一括中止（解約予約を作る）
 // 排他: 片方を入力すると他方はクリア + disable。BE も両方指定を 400 で弾く。
-// SCR-014 の購読中止ポップアップと同じ antd ピッカーを使う（画面間で見た目と
+// ACSMS-SCR-014 の購読中止ポップアップと同じ antd ピッカーを使う（画面間で見た目と
 // 操作を揃える）。値は Dayjs。送信直前に文字列へ整形する。
 const johoDateFe = ref<Dayjs | null>(null);
 const chushiDateFe = ref<Dayjs | null>(null);
@@ -125,12 +125,12 @@ const isBulkStop = computed(() => chushiDateFe.value !== null);
 
 /**
  * 電子版の解約は**月末で終了**する。よって中止日は日付ではなく「終了月」を選び、
- * 送信時にその月末へ丸める（SCR-014 の購読中止ポップアップと同じ扱い）。
+ * 送信時にその月末へ丸める（ACSMS-SCR-014 の購読中止ポップアップと同じ扱い）。
  * 紙版は従来どおり日付をそのまま指定する。
  */
 const isChushiMonthPicker = computed(() => isDigitalBatchSelected.value);
 
-/** 実際に送る中止日。電子版は選択した月の月末日（SCR-014 と同じ丸め）。 */
+/** 実際に送る中止日。電子版は選択した月の月末日（ACSMS-SCR-014 と同じ丸め）。 */
 const effectiveChushiDate = computed(() => {
   const d = chushiDateFe.value;
   if (!d) return '';
@@ -194,9 +194,9 @@ const disabledJohoDate = isPastDayTokyo;
  *   紙版   … 解約予定日は「本日より後」。当日も選ばせない
  *            （BE の collectChushiViolations が `chushi <= today` を弾くため、
  *            当日を選べると画面は通って送信時にエラーになる）。
- *            SCR-014 の disabledStopPaperDate と同じ比較。
+ *            ACSMS-SCR-014 の disabledStopPaperDate と同じ比較。
  *   電子版 … 月末で終了するので月単位。当月は選べる（当月末はまだ来ていない）。
- *            SCR-014 の disabledStopMonth と同じ判定。請求開始月は購読者ごとなので
+ *            ACSMS-SCR-014 の disabledStopMonth と同じ判定。請求開始月は購読者ごとなので
  *            この画面では見られず、BE が行単位で弾く。
  */
 function disabledChushiDate(current: Dayjs | null): boolean {
@@ -291,7 +291,7 @@ const previewColumns = computed<PhysicalColumn[]>(() =>
 );
 
 /**
- * プレビューテーブルが実際に描画する行。大きなファイル（最大30000行）で
+ * プレビューテーブルが実際に描画する行。大きなファイル（最大5000行）で
  * DOM / heap が膨れないよう上限を設ける。全件は件数バッジ・検証・送信のため
  * parsedRows に保持する。
  */
@@ -531,7 +531,11 @@ function validateBeforeSubmit(): string | null {
       }
     }
     // 購読部数は 1 以上（解約は取込対象外。顧客要件 2026-06）。
-    if (row.dokusya_busu !== undefined && busu <= 0) {
+    // sheet_to_json は defval:'' のため空欄セルも undefined ではなく ''
+    // として届く（更新モードで「この列は変更しない」を意味する空欄）。
+    // row.dokusya_busu !== '' も併せて見ないと Number('')===0 で
+    // busu<=0 が真になり、未変更のつもりの空欄行を誤って弾いてしまう。
+    if (row.dokusya_busu !== undefined && row.dokusya_busu !== '' && busu <= 0) {
       errors.push({
         row: rowNo,
         field: 'dokusya_busu',
@@ -688,67 +692,63 @@ function renderCell(value: unknown): string {
         <!-- 1行目: 購読種別 / 取込モード / 読者情報変更適用日 / 購読中止日 -->
         <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-x-4 gap-y-4 items-start">
           <div>
-            <span
-              id="import-shubetsu-label"
-              class="block text-sm font-semibold text-text-main mb-1.5"
-            >
-              購読種別
-              <span class="text-error ml-1">*</span>
-            </span>
-            <div
-              role="radiogroup"
-              aria-labelledby="import-shubetsu-label"
-              data-test="import-shubetsu"
-              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
-            >
-              <label
-                v-for="opt in shubetsuOptions"
-                :key="opt.value"
-                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+            <!-- native <fieldset>+<legend> で命名する（vue.md §1a — role="radiogroup"
+                 + aria-labelledby ではなく、素の radio 群には native 要素を使う）。 -->
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="block text-sm font-semibold text-text-main mb-1.5">
+                購読種別
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div
+                data-test="import-shubetsu"
+                class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
               >
-                <input
-                  v-model.number="dokusyaShubetsuFe"
-                  type="radio"
-                  name="import-shubetsu"
-                  :value="Number(opt.value)"
-                  :data-test="`import-shubetsu-${opt.value}`"
-                  class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
-                />
-                {{ opt.label }}
-              </label>
-            </div>
+                <label
+                  v-for="opt in shubetsuOptions"
+                  :key="opt.value"
+                  class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+                >
+                  <input
+                    v-model.number="dokusyaShubetsuFe"
+                    type="radio"
+                    name="import-shubetsu"
+                    :value="Number(opt.value)"
+                    :data-test="`import-shubetsu-${opt.value}`"
+                    class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                  />
+                  {{ opt.label }}
+                </label>
+              </div>
+            </fieldset>
           </div>
 
           <div>
-            <span
-              id="import-mode-label"
-              class="block text-sm font-semibold text-text-main mb-1.5"
-            >
-              取込モード
-              <span class="text-error ml-1">*</span>
-            </span>
-            <div
-              role="radiogroup"
-              aria-labelledby="import-mode-label"
-              data-test="import-mode"
-              class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
-            >
-              <label
-                v-for="opt in IMPORT_MODE_OPTIONS"
-                :key="opt.value"
-                class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="block text-sm font-semibold text-text-main mb-1.5">
+                取込モード
+                <span class="text-error ml-1">*</span>
+              </legend>
+              <div
+                data-test="import-mode"
+                class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1"
               >
-                <input
-                  v-model="importModeFe"
-                  type="radio"
-                  name="import-mode"
-                  :value="opt.value"
-                  :data-test="`import-mode-${opt.value}`"
-                  class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
-                />
-                {{ opt.label }}
-              </label>
-            </div>
+                <label
+                  v-for="opt in IMPORT_MODE_OPTIONS"
+                  :key="opt.value"
+                  class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+                >
+                  <input
+                    v-model="importModeFe"
+                    type="radio"
+                    name="import-mode"
+                    :value="opt.value"
+                    :data-test="`import-mode-${opt.value}`"
+                    class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                  />
+                  {{ opt.label }}
+                </label>
+              </div>
+            </fieldset>
           </div>
 
           <div>
@@ -795,7 +795,7 @@ function renderCell(value: unknown): string {
             >
               購読中止日
             </label>
-            <!-- 電子版は月末で終了するため「終了月」を選ぶ（SCR-014 と同じ扱い）。
+            <!-- 電子版は月末で終了するため「終了月」を選ぶ（ACSMS-SCR-014 と同じ扱い）。
                  紙版は日付をそのまま指定する。 -->
             <div class="flex items-center gap-2">
               <div class="flex-1 min-w-0" data-test="import-chushi-date">

@@ -3,7 +3,7 @@
 // Single-page CRUD: list at top + edit form below. Every it() maps to a
 // clause in docs/design/ACSMS-SCR-031/screen-design.md (機能定義) +
 // docs/design/ACSMS-SCR-031/index.html (UI structure) +
-// docs/design/ACSMS-SCR-031/ACSMS-SCR-031-api.md (API-031-001..005 +
+// docs/design/ACSMS-SCR-031/ACSMS-SCR-031-api.md (ACSMS-API-031-001..005 +
 // COMMON-003 JA dropdown).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -57,6 +57,8 @@ vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
 
 interface RenderOptions {
   user?: ReturnType<typeof buildAdminUser>;
+  /** Attach to document.body so document-based focus (focusFirstError) is observable. */
+  attach?: boolean;
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -75,6 +77,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
   await router.isReady();
 
   const wrapper = mount(OshiraseManagementView, {
+    ...(opts.attach ? { attachTo: document.body } : {}),
     global: {
       plugins: [
         router,
@@ -222,6 +225,81 @@ describe('OshiraseManagementView — initial render (機能定義 1.x)', () => {
       user: buildAdminUser({ permissions: [], role_code: 'JA_HONTEN' }),
     });
     expect(listOshirase).not.toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 1b. アクセシブルネーム — form fields must have a programmatic name
+// (regression — every field but 内容 used a bare <span>, giving screen
+// readers no accessible name at all; vue.md §Accessibility).
+// ───────────────────────────────────────────────────────────────────────
+describe('OshiraseManagementView — accessible names (a11y regression)', () => {
+  it('should associate every hand-written <label for> with a control that actually renders that id', async () => {
+    const { wrapper } = await renderView();
+    const labels = wrapper.findAll('label[for]');
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      const forId = label.attributes('for')!;
+      expect(wrapper.find(`#${forId}`).exists()).toBe(true);
+    }
+  });
+
+  it('should give お知らせタイトル a <label for> pointing at the actual input id', async () => {
+    const { wrapper } = await renderView();
+    const label = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('お知らせタイトル'));
+    expect(label).toBeDefined();
+    expect(label!.attributes('for')).toBe('oshirase_title');
+    expect(wrapper.find('#oshirase_title').exists()).toBe(true);
+  });
+
+  it('should give JA名 a <label for> pointing at the BaseJaDropdown id', async () => {
+    const { wrapper } = await renderView();
+    const label = wrapper.findAll('label').find((l) => l.text().trim() === 'JA名');
+    expect(label).toBeDefined();
+    expect(label!.attributes('for')).toBe('oshirase_ja_id');
+    expect(wrapper.find('#oshirase_ja_id').exists()).toBe(true);
+  });
+
+  it('should give お知らせ種別 a <label for> pointing at the a-select id', async () => {
+    const { wrapper } = await renderView();
+    const label = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('お知らせ種別'));
+    expect(label).toBeDefined();
+    expect(label!.attributes('for')).toBe('oshirase_type');
+    expect(wrapper.find('#oshirase_type').exists()).toBe(true);
+  });
+
+  it('should give 開始日 / 終了日 pickers their own <label for> (not just the 表示期間 group span)', async () => {
+    const { wrapper } = await renderView();
+    const startLabel = wrapper.findAll('label').find((l) => l.text().includes('開始日'));
+    const endLabel = wrapper.findAll('label').find((l) => l.text().includes('終了日'));
+    expect(startLabel?.attributes('for')).toBe('publish_start_date');
+    expect(endLabel?.attributes('for')).toBe('publish_end_date');
+  });
+
+  it('should name 公開場所 / 状態 / 対象管理者区分 radio/checkbox groups via native <fieldset>+<legend> (never a bare <span>)', async () => {
+    const { wrapper } = await renderView();
+    const legends = wrapper.findAll('legend').map((l) => l.text());
+    expect(legends.some((t) => t.includes('公開場所'))).toBe(true);
+    expect(legends.some((t) => t.includes('状態'))).toBe(true);
+    expect(legends.some((t) => t.includes('対象管理者区分'))).toBe(true);
+    // Each legend's group control must be inside a real <fieldset>.
+    const fieldsets = wrapper.findAll('fieldset');
+    expect(fieldsets.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('should NOT let antd render its own `.ant-form-item-label` for the radio/checkbox groups (would land on the wrapping <div> — vue.md §1a)', async () => {
+    // Only 内容 uses antd's own `#label` slot (a single <a-textarea>, where
+    // antd's generated `for` is valid). 公開場所 / 状態 / 対象管理者区分 must
+    // route through <fieldset>+<legend> instead, so antd never gets a
+    // `label`/`#label` to render for them in the first place.
+    const { wrapper } = await renderView();
+    const antdLabelBoxes = wrapper.findAll('.ant-form-item-label');
+    expect(antdLabelBoxes).toHaveLength(1);
+    expect(antdLabelBoxes[0]?.text()).toContain('内容');
   });
 });
 
@@ -844,6 +922,42 @@ describe('OshiraseManagementView — delete (機能定義 5.x)', () => {
     expect(vi.mocked(removeOshirase)).toHaveBeenCalled();
   });
 
+  it('should NOT show a bogus "未保存のデータ" confirm when deleting the row currently being edited (regression)', async () => {
+    // Bug: askDelete() called onClear() after a successful delete, and
+    // onClear()'s isFormDirty() returns true whenever editingId !== null —
+    // which it still was at that point (row 1 was being edited). That
+    // popped a second, nonsensical "unsaved changes" confirm right after
+    // the delete had already succeeded.
+    const { wrapper } = await renderView();
+
+    // 編集 row 1 first (its id matches the default getOshirase/detail mock).
+    const editBtn = wrapper.findAll('a').find((a) => a.text().includes('編集'));
+    await editBtn!.trigger('click');
+    await flushPromises();
+    const vm = wrapper.vm as any;
+    expect(vm.editingId).toBe(1);
+
+    vi.mocked(Modal.confirm).mockClear();
+
+    // Delete that SAME row 1.
+    const delBtn = wrapper.findAll('a').find((a) => a.text().includes('削除'));
+    await delBtn!.trigger('click');
+    await flushPromises();
+
+    // Only the delete confirmation itself should have opened — never a
+    // second "未保存のデータがあります" dialog.
+    expect(Modal.confirm).toHaveBeenCalledTimes(1);
+    const contents = vi
+      .mocked(Modal.confirm)
+      .mock.calls.map((c) => String((c[0] as any)?.content ?? ''));
+    expect(contents.some((c) => c.includes('未保存のデータ'))).toBe(false);
+
+    // The form must still reset back to create-mode (blank), same
+    // end-state the old onClear() path produced — just without the
+    // spurious confirm in between.
+    expect(vm.editingId).toBeNull();
+  });
+
   it('should NOT render a clickable 削除 link for a 締め切り時間 (type=4) row', async () => {
     // 顧客確認 2026-05: type=4 レコードは削除不可。テンプレートは <span>
     // にフォールバックし、リンクは描画されない。リスト全体を type=4 で
@@ -912,5 +1026,95 @@ describe('OshiraseManagementView — system error (ACSMS-MSG-031-007)', () => {
 
     await renderView();
     expect(vi.mocked(listOshirase)).toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 9. 終了日 disabled-date — TZ 非依存 (regression: browser-local instant compare)
+// ───────────────────────────────────────────────────────────────────────
+describe('OshiraseManagementView — auto-focus first error on submit (regression)', () => {
+  it('should focus the first errored field when client-side validateForm() fails', async () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    const { wrapper } = await renderView({ attach: true });
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await flushPromises(); // nextTick(focusFirstError) を待つ
+
+    expect(wrapper.text()).toContain('必須項目です。');
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
+  });
+
+  it('should focus the first errored field when the server returns VALIDATION_ERROR', async () => {
+    const { createOshirase } = await import('@/api/oshirase/oshirase');
+    vi.mocked(createOshirase).mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [{ field: 'content', message: '内容は必須です（サーバ検証）。' }],
+        },
+      },
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    const { wrapper } = await renderView({ attach: true });
+    const vm = wrapper.vm as any;
+    vm.formState.title = 'タイトル';
+    vm.formState.publish_location = 1;
+    vm.formState.status = 1;
+    vm.formState.publish_start_date = futureDateString(1);
+    vm.formState.oshirase_type = 1;
+    vm.formState.content = '本文';
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('内容は必須です（サーバ検証）。');
+    expect(focusSpy).toHaveBeenCalled();
+    focusSpy.mockRestore();
+  });
+});
+
+describe('OshiraseManagementView — disabledEndDate TZ safety (regression)', () => {
+  it('should disable the JST calendar day before 開始日 even when the picker cell is a plain browser-local Dayjs (regression)', async () => {
+    // Bug: disabledEndDate() compared `current` (a browser-local picker
+    // Dayjs — antd builds picker cells with plain, non-.tz() dayjs calls
+    // that implicitly use the host's local TZ) directly against
+    // parseDatetimeTokyo(publish_start_date) — a Date — via
+    // `.isBefore(startDate, 'day')`. dayjs re-interprets that Date in the
+    // browser's local TZ, so on a non-JST host the day boundary drifted
+    // relative to the JST-pinned start date. This test's host TZ must be
+    // non-JST for the repro to be meaningful — assert that precondition
+    // explicitly so the test doesn't silently pass as a no-op on a JST CI box.
+    const dayjsModule = await import('dayjs');
+    const dayjs = dayjsModule.default;
+    const hostOffsetMinutes = dayjs().utcOffset();
+    expect(hostOffsetMinutes).not.toBe(9 * 60); // not already JST
+
+    // Fix "now" well before the test dates so isPastDayTokyo() (checked
+    // first in disabledEndDate) never short-circuits the comparison we're
+    // actually targeting.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T00:00:00.000Z'));
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    // Early JST morning start time is the case that exposes the drift: at
+    // host offset +07:00, JST 2026-05-28 00:30 is instant 2026-05-27T15:30Z,
+    // whose *local* (+07:00) calendar day is still 2026-05-27 — one day
+    // "behind" the intended JST day. The buggy `.isBefore(startDate, 'day')`
+    // compared against that local day, so 2026-05-27 (which IS before the
+    // real JST start day) was wrongly left enabled.
+    vm.formState.publish_start_date = '2026/05/28 00:30'; // JST 2026-05-28
+
+    // Plain (non-.tz()) dayjs — exactly the shape antd hands to :disabled-date.
+    expect(vm.disabledEndDate(dayjs('2026-05-27'))).toBe(true);
+    expect(vm.disabledEndDate(dayjs('2026-05-28'))).toBe(false);
+    expect(vm.disabledEndDate(dayjs('2026-05-29'))).toBe(false);
+
+    vi.useRealTimers();
   });
 });

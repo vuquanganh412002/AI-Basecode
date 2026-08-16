@@ -3,7 +3,7 @@
 //
 // Drives src/modules/dokusya/dto/dokusya-rireki-query.dto.ts (to be
 // generated). One test (or group) per row in
-// docs/design/ACSMS-SCR-013/ACSMS-SCR-013-api.md §API-013-001
+// docs/design/ACSMS-SCR-013/ACSMS-SCR-013-api.md §ACSMS-API-013-001
 // リクエストパラメータ + §4.1 リクエストのバリデーション.
 //
 // The DTO binds the query string of `GET /api/v1/dokusya/:dokusya_id/rireki`

@@ -64,7 +64,7 @@ import {
 
 // ─── 状態 ──────────────────────────────────────────────────────────
 
-// 有効単価フラグ filter — 単価一覧(SCR-006)と同一のトライステートラジオ。
+// 有効単価フラグ filter — 単価一覧(ACSMS-SCR-006)と同一のトライステートラジオ。
 // '' = 両方（既定・絞り込まない）、'1' = 有効単価を参照する購読者のみ、
 // '0' = 失効単価を参照する購読者のみ。検索クリアで '' に戻す。BE へは
 // toBoolean で boolean | undefined に変換して送る（active_tanka_flg）。
@@ -99,7 +99,7 @@ interface DokusyaFilters {
   yubin_kubun: string | undefined;
   tanka_id: number | undefined;
   biko: string;
-  // 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。
+  // 有効単価フラグ（ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂）。
   active_tanka_flg: ActiveFlgFilter;
 }
 
@@ -721,6 +721,35 @@ function disabledStopMonth(current: Dayjs | null): boolean {
   return false;
 }
 
+// ポップアップを開いたときにカレンダー/月ピッカーが表示する初期パネル。
+// 未指定だと antd は常に「今月」を表示するため、最終変更適用日
+// (max_joho_date) が今月より先の読者では今月の全日付が disabled になり、
+// ユーザーが手動で「>」を何度も押して選択可能な月を探す羽目になる
+// （例: max_joho_date が10月なら8月を開いても全日 disabled）。選択可能な
+// 最初の日付を計算し、その月をデフォルトで開く。
+function earliestSelectableStopPaperDate(): Dayjs {
+  const t = stopTarget.value;
+  const candidates = [dayjs(todayIsoTokyo()).add(1, 'day')];
+  if (t?.max_joho_date) candidates.push(dayjs(t.max_joho_date).add(1, 'day'));
+  if (t?.dokusya_kaishi_date) candidates.push(dayjs(t.dokusya_kaishi_date));
+  return candidates.reduce((latest, d) => (d.isAfter(latest) ? d : latest), candidates[0]);
+}
+const stopPaperDefaultPickerValue = computed<Dayjs>(() =>
+  earliestSelectableStopPaperDate(),
+);
+
+function earliestSelectableStopMonth(): Dayjs {
+  const seikyu = stopTarget.value?.seikyu_kaishi_month?.trim();
+  const now = nowTokyo();
+  if (seikyu && seikyu > now.format('YYYYMM')) {
+    return dayjs(`${seikyu.slice(0, 4)}-${seikyu.slice(4, 6)}-01`);
+  }
+  return now;
+}
+const stopMonthDefaultPickerValue = computed<Dayjs>(() =>
+  earliestSelectableStopMonth(),
+);
+
 /** VALIDATION_ERROR(400) の errors[0].message を取り出す（無ければ null）。 */
 function extractStopFieldError(err: unknown): string | null {
   const data = (
@@ -910,7 +939,9 @@ defineExpose({ state });
         />
       </div>
 
-      <!-- 3. 組合員コード -->
+      <!-- 3. 組合員コード — 半角数字10桁まで（screen-design.md は20だが、実データは
+           ACSMS-SCR-011 §7 の登録時業務ルール「半角数字のみ・10桁まで」を超えない。
+           ACSMS-SCR-015 一括置換画面と同じ根拠でここも10に統一。タスク #57608） -->
       <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
@@ -918,11 +949,12 @@ defineExpose({ state });
           v-model:value="state.filters.kumiaiin_code"
           placeholder="組合員コード"
           allow-clear
+          :maxlength="10"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- 4. 氏名 -->
+      <!-- 4. 氏名 — screen-design.md §画面項目定義 No.4 100文字（タスク #57608） -->
       <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
@@ -930,11 +962,12 @@ defineExpose({ state });
           v-model:value="state.filters.full_name"
           placeholder="氏名"
           allow-clear
+          :maxlength="100"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- 5. かな氏名 -->
+      <!-- 5. かな氏名 — screen-design.md §画面項目定義 No.5 100文字（タスク #57608） -->
       <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
@@ -942,11 +975,13 @@ defineExpose({ state });
           v-model:value="state.filters.full_name_kana"
           placeholder="かな氏名"
           allow-clear
+          :maxlength="100"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- 6. 住所（配達先住所4項目 + 購読者住所4項目を部分一致 OR 検索） -->
+      <!-- 6. 住所（配達先住所4項目 + 購読者住所4項目を部分一致 OR 検索）—
+           screen-design.md §画面項目定義 No.6 50文字（タスク #57608） -->
       <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">住所</span>
         <a-input
@@ -954,6 +989,7 @@ defineExpose({ state });
           v-model:value="state.filters.haitatsu"
           placeholder="住所"
           allow-clear
+          :maxlength="50"
           class="flex-1 min-w-0"
         />
       </div>
@@ -1262,8 +1298,8 @@ defineExpose({ state });
           />
         </div>
 
-        <!-- 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧
-             (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者のみ、
+        <!-- 有効単価フラグ（ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧
+             (ACSMS-SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者のみ、
              無効=失効単価を参照する購読者のみ、未選択=両方。口座振替出力の失効単価
              エラーからは ?inactive_tanka=1 で「無効」が初期選択される。 -->
         <div class="col-span-full flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
@@ -1436,6 +1472,7 @@ defineExpose({ state });
               placeholder="終了月を選択"
               aria-label="購読中止日"
               :disabled-date="disabledStopMonth"
+              :default-picker-value="stopMonthDefaultPickerValue"
               :allow-clear="stopHasReservation"
               class="flex-1 min-w-0"
               data-test="stop-month-picker"
@@ -1451,9 +1488,11 @@ defineExpose({ state });
               placeholder="購読中止日を選択"
               aria-label="購読中止日"
               :disabled-date="disabledStopPaperDate"
+              :default-picker-value="stopPaperDefaultPickerValue"
               class="flex-1 min-w-0"
               data-test="stop-date-picker"
             />
+            <span class="text-text-main whitespace-nowrap">から</span>
           </template>
         </div>
         <!-- 予約中(電子版)のときだけ、この画面で何ができるかを明示する。ピッカーの

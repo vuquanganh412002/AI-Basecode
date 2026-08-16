@@ -13,6 +13,7 @@
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import {
   buildBunruiPayload,
+  isDokusyaReadOnly,
   toDokusyaResponse,
   toDokusyaListItem,
   toDokusyaRirekiListItem,
@@ -240,10 +241,10 @@ describe('buildBunruiPayload', () => {
 });
 
 /**
- * SCR-016 Excel 取込の従属 4 項目（顧客要件 2026-08）。
+ * ACSMS-SCR-016 Excel 取込の従属 4 項目（顧客要件 2026-08）。
  *
  * 取込は buildBunruiPayload を通す（新規モード）。取込だけ素通しにすると、画面
- * (SCR-011) では作れない組合せが Excel から入ってしまう。ここは取込 service が
+ * (ACSMS-SCR-011) では作れない組合せが Excel から入ってしまう。ここは取込 service が
  * 渡す形（Excel セル由来の値）で通ることを確かめる。
  */
 describe('buildBunruiPayload — Excel 取込由来の値', () => {
@@ -278,5 +279,35 @@ describe('buildBunruiPayload — Excel 取込由来の値', () => {
       nogyoKankeiFlg: false,
       dokusyasoBunruiSonota: '',
     });
+  });
+});
+
+describe('isDokusyaReadOnly', () => {
+  it('should return true for 併読 (dokusya_shubetsu=3) regardless of other fields', () => {
+    expect(isDokusyaReadOnly(3, 1)).toBe(true);
+  });
+
+  it('should return true for 電子版 + クレジットカード (shubetsu=2, hoho=6)', () => {
+    expect(isDokusyaReadOnly(2, 6)).toBe(true);
+  });
+
+  it('should return false for 紙版 (shubetsu=1) even with denshiKaiinId null and non-campaign', () => {
+    expect(isDokusyaReadOnly(1, 1, null, false)).toBe(false);
+  });
+
+  it('should return true for 電子版 + denshi_kaiin_id=null + 非campaign単価（顧客要件 2026-08 追補）', () => {
+    expect(isDokusyaReadOnly(2, 1, null, false)).toBe(true);
+  });
+
+  it('should return false for 電子版 + denshi_kaiin_id=null + campaign単価（例外）', () => {
+    expect(isDokusyaReadOnly(2, 1, null, true)).toBe(false);
+  });
+
+  it('should return false for 電子版 + denshi_kaiin_id が設定済み（非campaignでも）', () => {
+    expect(isDokusyaReadOnly(2, 1, 12345, false)).toBe(false);
+  });
+
+  it('should return false when denshiKaiinId/tankaCampaignFlg are omitted (呼び出し元が未対応・後方互換)', () => {
+    expect(isDokusyaReadOnly(2, 1)).toBe(false);
   });
 });

@@ -84,7 +84,7 @@ describe('SCR-022 — file download integration', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-022-001 — GET /api/v1/file-upload (list)
+  // ACSMS-API-022-001 — GET /api/v1/file-upload (list)
   // ──────────────────────────────────────────────────────────────
   describe('GET /api/v1/file-upload', () => {
     it('should return 401 when no session cookie is sent', async () => {
@@ -103,7 +103,7 @@ describe('SCR-022 — file download integration', () => {
     });
 
     it('should expose notified_at field on every row (null until worker stamps it)', async () => {
-      // COVERS: SCR-023 §6.5 — `notified_at` column added by migration
+      // COVERS: ACSMS-SCR-023 §6.5 — `notified_at` column added by migration
       // 1711900900011 and surfaced by the response DTO. The seed fixtures
       // don't pre-populate the column, so every row reports null. After
       // the worker processes a job in production, only rows that have
@@ -183,7 +183,7 @@ describe('SCR-022 — file download integration', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// SCR-023 — ファイルアップロード画面 (POST + DELETE) integration
+// ACSMS-SCR-023 — ファイルアップロード画面 (POST + DELETE) integration
 // ══════════════════════════════════════════════════════════════════════
 
 describe('SCR-023 — file upload integration (POST + DELETE)', () => {
@@ -237,7 +237,7 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-002 — POST /api/v1/file-upload (multipart)
+  // ACSMS-API-023-002 — POST /api/v1/file-upload (multipart)
   // ──────────────────────────────────────────────────────────────
   describe('POST /api/v1/file-upload', () => {
     it('should return 401 when no session cookie is sent', async () => {
@@ -348,7 +348,7 @@ describe('SCR-023 — file upload integration (POST + DELETE)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-004 — DELETE /api/v1/file-upload/:id
+  // ACSMS-API-023-004 — DELETE /api/v1/file-upload/:id
   // ──────────────────────────────────────────────────────────────
   describe('DELETE /api/v1/file-upload/:id', () => {
     it('should return 401 when no session cookie is sent', async () => {

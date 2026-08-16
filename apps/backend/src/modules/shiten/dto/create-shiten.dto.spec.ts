@@ -1,6 +1,6 @@
 // Screen: ACSMS-SCR-007 — 支店マスタ登録画面
 //
-// CreateShitenDto validation tests per api.md §API-007-002 §リクエストパラメータ.
+// CreateShitenDto validation tests per api.md §ACSMS-API-007-002 §リクエストパラメータ.
 
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';

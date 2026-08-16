@@ -15,11 +15,12 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import { DokusyaShubetsu } from '@/common/enums';
 
 /**
  * ACSMS-SCR-016 — 購読者Excelデータ取込画面.
  *
- * 取込リクエストのトップレベル (POST /api/v1/dokusya/import — API-016-002)。
+ * 取込リクエストのトップレベル (POST /api/v1/dokusya/import — ACSMS-API-016-002)。
  * DTO は形式契約のみ強制する（import_mode enum、selected_columns + rows 配列の
  * 境界、行ごとの最大長）。業務検証（3:併読 拒否、電子版×クレカ、FK 逆引き、
  * モード条件付き必須、dokusya_busu ルール、文言→code マッピング）は
@@ -84,19 +85,19 @@ export class ImportDokusyaRowDto {
   @ApiPropertyOptional({ description: '購読者ID（UPDATE_* キー）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '購読者IDは数値で指定してください。' })
   dokusya_id?: number;
 
   @ApiPropertyOptional({ description: '購読種別（1:紙版, 2:電子版, 3:併読）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '購読種別は数値で指定してください。' })
   dokusya_shubetsu?: number;
 
   @ApiPropertyOptional({ description: '手続種類（0:解約, 1:新規）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '手続種類は数値で指定してください。' })
   tetsuzuki_shurui?: number;
 
   @ApiPropertyOptional({ description: '管理支店コード' })
@@ -151,7 +152,7 @@ export class ImportDokusyaRowDto {
   @ApiPropertyOptional({ description: '購読部数' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '購読部数は数値で指定してください。' })
   dokusya_busu?: number;
 
   @ApiPropertyOptional({ description: '新聞単価コード' })
@@ -177,13 +178,13 @@ export class ImportDokusyaRowDto {
   @ApiPropertyOptional({ description: 'メールマガジン（0:配信しない, 1:配信する）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: 'メールマガジンは数値で指定してください。' })
   mail_magazine_flg?: number;
 
   @ApiPropertyOptional({ description: '生年（西暦）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '生年（西暦）は数値で指定してください。' })
   birth_year?: number;
 
   @ApiPropertyOptional({ description: '性別（1:男性, 2:女性, 9:回答しない）。文言も可' })
@@ -340,13 +341,13 @@ export class ImportDokusyaRowDto {
   @ApiPropertyOptional({ description: '支払方法（1:口座引落 等）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '支払方法は数値で指定してください。' })
   shiharai_hoho?: number;
 
   @ApiPropertyOptional({ description: '購読料支払サイクル（月数）' })
   @Transform(blankOrNumber)
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, { message: '購読料支払サイクルは数値で指定してください。' })
   dokusyaryo_shiharai_cycle?: number;
 
   @ApiPropertyOptional({ description: '引落口座貯金種目（1:普通, 2:当座）。文言も可' })
@@ -392,7 +393,7 @@ export class ImportDokusyaRowDto {
   // 従属 4 項目（顧客DB設計 2026-08）。電子版・併読の読者だけが値を持てる
   // （電子版 users.profession_and_* / others_* との連携用で、紙版には送り先が
   // 無い）。親の分類が条件コードを含まない組合せは service 側で落とす —
-  // 画面登録（SCR-011）と同じ buildBunruiPayload を通す。
+  // 画面登録（ACSMS-SCR-011）と同じ buildBunruiPayload を通す。
   @ApiPropertyOptional({ description: 'かつJAグループ役職員（購読者層分類=農業者のときのみ）' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -467,11 +468,13 @@ export class ImportDokusyaDto {
     description:
       '購読種別（**1:紙版 / 2:電子版**）。画面ラジオで選択し全取込行へ一律適用する。' +
       'Excel の列ではない（3:併読は取込不可）。',
-    enum: [1, 2],
+    enum: [DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL],
   })
   @Type(() => Number)
   @IsInt({ message: '購読種別を選択してください。' })
-  @IsIn([1, 2], { message: '購読種別は紙版または電子版で指定してください。' })
+  @IsIn([DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL], {
+    message: '購読種別は紙版または電子版で指定してください。',
+  })
   dokusya_shubetsu!: number;
 
   @ApiProperty({
@@ -521,8 +524,8 @@ export class ImportDokusyaDto {
   @ApiProperty({ description: '取込データ行の配列', type: [ImportDokusyaRowDto] })
   @IsArray({ message: '取込データ行は配列で指定してください。' })
   @ArrayMinSize(1, { message: '取込データ行は1件以上指定してください。' })
-  @ArrayMaxSize(30000, {
-    message: 'ファイルの行数が上限（30000行）を超えているため、取込みできません。',
+  @ArrayMaxSize(5000, {
+    message: 'ファイルの行数が上限（5000行）を超えているため、取込みできません。',
   })
   @ValidateNested({ each: true })
   @Type(() => ImportDokusyaRowDto)

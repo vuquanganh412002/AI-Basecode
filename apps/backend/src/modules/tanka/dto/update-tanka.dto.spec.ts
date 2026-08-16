@@ -1,11 +1,11 @@
 // Screen: ACSMS-SCR-003 — 単価マスタ登録画面
 //
 // Drives src/modules/tanka/dto/update-tanka.dto.ts (to be generated).
-// One test per row in api.md §API-003-003 リクエストパラメータ +
+// One test per row in api.md §ACSMS-API-003-003 リクエストパラメータ +
 // §4.1 リクエストのバリデーション.
 //
 // UpdateTankaDto mirrors CreateTankaDto MINUS `tanka_code` — per api.md
-// §API-003-003 footnote: 「tanka_code は更新不可（画面側でdisabled）」.
+// §ACSMS-API-003-003 footnote: 「tanka_code は更新不可（画面側でdisabled）」.
 
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';

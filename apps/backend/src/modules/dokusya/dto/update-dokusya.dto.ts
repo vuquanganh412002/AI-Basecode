@@ -4,7 +4,7 @@ import { IsEmpty, IsIn, IsOptional } from 'class-validator';
 import { CreateDokusyaDto } from './create-dokusya.dto';
 
 /**
- * 情報変更モード（顧客要件2026-07・SCR-011 参照→編集フロー）:
+ * 情報変更モード（顧客要件2026-07・ACSMS-SCR-011 参照→編集フロー）:
  * - `today`（当日変更）: 情報変更適用日=本日固定。帳票に影響しない項目のみ即時反映
  *   （紙版）。電子版は全項目可（帳票を生成しないため）。
  * - `reserved`（予約変更）: 情報変更適用日=未来日（必須・入力）。全変更可。
@@ -14,7 +14,7 @@ export type DokusyaChangeMode = 'today' | 'reserved';
 /**
  * PUT /api/v1/dokusya/{dokusya_id} (ACSMS-API-011-003) のボディ。
  *
- * api.md §3 §API-011-003: 「リクエストボディはACSMS-API-011-002と同一構造。
+ * api.md §3 §ACSMS-API-011-003: 「リクエストボディはACSMS-API-011-002と同一構造。
  * dokusya_id は変更不可（URLから取得）」。
  *
  * `ja_id` の拒否は `CreateDokusyaDto` から継承。`dokusya_id` も同じ

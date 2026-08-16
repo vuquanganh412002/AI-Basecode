@@ -37,7 +37,7 @@ export interface HanbaitenListResponse {
   meta: HanbaitenListMeta;
 }
 
-/** Single row builder for SCR-018 list assertions. */
+/** Single row builder for ACSMS-SCR-018 list assertions. */
 export function buildHanbaitenListItem(
   overrides: Partial<HanbaitenListItem> = {},
 ): HanbaitenListItem {
@@ -112,7 +112,7 @@ export function buildHanbaitenListResponse(
 // ─── Auth user fixture ─────────────────────────────────────────────
 
 /**
- * SCR-018 access matrix (seeder.md §3 + screen-design.md 1.1):
+ * ACSMS-SCR-018 access matrix (seeder.md §3 + screen-design.md 1.1):
  * - NICHINO_STAFF (role 2): view only (delete via 販売店代行入力 flow)
  * - CHUOKAI (role 3):       view + create + update + delete
  * - JA_HONTEN (role 4):     view + create + update + delete

@@ -10,7 +10,7 @@ const route = useRoute();
 const router = useRouter();
 
 // メニューの正: src/constants/menu-sections.ts。権限フィルタ: src/composables/useMenu.ts。
-// DashboardView も同 composable を使うため、サイドバーと SCR-010 メニューカードがずれない。
+// DashboardView も同 composable を使うため、サイドバーと ACSMS-SCR-010 メニューカードがずれない。
 const { visibleSections } = useMenu();
 
 function isActive(name: string): boolean {

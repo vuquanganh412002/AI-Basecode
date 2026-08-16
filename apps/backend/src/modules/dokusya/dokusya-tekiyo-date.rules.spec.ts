@@ -1,6 +1,6 @@
 // collectTekiyoDateViolations / collectChushiViolations（適用日整合性チェック）の単体テスト。
-// 顧客要件 2026-07 改訂:
-//   - 範囲: 購読開始日 <= joho/hanbaiten <= 解約予定日（両端 等号可・chushi null 時は上限省略）。
+// 顧客要件 2026-07 改訂（上限は2026-08改訂で同日不可に変更）:
+//   - 範囲: 購読開始日 <= joho/hanbaiten < 解約予定日（下限のみ等号可・chushi null 時は上限省略）。
 //   - 解約予定日: 購読開始日 <= chushi かつ chushi > 本日（未来日のみ・当日不可）。
 //   - 未来日チェック(joho/hanbaiten > today) は呼び出し側の責務なので本関数では扱わない。
 import {
@@ -12,7 +12,7 @@ import {
 } from './dokusya-tekiyo-date.rules';
 
 describe('collectTekiyoDateViolations', () => {
-  it('should return no violation when kaishi <= joho <= chushi', () => {
+  it('should return no violation when kaishi <= joho < chushi', () => {
     expect(
       collectTekiyoDateViolations({
         johoDate: '2026-07-10',
@@ -41,17 +41,20 @@ describe('collectTekiyoDateViolations', () => {
     expect(v[0].message).toContain('解約予定日（2026/12/31）');
   });
 
-  it('should allow joho == kaishi and joho == chushi (両端 等号可)', () => {
+  it('should flag JOHO_AFTER_CHUSHI when joho == chushi (同日不可・顧客要件2026-08)', () => {
+    const v = collectTekiyoDateViolations({
+      johoDate: '2026-12-31',
+      kaishiDate: '2026-07-01',
+      chushiDate: '2026-12-31',
+    });
+    expect(v.map((x) => x.kind)).toEqual([TEKIYO_VIOLATION.JOHO_AFTER_CHUSHI]);
+    expect(v[0].message).toContain('より前');
+  });
+
+  it('should allow joho == kaishi (下限は等号可)', () => {
     expect(
       collectTekiyoDateViolations({
         johoDate: '2026-07-01',
-        kaishiDate: '2026-07-01',
-        chushiDate: '2026-12-31',
-      }),
-    ).toEqual([]);
-    expect(
-      collectTekiyoDateViolations({
-        johoDate: '2026-12-31',
         kaishiDate: '2026-07-01',
         chushiDate: '2026-12-31',
       }),

@@ -75,7 +75,7 @@ export interface HaitatsuryoErrorDetail {
 /**
  * 画面固有 error_code を運ぶ、正規化された非 axios エラー。
  * INACTIVE_TANKA_REFERENCED のときは `errors[]`（該当販売店一覧・先頭15件）と
- * `total`（総件数）+ `message` を伴い、view が SCR-020 と同様のインライン
+ * `total`（総件数）+ `message` を伴い、view が ACSMS-SCR-020 と同様のインライン
  * エラー一覧で提示する（トーストではない）。
  */
 export interface HaitatsuryoError {

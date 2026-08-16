@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-011 — 購読者情報登録画面
 //
 // Drives src/modules/dokusya/dto/create-dokusya.dto.ts (to be generated).
-// One test per row in api.md §API-011-002 リクエストパラメータ +
+// One test per row in api.md §ACSMS-API-011-002 リクエストパラメータ +
 // §4.1 リクエストのバリデーション.
 
 import { validate } from 'class-validator';

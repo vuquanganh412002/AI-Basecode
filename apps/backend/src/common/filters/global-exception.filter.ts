@@ -115,8 +115,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path: request.url,
       method: request.method,
       requestId: req.id,
+      // SessionAuthGuard は SessionPayload（snake_case）を req.user に載せる
+      // — .accountId ではなく .account_id。
       userId: req.user
-        ? (req.user as Record<string, unknown>)?.accountId
+        ? (req.user as Record<string, unknown>)?.account_id
         : undefined,
       // 500 を不透明にしないため元例外の stack を出力。
       stack:

@@ -2,7 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { DomainException } from '@/common/exceptions/domain.exception';
 
 /**
- * SCR-031 §エラー一覧 row 9 — `DEADLINE_NOTICE_DUPLICATE`。
+ * ACSMS-SCR-031 §エラー一覧 row 9 — `DEADLINE_NOTICE_DUPLICATE`。
  *
  * oshirase_type=4（締め切り時間）は publish_location に関わらずシステム
  * 全体で1件のみ（顧客確認 2026-05）。type=4 ⇔ publish_location=3 の

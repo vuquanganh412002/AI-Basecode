@@ -23,10 +23,10 @@ import {
   TANKA_TYPE_OPTIONS,
 } from '@test/fixtures/tanka.fixture';
 
-// Mock the Tanka API client. SCR-002's `/gen-code-frontend` shipped
+// Mock the Tanka API client. ACSMS-SCR-002's `/gen-code-frontend` shipped
 // listTanka + removeTanka in `src/api/tanka/tanka.ts`; /gen-code-frontend
-// for SCR-003 will extend the same file with getTanka + createTanka +
-// updateTanka. The vi.mock factory enumerates all 5 so existing SCR-002
+// for ACSMS-SCR-003 will extend the same file with getTanka + createTanka +
+// updateTanka. The vi.mock factory enumerates all 5 so existing ACSMS-SCR-002
 // specs still resolve their imports.
 vi.mock('@/api/tanka/tanka', () => ({
   getTanka: vi.fn(),
@@ -134,7 +134,7 @@ afterEach(() => {
 // 1. Mount + initial render (機能定義 1.x)
 // ─────────────────────────────────────────────────────────────────────────
 describe('TankaFormView — mount + initial render', () => {
-  // Page title 「単価マスタ登録画面」 + breadcrumb come from MainLayout's
+  // Page title 「単価マスタ登録」 + breadcrumb come from MainLayout's
   // AppHeader (driven by route meta), NOT from this view. Mounting the
   // view standalone in unit tests therefore does NOT render them.
 
@@ -321,7 +321,7 @@ describe('TankaFormView — edit mode (tanka_id in route)', () => {
   });
 
   it('should NOT include tanka_code in the updateTanka payload (immutable field)', async () => {
-    // COVERS: api.md §API-003-003 footnote + BE forbidNonWhitelisted —
+    // COVERS: api.md §ACSMS-API-003-003 footnote + BE forbidNonWhitelisted —
     // the FE form must NOT send tanka_code on PUT even if user somehow
     // populated it. Spec asserts the actual wire payload omits it.
     const { updateTanka } = await import('@/api/tanka/tanka');
@@ -371,9 +371,10 @@ describe('TankaFormView — edit mode (tanka_id in route)', () => {
     expect(pushedJson).toContain('TankaList');
   });
 
-  it('should redirect away when getTanka returns NOT_FOUND on edit-mode mount', async () => {
-    // COVERS: 機能定義 2.2 + ACSMS-MSG-003-005 — データ取得失敗
-    // Axios interceptor toasts NOT_FOUND; view bails to Dashboard or TankaList.
+  it('should redirect to Dashboard when getTanka returns NOT_FOUND on edit-mode mount (直接URLアクセスで存在しないID・顧客要件 2026-08)', async () => {
+    // COVERS: 機能定義 2.2 + ACSMS-MSG-003-005 — データ取得失敗。
+    // Axios interceptor が既にトースト済み。以前は TankaList へ戻していたが、
+    // 他の編集画面と同じくダッシュボードへ統一する（useNotFoundRedirect 共通化）。
     const { getTanka } = await import('@/api/tanka/tanka');
     vi.mocked(getTanka).mockRejectedValue({
       response: {
@@ -387,11 +388,7 @@ describe('TankaFormView — edit mode (tanka_id in route)', () => {
     const { router } = await renderView({ tankaId: 999 });
     await flushPromises();
 
-    // The view should bail out — TankaList or Dashboard are both
-    // acceptable end states (project pattern accepts either).
-    expect(['TankaList', 'Dashboard']).toContain(
-      String(router.currentRoute.value.name),
-    );
+    expect(router.currentRoute.value.name).toBe('Dashboard');
   });
 });
 

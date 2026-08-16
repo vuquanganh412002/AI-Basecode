@@ -19,6 +19,7 @@ import {
 } from '@/api/oshirase/oshirase';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
+import { focusFirstError } from '@/utils/form-focus';
 import { confirmDelete } from '@/utils/confirm';
 import type { Dayjs } from 'dayjs';
 import {
@@ -27,6 +28,7 @@ import {
   nowMinuteFloorTokyo,
   parseDatetimeTokyo,
   pickerToTokyoWallclock,
+  dateToIsoDateTokyo,
 } from '@/utils/datetime';
 import { listRolesDropdown } from '@/api/roles/roles';
 import { useCodesStore } from '@/stores/codes.store';
@@ -157,12 +159,24 @@ function setEndToNowTokyo(): void {
   formState.publish_end_date = nowMinuteFloorTokyo().format('YYYY/MM/DD HH:mm');
 }
 
-/** 終了日：過去日 + 開始日より前 を無効化（開始日が選択済みの場合）。 */
+/**
+ * 終了日：過去日 + 開始日より前 を無効化（開始日が選択済みの場合）。
+ *
+ * [tokyo-tz] `current` は picker フレームの Dayjs（ブラウザ local TZ）。
+ * `current.isBefore(startDate, 'day')` のように Date と直接比較すると、
+ * dayjs が `startDate`（UTC instant）をブラウザ local で解釈し直すため、
+ * ブラウザ TZ ≠ JST の環境で日付境界がズレる（報告バグ）。
+ * 両者を JST の暦日文字列に揃えてから比較する。
+ */
 function disabledEndDate(current: Dayjs | null): boolean {
   if (!current) return false;
   if (isPastDayTokyo(current)) return true;
   const startDate = parseDatetimeTokyo(formState.publish_start_date);
-  if (startDate && current.isBefore(startDate, 'day')) return true;
+  if (startDate) {
+    const currentIso = pickerToTokyoWallclock(current).format('YYYY-MM-DD');
+    const startIso = dateToIsoDateTokyo(startDate);
+    if (currentIso < startIso) return true;
+  }
   return false;
 }
 
@@ -388,6 +402,20 @@ function validateDateOrder(): void {
   }
 }
 
+// フォーム項目の DOM 順（submit 失敗後の自動フォーカスで「先頭のエラー入力」を
+// 選ぶ。vue.md §Auto-focus the first error on submit）。テンプレートと同期を保つこと。
+const FIELD_ORDER: readonly string[] = [
+  'title',
+  'publish_location',
+  'status',
+  'publish_start_date',
+  'publish_end_date',
+  'ja_id',
+  'oshirase_type',
+  'target_kanri_kubun_codes',
+  'content',
+];
+
 function validateForm(): boolean {
   clearFieldErrors();
   if (!formState.title?.trim()) fieldErrors.title = REQUIRED_MSG;
@@ -453,7 +481,10 @@ async function onSubmit(): Promise<void> {
   // 保存中は 保存 ボタンを :loading + :disabled、クリア ボタンも :disabled に
   // するため、view 側に submitting ref を保持する。
   if (submitting.value) return;
-  if (!validateForm()) return;
+  if (!validateForm()) {
+    focusFirstError(FIELD_ORDER, fieldErrors);
+    return;
+  }
   submitting.value = true;
   const body = buildBody();
   try {
@@ -473,6 +504,9 @@ async function onSubmit(): Promise<void> {
     }
   } catch (err) {
     applyServerErrors(err);
+    // サーバ側 VALIDATION_ERROR が fieldErrors に入った場合、先頭エラー項目へ
+    // フォーカスする（クライアント側検証と同じ体験を揃える。no-op if empty）。
+    focusFirstError(FIELD_ORDER, fieldErrors);
   } finally {
     submitting.value = false;
   }
@@ -506,7 +540,7 @@ function isFormDirty(): boolean {
 }
 
 /**
- * クリア button handler. SCR-031-local convention: confirm with
+ * クリア button handler. ACSMS-SCR-031-local convention: confirm with
  * ACSMS-MSG-031-010 when the form has unsaved input (the spec only
  * mandates this confirm for the 編集 button switch and pagination,
  * but discarding via クリア carries the same data-loss risk).
@@ -582,7 +616,7 @@ async function loadDetail(id: number): Promise<void> {
 }
 
 /**
- * 編集行クリック時のハンドラ（SCR-031 ローカル規約）:
+ * 編集行クリック時のハンドラ（ACSMS-SCR-031 ローカル規約）:
  *   - 既に同じ行を編集中ならそのまま再読込 (画面遷移なしの refresh).
  *   - 別の行を編集中、または新規作成モードで入力済みデータがある場合、
  *     未保存データの破棄について `クリア` ボタンと同じ ACSMS-MSG-031-010
@@ -639,8 +673,12 @@ function askDelete(row: OshiraseListItem): void {
     try {
       await removeOshirase(row.oshirase_id);
       notify.deleted();
-      // 削除した行を編集中だった場合は新規作成モードへ戻す。
-      if (editingId.value === row.oshirase_id) onClear();
+      // 削除した行を編集中だった場合は新規作成モードへ戻す。削除は既に確定した
+      // 操作なので、onClear() 経由だと isFormDirty()（editingId!==null で true）
+      // が「未保存データがあります」の確認モーダルを誤って出してしまう
+      // （報告バグ）。confirmDelete() 自体が既に確認済みのため、ここでは
+      // 確認なしで直接 resetForm() する。
+      if (editingId.value === row.oshirase_id) resetForm();
       await fetchList();
     } catch {
       // global interceptor が 409（CONFLICT）/ 500 を処理。
@@ -694,7 +732,7 @@ function rowClassForEdit(row: Record<string, unknown>): string {
 }
 
 // スペック公開用の内部状態 — wrapper.vm.formState / vm.state / vm.fetchList。
-defineExpose({ formState, state, fetchList, editingId });
+defineExpose({ formState, state, fetchList, editingId, disabledEndDate });
 </script>
 
 <template>
@@ -725,10 +763,11 @@ defineExpose({ formState, state, fetchList, editingId });
           :help="fieldErrors.title"
         >
           <div class="flex items-center flex-wrap gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+            <label for="oshirase_title" class="text-sm font-medium whitespace-nowrap text-text-main">
               お知らせタイトル<span class="text-error ml-1">*</span>
-            </span>
+            </label>
             <a-input
+              id="oshirase_title"
               v-model:value="formState.title"
               :maxlength="200"
               class="flex-1 min-w-0"
@@ -743,24 +782,27 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.publish_location ? 'error' : ''"
           :help="fieldErrors.publish_location"
         >
-          <div class="flex items-start flex-wrap gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
-              公開場所<span class="text-error ml-1">*</span>
-            </span>
-            <a-radio-group
-              name="publish_location"
-              v-model:value="formState.publish_location"
-              :disabled="isLocationReadOnly"
-            >
-              <a-radio
-                v-for="opt in LOCATION_OPTIONS"
-                :key="opt.value"
-                :value="opt.value"
+          <fieldset class="border-0 p-0 m-0 min-w-0">
+            <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+              <span>公開場所</span>
+              <span class="text-error ml-1">*</span>
+            </legend>
+            <div class="flex items-center flex-wrap min-h-8">
+              <a-radio-group
+                name="publish_location"
+                v-model:value="formState.publish_location"
+                :disabled="isLocationReadOnly"
               >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
-          </div>
+                <a-radio
+                  v-for="opt in LOCATION_OPTIONS"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </a-radio>
+              </a-radio-group>
+            </div>
+          </fieldset>
         </a-form-item>
 
         <!-- 状態 — same inline-label pattern as 公開場所. -->
@@ -769,23 +811,26 @@ defineExpose({ formState, state, fetchList, editingId });
           :validate-status="fieldErrors.status ? 'error' : ''"
           :help="fieldErrors.status"
         >
-          <div class="flex items-start flex-wrap gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
-              状態<span class="text-error ml-1">*</span>
-            </span>
-            <a-radio-group
-              name="status"
-              v-model:value="formState.status"
-            >
-              <a-radio
-                v-for="opt in STATUS_OPTIONS"
-                :key="opt.value"
-                :value="opt.value"
+          <fieldset class="border-0 p-0 m-0 min-w-0">
+            <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+              <span>状態</span>
+              <span class="text-error ml-1">*</span>
+            </legend>
+            <div class="flex items-center flex-wrap min-h-8">
+              <a-radio-group
+                name="status"
+                v-model:value="formState.status"
               >
-                {{ opt.label }}
-              </a-radio>
-            </a-radio-group>
-          </div>
+                <a-radio
+                  v-for="opt in STATUS_OPTIONS"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </a-radio>
+              </a-radio-group>
+            </div>
+          </fieldset>
         </a-form-item>
 
         <!-- 表示期間 — 表示期間 label + 開始日 / 終了日 pickers all on a single
@@ -813,9 +858,9 @@ defineExpose({ formState, state, fetchList, editingId });
             <span class="text-sm font-medium whitespace-nowrap text-text-main">
               表示期間
             </span>
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+            <label for="publish_start_date" class="text-sm font-medium whitespace-nowrap text-text-main">
               開始日<span class="text-error ml-1">*</span>
-            </span>
+            </label>
             <!-- [tokyo-tz] :show-now="false" 隠す（antd 標準の「現在時刻」は
                  dayjs() ブラウザ local を入れるため）。代わりに JST 版の
                  ボタンを #renderExtraFooter に出す。:show-time.defaultValue
@@ -846,9 +891,9 @@ defineExpose({ formState, state, fetchList, editingId });
               </template>
             </a-date-picker>
             <span class="text-text-description">〜</span>
-            <span class="text-sm font-medium whitespace-nowrap text-text-main">
+            <label for="publish_end_date" class="text-sm font-medium whitespace-nowrap text-text-main">
               終了日
-            </span>
+            </label>
             <!-- 終了日は同じ行に見えるが別フィールド。<a-form-item-rest> で
                  親 form-item のフィールド収集から外し（"collect one field" 警告
                  回避）、親の validate-status からも隔離するため、必須 開始日エラーの
@@ -898,15 +943,17 @@ defineExpose({ formState, state, fetchList, editingId });
             :help="fieldErrors.ja_id"
           >
             <div class="flex items-center flex-wrap gap-4">
-              <span
+              <label
+                for="oshirase_ja_id"
                 class="text-sm font-medium whitespace-nowrap text-text-main"
               >
                 JA名
-              </span>
+              </label>
               <!-- BaseJaDropdown: サーバーページング（50/頁）+ 無限スクロール +
-                   ja_name のみ ILIKE。SCR-024 アカウント画面と同じ挙動。 -->
+                   ja_name のみ ILIKE。ACSMS-SCR-024 アカウント画面と同じ挙動。 -->
               <div class="flex-1 min-w-0">
                 <BaseJaDropdown
+                  id="oshirase_ja_id"
                   v-model:value="formState.ja_id"
                   placeholder="全JA向け"
                   label-format="name"
@@ -922,12 +969,14 @@ defineExpose({ formState, state, fetchList, editingId });
             :help="fieldErrors.oshirase_type"
           >
             <div class="flex items-center flex-wrap gap-4">
-              <span
+              <label
+                for="oshirase_type"
                 class="text-sm font-medium whitespace-nowrap text-text-main"
               >
                 お知らせ種別<span class="text-error ml-1">*</span>
-              </span>
+              </label>
               <a-select
+                id="oshirase_type"
                 v-model:value="formState.oshirase_type"
                 placeholder="選択してください"
                 allow-clear
@@ -952,16 +1001,18 @@ defineExpose({ formState, state, fetchList, editingId });
           :help="fieldErrors.target_kanri_kubun"
           :validate-status="fieldErrors.target_kanri_kubun ? 'error' : ''"
         >
-          <div class="flex items-start flex-wrap gap-4">
-            <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">
+          <fieldset class="border-0 p-0 m-0 min-w-0">
+            <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
               対象管理者区分
-            </span>
-            <a-checkbox-group
-              name="target_kanri_kubun_codes"
-              v-model:value="formState.target_kanri_kubun_codes"
-              :options="targetKanriKubunOptions"
-            />
-          </div>
+            </legend>
+            <div class="flex items-center flex-wrap min-h-8">
+              <a-checkbox-group
+                name="target_kanri_kubun_codes"
+                v-model:value="formState.target_kanri_kubun_codes"
+                :options="targetKanriKubunOptions"
+              />
+            </div>
+          </fieldset>
         </a-form-item>
 
         <a-form-item

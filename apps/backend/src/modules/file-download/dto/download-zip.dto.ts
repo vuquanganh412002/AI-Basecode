@@ -13,7 +13,7 @@ export const MAX_ZIP_FILES = 50;
 
 /**
  * POST /api/v1/file-download/download-zip の body — 1 ZIP に束ねる
- * file_download_id の配列（一括ダウンロード, SCR-022 §8）。
+ * file_download_id の配列（一括ダウンロード, ACSMS-SCR-022 §8）。
  */
 export class DownloadZipDto {
   @ApiProperty({

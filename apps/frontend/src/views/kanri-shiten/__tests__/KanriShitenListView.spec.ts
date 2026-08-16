@@ -32,7 +32,7 @@ vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
 }));
 
 // 都道府県 dropdown reuses the existing m_todofuken endpoint (shared
-// with SCR-005 JA form).
+// with ACSMS-SCR-005 JA form).
 vi.mock('@/api/todofuken/todofuken', () => ({
   getTodofukenList: vi.fn(),
 }));

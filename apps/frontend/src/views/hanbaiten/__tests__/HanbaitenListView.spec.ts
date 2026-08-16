@@ -3,7 +3,7 @@
 // Drives src/views/hanbaiten/HanbaitenListView.vue. Every it() maps to a clause
 // in docs/design/ACSMS-SCR-018/screen-design.md (機能定義 + メッセージ情報) +
 // docs/design/ACSMS-SCR-018/index.html (UI structure) +
-// docs/design/ACSMS-SCR-018/ACSMS-SCR-018-api.md (API-018-001 / 018-002).
+// docs/design/ACSMS-SCR-018/ACSMS-SCR-018-api.md (ACSMS-API-018-001 / 018-002).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -17,7 +17,7 @@ import {
   buildAuthUser,
 } from '@test/fixtures/hanbaiten.fixture';
 
-// API wrapper for SCR-018 endpoints. /gen-code-frontend will create
+// API wrapper for ACSMS-SCR-018 endpoints. /gen-code-frontend will create
 // `src/api/hanbaiten/hanbaiten.ts` exporting these names.
 vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   listHanbaiten: vi.fn(),
@@ -49,7 +49,7 @@ vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
 interface RenderOptions {
   /** Override default JA_HONTEN session (for permission-gating paths). */
   user?: ReturnType<typeof buildAuthUser>;
-  /** Initial URL query (e.g. SCR-021 deep-link ?inactive_tanka=1). */
+  /** Initial URL query (e.g. ACSMS-SCR-021 deep-link ?inactive_tanka=1). */
   query?: Record<string, string>;
 }
 
@@ -196,7 +196,7 @@ describe('HanbaitenListView — initial render (機能定義 1.x)', () => {
   });
 
   it('should render the todofuken_name (joined) column value when row has it', async () => {
-    // COVERS: API-018-001 v1.2 — m_todofuken LEFT JOIN provides
+    // COVERS: ACSMS-API-018-001 v1.2 — m_todofuken LEFT JOIN provides
     // todofuken_name for the 都道府県 column.
     const { wrapper } = await renderView();
     expect(wrapper.text()).toContain('東京都');
@@ -234,7 +234,7 @@ describe('HanbaitenListView — search (機能定義 2.x)', () => {
   });
 
   it('should seed 有効単価フラグ=無効 (active_tanka_flg=false) on mount when the SCR-021 deep-link ?inactive_tanka=1 is present', async () => {
-    // COVERS: SCR-021 error gate → 販売店明細検索 deep-link（顧客要件2026-07 改訂）
+    // COVERS: ACSMS-SCR-021 error gate → 販売店明細検索 deep-link（顧客要件2026-07 改訂）
     const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     vi.mocked(listHanbaiten).mockClear();
     await renderView({ query: { inactive_tanka: '1' } });

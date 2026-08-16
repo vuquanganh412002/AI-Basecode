@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches } from 'class-validator';
+import { LogType } from '@/common/enums';
 
 /**
  * date_from / date_to 共通の YYYY/MM/DD HH:mm:ss 形式。SearchLogDto（や
@@ -43,12 +44,14 @@ export class ExportLogDto {
   })
   date_to?: string;
 
-  @ApiPropertyOptional({ description: 'ログ種別（1〜4）', minimum: 1, maximum: 4 })
+  @ApiPropertyOptional({
+    description: 'ログ種別（1:操作, 2:システム, 3:エラー, 4:ファイル操作）',
+    enum: Object.values(LogType),
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'log_typeは整数で指定してください。' })
-  @Min(1, { message: 'log_typeは1〜4で指定してください。' })
-  @Max(4, { message: 'log_typeは1〜4で指定してください。' })
+  @IsIn(Object.values(LogType), { message: 'log_typeの値が不正です。' })
   log_type?: number;
 
   @ApiPropertyOptional({ description: 'アカウントID' })

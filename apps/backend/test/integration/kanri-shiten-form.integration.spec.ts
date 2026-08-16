@@ -2,7 +2,7 @@
 //
 // End-to-end integration tests for the 3 form endpoints. Uses the same
 // pg-mem stack as kanri-shiten.integration.spec but exercises the
-// find / create / update paths (delete + list live in the SCR-008 spec).
+// find / create / update paths (delete + list live in the ACSMS-SCR-008 spec).
 
 import request from 'supertest';
 import type { Server } from 'http';
@@ -79,7 +79,7 @@ describe('KanriShiten form module — integration (pg-mem + ioredis-mock)', () =
   }
 
   // ═════════════════════════════════════════════════════════════════════
-  // GET /api/v1/kanri-shiten/:id (API-009-001)
+  // GET /api/v1/kanri-shiten/:id (ACSMS-API-009-001)
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/kanri-shiten/:id', () => {
     it('should return detail with todofuken_name JOIN when NICHINO_ADMIN GETs id=1', async () => {
@@ -116,7 +116,7 @@ describe('KanriShiten form module — integration (pg-mem + ioredis-mock)', () =
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // POST /api/v1/kanri-shiten (API-009-002)
+  // POST /api/v1/kanri-shiten (ACSMS-API-009-002)
   // ═════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/kanri-shiten', () => {
     const validBody = {
@@ -196,7 +196,7 @@ describe('KanriShiten form module — integration (pg-mem + ioredis-mock)', () =
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // PUT /api/v1/kanri-shiten/:id (API-009-003)
+  // PUT /api/v1/kanri-shiten/:id (ACSMS-API-009-003)
   // ═════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/kanri-shiten/:id', () => {
     const validUpdate = {

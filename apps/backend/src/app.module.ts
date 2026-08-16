@@ -1,5 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
@@ -8,6 +8,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { REDIS_CLIENT } from '@/modules/redis/redis.service';
 import { nodeEnv } from './common/utils/env';
 import configuration from './config/configuration';
+import {
+  DEFAULT_THROTTLE_LIMIT,
+  DEFAULT_THROTTLE_TTL_MS,
+} from './config/config-defaults.constant';
 import { DatabaseModule } from './database/database.module';
 import { AccountModule } from './modules/account/account.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -56,9 +60,14 @@ const envFilePath = nodeEnv() === 'local' ? ['.env.local', '.env'] : ['.env'];
     // ガードが実質発火しない。Redis 共有ストアで per-endpoint 上限がクラスタ全体に
     // 効く。RedisModule は @Global なので REDIS_CLIENT をここで注入可能。
     ThrottlerModule.forRootAsync({
-      inject: [REDIS_CLIENT],
-      useFactory: (redis: Redis) => ({
-        throttlers: [{ ttl: 60000, limit: 100 }],
+      inject: [REDIS_CLIENT, ConfigService],
+      useFactory: (redis: Redis, config: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: config.get<number>('throttle.ttlMs') ?? DEFAULT_THROTTLE_TTL_MS,
+            limit: config.get<number>('throttle.limit') ?? DEFAULT_THROTTLE_LIMIT,
+          },
+        ],
         storage: new ThrottlerStorageRedisService(redis),
       }),
     }),

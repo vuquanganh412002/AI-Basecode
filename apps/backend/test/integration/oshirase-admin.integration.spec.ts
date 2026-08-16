@@ -90,7 +90,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/oshirase — API-031-001
+  // GET /api/v1/oshirase — ACSMS-API-031-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/oshirase', () => {
     it('should return all 3 seeded oshirase paginated when NICHINO_ADMIN calls', async () => {
@@ -166,7 +166,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/oshirase/:id — API-031-002
+  // GET /api/v1/oshirase/:id — ACSMS-API-031-002
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/oshirase/:id', () => {
     it('should return the detail when oshirase_id exists', async () => {
@@ -189,7 +189,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // POST /api/v1/oshirase — API-031-003
+  // POST /api/v1/oshirase — ACSMS-API-031-003
   // ═══════════════════════════════════════════════════════════════════
   describe('POST /api/v1/oshirase', () => {
     it('should INSERT the new oshirase and return 201 when body is valid', async () => {
@@ -313,7 +313,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // PATCH /api/v1/oshirase/:id — API-031-004
+  // PATCH /api/v1/oshirase/:id — ACSMS-API-031-004
   // ═══════════════════════════════════════════════════════════════════
   describe('PATCH /api/v1/oshirase/:id', () => {
     it('should UPDATE the existing oshirase and return 200 when body is valid', async () => {
@@ -433,7 +433,7 @@ describe('ACSMS-SCR-031 integration — oshirase admin endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // DELETE /api/v1/oshirase/:id — API-031-005
+  // DELETE /api/v1/oshirase/:id — ACSMS-API-031-005
   // ═══════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/oshirase/:id', () => {
     it('should soft-delete the oshirase and return 200 when oshirase_id exists', async () => {

@@ -28,8 +28,8 @@ export type {
 };
 
 /**
- * 帳票出力のファサード。SCR-026（購読者名簿）は {@link MeiboReportService}、
- * SCR-028（増減連絡票）/ SCR-029（増減通知）は {@link ZougenReportService} に
+ * 帳票出力のファサード。ACSMS-SCR-026（購読者名簿）は {@link MeiboReportService}、
+ * ACSMS-SCR-028（増減連絡票）/ ACSMS-SCR-029（増減通知）は {@link ZougenReportService} に
  * 委譲する。controller は引き続き ReportService のみを inject する。
  */
 @Injectable()

@@ -10,15 +10,15 @@
  * なし。FE が分岐し始めたら追加する。
  */
 export const DownloadType = {
-  /** 口座振替 (SCR-020) */
+  /** 口座振替 (ACSMS-SCR-020) */
   KOZA_FURIKAE: 1,
-  /** その他 — 配達手数料支払情報 (SCR-021) や命名規則に合致しないファイル等。 */
+  /** その他 — 配達手数料支払情報 (ACSMS-SCR-021) や命名規則に合致しないファイル等。 */
   OTHER: 2,
-  /** 増減連絡票（販売店） (SCR-028) */
+  /** 増減連絡票（販売店） (ACSMS-SCR-028) */
   ZOUGEN: 3,
-  /** 増減通知書（日本農業新聞） (SCR-029) */
+  /** 増減通知書（日本農業新聞） (ACSMS-SCR-029) */
   ZOUGEN_NICHINO: 4,
-  /** 購読者名簿 (SCR-026) */
+  /** 購読者名簿 (ACSMS-SCR-026) */
   MEIBO: 5,
 } as const;
 export type DownloadType = (typeof DownloadType)[keyof typeof DownloadType];

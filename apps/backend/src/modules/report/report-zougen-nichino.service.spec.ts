@@ -2,14 +2,14 @@
 // (result.buffer/.contentType) without narrowing; cannot be type-clean without editing the
 // spec. Source + controller type-check fine (tsc --noEmit src passes). To drop this banner,
 // rerun /gen-ut-backend so the service spec uses expect(result).toEqual(objectContaining(...))
-// like SCR-028.
+// like ACSMS-SCR-028.
 // Screen: ACSMS-SCR-029 — 増減通知（日本農業新聞）出力画面
 //
 // ReportService unit specs for the 増減通知（日本農業新聞）endpoints:
-//   - previewZougenNichino(query, session)      — API-029-001 (GET preview)
-//   - exportZougenNichinoPdf(body, session, req) — API-029-002 (POST PDF/ZIP export)
+//   - previewZougenNichino(query, session)      — ACSMS-API-029-001 (GET preview)
+//   - exportZougenNichinoPdf(body, session, req) — ACSMS-API-029-002 (POST PDF/ZIP export)
 //
-// Pattern: plain `new ReportService(...)` with mocked deps. SCR-029 appends an
+// Pattern: plain `new ReportService(...)` with mocked deps. ACSMS-SCR-029 appends an
 // @Optional() MailService as the 8th constructor arg (after dataSource +
 // pdfService). Each it() maps back to a clause in
 // docs/design/ACSMS-SCR-029/ACSMS-SCR-029-api.md.
@@ -17,7 +17,7 @@
 // NOTE: kept in a SEPARATE file (not appended to report.service.spec.ts) during
 // the RED phase because that file is GREEN (no @ts-nocheck) and ts-jest
 // type-checks — referencing the not-yet-implemented previewZougenNichino /
-// exportZougenNichinoPdf there would break the existing SCR-026/028 suite.
+// exportZougenNichinoPdf there would break the existing ACSMS-SCR-026/028 suite.
 // Merge back into the root spec after /gen-code-backend turns this green.
 
 import { attachLogExport } from '@test/utils/audit-log-mock';
@@ -69,7 +69,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     });
 
   // 増減通知プレビューはグループ単位ページング（管理支店ごとに独立ページ・顧客要件
-  // 2026-07・SCR-026 と同方針）：全件を1回 getRawMany で取得し、mapper の
+  // 2026-07・ACSMS-SCR-026 と同方針）：全件を1回 getRawMany で取得し、mapper の
   // paginateNichinoSubscribers で管理支店ページに分割する。よってモックは全件を返す
   // 単一の getRawMany で足りる（count/ids の2クエリは廃止）。
   const mockNichinoPage = (
@@ -103,11 +103,11 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     // logExport は実装と同じく logOperation へ委譲する（監査セマンティクス不変）。
     attachLogExport(auditLog);
     codeService = { has: jest.fn().mockReturnValue(true), getLabel: jest.fn().mockReturnValue('') };
-    // SCR-029 はもうトランザクションを組まないが、constructor 位置維持のため
+    // ACSMS-SCR-029 はもうトランザクションを組まないが、constructor 位置維持のため
     // dataSource は引き続き渡す（実装では未使用）。
     dataSource = { transaction: jest.fn(async (cb: any) => cb({})) };
     pdfService = { generatePdf: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 nichino')) };
-    // SCR-029: メール通知は S3 保存後に notifyNichinoExport() で fire-and-forget。
+    // ACSMS-SCR-029: メール通知は S3 保存後に notifyNichinoExport() で fire-and-forget。
     // 戻り値（送信を試みた宛先数）を recipient_count に使う（顧客要件2026-07で
     // 件名・本文に都道府県+発行アカウントを含める専用メソッドに変更）。
     reportNotification = {
@@ -127,7 +127,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
         .mockResolvedValue({ code: '1301002001', name: 'JAテスト' }),
     };
 
-    // Facade wiring: SCR-029 export needs pdfService + reportNotification on the
+    // Facade wiring: ACSMS-SCR-029 export needs pdfService + reportNotification on the
     // ZougenReportService. dataSource is no longer used (kept in scope as a mock).
     void dataSource;
     const meibo = new MeiboReportService(
@@ -149,9 +149,25 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-029-001 — GET /api/v1/report/zougen-nichino/preview
+  // ACSMS-API-029-001 — GET /api/v1/report/zougen-nichino/preview
   // ═══════════════════════════════════════════════════════════════════════
   describe('previewZougenNichino', () => {
+    it('should exclude 論理削除済み purchasers by joining t_dokusya with deleted_at IS NULL (regression)', async () => {
+      // Regression: nichinoBaseQuery previously only read t_dokusya_rireki and
+      // never checked whether the underlying t_dokusya row had been
+      // soft-deleted via DokusyaService.remove() (task #57608-follow-up).
+      mockNichinoPage([buildZougenNichinoRawRow()]);
+      await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
+
+      const dokusyaJoinBound = qbMock.innerJoin.mock.calls.some(
+        ([table, , cond]: any[]) =>
+          table === 't_dokusya' &&
+          typeof cond === 'string' &&
+          /deleted_at\s+IS\s+NULL/i.test(cond),
+      );
+      expect(dokusyaJoinBound).toBe(true);
+    });
+
     it('should return reports grouped by 管理支店 with every header/row/total field when data exists', async () => {
       // COVERS: 4.6 レスポンス生成 — full レスポンスデータ shape
       mockNichinoPage([buildZougenNichinoRawRow()]);
@@ -435,7 +451,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     /**
      * 顧客要件 2026-08: 集計対象は紙版(1)のみ。増減通知も部数の増減を伝える帳票で、
-     * 電子版・併読は配達を伴わないため対象外（SCR-028 増減連絡票と同方針）。
+     * 電子版・併読は配達を伴わないため対象外（ACSMS-SCR-028 増減連絡票と同方針）。
      *
      * 以前は「電子版は承認済(denshi_shonin_status=1)のみ集計」だった。紙版限定は
      * それを包含するので、旧条件は残さず置き換えている。
@@ -464,19 +480,21 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(stale).toBeUndefined();
     });
 
-    it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {
-      // COVERS: 4.3/4.5 廃店・電子版ダミー販売店を除外
+    it('#57976: should NOT exclude 廃店 (haiten_flg) — 増減通知（日本農業新聞）reports subscribers regardless of the current store\'s haiten_flg', async () => {
+      // Regression: nichinoBaseQuery previously joined `m_hanbaiten h ON ...
+      // AND h.haiten_flg = false`, silently dropping subscribers whose current
+      // store had been closed. Unlike SCR-028 (販売店 report, which must not
+      // address a report to a closed store), SCR-029 is the report TO 日本農業新聞
+      // itself and must include every paper-subscription change regardless of
+      // the store's 廃店 status (customer requirement #57976).
       mockNichinoPage([buildZougenNichinoRawRow()]);
       await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
 
-      const haitenBound =
-        qbMock.andWhere.mock.calls.some(
-          ([sql]: any[]) => typeof sql === 'string' && /haiten_flg/.test(sql),
-        ) ||
-        qbMock.innerJoin.mock.calls.some(
-          ([, , cond]: any[]) => typeof cond === 'string' && /haiten_flg/.test(cond),
-        );
-      expect(haitenBound).toBe(true);
+      const haitenBoundOnJoin = qbMock.innerJoin.mock.calls.some(
+        ([table, , cond]: any[]) =>
+          table === 'm_hanbaiten' && typeof cond === 'string' && /haiten_flg/.test(cond),
+      );
+      expect(haitenBoundOnJoin).toBe(false);
     });
 
     it('should bind the NOT(genzai=0 AND shin=0) exclusion predicate', async () => {
@@ -557,7 +575,7 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-029-002 — POST /api/v1/report/zougen-nichino/export
+  // ACSMS-API-029-002 — POST /api/v1/report/zougen-nichino/export
   // S3 アーカイブ（t_file_download）+ 日農担当者へのメール通知のみ。
   // ブラウザへPDFは返さず { empty:false, fileName, recipientCount } を返す。
   // ═══════════════════════════════════════════════════════════════════════

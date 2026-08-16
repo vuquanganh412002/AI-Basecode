@@ -1,5 +1,5 @@
 // join 済み account 行（m_account × m_roles × m_todofuken × m_ja × m_kanri_shiten,
-// SCR-024 api.md §4.5）→ FE 用 snake_case 応答形状への純粋変換。Nest DI / repo 不要で
+// ACSMS-SCR-024 api.md §4.5）→ FE 用 snake_case 応答形状への純粋変換。Nest DI / repo 不要で
 // どこからでも import 可（service, tests）。
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
@@ -53,7 +53,7 @@ export interface AccountListItem {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** ログイン失敗がロック閾値に達すると true。admin が SCR-025 編集フォームで解除可。 */
+  /** ログイン失敗がロック閾値に達すると true。admin が ACSMS-SCR-025 編集フォームで解除可。 */
   account_lock_flg: boolean;
   created_at: string;
   updated_at: string | null;
@@ -61,7 +61,7 @@ export interface AccountListItem {
 
 // `toIso` / `toNumber` moved to `@/common/utils/mapper-helpers`.
 
-/** join 行 → SCR-024 api.md §レスポンスデータ の一覧アイテムへ変換。 */
+/** join 行 → ACSMS-SCR-024 api.md §レスポンスデータ の一覧アイテムへ変換。 */
 export function toAccountListItem(row: AccountSearchRow): AccountListItem {
   return {
     account_id: Number(row.account_id),

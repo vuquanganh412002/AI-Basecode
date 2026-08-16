@@ -39,11 +39,11 @@ import {
 
 // ─── ACSMS-SCR-028 — 増減連絡票（販売店） ─────────────────────────────
 const ZOUGEN_SCREEN_NAME = '増減連絡票（販売店）出力画面 (ACSMS-SCR-028)';
-// SCR-028 は共通の FileArchiveService 経由で S3 + t_file_download に保存する
+// ACSMS-SCR-028 は共通の FileArchiveService 経由で S3 + t_file_download に保存する
 // ため、操作ログの対象テーブルは t_file_download。
 const ZOUGEN_TARGET_TABLE = 't_file_download';
 const PDF_MIME = 'application/pdf';
-// SCR-029 も共通の FileArchiveService 経由で S3 + t_file_download に保存する
+// ACSMS-SCR-029 も共通の FileArchiveService 経由で S3 + t_file_download に保存する
 // ため、操作ログの対象テーブルは t_file_download。
 const NICHINO_TARGET_TABLE = 't_file_download';
 
@@ -76,7 +76,7 @@ export type ExportZougenResult =
     };
 
 /**
- * SCR-029 出力結果。対象0件は `{ empty: true }`。
+ * ACSMS-SCR-029 出力結果。対象0件は `{ empty: true }`。
  * それ以外はブラウザへ PDF を返さず、S3 アーカイブ（t_file_upload）+
  * 日農担当者へのメール通知のみを行い、保存ファイル名と通知宛先数を返す。
  */
@@ -99,8 +99,8 @@ export class ZougenReportService {
     private readonly fileArchive: FileArchiveService,
     @Optional()
     private readonly pdfService?: PdfExportService,
-    // SCR-029 appends this（日農担当者へのメール通知）. @Optional() so the
-    // SCR-026/028 specs that `new` with fewer args keep type-checking.
+    // ACSMS-SCR-029 appends this（日農担当者へのメール通知）. @Optional() so the
+    // ACSMS-SCR-026/028 specs that `new` with fewer args keep type-checking.
     @Optional()
     private readonly reportNotification?: ReportNotificationService,
   ) {}
@@ -110,13 +110,17 @@ export class ZougenReportService {
     query: ZougenHanbaitenQueryDto,
     session: SessionPayload,
   ): Promise<ZougenPreviewData> {
-    // グループ単位ページング（顧客要件 2026-07・SCR-026/029 と同方針）: 販売店+管理支店
+    // グループ単位ページング（顧客要件 2026-07・ACSMS-SCR-026/029 と同方針）: 販売店+管理支店
     // (combo)ごとに独立ページ、ページ数は販売店ごとに 1..N。全件取得 →
     // paginateZougenSubscribers で combo ページに分割し、要求ページを返す。preview と
     // PDF が同じ関数を共有するのでページ構成は一致（BEが唯一の真実源）。0件は 200 + 空。
     const perPage = query.per_page ?? ZOUGEN_PER_PAGE;
     const rows = await this.fetchZougenRows(query, session);
-    const pages = paginateZougenSubscribers(rows, perPage);
+    // hanbaitenFilter 指定時、行取得(EXISTS)は同日の関連行を広めに含むが、出力は
+    // 選択した店舗の分類結果だけに絞る（顧客要件2026-08 — フィルタで選んだ店の分だけ
+    // 表示する）。group_count はその絞り込み後の pages から数える — rows ベースだと
+    // 転出/転入の相手店（表示されない側）が紛れ込み、実際に出力される件数と食い違う。
+    const pages = paginateZougenSubscribers(rows, perPage, query.hanbaiten_id);
     const totalRows = new Set(rows.map((r) => Number(r.dokusya_id))).size;
     if (pages.length === 0) {
       return {
@@ -144,8 +148,8 @@ export class ZougenReportService {
       total_pages: totalPages,
       total_rows: totalRows,
       is_last_page: page >= totalPages,
-      // 全体の販売店グループ数（独立販売店の数）。
-      group_count: new Set(rows.map((r) => Number(r.hanbaiten_id))).size,
+      // 全体の販売店グループ数（絞り込み後・実際に出力される独立販売店の数）。
+      group_count: new Set(pages.flat().map((r) => r.hanbaiten_id)).size,
       group_page_no: rep?.group_page_no ?? 1,
       group_total_pages: rep?.group_total_pages ?? 1,
     };
@@ -157,7 +161,7 @@ export class ZougenReportService {
     session: SessionPayload,
     req: Request,
   ): Promise<ExportZougenResult> {
-    // SCR-028 は FileArchiveService 経由で S3 + t_file_upload に保存するため
+    // ACSMS-SCR-028 は FileArchiveService 経由で S3 + t_file_upload に保存するため
     // dataSource トランザクションは使わない。PDF 生成のみ必須。
     if (!this.pdfService) {
       throw new Error(
@@ -167,17 +171,19 @@ export class ZougenReportService {
 
     try {
       const rows = await this.fetchZougenRows(query, session);
-      // 対象0件 → PDFは生成せず、アーカイブ・操作ログも残さない。
-      // controller が 200 + 空配列で応答する（preview と同じ no-data 方針）。
-      if (rows.length === 0) return { empty: true };
+      // hanbaitenFilter 適用後（顧客要件2026-08）の分類結果で0件判定する。行取得
+      // (EXISTS)は同日の関連行を広めに含むため、rows.length だけでは「選択した
+      // 店舗の分類結果が実際には0件」のケースを見逃す。
+      const reports = groupZougenReports(rows, query.hanbaiten_id); // 監査ログの販売店帳票数用
+      if (reports.length === 0) return { empty: true };
 
       // PDFはプレビューと同じ改ページ（15購読者/ページ・販売店コード順）で出力する。
-      const reports = groupZougenReports(rows); // 監査ログの販売店帳票数用
       const docDefinition = buildZougenDocDefinition(
         rows,
         query.tekiyo_date,
         ZOUGEN_PER_PAGE,
         query.issued_at ?? '',
+        query.hanbaiten_id,
       );
       const buffer = await this.pdfService.generatePdf(docDefinition);
 
@@ -431,9 +437,12 @@ export class ZougenReportService {
     'r.hanbaiten_id AS hanbaiten_id',
     'h.hanbaiten_code AS hanbaiten_code',
     'h.hanbaiten_name AS hanbaiten_name',
+    // #57976: 廃店(haiten_flg=true)を宛先とする報告を作らないための店舗単位判定に使う。
+    'h.haiten_flg AS haiten_flg',
     'r.zenkai_hanbaiten_id AS zenkai_hanbaiten_id',
     'zh.hanbaiten_code AS zenkai_hanbaiten_code',
     'zh.hanbaiten_name AS zenkai_hanbaiten_name',
+    'zh.haiten_flg AS zenkai_haiten_flg',
     'r.kanri_shiten_id AS kanri_shiten_id',
     'ks.kanri_shiten_code AS kanri_shiten_code',
     'ks.kanri_shiten_name AS kanri_shiten_name',
@@ -482,9 +491,16 @@ export class ZougenReportService {
   ];
 
   /**
-   * 行集合を決める INNER JOIN(廃店除外) + WHERE + DataScope の QueryBuilder（SELECT/並び順
-   * なし。api.md §4.4 と同一: joho=:tekiyo_date / zougen_hokoku_flg=true / h.haiten_flg=false）。
+   * 行集合を決める INNER JOIN + WHERE + DataScope の QueryBuilder（SELECT/並び順
+   * なし。api.md §4.4 と同一: joho=:tekiyo_date / zougen_hokoku_flg=true）。
    * 各クエリが共通の土台にしてフィルタのドリフトを防ぐ。
+   *
+   * #57976: 廃店(haiten_flg=true)を「行」単位で INNER JOIN 除外していたが、
+   * これだと販売店変更で「転出元(旧店)→転入先(廃店)」となった行が丸ごと消え、
+   * 旧店側の増減連絡票からもこの購読者の減部が欠落していた。廃店除外は
+   * 「その店を宛先とする報告を作らない」という**店舗単位**のルールなので、
+   * 行そのものは常に取得し、店舗ごとの haiten_flg を SELECT で運び、
+   * classifyDayChange 側で報告作成の可否を判定する（zougen.mapper.ts 参照）。
    */
   private zougenBaseQuery(
     query: ZougenHanbaitenQueryDto,
@@ -492,11 +508,18 @@ export class ZougenReportService {
   ): SelectQueryBuilder<DokusyaRireki> {
     const qb = this.rirekiRepo
       .createQueryBuilder('r')
-      // 廃店(haiten_flg=true)はINNER JOINのON条件でサーバ側強制除外する。
+      // 論理削除済み購読者（DokusyaService.remove()）を増減連絡票から除外する。
+      // remove() の RELATED_TABLES は t_koza_furikae のみを FK ブロック対象とし
+      // 履歴の有無では削除を止めないため、t_dokusya.deleted_at を明示的に確認する。
+      .innerJoin(
+        't_dokusya',
+        'd',
+        'd.dokusya_id = r.dokusya_id AND d.deleted_at IS NULL',
+      )
       .innerJoin(
         'm_hanbaiten',
         'h',
-        'h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false',
+        'h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL',
       )
       .where('1 = 1')
       .andWhere('r.joho_henko_tekiyo_date = :tekiyo_date', {
@@ -522,9 +545,22 @@ export class ZougenReportService {
     });
 
     if (query.hanbaiten_id && query.hanbaiten_id.length > 0) {
-      // 販売店変更で「転出元（旧店）」も拾えるよう、現販売店 OR 前回販売店で絞る。
+      // 販売店変更で「転出元（旧店）」も拾えるよう、現販売店 OR 前回販売店が一致
+      // する dokusya_id を対象にする。ただし判定は「同日(dokusya_id, joho)の
+      // どれか1行でも一致するか」を EXISTS で行い、一致すればその dokusya_id の
+      // 同日全行を取得する（行単位で絞ると同日複数履歴の一部だけが欠けて
+      // groupZougenReports の rmin/rmax 集約が壊れるため。1件のみ変更なら
+      // r.hanbaiten_id / r.zenkai_hanbaiten_id で自己完結し従来と同じ結果になる）。
+      // 出力を選択した販売店だけに絞る処理は groupZougenReports 側の
+      // hanbaitenFilter が担う（顧客要件 2026-08 — フィルタで選んだ店の分だけ表示）。
       qb.andWhere(
-        '(r.hanbaiten_id IN (:...hanbaiten_id) OR r.zenkai_hanbaiten_id IN (:...hanbaiten_id))',
+        `EXISTS (
+           SELECT 1 FROM t_dokusya_rireki r2
+            WHERE r2.dokusya_id = r.dokusya_id
+              AND r2.joho_henko_tekiyo_date = r.joho_henko_tekiyo_date
+              AND r2.torikeshi_flg = false
+              AND (r2.hanbaiten_id IN (:...hanbaiten_id) OR r2.zenkai_hanbaiten_id IN (:...hanbaiten_id))
+         )`,
         { hanbaiten_id: query.hanbaiten_id },
       );
     }
@@ -640,9 +676,10 @@ export class ZougenReportService {
   ];
 
   /**
-   * 行集合を決める INNER JOIN（廃店除外 h / 管理支店 ks / JA j）+ WHERE + DataScope を
-   * 組み立てた QueryBuilder を返す（SELECT・並び順なし）。count / ページID / 明細行 の
-   * 各クエリで共通の土台にしてフィルタのドリフトを防ぐ（SCR-028 と同方針）。
+   * 行集合を決める INNER JOIN（販売店 h / 管理支店 ks / JA j。#57976: h は廃店
+   * haiten_flg を問わず対象）+ WHERE + DataScope を組み立てた QueryBuilder を
+   * 返す（SELECT・並び順なし）。count / ページID / 明細行 の各クエリで共通の
+   * 土台にしてフィルタのドリフトを防ぐ（SCR-028 と同方針）。
    */
   private nichinoBaseQuery(
     query: ZougenNichinoQueryDto,
@@ -650,10 +687,21 @@ export class ZougenReportService {
   ): SelectQueryBuilder<DokusyaRireki> {
     const qb = this.rirekiRepo
       .createQueryBuilder('r')
+      // 論理削除済み購読者（DokusyaService.remove()）を増減通知から除外する。
+      // 028 (zougenBaseQuery) と同じ根拠 — remove() は t_koza_furikae のみを
+      // FK ブロック対象とし履歴の有無では削除を止めないため、ここで確認する。
+      .innerJoin(
+        't_dokusya',
+        'd',
+        'd.dokusya_id = r.dokusya_id AND d.deleted_at IS NULL',
+      )
+      // #57976: 増減通知（日本農業新聞）は廃店(haiten_flg)を問わず対象とする
+      // （028 増減連絡票と異なり、日農への通知は販売店の営業状態に関係なく
+      // 全ての増減を報告する必要があるため、haiten_flg 条件は付けない）。
       .innerJoin(
         'm_hanbaiten',
         'h',
-        'h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false',
+        'h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL',
       )
       .innerJoin(
         'm_kanri_shiten',

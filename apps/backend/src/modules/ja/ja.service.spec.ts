@@ -45,7 +45,7 @@ describe('JaService', () => {
       andWhere: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),
-      // SCR-004 list-query additions — chainable + result terminators.
+      // ACSMS-SCR-004 list-query additions — chainable + result terminators.
       orderBy: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -181,7 +181,7 @@ describe('JaService', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-001: GET /api/v1/ja/:ja_id — findById
+  // ACSMS-API-005-001: GET /api/v1/ja/:ja_id — findById
   //
   // Implementation strategy: repo.findOne returns the hydrated Ja entity;
   // todofukenRepo.findOne resolves the display name separately. Service
@@ -240,7 +240,7 @@ describe('JaService', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-002: POST /api/v1/ja — create
+  // ACSMS-API-005-002: POST /api/v1/ja — create
   // ───────────────────────────────────────────────────────────────────
   describe('create (API-005-002)', () => {
     const validDto = {
@@ -385,7 +385,7 @@ describe('JaService', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-003: PUT /api/v1/ja/:ja_id — update
+  // ACSMS-API-005-003: PUT /api/v1/ja/:ja_id — update
   // ───────────────────────────────────────────────────────────────────
   describe('update (API-005-003)', () => {
     const fullBody = {
@@ -553,9 +553,9 @@ describe('JaService', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-004-001: GET /api/v1/ja — findAll
+  // ACSMS-API-004-001: GET /api/v1/ja — findAll
   //
-  // SCR-004 JAマスタ明細検索画面: paginated list with partial-match
+  // ACSMS-SCR-004 JAマスタ明細検索画面: paginated list with partial-match
   // ja_code / ja_name search, sort, and DataScope by user.ja_id.
   // Implementation strategy: QueryBuilder against `m_ja mj LEFT JOIN
   // m_todofuken mt`, applying ja_code/ja_name ILIKE clauses + ja_id
@@ -597,6 +597,41 @@ describe('JaService', () => {
       expect(result.meta.page).toBe(1);
       expect(result.meta.per_page).toBe(20);
       expect(result.meta.total_pages).toBe(1);
+    });
+
+    // Regression (backend review finding #18): findAll()'s return type
+    // annotation + JaListItemDto previously declared only 10 fields, but the
+    // actual mapped row already included 4 jastem_* fields (an API-contract
+    // drift — Swagger/type under-documented what the endpoint really sends).
+    // This test locks the documented contract to match the real payload.
+    it('should include the jastem_* fields in each list row (documented API contract)', async () => {
+      qbMock.getManyAndCount = jest.fn().mockResolvedValue([
+        [
+          buildJa({
+            jaId: 1,
+            jastemItakushaCode: 'ABC123',
+            jastemItakushaName: 'ｶﾌﾞｼｷｶﾞｲｼｬABC',
+            jastemJaCode: '1234',
+            jastemJaName: 'ﾄｳｷｮｳﾁｭｳｵｳ',
+          }),
+        ],
+        1,
+      ]);
+      todofukenRepo.find.mockResolvedValue([
+        { todofukenCode: '13', todofukenName: '東京都' },
+      ]);
+
+      const result = await service.findAll(
+        { page: 1, per_page: 20 } as any,
+        buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' }),
+      );
+
+      expect(result.data[0]).toMatchObject({
+        jastem_itakusha_code: 'ABC123',
+        jastem_itakusha_name: 'ｶﾌﾞｼｷｶﾞｲｼｬABC',
+        jastem_ja_code: '1234',
+        jastem_ja_name: 'ﾄｳｷｮｳﾁｭｳｵｳ',
+      });
     });
 
     it('should apply ja_id scope filter when called by CHUOKAI', async () => {
@@ -832,7 +867,7 @@ describe('JaService', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-004-002: DELETE /api/v1/ja/:ja_id — remove
+  // ACSMS-API-004-002: DELETE /api/v1/ja/:ja_id — remove
   //
   // Logical (soft) delete with 6-table conflict check:
   //   m_kanri_shiten, m_shiten, m_hanbaiten, m_tanka, t_dokusya, m_account
@@ -1035,7 +1070,7 @@ describe('JaService', () => {
       return buildSession({ ja_id: null, role_code: 'NICHINO_ADMIN' });
     }
 
-    // 顧客要件 2026-07 — SCR-022 ファイルダウンロード画面の DataScope が
+    // 顧客要件 2026-07 — ACSMS-SCR-022 ファイルダウンロード画面の DataScope が
     // 「同一都道府県の全JA」へ拡大したため、絞り込み候補も揃える。
     // 拡大先の県はクライアント指定ではなくセッションの todofuken_code。
     it('scope=todofuken: CHUOKAI は自都道府県で絞り、自JA固定の scope は付けない', async () => {
@@ -1181,7 +1216,7 @@ describe('JaService', () => {
       expect(orCall![1]).toEqual({ q: '%東京%' });
     });
 
-    // [match-field] SCR-024 account list hides ja_code in the option
+    // [match-field] ACSMS-SCR-024 account list hides ja_code in the option
     // label, so ILIKE must be scoped to ja_name only — a hit on ja_code
     // would be invisible to the user and read as a bug.
     it('should scope ILIKE to ja_name only when match_field=name', async () => {

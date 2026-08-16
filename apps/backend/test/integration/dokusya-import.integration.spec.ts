@@ -3,9 +3,9 @@
 // Integration spec — boots the whole Nest app against pg-mem + ioredis-mock.
 // Exercises SessionAuthGuard, PermissionsGuard, GlobalExceptionFilter,
 // ValidationPipe, and the real TypeORM / raw SQL queries for the two
-// SCR-016 endpoints appended to DokusyaController:
-//   GET  /api/v1/dokusya/import/template (API-016-001)
-//   POST /api/v1/dokusya/import          (API-016-002)
+// ACSMS-SCR-016 endpoints appended to DokusyaController:
+//   GET  /api/v1/dokusya/import/template (ACSMS-API-016-001)
+//   POST /api/v1/dokusya/import          (ACSMS-API-016-002)
 //
 // The Dokusya + DokusyaRireki entities are already in ALL_ENTITIES in
 // test/utils/create-integration-app.ts (verified), so TypeORM synchronize()
@@ -19,7 +19,7 @@
 // stay runnable here.
 //
 // Seed shape copied from dokusya-replace-hanbaiten.integration.spec.ts
-// (reconciled SCR-015 seed): m_ja WITHOUT bank_code, m_kanri_shiten WITH
+// (reconciled ACSMS-SCR-015 seed): m_ja WITHOUT bank_code, m_kanri_shiten WITH
 // todofuken_code, m_tanka with kingaku_zeikomi/kingaku_zeinuki/tax_rate,
 // m_code with explicit code_id, m_roles/m_permissions WITHOUT biko — plus
 // the extra m_code categories the import validates and the dokusya.import
@@ -213,7 +213,7 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
   const { asNichinoAdmin, asJaHonten, asNoFlag } = makeImportHelpers(() => ctx);
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-016-001 — GET /api/v1/dokusya/import/template
+  // ACSMS-API-016-001 — GET /api/v1/dokusya/import/template
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/import/template', () => {
     it('should return 401 when the session cookie is missing', async () => {
@@ -394,12 +394,14 @@ describe('ACSMS-SCR-016 integration — dokusya Excel import (template + bulk im
       expect(fields).toContain('hanbaiten_code');
     });
 
-    it.skip('should return 400 ROW_LIMIT_EXCEEDED when rows exceed 30000 (skipped — 30001-row payload impractical for the in-memory suite)', async () => {
-      // COVERS: §4.1 — ROW_LIMIT_EXCEEDED. Building 30001 rows is too heavy
-      // for the in-memory integration run; the unit + controller specs
-      // already cover the threshold. Re-enable selectively in nightly CI.
+    it('should return 400 ROW_LIMIT_EXCEEDED when rows exceed 5000', async () => {
+      // COVERS: §4.1 — ROW_LIMIT_EXCEEDED. The DTO ArrayMaxSize check runs in
+      // the ValidationPipe before any DB access, so this doesn't touch
+      // pg-mem — building 5001 rows is cheap enough to run unconditionally
+      // (previously skipped when the limit was 30000/30001, since building
+      // 30001 rows was deemed impractical for this suite).
       const sid = await asJaHonten(1);
-      const rows = Array.from({ length: 30001 }, (_v, i) =>
+      const rows = Array.from({ length: 5001 }, (_v, i) =>
         buildImportRow({ kumiaiin_code: `K${i}` }),
       );
       const res = await http()
@@ -554,6 +556,56 @@ describeRealPg(
       );
       expect(Number(lastChange[0].rireki_no)).toBe(3);
       expect(Number(lastChange[0].dokusya_busu)).toBe(9);
+    });
+
+    it('should preserve the existing todofuken_code (not crash 500) when the column is selected but the UPDATE row leaves it blank', async () => {
+      // REGRESSION — todofuken_code is a real FK to m_todofuken (t_dokusya_rireki
+      // too). Unlike kanri_shiten_code/shiten_code/hanbaiten_code/tanka_code,
+      // it wasn't treated as optionalFk, so selecting the column while the row's
+      // cell is blank sent '' → FK violation → unhandled 500 (only reproduces
+      // against real Postgres; pg-mem doesn't enforce the FK).
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KTODO1', todofuken_code: '13' })],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: did }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya
+           WHERE ja_id = 1 AND kumiaiin_code = 'KTODO1' AND deleted_at IS NULL`,
+      );
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['kumiaiin_code', 'dokusya_busu', 'todofuken_code'],
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KTODO1',
+                dokusya_busu: 5,
+                todofuken_code: undefined,
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+
+      const [{ dokusya_busu, todofuken_code }] = await ctx.dataSource.query(
+        `SELECT dokusya_busu, todofuken_code FROM t_dokusya_rireki
+           WHERE dokusya_id = $1 ORDER BY rireki_no DESC LIMIT 1`,
+        [did],
+      );
+      expect(Number(dokusya_busu)).toBe(5);
+      expect(todofuken_code).toBe('13');
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (joho < 購読開始日) on UPDATE import (顧客要件 2026-07)', async () => {

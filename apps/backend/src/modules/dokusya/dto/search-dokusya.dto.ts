@@ -13,6 +13,12 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import {
+  DenshiShoninStatus,
+  DokusyaShubetsu,
+  ShiharaiHoho,
+  TetsuzukiShurui,
+} from '@/common/enums';
 
 /**
  * 空文字 → undefined 変換。`@IsOptional()` は `null`／`undefined` のみスキップし
@@ -255,45 +261,61 @@ export class SearchDokusyaDto {
   joho_henko_tekiyo_date_to?: string;
 
   // ─── m_code 連動の整数（形式チェックのみ — 値はサービスで検証） ─
-  @ApiPropertyOptional({ description: '購読種別（1:紙版, 2:電子版, 3:併読）' })
+  @ApiPropertyOptional({
+    description: '購読種別（1:紙版, 2:電子版, 3:併読）',
+    enum: [DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH],
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '購読種別は整数で指定してください。' })
-  @IsIn([1, 2, 3], { message: '購読種別の値が不正です。' })
+  @IsIn(Object.values(DokusyaShubetsu), { message: '購読種別の値が不正です。' })
   dokusya_shubetsu?: number;
 
   @ApiPropertyOptional({
     description: '支払方法（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）',
+    enum: Object.values(ShiharaiHoho),
   })
   @Transform(blankToUndef)
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '支払方法は整数で指定してください。' })
-  @IsIn([1, 2, 3, 4, 5, 6, 9], { message: '支払方法の値が不正です。' })
+  @IsIn(Object.values(ShiharaiHoho), { message: '支払方法の値が不正です。' })
   shiharai_hoho?: number;
 
-  @ApiPropertyOptional({ description: '手続種類（0:解約, 1:新規）' })
+  @ApiPropertyOptional({
+    description: '手続種類（0:解約, 1:新規）',
+    enum: [TetsuzukiShurui.KAIYAKU, TetsuzukiShurui.SHINKI],
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '手続種類は整数で指定してください。' })
-  @IsIn([0, 1], { message: '手続種類の値が不正です。' })
+  @IsIn(Object.values(TetsuzukiShurui), { message: '手続種類の値が不正です。' })
   tetsuzuki_shurui?: number;
 
-  @ApiPropertyOptional({ description: '電子版承認ステータス（0:未承認, 1:承認済み, 2:否認）' })
+  @ApiPropertyOptional({
+    description: '電子版承認ステータス（0:未承認, 1:承認済み, 2:否認）',
+    enum: [
+      DenshiShoninStatus.PENDING,
+      DenshiShoninStatus.APPROVED,
+      DenshiShoninStatus.REJECTED,
+    ],
+  })
   @Transform(blankToUndef)
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '電子版承認ステータスは整数で指定してください。' })
-  @IsIn([0, 1, 2], { message: '電子版承認ステータスの値が不正です。' })
+  @IsIn(Object.values(DenshiShoninStatus), {
+    message: '電子版承認ステータスの値が不正です。',
+  })
   denshi_shonin_status?: number;
 
-  // ─── 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）──────────
+  // ─── 有効単価フラグ（ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂）──────────
   // 参照する購読料単価(tanka_type=1)の active_flg で購読者を絞り込むトライステート
   // ラジオ（単価一覧の 有効単価フラグ と同一 UI）。true=有効単価(active_flg=TRUE)
   // を参照する購読者のみ、false=失効単価(active_flg=FALSE)を参照する購読者のみ、
-  // 省略時は絞り込まない（両方）。口座振替出力(SCR-020)の失効単価エラーからは
+  // 省略時は絞り込まない（両方）。口座振替出力(ACSMS-SCR-020)の失効単価エラーからは
   // 「無効(false)」で初期選択され、該当購読者を手動で新単価へ移行する運用。
   @ApiPropertyOptional({
     description:

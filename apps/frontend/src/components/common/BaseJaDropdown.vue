@@ -2,7 +2,7 @@
 /**
  * サーバーページング + 検索対応の JA ドロップダウン。
  *
- * JA を紐付ける全フォーム（SCR-009 管理支店 / SCR-007 支店 / SCR-006 単価 等）で使用。
+ * JA を紐付ける全フォーム（ACSMS-SCR-009 管理支店 / ACSMS-SCR-007 支店 / ACSMS-SCR-006 単価 等）で使用。
  * `<a-select>` + {@link useEntityDropdown} の薄いラッパ。状態機械（ページング・
  * デバウンス検索・無限スクロール・stale レスポンスガード・編集時 include_id ピン）は
  * composable が持ち、本ファイルは JA 固有設定（fetcher / idField / label / todofukenCode カスケード）を束ねる。
@@ -32,7 +32,7 @@ interface Props {
   perPage?: number;
   /**
    * ラベル形式。'code-name'（既定）は `${ja_code} ${ja_name}`、'name' は `${ja_name}` のみ。
-   * SCR-024 アカウント一覧は UI から ja_code を隠すため 'name' を使う。
+   * ACSMS-SCR-024 アカウント一覧は UI から ja_code を隠すため 'name' を使う。
    */
   labelFormat?: 'code-name' | 'name';
   /**
@@ -41,13 +41,13 @@ interface Props {
    */
   searchField?: 'both' | 'name';
   /**
-   * 指定 都道府県 の JA に BE クエリを絞る。SCR-023 ファイルアップロード（都道府県 picker が
+   * 指定 都道府県 の JA に BE クエリを絞る。ACSMS-SCR-023 ファイルアップロード（都道府県 picker が
    * JA ドロップダウンにカスケード）で使用。変更時は選択解除 + 1ページ目再読込。
    */
   todofukenCode?: string | null;
   /**
    * DataScope 範囲（既定 `own`）。`todofuken` は **中央会のみ** 自JAでなく自都道府県の
-   * 全JAを候補にする。SCR-022 ファイルダウンロード画面で、一覧のスコープ拡大に
+   * 全JAを候補にする。ACSMS-SCR-022 ファイルダウンロード画面で、一覧のスコープ拡大に
    * 絞り込み候補を揃えるために使う。拡大先の県は BE がセッションから決める。
    */
   scope?: 'own' | 'todofuken';
@@ -70,7 +70,7 @@ const emit = defineEmits<{
   /**
    * ユーザーが行を選択したとき `update:value` と同時に発火。option 全体
    * （ja_code + ja_name + todofuken_code + chuokai_flg）を渡すので、追加 GET なしに
-   * ja_code を表示したい呼び出し側（SCR-023「対象JA」複数選択チップ等）が内部 option 配列を
+   * ja_code を表示したい呼び出し側（ACSMS-SCR-023「対象JA」複数選択チップ等）が内部 option 配列を
    * 探さずに済む。X クリア時は `null`。
    */
   select: [item: JaDropdownItem | null];
@@ -118,7 +118,7 @@ const {
 
 /**
  * antd `<a-select>` は option の `label` を表示する。既定は `{ja_code} {ja_name}` を
- * 合成し両方で照合可能に、'name' モードは code を隠す呼び出し側（SCR-024）向けに ja_name のみ。
+ * 合成し両方で照合可能に、'name' モードは code を隠す呼び出し側（ACSMS-SCR-024）向けに ja_name のみ。
  */
 const selectOptions = computed(() =>
   options.value.map((o) => ({

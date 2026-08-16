@@ -17,6 +17,18 @@ export class JaListItemDto {
   @ApiProperty() address: string;
   @ApiProperty() fax: string;
   @ApiProperty() chuokai_flg: boolean;
+
+  @ApiProperty({ example: '', description: 'JASTEM_委託者コード ※空文字許容' })
+  jastem_itakusha_code: string;
+
+  @ApiProperty({ example: '', description: 'JASTEM_委託者名 ※空文字許容' })
+  jastem_itakusha_name: string;
+
+  @ApiProperty({ example: '', description: 'JASTEM_農協番号 ※空文字許容' })
+  jastem_ja_code: string;
+
+  @ApiProperty({ example: '', description: 'JASTEM_農協名 ※空文字許容' })
+  jastem_ja_name: string;
 }
 
 export class JaListResponseDto {

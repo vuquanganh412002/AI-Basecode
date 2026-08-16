@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-005 — JAマスタ登録画面
 //
 // Drives src/modules/ja/dto/create-ja.dto.ts. One test per リクエストパラメータ row
-// in API-005-002 §2.
+// in ACSMS-API-005-002 §2.
 
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';

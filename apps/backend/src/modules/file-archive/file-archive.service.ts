@@ -21,7 +21,7 @@ export interface FileArchiveParams {
   /**
    * DB `t_file_download.file_name`（DL表示名）用の拡張子除く基底名。省略時は
    * baseName と同じ（タイムスタンプ付き）。指定時のみ S3キー=baseName+TS で一意、
-   * DB/DL表示名=displayName（TS無し）に分離（顧客要件2026-07・SCR-029: 増減通知の
+   * DB/DL表示名=displayName（TS無し）に分離（顧客要件2026-07・ACSMS-SCR-029: 増減通知の
    * 表示名を `増減通知_JA名_JAコード_適用日.pdf` に統一しつつ S3上書き回避）。
    */
   displayName?: string;
@@ -29,7 +29,7 @@ export interface FileArchiveParams {
   category: string;
   /**
    * S3 パスの先頭プレフィックス（既定 `reports`）。空文字を渡すと先頭に
-   * `reports/` を付けない（例: SCR-021 は `haitatsuryo/{ja_code}/{year}/`）。
+   * `reports/` を付けない（例: ACSMS-SCR-021 は `haitatsuryo/{ja_code}/{year}/`）。
    */
   rootPrefix?: string;
   /**
@@ -68,7 +68,7 @@ export interface FileArchiveParams {
 
 /**
  * 帳票出力結果を S3 にアーカイブし `t_file_download` へ登録する共通サービス
- * （SCR-026 名簿に限らず他の帳票出力画面からも再利用可。メール送信はしない）。
+ * （ACSMS-SCR-026 名簿に限らず他の帳票出力画面からも再利用可。メール送信はしない）。
  *
  * S3 キー: `reports/{category}/{ja_code}/{subFolder}/{year}/{filename}`
  * （subFolder 省略時は subFolder 抜き）。
@@ -89,7 +89,7 @@ export class FileArchiveService {
 
   /**
    * 帳票バッファを S3 へ保存し、`t_file_download` に登録する。ダウンロード画面
-   * (SCR-022) はこのレコードを一覧・DL 対象とする。
+   * (ACSMS-SCR-022) はこのレコードを一覧・DL 対象とする。
    * @returns 保存した S3 キーと付与したファイル名。
    */
   async archive(

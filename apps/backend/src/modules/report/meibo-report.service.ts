@@ -171,7 +171,7 @@ export class MeiboReportService {
         session,
         recordCount: rows.length,
         contentType: XLSX_MIME,
-        // 購読者名簿 (SCR-026)：日農DL許可フラグは画面のラジオで選択（既定 false）。
+        // 購読者名簿 (ACSMS-SCR-026)：日農DL許可フラグは画面のラジオで選択（既定 false）。
         downloadType: DownloadType.MEIBO,
         nichinoDownloadAllowedFlg: query.nichino_download_allowed_flg ?? false,
       });
@@ -263,6 +263,10 @@ export class MeiboReportService {
    * 対象は適用日時点の最新スナップショット（各 dokusya_id で joho <= :tekiyo_date の最大行）。
    * m_hanbaiten / m_ja は行集合に影響するため INNER JOIN、名称用の m_kanri_shiten /
    * m_shiten は LEFT JOIN で明細 SELECT 側に付与する。
+   *
+   * 現在行の判定は 手続種類=新規 だけでなく 部数>0 も必須（顧客要件 2026-08）。
+   * 解約予約(Phase 1)行は 到来日バッチが確定するまで 手続種類=新規 のまま 部数=0
+   * で残るため、部数条件が無いと名簿に「0部の有効な読者」として出てしまう。
    */
   private meiboBaseQuery(
     query: MeiboReportQueryDto,
@@ -270,6 +274,15 @@ export class MeiboReportService {
   ): SelectQueryBuilder<DokusyaRireki> {
     const qb = this.rirekiRepo
       .createQueryBuilder('r')
+      // t_dokusya_rireki の現在行は 購読者削除（論理削除）後も torikeshi_flg=false の
+      // まま残る（DokusyaService.remove() の RELATED_TABLES は t_koza_furikae のみを
+      // FK ブロック対象とし、履歴の有無では削除を止めないため）。削除済み購読者を
+      // 名簿に出さないよう t_dokusya.deleted_at IS NULL を明示的に確認する。
+      .innerJoin(
+        't_dokusya',
+        'd',
+        'd.dokusya_id = r.dokusya_id AND d.deleted_at IS NULL',
+      )
       .innerJoin(
         'm_hanbaiten',
         'h',
@@ -294,7 +307,12 @@ export class MeiboReportService {
       )
       .andWhere('r.tetsuzuki_shurui = :tetsuzuki', {
         tetsuzuki: TetsuzukiShurui.SHINKI,
-      });
+      })
+      // 解約予約(Phase 1)行は 手続種類=新規 のまま 部数=0 で到来日バッチまで残る
+      // （dokusya-history.builder.ts buildKaiyakuReservationRow）。手続種類だけで
+      // 判定すると、バッチが来るまでの間 名簿に「0部の有効な読者」として出てしまう
+      // （顧客要件 2026-08 — 購読者名簿の不具合報告）。部数でも判断し除外する。
+      .andWhere('r.dokusya_busu > 0');
 
     this.applyShubetsuScope(qb, query.report_type);
 

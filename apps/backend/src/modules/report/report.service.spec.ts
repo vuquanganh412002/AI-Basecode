@@ -1,10 +1,10 @@
 // Screen: ACSMS-SCR-026 — 購読者名簿出力画面 + ACSMS-SCR-028 — 増減連絡票（販売店）出力画面
 //
 // ReportService unit specs for:
-//   - previewMeibo(query, session)              — API-026-001 (GET preview)
-//   - exportMeiboExcel(query, session, req)     — API-026-002 (GET Excel export)
-//   - previewZougenHanbaiten(query, session)    — API-028-001 (GET preview)
-//   - exportZougenHanbaitenPdf(body, session, req) — API-028-002 (POST PDF export)
+//   - previewMeibo(query, session)              — ACSMS-API-026-001 (GET preview)
+//   - exportMeiboExcel(query, session, req)     — ACSMS-API-026-002 (GET Excel export)
+//   - previewZougenHanbaiten(query, session)    — ACSMS-API-028-001 (GET preview)
+//   - exportZougenHanbaitenPdf(body, session, req) — ACSMS-API-028-002 (POST PDF export)
 //
 // Pattern: plain `new ReportService(...)` with mocked deps.
 // Each it() maps back to a clause in the matching api.md.
@@ -100,7 +100,7 @@ describe('ReportService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-026-001 — GET /api/v1/report/meibo/preview
+  // ACSMS-API-026-001 — GET /api/v1/report/meibo/preview
   // ═══════════════════════════════════════════════════════════════════
   // 動的ページング（顧客要件 2026-07）: previewMeibo は fetchRows で全件を1回
   // getRawMany し、mapper の buildMeiboDocPages で A4 高さ基準に文書ページ化する。
@@ -111,6 +111,24 @@ describe('ReportService', () => {
   }
 
   describe('previewMeibo', () => {
+    it('should exclude 論理削除済み purchasers by joining t_dokusya with deleted_at IS NULL (regression)', async () => {
+      // Regression: meiboBaseQuery previously only read t_dokusya_rireki and never
+      // checked whether the underlying t_dokusya row had been soft-deleted via
+      // DokusyaService.remove() (task check #57608-follow-up). A subscriber with
+      // an active rireki row could still be soft-deleted (RELATED_TABLES only
+      // blocks on t_koza_furikae) and would still leak into the 購読者名簿.
+      mockMeiboPreview([buildMeiboRawRow()]);
+      await service.previewMeibo(buildMeiboQuery(), jaSession());
+
+      const dokusyaJoinBound = qbMock.innerJoin.mock.calls.some(
+        ([table, , cond]: any[]) =>
+          table === 't_dokusya' &&
+          typeof cond === 'string' &&
+          /deleted_at\s+IS\s+NULL/i.test(cond),
+      );
+      expect(dokusyaJoinBound).toBe(true);
+    });
+
     it('should return a 販売店別 grouped structure when report_type is hanbaiten', async () => {
       // COVERS: 4.5 レスポンス生成 — 販売店 → 管理支店 → 購読者 のネスト
       mockMeiboPreview([
@@ -430,6 +448,19 @@ describe('ReportService', () => {
       expect(newOnly).toBeDefined();
     });
 
+    // 顧客要件 2026-08 — 解約予約(Phase 1)行は到来日バッチが確定するまで
+    // 手続種類=新規・部数=0 のまま残るため、手続種類だけでは除外できず名簿に
+    // 「0部の有効な読者」として出てしまっていた。部数でも判断する。
+    it('should restrict to dokusya_busu > 0 (解約予約中の0部行を除外)', async () => {
+      await service.previewMeibo(buildKanriShitenMeiboQuery(), jaSession());
+
+      const busuFilter = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /dokusya_busu\s*>\s*0/.test(sql),
+      );
+      expect(busuFilter).toBeDefined();
+    });
+
     it('should always exclude 併読 (dokusya_shubetsu = 3) regardless of the filter', async () => {
       // COVERS: 4.3 / 画面項目No.5「併読は除外」
       await service.previewMeibo(buildKanriShitenMeiboQuery(), jaSession());
@@ -677,7 +708,7 @@ describe('ReportService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-026-002 — GET /api/v1/report/meibo/export (Excel)
+  // ACSMS-API-026-002 — GET /api/v1/report/meibo/export (Excel)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportMeiboExcel', () => {
     it('should return an Excel buffer + 販売店別購読者名簿_{YYYY年MM月}.xlsx filename (report_type=hanbaiten) when data exists', async () => {
@@ -881,7 +912,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
     });
 
   // 増減連絡票プレビューはグループ単位ページング（販売店+管理支店 combo ごとに独立
-  // ページ・顧客要件 2026-07・SCR-026/029 と同方針）：全件を1回 getRawMany で取得し、
+  // ページ・顧客要件 2026-07・ACSMS-SCR-026/029 と同方針）：全件を1回 getRawMany で取得し、
   // mapper の paginateZougenSubscribers で combo ページに分割する。よってモックは全件を
   // 返す単一の getRawMany で足りる（count/ids の2クエリは廃止）。
   const mockZougenPage = (rows: ReturnType<typeof buildZougenRawRow>[]): void => {
@@ -933,7 +964,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
         .mockResolvedValue({ code: 'JA001', name: 'テストJA' }),
     };
 
-    // Facade wiring: SCR-028 export needs pdfService on the ZougenReportService.
+    // Facade wiring: ACSMS-SCR-028 export needs pdfService on the ZougenReportService.
     // dataSource is no longer used by either sub-service (kept in scope for the
     // tests that still reference it as a mock).
     void dataSource;
@@ -955,7 +986,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-028-001 — GET /api/v1/report/zougen-hanbaiten/preview
+  // ACSMS-API-028-001 — GET /api/v1/report/zougen-hanbaiten/preview
   // ═══════════════════════════════════════════════════════════════════
   describe('previewZougenHanbaiten', () => {
     it('should return reports grouped by 販売店+管理支店 with tekiyo echoed when data exists', async () => {
@@ -1140,7 +1171,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(rpt.genbu[0].busu).toBe('2 → 0');
     });
 
-    it('販売店変更: 旧店に減 / 新店に増 を反映する', async () => {
+    it('販売店変更: フィルタなしなら旧店に減 / 新店に増を両方反映する', async () => {
       mockZougenPage([
         buildZougenRawRow({
           dokusya_id: 9003,
@@ -1155,13 +1186,14 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
         }),
       ]);
 
-      // 旧店(H001)と新店(H002)は別 combo → 別ページ（顧客要件 2026-07）。両ページを集約。
+      // 旧店(H001)と新店(H002)は別 combo → 別ページ（顧客要件 2026-07）。
+      // hanbaiten_id 未指定＝フィルタなしなので両方出る。両ページを集約。
       const p1 = await service.previewZougenHanbaiten(
-        buildZougenQuery({ page: 1 }),
+        buildZougenQuery({ hanbaiten_id: undefined, page: 1 }),
         zSession(),
       );
       const p2 = await service.previewZougenHanbaiten(
-        buildZougenQuery({ page: 2 }),
+        buildZougenQuery({ hanbaiten_id: undefined, page: 2 }),
         zSession(),
       );
       expect(p1.total_pages).toBe(2);
@@ -1172,6 +1204,119 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(oldStore?.genbu[0].busu).toBe('1 → 0'); // 旧店: 減 1
       expect(newStore?.zoubu).toHaveLength(1);
       expect(newStore?.zoubu[0].busu).toBe('0 → 1'); // 新店: 増 1
+    });
+
+    // 顧客要件2026-08: 販売店変更のとき、フィルタで選んだ店舗の分類結果だけを
+    // 表示する（旧店を選べば減のみ、新店を選べば増のみ）。行取得(EXISTS)は同日の
+    // 関連行を広く取るが、出力(groupZougenReports の hanbaitenFilter)で選択店舗
+    // 以外を落とす。以前は「転出先/転出元」を常に両方見せていたが、
+    // 「選んだ店の分だけ見たい」という要望に合わせて変更した。
+    it('販売店変更: 旧店でフィルタすると減のみ・新店は出ない', async () => {
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_id: 9003,
+          dokusya_busu: 1,
+          zenkai_dokusya_busu: 1,
+          hanbaiten_id: 300,
+          hanbaiten_code: 'H002',
+          hanbaiten_name: '新販売店',
+          zenkai_hanbaiten_id: 200,
+          zenkai_hanbaiten_code: 'H001',
+          zenkai_hanbaiten_name: '旧販売店',
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(
+        buildZougenQuery({ hanbaiten_id: [200] }),
+        zSession(),
+      );
+
+      expect(result.reports).toHaveLength(1);
+      expect(result.reports[0].hanbaiten_code).toBe('H001');
+      expect(result.reports[0].genbu).toHaveLength(1);
+      expect(result.reports[0].genbu[0].busu).toBe('1 → 0');
+      expect(result.reports[0].zoubu).toHaveLength(0);
+    });
+
+    it('販売店変更: 新店でフィルタすると増のみ・旧店は出ない', async () => {
+      mockZougenPage([
+        buildZougenRawRow({
+          dokusya_id: 9003,
+          dokusya_busu: 1,
+          zenkai_dokusya_busu: 1,
+          hanbaiten_id: 300,
+          hanbaiten_code: 'H002',
+          hanbaiten_name: '新販売店',
+          zenkai_hanbaiten_id: 200,
+          zenkai_hanbaiten_code: 'H001',
+          zenkai_hanbaiten_name: '旧販売店',
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(
+        buildZougenQuery({ hanbaiten_id: [300] }),
+        zSession(),
+      );
+
+      expect(result.reports).toHaveLength(1);
+      expect(result.reports[0].hanbaiten_code).toBe('H002');
+      expect(result.reports[0].zoubu).toHaveLength(1);
+      expect(result.reports[0].zoubu[0].busu).toBe('0 → 1');
+      expect(result.reports[0].genbu).toHaveLength(0);
+    });
+
+    // 顧客報告の再現テスト（2026-08）: 同一購読者が同日に「72→73へ販売店変更」
+    // した後、同日中にさらに部数だけ 5→8 と変わった場合（2行の同日履歴）。
+    // 行取得(EXISTS)が同日の両行を確実に含めることを前提に、日初(rmin=旧店への
+    // 変更直後・busu 5)→日末(rmax=部数8)の正しい net が、72で絞っても73で絞っても
+    // 同じ値で出ること（絞り方によって数字が食い違わない）を確認する。
+    it('同日2履歴（店舗変更+部数変更）: 72/73どちらでフィルタしても集計値が一致する', async () => {
+      const rowA = buildZougenRawRow({
+        dokusya_id: 9010,
+        dokusya_busu: 5,
+        zenkai_dokusya_busu: 5, // このコマでは部数不変（店舗のみ変更）
+        hanbaiten_id: 73,
+        hanbaiten_code: 'H073',
+        hanbaiten_name: '販売店73',
+        zenkai_hanbaiten_id: 72,
+        zenkai_hanbaiten_code: 'H072',
+        zenkai_hanbaiten_name: '販売店72',
+      });
+      const rowB = buildZougenRawRow({
+        dokusya_id: 9010, // 同一購読者・同日の2件目（rows は dokusya_id, rireki_no 昇順）
+        dokusya_busu: 8,
+        zenkai_dokusya_busu: 5, // rowA の busu を引き継ぐ
+        hanbaiten_id: 73, // 店舗は rowA で変更済みのまま
+        hanbaiten_code: 'H073',
+        hanbaiten_name: '販売店73',
+        zenkai_hanbaiten_id: 73, // rowA の hanbaiten を引き継ぐ（店舗変更なし）
+        zenkai_hanbaiten_code: 'H073',
+        zenkai_hanbaiten_name: '販売店73',
+      });
+
+      // 72(旧店)でフィルタ → 72 の genbu だけ。busuBefore は rowA の zenkai(5)由来で
+      // 正しいまま。73 の zoubu は表示されない。
+      mockZougenPage([rowA, rowB]);
+      const filtered72 = await service.previewZougenHanbaiten(
+        buildZougenQuery({ hanbaiten_id: [72] }),
+        zSession(),
+      );
+      expect(filtered72.reports).toHaveLength(1);
+      expect(filtered72.reports[0].hanbaiten_code).toBe('H072');
+      expect(filtered72.reports[0].genbu[0].busu).toBe('5 → 0');
+      expect(filtered72.reports[0].zoubu).toHaveLength(0);
+
+      // 73(新店)でフィルタ → 73 の zoubu だけ。busuAfter は rowB(8)由来 —
+      // rowA だけしか取れていなかった旧実装だと 5 になり 72 側の結果と食い違っていた。
+      mockZougenPage([rowA, rowB]);
+      const filtered73 = await service.previewZougenHanbaiten(
+        buildZougenQuery({ hanbaiten_id: [73] }),
+        zSession(),
+      );
+      expect(filtered73.reports).toHaveLength(1);
+      expect(filtered73.reports[0].hanbaiten_code).toBe('H073');
+      expect(filtered73.reports[0].zoubu[0].busu).toBe('0 → 8');
+      expect(filtered73.reports[0].genbu).toHaveLength(0);
     });
 
     it('新規: 前回住所が空のときは住所変更を出さない (ノイズ防止)', async () => {
@@ -1320,19 +1465,66 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(stale).toBeUndefined();
     });
 
-    it('should exclude 廃店 (haiten_flg = false) on the m_hanbaiten join', async () => {
-      // COVERS: 4.3 廃店・電子版ダミー販売店を除外
+    it('should exclude 論理削除済み purchasers by joining t_dokusya with deleted_at IS NULL (regression)', async () => {
+      // Regression: zougenBaseQuery previously only read t_dokusya_rireki and
+      // never checked whether the underlying t_dokusya row had been
+      // soft-deleted via DokusyaService.remove() (task #57608-follow-up).
       mockZougenPage([buildZougenRawRow()]);
       await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
 
-      const haitenBound =
-        qbMock.andWhere.mock.calls.some(
-          ([sql]: any[]) => typeof sql === 'string' && /haiten_flg/.test(sql),
-        ) ||
-        qbMock.innerJoin.mock.calls.some(
-          ([, , cond]: any[]) => typeof cond === 'string' && /haiten_flg/.test(cond),
-        );
-      expect(haitenBound).toBe(true);
+      const dokusyaJoinBound = qbMock.innerJoin.mock.calls.some(
+        ([table, , cond]: any[]) =>
+          table === 't_dokusya' &&
+          typeof cond === 'string' &&
+          /deleted_at\s+IS\s+NULL/i.test(cond),
+      );
+      expect(dokusyaJoinBound).toBe(true);
+    });
+
+    it('#57976: should NOT row-level exclude 廃店 (haiten_flg) on the m_hanbaiten join — filtering happens per-store in the mapper, not per-row in SQL', async () => {
+      // Regression: zougenBaseQuery previously joined `m_hanbaiten h ON ...
+      // AND h.haiten_flg = false`, which dropped the ENTIRE row whenever the
+      // subscriber's CURRENT store was closed — even when the row was still
+      // needed to report the departure from the (still open) PREVIOUS store.
+      // The join must no longer carry a haiten_flg condition; suppression of
+      // reports addressed to a closed store is done in groupZougenReports.
+      mockZougenPage([buildZougenRawRow()]);
+      await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const haitenBoundOnJoin = qbMock.innerJoin.mock.calls.some(
+        ([table, , cond]: any[]) =>
+          table === 'm_hanbaiten' && typeof cond === 'string' && /haiten_flg/.test(cond),
+      );
+      expect(haitenBoundOnJoin).toBe(false);
+    });
+
+    it('#57976: keeps the departing (still-open) store\'s 減 entry when the destination store is 廃店, and creates no report for the closed destination', async () => {
+      mockZougenPage([
+        buildZougenRawRow({
+          hanbaiten_id: 201,
+          hanbaiten_code: 'H002',
+          hanbaiten_name: '廃店予定店',
+          haiten_flg: true,
+          zenkai_hanbaiten_id: 200,
+          zenkai_hanbaiten_code: 'H001',
+          zenkai_hanbaiten_name: '千代田販売店',
+          zenkai_haiten_flg: false,
+          dokusya_busu: 0,
+          zenkai_dokusya_busu: 3,
+        }),
+      ]);
+
+      const result = await service.previewZougenHanbaiten(
+        buildZougenQuery({ hanbaiten_id: undefined }),
+        zSession(),
+      );
+
+      expect(result.reports).toHaveLength(1);
+      expect(result.reports[0].hanbaiten_id).toBe(200);
+      expect(result.reports[0].genbu).toHaveLength(1);
+      expect(result.reports[0].genbu[0].busu).toBe('3 → 0');
+      expect(result.reports[0].zoubu).toHaveLength(0);
+      expect(result.reports.some((r) => r.hanbaiten_id === 201)).toBe(false);
     });
 
     it('should bind hanbaiten_id IN filter when hanbaiten_id is provided', async () => {
@@ -1341,6 +1533,25 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
 
       const call = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) => typeof sql === 'string' && /hanbaiten_id/.test(sql),
+      );
+      expect(call).toBeDefined();
+    });
+
+    // 顧客要件2026-08（バグ修正）: 行単位で hanbaiten_id/zenkai_hanbaiten_id を
+    // 見るだけだと、同一購読者の同日複数履歴の一部だけが条件に一致し、他方が
+    // 欠落して groupZougenReports の rmin/rmax 集約が壊れる（フィルタする店舗
+    // によって集計結果が食い違う）。EXISTS で (dokusya_id, joho) 単位に判定し、
+    // 一致すればその日の全履歴行を取得する。
+    it('should scope the hanbaiten filter via EXISTS on (dokusya_id, joho) so same-day sibling rows are not dropped', async () => {
+      mockZougenPage([buildZougenRawRow()]);
+      await service.previewZougenHanbaiten(buildZougenQuery({ hanbaiten_id: [200, 201] }), zSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' &&
+          /EXISTS/.test(sql) &&
+          /r2\.dokusya_id\s*=\s*r\.dokusya_id/.test(sql) &&
+          /r2\.joho_henko_tekiyo_date\s*=\s*r\.joho_henko_tekiyo_date/.test(sql),
       );
       expect(call).toBeDefined();
     });
@@ -1393,7 +1604,7 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-028-002 — POST /api/v1/report/zougen-hanbaiten/export (PDF)
+  // ACSMS-API-028-002 — POST /api/v1/report/zougen-hanbaiten/export (PDF)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportZougenHanbaitenPdf', () => {
     it('should return a PDF buffer + role-aware filename (CHUOKAI/JA本店 → no 管理支店) when data exists', async () => {

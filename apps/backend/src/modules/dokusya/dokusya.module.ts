@@ -23,7 +23,7 @@ import { DokusyaSearchService } from './dokusya-search.service';
 import { DokusyaReplaceService } from './dokusya-replace.service';
 
 /**
- * SCR-011 — 購読者情報登録画面.
+ * ACSMS-SCR-011 — 購読者情報登録画面.
  *
  * `Shiten` はエンティティを所有せずに `m_shiten` の 口座引落 逆引きを実行できるよう、
  * （providers に列挙するだけでなく）再インポートする（正規の所有者は `ShitenModule`）。

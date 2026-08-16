@@ -4,7 +4,7 @@
 // clause in:
 //   docs/design/ACSMS-SCR-029/screen-design.md (機能定義 + メッセージ情報)
 //   docs/design/ACSMS-SCR-029/index.html (UI labels: 委託 / 販売店コード / 部数 / 合計)
-//   docs/design/ACSMS-SCR-029/ACSMS-SCR-029-api.md (API-029-001 preview / 002 PDF/ZIP)
+//   docs/design/ACSMS-SCR-029/ACSMS-SCR-029-api.md (ACSMS-API-029-001 preview / 002 PDF/ZIP)
 //
 // The view defineExposes `{ formState }` so setup can seed 適用日 / 管理支店
 // (antd controls aren't drivable via jsdom DOM events). Buttons are clicked
@@ -27,7 +27,7 @@ import {
 import { buildKanriShitenDropdownResponse } from '@test/fixtures/report.fixture';
 
 // API wrappers — /gen-code-frontend extends @/api/report/report with the two
-// SCR-029 functions.
+// ACSMS-SCR-029 functions.
 vi.mock('@/api/report/report', () => ({
   previewZougenNichino: vi.fn(),
   exportZougenNichino: vi.fn(),
@@ -162,6 +162,14 @@ describe('ZougenNichinoReportView — 画面初期表示', () => {
     const { wrapper } = await renderView();
     expect(wrapper.text()).not.toContain('（免）A販売店');
   });
+
+  it('should associate the 管理支店 title with its select via <label for> (regression: was a bare <div>)', async () => {
+    const { wrapper } = await renderView();
+    const label = wrapper.findAll('label').find((l) => l.text().includes('管理支店'));
+    expect(label).toBeDefined();
+    const forId = label!.attributes('for')!;
+    expect(wrapper.find(`#${forId}`).exists()).toBe(true);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -294,6 +302,31 @@ describe('ZougenNichinoReportView — レポートプレビュー', () => {
     expect(text).toContain('（免）A販売店'); // 免税販売店 prefix
   });
 
+  it('should clear a previously-entered 備考 when レポートプレビュー is re-run (regression: stale remark leaking into a new period)', async () => {
+    // A remark typed for kanri_shiten_id=20 in a prior preview must NOT
+    // survive into a fresh preview run for a different 適用日 — otherwise it
+    // silently attaches to the wrong period's report on 電子帳票作成.
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    const remarksInput = wrapper.find('[id="zn-remarks-20"]');
+    expect(remarksInput.exists()).toBe(true);
+    await remarksInput.setValue('前回期間向けの備考');
+    await flushPromises();
+    expect((remarksInput.element as HTMLTextAreaElement).value).toBe('前回期間向けの備考');
+
+    // Re-run the preview with a different 適用日 but the same 管理支店.
+    (wrapper.vm as any).formState.tekiyo_date = '2026-04-01';
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    expect((wrapper.find('[id="zn-remarks-20"]').element as HTMLTextAreaElement).value).toBe('');
+  });
+
   it('should show 対象のデータが存在しません。 when previewZougenNichino resolves an empty reports array', async () => {
     const { wrapper } = await renderView();
     const { previewZougenNichino } = await import('@/api/report/report');
@@ -358,6 +391,27 @@ describe('ZougenNichinoReportView — ページ送り', () => {
 
     const arg = vi.mocked(previewZougenNichino).mock.calls.at(-1)?.[0];
     expect(arg?.page).toBe(2);
+  });
+
+  it('should place the pager OUTSIDE the horizontally-scrollable report area, matching the sibling report screens (regression)', async () => {
+    // Bug: BaseReportPager was nested inside the `overflow-x-auto` wrapper
+    // here, unlike ZougenHanbaitenReportView / MeiboReportView which place
+    // it as a sibling after that wrapper closes — on a narrow viewport
+    // where the wide table triggers horizontal scroll, the pager scrolled
+    // out of view along with the table on this screen only.
+    const { wrapper } = await renderView();
+    const { previewZougenNichino } = await import('@/api/report/report');
+    // BaseReportPager renders nothing when totalPages <= 1 — use the
+    // multi-page fixture so the pager actually mounts.
+    vi.mocked(previewZougenNichino).mockResolvedValue(pagedResponse(1) as any);
+    (wrapper.vm as any).formState.tekiyo_date = '2026-03-01';
+    (wrapper.vm as any).formState.kanri_shiten_id = [20];
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    const pager = wrapper.find('[data-test="zougen-nichino-pager"]');
+    expect(pager.exists()).toBe(true);
+    expect(pager.element.closest('.overflow-x-auto')).toBeNull();
   });
 });
 

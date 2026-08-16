@@ -69,6 +69,27 @@ function assertCreateDateRange(start: string, end: string): void {
 }
 
 /**
+ * UPDATE の日付範囲チェック: 適用終了日 >= 適用開始日。
+ *
+ * CREATE 用の {@link assertCreateDateRange} と異なり「開始日 >= 本日」は
+ * 課さない — UPDATE は既存の過去開始日（過去に始まった単価の終了日変更）を
+ * 許容する仕様のため、`start` には呼び出し側が確定させた実効開始日
+ * （過去なら before の値でロック、未来ならそのまま dto の値）を渡す。
+ * 順序チェック自体は CREATE/UPDATE で同一のはずが、UPDATE でだけ抜け落ちて
+ * いた（PUT で終了日 < 開始日 を curl 直叩きすれば通ってしまっていた）。
+ */
+function assertUpdateDateRange(start: string, end: string): void {
+  if (end < start) {
+    throw new ValidationException([
+      {
+        field: 'tekiyo_end_date',
+        message: '適用終了日は適用開始日以降を指定してください。',
+      },
+    ]);
+  }
+}
+
+/**
  * `sort_by` → 完全修飾 QueryBuilder カラムの許可マップ (SORT_COLUMN_MAP)。
  * @IsIn(TANKA_SEARCH_SORT_BY) が範囲外を拒否済みだが、動的ルックアップ維持で
  * DTO ドリフト時の SQL インジェクションも防ぐ。
@@ -137,7 +158,7 @@ export class TankaService {
     private readonly codeService: CodeService,
   ) {}
 
-  // ─── API-002-001 — GET /api/v1/tanka ────────────────────────────────────
+  // ─── ACSMS-API-002-001 — GET /api/v1/tanka ────────────────────────────────────
   /**
    * ページング付き tanka 一覧。§4.3 DataScope 適用 (CHUOKAI / JA_HONTEN /
    * JA_KANRI_SHITEN は自 ja_id のみ。NICHINO_* は seeder 上 tanka.view 権限が無く
@@ -436,6 +457,9 @@ export class TankaService {
       ? String(before.tekiyoStartDate)
       : dto.tekiyo_start_date;
 
+    // [input-validation] — 適用終了日 >= 実効開始日（CREATE と同じ順序チェック）。
+    assertUpdateDateRange(effectiveStartDate, dto.tekiyo_end_date);
+
     try {
       const updated = await this.dataSource.transaction(async (manager) => {
         // [partial-update] — 更新可能フィールドを適用。tanka_code は before のまま
@@ -492,6 +516,12 @@ export class TankaService {
       // ログイン中 JA の税区分 (m_ja.zei_kubun) で解決した表示用金額。
       // zei_kubun=1(内税)→税込、=2(外税)→税抜。JA 不明時は税込を既定。
       kingaku: number;
+      /**
+       * キャンペーンフラグ（m_tanka.campaign_flg）。SCR-011 購読者フォームが
+       * キャンペーン単価の登録・切替時にポップアップ注意喚起を出すために使う
+       * （顧客要件 2026-08）。
+       */
+      campaign_flg: boolean;
     }>;
     meta: { total: number; page: number; per_page: number; has_more: boolean };
   }> {
@@ -508,15 +538,24 @@ export class TankaService {
           '(mt.tekiyo_end_date IS NULL OR mt.tekiyo_end_date >= CURRENT_DATE)',
         );
 
-      // [data-scope] 制限ロール → 自 JA のみ。NICHINO_STAFF (session.ja_id == null) →
-      // 明示 ja_id パラメータを使用 (代行入力はフォームで JA を先に選択)。
+      // [data-scope] 制限ロール → 自 JA のみ。session.ja_id == null (NICHINO_*) は
+      // このドロップダウンを正当に消費する権限を持つロールのみ ja_id パラメータで
+      // 絞込可（代行入力はフォームで JA を先に選択）。tanka.view 自体は
+      // NICHINO_ADMIN/STAFF とも seeder.md で × だが、NICHINO_STAFF は
+      // hanbaiten.daiko_input（SCR-017 販売店代行入力・配達手数料単価 picker）
+      // 経由でこのドロップダウンを正当に使うため、その権限も許可する。
+      // いずれも持たないロール（NICHINO_ADMIN）は何も返さない（バグ報告 2026-08
+      // まで、ここが ja_id 未指定なら全JAの単価が見えてしまっていた）。
+      const canUseTankaDropdown =
+        session.permissions.includes('tanka.view') ||
+        session.permissions.includes('hanbaiten.daiko_input');
       if (session.ja_id != null) {
         applyJaScope(qb, 'mt', 'jaId', session);
+      } else if (!canUseTankaDropdown) {
+        qb.andWhere('1 = 0');
       } else if (query.ja_id !== undefined) {
         qb.andWhere('mt.ja_id = :qja', { qja: query.ja_id });
       }
-      // (NICHINO_ADMIN で JA フィルタ無しの場合は全 JA の tanka を見る — 本エンドポイントの
-      //  典型呼び出しではないが無害。)
 
       if (query.tanka_type !== undefined) {
         qb.andWhere('mt.tanka_type = :tt', { tt: query.tanka_type });
@@ -535,6 +574,7 @@ export class TankaService {
         'mt.tankaType',
         'mt.kingakuZeikomi',
         'mt.kingakuZeinuki',
+        'mt.campaignFlg',
       ])
       .orderBy('mt.tanka_name', 'ASC')
       .take(per_page)
@@ -553,6 +593,7 @@ export class TankaService {
           'mt.tankaName',
           'mt.tankaType',
           'mt.kingakuZeikomi',
+          'mt.campaignFlg',
         ])
         .andWhere('mt.tanka_id = :id', { id: query.include_id });
       pinned = await pinnedQb.getOne();
@@ -583,6 +624,7 @@ export class TankaService {
         kingaku_zeikomi: zeikomi,
         kingaku_zeinuki: zeinuki,
         kingaku: effectiveZeiKubun === ZEI_KUBUN_SOTOZEI ? zeinuki : zeikomi,
+        campaign_flg: Boolean(r.campaignFlg),
       };
     });
 

@@ -206,8 +206,8 @@ export function toDokusyaResponse(
 }
 
 /**
- * SCR-014 — GET /api/v1/dokusya が返すフラット list item 形
- * （api.md §API-014-001 レスポンスデータ #1-#22 per-row）。
+ * ACSMS-SCR-014 — GET /api/v1/dokusya が返すフラット list item 形
+ * （api.md §ACSMS-API-014-001 レスポンスデータ #1-#22 per-row）。
  *
  * 項目は api.md §4.5 の SELECT を反映 + 2つの計算列（full_name / full_name_kana は shimei concat、
  * haitatsu は住所 concat）と BE 側算出の is_read_only フラグ（FE がルールを再導出せず
@@ -246,20 +246,36 @@ export interface DokusyaListItem {
 }
 
 /**
- * is_read_only フラグを標準ルール（api.md §4.5）で算出:
- *   (dokusya_shubetsu = 2 AND shiharai_hoho = 6) OR dokusya_shubetsu = 3
+ * is_read_only フラグを標準ルール（api.md §4.5 + 顧客要件 2026-08 追補）で算出:
+ *   dokusya_shubetsu = 3
+ *   OR (dokusya_shubetsu = 2 AND shiharai_hoho = 6)
+ *   OR (dokusya_shubetsu = 2 AND denshi_kaiin_id IS NULL AND 単価が campaign でない)
+ * 3番目の条件は電子版読者管理システム未連携（denshi_kaiin_id 未設定）の読者を対象とする。
+ * ただし campaign 単価の読者はシステム連携前に手動登録される運用のため対象外
+ * （顧客要件 2026-08 追補）。denshiKaiinId / tankaCampaignFlg 省略時はこの3番目の
+ * 条件を評価しない（呼び出し元が該当情報を持たない箇所向けの後方互換）。
  * service/spec ヘルパが述語を再実装せず短絡できるよう export。
  */
 export function isDokusyaReadOnly(
   dokusyaShubetsu: number | null | undefined,
   shiharaiHoho: number | null | undefined,
+  denshiKaiinId?: number | null,
+  tankaCampaignFlg?: boolean,
 ): boolean {
   const shubetsu = Number(dokusyaShubetsu);
   const hoho = Number(shiharaiHoho);
   if (shubetsu === DokusyaShubetsu.BOTH) return true;
-  return (
-    shubetsu === DokusyaShubetsu.DIGITAL && hoho === ShiharaiHoho.CREDIT_CARD
-  );
+  if (shubetsu === DokusyaShubetsu.DIGITAL && hoho === ShiharaiHoho.CREDIT_CARD) {
+    return true;
+  }
+  if (
+    shubetsu === DokusyaShubetsu.DIGITAL &&
+    denshiKaiinId === null &&
+    !tankaCampaignFlg
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -313,7 +329,7 @@ export function toDokusyaListItem(
 }
 
 /**
- * Excel エクスポートの標準15列日本語ヘッダ行。SCR-014 検索結果テーブルの列レイアウトを反映
+ * Excel エクスポートの標準15列日本語ヘッダ行。ACSMS-SCR-014 検索結果テーブルの列レイアウトを反映
  * （顧客要件2026-06）:
  *   - ID (dokusya_id) を先頭列に追加
  *   - 支店 / 連絡先２ 列を削除
@@ -379,10 +395,10 @@ export function toDokusyaExcelRow(
 }
 
 /**
- * SCR-013 — 購読者履歴情報画面: `GET /api/v1/dokusya/:dokusya_id/rireki` の1行完全形
- * （api.md §API-013-001 §レスポンスデータ #2-#61）。
+ * ACSMS-SCR-013 — 購読者履歴情報画面: `GET /api/v1/dokusya/:dokusya_id/rireki` の1行完全形
+ * （api.md §ACSMS-API-013-001 §レスポンスデータ #2-#61）。
  *
- * DokusyaHistoryItemDto（SCR-011 /history — 軽量）とは別物。
+ * DokusyaHistoryItemDto（ACSMS-SCR-011 /history — 軽量）とは別物。
  * 本エンドポイントは名称 lookup（管理支店/支店/都道府県×3/販売店×2）を JOIN した完全スナップショットを
  * 返し、nestjs.md §Response serialization + api.md §m_code note に従い CODE 値のみ
  * （*_label なし；FE が useCodesStore で解決）。
@@ -393,17 +409,17 @@ export interface DokusyaRirekiListItem {
   dokusya_rireki_id: number;
   dokusya_id: number;
   rireki_no: number;
-  /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧。*/
+  /** m_code.code_category='DOKUSYA_SHUBETSU'（1:紙版, 2:電子版, 3:併読）。ACSMS-SCR-013 一覧。*/
   dokusya_shubetsu: number;
   /**
    * m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'（0:無料, 1:有料）。
-   * 紙版は電子版連携が無いため null。SCR-013 一覧（顧客要件 2026-07）。
+   * 紙版は電子版連携が無いため null。ACSMS-SCR-013 一覧（顧客要件 2026-07）。
    */
   denshi_dokusya_shubetsu: number | null;
   /**
    * 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。m_code ではなく
    * 電子版連携で決まる値で、Web申込以外（紙版等）は null。
-   * SCR-013 一覧（顧客要件 2026-07）。
+   * ACSMS-SCR-013 一覧（顧客要件 2026-07）。
    */
   denshi_shonin_status: number | null;
   ja_id: number;
@@ -645,7 +661,7 @@ export function toDokusyaHistoryItem(row: DokusyaRireki): DokusyaHistoryItemDto 
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SCR-015 — 購読者販売店一括置換画面 (replace search row)
+// ACSMS-SCR-015 — 購読者販売店一括置換画面 (replace search row)
 // ════════════════════════════════════════════════════════════════════════
 
 /**

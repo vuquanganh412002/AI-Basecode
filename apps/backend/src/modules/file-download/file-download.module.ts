@@ -10,7 +10,7 @@ import { FileDownloadController } from './file-download.controller';
 import { FileDownloadService } from './file-download.service';
 
 /**
- * SCR-022 ファイルダウンロード画面。t_file_download を読み取り、S3 から
+ * ACSMS-SCR-022 ファイルダウンロード画面。t_file_download を読み取り、S3 から
  * ファイルを配信する（DL 実行は t_log のみ記録）。m_ja / m_account は
  * findAll の raw SQL JOIN で参照するため、専用 repo は不要。
  */

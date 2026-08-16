@@ -1,18 +1,18 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { UnauthorizedException } from '@/common/exceptions/common.exceptions';
+import { DEFAULT_SESSION_COOKIE_NAME } from '@/config/config-defaults.constant';
 import { SessionService, SessionPayload } from '@/modules/auth/session.service';
 
 /**
  * 全リクエストで `session_id` cookie を Redis 照合。
  * 1. signed cookie (`SESSION_SECRET` の cookie-parser 発行) を読む。
  * 2. Redis で payload 参照。無し/期限切れ → 401。
- * 3. TTL 更新 (sliding 24h) し payload を `req.user` へ付与 (controller が `@Req()` で参照)。
+ * 3. `SessionService.touch()` が絶対失効時刻までの残り秒数で Redis key の
+ *    TTL を書き戻し（sliding ではない — activity では延長されない。ログインから
+ *    絶対 24h で必ず失効する顧客要件どおり）、payload を `req.user` へ付与
+ *    (controller が `@Req()` で参照)。
  */
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
@@ -22,7 +22,9 @@ export class SessionAuthGuard implements CanActivate {
     private readonly sessionService: SessionService,
     private readonly configService: ConfigService,
   ) {
-    this.cookieName = this.configService.get<string>('session.cookieName') ?? 'session_id';
+    this.cookieName =
+      this.configService.get<string>('session.cookieName') ??
+      DEFAULT_SESSION_COOKIE_NAME;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

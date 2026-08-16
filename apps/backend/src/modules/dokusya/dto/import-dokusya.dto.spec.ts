@@ -7,7 +7,7 @@
 // rows array bounds) and a sample of per-row field max-length checks.
 // Row-level BUSINESS validation (3:併読 reject, 電子版×クレカ, FK lookups,
 // mode-conditional required) lives in the SERVICE — exercised in
-// dokusya.service.spec.ts §SCR-016, not here.
+// dokusya.service.spec.ts §ACSMS-SCR-016, not here.
 
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
@@ -150,7 +150,7 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
     });
   });
 
-  describe('rows (#3, required, array 1..30000)', () => {
+  describe('rows (#3, required, array 1..5000)', () => {
     it('should pass when rows has exactly one valid row', async () => {
       const errors = await validateBody(buildImportBody());
       expect(errors.find((e) => e.property === 'rows')).toBeUndefined();
@@ -168,8 +168,8 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
       expect(errors.some((e) => e.property === 'rows')).toBe(true);
     });
 
-    it('should fail when rows exceeds 30000 entries (ArrayMaxSize 30000)', async () => {
-      const tooMany = Array.from({ length: 30001 }, () => buildImportRow());
+    it('should fail when rows exceeds 5000 entries (ArrayMaxSize 5000)', async () => {
+      const tooMany = Array.from({ length: 5001 }, () => buildImportRow());
       const errors = await validateBody(buildImportBody({ rows: tooMany }));
       expect(errors.some((e) => e.property === 'rows')).toBe(true);
     });

@@ -11,6 +11,7 @@ import {
   Matches,
   Min,
 } from 'class-validator';
+import { DokusyaShubetsu } from '@/common/enums';
 
 /** `YYYY-MM-DD` — 適用日。 */
 const TEKIYO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,7 +98,9 @@ export class MeiboReportQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '購読種別は整数で指定してください。' })
-  @IsIn([1, 2], { message: '購読種別の値が不正です。' })
+  @IsIn([DokusyaShubetsu.PAPER, DokusyaShubetsu.DIGITAL], {
+    message: '購読種別の値が不正です。',
+  })
   dokusya_shubetsu?: number;
 
   @ApiPropertyOptional({

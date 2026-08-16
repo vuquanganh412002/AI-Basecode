@@ -94,7 +94,7 @@ describe('useTableQuery — onChange', () => {
   });
 
   it('prefers sorter.columnKey over field when column has dataIndex ≠ key', async () => {
-    // [regression-sorter-key] SCR-008 account list 都道府県 column:
+    // [regression-sorter-key] ACSMS-SCR-008 account list 都道府県 column:
     //   { dataIndex: 'todofuken_name', key: 'todofuken_code', sorter: true }
     // BE whitelists `todofuken_code` only. Without columnKey priority,
     // sort_by would be 'todofuken_name' → BE 400 VALIDATION_ERROR.

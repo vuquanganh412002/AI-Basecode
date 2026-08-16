@@ -1,5 +1,5 @@
 // /api/v1/accounts 用の手書き wrapper。
-// SCR-024 (AccountsListView) が import し、unit spec が
+// ACSMS-SCR-024 (AccountsListView) が import し、unit spec が
 // vi.mock('@/api/account/account') でモックする関数群。
 // 型は docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md に準拠。
 
@@ -25,7 +25,7 @@ export interface AccountListItem {
   sub_email_3: string;
   paper_flg: boolean;
   denshi_flg: boolean;
-  /** ログイン試行がロック閾値に達すると true。SCR-024 一覧は ロック バッジ表示、SCR-025 編集で admin が解除可。 */
+  /** ログイン試行がロック閾値に達すると true。ACSMS-SCR-024 一覧は ロック バッジ表示、ACSMS-SCR-025 編集で admin が解除可。 */
   account_lock_flg: boolean;
   created_at: string;
   updated_at: string | null;
@@ -53,7 +53,13 @@ export interface ListAccountsQuery {
   shiten_id?: number;
   page?: number;
   per_page?: number;
-  sort_by?: 'login_id' | 'account_name' | 'role_name' | 'todofuken_code' | 'created_at';
+  sort_by?:
+    | 'login_id'
+    | 'account_name'
+    | 'role_name'
+    | 'todofuken_code'
+    | 'created_at'
+    | 'updated_at';
   sort_order?: 'asc' | 'desc';
 }
 

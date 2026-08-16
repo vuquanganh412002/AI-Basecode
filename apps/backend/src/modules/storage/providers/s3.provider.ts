@@ -6,7 +6,10 @@ import {
 } from '@aws-sdk/client-s3';
 import { Logger } from '@nestjs/common';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { StorageProvider } from '@/modules/storage/interfaces/storage-provider.interface';
+import {
+  DEFAULT_SIGNED_URL_TTL_SECONDS,
+  StorageProvider,
+} from '@/modules/storage/interfaces/storage-provider.interface';
 
 interface S3Config {
   region: string;
@@ -73,41 +76,66 @@ export class S3StorageProvider implements StorageProvider {
       // [diag] 実際の AWS エラーを可視化 — name(AccessDenied, NoSuchBucket,
       // CredentialsProviderError, …)が設定ミスを特定する。service が補償できる
       // よう re-throw する。
-      this.logger.error({
-        event: 's3.put.failed',
-        bucket: this.bucket,
-        region: this.region,
-        key,
-        err_name: (err as Error).name,
-        err_message: (err as Error).message,
-        http_status:
-          (err as { $metadata?: { httpStatusCode?: number } }).$metadata
-            ?.httpStatusCode ?? null,
-      });
+      this.logger.error({ event: 's3.put.failed', ...this.errorDiag(key, err) });
       throw err;
     }
   }
 
   async download(key: string): Promise<Buffer> {
-    const response = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
-    const stream = response.Body as NodeJS.ReadableStream;
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.from(chunk));
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const stream = response.Body as NodeJS.ReadableStream;
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    } catch (err) {
+      // [diag] upload() と同じ根拠 — AccessDenied / NoSuchKey 等の実エラーを
+      // 可視化してから再throw（バックエンドコードレビュー finding #16）。
+      this.logger.error({
+        event: 's3.get.failed',
+        ...this.errorDiag(key, err),
+      });
+      throw err;
     }
-    return Buffer.concat(chunks);
   }
 
-  async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
+  async getSignedUrl(
+    key: string,
+    expiresIn = DEFAULT_SIGNED_URL_TTL_SECONDS,
+  ): Promise<string> {
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.client, command, { expiresIn });
   }
 
   async delete(key: string): Promise<void> {
-    await this.client.send(
-      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
+    try {
+      await this.client.send(
+        new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+    } catch (err) {
+      this.logger.error({
+        event: 's3.delete.failed',
+        ...this.errorDiag(key, err),
+      });
+      throw err;
+    }
+  }
+
+  /** upload/download/delete の catch で共通の診断フィールドを組み立てる。 */
+  private errorDiag(key: string, err: unknown) {
+    return {
+      bucket: this.bucket,
+      region: this.region,
+      key,
+      err_name: (err as Error).name,
+      err_message: (err as Error).message,
+      http_status:
+        (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+          ?.httpStatusCode ?? null,
+    };
   }
 }

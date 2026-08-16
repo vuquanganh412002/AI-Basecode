@@ -89,7 +89,7 @@ describe('ACSMS-SCR-025 integration — account form endpoints', () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/accounts/:account_id — API-025-001
+  // GET /api/v1/accounts/:account_id — ACSMS-API-025-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/accounts/:account_id', () => {
     it('should return the seeded admin account when NICHINO_ADMIN fetches by id', async () => {
@@ -133,7 +133,7 @@ describe('ACSMS-SCR-025 integration — account form endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // POST /api/v1/accounts — API-025-002
+  // POST /api/v1/accounts — ACSMS-API-025-002
   // ═══════════════════════════════════════════════════════════════════
   describe('POST /api/v1/accounts', () => {
     it('should create and persist a new account when NICHINO_ADMIN posts a valid body', async () => {
@@ -211,7 +211,7 @@ describe('ACSMS-SCR-025 integration — account form endpoints', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // PUT /api/v1/accounts/:account_id — API-025-003
+  // PUT /api/v1/accounts/:account_id — ACSMS-API-025-003
   // ═══════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/accounts/:account_id', () => {
     it('should update and persist the account when NICHINO_ADMIN puts a valid body', async () => {

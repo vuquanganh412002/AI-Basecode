@@ -235,7 +235,7 @@ describe('MailService', () => {
       );
       service.onModuleInit();
 
-      await service.sendOtp('user@example.com', '田中太郎', '123456');
+      await service.sendOtp('user@example.com', '田中太郎', '123456', 5);
 
       expect(smtpSendMail).toHaveBeenCalledTimes(1);
       const arg = smtpSendMail.mock.calls[0][0];
@@ -247,6 +247,18 @@ describe('MailService', () => {
       expect(arg.text).toContain('認証コード: 123456');
     });
 
+    it('should reflect the expiryMinutes argument in the rendered text (regression: was hardcoded "5分")', async () => {
+      const service = new MailService(
+        buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
+      );
+      service.onModuleInit();
+
+      await service.sendOtp('user@example.com', '田中太郎', '123456', 10);
+
+      const arg = smtpSendMail.mock.calls[0][0];
+      expect(arg.text).toContain('有効期限: 10分');
+    });
+
     it('should propagate provider errors so the auth service can log/handle', async () => {
       const service = new MailService(
         buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
@@ -255,7 +267,7 @@ describe('MailService', () => {
       smtpSendMail.mockRejectedValueOnce(new Error('smtp down'));
 
       await expect(
-        service.sendOtp('user@example.com', '田中', '123456'),
+        service.sendOtp('user@example.com', '田中', '123456', 5),
       ).rejects.toThrow('smtp down');
     });
   });
@@ -301,7 +313,7 @@ describe('MailService', () => {
   describe('sendNotification', () => {
     it('should send html body with the subject passed through as-is (no prefix)', async () => {
       // 顧客要件2026-07: システム名プレフィックスは付与せず、件名は呼び出し側が
-      // 完成形で渡す（SCR-029 は本文先頭に【クラウド版購読者管理システム】を置く）。
+      // 完成形で渡す（ACSMS-SCR-029 は本文先頭に【クラウド版購読者管理システム】を置く）。
       const service = new MailService(
         buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
       );
@@ -334,7 +346,7 @@ describe('MailService', () => {
         .spyOn((service as any).logger, 'log')
         .mockImplementation(() => undefined);
 
-      await service.sendOtp('alice@example.com', '田中', '123456');
+      await service.sendOtp('alice@example.com', '田中', '123456', 5);
 
       // Expect the log payload to carry the masked form 'a***@example.com'.
       const logged = logSpy.mock.calls.find(
@@ -353,7 +365,7 @@ describe('MailService', () => {
         .spyOn((service as any).logger, 'log')
         .mockImplementation(() => undefined);
 
-      await service.sendOtp('not-an-email', '田中', '123456');
+      await service.sendOtp('not-an-email', '田中', '123456', 5);
 
       const logged = logSpy.mock.calls.find(
         (c) => (c[0] as any)?.event === 'mail.otp.sent',

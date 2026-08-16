@@ -7,6 +7,8 @@ import { Job } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
 
 import { collectAccountEmails } from '@/common/utils/account-emails';
+import { NotificationStatus } from '@/common/constants/notification-status.constant';
+import { JobFailureException } from '@/common/exceptions/job-failure.exception';
 import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
 import { Account } from '@/database/entities/account.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
@@ -15,11 +17,10 @@ import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { MailService } from '@/modules/mail/mail.service';
 import { QUEUE_FILE_UPLOAD_NOTIFICATION } from '@/modules/queue/queue-names.constants';
 
-import { NotificationStatus } from './notification-status.constant';
 import type { FileUploadNotificationJob } from './notification-queue.service';
 
 /**
- * SCR-023 §6.5 — ファイルアップロード通知 worker(consumer)。
+ * ACSMS-SCR-023 §6.5 — ファイルアップロード通知 worker(consumer)。
  *
  * `file-upload-notification` BullMQ キューを処理。1 ジョブ = 1 file × 1 JA
  * (producer が分割。per-JA 分割=リトライ隔離の理由は notification-queue.service.ts)。
@@ -43,7 +44,7 @@ import type { FileUploadNotificationJob } from './notification-queue.service';
 export class FileUploadNotificationWorker extends WorkerHost {
   private readonly logger = new Logger(FileUploadNotificationWorker.name);
 
-  // [audit-screen-name] upload controller の監査行と同じ SCR-023 画面識別子。
+  // [audit-screen-name] upload controller の監査行と同じ ACSMS-SCR-023 画面識別子。
   // gamen_name で絞れば upload + notification フェーズを相関できる。
   private static readonly SCREEN_NAME = 'ファイルアップロード画面 (ACSMS-SCR-023)';
   private static readonly TABLE_NAME = 't_file_upload';
@@ -65,7 +66,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
   }
 
   /**
-   * メール本文へ載せるダウンロード画面(SCR-022)の絶対 URL。ファイル名で絞り込んだ
+   * メール本文へ載せるダウンロード画面(ACSMS-SCR-022)の絶対 URL。ファイル名で絞り込んだ
    * 状態で開くので、受信者は一覧を探さずに該当行へ着地する。
    *
    * API の直リンク(`/api/v1/file-download/:id/download`)にしないのは、未ログイン
@@ -118,7 +119,10 @@ export class FileUploadNotificationWorker extends WorkerHost {
     if (!ja) {
       this.logger.error({ event: 'notification.ja_missing', ...ctx });
       await this.markFailed(file_upload_id);
-      throw new Error(`JA ${ja_id} not found for file_upload_id ${file_upload_id}`);
+      throw new JobFailureException(
+        QUEUE_FILE_UPLOAD_NOTIFICATION,
+        `JA ${ja_id} not found for file_upload_id ${file_upload_id}`,
+      );
     }
 
     // [recipients] 各 m_account 行が最大 4 email(primary + sub 3)を寄与。
@@ -180,7 +184,10 @@ export class FileUploadNotificationWorker extends WorkerHost {
       // [all-failed] BullMQ にジョブ全体をリトライさせる(一時的 SMTP/SES 障害の
       // 可能性)。status は 2(送信中)維持で、リトライ間に 4 へちらつかせない。
       this.logger.error({ event: 'notification.all_failed', ...ctx, total });
-      throw new Error(`All ${total} recipients failed for file_upload_id ${file_upload_id}`);
+      throw new JobFailureException(
+        QUEUE_FILE_UPLOAD_NOTIFICATION,
+        `All ${total} recipients failed for file_upload_id ${file_upload_id}`,
+      );
     }
 
     if (failed > 0) {

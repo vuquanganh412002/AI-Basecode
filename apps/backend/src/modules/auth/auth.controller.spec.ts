@@ -4,11 +4,11 @@
 // All three SCRs share the same AuthController class. Tests are organised
 // as three sibling top-level describe blocks so each has its own mock
 // scope:
-//   1. AuthController (HTTP) — SCR-001 happy-path HTTP specs via supertest
+//   1. AuthController (HTTP) — ACSMS-SCR-001 happy-path HTTP specs via supertest
 //   2. AuthController — branch coverage — direct controller-method calls
 //      to exercise clientContext / cookieOptions / readSessionId branches
 //      that supertest can't reach
-//   3. AuthController — password reset (HTTP) — SCR-012 supertest specs
+//   3. AuthController — password reset (HTTP) — ACSMS-SCR-012 supertest specs
 
 import {
   HttpException,
@@ -131,7 +131,7 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
   const http = () => request(app.getHttpServer() as Server);
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/login (API-001-001)
+  // POST /api/v1/auth/login (ACSMS-API-001-001)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/login', () => {
     it('should return 200 with mfa_required=false + user + Set-Cookie when login succeeds without MFA', async () => {
@@ -243,7 +243,7 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/mfa/verify (API-001-002)
+  // POST /api/v1/auth/mfa/verify (ACSMS-API-001-002)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/mfa/verify', () => {
     it('should return 200 with user + Set-Cookie when OTP verifies', async () => {
@@ -344,7 +344,7 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/mfa/resend (API-001-003)
+  // POST /api/v1/auth/mfa/resend (ACSMS-API-001-003)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/mfa/resend', () => {
     it('should return 200 with new mfa_token + expires_in + resend_count + max_resend when resend succeeds', async () => {
@@ -416,7 +416,7 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/refresh (API-001-004)
+  // POST /api/v1/auth/refresh (ACSMS-API-001-004)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/refresh', () => {
     it('should return 200 with refreshed user payload when session is valid', async () => {
@@ -447,7 +447,7 @@ describe('AuthController (HTTP) — SCR-001 (login + MFA + refresh + logout)', (
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/logout (API-001-005)
+  // POST /api/v1/auth/logout (ACSMS-API-001-005)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/logout', () => {
     it('should return 200 with success message and clear cookie when called with session', async () => {
@@ -824,11 +824,11 @@ describe('AuthController — branch coverage', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-012 — Password reset HTTP specs (forgot-password, reset-password/verify,
+// ACSMS-SCR-012 — Password reset HTTP specs (forgot-password, reset-password/verify,
 // reset-password). All endpoints are PUBLIC (no SessionAuthGuard) — they're
 // for users who can't log in. Separate top-level describe so its
-// `service` mock (which carries the SCR-012 methods) and Nest app boot
-// don't bleed into the SCR-001 block above.
+// `service` mock (which carries the ACSMS-SCR-012 methods) and Nest app boot
+// don't bleed into the ACSMS-SCR-001 block above.
 // ═══════════════════════════════════════════════════════════════════════
 
 const VALID_RESET_TOKEN = '550e8400-e29b-41d4-a716-446655440000';
@@ -839,13 +839,13 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
 
   beforeEach(async () => {
     service = {
-      // SCR-001 methods (mocked but unused here)
+      // ACSMS-SCR-001 methods (mocked but unused here)
       login: jest.fn(),
       verifyMfa: jest.fn(),
       resendMfa: jest.fn(),
       refreshSession: jest.fn(),
       logout: jest.fn(),
-      // SCR-012 methods to be added by /gen-code-backend
+      // ACSMS-SCR-012 methods to be added by /gen-code-backend
       forgotPassword: jest.fn(),
       verifyResetToken: jest.fn(),
       resetPassword: jest.fn(),
@@ -1005,6 +1005,24 @@ describe('AuthController — password reset (HTTP) — SCR-012', () => {
   // ACSMS-API-012-002 — POST /api/v1/auth/reset-password/verify
   // ═════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/auth/reset-password/verify', () => {
+    // Regression (backend review finding #10): this endpoint was the only
+    // ACSMS-SCR-012 auth endpoint with no @Throttle, while driving an unbounded
+    // bcrypt-compare loop over t_mfa_otp (findResetTokenOtp) — an
+    // unauthenticated, comparatively cheap way to burn server CPU relative
+    // to every throttled sibling endpoint.
+    it('should be rate-limited at 5 requests / 60s, matching the sibling reset-password endpoint', () => {
+      const limit = Reflect.getMetadata(
+        'THROTTLER:LIMITdefault',
+        AuthController.prototype.verifyResetToken,
+      );
+      const ttl = Reflect.getMetadata(
+        'THROTTLER:TTLdefault',
+        AuthController.prototype.verifyResetToken,
+      );
+      expect(limit).toBe(5);
+      expect(ttl).toBe(60_000);
+    });
+
     it('should return 200 with { data: { valid: true } } when token is valid', async () => {
       service.verifyResetToken.mockResolvedValue({ valid: true });
 

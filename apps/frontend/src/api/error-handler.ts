@@ -10,23 +10,71 @@ import { useAuthStore } from '@/stores/auth.store';
  * view に `if (error_code === 'X') message.error(...)` を追加したら
  * ここにも登録する。
  *
- *  - DEADLINE_NOTICE_DUPLICATE: SCR-031 お知らせ管理（メニュー画面 + 締め切り時間の重複）。
+ *  - DEADLINE_NOTICE_DUPLICATE: ACSMS-SCR-031 お知らせ管理（メニュー画面 + 締め切り時間の重複）。
  *    view: OshiraseManagementView.applyServerErrors
- *  - EXPORT_LIMIT_EXCEEDED: SCR-030 ログ参照の出力上限超過。view: LogListView
- *  - IMPORT_VALIDATION_ERROR: SCR-016 / SCR-019 Excel取込の行別 errors[]。
+ *  - EXPORT_LIMIT_EXCEEDED: ACSMS-SCR-030 ログ参照の出力上限超過。view: LogListView
+ *  - IMPORT_VALIDATION_ERROR: ACSMS-SCR-016 / ACSMS-SCR-019 Excel取込の行別 errors[]。
  *    view 側で詳細表示（販売店: toast、購読者: 行パネル）するためグローバルは不要。
  */
 const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
   'DEADLINE_NOTICE_DUPLICATE',
   'EXPORT_LIMIT_EXCEEDED',
   'IMPORT_VALIDATION_ERROR',
-  // NO_TARGET_DATA: SCR-020 口座振替データ出力で対象0件。
+  // NO_TARGET_DATA: ACSMS-SCR-020 口座振替データ出力で対象0件。
   //   wrapper が 404 Blob を `{ error_code }` に正規化し view が画面内表示。
   'NO_TARGET_DATA',
-  // INACTIVE_TANKA_REFERENCED: SCR-020 で失効単価(active_flg=false)を参照する購読者あり。
+  // INACTIVE_TANKA_REFERENCED: ACSMS-SCR-020 で失効単価(active_flg=false)を参照する購読者あり。
   //   errors[]（該当購読者）を view がインラインリスト表示するためグローバルは不要。
   'INACTIVE_TANKA_REFERENCED',
 ]);
+
+/**
+ * ACSMS-SCR-022 / ACSMS-SCR-023 のファイルアップロード・ダウンロード実行系エンドポイント。
+ * これらは screen-design.md の顧客承認済み固有文言（ACSMS-MSG-023-005
+ * 「アップロードに失敗しました…」/ ACSMS-MSG-022-003「ファイルが存在していません。」）
+ * を view 側（FileUploadView.doUpload / FileDownloadView.handleFileError）が
+ * 表示する。VIEW_HANDLED_CODES は error_code 単位のみで、NOT_FOUND や
+ * INTERNAL_SERVER_ERROR のような汎用コードをここで丸ごと登録するとアプリ全体の
+ * 他画面の汎用トーストまで消えてしまうため、エンドポイント（method + url + code）
+ * 単位で判定する。対象は一覧取得（GET 一覧）を含まない — 実行系のみ。
+ *
+ *  - file-upload（POST）: view が UNAUTHORIZED/FORBIDDEN 以外の全コード
+ *    （ネットワークエラー含む）を再トーストするため `codes: undefined`＝無条件。
+ *  - file-download の preview/download/zip: view は NOT_FOUND のみ再トースト
+ *    するため、それ以外（ネットワークエラー含む）はグローバルトーストを残す。
+ */
+const VIEW_HANDLED_ENDPOINTS: readonly {
+  method: string;
+  pattern: RegExp;
+  /** undefined = このエンドポイントの全コードを view に一任（UNAUTHORIZED/FORBIDDEN を除く）。 */
+  codes?: ReadonlySet<string>;
+}[] = [
+  { method: 'post', pattern: /\/file-upload$/ },
+  {
+    method: 'get',
+    pattern: /\/file-download\/\d+\/(preview|download)$/,
+    codes: new Set([ErrorCode.NOT_FOUND]),
+  },
+  {
+    method: 'post',
+    pattern: /\/file-download\/download-zip$/,
+    codes: new Set([ErrorCode.NOT_FOUND]),
+  },
+];
+
+function isViewHandledEndpoint(
+  url: string,
+  method: string | undefined,
+  code: string | undefined,
+): boolean {
+  const m = (method || '').toLowerCase();
+  return VIEW_HANDLED_ENDPOINTS.some(
+    (e) =>
+      e.method === m &&
+      e.pattern.test(url) &&
+      (!e.codes || (code !== undefined && e.codes.has(code))),
+  );
+}
 
 /**
  * Axios 共通エラーハンドラ。error_code ごとに振り分ける。
@@ -62,6 +110,16 @@ export async function handleApiError(
   if (code && VIEW_HANDLED_CODES.has(code)) {
     throw error;
   }
+  // ファイルアップロード/ダウンロード実行系は view 側が固有文言を再トーストする
+  // ため、同じくグローバルはスキップ（二重表示防止）。UNAUTHORIZED/FORBIDDEN は
+  // clearSession・redirect を伴う専用フローのため対象外（常にグローバル側で処理）。
+  if (
+    code !== ErrorCode.UNAUTHORIZED &&
+    code !== ErrorCode.FORBIDDEN &&
+    isViewHandledEndpoint(url, error.config?.method, code)
+  ) {
+    throw error;
+  }
   // フォーム送信での UNAUTHORIZED は意味を持つ（パスワード/OTP誤り）のでトースト対象。
   const isAuthFormEndpoint =
     url.includes('/auth/login') ||
@@ -78,7 +136,7 @@ export async function handleApiError(
   }
 
   switch (code) {
-    // ─── SCR-001 固有 — 常にトースト、遷移しない ────────────────
+    // ─── ACSMS-SCR-001 固有 — 常にトースト、遷移しない ────────────────
     case ErrorCode.INVALID_CREDENTIALS:
     case ErrorCode.ACCOUNT_LOCKED:
     case ErrorCode.INVALID_OTP:
@@ -126,7 +184,7 @@ export async function handleApiError(
       message.error(data.message);
       break;
 
-    // SCR-011 — 対象行の購読種別に対し account に paper_flg/denshi_flg なし。
+    // ACSMS-SCR-011 — 対象行の購読種別に対し account に paper_flg/denshi_flg なし。
     // トーストのみ（/dashboard へ遷移せずフォームに留まる）。
     case ErrorCode.SHUBETSU_PERMISSION_DENIED:
       message.error(data.message);

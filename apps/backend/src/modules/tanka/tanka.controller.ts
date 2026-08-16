@@ -61,7 +61,7 @@ export class TankaController {
   // ParseIntPipe が非数値 "dropdown" で 400 になる。
   //
   // [shared-dropdown-rule] 認証のみ — @Permissions なし。異なるゲートを持つ複数画面
-  // (SCR-017 hanbaiten / SCR-011 dokusya) が共有するフォーム用ドロップダウン。1つの CRUD
+  // (ACSMS-SCR-017 hanbaiten / ACSMS-SCR-011 dokusya) が共有するフォーム用ドロップダウン。1つの CRUD
   // 権限で絞ると消費側画面のロールを締め出す恐れ。データ境界は
   // TankaService.dropdown → applyJaScope (制限ロールは自 JA のみ)、画面アクセスは各ルート自身のガード。
   @Get('dropdown')
@@ -86,7 +86,7 @@ export class TankaController {
     return this.service.remove(tankaId, req.user, req);
   }
 
-  // ─── API-003-001 — GET /api/v1/tanka/:id ──────────────────────────
+  // ─── ACSMS-API-003-001 — GET /api/v1/tanka/:id ──────────────────────────
   @Get(':id')
   @Permissions('tanka.view')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価詳細取得（編集モード）' })
@@ -99,7 +99,7 @@ export class TankaController {
     return { data };
   }
 
-  // ─── API-003-002 — POST /api/v1/tanka ───────────────────────────────────
+  // ─── ACSMS-API-003-002 — POST /api/v1/tanka ───────────────────────────────────
   @Post()
   @Permissions('tanka.create')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価登録' })
@@ -112,7 +112,7 @@ export class TankaController {
     return { data, message: '登録しました。' };
   }
 
-  // ─── API-003-003 — PUT /api/v1/tanka/:id ──────────────────────────
+  // ─── ACSMS-API-003-003 — PUT /api/v1/tanka/:id ──────────────────────────
   @Put(':id')
   @Permissions('tanka.update')
   @ApiOperation({ summary: '単価マスタ登録画面 — 単価更新' })

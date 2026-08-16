@@ -39,11 +39,11 @@ const STAFF_DAIKO_ROUTE_NAMES: ReadonlySet<string> = new Set([
  * FE ではメニューを「非表示」ではなく「表示のうえ非活性(グレーアウト)」に
  * する — 権限(ロール)自体は保持しているため、機能の存在は見せつつ所属支店
  * 設定により今は使えないことを示す（購読種別フラグの非活性と同じ扱い）。
- *   - 口座振替データ出力 (SCR-020)
- *   - 配達手数料支払情報出力 (SCR-021)
- *   - 購読者名簿 (SCR-026)
- *   - 増減連絡票（販売店）(SCR-028)
- *   - 増減通知（日本農業新聞）(SCR-029)
+ *   - 口座振替データ出力 (ACSMS-SCR-020)
+ *   - 配達手数料支払情報出力 (ACSMS-SCR-021)
+ *   - 購読者名簿 (ACSMS-SCR-026)
+ *   - 増減連絡票（販売店）(ACSMS-SCR-028)
+ *   - 増減通知（日本農業新聞）(ACSMS-SCR-029)
  */
 const SHITEN_RESTRICTED_ROUTE_NAMES: ReadonlySet<string> = new Set([
   'KozaFurikaeExport',
@@ -68,7 +68,7 @@ export interface UseMenuOptions {
  * permissions[] が必要権限を含む時に表示。空セクション（全項目除外）は
  * 自動折り畳みで除去。
  *
- * AppSidebar（左レール）と DashboardView（SCR-010 メニューカード）両方で使用し
+ * AppSidebar（左レール）と DashboardView（ACSMS-SCR-010 メニューカード）両方で使用し
  * 二面を同期。
  */
 export function useMenu(options: UseMenuOptions = {}): {

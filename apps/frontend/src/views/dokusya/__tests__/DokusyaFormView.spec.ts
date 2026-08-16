@@ -5,15 +5,15 @@
 // `DokusyaEdit`, `:id` param). Every it() maps back to a clause in
 // docs/design/ACSMS-SCR-011/screen-design.md (機能定義 + メッセージ情報)
 // + docs/design/ACSMS-SCR-011/index.html (UI structure) +
-// docs/design/ACSMS-SCR-011/ACSMS-SCR-011-api.md (API-011-001..006).
+// docs/design/ACSMS-SCR-011/ACSMS-SCR-011-api.md (ACSMS-API-011-001..006).
 //
 // Six BE endpoints, all mocked here:
-//   getDokusya         → API-011-001 (edit-mode prefill)
-//   createDokusya      → API-011-002 (登録)
-//   updateDokusya      → API-011-003 (更新)
-//   approveDokusya     → API-011-004 (承認)
-//   rejectDokusya      → API-011-005 (否認)
-//   getDokusyaHistory  → API-011-006 (履歴表示)
+//   getDokusya         → ACSMS-API-011-001 (edit-mode prefill)
+//   createDokusya      → ACSMS-API-011-002 (登録)
+//   updateDokusya      → ACSMS-API-011-003 (更新)
+//   approveDokusya     → ACSMS-API-011-004 (承認)
+//   rejectDokusya      → ACSMS-API-011-005 (否認)
+//   getDokusyaHistory  → ACSMS-API-011-006 (履歴表示)
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
@@ -38,7 +38,7 @@ import {
 import { todayIsoTokyo, tomorrowIsoTokyo } from '@/utils/datetime';
 import dayjs from 'dayjs';
 
-// ─── API wrapper for SCR-011 endpoints ─────────────────────────────
+// ─── API wrapper for ACSMS-SCR-011 endpoints ─────────────────────────────
 //
 // /gen-code-frontend will emit `src/api/dokusya/dokusya.ts` with these
 // 6 functions. The spec mocks them all here so no real HTTP fires.
@@ -88,6 +88,13 @@ vi.spyOn(message, 'info').mockImplementation(() => noopMessage);
 // confirm flows are testable without async modal lifecycle.
 vi.spyOn(Modal, 'confirm').mockImplementation((opts: any) => {
   void opts?.onOk?.();
+  return { destroy: () => undefined, update: () => undefined } as any;
+});
+
+// Modal.warning — キャンペーン単価の注意喚起（OK のみ）。実描画すると
+// jsdom 上に実モーダル DOM が残り他テストを汚染しうるため、Modal.confirm と
+// 同様にスタブする。呼ばれたか／内容だけをアサートする。
+vi.spyOn(Modal, 'warning').mockImplementation(() => {
   return { destroy: () => undefined, update: () => undefined } as any;
 });
 
@@ -226,7 +233,7 @@ beforeEach(async () => {
     meta: { total: 1, page: 1, per_page: 50, has_more: false },
   });
 
-  // SCR-011 BE endpoints — default-happy mocks.
+  // ACSMS-SCR-011 BE endpoints — default-happy mocks.
   const {
     getDokusya,
     getDokusyaEffectiveAt,
@@ -295,6 +302,19 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
     const { wrapper } = await renderView();
     const labels = wrapper.findAll('label, legend, .form-item-title').map((l) => l.text());
     expect(labels.some((t) => t.includes(needle))).toBe(present);
+  });
+
+  // 顧客要件2026-08（表記修正）: セクション見出しを「購読開始日、中止日」から
+  // 「購読日」へ変更し、購読開始日カレンダーの右に「から」を追加する。
+  it('should rename the section heading to 購読日 and append から next to the 購読開始日 picker', async () => {
+    const { wrapper } = await renderView();
+    const headings = wrapper.findAll('h3').map((h) => h.text());
+    expect(headings).toContain('購読日');
+    expect(headings).not.toContain('購読開始日、中止日');
+
+    const items = wrapper.findAllComponents({ name: 'AFormItem' });
+    const kaishiItem = items.find((it) => it.props('name') === 'dokusya_kaishi_date');
+    expect(kaishiItem!.text()).toContain('から');
   });
 
   it('should keep the 購読種別 radio group editable in create mode (only 併読 disabled)', async () => {
@@ -502,8 +522,10 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     vm.formState.shiharai_hoho = null; // 支払方法 未選択（＝口座引落ではない）
     await flushPromises();
 
-    // 購読開始日はラジオ「今日 / 翌月1日」で表示される（支払方法に関係なく）。
-    expect(wrapper.text()).toContain('翌月1日');
+    // 購読開始日はラジオ「今日から / 翌月1日から」で表示される（支払方法に
+    // 関係なく。顧客要件2026-08で「から」を付記）。
+    expect(wrapper.text()).toContain('今日から');
+    expect(wrapper.text()).toContain('翌月1日から');
 
     // 購読中止日は新規作成では非表示（フォームから撤去 — 編集モードのみ）。
     expect(wrapper.find('input[placeholder="月末で終了"]').exists()).toBe(false);
@@ -602,6 +624,19 @@ describe('DokusyaFormView — 電子版 購読部数=1固定 (顧客要件 2026-
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
     expect((busuInput(wrapper).element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  // 顧客要件2026-08（表記修正）: 請求開始月カレンダーの右に「から」を追加。
+  it('should append から next to the 請求開始月 field in edit mode for a 電子版 record', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_shubetsu: 2, seikyu_kaishi_month: '202210' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const items = wrapper.findAllComponents({ name: 'AFormItem' });
+    const seikyuItem = items.find((it) => it.props('name') === 'seikyu_kaishi_month');
+    expect(seikyuItem).toBeDefined();
+    expect(seikyuItem!.text()).toContain('から');
   });
 
   // hanbaiten_id / tanka_id は NULL 許容。BE は未設定を null で返す
@@ -1149,8 +1184,9 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     // 解約読込時はラジオ非表示。新規へ切替（再購読）→ create と同じフォームに。
     vm.formState.tetsuzuki_shurui = 1;
     await flushPromises();
-    // 電子版 create と同じく購読開始日ラジオ「今日 / 翌月1日」を表示する。
-    expect(wrapper.text()).toContain('翌月1日');
+    // 電子版 create と同じく購読開始日ラジオ「今日から / 翌月1日から」を表示する。
+    expect(wrapper.text()).toContain('今日から');
+    expect(wrapper.text()).toContain('翌月1日から');
   });
 
   it('should focus the first errored field when submit hits a validation error (顧客要件)', async () => {
@@ -1304,8 +1340,10 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
     expect(wrapper.text()).toContain('履歴表示');
   });
 
-  it('should show ACSMS-MSG-011-016 when getDokusya rejects with NOT_FOUND', async () => {
-    // 機能定義 15.1 — データ取得失敗時 ACSMS-MSG-011-016 表示.
+  it('should toast ACSMS-MSG-011-016 and redirect to Dashboard when getDokusya rejects with NOT_FOUND', async () => {
+    // 機能定義 15.1 — データ取得失敗時 ACSMS-MSG-011-016 表示。以前は画面内
+    // バナー表示だったが、他の編集画面と同じくトースト＋ダッシュボードへの
+    // 遷移に統一した（顧客要件 2026-08 — useNotFoundRedirect 共通化）。
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockRejectedValueOnce({
       response: {
@@ -1316,8 +1354,14 @@ describe('DokusyaFormView — edit mode pre-fill (機能定義 15.x)', () => {
         },
       },
     });
-    const { wrapper } = await renderView({ dokusyaId: 9999 });
-    expect(wrapper.text()).toContain('見つかりません');
+    const errorSpy = vi.spyOn(message, 'error');
+    errorSpy.mockClear();
+    const { wrapper, router } = await renderView({ dokusyaId: 9999 });
+    await flushPromises();
+
+    expect(errorSpy).toHaveBeenCalledWith('購読者ID #9999 が見つかりません。');
+    expect(router.currentRoute.value.name).toBe('Dashboard');
+    expect(wrapper.exists()).toBe(true);
   });
 
   it('should render the 更新 submit button (not 登録) after selecting an edit mode', async () => {
@@ -1608,6 +1652,30 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
   // disabledStopPaperDate + BE service.stop が担う（DokusyaListView.spec.ts /
   // dokusya.service.spec.ts）。joho の上限参照として既存の解約予約日を使う検証は
   // 上のテスト（joho >= 解約予定日）で引き続きカバーする。
+
+  it('should block update + show 解約予定日 message on joho when 販売店変更の適用日 == 解約予定日（同日不可・顧客要件2026-08）', async () => {
+    // 上のテストは joho > 解約予定日 のケース。ここでは境界値 joho == 解約予定日
+    // を明示的に検証する（BE collectTekiyoDateViolations と同じ境界）。日付は
+    // ハードコードすると実行時点の本日を追い越して壊れるため相対値で組み立てる。
+    const futureChushi = dayjs(todayIsoTokyo()).add(30, 'day').format('YYYY-MM-DD');
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_chushi_date: futureChushi }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    vm.formState.hanbaiten_id = Number(vm.formState.hanbaiten_id) + 1;
+    await flushPromises();
+    vm.formState.joho_henko_tekiyo_date = futureChushi; // 解約予定日と同日
+    await flushPromises();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(`解約予定日（${futureChushi.replaceAll('-', '/')}）`);
+    expect(updateDokusya).not.toHaveBeenCalled();
+  });
 
   it('should show the joho<kaishi error on 情報変更適用日 when 販売店のみ変更 (販売店適用日は joho に統一)', async () => {
     // 顧客要件 2026-07: 販売店適用日を廃止。販売店のみ変更でも joho が唯一の適用日で
@@ -3699,6 +3767,116 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     expect(fieldDisabled(wrapper, 'joho_henko_tekiyo_date')).toBe(true);
   });
 
+  // 顧客要件2026-08: 解約予定日は同日も不可。以前は update() 送信まで検知できず、
+  // フォーム全項目入力後に弾かれてやり直しになっていた。ポップアップ確定の
+  // その場で弾き、ユーザーがすぐ日付を選び直せるようにする。
+  it('予約変更ポップアップで joho が解約予定日と同日/以降のとき、その場でエラーを表示しAPIを呼ばない（顧客要件2026-08）', async () => {
+    const futureChushi = dayjs(todayIsoTokyo()).add(30, 'day').format('YYYY-MM-DD');
+    const { getDokusya, getDokusyaEffectiveAt } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_chushi_date: futureChushi }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      selectMode: (m: string) => void;
+      reservedJohoInput: string | null;
+      reservedJohoError: string;
+      reservedJohoModalOpen: boolean;
+      confirmReservedJoho: () => Promise<void>;
+    };
+    vm.selectMode('reserved');
+    await flushPromises();
+
+    // 同日 — 不可。
+    vm.reservedJohoInput = futureChushi;
+    await vm.confirmReservedJoho();
+    await flushPromises();
+    expect(vm.reservedJohoError).toContain(
+      `解約予定日（${futureChushi.replaceAll('-', '/')}）より前`,
+    );
+    expect(vm.reservedJohoModalOpen).toBe(true);
+    expect(getDokusyaEffectiveAt).not.toHaveBeenCalled();
+
+    // 解約予定日より後 — 不可。
+    const afterChushi = dayjs(futureChushi).add(1, 'day').format('YYYY-MM-DD');
+    vm.reservedJohoInput = afterChushi;
+    await vm.confirmReservedJoho();
+    await flushPromises();
+    expect(vm.reservedJohoError).toContain('より前');
+    expect(getDokusyaEffectiveAt).not.toHaveBeenCalled();
+  });
+
+  // クライアント側の事前チェックは originalChushiDate（レコード直近の解約予定日）
+  // のみを見るため、履歴(t_dokusya_rireki)を辿って初めて確定する範囲違反
+  // （購読開始日以降チェック等）はすり抜けて BE(getEffectiveAt) まで届くことがある。
+  // このとき VALIDATION_ERROR は axios interceptor がトーストしない契約
+  // なので、ポップアップ側で errors[] を拾って表示しないと無反応に見える。
+  it('予約変更ポップアップ確定でgetEffectiveAtがVALIDATION_ERRORで失敗したとき、ポップアップ内にエラーを表示する', async () => {
+    const futureChushi = dayjs(todayIsoTokyo()).add(30, 'day').format('YYYY-MM-DD');
+    const beforeChushi = dayjs(futureChushi).subtract(1, 'day').format('YYYY-MM-DD');
+    const { getDokusya, getDokusyaEffectiveAt } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_chushi_date: futureChushi }),
+    });
+    vi.mocked(getDokusyaEffectiveAt).mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: {
+          error_code: 'VALIDATION_ERROR',
+          message: '入力値が不正です。',
+          errors: [
+            {
+              field: 'joho_henko_tekiyo_date',
+              message: '情報変更適用日は購読開始日（2026/08/24）以降の日付を指定してください。',
+            },
+            {
+              field: 'joho_henko_tekiyo_date',
+              message: `情報変更適用日は解約予定日（${futureChushi.replaceAll('-', '/')}）より前の日付を指定してください。`,
+            },
+          ],
+        },
+      },
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as unknown as {
+      selectMode: (m: string) => void;
+      reservedJohoInput: string | null;
+      reservedJohoError: string;
+      reservedJohoModalOpen: boolean;
+      viewMode: string;
+      confirmReservedJoho: () => Promise<void>;
+    };
+    vm.selectMode('reserved');
+    await flushPromises();
+
+    vm.reservedJohoInput = beforeChushi;
+    await vm.confirmReservedJoho();
+    await flushPromises();
+
+    // 事前チェック（chushi のみ）はすり抜けて API まで届く。
+    expect(getDokusyaEffectiveAt).toHaveBeenCalledWith(100, beforeChushi);
+    // BE の最後のフィールドエラーがポップアップ内に表示される（無反応にならない）。
+    expect(vm.reservedJohoError).toContain('解約予定日');
+    expect(vm.reservedJohoError).toContain('より前');
+    // モードには入らず、ポップアップは開いたまま。
+    expect(vm.viewMode).not.toBe('reserved');
+    expect(vm.reservedJohoModalOpen).toBe(true);
+  });
+
+  it('予約変更ポップアップで joho が解約予定日より前のときは通常どおり予約変更モードに入る', async () => {
+    const futureChushi = dayjs(todayIsoTokyo()).add(30, 'day').format('YYYY-MM-DD');
+    const beforeChushi = dayjs(futureChushi).subtract(1, 'day').format('YYYY-MM-DD');
+    const { getDokusya, getDokusyaEffectiveAt } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_chushi_date: futureChushi }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await enterReservedMode(wrapper, beforeChushi);
+    expect((wrapper.vm as any).viewMode).toBe('reserved');
+    expect((wrapper.vm as any).reservedJohoError).toBe('');
+    expect(getDokusyaEffectiveAt).toHaveBeenCalledWith(100, beforeChushi);
+  });
+
   it('電子版は当日変更でも帳票影響項目（住所）を非活性にしない', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValueOnce({
@@ -3897,5 +4075,500 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     });
     const { wrapper } = await renderView({ dokusyaId: 100 });
     expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 18. キャンペーン単価の注意喚起 (顧客要件 2026-08)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// 電子版の読者で以下いずれかが起きたとき Modal.warning（OK のみ）で
+// 「電子版のキャンペーン単価が登録・更新されています。必ず日本農業新聞担当者に
+// 連絡してください。」を表示する:
+//   ①② 新聞単価の選択が campaign⇄通常 の境界をまたいだ瞬間（保存を待たず、
+//        選んだ直後に出す — 顧客要望 2026-08 改訂）
+//   ③ 承認/否認ボタンを押した時点でキャンペーン単価が選択されている
+//      （今回のセッションで選び直していなくても拾う）
+// 対象は電子版のみ（顧客要件の文言「電子版のキャンペーン単価」どおり）。
+describe('DokusyaFormView — キャンペーン単価の注意喚起 (顧客要件 2026-08)', () => {
+  /** tanka_id=1 は通常単価（既定の buildTankaDropdown と同じ）、tanka_id=2 はキャンペーン単価。 */
+  async function mockTankaOptionsWithCampaign(): Promise<void> {
+    const { getTankaDropdown } = await import('@/api/tanka/tanka');
+    vi.mocked(getTankaDropdown).mockResolvedValueOnce({
+      data: [
+        {
+          tanka_id: 1,
+          tanka_code: 'T001',
+          tanka_name: '基本購読料（月額）',
+          tanka_type: 1,
+          kingaku_zeikomi: 4900,
+          kingaku_zeinuki: 4500,
+          kingaku: 4900,
+          campaign_flg: false,
+        },
+        {
+          tanka_id: 2,
+          tanka_code: 'T002',
+          tanka_name: 'キャンペーン購読料',
+          tanka_type: 1,
+          kingaku_zeikomi: 0,
+          kingaku_zeinuki: 0,
+          kingaku: 0,
+          campaign_flg: true,
+        },
+      ],
+      meta: { total: 2, page: 1, per_page: 50, has_more: false },
+    });
+  }
+
+  it('① should call Modal.warning immediately when selecting a campaign tanka on a 電子版 create form (before save)', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({ dokusya_shubetsu: 2, tanka_id: 2 }),
+    );
+
+    // 保存前、選択した瞬間にポップアップが出る（顧客要望 2026-08 改訂）。
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+    const opts = warningSpy.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(opts.okText).toBe('確認');
+
+    // 保存自体は通常どおり成功し、保存時に二重通知はしない。
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(createDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('① should NOT call Modal.warning when selecting a non-campaign tanka on a 電子版 create form', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({ dokusya_shubetsu: 2, tanka_id: 1 }),
+    );
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).not.toHaveBeenCalled();
+  });
+
+  it('should NOT call Modal.warning for 紙版 even when selecting a campaign tanka (対象は電子版のみ)', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({ dokusya_shubetsu: 1, tanka_id: 2 }),
+    );
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).not.toHaveBeenCalled();
+  });
+
+  it("②' should call Modal.warning when switching 購読種別 from 紙版 to 電子版 while a campaign tanka is already selected", async () => {
+    await mockTankaOptionsWithCampaign();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as any;
+
+    // 紙版でキャンペーン単価を選択 — 対象は電子版のみなので通知なし。
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({ dokusya_shubetsu: 1, tanka_id: 2 }),
+    );
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    // その後 電子版 へ切替 — 単価は変えていないが、既に campaign 単価が
+    // 選択済みの状態で電子版になった瞬間に通知が必要（顧客要件 2026-08 追補）。
+    vm.formState.dokusya_shubetsu = 2;
+    await flushPromises();
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+
+    await fillForm(
+      vm,
+      buildCreateDokusyaForm({ dokusya_shubetsu: 2, tanka_id: 2 }),
+    );
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1); // 保存時に二重通知しない
+  });
+
+  it('② should call Modal.warning immediately when switching from campaign to a regular tanka on an edit form', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 2, // ロード時点でキャンペーン単価
+        denshi_shonin_status: 1, // 承認済み → 通常編集フロー（承認ではない）
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      // 電子版は購読部数=1固定（顧客要件）なので dokusya_busu を明示的に戻す
+      // （buildUpdateDokusyaForm の既定 dokusya_busu:2 は紙版向け）。
+      buildUpdateDokusyaForm({ dokusya_shubetsu: 2, dokusya_busu: 1, tanka_id: 1 }), // 通常単価へ切替
+    );
+
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1); // 保存時に二重通知しない
+  });
+
+  it('② should call Modal.warning immediately when switching from a regular tanka to campaign on an edit form', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1, // ロード時点で通常単価
+        denshi_shonin_status: 1,
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    await fillForm(
+      vm,
+      buildUpdateDokusyaForm({ dokusya_shubetsu: 2, dokusya_busu: 1, tanka_id: 2 }), // キャンペーン単価へ切替
+    );
+
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should NOT call Modal.warning when the tanka selection does not cross the campaign/regular boundary', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+    // 単価はそのまま(1)、他項目（備考）だけ変更する。
+    await fillForm(
+      vm,
+      buildUpdateDokusyaForm({
+        dokusya_shubetsu: 2,
+        dokusya_busu: 1,
+        tanka_id: 1,
+        biko: '更新メモ',
+      }),
+    );
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).not.toHaveBeenCalled();
+  });
+
+  it('③ should call Modal.warning when approving while a campaign tanka is already selected (no change made this session)', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, approveDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        denshi_shonin_status: 0,
+        dokusya_shubetsu: 2,
+        tanka_id: 2, // 承認待ちに入った時点で既にキャンペーン単価
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    // ロード時の代入は isHydrating 中なので①②の watch は発火しない。
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    const approveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    expect(approveBtn).toBeDefined();
+    await approveBtn!.trigger('click');
+    await flushPromises();
+
+    expect(approveDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('③ should call Modal.warning when rejecting while a campaign tanka is already selected (no change made this session)', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, rejectDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        denshi_shonin_status: 0,
+        dokusya_shubetsu: 2,
+        tanka_id: 2,
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(warningSpy).not.toHaveBeenCalled();
+
+    const rejectBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認しない'));
+    expect(rejectBtn).toBeDefined();
+    await rejectBtn!.trigger('click');
+    await flushPromises();
+
+    expect(rejectDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should NOT call Modal.warning when approving with a non-campaign tanka selected', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, approveDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        denshi_shonin_status: 0,
+        dokusya_shubetsu: 2,
+        tanka_id: 1,
+      }),
+    });
+    const warningSpy = vi.spyOn(Modal, 'warning');
+    warningSpy.mockClear();
+
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+
+    const approveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await approveBtn!.trigger('click');
+    await flushPromises();
+
+    expect(approveDokusya).toHaveBeenCalledTimes(1);
+    expect(warningSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 19. 電子版読者管理システム未連携 (denshi_kaiin_id=null) の読取専用化
+// (顧客要件 2026-08 追補)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// 電子版 かつ 電子版読者管理システム未連携（denshi_kaiin_id=null）かつ
+// 単価が campaign でない読者は編集不可（併読/電子版クレカと同じ読取専用UI・
+// BE(update/stop) も同じ条件で 403 DOKUSYA_READ_ONLY）。campaign 単価の読者は
+// システム連携前に手動登録される運用のため例外的に編集可能。
+describe('DokusyaFormView — 電子版読者管理システム未連携の読取専用化 (顧客要件 2026-08 追補)', () => {
+  async function mockTankaOptionsWithCampaign(): Promise<void> {
+    const { getTankaDropdown } = await import('@/api/tanka/tanka');
+    vi.mocked(getTankaDropdown).mockResolvedValueOnce({
+      data: [
+        {
+          tanka_id: 1,
+          tanka_code: 'T001',
+          tanka_name: '基本購読料（月額）',
+          tanka_type: 1,
+          kingaku_zeikomi: 4900,
+          kingaku_zeinuki: 4500,
+          kingaku: 4900,
+          campaign_flg: false,
+        },
+        {
+          tanka_id: 2,
+          tanka_code: 'T002',
+          tanka_name: 'キャンペーン購読料',
+          tanka_type: 1,
+          kingaku_zeikomi: 0,
+          kingaku_zeinuki: 0,
+          kingaku: 0,
+          campaign_flg: true,
+        },
+      ],
+      meta: { total: 2, page: 1, per_page: 50, has_more: false },
+    });
+  }
+
+  it('should disable the 更新 submit button when 電子版 + denshi_kaiin_id=null + 単価が campaign でない', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1, // 通常単価
+        denshi_kaiin_id: null,
+        denshi_shonin_status: 1, // 承認済み — 通常編集フロー（承認待ちではない）
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const submitBtn = wrapper.find('button[type="submit"]');
+    expect(submitBtn.exists()).toBe(true);
+    expect((submitBtn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // 回帰テスト: campaign単価 + denshi_kaiin_id=null の読者を、編集画面で
+  // （当日変更モードを選んで）通常単価へ切替える最中に読取専用へ倒れて保存
+  // できなくなるデッドロックが一度発生した（dokusya_id=23619 で顧客報告 —
+  // ポップアップの OK は押せるが、その後 更新 ボタンが disabled になる）。
+  // 原因は isRecordReadOnly の3番目の条件が編集中のドラフト値
+  // (formState.tanka_id) を見ていたこと — campaign→通常へ切替えた瞬間に
+  // 自ら新条件に踏み込み、保存前に submit ボタンが disabled になっていた。
+  // ロード時点の値(originalTankaId)で判定するよう修正した後は、切替え作業中は
+  // 編集可能なまま保たれ、保存自体は成功する。
+  it('should NOT disable the submit button while switching from campaign to a regular tanka on a denshi_kaiin_id=null record (regression #23619)', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 2, // ロード時点はキャンペーン単価
+        denshi_kaiin_id: null,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const vm = wrapper.vm as any;
+
+    // 参照モード→当日変更モードを選ぶ（電子版の唯一のモード・顧客の実操作と同じ）。
+    vm.selectMode('today');
+    await flushPromises();
+
+    const submitBtnBefore = wrapper.find('button[type="submit"]');
+    expect(submitBtnBefore.exists()).toBe(true);
+    expect((submitBtnBefore.element as HTMLButtonElement).disabled).toBe(false);
+
+    // 編集中に通常単価へ切替える（ポップアップ表示は①②の watch が別途担当・
+    // ここでは読取専用ロックが誤発火しないことだけを検証する）。
+    await fillForm(
+      vm,
+      buildUpdateDokusyaForm({ dokusya_shubetsu: 2, dokusya_busu: 1, tanka_id: 1 }),
+    );
+
+    const submitBtnAfter = wrapper.find('button[type="submit"]');
+    expect(submitBtnAfter.exists()).toBe(true);
+    expect((submitBtnAfter.element as HTMLButtonElement).disabled).toBe(false);
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(updateDokusya).toHaveBeenCalledTimes(1);
+  });
+
+  // 編集可能なレコードは既定で参照モード表示（モードバー→当日/予約変更を選ぶまで
+  // submit ボタン自体を出さない仕様）なので、「編集可能か」は 読取専用レコードでは
+  // 出ない モードバーの有無で確認する（併読の「モードバーは...出さない」テストの逆）。
+  it('モードバーは 電子版+denshi_kaiin_id=null でも 単価が campaign なら出す（例外）', async () => {
+    await mockTankaOptionsWithCampaign();
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 2, // campaign単価
+        denshi_kaiin_id: null,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(true);
+  });
+
+  it('モードバーは 電子版+denshi_kaiin_id が既に設定済みなら出す（非campaignでも読取専用にならない）', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1, // 通常単価
+        denshi_kaiin_id: 555,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(true);
+  });
+
+  it('モードバーは 紙版なら denshi_kaiin_id=null でも出す（対象は電子版のみ）', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 1,
+        denshi_kaiin_id: null,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(true);
+  });
+
+  it('モードバーは 電子版+denshi_kaiin_id=null+非campaign レコードでは出さない', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1,
+        denshi_kaiin_id: null,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    expect(wrapper.find('[data-test="dokusya-mode-bar"]').exists()).toBe(false);
+  });
+
+  it('should NOT call updateDokusya when submit is attempted while readonly（電子版+denshi_kaiin_id=null+非campaign）', async () => {
+    const { getDokusya, updateDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        tanka_id: 1,
+        denshi_kaiin_id: null,
+        denshi_shonin_status: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(updateDokusya).not.toHaveBeenCalled();
   });
 });

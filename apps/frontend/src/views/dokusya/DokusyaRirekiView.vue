@@ -11,6 +11,7 @@
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import type { AxiosError } from 'axios';
 import type { TableColumnsType } from 'ant-design-vue';
 
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -18,6 +19,7 @@ import { useTableQuery } from '@/composables/useTableQuery';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { formatDate, formatYen } from '@/utils/formatters';
 import { bunruiCsvToLabel } from '@/constants/dokusya-bunrui';
 import { denshiShoninStatusLabel } from '@/constants/denshi-shonin-status-labels';
@@ -38,6 +40,7 @@ const nogyosyaBunruiLabel = (csv: string | null | undefined): string =>
   bunruiCsvToLabel(csv, (c) => codes.label('NOGYOSYA_BUNRUI', c));
 const authStore = useAuthStore();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 
 // 取消(赤伝)は購読者編集操作 → dokusya.update 権限が必要。無い場合はボタンを
 // disable する（BE も PermissionsGuard で再検証）。
@@ -62,7 +65,7 @@ const rows = ref<DokusyaRirekiItem[]>([]);
 const columns: TableColumnsType = [
   { title: '履歴番号', dataIndex: 'rireki_no', key: 'rireki_no', sorter: true, width: 90 },
   // 履歴番号 の直後に 購読種別 → 電子版読者種別 → 電子申込承認ステータス の順で
-  // 並べ、手続種別 をその後ろへ（顧客要件 SCR-013）。
+  // 並べ、手続種別 をその後ろへ（顧客要件 ACSMS-SCR-013）。
   { title: '購読種別', key: 'dokusya_shubetsu', width: 110 },
   { title: '電子版読者種別', key: 'denshi_dokusya_shubetsu', width: 140 },
   { title: '電子申込承認ステータス', key: 'denshi_shonin_status', width: 180 },
@@ -141,6 +144,13 @@ function flagLabel(value: boolean): string {
   return value ? 'はい' : 'いいえ';
 }
 
+/** 取消（赤伝）済み行をグレーアウトし他行と視覚的に区別する（顧客要件）。 */
+function rowClassForTorikeshi(row: Record<string, unknown>): string {
+  return (row as unknown as DokusyaRirekiItem).torikeshi_flg
+    ? 'dokusya-rireki-row-torikeshi'
+    : '';
+}
+
 /** 新聞単価表示: 単価名 + 半角スペース + 金額（金額は BE が JA 税区分で解決済み）。 */
 function tankaLabel(r: DokusyaRirekiItem): string {
   return [r.tanka_name, formatYen(r.tanka_kingaku)].filter(Boolean).join(' ');
@@ -155,8 +165,13 @@ function tankaLabel(r: DokusyaRirekiItem): string {
  * 購読開始日は購読者が読み始めた日で、途中の部数変更では動かない。増減が
  * 実際に効くのは変更適用日なので、部数を増やした行でも購読開始日を出すと
  * 「いつ増えたのか」と食い違う。
+ *
+ * 取消（赤伝）済み行（対象行・打ち消し行とも）は増減の実績として扱わないため
+ * 常に空欄にする（顧客要件 No.86 ケース4 — 取消は数値の増減ではなく誤入力の
+ * 無効化）。
  */
 function zoubuDate(r: DokusyaRirekiItem): string {
+  if (r.torikeshi_flg) return '';
   const zenkai = r.zenkai_dokusya_busu;
   if (zenkai == null || r.dokusya_busu > zenkai) {
     return formatDate(r.joho_henko_tekiyo_date);
@@ -169,8 +184,11 @@ function zoubuDate(r: DokusyaRirekiItem): string {
  * （t_dokusya_rireki.joho_henko_tekiyo_date）を表示する。前回部数が null
  * （新規作成・再購読の初回行）は増部であって減部ではないため空欄にする
  * （顧客要件 SCR-013：新規・再購読は 増部日 のみ表示し、減部日は出さない）。
+ *
+ * 取消（赤伝）済み行は zoubuDate と同じ理由で常に空欄（顧客要件 No.86 ケース4）。
  */
 function genbuDate(r: DokusyaRirekiItem): string {
+  if (r.torikeshi_flg) return '';
   const zenkai = r.zenkai_dokusya_busu;
   if (zenkai != null && r.dokusya_busu < zenkai) {
     return formatDate(r.joho_henko_tekiyo_date);
@@ -191,11 +209,20 @@ async function fetchList(): Promise<void> {
     });
     rows.value = res.data;
     total.value = res.meta.total;
-  } catch {
-    // 想定内・無視: global axios interceptor が FORBIDDEN / 500 /
-    // ACSMS-MSG-013-002 をトースト済み。再 throw は onMounted の
-    // fire-and-forget で unhandled rejection になる。.claude/rules/vue.md
-    // §Error Handling Architecture の「想定内で意図的に無視」ケース。
+  } catch (err) {
+    // dokusya_id が存在しない（URL 直打ち等）→ 空の一覧のまま留まらせず
+    // ダッシュボードへ戻す（他 7 編集画面と同じ NOT_FOUND 標準挙動）。
+    // BE の一般メッセージは axios interceptor が既にトースト済みなので
+    // ここでは追加トーストしない。
+    const ax = err as AxiosError<{ error_code?: string }>;
+    if (ax?.response?.data?.error_code === 'NOT_FOUND') {
+      await redirectToDashboard();
+      return;
+    }
+    // FORBIDDEN / 500 は想定内・無視: global axios interceptor がトースト
+    // 済み。再 throw は onMounted の fire-and-forget で unhandled
+    // rejection になる。.claude/rules/vue.md §Error Handling Architecture
+    // の「想定内で意図的に無視」ケース。
     rows.value = [];
     total.value = 0;
   } finally {
@@ -311,6 +338,7 @@ async function confirmTorikeshi(): Promise<void> {
       :per-page="state.per_page"
       :total="total"
       row-key="dokusya_rireki_id"
+      :row-class-name="rowClassForTorikeshi"
       @change="onPageChange"
     >
       <template #bodyCell="{ column, record }">
@@ -483,3 +511,11 @@ async function confirmTorikeshi(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 取消（赤伝）済み行は文字色のみグレーアウトし、背景は他行と同じままにする
+   （顧客要件）。 */
+:deep(.dokusya-rireki-row-torikeshi > td) {
+  color: var(--text-disabled);
+}
+</style>

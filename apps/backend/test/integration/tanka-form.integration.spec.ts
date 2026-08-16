@@ -1,9 +1,9 @@
 // Screen: ACSMS-SCR-003 — 単価マスタ登録画面
 //
 // Integration spec — boots the whole Nest app against pg-mem + ioredis-mock
-// for the 3 SCR-003 endpoints (GET /:id, POST, PUT /:id). The SCR-002
+// for the 3 ACSMS-SCR-003 endpoints (GET /:id, POST, PUT /:id). The ACSMS-SCR-002
 // integration spec (`tanka.integration.spec.ts`) owns the list + delete
-// paths; this file isolates SCR-003 so additions don't bloat the existing
+// paths; this file isolates ACSMS-SCR-003 so additions don't bloat the existing
 // suite.
 
 import type { Server } from 'http';

@@ -4,7 +4,7 @@
 // clause in:
 //   docs/design/ACSMS-SCR-028/screen-design.md (機能定義 + メッセージ情報)
 //   docs/design/ACSMS-SCR-028/index.html (UI labels: 増部 / 減部 / 住所変更)
-//   docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md (API-028-001 preview / 002 PDF)
+//   docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md (ACSMS-API-028-001 preview / 002 PDF)
 //
 // The view defineExposes `{ formState }` so setup can seed 適用日 / 販売店 /
 // 管理支店 (antd controls aren't drivable via jsdom DOM events). Buttons are
@@ -29,7 +29,7 @@ import {
 } from '@test/fixtures/report.fixture';
 
 // API wrappers — /gen-code-frontend extends @/api/report/report with the
-// two SCR-028 functions.
+// two ACSMS-SCR-028 functions.
 vi.mock('@/api/report/report', () => ({
   previewZougenHanbaiten: vi.fn(),
   exportZougenHanbaiten: vi.fn(),
@@ -139,6 +139,12 @@ describe('ZougenHanbaitenReportView — 画面初期表示', () => {
     expect(select.props('dummy')).toBe('exclude');
   });
 
+  it('#57976: should exclude 廃店 (haiten_flg=true) from the 販売店 dropdown — a closed store can never have a report', async () => {
+    const { wrapper } = await renderView();
+    const select = wrapper.findComponent({ name: 'BaseHanbaitenSelect' });
+    expect(select.props('activeOnly')).toBe(true);
+  });
+
   it('should render the 適用日 / 販売店 / 管理支店 labels when mounted', async () => {
     const { wrapper } = await renderView();
     const text = wrapper.text();
@@ -161,6 +167,22 @@ describe('ZougenHanbaitenReportView — 画面初期表示', () => {
   it('should NOT render any preview rows when first mounted (empty preview area)', async () => {
     const { wrapper } = await renderView();
     expect(wrapper.text()).not.toContain('農業 太郎');
+  });
+
+  it('should associate 販売店 / 管理支店 titles with their select via <label for> (regression: was a bare <div>)', async () => {
+    const { wrapper } = await renderView();
+    const hanbaitenLabel = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('販売店'));
+    const kanriShitenLabel = wrapper
+      .findAll('label')
+      .find((l) => l.text().includes('管理支店'));
+    expect(hanbaitenLabel).toBeDefined();
+    expect(kanriShitenLabel).toBeDefined();
+    const hanbaitenId = hanbaitenLabel!.attributes('for')!;
+    const kanriShitenId = kanriShitenLabel!.attributes('for')!;
+    expect(wrapper.find(`#${hanbaitenId}`).exists()).toBe(true);
+    expect(wrapper.find(`#${kanriShitenId}`).exists()).toBe(true);
   });
 });
 

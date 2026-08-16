@@ -28,7 +28,7 @@ export function toShitenDetail(shiten: Shiten): ShitenDetailDto {
 }
 
 /**
- * SCR-006 GET /api/v1/shiten の list 行。ShitenDetailDto の列 +
+ * ACSMS-SCR-006 GET /api/v1/shiten の list 行。ShitenDetailDto の列 +
  * kanri_shiten_name（service が m_kanri_shiten から解決した名前を渡す）。
  * mapper は純粋を保つ。
  */

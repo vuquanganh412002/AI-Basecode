@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-020 — 口座振替データ出力画面
 //
 // KozaFurikaeService unit specs for:
-//   - getInitialData(session)            — API-020-001 (GET initial data)
-//   - exportCsv(body, session, req)      — API-020-002 (POST Zengin CSV export)
+//   - getInitialData(session)            — ACSMS-API-020-001 (GET initial data)
+//   - exportCsv(body, session, req)      — ACSMS-API-020-002 (POST Zengin CSV export)
 //
 // Pattern: plain `new KozaFurikaeService(...)` with mocked deps (mirrors
 // HaitatsuryoService). The export 集計 is a raw aggregation via
@@ -102,7 +102,7 @@ describe('KozaFurikaeService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-020-001 — GET /api/v1/koza-furikae/initial
+  // ACSMS-API-020-001 — GET /api/v1/koza-furikae/initial
   // ═══════════════════════════════════════════════════════════════════════
   describe('getInitialData', () => {
     it('should map m_ja JASTEM 委託者 fields into data when the JA exists', async () => {
@@ -157,7 +157,7 @@ describe('KozaFurikaeService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-020-003 — POST /api/v1/koza-furikae/preview (v1.1)
+  // ACSMS-API-020-003 — POST /api/v1/koza-furikae/preview (v1.1)
   // ═══════════════════════════════════════════════════════════════════════
   describe('previewData', () => {
     it('should aggregate and return the preview rows with meta.total when データ exists', async () => {
@@ -255,19 +255,19 @@ describe('KozaFurikaeService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-020-002 — POST /api/v1/koza-furikae/export
+  // ACSMS-API-020-002 — POST /api/v1/koza-furikae/export
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportCsv', () => {
-    it('should return a Buffer + ZENOUTFD filename + ASCII fallback + record count when データ exists', async () => {
-      // COVERS: 4.4 CSV生成 + 4.9 レスポンス生成（ファイル名は ja_code + 引落日）
+    it('should return a Buffer + 口座振替データ_YYYY年MM月DD日 filename + ASCII fallback + record count when データ exists', async () => {
+      // COVERS: 4.4 CSV生成 + 4.9 レスポンス生成（ファイル名は引落日ベース、ja_code/TS無し）
       const result = await service.exportCsv(buildExportKozaFurikaeQuery(), kSession(), req);
 
       expect(result).toEqual(
         expect.objectContaining({
           buffer: expect.any(Buffer),
           // ダウンロード名はタイムスタンプ無し（hikiotoshi_date=2026-05-27）。
-          filename: 'ZENOUTFD',
-          asciiFilename: 'ZENOUTFD',
+          filename: '口座振替データ_2026年05月27日',
+          asciiFilename: '________2026_05_27_',
           recordCount: 2,
         }),
       );

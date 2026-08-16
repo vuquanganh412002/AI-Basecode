@@ -1,10 +1,10 @@
 // Test fixtures for ACSMS-SCR-017 (販売店情報登録画面).
 // Shapes mirror docs/design/ACSMS-SCR-017/ACSMS-SCR-017-api.md.
 //
-// The SCR-018 fixture (`hanbaiten.fixture.ts`) covers the LIST shape
-// (~18 fields). SCR-017 surfaces the DETAIL shape (~28 fields incl.
+// The ACSMS-SCR-018 fixture (`hanbaiten.fixture.ts`) covers the LIST shape
+// (~18 fields). ACSMS-SCR-017 surfaces the DETAIL shape (~28 fields incl.
 // bank/koza/torihikisaki_no) — we keep a separate fixture rather than
-// widening the list-side and forcing every SCR-018 spec to ignore the
+// widening the list-side and forcing every ACSMS-SCR-018 spec to ignore the
 // extra props.
 
 export interface HanbaitenDetail {
@@ -67,7 +67,7 @@ export interface CreateHanbaitenForm {
 
 export type UpdateHanbaitenForm = Omit<CreateHanbaitenForm, 'hanbaiten_code'>;
 
-/** Default DETAIL response (API-017-001) used for edit-mode mounts. */
+/** Default DETAIL response (ACSMS-API-017-001) used for edit-mode mounts. */
 export function buildHanbaitenDetail(
   overrides: Partial<HanbaitenDetail> = {},
 ): HanbaitenDetail {

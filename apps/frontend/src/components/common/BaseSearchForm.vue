@@ -3,11 +3,11 @@ import BaseCard from './BaseCard.vue';
 
 interface Props {
   loading?: boolean;
-  /** 入力グリッドの列数。既定 4（SCR-004 JA一覧）。
-      SCR-002 単価一覧は 種別 / 名 / 開始日 / 終了日 / フラグ を収めるため 5 列。 */
+  /** 入力グリッドの列数。既定 4（ACSMS-SCR-004 JA一覧）。
+      ACSMS-SCR-002 単価一覧は 種別 / 名 / 開始日 / 終了日 / フラグ を収めるため 5 列。 */
   columns?: 1 | 2 | 3 | 4 | 5;
   /**
-   * `loading` とは独立に 検索 ボタンを無効化。SCR-015 は一括置換をステージ中（1行以上チェック）に
+   * `loading` とは独立に 検索 ボタンを無効化。ACSMS-SCR-015 は一括置換をステージ中（1行以上チェック）に
    * 検索を無効化し、再クエリで選択を失わないようにする。
    */
   disableSubmit?: boolean;

@@ -1,13 +1,13 @@
 // Screen: ACSMS-SCR-017 — 販売店情報登録画面
 // Screen: ACSMS-SCR-017 — 販売店情報登録画面
 //
-// Drives src/views/hanbaiten/HanbaitenFormView.vue (rewrites the SCR-018-era
+// Drives src/views/hanbaiten/HanbaitenFormView.vue (rewrites the ACSMS-SCR-018-era
 // TODO placeholder). The single view covers both CREATE (route
 // `HanbaitenCreate`) and EDIT (route `HanbaitenEdit`, same component with
 // `:id` param). Every it() maps to a clause in
 // docs/design/ACSMS-SCR-017/screen-design.md (機能定義 + メッセージ情報) +
 // docs/design/ACSMS-SCR-017/index.html (UI structure) +
-// docs/design/ACSMS-SCR-017/ACSMS-SCR-017-api.md (API-017-001..003).
+// docs/design/ACSMS-SCR-017/ACSMS-SCR-017-api.md (ACSMS-API-017-001..003).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -26,10 +26,10 @@ import { buildAuthUser } from '@test/fixtures/hanbaiten.fixture';
 
 import { resetTodofukenCache } from '@/composables/useTodofuken';
 
-// API wrapper for SCR-017 endpoints. The existing
-// `src/api/hanbaiten/hanbaiten.ts` (SCR-018) exports `listHanbaiten` +
+// API wrapper for ACSMS-SCR-017 endpoints. The existing
+// `src/api/hanbaiten/hanbaiten.ts` (ACSMS-SCR-018) exports `listHanbaiten` +
 // `removeHanbaiten`; /gen-code-frontend will EXTEND that file with
-// `getHanbaiten`, `createHanbaiten`, `updateHanbaiten` per API-017-001..003.
+// `getHanbaiten`, `createHanbaiten`, `updateHanbaiten` per ACSMS-API-017-001..003.
 vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   listHanbaiten: vi.fn(),
   removeHanbaiten: vi.fn(),
@@ -330,6 +330,21 @@ describe('HanbaitenFormView — edit mode pre-fill (機能定義 2.x)', () => {
     expect(values.some((v) => v === '販売店A')).toBe(true);
     expect(values.some((v) => v === '山田太郎')).toBe(true);
     expect(values.some((v) => v === '0312345678')).toBe(true);
+  });
+
+  it('should redirect to Dashboard when getHanbaiten rejects with NOT_FOUND on edit-mode mount (直接URLアクセスで存在しないID・顧客要件 2026-08)', async () => {
+    const { getHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(getHanbaiten).mockRejectedValueOnce({
+      response: {
+        status: 404,
+        data: {
+          error_code: 'NOT_FOUND',
+          message: '指定された販売店が見つかりません。',
+        },
+      },
+    });
+    const { router } = await renderView({ hanbaitenId: 46666 });
+    expect(router.currentRoute.value.name).toBe('Dashboard');
   });
 
   it('should disable the hanbaiten_code input when in edit mode (販売店コード変更不可)', async () => {

@@ -45,7 +45,7 @@ import { UpdateAccountDto } from './dto/update-account.dto';
 /**
  * 2つの面を担当:
  * - `/api/v1/account/me/mfa` — 自己 MFA トグル（ヘッダー）。
- * - `/api/v1/accounts` — admin 検索+削除（SCR-024）。
+ * - `/api/v1/accounts` — admin 検索+削除（ACSMS-SCR-024）。
  * クラス `@Controller()` は path 無しで各 endpoint がフルルートを宣言。単数
  * `account/...` と複数 `accounts/...` を同一クラスで共存させるため。
  */
@@ -83,7 +83,7 @@ export class AccountController {
 
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────
   // [shared-dropdown-rule] 認証のみ — @Permissions なし。共有フォーム用 dropdown
-  // （SCR-030 ログ参照画面と併設）。データ境界は AccountService.getDropdown →
+  // （ACSMS-SCR-030 ログ参照画面と併設）。データ境界は AccountService.getDropdown →
   // applyBranchScope（制限役職は自 JA / kanri_shiten のみ）。画面アクセスは各ルートの guard。
   @Get('account/dropdown')
   @HttpCode(HttpStatus.OK)

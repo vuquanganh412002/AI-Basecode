@@ -41,7 +41,7 @@ export interface UpdateRoleFormPayload {
   permission_ids: number[];
 }
 
-/** Single role row helper used by list assertions (API-027-001). */
+/** Single role row helper used by list assertions (ACSMS-API-027-001). */
 export function buildRoleListItem(overrides: Partial<RoleListItem> = {}): RoleListItem {
   return {
     role_id: 1,
@@ -63,7 +63,7 @@ export function buildRoleList(): RoleListItem[] {
   ];
 }
 
-/** Default 5-role list response (matches API-027-001 example). */
+/** Default 5-role list response (matches ACSMS-API-027-001 example). */
 export function buildRoleListResponse(
   overrides: Partial<RoleListResponse> = {},
 ): RoleListResponse {
@@ -96,7 +96,7 @@ export function buildRoleDetail(overrides: Partial<RoleDetail> = {}): RoleDetail
   };
 }
 
-/** Response wrapper for GET /api/v1/roles/:role_id (API-027-002). */
+/** Response wrapper for GET /api/v1/roles/:role_id (ACSMS-API-027-002). */
 export function buildRoleDetailResponse(
   overrides: Partial<RoleDetail> = {},
 ): RoleDetailResponse {
@@ -147,7 +147,7 @@ export function buildPermissionList(): PermissionListItem[] {
   ];
 }
 
-/** Default permission list response (API-027-004). */
+/** Default permission list response (ACSMS-API-027-004). */
 export function buildPermissionListResponse(
   overrides: Partial<PermissionListResponse> = {},
 ): PermissionListResponse {
@@ -156,7 +156,7 @@ export function buildPermissionListResponse(
   };
 }
 
-/** Default valid PUT /api/v1/roles/:role_id body (API-027-003). */
+/** Default valid PUT /api/v1/roles/:role_id body (ACSMS-API-027-003). */
 export function buildUpdateRoleForm(
   overrides: Partial<UpdateRoleFormPayload> = {},
 ): UpdateRoleFormPayload {

@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-031 — お知らせ一覧画面
 //
 // Drives src/modules/oshirase/dto/update-oshirase.dto.ts.
-// Validation rules sourced from api.md §4.1 of API-031-004.
+// Validation rules sourced from api.md §4.1 of ACSMS-API-031-004.
 //
 // Same shape as CreateOshiraseDto (all fields required at the wire level —
 // FE sends the full record back on PATCH).

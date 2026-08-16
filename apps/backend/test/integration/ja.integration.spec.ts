@@ -12,7 +12,7 @@
 // `apps/backend/test/utils/create-integration-app.ts`. Specs only need to
 // boot, seed any extra data, and assert.
 //
-// SCR-004 NOTE — DELETE's §4.4 conflict check queries six tables, only
+// ACSMS-SCR-004 NOTE — DELETE's §4.4 conflict check queries six tables, only
 // some of which are registered TypeORM entities yet (m_kanri_shiten,
 // m_shiten, m_hanbaiten, m_tanka, t_dokusya land in later screens).
 // We create those tables with their bare-minimum columns in `seedSql`
@@ -48,7 +48,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
            '0312345678', '0312345679', 'info@ja-tokyo-chuo.or.jp',
            '総務部', '田中太郎', 1, '', NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
 
-        // SCR-004 conflict-check stub tables. Bare-minimum schema with the
+        // ACSMS-SCR-004 conflict-check stub tables. Bare-minimum schema with the
         // single FK-bearing column the service's COUNT(*) needs.
         // m_kanri_shiten / m_shiten / m_tanka / m_hanbaiten are now provided
         // by TypeORM synchronize (entities in ALL_ENTITIES). Only t_dokusya
@@ -103,7 +103,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   }
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-001 — GET /api/v1/ja/:ja_id
+  // ACSMS-API-005-001 — GET /api/v1/ja/:ja_id
   // ───────────────────────────────────────────────────────────────────
   it('should return 200 with JA including todofuken_name when NICHINO_ADMIN GETs ja_id=1', async () => {
     const sid = await asAdmin();
@@ -125,7 +125,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-002 — POST /api/v1/ja
+  // ACSMS-API-005-002 — POST /api/v1/ja
   // ───────────────────────────────────────────────────────────────────
   it('should create a JA and write t_log row in the same transaction when NICHINO_ADMIN POSTs valid body', async () => {
     const sid = await asAdmin();
@@ -210,7 +210,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-005-003 — PUT /api/v1/ja/:ja_id
+  // ACSMS-API-005-003 — PUT /api/v1/ja/:ja_id
   // ───────────────────────────────────────────────────────────────────
   it('should update m_ja and write t_log UPDATE row in same tx when NICHINO_ADMIN PUTs full body', async () => {
     const sid = await asAdmin();
@@ -305,7 +305,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-004-001 — GET /api/v1/ja
+  // ACSMS-API-004-001 — GET /api/v1/ja
   // ───────────────────────────────────────────────────────────────────
   describe('API-004-001 — GET /api/v1/ja (list / search)', () => {
     beforeEach(async () => {
@@ -442,7 +442,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // API-004-002 — DELETE /api/v1/ja/:ja_id
+  // ACSMS-API-004-002 — DELETE /api/v1/ja/:ja_id
   // ───────────────────────────────────────────────────────────────────
   describe('API-004-002 — DELETE /api/v1/ja/:ja_id', () => {
     it('should soft-delete and write t_log DELETE row in same tx when NICHINO_ADMIN deletes a JA with no related rows', async () => {
@@ -611,7 +611,7 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
   // ───────────────────────────────────────────────────────────────────
   describe('GET /api/v1/ja/dropdown — authenticated-only (shared dropdown)', () => {
     it('should return 200 for a JA_KANRI_SHITEN holding only file.upload (no ja.view) — ファイルアップロード画面', async () => {
-      // Regression — the ファイルアップロード画面 (SCR-023) は JA roles にも
+      // Regression — the ファイルアップロード画面 (ACSMS-SCR-023) は JA roles にも
       // 開放されており (account_concept ※5)、その 都道府県→JA picker が
       // /ja/dropdown を叩く。JA_KANRI_SHITEN は file.upload を持つが ja.view
       // は持たない。共有ドロップダウンは authenticated-only なので 200。

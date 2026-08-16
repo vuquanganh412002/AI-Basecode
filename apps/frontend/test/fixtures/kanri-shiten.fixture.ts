@@ -21,7 +21,7 @@ export interface KanriShitenListResponse {
   meta: { total: number; page: number; per_page: number; total_pages: number };
 }
 
-/** Single row helper for SCR-008 list assertions. */
+/** Single row helper for ACSMS-SCR-008 list assertions. */
 export function buildKanriShitenListItem(
   overrides: Partial<KanriShitenListItem> = {},
 ): KanriShitenListItem {

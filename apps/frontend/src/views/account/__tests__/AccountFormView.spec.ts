@@ -1,10 +1,10 @@
 // Screen: ACSMS-SCR-025 — アカウントマスタ登録画面
 //
-// Drives src/views/account/AccountFormView.vue (rewrites the SCR-024-era
+// Drives src/views/account/AccountFormView.vue (rewrites the ACSMS-SCR-024-era
 // placeholder). Single view covers both CREATE (route `AccountCreate`)
 // and EDIT (route `AccountEdit`). Every it() maps to a clause in
 // docs/design/ACSMS-SCR-025/screen-design.md (機能定義 + メッセージ情報) +
-// docs/design/ACSMS-SCR-025/ACSMS-SCR-025-api.md (API-025-001..003).
+// docs/design/ACSMS-SCR-025/ACSMS-SCR-025-api.md (ACSMS-API-025-001..003).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -30,7 +30,7 @@ import {
 
 // API wrappers — /gen-code-frontend will add detail / create / update
 // to `src/api/account/account.ts` alongside the existing
-// `listAccounts` / `removeAccount` (SCR-024).
+// `listAccounts` / `removeAccount` (ACSMS-SCR-024).
 vi.mock('@/api/account/account', () => ({
   listAccounts: vi.fn(),
   removeAccount: vi.fn(),
@@ -188,6 +188,19 @@ describe('AccountFormView — initial render (機能定義 1.1 / 1.2)', () => {
     expect(labels.some((t) => t.includes('アカウント名'))).toBe(true);
   });
 
+  it('should set autocomplete="off" on サブメールアドレス1-3 (regression: Chrome would offer to autofill the operator\'s own address into a third-party account record)', async () => {
+    const { wrapper } = await renderView();
+    for (const name of ['sub_email_1', 'sub_email_2', 'sub_email_3']) {
+      const field = wrapper
+        .findAllComponents({ name: 'AFormItem' })
+        .find((it) => (it.props() as { name?: string }).name === name);
+      expect(field?.exists()).toBe(true);
+      const el = field!.find('input');
+      expect(el.exists()).toBe(true);
+      expect(el.attributes('autocomplete')).toBe('off');
+    }
+  });
+
   it('should fetch the role dropdown once when mounted (COMMON-002)', async () => {
     await renderView();
     const { listRolesDropdown } = await import('@/api/roles/roles');
@@ -266,6 +279,21 @@ describe('AccountFormView — edit mode pre-fill (機能定義 1.2)', () => {
     const passwordInput = wrapper.find('input[type="password"]');
     expect(passwordInput.exists()).toBe(true);
     expect((passwordInput.element as HTMLInputElement).value).toBe('');
+  });
+
+  it('should redirect to Dashboard when getAccount rejects with NOT_FOUND (直接URLアクセスで存在しないID・顧客要件 2026-08)', async () => {
+    const { getAccount } = await import('@/api/account/account');
+    vi.mocked(getAccount).mockRejectedValueOnce({
+      response: {
+        status: 404,
+        data: {
+          error_code: 'NOT_FOUND',
+          message: '指定されたアカウントが見つかりません。',
+        },
+      },
+    });
+    const { router } = await renderView({ accountId: 46666 });
+    expect(router.currentRoute.value.name).toBe('Dashboard');
   });
 });
 
@@ -667,6 +695,40 @@ describe('AccountFormView — submit validation (機能定義 2.1)', () => {
     expect(wrapper.text()).toContain('正しいメールアドレスを入力してください。');
     expect(createAccount).not.toHaveBeenCalled();
   });
+
+  it.each(['sub_email_1', 'sub_email_2', 'sub_email_3'] as const)(
+    'should show the email format error when %s is invalid and 登録 is clicked (optional but format-checked, matches BE create-account.dto.ts)',
+    async (field) => {
+      const { wrapper } = await renderView();
+      const { createAccount } = await import('@/api/account/account');
+
+      const vm = wrapper.vm as any;
+      await fillForm(vm, buildCreateAccountForm({ [field]: 'not-an-email' }));
+
+      await wrapper.find('form').trigger('submit');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('正しいメールアドレスを入力してください。');
+      expect(createAccount).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['sub_email_1', 'sub_email_2', 'sub_email_3'] as const)(
+    'should allow submit when %s is left empty (optional field)',
+    async (field) => {
+      const { wrapper } = await renderView();
+      const { createAccount } = await import('@/api/account/account');
+      vi.mocked(createAccount).mockClear();
+
+      const vm = wrapper.vm as any;
+      await fillForm(vm, buildCreateAccountForm({ [field]: '' }));
+
+      await wrapper.find('form').trigger('submit');
+      await flushPromises();
+
+      expect(createAccount).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 // ───────────────────────────────────────────────────────────────────────

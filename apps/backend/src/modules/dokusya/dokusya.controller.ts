@@ -68,11 +68,11 @@ import { DokusyaService } from './dokusya.service';
 export class DokusyaController {
   constructor(private readonly service: DokusyaService) {}
 
-  // ─── API-014-001 ────────────────────────────────────────────────────
+  // ─── ACSMS-API-014-001 ────────────────────────────────────────────────────
   // 注意 — ルート宣言順が重要。Express/Nest は宣言順にマッチするため、
   // `GET /:dokusya_id` を先に置くとリテラルパスを飲み込む。`GET /export` を
   // `GET /:dokusya_id` より前に宣言しリテラルセグメントを数値パラメータより
-  // 優先させる。SCR-014 の検索 (GET /) も詳細より前に置き、SCR-011 の詳細
+  // 優先させる。ACSMS-SCR-014 の検索 (GET /) も詳細より前に置き、ACSMS-SCR-011 の詳細
   // ハンドラが数値 id のみ受け取るようにする。
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -89,7 +89,7 @@ export class DokusyaController {
     return this.service.search(query, req.user);
   }
 
-  // ─── API-014-003 ────────────────────────────────────────────────────
+  // ─── ACSMS-API-014-003 ────────────────────────────────────────────────────
   @Get('export')
   @HttpCode(HttpStatus.OK)
   @Permissions('dokusya.view')
@@ -193,7 +193,7 @@ export class DokusyaController {
   // [throttle-import] このパスは WAF ボディ検査をバイパスするため（大量の
   // 自由文 JSON 行がマネージドルールに誤検知 — .claude/rules/nestjs.md
   // §WAF body-inspection bypass 参照）、エッジのレート制限を失う。10/min/IP に
-  // 制限（1回で最大30,000行のため upload より重い）。
+  // 制限（1回で最大5,000行のため upload より重い）。
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: '購読者Excelデータ取込画面 — 一括取込（SCR-016）' })
   @ApiResponse({ status: 200, description: '取込結果サマリ + メッセージ' })

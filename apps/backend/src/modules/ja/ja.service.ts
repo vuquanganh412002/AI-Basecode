@@ -41,7 +41,7 @@ import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
 import { pickBool, pickNumber, pickString } from '@/common/utils/pick';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
-// SCR-004(一覧/削除)用の audit-context ラベル。
+// ACSMS-SCR-004(一覧/削除)用の audit-context ラベル。
 const SCREEN_NAME_SCR004 = 'JAマスタ明細検索画面 (ACSMS-SCR-004)';
 
 // sort_by → QB 列名の対応。@IsIn(JA_SEARCH_SORT_BY) が範囲外を拒否済みだが、
@@ -134,7 +134,7 @@ export class JaService {
     private readonly codeService: CodeService,
   ) {}
 
-  // ─── API-005-001 — GET /api/v1/ja/:ja_id ─────────────────────────────
+  // ─── ACSMS-API-005-001 — GET /api/v1/ja/:ja_id ─────────────────────────────
   async findById(jaId: number, session: SessionPayload): Promise<JaResponseDto> {
     const ja = await this.repo.findOne({ where: { jaId, deletedAt: IsNull() } });
     if (!ja) throw new NotFoundException('JA');
@@ -149,7 +149,7 @@ export class JaService {
     return toJaResponse(ja, td?.todofukenName ?? '');
   }
 
-  // ─── API-005-002 — POST /api/v1/ja ────────────────────────────────────
+  // ─── ACSMS-API-005-002 — POST /api/v1/ja ────────────────────────────────────
   async create(
     dto: CreateJaDto,
     session: SessionPayload,
@@ -240,7 +240,7 @@ export class JaService {
     }
   }
 
-  // ─── API-005-003 — PUT /api/v1/ja/:ja_id ──────────────────────────────
+  // ─── ACSMS-API-005-003 — PUT /api/v1/ja/:ja_id ──────────────────────────────
   async update(
     jaId: number,
     dto: UpdateJaDto,
@@ -336,7 +336,7 @@ export class JaService {
     }
   }
 
-  // ─── API-004-001 — GET /api/v1/ja ─────────────────────────────────────
+  // ─── ACSMS-API-004-001 — GET /api/v1/ja ─────────────────────────────────────
   // m_ja のページング検索。§4.3 DataScope 適用(NICHINO_* は無制限、
   // CHUOKAI/JA_HONTEN は自 ja_id のみ)。todofuken_name は QB を単純に保つため
   // JOIN でなくクエリ後に m_todofuken から補完(SORT_COLUMN_MAP のコメント参照)。
@@ -350,6 +350,8 @@ export class JaService {
         JaResponseDto,
         | 'ja_id' | 'ja_code' | 'ja_name' | 'yubin_no' | 'todofuken_code'
         | 'todofuken_name' | 'tel' | 'address' | 'fax' | 'chuokai_flg'
+        | 'jastem_itakusha_code' | 'jastem_itakusha_name'
+        | 'jastem_ja_code' | 'jastem_ja_name'
       >
     >
   > {

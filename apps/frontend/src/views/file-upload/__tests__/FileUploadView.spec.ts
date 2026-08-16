@@ -4,7 +4,7 @@
 // clause in:
 //   docs/design/ACSMS-SCR-023/screen-design.md (機能定義 1.x〜8.x + メッセージ情報) +
 //   docs/design/ACSMS-SCR-023/index.html (UI structure) +
-//   docs/design/ACSMS-SCR-023/ACSMS-SCR-023-api.md (API-023-001 list / -002 upload / -003 download / -004 delete + COMMON-001 todofuken + COMMON-003 ja dropdown).
+//   docs/design/ACSMS-SCR-023/ACSMS-SCR-023-api.md (ACSMS-API-023-001 list / -002 upload / -003 download / -004 delete + COMMON-001 todofuken + COMMON-003 ja dropdown).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';

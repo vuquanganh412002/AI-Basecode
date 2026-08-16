@@ -164,10 +164,11 @@ describe('KozaFurikaeExportView — 画面表示', () => {
     expect((wrapper.vm as any).formState.jastem_itakusha_code).toBe('1234567890');
   });
 
-  it('should render the 作成開始 button and NOT the ファイル作成 button before previewing', async () => {
+  // ボタン名は ACSMS-SCR-028/029 と統一（顧客要件2026-08、旧称: 作成開始）。
+  it('should render the レポートプレビュー button and NOT the ファイル作成 button before previewing', async () => {
     const { wrapper } = await renderView();
     expect(wrapper.find(previewBtn()).exists()).toBe(true);
-    expect(wrapper.find(previewBtn()).text()).toContain('作成開始');
+    expect(wrapper.find(previewBtn()).text()).toContain('レポートプレビュー');
     // ファイル作成はプレビュー前は非表示。
     expect(wrapper.find(createBtn()).exists()).toBe(false);
   });
@@ -208,6 +209,23 @@ describe('KozaFurikaeExportView — 作成開始（プレビュー）', () => {
     expect(wrapper.find('[data-test="preview-section"]').exists()).toBe(true);
     expect(wrapper.find(createBtn()).exists()).toBe(true);
     expect((wrapper.vm as any).previewRows).toHaveLength(2);
+  });
+
+  it('should give each row\'s 金額 input its own accessible name via aria-label (regression: no accessible name at all)', async () => {
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    const amountInput = wrapper.find('[data-test="kingaku-1"]');
+    expect(amountInput.exists()).toBe(true);
+    const ariaLabel = amountInput.attributes('aria-label');
+    expect(ariaLabel).toBeDefined();
+    expect(ariaLabel).toContain('ﾔﾏﾀﾞ ﾀﾛｳ');
+
+    const otherAmountInput = wrapper.find('[data-test="kingaku-2"]');
+    const otherAriaLabel = otherAmountInput.attributes('aria-label');
+    expect(otherAriaLabel).toContain('ｽｽﾞｷ ﾊﾅｺ');
+    // Each row's amount field must be independently identifiable.
+    expect(otherAriaLabel).not.toBe(ariaLabel);
   });
 
   it('should show 対象データがありません。 and NOT show ファイル作成 when preview returns NO_TARGET_DATA', async () => {

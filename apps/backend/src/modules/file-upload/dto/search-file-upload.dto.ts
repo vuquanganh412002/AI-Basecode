@@ -11,7 +11,7 @@ import {
   Min,
 } from 'class-validator';
 
-import { FileUploadStatus } from '../file-upload-status.constant';
+import { FileUploadStatus } from '@/common/constants/file-upload-status.constant';
 
 /**
  * 空文字 `""` / null / undefined を `undefined` に寄せ `@IsOptional` を
@@ -22,7 +22,7 @@ import { FileUploadStatus } from '../file-upload-status.constant';
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-// SCR-022 + SCR-023 が共有する一覧エンドポイント。SCR-023 で
+// ACSMS-SCR-022 + ACSMS-SCR-023 が共有する一覧エンドポイント。ACSMS-SCR-023 で
 // api.md §リクエストパラメータ row 5 に従い `file_size` をソート列に追加。
 const SORTABLE_COLUMNS = [
   'upload_datetime',
@@ -59,7 +59,7 @@ export class SearchFileUploadDto {
   })
   todofuken_code?: string;
 
-  // SCR-023 — JA フィルタ(api.md 注記より NICHINO_* のみ指定可)。
+  // ACSMS-SCR-023 — JA フィルタ(api.md 注記より NICHINO_* のみ指定可)。
   @ApiPropertyOptional({ description: 'JA ID（NICHINO_ADMIN/STAFFのみ指定可。指定なしの場合は全JA）' })
   @Transform(blankToUndef)
   @IsOptional()
@@ -68,7 +68,7 @@ export class SearchFileUploadDto {
   @Min(1, { message: 'JA IDは1以上で指定してください。' })
   ja_id?: number;
 
-  // SCR-023 — ステータスフィルタ(m_code.code_category='FILE_UPLOAD_STATUS')。
+  // ACSMS-SCR-023 — ステータスフィルタ(m_code.code_category='FILE_UPLOAD_STATUS')。
   @ApiPropertyOptional({ description: '処理ステータス（1:処理中, 2:完了, 3:エラー）' })
   @Transform(blankToUndef)
   @IsOptional()

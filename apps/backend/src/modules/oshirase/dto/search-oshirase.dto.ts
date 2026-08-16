@@ -3,7 +3,7 @@ import { IsIn, IsOptional } from 'class-validator';
 
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
-/** ソート可能カラムの許可リスト（API-031-001 api.md §4.1）。 */
+/** ソート可能カラムの許可リスト（ACSMS-API-031-001 api.md §4.1）。 */
 export const OSHIRASE_SEARCH_SORT_BY = [
   'oshirase_id',
   'title',

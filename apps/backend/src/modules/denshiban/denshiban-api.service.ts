@@ -2,6 +2,8 @@ import { createCipheriv, randomBytes } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { DENSHIBAN_STATUS_SUCCESS } from './denshiban-error-codes';
+
 /**
  * 電子版 共通API `updateUserInfo` のレスポンス。常に HTTP 200 で返り、
  * 成否はステータスコードで判定する（'0'=成功、それ以外はエラーコード
@@ -189,7 +191,7 @@ export class DenshibanApiService {
 
       // 失敗時は「何を送って何が返ったか」を対で残す。応答だけでは P99
       // （その他のエラー）のように原因を特定できないコードが返ってくる。
-      if (result.statusCode !== '0') {
+      if (result.statusCode !== DENSHIBAN_STATUS_SUCCESS) {
         this.logger.error(
           `updateUserInfo(${action}) 応答(生): ` +
             DenshibanApiService.truncate(rawText),

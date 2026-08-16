@@ -502,7 +502,7 @@ describe('buildKaiyakuRow', () => {
 });
 
 describe('buildKaiyakuReservationRow (Phase 1 予約行)', () => {
-  it('overrides only 部数0・zougen=true・中止日・適用日=中止日・kaiyaku_flg=false・saishin=false; inherits tetsuzuki; zenkai from before', () => {
+  it('紙版(joho=chushi): overrides 部数0・zougen=true・中止日・適用日・kaiyaku_flg=false・saishin=false; inherits tetsuzuki; zenkai from before', () => {
     const before = row({
       dokusyaRirekiId: 4,
       dokusyaId: 1001,
@@ -516,6 +516,7 @@ describe('buildKaiyakuReservationRow (Phase 1 予約行)', () => {
       dokusyaId: 1001,
       rirekiNo: 5,
       chushiDate: '2027-12-01',
+      joho: '2027-12-01', // 紙版: caller が joho=chushiDate を計算して渡す
       createdBy: '42',
     });
 
@@ -523,7 +524,7 @@ describe('buildKaiyakuReservationRow (Phase 1 予約行)', () => {
     expect(r.dokusyaBusu).toBe(0); // 予約=部数0
     expect(r.zougenHokokuFlg).toBe(true); // 減の増減報告対象
     expect(r.dokusyaChushiDate).toBe('2027-12-01'); // 中止日
-    expect(r.johoHenkoTekiyoDate).toBe('2027-12-01'); // 適用日=中止日（未来）
+    expect(r.johoHenkoTekiyoDate).toBe('2027-12-01'); // 適用日=中止日（紙版）
     expect(r.kaiyakuFlg).toBe(false); // 解約確定はバッチ（Phase 2）
     expect(r.saishinDataFlg).toBe(false); // 未来予約 → 未反映
     expect(r.shinkiFlg).toBe(false); // 予約は非新規（before が新規でも）
@@ -538,6 +539,31 @@ describe('buildKaiyakuReservationRow (Phase 1 予約行)', () => {
     // zenkai_* は before 由来（増減報告用: 6 → 0）
     expect(r.zenkaiDokusyaBusu).toBe(6);
     expect(r.zenkaiHanbaitenId).toBe(459);
+  });
+
+  // 顧客要件 2026-08 改訂: 電子版の解約予定日は「電子版が読める有効な最終日」であり、
+  // 当日はまだ有効な読者として扱う必要があるため、適用日は中止日+1（caller が計算し
+  // joho として渡す）。dokusya_chushi_date には中止日そのものが残る点は紙版と同じ。
+  it('電子版(joho=chushi+1): 中止日と適用日が別値として保持される', () => {
+    const before = row({
+      dokusyaRirekiId: 8,
+      dokusyaId: 2002,
+      dokusyaBusu: 1,
+      dokusyaShubetsu: 2,
+      tetsuzukiShurui: 1,
+    });
+    const r = buildKaiyakuReservationRow(before, {
+      dokusyaId: 2002,
+      rirekiNo: 3,
+      chushiDate: '2026-08-31',
+      joho: '2026-09-01', // caller が中止日+1 を計算して渡す
+      createdBy: '11',
+    });
+
+    expect(r.dokusyaChushiDate).toBe('2026-08-31'); // 中止日はそのまま
+    expect(r.johoHenkoTekiyoDate).toBe('2026-09-01'); // 適用日=中止日の翌日
+    expect(r.dokusyaBusu).toBe(0);
+    expect(r.tetsuzukiShurui).toBe(1); // まだ新規（解約確定はバッチ）
   });
 });
 

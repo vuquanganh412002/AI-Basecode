@@ -39,10 +39,10 @@ import { DokusyaImportValidator } from './dokusya-import-validator.service';
 import { applyChange, insertScheduledKaiyaku } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
 
-/** SCR-016 — 監査コンテキストの画面名ラベル。 */
+/** ACSMS-SCR-016 — 監査コンテキストの画面名ラベル。 */
 const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)';
 
-/** SCR-016 監査ログ用テーブル名（t_log.target_table）。DokusyaService と同値だが自己完結のため複製。 */
+/** ACSMS-SCR-016 監査ログ用テーブル名（t_log.target_table）。DokusyaService と同値だが自己完結のため複製。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
@@ -73,13 +73,19 @@ interface ImportRowLookups {
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
    */
   existingDigitalEmailToIds: Map<string, Set<number>>;
+  /**
+   * m_code 参照列の許容値判定（バックエンドレビュー finding #9）。
+   * `DokusyaImportValidator` は依存ゼロの leaf サービスなので CodeService を
+   * inject させず、ここで `codeService.has` をそのまま束縛した関数を渡す。
+   */
+  hasCode: (category: string, value: number | string) => boolean;
 }
 
 /** m_code 値の入力（取込みは数値/文字列、未指定は undefined）。 */
 type MCodeInput = number | string | undefined;
 
 /**
- * SCR-016 — 取込テンプレート46列のヘッダー順（api.md §テンプレートファイル仕様）。
+ * ACSMS-SCR-016 — 取込テンプレート46列のヘッダー順（api.md §テンプレートファイル仕様）。
  * 各要素は生成ブックの1行目に出る日本語ヘッダー名。
  *
  * Excel 列でないもの:
@@ -207,16 +213,16 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   'サンプル行です。管理支店・支店・新聞単価・販売店コードは自組織のマスタコードに書き換えてからインポートしてください。', // 備考
 ] as const;
 
-/** SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
+/** ACSMS-SCR-016 import — 取込ファイル名 (api.md §レスポンスヘッダ). */
 const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレート.xlsx';
 
 /**
- * SCR-016 — 更新モードで編集不可の物理カラム。購読種別・購読開始日は登録時のみ
- * 設定可、更新では既存値維持（SCR-011 編集画面の pin と同ルール）。
+ * ACSMS-SCR-016 — 更新モードで編集不可の物理カラム。購読種別・購読開始日は登録時のみ
+ * 設定可、更新では既存値維持（ACSMS-SCR-011 編集画面の pin と同ルール）。
  * FE は更新モードで未チェック＋disable、BE は selected_columns から除外。
  *
  * 氏名4列（shimei_sei / shimei_mei / shimei_kana_sei / shimei_kana_mei）は
- * **更新可**（顧客要件 2026-07）。SCR-011 の編集画面が既に氏名の変更を許可して
+ * **更新可**（顧客要件 2026-07）。ACSMS-SCR-011 の編集画面が既に氏名の変更を許可して
  * おり（UpdateDokusyaDto は CreateDokusyaDto の必須+書式検証をそのまま継承）、
  * 取込だけ不可だと同じ改姓を画面からはできて Excel からはできない不整合になる。
  * 紙版・電子版のどちらでも同じ扱い。
@@ -226,15 +232,15 @@ const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_kaishi_date',
 ]);
 
-/** SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
+/** ACSMS-SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
 const IMPORT_ERROR_CAP = 10;
 
-/** SCR-016 — 取込最大行数（api.md §4.1）。 */
-const IMPORT_MAX_ROWS = 30000;
+/** ACSMS-SCR-016 — 取込最大行数（api.md §4.1）。 */
+const IMPORT_MAX_ROWS = 5000;
 
 /**
  * 取込モード → 監査ログ operation ラベル（api.md §4.5）。バッチ操作なので
- * bare-verb ルールの例外。販売店取込 (SCR-019) と同一ラベルで統一。
+ * bare-verb ルールの例外。販売店取込 (ACSMS-SCR-019) と同一ラベルで統一。
  */
 const IMPORT_OPERATION_BY_MODE: Record<'NEW' | 'UPDATE', AuditOperation> = {
   NEW: AuditOperation.IMPORT_NEW,
@@ -245,7 +251,7 @@ const IMPORT_OPERATION_BY_MODE: Record<'NEW' | 'UPDATE', AuditOperation> = {
 
 
 /**
- * SCR-016 — 購読者Excelデータ取込（テンプレートDL + 一括取込）サービス。
+ * ACSMS-SCR-016 — 購読者Excelデータ取込（テンプレートDL + 一括取込）サービス。
  *
  * DokusyaService から Excel-IMPORT concern を切り出したもの。取込専用処理
  * （テンプレート生成・行バリデーション・INSERT/UPDATE・履歴スナップショット）を
@@ -288,7 +294,7 @@ export class DokusyaImportService {
     return { buffer, filename: IMPORT_TEMPLATE_FILENAME };
   }
 
-  // ─── API-016-002 — POST /api/v1/dokusya/import ──────────────────────────
+  // ─── ACSMS-API-016-002 — POST /api/v1/dokusya/import ──────────────────────────
   /**
    * 購読者行を1トランザクションで一括取込（api.md §4.4）。
    *
@@ -513,7 +519,7 @@ export class DokusyaImportService {
   /**
    * 一括中止 Phase 4b — ロールバック後の補償。送信済みの解約予約を打ち消す。
    *
-   * 電子版APIには「解約取消」専用の処理区分が無いため、SCR-014 の予約取消と同じく
+   * 電子版APIには「解約取消」専用の処理区分が無いため、ACSMS-SCR-014 の予約取消と同じく
    * `cancel` に空の `cancel_ym` を送る（顧客判断 2026-08）。
    *
    * 補償そのものが失敗した分は救えない。握りつぶすと「電子版だけ解約済み」の会員が
@@ -726,6 +732,7 @@ export class DokusyaImportService {
       kanriShitenCodeSet,
       shitenCodeSet,
       existingDigitalEmailToIds,
+      hasCode: (category, value) => this.codeService.has(category, value),
     };
 
     return {
@@ -1184,7 +1191,18 @@ export class DokusyaImportService {
       shimei_kana_mei: { field: 'shimeiKanaMei', value: str_('shimei_kana_mei') },
       dokusya_busu: { field: 'dokusyaBusu', value: () => Number(row.dokusya_busu ?? 0) },
       yubin_no: { field: 'yubinNo', value: str_('yubin_no') },
-      todofuken_code: { field: 'todofukenCode', value: str_('todofuken_code') },
+      // todofuken_code は m_todofuken への実FK（t_dokusya_rireki も同様）。他の
+      // 参照コード列（kanri_shiten_code等）と同じ optionalFk 扱いにし、空欄なら
+      // 既存値を維持する — さもないと空文字での書込みがFK違反(500)になる
+      // （選択列に含めたが対象行のセルが空、という取込では起こり得るケース）。
+      todofuken_code: {
+        field: 'todofukenCode',
+        value: () => {
+          const v = str(row.todofuken_code);
+          return v === '' ? null : v;
+        },
+        optionalFk: true,
+      },
       shikuchoson: { field: 'shikuchoson', value: str_('shikuchoson') },
       chome_banchi: { field: 'chomeBanchi', value: str_('chome_banchi') },
       tatemono_mei: { field: 'tatemonoMei', value: str_('tatemono_mei') },

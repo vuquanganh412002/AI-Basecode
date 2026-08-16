@@ -120,6 +120,24 @@ describe('BaseHanbaitenSelect', () => {
     expect((wrapper.vm as any).options).toHaveLength(2);
   });
 
+  it('#57976: should NOT pass active_only by default (unchanged behavior for existing callers)', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    await mountDropdown();
+    await flushPromises();
+    expect(getHanbaitenDropdown).toHaveBeenCalledWith(
+      expect.not.objectContaining({ active_only: expect.anything() }),
+    );
+  });
+
+  it('#57976: should pass active_only=true when the activeOnly prop is set (SCR-028 廃店除外)', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    await mountDropdown({ activeOnly: true });
+    await flushPromises();
+    expect(getHanbaitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ active_only: true }),
+    );
+  });
+
   it('should emit update:value with the selected id array on @change', async () => {
     const wrapper = await mountDropdown();
     await flushPromises();

@@ -20,7 +20,7 @@ export interface BreadcrumbItem {
 export function buildBreadcrumbItems(
   matched: readonly RouteLocationMatched[],
 ): BreadcrumbItem[] {
-  const list: BreadcrumbItem[] = [{ label: 'ホーム', to: '/' }];
+  const list: BreadcrumbItem[] = [{ label: 'ホーム', to: { name: 'Dashboard' } }];
   for (const m of matched) {
     const raw = m.meta?.breadcrumb as
       | string

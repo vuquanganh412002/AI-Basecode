@@ -34,7 +34,7 @@ export class CreateMRolesPermissions1711900800003 implements MigrationInterface 
         CONSTRAINT FK_m_roles_permissions_m_permissions FOREIGN KEY (permission_id) REFERENCES m_permissions (permission_id)
       )
     `);
-    // Partial unique — only active (non-soft-deleted) rows. SCR-027's
+    // Partial unique — only active (non-soft-deleted) rows. ACSMS-SCR-027's
     // role update flow soft-deletes the existing allocation set and then
     // INSERTs the new one in the same transaction; without the
     // `WHERE deleted_at IS NULL` predicate the new INSERT collides with

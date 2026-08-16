@@ -39,7 +39,7 @@ let redirectTimer: number | undefined;
 
 onMounted(async () => {
   const queryToken = route.query.token;
-  // SCR-012 §1.2 — URL にトークン無し → 無効リンク（verify を呼ばない）。
+  // ACSMS-SCR-012 §1.2 — URL にトークン無し → 無効リンク（verify を呼ばない）。
   if (typeof queryToken !== 'string' || !queryToken) {
     phase.value = 'invalid';
     return;
@@ -48,9 +48,9 @@ onMounted(async () => {
 
   try {
     await verifyResetToken(queryToken);
-    phase.value = 'valid'; // SCR-012 §1.5 — トークン有効、フォーム表示
+    phase.value = 'valid'; // ACSMS-SCR-012 §1.5 — トークン有効、フォーム表示
   } catch (err) {
-    // SCR-012 §1.6 / §1.7 — トークン以外のエラーは 'invalid' に倒す
+    // ACSMS-SCR-012 §1.6 / §1.7 — トークン以外のエラーは 'invalid' に倒す
     // （mount 時はデッドリンク表示のみが有効なため）。送信時は matchTokenError()
     // でより厳密に判定し VALIDATION_ERROR を :help に流す。
     phase.value = matchTokenError(err) ?? 'invalid';
@@ -120,7 +120,7 @@ async function onSubmit(): Promise<void> {
         confirm_password: form.confirm_password,
       });
     } catch (err) {
-      // SCR-012 §4.4 — 検証後～送信間にトークンが失効し得る。BE が
+      // ACSMS-SCR-012 §4.4 — 検証後～送信間にトークンが失効し得る。BE が
       // INVALID_RESET_TOKEN / EXPIRED_RESET_TOKEN を返した場合のみフォームを隠す。
       // 他エラー（VALIDATION_ERROR は useApiForm、500 は axios interceptor）は
       // bubble させ、フォームを残して :help に表示する。
@@ -132,7 +132,7 @@ async function onSubmit(): Promise<void> {
       throw err;
     }
 
-    // SCR-012 §4.5 成功メッセージ + §4.6 3秒後に /login へ自動遷移。
+    // ACSMS-SCR-012 §4.5 成功メッセージ + §4.6 3秒後に /login へ自動遷移。
     message.success(SUCCESS_MSG);
     phase.value = 'done';
     redirectTimer = globalThis.setTimeout(() => {
@@ -155,7 +155,7 @@ function matchTokenError(err: unknown): 'expired' | 'invalid' | null {
 }
 
 function goLogin(): void {
-  // SCR-012 §5.2 — 戻る時に入力値をクリア。
+  // ACSMS-SCR-012 §5.2 — 戻る時に入力値をクリア。
   form.new_password = '';
   form.confirm_password = '';
   router.push({ name: 'Login' });

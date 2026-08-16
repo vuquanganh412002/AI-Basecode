@@ -3,7 +3,7 @@
 //
 // Drives src/modules/roles/roles.controller.ts (`/api/v1/roles` endpoints).
 // Test.createTestingModule + supertest — full HTTP stack with ValidationPipe,
-// GlobalExceptionFilter, and overridden Guards. Permissions for SCR-027 are
+// GlobalExceptionFilter, and overridden Guards. Permissions for ACSMS-SCR-027 are
 // role-direct (NICHINO_ADMIN only) — the controller relies on a guard or an
 // in-method check; this spec uses an overridden permissions guard +
 // `currentSession.role_code` to model both paths.
@@ -110,7 +110,7 @@ describe('RolesController (HTTP)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-027-001 — GET /api/v1/roles
+  // ACSMS-API-027-001 — GET /api/v1/roles
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/roles (findAll)', () => {
     it('should return 200 with { data: [...] } shape when NICHINO_ADMIN calls', async () => {
@@ -150,7 +150,7 @@ describe('RolesController (HTTP)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-027-002 — GET /api/v1/roles/:role_id
+  // ACSMS-API-027-002 — GET /api/v1/roles/:role_id
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/roles/:role_id (findOne)', () => {
     it('should return 200 with role detail + permission_ids when role exists', async () => {
@@ -206,7 +206,7 @@ describe('RolesController (HTTP)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-027-003 — PUT /api/v1/roles/:role_id
+  // ACSMS-API-027-003 — PUT /api/v1/roles/:role_id
   // ═══════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/roles/:role_id (update)', () => {
     it('should return 200 with updated role when valid body is submitted', async () => {

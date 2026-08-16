@@ -33,7 +33,7 @@ export function buildNichinoUser(overrides: Record<string, unknown> = {}) {
   });
 }
 
-/** 販売店別 preview envelope (`{ data: {...} }`, mirrors API-026-001). */
+/** 販売店別 preview envelope (`{ data: {...} }`, mirrors ACSMS-API-026-001). */
 export function buildHanbaitenPreviewResponse(overrides: Record<string, unknown> = {}) {
   return {
     data: {
@@ -144,7 +144,7 @@ export function buildHanbaitenDropdownResponse() {
 
 /** 管理支店プルダウン (ACSMS-API-COMMON-004). */
 /**
- * SCR-026 支店フィルタ（顧客要件2026-08）のドロップダウン応答。
+ * ACSMS-SCR-026 支店フィルタ（顧客要件2026-08）のドロップダウン応答。
  * 管理支店 10 配下に 2 件 — 上の buildKanriShitenDropdownResponse と ID を揃える。
  */
 export function buildShitenDropdownResponse() {

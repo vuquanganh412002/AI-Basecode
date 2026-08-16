@@ -8,7 +8,7 @@
 //     ValidationPipe → KanriShitenController → KanriShitenService →
 //     DB transaction → t_log
 //
-// SCR-008 conflict check (§4.4) queries m_shiten, t_dokusya, m_account.
+// ACSMS-SCR-008 conflict check (§4.4) queries m_shiten, t_dokusya, m_account.
 // m_account ships in core entities; m_shiten and t_dokusya are still in
 // later SCRs so we create bare-minimum stub tables in seedSql.
 
@@ -42,7 +42,7 @@ describe('KanriShiten module — integration (pg-mem + ioredis-mock)', () => {
           ('0101001002', 'JA北海道中央', 'ジェイエイホッカイドウチュウオウ', '01', false,
            '0600001', '札幌', '011', '011', 'b@b.jp', '', '', 1, '', NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
 
-        // SCR-008 §4.4 conflict-check stub table — minimal schema for
+        // ACSMS-SCR-008 §4.4 conflict-check stub table — minimal schema for
         // COUNT(*) to succeed. m_shiten now ships in ACSMS-SCR-007 so
         // pg-mem's synchronize creates the real table from the entity;
         // only t_dokusya remains stubbed until its SCR ships.
@@ -248,7 +248,7 @@ describe('KanriShiten module — integration (pg-mem + ioredis-mock)', () => {
     });
 
     it('should return 409 CONFLICT when related m_shiten rows exist', async () => {
-      // m_shiten now ships with full schema from the Shiten entity (SCR-007).
+      // m_shiten now ships with full schema from the Shiten entity (ACSMS-SCR-007).
       // Provide every NOT NULL column so the INSERT succeeds; the conflict
       // check only counts non-soft-deleted rows by kanri_shiten_id.
       await ctx.dataSource.query(

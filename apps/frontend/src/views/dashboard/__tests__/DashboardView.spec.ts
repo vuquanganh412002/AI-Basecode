@@ -1,6 +1,6 @@
 // Screen: ACSMS-SCR-010 — メニュー画面
 //
-// Focused on the 電子版読者承認 banner (API-010-002):
+// Focused on the 電子版読者承認 banner (ACSMS-API-010-002):
 //   - 日農アカウント (NICHINO_ADMIN / NICHINO_STAFF) → banner hidden,
 //     getPendingApprovalCount NOT called.
 //   - その他ロール → count fetched (DataScope BE-side); count=0 disables the

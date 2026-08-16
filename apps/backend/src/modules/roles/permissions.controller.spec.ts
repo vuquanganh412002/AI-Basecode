@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-027 — ロール管理画面
 //
 // Drives src/modules/roles/permissions.controller.ts (`/api/v1/permissions`
-// endpoint — API-027-004). Lives in the roles module since the permissions
+// endpoint — ACSMS-API-027-004). Lives in the roles module since the permissions
 // list is consumed only by the role-edit screen's permission checkbox grid.
 
 import {

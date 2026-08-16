@@ -45,7 +45,7 @@ describe('OshiraseController — SCR-001 HTTP (public findLogin)', () => {
       findLogin: jest.fn(),
     };
 
-    // SCR-001 /login is a public route (no guard at method level), but the
+    // ACSMS-SCR-001 /login is a public route (no guard at method level), but the
     // same controller declares SessionAuthGuard + PermissionsGuard on its
     // sibling admin methods. Nest still resolves DI for those guards at
     // module-compile time → SessionService is required. Override both
@@ -180,7 +180,7 @@ describe('OshiraseController — SCR-001 HTTP (public findLogin)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-010 — menu screen HTTP (authenticated getMenuList). Own describe so
+// ACSMS-SCR-010 — menu screen HTTP (authenticated getMenuList). Own describe so
 // the service mock stays minimal; SessionAuthGuard is stubbed allow-all.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -248,9 +248,9 @@ describe('OshiraseController — SCR-010 HTTP (menu getMenuList)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-031 — admin CRUD HTTP (separate top-level describe so its service
+// ACSMS-SCR-031 — admin CRUD HTTP (separate top-level describe so its service
 // mock — getList / getDetail / create / update / remove — and the
-// session/permissions guard overrides don't leak into the SCR-001
+// session/permissions guard overrides don't leak into the ACSMS-SCR-001
 // public-path block above).
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -297,9 +297,9 @@ describe('OshiraseController — SCR-031 HTTP (admin CRUD)', () => {
 
   beforeEach(async () => {
     service = {
-      // SCR-001 public endpoint (existing).
+      // ACSMS-SCR-001 public endpoint (existing).
       findPublic: jest.fn(),
-      // SCR-031 admin endpoints.
+      // ACSMS-SCR-031 admin endpoints.
       getList: jest.fn(),
       getDetail: jest.fn(),
       create: jest.fn(),

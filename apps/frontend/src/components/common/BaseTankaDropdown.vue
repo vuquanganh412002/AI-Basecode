@@ -27,7 +27,7 @@ interface Props {
   value?: number | null;
   /**
    * リスト絞り込み用の m_code.code_category=TANKA_TYPE 値。
-   * SCR-017 販売店作成は `2`（配達手数料）を渡す。
+   * ACSMS-SCR-017 販売店作成は `2`（配達手数料）を渡す。
    */
   tankaType?: number;
   /**

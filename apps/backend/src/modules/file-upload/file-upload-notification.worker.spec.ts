@@ -1,4 +1,4 @@
-// SCR-023 §6.5 — worker unit tests.
+// ACSMS-SCR-023 §6.5 — worker unit tests.
 //
 // Worker boots without Nest DI — `new FileUploadNotificationWorker(...)`
 // with hand-rolled mocks. BullMQ doesn't ship test utilities for
@@ -6,6 +6,7 @@
 
 import type { Job } from 'bullmq';
 
+import { JobFailureException } from '@/common/exceptions/job-failure.exception';
 import { FileUploadNotificationWorker } from './file-upload-notification.worker';
 import type { FileUploadNotificationJob } from './notification-queue.service';
 
@@ -155,7 +156,12 @@ describe('FileUploadNotificationWorker', () => {
     it('should mark partial-failure and throw so BullMQ retries when m_ja FK is broken', async () => {
       m.fileUploadRepo.findOne.mockResolvedValue(buildFileUploadRow());
       m.jaRepo.findOne.mockResolvedValue(null);
-      await expect(worker.process(buildJob())).rejects.toThrow(/JA 1 not found/);
+      // Regression: this used to throw a raw Error — now the project's
+      // JobFailureException (BullMQ-consumer / non-HTTP job-failure signal).
+      let caught: unknown;
+      await worker.process(buildJob()).catch((err) => (caught = err));
+      expect(caught).toBeInstanceOf(JobFailureException);
+      expect((caught as Error).message).toMatch(/JA 1 not found/);
       // [status-flip] 2 first (送信中), then 4 (一部失敗 — marker for the
       // operator dashboard while BullMQ retries).
       expect(m.fileUploadRepo.update).toHaveBeenCalledWith(
@@ -235,7 +241,7 @@ describe('FileUploadNotificationWorker', () => {
     });
   });
 
-  // 顧客要件2026-08 — 通知メールにダウンロード画面(SCR-022)へのリンクを載せる。
+  // 顧客要件2026-08 — 通知メールにダウンロード画面(ACSMS-SCR-022)へのリンクを載せる。
   describe('download link', () => {
     function arrangeOneRecipient(): void {
       m.fileUploadRepo.findOne.mockResolvedValue(
@@ -333,7 +339,12 @@ describe('FileUploadNotificationWorker', () => {
         new Error('SMTP 421'),
       );
 
-      await expect(worker.process(buildJob())).rejects.toThrow(/All 2/);
+      // Regression: this used to throw a raw Error — now the project's
+      // JobFailureException (BullMQ-consumer / non-HTTP job-failure signal).
+      let caught: unknown;
+      await worker.process(buildJob()).catch((err) => (caught = err));
+      expect(caught).toBeInstanceOf(JobFailureException);
+      expect((caught as Error).message).toMatch(/All 2/);
 
       // [status-not-flapped] status stays at 2 (送信中) — we did NOT
       // flip to 4. That keeps the UI badge stable across BullMQ

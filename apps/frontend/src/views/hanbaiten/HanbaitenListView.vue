@@ -22,7 +22,7 @@ import {
 // 機能定義 1.1 / 2.1 — 廃店フラグが立っているものは販売店の一覧に表示しない。
 // haiten_flg=true をチェックした場合のみ廃店レコードも含めて検索する。
 
-// 有効単価フラグ filter — 単価一覧(SCR-006)と同一のトライステートラジオ。
+// 有効単価フラグ filter — 単価一覧(ACSMS-SCR-006)と同一のトライステートラジオ。
 // '' = 両方（既定）、'1' = 有効単価を参照する販売店のみ、'0' = 失効単価を参照する
 // 販売店のみ。検索クリアで '' に戻す。BE へは toBoolean で boolean | undefined に
 // 変換して送る（active_tanka_flg）。
@@ -37,7 +37,7 @@ interface HanbaitenFilters {
   shocho_name: string;
   /** 既定 false — 廃店フラグの立つレコードを除外する。 */
   haiten_flg: boolean;
-  /** 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。 */
+  /** 有効単価フラグ（ACSMS-SCR-021 error gate 連携・顧客要件2026-07 改訂）。 */
   active_tanka_flg: ActiveFlgFilter;
   /**
    * [staff-ja-filter] NICHINO_STAFF（session.ja_id == null）は検索前に
@@ -192,7 +192,7 @@ function runSearch(): void {
 }
 
 onMounted(() => {
-  // [scr021-deep-link] 配達手数料支払情報出力 (SCR-021) の失効単価エラーから
+  // [scr021-deep-link] 配達手数料支払情報出力 (ACSMS-SCR-021) の失効単価エラーから
   // ?inactive_tanka=1 で遷移してくる導線。有効単価フラグを「無効(失効単価参照)」で
   // 初期選択する。
   if (route.query.inactive_tanka === '1') {
@@ -375,9 +375,9 @@ function askDelete(row: HanbaitenListItem): void {
           </span>
         </a-checkbox>
       </div>
-      <!-- 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧
-           (SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する販売店のみ、
-           無効=失効単価を参照する販売店のみ、未選択=両方。SCR-021 の失効単価エラー
+      <!-- 有効単価フラグ（ACSMS-SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧
+           (ACSMS-SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する販売店のみ、
+           無効=失効単価を参照する販売店のみ、未選択=両方。ACSMS-SCR-021 の失効単価エラー
            からは ?inactive_tanka=1 で「無効」が初期選択される。 -->
       <div class="flex items-start gap-2 flex-wrap">
         <span class="text-sm font-medium whitespace-nowrap text-text-main leading-[22px]">有効単価フラグ</span>

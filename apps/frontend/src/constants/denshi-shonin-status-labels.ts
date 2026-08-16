@@ -6,7 +6,7 @@ import { DenshiShoninStatus } from '@/constants/enums';
  * このカテゴリだけは **m_code に無い** — 値は電子版連携の状態から API 層が導出する
  * ものであり、顧客が DB で名称を編集する対象ではない（他の区分値は必ず
  * `useCodesStore().label(...)` を使うこと。`.claude/rules/vue.md §Code Master` 参照）。
- * SCR-011 一覧の絞り込みと SCR-013 履歴一覧の表示で同じ文言を使うため、
+ * ACSMS-SCR-011 一覧の絞り込みと ACSMS-SCR-013 履歴一覧の表示で同じ文言を使うため、
  * ラベルはここ 1 箇所に集約して drift を防ぐ。
  *
  * `null` = Web申込以外（電子版行が無い＝紙版など）。

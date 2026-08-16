@@ -54,7 +54,7 @@ export class KanriShitenDropdownItemDto {
   @ApiProperty() kanri_shiten_id!: number;
   @ApiProperty() kanri_shiten_code!: string;
   @ApiProperty() kanri_shiten_name!: string;
-  // 顧客要件2026-07: SCR-011 で購読種別（紙版/電子版）に応じ管理支店ドロップダウンを
+  // 顧客要件2026-07: ACSMS-SCR-011 で購読種別（紙版/電子版）に応じ管理支店ドロップダウンを
   // 絞り込むためのフラグ（m_kanri_shiten.paper_flg/denshi_flg）。
   @ApiProperty({ description: '紙版取扱フラグ' }) paper_flg!: boolean;
   @ApiProperty({ description: '電子版取扱フラグ' }) denshi_flg!: boolean;

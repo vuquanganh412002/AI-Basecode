@@ -39,10 +39,10 @@ import {
 } from './dokusya.mapper';
 import { isBoth, isDigitalCreditCard } from './dokusya-shubetsu.rules';
 
-/** SCR-015 監査ラベル。core DokusyaService と同一値だが自己完結のため複製。 */
+/** ACSMS-SCR-015 監査ラベル。core DokusyaService と同一値だが自己完結のため複製。 */
 const SCREEN_NAME_SCR015 = '購読者販売店一括置換画面 (ACSMS-SCR-015)';
 
-/** SCR-015 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
+/** ACSMS-SCR-015 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
@@ -52,7 +52,7 @@ const TABLE_NAME = 't_dokusya';
 const REPLACE_DIGITAL_UNSUPPORTED_MSG = '電子版は本画面では対象外です。';
 
 /**
- * SCR-015 置換検索の sort_by 許可リスト。`SearchReplaceDokusyaDto` の `@IsIn` と
+ * ACSMS-SCR-015 置換検索の sort_by 許可リスト。`SearchReplaceDokusyaDto` の `@IsIn` と
  * 一致必須。FE 識別子 → JOIN 済み完全修飾カラム。
  */
 const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
@@ -63,7 +63,7 @@ const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
 };
 
 /**
- * SCR-015 — 購読者販売店一括置換画面。
+ * ACSMS-SCR-015 — 購読者販売店一括置換画面。
  * 一括置換 concern（候補検索・置換・事前検証）を core DokusyaService から切り出した
  * leaf サービス。facade が薄く委譲。挙動は分離前と byte-identical。
  */
@@ -79,10 +79,10 @@ export class DokusyaReplaceService {
     private readonly accountFlags: DokusyaAccountFlagService,
   ) {}
 
-  // ─── API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search ─────────
+  // ─── ACSMS-API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search ─────────
   /**
    * 一括置換画面の候補購読者を検索。
-   * Flow (api.md §API-015-001):
+   * Flow (api.md §ACSMS-API-015-001):
    *   §4.1 date_from > date_to → DATE_RANGE_INVALID。
    *   §4.2 DataScope: CHUOKAI/JA_HONTEN→ja_id、JA_KANRI_SHITEN→kanri_shiten_id、NICHINO_*=bypass。
    *   §4.3 固定条件 tetsuzuki_shurui=1 AND deleted_at IS NULL。

@@ -76,8 +76,8 @@ export class KozaFurikaeController {
   @ApiResponse({
     status: 200,
     description:
-      '全銀フォーマット固定長テキスト（Shift_JIS, 1レコード120バイト）を attachment（ファイル名 ZENOUTFD）で返却。',
-    content: { 'text/plain': {} },
+      '全銀フォーマット固定長テキスト（Shift_JIS, 1レコード120バイト）を attachment（ファイル名 口座振替データ_YYYY年MM月DD日）で返却。',
+    content: { 'application/octet-stream': {} },
   })
   @ApiResponse({ status: 400, description: '入力値が不正です。' })
   @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
@@ -90,7 +90,10 @@ export class KozaFurikaeController {
   ): Promise<void> {
     const session = req.user as SessionPayload;
     const result = await this.kozaFurikaeService.exportCsv(body, session, req);
-    res.setHeader('Content-Type', 'text/plain; charset=Shift_JIS');
+    // Content-Type は application/octet-stream 固定（text/plain 等の既知タイプだと
+    // 拡張子なしファイル名でも Chrome 等が .txt を自動付与してしまうため。
+    // file-delivery.ts の contentTypeFor() が未知拡張子で返す既定値と同じ規約）。
+    res.setHeader('Content-Type', 'application/octet-stream');
     // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
     res.setHeader(
       'Content-Disposition',

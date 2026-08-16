@@ -21,11 +21,11 @@
 
 | role_id | role_code | role_name | description | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | NICHINO_ADMIN | 日農（管理者） | 日本農業新聞 管理者アカウント | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 2 | NICHINO_STAFF | 日農（担当者） | 日本農業新聞 担当者アカウント | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 3 | CHUOKAI | 中央会 | 中央会アカウント | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 4 | JA_HONTEN | JA本店 | JA本店アカウント | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 5 | JA_KANRI_SHITEN | JA管理支店 | JA管理支店アカウント | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 1 | NICHINO_ADMIN | 日農（管理者） | 日本農業新聞 管理者アカウント | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 2 | NICHINO_STAFF | 日農（担当者） | 日本農業新聞 担当者アカウント | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 3 | CHUOKAI | 中央会 | 中央会アカウント | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 4 | JA_HONTEN | JA本店 | JA本店アカウント | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 5 | JA_KANRI_SHITEN | JA管理支店 | JA管理支店アカウント | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ---
 
@@ -161,9 +161,9 @@
 | --- | --- |
 | deleted_at | NULL |
 | created_at | 2026-01-01 |
-| created_by | SYSTEM |
+| created_by | SYSTEM_MIGRATION |
 | updated_at | 2026-01-01 |
-| updated_by | SYSTEM |
+| updated_by | SYSTEM_MIGRATION |
 
 ---
 
@@ -247,9 +247,9 @@
 | --- | --- |
 | deleted_at | NULL |
 | created_at | 2026-01-01 |
-| created_by | SYSTEM |
+| created_by | SYSTEM_MIGRATION |
 | updated_at | 2026-01-01 |
-| updated_by | SYSTEM |
+| updated_by | SYSTEM_MIGRATION |
 
 ### シードデータ
 
@@ -489,167 +489,167 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | DOKUSYA_SHUBETSU | 1 | 紙版 | 紙版 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 2 | DOKUSYA_SHUBETSU | 2 | 電子版 | 電子版 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 3 | DOKUSYA_SHUBETSU | 3 | 併読（紙版＋電子版） | 併読 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 1 | DOKUSYA_SHUBETSU | 1 | 紙版 | 紙版 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 2 | DOKUSYA_SHUBETSU | 2 | 電子版 | 電子版 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 3 | DOKUSYA_SHUBETSU | 3 | 併読（紙版＋電子版） | 併読 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.2 手続種類 (TETSUZUKI_SHURUI)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4 | TETSUZUKI_SHURUI | 0 | 解約 | 解約 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 5 | TETSUZUKI_SHURUI | 1 | 新規 | 新規 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 4 | TETSUZUKI_SHURUI | 0 | 解約 | 解約 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 5 | TETSUZUKI_SHURUI | 1 | 新規 | 新規 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.3 電子版読者種別 (DENSHI_DOKUSYA_SHUBETSU)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 6 | DENSHI_DOKUSYA_SHUBETSU | 0 | 無料 | 無料 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 7 | DENSHI_DOKUSYA_SHUBETSU | 1 | 有料 | 有料 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 6 | DENSHI_DOKUSYA_SHUBETSU | 0 | 無料 | 無料 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 7 | DENSHI_DOKUSYA_SHUBETSU | 1 | 有料 | 有料 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.4 支払方法 (SHIHARAI_HOHO)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 8 | SHIHARAI_HOHO | 1 | 口座引落 | 口座引落 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 9 | SHIHARAI_HOHO | 2 | 現金集金 | 現金集金 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 10 | SHIHARAI_HOHO | 3 | 振込集金 | 振込集金 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 11 | SHIHARAI_HOHO | 4 | JA施設等 | JA施設等 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 12 | SHIHARAI_HOHO | 5 | 給与天引き | 給与天引き | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 13 | SHIHARAI_HOHO | 6 | クレジットカード | クレカ | 6 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 14 | SHIHARAI_HOHO | 9 | その他 | その他 | 7 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 8 | SHIHARAI_HOHO | 1 | 口座引落 | 口座引落 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 9 | SHIHARAI_HOHO | 2 | 現金集金 | 現金集金 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 10 | SHIHARAI_HOHO | 3 | 振込集金 | 振込集金 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 11 | SHIHARAI_HOHO | 4 | JA施設等 | JA施設等 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 12 | SHIHARAI_HOHO | 5 | 給与天引き | 給与天引き | 5 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 13 | SHIHARAI_HOHO | 6 | クレジットカード | クレカ | 6 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 14 | SHIHARAI_HOHO | 9 | その他 | その他 | 7 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.5 性別 (GENDER)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 15 | GENDER | 1 | 男性 | 男性 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 16 | GENDER | 2 | 女性 | 女性 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 17 | GENDER | 9 | 回答しない | 未回答 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 15 | GENDER | 1 | 男性 | 男性 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 16 | GENDER | 2 | 女性 | 女性 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 17 | GENDER | 9 | 回答しない | 未回答 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.6 預金種別 (YOKIN_SHUBETSU)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 | YOKIN_SHUBETSU | 1 | 普通 | 普通 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 19 | YOKIN_SHUBETSU | 2 | 当座 | 当座 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 18 | YOKIN_SHUBETSU | 1 | 普通 | 普通 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 19 | YOKIN_SHUBETSU | 2 | 当座 | 当座 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.7 税区分 (ZEI_KUBUN)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 20 | ZEI_KUBUN | 1 | 内税 | 内税 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 21 | ZEI_KUBUN | 2 | 外税 | 外税 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 20 | ZEI_KUBUN | 1 | 内税 | 内税 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 21 | ZEI_KUBUN | 2 | 外税 | 外税 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.8 単価種類 (TANKA_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 22 | TANKA_TYPE | 1 | 購読料 | 購読料 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 23 | TANKA_TYPE | 2 | 配達手数料 | 配達手数料 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 22 | TANKA_TYPE | 1 | 購読料 | 購読料 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 23 | TANKA_TYPE | 2 | 配達手数料 | 配達手数料 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.9 委託区分 (ITAKU_KUBUN)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 24 | ITAKU_KUBUN | 1 | 振込 | 振込 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 25 | ITAKU_KUBUN | 2 | 日農委託 | 日農委託 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 26 | ITAKU_KUBUN | 9 | その他 | その他 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 24 | ITAKU_KUBUN | 1 | 振込 | 振込 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 25 | ITAKU_KUBUN | 2 | 日農委託 | 日農委託 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 26 | ITAKU_KUBUN | 9 | その他 | その他 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.10 手数料区分 (TESURYO_KUBUN)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 27 | TESURYO_KUBUN | 1 | JA | JA | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 28 | TESURYO_KUBUN | 2 | 販売店 | 販売店 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 27 | TESURYO_KUBUN | 1 | JA | JA | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 28 | TESURYO_KUBUN | 2 | 販売店 | 販売店 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.11 郵送区分 (YUBIN_KUBUN)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 29 | YUBIN_KUBUN | 0 | 空 | 空 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 30 | YUBIN_KUBUN | 1 | 郵送 | 郵送 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 29 | YUBIN_KUBUN | 0 | 空 | 空 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 30 | YUBIN_KUBUN | 1 | 郵送 | 郵送 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.12 メールマガジン (MAIL_MAGAZINE_FLG)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 31 | MAIL_MAGAZINE_FLG | 0 | 配信しない | 配信しない | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 32 | MAIL_MAGAZINE_FLG | 1 | 配信する | 配信する | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 31 | MAIL_MAGAZINE_FLG | 0 | 配信しない | 配信しない | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 32 | MAIL_MAGAZINE_FLG | 1 | 配信する | 配信する | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.13 お知らせ種別 (OSHIRASE_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 33 | OSHIRASE_TYPE | 1 | システム | システム | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 34 | OSHIRASE_TYPE | 2 | 重要 | 重要 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 35 | OSHIRASE_TYPE | 3 | 一般 | 一般 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 36 | OSHIRASE_TYPE | 4 | 締め切り時間 | 締切時間 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 33 | OSHIRASE_TYPE | 1 | システム | システム | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 34 | OSHIRASE_TYPE | 2 | 重要 | 重要 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 35 | OSHIRASE_TYPE | 3 | 一般 | 一般 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 36 | OSHIRASE_TYPE | 4 | 締め切り時間 | 締切時間 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.14 お知らせ公開場所 (PUBLISH_LOCATION)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 37 | PUBLISH_LOCATION | 1 | ログイン画面 | ログイン画面 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 38 | PUBLISH_LOCATION | 2 | メニュー画面 | メニュー画面 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 39 | PUBLISH_LOCATION | 3 | メニュー画面（締め切り時間） | 締切時間 | 3 | お知らせ種別=4 (締め切り時間) 専用枠。1件のみ運用される。 | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 37 | PUBLISH_LOCATION | 1 | ログイン画面 | ログイン画面 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 38 | PUBLISH_LOCATION | 2 | メニュー画面 | メニュー画面 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 39 | PUBLISH_LOCATION | 3 | メニュー画面（締め切り時間） | 締切時間 | 3 | お知らせ種別=4 (締め切り時間) 専用枠。1件のみ運用される。 | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.15 お知らせ状態 (OSHIRASE_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 40 | OSHIRASE_STATUS | 1 | 下書き | 下書き | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 41 | OSHIRASE_STATUS | 2 | 公開 | 公開 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 42 | OSHIRASE_STATUS | 3 | 非公開 | 非公開 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 40 | OSHIRASE_STATUS | 1 | 下書き | 下書き | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 41 | OSHIRASE_STATUS | 2 | 公開 | 公開 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 42 | OSHIRASE_STATUS | 3 | 非公開 | 非公開 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.16 ログ種別 (LOG_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 43 | LOG_TYPE | 1 | ユーザー操作 | ユーザー操作 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 44 | LOG_TYPE | 2 | システム | システム | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 45 | LOG_TYPE | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 46 | LOG_TYPE | 4 | ファイルアップロード | ファイルUP | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 43 | LOG_TYPE | 1 | ユーザー操作 | ユーザー操作 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 44 | LOG_TYPE | 2 | システム | システム | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 45 | LOG_TYPE | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 46 | LOG_TYPE | 4 | ファイルアップロード | ファイルUP | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.17 結果ステータス (RESULT_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 47 | RESULT_STATUS | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 48 | RESULT_STATUS | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 49 | RESULT_STATUS | 3 | 警告 | 警告 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 47 | RESULT_STATUS | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 48 | RESULT_STATUS | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 49 | RESULT_STATUS | 3 | 警告 | 警告 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.18 ファイルアップロードステータス (FILE_UPLOAD_STATUS)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 50 | FILE_UPLOAD_STATUS | 1 | 処理中 | 処理中 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 51 | FILE_UPLOAD_STATUS | 2 | 完了 | 完了 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 52 | FILE_UPLOAD_STATUS | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 50 | FILE_UPLOAD_STATUS | 1 | 処理中 | 処理中 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 51 | FILE_UPLOAD_STATUS | 2 | 完了 | 完了 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 52 | FILE_UPLOAD_STATUS | 3 | エラー | エラー | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.19 ダウンロード種別 (DOWNLOAD_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 53 | DOWNLOAD_TYPE | 1 | 口座振替 | 口座振替 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 54 | DOWNLOAD_TYPE | 2 | その他 | その他 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 55 | DOWNLOAD_TYPE | 3 | 増減連絡票 | 増減連絡票 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 56 | DOWNLOAD_TYPE | 4 | 増減通知書 | 増減通知書 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 57 | DOWNLOAD_TYPE | 5 | 購読者名簿 | 購読者名簿 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 53 | DOWNLOAD_TYPE | 1 | 口座振替 | 口座振替 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 54 | DOWNLOAD_TYPE | 2 | その他 | その他 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 55 | DOWNLOAD_TYPE | 3 | 増減連絡票 | 増減連絡票 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 56 | DOWNLOAD_TYPE | 4 | 増減通知書 | 増減通知書 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 57 | DOWNLOAD_TYPE | 5 | 購読者名簿 | 購読者名簿 | 5 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.20 ログイン結果 (LOGIN_RESULT)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 58 | LOGIN_RESULT | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 59 | LOGIN_RESULT | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 58 | LOGIN_RESULT | 1 | 成功 | 成功 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 59 | LOGIN_RESULT | 2 | 失敗 | 失敗 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.21 OTP種別 (OTP_TYPE)
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 60 | OTP_TYPE | 1 | ログイン | ログイン | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 61 | OTP_TYPE | 2 | パスワードリセット | PW変更 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 60 | OTP_TYPE | 1 | ログイン | ログイン | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 61 | OTP_TYPE | 2 | パスワードリセット | PW変更 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.22 通知ステータス (NOTIFICATION_STATUS)
 
@@ -657,10 +657,10 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 62 | NOTIFICATION_STATUS | 1 | 未送信 | 未送信 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 63 | NOTIFICATION_STATUS | 2 | 送信中 | 送信中 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 64 | NOTIFICATION_STATUS | 3 | 完了 | 完了 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 65 | NOTIFICATION_STATUS | 4 | 一部失敗 | 一部失敗 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 62 | NOTIFICATION_STATUS | 1 | 未送信 | 未送信 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 63 | NOTIFICATION_STATUS | 2 | 送信中 | 送信中 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 64 | NOTIFICATION_STATUS | 3 | 完了 | 完了 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 65 | NOTIFICATION_STATUS | 4 | 一部失敗 | 一部失敗 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.23 購読者層分類 (DOKUSYASO_BUNRUI)
 
@@ -668,11 +668,11 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 66 | DOKUSYASO_BUNRUI | 0 | 農業者 | 農業者 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 67 | DOKUSYASO_BUNRUI | 1 | JAグループ役職員 | JA役職員 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 68 | DOKUSYASO_BUNRUI | 2 | 企業・団体 | 企業・団体 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 69 | DOKUSYASO_BUNRUI | 3 | 学生 | 学生 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 70 | DOKUSYASO_BUNRUI | 999 | その他 | その他 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 66 | DOKUSYASO_BUNRUI | 0 | 農業者 | 農業者 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 67 | DOKUSYASO_BUNRUI | 1 | JAグループ役職員 | JA役職員 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 68 | DOKUSYASO_BUNRUI | 2 | 企業・団体 | 企業・団体 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 69 | DOKUSYASO_BUNRUI | 3 | 学生 | 学生 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 70 | DOKUSYASO_BUNRUI | 999 | その他 | その他 | 5 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.24 農業者分類 (NOGYOSYA_BUNRUI)
 
@@ -680,13 +680,13 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 71 | NOGYOSYA_BUNRUI | 0 | 米 | 米 | 1 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 72 | NOGYOSYA_BUNRUI | 1 | 野菜 | 野菜 | 2 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 73 | NOGYOSYA_BUNRUI | 2 | 果実 | 果実 | 3 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 74 | NOGYOSYA_BUNRUI | 3 | 花 | 花 | 4 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 75 | NOGYOSYA_BUNRUI | 4 | 畜産 | 畜産 | 5 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 76 | NOGYOSYA_BUNRUI | 5 | 酪農 | 酪農 | 6 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
-| 77 | NOGYOSYA_BUNRUI | 999 | その他 | その他 | 7 | | NULL | 2026-01-01 | SYSTEM | 2026-01-01 | SYSTEM |
+| 71 | NOGYOSYA_BUNRUI | 0 | 米 | 米 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 72 | NOGYOSYA_BUNRUI | 1 | 野菜 | 野菜 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 73 | NOGYOSYA_BUNRUI | 2 | 果実 | 果実 | 3 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 74 | NOGYOSYA_BUNRUI | 3 | 花 | 花 | 4 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 75 | NOGYOSYA_BUNRUI | 4 | 畜産 | 畜産 | 5 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 76 | NOGYOSYA_BUNRUI | 5 | 酪農 | 酪農 | 6 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 77 | NOGYOSYA_BUNRUI | 999 | その他 | その他 | 7 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ---
 
@@ -720,6 +720,6 @@
 | --- | --- |
 | deleted_at | NULL |
 | created_at | 2026-01-01 |
-| created_by | SYSTEM |
+| created_by | SYSTEM_MIGRATION |
 | updated_at | 2026-01-01 |
-| updated_by | SYSTEM |
+| updated_by | SYSTEM_MIGRATION |

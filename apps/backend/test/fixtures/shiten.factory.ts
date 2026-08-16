@@ -1,4 +1,4 @@
-// Screen: ACSMS-SCR-007 — 支店マスタ登録画面 (also used by SCR-006 list)
+// Screen: ACSMS-SCR-007 — 支店マスタ登録画面 (also used by ACSMS-SCR-006 list)
 //
 // Fixture builder for the Shiten entity. Values mirror m_shiten schema
 // (docs/database/database-design.md §m_shiten — biko column added v1.3).

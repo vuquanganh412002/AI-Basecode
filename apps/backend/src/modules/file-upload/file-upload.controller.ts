@@ -30,6 +30,7 @@ import {
 import type { Request, Response } from 'express';
 
 import { Permissions } from '@/common/decorators/permissions.decorator';
+import { UPLOAD_DOWNLOAD_THROTTLE } from '@/common/constants/rate-limit.constant';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import { decodeMultipartFilename } from '@/common/utils/multipart-filename';
@@ -52,6 +53,7 @@ import {
 } from './dto/file-upload-response.dto';
 import {
   FileUploadService,
+  MAX_FILE_SIZE_BYTES,
   type UploadedMulterFile,
 } from './file-upload.service';
 
@@ -76,19 +78,21 @@ export class FileUploadController {
     return this.service.findAll(query, req.user as SessionPayload, req);
   }
 
-  // SCR-023 — POST /api/v1/file-upload (multipart upload)
+  // ACSMS-SCR-023 — POST /api/v1/file-upload (multipart upload)
   @Post()
   @Permissions('file.upload')
   // [throttle-upload] このパスは WAF body-inspection バイパス(大バイナリが managed
   // XSS/SQLi ルールに誤検知。nestjs.md §WAF body-inspection bypass)で edge rate-limit
   // を失うため、app 側で厳格化(20/min/IP、グローバルは 100)。実 viewer IP は
   // `trust proxy`(main.ts)で取得(ALB でない)。
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Throttle(UPLOAD_DOWNLOAD_THROTTLE)
   // [http-202] api.md §概要 が 202 Accepted 指定(通知メール送信は worker で非同期)。
   @HttpCode(HttpStatus.ACCEPTED)
   // [multer-files] FilesInterceptor が multipart の `files` を Express.Multer.File[]
   // へ。max 20(api.md は N 上限なしだが数千は受けない)。1 ファイル 30MB — screen-design.md 機能定義 4.2。
-  @UseInterceptors(FilesInterceptor('files', 20, { limits: { fileSize: 30 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FilesInterceptor('files', 20, { limits: { fileSize: MAX_FILE_SIZE_BYTES } }),
+  )
   @ApiOperation({ summary: 'ファイルをアップロードする (multipart/form-data)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -151,7 +155,7 @@ export class FileUploadController {
     );
   }
 
-  // SCR-023 — DELETE /api/v1/file-upload/:id
+  // ACSMS-SCR-023 — DELETE /api/v1/file-upload/:id
   @Delete(':file_upload_id')
   @Permissions('file.upload')
   @ApiOperation({ summary: 'アップロード済みファイルを論理削除する' })
@@ -163,7 +167,7 @@ export class FileUploadController {
     return this.service.remove(fileUploadId, req.user as SessionPayload, req);
   }
 
-  // SCR-023 — GET /api/v1/file-upload/:id/preview
+  // ACSMS-SCR-023 — GET /api/v1/file-upload/:id/preview
   @Get(':file_upload_id/preview')
   @Permissions('file.download')
   @ApiOperation({ summary: 'プレビュー用署名付き URL を取得する' })
@@ -174,7 +178,7 @@ export class FileUploadController {
     return this.service.getPreview(fileUploadId, req.user as SessionPayload);
   }
 
-  // SCR-023 — GET /api/v1/file-upload/:id/download
+  // ACSMS-SCR-023 — GET /api/v1/file-upload/:id/download
   @Get(':file_upload_id/download')
   @Permissions('file.download')
   @ApiOperation({ summary: 'アップロード済みファイルをダウンロードする' })
@@ -196,11 +200,11 @@ export class FileUploadController {
     this.sendBinary(res, result);
   }
 
-  // SCR-023 — POST /api/v1/file-upload/download-zip
+  // ACSMS-SCR-023 — POST /api/v1/file-upload/download-zip
   @Post('download-zip')
   @HttpCode(HttpStatus.OK)
   @Permissions('file.download')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Throttle(UPLOAD_DOWNLOAD_THROTTLE)
   @ApiOperation({
     summary: '選択した複数ファイルを ZIP に1つにまとめてダウンロードする',
   })

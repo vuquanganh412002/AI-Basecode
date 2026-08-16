@@ -5,7 +5,7 @@ document_name: API設計書
 screen_id: ACSMS-SCR-012
 screen_name: パスワードの再設定・パスワードの変更
 format_code: 18-BM/PM/VTI
-format_version: "1.0"
+format_version: "1.1"
 issue_date: 2026-04-09
 created_date: 2026/04/16
 created_by: Nguyen Truong An
@@ -18,6 +18,7 @@ updated_by: Nguyen Truong An
 | No  | 発行日     | 版数 | 担当者     | 変更内容               | 確認者         | 承認者         |
 | --- | ---------- | ---- | ---------- | ---------------------- | -------------- | -------------- |
 | 1   | 2026/04/16 | 1.0  | Nguyen Truong An | 初版作成               | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/08/12 | 1.1  | Tran Duc Tuyen | 実装差分反映：login_idパラメータ追加、誤ったNOT_FOUNDエラーを削除、検索SQLをlogin_id+emailに修正、メール件名修正、セッション無効化/監査ログを必須に訂正、updated_byをaccount_idに訂正 | - | - |
 
 ## システム概要
 
@@ -48,10 +49,11 @@ updated_by: Nguyen Truong An
 | 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
 | 2   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
 | 3   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 4   | 画面固有     | NOT_FOUND     | 指定されたメールアドレスのアカウントが見つかりません。                 | HTTP 404 |
-| 5   | 画面固有     | INVALID_RESET_TOKEN   | 無効なリンクです。                                                     | HTTP 400 |
-| 6   | 画面固有     | EXPIRED_RESET_TOKEN   | リンクの有効期限が切れています。再度パスワード再設定をお試しください。 | HTTP 400 |
-| 7   | 画面固有     | PASSWORD_RESET_RATE_LIMIT | 再送信は5分後に可能です。時間をおいてから再度お試しください。 | HTTP 429 |
+| 4   | 画面固有     | INVALID_RESET_TOKEN   | 無効なリンクです。                                                     | HTTP 400 |
+| 5   | 画面固有     | EXPIRED_RESET_TOKEN   | リンクの有効期限が切れています。再度パスワード再設定をお試しください。 | HTTP 400 |
+| 6   | 画面固有     | PASSWORD_RESET_RATE_LIMIT | 再送信は5分後に可能です。時間をおいてから再度お試しください。 | HTTP 429 |
+
+※ 「指定されたアカウントが見つかりません」に相当するエラーは存在しない。アカウント列挙防止のため、login_id・email の組み合わせが1件も一致しない場合も HTTP 200 で成功と同一のレスポンスを返す（4.3 参照）。
 
 ---
 
@@ -62,19 +64,20 @@ updated_by: Nguyen Truong An
 | 項目                   | 内容                                                                                                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | API名                  | Forgot Password (Request Reset Email)                                                                                                                                                                 |
-| 概要                   | メールアドレスを入力してパスワード再設定用メールを送信する                                                                                                                                               |
+| 概要                   | ユーザーID・メールアドレスを入力してパスワード再設定用メールを送信する                                                                                                                                   |
 | URI                    | /api/v1/auth/forgot-password                                                                                                                                                                           |
 | メソッド               | POST                                                                                                                                                                                                   |
 | リクエストボディー     | JSON                                                                                                                                                                                                   |
 | リクエストパラメーター | なし                                                                                                                                                                                                   |
 | ヘッダ                 | Content-Type: application/json                                                                                                                                                                        |
-| HTTPレスポンスコード   | 200:パスワード再設定メールを送信しました, 400:リクエストパラメータが不正です／入力値が不正です, 500:システムエラーが発生しました                                                                   |
+| HTTPレスポンスコード   | 200:パスワード再設定メールを送信しました, 400:リクエストパラメータが不正です／入力値が不正です, 429:再送信は5分後に可能です, 500:システムエラーが発生しました                                       |
 
 ## リクエストパラメータ
 
 | #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                     |
 | --- | -------------- | ------ | -------- | ---- | ------ | ------ | ------------------------ |
-| 1   | email          | String | -        | 〇   | 1      | 100    | メールアドレス           |
+| 1   | login_id       | String | -        | 〇   | 1      | 20     | ユーザーID（半角文字のみ）。email との組み合わせでアカウントを特定する（顧客要件2026-08 — email は m_account で一意でないため） |
+| 2   | email          | String | -        | 〇   | 1      | 100    | メールアドレス           |
 
 ## レスポンスデータ
 
@@ -89,6 +92,7 @@ POST /api/v1/auth/forgot-password
 Content-Type: application/json
 
 {
+  "login_id": "admin01",
   "email": "user@example.com"
 }
 ```
@@ -118,9 +122,18 @@ Content-Type: application/json
 }
 ```
 
-### 200 OK - Email Not Found (Always return 200 to prevent account enumeration)
+### 429 Too Many Requests - Cooldown Active
 
-Note: For security, account enumeration prevention is implemented. Both valid and invalid emails receive the same success response.
+```json
+{
+  "error_code": "PASSWORD_RESET_RATE_LIMIT",
+  "message": "再送信は5分後に可能です。時間をおいてから再度お試しください。"
+}
+```
+
+### 200 OK - Unknown login_id/email Pair (Always return 200 to prevent account enumeration)
+
+Note: For security, account enumeration prevention is implemented. A login_id/email pair that matches no account receives the same success response as a matching pair.
 
 ```json
 {
@@ -145,9 +158,14 @@ Note: For security, account enumeration prevention is implemented. Both valid an
 
 ### 4.1 リクエストのバリデーション
 
+- login_id フィールドの検証：
+  - 必須チェック
+  - 半角文字のみチェック
+  - 最大20文字チェック
 - email フィールドの検証：
   - 必須チェック
   - メールアドレス形式チェック
+  - 最大100文字チェック
 - 不正なパラメータが存在する場合：
   - HTTP 400 Bad Request を返却する。
 
@@ -155,19 +173,21 @@ Note: For security, account enumeration prevention is implemented. Both valid an
 
 - 認証チェック不要
 
-### 4.3 メールアドレスの存在確認
-- 以下の条件でアカウントを検索する：
+### 4.3 アカウントの存在確認（login_id AND email）
+
+- `email` は `m_account` で一意ではない（通知先メールアドレス、※空文字許容）ため、email 単独で検索すると重複行中の任意の1件を拾ってしまい、対象外のアカウントが再設定不能になる。一意キーである `login_id` と `email` の組み合わせで1件に絞る：
 
 ```sql
 SELECT account_id, account_name
 FROM m_account
-WHERE email = :email
+WHERE login_id = :login_id
+  AND email = :email
   AND deleted_at IS NULL
 LIMIT 1
 ```
 
-- レコードが存在しない場合：
-  - セキュリティ上の理由で、存在しないメールアドレスでも成功（HTTP 200）レスポンスを返す（アカウント列挙防止）
+- レコードが存在しない場合（login_id・email のどちらか一方でも一致しない場合を含む）：
+  - セキュリティ上の理由で、成功（HTTP 200）レスポンスを返す（アカウント列挙防止）
   - クールダウンチェック（4.3a）も行わない
 
 ### 4.3a クールダウンチェック（既存アカウントのみ）
@@ -222,7 +242,8 @@ VALUES (:account_id, :reset_token_hash, 2, :expired_at, 0, 0, false, NOW())
 ### 4.6 メールを送信
 
 - メールテンプレート
-- メール件名：`【agrinews】パスワードリセット`
+- メール件名：`【クラウド版購読者管理システム】パスワードリセット`
+- 本文：宛先アカウント名（`{account_name}　様`）＋ 案内文 ＋ リンク ＋ 有効期限 ＋ 「※このメールに心当たりがない場合は無視してください。」の注意書き
 - 送信内容：
   - パスワード再設定リンク（トークン付き）： `https://{FRONTEND_URL}/reset-password?token={reset_token}`
   - 有効期限：1時間
@@ -538,7 +559,7 @@ UPDATE m_account
 SET password_hash = :new_password_hash,
     password_updated_at = NOW(),
     updated_at = NOW(),
-    updated_by = 'SYSTEM'
+    updated_by = :account_id  -- トークンで本人確認済みの当該アカウント自身。値は account_id を文字列化したもの
 WHERE account_id = :account_id
 ```
 
@@ -553,27 +574,28 @@ SET used_flg = true,
 WHERE otp_id = :otp_id
 ```
 
-### 4.8 既存セッションの無効化（オプション）
+### 4.8 既存セッションの無効化（必須）
 
+- 4.6〜4.9 は単一トランザクション内、本手順は commit 後に実行する（Redis 部分障害でパスワード書込がロールバックしないようにするため）。
 - 同一アカウントのRedis上の既存セッションをすべて削除する：
   - Redisのセッション索引（例: `account_sessions:{account_id}` Setキー）から対象account_idに紐付くすべての`session_id`を取得する。
   - 取得した各セッションキー `session:{session_id}` を `DEL` で削除する。
   - 索引キーも `DEL account_sessions:{account_id}` で削除する。
 - これにより、旧パスワードで取得したセッションを使ったアクセスは即時に無効化される。
 
-### 4.9 操作ログ記録（オプション）
+### 4.9 操作ログ記録（必須）
 
 - パスワード更新イベントをログに記録する：
 
 ```sql
 INSERT INTO t_log (log_type, log_datetime, account_id,
                    gamen_name, operation, result_status,
-                   target_table, after_value,
-                   user_agent)
+                   target_table, target_id, after_value,
+                   ip_address, user_agent)
 VALUES (1, NOW(), :account_id,
         'パスワード再設定画面 (ACSMS-SCR-012)', 'PASSWORD_RESET', 1,
-        'm_account', '{"event": "password_reset"}',
-        :user_agent)
+        'm_account', :account_id, '{"event": "password_reset"}',
+        :ip_address, :user_agent)
 ```
 
 ### 4.10 レスポンス生成
@@ -593,7 +615,7 @@ VALUES (1, NOW(), :account_id,
 
 - **認証要件**: 不要（ログイン前ユーザーが利用）
 - **権限要件**: なし
-- **クールダウン**: メールアドレスあたり 5 分に 1 回まで（連投ガード）
+- **クールダウン**: アカウント（login_id + email の組み合わせ）あたり 5 分に 1 回まで（連投ガード）
 
 ### ACSMS-API-012-002（Verify Token）
 

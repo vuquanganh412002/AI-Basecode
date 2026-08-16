@@ -33,9 +33,9 @@ import {
 } from '@test/fixtures/hanbaiten-import.fixture';
 
 // ─── Mock the hand-written API wrapper. /gen-code-frontend appends the
-//     SCR-019 endpoints (downloadHanbaitenImportTemplate +
+//     ACSMS-SCR-019 endpoints (downloadHanbaitenImportTemplate +
 //     importHanbaitenExcel) to apps/frontend/src/api/hanbaiten/hanbaiten.ts
-//     — the wrapper file already exists for SCR-017/018 endpoints.
+//     — the wrapper file already exists for ACSMS-SCR-017/018 endpoints.
 vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   listHanbaiten: vi.fn(),
   removeHanbaiten: vi.fn(),
@@ -215,6 +215,16 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — initial render', () => {
     const defaultRadio = wrapper.find('[data-test="import-mode-new"]');
     expect(defaultRadio.exists()).toBe(true);
     expect((defaultRadio.element as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('should name the 取込モード radio group via native <fieldset>+<legend>, not role="radiogroup" (regression)', async () => {
+    const { wrapper } = await renderView();
+    const legend = wrapper.findAll('legend').find((l) => l.text().includes('取込モード'));
+    expect(legend).toBeDefined();
+    expect(legend!.element.closest('fieldset')).not.toBeNull();
+    const group = wrapper.find('[data-test="import-mode"]');
+    expect(group.attributes('role')).toBeUndefined();
+    expect(group.attributes('aria-labelledby')).toBeUndefined();
   });
 
   it('should render the テンプレート button when the view first mounts', async () => {

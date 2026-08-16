@@ -2,7 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { DomainException } from '@/common/exceptions/domain.exception';
 import { ErrorCode } from '@/common/constants/error-codes.constant';
 
-/** SCR-016 ファイル形式エラーメッセージ（api.md §エラー一覧）。 */
+/** ACSMS-SCR-016 ファイル形式エラーメッセージ（api.md §エラー一覧）。 */
 export const DOKUSYA_IMPORT_FILE_FORMAT_MESSAGE =
   'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。';
 

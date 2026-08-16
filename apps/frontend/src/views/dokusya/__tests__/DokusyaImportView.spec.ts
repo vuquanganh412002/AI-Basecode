@@ -20,7 +20,7 @@
 // Client-preflight vs interceptor split (per .claude/rules/vue.md
 // §Error Handling Architecture): the view runs client-side validation
 // BEFORE calling importDokusyaExcel — ファイル未選択 / 電子版クレカ /
-// 購読部数 / 30000行超過 short-circuit with a toast and NO API call.
+// 購読部数 / 5000行超過 short-circuit with a toast and NO API call.
 // BE-side errors (IMPORT_VALIDATION_ERROR / 500) come back from the API:
 // the global axios interceptor toasts FORBIDDEN / 500 centrally, so the
 // view must NOT re-toast those — it only renders the row-level error list
@@ -49,9 +49,9 @@ import {
 } from '@test/fixtures/dokusya-import.fixture';
 
 // ─── Mock the hand-written API wrapper. /gen-code-frontend appends the
-//     SCR-016 endpoints (downloadDokusyaImportTemplate +
+//     ACSMS-SCR-016 endpoints (downloadDokusyaImportTemplate +
 //     importDokusyaExcel) to apps/frontend/src/api/dokusya/dokusya.ts —
-//     the wrapper file already exists for SCR-011/013/014/015 endpoints.
+//     the wrapper file already exists for ACSMS-SCR-011/013/014/015 endpoints.
 //     Re-stub the WHOLE module so the view's other imports resolve when
 //     the module is shared across screens.
 vi.mock('@/api/dokusya/dokusya', () => ({
@@ -201,7 +201,7 @@ async function uploadFile(
  * it is NOT an Excel column, so digital-only rules are driven by this.
  */
 /**
- * 適用日 / 中止日 は antd の <a-date-picker>（SCR-014 と同じ部品）なので、
+ * 適用日 / 中止日 は antd の <a-date-picker>（ACSMS-SCR-014 と同じ部品）なので、
  * ネイティブ input のように setValue できない。vm の Dayjs を直接差し替える
  * （DokusyaListView.spec の stopMonth と同じ扱い）。
  */
@@ -289,6 +289,23 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     expect((defaultRadio.element as HTMLInputElement).checked).toBe(true);
   });
 
+  it('should name the 購読種別 / 取込モード radio groups via native <fieldset>+<legend>, not role="radiogroup" (regression)', async () => {
+    const { wrapper } = await renderView();
+    const shubetsuLegend = wrapper.findAll('legend').find((l) => l.text().includes('購読種別'));
+    const modeLegend = wrapper.findAll('legend').find((l) => l.text().includes('取込モード'));
+    expect(shubetsuLegend).toBeDefined();
+    expect(modeLegend).toBeDefined();
+    expect(shubetsuLegend!.element.closest('fieldset')).not.toBeNull();
+    expect(modeLegend!.element.closest('fieldset')).not.toBeNull();
+
+    const shubetsuGroup = wrapper.find('[data-test="import-shubetsu"]');
+    const modeGroup = wrapper.find('[data-test="import-mode"]');
+    expect(shubetsuGroup.attributes('role')).toBeUndefined();
+    expect(shubetsuGroup.attributes('aria-labelledby')).toBeUndefined();
+    expect(modeGroup.attributes('role')).toBeUndefined();
+    expect(modeGroup.attributes('aria-labelledby')).toBeUndefined();
+  });
+
   it('should render the two 取込モード radios (新規登録 / 更新) when the view first mounts', async () => {
     // 顧客要件 2026-07: 全項目更新を廃止し 新規登録/更新 の2択に統合。
     const { wrapper } = await renderView();
@@ -347,7 +364,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
   });
 
   // 支店は NEW モードでも必須ではない（api.md §4.1 は管理支店側のみ必須と記載、
-  // t_dokusya.shiten_id は NULL 許容、SCR-011 の画面登録でも任意）。取込だけ必須に
+  // t_dokusya.shiten_id は NULL 許容、ACSMS-SCR-011 の画面登録でも任意）。取込だけ必須に
   // すると画面から登録できる購読者が Excel からは登録できない不整合になる（回帰防止）。
   it('should leave 支店 (shiten_code) unlocked in 新規登録 mode — selectable but not forced', async () => {
     const { wrapper } = await renderView();
@@ -464,7 +481,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
   });
 
   it('should use a MONTH picker for 中止日 on 電子版 and send the month end', async () => {
-    // 電子版の解約は月末で終了する（SCR-014 と同じ）。日付ではなく終了月を選ばせ、
+    // 電子版の解約は月末で終了する（ACSMS-SCR-014 と同じ）。日付ではなく終了月を選ばせ、
     // 送信時にその月末へ丸める。
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue();
@@ -473,7 +490,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     await flushPromises();
 
     // antd は picker 種別を DOM 属性で出さないので placeholder で判別する
-    // （SCR-014 と同じ「終了月を選択」）。
+    // （ACSMS-SCR-014 と同じ「終了月を選択」）。
     expect(pickerInput(wrapper, 'import-chushi-date').placeholder).toBe(
       '終了月を選択',
     );
@@ -569,7 +586,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     );
     expect(kaishi.exists()).toBe(false);
 
-    // 氏名4項目は更新可（顧客要件 2026-07・改姓等。SCR-011 編集画面と同じ扱い）→
+    // 氏名4項目は更新可（顧客要件 2026-07・改姓等。ACSMS-SCR-011 編集画面と同じ扱い）→
     // チェックボックスを描画し、選択できること。
     for (const col of [
       'shimei_sei',
@@ -982,10 +999,28 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
   });
 
-  it('should block submit and show ACSMS-MSG-016-006 wording when the file has more than 30000 rows', async () => {
-    // 機能 8.1 — データ行数 > 30000件 → ACSMS-MSG-016-006.
+  it('should NOT block submit when an UPDATE row leaves 購読部数 blank (unchanged field, not zero)', async () => {
+    // sheet_to_json({ defval: '' }) turns a blank Excel cell into '' (not
+    // undefined) — Number('') === 0, so the busu<=0 check must also exclude
+    // '' explicitly, otherwise an UPDATE row that simply isn't touching
+    // 購読部数 (blank = "leave unchanged") gets wrongly blocked as busu=0.
     const { wrapper } = await renderView();
-    await uploadFile(wrapper, buildImportRows(30001));
+    await wrapper.find('[data-test="import-mode-update"]').setValue(true);
+    await flushPromises();
+    await setPickerDate(wrapper, 'johoDateFe', '2026-09-01');
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_id: 7001, dokusya_busu: '' }),
+    ]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
+  });
+
+  it('should block submit and show ACSMS-MSG-016-006 wording when the file has more than 5000 rows', async () => {
+    // 機能 8.1 — データ行数 > 5000件 → ACSMS-MSG-016-006.
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, buildImportRows(5001));
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
@@ -994,7 +1029,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
       ...vi.mocked(message.warning).mock.calls,
     ].flatMap((c) => c);
     expect(
-      toasted.some((m) => typeof m === 'string' && /30000|上限/.test(m)),
+      toasted.some((m) => typeof m === 'string' && /5000|上限/.test(m)),
     ).toBe(true);
   });
 });

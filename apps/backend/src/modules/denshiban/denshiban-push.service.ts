@@ -12,6 +12,8 @@ import { isDigitalOrBoth } from '@/modules/dokusya/dokusya-shubetsu.rules';
 
 import { DenshibanApiService } from './denshiban-api.service';
 import {
+  CLOUD_ORIGIN_STATUS_CODE,
+  DENSHIBAN_STATUS_SUCCESS,
   describeDenshibanError,
   isDenshibanErrorCode,
 } from './denshiban-error-codes';
@@ -125,14 +127,23 @@ export class DenshibanPushService {
       immediateJohoDate?: string;
       /** action='cancel' 用の解約対象月（YYYYMM）。 */
       cancelYm?: string;
+      /**
+       * 更新前（DB の実値）の単価ID。update/reread で渡す — campaign→通常切替の
+       * 初回push抑止判定（顧客要件 2026-08 追補）に使う。create など「before」が
+       * 存在しない呼び出しは省略する。
+       */
+      beforeTankaId?: number | null;
     },
   ): Promise<boolean> {
-    const { action, after, source, immediateJohoDate, cancelYm } = params;
+    const { action, after, source, immediateJohoDate, cancelYm, beforeTankaId } =
+      params;
     // 未来適用は batch に委譲（即 push しない）。
     if (immediateJohoDate !== undefined && immediateJohoDate !== todayIsoJst()) {
       return false;
     }
-    if (!(await this.isTarget(manager, after, source))) return false;
+    if (!(await this.isTarget(manager, after, source, beforeTankaId))) {
+      return false;
+    }
     const kaiinId = await this.push(manager, action, after, { cancelYm });
     // create（create フォールバックした update/reread 含む）の採番IDを entity にも反映
     // （応答用。DB は push 内で更新済み）。
@@ -147,16 +158,30 @@ export class DenshibanPushService {
     manager: EntityManager,
     after: Dokusya,
     source: ApplyChangeSource,
+    beforeTankaId?: number | null,
   ): Promise<boolean> {
     if (source === 'BATCH') return false;
-    return this.isPushTarget(manager, after);
+    return this.isPushTarget(manager, after, beforeTankaId);
   }
 
   /**
    * source を問わない push 対象判定。push無効 / 種別が電子版・併読でない /
    * 単価が campaign → いずれも false。{@link isTarget} が source 判定を足して使う。
+   *
+   * @param beforeTankaId 更新前（DB の実値）の単価ID。update/reread のときだけ
+   *   渡される。denshi_kaiin_id がまだ null で、かつ更新前の単価が campaign
+   *   だった（＝もともと push 対象外だった）場合、この1回の更新では push
+   *   しない（顧客要件 2026-08 追補）— cloud 側が denshiban へ新規登録して
+   *   しまうのを防ぐ。denshi_kaiin_id の付与は電子版側からの pull sync のみを
+   *   正とする。push 有効化前から存在し一度も campaign になったことがない
+   *   レコード（migration フォールバック対象）とは、beforeTankaId の campaign
+   *   判定で区別する。
    */
-  async isPushTarget(manager: EntityManager, after: Dokusya): Promise<boolean> {
+  async isPushTarget(
+    manager: EntityManager,
+    after: Dokusya,
+    beforeTankaId?: number | null,
+  ): Promise<boolean> {
     if (!this.enabled) return false;
     if (!isDigitalOrBoth(after.dokusyaShubetsu)) return false;
     if (after.tankaId != null) {
@@ -165,6 +190,13 @@ export class DenshibanPushService {
         select: { tankaId: true, campaignFlg: true },
       });
       if (tanka?.campaignFlg) return false;
+    }
+    if (after.denshiKaiinId == null && beforeTankaId != null) {
+      const beforeTanka = await manager.getRepository(Tanka).findOne({
+        where: { tankaId: beforeTankaId },
+        select: { tankaId: true, campaignFlg: true },
+      });
+      if (beforeTanka?.campaignFlg) return false;
     }
     return true;
   }
@@ -260,9 +292,9 @@ export class DenshibanPushService {
     throw err;
   }
 
-  /** statusCode≠'0' を push 失敗として throw する。 */
+  /** statusCode≠成功 を push 失敗として throw する。 */
   private assertOk(action: string, statusCode: string, message: string): void {
-    if (statusCode !== '0') {
+    if (statusCode !== DENSHIBAN_STATUS_SUCCESS) {
       // 第3引数(detail)と第4引数(apiMessage)は同じ message。前者はログ用、
       // 後者は利用者向け message として採用される。
       this.fail(action, statusCode, `message=${message}`, message);
@@ -280,7 +312,7 @@ export class DenshibanPushService {
     // 以下2つは cloud 側のデータ不備で、電子版まで到達していない＝先方の
     // message が存在しない。よって汎用文言（apiMessage を渡さない）。
     if (kanriShitenId == null) {
-      this.fail('resolveJacd', 'CLOUD', 'kanri_shiten_id is null');
+      this.fail('resolveJacd', CLOUD_ORIGIN_STATUS_CODE, 'kanri_shiten_id is null');
     }
     const ks = await manager.getRepository(KanriShiten).findOne({
       where: { kanriShitenId },
@@ -290,7 +322,7 @@ export class DenshibanPushService {
     if (!/^\d{10}$/.test(jacd)) {
       this.fail(
         'resolveJacd',
-        'CLOUD',
+        CLOUD_ORIGIN_STATUS_CODE,
         `kanri_shiten_code is not 10 digits (kanri_shiten_id=${kanriShitenId})`,
       );
     }

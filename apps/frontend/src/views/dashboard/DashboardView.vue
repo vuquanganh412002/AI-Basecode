@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * メニュー画面 (SCR-010) — mirrors docs/design/ACSMS-SCR-010/index.html.
+ * メニュー画面 (ACSMS-SCR-010) — mirrors docs/design/ACSMS-SCR-010/index.html.
  * Menu cards consume the same source as AppSidebar (single source of truth:
  * src/constants/menu-sections.ts) so the two surfaces never drift apart.
  *
  * Announcements come from `GET /api/v1/oshirase/menu?limit=20` per
- * docs/design/ACSMS-SCR-010/ACSMS-SCR-010-api.md (API-010-001). Endpoint
+ * docs/design/ACSMS-SCR-010/ACSMS-SCR-010-api.md (ACSMS-API-010-001). Endpoint
  * already filters to publish_location=2, status=公開, within publish
  * window, ja_id NULL OR user.ja_id. Returns two slices:
  *   - `oshirase_list` (oshirase_type != 4) for the body list
@@ -41,7 +41,7 @@ function goTo(name?: string): void {
   router.push({ name });
 }
 
-// ── 電子版読者承認 (SCR-010, API-010-002) ─────────────────────────────
+// ── 電子版読者承認 (ACSMS-SCR-010, ACSMS-API-010-002) ─────────────────────────────
 // 日農アカウント (NICHINO_ADMIN / NICHINO_STAFF) はこのバナーを表示しない
 // — 電子版読者承認は JA 側ロールの業務。それ以外のロールは承認待ち件数を
 // DataScope 込みで取得し、0件ならボタンを無効化、>0 件なら購読者明細検索
@@ -64,7 +64,7 @@ function goToPendingApproval(): void {
   });
 }
 
-// ── お知らせ from /api/v1/oshirase/menu (SCR-010) ──────────────────────
+// ── お知らせ from /api/v1/oshirase/menu (ACSMS-SCR-010) ──────────────────────
 const announcements = ref<MenuOshiraseItem[]>([]);
 const deadlineNotice = ref<MenuOshiraseItem | null>(null);
 const announcementsLoading = ref(false);

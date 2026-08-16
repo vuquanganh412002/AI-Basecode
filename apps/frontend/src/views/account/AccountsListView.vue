@@ -63,8 +63,10 @@ const {
       ja_id: null,
       kanri_shiten_id: null,
     },
-    // 機能定義 1 — 検索結果一覧は常に最新順で表示.
-    defaultSortBy: 'created_at',
+    // 機能定義 1 — 検索結果一覧は常に最新順で表示。他の一覧画面（JA/販売店/
+    // 単価/支店/管理支店/購読者）と同じく updated_at 基準 — 編集した行が
+    // 一覧の先頭に来る（顧客要件）。
+    defaultSortBy: 'updated_at',
     defaultSortOrder: 'desc',
   });
 
@@ -243,6 +245,7 @@ function askDelete(row: AccountListItem): void {
           v-model:value="state.filters.login_id"
           placeholder="ログインID"
           allow-clear
+          :maxlength="20"
           class="flex-1 min-w-0"
         />
       </label>

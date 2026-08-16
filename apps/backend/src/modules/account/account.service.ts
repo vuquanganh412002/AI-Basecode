@@ -17,7 +17,11 @@ import {
 import {
   AuditOperation, RoleCode } from '@/common/enums';
 import { buildAuditCtx } from '@/common/utils/audit-context';
-import { applyBranchScope, fetchFkInJa } from '@/common/utils/data-scope';
+import {
+  applyBranchScope,
+  assertBranchScope,
+  fetchFkInJa,
+} from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
 import {
   paginate,
@@ -55,17 +59,17 @@ import {
 const SCREEN_NAME = 'アカウント設定 (header)';
 const TABLE_NAME = 'm_account';
 
-// SCR-024 — アカウントマスタ明細検索画面
+// ACSMS-SCR-024 — アカウントマスタ明細検索画面
 const SCR024_SCREEN_NAME = 'アカウントマスタ明細検索画面 (ACSMS-SCR-024)';
 
-// SCR-025 — アカウントマスタ登録画面
+// ACSMS-SCR-025 — アカウントマスタ登録画面
 const SCR025_SCREEN_NAME = 'アカウントマスタ登録画面 (ACSMS-SCR-025)';
 const BCRYPT_SALT_ROUNDS = 10;
 
 /**
  * audit before/after_value JSON に載せる m_account 列のサブセット。
  * password_hash / mfa_enable_flg / login_failure_count は除外（api.md §4.5 注記:
- * パスワード等の機密情報は含めないこと）。account_lock_flg は SCR-025 の admin 解除で
+ * パスワード等の機密情報は含めないこと）。account_lock_flg は ACSMS-SCR-025 の admin 解除で
  * 明確な before/after 監査証跡を残すため含める。
  */
 function buildAccountAuditSnapshot(account: Account): Record<string, unknown> {
@@ -258,7 +262,7 @@ export class AccountService {
   // ─── ACSMS-API-024-001 — GET /api/v1/accounts ────────────────────────
   async searchAccounts(
     query: SearchAccountsDto,
-    _session: SessionPayload,
+    session: SessionPayload,
   ): Promise<PaginatedResponse<AccountListItem>> {
     const page = query.page ?? 1;
     const perPage = query.per_page ?? 20;
@@ -309,6 +313,17 @@ export class AccountService {
       ])
       .where('a.deleted_at IS NULL');
 
+    // [data-scope] CHUOKAI / JA_HONTEN は自 JA、JA_KANRI_SHITEN は自 kanri_shiten
+    // のみ。NICHINO_* はバイパス（getAccountDropdown と同じ根拠）。今は account.view
+    // を NICHINO_ADMIN しか持たないため no-op だが、Roles 画面で他ロールに付与
+    // された瞬間から効く防御であり、ここで担保しておく。
+    applyBranchScope(
+      qb,
+      'a',
+      { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
+      session,
+    );
+
     this.applyAccountSearchFilters(qb, query);
 
     // 防御的 — sortBy は DTO @IsIn で検証済みだが ORDER BY 補間前に再確認。
@@ -327,6 +342,12 @@ export class AccountService {
     const countQb = this.accountRepo
       .createQueryBuilder('a')
       .where('a.deleted_at IS NULL');
+    applyBranchScope(
+      countQb,
+      'a',
+      { jaIdField: 'ja_id', kanriShitenIdField: 'kanri_shiten_id' },
+      session,
+    );
     this.applyAccountSearchFilters(countQb, query);
 
     const [rawRows, total] = await Promise.all([
@@ -339,7 +360,7 @@ export class AccountService {
   }
 
   // ─── ACSMS-API-COMMON-005 — GET /api/v1/account/dropdown ─────────────
-  // SCR-030(ログ参照画面)と併設だがアカウント picker が要る全画面で使用。DataScope は
+  // ACSMS-SCR-030(ログ参照画面)と併設だがアカウント picker が要る全画面で使用。DataScope は
   // 役職ごとに自動適用。サーバ側ページング+検索(既定50/page)で `<BaseAccountDropdown>`
   // の無限スクロールを駆動可能。
   async getAccountDropdown(
@@ -382,7 +403,7 @@ export class AccountService {
       .offset((page - 1) * per_page);
 
     if (query.q) {
-      // [match-field] 'name' = account_name のみ（SCR-030 ログ画面の項目は ユーザ名 で、
+      // [match-field] 'name' = account_name のみ（ACSMS-SCR-030 ログ画面の項目は ユーザ名 で、
       // login_id 一致だと検索列と読めない列でヒットする）。既定 'both' は従来の
       // login_id OR account_name を維持。
       if (query.match_field === 'name') {
@@ -473,6 +494,8 @@ export class AccountService {
     if (!existing) {
       throw new NotFoundException('アカウント');
     }
+    // [data-scope] 存在チェック後、範囲外は 404 マスク。
+    assertBranchScope(existing.jaId, existing.kanriShitenId, session, 'アカウント');
 
     const auditCtx = buildAuditCtx(
       session,
@@ -574,12 +597,21 @@ export class AccountService {
   // ─── ACSMS-API-025-001 — GET /api/v1/accounts/:account_id ────────────
   async getAccountDetail(
     accountId: number,
-    _session: SessionPayload,
+    session: SessionPayload,
   ): Promise<{ data: AccountDetail }> {
     const row = await this.buildDetailQuery(accountId).getRawOne<AccountDetailRow>();
     if (!row) {
       throw new NotFoundException('アカウント');
     }
+    // [data-scope] 存在チェック後、範囲外は 404 マスク（getAccountDropdown と同じ
+    // 根拠）。row.ja_id/kanri_shiten_id は raw query 由来で string の場合がある
+    // ため number へ正規化してから渡す。
+    assertBranchScope(
+      row.ja_id === null ? null : Number(row.ja_id),
+      row.kanri_shiten_id === null ? null : Number(row.kanri_shiten_id),
+      session,
+      'アカウント',
+    );
     return { data: toAccountDetail(row) };
   }
 
@@ -710,6 +742,8 @@ export class AccountService {
     if (!before) {
       throw new NotFoundException('アカウント');
     }
+    // [data-scope] 存在チェック後、範囲外は 404 マスク。
+    assertBranchScope(before.jaId, before.kanriShitenId, session, 'アカウント');
 
     // role_code 駆動の scope チェック — createAccount と同じ根拠。
     const roleCode = await this.resolveRoleCode(dto.role_id);
@@ -806,9 +840,15 @@ export class AccountService {
 
   /**
    * セッションがログイン時に固定する項目（パスワード / ロック(→true) / ロール /
-   * 所属スコープ ja・kanri_shiten・shiten）を変更する更新なら true。該当時は既存
-   * セッションを破棄し ≤24h TTL を待たず即時反映させる。ロック解除
+   * 所属スコープ ja・kanri_shiten・shiten・todofuken）を変更する更新なら true。
+   * 該当時は既存セッションを破棄し ≤24h TTL を待たず即時反映させる。ロック解除
    * (account_lock_flg=false)・email・biko・名称等は非機密で破棄対象外。
+   *
+   * todofuken_code は CHUOKAI の DataScope を「自JAのみ」から「同一都道府県の
+   * 全JA」へ広げる特殊フィールド（session.service.ts 参照）。jaId/kanriShitenId/
+   * shitenId と同じ「セッションに固定されたスコープ」であるにも関わらず抜けて
+   * いた（バックエンドコードレビュー finding #8）— admin がスコープを是正しても
+   * 既存セッションはログインから最大24hそのまま古いスコープで動き続けていた。
    */
   private isSecuritySensitiveUpdate(
     before: Account,
@@ -855,6 +895,13 @@ export class AccountService {
       )
     ) {
       return true;
+    }
+    // todofuken_code は number ではなく string（都道府県コード2桁）— 同じ
+    // undefined/null 正規化を文字列で行う。
+    if (updatePartial.todofukenCode !== undefined) {
+      const next = updatePartial.todofukenCode ?? null;
+      const prev = before.todofukenCode ?? null;
+      if (next !== prev) return true;
     }
     return false;
   }

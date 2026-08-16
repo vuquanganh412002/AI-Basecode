@@ -26,7 +26,7 @@ import {
 } from './haitatsuryo.mapper';
 
 const SCREEN_NAME = '配達手数料支払情報出力画面 (ACSMS-SCR-021)';
-// 失効単価参照エラー（error gate）の案内文（SCR-021 専用・顧客要件2026-07）。
+// 失効単価参照エラー（error gate）の案内文（ACSMS-SCR-021 専用・顧客要件2026-07）。
 const INACTIVE_TANKA_MESSAGE =
   '失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。';
 const TABLE_NAME = 't_file_download';
@@ -78,7 +78,7 @@ export class HaitatsuryoService {
     const zeiKubun = await this.fetchZeiKubun(session);
     const rows = await this.fetchAggRows(query, session, zeiKubun);
     // 0件は「検索成功・結果なし」として 200 + 空配列を返す（REST 準拠、
-    // SCR-026/028 と同じ方針）。FE は data.length===0 で画面内に
+    // ACSMS-SCR-026/028 と同じ方針）。FE は data.length===0 で画面内に
     // 「該当する支払い情報が存在しません。」を表示する。
     // 集計は販売店単位（件数は限定的）なので全件集計→ページスライスで返す。
     // grand_total_* は全販売店通算（ページに依存しない）。

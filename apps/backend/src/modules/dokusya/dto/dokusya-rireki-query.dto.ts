@@ -4,7 +4,7 @@ import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 /**
  * FE が 履歴一覧 をソート可能な列の allow-list
- * （api.md §API-013-001 §4.1 sort_by 許可リスト）。spec がプロパティ単位の
+ * （api.md §ACSMS-API-013-001 §4.1 sort_by 許可リスト）。spec がプロパティ単位の
  * エラーを見られるよう DTO でここで強制する。サービスは自身の SORT_COLUMN_MAP で
  * 値を完全修飾列にマップする（SQL インジェクションへの二重防御）。
  */

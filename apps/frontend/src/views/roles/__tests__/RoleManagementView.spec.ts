@@ -3,7 +3,7 @@
 // Drives src/views/roles/RoleManagementView.vue. Every it() maps to a
 // clause in docs/design/ACSMS-SCR-027/screen-design.md (機能定義 + メッセージ情報) +
 // docs/design/ACSMS-SCR-027/index.html (UI structure) +
-// docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md (API-027-001..004).
+// docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md (ACSMS-API-027-001..004).
 //
 // Layout per screen-design: ONE view that hosts both the role list (閲覧モード)
 // AND an inline edit form + permission checkbox grid (編集モード). Clicking
@@ -35,7 +35,7 @@ vi.mock('@/api/roles/roles', () => ({
 }));
 
 // Permissions list comes from a sibling hand-written wrapper
-// `src/api/permissions/permissions.ts` (API-027-004). Kept separate from
+// `src/api/permissions/permissions.ts` (ACSMS-API-027-004). Kept separate from
 // roles per the tag-per-controller wrapper convention.
 vi.mock('@/api/permissions/permissions', () => ({
   listPermissions: vi.fn(),
@@ -107,7 +107,7 @@ beforeEach(async () => {
 // 1. 画面初期表示 (機能定義 1.0 + 1.1) — 閲覧モード
 // ───────────────────────────────────────────────────────────────────────
 describe('RoleManagementView — initial render (機能定義 1.x)', () => {
-  // Page title 「ロール管理画面」 + breadcrumb come from MainLayout's
+  // Page title 「ロール管理」 + breadcrumb come from MainLayout's
   // AppHeader (driven by route meta), NOT from this view. Don't assert on
   // them in unit-mount tests — they only render via the full layout chain.
 
@@ -403,6 +403,68 @@ describe('RoleManagementView — locked permissions', () => {
     // formState.permission_ids must still contain id=1 (locked).
     const vm = wrapper.vm as unknown as { formState: { permission_ids: number[] } };
     expect(vm.formState.permission_ids).toContain(1);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 3c. getRole 失敗時の保存ガード (regression — permission-wipe-on-save)
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — getRole failure guard (permission-wipe regression)', () => {
+  it('should block 保存 and show a reload message when getRole fails while entering 編集モード', async () => {
+    // A transient getRole() failure must NOT let 保存 send an empty
+    // permission_ids and wipe the role's permissions server-side.
+    const { getRole } = await import('@/api/roles/roles');
+    vi.mocked(getRole).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+
+    // Form still opens (role_name/description pre-filled from the row).
+    const submitBtn = wrapper.find('button[type="submit"]');
+    expect(submitBtn.exists()).toBe(true);
+    expect(submitBtn.attributes('disabled')).toBeDefined();
+    expect(wrapper.text()).toContain('権限情報の取得に失敗しました');
+
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(updateRole).not.toHaveBeenCalled();
+  });
+
+  it('should allow 保存 normally once getRole succeeds after a prior failure', async () => {
+    const { getRole, updateRole } = await import('@/api/roles/roles');
+    vi.mocked(getRole).mockRejectedValueOnce({
+      response: { status: 500, data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+    });
+
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined();
+
+    // Re-open 編集 on the same row — getRole now resolves normally.
+    vi.mocked(getRole).mockResolvedValueOnce(buildRoleDetailResponse());
+    await editLinks[2].trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined();
+    expect(wrapper.text()).not.toContain('権限情報の取得に失敗しました');
+
+    vi.mocked(updateRole).mockClear();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(updateRole).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -711,6 +773,86 @@ describe('RoleManagementView — save error paths', () => {
 
     // Submit button still rendered — form still visible.
     expect(wrapper.find('button[type="submit"]').exists()).toBe(true);
+  });
+
+  it('should map BE VALIDATION_ERROR errors[] to fieldErrors and render them under the matching field (regression)', async () => {
+    // Bug: the catch block did nothing besides a comment, so a BE-side
+    // VALIDATION_ERROR (e.g. a business rule useApiForm-based screens map
+    // automatically) had nowhere to render on this hand-rolled form.
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [{ field: 'role_name', message: '既に同名のロールが存在します。' }],
+        },
+      },
+    });
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('既に同名のロールが存在します。');
+  });
+
+  it('should clear a previously-shown server VALIDATION_ERROR once the next submit succeeds', async () => {
+    const wrapper = await enterEditMode();
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [{ field: 'role_name', message: '既に同名のロールが存在します。' }],
+        },
+      },
+    });
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('既に同名のロールが存在します。');
+
+    vi.mocked(updateRole).mockResolvedValueOnce({
+      data: buildRoleDetail({
+        role_id: 3,
+        role_code: 'CHUOKAI',
+        role_name: '中央会',
+        description: '',
+        permission_ids: [],
+      }),
+      message: '更新しました。',
+    });
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain('既に同名のロールが存在します。');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 6b. Enter キーでの暗黙 submit 抑止（フォームは20項目超 — vue.md §preventEnterImplicitSubmit）
+// ───────────────────────────────────────────────────────────────────────
+describe('RoleManagementView — Enter key implicit submit guard', () => {
+  it('should NOT call updateRole when Enter is pressed inside the ロール名 text input (regression)', async () => {
+    const { wrapper } = await renderView();
+    const editLinks = wrapper
+      .findAll('button, a')
+      .filter((el) => el.text().trim() === '編集' || el.text().includes('編集'));
+    await editLinks[2].trigger('click');
+    await flushPromises();
+
+    const { updateRole } = await import('@/api/roles/roles');
+    vi.mocked(updateRole).mockClear();
+
+    const nameInput = wrapper
+      .findAll('input')
+      .find((i) => (i.element as HTMLInputElement).value === '中央会');
+    expect(nameInput).toBeDefined();
+    await nameInput!.trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+
+    expect(updateRole).not.toHaveBeenCalled();
   });
 });
 

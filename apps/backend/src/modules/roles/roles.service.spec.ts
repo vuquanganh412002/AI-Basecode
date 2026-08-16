@@ -2,10 +2,10 @@
 //
 // Drives src/modules/roles/roles.service.ts. Every it() maps to a clause
 // in docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md (4 endpoints):
-//   - API-027-001 findAll roles
-//   - API-027-002 findOne role with permission_ids
-//   - API-027-003 update role + permission allocations (transaction)
-//   - API-027-004 findAllPermissions
+//   - ACSMS-API-027-001 findAll roles
+//   - ACSMS-API-027-002 findOne role with permission_ids
+//   - ACSMS-API-027-003 update role + permission allocations (transaction)
+//   - ACSMS-API-027-004 findAllPermissions
 
 import { NotFoundException } from '@/common/exceptions/common.exceptions';
 
@@ -104,7 +104,7 @@ describe('RolesService', () => {
     );
   });
 
-  // ─── API-027-001 — GET /api/v1/roles (findAll) ──────────────────────────
+  // ─── ACSMS-API-027-001 — GET /api/v1/roles (findAll) ──────────────────────────
   describe('findAll', () => {
     it('should return the 5 seeded roles ordered by role_id ASC when NICHINO_ADMIN calls', async () => {
       // COVERS: §4.3 SELECT m_roles + §4.4 レスポンス生成
@@ -172,7 +172,7 @@ describe('RolesService', () => {
     });
   });
 
-  // ─── API-027-002 — GET /api/v1/roles/:role_id (findOne) ─────────────────
+  // ─── ACSMS-API-027-002 — GET /api/v1/roles/:role_id (findOne) ─────────────────
   describe('findOne', () => {
     it('should return role detail with permission_ids array when role exists', async () => {
       // COVERS: §4.3 happy path — role SELECT + permission_ids JOIN
@@ -288,7 +288,7 @@ describe('RolesService', () => {
     });
   });
 
-  // ─── API-027-003 — PUT /api/v1/roles/:role_id (update) ──────────────────
+  // ─── ACSMS-API-027-003 — PUT /api/v1/roles/:role_id (update) ──────────────────
   describe('update', () => {
     it('should update role basic info + replace permission allocations atomically', async () => {
       // COVERS: §4.4.1 + §4.4.2 + §4.4.3 (single transaction)
@@ -524,7 +524,7 @@ describe('RolesService', () => {
     });
   });
 
-  // ─── API-027-004 — GET /api/v1/permissions (findAllPermissions) ─────────
+  // ─── ACSMS-API-027-004 — GET /api/v1/permissions (findAllPermissions) ─────────
   describe('findAllPermissions', () => {
     it('should return all permissions sorted by permission_id ASC', async () => {
       // COVERS: §4.3 SELECT m_permissions + ORDER BY permission_id ASC

@@ -5,7 +5,7 @@ document_name: テスト仕様書
 screen_id: ACSMS-SCR-012
 screen_name: パスワードの再設定・パスワードの変更
 format_code: 16-BM/PM/VTI
-format_version: "1.0"
+format_version: "1.1"
 issue_date: 2026-05-08
 test_level: 結合テスト
 test_environment: Windows 10/11, Chrome, Edge
@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-08 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-12 | 1.1 | Tran Duc Tuyen | Cập nhật theo code thực tế: sửa TC-028/029/031/038 theo spec cặp login_id+email, thêm 2 testcase cho trường User ID (TC-049/050) | - |  |
 
 
 ## システム概要
@@ -60,7 +61,8 @@ Tài liệu tham khảo ISTQB và IEEE 829, đáp ứng các tiêu chuẩn chấ
 | 5 | Logic nghiệp vụ — Yêu cầu đặt lại mật khẩu (Function — Forgot) | 6 |
 | 6 | Logic nghiệp vụ — Cập nhật mật khẩu (Function — Reset) | 8 |
 | 7 | Xử lý lỗi chung (Common Error Handling) | 7 |
-|  | 合計 | 48 |
+| 8 | Trường User ID (yêu cầu khách hàng 2026-08 — cặp login_id + email) | 2 |
+|  | 合計 | 50 |
 
 ---
 
@@ -1683,18 +1685,18 @@ errors[] chứa message format token không hợp lệ
 
 # カテゴリ 5: Logic nghiệp vụ — Yêu cầu đặt lại mật khẩu (Function — Forgot)
 
-## ACSMS-TC-012-028 — Email tồn tại — 200 + gửi mail + lưu token
+## ACSMS-TC-012-028 — Account tồn tại (login_id + email khớp) — 200 + gửi mail + lưu token
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
 - 前提条件:
-  - ・Account đã đăng ký (email = `user@example.com`, deleted_at IS NULL)
+  - ・Account đã đăng ký (login_id = `admin01`, email = `user@example.com`, deleted_at IS NULL)
   - ・Trong 5 phút gần đây không có request đặt lại password
 
 ### 手順
 
 ステップ1：
-Trên `/forgot-password` nhập `user@example.com` → gửi
+Trên `/forgot-password` nhập User ID `admin01`, email `user@example.com` → gửi
 
 ステップ2：
 Kiểm tra response
@@ -1704,7 +1706,7 @@ Kiểm tra `t_mfa_otp` trên DB:
 ```sql
 SELECT otp_id, account_id, otp_type, expired_at, used_flg, created_at
 FROM t_mfa_otp
-WHERE account_id = (SELECT account_id FROM m_account WHERE email = 'user@example.com')
+WHERE account_id = (SELECT account_id FROM m_account WHERE login_id = 'admin01' AND email = 'user@example.com')
   AND otp_type = 2
 ORDER BY created_at DESC
 LIMIT 1;
@@ -1718,7 +1720,7 @@ Kiểm tra `t_log` trên DB:
 ```sql
 SELECT operation, result_status, target_table, after_value
 FROM t_log
-WHERE account_id = (SELECT account_id FROM m_account WHERE email = 'user@example.com')
+WHERE account_id = (SELECT account_id FROM m_account WHERE login_id = 'admin01' AND email = 'user@example.com')
   AND operation = 'PASSWORD_RESET_REQUEST'
 ORDER BY log_datetime DESC
 LIMIT 1;
@@ -1737,7 +1739,7 @@ Trên màn hình form ẩn, hiển thị message thành công
 1 row, `otp_type = 2` (PASSWORD_RESET), `expired_at = NOW() + 1 giờ`, `used_flg = false`, `otp_code_hash` là bcrypt hash
 
 ステップ4：
-Mail tiêu đề「【agrinews】パスワードリセット」, body chứa link đặt lại `https://{FRONTEND_URL}/reset-password?token={uuid}`
+Mail tiêu đề「【クラウド版購読者管理システム】パスワードリセット」, body chứa tên account nhận, link đặt lại `https://{FRONTEND_URL}/reset-password?token={uuid}`, hạn sử dụng (1 giờ), và dòng lưu ý "nếu không phải bạn yêu cầu thì bỏ qua email này"
 
 ステップ5：
 1 row, `operation = 'PASSWORD_RESET_REQUEST'`, `result_status = 1`, `target_table = 't_mfa_otp'`, `after_value` JSON chứa `{"event": "reset_token_issued"}`
@@ -1746,6 +1748,7 @@ Mail tiêu đề「【agrinews】パスワードリセット」, body chứa lin
 ・Implementation: tạo UUID token → bcrypt hash → lưu t_mfa_otp → log kiểm toán + gửi mail
 ・Main DML (lưu OTP) + log kiểm toán trong cùng 1 transaction
 ・Mail gửi sau commit (thiết kế chống mail còn lại khi rollback)
+・Điều kiện tìm kiếm là login_id AND email (vì email không unique trong m_account — yêu cầu khách hàng 2026-08)
 
 ### テスト結果（1回目）
 
@@ -1771,17 +1774,18 @@ Mail tiêu đề「【agrinews】パスワードリセット」, body chứa lin
 
 (なし)
 
-## ACSMS-TC-012-029 — Email không tồn tại — 200 (chống liệt kê account)
+## ACSMS-TC-012-029 — Email không tồn tại／login_id+email không khớp — 200 (chống liệt kê account)
 
 - 観点ID: VP-A-06
 - 種類: Abnormal (異常)
 - 前提条件:
   - ・Email không tồn tại `notexist@example.com`
+  - ・Account đã đăng ký (login_id = `admin01`, email = `user@example.com`)
 
 ### 手順
 
 ステップ1：
-Trên `/forgot-password` nhập `notexist@example.com` → gửi
+Trên `/forgot-password` nhập User ID `notexist`, email `notexist@example.com` (cả hai đều không tồn tại) → gửi
 
 ステップ2：
 Kiểm tra response
@@ -1790,26 +1794,32 @@ Kiểm tra response
 Kiểm tra `t_mfa_otp` trên DB
 
 ステップ4：
+Trên `/forgot-password` nhập User ID `admin01` (tồn tại), email `other@example.com` (không khớp với `admin01`) → gửi
+
+ステップ5：
+Kiểm tra response và `t_mfa_otp` của bước 4
+
+ステップ6：
 Kiểm tra thời gian response (verify timing attack)
 
 ### 期待結果
 
-ステップ1：
-HTTP status code: 200 (giống email tồn tại)
-
-ステップ2：
+ステップ1〜3：
+HTTP status code: 200 (giống trường hợp khớp)
 Response: `{ message: "パスワード再設定用のメールを送信しました。メールを確認してください。" }`
-
-ステップ3：
 Không có row mới, không INSERT vào `t_mfa_otp`
 
-ステップ4：
-Thời gian response gần tương đương trường hợp email tồn tại (nhưng có thể hơi ngắn hơn do bcrypt không chạy, thiết kế chấp nhận)
+ステップ4〜5：
+HTTP status code: 200 (login_id tồn tại nhưng email không khớp nên vẫn coi là "không xác định". Yêu cầu khách hàng 2026-08 — không lọc chỉ theo email)
+Không có row mới, không INSERT vào `t_mfa_otp`
+
+ステップ6：
+Thời gian response gần tương đương trường hợp khớp (nhưng có thể hơi ngắn hơn do bcrypt không chạy, thiết kế chấp nhận)
 
 補足：
-・Security: chống tấn công liệt kê account
-・Implementation: nếu kết quả accountRepo.findOne là null, chỉ log và trả successMessage
-・Không gửi mail, không tạo token
+・Security: chống tấn công liệt kê account. Chỉ cần login_id hoặc email không khớp là coi như "không xác định"
+・Implementation: nếu kết quả `accountRepo.findOne({ where: { loginId, email, deletedAt: IsNull() } })` là null, chỉ log và trả successMessage
+・Không gửi mail, không tạo token, không kiểm tra cooldown
 
 ### テスト結果（1回目）
 
@@ -1914,7 +1924,7 @@ message:「無効なリンクです。」
 ### 手順
 
 ステップ1：
-Sau 1 phút, gửi request lần 2 với cùng email
+Sau 1 phút, gửi request lần 2 với cùng cặp User ID + email
 
 ステップ2：
 Kiểm tra response
@@ -2352,7 +2362,7 @@ Trên màn hình toast hiển thị, sau 3 giây tự động chuyển `/login`
 `password_hash` cập nhật sang bcrypt hash mới
 `password_updated_at = thời điểm hiện tại`
 `updated_at = thời điểm hiện tại`
-`updated_by = 'SYSTEM'`
+`updated_by = giá trị account_id được chuyển thành chuỗi` (chính account đã được xác thực qua token, không phải chuỗi cố định `'SYSTEM'`)
 
 ステップ3：
 `used_flg = true` của `otp_id` tương ứng
@@ -2972,6 +2982,118 @@ Thành công bình thường, HTTP status code: 200
 ・Phát hiện network error → thông báo cho user
 ・Giá trị input được giữ, có thể gửi lại
 ・axios interceptor xử lý Network Error tập trung
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế / Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| Bug ID | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế / Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| Bug ID | - |
+
+### 備考
+
+(なし)
+
+---
+
+# 追加カテゴリ: User ID (yêu cầu khách hàng 2026-08 — xác định account theo cặp login_id + email)
+
+## ACSMS-TC-012-049 — User ID — Kiểm tra bắt buộc (rỗng + ký tự khoảng trắng)
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Màn hình đặt lại mật khẩu
+
+### 手順
+
+ステップ1：
+Để trống User ID, chỉ nhập email → nhấn nút gửi
+
+ステップ2：
+Nhập 3 ký tự khoảng trắng (半角) → nhấn nút gửi
+
+### 期待結果
+
+ステップ1：
+Hiển thị "ユーザーIDを入力してください。" ngay dưới ô nhập
+FE chặn gửi request (không gọi API)
+
+ステップ2：
+`validateClient` phía FE dùng `trim()` để loại bỏ khoảng trắng đầu/cuối, coi là rỗng
+Hiển thị "ユーザーIDを入力してください。"
+
+補足：
+・Cả trường hợp để trống lẫn chỉ nhập khoảng trắng đều bị coi là vi phạm bắt buộc
+・Mã message là ACSMS-MSG-001-001 (dùng chung với màn hình đăng nhập. SCR-012 không có mã riêng)
+・Implementation: dùng `form.login_id?.trim()` để kiểm tra an toàn (`ForgotPasswordView.vue`)
+・Phía BE (`ForgotPasswordDto.login_id`) cũng validate lại bằng `@IsNotEmpty` + `@Matches(/^[\x21-\x7E]+$/)` (chỉ ký tự half-width) + `@MaxLength(20)`
+
+### テスト結果（1回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế / Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| Bug ID | - |
+
+### テスト結果（2回目）
+
+| Mục | Giá trị |
+| --- | --- |
+| Kết quả | - |
+| Thực tế / Output | - |
+| Người thực hiện | - |
+| Ngày xác nhận | - |
+| Bug ID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-012-050 — User ID khớp nhưng email không khớp — 200 (chống liệt kê account)
+
+- 観点ID: VP-A-06
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・Account đã đăng ký (login_id = `admin01`, email = `user@example.com`)
+
+### 手順
+
+ステップ1：
+Trên `/forgot-password` nhập User ID `admin01` (tồn tại), email `wrong@example.com` (không khớp email đã đăng ký) → gửi
+
+ステップ2：
+Kiểm tra response
+
+ステップ3：
+Kiểm tra `t_mfa_otp` trên DB
+
+### 期待結果
+
+ステップ1〜3：
+HTTP status code: 200 (giống response khi cặp thông tin khớp)
+Response: `{ message: "パスワード再設定用のメールを送信しました。メールを確認してください。" }`
+Không INSERT vào `t_mfa_otp`, không gửi mail
+
+補足：
+・`email` không unique trong `m_account` (là email nhận thông báo, ※cho phép chuỗi rỗng), nên nếu chỉ xét riêng email có thể vô tình khớp nhầm với account khác. Dù User ID tồn tại, nếu email không khớp vẫn coi là "account không xác định" (yêu cầu khách hàng 2026-08)
+・Implementation: `accountRepo.findOne({ where: { loginId, email, deletedAt: IsNull() } })` (điều kiện AND)
 
 ### テスト結果（1回目）
 

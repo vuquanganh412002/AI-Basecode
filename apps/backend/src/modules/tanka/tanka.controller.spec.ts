@@ -356,9 +356,9 @@ describe('TankaController — SCR-002 HTTP (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-003 — detail + create + update HTTP (separate top-level describe so
+// ACSMS-SCR-003 — detail + create + update HTTP (separate top-level describe so
 // the Nest app boot + service mock surface for the 3 form endpoints
-// doesn't leak into the SCR-002 block above).
+// doesn't leak into the ACSMS-SCR-002 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('TankaController — SCR-003 HTTP (detail / create / update)', () => {
@@ -454,7 +454,7 @@ describe('TankaController — SCR-003 HTTP (detail / create / update)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-001 — GET /api/v1/tanka/:tanka_id
+  // ACSMS-API-003-001 — GET /api/v1/tanka/:tanka_id
   // ────────────────────────────────────────────────────────────────────────
   describe('GET /api/v1/tanka/:tanka_id', () => {
     function makeDetail(overrides: Record<string, unknown> = {}) {
@@ -528,7 +528,7 @@ describe('TankaController — SCR-003 HTTP (detail / create / update)', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-002 — POST /api/v1/tanka
+  // ACSMS-API-003-002 — POST /api/v1/tanka
   // ────────────────────────────────────────────────────────────────────────
   describe('POST /api/v1/tanka', () => {
     function makeCreated(overrides: Record<string, unknown> = {}) {
@@ -662,7 +662,7 @@ describe('TankaController — SCR-003 HTTP (detail / create / update)', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-003 — PUT /api/v1/tanka/:tanka_id
+  // ACSMS-API-003-003 — PUT /api/v1/tanka/:tanka_id
   // ────────────────────────────────────────────────────────────────────────
   describe('PUT /api/v1/tanka/:tanka_id', () => {
     function makeUpdated(overrides: Record<string, unknown> = {}) {
@@ -716,7 +716,7 @@ describe('TankaController — SCR-003 HTTP (detail / create / update)', () => {
     });
 
     it('should reject tanka_code in body via forbidNonWhitelisted (immutable field)', async () => {
-      // COVERS: api.md §API-003-003 footnote — tanka_code is not on UpdateTankaDto
+      // COVERS: api.md §ACSMS-API-003-003 footnote — tanka_code is not on UpdateTankaDto
       const res = await http()
         .put('/api/v1/tanka/1')
         .send({ ...buildUpdateTankaPayload(), tanka_code: 'EVIL' })

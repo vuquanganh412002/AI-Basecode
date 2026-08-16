@@ -58,13 +58,22 @@ export class MailService implements OnModuleInit {
     }
   }
 
-  /** 6桁 MFA OTP 送信。文面は `templates/otp.template.ts`。 */
+  /**
+   * 6桁 MFA OTP 送信。文面は `templates/otp.template.ts`。`expiryMinutes` は
+   * `auth.service.ts` の `OTP_EXPIRY_MINUTES` から渡り、本文の有効期限表示が
+   * 実 TTL と同期する。
+   */
   async sendOtp(
     email: string,
     accountName: string,
     otpCode: string,
+    expiryMinutes: number,
   ): Promise<void> {
-    const { subject, text } = renderOtpMail({ accountName, otpCode });
+    const { subject, text } = renderOtpMail({
+      accountName,
+      otpCode,
+      otpExpiryMinutes: expiryMinutes,
+    });
     await this.provider.sendMail({ to: email, subject, text });
     this.logger.log({ event: 'mail.otp.sent', email: this.maskEmail(email) });
   }
@@ -91,7 +100,7 @@ export class MailService implements OnModuleInit {
   }
 
   /**
-   * SCR-023 ファイルアップロード完了通知。Worker
+   * ACSMS-SCR-023 ファイルアップロード完了通知。Worker
    * (`file-upload-notification.worker.ts`) が対象 JA の `m_account.email`
    * + `sub_email_1/2/3` 各宛先へ 1 回ずつ呼ぶ（重複排除は worker 側）。
    */
@@ -116,7 +125,7 @@ export class MailService implements OnModuleInit {
 
   /**
    * 汎用通知メール。件名は呼び出し側が完成形で渡す（システム名プレフィックス
-   * 無し）。SCR-029 増減通知は件名に【都道府県】【発行アカウント】、システム名
+   * 無し）。ACSMS-SCR-029 増減通知は件名に【都道府県】【発行アカウント】、システム名
    * 【クラウド版購読者管理システム】は本文先頭（顧客要件2026-07）。
    */
   async sendNotification(email: string, subject: string, content: string): Promise<void> {

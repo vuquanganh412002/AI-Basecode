@@ -19,7 +19,7 @@ import { NotificationQueueService } from './notification-queue.service';
   imports: [
     // Account + Ja は FileUploadNotificationWorker が宛先取得(m_account)と
     // template の ja_name(m_ja)に使用。FileDownload はアップロード時に
-    // ペア行を登録する（SCR-022 から取得可能にする）ため。
+    // ペア行を登録する（ACSMS-SCR-022 から取得可能にする）ため。
     TypeOrmModule.forFeature([FileUpload, FileDownload, Account, Ja]),
     AuditLogModule,
     AuthModule, // [auth-guard] SessionAuthGuard が SessionService に依存

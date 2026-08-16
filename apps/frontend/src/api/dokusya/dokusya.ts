@@ -1,12 +1,12 @@
 // /api/v1/dokusya 用の手書き API wrapper。
 //
-// SCR-011 は 6 endpoint を提供（api.md §1）:
-//   GET  /:id           → getDokusya         (API-011-001)
-//   POST /              → createDokusya      (API-011-002)
-//   PUT  /:id           → updateDokusya      (API-011-003)
-//   PUT  /:id/approve   → approveDokusya     (API-011-004)
-//   PUT  /:id/reject    → rejectDokusya      (API-011-005)
-//   GET  /:id/history   → getDokusyaHistory  (API-011-006)
+// ACSMS-SCR-011 は 6 endpoint を提供（api.md §1）:
+//   GET  /:id           → getDokusya         (ACSMS-API-011-001)
+//   POST /              → createDokusya      (ACSMS-API-011-002)
+//   PUT  /:id           → updateDokusya      (ACSMS-API-011-003)
+//   PUT  /:id/approve   → approveDokusya     (ACSMS-API-011-004)
+//   PUT  /:id/reject    → rejectDokusya      (ACSMS-API-011-005)
+//   GET  /:id/history   → getDokusyaHistory  (ACSMS-API-011-006)
 //
 // 型は apps/backend/src/modules/dokusya/dto/* に準拠 — BE レスポンス変更時は
 // このファイルを手動更新する。正確な JSON 形は integration spec
@@ -207,7 +207,7 @@ export interface CreateDokusyaRequest {
 }
 
 /**
- * PUT /api/v1/dokusya/:id — Create と同一構造（api.md §API-011-003）に加え、
+ * PUT /api/v1/dokusya/:id — Create と同一構造（api.md §ACSMS-API-011-003）に加え、
  * 情報変更モード `change_mode`（当日変更/予約変更・顧客要件2026-07）を持つ。
  *
  * `dokusya_chushi_date`（購読中止日）は本APIでは扱わない（顧客要件 2026-07 改訂）。

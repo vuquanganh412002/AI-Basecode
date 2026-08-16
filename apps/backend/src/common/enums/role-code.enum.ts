@@ -2,7 +2,7 @@
  * アカウントロール。`m_roles.role_code`、login 後 `SessionPayload.role_code`。
  *
  * 5 roles が codebase の business logic に焼き込まれる (DataScope filter、
- * field-level restriction、SCR-027 等 admin-only 画面)。set は設計上固定 —
+ * field-level restriction、ACSMS-SCR-027 等 admin-only 画面)。set は設計上固定 —
  * 6番目の role 追加は code 変更 + seeder migration、runtime 拡張ではない。
  * よって Group A (`.claude/rules/nestjs.md §Group A vs Group B`)。
  *

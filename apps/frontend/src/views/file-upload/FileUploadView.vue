@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // ACSMS-SCR-023 — ファイルアップロード画面。
-// screen-design.md（機能定義 1.x〜8.x）+ API-023-001〜004 に準拠。
+// screen-design.md（機能定義 1.x〜8.x）+ ACSMS-API-023-001〜004 に準拠。
 
 import { computed, onMounted, ref, watch } from 'vue';
 import {

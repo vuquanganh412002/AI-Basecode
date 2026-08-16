@@ -17,7 +17,7 @@ export const ErrorCode = {
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
 
-  // ─── SCR-001 ログイン画面固有 ─────────────────────────────────────
+  // ─── ACSMS-SCR-001 ログイン画面固有 ─────────────────────────────────────
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
   INVALID_MFA_TOKEN: 'INVALID_MFA_TOKEN',
@@ -27,28 +27,28 @@ export const ErrorCode = {
   OTP_RESEND_LIMIT: 'OTP_RESEND_LIMIT',
   OTP_RESEND_COOLDOWN: 'OTP_RESEND_COOLDOWN',
 
-  // ─── SCR-019 — 販売店Excelデータ取込 ─────────────────────────────────
+  // ─── ACSMS-SCR-019 — 販売店Excelデータ取込 ─────────────────────────────────
   IMPORT_VALIDATION_ERROR: 'IMPORT_VALIDATION_ERROR',
-  // FILE_FORMAT_ERROR は SCR-023 と共有（メッセージは画面ごとに異なり BE 管理 —
+  // FILE_FORMAT_ERROR は ACSMS-SCR-023 と共有（メッセージは画面ごとに異なり BE 管理 —
   // FE はコードで振り分けるだけ）。
   FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',
   ROW_LIMIT_EXCEEDED: 'ROW_LIMIT_EXCEEDED',
 
-  // ─── SCR-023 — ファイルアップロード画面 ───────────────────────────────
+  // ─── ACSMS-SCR-023 — ファイルアップロード画面 ───────────────────────────────
   FILE_SIZE_EXCEEDED: 'FILE_SIZE_EXCEEDED',
   TARGET_JA_REQUIRED: 'TARGET_JA_REQUIRED',
 
-  // ─── SCR-011 — 購読者情報登録画面 ─────────────────────────────────────
+  // ─── ACSMS-SCR-011 — 購読者情報登録画面 ─────────────────────────────────────
   // 403 — 該当行の 購読種別 に対する paper_flg/denshi_flg 権限がアカウントに無い。
   SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED',
 
-  // ─── SCR-020 — 口座振替データ出力画面 ─────────────────────────────────
+  // ─── ACSMS-SCR-020 — 口座振替データ出力画面 ─────────────────────────────────
   // 409 — 出力対象に失効単価(active_flg=false)を参照する購読者が存在。
   // body.errors[] = { field: dokusya_id, message: 購読者名 + 単価 } を
-  // SCR-020 のビューで一覧提示し、手動で単価変更へ誘導する。
+  // ACSMS-SCR-020 のビューで一覧提示し、手動で単価変更へ誘導する。
   INACTIVE_TANKA_REFERENCED: 'INACTIVE_TANKA_REFERENCED',
 
-  // ─── SCR-011/014/016 — 電子版連携(push) ───────────────────────────────
+  // ─── ACSMS-SCR-011/014/016 — 電子版連携(push) ───────────────────────────────
   // 502 — cloud → 電子版 updateUserInfo push 失敗（同期 Saga のため cloud 側
   // 書き込みもロールバック済み）。message をそのままトースト表示する。
   //

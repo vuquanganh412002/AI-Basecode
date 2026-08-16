@@ -2,11 +2,11 @@
 /**
  * サーバーページング + 検索対応の **複数選択** 管理支店ドロップダウン。
  *
- * SCR-007/024/025 の単一選択カスケードの複数選択版。{@link useEntityDropdown} を再利用
+ * ACSMS-SCR-007/024/025 の単一選択カスケードの複数選択版。{@link useEntityDropdown} を再利用
  * （50件/page・デバウンス検索・無限スクロール）。検索は 管理支店コード OR 名称
  * （`match_field='both'`）。`jaId` 必須 — BE が JA でスコープする。
  *
- * SCR-028 増減連絡票（販売店）の管理支店フィルタ（複数選択・未選択＝全件）で使用。
+ * ACSMS-SCR-028 増減連絡票（販売店）の管理支店フィルタ（複数選択・未選択＝全件）で使用。
  */
 import { computed, ref, toRef } from 'vue';
 import {

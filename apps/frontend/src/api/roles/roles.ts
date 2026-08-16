@@ -1,5 +1,5 @@
 // /api/v1/roles 用の手書き axios wrapper。
-// SCR-027 (RoleManagementView) が import し、unit spec が
+// ACSMS-SCR-027 (RoleManagementView) が import し、unit spec が
 // vi.mock('@/api/roles/roles') でモックする関数群。
 // 型は docs/design/ACSMS-SCR-027/ACSMS-SCR-027-api.md に準拠。
 

@@ -31,7 +31,7 @@ export class CreateOshiraseDto {
   @ApiProperty({
     description:
       '公開場所（1:ログイン画面, 2:メニュー画面, 3:メニュー画面（締め切り時間）。3 は oshirase_type=4 専用）',
-    enum: [1, 2, 3],
+    enum: Object.values(PublishLocation),
   })
   @Type(() => Number)
   @IsInt({ message: '公開場所は整数で指定してください。' })
@@ -41,7 +41,10 @@ export class CreateOshiraseDto {
   })
   publish_location: number;
 
-  @ApiProperty({ description: '状態（1:下書き, 2:公開, 3:非公開）', enum: [1, 2, 3] })
+  @ApiProperty({
+    description: '状態（1:下書き, 2:公開, 3:非公開）',
+    enum: Object.values(OshiraseStatus),
+  })
   @Type(() => Number)
   @IsInt({ message: '状態は整数で指定してください。' })
   @IsIn(Object.values(OshiraseStatus), {
@@ -77,7 +80,7 @@ export class CreateOshiraseDto {
 
   @ApiProperty({
     description: 'お知らせ種別（1:システム, 2:重要, 3:一般, 4:締め切り時間）',
-    enum: [1, 2, 3, 4],
+    enum: Object.values(OshiraseType),
   })
   @Type(() => Number)
   @IsInt({ message: 'お知らせ種別は整数で指定してください。' })

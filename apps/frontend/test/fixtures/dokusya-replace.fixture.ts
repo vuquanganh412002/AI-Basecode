@@ -12,7 +12,7 @@
 // (機能定義 4.1 — 併読者 dokusya_shubetsu=3, 電子版クレカ
 // dokusya_shubetsu=2 && shiharai_hoho=6).
 
-/** One row of the API-015-001 search response. */
+/** One row of the ACSMS-API-015-001 search response. */
 export interface ReplaceSearchItem {
   dokusya_id: number;
   kanri_shiten_id: number | null;
@@ -95,7 +95,7 @@ export function buildReplaceSearchResponse(
   };
 }
 
-/** API-015-002 success body. */
+/** ACSMS-API-015-002 success body. */
 export interface ReplaceResultEnvelope {
   data: {
     total_count: number;

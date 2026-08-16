@@ -222,17 +222,21 @@ defineExpose({ formState });
              ドロップダウン先頭の「全て」で全件選択＝入力欄に「全て」タグ表示。 -->
         <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6 items-start">
           <div class="@lg:col-span-2">
-            <div class="text-sm font-medium text-text-main mb-2">
+            <label for="zh-hanbaiten-select" class="block text-sm font-medium text-text-main mb-2">
               販売店<span class="text-error ml-1">*</span>
-            </div>
+            </label>
             <!-- 電子版ダミー販売店は候補に出さない（顧客要件 2026-08）。本帳票の
                  集計対象は紙版のみで、ダミーに紐づく電子版読者は入らないため、
-                 選ばせると必ず0件になる。 -->
+                 選ばせると必ず0件になる。廃店（haiten_flg=true）も同様に候補から
+                 除外する（#57976）——廃店を宛先とする報告は生成されなくなった
+                 ため、選ばせると必ず0件になり紛らわしい。 -->
             <BaseHanbaitenSelect
+              id="zh-hanbaiten-select"
               v-model:value="formState.hanbaiten_id"
               placeholder="販売店を選択（「全て」で全件）"
               allow-select-all
               dummy="exclude"
+              active-only
               data-test="hanbaiten-select"
             />
             <!-- エラーは入力欄の下に表示（ラベル直下だと右列とベースラインがずれるため）。 -->
@@ -242,11 +246,12 @@ defineExpose({ formState });
           </div>
 
           <div>
-            <div class="text-sm font-medium text-text-main mb-2">
+            <label for="zh-kanri-shiten-select" class="block text-sm font-medium text-text-main mb-2">
               管理支店<span class="text-error ml-1">*</span>
-            </div>
+            </label>
             <BaseKanriShitenSelect
               v-if="jaId != null"
+              id="zh-kanri-shiten-select"
               v-model:value="formState.kanri_shiten_id"
               :ja-id="jaId"
               placeholder="管理支店を選択（「全て」で全件）"
@@ -487,7 +492,7 @@ defineExpose({ formState });
       </div>
 
       <!-- ページャ — 文書ページ送り（1ページ=1販売店+管理支店）— 共通 BaseReportPager
-           で SCR-026/029 と統一。 -->
+           で ACSMS-SCR-026/029 と統一。 -->
       <BaseReportPager
         :current="currentPage"
         :page-no="previewData?.page_no ?? 1"

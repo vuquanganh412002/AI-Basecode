@@ -1,10 +1,10 @@
 // Screen: ACSMS-SCR-014 — 購読者明細検索画面
 //
-// Drives src/api/dokusya/dokusya.ts — the SCR-014 endpoints that
-// /gen-code-frontend will append to the existing SCR-011 wrapper:
-//   listDokusya        → GET    /api/v1/dokusya            (API-014-001)
-//   removeDokusya      → DELETE /api/v1/dokusya/:id        (API-014-002)
-//   exportDokusyaExcel → GET    /api/v1/dokusya/export     (API-014-003)
+// Drives src/api/dokusya/dokusya.ts — the ACSMS-SCR-014 endpoints that
+// /gen-code-frontend will append to the existing ACSMS-SCR-011 wrapper:
+//   listDokusya        → GET    /api/v1/dokusya            (ACSMS-API-014-001)
+//   removeDokusya      → DELETE /api/v1/dokusya/:id        (ACSMS-API-014-002)
+//   exportDokusyaExcel → GET    /api/v1/dokusya/export     (ACSMS-API-014-003)
 //
 // URL + method are locked at the wrapper layer so a typo can't silently
 // 404 in production. Shape matches docs/design/ACSMS-SCR-014/ACSMS-SCR-014-api.md.

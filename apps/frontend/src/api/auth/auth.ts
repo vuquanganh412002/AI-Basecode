@@ -114,7 +114,7 @@ export async function toggleMfa(enabled: boolean): Promise<ToggleMfaResponse['da
   return res.data.data;
 }
 
-// ─── SCR-012 password reset / change password ────────────────────────────
+// ─── ACSMS-SCR-012 password reset / change password ────────────────────────────
 
 /**
  * ACSMS-API-012-001 — パスワードリセットメール要求。

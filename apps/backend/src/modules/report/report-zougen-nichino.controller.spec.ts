@@ -1,13 +1,13 @@
 // Screen: ACSMS-SCR-029 — 増減通知（日本農業新聞）出力画面
 //
 // ReportController HTTP specs for the 増減通知（日本農業新聞）endpoints:
-//   - GET  /api/v1/report/zougen-nichino/preview — API-029-001
-//   - POST /api/v1/report/zougen-nichino/export  — API-029-002
+//   - GET  /api/v1/report/zougen-nichino/preview — ACSMS-API-029-001
+//   - POST /api/v1/report/zougen-nichino/export  — ACSMS-API-029-002
 //
 // Full Nest HTTP stack via Test.createTestingModule + supertest. Kept in a
 // SEPARATE file (not appended to report.controller.spec.ts) during the RED
 // phase — that file is GREEN and ts-jest type-checks, so referencing the
-// not-yet-implemented controller handlers there would break SCR-026/028.
+// not-yet-implemented controller handlers there would break ACSMS-SCR-026/028.
 // Merge back into the root controller spec after /gen-code-backend.
 
 import {

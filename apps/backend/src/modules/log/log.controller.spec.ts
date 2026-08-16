@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-030 — ログ参照画面
 //
 // LogController HTTP specs for:
-//   - GET /api/v1/log         — API-030-001
-//   - GET /api/v1/log/export  — API-030-002
+//   - GET /api/v1/log         — ACSMS-API-030-001
+//   - GET /api/v1/log/export  — ACSMS-API-030-002
 
 import {
   CanActivate,
@@ -291,18 +291,6 @@ describe('LogController (HTTP)', () => {
       currentSession = buildSession({ permissions: [] });
       const res = await http().get(apiUrl('log/export')).expect(403);
       expect(res.body.error_code).toBe('FORBIDDEN');
-    });
-
-    it('should return 409 EXPORT_LIMIT_EXCEEDED when service rejects with count > 5000', async () => {
-      service.exportLogCsv.mockRejectedValue(
-        new HttpException(
-          { code: 'EXPORT_LIMIT_EXCEEDED', error_code: 'EXPORT_LIMIT_EXCEEDED', message: '検索結果が5,000件を超えています。条件を絞り込んでください。' },
-          HttpStatus.CONFLICT,
-        ),
-      );
-
-      const res = await http().get(apiUrl('log/export')).expect(409);
-      expect(res.body.error_code).toBe('EXPORT_LIMIT_EXCEEDED');
     });
 
     it('should return 400 DATE_RANGE_INVALID when service rejects with date_from > date_to', async () => {

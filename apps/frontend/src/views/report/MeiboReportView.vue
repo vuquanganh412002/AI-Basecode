@@ -168,6 +168,8 @@ async function fetchPage(page: number): Promise<void> {
 
 async function onPreview(): Promise<void> {
   if (!validate()) return;
+  // 出力日時 = プレビュー押下時刻（JST）。fetchPage 呼び出し前に確定する。
+  stampOutputDatetime();
   currentPage.value = 1;
   await fetchPage(1);
 }
@@ -197,10 +199,20 @@ async function onExport(): Promise<void> {
 // 自前で行う（コード/名称検索・50件ずつ無限スクロール）。
 
 // ─── 帳票ヘッダ表示用 ───────────────────────────────────────────────
-/** 出力日（JST）— 帳票ヘッダの「出力日」。 */
-const outputDate = computed(() => nowTokyo().format('YYYY/MM/DD'));
-/** 出力時間（JST）— 帳票ヘッダの「出力時間」。 */
-const outputTime = computed(() => nowTokyo().format('HH:mm:ss'));
+// [output-datetime-freeze] computed(() => nowTokyo()...) はリアクティブな
+// 依存を一切読まないため、Vue は初回アクセス時の値を永久にキャッシュしてしまい
+// 2回目以降のプレビューでも出力日時が1回目の時刻のまま固定されていた（報告バグ）。
+// ref にして onPreview 押下のたびに明示的にスタンプし直す。
+/** 出力日（JST）— 帳票ヘッダの「出力日」。プレビュー押下時刻で確定。 */
+const outputDate = ref('');
+/** 出力時間（JST）— 帳票ヘッダの「出力時間」。プレビュー押下時刻で確定。 */
+const outputTime = ref('');
+
+function stampOutputDatetime(): void {
+  const now = nowTokyo();
+  outputDate.value = now.format('YYYY/MM/DD');
+  outputTime.value = now.format('HH:mm:ss');
+}
 /** 適用日（YYYY-MM-DD）を「YYYY/MM/DD 現在」表示用にフォーマット。 */
 const tekiyoLabel = computed(() =>
   previewData.value ? formatDate(previewData.value.tekiyo_date) : '',
@@ -318,9 +330,9 @@ defineExpose({ formState });
            しないため、「全て」選択(allIds キャッシュ)が保持され、戻ったときに個別タグに
            バラけず「全て」タグのまま表示される（顧客要件 2026-07）。 -->
       <div v-show="formState.report_type === 'hanbaiten'" class="mt-4">
-        <div class="text-sm font-medium text-text-main mb-1">
+        <label for="meibo-hanbaiten-select" class="block text-sm font-medium text-text-main mb-1">
           販売店<span class="text-error ml-1">*</span>
-        </div>
+        </label>
         <!-- エラーはラベル直下に表示する -->
         <p v-if="fieldErrors.hanbaiten_ids" class="text-error text-sm mb-2">
           {{ fieldErrors.hanbaiten_ids }}
@@ -329,6 +341,7 @@ defineExpose({ formState });
              電子版読者の受け皿であって実在の販売店ではなく、販売店別名簿の
              集計対象（紙版のみ）にも入らないため、選ばせると必ず0件になる。 -->
         <BaseHanbaitenSelect
+          id="meibo-hanbaiten-select"
           v-model:value="formState.hanbaiten_ids"
           placeholder="販売店を選択（1件以上）"
           allow-select-all
@@ -348,11 +361,12 @@ defineExpose({ formState });
         class="mt-4 grid grid-cols-1 @lg:grid-cols-2 gap-4"
       >
         <div>
-          <div class="text-sm font-medium text-text-main mb-1">
+          <label for="meibo-kanri-shiten-select" class="block text-sm font-medium text-text-main mb-1">
             管理支店<span class="text-error ml-1">*</span>
-          </div>
+          </label>
           <BaseKanriShitenSelect
             v-if="jaId != null"
+            id="meibo-kanri-shiten-select"
             v-model:value="formState.kanri_shiten_ids"
             :ja-id="jaId"
             placeholder="管理支店を選択（1件以上）"
@@ -368,12 +382,13 @@ defineExpose({ formState });
         </div>
 
         <div>
-          <div class="text-sm font-medium text-text-main mb-1">支店</div>
+          <label for="meibo-shiten-select" class="block text-sm font-medium text-text-main mb-1">支店</label>
           <!-- 候補は金融機関支店以外のみ（顧客要件 2026-08）。ここの支店は
                配達担当支店（t_dokusya_rireki.shiten_id）で、金融機関支店は
                引落口座の紐付け先なので購読者の配達先にはならない。
                任意条件 — 未選択なら支店未設定(NULL)の購読者も含めて出力する。 -->
           <BaseShitenSelect
+            id="meibo-shiten-select"
             v-model:value="formState.shiten_ids"
             :kanri-shiten-ids="formState.kanri_shiten_ids"
             :ja-id="jaId"

@@ -130,7 +130,7 @@ describe('BaseTodofukenSelect', () => {
   it.each([[''], [null], [undefined]])(
     'should show the placeholder when value is %p',
     async (value) => {
-      // antd は '' を「選択済み」として扱い placeholder を出さない。SCR-022 の
+      // antd は '' を「選択済み」として扱い placeholder を出さない。ACSMS-SCR-022 の
       // フィルタ初期値が '' で、都道府県だけプレースホルダが消えていた回帰。
       const wrapper = await renderSelect({ value });
 

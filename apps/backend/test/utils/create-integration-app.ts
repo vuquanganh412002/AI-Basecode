@@ -74,12 +74,12 @@ import { Shiten } from '@/database/entities/shiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { Oshirase } from '@/database/entities/oshirase.entity';
-// SCR-011 — t_dokusya / t_dokusya_rireki entities are created by
+// ACSMS-SCR-011 — t_dokusya / t_dokusya_rireki entities are created by
 // /gen-code-backend ACSMS-SCR-011; this import is part of the RED-phase
 // integration spec that intentionally fails to compile until then.
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
-// SCR-020 — t_koza_furikae snapshot table (口座振替データ出力).
+// ACSMS-SCR-020 — t_koza_furikae snapshot table (口座振替データ出力).
 import { KozaFurikae } from '@/database/entities/koza-furikae.entity';
 
 import { AuthModule } from '@/modules/auth/auth.module';
@@ -458,7 +458,7 @@ async function bootApp(
   const app = moduleRef.createNestApplication();
 
   // [json-body-limit] Mirror main.ts — default 100KB cap rejects the
-  // 500-row import payload (SCR-019) BEFORE the DTO / service-level
+  // 500-row import payload (ACSMS-SCR-019) BEFORE the DTO / service-level
   // `ROW_LIMIT_EXCEEDED` check fires. Bump to 5MB so integration tests
   // exercise the canonical error path.
   const expressLib = require('express');

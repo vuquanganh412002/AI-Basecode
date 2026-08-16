@@ -31,18 +31,18 @@ import {
   IMPORT_TEMPLATE_SAMPLE_ROW,
 } from './dto/import-template.constants';
 
-/** SCR-019 — 販売店Excelデータ取込画面。監査コンテキストのラベル。 */
+/** ACSMS-SCR-019 — 販売店Excelデータ取込画面。監査コンテキストのラベル。 */
 const SCR019_SCREEN_NAME = '販売店Excelデータ取込画面 (ACSMS-SCR-019)';
 
 /**
- * SCR-019 監査ログ用テーブル名（t_log.target_table）。core 側と同値だが本
+ * ACSMS-SCR-019 監査ログ用テーブル名（t_log.target_table）。core 側と同値だが本
  * サービス内で完結させるため複製して保持。
  */
 const TABLE_NAME = 'm_hanbaiten';
 
 /**
- * SCR-019 取込 — 行の EFFECTIVE itaku_kubun が 1（振込）のとき必須になる銀行項目。
- * api.md §4.1 では 6 項目で、koza_meigi を意図的に除外 — SCR-017 作成フォームの
+ * ACSMS-SCR-019 取込 — 行の EFFECTIVE itaku_kubun が 1（振込）のとき必須になる銀行項目。
+ * api.md §4.1 では 6 項目で、koza_meigi を意図的に除外 — ACSMS-SCR-017 作成フォームの
  * 7 項目 `CONDITIONAL_REQUIRED_FIELDS` より狭い（spec 判断：一括取込は口座名義を強制しない）。
  */
 const IMPORT_FURIKOMI_REQUIRED_FIELDS: ReadonlyArray<{
@@ -82,7 +82,7 @@ interface ImportExistingRow {
 }
 
 /**
- * SCR-019 — 販売店Excelデータ取込 concern。テンプレートDL + importExcel +
+ * ACSMS-SCR-019 — 販売店Excelデータ取込 concern。テンプレートDL + importExcel +
  * 取込専用の private ヘルパを HanbaitenService から verbatim 切り出した
  * サービス。`codeService` / `tankaRepo` は core 側と同様 `@Optional()` で
  * 注入（取込内の null-guard `if (... && this.tankaRepo)` /
@@ -404,7 +404,7 @@ export class HanbaitenImportService {
     };
   }
 
-  // SCR-019 import — 存在チェック vs import_mode：
+  // ACSMS-SCR-019 import — 存在チェック vs import_mode：
   //   NEW → 既存コードは重複エラー、UPDATE_* → 不在コードは not-found エラー。
   // importExcel から抽出（Sonar S3776 の複雑度閾値を下げる）。
   private collectExistenceErrors(
@@ -427,7 +427,7 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — バッチが参照する全 haitatsuryo_tanka_code の tanka_id を取得
+  // ACSMS-SCR-019 import — バッチが参照する全 haitatsuryo_tanka_code の tanka_id を取得
   // (jaId で絞込・Layer 4)し、未解決の行を報告。INSERT/UPDATE 用のルックアップ map を返す。
   private async resolveImportTankaIds(
     rows: ImportHanbaitenRowDto[],
@@ -487,7 +487,7 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — 行毎の m_code 値 pre-check + 数値限定 type ガード。
+  // ACSMS-SCR-019 import — 行毎の m_code 値 pre-check + 数値限定 type ガード。
   // importExcel から抽出（複雑度を閾値以下に）。
   private collectImportRowMcodeErrors(
     rows: ImportHanbaitenRowDto[],
@@ -495,7 +495,7 @@ export class HanbaitenImportService {
   ): void {
     // [m-code-validation] — itaku_kubun / furikomi_tesuryo_futan_kubun / yokin_shubetsu
     // の値は m_code に存在（または省略）必須。CodeService は任意注入で、無ければ
-    // スキップ（SCR-018 4引数構築では undefined、SCR-019 は常に `requireCodeService` 経由で配線）。
+    // スキップ（ACSMS-SCR-018 4引数構築では undefined、ACSMS-SCR-019 は常に `requireCodeService` 経由で配線）。
     const cs = this.codeService;
     rows.forEach((row, idx) => {
       const rowNo = idx + 2;
@@ -536,7 +536,7 @@ export class HanbaitenImportService {
     });
   }
 
-  // SCR-019 import — conditional-required ガード(api.md §4.1)：行の EFFECTIVE
+  // ACSMS-SCR-019 import — conditional-required ガード(api.md §4.1)：行の EFFECTIVE
   //   itaku_kubun が 1(振込)なら 6 銀行項目は非空必須。"Effective" はモード毎に
   //   Excel セルと既存 DB 行をマージ：NEW=selected?cell:default(空)、
   //   UPDATE=selected?cell:既存DB値（TC-019-040：未選択で既に空の銀行項目も発火）。

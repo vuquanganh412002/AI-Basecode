@@ -3,8 +3,8 @@
 // Test fixtures for ACSMS-SCR-016 (購読者Excelデータ取込画面).
 //
 // Mirrors docs/design/ACSMS-SCR-016/ACSMS-SCR-016-api.md:
-//   - API-016-001: GET /api/v1/dokusya/import/template (binary XLSX)
-//   - API-016-002: POST /api/v1/dokusya/import (3 import modes)
+//   - ACSMS-API-016-001: GET /api/v1/dokusya/import/template (binary XLSX)
+//   - ACSMS-API-016-002: POST /api/v1/dokusya/import (3 import modes)
 // And the 48-column physical layout from §テンプレートファイル仕様
 // （購読種別は画面ラジオの単一ソースで列から撤去・顧客要件 2026-07）.
 //
@@ -74,7 +74,7 @@ export const DOKUSYA_IMPORT_JP_HEADERS = [
 
 /**
  * Physical column names sent to the BE in `selected_columns` / `rows[i]`.
- * Mirror of API-016-002 request param list §4-#52; same order as JP
+ * Mirror of ACSMS-API-016-002 request param list §4-#52; same order as JP
  * headers (index N ↔ index N). The view binds each checkbox `value` to
  * one of these physical names (mirroring HanbaitenImportView).
  */
@@ -134,12 +134,12 @@ export const DOKUSYA_IMPORT_PHYSICAL_COLUMNS = [
 /**
  * Physical columns that are required + always-checked + disabled when
  * 取込モード = 新規登録. Mirrors screen-design §画面項目定義 「常に選択
- * されており、選択を解除することはできません。」 + API-016-002 §4.1
+ * されており、選択を解除することはできません。」 + ACSMS-API-016-002 §4.1
  * NEW-mode required list.
  *
  * `shiten_code` (支店) is intentionally NOT here: api.md §4.1 marks only the
  * 管理支店 side as NEW-mode required, `t_dokusya.shiten_id` is nullable, and the
- * SCR-011 form treats it as optional.
+ * ACSMS-SCR-011 form treats it as optional.
  */
 export const DOKUSYA_IMPORT_REQUIRED_COLUMNS_NEW = [
   'kanri_shiten_code',
@@ -241,7 +241,7 @@ export function buildImportRequest(
   };
 }
 
-/** Happy-path success body returned by API-016-002. */
+/** Happy-path success body returned by ACSMS-API-016-002. */
 export function buildImportSuccessResponse(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {

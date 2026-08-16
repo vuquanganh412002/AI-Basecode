@@ -7,6 +7,8 @@ import {
 import {
   mapUserToDokusyaFields,
   mapTetsuzuki,
+  normalizePaymentYm,
+  paymentEndYmToChushiDate,
   type DenshiUserRow,
   type DenshiFkResolution,
 } from './dokusya-sync.mapper';
@@ -194,15 +196,30 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     );
   });
 
-  it('maps dates: activated_at → kaishi/shoki, deleted_at → chushi, payment_start_ym → seikyu', () => {
+  it('maps dates: activated_at → kaishi/shoki, payment_start_ym → seikyu', () => {
     const v = mapUserToDokusyaFields(
       buildUser({ activated_at: '2026-04-01 09:00:00', deleted_at: null, payment_start_ym: '202604' }),
       FK,
     );
     expect(v.dokusyaKaishiDate).toBe('2026-04-01');
     expect(v.shokiDokusyaKaishiDate).toBe('2026-04-01');
-    expect(v.dokusyaChushiDate).toBeNull();
     expect(v.seikyuKaishiMonth).toBe('202604');
+  });
+
+  // #57986: dokusyaChushiDate はもう mapUserToDokusyaFields では設定しない（service の
+  // 解約分岐が payment_end_ym から算出して直接書く）。deleted_at の値に関わらず、
+  // このキー自体が values に含まれないことを保証する回帰テスト——含まれてしまうと
+  // 通常の UPDATE 行が中止日を意図せず carry-forward せず null 上書きしてしまう
+  // （2026-08 実データで発覚した不具合の再発防止）。
+  it('#57986: should NOT set dokusyaChushiDate at all (regardless of deleted_at) — computed by the service cancel branch instead', () => {
+    const withDeletedAt = mapUserToDokusyaFields(
+      buildUser({ deleted_at: '2026-09-30 00:00:00' }),
+      FK,
+    );
+    expect('dokusyaChushiDate' in withDeletedAt).toBe(false);
+
+    const withoutDeletedAt = mapUserToDokusyaFields(buildUser({ deleted_at: null }), FK);
+    expect('dokusyaChushiDate' in withoutDeletedAt).toBe(false);
   });
 
   it('joins remarks1..5 by newline skipping blanks', () => {
@@ -307,5 +324,57 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
       });
       expect(v.dokusyasoBunruiSonota).toHaveLength(255);
     });
+  });
+});
+
+// #57986 — 解約分岐の中止日算出（payment_end_ym ベース）で使う純関数。
+describe('normalizePaymentYm', () => {
+  it('returns the 6-digit string unchanged when valid', () => {
+    expect(normalizePaymentYm('202609')).toBe('202609');
+  });
+
+  it('returns null for non-6-digit / non-numeric input', () => {
+    expect(normalizePaymentYm('2026-09')).toBeNull();
+    expect(normalizePaymentYm('20269')).toBeNull();
+    expect(normalizePaymentYm('2026099')).toBeNull();
+    expect(normalizePaymentYm('abcdef')).toBeNull();
+  });
+
+  it('returns null for a month outside 01-12', () => {
+    expect(normalizePaymentYm('202600')).toBeNull();
+    expect(normalizePaymentYm('202613')).toBeNull();
+  });
+
+  it('returns null / handles missing input', () => {
+    expect(normalizePaymentYm(null)).toBeNull();
+    expect(normalizePaymentYm(undefined)).toBeNull();
+    expect(normalizePaymentYm('')).toBeNull();
+  });
+});
+
+describe('paymentEndYmToChushiDate', () => {
+  it('returns the LAST day of the payment_end_ym month (30-day month)', () => {
+    expect(paymentEndYmToChushiDate('202609')).toBe('2026-09-30');
+  });
+
+  it('returns the last day of a 31-day month', () => {
+    expect(paymentEndYmToChushiDate('202610')).toBe('2026-10-31');
+  });
+
+  it('handles December (last day of the SAME year, no rollover)', () => {
+    expect(paymentEndYmToChushiDate('202612')).toBe('2026-12-31');
+  });
+
+  it('handles a leap-year February', () => {
+    expect(paymentEndYmToChushiDate('202802')).toBe('2028-02-29');
+  });
+
+  it('handles a non-leap-year February', () => {
+    expect(paymentEndYmToChushiDate('202602')).toBe('2026-02-28');
+  });
+
+  it('returns null for invalid input (delegates to normalizePaymentYm)', () => {
+    expect(paymentEndYmToChushiDate('bad')).toBeNull();
+    expect(paymentEndYmToChushiDate(null)).toBeNull();
   });
 });

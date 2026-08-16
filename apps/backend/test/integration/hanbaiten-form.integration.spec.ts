@@ -112,7 +112,7 @@ describe('ACSMS-SCR-017 integration — hanbaiten form endpoints', () => {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/hanbaiten/:hanbaiten_id — API-017-001
+  // GET /api/v1/hanbaiten/:hanbaiten_id — ACSMS-API-017-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/hanbaiten/:hanbaiten_id', () => {
     it('should return the seeded hanbaiten when CHUOKAI fetches by id', async () => {

@@ -19,7 +19,7 @@ export class FileUploadListItemDto {
   @ApiPropertyOptional({ description: 'JA ID (NULL = 全 JA 向け)' })
   ja_id: number | null;
 
-  // SCR-023 — JOIN した m_ja 列。ja_id IS NULL(全JA向け)のとき NULL。
+  // ACSMS-SCR-023 — JOIN した m_ja 列。ja_id IS NULL(全JA向け)のとき NULL。
   @ApiPropertyOptional({ description: 'JAコード（JOIN by ja_id）' })
   ja_code: string | null;
 
@@ -38,7 +38,7 @@ export class FileUploadListItemDto {
   @ApiPropertyOptional({ description: 'レコード件数' })
   record_count: number | null;
 
-  // SCR-023 — upload 後に import/notification worker が設定。
+  // ACSMS-SCR-023 — upload 後に import/notification worker が設定。
   @ApiPropertyOptional({ description: '成功件数' })
   success_count: number | null;
 
@@ -51,7 +51,7 @@ export class FileUploadListItemDto {
   })
   status: number;
 
-  // SCR-023 — バックグラウンド通知 worker が設定。
+  // ACSMS-SCR-023 — バックグラウンド通知 worker が設定。
   @ApiProperty({
     description:
       "通知ステータス ※m_code.code_category='NOTIFICATION_STATUS'を参照（1:未送信, 2:送信中, 3:完了, 4:一部失敗）",
@@ -89,7 +89,7 @@ export class FileUploadListItemDto {
 }
 
 /**
- * `POST /api/v1/file-upload`(SCR-023 upload)が返す行形状。
+ * `POST /api/v1/file-upload`(ACSMS-SCR-023 upload)が返す行形状。
  * (ja_id × file)の組み合わせ 1 件につき 1 行 — api.md §4.5 参照。
  */
 export class FileUploadCreatedItemDto {

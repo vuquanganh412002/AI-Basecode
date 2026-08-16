@@ -6,7 +6,9 @@ import { TetsuzukiShurui } from '@/common/enums';
 import {
   DIFF_EXCLUDE_FIELDS,
   HAITATSU_ADDRESS_FIELDS,
+  HAITATSU_CONTACT_FIELDS,
   KODOKU_ADDRESS_FIELDS,
+  KODOKU_CONTACT_FIELDS,
   MASTER_CLOUD_OWNED_FIELDS,
   MASTER_EXCLUDE_FIELDS,
   ZENKAI_ADDRESS_ZCOLS,
@@ -268,8 +270,10 @@ export function buildKaiyakuRow(
 export interface KaiyakuReservationContext {
   dokusyaId: number;
   rirekiNo: number;
-  /** 解約予定日(購読中止日)。適用日(joho)にも同値を使う（未来）。 */
+  /** 解約予定日(購読中止日)。 */
   chushiDate: DateOnly;
+  /** 適用日: 紙版=中止日, 電子版/併読=中止日+1（caller が計算・顧客要件 2026-08 改訂）。 */
+  joho: DateOnly;
   createdBy: string;
 }
 
@@ -282,14 +286,17 @@ export interface KaiyakuReservationContext {
  *   - dokusya_busu = 0（予約: 部数0）
  *   - zougen_hokoku_flg = true（減の増減報告対象）
  *   - dokusya_chushi_date = 中止日（Phase 2 バッチのトリガ + 予約検出キー）
- *   - joho_henko_tekiyo_date = 中止日（未来 → 到来まで master 未反映）
+ *   - joho_henko_tekiyo_date = ctx.joho（紙版=中止日、電子版/併読=中止日+1・未来
+ *     → 到来まで master 未反映。顧客要件 2026-08 改訂: 電子版の解約予定日は「電子版が
+ *     読める有効な最終日」であり当日は有効な読者として扱う必要があるため、Phase 1
+ *     予約行の時点から Phase 2 の解約確定行と同じ +1日 を使う）
  *   - kaiyaku_flg = false（バッチ確定まで解約確定でない = insertKaiyaku のトリガ条件 !kaiyaku_flg を満たす）
  *   - saishin_data_flg = false（未来予約）
  *   - shinki_flg = false / torikeshi_flg = false（before が新規でも予約は非新規・防御）
  * それ以外は before から継承。zenkai_* は before 由来（増減報告用）。
  *
- * 注: 電子版の「適用日=中止日+1」は Phase 2 バッチ（実解約行）で扱う。予約行の適用日は
- * 紙版/電子版とも中止日で統一（顧客決定）。
+ * 適用日の紙版/電子版分岐は caller（insertScheduledKaiyaku）の責務 — この関数自体は
+ * shubetsu を見ない（insertKaiyaku/buildKaiyakuRow と同じ設計）。
  */
 export function buildKaiyakuReservationRow(
   before: DokusyaRireki,
@@ -303,7 +310,7 @@ export function buildKaiyakuReservationRow(
   row.rirekiNo = ctx.rirekiNo;
   row.dokusyaBusu = 0; // 予約: 部数0
   row.dokusyaChushiDate = ctx.chushiDate;
-  row.johoHenkoTekiyoDate = ctx.chushiDate; // 適用日=中止日（未来）
+  row.johoHenkoTekiyoDate = ctx.joho;
   row.createdBy = ctx.createdBy;
 
   const built = row as unknown as DokusyaRireki;
@@ -390,4 +397,162 @@ export function buildCounterRow(
   }
 
   return row as unknown as DokusyaRireki;
+}
+
+/**
+ * どのフィールドグループがまだ遡及カスケード対象かを表す（Phase 1: 購読部数・
+ * 販売店。Phase 2: 実効配達先住所 — docs/requirement/
+ * dokusya_rireki_cascade_implementation_plan.md）。
+ */
+export interface CascadeActive {
+  busu: boolean;
+  hanbaiten: boolean;
+  address: boolean;
+}
+
+/**
+ * `row` 自身の `haitatsu_same_flg` に基づく実効住所5列
+ * （{@link KODOKU_ADDRESS_FIELDS} または {@link HAITATSU_ADDRESS_FIELDS}）。
+ * `fillZenkai` の `srcAddr` 判定と同じ規約（`=== false` のみ配達先住所）。
+ */
+function effectiveAddressFields(
+  entity: Record<string, unknown>,
+): readonly (keyof DokusyaRireki)[] {
+  return entity.haitatsuSameFlg === false
+    ? HAITATSU_ADDRESS_FIELDS
+    : KODOKU_ADDRESS_FIELDS;
+}
+
+/**
+ * `row` 自身の `haitatsu_same_flg` に基づく実効連絡先・氏名6列
+ * （{@link KODOKU_CONTACT_FIELDS} または {@link HAITATSU_CONTACT_FIELDS}）。
+ * zenkai_* 列を持たないため、キャリーフォワード判定は住所側
+ * （{@link effectiveAddressFields}）に委ねる — 同じ配達先ブロックとして
+ * 一体で扱う（バグ報告 2026-08）。
+ */
+function effectiveContactFields(
+  entity: Record<string, unknown>,
+): readonly (keyof DokusyaRireki)[] {
+  return entity.haitatsuSameFlg === false
+    ? HAITATSU_CONTACT_FIELDS
+    : KODOKU_CONTACT_FIELDS;
+}
+
+/**
+ * 購読部数・販売店で共用する、単一フィールドのカスケード判定+適用。
+ * `row` の現在値が更新前の zenkai と一致（キャリーフォワード）なら
+ * `predecessor` の現在値へ追随させ true を返す。異なれば何もせず false。
+ */
+function cascadeScalarField(
+  r: Record<string, unknown>,
+  p: Record<string, unknown>,
+  currentKey: string,
+  zenkaiKey: string,
+): boolean {
+  const wasCarryForward = fieldValuesEqual(r[currentKey], r[zenkaiKey]);
+  if (wasCarryForward) {
+    r[currentKey] = p[currentKey];
+  }
+  return wasCarryForward;
+}
+
+/**
+ * 実効配達先ブロック（住所5列＋連絡先・氏名6列）のカスケード判定+適用。
+ * 連絡先・氏名は zenkai_* を持たないため、判定は住所5列の zenkai 比較を
+ * 代理指標として流用する（バグ報告 2026-08）。キャリーフォワードだった
+ * 場合は `haitatsu_same_flg` 自体も predecessor へ追随させる（
+ * {@link applyCascadeStep} のドキュメント参照）。モードが
+ * `haitatsu_same_flg=true` に確定した行は `haitatsu_*`（住所＋連絡先・氏名
+ * 全11列）を空欄にする（`DokusyaFormView.vue` §9 と同じ不変条件）。
+ */
+function cascadeAddress(
+  r: Record<string, unknown>,
+  p: Record<string, unknown>,
+): boolean {
+  const rEffectiveAddr = effectiveAddressFields(r);
+  const wasCarryForward = ZENKAI_ADDRESS_ZCOLS.every((zcol, i) =>
+    fieldValuesEqual(r[rEffectiveAddr[i]], r[zcol]),
+  );
+  if (!wasCarryForward) return false;
+
+  r.haitatsuSameFlg = p.haitatsuSameFlg;
+  effectiveAddressFields(p).forEach((field) => {
+    r[field] = p[field];
+  });
+  effectiveContactFields(p).forEach((field) => {
+    r[field] = p[field];
+  });
+  if (r.haitatsuSameFlg !== false) {
+    HAITATSU_ADDRESS_FIELDS.forEach((field) => {
+      r[field] = '';
+    });
+    HAITATSU_CONTACT_FIELDS.forEach((field) => {
+      r[field] = '';
+    });
+  }
+  return true;
+}
+
+/**
+ * 遡及挿入（適用日の逆転登録）後、後続行1行ぶんのカスケードを適用する純関数。
+ * `row` を in-place で変更し、次行へ引き継ぐ {@link CascadeActive} を返す
+ * （顧客要件 No.86 ケース3 — docs/requirement/dokusya_rireki_record_writing_rules.md §7.3）。
+ *
+ * フィールドグループ（購読部数・販売店・実効配達先住所）ごとに独立に判定する:
+ *  - `row` の現在値が「更新前の」zenkai と一致（＝この行はキャリーフォワード
+ *    していただけ）→ 現在値を `predecessor` の値へ追随させ、次行へも
+ *    カスケードを継続する（返り値 true）。
+ *  - 一致しない（＝この行が意図的に変更した）→ 現在値はそのまま。以降の行へは
+ *    このフィールドをカスケードしない（返り値 false）。
+ *
+ * 住所は `row` 自身の `haitatsu_same_flg` で選んだ実効住所5列を、更新前の
+ * `zenkai_*` 5列と比較して判定する（意図的な変更かどうかの判定自体は
+ * `haitatsu_same_flg` を別途見る必要はない — 通常この5列比較だけで検出できる。
+ * 購読者住所と配達先住所が偶然一致する場合を除く）。
+ *
+ * キャリーフォワードだった場合は **`haitatsu_same_flg` 自体も** predecessor へ
+ * 追随させる（顧客要件 — バグ報告2026-08: 配達先モードを固定したまま住所値
+ * だけ書き換えると、`haitatsu_same_flg=true` の行に `haitatsu_same_flg=false` の
+ * predecessor の実効値が誤って購読者住所側の列へ書き込まれてしまっていた）。
+ * モードが `haitatsu_same_flg=true`（配達先=購読者情報と同じ）に確定したら
+ * `haitatsu_*` 列は空欄が不変条件（`DokusyaFormView.vue` §9 と同じ規約）なので
+ * ここでも揃えてクリアする。
+ *
+ * `zenkai_*` の relink は判定後に {@link fillZenkai} へ一括委譲する
+ * （住所 zenkai を含む全列を `predecessor` の現在値へ揃える — 旧
+ * `recomputeAfterChain` が直後1行にだけ行っていたのと同じ relink を、
+ * カスケードが及ぶ全ての行に対して適用する）。判定は fillZenkai で
+ * 上書きされる**前**の zenkai 値を使う必要があるため、必ず判定 → fillZenkai
+ * の順で呼ぶ。
+ *
+ * `zougen_hokoku_flg` はここでは一切変更しない — 各行の増減報告要否は
+ * 「その行が作成された時点で実際に何を変更したか」で決まるもので、後から
+ * 遡及的に現在値が補正されても変わらない。変更するとカスケードされた行が
+ * 増減連絡票／増減通知書へ二重計上される。
+ */
+export function applyCascadeStep(
+  row: DokusyaRireki,
+  predecessor: DokusyaRireki,
+  active: CascadeActive,
+): CascadeActive {
+  const r = row as unknown as Record<string, unknown>;
+  const p = predecessor as unknown as Record<string, unknown>;
+  const next: CascadeActive = { ...active };
+
+  // 各グループの判定+適用は fillZenkai が zenkai_* を上書きする前に行う
+  // （cascadeScalarField/cascadeAddress は predecessor の"現在値"しか読まないため
+  // fillZenkai との前後関係に依存しない）。
+  if (active.busu) {
+    next.busu = cascadeScalarField(r, p, 'dokusyaBusu', 'zenkaiDokusyaBusu');
+  }
+  if (active.hanbaiten) {
+    next.hanbaiten = cascadeScalarField(r, p, 'hanbaitenId', 'zenkaiHanbaitenId');
+  }
+  if (active.address) {
+    next.address = cascadeAddress(r, p);
+  }
+
+  fillZenkai(row, predecessor);
+
+  return next;
 }

@@ -22,7 +22,6 @@
     "seed:admin:prod": "ts-node -r tsconfig-paths/register scripts/seed-admin.ts",
     "seed:sample": "ts-node -r tsconfig-paths/register scripts/seed-sample-data.ts",
     "seed:sample:prod": "ts-node -r tsconfig-paths/register scripts/seed-sample-data.ts",
-    "seed:demo": "ts-node -r tsconfig-paths/register scripts/seed-demo-scenario.ts",
     "dokusya:sync:dev": "ts-node -r tsconfig-paths/register src/batch/dokusya-sync.main.ts",
     "dokusya:sync:prod": "node dist/batch/dokusya-sync.main.js",
     "tanka:expire:dev": "ts-node -r tsconfig-paths/register src/batch/tanka-expire.main.ts",

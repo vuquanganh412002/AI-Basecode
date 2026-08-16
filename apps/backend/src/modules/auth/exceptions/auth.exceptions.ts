@@ -77,7 +77,7 @@ export class OtpResendCooldownException extends DomainException {
   }
 }
 
-// ─── SCR-012 password reset / change password ────────────────────────────
+// ─── ACSMS-SCR-012 password reset / change password ────────────────────────────
 
 export class InvalidResetTokenException extends DomainException {
   constructor() {

@@ -610,7 +610,9 @@ defineExpose({
         </a-select>
       </div>
 
-      <!-- 組合員コード -->
+      <!-- 組合員コード — 半角数字10桁まで（screen-design.md ACSMS-SCR-011 §7 と同じ
+           業務ルール。t_dokusya.kumiaiin_code は VARCHAR(20) だが実データは常に
+           10桁以内）。タスク #57608。 -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">組合員コード</span>
         <a-input
@@ -618,11 +620,12 @@ defineExpose({
           v-model:value="state.filters.kumiaiin_code"
           placeholder="組合員コード"
           allow-clear
+          :maxlength="10"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- 氏名 -->
+      <!-- 氏名 — screen-design.md §3 検索条件 100文字（タスク #57608） -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">氏名</span>
         <a-input
@@ -630,11 +633,12 @@ defineExpose({
           v-model:value="state.filters.shimei"
           placeholder="氏名"
           allow-clear
+          :maxlength="100"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- かな氏名 -->
+      <!-- かな氏名 — screen-design.md §3 検索条件 200文字（タスク #57608） -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">かな氏名</span>
         <a-input
@@ -642,11 +646,12 @@ defineExpose({
           v-model:value="state.filters.shimei_kana"
           placeholder="かな氏名"
           allow-clear
+          :maxlength="200"
           class="flex-1 min-w-0"
         />
       </div>
 
-      <!-- 配達先住所 -->
+      <!-- 配達先住所 — screen-design.md §3 検索条件 300文字（タスク #57608） -->
       <div class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">配達先住所</span>
         <a-input
@@ -654,6 +659,7 @@ defineExpose({
           v-model:value="state.filters.haitatsu_address"
           placeholder="配達先住所"
           allow-clear
+          :maxlength="300"
           class="flex-1 min-w-0"
         />
       </div>

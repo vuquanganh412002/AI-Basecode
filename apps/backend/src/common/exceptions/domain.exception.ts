@@ -13,7 +13,18 @@ export interface ValidationErrorDetail {
   message: string;
 }
 
-export class DomainException extends HttpException {
+/**
+ * `TErrorDetail` — `errors[]` 要素の型。大半の業務例外はフィールド単位の
+ * `{ field, message }`（既定 `ValidationErrorDetail`）で足りるが、一括処理系
+ * （Excel取込の行単位エラー `{ row, field, message }`、対象外理由の列挙
+ * `{ dokusya_id, reason }` 等）は形状が異なる。以前はこれを理由に `HttpException`
+ * を直接継承する例外クラスが複数モジュールに分散していた（`DomainException` を
+ * 継承しない = 例外標準からの逸脱）。型引数で `errors[]` の形状だけ差し替え可能に
+ * し、全業務例外が `DomainException` を継承する運用に統一する。
+ */
+export class DomainException<
+  TErrorDetail = ValidationErrorDetail,
+> extends HttpException {
   constructor(
     message: string,
     // `ErrorCode | (string & {})` — 素の `| string` だとリテラル union が
@@ -22,12 +33,13 @@ export class DomainException extends HttpException {
     public readonly code: ErrorCode | (string & {}),
     status: HttpStatus = HttpStatus.INTERNAL_SERVER_ERROR,
     /**
-     * VALIDATION_ERROR のフィールド詳細。GlobalExceptionFilter が `errors[]` に
-     * serialize → FE `useApiForm` が `<a-form-item :help>` にマップ。
+     * VALIDATION_ERROR のフィールド詳細（既定形状）。GlobalExceptionFilter が
+     * `errors[]` に serialize → FE `useApiForm` が `<a-form-item :help>` にマップ。
+     * 一括処理系のサブクラスは `TErrorDetail` で行番号付き等の形状に差し替える。
      */
-    public readonly errors?: ValidationErrorDetail[],
+    public readonly errors?: TErrorDetail[],
     /**
-     * `errors[]` を打ち切る list 系エラーの総件数 (例 SCR-020
+     * `errors[]` を打ち切る list 系エラーの総件数 (例 ACSMS-SCR-020
      * INACTIVE_TANKA_REFERENCED は先頭15件+真の総数)。filter が `total` に
      * serialize → FE が「該当 N 件中 15 件を表示」を表示。
      */

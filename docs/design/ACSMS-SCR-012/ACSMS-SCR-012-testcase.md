@@ -5,7 +5,7 @@ document_name: テスト仕様書
 screen_id: ACSMS-SCR-012
 screen_name: パスワードの再設定・パスワードの変更
 format_code: 16-BM/PM/VTI
-format_version: "1.0"
+format_version: "1.1"
 issue_date: 2026-05-08
 test_level: 結合テスト
 test_environment: Windows 10/11, Chrome, Edge
@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-08 | 1.0 | Kieu Thi Diem | 新規作成 | Nguyen Huy Dat |  |
+| 2 | 2026-08-12 | 1.1 | Tran Duc Tuyen | 実装差分反映：TC-028/029/031/038をlogin_id+email組み合わせ仕様に修正、ユーザーID項目のテストケース2件追加（TC-049/050） | - |  |
 
 
 ## システム概要
@@ -61,7 +62,8 @@ reviewer: Nguyen Huy Dat
 | 5 | 業務ロジック — パスワード再設定リクエスト（Function — Forgot） | 6 |
 | 6 | 業務ロジック — パスワード更新（Function — Reset） | 8 |
 | 7 | 共通エラーハンドリング（Common Error Handling） | 7 |
-|  | 合計 | 48 |
+| 8 | ユーザーID項目（顧客要件2026-08 — login_id + email 組み合わせ） | 2 |
+|  | 合計 | 50 |
 
 ---
 
@@ -1684,18 +1686,18 @@ errors[] に トークン形式不正のメッセージ
 
 # カテゴリ 5: 業務ロジック — パスワード再設定リクエスト（Function — Forgot）
 
-## ACSMS-TC-012-028 — 既存メール — 200 + メール送信 + トークン保存
+## ACSMS-TC-012-028 — 既存アカウント（login_id + email 一致） — 200 + メール送信 + トークン保存
 
 - 観点ID: VP-C-01
 - 種類: Normal (正常)
 - 前提条件:
-  - ・登録済アカウント（email = `user@example.com`、deleted_at IS NULL）
+  - ・登録済アカウント（login_id = `admin01`、email = `user@example.com`、deleted_at IS NULL）
   - ・直近5分以内にパスワード再設定リクエストなし
 
 ### 手順
 
 ステップ1：
-`/forgot-password` で `user@example.com` を入力 → 送信
+`/forgot-password` で ユーザーID `admin01`、メールアドレス `user@example.com` を入力 → 送信
 
 ステップ2：
 レスポンスを確認
@@ -1705,7 +1707,7 @@ DBで `t_mfa_otp` を確認：
 ```sql
 SELECT otp_id, account_id, otp_type, expired_at, used_flg, created_at
 FROM t_mfa_otp
-WHERE account_id = (SELECT account_id FROM m_account WHERE email = 'user@example.com')
+WHERE account_id = (SELECT account_id FROM m_account WHERE login_id = 'admin01' AND email = 'user@example.com')
   AND otp_type = 2
 ORDER BY created_at DESC
 LIMIT 1;
@@ -1719,7 +1721,7 @@ DBで `t_log` を確認：
 ```sql
 SELECT operation, result_status, target_table, after_value
 FROM t_log
-WHERE account_id = (SELECT account_id FROM m_account WHERE email = 'user@example.com')
+WHERE account_id = (SELECT account_id FROM m_account WHERE login_id = 'admin01' AND email = 'user@example.com')
   AND operation = 'PASSWORD_RESET_REQUEST'
 ORDER BY log_datetime DESC
 LIMIT 1;
@@ -1738,7 +1740,7 @@ HTTPステータスコード：200
 1行、`otp_type = 2`（PASSWORD_RESET）、`expired_at = NOW() + 1時間`、`used_flg = false`、`otp_code_hash` がbcryptハッシュ
 
 ステップ4：
-件名「【agrinews】パスワードリセット」のメール、本文に再設定リンク `https://{FRONTEND_URL}/reset-password?token={uuid}` 含む
+件名「【クラウド版購読者管理システム】パスワードリセット」のメール、本文に宛先アカウント名・再設定リンク `https://{FRONTEND_URL}/reset-password?token={uuid}`・有効期限（1時間）・「心当たりがない場合は無視してください」の注意書きを含む
 
 ステップ5：
 1行、`operation = 'PASSWORD_RESET_REQUEST'`、`result_status = 1`、`target_table = 't_mfa_otp'`、`after_value` JSON に `{"event": "reset_token_issued"}`
@@ -1747,6 +1749,7 @@ HTTPステータスコード：200
 ・実装：トークン UUID 生成 → bcrypt ハッシュ化 → t_mfa_otp 保存 → 監査ログ + メール送信
 ・主 DML（OTP保存）+ 監査ログ記録は単一トランザクション内
 ・メール送信は commit 後（rollback時にメールが残らない設計）
+・検索条件は login_id AND email（email は m_account で一意でないため。顧客要件2026-08）
 
 ### テスト結果（1回目）
 
@@ -1772,17 +1775,18 @@ HTTPステータスコード：200
 
 (なし)
 
-## ACSMS-TC-012-029 — 不存在メール — 200 (アカウント列挙防止)
+## ACSMS-TC-012-029 — 不存在メール／ID・メール組み合わせ不一致 — 200 (アカウント列挙防止)
 
 - 観点ID: VP-A-06
 - 種類: Abnormal (異常)
 - 前提条件:
   - ・存在しないメールアドレス `notexist@example.com`
+  - ・登録済アカウント（login_id = `admin01`、email = `user@example.com`）
 
 ### 手順
 
 ステップ1：
-`/forgot-password` で `notexist@example.com` を入力 → 送信
+`/forgot-password` で ユーザーID `notexist`、メールアドレス `notexist@example.com`（どちらも不存在）を入力 → 送信
 
 ステップ2：
 レスポンスを確認
@@ -1791,26 +1795,32 @@ HTTPステータスコード：200
 DBで `t_mfa_otp` を確認
 
 ステップ4：
+`/forgot-password` で ユーザーID `admin01`（実在）、メールアドレス `other@example.com`（`admin01` とは組み合わせが一致しない別メール）を入力 → 送信
+
+ステップ5：
+ステップ4のレスポンス・`t_mfa_otp` を確認
+
+ステップ6：
 レスポンス時間を確認（タイミング攻撃検証）
 
 ### 期待結果
 
-ステップ1：
-HTTPステータスコード：200（既存メールと同一）
-
-ステップ2：
+ステップ1〜3：
+HTTPステータスコード：200（既存の組み合わせと同一）
 レスポンス：`{ message: "パスワード再設定用のメールを送信しました。メールを確認してください。" }`
-
-ステップ3：
 新規行追加なし、`t_mfa_otp` への INSERT なし
 
-ステップ4：
-レスポンス時間が既存メールの場合とほぼ同等（ただし bcrypt 計算が走らない分やや短くなる可能性あり、設計上は許容）
+ステップ4〜5：
+HTTPステータスコード：200（login_id は実在するが email が一致しないため「不一致」扱い。顧客要件2026-08 — email 単独一致では絞り込まない）
+新規行追加なし、`t_mfa_otp` への INSERT なし
+
+ステップ6：
+レスポンス時間が既存の組み合わせの場合とほぼ同等（ただし bcrypt 計算が走らない分やや短くなる可能性あり、設計上は許容）
 
 補足：
-・セキュリティ：アカウント列挙防止
-・実装：accountRepo.findOne 結果が null の場合、ログのみ出力して successMessage を返す
-・メール送信なし、トークン生成なし
+・セキュリティ：アカウント列挙防止。login_id・email のどちらか一方でも一致しなければ「不明」として扱う
+・実装：`accountRepo.findOne({ where: { loginId, email, deletedAt: IsNull() } })` の結果が null の場合、ログのみ出力して successMessage を返す
+・メール送信なし、トークン生成なし、クールダウンチェックも行わない
 
 ### テスト結果（1回目）
 
@@ -1915,7 +1925,7 @@ message：「無効なリンクです。」
 ### 手順
 
 ステップ1：
-1分後に同一メールアドレスで2回目のリクエスト送信
+1分後に同一ユーザーID・メールアドレスの組み合わせで2回目のリクエスト送信
 
 ステップ2：
 レスポンスを確認
@@ -2353,7 +2363,7 @@ HTTPステータスコード：200
 `password_hash` が新しい bcrypt ハッシュに更新
 `password_updated_at = 現在時刻`
 `updated_at = 現在時刻`
-`updated_by = 'SYSTEM'`
+`updated_by = 対象 account_id を文字列化した値`（トークンで本人確認済みの当該アカウント自身。`'SYSTEM'` 固定文字列ではない）
 
 ステップ3：
 該当 `otp_id` の `used_flg = true`
@@ -2973,6 +2983,118 @@ message：「システムエラーが発生しました。しばらくしてか�
 ・ネットワークエラー検出 → 利用者通知
 ・入力値が保持され、再送信可能
 ・axiosインターセプタが Network Error を一括処理
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+---
+
+# 追加カテゴリ: ユーザーID項目（顧客要件2026-08 — login_id + email 組み合わせでのアカウント特定）
+
+## ACSMS-TC-012-049 — ユーザーID — 必須チェック（空欄 + 空白文字）
+
+- 観点ID: VP-B-01
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・再設定画面
+
+### 手順
+
+ステップ1：
+ユーザーIDを空欄のまま、メールアドレスのみ入力して送信ボタン押下
+
+ステップ2：
+半角スペース3つを入力 → 送信ボタン押下
+
+### 期待結果
+
+ステップ1：
+項目直下に「ユーザーIDを入力してください。」が表示されること
+フロントエンド側で送信ブロック（API呼び出しなし）
+
+ステップ2：
+フロントエンド側 `validateClient` が `trim()` で前後空白を除去後、空欄として判定
+「ユーザーIDを入力してください。」が表示されること
+
+補足：
+・空欄／空白文字のみ入力すべて必須違反として扱われる
+・メッセージコードは ACSMS-MSG-001-001（ログイン画面と共通の文言。SCR-012 専用コードは発行していない）
+・実装：`form.login_id?.trim()` で安全にチェック（`ForgotPasswordView.vue`）
+・BE 側（`ForgotPasswordDto.login_id`）も `@IsNotEmpty` + `@Matches(/^[\x21-\x7E]+$/)`（半角文字のみ）+ `@MaxLength(20)` で再検証
+
+### テスト結果（1回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### テスト結果（2回目）
+
+| 項目 | 値 |
+| --- | --- |
+| 結果 | - |
+| 実績／アウトプット | - |
+| 担当者 | - |
+| 確認日付 | - |
+| バグID | - |
+
+### 備考
+
+(なし)
+
+## ACSMS-TC-012-050 — ユーザーIDのみ一致・メールアドレス不一致 — 200 (アカウント列挙防止)
+
+- 観点ID: VP-A-06
+- 種類: Abnormal (異常)
+- 前提条件:
+  - ・登録済アカウント（login_id = `admin01`、email = `user@example.com`）
+
+### 手順
+
+ステップ1：
+`/forgot-password` で ユーザーID `admin01`（実在）、メールアドレス `wrong@example.com`（登録メールと不一致）を入力 → 送信
+
+ステップ2：
+レスポンスを確認
+
+ステップ3：
+DBで `t_mfa_otp` を確認
+
+### 期待結果
+
+ステップ1〜3：
+HTTPステータスコード：200（登録済みの組み合わせと同一レスポンス）
+レスポンス：`{ message: "パスワード再設定用のメールを送信しました。メールを確認してください。" }`
+`t_mfa_otp` への INSERT なし、メール送信なし
+
+補足：
+・`email` は `m_account` で一意でない（通知先メールアドレス、※空文字許容）ため、email 単独で一致を判定すると重複行中の別アカウントを誤って拾う可能性がある。ユーザーIDが実在していても email が一致しなければ「不明なアカウント」として扱う（顧客要件2026-08）
+・実装：`accountRepo.findOne({ where: { loginId, email, deletedAt: IsNull() } })`（AND 条件）
 
 ### テスト結果（1回目）
 

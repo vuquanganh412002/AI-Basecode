@@ -116,7 +116,7 @@ beforeEach(async () => {
 });
 
 describe('JaFormView — mount + initial render', () => {
-  // Page title 「JAマスタ登録画面」 + breadcrumb come from MainLayout's
+  // Page title 「JAマスタ登録」 + breadcrumb come from MainLayout's
   // AppHeader (driven by route meta), NOT from this view. Mounting the
   // view standalone in unit tests therefore does not render them; the
   // production path is verified via the full app smoke run.
@@ -599,6 +599,25 @@ describe('JaFormView — edit mode field restrictions for CHUOKAI / JA_HONTEN', 
     expect(inputByLabel(wrapper, '備考').disabled).toBe(false);
   });
 
+  it('should disable 委託者コード / 委託者名 / 農協番号 / 農協名 (JASTEM) when CHUOKAI edits (regression)', async () => {
+    // security.md FIELD_RESTRICTIONS.ja for CHUOKAI/JA_HONTEN excludes all
+    // 4 jastem_* fields — they must mirror the same :disabled as JA名 etc.,
+    // otherwise a restricted editor can type into fields the BE silently drops.
+    const { wrapper } = await renderView({ jaId: 5, user: chuokaiUser() });
+    expect(inputByLabel(wrapper, '委託者コード').disabled).toBe(true);
+    expect(inputByLabel(wrapper, '委託者名').disabled).toBe(true);
+    expect(inputByLabel(wrapper, '農協番号').disabled).toBe(true);
+    expect(inputByLabel(wrapper, '農協名').disabled).toBe(true);
+  });
+
+  it('should keep 委託者コード / 委託者名 / 農協番号 / 農協名 (JASTEM) editable when NICHINO_ADMIN edits', async () => {
+    const { wrapper } = await renderView({ jaId: 5 });
+    expect(inputByLabel(wrapper, '委託者コード').disabled).toBe(false);
+    expect(inputByLabel(wrapper, '委託者名').disabled).toBe(false);
+    expect(inputByLabel(wrapper, '農協番号').disabled).toBe(false);
+    expect(inputByLabel(wrapper, '農協名').disabled).toBe(false);
+  });
+
   it('should keep ALL fields editable when NICHINO_ADMIN edits (default test user)', async () => {
     const { wrapper } = await renderView({ jaId: 5 });
     expect(inputByLabel(wrapper, 'JA名').disabled).toBe(false);
@@ -696,5 +715,48 @@ describe('JaFormView — defensive paths', () => {
     await wrapper.find('form').trigger('submit');
     await flushPromises();
     expect(wrapper.text()).toContain('必須項目です。');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Route reuse — edit → create (and edit id → different edit id) must
+// reset/reload the form (regression — same class of bug HanbaitenFormView
+// fixed previously). vue-router reuses this component instance between
+// JaCreate and JaEdit, so onMounted alone does not re-run.
+// ═══════════════════════════════════════════════════════════════════════
+describe('JaFormView — route reuse (edit → create reset)', () => {
+  it('should reset the form to blank when navigating from edit to create', async () => {
+    const { getJa } = await import('@/api/ja/ja');
+    vi.mocked(getJa).mockResolvedValue({ data: buildJa({ ja_id: 5, ja_name: '読込済JA' }) });
+    const { wrapper, router } = await renderView({ jaId: 5 });
+    await flushPromises();
+
+    expect(wrapper.html()).toContain('読込済JA');
+
+    // Jump to create via the SAME component instance (router reuses it).
+    await router.push({ name: 'JaCreate' });
+    await flushPromises();
+
+    // Bug: without the [route-reuse] fix, onMounted doesn't re-run and the
+    // create form keeps showing the previously-loaded edit record's data.
+    expect(wrapper.html()).not.toContain('読込済JA');
+    const nameInputs = wrapper
+      .findAll('input')
+      .filter((i) => (i.element as HTMLInputElement).value !== '');
+    expect(nameInputs.some((i) => (i.element as HTMLInputElement).value === '読込済JA')).toBe(
+      false,
+    );
+  });
+
+  it('should reload the new record when navigating between two edit ids', async () => {
+    const { getJa } = await import('@/api/ja/ja');
+    const { router } = await renderView({ jaId: 5 });
+    await flushPromises();
+    expect(getJa).toHaveBeenLastCalledWith(5);
+
+    await router.push({ name: 'JaEdit', params: { id: '8' } });
+    await flushPromises();
+
+    expect(getJa).toHaveBeenLastCalledWith(8);
   });
 });

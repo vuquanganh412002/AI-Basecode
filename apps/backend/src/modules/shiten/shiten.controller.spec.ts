@@ -128,7 +128,7 @@ describe('ShitenController — SCR-006 HTTP (list / delete)', () => {
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-006-001 — GET /api/v1/shiten
+  // ACSMS-API-006-001 — GET /api/v1/shiten
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/shiten (API-006-001)', () => {
     it('should return 200 + paginated body when service resolves', async () => {
@@ -195,7 +195,7 @@ describe('ShitenController — SCR-006 HTTP (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-006-002 — DELETE /api/v1/shiten/:id
+  // ACSMS-API-006-002 — DELETE /api/v1/shiten/:id
   // ═════════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/shiten/:id (API-006-002)', () => {
     it('should return 200 + message when service resolves', async () => {
@@ -258,9 +258,9 @@ describe('ShitenController — SCR-006 HTTP (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-007 — detail + create + update HTTP (separate top-level describe so
+// ACSMS-SCR-007 — detail + create + update HTTP (separate top-level describe so
 // its service mock — findById / create / update — and form-specific
-// session permissions don't leak into the SCR-006 block above).
+// session permissions don't leak into the ACSMS-SCR-006 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
@@ -359,7 +359,7 @@ describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-001 — GET /api/v1/shiten/:id
+  // ACSMS-API-007-001 — GET /api/v1/shiten/:id
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/shiten/:id (API-007-001)', () => {
     it('should return 200 + detail body when service resolves', async () => {
@@ -406,7 +406,7 @@ describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-002 — POST /api/v1/shiten
+  // ACSMS-API-007-002 — POST /api/v1/shiten
   // ═════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/shiten (API-007-002)', () => {
     const validBody = {
@@ -478,7 +478,7 @@ describe('ShitenController — SCR-007 HTTP (detail / create / update)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-003 — PUT /api/v1/shiten/:id
+  // ACSMS-API-007-003 — PUT /api/v1/shiten/:id
   // ═════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/shiten/:id (API-007-003)', () => {
     const validBody = {

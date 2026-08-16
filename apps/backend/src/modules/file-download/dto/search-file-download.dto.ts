@@ -11,6 +11,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { DownloadType } from '@/common/enums';
+
 /**
  * 空文字 `""` / null / undefined を undefined へ寄せる（`@IsOptional` の前に置く）。
  */
@@ -25,7 +27,7 @@ const SORT_KEYS = [
   'created_by_name',
 ] as const;
 
-/** `GET /api/v1/file-download` クエリ（SCR-022 一覧）。 */
+/** `GET /api/v1/file-download` クエリ（ACSMS-SCR-022 一覧）。 */
 export class SearchFileDownloadDto {
   @ApiPropertyOptional({ description: 'ファイル名（部分一致 LIKE）', maxLength: 255 })
   @Transform(blankToUndef)
@@ -58,7 +60,9 @@ export class SearchFileDownloadDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'ダウンロード種別は整数で指定してください。' })
-  @IsIn([1, 2, 3, 4, 5], { message: 'ダウンロード種別は1〜5で指定してください。' })
+  @IsIn(Object.values(DownloadType), {
+    message: 'ダウンロード種別は1〜5で指定してください。',
+  })
   download_type?: number;
 
   @ApiPropertyOptional({ description: 'ページ番号（1-indexed）', default: 1, minimum: 1 })

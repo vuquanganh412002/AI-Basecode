@@ -90,7 +90,7 @@ export class CreateAccountDto {
   account_name!: string;
 
   // [email-required] QA review 2026-05 — 主 通知先メールアドレスを必須化。空だと
-  // SCR-023 の通知ワーカーが宛先を落とし、当該ユーザは通知を受け取れないため。
+  // ACSMS-SCR-023 の通知ワーカーが宛先を落とし、当該ユーザは通知を受け取れないため。
   // サブメールは任意のまま。
   @ApiProperty({ description: 'メールアドレス（最大100桁）', maxLength: 100 })
   @IsString({ message: 'メールアドレスは文字列で指定してください。' })

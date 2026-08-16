@@ -64,7 +64,7 @@ updated_by: Tran Duc Tuyen
 | 7   | 共通         | INTERNAL_SERVER_ERROR     | システムエラーが発生しました。しばらくしてから再度お試しください。              | HTTP 500 |
 | 8   | 画面固有     | IMPORT_VALIDATION_ERROR   | Excel取込データにエラーがあります。詳細はerrorsフィールドを確認してください。   | HTTP 400 |
 | 9   | 画面固有     | FILE_FORMAT_ERROR         | Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。         | HTTP 400 |
-| 10  | 画面固有     | ROW_LIMIT_EXCEEDED        | ファイルの行数が上限（30000行）を超えているため、取込みできません。             | HTTP 400 |
+| 10  | 画面固有     | ROW_LIMIT_EXCEEDED        | ファイルの行数が上限（5000行）を超えているため、取込みできません。             | HTTP 400 |
 
 ---
 
@@ -275,7 +275,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 1b  | joho_henko_tekiyo_date        | String  | -        | -    | -      | 10     | **読者情報変更適用日（top-level・v1.6 顧客要件 2026-08）**。画面の入力欄で指定し全取込行へ一律適用（Excel の列ではない）。`YYYY-MM-DD`。`UPDATE` で必須（電子版は当日固定のため省略可・BE が当日を補う）。`dokusya_chushi_date` とは**排他**。`NEW` では指定不可。 |
 | 1c  | dokusya_chushi_date           | String  | -        | -    | -      | 10     | **購読中止日（top-level・v1.6 顧客要件 2026-08）**。指定すると**一括中止**（解約予約の作成）になる（→ §4.8）。`YYYY-MM-DD`。`joho_henko_tekiyo_date` とは**排他**。`NEW` では指定不可。空文字による一括取消は受け付けない。 |
 | 2   | selected_columns              | Array   | 〇       | ○    | 1      | 46     | 取込対象の列（物理カラム名）配列。新規登録モードでは必須列を必ず含むこと。一括中止ではキー列（`dokusya_id`）以外は無視される。                             |
-| 3   | rows                          | Array   | 〇       | ○    | 1      | 30000  | 取込データ行の配列。30000件を超える場合は `ROW_LIMIT_EXCEEDED` を返却する。                                                                                |
+| 3   | rows                          | Array   | 〇       | ○    | 1      | 5000  | 取込データ行の配列。5000件を超える場合は `ROW_LIMIT_EXCEEDED` を返却する。                                                                                |
 | 4   | →dokusya_id                   | Number  | -        | -    | -      | -      | 購読者ID。`UPDATE` モード（組合員コード未指定時）はキー項目として必須。`NEW` モードは無視する。                                                            |
 | 5   | ~~→dokusya_shubetsu~~（**列から撤去** v1.5） | -  | -   | -   | -   | -   | 購読種別は行データではなく top-level `dokusya_shubetsu`（#1a）で一律指定する（画面ラジオの単一ソース）。UPDATE では既存購読者の購読種別が選択値と異なる行を `IMPORT_VALIDATION_ERROR`（field=dokusya_shubetsu）で弾く。 |
 | 6   | →tetsuzuki_shurui             | Number  | -        | -    | -      | -      | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                  |
@@ -465,7 +465,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "ROW_LIMIT_EXCEEDED",
-  "message": "ファイルの行数が上限（30000行）を超えているため、取込みできません。"
+  "message": "ファイルの行数が上限（5000行）を超えているため、取込みできません。"
 }
 ```
 
@@ -526,8 +526,8 @@ Content-Type: application/json
   - `import_mode`：必須、`NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のいずれか
   - `selected_columns`：必須、配列、1件以上
     - `NEW` モードでは、新規登録必須項目（kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと（手続種類はシステムが新規(1)を設定するため対象外。v1.2。購読種別は top-level `dokusya_shubetsu` で一律指定するため selected_columns 対象外。v1.5）
-  - `rows`：必須、配列、1件以上、30000件以下
-    - 30000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
+  - `rows`：必須、配列、1件以上、5000件以下
+    - 5000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
   - 各行 `rows[i]` の検証（`selected_columns` 対象列のみ）：
     - 文字列項目：最大桁数チェック
     - 数値項目：型チェック、範囲チェック
@@ -965,7 +965,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 
 電子版の一括中止のみ **500行**（`VALIDATION_ERROR` / `電子版の一括中止は500件までです。ファイルを分割してください。`）。
 1行 = 電子版APIへの1往復で、同期処理のままでは ALB/CloudFront のタイムアウトにかかるため。
-紙版は外部連携が無く従来と同じコストなので 30000 行のまま。将来ジョブ化したら撤廃する。
+紙版は外部連携が無く従来と同じコストなので 5000 行のまま。将来ジョブ化したら撤廃する。
 
 #### 4.8.4 一括取消は無い
 

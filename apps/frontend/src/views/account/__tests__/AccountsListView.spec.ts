@@ -3,7 +3,7 @@
 // Drives src/views/account/AccountsListView.vue. Every it() maps to a clause
 // in docs/design/ACSMS-SCR-024/screen-design.md (機能定義 + メッセージ情報) +
 // docs/design/ACSMS-SCR-024/index.html (UI structure) +
-// docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md (API-024-001 / 024-002 +
+// docs/design/ACSMS-SCR-024/ACSMS-SCR-024-api.md (ACSMS-API-024-001 / 024-002 +
 // COMMON-002 / -003 / -004 dropdowns).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -23,7 +23,7 @@ import {
   buildAuthUser,
 } from '@test/fixtures/accounts.fixture';
 
-// API wrapper for SCR-024 endpoints. /gen-code-frontend will create
+// API wrapper for ACSMS-SCR-024 endpoints. /gen-code-frontend will create
 // `src/api/account/account.ts` exporting these names.
 vi.mock('@/api/account/account', () => ({
   listAccounts: vi.fn(),
@@ -140,6 +140,16 @@ describe('AccountsListView — initial render (機能定義 1.x)', () => {
     expect(listAccounts).toHaveBeenCalledTimes(1);
   });
 
+  // 顧客要件 2026-08: 一覧は常に最新順（機能定義1.0）— 他の一覧画面
+  // （JA/販売店/単価/支店/管理支店/購読者）と同じく updated_at 基準にして、
+  // アカウントを編集した直後に一覧の先頭へ来るようにする。
+  it('should request sort_by=updated_at / sort_order=desc by default on initial load', async () => {
+    await renderView();
+    const { listAccounts } = await import('@/api/account/account');
+    const callArg = vi.mocked(listAccounts).mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(callArg).toMatchObject({ sort_by: 'updated_at', sort_order: 'desc' });
+  });
+
   it('should fetch the role dropdown once when mounted (COMMON-002)', async () => {
     await renderView();
     const { listRolesDropdown } = await import('@/api/roles/roles');
@@ -223,6 +233,12 @@ describe('AccountsListView — search (機能定義 2.x)', () => {
     expect(listAccounts).toHaveBeenCalled();
     const callArg = vi.mocked(listAccounts).mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(callArg).toMatchObject({ login_id: 'admin' });
+  });
+
+  it('should cap the ログインID search input at 20 characters (matches AccountFormView registration limit)', async () => {
+    const { wrapper } = await renderView();
+    const loginIdInput = wrapper.find('#accounts-filter-1');
+    expect(loginIdInput.attributes('maxlength')).toBe('20');
   });
 
   it('should call listAccounts with role_id filter when 管理者区分 dropdown changes', async () => {

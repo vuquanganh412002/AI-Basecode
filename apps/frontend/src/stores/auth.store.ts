@@ -70,12 +70,21 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const data = await authApi.refresh();
       user.value = data.user;
-      await useCodesStore().loadAll();
-      return true;
     } catch {
+      // セッション自体が無効（cookie 失効等）— ここだけがログアウト対象。
       clearSession();
       return false;
     }
+    try {
+      await useCodesStore().loadAll();
+    } catch {
+      // /codes の一時的な失敗はセッションの有効性と無関係。ここで
+      // clearSession すると、有効なセッションを持つユーザーが無関係な
+      // API 障害だけで /login に蹴り出されてしまう（報告バグ）。
+      // all.value は null のまま残るため、次回の loadAll() 呼び出しで
+      // 自然に再試行される。
+    }
+    return true;
   }
 
   async function logout(): Promise<void> {

@@ -6,7 +6,7 @@
 //
 // IMPORTANT — ReportModule reads DokusyaRireki, writes FileUpload (帳票の S3
 // アーカイブ via FileArchiveService, which also reads Ja for ja_code), and
-// reads Account (SCR-029 出力時の日農 NICHINO_ADMIN/STAFF 通知先取得). All are
+// reads Account (ACSMS-SCR-029 出力時の日農 NICHINO_ADMIN/STAFF 通知先取得). All are
 // already registered in `ALL_ENTITIES`. If a future refactor removes any,
 // append the entity classes back to `test/utils/create-integration-app.ts`.
 //
@@ -97,7 +97,7 @@ describe('ACSMS-SCR-026 integration — report/meibo endpoints', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// SCR-026 — real Postgres only (ROW_NUMBER() window over t_dokusya_rireki +
+// ACSMS-SCR-026 — real Postgres only (ROW_NUMBER() window over t_dokusya_rireki +
 // xlsx export archiving to S3 + t_file_upload). Runs when REAL_PG=1.
 // ══════════════════════════════════════════════════════════════════════
 describeRealPg('ACSMS-SCR-026 integration — report/meibo (real postgres)', () => {
@@ -158,7 +158,7 @@ describeRealPg('ACSMS-SCR-026 integration — report/meibo (real postgres)', () 
 // ReportModule; auth/permission/validation contracts are fully covered by
 // the controller unit spec. These integration cases activate after
 // /gen-code-backend implements the endpoints (kept skipped so the merged
-// SCR-026 integration suite stays green in the RED phase).
+// ACSMS-SCR-026 integration suite stays green in the RED phase).
 // ══════════════════════════════════════════════════════════════════════
 describe('ACSMS-SCR-028 integration — report/zougen-hanbaiten endpoints', () => {
   let ctx: IntegrationTestContext;
@@ -220,7 +220,7 @@ describe('ACSMS-SCR-028 integration — report/zougen-hanbaiten endpoints', () =
 // ReportModule; auth/permission/validation contracts are fully covered by the
 // controller unit spec. These integration cases activate after
 // /gen-code-backend implements the endpoints (kept skipped so the merged
-// SCR-026 integration suite stays green in the RED phase).
+// ACSMS-SCR-026 integration suite stays green in the RED phase).
 // ══════════════════════════════════════════════════════════════════════
 describe('ACSMS-SCR-029 integration — report/zougen-nichino endpoints', () => {
   let ctx: IntegrationTestContext;

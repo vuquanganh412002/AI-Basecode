@@ -97,6 +97,50 @@ describe('paginateZougenSubscribers / buildZougenDocDefinition — PDFをプレ�
     const doc = buildZougenDocDefinition(rows, '2026-06-01', 15) as any;
     expect(doc.footer).toBeUndefined();
   });
+
+  it('住所変更は [変更前, 変更後] の2行1組を保ったままページ分割する（regression）', () => {
+    // 0 zoubu / 0 genbu・住所変更のみ10購読者分（20行）・size=15。
+    // 旧実装は1ページ目に15行（7.5ペア＝奇数）を切り出し、8人目の「変更後」が
+    // 2ページ目の先頭に孤立して9人目の「変更前」と誤ってペアリングされていた
+    // （FE の addressChangePairs / PDF の addressSection は連番インデックスで
+    // ペアリングするため）。ペアはページ境界で分断してはいけない。
+    const rows20: ZougenRawRow[] = Array.from({ length: 10 }, (_, i) =>
+      zr({
+        dokusya_id: 9500 + i,
+        dokusya_busu: 2,
+        zenkai_dokusya_busu: 2, // 増減なし → zoubu/genbu は生成しない
+        shimei_sei: `購読者${i}`,
+        shimei_mei: '花子',
+        // 前回住所を現住所と変え、住所変更を発生させる。
+        zenkai_shikuchoson: '新宿区',
+        zen_todofuken_name: '東京都',
+        zenkai_chome_banchi: '西新宿1-1-1',
+        zenkai_tatemono_mei: '',
+      }),
+    );
+
+    const pages = paginateZougenSubscribers(rows20, 15);
+
+    let totalPairs = 0;
+    for (const pageReports of pages) {
+      for (const report of pageReports) {
+        expect(report.zoubu).toHaveLength(0);
+        expect(report.genbu).toHaveLength(0);
+        // ページ内の住所変更は必ず偶数件（奇数＝ペアが分断された証拠）。
+        expect(report.address_change.length % 2).toBe(0);
+        for (let i = 0; i < report.address_change.length; i += 2) {
+          const before = report.address_change[i];
+          const after = report.address_change[i + 1];
+          expect(before.label).toBe('変更前');
+          expect(after.label).toBe('変更後');
+          // 同一購読者のペアであること（氏名が一致）。
+          expect(before.name).toBe(after.name);
+          totalPairs += 1;
+        }
+      }
+    }
+    expect(totalPairs).toBe(10);
+  });
 });
 
 describe('paginateNichinoSubscribers / buildZougenNichinoDocDefinition — PDFをプレビューと同じ改ページに', () => {

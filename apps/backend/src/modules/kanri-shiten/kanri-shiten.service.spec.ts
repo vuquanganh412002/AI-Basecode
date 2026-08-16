@@ -3,7 +3,7 @@
 //
 // Both SCRs share the same KanriShitenService class. Tests are organised
 // as two sibling top-level describe blocks so each has its own mock
-// scope — SCR-008 uses QueryBuilder-heavy mocks, SCR-009 mixes
+// scope — ACSMS-SCR-008 uses QueryBuilder-heavy mocks, ACSMS-SCR-009 mixes
 // findOne / save / count. Spec count + assertions remain 1:1 with the
 // originals; only the location changed (merged from __tests__/ into
 // this file so the module follows "1 source = 1 spec file").
@@ -130,7 +130,7 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-008-001 — GET /api/v1/kanri-shiten (findAll)
+  // ACSMS-API-008-001 — GET /api/v1/kanri-shiten (findAll)
   // ═════════════════════════════════════════════════════════════════════
   describe('findAll (API-008-001)', () => {
     it('should return paginated rows when NICHINO_ADMIN with no filters', async () => {
@@ -324,7 +324,7 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-008-002 — DELETE /api/v1/kanri-shiten/:id (remove)
+  // ACSMS-API-008-002 — DELETE /api/v1/kanri-shiten/:id (remove)
   // ═════════════════════════════════════════════════════════════════════
   describe('remove (API-008-002)', () => {
     it('should soft-delete the row and audit log when row exists with no related data', async () => {

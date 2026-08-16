@@ -66,16 +66,28 @@ export const useCodesStore = defineStore('codes', () => {
     );
   }
 
-  /** 保存済みコード値の表示ラベルを引く。 */
+  /**
+   * 保存済みコード値の表示ラベルを引く。
+   *
+   * `has()` と同じ理由で `String()` 比較にする — form state が radio 由来の
+   * string（例: `formState.zei_kubun: '1'`）でも、BE 応答由来の number
+   * （例: `record.zei_kubun: 1`）でも一致させるため。
+   */
   function label(category: string, value: CodeValue): string {
-    if (value === null || value === undefined) return '';
-    return all.value?.[category]?.find((x) => x.value === value)?.label ?? '';
+    if (value === null || value === undefined || value === '') return '';
+    return (
+      all.value?.[category]?.find((x) => String(x.value) === String(value))
+        ?.label ?? ''
+    );
   }
 
   /** 短縮表示ラベル（列幅が狭いテーブルで使用）。 */
   function labelShort(category: string, value: CodeValue): string {
-    if (value === null || value === undefined) return '';
-    return all.value?.[category]?.find((x) => x.value === value)?.label_short ?? '';
+    if (value === null || value === undefined || value === '') return '';
+    return (
+      all.value?.[category]?.find((x) => String(x.value) === String(value))
+        ?.label_short ?? ''
+    );
   }
 
   function reset(): void {

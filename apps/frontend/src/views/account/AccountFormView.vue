@@ -9,6 +9,7 @@ import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { focusFirstError } from '@/utils/form-focus';
 import { useAuthStore } from '@/stores/auth.store';
@@ -57,7 +58,7 @@ interface AccountFormState {
 }
 
 // ─── アクセス制御（機能定義 1.1） ─────────────────────────────────────
-// SCR-025 は日農管理者のみアクセス可。view 側ガードで API も叩かない。
+// ACSMS-SCR-025 は日農管理者のみアクセス可。view 側ガードで API も叩かない。
 const authStore = useAuthStore();
 const isAdmin = computed(
   () => authStore.user?.role_code === RoleCode.NICHINO_ADMIN,
@@ -67,6 +68,7 @@ const ACCESS_DENIED_MSG = 'アクセス権がありません。';
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 
 const accountId = computed<number | null>(() => {
   const raw = route.params.id;
@@ -246,8 +248,10 @@ onMounted(async () => {
       // ロード（＋ハイドレート中の watcher）が確定した状態を基準に控える。
       await editGuard.capture();
     } catch {
-      // axios interceptor が NOT_FOUND / 500 をトースト — onMounted で crash せず
-      // 空フィールドのまま view をマウントし続ける。
+      // axios interceptor が NOT_FOUND / 500 を既にトースト済み。空の編集
+      // フォームのまま留まらせず、他の一覧画面と同じくダッシュボードへ戻す
+      // （顧客要件 2026-08 — useNotFoundRedirect 共通化）。
+      await redirectToDashboard();
     }
   }
 });
@@ -367,15 +371,14 @@ const FIELD_ORDER: readonly string[] = [
   'sub_email_3',
 ];
 
-function validateClient(): boolean {
+// [required-table] 必須チェックをデータ駆動で回す。if 連鎖より認知的複雑度を
+// 下げ順序を明示（下の FIELD_ORDER が focus-first-error でこのリストに依存）。
+// clearable コントロールへの将来移行で TypeError にならないよう `?.trim()` を使う。
+// [email-required] QA バグ 2026-05 — 通知先メールアドレスは必須。紙版配送通知の
+// フォールバック先はプライマリメールのみで、ACSMS-SCR-023 の worker は空だと受信者を
+// 丸ごと落とすため、未設定のアカウントは何も受信できない。
+function collectRequiredErrors(): Record<string, string> {
   const errs: Record<string, string> = {};
-
-  // [required-table] 必須チェックをデータ駆動で回す。if 連鎖より認知的複雑度を
-  // 下げ順序を明示（下の FIELD_ORDER が focus-first-error でこのリストに依存）。
-  // clearable コントロールへの将来移行で TypeError にならないよう `?.trim()` を使う。
-  // [email-required] QA バグ 2026-05 — 通知先メールアドレスは必須。紙版配送通知の
-  // フォールバック先はプライマリメールのみで、SCR-023 の worker は空だと受信者を
-  // 丸ごと落とすため、未設定のアカウントは何も受信できない。
   const requiredChecks: ReadonlyArray<readonly [string, boolean]> = [
     ['login_id', !isEdit.value && !formState.login_id?.trim()],
     ['password', !isEdit.value && !formState.password],
@@ -389,8 +392,12 @@ function validateClient(): boolean {
   for (const [field, missing] of requiredChecks) {
     if (missing) errs[field] = REQUIRED_MSG;
   }
+  return errs;
+}
 
-  // 形式チェック（値がある場合のみ — 同一項目では必須メッセージが形式より優先）。
+// 形式チェック（値がある場合のみ — 同一項目では必須メッセージが形式より優先）。
+// `errs` を in-place で埋める — collectRequiredErrors の結果と合流させるため。
+function addFormatErrors(errs: Record<string, string>): void {
   if (!errs.login_id && formState.login_id && !LOGIN_ID_RE.test(formState.login_id)) {
     errs.login_id = LOGIN_ID_FORMAT_MSG;
   }
@@ -400,7 +407,19 @@ function validateClient(): boolean {
   if (!errs.email && formState.email && !EMAIL_RE.test(formState.email)) {
     errs.email = EMAIL_FORMAT_MSG;
   }
+  // サブメールアドレスは任意項目 — 値がある場合のみ形式チェック（BE の
+  // create-account.dto.ts と同じ email 形式・空欄許容ルール）。
+  for (const field of ['sub_email_1', 'sub_email_2', 'sub_email_3'] as const) {
+    const value = formState[field];
+    if (!errs[field] && value && !EMAIL_RE.test(value)) {
+      errs[field] = EMAIL_FORMAT_MSG;
+    }
+  }
+}
 
+function validateClient(): boolean {
+  const errs = collectRequiredErrors();
+  addFormatErrors(errs);
   fieldErrors.value = errs;
   return Object.keys(errs).length === 0;
 }
@@ -724,7 +743,11 @@ defineExpose({ formState, fieldErrors });
               :help="fieldErrors.sub_email_1"
               label="サブメールアドレス1"
             >
-              <a-input v-model:value="formState.sub_email_1" :maxlength="100" />
+              <a-input
+                autocomplete="off"
+                v-model:value="formState.sub_email_1"
+                :maxlength="100"
+              />
             </a-form-item>
 
             <a-form-item
@@ -733,7 +756,11 @@ defineExpose({ formState, fieldErrors });
               :help="fieldErrors.sub_email_2"
               label="サブメールアドレス2"
             >
-              <a-input v-model:value="formState.sub_email_2" :maxlength="100" />
+              <a-input
+                autocomplete="off"
+                v-model:value="formState.sub_email_2"
+                :maxlength="100"
+              />
             </a-form-item>
 
             <a-form-item
@@ -742,7 +769,11 @@ defineExpose({ formState, fieldErrors });
               :help="fieldErrors.sub_email_3"
               label="サブメールアドレス3"
             >
-              <a-input v-model:value="formState.sub_email_3" :maxlength="100" />
+              <a-input
+                autocomplete="off"
+                v-model:value="formState.sub_email_3"
+                :maxlength="100"
+              />
             </a-form-item>
           </div>
 

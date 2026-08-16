@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-06-01
 created_date: 2026/06/01
 created_by: Nguyen Truong An
-updated_date: 2026/06/12
+updated_date: 2026/08/14
 updated_by: Tran Duc Tuyen
 ---
 
@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/06/12 | 1.1  | Tran Duc Tuyen | 画面設計書との整合：住所変更テーブルの住所カラム組（変更前=zenkai_*, 変更後=haitatsu_*）を4.5に明記、システムエラーメッセージ（ACSMS-MSG-028-003）の句点を統一 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/14 | 1.2  | Tran Duc Tuyen | 顧客コメント対応：ファイル名をロール別命名（JA本店/中央会 と JA管理支店）に変更。表示名とS3キー(タイムスタンプ)を分離。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4 | 2026/08/05 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-08：出力条件の「販売店」候補から**電子版ダミー販売店**（hanbaiten_code=9999999999）を除外。本帳票の集計対象は紙版のみでダミーに紐づく電子版読者は含まれず、選んでも結果は0件になるため。集計条件そのものは既に紙版限定で変更なし。 | | |
+| 5 | 2026/08/14 | 1.4 | Tran Duc Tuyen | 顧客報告 #57976 の不具合修正：廃店(haiten_flg=true)を抽出SQLの行単位で除外していたため、販売店変更で転入先が廃店になった場合、転出元（営業中）側の減部報告まで消えていた。行の取得自体は廃店を問わず行い、報告のグルーピング処理で「廃店を宛先とする報告を作らない」判定に変更（4.3〜4.5）。 | | |
 
 ## システム概要
 
@@ -53,9 +54,15 @@ updated_by: Tran Duc Tuyen
 ※ 本画面の出力条件エリアの2つのチェックボックスは以下の共用APIを使用する（新規APIは作成しない）。
 
 - **販売店チェックボックス**：`ACSMS-API-COMMON-007`（DataScope自動適用）を使用する。
-  本画面では廃店（`haiten_flg = true`。電子版ダミー販売店を含む）を除外する必要があるため、
-  抽出の正となるプレビュー／出力API（`ACSMS-API-028-001` / `ACSMS-API-028-002`）の
-  SQLにて `h.haiten_flg = false` を**サーバ側で強制**する。チェックボックス表示も廃店を除いた一覧とする。
+  廃店（`haiten_flg = true`。電子版ダミー販売店を含む）は選択肢一覧から除外する
+  （チェックボックス表示も廃店を除いた一覧とする）。
+  抽出の正となるプレビュー／出力API（`ACSMS-API-028-001` / `ACSMS-API-028-002`）側では、
+  廃店を**行単位でSQL除外しない**（顧客要件 #57976）。販売店変更で「転出元（旧店）→
+  転入先（廃店）」となった場合に旧店側の減部報告まで消えてしまうため、行自体は常に
+  取得したうえで、増減連絡票の分類処理（グルーピング）にて**店舗単位**で
+  「廃店を**宛先**とする報告は作らない」判定を行う——旧店（営業中）には従来どおり
+  減部が計上され、転入先の廃店には報告自体が生成されない。詳細は
+  `ACSMS-API-028-001` §4.3・§4.4 を参照。
 - **管理支店チェックボックス**：`ACSMS-API-COMMON-004`（カスケード絞込み）を呼び出しユーザーの `ja_id` で使用する。
   JA管理支店ロールが自管理支店分のみを対象とする制御は、プレビュー／出力API側のDataScope
   （`r.kanri_shiten_id = :user_kanri_shiten_id`）で**サーバ側で強制**する。
@@ -305,9 +312,23 @@ GET /api/v1/report/zougen-hanbaiten/preview?tekiyo_date=2026-05-01&hanbaiten_id=
     （電子版単独はダミー販売店に紐づく）。従来の「電子版は承認済(`denshi_shonin_status = 1`)
     のみ集計」条件は紙版限定に包含されるため廃止した。
     ※ SCR-029 増減通知（日本農業新聞）も同じく紙版限定（同条件を個別に持つ）。
-  - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
-  - hanbaiten_id 指定時：`r.hanbaiten_id = ANY(:hanbaiten_ids)` **OR** `r.zenkai_hanbaiten_id = ANY(:hanbaiten_ids)`
-    （販売店変更の「転出元（旧店）」も拾うため、現販売店・前回販売店のどちらかが一致すれば対象）
+  - 廃店（`haiten_flg = true`。電子版ダミー販売店を含む）を**行単位ではSQL除外しない**
+    （顧客要件 #57976）。旧仕様（`h.haiten_flg = false` を INNER JOIN の ON 条件に
+    含める）だと、販売店変更で「転出元（旧店・営業中）→転入先（廃店）」となった
+    行が丸ごと除外され、旧店側の増減連絡票からも該当購読者の減部が消えるという
+    不具合があった。廃店を**宛先**とする報告を作らないという制約は店舗単位の
+    ルールであるため、行の取得自体は現販売店の営業状態を問わず行い、4.5の
+    グルーピング処理で「報告の宛先となる店舗（現販売店／前回販売店）が廃店なら
+    その店の報告だけを生成しない」判定を行う。そのため `h.haiten_flg` /
+    `zh.haiten_flg`（前回販売店側）を SELECT で取得する（4.4 参照）。
+  - hanbaiten_id 指定時：`EXISTS (dokusya_id, joho_henko_tekiyo_date が同じ行の中に、
+    現販売店 OR 前回販売店 が一致するものがあるか)`（顧客要件2026-08改訂）
+    行単位で `r.hanbaiten_id = ANY(...) OR r.zenkai_hanbaiten_id = ANY(...)` を直接
+    判定すると、同一購読者の同日複数履歴のうち一部の行だけが条件に一致し、
+    残りが取得漏れになる（4.5 の日初/日末集約 rmin/rmax が不完全な行集合で
+    計算され、選ぶ販売店によって集計結果が食い違うバグの原因だった）。EXISTS で
+    (dokusya_id, joho) 単位に「一致する行が同日のどこかにあるか」を判定し、
+    一致すればその dokusya_id・その日の全履歴行を取得する。
   - kanri_shiten_id 指定時：`r.kanri_shiten_id = ANY(:kanri_shiten_ids)`
   - DataScope条件（4.2 参照）を追加する。
   - 並び順は **`r.dokusya_id`, `r.rireki_no` 昇順**（同一購読者の同日複数履歴を累計するため。帳票の販売店コード順はレスポンス生成側で再整列）。
@@ -333,10 +354,13 @@ SELECT r.dokusya_rireki_id, r.dokusya_id,
        r.zenkai_shikuchoson, r.zenkai_chome_banchi, r.zenkai_tatemono_mei,
        r.biko,
        h.hanbaiten_code, h.hanbaiten_name,
+       h.haiten_flg,             -- #57976: 現販売店の廃店判定（宛先報告の抑止に使用）
+       zh.haiten_flg AS zenkai_haiten_flg,  -- #57976: 前回販売店の廃店判定
        ks.kanri_shiten_name, ks.tel AS kanri_shiten_tel, ks.fax AS kanri_shiten_fax
 FROM t_dokusya_rireki r
+/* #57976: haiten_flg は行単位の除外条件に含めない（4.3 参照） */
 INNER JOIN m_hanbaiten h
-        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false
+        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL
 /* 前回販売店（初回履歴は NULL のため LEFT JOIN） */
 LEFT JOIN m_hanbaiten zh
         ON zh.hanbaiten_id = r.zenkai_hanbaiten_id AND zh.deleted_at IS NULL
@@ -348,10 +372,18 @@ LEFT JOIN m_todofuken td_zen
         ON td_zen.todofuken_code = r.zenkai_todofuken_code
 WHERE r.joho_henko_tekiyo_date = :tekiyo_date
   AND r.zougen_hokoku_flg = true
-  /* 販売店フィルタ（任意）：現販売店 OR 前回販売店（転出元）が一致 */
+  /* 販売店フィルタ（任意）：(dokusya_id, joho) 単位で現販売店 OR 前回販売店の
+     いずれかが一致する行が同日に存在すれば、その dokusya_id の同日全行を取得する
+     （顧客要件2026-08改訂 — 行単位判定だと同日複数履歴の一部が欠落するため） */
   AND (:hanbaiten_ids IS NULL
-       OR r.hanbaiten_id = ANY(:hanbaiten_ids)
-       OR r.zenkai_hanbaiten_id = ANY(:hanbaiten_ids))
+       OR EXISTS (
+            SELECT 1 FROM t_dokusya_rireki r2
+             WHERE r2.dokusya_id = r.dokusya_id
+               AND r2.joho_henko_tekiyo_date = r.joho_henko_tekiyo_date
+               AND r2.torikeshi_flg = false
+               AND (r2.hanbaiten_id = ANY(:hanbaiten_ids)
+                    OR r2.zenkai_hanbaiten_id = ANY(:hanbaiten_ids))
+          ))
   /* 管理支店フィルタ（任意） */
   AND (:kanri_shiten_ids IS NULL OR r.kanri_shiten_id = ANY(:kanri_shiten_ids))
   /* DataScope: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN */
@@ -383,7 +415,22 @@ ORDER BY r.dokusya_id ASC, r.rireki_no ASC
     - net > 0 → **増部**（`zoubu`）、net < 0 → **減部**（`genbu`）、net = 0 → 出力なし
   - **住所変更**（`address_change`）：日初の前回住所（`zen_*`）と日末の現住所（`haitatsu_*`）が
     異なる場合。1購読者につき `変更前` / `変更後` の2行を生成する。
+- **廃店（`haiten_flg = true`）は「宛先」となる報告を作らない（顧客要件 #57976）**：
+  上記の各振り分けで報告の宛先となる店舗（`storeBefore` の `genbu` / `storeAfter` の
+  `zoubu` ・ 同一販売店の `zoubu`・`genbu` ・ `address_change`）ごとに、その店舗の
+  `haiten_flg` を判定し、`true` であればその店舗宛の報告だけを生成しない。
+  販売店変更で「転出元（旧店・営業中）→転入先（廃店）」となった場合は、
+  旧店には従来どおり **減 `busuBefore`** が計上され（`reports` に旧店の
+  グループが現れる）、廃店である転入先には報告そのものが生成されない
+  （`reports` にそのグループは現れない）。逆に「転出元（廃店）→転入先（営業中）」
+  でも同様に、廃店側の減部は作られず、営業中の転入先の増部のみ計上される。
     **前回住所が空（初回履歴）の場合は出力しない**（新規購読者を住所変更に出さない）。
+- **販売店フィルタ（`hanbaiten_id`）指定時、出力を選択した販売店のグループだけに絞る**
+  （顧客要件2026-08改訂）。上記の集約（rmin/rmax）自体は 4.4 の EXISTS 判定で取得した
+  同日の全履歴を使って必ず正しく行うが、`reports` 配列は `hanbaiten_id ∈ 選択値` の
+  グループのみを残す。販売店変更で対になる旧店（`genbu`）・新店（`zoubu`）のうち、
+  選択していない側は出力しない —「72を選んだら72だけ、73を選んだら73だけ」。
+  未指定時（全店対象）は両方とも出力する。
 - 各行の整形：
   - 部数（`busu`）：`"{busuBefore} → {busuAfter}"`（販売店変更時は旧店 `"{busuBefore} → 0"` / 新店 `"0 → {busuAfter}"`）
   - 住所：`{todofuken_name}{市町村郡}{丁目番地}{建物名}` を連結する。区分・ラベルにより住所カラムの組が異なる：
@@ -585,7 +632,7 @@ Content-Disposition: attachment; filename="zougen_hanbaiten_20260501.pdf"; filen
 
 ### 4.3 データ取得
 
-- `ACSMS-API-028-001` の 4.3 / 4.4 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`h.haiten_flg = false`、DataScope適用）。
+- `ACSMS-API-028-001` の 4.3 / 4.4 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、DataScope適用。廃店は行単位で除外せず、4.5と同じグルーピング処理で店舗単位に抑止する）。
 - 取得件数が0件の場合：HTTP 200 + `application/json` `{ data: { reports: [] } }`（ファイルは生成しない。FE が ACSMS-MSG-028-002 を画面内表示）。
 
 ### 4.4 PDF生成・S3保存

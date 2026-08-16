@@ -9,8 +9,8 @@
 //
 // Endpoints covered (both ship with /gen-code-backend ACSMS-SCR-019):
 //
-//   GET  /api/v1/hanbaiten/import/template (API-019-001)
-//   POST /api/v1/hanbaiten/import          (API-019-002)
+//   GET  /api/v1/hanbaiten/import/template (ACSMS-API-019-001)
+//   POST /api/v1/hanbaiten/import          (ACSMS-API-019-002)
 //
 // Run with: `cd apps/backend && npm test -- hanbaiten-import.integration`
 
@@ -144,7 +144,7 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // API-019-001 — GET /api/v1/hanbaiten/import/template
+  // ACSMS-API-019-001 — GET /api/v1/hanbaiten/import/template
   // ───────────────────────────────────────────────────────────────────────
 
   describe('GET /api/v1/hanbaiten/import/template', () => {

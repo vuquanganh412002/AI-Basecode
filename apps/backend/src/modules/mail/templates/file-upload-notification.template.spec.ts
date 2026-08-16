@@ -44,7 +44,7 @@ describe('renderFileUploadNotificationMail', () => {
     );
   });
 
-  // 顧客要件2026-08: 本文にダウンロード画面(SCR-022)へのリンクを載せる
+  // 顧客要件2026-08: 本文にダウンロード画面(ACSMS-SCR-022)へのリンクを載せる
   // （2026-07 の「URL を含めない」方針からの変更）。
   it('should include the download link with a short guidance line', () => {
     const { text } = render();

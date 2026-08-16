@@ -128,10 +128,10 @@ const TORIKESHI_TAIL_ASOF = '9999-12-31';
 const SCREEN_NAME = '購読者情報登録画面 (ACSMS-SCR-011)';
 const TABLE_NAME = 't_dokusya';
 
-/** SCR-014 — 購読者明細検索画面 audit ラベル。SCR-011 と分け t_log.gamen_name が発生元画面(検索/削除/Excel出力)を正しく表す。*/
+/** ACSMS-SCR-014 — 購読者明細検索画面 audit ラベル。ACSMS-SCR-011 と分け t_log.gamen_name が発生元画面(検索/削除/Excel出力)を正しく表す。*/
 const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
 
-/** SCR-013 — 購読者履歴情報画面. 履歴の取消(赤伝)はこの画面から実行する。*/
+/** ACSMS-SCR-013 — 購読者履歴情報画面. 履歴の取消(赤伝)はこの画面から実行する。*/
 const SCREEN_NAME_SCR013 = '購読者履歴情報画面 (ACSMS-SCR-013)';
 /** 取消は t_dokusya_rireki に対する操作なので target_table を分ける。*/
 const TABLE_NAME_RIREKI = 't_dokusya_rireki';
@@ -148,7 +148,7 @@ function asScalar(value: unknown): string | number {
 }
 
 /**
- * SCR-013 履歴一覧 sort-by allow-list → `r`(t_dokusya_rireki) の列名。
+ * ACSMS-SCR-013 履歴一覧 sort-by allow-list → `r`(t_dokusya_rireki) の列名。
  * DokusyaRirekiQueryDto の @IsIn と一致必須。既定 rireki_no（機能定義 1.2 履歴番号降順）。
  */
 const RIREKI_SORT_COLUMN_MAP: Record<string, string> = {
@@ -159,7 +159,7 @@ const RIREKI_SORT_COLUMN_MAP: Record<string, string> = {
 };
 
 /**
- * t_dokusya を FK 参照する子テーブル。SCR-014 削除は該当行が残る間ブロック。
+ * t_dokusya を FK 参照する子テーブル。ACSMS-SCR-014 削除は該当行が残る間ブロック。
  * 現状 t_koza_furikae(口座振替データ)のみ（配列は将来拡張用）。unit spec は
  * dataSource.query をこのテーブル名で mock する。
  */
@@ -297,7 +297,11 @@ export class DokusyaService {
     manager: EntityManager,
     action: PushAction,
     after: Dokusya,
-    opts: { immediateJohoDate?: string; cancelYm?: string } = {},
+    opts: {
+      immediateJohoDate?: string;
+      cancelYm?: string;
+      beforeTankaId?: number | null;
+    } = {},
   ): Promise<void> {
     await this.denshiPush.pushOnWrite(manager, {
       action,
@@ -305,6 +309,7 @@ export class DokusyaService {
       source: 'UI',
       immediateJohoDate: opts.immediateJohoDate,
       cancelYm: opts.cancelYm,
+      beforeTankaId: opts.beforeTankaId,
     });
   }
 
@@ -360,6 +365,38 @@ export class DokusyaService {
       throw fieldValidationError('joho', '情報変更適用日の形式が不正です。');
     }
     const master = await this.fetchInScope(id, session);
+    // 予約変更ポップアップの確定時点で範囲チェック（購読開始日 <= joho < 解約予定日）
+    // を行い、その場でエラーを返す（顧客要件2026-08）。以前は update() 送信まで
+    // 検知できず、フォーム全項目入力後に弾かれてやり直しになっていた。
+    // assertUpdateDateConsistency と同じ基準（joho 時点で有効な解約予定日）を使う。
+    const rawEffectiveChushi = await this.loadScheduledChushiAsOf(id, joho);
+    // 解約→再購読済み（現在の購読開始日 kaishi が、履歴上見つかった解約予定日より
+    // 後）の場合、その解約予定日は既に閉じた旧サイクルのものであり現行サイクルに
+    // 無関係 — assertUpdateDateConsistency が isResubscribe フラグで chushi=null に
+    // する処理と同じ意図だが、こちらは DTO を受け取る前の GET なので isResubscribe
+    // フラグが取れない。代わりに「見つかった chushi が現行 kaishi より前か」で
+    // 同じ状況を検出する（旧チェックのままだと、解約(08/13)→再購読(08/24開始)の
+    // 間の日付を joho に選ぶと「開始日以降にして」「解約予定日より前にして」という
+    // 両立不可能な2エラーが同時に出て、実質どの日付を選んでも予約できなくなる）。
+    const effectiveChushi =
+      rawEffectiveChushi &&
+      master.dokusyaKaishiDate &&
+      normalizeDbDate(rawEffectiveChushi) < normalizeDbDate(master.dokusyaKaishiDate)
+        ? null
+        : rawEffectiveChushi;
+    const dateViolations = collectTekiyoDateViolations({
+      johoDate: joho,
+      kaishiDate: master.dokusyaKaishiDate,
+      chushiDate: effectiveChushi,
+    });
+    if (dateViolations.length > 0) {
+      throw new ValidationException(
+        dateViolations.map((v) => ({
+          field: tekiyoViolationField(v.kind),
+          message: v.message,
+        })),
+      );
+    }
     const predecessor = await loadEffectiveRow(this.dataSource.manager, id, joho);
     // 直前行なし(joho が最初の履歴より前) → 現行 master を基準にする。
     if (!predecessor) return this.getDetail(id, session);
@@ -698,12 +735,19 @@ export class DokusyaService {
       Number(effectiveTetsuzuki),
     );
 
-    // [read-only guard] 併読(3) と 電子版クレカ決済者 は全アカウント編集不可。
-    // seeder.md §425 / api.md §is_read_only。VIEW は許可、更新は 403。delete と同じ境界。
+    // [read-only guard] 併読(3) / 電子版クレカ決済者 / 電子版かつ電子版読者管理
+    // システム未連携（denshi_kaiin_id=null）で単価が campaign でない読者 は
+    // 全アカウント編集不可。seeder.md §425 / api.md §is_read_only + 顧客要件
+    // 2026-08 追補。VIEW は許可、更新は 403。delete と同じ境界。denshi_kaiin_id が
+    // 設定済みなら単価の campaign 判定は不要（無駄な問い合わせを避ける）。
     if (
       isDokusyaReadOnly(
         Number(before.dokusyaShubetsu),
         Number(before.shiharaiHoho),
+        before.denshiKaiinId,
+        before.denshiKaiinId == null
+          ? await this.isTankaCampaign(before.tankaId)
+          : undefined,
       )
     ) {
       throw new DokusyaReadOnlyException();
@@ -822,6 +866,7 @@ export class DokusyaService {
           // （未来開始の併読は到来日に recompute バッチ反映）。
           await this.pushUiIfDenshi(manager, 'reread', result.after, {
             immediateJohoDate: normalizeDbDate(dto.dokusya_kaishi_date),
+            beforeTankaId: before.tankaId,
           });
           await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
           return result.after;
@@ -881,6 +926,7 @@ export class DokusyaService {
         // null 安全化: 未設定なら '' で当日判定に一致せず push を batch へ委譲。
         await this.pushUiIfDenshi(manager, 'update', result.after, {
           immediateJohoDate: String(updatePartial.johoHenkoTekiyoDate ?? ''),
+          beforeTankaId: before.tankaId,
         });
 
         await this.auditLog.logUpdate(auditCtx, before, result.after, manager);
@@ -932,11 +978,17 @@ export class DokusyaService {
     const revoking = chushi === '';
     const before = await this.fetchInScope(id, session);
 
-    // [read-only guard] 併読(3) / 電子版クレカ決済者 は編集不可 → 停止も不可(403)。
+    // [read-only guard] 併読(3) / 電子版クレカ決済者 / 電子版かつ電子版読者管理
+    // システム未連携（denshi_kaiin_id=null）で単価が campaign でない読者 は
+    // 編集不可 → 停止も不可(403)（update と同じ境界・顧客要件 2026-08 追補）。
     if (
       isDokusyaReadOnly(
         Number(before.dokusyaShubetsu),
         Number(before.shiharaiHoho),
+        before.denshiKaiinId,
+        before.denshiKaiinId == null
+          ? await this.isTankaCampaign(before.tankaId)
+          : undefined,
       )
     ) {
       throw new DokusyaReadOnlyException();
@@ -1246,6 +1298,14 @@ export class DokusyaService {
       .where('r.dokusya_id = :dokusya_id', { dokusya_id: id });
 
     qb.orderBy(sortColumn, sortOrder);
+    // 同値タイブレーク: rireki_no は dokusya_id 内で一意なので、これを第2ソートに
+    // 加えれば同値行の順序が常に確定する（他列でのソート時のページング崩れ防止 —
+    // ORDER BY が一意でないと Postgres が tie の順序を安定させる保証がなく、
+    // ページをまたいで同じ行が重複/欠落しうる）。writer 側の (joho, rireki_no)
+    // 比較規約と同じ軸を使う。rireki_no 自体でソート中は重複指定を避ける。
+    if (sortColumn !== 'r.rireki_no') {
+      qb.addOrderBy('r.rireki_no', sortOrder);
+    }
     // limit/offset を使う(take/skip 不可): take/skip は getMany() のみページングし
     // getRawMany() では無視されるため、per_page が効かず全行返っていた。
     // getCount() は limit/offset を無視するので total は正しいまま。
@@ -1450,6 +1510,20 @@ export class DokusyaService {
   }
 
   /**
+   * [read-only guard 補助] 指定 tanka_id が campaign_flg=true の単価か。
+   * isDokusyaReadOnly の3番目の条件（電子版 + denshi_kaiin_id 未連携）でのみ必要 —
+   * 呼び出し側で denshi_kaiin_id !== null のときは呼ばない（無駄な問い合わせを避ける）。
+   */
+  private async isTankaCampaign(tankaId: number | null): Promise<boolean> {
+    if (tankaId == null) return false;
+    const rows = await this.dataSource.query(
+      `SELECT campaign_flg FROM m_tanka WHERE tanka_id = $1 AND deleted_at IS NULL`,
+      [tankaId],
+    );
+    return Boolean(rows?.[0]?.campaign_flg);
+  }
+
+  /**
    * [layer4-fk-guard] body の全 FK id が保存前に caller の JA に属することを検証。
    * 無いと JA-scoped ユーザが他テナントの 管理支店/支店/販売店/単価 id を POST/PUT でき、
    * 行は caller の ja_id を保存しつつ FK は別 JA を指す（テナント跨ぎ破壊 + id 列挙）。
@@ -1578,6 +1652,24 @@ export class DokusyaService {
         value: dto.shiharai_hoho,
         category: 'SHIHARAI_HOHO',
         label: '支払方法',
+      },
+      {
+        field: 'gender',
+        value: dto.gender,
+        category: 'GENDER',
+        label: '性別',
+      },
+      {
+        field: 'mail_magazine_flg',
+        value: dto.mail_magazine_flg,
+        category: 'MAIL_MAGAZINE_FLG',
+        label: 'メールマガジン配信フラグ',
+      },
+      {
+        field: 'hikiotoshi_yokin_shubetsu',
+        value: dto.hikiotoshi_yokin_shubetsu,
+        category: 'YOKIN_SHUBETSU',
+        label: '引落預金種別',
       },
     ]);
   }
@@ -2017,6 +2109,14 @@ export class DokusyaService {
     }
 
     if (edit.hikiotoshi_yokin_shubetsu !== undefined) {
+      assertMCodeValues(this.codeService, [
+        {
+          field: 'hikiotoshi_yokin_shubetsu',
+          value: edit.hikiotoshi_yokin_shubetsu,
+          category: 'YOKIN_SHUBETSU',
+          label: '引落預金種別',
+        },
+      ]);
       patch.hikiotoshiYokinShubetsu = Number(edit.hikiotoshi_yokin_shubetsu);
     }
     if (edit.hikiotoshi_koza_no !== undefined) {

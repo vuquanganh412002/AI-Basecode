@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-001 — ログイン画面
 //
 // MFA DTO class-validator specs covering:
-//   - API-001-002 §4.1: mfa_token (required) + otp_code (6 digits 0-9)
-//   - API-001-003 §4.1: mfa_token (required)
+//   - ACSMS-API-001-002 §4.1: mfa_token (required) + otp_code (6 digits 0-9)
+//   - ACSMS-API-001-003 §4.1: mfa_token (required)
 
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';

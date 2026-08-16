@@ -357,3 +357,141 @@ describe('handleApiError — INTERNAL_SERVER_ERROR + unknown codes', () => {
     },
   );
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// Regression: SCR-022 / SCR-023 file-upload / file-download endpoints must
+// not double-toast alongside the view's own ACSMS-MSG-023-005 /
+// ACSMS-MSG-022-003 copy (findings #13 / #14).
+// ───────────────────────────────────────────────────────────────────────
+describe('handleApiError — file-upload endpoint (POST /file-upload)', () => {
+  function makePostError(opts: { status?: number; data?: ApiErrorResponse; url?: string }) {
+    const err = makeError(opts);
+    (err.config as { method?: string }).method = 'post';
+    return err;
+  }
+
+  it.each([
+    [ErrorCode.NOT_FOUND],
+    [ErrorCode.CONFLICT],
+    [ErrorCode.BAD_REQUEST],
+    [ErrorCode.INTERNAL_SERVER_ERROR],
+  ])('should NOT toast for %s — view re-toasts ACSMS-MSG-023-005', async (code) => {
+    const { message } = await import('ant-design-vue');
+    await expectReject(
+      handleApiError(
+        makePostError({
+          status: 500,
+          url: '/api/v1/file-upload',
+          data: { error_code: code, message: 'be message' },
+        }),
+      ),
+    );
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it('should NOT toast the generic network-error message either (view re-toasts unconditionally)', async () => {
+    const { message } = await import('ant-design-vue');
+    await expectReject(handleApiError(makePostError({ url: '/api/v1/file-upload' })));
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it('should STILL toast + redirect for UNAUTHORIZED even on this endpoint', async () => {
+    const { message } = await import('ant-design-vue');
+    await expectReject(
+      handleApiError(
+        makePostError({
+          status: 401,
+          url: '/api/v1/file-upload',
+          data: { error_code: ErrorCode.UNAUTHORIZED, message: 'session expired' },
+        }),
+      ),
+    );
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+    expect(pushMock).toHaveBeenCalledWith({
+      name: 'Login',
+      query: { redirect: '/dashboard/users' },
+    });
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it('should STILL toast + redirect to Dashboard for FORBIDDEN even on this endpoint', async () => {
+    const { message } = await import('ant-design-vue');
+    await expectReject(
+      handleApiError(
+        makePostError({
+          status: 403,
+          url: '/api/v1/file-upload',
+          data: { error_code: ErrorCode.FORBIDDEN, message: 'no permission' },
+        }),
+      ),
+    );
+    expect(message.error).toHaveBeenCalledWith('no permission');
+    expect(pushMock).toHaveBeenCalledWith({ name: 'Dashboard' });
+  });
+
+  it('should NOT suppress toasts for unrelated GET /file-upload (list endpoint)', async () => {
+    const { message } = await import('ant-design-vue');
+    await expectReject(
+      handleApiError(
+        makeError({
+          status: 500,
+          url: '/api/v1/file-upload',
+          data: { error_code: ErrorCode.INTERNAL_SERVER_ERROR, message: 'list failed' },
+        }),
+      ),
+    );
+    expect(message.error).toHaveBeenCalledWith('list failed');
+  });
+});
+
+describe('handleApiError — file-download preview/download/zip endpoints', () => {
+  it.each([
+    ['/api/v1/file-download/101/preview', 'get'],
+    ['/api/v1/file-download/101/download', 'get'],
+    ['/api/v1/file-download/download-zip', 'post'],
+  ])('should NOT toast NOT_FOUND for %s — view re-toasts ACSMS-MSG-022-003', async (url, method) => {
+    const { message } = await import('ant-design-vue');
+    const err = makeError({
+      status: 404,
+      url,
+      data: { error_code: ErrorCode.NOT_FOUND, message: '指定されたファイルが見つかりません。' },
+    });
+    (err.config as { method?: string }).method = method;
+    await expectReject(handleApiError(err));
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it('should STILL toast for INTERNAL_SERVER_ERROR on the preview endpoint (view only handles NOT_FOUND)', async () => {
+    const { message } = await import('ant-design-vue');
+    const err = makeError({
+      status: 500,
+      url: '/api/v1/file-download/101/preview',
+      data: { error_code: ErrorCode.INTERNAL_SERVER_ERROR, message: 'boom' },
+    });
+    (err.config as { method?: string }).method = 'get';
+    await expectReject(handleApiError(err));
+    expect(message.error).toHaveBeenCalledWith('boom');
+  });
+
+  it('should STILL toast the generic network-error message on the download endpoint (view only handles NOT_FOUND)', async () => {
+    const { message } = await import('ant-design-vue');
+    const err = makeError({ url: '/api/v1/file-download/101/download' });
+    (err.config as { method?: string }).method = 'get';
+    await expectReject(handleApiError(err));
+    expect(message.error).toHaveBeenCalledWith(
+      'ネットワークエラーが発生しました。接続をご確認ください。',
+    );
+  });
+
+  it('should NOT suppress toasts for unrelated GET /file-download (list endpoint)', async () => {
+    const { message } = await import('ant-design-vue');
+    const err = makeError({
+      status: 404,
+      url: '/api/v1/file-download',
+      data: { error_code: ErrorCode.NOT_FOUND, message: 'not found' },
+    });
+    (err.config as { method?: string }).method = 'get';
+    await expectReject(handleApiError(err));
+    expect(message.error).toHaveBeenCalledWith('not found');
+  });
+});

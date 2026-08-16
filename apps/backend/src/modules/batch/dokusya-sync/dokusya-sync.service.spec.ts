@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 
 import { DenshibanDbService } from '@/modules/denshiban/denshiban-db.service';
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
-import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
+import {
+  applyChange,
+  insertScheduledKaiyaku,
+  revokeScheduledKaiyaku,
+} from '@/modules/dokusya/dokusya-history.writer';
 import { DenshiShoninStatus } from '@/common/enums';
 import { DokusyaSyncService, PAGE_SIZE } from './dokusya-sync.service';
 import type { DenshiUserRow } from './dokusya-sync.mapper';
@@ -11,8 +15,17 @@ import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 
 jest.mock('@/modules/dokusya/dokusya-history.writer', () => ({
   applyChange: jest.fn(),
+  insertScheduledKaiyaku: jest.fn(),
+  revokeScheduledKaiyaku: jest.fn(),
 }));
 const mockApplyChange = applyChange as jest.Mock;
+const mockInsertScheduledKaiyaku = insertScheduledKaiyaku as jest.Mock;
+const mockRevokeScheduledKaiyaku = revokeScheduledKaiyaku as jest.Mock;
+
+// #57986 — payment_end_ym（'YYYYMM'）のゲート判定用。実行時刻に依存せず常に
+// 「現在年月以上」「現在年月より過去」を保証するための極端な値。
+const FAR_FUTURE_PAYMENT_YM = '209912';
+const STALE_PAYMENT_YM = '202001';
 
 // 管理支店: kanri_shiten_code はハイフン入り → normalize で '1301002001' に一致。
 const KANRI_ROWS = [
@@ -55,7 +68,27 @@ interface Opts {
   deltaRows?: DenshiUserRow[];
   /** m_hanbaiten の行（ダミー販売店の有無を切り替えるテスト用）。 */
   hanbaitenRows?: Array<{ hanbaiten_id: string; ja_id: string; hanbaiten_code: string }>;
-  existing?: { dokusyaId: number; denshiShoninStatus?: number | null } | null;
+  existing?: {
+    dokusyaId: number;
+    denshiShoninStatus?: number | null;
+    dokusyaChushiDate?: string | null;
+    dokusyaShubetsu?: number;
+  } | null;
+  /**
+   * email フォールバック照合（顧客要件 2026-08 追補）の QueryBuilder.getOne() が
+   * 返す行。denshi_kaiin_id で見つからない場合のみ参照される。
+   */
+  emailMatch?: { dokusyaId: number; denshiKaiinId?: number | null } | null;
+  /**
+   * #57986: loadActiveKaiyakuRow（アクティブな解約予約/確定行の検出）の
+   * QueryBuilder.getOne() が返す行。status=9 分岐で existing がある場合のみ参照。
+   * 既定 null（＝予約なし）。
+   */
+  activeKaiyakuRow?: {
+    dokusyaRirekiId: number;
+    dokusyaChushiDate: string | null;
+    kaiyakuFlg: boolean;
+  } | null;
   lockLocked?: boolean;
   fullSync?: boolean;
 }
@@ -64,15 +97,37 @@ function buildService(opts: Opts = {}) {
   const {
     deltaRows = [buildUser()],
     existing = null,
+    emailMatch = null,
+    activeKaiyakuRow = null,
     lockLocked = true,
     fullSync = false,
     hanbaitenRows = HANBAITEN_ROWS,
   } = opts;
 
+  // email フォールバック照合（createQueryBuilder(Dokusya, 'd')）用。
+  const emailQbMock = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(emailMatch),
+  };
+  // #57986: loadActiveKaiyakuRow（createQueryBuilder(DokusyaRireki, 'r')）用。
+  const kaiyakuQbMock = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(activeKaiyakuRow),
+  };
   const managerMock = {
     findOne: jest.fn().mockResolvedValue(existing),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     softDelete: jest.fn().mockResolvedValue({ affected: 1 }),
+    // alias で判別: email 照合は 'd'（Dokusya）、アクティブ予約検出は 'r'（DokusyaRireki）。
+    createQueryBuilder: jest.fn((_entity: unknown, alias?: string) =>
+      alias === 'r' ? kaiyakuQbMock : emailQbMock,
+    ),
   };
 
   const stateRepo = {
@@ -126,7 +181,19 @@ function buildService(opts: Opts = {}) {
     configService as unknown as ConfigService,
     auditLog as unknown as AuditLogService,
   );
-  return { service, mainDb, managerMock, stateRepo, lockQr, denshibanDb, denshibanQuery, rireki, auditLog };
+  return {
+    service,
+    mainDb,
+    managerMock,
+    qbMock: emailQbMock,
+    kaiyakuQbMock,
+    stateRepo,
+    lockQr,
+    denshibanDb,
+    denshibanQuery,
+    rireki,
+    auditLog,
+  };
 }
 
 describe('DokusyaSyncService', () => {
@@ -187,34 +254,404 @@ describe('DokusyaSyncService', () => {
     expect(input.dokusyaId).toBe(77);
   });
 
-  // 顧客要件 2026-08 — 解約は「tetsuzuki_shurui=解約 + 中止日保持」で表し、
-  // master を論理削除しない。SCR-014 の購読停止は予約時点で電子版へ cancel を
-  // push するため、中止日が未来でも電子版は即 status=9 になる。ここで
-  // softDelete すると予約しただけで master が消え、さらに到来日バッチの抽出
-  // 条件（deleted_at IS NULL）から外れて予約が永久に確定されない。
-  it('CANCEL: status=9 on existing → applyChange(UPDATE, busu=0) and does NOT soft-delete master', async () => {
-    const { service, managerMock } = buildService({
-      existing: { dokusyaId: 88 },
-      deltaRows: [buildUser({ status: 9 })],
-    });
-    await service.run();
+  // 顧客要件 2026-08 追補: denshi_kaiin_id で見つからない場合の email フォールバック
+  // 照合 — cloud 側で先に手動登録された電子版/併読読者（campaign 単価などで
+  // denshi_kaiin_id が未設定のまま残っている行）との二重登録を防ぐ。
+  describe('email フォールバック照合 (顧客要件 2026-08 追補)', () => {
+    it('should UPDATE the email-matched row and backfill denshi_kaiin_id when not found by denshi_kaiin_id', async () => {
+      const { service, managerMock, qbMock } = buildService({
+        existing: null,
+        emailMatch: { dokusyaId: 42, denshiKaiinId: null },
+        deltaRows: [buildUser({ id: 1001, email: 'taro@example.com' })],
+      });
+      await service.run();
 
-    const input = mockApplyChange.mock.calls[0][1];
-    expect(input.mode).toBe('UPDATE');
-    expect(input.values.dokusyaBusu).toBe(0);
-    expect(managerMock.softDelete).not.toHaveBeenCalled();
+      expect(managerMock.createQueryBuilder).toHaveBeenCalled();
+      const input = mockApplyChange.mock.calls[0][1];
+      expect(input.mode).toBe('UPDATE');
+      expect(input.dokusyaId).toBe(42);
+      // 見つかった行へ denshi_kaiin_id を書き戻す（次回以降は denshi_kaiin_id で直接一致させる）。
+      const backfill = managerMock.update.mock.calls.find(
+        (c: unknown[]) =>
+          (c[1] as Record<string, unknown>)?.dokusyaId === 42 &&
+          (c[2] as Record<string, unknown>)?.denshiKaiinId === 1001,
+      );
+      expect(backfill).toBeDefined();
+    });
+
+    it('should scope the email match to 電子版/併読・未削除・denshi_kaiin_id IS NULL', async () => {
+      const { service, qbMock } = buildService({
+        existing: null,
+        emailMatch: null,
+        deltaRows: [buildUser({ email: 'taro@example.com' })],
+      });
+      await service.run();
+
+      expect(qbMock.where).toHaveBeenCalledWith(
+        expect.stringContaining('d.denshi_kaiin_id IS NULL'),
+        expect.objectContaining({ email: 'taro@example.com' }),
+      );
+    });
+
+    it('should CREATE (not update) when neither denshi_kaiin_id nor email match', async () => {
+      const { service } = buildService({
+        existing: null,
+        emailMatch: null,
+        deltaRows: [buildUser({ email: 'nobody@example.com' })],
+      });
+      await service.run();
+
+      const input = mockApplyChange.mock.calls[0][1];
+      expect(input.mode).toBe('CREATE');
+    });
+
+    it('should NOT attempt the email fallback when the user has no email', async () => {
+      const { service, managerMock } = buildService({
+        existing: null,
+        emailMatch: { dokusyaId: 42, denshiKaiinId: null },
+        deltaRows: [buildUser()], // buildUser() の既定値に email は無い
+      });
+      await service.run();
+
+      expect(managerMock.createQueryBuilder).not.toHaveBeenCalled();
+      const input = mockApplyChange.mock.calls[0][1];
+      expect(input.mode).toBe('CREATE');
+    });
+
+    it('should NOT attempt the email fallback when already matched by denshi_kaiin_id', async () => {
+      const { service, managerMock } = buildService({
+        existing: { dokusyaId: 77 },
+        deltaRows: [buildUser({ email: 'taro@example.com' })],
+      });
+      await service.run();
+
+      expect(managerMock.createQueryBuilder).not.toHaveBeenCalled();
+    });
   });
 
-  // 中止日は電子版 users.deleted_at を正とする（顧客要件 2026-08）。
-  it('CANCEL: should carry users.deleted_at into dokusya_chushi_date', async () => {
-    const { service } = buildService({
-      existing: { dokusyaId: 88 },
-      deltaRows: [buildUser({ status: 9, deleted_at: '2030-09-30 00:00:00' })],
-    });
-    await service.run();
+  // #57986 — 解約(status=9)は「tetsuzuki_shurui=解約 + kaiyaku_flg=true」を
+  // もうこの同期からは直接書かない。確定(Phase2)は既存の夜間バッチ
+  // （dokusya-apply-due / insertKaiyaku）に一本化し、ここでは中止日を
+  // Cloud へ反映する（予約 Phase1）だけに留める。master は論理削除しない。
+  describe('CANCEL (status=9, #57986)', () => {
+    it('payment_end_ym が現在年月より過去なら完全にスキップ（chushi_date・tetsuzuki・kaiyaku_flg に一切触れない）', async () => {
+      const { service, managerMock } = buildService({
+        existing: { dokusyaId: 88, dokusyaChushiDate: null },
+        deltaRows: [buildUser({ status: 9, payment_end_ym: STALE_PAYMENT_YM })],
+      });
+      await service.run();
 
-    const input = mockApplyChange.mock.calls[0][1];
-    expect(input.values.dokusyaChushiDate).toBe('2030-09-30');
+      expect(mockApplyChange).not.toHaveBeenCalled();
+      expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+      expect(managerMock.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('payment_end_ym が欠落/不正な形式ならスキップ（applyChange も insertScheduledKaiyaku も呼ばない）', async () => {
+      const { service } = buildService({
+        existing: { dokusyaId: 88, dokusyaChushiDate: null },
+        deltaRows: [buildUser({ status: 9, payment_end_ym: null })],
+      });
+      await service.run();
+
+      expect(mockApplyChange).not.toHaveBeenCalled();
+      expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+    });
+
+    // Case 0: Cloud にまだ全く存在しない読者が、初回同期の時点で既に解約済み
+    // （Denshiban 側で入会〜解約が完結した履歴）。
+    describe('Case 0 — Cloud にまだ存在しない（入会〜解約が完結した履歴）', () => {
+      it('CREATE（1件目・tetsuzuki_shurui=新規で上書き）→ insertScheduledKaiyaku（2件目）の順で呼ぶ', async () => {
+        const { service, managerMock } = buildService({
+          existing: null,
+          emailMatch: null,
+          deltaRows: [
+            buildUser({ status: 9, payment_end_ym: '202609', email: 'nobody@example.com' }),
+          ],
+        });
+        await service.run();
+
+        expect(mockApplyChange).toHaveBeenCalledTimes(1);
+        const input = mockApplyChange.mock.calls[0][1];
+        expect(input.mode).toBe('CREATE');
+        // 解約由来の mapper 値(tetsuzuki=解約)ではなく、新規行として明示的に上書きする。
+        expect(input.values.tetsuzukiShurui).toBe(1); // TetsuzukiShurui.SHINKI
+        expect('kaiyakuFlg' in input.values).toBe(false);
+
+        expect(mockInsertScheduledKaiyaku).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dokusyaId: 500, chushiDate: '2026-09-30' }),
+        );
+        const applyChangeOrder = mockApplyChange.mock.invocationCallOrder[0];
+        const insertKaiyakuOrder = mockInsertScheduledKaiyaku.mock.invocationCallOrder[0];
+        expect(applyChangeOrder).toBeLessThan(insertKaiyakuOrder);
+
+        // denshi_kaiin_id は履歴に無く master 専用列 → 作成後に直接 set する。
+        const setKaiin = managerMock.update.mock.calls.find(
+          (c: unknown[]) =>
+            (c[2] as Record<string, unknown>)?.denshiKaiinId === 1001,
+        );
+        expect(setKaiin).toBeDefined();
+      });
+
+      it('counts.created に計上する（cancelled ではない）', async () => {
+        const { service, auditLog } = buildService({
+          existing: null,
+          emailMatch: null,
+          deltaRows: [
+            buildUser({
+              status: 9,
+              payment_end_ym: FAR_FUTURE_PAYMENT_YM,
+              email: 'nobody@example.com',
+            }),
+          ],
+        });
+        await service.run();
+
+        const summary = JSON.parse(auditLog.logOperation.mock.calls[0][0].afterValue);
+        expect(summary.created).toBe(1);
+        expect(summary.cancelled).toBe(0);
+      });
+
+      it('購読開始日が全く取れない場合は CREATE も insertScheduledKaiyaku も呼ばず skip する', async () => {
+        const { service } = buildService({
+          existing: null,
+          emailMatch: null,
+          deltaRows: [
+            buildUser({
+              status: 9,
+              payment_end_ym: FAR_FUTURE_PAYMENT_YM,
+              email: 'nobody@example.com',
+              activated_at: null,
+            }),
+          ],
+        });
+        await service.run();
+
+        expect(mockApplyChange).not.toHaveBeenCalled();
+        expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+      });
+
+      it('payment_end_ym が現在年月より過去なら create すら試みず skip する', async () => {
+        const { service } = buildService({
+          existing: null,
+          emailMatch: null,
+          deltaRows: [
+            buildUser({ status: 9, payment_end_ym: STALE_PAYMENT_YM, email: 'nobody@example.com' }),
+          ],
+        });
+        await service.run();
+
+        expect(mockApplyChange).not.toHaveBeenCalled();
+        expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+      });
+    });
+
+    // Case 2: Cloud にまだ中止日なし（Denshiban 側の履歴的な解約に追従）。
+    describe('Case 2 — Cloud に中止日なし（初回の解約反映）', () => {
+      it('中止日を payment_end_ym の末日として算出し insertScheduledKaiyaku へ渡す', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: null, dokusyaShubetsu: 2 },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202609' })],
+        });
+        await service.run();
+
+        expect(mockInsertScheduledKaiyaku).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dokusyaId: 88, chushiDate: '2026-09-30', shubetsu: 2 }),
+        );
+      });
+
+      it('他の情報変更を先に通常の UPDATE 行として反映する（applyChange → insertScheduledKaiyaku の順）', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: null, dokusyaShubetsu: 2 },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: FAR_FUTURE_PAYMENT_YM })],
+        });
+        await service.run();
+
+        expect(mockApplyChange).toHaveBeenCalledTimes(1);
+        const input = mockApplyChange.mock.calls[0][1];
+        expect(input.mode).toBe('UPDATE');
+        expect(input.dokusyaId).toBe(88);
+        const applyChangeOrder = mockApplyChange.mock.invocationCallOrder[0];
+        const insertKaiyakuOrder = mockInsertScheduledKaiyaku.mock.invocationCallOrder[0];
+        expect(applyChangeOrder).toBeLessThan(insertKaiyakuOrder);
+      });
+
+      it('applyChange へ渡す values に tetsuzuki_shurui / kaiyaku_flg を含めない（前回値を carry-forward させる）', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: null, dokusyaShubetsu: 2 },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: FAR_FUTURE_PAYMENT_YM })],
+        });
+        await service.run();
+
+        const input = mockApplyChange.mock.calls[0][1];
+        expect('tetsuzukiShurui' in input.values).toBe(false);
+        expect('kaiyakuFlg' in input.values).toBe(false);
+      });
+
+      it('does NOT soft-delete master', async () => {
+        const { service, managerMock } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: null, dokusyaShubetsu: 2 },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: FAR_FUTURE_PAYMENT_YM })],
+        });
+        await service.run();
+
+        expect(managerMock.softDelete).not.toHaveBeenCalled();
+      });
+    });
+
+    // Case 1: Cloud に既に予約行あり（アクティブな解約予約 = loadActiveKaiyakuRow で検出）。
+    describe('Case 1a — 予約あり・中止日は変わらない（他の情報だけ更新）', () => {
+      it('applyChange のみを呼び、revokeScheduledKaiyaku / insertScheduledKaiyaku は呼ばない', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          // payment_end_ym='202609' → chushiDate 算出結果は '2026-09-30'（既存予約と同じ）。
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202609' })],
+        });
+        await service.run();
+
+        expect(mockApplyChange).toHaveBeenCalledTimes(1);
+        expect(mockRevokeScheduledKaiyaku).not.toHaveBeenCalled();
+        expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+      });
+
+      it('applyChange へ渡す values に tetsuzuki_shurui / kaiyaku_flg / dokusya_chushi_date を含めない', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202609' })],
+        });
+        await service.run();
+
+        const input = mockApplyChange.mock.calls[0][1];
+        expect('tetsuzukiShurui' in input.values).toBe(false);
+        expect('kaiyakuFlg' in input.values).toBe(false);
+        expect('dokusyaChushiDate' in input.values).toBe(false);
+      });
+
+      // [count-once] DENSHIBAN_FULL_SYNC=true の全件リコンサイルは毎回同じ行を
+      // 読み直すため、既に反映済みで差分が無ければ applyChange は
+      // insertedRirekiIds=[] を返す。この場合は cancelled を再カウントせず
+      // unchanged に計上する（通常 UPDATE 分岐と同じ基準）。
+      it('applyChange が no-op（差分なし）のとき unchanged に計上する', async () => {
+        mockApplyChange.mockResolvedValueOnce({
+          dokusyaId: 88,
+          insertedRirekiIds: [],
+          before: null,
+          after: {},
+          denshiSync: false,
+        });
+        const { service, auditLog } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202609' })],
+        });
+        await service.run();
+
+        const summary = JSON.parse(auditLog.logOperation.mock.calls[0][0].afterValue);
+        expect(summary.cancelled).toBe(0);
+        expect(summary.unchanged).toBe(1);
+      });
+
+      it('applyChange が実際に行を挿入した（他の情報が変わった）とき cancelled に計上する', async () => {
+        mockApplyChange.mockResolvedValueOnce({
+          dokusyaId: 88,
+          insertedRirekiIds: [901],
+          before: null,
+          after: {},
+          denshiSync: false,
+        });
+        const { service, auditLog } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202609' })],
+        });
+        await service.run();
+
+        const summary = JSON.parse(auditLog.logOperation.mock.calls[0][0].afterValue);
+        expect(summary.cancelled).toBe(1);
+        expect(summary.unchanged).toBe(0);
+      });
+    });
+
+    // #57986 ユーザー指摘: 既に電子版向けに中止日を予約済みの状態から、後で
+    // その中止日が変更された場合は「単純な UPDATE で上書き」ではなく、
+    // 「旧予約行を取消(赤伝)してから新しい予約行を作り直す」（DokusyaService.stop
+    // の変更経路と同じパターン）。
+    describe('Case 1b — 予約あり・中止日が変わった（旧予約を取消→新予約を作成）', () => {
+      it('revokeScheduledKaiyaku（旧予約）→ applyChange（他の情報）→ insertScheduledKaiyaku（新予約）の順で呼ぶ', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          // 電子版側で支払済み月が1ヶ月延びた（中止日が繰り下がる）ケース。
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202610' })],
+        });
+        await service.run();
+
+        expect(mockRevokeScheduledKaiyaku).toHaveBeenCalledWith(
+          expect.anything(),
+          88,
+          expect.objectContaining({ dokusyaRirekiId: 501 }),
+          expect.any(String),
+          expect.any(String),
+        );
+        expect(mockApplyChange).toHaveBeenCalledTimes(1);
+        expect(mockInsertScheduledKaiyaku).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ dokusyaId: 88, chushiDate: '2026-10-31', shubetsu: 2 }),
+        );
+
+        const revokeOrder = mockRevokeScheduledKaiyaku.mock.invocationCallOrder[0];
+        const applyChangeOrder = mockApplyChange.mock.invocationCallOrder[0];
+        const insertKaiyakuOrder = mockInsertScheduledKaiyaku.mock.invocationCallOrder[0];
+        expect(revokeOrder).toBeLessThan(applyChangeOrder);
+        expect(applyChangeOrder).toBeLessThan(insertKaiyakuOrder);
+      });
+
+      it('applyChange の values に dokusya_chushi_date を直接含めない（新しい中止日は insertScheduledKaiyaku 側で作る）', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202610' })],
+        });
+        await service.run();
+
+        const input = mockApplyChange.mock.calls[0][1];
+        expect('dokusyaChushiDate' in input.values).toBe(false);
+      });
+
+      it('counts.cancelled に計上する', async () => {
+        const { service, auditLog } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: false },
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202610' })],
+        });
+        await service.run();
+
+        const summary = JSON.parse(auditLog.logOperation.mock.calls[0][0].afterValue);
+        expect(summary.cancelled).toBe(1);
+      });
+    });
+
+    // 既に夜間バッチが解約を確定させた後（kaiyaku_flg=true）は revoke できない
+    // （revokeScheduledKaiyaku 自体が対象行の kaiyakuFlg を見て弾く仕様）。
+    // 中止日が変わっても予約をいじらず、他の情報だけ更新する。
+    describe('Case 1c — 既に確定済み（kaiyaku_flg=true）— revoke しない', () => {
+      it('revokeScheduledKaiyaku / insertScheduledKaiyaku を呼ばず、applyChange のみで他の情報を更新する', async () => {
+        const { service } = buildService({
+          existing: { dokusyaId: 88, dokusyaChushiDate: '2026-09-30', dokusyaShubetsu: 2 },
+          activeKaiyakuRow: { dokusyaRirekiId: 501, dokusyaChushiDate: '2026-09-30', kaiyakuFlg: true },
+          // 中止日が違う値で来ても、確定済みなら revoke しない。
+          deltaRows: [buildUser({ status: 9, payment_end_ym: '202610' })],
+        });
+        await service.run();
+
+        expect(mockRevokeScheduledKaiyaku).not.toHaveBeenCalled();
+        expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+        expect(mockApplyChange).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   // 販売店の解決（顧客要件2026-08）: 電子版単独は当該 JA のダミー販売店
@@ -241,7 +678,7 @@ describe('DokusyaSyncService', () => {
     });
 
     it('should assign the dummy for a 併読 row too, ignoring ShopCd', async () => {
-      // 紙の配達担当は cloud 側（SCR-011 / SCR-017）で設定する運用に統一した
+      // 紙の配達担当は cloud 側（ACSMS-SCR-011 / ACSMS-SCR-017）で設定する運用に統一した
       // ので、同期は販売店を決めない。実在する ShopCd でもダミーを付ける。
       const { service } = buildService({
         existing: null,
@@ -417,6 +854,20 @@ describe('DokusyaSyncService', () => {
     const deltaSql = delta.denshibanQuery.mock.calls[0][0] as string;
     expect(deltaSql).toContain('collecting = 1');
     expect(deltaSql).toContain('treatment = 1 AND payment_id = 6');
+  });
+
+  // #57986 — 実削除済み（deleted_at 有）の行は取り込み対象外。full-sync / 差分
+  // どちらの SELECT にも常に入ること。
+  it('deleted_at IS NULL を常に適用する（実削除済みの行は取り込まない）', async () => {
+    const full = buildService({ fullSync: true });
+    await full.service.run();
+    const fullSql = full.denshibanQuery.mock.calls[0][0] as string;
+    expect(fullSql).toContain('deleted_at IS NULL');
+
+    const delta = buildService({ deltaRows: [] });
+    await delta.service.run();
+    const deltaSql = delta.denshibanQuery.mock.calls[0][0] as string;
+    expect(deltaSql).toContain('deleted_at IS NULL');
   });
 
   // ── ページング（差分が尽きるまで反復）─────────────────────────────────

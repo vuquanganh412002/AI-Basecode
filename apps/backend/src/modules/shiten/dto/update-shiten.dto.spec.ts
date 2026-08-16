@@ -1,6 +1,6 @@
 // Screen: ACSMS-SCR-007 — 支店マスタ登録画面 (update mode)
 //
-// UpdateShitenDto drops shiten_code per api.md §API-007-003 注記
+// UpdateShitenDto drops shiten_code per api.md §ACSMS-API-007-003 注記
 // (shiten_code is immutable after create — disabled on FE).
 
 import 'reflect-metadata';

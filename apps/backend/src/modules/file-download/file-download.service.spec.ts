@@ -1,4 +1,4 @@
-// FileDownloadService (SCR-022) の単体テスト。
+// FileDownloadService (ACSMS-SCR-022) の単体テスト。
 //   - findAll: t_file_download を読み取り、DataScope を適用してマッピングする
 //   - download / downloadZip: ファイルを配信し、t_log のみ記録する
 //     （t_file_download への INSERT は行わない = 本リファクタの要点）
@@ -233,6 +233,16 @@ describe('FileDownloadService', () => {
       expect(storage.download).not.toHaveBeenCalled();
     });
 
+    // Regression: download() previously fetched by fileDownloadId only,
+    // ignoring deleted_at — a soft-deleted row's content stayed reachable
+    // to anyone who kept the id (bookmark, guessed sequential id).
+    it('should filter deleted_at IS NULL when fetching the row', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(buildRow());
+      await service.download(100, jaSession(), req);
+      const call = (repo.findOne as jest.Mock).mock.calls[0][0];
+      expect(call.where).toHaveProperty('deletedAt');
+    });
+
     it('should allow NICHINO_* to download any JA row (flag allowed)', async () => {
       (repo.findOne as jest.Mock).mockResolvedValue(
         buildRow({ jaId: 999, nichinoDownloadAllowedFlg: true }),
@@ -410,6 +420,18 @@ describe('FileDownloadService', () => {
         response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
       });
     });
+
+    // Regression: downloadZip() previously fetched by fileDownloadId only,
+    // ignoring deleted_at.
+    it('should filter deleted_at IS NULL when fetching the rows', async () => {
+      (repo.find as jest.Mock).mockResolvedValue([
+        buildRow({ fileDownloadId: 1 }),
+        buildRow({ fileDownloadId: 2 }),
+      ]);
+      await service.downloadZip([1, 2], jaSession(), req);
+      const call = (repo.find as jest.Mock).mock.calls[0][0];
+      expect(call.where).toHaveProperty('deletedAt');
+    });
   });
 
   // ── getPreview ────────────────────────────────────────────────────
@@ -435,6 +457,16 @@ describe('FileDownloadService', () => {
       ).rejects.toMatchObject({
         response: expect.objectContaining({ error_code: 'FORBIDDEN' }),
       });
+    });
+
+    // Regression: getPreview() previously fetched by fileDownloadId only,
+    // ignoring deleted_at — a soft-deleted file's preview URL stayed
+    // reachable to anyone who kept the id.
+    it('should filter deleted_at IS NULL when fetching the row', async () => {
+      (repo.findOne as jest.Mock).mockResolvedValue(buildRow());
+      await service.getPreview(100, jaSession());
+      const call = (repo.findOne as jest.Mock).mock.calls[0][0];
+      expect(call.where).toHaveProperty('deletedAt');
     });
   });
 });

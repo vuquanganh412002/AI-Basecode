@@ -6,7 +6,7 @@ import { BaseDropdownQueryDto } from '@/common/dto/base-dropdown-query.dto';
 
 /**
  * `GET /api/v1/tanka/dropdown` のクエリDTO。
- * hanbaiten 作成フォーム(SCR-017 + SCR-018 代行入力)の 配達手数料単価 ドロップダウン用。
+ * hanbaiten 作成フォーム(ACSMS-SCR-017 + ACSMS-SCR-018 代行入力)の 配達手数料単価 ドロップダウン用。
  * slim 行 (tanka_id, tanka_code, tanka_name, kingaku_zeikomi) を返す。
  * {@link BaseDropdownQueryDto} 継承 (`q` は tanka_name ILIKE のみ — tanka_code は
  * UI 非表示で検索対象外)。追加フィルタ:

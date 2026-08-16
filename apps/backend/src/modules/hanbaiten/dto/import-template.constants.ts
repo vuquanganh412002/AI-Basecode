@@ -1,7 +1,7 @@
 import type { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 
 /**
- * SCR-019 — Excel テンプレートの列ヘッダ（正準順・api.md §テンプレートファイル仕様 /
+ * ACSMS-SCR-019 — Excel テンプレートの列ヘッダ（正準順・api.md §テンプレートファイル仕様 /
  * docs/design/ACSMS-SCR-019）。
  *
  * この並び順が契約そのもの: ここの文字列を変えると DL テンプレートが顧客可視で変わる。

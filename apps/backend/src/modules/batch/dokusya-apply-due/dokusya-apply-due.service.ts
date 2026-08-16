@@ -2,8 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { BatchJob } from '@/batch/batch-job.interface';
+import { JobFailureException } from '@/common/exceptions/job-failure.exception';
 import { DokusyaKaiyakuService } from './dokusya-kaiyaku.service';
 import { DokusyaRecomputeService } from './dokusya-recompute.service';
+
+/** `src/batch/dokusya-apply-due.main.ts` の `runBatch(name, ...)` と同じ名前。 */
+const BATCH_NAME = 'dokusya-apply-due';
 
 /**
  * 多重起動防止の advisory lock キー。dokusya-sync (4210010) と衝突しない値。
@@ -90,9 +94,9 @@ export class DokusyaApplyDueService implements BatchJob {
         if (ng > 0) {
           // runBatch が catch して exit(1) → EventBridge / ECS が失敗を検知する。
           // 個々の原因は各段が既に error ログ + t_log(ERROR) に落としている。
-          throw new Error(
-            `dokusya-apply-due: ${ng} subscriber(s) failed ` +
-              `(kaiyaku ng=${kaiyaku.ng}, recompute ng=${recompute.ng})`,
+          throw new JobFailureException(
+            BATCH_NAME,
+            `${ng} subscriber(s) failed (kaiyaku ng=${kaiyaku.ng}, recompute ng=${recompute.ng})`,
           );
         }
       } finally {

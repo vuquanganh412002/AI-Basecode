@@ -20,12 +20,12 @@ import {
 
 // Mock the shiten API client — /gen-code-frontend will extend the
 // existing client (`@/api/shiten/shiten.ts` already has getShiten /
-// createShiten / updateShiten from SCR-007) with `listShiten` +
-// `removeShiten` for SCR-006.
+// createShiten / updateShiten from ACSMS-SCR-007) with `listShiten` +
+// `removeShiten` for ACSMS-SCR-006.
 vi.mock('@/api/shiten/shiten', () => ({
   listShiten: vi.fn(),
   removeShiten: vi.fn(),
-  // Keep SCR-007 exports stubbed too so other importers don't break.
+  // Keep ACSMS-SCR-007 exports stubbed too so other importers don't break.
   getShiten: vi.fn(),
   createShiten: vi.fn(),
   updateShiten: vi.fn(),

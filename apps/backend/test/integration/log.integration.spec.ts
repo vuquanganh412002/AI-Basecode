@@ -139,7 +139,7 @@ describe('ACSMS-SCR-030 integration — log + account-dropdown endpoints', () =>
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // GET /api/v1/log — API-030-001
+  // GET /api/v1/log — ACSMS-API-030-001
   // ═══════════════════════════════════════════════════════════════════
   describe('GET /api/v1/log', () => {
     it('should return all 5 seeded log rows paginated when NICHINO_ADMIN calls without filters', async () => {

@@ -142,7 +142,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   const http = () => request(app.getHttpServer() as Server);
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-001 — GET /api/v1/dokusya/:dokusya_id
+  // ACSMS-API-011-001 — GET /api/v1/dokusya/:dokusya_id
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/:dokusya_id', () => {
     it('should return 200 with { data: DokusyaResponseDto } when target exists', async () => {
@@ -248,7 +248,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-002 — POST /api/v1/dokusya
+  // ACSMS-API-011-002 — POST /api/v1/dokusya
   // ════════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/dokusya', () => {
     it('should return 201 with { data: DokusyaResponseDto, message } on happy path', async () => {
@@ -359,7 +359,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-003 — PUT /api/v1/dokusya/:dokusya_id
+  // ACSMS-API-011-003 — PUT /api/v1/dokusya/:dokusya_id
   // ════════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/dokusya/:dokusya_id', () => {
     it('should return 200 with { data, message } on happy path', async () => {
@@ -494,7 +494,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-004 — PUT /api/v1/dokusya/:dokusya_id/approve
+  // ACSMS-API-011-004 — PUT /api/v1/dokusya/:dokusya_id/approve
   // ════════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/dokusya/:dokusya_id/approve', () => {
     it('should return 200 with data + message="承認しました。" on happy path', async () => {
@@ -618,7 +618,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-005 — PUT /api/v1/dokusya/:dokusya_id/reject
+  // ACSMS-API-011-005 — PUT /api/v1/dokusya/:dokusya_id/reject
   // ════════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/dokusya/:dokusya_id/reject', () => {
     it('should return 200 with data + message="否認しました。" on happy path', async () => {
@@ -715,7 +715,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-006 — GET /api/v1/dokusya/:dokusya_id/history
+  // ACSMS-API-011-006 — GET /api/v1/dokusya/:dokusya_id/history
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/:dokusya_id/history', () => {
     it('should return 200 with { data: [...] } ordered by rireki_no DESC', async () => {
@@ -842,14 +842,14 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
 
   beforeEach(async () => {
     service = {
-      // SCR-011 methods (kept so DI compiles)
+      // ACSMS-SCR-011 methods (kept so DI compiles)
       getDetail: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       approve: jest.fn(),
       reject: jest.fn(),
       getHistory: jest.fn(),
-      // SCR-014 methods under test
+      // ACSMS-SCR-014 methods under test
       search: jest.fn(),
       remove: jest.fn(),
       exportExcel: jest.fn(),
@@ -909,7 +909,7 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-014-001 — GET /api/v1/dokusya
+  // ACSMS-API-014-001 — GET /api/v1/dokusya
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya', () => {
     it('should return 200 with { data: [...], meta } envelope on happy path', async () => {
@@ -1013,7 +1013,7 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-014-002 — DELETE /api/v1/dokusya/:dokusya_id
+  // ACSMS-API-014-002 — DELETE /api/v1/dokusya/:dokusya_id
   // ════════════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/dokusya/:dokusya_id', () => {
     it('should return 200 with { message: "削除しました。" } on happy path', async () => {
@@ -1093,7 +1093,7 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop（購読停止・解約予約）
+  // ACSMS-API-014-004 — POST /api/v1/dokusya/:dokusya_id/stop（購読停止・解約予約）
   // ════════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/dokusya/:dokusya_id/stop', () => {
     const body = { dokusya_chushi_date: '2030-08-31' };
@@ -1212,7 +1212,7 @@ describe('DokusyaController — SCR-014 (HTTP: list/delete/export)', () => {
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-014-003 — GET /api/v1/dokusya/export
+  // ACSMS-API-014-003 — GET /api/v1/dokusya/export
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/export', () => {
     // Helper — supertest's binary parser to keep the response body as a Buffer
@@ -1535,8 +1535,8 @@ describe('DokusyaController — SCR-013 (HTTP: rireki list)', () => {
 // Screen: ACSMS-SCR-015 — 購読者販売店一括置換画面
 //
 // Drives the two NEW endpoints appended to DokusyaController:
-//   GET  /api/v1/dokusya/replace-hanbaiten/search → service.searchForReplace (API-015-001)
-//   POST /api/v1/dokusya/replace-hanbaiten        → service.replaceHanbaiten  (API-015-002)
+//   GET  /api/v1/dokusya/replace-hanbaiten/search → service.searchForReplace (ACSMS-API-015-001)
+//   POST /api/v1/dokusya/replace-hanbaiten        → service.replaceHanbaiten  (ACSMS-API-015-002)
 //
 // Separate top-level describe with its own Nest app + guard mocks (project
 // convention: one describe block per screen). The service is fully mocked;
@@ -1576,7 +1576,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 
   beforeEach(async () => {
     service = {
-      // SCR-011/013/014 methods kept so DI compiles.
+      // ACSMS-SCR-011/013/014 methods kept so DI compiles.
       getDetail: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -1587,7 +1587,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
       remove: jest.fn(),
       exportExcel: jest.fn(),
       getRirekiList: jest.fn(),
-      // SCR-015 methods under test.
+      // ACSMS-SCR-015 methods under test.
       searchForReplace: jest.fn(),
       replaceHanbaiten: jest.fn(),
     };
@@ -1645,7 +1645,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
   const http = () => request(app.getHttpServer() as Server);
 
   // ══════════════════════════════════════════════════════════════════════════
-  // API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search
+  // ACSMS-API-015-001 — GET /api/v1/dokusya/replace-hanbaiten/search
   // ══════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/replace-hanbaiten/search', () => {
     it('should return 200 with { data: [...], meta } envelope when the search succeeds', async () => {
@@ -1776,7 +1776,7 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // API-015-002 — POST /api/v1/dokusya/replace-hanbaiten
+  // ACSMS-API-015-002 — POST /api/v1/dokusya/replace-hanbaiten
   // ══════════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/dokusya/replace-hanbaiten', () => {
     function okSummary() {
@@ -1965,8 +1965,8 @@ describe('DokusyaController — SCR-015 (HTTP: replace-hanbaiten search + bulk r
 // Screen: ACSMS-SCR-016 — 購読者Excelデータ取込画面
 //
 // Drives the two NEW endpoints appended to DokusyaController:
-//   GET  /api/v1/dokusya/import/template → service.downloadImportTemplate (API-016-001)
-//   POST /api/v1/dokusya/import          → service.importExcel            (API-016-002)
+//   GET  /api/v1/dokusya/import/template → service.downloadImportTemplate (ACSMS-API-016-001)
+//   POST /api/v1/dokusya/import          → service.importExcel            (ACSMS-API-016-002)
 //
 // Separate top-level describe with its own Nest app + guard mocks (project
 // convention: one describe block per screen). The service is fully mocked;
@@ -2021,7 +2021,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
 
   beforeEach(async () => {
     service = {
-      // SCR-011/013/014/015 methods kept so DI compiles.
+      // ACSMS-SCR-011/013/014/015 methods kept so DI compiles.
       getDetail: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -2034,7 +2034,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
       getRirekiList: jest.fn(),
       searchForReplace: jest.fn(),
       replaceHanbaiten: jest.fn(),
-      // SCR-016 methods under test.
+      // ACSMS-SCR-016 methods under test.
       downloadImportTemplate: jest.fn(),
       importExcel: jest.fn(),
     };
@@ -2092,7 +2092,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
   const http = () => request(app.getHttpServer() as Server);
 
   // ══════════════════════════════════════════════════════════════════════════
-  // API-016-001 — GET /api/v1/dokusya/import/template
+  // ACSMS-API-016-001 — GET /api/v1/dokusya/import/template
   // ══════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/import/template', () => {
     it('should return 200 + Excel content-type + Content-Disposition with the Japanese template filename when CHUOKAI is authorised', async () => {
@@ -2141,7 +2141,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // API-016-002 — POST /api/v1/dokusya/import
+  // ACSMS-API-016-002 — POST /api/v1/dokusya/import
   // ══════════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/dokusya/import', () => {
     function okSummary(over: Record<string, unknown> = {}) {
@@ -2248,7 +2248,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
           {
             code: 'ROW_LIMIT_EXCEEDED',
             error_code: 'ROW_LIMIT_EXCEEDED',
-            message: 'ファイルの行数が上限（30000行）を超えているため、取込みできません。',
+            message: 'ファイルの行数が上限（5000行）を超えているため、取込みできません。',
           },
           HttpStatus.BAD_REQUEST,
         ),
@@ -2360,7 +2360,7 @@ describe('DokusyaController — SCR-016 (HTTP: Excel import template + bulk impo
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// SCR-010 — GET /api/v1/dokusya/pending-approval/count (API-010-002)
+// ACSMS-SCR-010 — GET /api/v1/dokusya/pending-approval/count (ACSMS-API-010-002)
 // ══════════════════════════════════════════════════════════════════════
 describe('DokusyaController — SCR-010 (HTTP: pending-approval count)', () => {
   let app: INestApplication;

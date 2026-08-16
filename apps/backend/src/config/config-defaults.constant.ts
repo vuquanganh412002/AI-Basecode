@@ -17,3 +17,9 @@ export const DEFAULT_MAIL_FROM_NAME = 'AGRINEWS';
 export const DEFAULT_MAIL_HOST = 'localhost';
 /** Session sliding TTL in seconds (24h) when SESSION_TTL_SECONDS is unset. */
 export const DEFAULT_SESSION_TTL_SECONDS = 24 * 60 * 60;
+/** Session cookie name when SESSION_COOKIE_NAME is unset. */
+export const DEFAULT_SESSION_COOKIE_NAME = 'session_id';
+/** Global rate-limit window in ms when THROTTLE_TTL_MS is unset. */
+export const DEFAULT_THROTTLE_TTL_MS = 60000;
+/** Global rate-limit request count per window when THROTTLE_LIMIT is unset. */
+export const DEFAULT_THROTTLE_LIMIT = 100;

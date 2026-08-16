@@ -82,7 +82,7 @@ describe('BaseAccountDropdown — initial load', () => {
   });
 });
 
-// SCR-030 log view opts into name-only display + search. Default
+// ACSMS-SCR-030 log view opts into name-only display + search. Default
 // callers must be unaffected.
 describe('BaseAccountDropdown — labelFormat / searchField props', () => {
   it('should compose option label as `${login_id} ${account_name}` (space-separated) by default', async () => {

@@ -1,5 +1,5 @@
 // /api/v1/oshirase の admin endpoint 用の手書き wrapper（ACSMS-SCR-031）。
-// /public リスト（SCR-001 ログインバナー）は別モジュール。ここは認証済み CRUD のみ。
+// /public リスト（ACSMS-SCR-001 ログインバナー）は別モジュール。ここは認証済み CRUD のみ。
 
 import axiosInstance from '@/api/axios-instance';
 
@@ -90,7 +90,7 @@ export async function listOshirase(
 
 // ─── ACSMS-API-010-001 — メニュー画面リスト（認証済み・全ロール） ─────
 
-// [no-labels-policy] SCR-010 メニューリストは認証済み — BE は
+// [no-labels-policy] ACSMS-SCR-010 メニューリストは認証済み — BE は
 // `oshirase_type_label` を出さない。消費側は
 // `useCodesStore().label('OSHIRASE_TYPE', oshirase_type)` で解決。
 export interface MenuOshiraseItem {

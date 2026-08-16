@@ -118,7 +118,7 @@ describe('AppSidebar — permission-driven visibility', () => {
     });
 
     it('should show admin-scoped menus when role is NICHINO_ADMIN', () => {
-      expect(labels).toContain('メニュー画面');
+      expect(labels).toContain('メニュー');
       expect(labels).toContain('JAマスタ');
       expect(labels).toContain('管理支店マスタ');
       expect(labels).toContain('ファイルアップロード');
@@ -152,7 +152,7 @@ describe('AppSidebar — permission-driven visibility', () => {
     });
 
     it('should show 代行-suffixed hanbaiten + common menus when role is NICHINO_STAFF', () => {
-      expect(labels).toContain('メニュー画面');
+      expect(labels).toContain('メニュー');
       // 販売店 entries are relabeled with （代行）for staff (proxy input).
       expect(labels).toContain('販売店情報登録（代行）');
       expect(labels).toContain('販売店明細検索（代行）');
@@ -195,7 +195,7 @@ describe('AppSidebar — permission-driven visibility', () => {
     });
 
     it('should show full operational menu set when role is CHUOKAI', () => {
-      expect(labels).toContain('メニュー画面');
+      expect(labels).toContain('メニュー');
       // 購読者管理
       expect(labels).toContain('購読者情報登録');
       expect(labels).toContain('購読者Excelデータ取込');
@@ -304,8 +304,8 @@ describe('AppSidebar — permission-driven visibility', () => {
         buildUser({ role_id: 0, role_code: 'NONE', permissions: [] }),
       );
       const labels = visibleLabels(wrapper);
-      // Only メニュー画面 (Dashboard) has no permission gate.
-      expect(labels).toEqual(['メニュー画面']);
+      // Only メニュー (Dashboard) has no permission gate.
+      expect(labels).toEqual(['メニュー']);
     });
   });
 
@@ -318,7 +318,7 @@ describe('AppSidebar — permission-driven visibility', () => {
       // The Dashboard route is the one we pushed in renderSidebar.
       const activeBtn = wrapper
         .findAll('aside nav button')
-        .find((b) => b.text().includes('メニュー画面'));
+        .find((b) => b.text().includes('メニュー'));
       expect(activeBtn).toBeDefined();
       expect(activeBtn!.classes().join(' ')).toMatch(/text-primary/);
     });
@@ -332,7 +332,7 @@ describe('AppSidebar — permission-driven visibility', () => {
       // because we're already there, but the call path executes).
       const btn = wrapper
         .findAll('aside nav button')
-        .find((b) => b.text().includes('メニュー画面'));
+        .find((b) => b.text().includes('メニュー'));
       await btn!.trigger('click');
       // No assertion needed — coverage instrumentation will see the
       // hasRoute() true branch and the push() call. The expect below

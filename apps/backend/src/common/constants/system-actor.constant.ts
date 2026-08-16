@@ -24,16 +24,17 @@ export const SYSTEM_ACTOR_PREFIX = 'SYSTEM_';
 
 /**
  * 顧客確定済みのシステム実行者名。
- *
- * データ移行の初期取込（`SYSTEM_MIGRATION`）も顧客要件には挙がっているが、
- * 移行ツール自体がまだ無いので、実装が入るときに合わせて追加する。
- * 使われない定数を先に置くと「どこかで使われているはず」と誤読させるため。
  */
 export const SystemActor = {
   /** 電子版 → クラウド版 差分同期（10分バッチ）。 */
   DENSHI_SYNC: 'SYSTEM_DENSHI_SYNC',
   /** 夜間バッチ（解約確定 + 情報変更反映）。 */
   BATCH_NIGHTLY: 'SYSTEM_BATCH_NIGHTLY',
+  /**
+   * 初期データ投入（migration seed / scripts/seed-admin.ts /
+   * scripts/seed-sample-data.ts）（顧客要件 2026-08）。
+   */
+  MIGRATION: 'SYSTEM_MIGRATION',
 } as const;
 export type SystemActor = (typeof SystemActor)[keyof typeof SystemActor];
 

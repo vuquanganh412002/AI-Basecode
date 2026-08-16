@@ -1,4 +1,4 @@
-// 結合済みの m_hanbaiten raw 行（SELECT * + ISO 日付・SCR-017 api.md §4.3）を、
+// 結合済みの m_hanbaiten raw 行（SELECT * + ISO 日付・ACSMS-SCR-017 api.md §4.3）を、
 // GET/POST/PUT が返す snake_case 詳細レスポンス形へ変換する純関数。Nest DI /
 // repo を持たず、service からもテストからも import できる。
 
@@ -78,7 +78,7 @@ export interface HanbaitenDetailResponse {
 // `toIso` / `toNumber` は `@/common/utils/mapper-helpers` へ移動。
 
 /**
- * 結合済み raw 行 → SCR-017 詳細レスポンス形へ変換。NOT NULL 列は元が null なら
+ * 結合済み raw 行 → ACSMS-SCR-017 詳細レスポンス形へ変換。NOT NULL 列は元が null なら
  * `""`、NULL 許容列は `null` を返す（プロジェクト方針・
  * `.claude/rules/nestjs.md §Nullable field serialization`）。
  */

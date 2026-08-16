@@ -1,5 +1,5 @@
 /**
- * 手続種類。`t_dokusya_rireki.tetsuzuki_shurui` (SCR-011 登録 / SCR-016 取込)。
+ * 手続種類。`t_dokusya_rireki.tetsuzuki_shurui` (ACSMS-SCR-011 登録 / ACSMS-SCR-016 取込)。
  * Mirror of `m_code.code_category = 'TETSUZUKI_SHURUI'`。
  * Group A: code が値で分岐 — 解約 は `dokusya_busu` を 0 に強制 (api.md §4.4)、
  * 新規 は復元。dokusya.service.ts、FE DokusyaImportView / DokusyaFormView。

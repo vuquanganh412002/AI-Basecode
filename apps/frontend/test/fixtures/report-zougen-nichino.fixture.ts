@@ -34,7 +34,7 @@ export function buildNichinoBlockedUser(overrides: Record<string, unknown> = {})
 }
 
 /**
- * Preview envelope (`{ data: {...} }`, mirrors API-029-001 レスポンス成功例).
+ * Preview envelope (`{ data: {...} }`, mirrors ACSMS-API-029-001 レスポンス成功例).
  * One report (= 1 管理支店) carrying two 明細行 + a 合計行. Row 1 is 免税
  * (（免）prefix) + 委託; row 2 is non-委託 with a diff_mark.
  */

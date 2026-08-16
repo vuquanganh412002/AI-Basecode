@@ -12,7 +12,7 @@
  * バリデーション・メッセージ: screen-design.md（メッセージ情報）
  * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-009-api.md。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 
@@ -22,6 +22,7 @@ import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { useAuthStore } from '@/stores/auth.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { focusFirstError } from '@/utils/form-focus';
@@ -44,8 +45,9 @@ import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const authStore = useAuthStore();
-const { fieldErrors, submitting, submit } = useApiForm();
+const { fieldErrors, submitting, submit, clearErrors } = useApiForm();
 
 /**
  * フィールドレベル制限（api.md §4.5）。非 admin ロールは編集モードで
@@ -84,20 +86,25 @@ type FormState = Omit<CreateKanriShitenRequest, 'ja_id'> & {
   ja_id: number | null;
 };
 
-const formState = reactive<FormState>({
-  ja_id: null,
-  kanri_shiten_code: '',
-  kanri_shiten_name: '',
-  kanri_shiten_name_kana: '',
-  todofuken_code: '',
-  yubin_no: '',
-  address: '',
-  tel: '',
-  fax: '',
-  paper_flg: false,
-  denshi_flg: false,
-  biko: '',
-});
+/** フォーム初期値。登録モード復帰時（[route-reuse] リセット）にも使う。 */
+function defaultFormState(): FormState {
+  return {
+    ja_id: null,
+    kanri_shiten_code: '',
+    kanri_shiten_name: '',
+    kanri_shiten_name_kana: '',
+    todofuken_code: '',
+    yubin_no: '',
+    address: '',
+    tel: '',
+    fax: '',
+    paper_flg: false,
+    denshi_flg: false,
+    biko: '',
+  };
+}
+
+const formState = reactive<FormState>(defaultFormState());
 
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
@@ -117,42 +124,61 @@ const jaNameDisplay = ref('');
 
 /* ─── ライフサイクル ───────────────────────────────────────────────── */
 
-onMounted(async () => {
+function resetFormState(): void {
+  Object.assign(formState, defaultFormState());
+  jaNameDisplay.value = '';
+  clientErrors.value = {};
+  clearErrors();
+}
+
+async function loadDetail(id: number): Promise<void> {
+  try {
+    const resp = await getKanriShiten(id);
+    jaNameDisplay.value = resp.data.ja_name ?? '';
+    Object.assign(formState, {
+      ja_id: resp.data.ja_id,
+      kanri_shiten_code: resp.data.kanri_shiten_code,
+      kanri_shiten_name: resp.data.kanri_shiten_name,
+      kanri_shiten_name_kana: resp.data.kanri_shiten_name_kana ?? '',
+      todofuken_code: resp.data.todofuken_code,
+      yubin_no: resp.data.yubin_no ?? '',
+      address: resp.data.address ?? '',
+      tel: resp.data.tel ?? '',
+      fax: resp.data.fax ?? '',
+      paper_flg: !!resp.data.paper_flg,
+      denshi_flg: !!resp.data.denshi_flg,
+      biko: resp.data.biko ?? '',
+    });
+    await editGuard.capture();
+  } catch {
+    // 404 / 403 — axios interceptor が既にトースト済み。空の編集フォームを
+    // 見せないよう遷移させる（顧客要件 2026-08 — useNotFoundRedirect 共通化）。
+    await redirectToDashboard();
+  }
+}
+
+/**
+ * [route-reuse] 登録（`/kanri-shiten/create`）と編集（`/kanri-shiten/:id/edit`）は
+ * 同じ KanriShitenFormView インスタンスに解決されるため、vue-router はコンポーネント
+ * を再利用する — 編集→登録や編集id→別編集id へ遷移しても `onMounted` は再実行され
+ * ない。ここで再適用しないと、フォームが前レコードのデータを表示し続ける
+ * （HanbaitenFormView と同じ既知パターン）。id 変化時に再初期化する。
+ */
+async function applyRouteMode(): Promise<void> {
+  resetFormState();
+  if (kanriShitenIdParam.value !== undefined) {
+    await loadDetail(kanriShitenIdParam.value);
+  }
+}
+
+onMounted(() => {
   // BaseJaDropdown は GET /api/v1/ja/dropdown で自己 hydrate — ここで listJa()
   // 事前取得は不要。検索 / 無限スクロール / edit-mode include_id は内部処理。
+  void applyRouteMode();
+});
 
-  // 都道府県 dropdown options。
-
-  // 編集モードの事前ロード。
-  if (kanriShitenIdParam.value !== undefined) {
-    try {
-      const resp = await getKanriShiten(kanriShitenIdParam.value);
-      jaNameDisplay.value = resp.data.ja_name ?? '';
-      Object.assign(formState, {
-        ja_id: resp.data.ja_id,
-        kanri_shiten_code: resp.data.kanri_shiten_code,
-        kanri_shiten_name: resp.data.kanri_shiten_name,
-        kanri_shiten_name_kana: resp.data.kanri_shiten_name_kana ?? '',
-        todofuken_code: resp.data.todofuken_code,
-        yubin_no: resp.data.yubin_no ?? '',
-        address: resp.data.address ?? '',
-        tel: resp.data.tel ?? '',
-        fax: resp.data.fax ?? '',
-        paper_flg: !!resp.data.paper_flg,
-        denshi_flg: !!resp.data.denshi_flg,
-        biko: resp.data.biko ?? '',
-      });
-      await editGuard.capture();
-    } catch {
-      // 404 / 403 — axios interceptor がトースト。空の編集フォームを見せないよう
-      // 遷移させる。
-      try {
-        await router.push({ name: 'Dashboard' });
-      } catch {
-        /* テスト用ルーターは Dashboard 未定義の場合あり — 無視 */
-      }
-    }
-  }
+watch(kanriShitenIdParam, () => {
+  void applyRouteMode();
 });
 
 /* ─── 検証（screen-design.md §3.1 に準拠） ─────────────────────────── */

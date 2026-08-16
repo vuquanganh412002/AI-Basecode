@@ -1,15 +1,15 @@
 // Screen: ACSMS-SCR-022 — ファイルダウンロード画面
 // Screen: ACSMS-SCR-023 — ファイルアップロード画面
 //
-// FileUploadService covers (SCR-022 + SCR-023 merged into one module):
-//   API-022-001 / 023-001  GET    /api/v1/file-upload                    — list with search + pagination
-//   API-022-002            GET    /api/v1/file-upload/:id/preview        — S3 presigned URL + metadata
-//   API-022-003 / 023-003  GET    /api/v1/file-upload/:id/download       — binary stream + t_file_download / t_log
-//   API-023-002            POST   /api/v1/file-upload                    — multipart upload (N JA × M files = N×M rows)
-//   API-023-004            DELETE /api/v1/file-upload/:id                — soft delete + S3 object cleanup
+// FileUploadService covers (ACSMS-SCR-022 + ACSMS-SCR-023 merged into one module):
+//   ACSMS-API-022-001 / 023-001  GET    /api/v1/file-upload                    — list with search + pagination
+//   ACSMS-API-022-002            GET    /api/v1/file-upload/:id/preview        — S3 presigned URL + metadata
+//   ACSMS-API-022-003 / 023-003  GET    /api/v1/file-upload/:id/download       — binary stream + t_file_download / t_log
+//   ACSMS-API-023-002            POST   /api/v1/file-upload                    — multipart upload (N JA × M files = N×M rows)
+//   ACSMS-API-023-004            DELETE /api/v1/file-upload/:id                — soft delete + S3 object cleanup
 //
 // All mutating endpoints wrap business DML + audit log in a single
-// transaction per api.md §4.x ※. SCR-023's POST additionally enqueues
+// transaction per api.md §4.x ※. ACSMS-SCR-023's POST additionally enqueues
 // a background notification job AFTER commit (no transaction).
 
 import { NotFoundException } from '@/common/exceptions/common.exceptions';
@@ -96,7 +96,7 @@ describe('FileUploadService — SCR-022 (list)', () => {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-022-001 — GET /api/v1/file-upload (findAll)
+  // ACSMS-API-022-001 — GET /api/v1/file-upload (findAll)
   // ──────────────────────────────────────────────────────────────
   describe('findAll', () => {
     it('should return paginated list with meta when NICHINO_ADMIN calls with no filter', async () => {
@@ -396,7 +396,7 @@ describe('FileUploadService — SCR-022 (list)', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// SCR-023 — ファイルアップロード画面 (upload + delete + extended list fields)
+// ACSMS-SCR-023 — ファイルアップロード画面 (upload + delete + extended list fields)
 // ══════════════════════════════════════════════════════════════════════
 
 describe('FileUploadService — SCR-023 (upload + delete + extended list)', () => {
@@ -473,7 +473,7 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
 
     // Constructor: (repo, dataSource, auditLog, storage, notificationQueue?).
     // The queue dep is optional — `/gen-code-backend` MAY introduce it
-    // as @Optional() so existing SCR-022 tests don't need to wire it.
+    // as @Optional() so existing ACSMS-SCR-022 tests don't need to wire it.
     service = new FileUploadService(
       repo,
       dataSource,
@@ -484,11 +484,11 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-001 — extended list response fields (notification_status etc.)
+  // ACSMS-API-023-001 — extended list response fields (notification_status etc.)
   //
-  // Same endpoint as SCR-022's findAll but the response shape has more
-  // columns. SCR-022 specs assert the SCR-022 subset; these new tests
-  // pin the SCR-023 additions so refactors don't drop them.
+  // Same endpoint as ACSMS-SCR-022's findAll but the response shape has more
+  // columns. ACSMS-SCR-022 specs assert the ACSMS-SCR-022 subset; these new tests
+  // pin the ACSMS-SCR-023 additions so refactors don't drop them.
   // ──────────────────────────────────────────────────────────────
   describe('findAll — SCR-023 extended fields', () => {
     it('should include ja_code and ja_name (from m_ja JOIN) when row has a non-null ja_id', async () => {
@@ -545,7 +545,7 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
     });
 
     it('should serialize success_count, error_count, scheduled_delete_date, error_file_path', async () => {
-      // COVERS: §レスポンスデータ rows 11, 12, 14, 15 — extended SCR-023 fields
+      // COVERS: §レスポンスデータ rows 11, 12, 14, 15 — extended ACSMS-SCR-023 fields
       dataSource.query = jest.fn(async (sql: string) => {
         if (/SELECT COUNT\(/i.test(sql)) return [{ total: '1' }];
         return [
@@ -628,9 +628,66 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
   });
 
   // ──────────────────────────────────────────────────────────────
-  // API-023-002 — POST /api/v1/file-upload (multipart upload)
+  // ACSMS-API-023-002 — POST /api/v1/file-upload (multipart upload)
   // ──────────────────────────────────────────────────────────────
   describe('upload', () => {
+    // Regression (backend review finding #7): validateUploadInputs()
+    // previously checked only the claimed filename extension via
+    // isAllowedExtension(), never the file's actual bytes. Renaming an
+    // HTML/JS payload to an allowed extension (e.g. payload.pdf) was
+    // accepted, stored, and later served back with Content-Type:
+    // application/pdf — a content-type confusion / disguised payload
+    // vector.
+    it('should reject a file whose content does not match its claimed extension (magic-byte check)', async () => {
+      const disguisedPayload = buildUploadedFile({
+        originalname: 'payload.pdf',
+        buffer: Buffer.from('<html><script>alert(1)</script></html>'),
+      });
+
+      await expect(
+        service.upload([12345], [disguisedPayload], buildSession(), baseReq),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'FILE_FORMAT_ERROR' }),
+      });
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it('should reject a file larger than the 30MB size cap', async () => {
+      const oversized = buildUploadedFile({
+        originalname: 'big.csv',
+        size: 30 * 1024 * 1024 + 1,
+      });
+
+      await expect(
+        service.upload([12345], [oversized], buildSession(), baseReq),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'FILE_SIZE_EXCEEDED' }),
+      });
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it('should accept a file exactly at the 30MB size cap (boundary)', async () => {
+      const atCap = buildUploadedFile({
+        originalname: 'exact.csv',
+        size: 30 * 1024 * 1024,
+      });
+
+      await expect(
+        service.upload([12345], [atCap], buildSession(), baseReq),
+      ).resolves.toBeDefined();
+    });
+
+    it('should accept a file whose content matches its claimed extension', async () => {
+      const realPdf = buildUploadedFile({
+        originalname: 'real.pdf',
+        buffer: Buffer.from('%PDF-1.4\n%mock pdf body'),
+      });
+
+      await expect(
+        service.upload([12345], [realPdf], buildSession(), baseReq),
+      ).resolves.toBeDefined();
+    });
+
     it('should INSERT N×M rows when called with N ja_ids and M files', async () => {
       // COVERS: §4.5 — N×M cartesian INSERT
       const result = await service.upload(
@@ -730,6 +787,37 @@ describe('FileUploadService — SCR-023 (upload + delete + extended list)', () =
         expect.any(Buffer),
         expect.any(String),
       );
+    });
+
+    it('should sanitize path separators in originalname before building the S3 key (path traversal regression)', async () => {
+      // Regression: a crafted filename such as '../../ja-9-OTHERJA/files/evil.pdf'
+      // previously flowed unsanitized into the S3 key, letting an uploader with
+      // rights to their own JA write outside the intended
+      // 'ja-{id}-{code}/files/' prefix (a real path traversal on the
+      // filesystem-backed MinIO used in dev/stg). Extension check still
+      // passes because the crafted name ends in '.pdf'.
+      dataSource.query = jest.fn(async () => [{ ja_id: 12345, ja_code: 'JA001' }]);
+      await service.upload(
+        [12345],
+        [
+          buildUploadedFile({
+            originalname: '../../ja-9-OTHERJA/files/evil.pdf',
+            // Valid PDF magic bytes so this test isn't blocked by the
+            // unrelated magic-byte content check (task #7) — this test is
+            // only about filename/path sanitization.
+            buffer: Buffer.from('%PDF-1.4\n%mock pdf body'),
+          }),
+        ],
+        buildSession(),
+        baseReq,
+      );
+
+      const [key] = (storage.upload as jest.Mock).mock.calls[0];
+      expect(key).toMatch(/^ja-12345-JA001\/files\//);
+      // Everything after the mandatory prefix must contain no more '/' or '\\'
+      // — a crafted originalname must not introduce extra path segments.
+      const rest = key.slice('ja-12345-JA001/files/'.length);
+      expect(rest).not.toMatch(/[/\\]/);
     });
 
     it('should initialize status=1 (処理中) and notification_status=1 (未送信) on each new row', async () => {

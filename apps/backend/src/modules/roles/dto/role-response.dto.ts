@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-/** SCR-027 ロール管理画面 一覧の形状（API-027-001）。 */
+/** ACSMS-SCR-027 ロール管理画面 一覧の形状（ACSMS-API-027-001）。 */
 export class RoleListItemDto {
   @ApiProperty() role_id: number;
   @ApiProperty() role_code: string;
@@ -14,7 +14,7 @@ export class RoleListResponseDto {
   data: RoleListItemDto[];
 }
 
-/** 詳細形状（API-027-002）— permission_ids + timestamp を追加。 */
+/** 詳細形状（ACSMS-API-027-002）— permission_ids + timestamp を追加。 */
 export class RoleDetailResponseDto extends RoleListItemDto {
   @ApiProperty({
     type: [Number],
@@ -35,7 +35,7 @@ export class RoleDetailEnvelopeDto {
   data: RoleDetailResponseDto;
 }
 
-/** SCR-027 権限グリッドの形状（API-027-004）。 */
+/** ACSMS-SCR-027 権限グリッドの形状（ACSMS-API-027-004）。 */
 export class PermissionListItemDto {
   @ApiProperty() permission_id: number;
   @ApiProperty() permission_code: string;
@@ -51,7 +51,7 @@ export class PermissionListResponseDto {
   data: PermissionListItemDto[];
 }
 
-/** SCR-024/SCR-025 admin 画面向けスリム dropdown 行（API-COMMON-002, 認証のみ）。 */
+/** ACSMS-SCR-024/ACSMS-SCR-025 admin 画面向けスリム dropdown 行（API-COMMON-002, 認証のみ）。 */
 export class RoleDropdownItemDto {
   @ApiProperty() role_id: number;
   @ApiProperty() role_code: string;

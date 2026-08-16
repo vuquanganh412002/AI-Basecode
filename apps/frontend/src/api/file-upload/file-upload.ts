@@ -8,9 +8,9 @@ import { parseContentDispositionFilename } from '@/utils/download';
 
 /**
  * `GET /api/v1/file-upload` の行の形。
- * SCR-023 が SCR-022 の payload に ja_code, ja_name, notification_status,
+ * ACSMS-SCR-023 が ACSMS-SCR-022 の payload に ja_code, ja_name, notification_status,
  * success_count, error_count, scheduled_delete_date, error_file_path を追加。
- * SCR-022 の呼び出し元は余分な項目を受け取っても無視できる（TS は代入時に
+ * ACSMS-SCR-022 の呼び出し元は余分な項目を受け取っても無視できる（TS は代入時に
  * 余分なプロパティを無視する）。
  */
 export interface FileUploadListItem {
@@ -26,13 +26,13 @@ export interface FileUploadListItem {
   error_count: number | null;
   status: number;
   notification_status: number;
-  // SCR-023 §6.5 — 行が 送信中(2) から 完了(3) / 一部失敗(4) へ遷移する時に
+  // ACSMS-SCR-023 §6.5 — 行が 送信中(2) から 完了(3) / 一部失敗(4) へ遷移する時に
   // worker が刻む。未送信(1) / 送信中(2) の間は NULL。
   notified_at: string | null;
   scheduled_delete_date: string | null;
   error_file_path: string;
   // 論理削除のタイムスタンプ — 行が論理削除済みの時に API レスポンスに含まれる
-  // （SCR-023 §画面項目定義 No.17 / 18）。
+  // （ACSMS-SCR-023 §画面項目定義 No.17 / 18）。
   deleted_at?: string | null;
   created_by: string;
   created_by_name: string;
@@ -55,7 +55,7 @@ export interface FileUploadListResponse {
 export interface ListFilesQuery {
   file_name?: string;
   todofuken_code?: string;
-  // SCR-023 のフィルタ
+  // ACSMS-SCR-023 のフィルタ
   ja_id?: number;
   status?: number;
   page?: number;
@@ -75,7 +75,7 @@ export async function listFiles(
   return res.data;
 }
 
-// ─── SCR-023 — POST + DELETE ──────────────────────────────────────────
+// ─── ACSMS-SCR-023 — POST + DELETE ──────────────────────────────────────────
 
 export interface UploadedFileRow {
   file_upload_id: number;

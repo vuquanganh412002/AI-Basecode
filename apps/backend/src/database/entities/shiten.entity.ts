@@ -67,7 +67,7 @@ export class Shiten {
   kanriShitenId: number;
 
   /**
-   * 親の管理支店。TypeORM リレーションとして宣言し、SCR-006 一覧の
+   * 親の管理支店。TypeORM リレーションとして宣言し、ACSMS-SCR-006 一覧の
    * QueryBuilder が `leftJoin('m.kanriShiten', 'ks')` して結合列で ORDER BY
    * できるようにする（`take()`/`skip()` は DISTINCT サブクエリでラップされ、
    * ORDER BY 対象の解決にエンティティメタデータが要るため）。eager ではない

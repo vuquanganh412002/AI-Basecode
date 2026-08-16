@@ -2,7 +2,7 @@
 // Screen: ACSMS-SCR-014 — 購読者明細検索画面
 //
 // Drives src/modules/dokusya/dto/search-dokusya.dto.ts (to be generated).
-// One test (or test group) per row in api.md §API-014-001 リクエストパラメータ
+// One test (or test group) per row in api.md §ACSMS-API-014-001 リクエストパラメータ
 // + §4.1 リクエストのバリデーション.
 //
 // The DTO is consumed by:

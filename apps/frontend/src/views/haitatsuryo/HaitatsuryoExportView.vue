@@ -28,7 +28,7 @@ const codes = useCodesStore();
 const notify = useNotify();
 const router = useRouter();
 
-/** 失効単価エラーから販売店明細検索(SCR-018)へ遷移し、失効単価参照フィルタを初期適用する。 */
+/** 失効単価エラーから販売店明細検索(ACSMS-SCR-018)へ遷移し、失効単価参照フィルタを初期適用する。 */
 function goToHanbaitenSearch(): void {
   void router.push({ name: 'HanbaitenList', query: { inactive_tanka: '1' } });
 }
@@ -38,7 +38,7 @@ const formState = reactive<{
   target_month: string;
   haitatsuryo_shiharai_cycle: number | undefined;
 }>({
-  // 既定値は当月末日（JST）。共通ヘルパ endOfMonthIsoTokyo を使用（SCR-026 と同一）。
+  // 既定値は当月末日（JST）。共通ヘルパ endOfMonthIsoTokyo を使用（ACSMS-SCR-026 と同一）。
   target_month: endOfMonthIsoTokyo(),
   haitatsuryo_shiharai_cycle: undefined,
 });
@@ -48,9 +48,12 @@ const fieldErrors = reactive<{ target_month: string }>({ target_month: '' });
 const previewData = ref<HaitatsuryoPreviewData | null>(null);
 /** 対象データなし（200 + data:[]）→ ACSMS-MSG-021-003 を表示。 */
 const noDataMessage = ref(false);
+// [submit-guard] Excel出力中フラグ。連続クリックによる多重リクエスト（重複ファイル
+// 生成・重複ダウンロード）を防ぐ（報告バグ — KozaFurikaeExportView と同じ規約）。
+const exporting = ref(false);
 
 // 失効単価参照エラー（409 INACTIVE_TANKA_REFERENCED）。検索/出力で失効単価
-// (active_flg=false)を参照する販売店が居れば、SCR-020 と同様のインライン
+// (active_flg=false)を参照する販売店が居れば、ACSMS-SCR-020 と同様のインライン
 // エラー一覧で該当販売店を提示する（トーストではない）。手動で単価変更後、再検索。
 const inactiveTankaErrors = ref<HaitatsuryoErrorDetail[]>([]);
 const inactiveTankaMessage = ref('');
@@ -190,7 +193,9 @@ function onTableChange(pagination: TablePaginationConfig): void {
 }
 
 async function onExport(): Promise<void> {
+  if (exporting.value) return;
   if (!validate()) return;
+  exporting.value = true;
   noDataMessage.value = false;
   clearInactiveTankaError();
   try {
@@ -209,6 +214,8 @@ async function onExport(): Promise<void> {
     // 失効単価参照（409）→ インラインエラー一覧で該当販売店を提示。
     // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
     applyInactiveTankaError(err);
+  } finally {
+    exporting.value = false;
   }
 }
 
@@ -219,6 +226,7 @@ defineExpose({
   onPageChange,
   inactiveTankaErrors,
   inactiveTankaTotal,
+  exporting,
 });
 </script>
 
@@ -226,7 +234,7 @@ defineExpose({
   <div class="space-y-6">
     <!-- 出力条件エリア（年月日 / 配達手数料支払サイクル） -->
     <div class="@container bg-surface-card border border-border rounded-ant shadow-ant-card p-4">
-      <!-- 4カラムグリッド（SCR-026 と同じ）。項目ごとにカード幅の 1/4 を占め、
+      <!-- 4カラムグリッド（ACSMS-SCR-026 と同じ）。項目ごとにカード幅の 1/4 を占め、
            狭幅では 2列 → 1列へ畳む。items-start: 年月日 直下にエラーが出ても
            配達サイクルが上下にずれない。 -->
       <div class="grid grid-cols-1 @lg:grid-cols-2 @4xl:grid-cols-4 gap-4 items-start">
@@ -269,12 +277,17 @@ defineExpose({
       </div>
 
       <div class="pt-4 mt-3 flex items-center flex-wrap justify-start gap-2">
+        <!-- レポートプレビュー（旧称: 検索）。ACSMS-SCR-028/029 とボタン名を統一
+             （顧客要件2026-08）。 -->
         <a-button type="primary" data-test="preview-btn" @click="onPreview">
-          検索
+          レポートプレビュー
         </a-button>
-        <!-- プレビュー結果が無い間（初期表示・検索結果0件）は Excel出力 を無効化。 -->
+        <!-- プレビュー結果が無い間（初期表示・検索結果0件）は Excel出力 を無効化。
+             出力中は :loading + :disabled で連続クリックによる多重リクエストを防ぐ
+             （KozaFurikaeExportView と同じ submit-guard 規約）。 -->
         <a-button
-          :disabled="!hasRows"
+          :disabled="!hasRows || exporting"
+          :loading="exporting"
           data-test="export-btn"
           @click="onExport"
         >
@@ -283,7 +296,7 @@ defineExpose({
       </div>
     </div>
 
-    <!-- 失効単価参照エラー（409）: 該当販売店を SCR-020 と同様のインライン一覧で提示 -->
+    <!-- 失効単価参照エラー（409）: 該当販売店を ACSMS-SCR-020 と同様のインライン一覧で提示 -->
     <div
       v-if="inactiveTankaErrors.length > 0"
       data-test="inactive-tanka-error-list"

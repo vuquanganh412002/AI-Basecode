@@ -1,5 +1,5 @@
 // パスワードポリシー: 8〜32文字 かつ 半角英字/数字/記号の3種のうち2種以上。
-// SCR-001 パスワードリセット, SCR-025 アカウント作成/更新等で使用。
+// ACSMS-SCR-001 パスワードリセット, ACSMS-SCR-025 アカウント作成/更新等で使用。
 // FE regex (`apps/frontend/src/views/auth/...`) と一致。
 // 非文字列・長さ外・2-of-3 未満は false。message は既定の正規文言、
 // `validationOptions.message` で上書き可。

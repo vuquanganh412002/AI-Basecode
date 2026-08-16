@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-06-05
 created_date: 2026/06/05
 created_by: Nguyen Truong An
-updated_date: 2026/06/05
-updated_by: Nguyen Truong An
+updated_date: 2026/08/14
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -23,6 +23,7 @@ updated_by: Nguyen Truong An
 | 4   | 2026/07/14 | 1.3  | Tran Duc Tuyen | 顧客コメント対応：減部数（gen_busu）をプレビュー・帳票でマイナス符号「▲」付き表示（例「▲2」）に戻す。値は正の減部数（Number）のまま、▲は表示フォーマット。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/07/15 | 1.4  | Tran Duc Tuyen | 顧客コメント対応：4.5 メールのシステム名【クラウド版購読者管理システム】を件名から外し本文先頭行へ移動。件名は【都道府県】【発行アカウント】+タイトルのみ。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 6 | 2026/08/05 | 1.5 | Tran Duc Tuyen | 顧客要件 2026-08 の確認結果：本画面は集計対象が紙版のみ（併読・電子版は対象外）で既に要件どおり。出力条件に販売店の入力欄が無いため、ダミー販売店の表示制御も対象外。**コード変更なし**（再確認時に調査し直さないための記録）。 | | |
+| 7 | 2026/08/14 | 1.6 | Tran Duc Tuyen | 顧客報告 #57976 の不具合修正：抽出SQLが `h.haiten_flg = false` を行単位の除外条件としていたため、廃店に紐づく購読者の増減が日本農業新聞への通知から漏れていた。本帳票は特定販売店を報告の宛先とするものではないため、廃店であっても対象に含めるよう `haiten_flg` 条件を撤廃（4.3〜4.5）。 | | |
 
 ## システム概要
 
@@ -309,7 +310,11 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
     本帳票も部数の増減を伝えるもので、電子版・併読は配達を伴わないため対象外
     （SCR-028 増減連絡票と同方針）。従来の「電子版は承認済(`denshi_shonin_status = 1`)
     のみ集計」条件は紙版限定に包含されるため廃止した。
-  - `h.haiten_flg = false`（廃店・電子版ダミー販売店を除外）
+  - **`haiten_flg` による除外は行わない（顧客要件 #57976）**：本帳票は日本農業新聞への
+    増減通知であり、SCR-028 増減連絡票（販売店）と異なり特定の販売店を報告の宛先に
+    するものではないため、現販売店が廃店（`haiten_flg = true`）であっても対象に含める。
+    旧仕様（`h.haiten_flg = false` を INNER JOIN の ON 条件に含める）は、廃店に
+    紐づく購読者の増減が日本農業新聞への通知から漏れる不具合があったため廃止した。
   - kanri_shiten_id 指定時：`r.kanri_shiten_id = ANY(:kanri_shiten_ids)`
   - DataScope条件（4.2 参照）を追加する。
   - 並び順は **`r.dokusya_id`, `r.rireki_no` 昇順**（同一購読者の同日複数履歴を累計するため。
@@ -338,8 +343,9 @@ SELECT r.dokusya_rireki_id, r.dokusya_id,
        td.todofuken_name,
        j.ja_name, j.tanto_busho, j.tanto_name
 FROM t_dokusya_rireki r
+/* #57976: haiten_flg では絞り込まない（廃店の増減も日本農業新聞へ通知する） */
 INNER JOIN m_hanbaiten h
-        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL AND h.haiten_flg = false
+        ON h.hanbaiten_id = r.hanbaiten_id AND h.deleted_at IS NULL
 /* 前回販売店（初回履歴は NULL のため LEFT JOIN） */
 LEFT JOIN m_hanbaiten zh
         ON zh.hanbaiten_id = r.zenkai_hanbaiten_id AND zh.deleted_at IS NULL
@@ -577,7 +583,7 @@ Content-Disposition: attachment; filename="zougen_nichino_1AA-3300-001_20260301.
 
 ### 4.3 データ取得
 
-- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`torikeshi_flg = false`、`dokusya_shubetsu = 1`（紙版のみ）、`h.haiten_flg = false`、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用）。
+- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`torikeshi_flg = false`、`dokusya_shubetsu = 1`（紙版のみ）、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用。廃店(`haiten_flg`)による除外は行わない — 顧客要件 #57976）。
 - 取得件数が0件の場合：HTTP 200 + `application/json` `{ data: { reports: [] } }`（ファイルは生成しない。FE が ACSMS-MSG-029-002 を画面内表示）。
 
 ### 4.4 PDF生成・S3保存

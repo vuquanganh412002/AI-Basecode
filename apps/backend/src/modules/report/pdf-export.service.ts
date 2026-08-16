@@ -32,7 +32,7 @@ const FONTS: TFontDictionary = {
 
 /**
  * 日本語フォント(IPAexGothic)埋込の pdfmake によるサーバ側PDF生成。呼び出し側が
- * document definition（例: SCR-028 の buildZougenDocDefinition）を組み、本サービスが
+ * document definition（例: ACSMS-SCR-028 の buildZougenDocDefinition）を組み、本サービスが
  * Buffer へストリームする。ヘッドレスブラウザ不要。
  */
 @Injectable()

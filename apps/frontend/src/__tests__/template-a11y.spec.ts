@@ -59,7 +59,7 @@ describe('template a11y', () => {
   /**
    * antd derives the label's `for` from `name` (`form_item_<name>`) and injects
    * that same id into the control. Setting an explicit `id` on the control
-   * (SCR-018 does, because `focusFirstError` looks fields up by field name)
+   * (ACSMS-SCR-018 does, because `focusFirstError` looks fields up by field name)
    * overwrites the injected one, so the label ends up pointing at an id that
    * never renders. `html-for` must then be set to the explicit id.
    */

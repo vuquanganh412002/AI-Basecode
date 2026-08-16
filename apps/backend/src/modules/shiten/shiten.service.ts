@@ -109,7 +109,7 @@ export class ShitenService {
     private readonly auditLog: AuditLogService,
   ) {}
 
-  // ─── API-006-001 — GET /api/v1/shiten ────────────────────────────────
+  // ─── ACSMS-API-006-001 — GET /api/v1/shiten ────────────────────────────────
   /**
    * m_shiten のページ検索。§4.3 DataScope を全制限ロール JA レベルで適用:
    * CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は ja_id = session.ja_id で絞る。
@@ -310,8 +310,17 @@ export class ShitenService {
       { jaIdField: 'jaId', kanriShitenIdField: 'kanriShitenId' },
       session,
     );
-    if (session.ja_id == null && query.ja_id !== undefined) {
-      qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+    if (session.ja_id == null) {
+      // dropdown は共有エンドポイントで @Permissions を掛けない
+      // （[shared-dropdown-rule]）ため、shiten.view を持たないロール
+      // （NICHINO_ADMIN・NICHINO_STAFF とも seeder.md では ×）が
+      // ja_id==null bypass を悪用して全JAの支店を閲覧できてしまっていた
+      // （バグ報告 2026-08）。
+      if (!session.permissions.includes('shiten.view')) {
+        qb.andWhere('1 = 0');
+      } else if (query.ja_id !== undefined) {
+        qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+      }
     }
     // 管理支店で絞り込む（顧客要件2026-07）。権限境界は applyBranchScope 済み、
     // これは選択管理支店配下のみに絞る UI 用フィルタ。
@@ -395,7 +404,9 @@ export class ShitenService {
         kanri_shiten_id: Number(r.kanriShitenId),
         jastem_toriatsukai_tenpo_code: r.jastemToriatsukaiTenpoCode ?? '',
         jastem_tenpo_name: r.jastemTenpoName ?? '',
-        jastem_tyokin_shubetsu: r.jastemTyokinShubetsu || '1',
+        // NOT NULL DEFAULT '' 列 — shiten.mapper.ts と同じ '' フォールバックに
+        // 揃える（以前は `|| '1'` で空文字を「普通貯金」に化けさせていた）。
+        jastem_tyokin_shubetsu: r.jastemTyokinShubetsu ?? '',
         jastem_koza_no: r.jastemKozaNo ?? '',
       })),
     };

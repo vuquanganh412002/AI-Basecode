@@ -9,7 +9,7 @@
  * `auto-clear-search-value=false` で選択後も入力クエリを保持 — 絞り込んだ行を連続選択でき、
  * 無限スクロールは同じ絞り込みセットをページングし続ける。
  *
- * SCR-028 増減連絡票（販売店）の販売店フィルタ（複数選択・未選択＝全件）で使用。
+ * ACSMS-SCR-028 増減連絡票（販売店）の販売店フィルタ（複数選択・未選択＝全件）で使用。
  */
 import { computed, ref, toRef } from 'vue';
 import {
@@ -44,6 +44,15 @@ interface Props {
    * 未指定は絞らない（従来の呼び出しの挙動を変えない）。
    */
   dummy?: 'only' | 'exclude';
+  /**
+   * true → 廃店（haiten_flg=true）を候補から除外する。
+   *
+   * #57976 の修正で、廃店を宛先とする増減連絡票（SCR-028）は生成されなくなった
+   * ため、この画面の販売店フィルタで廃店を選べてしまうと必ず0件になり紛らわしい。
+   * 既定 false（従来の呼び出しの挙動を変えない — 廃店へ紐づく既存データを編集する
+   * 画面など、廃店も選べる必要がある呼び出し元に影響しないようにする）。
+   */
+  activeOnly?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -54,6 +63,7 @@ const props = withDefaults(defineProps<Props>(), {
   perPage: DROPDOWN_PAGE_SIZE,
   allowSelectAll: false,
   dummy: undefined,
+  activeOnly: false,
 });
 
 const emit = defineEmits<{ 'update:value': [v: number[]] }>();
@@ -82,10 +92,11 @@ const {
     const extra: Partial<HanbaitenDropdownQuery> = {};
     if (props.jaId) extra.ja_id = props.jaId;
     if (props.dummy) extra.dummy = props.dummy;
+    if (props.activeOnly) extra.active_only = true;
     return extra;
   },
-  // dummy を切り替えたら候補集合が変わるので取り直す（帳票種別の切替など）。
-  resetTriggers: [toRef(props, 'dummy')],
+  // dummy / activeOnly を切り替えたら候補集合が変わるので取り直す（帳票種別の切替など）。
+  resetTriggers: [toRef(props, 'dummy'), toRef(props, 'activeOnly')],
 });
 
 // 「全て」= 全件を選択肢1つ(sentinel)として扱う共通ロジック（BaseKanriShitenSelect と共有）。

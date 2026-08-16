@@ -20,7 +20,10 @@ import {
   VerifyResetTokenResponseDto,
 } from './dto/auth-response.dto';
 import { baseCookieOptions } from '@/common/utils/cookie';
-import { DEFAULT_SESSION_TTL_SECONDS } from '@/config/config-defaults.constant';
+import {
+  DEFAULT_SESSION_COOKIE_NAME,
+  DEFAULT_SESSION_TTL_SECONDS,
+} from '@/config/config-defaults.constant';
 import { LoginDto } from './dto/login.dto';
 import { MfaResendDto, MfaVerifyDto } from './dto/mfa.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -45,7 +48,9 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
   ) {
-    this.cookieName = this.configService.get<string>('session.cookieName') ?? 'session_id';
+    this.cookieName =
+      this.configService.get<string>('session.cookieName') ??
+      DEFAULT_SESSION_COOKIE_NAME;
     this.ttlSeconds =
       this.configService.get<number>('session.ttlSeconds') ??
       DEFAULT_SESSION_TTL_SECONDS;
@@ -138,7 +143,7 @@ export class AuthController {
     return { message: 'ログアウトしました。' };
   }
 
-  // ─── SCR-012 password reset / change password ─────────────────────────────
+  // ─── ACSMS-SCR-012 password reset / change password ─────────────────────────────
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
@@ -160,6 +165,7 @@ export class AuthController {
 
   @Post('reset-password/verify')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @ApiOperation({ summary: 'Verify a password reset token (page-load check)' })
   @ApiResponse({ status: 200, type: VerifyResetTokenResponseDto })
   async verifyResetToken(@Body() dto: VerifyResetTokenDto) {

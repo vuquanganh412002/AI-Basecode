@@ -24,14 +24,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/MfaVerifyView.vue'),
     meta: { requiresAuth: false },
   },
-  // SCR-012 — パスワードの再設定（リセットメール要求）
+  // ACSMS-SCR-012 — パスワードの再設定（リセットメール要求）
   {
     path: '/forgot-password',
     name: 'ForgotPassword',
     component: () => import('@/views/auth/ForgotPasswordView.vue'),
     meta: { requiresAuth: false },
   },
-  // SCR-012 — パスワードの変更（トークン消費 + 新パスワード設定）
+  // ACSMS-SCR-012 — パスワードの変更（トークン消費 + 新パスワード設定）
   {
     path: '/reset-password',
     name: 'ResetPassword',
@@ -50,7 +50,7 @@ const routes: RouteRecordRaw[] = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/DashboardView.vue'),
-        meta: { breadcrumb: 'メニュー画面' },
+        meta: { breadcrumb: 'メニュー' },
       },
 
       // ─── パンくず規約（プロジェクト共通） ───────────────────────
@@ -80,7 +80,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: 'JAマスタ明細検索', to: { name: 'JaList' } },
-                { label: 'JAマスタ登録画面' },
+                { label: 'JAマスタ登録' },
               ],
               permission: 'ja.create',
             },
@@ -92,7 +92,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: 'JAマスタ明細検索', to: { name: 'JaList' } },
-                { label: 'JAマスタ編集画面' },
+                { label: 'JAマスタ編集' },
               ],
               permission: 'ja.update',
             },
@@ -101,7 +101,7 @@ const routes: RouteRecordRaw[] = [
       },
 
       // 管理支店マスタ（ACSMS-SCR-008 一覧、ACSMS-SCR-009 フォーム）。
-      // KanriShitenCreate / KanriShitenEdit は SCR-009 出荷まで TODO placeholder
+      // KanriShitenCreate / KanriShitenEdit は ACSMS-SCR-009 出荷まで TODO placeholder
       // を指す — src/views/kanri-shiten/KanriShitenFormView.vue 参照。
       // 一覧 view の `router.push({ name: 'KanriShitenCreate' })` が無音失敗せず
       // 実行時に解決するよう今登録しておく。
@@ -124,7 +124,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '管理支店マスタ明細検索', to: { name: 'KanriShitenList' } },
-                { label: '管理支店マスタ登録画面' },
+                { label: '管理支店マスタ登録' },
               ],
               permission: 'kanri_shiten.create',
             },
@@ -136,7 +136,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '管理支店マスタ明細検索', to: { name: 'KanriShitenList' } },
-                { label: '管理支店マスタ編集画面' },
+                { label: '管理支店マスタ編集' },
               ],
               permission: 'kanri_shiten.update',
             },
@@ -145,7 +145,7 @@ const routes: RouteRecordRaw[] = [
       },
 
       // 販売店マスタ（ACSMS-SCR-018 一覧、ACSMS-SCR-017 フォーム）。
-      // HanbaitenCreate / HanbaitenEdit は SCR-017 出荷まで TODO placeholder
+      // HanbaitenCreate / HanbaitenEdit は ACSMS-SCR-017 出荷まで TODO placeholder
       // を指す — src/views/hanbaiten/HanbaitenFormView.vue 参照。
       // 一覧 view の `router.push({ name: 'HanbaitenCreate' })` が無音失敗せず
       // 実行時に解決するよう今登録しておく。
@@ -171,7 +171,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
-                { label: '販売店情報登録画面' },
+                { label: '販売店情報登録' },
               ],
               // [perm-any-of] HanbaitenList 参照 — NICHINO_STAFF は
               // `hanbaiten.daiko_input`、他の JA ロールは `hanbaiten.create` で作成。
@@ -185,7 +185,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '販売店明細検索', to: { name: 'HanbaitenList' } },
-                { label: '販売店情報編集画面' },
+                { label: '販売店情報編集' },
               ],
               // [perm-any-of] NICHINO_STAFF は `hanbaiten.daiko_input`、
               // 他の JA ロールは `hanbaiten.update` で編集。
@@ -225,7 +225,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '支店マスタ明細検索', to: { name: 'ShitenList' } },
-                { label: '支店マスタ登録画面' },
+                { label: '支店マスタ登録' },
               ],
               permission: 'shiten.create',
             },
@@ -237,7 +237,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '支店マスタ明細検索', to: { name: 'ShitenList' } },
-                { label: '支店マスタ編集画面' },
+                { label: '支店マスタ編集' },
               ],
               permission: 'shiten.update',
             },
@@ -247,7 +247,7 @@ const routes: RouteRecordRaw[] = [
 
       // アカウントマスタ（ACSMS-SCR-024 一覧、ACSMS-SCR-025 フォーム）。
       // NICHINO_ADMIN 専用（seeder.md §3 の `account.view`）。AccountCreate /
-      // AccountEdit は SCR-025 出荷まで TODO placeholder を指す —
+      // AccountEdit は ACSMS-SCR-025 出荷まで TODO placeholder を指す —
       // src/views/account/AccountFormView.vue 参照。一覧 view の
       // `router.push({ name: 'AccountCreate' })` が無音スキップせず実行時に
       // 解決するよう今登録しておく。
@@ -270,7 +270,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: 'アカウントマスタ明細検索', to: { name: 'AccountList' } },
-                { label: 'アカウントマスタ登録画面' },
+                { label: 'アカウントマスタ登録' },
               ],
               permission: 'account.create',
             },
@@ -282,7 +282,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: 'アカウントマスタ明細検索', to: { name: 'AccountList' } },
-                { label: 'アカウントマスタ編集画面' },
+                { label: 'アカウントマスタ編集' },
               ],
               permission: 'account.update',
             },
@@ -299,7 +299,7 @@ const routes: RouteRecordRaw[] = [
         path: 'roles',
         name: 'RoleList',
         component: () => import('@/views/roles/RoleManagementView.vue'),
-        meta: { breadcrumb: 'ロール管理画面' },
+        meta: { breadcrumb: 'ロール管理' },
       },
 
       // ログ参照画面（ACSMS-SCR-030）。読み取り専用一覧 + CSV 出力。
@@ -436,7 +436,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '購読者明細検索', to: { name: 'DokusyaList' } },
-                { label: '購読者情報登録画面' },
+                { label: '購読者情報登録' },
               ],
               permission: 'dokusya.create',
             },
@@ -448,7 +448,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '購読者明細検索', to: { name: 'DokusyaList' } },
-                { label: '購読者情報編集画面' },
+                { label: '購読者情報編集' },
               ],
               permission: 'dokusya.update',
             },
@@ -461,7 +461,7 @@ const routes: RouteRecordRaw[] = [
             meta: {
               breadcrumb: [
                 { label: '購読者明細検索', to: { name: 'DokusyaList' } },
-                { label: '購読者履歴情報画面' },
+                { label: '購読者履歴情報' },
               ],
               permission: 'dokusya.view',
             },
@@ -488,7 +488,7 @@ const routes: RouteRecordRaw[] = [
       },
 
       // 単価マスタ（ACSMS-SCR-002 一覧、ACSMS-SCR-003 フォーム）。TankaCreate /
-      // TankaEdit は SCR-003 出荷まで TODO placeholder を指す —
+      // TankaEdit は ACSMS-SCR-003 出荷まで TODO placeholder を指す —
       // src/views/tanka/TankaFormView.vue 参照。一覧 view の
       // `router.push({ name: 'TankaCreate' })` が「no match for route」で
       // 無音失敗せず実行時に解決するよう今登録しておく。
@@ -500,7 +500,7 @@ const routes: RouteRecordRaw[] = [
             name: 'TankaList',
             component: () => import('@/views/tanka/TankaListView.vue'),
             meta: {
-              breadcrumb: '単価マスタ明細検索画面',
+              breadcrumb: '単価マスタ明細検索',
               permission: 'tanka.view',
             },
           },
@@ -510,8 +510,8 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/tanka/TankaFormView.vue'),
             meta: {
               breadcrumb: [
-                { label: '単価マスタ明細検索画面', to: { name: 'TankaList' } },
-                { label: '単価マスタ登録画面' },
+                { label: '単価マスタ明細検索', to: { name: 'TankaList' } },
+                { label: '単価マスタ登録' },
               ],
               permission: 'tanka.create',
             },
@@ -522,8 +522,8 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/tanka/TankaFormView.vue'),
             meta: {
               breadcrumb: [
-                { label: '単価マスタ明細検索画面', to: { name: 'TankaList' } },
-                { label: '単価マスタ編集画面' },
+                { label: '単価マスタ明細検索', to: { name: 'TankaList' } },
+                { label: '単価マスタ編集' },
               ],
               permission: 'tanka.update',
             },

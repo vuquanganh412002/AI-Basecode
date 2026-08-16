@@ -5,7 +5,7 @@
 //   docs/design/ACSMS-SCR-022/screen-design.md (機能定義 1.x〜8.x + メッセージ情報) +
 //   docs/design/ACSMS-SCR-022/index.html (UI structure) +
 //   docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md
-//     (API-022-001 list / -002 preview / -003 download + COMMON-001 todofuken).
+//     (ACSMS-API-022-001 list / -002 preview / -003 download + COMMON-001 todofuken).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -156,7 +156,7 @@ describe('FileDownloadView — initial render (機能定義 1.x)', () => {
   });
 
   it('should render 都道府県 via the shared BaseTodofukenSelect (SCR-023 と同表記)', async () => {
-    // 同じ都道府県を扱う SCR-023 アップロード画面と表記・検索を揃えるため、
+    // 同じ都道府県を扱う ACSMS-SCR-023 アップロード画面と表記・検索を揃えるため、
     // 画面側で props を上書きしない。実挙動は BaseTodofukenSelect.spec.ts。
     const { wrapper } = await renderView();
     expect(wrapper.findComponent({ name: 'BaseTodofukenSelect' }).exists()).toBe(true);
@@ -999,7 +999,7 @@ describe('FileDownloadView — empty 検索 is a no-op', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// メールのディープリンク — SCR-023 のアップロード通知メールは
+// メールのディープリンク — ACSMS-SCR-023 のアップロード通知メールは
 // `/file-download?file_name=...` を載せる（顧客要件2026-08）。受信者が一覧を
 // 探さずに該当ファイルへ着地できるよう、クエリを検索条件へ流し込む。
 // ───────────────────────────────────────────────────────────────────────

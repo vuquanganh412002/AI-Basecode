@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import dayjs, { type Dayjs } from 'dayjs';
+import { todayIsoTokyo } from '@/utils/datetime';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory, type Router } from 'vue-router';
 import { createTestingPinia } from '@pinia/testing';
@@ -26,10 +27,10 @@ import {
   buildAuthUser,
 } from '@test/fixtures/dokusya.fixture';
 
-// ─── API wrapper for SCR-014 endpoints ─────────────────────────────
+// ─── API wrapper for ACSMS-SCR-014 endpoints ─────────────────────────────
 //
 // /gen-code-frontend will add these 3 wrapper functions to
-// `src/api/dokusya/dokusya.ts` alongside the existing SCR-011 set
+// `src/api/dokusya/dokusya.ts` alongside the existing ACSMS-SCR-011 set
 // (getDokusya / createDokusya / updateDokusya / approveDokusya /
 // rejectDokusya / getDokusyaHistory). The mock re-stubs all 9 so the
 // view's other imports continue to resolve.
@@ -254,6 +255,29 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     expect(labels.some((t) => t.includes('電子版承認ステータス'))).toBe(true);
   });
 
+  // ─── 検索フィールドの文字数上限（タスク #57608）────────────────────
+  // screen-design.md §画面項目定義の文字数列（組合員コードは ACSMS-SCR-011 §7 の
+  // 登録時業務ルール「半角数字10桁まで」に合わせる — ACSMS-SCR-015 一括置換画面と同じ根拠）。
+  it('should cap 組合員コード input at 10 characters (task #57608)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('#kumiaiin_code').attributes('maxlength')).toBe('10');
+  });
+
+  it('should cap 氏名 input at 100 characters (task #57608)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('#full_name').attributes('maxlength')).toBe('100');
+  });
+
+  it('should cap かな氏名 input at 100 characters (task #57608)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('#full_name_kana').attributes('maxlength')).toBe('100');
+  });
+
+  it('should cap 住所 input at 50 characters (task #57608)', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find('#haitatsu').attributes('maxlength')).toBe('50');
+  });
+
   it('should render the 16 result table column headers when mounted', async () => {
     const { wrapper } = await renderView();
     const headerText = wrapper.findAll('th').map((th) => th.text());
@@ -429,7 +453,7 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
   });
 
   it('should seed 有効単価フラグ=無効 (active_tanka_flg=false) on mount when the SCR-020 deep-link ?inactive_tanka=1 is present', async () => {
-    // COVERS: SCR-020 error gate → 購読者明細検索 deep-link（顧客要件2026-07 改訂）
+    // COVERS: ACSMS-SCR-020 error gate → 購読者明細検索 deep-link（顧客要件2026-07 改訂）
     const { listDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(listDokusya).mockClear();
     await renderView({ query: { inactive_tanka: '1' } });
@@ -1523,6 +1547,78 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
     expect(vm.isStopDigital).toBe(false);
   });
 
+  // カレンダーは既定で「今月」を開く。最終変更適用日(max_joho_date)が今月より
+  // 先の読者だと、今月の全日付が disabledStopPaperDate で disabled になり、
+  // ユーザーが「>」を何度も押して選択可能な月を探す羽目になっていた。開いた
+  // 時点で選択可能な最初の月を default-picker-value で指定する。
+  it('should default the 紙版 calendar panel to the month AFTER max_joho_date when it is later than today', async () => {
+    const futureMaxJoho = dayjs(todayIsoTokyo()).add(45, 'day').format('YYYY-MM-DD');
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 100,
+        dokusya_shubetsu: 1,
+        dokusya_kaishi_date: '2026-04-01',
+        max_joho_date: futureMaxJoho,
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopPaperDefaultPickerValue: Dayjs;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    expect(vm.stopPaperDefaultPickerValue.format('YYYY-MM-DD')).toBe(
+      dayjs(futureMaxJoho).add(1, 'day').format('YYYY-MM-DD'),
+    );
+  });
+
+  it('should default the 紙版 calendar panel to tomorrow when max_joho_date is unset (no active reservation)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 100,
+        dokusya_shubetsu: 1,
+        dokusya_kaishi_date: '2026-04-01',
+        max_joho_date: null,
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopPaperDefaultPickerValue: Dayjs;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 100 }));
+    await flushPromises();
+    expect(vm.stopPaperDefaultPickerValue.format('YYYY-MM-DD')).toBe(
+      dayjs(todayIsoTokyo()).add(1, 'day').format('YYYY-MM-DD'),
+    );
+  });
+
+  it('should default the 電子版 month picker panel to 請求開始月 when it is later than the current month', async () => {
+    const futureSeikyu = dayjs(todayIsoTokyo()).add(3, 'month').format('YYYYMM');
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({
+        dokusya_id: 101,
+        dokusya_shubetsu: 2,
+        seikyu_kaishi_month: futureSeikyu,
+        has_active_kaiyaku: false,
+      }),
+    });
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as {
+      openStopModal: (row: { dokusya_id: number }) => Promise<void>;
+      stopMonthDefaultPickerValue: Dayjs;
+    };
+    await vm.openStopModal(buildDokusyaListRow({ dokusya_id: 101 }));
+    await flushPromises();
+    expect(vm.stopMonthDefaultPickerValue.format('YYYYMM')).toBe(futureSeikyu);
+  });
+
   it('should WARN and NOT open the popup for a 電子版 row with empty 請求開始月', async () => {
     const { getDokusya } = await import('@/api/dokusya/dokusya');
     vi.mocked(getDokusya).mockResolvedValue({
@@ -1853,7 +1949,7 @@ describe('DokusyaListView — 購読停止（解約予約）ポップアップ',
     vm.stopMonth = dayjs('2030-07-20'); // 同じ 2030/07 → 月末も同じ
     await vm.confirmStop();
     await flushPromises();
-    // 無変更で履歴行と電子版 push を増やさない（SCR-011 と同じ no-change 文言）。
+    // 無変更で履歴行と電子版 push を増やさない（ACSMS-SCR-011 と同じ no-change 文言）。
     // 確認ダイアログも出さない — 押す意味のある選択肢が無いため。
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(stopDokusya).not.toHaveBeenCalled();

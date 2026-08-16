@@ -70,16 +70,20 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
            (14, 'paper01',  'x', '紙版のみ',    3, 1,    NULL, true,  false, 'SYSTEM', 'SYSTEM')`,
         // ─── m_kanri_shiten — explicit ids so the create fixture FK ids
         //     (kanri_shiten_id=10) AND the helper default (ksId=1) both
-        //     resolve, all under JA 1. ─────────────────────────────────────
+        //     resolve, all under JA 1. kanri_shiten_code must be exactly 10
+        //     digits — DenshibanPushService.resolveJacd() strips non-digits
+        //     and requires /^\d{10}$/ for the electronic-version push; any
+        //     test that creates a 電子版 dokusya under these kanri_shiten
+        //     rows hits DENSHIBAN_PUSH_FAILED otherwise. ────────────────────
         `INSERT INTO m_kanri_shiten
            (kanri_shiten_id, ja_id, kanri_shiten_code, kanri_shiten_name,
             kanri_shiten_name_kana, yubin_no, todofuken_code, address, tel,
             fax, biko, created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'KS001', '千代田管理支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '1000000001', '千代田管理支店', 'ﾁﾖﾀﾞ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (10, 1, 'KS010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
+           (10, 1, '1000000010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // ─── m_shiten — kinyu rows for bank_shiten_id (1, 50) + the
@@ -246,7 +250,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-002 — POST /api/v1/dokusya (create — exercised first to seed)
+  // ACSMS-API-011-002 — POST /api/v1/dokusya (create — exercised first to seed)
   // ════════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/dokusya', () => {
     it('should return 201 + persist t_dokusya + write 1st t_dokusya_rireki row', async () => {
@@ -593,7 +597,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // API-011-001 — GET /api/v1/dokusya/:id
+  // ACSMS-API-011-001 — GET /api/v1/dokusya/:id
   // ════════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/dokusya/:id', () => {
     async function seedDokusya(code = 'INT-GET-1', jaId = 1, ksId = 1) {
@@ -1399,10 +1403,10 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
             kanri_shiten_name_kana, yubin_no, todofuken_code, address, tel,
             fax, biko, created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'KS001', '千代田管理支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '1000000001', '千代田管理支店', 'ﾁﾖﾀﾞ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (10, 1, 'KS010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
+           (10, 1, '1000000010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // m_shiten — kinyu rows for bank_shiten_id (1, 50) + subscriber
@@ -2028,10 +2032,10 @@ describe('ACSMS-SCR-013 integration — dokusya rireki list', () => {
             kanri_shiten_name_kana, yubin_no, todofuken_code, address, tel,
             fax, biko, created_at, created_by, updated_at, updated_by)
          VALUES
-           (1, 1, 'KS001', '千代田管理支店', 'ﾁﾖﾀﾞ',
+           (1, 1, '1000000001', '千代田管理支店', 'ﾁﾖﾀﾞ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM'),
-           (10, 1, 'KS010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
+           (10, 1, '1000000010', '管理支店10', 'ｶﾝﾘｼﾃﾝ',
             '1000001', '13', '東京都千代田区', '', '', '',
             NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
         // m_shiten — kinyu rows for bank_shiten_id (1, 50) + branch (100).

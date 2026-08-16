@@ -17,7 +17,7 @@ import {
 const blankToUndef = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
-// JA登録リクエストbody — API-005-002。
+// JA登録リクエストbody — ACSMS-API-005-002。
 // zei_kubun は m_code.code_category='ZEI_KUBUN'(1=内税,2=外税)。値の
 // 存在検証は service の CodeService.has() 側。
 export class CreateJaDto {

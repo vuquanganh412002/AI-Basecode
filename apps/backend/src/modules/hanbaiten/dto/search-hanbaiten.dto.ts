@@ -124,10 +124,10 @@ export class SearchHanbaitenDto extends PaginationDto {
   @IsBoolean({ message: '廃店フラグはbooleanで指定してください。' })
   haiten_flg?: boolean;
 
-  // 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。配達手数料単価
+  // 有効単価フラグ（ACSMS-SCR-021 error gate 連携・顧客要件2026-07 改訂）。配達手数料単価
   // (haitatsuryo_tanka_id → m_tanka.tanka_type=2)の active_flg で絞り込むトライステート
   // ラジオ: true=有効単価(active_flg=TRUE)を参照する販売店、false=失効単価
-  // (active_flg=FALSE)を参照する販売店のみ、省略時は絞り込まない（両方）。SCR-021 の
+  // (active_flg=FALSE)を参照する販売店のみ、省略時は絞り込まない（両方）。ACSMS-SCR-021 の
   // 失効単価エラーからは「無効(false)」で初期選択される。
   @ApiPropertyOptional({
     description:

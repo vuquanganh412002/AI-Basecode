@@ -6,7 +6,7 @@
 
 import type { KozaFurikaeAggRow } from './koza-furikae.service';
 
-/** プレビュー一覧の1行（API-020-003 §レスポンス）。FE の編集テーブルに1:1対応。 */
+/** プレビュー一覧の1行（ACSMS-API-020-003 §レスポンス）。FE の編集テーブルに1:1対応。 */
 export interface KozaPreviewRow {
   dokusya_id: number;
   /** 預金者名（カナ）。 */

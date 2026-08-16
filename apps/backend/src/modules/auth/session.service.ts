@@ -46,7 +46,7 @@ const ACCOUNT_INDEX_PREFIX = 'account_sessions:';
  * 認証済みセッションを Redis に保存。
  *   session:{session_id}          → JSON payload (EX = ttlSeconds)
  *   account_sessions:{account_id} → session_ids の Set（同 TTL）
- * account 単位 index により、パスワードリセット時(SCR-012 §4.8)に keyspace 全走査なしで
+ * account 単位 index により、パスワードリセット時(ACSMS-SCR-012 §4.8)に keyspace 全走査なしで
  * 全セッションを一括破棄できる。
  */
 @Injectable()

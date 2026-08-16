@@ -108,7 +108,7 @@ export function useTableQuery<F extends object>(
   ): void {
     state.page = pagination.current ?? 1;
     state.per_page = pagination.pageSize ?? state.per_page;
-    // [sorter-key-priority] dataIndex ≠ key の列（例 SCR-008 アカウント一覧
+    // [sorter-key-priority] dataIndex ≠ key の列（例 ACSMS-SCR-008 アカウント一覧
     // 都道府県: 表示は dataIndex=todofuken_name、BE ソート whitelist は
     // key=todofuken_code）では antd の sorter が `field`(=dataIndex) と
     // `columnKey`(=key) 両方を emit。BE は列名を whitelist するので columnKey 優先。

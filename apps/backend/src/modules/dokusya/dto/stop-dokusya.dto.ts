@@ -4,7 +4,7 @@ import { IsString, Matches } from 'class-validator';
 /**
  * Body for `POST /api/v1/dokusya/:dokusya_id/stop` — 購読中止（解約予約 / 予約変更 / 予約取消）.
  *
- * SCR-014 一覧の「購読中止」ボタンから呼ぶ専用エンドポイント。購読中止日(解約予定日)
+ * ACSMS-SCR-014 一覧の「購読中止」ボタンから呼ぶ専用エンドポイント。購読中止日(解約予定日)
  * だけを受け取り、Phase 1 の予約行 (`insertScheduledKaiyaku`) を1件挿入する。値の意味は
  * 購読種別で異なるが、送信形はどちらも `YYYY-MM-DD`:
  *   - 紙版 (dokusya_shubetsu=1): カレンダーで選んだ日付そのもの。

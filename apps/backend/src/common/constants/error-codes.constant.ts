@@ -15,27 +15,27 @@ export const ErrorCode = {
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',         // 429
   INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR', // 500
 
-  // ─── SCR-019 — 販売店Excelデータ取込 ──────────────────────────────────
+  // ─── ACSMS-SCR-019 — 販売店Excelデータ取込 ──────────────────────────────────
   IMPORT_VALIDATION_ERROR: 'IMPORT_VALIDATION_ERROR', // 400 — 行単位、errors[].row
-  FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',             // 400 — Excel パース/非対応（SCR-023 も）
+  FILE_FORMAT_ERROR: 'FILE_FORMAT_ERROR',             // 400 — Excel パース/非対応（ACSMS-SCR-023 も）
   ROW_LIMIT_EXCEEDED: 'ROW_LIMIT_EXCEEDED',           // 400 — 500行超
 
-  // ─── SCR-023 — ファイルアップロード画面 ────────────────────────────────
+  // ─── ACSMS-SCR-023 — ファイルアップロード画面 ────────────────────────────────
   FILE_SIZE_EXCEEDED: 'FILE_SIZE_EXCEEDED',           // 400 — ファイルサイズ上限超
   TARGET_JA_REQUIRED: 'TARGET_JA_REQUIRED',           // 400 — ja_ids[] 空
 
-  // ─── SCR-011 — 購読者情報登録画面 ──────────────────────────────────────
+  // ─── ACSMS-SCR-011 — 購読者情報登録画面 ──────────────────────────────────────
   DUPLICATE_EMAIL: 'DUPLICATE_EMAIL',                 // 400 — JA 範囲内でメール重複
   INVALID_STATUS: 'INVALID_STATUS',                   // 400 — 承認待ち以外の行に承認/却下
   SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED', // 403 — 行の購読種別に対する paper_flg/denshi_flg 権限なし
   TORIKESHI_NOT_ALLOWED: 'TORIKESHI_NOT_ALLOWED',     // 400 — 取消不可（紙版・適用日未来・末尾のみ可。新規/取消済/中間/電子版/適用日到来済は不可）
 
-  // ─── SCR-015 — 購読者販売店一括置換画面 ────────────────────────────────
+  // ─── ACSMS-SCR-015 — 購読者販売店一括置換画面 ────────────────────────────────
   SAME_HANBAITEN: 'SAME_HANBAITEN',                   // 400 — 対象 = 候補の現販売店
   INELIGIBLE_DOKUSYA: 'INELIGIBLE_DOKUSYA',           // 400 — 電子版クレカ決済者・併読者不可（errors[] あり）
   DATE_RANGE_INVALID: 'DATE_RANGE_INVALID',           // 400 — date_from > date_to
 
-  // ─── SCR-020 — 口座振替データ出力画面 ──────────────────────────────────
+  // ─── ACSMS-SCR-020 — 口座振替データ出力画面 ──────────────────────────────────
   INACTIVE_TANKA_REFERENCED: 'INACTIVE_TANKA_REFERENCED', // 409 — 失効単価(active_flg=false)参照購読者あり (errors[]: field=dokusya_id)
 } as const;
 
@@ -57,7 +57,7 @@ export const ErrorMessage: Record<ErrorCode, string> = {
     'システムエラーが発生しました。しばらくしてから再度お試しください。',
   IMPORT_VALIDATION_ERROR:
     'Excel取込データにエラーがあります。詳細はerrorsフィールドを確認してください。',
-  // SCR-019 既定。SCR-023 ファイルアップロードは明示メッセージ
+  // ACSMS-SCR-019 既定。ACSMS-SCR-023 ファイルアップロードは明示メッセージ
   // （'許可されていないファイル形式です。'）で上書き — FileUploadFormatException 参照。
   FILE_FORMAT_ERROR:
     'Excelファイルの取り込みに失敗しました。ファイル形式を確認してください。',

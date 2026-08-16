@@ -5,7 +5,7 @@ import axiosInstance from '@/api/axios-instance';
 // この境界で envelope をほどき view にクリーンな形を渡す。以下の interface が
 // FE 側でのこれら型の単一ソース（docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md 準拠）。
 //
-// SCR-002 は listTanka + removeTanka を提供。SCR-003（create/update/detail）で
+// ACSMS-SCR-002 は listTanka + removeTanka を提供。ACSMS-SCR-003（create/update/detail）で
 // getTanka / createTanka / updateTanka を追加予定。後続を機械的にするため
 // ja.ts と並行構造を保つ。
 
@@ -128,7 +128,7 @@ export interface CreateTankaRequest {
 
 /**
  * PUT /api/v1/tanka/:id のリクエスト body — Create から `tanka_code` を除いた形
- * （api.md §API-003-003 注記「tanka_code は更新不可」で不変）。
+ * （api.md §ACSMS-API-003-003 注記「tanka_code は更新不可」で不変）。
  */
 export type UpdateTankaRequest = Omit<CreateTankaRequest, 'tanka_code'>;
 
@@ -202,6 +202,12 @@ export interface TankaDropdownItem {
    * ラベル「単価名 + 半角スペース + 金額」に用いる。
    */
   kingaku: number;
+  /**
+   * キャンペーンフラグ — TRUE: 有効, FALSE: 無効。SCR-011 購読者フォームが
+   * キャンペーン単価の登録・切替時のポップアップ注意喚起の判定に使う
+   * （顧客要件 2026-08）。
+   */
+  campaign_flg: boolean;
 }
 
 export interface TankaDropdownResponse {

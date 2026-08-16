@@ -21,10 +21,13 @@ export interface ZougenRawRow {
   hanbaiten_id: number | string;
   hanbaiten_code: string;
   hanbaiten_name: string;
+  // #57976: 廃店(true)を宛先とする報告を作らないための店舗単位フラグ。
+  haiten_flg: boolean;
   // 前回販売店（販売店変更の 1減/1増 判定用。初回履歴は NULL）。
   zenkai_hanbaiten_id: RawNullableNum;
   zenkai_hanbaiten_code: string | null;
   zenkai_hanbaiten_name: string | null;
+  zenkai_haiten_flg: boolean | null;
   kanri_shiten_id: RawNullableNum;
   kanri_shiten_code: string | null;
   kanri_shiten_name: string | null;
@@ -213,6 +216,8 @@ interface MergedRecord {
   storeBefore: number | null;
   storeBeforeCode: string | null;
   storeBeforeName: string | null;
+  /** #57976: 前回販売店の廃店フラグ。true のときはその店を宛先とする報告を作らない。 */
+  storeBeforeHaitenFlg: boolean;
   /** 前回住所がフィールド由来（true）か、フォールバック（false=日初の現住所）か。 */
   zenkaiAddrPresent: boolean;
   /** 変更前住所の文字列（フォールバック時は rmin の現住所）。 */
@@ -237,6 +242,11 @@ function mergeSameDay(records: ZougenRawRow[]): MergedRecord {
     rmin.zenkai_hanbaiten_id == null ? rmin.hanbaiten_code : rmin.zenkai_hanbaiten_code;
   const storeBeforeName =
     rmin.zenkai_hanbaiten_id == null ? rmin.hanbaiten_name : rmin.zenkai_hanbaiten_name;
+  // #57976: 前回販売店の廃店フラグ。変更なし(zenkai無し)のときは rmin 自身の店舗値。
+  const storeBeforeHaitenFlg =
+    rmin.zenkai_hanbaiten_id == null
+      ? Boolean(rmin.haiten_flg)
+      : Boolean(rmin.zenkai_haiten_flg);
 
   // 前回住所がフィールド由来か（zenkai_shikuchoson を代表に判定）。
   const zenkaiAddrPresent = rmin.zenkai_shikuchoson != null;
@@ -250,6 +260,7 @@ function mergeSameDay(records: ZougenRawRow[]): MergedRecord {
     storeBefore,
     storeBeforeCode,
     storeBeforeName,
+    storeBeforeHaitenFlg,
     zenkaiAddrPresent,
     addrBefore,
   };
@@ -346,30 +357,45 @@ function classifyDayChange(records: ZougenRawRow[], getReport: GetReport): void 
   const busuAfter = num(rc.dokusya_busu);
   const storeBefore = merged.storeBefore;
   const storeAfter = num(rc.hanbaiten_id);
+  // #57976: 廃店(haiten_flg=true)は「その店を宛先とする報告を作らない」——行自体は
+  // 常に処理し、店舗ごとにこのフラグで報告作成の可否だけを判定する。旧店側の報告は
+  // 新店が廃店かどうかに関係なく作る（逆も同様）。
+  const storeBeforeOpen = !merged.storeBeforeHaitenFlg;
+  const storeAfterOpen = !rc.haiten_flg;
 
   if (storeBefore != null && storeBefore !== storeAfter) {
     // ── 販売店変更: 旧店 減 busuBefore / 新店 増 busuAfter ──
-    getReport(storeBefore, merged.storeBeforeCode, merged.storeBeforeName, rc).genbu.push(
-      entryFrom(rc, `${busuBefore} → 0`),
-    );
-    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
-      entryFrom(rc, `0 → ${busuAfter}`),
-    );
+    if (storeBeforeOpen) {
+      getReport(storeBefore, merged.storeBeforeCode, merged.storeBeforeName, rc).genbu.push(
+        entryFrom(rc, `${busuBefore} → 0`),
+      );
+    }
+    if (storeAfterOpen) {
+      getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
+        entryFrom(rc, `0 → ${busuAfter}`),
+      );
+    }
   } else if (busuAfter > busuBefore) {
-    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
-      entryFrom(rc, `${busuBefore} → ${busuAfter}`),
-    );
+    if (storeAfterOpen) {
+      getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).zoubu.push(
+        entryFrom(rc, `${busuBefore} → ${busuAfter}`),
+      );
+    }
   } else if (busuAfter < busuBefore) {
-    getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).genbu.push(
-      entryFrom(rc, `${busuBefore} → ${busuAfter}`),
-    );
+    if (storeAfterOpen) {
+      getReport(rc.hanbaiten_id, rc.hanbaiten_code, rc.hanbaiten_name, rc).genbu.push(
+        entryFrom(rc, `${busuBefore} → ${busuAfter}`),
+      );
+    }
   }
 
   // ── 住所変更（フィールド単位で比較。前回がフォールバック=実質「無し」のときは
   //    新住所と一致するので検知されない＝新規購読者ではノイズを出さない）──
   // 電子版(DokusyaShubetsu.DIGITAL=2)は配達先住所を持たないため、住所が変わっても
   // 住所変更セクションには載せない（増部/減部には従来どおり計上する）。
+  // #57976: 住所変更は現販売店(rc.hanbaiten_id)宛の報告なので、廃店なら作らない。
   if (
+    storeAfterOpen &&
     Number(rc.dokusya_shubetsu) !== DokusyaShubetsu.DIGITAL &&
     addressChangedFromRc(merged, records)
   ) {
@@ -406,8 +432,17 @@ function classifyDayChange(records: ZougenRawRow[], getReport: GetReport): void 
  *
  * 注意（要確認）: 旧販売店の 管理支店 は履歴に保持されないため、暫定的に当日最終
  * レコードの kanri_shiten をそのまま使う（多くは同一管理支店内の移動）。
+ *
+ * `hanbaitenFilter` 指定時（顧客要件2026-08）: 出力を選択した販売店の分類結果だけに
+ * 絞る。販売店変更（転出/転入）で対になる旧店/新店のうち、選ばれていない側は
+ * 出力しない ——「72を選んだら72だけ、73を選んだら73だけ」。行の取得自体は
+ * service 側の EXISTS 判定で同日の全履歴を含めて取っているため、絞り込み前の
+ * 集約(rmin/rmax)は常に正しい状態で行われ、ここでは表示する店舗だけを間引く。
  */
-export function groupZougenReports(rows: ZougenRawRow[]): ZougenReport[] {
+export function groupZougenReports(
+  rows: ZougenRawRow[],
+  hanbaitenFilter?: number[],
+): ZougenReport[] {
   // 1) 購読者ごとに同日履歴をまとめる（rows は dokusya_id, rireki_no 昇順）。
   const byDokusya = new Map<string, ZougenRawRow[]>();
   const dokusyaOrder: string[] = [];
@@ -457,13 +492,21 @@ export function groupZougenReports(rows: ZougenRawRow[]): ZougenReport[] {
   }
 
   // 3) 出力は 販売店コード昇順・管理支店ID昇順（SQLは dokusya_id 順のため再整列）。
-  return order
+  let reports = order
     .map((k) => byKey.get(k) as ZougenReport)
     .sort(
       (a, b) =>
         a.hanbaiten_code.localeCompare(b.hanbaiten_code) ||
         (a.kanri_shiten_id ?? 0) - (b.kanri_shiten_id ?? 0),
     );
+
+  // 4) 販売店フィルタ指定時は選択した店舗の分類結果のみ残す（顧客要件2026-08）。
+  if (hanbaitenFilter && hanbaitenFilter.length > 0) {
+    const filterSet = new Set(hanbaitenFilter);
+    reports = reports.filter((r) => filterSet.has(r.hanbaiten_id));
+  }
+
+  return reports;
 }
 
 // ─── ページ送り（文書ページ単位。名簿 SCR-026 と同方針）────────────────────
@@ -494,10 +537,22 @@ function splitReport(r: ZougenReport, size: number): ZougenReport[] {
     const genbu = r.genbu.slice(gi, gi + Math.min(budget, r.genbu.length - gi));
     gi += genbu.length;
     budget -= genbu.length;
-    const address_change = r.address_change.slice(
-      ai,
-      ai + Math.min(budget, r.address_change.length - ai),
-    );
+    // 住所変更は [変更前, 変更後] の2行1組（classifyDayChange が常にペアで push）。
+    // 端数(奇数)でスライスするとページ境界でペアが分断され、FE
+    // （ZougenHanbaitenReportView.addressChangePairs）や PDF（addressSection）の
+    // 連番インデックスによるペアリングがズレ、別の購読者の行と誤って
+    // 組み合わさる（報告バグ）。ペア単位でしか切り出さない — 端数は次ページへ。
+    const remaining = r.address_change.length - ai;
+    let pairBudget = Math.min(budget, remaining);
+    pairBudget -= pairBudget % 2;
+    // size が極端に小さい（例: per_page=1、DTO上は許容範囲）場合、この回で
+    // zoubu/genbu も0件・pairBudget も0になり得て無限ループの危険がある。
+    // その場合のみ1組を強制的に切り出す（そのページだけ size を1件超過するが、
+    // ペア分断や無限ループよりはるかに軽微）。
+    if (pairBudget === 0 && zoubu.length === 0 && genbu.length === 0 && remaining > 0) {
+      pairBudget = 2;
+    }
+    const address_change = r.address_change.slice(ai, ai + pairBudget);
     ai += address_change.length;
     pages.push({ ...r, zoubu, genbu, address_change });
   }
@@ -515,10 +570,11 @@ function splitReport(r: ZougenReport, size: number): ZougenReport[] {
 export function paginateZougenSubscribers(
   rows: ZougenRawRow[],
   perPage: number,
+  hanbaitenFilter?: number[],
 ): ZougenReport[][] {
   const size = perPage > 0 ? perPage : ZOUGEN_PER_PAGE;
   // combo(=各 report)は販売店コード昇順→管理支店ID昇順。販売店ごとにページ列をまとめる。
-  const reports = groupZougenReports(rows);
+  const reports = groupZougenReports(rows, hanbaitenFilter);
   const storeOrder: number[] = [];
   const storePages = new Map<number, ZougenReport[]>();
   for (const r of reports) {
@@ -718,8 +774,9 @@ export function buildZougenDocDefinition(
   tekiyo: string,
   perPage: number = ZOUGEN_PER_PAGE,
   issuedAt = '',
+  hanbaitenFilter?: number[],
 ): TDocumentDefinitions {
-  const pages = paginateZougenSubscribers(rows, perPage);
+  const pages = paginateZougenSubscribers(rows, perPage, hanbaitenFilter);
   return {
     pageSize: 'A4',
     pageMargins: m(40, 36, 40, 36),

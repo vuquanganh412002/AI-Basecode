@@ -109,7 +109,7 @@ export interface JaListResponse {
   meta: { total: number; page: number; per_page: number; total_pages: number };
 }
 
-/** Single row helper for SCR-004 list assertions. */
+/** Single row helper for ACSMS-SCR-004 list assertions. */
 export function buildJaListItem(overrides: Partial<JaListItem> = {}): JaListItem {
   return {
     ja_id: 1,

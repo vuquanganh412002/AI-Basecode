@@ -38,7 +38,7 @@ export interface AccountListResponse {
   meta: AccountListMeta;
 }
 
-/** Single row builder for SCR-024 list assertions. */
+/** Single row builder for ACSMS-SCR-024 list assertions. */
 export function buildAccountListItem(
   overrides: Partial<AccountListItem> = {},
 ): AccountListItem {
@@ -189,7 +189,7 @@ export function buildKanriShitenDropdownList(): KanriShitenDropdownItem[] {
 // ─── Auth user fixture ─────────────────────────────────────────────
 
 /**
- * NICHINO_ADMIN — the only role that can reach SCR-024 per
+ * NICHINO_ADMIN — the only role that can reach ACSMS-SCR-024 per
  * screen-design.md 機能定義 1.2 "日農管理者のみアクセス可能".
  * Override `role_code` to model the access-denied path.
  */

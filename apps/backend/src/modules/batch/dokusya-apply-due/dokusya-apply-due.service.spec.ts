@@ -1,4 +1,5 @@
 import { DataSource } from 'typeorm';
+import { JobFailureException } from '@/common/exceptions/job-failure.exception';
 import { DokusyaApplyDueService } from './dokusya-apply-due.service';
 import { DokusyaKaiyakuService } from './dokusya-kaiyaku.service';
 import { DokusyaRecomputeService } from './dokusya-recompute.service';
@@ -105,7 +106,13 @@ describe('DokusyaApplyDueService', () => {
       recompute as unknown as DokusyaRecomputeService,
     );
 
-    await expect(service.run()).rejects.toThrow(/3 subscriber\(s\) failed/);
+    // Regression: this used to throw a raw Error — now the project's
+    // JobFailureException (non-HTTP batch job-failure signal, caught by
+    // runBatch() for exit(1)).
+    let caught: unknown;
+    await service.run().catch((err) => (caught = err));
+    expect(caught).toBeInstanceOf(JobFailureException);
+    expect((caught as Error).message).toMatch(/3 subscriber\(s\) failed/);
   });
 
   it('should still run recompute when kaiyaku had failures (段の失敗で次段を巻き添えにしない)', async () => {

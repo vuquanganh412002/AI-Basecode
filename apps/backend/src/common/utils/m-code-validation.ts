@@ -4,9 +4,11 @@ import { ValidationException } from '@/common/exceptions/common.exceptions';
 /**
  * `CodeService.normalizeValue` の写し: 整数形の文字列は数値化、他は文字列のまま。
  * ランタイム依存を避けインライン保持（単体テストは CodeService を
- * `{ has, getLabel, reload }` のみモックするため）。
+ * `{ has, getLabel, reload }` のみモックするため）。エクスポートするのは
+ * 依存ゼロの `DokusyaImportValidator`（事前ロード Set と突き合わせる方式）が
+ * 同じ正規化ロジックを必要とするため — ロジックを2箇所に複製しない。
  */
-function normalizeForCache(value: number | string): number | string {
+export function normalizeForCache(value: number | string): number | string {
   if (typeof value === 'number') return value;
   const asNumber = Number(value);
   return Number.isInteger(asNumber) && String(asNumber) === value

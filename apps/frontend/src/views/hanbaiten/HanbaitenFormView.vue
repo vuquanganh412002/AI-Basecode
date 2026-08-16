@@ -2,7 +2,7 @@
 // ACSMS-SCR-017 — 販売店情報登録画面。
 //
 // CREATE（route `HanbaitenCreate`）と EDIT（route `HanbaitenEdit`、`:id`）を
-// 兼ねる単一コンポーネント。`@/api/hanbaiten/hanbaiten` の SCR-017 API 三種:
+// 兼ねる単一コンポーネント。`@/api/hanbaiten/hanbaiten` の ACSMS-SCR-017 API 三種:
 //   - getHanbaiten(id)        → ACSMS-API-017-001
 //   - createHanbaiten(body)   → ACSMS-API-017-002
 //   - updateHanbaiten(id, …)  → ACSMS-API-017-003
@@ -13,7 +13,6 @@
 
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { AxiosError } from 'axios';
 import { message } from 'ant-design-vue';
 
 import BaseCard from '@/components/common/BaseCard.vue';
@@ -21,8 +20,10 @@ import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import BaseTankaDropdown from '@/components/common/BaseTankaDropdown.vue';
+import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { useCodesStore } from '@/stores/codes.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { ItakuKubun } from '@/constants/enums';
@@ -126,18 +127,22 @@ const SHIHARAI_CYCLE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
   label: `${i + 1}`,
 }));
 
+// [reuse-useApiForm] 他の CRUD フォーム（JaFormView 等）と同じ submit/エラー
+// マッピング経路に統一する（従来は本ファイル独自に fieldErrors/submitting/
+// handleServerError を持っていた — useApiForm 側の改修（例: 非HTTPエラーの
+// 握りつぶし修正）がこの画面にだけ反映されない不整合を防ぐ）。
+const { fieldErrors, submitting, submit, clearErrors } = useApiForm();
+
 /** 全フィールドを登録モードの空既定値に戻す。 */
 function resetFormState(): void {
   Object.assign(formState, defaultFormState());
-  fieldErrors.value = {};
+  clearErrors();
 }
-
-const fieldErrors = ref<Record<string, string>>({});
-const submitting = ref(false);
 
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const codes = useCodesStore();
 const authStore = useAuthStore();
 
@@ -280,8 +285,9 @@ async function loadDetail(id: number): Promise<void> {
     });
   } catch {
     // axios interceptor が NOT_FOUND / 500 / FORBIDDEN を既にトースト済み。
-    // リダイレクトせずフォームを空のままにし、edit モードで mount する
-    // テストが onMounted で crash しないようにする。
+    // 空の編集フォームのまま留まらせず、他の一覧画面と同じくダッシュボードへ
+    // 戻す（顧客要件 2026-08 — useNotFoundRedirect 共通化）。
+    await redirectToDashboard();
   }
 }
 
@@ -504,33 +510,11 @@ function buildUpdateBody(): UpdateHanbaitenBody {
   };
 }
 
-// ─── サーバエラー処理（DUPLICATE_CODE + VALIDATION_ERROR） ───────────
-
-interface ServerErrorPayload {
-  error_code?: string;
-  message?: string;
-  errors?: Array<{ field?: string; message?: string }>;
-}
-
-function handleServerError(err: unknown): void {
-  const axiosErr = err as AxiosError<ServerErrorPayload>;
-  const data = axiosErr?.response?.data;
-  if (data && Array.isArray(data.errors) && data.errors.length > 0) {
-    fieldErrors.value = Object.fromEntries(
-      data.errors
-        .filter(
-          (e): e is { field: string; message: string } =>
-            typeof e.field === 'string' && typeof e.message === 'string',
-        )
-        .map((e) => [e.field, e.message]),
-    );
-    focusFirstError(FIELD_ORDER, fieldErrors.value); // 先頭エラー項目へフォーカス
-  }
-  // 非フィールドエラー（500、汎用 400）は axios interceptor が
-  // トースト — view で再トーストしない。
-}
-
 // ─── Submit パイプライン ────────────────────────────────────────────
+// エラーマッピング（VALIDATION_ERROR → fieldErrors）と多重送信ガードは
+// useApiForm().submit() に委譲する。DUPLICATE_CODE 等 errors[] を伴わない
+// コードは axios interceptor が既にトースト済みのため、ここで再トースト
+// しない（他の CRUD フォームと同じ規約）。
 
 async function onSubmit(): Promise<void> {
   if (!validateClient()) {
@@ -542,9 +526,8 @@ async function onSubmit(): Promise<void> {
     message.info('変更がありません。');
     return;
   }
-  if (submitting.value) return;
-  submitting.value = true;
-  try {
+
+  await submit(async () => {
     if (isEdit.value && hanbaitenId.value !== null) {
       await updateHanbaiten(hanbaitenId.value, buildUpdateBody());
       notify.updated();
@@ -555,10 +538,12 @@ async function onSubmit(): Promise<void> {
     // 成功時のみ遷移 — API 拒否時は留まり、ユーザーが強調された
     // フィールドエラーを修正できるようにする。
     await router.push({ name: 'HanbaitenList' });
-  } catch (err) {
-    handleServerError(err);
-  } finally {
-    submitting.value = false;
+  });
+
+  // サーバ側 VALIDATION_ERROR が fieldErrors に入った場合、先頭エラー項目へ
+  // フォーカスする（クライアント側検証と同じ体験を揃える）。
+  if (Object.keys(fieldErrors.value).length > 0) {
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
   }
 }
 

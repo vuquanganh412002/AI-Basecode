@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { PERMISSIONS_KEY } from '@/common/decorators/permissions.decorator';
 import { ForbiddenException } from '@/common/exceptions/common.exceptions';
 
 @Injectable()
@@ -9,7 +10,7 @@ export class PermissionsGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const required = this.reflector.get<string[]>(
-      'permissions',
+      PERMISSIONS_KEY,
       context.getHandler(),
     );
     if (!required || required.length === 0) {

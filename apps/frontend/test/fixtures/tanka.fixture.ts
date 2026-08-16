@@ -28,7 +28,7 @@ export interface TankaListResponse {
 }
 
 /**
- * Default detail row used by GET /api/v1/tanka/:tanka_id (SCR-003).
+ * Default detail row used by GET /api/v1/tanka/:tanka_id (ACSMS-SCR-003).
  * Superset of `TankaListItem` — adds `ja_id`, `biko`, `created_at`,
  * `updated_at`.
  */
@@ -113,7 +113,7 @@ export function buildTankaListResponse(
 }
 
 /**
- * Default valid form payload for POST /api/v1/tanka (SCR-003).
+ * Default valid form payload for POST /api/v1/tanka (ACSMS-SCR-003).
  * Per api.md §リクエストパラメータ (POST) — tekiyo_start/end_date required.
  */
 export function buildCreateTankaForm() {
@@ -172,7 +172,7 @@ export const TANKA_TYPE_OPTIONS = [
   { value: 2, label: '配達手数料', label_short: '配達手数料' },
 ];
 
-/** m_code ZEI_KUBUN seed (used by SCR-003 create/edit form). */
+/** m_code ZEI_KUBUN seed (used by ACSMS-SCR-003 create/edit form). */
 export const ZEI_KUBUN_OPTIONS = [
   { value: 1, label: '内税', label_short: '内税' },
   { value: 2, label: '外税', label_short: '外税' },

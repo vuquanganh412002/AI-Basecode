@@ -4,7 +4,7 @@
 import type { AxiosError } from 'axios';
 import axiosInstance from '@/api/axios-instance';
 
-/** 初期データ（API-020-001 §レスポンスデータ）。JASTEM 委託者 + 最終使用支店。 */
+/** 初期データ（ACSMS-API-020-001 §レスポンスデータ）。JASTEM 委託者 + 最終使用支店。 */
 export interface KozaFurikaeInitialData {
   ja_id: number | null;
   jastem_itakusha_code: string;
@@ -22,7 +22,7 @@ export interface KozaFurikaeInitialEnvelope {
   data: KozaFurikaeInitialData;
 }
 
-/** プレビュー要求ボディ（API-020-003, v1.1）。集計フィルタのみ。 */
+/** プレビュー要求ボディ（ACSMS-API-020-003, v1.1）。集計フィルタのみ。 */
 export interface PreviewKozaFurikaeBody {
   target_month: string;
   hikiotoshi_date: string;
@@ -31,7 +31,7 @@ export interface PreviewKozaFurikaeBody {
   koza_shiten_ids?: number[];
 }
 
-/** プレビュー一覧の1行（API-020-003 §レスポンス）。金額は編集可。 */
+/** プレビュー一覧の1行（ACSMS-API-020-003 §レスポンス）。金額は編集可。 */
 export interface KozaPreviewRow {
   dokusya_id: number;
   koza_meigi: string;
@@ -55,7 +55,7 @@ export interface ExportKozaFurikaeRow {
   furikae_kingaku: number;
 }
 
-/** POST /api/v1/koza-furikae/export のリクエストボディ（API-020-002 §リクエストパラメータ）。 */
+/** POST /api/v1/koza-furikae/export のリクエストボディ（ACSMS-API-020-002 §リクエストパラメータ）。 */
 export interface ExportKozaFurikaeBody {
   target_month: string;
   hikiotoshi_date: string;

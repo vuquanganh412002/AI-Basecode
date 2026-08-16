@@ -114,7 +114,7 @@ describe('JaController (HTTP)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   // ───────────────────────────────────────────────────────────────────
-  // GET /api/v1/ja/:ja_id  (API-005-001)
+  // GET /api/v1/ja/:ja_id  (ACSMS-API-005-001)
   // ───────────────────────────────────────────────────────────────────
   describe('GET /api/v1/ja/:ja_id', () => {
     it('should return 200 with JA detail when NICHINO_ADMIN requests valid ja_id', async () => {
@@ -187,7 +187,7 @@ describe('JaController (HTTP)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/ja  (API-005-002)
+  // POST /api/v1/ja  (ACSMS-API-005-002)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/ja', () => {
     const validBody = {
@@ -300,7 +300,7 @@ describe('JaController (HTTP)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // PUT /api/v1/ja/:ja_id  (API-005-003)
+  // PUT /api/v1/ja/:ja_id  (ACSMS-API-005-003)
   // ───────────────────────────────────────────────────────────────────
   describe('PUT /api/v1/ja/:ja_id', () => {
     const fullBody = {
@@ -425,7 +425,7 @@ describe('JaController (HTTP)', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // GET /api/v1/ja  (API-004-001 — list / search)
+  // GET /api/v1/ja  (ACSMS-API-004-001 — list / search)
   // ───────────────────────────────────────────────────────────────────
   describe('GET /api/v1/ja', () => {
     function makeListResponse(rows: number, total = rows) {

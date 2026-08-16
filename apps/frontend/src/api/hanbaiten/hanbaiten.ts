@@ -1,5 +1,5 @@
 // /api/v1/hanbaiten 用の手書き wrapper。
-// SCR-018 (HanbaitenListView) が import し、unit spec が
+// ACSMS-SCR-018 (HanbaitenListView) が import し、unit spec が
 // vi.mock('@/api/hanbaiten/hanbaiten') でモックする関数群。
 // 型は docs/design/ACSMS-SCR-018/ACSMS-SCR-018-api.md (v1.2) に準拠。
 
@@ -57,7 +57,7 @@ export interface ListHanbaitenQuery {
   /** true:廃店レコードも含む / false（既定）:廃店を除外。 */
   haiten_flg?: boolean;
   /**
-   * 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。参照する配達
+   * 有効単価フラグ（ACSMS-SCR-021 error gate 連携・顧客要件2026-07 改訂）。参照する配達
    * 手数料単価(tanka_type=2)の active_flg で絞り込む: true=有効単価を参照する販売店
    * のみ、false=失効単価を参照する販売店のみ、省略=両方（送らない）。
    */

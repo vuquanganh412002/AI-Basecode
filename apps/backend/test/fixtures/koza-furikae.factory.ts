@@ -41,7 +41,7 @@ export function buildExportKozaFurikaeQuery(
   } as any;
 }
 
-/** Valid preview body (API-020-003, v1.1). 集計フィルタのみ（JASTEM/金額なし）。 */
+/** Valid preview body (ACSMS-API-020-003, v1.1). 集計フィルタのみ（JASTEM/金額なし）。 */
 export function buildPreviewKozaFurikaeQuery(
   overrides: Record<string, unknown> = {},
 ) {

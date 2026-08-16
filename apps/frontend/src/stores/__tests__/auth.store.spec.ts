@@ -188,6 +188,23 @@ describe('useAuthStore', () => {
       expect(store.user).toBeNull();
       expect(store.isAuthenticated).toBe(false);
     });
+
+    it('should keep the user logged in and return true when refresh succeeds but codes.loadAll() rejects (regression)', async () => {
+      // A transient /codes failure is unrelated to session validity — it
+      // must NOT log out a user whose session cookie is still valid.
+      vi.mocked(authApi.refresh).mockResolvedValue({ user: buildUser() });
+      codesLoadAll.mockRejectedValueOnce({
+        response: { data: { error_code: 'INTERNAL_SERVER_ERROR' } },
+      });
+      const store = useAuthStore();
+
+      const ok = await store.refreshSession();
+
+      expect(ok).toBe(true);
+      expect(store.user?.login_id).toBe('admin01');
+      expect(store.isAuthenticated).toBe(true);
+      expect(codesReset).not.toHaveBeenCalled();
+    });
   });
 
   // ───────────────────────────────────────────────────────────────────

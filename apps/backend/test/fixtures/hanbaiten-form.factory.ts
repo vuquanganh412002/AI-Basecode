@@ -1,16 +1,16 @@
 // Screen: ACSMS-SCR-017 — 販売店情報登録画面
 //
 // Fixture builders for the hanbaiten DETAIL / CREATE / UPDATE flow
-// shared between SCR-017 service / controller / dto / integration
-// specs. The SCR-018 fixture (`hanbaiten.factory.ts`) covers only the
-// LIST shape — SCR-017 surfaces ~28 columns (bank/koza/torihikisaki_no
+// shared between ACSMS-SCR-017 service / controller / dto / integration
+// specs. The ACSMS-SCR-018 fixture (`hanbaiten.factory.ts`) covers only the
+// LIST shape — ACSMS-SCR-017 surfaces ~28 columns (bank/koza/torihikisaki_no
 // etc.) so we keep a separate factory rather than widening the list
-// factory and forcing every SCR-018 spec to ignore extra props.
+// factory and forcing every ACSMS-SCR-018 spec to ignore extra props.
 
 import type { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 
 /**
- * Joined detail row shape returned by API-017-001 /-002 /-003.
+ * Joined detail row shape returned by ACSMS-API-017-001 /-002 /-003.
  * Mirrors api.md §3 レスポンスデータ verbatim.
  */
 export interface HanbaitenDetailResponse {

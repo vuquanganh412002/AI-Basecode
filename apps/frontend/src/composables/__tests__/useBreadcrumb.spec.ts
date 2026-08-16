@@ -28,12 +28,14 @@ async function mountAt(routes: RouteRecordRaw[], path: string) {
 }
 
 describe('useBreadcrumb', () => {
-  it('always starts with ホーム linked to /', async () => {
+  it('always starts with ホーム linked to the Dashboard named route (not a path literal)', async () => {
+    // vue.md §Router — named routes only. A path literal ('/') would
+    // silently break if the root redirect ever changes.
     const items = await mountAt(
       [{ path: '/', name: 'H', component: { template: '<div/>' } }],
       '/',
     );
-    expect(items[0]).toEqual({ label: 'ホーム', to: '/' });
+    expect(items[0]).toEqual({ label: 'ホーム', to: { name: 'Dashboard' } });
   });
 
   it('appends a string `meta.breadcrumb` linked to the segment path', async () => {
@@ -49,7 +51,7 @@ describe('useBreadcrumb', () => {
       '/ja',
     );
     expect(items).toEqual([
-      { label: 'ホーム', to: '/' },
+      { label: 'ホーム', to: { name: 'Dashboard' } },
       { label: 'JAマスタ一覧', to: '/ja' },
     ]);
   });
@@ -72,7 +74,7 @@ describe('useBreadcrumb', () => {
       '/ja/create',
     );
     expect(items).toEqual([
-      { label: 'ホーム', to: '/' },
+      { label: 'ホーム', to: { name: 'Dashboard' } },
       { label: 'JAマスタ一覧', to: '/ja' },
       { label: 'JAマスタ登録画面' },
     ]);

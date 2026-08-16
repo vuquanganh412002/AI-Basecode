@@ -197,7 +197,7 @@ describe('AccountController (HTTP)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-024 — アカウントマスタ明細検索画面 (GET + DELETE /accounts).
+// ACSMS-SCR-024 — アカウントマスタ明細検索画面 (GET + DELETE /accounts).
 // Sibling top-level describe so its PermissionsGuard override and
 // cookie-parser middleware don't leak into the header-MFA block above.
 // ═══════════════════════════════════════════════════════════════════════
@@ -227,7 +227,7 @@ describe('AccountController (HTTP) — SCR-024 (search + delete)', () => {
 
   beforeEach(async () => {
     service = {
-      // SCR-024 endpoints
+      // ACSMS-SCR-024 endpoints
       searchAccounts: jest.fn(),
       deleteAccount: jest.fn(),
       // Existing endpoint stub so DI compiles
@@ -444,7 +444,7 @@ describe('AccountController (HTTP) — SCR-024 (search + delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-025 — アカウントマスタ登録画面 (GET/POST/PUT /accounts). Sibling
+// ACSMS-SCR-025 — アカウントマスタ登録画面 (GET/POST/PUT /accounts). Sibling
 // top-level describe with its own service-mock shape + permissions
 // triple (account.view + account.create + account.update).
 // ═══════════════════════════════════════════════════════════════════════
@@ -474,11 +474,11 @@ describe('AccountController (HTTP) — SCR-025 (detail + create + update)', () =
 
   beforeEach(async () => {
     service = {
-      // SCR-025 endpoints
+      // ACSMS-SCR-025 endpoints
       getAccountDetail: jest.fn(),
       createAccount: jest.fn(),
       updateAccount: jest.fn(),
-      // Existing endpoints (SCR-024 + header MFA) — stubbed so DI compiles.
+      // Existing endpoints (ACSMS-SCR-024 + header MFA) — stubbed so DI compiles.
       searchAccounts: jest.fn(),
       deleteAccount: jest.fn(),
       toggleMfa: jest.fn(),
@@ -787,10 +787,10 @@ describe('AccountController (HTTP) — SCR-025 (detail + create + update)', () =
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// COMMON-005 — GET /api/v1/account/dropdown (consumed by SCR-030 ログ
+// COMMON-005 — GET /api/v1/account/dropdown (consumed by ACSMS-SCR-030 ログ
 // 参照画面). Sibling top-level describe — its PermissionsGuard variant
-// asserts ForbiddenException directly (different from the SCR-024 /
-// SCR-025 boolean-return variant), so it stays isolated.
+// asserts ForbiddenException directly (different from the ACSMS-SCR-024 /
+// ACSMS-SCR-025 boolean-return variant), so it stays isolated.
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('AccountController.getAccountDropdown (COMMON-005)', () => {
@@ -815,7 +815,7 @@ describe('AccountController.getAccountDropdown (COMMON-005)', () => {
 
   const permissionsGuard: CanActivate = {
     canActivate: () => {
-      // COMMON-005 inherits permission from the calling screen. SCR-030
+      // COMMON-005 inherits permission from the calling screen. ACSMS-SCR-030
       // calls it with log.view — gate on that here.
       if (!currentPermissions.includes('log.view')) {
         throw new ForbiddenException({

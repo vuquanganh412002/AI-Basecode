@@ -1,5 +1,5 @@
 // join 済み m_account 行（m_roles × m_todofuken × m_ja × m_kanri_shiten,
-// SCR-025 api.md §4.3/§4.5）→ snake_case 詳細応答形状への純粋変換。Nest DI / repo 不要で
+// ACSMS-SCR-025 api.md §4.3/§4.5）→ snake_case 詳細応答形状への純粋変換。Nest DI / repo 不要で
 // どこからでも import 可（service, tests）。
 
 import { toIso, toNumber } from '@/common/utils/mapper-helpers';
@@ -64,7 +64,7 @@ export interface AccountDetail {
 
 // `toIso` / `toNumber` は `@/common/utils/mapper-helpers` へ移動（冒頭 import 参照）。
 
-/** join 行 → SCR-025 詳細応答形状へ変換。 */
+/** join 行 → ACSMS-SCR-025 詳細応答形状へ変換。 */
 export function toAccountDetail(row: AccountDetailRow): AccountDetail {
   return {
     account_id: Number(row.account_id),

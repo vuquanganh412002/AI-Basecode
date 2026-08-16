@@ -12,7 +12,7 @@
  * NICHINO_ADMIN は api.md §4.2 で shiten.* 権限を持たず router guard が拒否する。
  * フォームは JA スコープの session（session.ja_id 非 null）を前提とする。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 
@@ -22,6 +22,7 @@ import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import { focusFirstError } from '@/utils/form-focus';
 import {
@@ -51,8 +52,9 @@ import { useAuthStore } from '@/stores/auth.store';
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const authStore = useAuthStore();
-const { fieldErrors, submitting, submit } = useApiForm();
+const { fieldErrors, submitting, submit, clearErrors } = useApiForm();
 
 /** パスの数値 id。登録モードでは undefined。 */
 const shitenIdParam = computed<number | undefined>(() => {
@@ -103,73 +105,103 @@ type FormState = Omit<CreateShitenRequest, 'kanri_shiten_id'> & {
   kanri_shiten_id: number | undefined;
 };
 
-const formState = reactive<FormState>({
-  shiten_code: '',
-  shiten_name: '',
-  shiten_name_kana: '',
-  kanri_shiten_id: undefined,
-  kinyu_shiten_flg: false,
-  // JASTEM 店舗単位 4列 — '' で初期化し、編集プリロードと POST body が常に
-  // 文字列を持つようにする（BE 列は NOT NULL）。
-  jastem_toriatsukai_tenpo_code: '',
-  jastem_tenpo_name: '',
-  jastem_tyokin_shubetsu: '',
-  jastem_koza_no: '',
-  biko: '',
-});
+/** フォーム初期値。登録モード復帰時（[route-reuse] リセット）にも使う。 */
+function defaultFormState(): FormState {
+  return {
+    shiten_code: '',
+    shiten_name: '',
+    shiten_name_kana: '',
+    kanri_shiten_id: undefined,
+    kinyu_shiten_flg: false,
+    // JASTEM 店舗単位 4列 — '' で初期化し、編集プリロードと POST body が常に
+    // 文字列を持つようにする（BE 列は NOT NULL）。
+    jastem_toriatsukai_tenpo_code: '',
+    jastem_tenpo_name: '',
+    jastem_tyokin_shubetsu: '',
+    jastem_koza_no: '',
+    biko: '',
+  };
+}
+
+const formState = reactive<FormState>(defaultFormState());
 
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
 
 /* ─── ライフサイクル ───────────────────────────────────────────────── */
 
-onMounted(async () => {
+function resetFormState(): void {
+  Object.assign(formState, defaultFormState());
+  loadedKanriShitenId.value = null;
+  clientErrors.value = {};
+  clearErrors();
+}
+
+async function loadDetail(id: number): Promise<void> {
+  try {
+    const resp = await getShiten(id);
+    // role-5 view-only チェック用に、ロードした支店の親 kanri_shiten を控える
+    // （[role5-view-only]）。
+    loadedKanriShitenId.value = resp.data.kanri_shiten_id ?? null;
+    Object.assign(formState, {
+      shiten_code: resp.data.shiten_code,
+      shiten_name: resp.data.shiten_name,
+      shiten_name_kana: resp.data.shiten_name_kana ?? '',
+      kanri_shiten_id: resp.data.kanri_shiten_id,
+      kinyu_shiten_flg: !!resp.data.kinyu_shiten_flg,
+      // JASTEM 店舗単位 4列 — `?? ''` は migration 以前のレガシー行
+      // （旧 BE デプロイの応答に列がない場合）を守る。
+      jastem_toriatsukai_tenpo_code: resp.data.jastem_toriatsukai_tenpo_code ?? '',
+      jastem_tenpo_name: resp.data.jastem_tenpo_name ?? '',
+      jastem_tyokin_shubetsu: resp.data.jastem_tyokin_shubetsu ?? '',
+      jastem_koza_no: resp.data.jastem_koza_no ?? '',
+      biko: resp.data.biko ?? '',
+    });
+    await editGuard.capture();
+  } catch {
+    // 404 / 403 — axios interceptor が既にトースト済み。この view は
+    // 遷移させる（顧客要件 2026-08 — useNotFoundRedirect 共通化）。
+    await redirectToDashboard();
+  }
+}
+
+/**
+ * [route-reuse] 登録（`/shiten/create`）と編集（`/shiten/:id/edit`）は同じ
+ * ShitenFormView インスタンスに解決されるため、vue-router はコンポーネントを
+ * 再利用する — 編集→登録や編集id→別編集id へ遷移しても `onMounted` は再実行
+ * されない。ここで再適用しないと、フォームが前レコードのデータを表示し続ける
+ * （HanbaitenFormView と同じ既知パターン）。id 変化時に再初期化する。
+ */
+async function applyRouteMode(): Promise<void> {
+  resetFormState();
+  if (shitenIdParam.value !== undefined) {
+    await loadDetail(shitenIdParam.value);
+  }
+}
+
+onMounted(() => {
   // 管理支店 dropdown（ACSMS-API-COMMON-004）— 呼び出し元の JA にスコープ
   // （cascade 元）。NICHINO_ADMIN は ja_id を持たずどのみち到達不可（router guard が
   // admin の持たない shiten.create / shiten.update で拒否）。JA レベル3ロールは
-  // 常に非 null の session.ja_id を持つ。
+  // 常に非 null の session.ja_id を持つ。ログイン中の JA は route 遷移で変わらない
+  // ため、ここは一度だけ取得すれば十分（applyRouteMode 側で再取得しない）。
   const jaId = authStore.user?.ja_id;
   if (jaId !== null && jaId !== undefined) {
-    try {
-      const resp = await getKanriShitenDropdown(jaId);
-      kanriShitenOptions.value = resp.data;
-    } catch {
-      // axios interceptor が 403/500 を既にトースト済み。
-      kanriShitenOptions.value = [];
-    }
+    void getKanriShitenDropdown(jaId)
+      .then((resp) => {
+        kanriShitenOptions.value = resp.data;
+      })
+      .catch(() => {
+        // axios interceptor が 403/500 を既にトースト済み。
+        kanriShitenOptions.value = [];
+      });
   }
 
-  // 編集モードの事前ロード。
-  if (shitenIdParam.value !== undefined) {
-    try {
-      const resp = await getShiten(shitenIdParam.value);
-      // role-5 view-only チェック用に、ロードした支店の親 kanri_shiten を控える
-      // （[role5-view-only]）。
-      loadedKanriShitenId.value = resp.data.kanri_shiten_id ?? null;
-      Object.assign(formState, {
-        shiten_code: resp.data.shiten_code,
-        shiten_name: resp.data.shiten_name,
-        shiten_name_kana: resp.data.shiten_name_kana ?? '',
-        kanri_shiten_id: resp.data.kanri_shiten_id,
-        kinyu_shiten_flg: !!resp.data.kinyu_shiten_flg,
-        // JASTEM 店舗単位 4列 — `?? ''` は migration 以前のレガシー行
-        // （旧 BE デプロイの応答に列がない場合）を守る。
-        jastem_toriatsukai_tenpo_code: resp.data.jastem_toriatsukai_tenpo_code ?? '',
-        jastem_tenpo_name: resp.data.jastem_tenpo_name ?? '',
-        jastem_tyokin_shubetsu: resp.data.jastem_tyokin_shubetsu ?? '',
-        jastem_koza_no: resp.data.jastem_koza_no ?? '',
-        biko: resp.data.biko ?? '',
-      });
-      await editGuard.capture();
-    } catch {
-      // 404 / 403 — axios interceptor がトーストし、この view は遷移させる。
-      try {
-        await router.push({ name: 'Dashboard' });
-      } catch {
-        /* テスト用ルーターは Dashboard 未定義の場合あり — 無視 */
-      }
-    }
-  }
+  void applyRouteMode();
+});
+
+watch(shitenIdParam, () => {
+  void applyRouteMode();
 });
 
 /* ─── 検証（screen-design.md §3.1 に準拠） ─────────────────────────── */
@@ -368,7 +400,7 @@ async function onFormSubmit(): Promise<void> {
 }
 
 /**
- * 戻るボタン — 一覧へ直接遷移（確認モーダルなし、SCR-009 のポップアップ廃止決定に合わせる）。
+ * 戻るボタン — 一覧へ直接遷移（確認モーダルなし、ACSMS-SCR-009 のポップアップ廃止決定に合わせる）。
  */
 function onBack(): void {
   router.push({ name: 'ShitenList' });

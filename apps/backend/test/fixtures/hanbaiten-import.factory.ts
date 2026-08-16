@@ -4,8 +4,8 @@
 // canonical request bodies — one per import_mode — plus a row builder
 // that returns a fully-populated 23-column row matching api.md §1.
 //
-// Used in: hanbaiten.service.spec (SCR-019 sibling describe),
-//          hanbaiten.controller.spec (SCR-019 sibling describe),
+// Used in: hanbaiten.service.spec (ACSMS-SCR-019 sibling describe),
+//          hanbaiten.controller.spec (ACSMS-SCR-019 sibling describe),
 //          dto/import-hanbaiten.dto.spec,
 //          test/integration/hanbaiten-import.integration.spec.
 

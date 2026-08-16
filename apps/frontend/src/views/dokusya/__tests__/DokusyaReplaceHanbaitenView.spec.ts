@@ -5,9 +5,9 @@
 // docs/design/ACSMS-SCR-015/screen-design.md (機能定義 B + メッセージ情報)
 // cross-referenced with docs/design/ACSMS-SCR-015/index.html (labels /
 // columns / buttons) and docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md
-// (API-015-001 search, API-015-002 replace, エラー一覧).
+// (ACSMS-API-015-001 search, ACSMS-API-015-002 replace, エラー一覧).
 //
-// Two SCR-015 endpoints (mocked here) — /gen-code-frontend adds them to
+// Two ACSMS-SCR-015 endpoints (mocked here) — /gen-code-frontend adds them to
 // src/api/dokusya/dokusya.ts:
 //   searchDokusyaForReplace  → ACSMS-API-015-001 (検索 + ページネーション)
 //   replaceDokusyaHanbaiten  → ACSMS-API-015-002 (一括置換)
@@ -28,11 +28,11 @@ import {
   buildReplaceResultResponse,
 } from '@test/fixtures/dokusya-replace.fixture';
 
-// ─── SCR-015 API wrapper (search + replace) ─────────────────────────
+// ─── ACSMS-SCR-015 API wrapper (search + replace) ─────────────────────────
 //
 // /gen-code-frontend will add searchDokusyaForReplace +
 // replaceDokusyaHanbaiten to `src/api/dokusya/dokusya.ts` alongside the
-// existing SCR-011/013/014 set. Re-stub the whole module so the view's
+// existing ACSMS-SCR-011/013/014 set. Re-stub the whole module so the view's
 // other imports continue to resolve when the module is shared.
 vi.mock('@/api/dokusya/dokusya', () => ({
   getDokusya: vi.fn(),
@@ -250,6 +250,29 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     const { wrapper } = await renderView({ seedTekiyo: false });
     const labels = wrapper.findAll('div.text-text-main.font-medium').map((l) => l.text());
     expect(labels.some((t) => t.includes('適用日'))).toBe(true);
+  });
+
+  // ─── 検索フィールドの文字数上限（タスク #57608）────────────────────
+  // screen-design.md §3 検索条件テーブルの文字数列（組合員コードは
+  // ACSMS-SCR-011 §7 の業務ルール「半角数字10桁まで」に合わせる）。
+  it('should cap 組合員コード input at 10 characters (task #57608)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    expect(wrapper.find('#kumiaiin_code').attributes('maxlength')).toBe('10');
+  });
+
+  it('should cap 氏名 input at 100 characters (task #57608)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    expect(wrapper.find('#shimei').attributes('maxlength')).toBe('100');
+  });
+
+  it('should cap かな氏名 input at 200 characters (task #57608)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    expect(wrapper.find('#shimei_kana').attributes('maxlength')).toBe('200');
+  });
+
+  it('should cap 配達先住所 input at 300 characters (task #57608)', async () => {
+    const { wrapper } = await renderView({ seedTekiyo: false });
+    expect(wrapper.find('#haitatsu_address').attributes('maxlength')).toBe('300');
   });
 
   // ─── 購読種別 radio + 適用日ルール（顧客要件 2026-07）────────────────────────

@@ -11,7 +11,7 @@ import { RolesController } from './roles.controller';
 import { RolesService } from './roles.service';
 
 /**
- * SCR-027 ロール管理画面 module — owns `/api/v1/roles/*` AND
+ * ACSMS-SCR-027 ロール管理画面 module — owns `/api/v1/roles/*` AND
  * `/api/v1/permissions` (the permissions list is consumed only by this
  * screen's checkbox grid).
  *

@@ -19,6 +19,7 @@ reviewer: Nguyen Huy Dat
 | No. | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-05-22 | 1.0 | Kieu Thi Diem | Tạo mới | Nguyen Huy Dat |  |
+| 2 | 2026-08-12 | 1.1 | Tran Duc Tuyen | Sửa lỗi thiếu đồng bộ với screen-design.md: chức năng xuất CSV chỉ xuất "trang đang hiển thị" (không xuất toàn bộ) nên không tồn tại kiểm tra giới hạn 5,000 dòng. Đánh dấu ACSMS-TC-030-034 là đã bãi bỏ (giữ nguyên ID, không đánh số lại). Xóa cụm "trong phạm vi 5,000 dòng" khỏi tiền đề/kết quả mong đợi của ACSMS-TC-030-033 | | |
 
 
 ## システム概要
@@ -1980,14 +1981,14 @@ Cột「結果」hiển thị badge màu vàng「警告」
 
 # カテゴリ 6: Logic nghiệp vụ — Xuất CSV (Function — Export)
 
-## ACSMS-TC-030-033 — Xuất CSV case bình thường (trong 5,000 dòng + UTF-8 BOM)
+## ACSMS-TC-030-033 — Xuất CSV case bình thường (chỉ trang đang hiển thị + UTF-8 BOM)
 
 - 観点ID: VP-D-07
 - 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
-  - ・Trong khoảng thời gian đối tượng có log trong phạm vi 5,000 dòng
-  - ・Đã set điều kiện tìm kiếm phù hợp
+  - ・Trong khoảng thời gian đối tượng có log tồn tại
+  - ・Đã set điều kiện tìm kiếm phù hợp (áp dụng cùng điều kiện tìm kiếm/thứ tự sắp xếp/page/per_page với danh sách)
 
 ### 手順
 
@@ -2006,13 +2007,13 @@ Kiểm tra đầu binary của file CSV
 ### 期待結果
 
 ステップ1：
-Kết quả tìm kiếm được hiển thị, số dòng trong phạm vi 5,000 dòng
+Kết quả tìm kiếm được hiển thị
 
 ステップ2：
 Trả về HTTP 200, header `Content-Type: text/csv; charset=utf-8` được gắn vào, file CSV được download, toast `CSVファイルをダウンロードしました。` được hiển thị
 
 ステップ3：
-Tiếng Nhật hiển thị đúng không bị lỗi font, toàn bộ record đều được bao gồm
+Tiếng Nhật hiển thị đúng không bị lỗi font, toàn bộ record của trang đang hiển thị đều được bao gồm (không phải xuất toàn bộ)
 
 ステップ4：
 3 byte đầu của file là UTF-8 BOM (`EF BB BF`)
@@ -2045,45 +2046,21 @@ Tiếng Nhật hiển thị đúng không bị lỗi font, toàn bộ record đ�
 
 (なし)
 
-## ACSMS-TC-030-034 — Lỗi xuất CSV khi vượt quá 5,000 dòng
+## ACSMS-TC-030-034 — 【廃止】Lỗi xuất CSV khi vượt quá 5,000 dòng
 
-- 観点ID: VP-D-07
-- 種類: Abnormal (異常)
-- 前提条件:
-  - ・role: NICHINO_ADMIN
-  - ・Trạng thái có hơn 5,001 dòng log khớp với điều kiện tìm kiếm
+**Test case này đã bị bãi bỏ. Không cần thực hiện.**
 
-### 手順
+Theo screen-design.md §4 Xuất CSV (bản sửa 2026-08), chức năng xuất CSV được đổi thành chỉ
+xuất "trang đang hiển thị" (cùng điều kiện tìm kiếm/thứ tự sắp xếp/page/per_page với danh
+sách, tối đa 100 dòng). Vì 1 trang luôn nằm trong per_page (tối đa 100 dòng), tình huống vượt
+quá 5,000 dòng không còn xảy ra nữa, nên kiểm tra giới hạn số dòng (ACSMS-MSG-030-005) và test
+case này không còn áp dụng.
 
-ステップ1：
-Chỉ định khoảng thời gian rộng (ví dụ: 365 ngày gần nhất), tìm kiếm với loại log「すべて」
+`ExportLimitExceededException` tương ứng (chưa từng được implement thực sự ở backend) và unit
+test dựa trên nó cũng đã được xóa (backend code review finding #19).
 
-ステップ2：
-Xác nhận số kết quả tìm kiếm vượt quá 5,000 dòng
-
-ステップ3：
-Nhấn button「CSV出力」
-
-ステップ4：
-Kiểm tra response GET `/api/v1/log/export` trên tab Network của DevTools
-
-### 期待結果
-
-ステップ1：
-Điều kiện tìm kiếm phạm vi rộng được set
-
-ステップ2：
-Số kết quả tìm kiếm hiển thị ở phía trên danh sách (vượt 5,000 dòng)
-
-ステップ3：
-Hiển thị toast message lỗi `検索結果が5,000件を超えています。条件を絞り込んでください。`, CSV không được download
-
-ステップ4：
-Trả về HTTP 409 (`error_code: EXPORT_LIMIT_EXCEEDED`, message `検索結果が5,000件を超えています。条件を絞り込んでください。`)
-
-補足：
-・Áp dụng verbatim văn bản của message code ACSMS-MSG-030-005
-・Backend kiểm tra giới hạn bằng count query trước khi lấy data
+Giữ nguyên ID (không đánh số lại) để đảm bảo có thể truy vết lý do xóa; các ID tiếp theo từ
+TC-030-035 không bị dịch số.
 
 ### テスト結果（1回目）
 

@@ -49,7 +49,7 @@ const previewData = ref<ZougenNichinoPreviewData | null>(null);
 /** 対象データなし（BE が 200 + reports:[] を返す）→ ACSMS-MSG-029-002 を表示。 */
 const noDataMessage = ref(false);
 
-/** 1ページ=A4 1枚＝15販売店行（SCR-028 と同方針。BEは購読者単位でSQLページング）。 */
+/** 1ページ=A4 1枚＝15販売店行（ACSMS-SCR-028 と同方針。BEは購読者単位でSQLページング）。 */
 // 1管理支店あたり1ページの販売店行上限（BE の ZOUGEN_NICHINO_PER_PAGE と一致させる）。
 // 行は単一行で均一のため A4 に収まる概算(~33)に対し安全側で 28。
 const ZOUGEN_NICHINO_PER_PAGE = 28;
@@ -142,8 +142,17 @@ async function fetchPage(page: number): Promise<void> {
   }
 }
 
+/** 管理支店ごとの備考入力をクリアする（新規プレビュー実行時）。 */
+function clearRemarks(): void {
+  Object.keys(remarks).forEach((key) => delete remarks[Number(key)]);
+}
+
 async function onPreview(): Promise<void> {
   if (!validate()) return;
+  // 条件を変えて再プレビューした際、前回入力した備考が同じ kanri_shiten_id の
+  // 別期間の帳票に紛れ込まないよう、新規プレビューのたびに一旦クリアする
+  // （ページ送り onPageChange は同一プレビューの継続のためクリアしない）。
+  clearRemarks();
   currentPage.value = 1;
   await fetchPage(1);
 }
@@ -228,14 +237,15 @@ defineExpose({ formState });
              （コード/名称検索、50件ずつ無限スクロール）。ドロップダウン内の
              「全て選択」でスコープ内の全管理支店を一括選択＝全件出力（顧客要件 2026-07）。 -->
         <div>
-          <div class="text-sm font-medium text-text-main mb-2">
+          <label for="zn-kanri-shiten-select" class="block text-sm font-medium text-text-main mb-2">
             管理支店<span class="text-error ml-1">*</span>
-          </div>
+          </label>
           <p v-if="fieldErrors.kanri_shiten_id" class="text-error text-sm mb-2">
             {{ fieldErrors.kanri_shiten_id }}
           </p>
           <BaseKanriShitenSelect
             v-if="jaId != null"
+            id="zn-kanri-shiten-select"
             v-model:value="formState.kanri_shiten_id"
             :ja-id="jaId"
             placeholder="管理支店を選択（「全て選択」で全件）"
@@ -386,19 +396,20 @@ defineExpose({ formState });
             />
           </div>
         </div>
-
-        <!-- ページャ（1ページ=1管理支店。各ページを別APIで再取得）— 共通 BaseReportPager
-             で SCR-026 と統一。 -->
-        <BaseReportPager
-          :current="currentPage"
-          :page-no="previewData?.page_no ?? 1"
-          :total-pages="previewData?.total_pages ?? 1"
-          :per-page="previewData?.per_page ?? ZOUGEN_NICHINO_PER_PAGE"
-          :total-rows="previewData?.total_rows ?? 0"
-          data-test="zougen-nichino-pager"
-          @change="onPageChange"
-        />
       </div>
+
+      <!-- ページャ（1ページ=1管理支店。各ページを別APIで再取得）— 共通 BaseReportPager
+           で ACSMS-SCR-026/028 と統一（横スクロール領域の外に置き、テーブルが横に
+           はみ出す幅でもページャがスクロールで隠れないようにする）。 -->
+      <BaseReportPager
+        :current="currentPage"
+        :page-no="previewData?.page_no ?? 1"
+        :total-pages="previewData?.total_pages ?? 1"
+        :per-page="previewData?.per_page ?? ZOUGEN_NICHINO_PER_PAGE"
+        :total-rows="previewData?.total_rows ?? 0"
+        data-test="zougen-nichino-pager"
+        @change="onPageChange"
+      />
     </div>
   </div>
 </template>

@@ -8,8 +8,8 @@ import {
 } from 'typeorm';
 
 /**
- * `t_file_upload`（アップロードファイルのメタデータ）。SCR-022（ファイル
- * ダウンロード一覧／プレビュー／ダウンロード）が参照。書き込みは SCR-021 /
+ * `t_file_upload`（アップロードファイルのメタデータ）。ACSMS-SCR-022（ファイル
+ * ダウンロード一覧／プレビュー／ダウンロード）が参照。書き込みは ACSMS-SCR-021 /
  * 取込画面シリーズ。
  *
  * NULL許容（`docs/database/database-design.md`）:

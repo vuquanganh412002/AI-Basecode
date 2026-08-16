@@ -66,7 +66,7 @@ export function buildTankaList(
 
 /**
  * Default-valid CreateTankaDto payload — every required field per
- * `docs/design/ACSMS-SCR-003/ACSMS-SCR-003-api.md` §API-003-002
+ * `docs/design/ACSMS-SCR-003/ACSMS-SCR-003-api.md` §ACSMS-API-003-002
  * リクエストパラメータ. Optional fields included with sensible defaults so
  * happy-path tests don't have to repeat them.
  */
@@ -91,7 +91,7 @@ export function buildCreateTankaPayload(overrides: Record<string, unknown> = {})
 
 /**
  * Default-valid UpdateTankaDto payload. Same shape as Create MINUS
- * `tanka_code` — per api.md §API-003-003 note: "tanka_code は更新不可".
+ * `tanka_code` — per api.md §ACSMS-API-003-003 note: "tanka_code は更新不可".
  */
 export function buildUpdateTankaPayload(overrides: Record<string, unknown> = {}) {
   return {

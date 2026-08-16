@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-031 — お知らせ一覧画面
 //
 // Drives src/modules/oshirase/dto/search-oshirase.dto.ts.
-// Validation rules sourced from api.md §4.1 of API-031-001.
+// Validation rules sourced from api.md §4.1 of ACSMS-API-031-001.
 
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';

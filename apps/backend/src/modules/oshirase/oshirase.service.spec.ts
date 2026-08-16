@@ -3,8 +3,8 @@
 //
 // Both SCRs share the same OshiraseService class. Tests are organised
 // as two sibling top-level describe blocks so each has its own mock
-// scope — SCR-001 uses a 2-arg constructor (repo + codeService) for
-// the public `findLogin` path, while SCR-031 boots the service with
+// scope — ACSMS-SCR-001 uses a 2-arg constructor (repo + codeService) for
+// the public `findLogin` path, while ACSMS-SCR-031 boots the service with
 // the optional auditLog + dataSource deps. Spec count + assertions
 // remain 1:1 with the originals; only the location changed (merged
 // from __tests__/ into this file so the module follows "1 source =
@@ -187,9 +187,9 @@ describe('OshiraseService — SCR-001 (public findLogin)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-010 — menu screen list (authenticated getMenuList). Own describe so
+// ACSMS-SCR-010 — menu screen list (authenticated getMenuList). Own describe so
 // the query-builder mock (needs getMany + getOne for the two parallel
-// queries) stays isolated from the SCR-001 block.
+// queries) stays isolated from the ACSMS-SCR-001 block.
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('OshiraseService — SCR-010 (menu getMenuList)', () => {
@@ -370,9 +370,9 @@ describe('OshiraseService — SCR-010 (menu getMenuList)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-031 — admin CRUD endpoints (separate top-level describe so its
+// ACSMS-SCR-031 — admin CRUD endpoints (separate top-level describe so its
 // 4-arg constructor — repo + codeService + auditLog + dataSource — and
-// txManager mock setup don't leak into the SCR-001 public-path block
+// txManager mock setup don't leak into the ACSMS-SCR-001 public-path block
 // above).
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -498,7 +498,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-031-001 — getList
+  // ACSMS-API-031-001 — getList
   // ═══════════════════════════════════════════════════════════════════
   describe('getList', () => {
     it('should return paginated response with data + meta keys when called', async () => {
@@ -538,7 +538,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
           title: 'システムメンテナンスのお知らせ',
         }),
       );
-      // [no-labels-policy] Authenticated SCR-031 list no longer emits
+      // [no-labels-policy] Authenticated ACSMS-SCR-031 list no longer emits
       // *_label fields; FE resolves via useCodesStore().label(...).
       expect(result.data[0]).not.toHaveProperty('oshirase_type_label');
       expect(result.data[0]).not.toHaveProperty('publish_location_label');
@@ -608,7 +608,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-031-002 — getDetail
+  // ACSMS-API-031-002 — getDetail
   // ═══════════════════════════════════════════════════════════════════
   describe('getDetail', () => {
     it('should return the detail with raw code values when oshirase_id exists (labels resolved client-side)', async () => {
@@ -645,7 +645,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-031-003 — create
+  // ACSMS-API-031-003 — create
   // ═══════════════════════════════════════════════════════════════════
   describe('create', () => {
     it('should INSERT a new oshirase and return the mapped row when body is valid', async () => {
@@ -801,7 +801,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-031-004 — update
+  // ACSMS-API-031-004 — update
   // ═══════════════════════════════════════════════════════════════════
   describe('update', () => {
     it('should UPDATE the existing oshirase and return the mapped row when body is valid', async () => {
@@ -967,7 +967,7 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-031-005 — remove
+  // ACSMS-API-031-005 — remove
   // ═══════════════════════════════════════════════════════════════════
   describe('remove', () => {
     it('should soft-delete the oshirase and return the success message when oshirase_id exists', async () => {

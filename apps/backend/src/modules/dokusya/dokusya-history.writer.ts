@@ -8,14 +8,14 @@ import { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
 import { TorikeshiNotAllowedException } from './exceptions/torikeshi-not-allowed.exception';
 
 import {
+  applyCascadeStep,
   buildCounterRow,
   buildKaiyakuRow,
   buildKaiyakuReservationRow,
   buildResubscribeRow,
   buildRirekiRow,
-  computeZougen,
+  CascadeActive,
   diffChangedFields,
-  fillZenkai,
   mapRirekiToMaster,
   splitEvents,
 } from './dokusya-history.builder';
@@ -139,7 +139,7 @@ export async function applyChange(
  * 冪等: フル再計算。save / batch で繰り返し実行可。
  *
  * [touch-only-changed] 書き込みは 3 分岐（下の `writeMaster`）。業務値が変わらない
- * ときに 56 列を無条件 UPDATE すると `updated_at` が毎回動き、購読者一覧(SCR-014)の
+ * ときに 56 列を無条件 UPDATE すると `updated_at` が毎回動き、購読者一覧(ACSMS-SCR-014)の
  * 既定ソート `updated_at DESC` が「誰も触っていないのに先頭に来る」状態になる。
  *
  * 戻り値 {@link RecomputeResult} は「業務値が実際に動いたか」を呼出し元へ伝えるため
@@ -160,7 +160,7 @@ export async function recomputeMaster(
     const masterFields = mapRirekiToMaster(effectiveRow);
     // [scheduled-chushi] 予約中の解約予定日(購読中止日)を master へ即時反映（顧客要件
     // 2026-07）。予約行は未来日で effective でないため通常 master 未反映だが、中止日だけは
-    // 予約時点から一覧(SCR-014)/詳細(SCR-011)に表示したい。取消済みなら null → master も
+    // 予約時点から一覧(ACSMS-SCR-014)/詳細(ACSMS-SCR-011)に表示したい。取消済みなら null → master も
     // クリア。effective 行が既に中止日を持つ（バッチ確定後等）場合も同値が返り整合。
     const scheduledChushi = await loadScheduledChushiDate(
       m,
@@ -294,11 +294,18 @@ export async function insertKaiyaku(
 /**
  * UI 解約予約（Phase 1・顧客要件2026-07 の2フェーズ化）: 編集画面で購読中止日を入力した
  * 時点で予約行を1件追加（継続情報行ではない）。予約行は最小限のみ override（部数=0・
- * zougen=true・中止日・適用日=中止日・kaiyaku_flg=false・saishin=false）— build は
+ * zougen=true・中止日・適用日・kaiyaku_flg=false・saishin=false）— build は
  * `buildKaiyakuReservationRow`。実際の解約確定（tetsuzuki=0・kaiyaku_flg=true・saishin
- * 反映・電子版は適用日+1）は Phase 2 の到来日バッチ `insertKaiyaku` が別レコードで行う
+ * 反映）は Phase 2 の到来日バッチ `insertKaiyaku` が別レコードで行う
  * （docs/dokusya-kaiyaku-phase2-plan.md）。予約行は未来日（saishin=false）で到来まで master
  * 未反映。返り値は applyChange と同じ ApplyChangeResult（caller が監査を統一的に書ける）。
+ *
+ * 適用日（joho）= 紙版は中止日、電子版/併読は中止日+1日（顧客要件 2026-08 改訂）。
+ * 紙版の中止日は「紙が届かなくなる日」なので即日反映でよいが、電子版の中止日は
+ * 「電子版が読める有効な最終日」であり、中止日当日はまだ有効な読者として扱う必要が
+ * あるため、Phase 2 の解約確定行（insertKaiyaku）と同じ +1日 を Phase 1 の予約行にも
+ * 適用する（旧仕様は紙版/電子版とも中止日で統一していたが、顧客要件変更でこの分岐に）。
+ * DENSHI_SHUBETSU（電子版=2/併読=3）判定は insertKaiyaku と共通。
  */
 export async function insertScheduledKaiyaku(
   m: EntityManager,
@@ -309,12 +316,15 @@ export async function insertScheduledKaiyaku(
     actor: string;
   },
 ): Promise<ApplyChangeResult> {
-  const { dokusyaId, chushiDate, actor } = input;
+  const { dokusyaId, chushiDate, shubetsu, actor } = input;
   const beforeMaster = await loadMaster(m, dokusyaId);
 
-  // Phase 1: 予約行の適用日 = 中止日（紙版/電子版とも。電子版の +1 は Phase 2 バッチ）。
-  // predecessor = 中止日時点の有効行。zenkai_* と継承業務項目の基準。
-  const before = await findBefore(m, dokusyaId, chushiDate);
+  const isDenshi = DENSHI_SHUBETSU.has(Number(shubetsu));
+  const joho = isDenshi ? addDaysIso(chushiDate, 1) : chushiDate;
+
+  // predecessor = 適用日(joho)時点の有効行。zenkai_* と継承業務項目の基準
+  // （applyChange/insertKaiyaku と同じく「探索キー = 挿入行自身の joho」で統一）。
+  const before = await findBefore(m, dokusyaId, joho);
   if (!before) {
     throw new Error('insertScheduledKaiyaku: predecessor row not found');
   }
@@ -324,6 +334,7 @@ export async function insertScheduledKaiyaku(
     dokusyaId,
     rirekiNo: no,
     chushiDate,
+    joho,
     createdBy: actor,
   });
   const saved = await insertRow(m, row);
@@ -458,7 +469,7 @@ export async function applyTorikeshi(
  * `canTorikeshi` は通さない。
  *
  * 理由: `canTorikeshi` は「紙版のみ」を課している。電子版を弾いていたのは、履歴画面から
- * 個別に取消されると電子版へ何も伝わらず両システムが食い違うため。ここは SCR-014 の
+ * 個別に取消されると電子版へ何も伝わらず両システムが食い違うため。ここは ACSMS-SCR-014 の
  * 「購読中止」操作専用の入口で、呼び出し元(`DokusyaService.stop`)が同一 tx 内で
  * 電子版へ cancel を push する。連携が伴う以上、その禁止理由は当てはまらない。
  *
@@ -491,21 +502,23 @@ export async function revokeScheduledKaiyaku(
 }
 
 /**
- * `inserted` を既存2行の間に挿入した後、直後行1件だけを更新する: `zenkai_*` を挿入行へ
- * relink し `zougen_hokoku_flg` を再計算。顧客要件2026-07「B-thuần」方針:
+ * `inserted` を既存2行の間に挿入した後、影響を受ける後続行をカスケード更新する
+ * （顧客要件 No.86 — docs/requirement/dokusya_rireki_record_writing_rules.md §7.3、
+ * 実装計画: docs/requirement/dokusya_rireki_cascade_implementation_plan.md）。
  *
- *  - 直後行 1件だけ更新。
- *  - 直後行の `zenkai_*` は `fillZenkai(after, inserted)` で新しい直前行(=挿入行)へ付け替え。
- *    住所 zenkai は fillZenkai が実効配達先住所(haitatsu_same_flg 依存)を入れる。
- *  - 直後行の業務項目 current 値（dokusya_busu・biko・住所・haitatsu_same_flg 等）は不変。
- *  - 直後行より後ろへは cascade しない（過去の carry-forward 伝播は廃止）。
+ * 購読部数・販売店・実効配達先住所の3グループを対象に、直後行から順に
+ * {@link applyCascadeStep} を適用する:
+ *  - キャリーフォワードしていた行（現在値が変更前の zenkai と同値）は
+ *    現在値ごと `predecessor`（挿入行、以降はカスケード済みの直前行）へ
+ *    追随させ、カスケードを継続する。
+ *  - 意図的に変更していた行（現在値が zenkai と異なる）に到達したら、
+ *    そのフィールドのカスケードを停止する（zenkai の relink のみ行う）。
+ *  - 3グループとも停止する（または後続行が尽きる）までループする。
  *
- * 注意: 挿入行が carry-forward 値項目(busu 等)を変えても直後行の current 値は据え置くため、
- * 直後行が有効化された時点の master がその値に戻る（顧客が選んだトレードオフ — full snapshot な予約行前提）。
+ * `zougen_hokoku_flg` は一切変更しない（重複計上防止 — {@link applyCascadeStep} 参照）。
  *
- * - CREATE / no change → 直後行なし（返る）。
- * - `findNext` は torikeshi_flg=1 行をスキップ（取消行は読まない）。
- * - `changed` は現状ガード用途のみ（伝播しない）。
+ * - CREATE / no change → 直後行なし（早期 return）。
+ * - `findNext` は torikeshi_flg=1 行をスキップ（取消行はカスケード対象にならない）。
  */
 export async function recomputeAfterChain(
   m: EntityManager,
@@ -516,17 +529,23 @@ export async function recomputeAfterChain(
 ): Promise<void> {
   if (!before || changed.length === 0) return;
 
-  const after = await findNext(
-    m,
-    dokusyaId,
-    inserted.johoHenkoTekiyoDate as DateOnly,
-    inserted.rirekiNo,
-  );
-  if (after === null) return;
+  let predecessor = inserted;
+  let active: CascadeActive = { busu: true, hanbaiten: true, address: true };
+  let cur = inserted;
 
-  // 直後行のみ: zenkai を挿入行へ relink（住所は実効配達先住所）+ zougen 再計算。
-  // current 値・haitatsu_same_flg は据え置き。後続行へ伝播しない。
-  fillZenkai(after, inserted);
-  after.zougenHokokuFlg = computeZougen(after, inserted);
-  await m.save(DokusyaRireki, after);
+  while (active.busu || active.hanbaiten || active.address) {
+    const after = await findNext(
+      m,
+      dokusyaId,
+      cur.johoHenkoTekiyoDate as DateOnly,
+      cur.rirekiNo,
+    );
+    if (after === null) break;
+
+    active = applyCascadeStep(after, predecessor, active);
+    await m.save(DokusyaRireki, after);
+
+    predecessor = after;
+    cur = after;
+  }
 }

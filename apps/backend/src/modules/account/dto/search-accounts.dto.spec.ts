@@ -133,7 +133,7 @@ describe('SearchAccountsDto', () => {
   });
 
   describe('sort_by (optional, whitelist)', () => {
-    it.each(['login_id', 'role_id', 'created_at'])(
+    it.each(['login_id', 'role_id', 'created_at', 'updated_at'])(
       'should accept sort_by when value is %s',
       async (sortBy) => {
         const errs = await check({ ...VALID, sort_by: sortBy });

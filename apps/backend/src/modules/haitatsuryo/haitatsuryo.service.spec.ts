@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-021 — 配達手数料支払情報出力画面
 //
 // HaitatsuryoService unit specs for:
-//   - previewHaitatsuryo(query, session)        — API-021-001 (GET preview)
-//   - exportHaitatsuryoExcel(body, session, req) — API-021-002 (POST Excel export)
+//   - previewHaitatsuryo(query, session)        — ACSMS-API-021-001 (GET preview)
+//   - exportHaitatsuryoExcel(body, session, req) — ACSMS-API-021-002 (POST Excel export)
 //
 // Pattern: plain `new HaitatsuryoService(...)` with mocked deps. The 集計 is a
 // raw aggregation via dataSource.query() (CTE + DISTINCT ON latest snapshot); the
@@ -87,7 +87,7 @@ describe('HaitatsuryoService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-021-001 — GET /api/v1/haitatsuryo/preview
+  // ACSMS-API-021-001 — GET /api/v1/haitatsuryo/preview
   // ═══════════════════════════════════════════════════════════════════════
   describe('previewHaitatsuryo', () => {
     it('should map every aggregated 販売店 field into data[] when rows exist', async () => {
@@ -283,7 +283,7 @@ describe('HaitatsuryoService', () => {
     });
 
     it('should throw INACTIVE_TANKA_REFERENCED at preview when a 販売店 references a 失効配達手数料単価 (active_flg=FALSE)', async () => {
-      // COVERS: SCR-021 error gate（顧客要件2026-07）— プレビュー時点で検出
+      // COVERS: ACSMS-SCR-021 error gate（顧客要件2026-07）— プレビュー時点で検出
       dataSource.query.mockImplementation((sql: string) =>
         /active_flg\s*=\s*FALSE/i.test(sql)
           ? Promise.resolve([
@@ -312,7 +312,7 @@ describe('HaitatsuryoService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // API-021-002 — POST /api/v1/haitatsuryo/export (Excel)
+  // ACSMS-API-021-002 — POST /api/v1/haitatsuryo/export (Excel)
   // ═══════════════════════════════════════════════════════════════════════
   describe('exportHaitatsuryoExcel', () => {
     it('should return an Excel buffer + 配達手数料支払情報出力_{YYYY年MM月}.xlsx filename when data exists', async () => {
@@ -408,7 +408,7 @@ describe('HaitatsuryoService', () => {
     });
 
     it('should throw INACTIVE_TANKA_REFERENCED and NOT archive / write an error log when a 販売店 references a 失効単価', async () => {
-      // COVERS: SCR-021 error gate — 業務エラーなので S3/DB/エラーログは実行しない
+      // COVERS: ACSMS-SCR-021 error gate — 業務エラーなので S3/DB/エラーログは実行しない
       dataSource.query.mockImplementation((sql: string) =>
         /active_flg\s*=\s*FALSE/i.test(sql)
           ? Promise.resolve([

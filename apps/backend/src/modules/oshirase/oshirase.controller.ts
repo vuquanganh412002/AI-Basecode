@@ -42,8 +42,8 @@ import { OshiraseService } from './oshirase.service';
 
 /**
  * 2つの面をカバーする:
- *  - /api/v1/oshirase/public — 未認証のログイン画面バナー（SCR-001）。ガードなし。
- *  - /api/v1/oshirase[/:id] — 認証済み管理 CRUD（SCR-031）。公開ルートを
+ *  - /api/v1/oshirase/public — 未認証のログイン画面バナー（ACSMS-SCR-001）。ガードなし。
+ *  - /api/v1/oshirase[/:id] — 認証済み管理 CRUD（ACSMS-SCR-031）。公開ルートを
  *    開けておくため `@UseGuards` はメソッド単位で宣言。
  */
 @ApiTags('oshirase')
@@ -51,7 +51,7 @@ import { OshiraseService } from './oshirase.service';
 export class OshiraseController {
   constructor(private readonly service: OshiraseService) {}
 
-  // ─── SCR-001 — login screen banner (no auth) ─────────────────────
+  // ─── ACSMS-SCR-001 — login screen banner (no auth) ─────────────────────
   @Get('login')
   @ApiOperation({ summary: 'Login-screen oshirase list (no auth) — ACSMS-API-001-006' })
   @ApiResponse({ status: 200, type: LoginOshiraseListResponseDto })
@@ -60,7 +60,7 @@ export class OshiraseController {
     return { data };
   }
 
-  // ─── SCR-010 — menu screen list (authenticated, any role) ────────
+  // ─── ACSMS-SCR-010 — menu screen list (authenticated, any role) ────────
   @Get('menu')
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionAuthGuard)
@@ -82,7 +82,7 @@ export class OshiraseController {
     return this.service.getMenuList(session, safeLimit);
   }
 
-  // ─── SCR-031 — admin endpoints ───────────────────────────────────
+  // ─── ACSMS-SCR-031 — admin endpoints ───────────────────────────────────
 
   @Get()
   @HttpCode(HttpStatus.OK)

@@ -139,6 +139,28 @@ describe('useCodesStore — label / labelShort', () => {
     expect(store.labelShort('TANKA_TYPE', 999)).toBe('');
   });
 
+  it('should resolve the label when value is a string (radio v-model contract, e.g. formState.zei_kubun: "1")', async () => {
+    getCodes.mockResolvedValue(SAMPLE);
+    const store = useCodesStore();
+    await store.loadAll();
+    // m_code entries store `value` as number (BE CodeService.normalizeValue()),
+    // but radio-bound form state is commonly string-typed per vue.md's
+    // documented type-coercion gotcha — label()/labelShort() must match
+    // has()'s String() coercion so this doesn't silently resolve to ''.
+    expect(store.label('ZEI_KUBUN', '1')).toBe('内税');
+    expect(store.label('TANKA_TYPE', '2')).toBe('配達手数料');
+    expect(store.labelShort('ZEI_KUBUN', '1')).toBe('内');
+    expect(store.labelShort('TANKA_TYPE', '2')).toBe('配達');
+  });
+
+  it('should return "" when value is an empty string (defensive guard)', async () => {
+    getCodes.mockResolvedValue(SAMPLE);
+    const store = useCodesStore();
+    await store.loadAll();
+    expect(store.label('TANKA_TYPE', '')).toBe('');
+    expect(store.labelShort('TANKA_TYPE', '')).toBe('');
+  });
+
   it('should return "" when category is unknown', async () => {
     getCodes.mockResolvedValue(SAMPLE);
     const store = useCodesStore();

@@ -3,7 +3,7 @@
 // Drives src/views/log/LogListView.vue. Every it() maps to a clause in
 // docs/design/ACSMS-SCR-030/screen-design.md (機能定義 + メッセージ情報) +
 // docs/design/ACSMS-SCR-030/index.html (UI structure) +
-// docs/design/ACSMS-SCR-030/ACSMS-SCR-030-api.md (API-030-001 / 002 +
+// docs/design/ACSMS-SCR-030/ACSMS-SCR-030-api.md (ACSMS-API-030-001 / 002 +
 // COMMON-005 dropdown).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -35,7 +35,7 @@ vi.mock('@/api/log/log', () => ({
 }));
 
 vi.mock('@/api/account/account', () => ({
-  // SCR-024 / 025 endpoints are present too but the log view only
+  // ACSMS-SCR-024 / 025 endpoints are present too but the log view only
   // imports the dropdown — keep the mock surface minimal.
   listAccountDropdown: vi.fn(),
 }));

@@ -36,10 +36,13 @@ export function buildZougenRawRow(overrides: Record<string, unknown> = {}) {
     hanbaiten_id: 200,
     hanbaiten_code: 'H001',
     hanbaiten_name: '千代田販売店',
+    // #57976: 既定は営業中（廃店ではない）。廃店シナリオのテストは override する。
+    haiten_flg: false,
     // 既定は前回販売店＝現販売店（販売店変更なし）。
     zenkai_hanbaiten_id: 200,
     zenkai_hanbaiten_code: 'H001',
     zenkai_hanbaiten_name: '千代田販売店',
+    zenkai_haiten_flg: false,
     kanri_shiten_id: 20,
     kanri_shiten_code: '1AA3300001',
     kanri_shiten_name: 'JA東京中央 本店管理支店',

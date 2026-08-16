@@ -3,8 +3,8 @@
 //
 // Both SCRs share the same ShitenService class. Tests are organised as
 // two sibling top-level describe blocks so each has its own mock scope
-// — SCR-006 covers findAll / remove (QueryBuilder + soft-delete), and
-// SCR-007 covers findById / create / update (findOne + tx-save).
+// — ACSMS-SCR-006 covers findAll / remove (QueryBuilder + soft-delete), and
+// ACSMS-SCR-007 covers findById / create / update (findOne + tx-save).
 // Spec count + assertions remain 1:1 with the originals; only the
 // location changed (merged from __tests__/ into this file so the
 // module follows "1 source = 1 spec file").
@@ -122,7 +122,7 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-006-001 — findAll (GET /api/v1/shiten)
+  // ACSMS-API-006-001 — findAll (GET /api/v1/shiten)
   // ═════════════════════════════════════════════════════════════════════
   describe('findAll (API-006-001)', () => {
     it('should return paginated list { data, meta } when CHUOKAI calls with no filter', async () => {
@@ -347,7 +347,7 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(ksFilterCall()).toBeUndefined();
     });
 
-    // 顧客要件2026-08: SCR-026 名簿出力は管理支店が複数選択のため複数指定版。
+    // 顧客要件2026-08: ACSMS-SCR-026 名簿出力は管理支店が複数選択のため複数指定版。
     function ksListFilterCall() {
       return qbMock.andWhere.mock.calls.find(
         ([sql]: [string]) => sql === 'm.kanri_shiten_id IN (:...qksList)',
@@ -374,6 +374,24 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(ksListFilterCall()).toBeUndefined();
     });
 
+    it('should return nothing for a null-ja_id session lacking shiten.view, even with an explicit ja_id query (NICHINO_ADMIN — バグ報告 2026-08)', async () => {
+      // dropdown は共有エンドポイントで @Permissions を掛けないため、サービス層の
+      // この分岐が唯一の防御線。NICHINO_ADMIN(デフォルト buildSession() は
+      // ja_id=null・shiten.* なし)が ja_id を指定して全JA横断で支店を
+      // 閲覧できてしまっていたバグの回帰テスト。
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown({ ja_id: 1 }, buildSession());
+      const deny = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
+      );
+      expect(deny).toBeDefined();
+      const jaFilter = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' && sql.includes('m.ja_id = :qja') && params?.qja === 1,
+      );
+      expect(jaFilter).toBeUndefined(); // ja_id クエリを信用してはいけない
+    });
+
     it('should return the minimal projection mapped from rows', async () => {
       qbMock.getMany.mockResolvedValue([
         buildShiten({ shitenId: 5, shitenCode: 'S05', shitenName: '本店', kanriShitenId: 20 }),
@@ -394,7 +412,7 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-006-002 — remove (DELETE /api/v1/shiten/:id)
+  // ACSMS-API-006-002 — remove (DELETE /api/v1/shiten/:id)
   // ═════════════════════════════════════════════════════════════════════
   describe('remove (API-006-002)', () => {
     it('should soft-delete the row + audit log inside transaction when CHUOKAI deletes valid id', async () => {
@@ -510,9 +528,9 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-007 — detail + create + update (separate top-level describe so its
+// ACSMS-SCR-007 — detail + create + update (separate top-level describe so its
 // mock setup, especially the kanriShitenRepo default + txManager save
-// shape, doesn't leak into the SCR-006 block above).
+// shape, doesn't leak into the ACSMS-SCR-006 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('ShitenService — SCR-007 (detail + create + update)', () => {
@@ -619,7 +637,7 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-001 — findById (GET /api/v1/shiten/:id)
+  // ACSMS-API-007-001 — findById (GET /api/v1/shiten/:id)
   // ═════════════════════════════════════════════════════════════════════
   describe('findById (API-007-001)', () => {
     it('should return detail when row exists and caller is CHUOKAI of matching JA', async () => {
@@ -701,7 +719,7 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-002 — create (POST /api/v1/shiten)
+  // ACSMS-API-007-002 — create (POST /api/v1/shiten)
   // ═════════════════════════════════════════════════════════════════════
   describe('create (API-007-002)', () => {
     const validDto = {
@@ -819,7 +837,7 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-007-003 — update (PUT /api/v1/shiten/:id)
+  // ACSMS-API-007-003 — update (PUT /api/v1/shiten/:id)
   // ═════════════════════════════════════════════════════════════════════
   describe('update (API-007-003)', () => {
     const validDto = {
@@ -1079,6 +1097,26 @@ describe('ShitenService — COMMON-008 (koza-dropdown)', () => {
         kanri_shiten_id: expect.any(Number),
       }),
     );
+  });
+
+  it('should serialize an empty jastem_tyokin_shubetsu as "" (regression: was silently coerced to "1")', async () => {
+    // NOT NULL DEFAULT '' column — '' is a real, meaningful "not set" value.
+    // The old `r.jastemTyokinShubetsu || '1'` treated '' as falsy and
+    // substituted a fake "普通貯金"(1), diverging from shiten.mapper.ts's
+    // `?? ''` convention used everywhere else this column is serialized.
+    qbMock.getMany.mockResolvedValueOnce([
+      {
+        shitenId: 10,
+        shitenCode: '001',
+        shitenName: '本店',
+        kanriShitenId: 1,
+        jastemTyokinShubetsu: '',
+      },
+    ]);
+
+    const result = await service.getKozaDropdown({}, buildChuokaiSession({ ja_id: 1 }));
+
+    expect(result.data[0].jastem_tyokin_shubetsu).toBe('');
   });
 
   it('should restrict the query to kinyu_shiten_flg = TRUE when building the koza-dropdown', async () => {

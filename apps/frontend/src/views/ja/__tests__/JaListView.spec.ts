@@ -107,7 +107,7 @@ beforeEach(async () => {
   vi.mocked(removeJa).mockResolvedValue({ message: '削除しました。' });
 
   // Todofuken dropdown — `buildTodofukenList` returns a plain array
-  // (helper used by SCR-005 form spec too); the view accepts both
+  // (helper used by ACSMS-SCR-005 form spec too); the view accepts both
   // shapes (Array.isArray check).
   const { getTodofukenList } = await import('@/api/todofuken/todofuken');
   vi.mocked(getTodofukenList).mockResolvedValue(buildTodofukenList() as never);

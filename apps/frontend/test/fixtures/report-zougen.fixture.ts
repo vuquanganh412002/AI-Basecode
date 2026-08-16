@@ -34,7 +34,7 @@ export function buildZougenNichinoUser(overrides: Record<string, unknown> = {}) 
 }
 
 /**
- * Preview envelope (`{ data: {...} }`, mirrors API-028-001 レスポンス成功例).
+ * Preview envelope (`{ data: {...} }`, mirrors ACSMS-API-028-001 レスポンス成功例).
  * One report carrying 増部 / 減部 / 住所変更 records.
  */
 export function buildZougenPreviewResponse(overrides: Record<string, unknown> = {}) {

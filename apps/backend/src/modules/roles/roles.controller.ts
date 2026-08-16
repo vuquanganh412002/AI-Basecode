@@ -38,7 +38,7 @@ import { RolesService } from './roles.service';
  * security.md §Layer 1 が求める `@Permissions('model.action')` に統一。
  *
  * Dropdown(`ACSMS-API-COMMON-002`)は @Permissions を付けず PermissionsGuard を
- * true 通過させる — SCR-024/SCR-025 admin 画面（利用者は NICHINO_ADMIN でない）が
+ * true 通過させる — ACSMS-SCR-024/ACSMS-SCR-025 admin 画面（利用者は NICHINO_ADMIN でない）が
  * role select 用に必要。class の SessionAuthGuard は残るので匿名は 401。
  */
 @ApiTags('roles')
@@ -62,7 +62,7 @@ export class RolesController {
 
   // ─── ACSMS-API-COMMON-002 ───────────────────────────────────────────
   // スリム dropdown — @Permissions なしで任意の認証ユーザが role select を得る
-  // (SCR-024/SCR-025)。リテラル path 'dropdown' を先に一致させるため
+  // (ACSMS-SCR-024/ACSMS-SCR-025)。リテラル path 'dropdown' を先に一致させるため
   // `@Get(':role_id')` の前に宣言（後だと param ルートが拾い ParseIntPipe が 400）。
   @Get('dropdown')
   @HttpCode(HttpStatus.OK)

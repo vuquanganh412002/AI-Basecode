@@ -139,6 +139,18 @@ export function pickerToTokyoWallclock(d: Dayjs): Dayjs {
 }
 
 /**
+ * 絶対時刻（UTC instant の Date — `parseDatetimeTokyo` の戻り値など）を
+ * Asia/Tokyo の暦日 `YYYY-MM-DD` に変換する。picker の暦日
+ * （`pickerToTokyoWallclock(current).format('YYYY-MM-DD')`）と同じ基準
+ * （JST の文字列）で比較するために使う — `current.isBefore(date, 'day')`
+ * のような Date 直接比較は `current` がブラウザ local instant のため
+ * ブラウザ TZ ≠ JST の環境で日付境界がズレる（vue.md §Date/Time）。
+ */
+export function dateToIsoDateTokyo(d: Date): string {
+  return dayjs(d).tz(APP_TIMEZONE).format('YYYY-MM-DD');
+}
+
+/**
  * `YYYY/MM/DD HH:mm:ss` 形式（ログ検索画面など秒精度）を Asia/Tokyo として解釈。
  */
 export function parseDatetimeWithSecondsTokyo(

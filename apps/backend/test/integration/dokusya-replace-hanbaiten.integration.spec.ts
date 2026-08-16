@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-015 — 購読者販売店一括置換画面
 //
-// Integration spec for the two SCR-015 endpoints appended to DokusyaController:
-//   GET  /api/v1/dokusya/replace-hanbaiten/search (API-015-001)
-//   POST /api/v1/dokusya/replace-hanbaiten        (API-015-002)
+// Integration spec for the two ACSMS-SCR-015 endpoints appended to DokusyaController:
+//   GET  /api/v1/dokusya/replace-hanbaiten/search (ACSMS-API-015-001)
+//   POST /api/v1/dokusya/replace-hanbaiten        (ACSMS-API-015-002)
 //
 // Split into two suites:
 //   1. Gates (pg-mem, always run) — SessionAuthGuard / PermissionsGuard /

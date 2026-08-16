@@ -22,6 +22,7 @@ import {
 import type { Request, Response } from 'express';
 
 import { Permissions } from '@/common/decorators/permissions.decorator';
+import { UPLOAD_DOWNLOAD_THROTTLE } from '@/common/constants/rate-limit.constant';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { PaginatedResponse } from '@/common/utils/paginate';
@@ -41,7 +42,7 @@ import { SearchFileDownloadDto } from './dto/search-file-download.dto';
 import { FileDownloadService } from './file-download.service';
 
 /**
- * SCR-022 ファイルダウンロード画面。データソースは t_file_download。
+ * ACSMS-SCR-022 ファイルダウンロード画面。データソースは t_file_download。
  * 一覧 / プレビュー / 単体DL / 一括ZIP。DL 実行は t_log のみ記録し、
  * t_file_download への INSERT は行わない（帳票各画面が生成時に登録する）。
  */
@@ -102,7 +103,7 @@ export class FileDownloadController {
   @Post('download-zip')
   @HttpCode(HttpStatus.OK)
   @Permissions('file.download')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Throttle(UPLOAD_DOWNLOAD_THROTTLE)
   @ApiOperation({
     summary: '選択した複数ファイルを ZIP に1つにまとめてダウンロードする',
   })
@@ -127,7 +128,7 @@ export class FileDownloadController {
 
   /**
    * バイナリ添付レスポンスは共通ユーティリティ `sendBinaryAttachment` に集約
-   * （SCR-023 アップロード画面と同一処理）。
+   * （ACSMS-SCR-023 アップロード画面と同一処理）。
    */
   private sendBinary(res: Response, result: DownloadResult): void {
     sendBinaryAttachment(res, result);

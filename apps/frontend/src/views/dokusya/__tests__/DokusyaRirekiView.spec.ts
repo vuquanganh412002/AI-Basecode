@@ -28,10 +28,10 @@ import {
   buildAuthUser,
 } from '@test/fixtures/dokusya.fixture';
 
-// ─── API wrapper — getDokusyaRirekiList is the SCR-013 addition ────────
+// ─── API wrapper — getDokusyaRirekiList is the ACSMS-SCR-013 addition ────────
 //
 // /gen-code-frontend will add `getDokusyaRirekiList` to
-// `src/api/dokusya/dokusya.ts` alongside the existing SCR-011/014 set.
+// `src/api/dokusya/dokusya.ts` alongside the existing ACSMS-SCR-011/014 set.
 // The mock re-stubs the whole module so the view's imports resolve.
 vi.mock('@/api/dokusya/dokusya', () => ({
   getDokusya: vi.fn(),
@@ -256,7 +256,7 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
   });
 
   // 紙版は電子版連携が無いため 2 列とも null → 空欄（'Web申込以外' も出さない…
-  // ではなく承認ステータスは 'Web申込以外' を表示する。SCR-011 絞り込みと同じ文言）。
+  // ではなく承認ステータスは 'Web申込以外' を表示する。ACSMS-SCR-011 絞り込みと同じ文言）。
   it('shows blank 電子版読者種別 and Web申込以外 for a 紙版 row', async () => {
     const { wrapper } = await renderView(); // 既定 fixture = 紙版・両列 null
     expect(wrapper.text()).toContain('Web申込以外');
@@ -324,6 +324,52 @@ describe('DokusyaRirekiView — history table (画面項目定義)', () => {
     );
     const { wrapper } = await renderView();
     expect(wrapper.text()).toContain('2027/09/09');
+  });
+
+  it('hides 増部日 even when 部数 increased, when the row is 取消(赤伝)済み (顧客要件 No.86 ケース4)', async () => {
+    // 取消済み行（対象行・打ち消し行とも）は増減の実績として扱わないため、
+    // 部数の大小に関わらず増部日・減部日を常に空欄にする。ここでは対象行
+    // （誤って8部で登録: busu=8>zenkai=4）を想定 — torikeshi_flg=false なら
+    // 通常は増部日に joho を表示するはずの数値だが、取消済みなので出ない。
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_busu: 8,
+            zenkai_dokusya_busu: 4,
+            joho_henko_tekiyo_date: '2026-09-01',
+            torikeshi_flg: true,
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    // joho は「変更適用日」列に1回だけ出る。増部日にも出れば2回になる。
+    const occurrences = wrapper.text().split('2026/09/01').length - 1;
+    expect(occurrences).toBe(1); // 変更適用日のみ（増部日は空欄）
+  });
+
+  it('hides 減部日 even when 部数 decreased, when the row is 取消(赤伝)の打ち消し行 (顧客要件 No.86 ケース4)', async () => {
+    // 打ち消し行（busu=4<zenkai=8）も同様に torikeshi_flg=true なら常に空欄。
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({
+            dokusya_busu: 4,
+            zenkai_dokusya_busu: 8,
+            joho_henko_tekiyo_date: '2026-09-01',
+            torikeshi_flg: true,
+          }),
+        ],
+        meta: { total: 1, page: 1, per_page: 20, total_pages: 1 },
+      }),
+    );
+    const { wrapper } = await renderView();
+    const occurrences = wrapper.text().split('2026/09/01').length - 1;
+    expect(occurrences).toBe(1); // 変更適用日のみ（減部日は空欄）
   });
 
   it('shows ONLY 増部日 (not 減部日) when 前回部数=null — 新規作成・再購読の初回行 (顧客要件)', async () => {
@@ -403,6 +449,28 @@ describe('DokusyaRirekiView — empty + error states (メッセージ情報)', (
     expect(wrapper.exists()).toBe(true);
     expect(getDokusyaRirekiList).toHaveBeenCalled();
   });
+
+  it('should redirect to Dashboard when getDokusyaRirekiList rejects with NOT_FOUND (bogus dokusya_id in URL)', async () => {
+    // URL 直打ちで存在しない dokusya_id を指定した場合、空の一覧のまま留まら
+    // せずダッシュボードへ戻す（他 7 編集画面と同じ useNotFoundRedirect 標準
+    // 挙動 — 顧客要件 2026-08）。BE の一般メッセージは axios interceptor が
+    // 既にトースト済みのためここでは追加トーストしない。
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusyaRirekiList).mockRejectedValueOnce({
+      response: {
+        status: 404,
+        data: {
+          error_code: 'NOT_FOUND',
+          message: '指定された購読者が見つかりません。',
+        },
+      },
+    });
+    const { wrapper, router } = await renderView({ dokusyaId: 9999 });
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe('Dashboard');
+    expect(wrapper.exists()).toBe(true);
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════
@@ -469,7 +537,7 @@ describe('DokusyaRirekiView — back navigation (機能定義 2)', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════
-// 取消(赤伝) — API-013-002 (履歴の取消)
+// 取消(赤伝) — ACSMS-API-013-002 (履歴の取消)
 // ════════════════════════════════════════════════════════════════════════
 describe('DokusyaRirekiView — 取消(赤伝)', () => {
   it('should render a 取消 button per row, enabled only when can_torikeshi=true', async () => {
@@ -499,6 +567,25 @@ describe('DokusyaRirekiView — 取消(赤伝)', () => {
     const btns = wrapper.findAll('[data-test="torikeshi-btn"]');
     expect(btns.length).toBeGreaterThan(0);
     btns.forEach((b) => expect(b.attributes('disabled')).toBeDefined());
+  });
+
+  it('should gray out a row whose torikeshi_flg=true, and not the other rows (顧客要件)', async () => {
+    vi.mocked(
+      (await import('@/api/dokusya/dokusya')).getDokusyaRirekiList,
+    ).mockResolvedValue(
+      buildDokusyaRirekiListResponse({
+        data: [
+          buildDokusyaRirekiRow({ dokusya_rireki_id: 42, rireki_no: 3, torikeshi_flg: true }),
+          buildDokusyaRirekiRow({ dokusya_rireki_id: 41, rireki_no: 2, torikeshi_flg: false }),
+        ],
+      } as never),
+    );
+    const { wrapper } = await renderView();
+
+    const torikeshiRow = wrapper.find('tr[data-row-key="42"]');
+    const normalRow = wrapper.find('tr[data-row-key="41"]');
+    expect(torikeshiRow.classes()).toContain('dokusya-rireki-row-torikeshi');
+    expect(normalRow.classes()).not.toContain('dokusya-rireki-row-torikeshi');
   });
 
   it('should open the reason dialog when an enabled 取消 button is clicked', async () => {

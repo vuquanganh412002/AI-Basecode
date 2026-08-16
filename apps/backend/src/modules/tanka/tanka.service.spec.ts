@@ -3,8 +3,8 @@
 //
 // Both SCRs share the same TankaService class. Tests are organised as
 // two sibling top-level describe blocks so each has its own mock scope
-// — SCR-002 covers findAll / remove (QueryBuilder + soft-delete), and
-// SCR-003 covers findById / create / update (findOne + count + tx-save).
+// — ACSMS-SCR-002 covers findAll / remove (QueryBuilder + soft-delete), and
+// ACSMS-SCR-003 covers findById / create / update (findOne + count + tx-save).
 // Spec count + assertions remain 1:1 with the originals; only the
 // location changed (merged from __tests__/ into this file so the
 // module follows "1 source = 1 spec file").
@@ -108,7 +108,7 @@ describe('TankaService — SCR-002 (list / delete)', () => {
     service = new TankaService(repo, dataSource, auditLog, codeService);
   });
 
-  // ─── API-002-001 — GET /api/v1/tanka (findAll) ───────────────────────────
+  // ─── ACSMS-API-002-001 — GET /api/v1/tanka (findAll) ───────────────────────────
   describe('findAll', () => {
     it('should return paginated list with meta when CHUOKAI calls with no filter', async () => {
       // COVERS: §4.3 + §4.4 + §4.5 + §4.7 happy path
@@ -498,6 +498,7 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           kingaku_zeikomi: 100,
           kingaku_zeinuki: 90,
           kingaku: 100,
+          campaign_flg: false,
         },
         {
           tanka_id: 12,
@@ -507,6 +508,7 @@ describe('TankaService — SCR-002 (list / delete)', () => {
           kingaku_zeikomi: 150,
           kingaku_zeinuki: 140,
           kingaku: 150,
+          campaign_flg: false,
         },
       ]);
       expect(result.meta).toEqual({
@@ -515,6 +517,34 @@ describe('TankaService — SCR-002 (list / delete)', () => {
         per_page: 50,
         has_more: true,
       });
+    });
+
+    // 顧客要件 2026-08 — ACSMS-SCR-011 購読者フォームがキャンペーン単価の登録・切替を
+    // 検知するため、ドロップダウンにも campaign_flg を載せる。
+    it('should include campaign_flg in the row shape', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([
+        [
+          {
+            tankaId: 21,
+            tankaCode: '0001001',
+            tankaName: 'キャンペーン単価A',
+            tankaType: 1,
+            kingakuZeikomi: 500,
+            kingakuZeinuki: 455,
+            campaignFlg: true,
+          },
+        ],
+        1,
+      ]);
+
+      const result = await service.getDropdown(
+        { tanka_type: 1, page: 1, per_page: 50 } as any,
+        buildChuokaiSession({ ja_id: 1 }),
+      );
+
+      expect(result.data[0]).toEqual(
+        expect.objectContaining({ tanka_id: 21, campaign_flg: true }),
+      );
     });
 
     it('should resolve kingaku from 税込 (kingaku_zeikomi) when JA zei_kubun=1', async () => {
@@ -641,10 +671,16 @@ describe('TankaService — SCR-002 (list / delete)', () => {
 
     it('should accept explicit ja_id filter when caller has no session JA (NICHINO_STAFF 代行入力)', async () => {
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
-      // Session with ja_id=null mimics NICHINO_STAFF / NICHINO_ADMIN.
+      // Session with ja_id=null + hanbaiten.daiko_input mimics NICHINO_STAFF
+      // using this shared dropdown from ACSMS-SCR-017 販売店代行入力（配達手数料単価
+      // picker） — real NICHINO_STAFF accounts don't hold tanka.view directly
+      // (seeder.md), so the permission check must also accept this permission.
       await service.getDropdown(
         { ja_id: 7 } as any,
-        buildChuokaiSession({ ja_id: null as any }),
+        buildChuokaiSession({
+          ja_id: null as any,
+          permissions: ['hanbaiten.daiko_input'],
+        }),
       );
 
       const jaCall = qbMock.andWhere.mock.calls.find(
@@ -655,9 +691,27 @@ describe('TankaService — SCR-002 (list / delete)', () => {
       );
       expect(jaCall).toBeDefined();
     });
+
+    it('should return nothing for a null-ja_id session lacking tanka.view/hanbaiten.daiko_input, even with an explicit ja_id query (NICHINO_ADMIN — バグ報告 2026-08)', async () => {
+      // dropdown は共有エンドポイントで @Permissions を掛けないため、サービス層の
+      // この分岐が唯一の防御線。NICHINO_ADMIN(デフォルト buildSession() は
+      // ja_id=null・tanka.*/hanbaiten.* なし)が ja_id を指定して全JA横断で
+      // 単価を閲覧できてしまっていたバグの回帰テスト。
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+      await service.getDropdown({ ja_id: 7 } as any, buildSession());
+      const deny = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
+      );
+      expect(deny).toBeDefined();
+      const jaCall = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' && sql.includes('ja_id') && params?.qja === 7,
+      );
+      expect(jaCall).toBeUndefined(); // ja_id クエリを信用してはいけない
+    });
   });
 
-  // ─── API-002-002 — DELETE /api/v1/tanka/:tanka_id (remove) ───────────────
+  // ─── ACSMS-API-002-002 — DELETE /api/v1/tanka/:tanka_id (remove) ───────────────
   describe('remove', () => {
     it('should soft-delete and return success message when target exists', async () => {
       // COVERS: §4.5 論理削除 + §4.7 レスポンス
@@ -866,9 +920,9 @@ describe('TankaService — SCR-002 (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-003 — detail + create + update (separate top-level describe so its
+// ACSMS-SCR-003 — detail + create + update (separate top-level describe so its
 // mock setup, especially the codeService default + txManager save shape,
-// doesn't leak into the SCR-002 block above).
+// doesn't leak into the ACSMS-SCR-002 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('TankaService — SCR-003 (detail + create + update)', () => {
@@ -968,7 +1022,7 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-001 — GET /api/v1/tanka/:tanka_id (findById)
+  // ACSMS-API-003-001 — GET /api/v1/tanka/:tanka_id (findById)
   // ────────────────────────────────────────────────────────────────────────
   describe('findById', () => {
     it('should return TankaResponseDto when target exists and ja_id matches (CHUOKAI)', async () => {
@@ -1062,7 +1116,7 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-002 — POST /api/v1/tanka (create)
+  // ACSMS-API-003-002 — POST /api/v1/tanka (create)
   // ────────────────────────────────────────────────────────────────────────
   describe('create', () => {
     it('should return TankaResponseDto with tanka_id assigned after INSERT', async () => {
@@ -1100,7 +1154,7 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
 
     /**
      * 単価コードの一意性は **JA 単位**（DB `UQ_m_tanka_ja_code (ja_id, tanka_code)`、
-     * 画面設計書 SCR-003「単価はJAごとに持つ」）。
+     * 画面設計書 ACSMS-SCR-003「単価はJAごとに持つ」）。
      *
      * 以前はここが tanka_code だけで数えており、ja_id=60 が使っているコードを
      * ja_id=139 で登録できなかった。count の戻り値だけを見るテストでは
@@ -1375,7 +1429,7 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // API-003-003 — PUT /api/v1/tanka/:tanka_id (update)
+  // ACSMS-API-003-003 — PUT /api/v1/tanka/:tanka_id (update)
   // ────────────────────────────────────────────────────────────────────────
   describe('update', () => {
     it('should return updated TankaResponseDto when target exists and ja_id matches', async () => {
@@ -1461,6 +1515,66 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
       );
 
       expect(savedPayload.tekiyoStartDate).toBe(newStart);
+    });
+
+    // Regression (backend review finding #4): update() never validated
+    // tekiyo_end_date >= tekiyo_start_date — only create() enforced this via
+    // assertCreateDateRange(). A curl PUT could set an end date earlier than
+    // the start date and corrupt the price-validity window billing/dropdown
+    // queries rely on.
+    it('should reject when tekiyo_end_date is before the effective tekiyo_start_date', async () => {
+      // COVERS: same order check as CREATE, mirrored for UPDATE.
+      const before = buildTanka({ tankaId: 1, jaId: 1, tekiyoStartDate: '2099-01-01' });
+      repo.findOne.mockResolvedValue(before);
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({
+            tekiyo_start_date: '2099-06-01',
+            tekiyo_end_date: '2099-05-31',
+          }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'tekiyo_end_date',
+              message: '適用終了日は適用開始日以降を指定してください。',
+            }),
+          ]),
+        }),
+      });
+    });
+
+    it('should reject using the LOCKED (past, unchangeable) start date when tekiyo_start_date is already immutable', async () => {
+      // The effective start date used for the order check must be the
+      // locked before.tekiyoStartDate, not whatever dto.tekiyo_start_date
+      // the caller tried to submit (which is silently dropped).
+      const before = buildTanka({ tankaId: 1, jaId: 1, tekiyoStartDate: '2024-01-15' });
+      repo.findOne.mockResolvedValue(before);
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({
+            tekiyo_start_date: '2099-12-01', // ignored — start is locked
+            tekiyo_end_date: '2024-01-01', // before the LOCKED start (2024-01-15)
+          }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ field: 'tekiyo_end_date' }),
+          ]),
+        }),
+      });
     });
 
     it('should preserve tanka_code unchanged (immutable per api.md §API-003-003 footnote)', async () => {

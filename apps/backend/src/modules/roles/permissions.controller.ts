@@ -14,7 +14,7 @@ import { PermissionListResponseDto } from './dto/role-response.dto';
 import { RolesService } from './roles.service';
 
 /**
- * `/api/v1/permissions` にマウント。権限一覧は SCR-027 ロール管理画面の権限
+ * `/api/v1/permissions` にマウント。権限一覧は ACSMS-SCR-027 ロール管理画面の権限
  * チェックボックス（ACSMS-API-027-004）専用のため roles モジュールに置く。
  * 認可 — security.md §Layer 1 の `role.view`（seeder.md §3 で NICHINO_ADMIN のみ）。
  */

@@ -423,7 +423,7 @@ describe('BaseJaDropdown — debounce', () => {
   });
 });
 
-// SCR-024 account list opts into name-only display + search. Default
+// ACSMS-SCR-024 account list opts into name-only display + search. Default
 // callers (every other screen) must be unaffected.
 describe('BaseJaDropdown — labelFormat / searchField props', () => {
   it('should compose option label as `${ja_code} ${ja_name}` by default', async () => {

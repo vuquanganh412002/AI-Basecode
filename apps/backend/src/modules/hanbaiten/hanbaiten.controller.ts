@@ -71,9 +71,9 @@ export class HanbaitenController {
     return this.service.findAll(query, req.user);
   }
 
-  // ─── ACSMS-API-COMMON — GET /api/v1/hanbaiten/dropdown (SCR-011) ─────
+  // ─── ACSMS-API-COMMON — GET /api/v1/hanbaiten/dropdown (ACSMS-SCR-011) ─────
   //
-  // 購読者情報登録(SCR-011)フォームの 販売店コード picker が利用。最小射影
+  // 購読者情報登録(ACSMS-SCR-011)フォームの 販売店コード picker が利用。最小射影
   // (hanbaiten_id / code / name)。service の `applyJaScope` で自 JA に限定、
   // NICHINO_* は `ja_id` 指定時のみ絞込。
   // 静的パス優先のため `@Get(':hanbaiten_id')` より前に宣言。
@@ -174,8 +174,8 @@ export class HanbaitenController {
 
   // ─── ACSMS-API-019-002 — POST /api/v1/hanbaiten/import ───────────────
   //
-  // POST '/' と POST '/import' は衝突しないため `@Post()`(SCR-017) より前に置く
-  // 必要はないが、SCR-019 のペアを隣接させ SCR-018 / SCR-017 / SCR-019 の
+  // POST '/' と POST '/import' は衝突しないため `@Post()`(ACSMS-SCR-017) より前に置く
+  // 必要はないが、ACSMS-SCR-019 のペアを隣接させ ACSMS-SCR-018 / ACSMS-SCR-017 / ACSMS-SCR-019 の
   // ドキュメント区分に合わせる。
   @Post('import')
   @HttpCode(HttpStatus.OK)

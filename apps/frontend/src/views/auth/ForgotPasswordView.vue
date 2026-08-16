@@ -52,14 +52,14 @@ async function onSubmit(): Promise<void> {
 
   await submit(async () => {
     await forgotPassword(form.login_id, form.email);
-    // SCR-012 §3.3 フォーム非表示・§3.4 ACSMS-SCR-012-003 表示。
+    // ACSMS-SCR-012 §3.3 フォーム非表示・§3.4 ACSMS-SCR-012-003 表示。
     // メール有無に関わらず同一メッセージ（列挙対策は BE 側）。
     sent.value = true;
   });
 }
 
 function goLogin(): void {
-  // SCR-012 §4.2 — 戻る時に入力値をクリア。
+  // ACSMS-SCR-012 §4.2 — 戻る時に入力値をクリア。
   form.login_id = '';
   form.email = '';
   router.push({ name: 'Login' });

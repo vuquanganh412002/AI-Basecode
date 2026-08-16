@@ -6,10 +6,12 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { API_PREFIX } from './common/constants/api.constants';
+import { ErrorCode } from './common/constants/error-codes.constant';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { DEFAULT_SESSION_COOKIE_NAME } from './config/config-defaults.constant';
 
 async function bootstrap() {
-  // [json-body-limit] Express 既定の body 上限 ~100KB では SCR-019 の Excel 取込
+  // [json-body-limit] Express 既定の body 上限 ~100KB では ACSMS-SCR-019 の Excel 取込
   // （最大500行×~700byte ≈ 350KB）が DTO `@ArrayMaxSize(500)` / `ROW_LIMIT_EXCEEDED`
   // 到達前に `PayloadTooLargeError` で弾かれる。5MB に引上げ正規エラーコードを出し、
   // 他バッチ（oshirase, log export 等）にも余裕を持たせる。
@@ -97,7 +99,7 @@ async function bootstrap() {
         // 包み標準 `{ error_code, message, errors }` 形状の 400 に分類させる。
         return new HttpException(
           {
-            code: 'VALIDATION_ERROR',
+            code: ErrorCode.VALIDATION_ERROR,
             message:
               '入力値が不正です。詳細はerrorsフィールドを確認してください。',
             errors: details,
@@ -144,7 +146,7 @@ async function bootstrap() {
   });
 
   const sessionCookieName =
-    configService.get<string>('session.cookieName') ?? 'session_id';
+    configService.get<string>('session.cookieName') ?? DEFAULT_SESSION_COOKIE_NAME;
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('agrinews API')

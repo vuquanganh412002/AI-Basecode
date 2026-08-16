@@ -1,8 +1,8 @@
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 
 /**
- * `GET /api/v1/hanbaiten` が返す snake_case 一覧行の形。SCR-018 はこの1形のみ
- * 返すため別 `*-response.dto.ts` にせずインライン定義（SCR-017 の詳細/作成/更新は
+ * `GET /api/v1/hanbaiten` が返す snake_case 一覧行の形。ACSMS-SCR-018 はこの1形のみ
+ * 返すため別 `*-response.dto.ts` にせずインライン定義（ACSMS-SCR-017 の詳細/作成/更新は
  * 各自の DTO ファイルを持つ予定）。
  *
  * `furikomi_tesuryo` / `haitatsuryo_tanka_id` は Postgres の NUMERIC / BIGINT で、

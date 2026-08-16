@@ -71,7 +71,7 @@ export function buildOshiraseListItem(
   };
 }
 
-/** Default 2-row list (matches api.md §レスポンス成功例 of API-031-001). */
+/** Default 2-row list (matches api.md §レスポンス成功例 of ACSMS-API-031-001). */
 export function buildOshiraseListResponse() {
   const rows = [
     buildOshiraseListItem(),
@@ -109,7 +109,7 @@ export function buildOshiraseDetail(
   };
 }
 
-// ─── Admin DTO bodies — API-031-003 / 004 ─────────────────────────
+// ─── Admin DTO bodies — ACSMS-API-031-003 / 004 ─────────────────────────
 
 export interface CreateOshiraseBody {
   title: string;

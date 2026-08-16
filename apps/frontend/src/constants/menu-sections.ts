@@ -1,5 +1,5 @@
 /**
- * メニュー定義の正 — AppSidebar（左レール）と DashboardView（SCR-010 メニューカード）
+ * メニュー定義の正 — AppSidebar（左レール）と DashboardView（ACSMS-SCR-010 メニューカード）
  * 双方の唯一の情報源。両者は同じプロダクトメニューを 2 通りに可視化したもの。このリストを二重定義しない。
  *
  * 権限監査: docs/requirement/account_concept.md（権限マトリクス）+
@@ -35,7 +35,7 @@ export interface MenuSection {
 
 export const MENU_SECTIONS: MenuSection[] = [
   {
-    items: [{ name: 'Dashboard', label: 'メニュー画面', icon: 'home' }],
+    items: [{ name: 'Dashboard', label: 'メニュー', icon: 'home' }],
   },
   {
     heading: '購読者管理',

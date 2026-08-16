@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 
 /**
- * `t_file_download` — ダウンロード成功ごとに1行記録。SCR-022 §4.5 は監査ログ
+ * `t_file_download` — ダウンロード成功ごとに1行記録。ACSMS-SCR-022 §4.5 は監査ログ
  * （`t_log`）と同一トランザクションで INSERT し、ダウンロード履歴と監査証跡を
  * 原子的にコミットする。
  *

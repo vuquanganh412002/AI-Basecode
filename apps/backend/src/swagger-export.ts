@@ -13,6 +13,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AppModule } from './app.module';
 import { API_PREFIX } from './common/constants/api.constants';
+import { DEFAULT_SESSION_COOKIE_NAME } from './config/config-defaults.constant';
 
 async function exportSwagger(): Promise<void> {
   process.stderr.write('[swagger-export] booting Nest app…\n');
@@ -21,7 +22,7 @@ async function exportSwagger(): Promise<void> {
 
   const configService = app.get(ConfigService);
   const sessionCookieName =
-    configService.get<string>('session.cookieName') ?? 'session_id';
+    configService.get<string>('session.cookieName') ?? DEFAULT_SESSION_COOKIE_NAME;
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('agrinews API')

@@ -152,7 +152,7 @@ describe('Auth + Oshirase modules — integration (pg-mem + ioredis-mock)', () =
   const http = () => request(ctx.app.getHttpServer() as Server);
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/login (API-001-001)
+  // POST /api/v1/auth/login (ACSMS-API-001-001)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/login', () => {
     it('should return 200 with user payload + Set-Cookie when credentials are valid (no MFA)', async () => {
@@ -317,7 +317,7 @@ describe('Auth + Oshirase modules — integration (pg-mem + ioredis-mock)', () =
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/refresh (API-001-004)
+  // POST /api/v1/auth/refresh (ACSMS-API-001-004)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/refresh', () => {
     it('should return 401 UNAUTHORIZED when no session cookie is present', async () => {
@@ -331,7 +331,7 @@ describe('Auth + Oshirase modules — integration (pg-mem + ioredis-mock)', () =
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // POST /api/v1/auth/logout (API-001-005)
+  // POST /api/v1/auth/logout (ACSMS-API-001-005)
   // ───────────────────────────────────────────────────────────────────
   describe('POST /api/v1/auth/logout', () => {
     it('should return 200 with success message when called without session', async () => {
@@ -341,7 +341,7 @@ describe('Auth + Oshirase modules — integration (pg-mem + ioredis-mock)', () =
   });
 
   // ───────────────────────────────────────────────────────────────────
-  // GET /api/v1/oshirase/login (API-001-006) — 認証不要
+  // GET /api/v1/oshirase/login (ACSMS-API-001-006) — 認証不要
   // ───────────────────────────────────────────────────────────────────
   describe('GET /api/v1/oshirase/login', () => {
     it('should return 200 with login-screen notices ordered by COALESCE(updated_at, created_at) DESC when called without auth', async () => {

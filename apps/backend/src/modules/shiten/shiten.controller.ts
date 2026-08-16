@@ -65,8 +65,8 @@ export class ShitenController {
     return this.service.findAll(query, req.user);
   }
 
-  // ─── ACSMS-API-COMMON — GET /api/v1/shiten/dropdown (SCR-011) ───────
-  // 購読者情報登録 (SCR-011) の 引落口座支店 picker が利用。認証済みなら誰でも可
+  // ─── ACSMS-API-COMMON — GET /api/v1/shiten/dropdown (ACSMS-SCR-011) ───────
+  // 購読者情報登録 (ACSMS-SCR-011) の 引落口座支店 picker が利用。認証済みなら誰でも可
   // （@Permissions なし — 呼び出し元画面の権限に依存）。@Get(':id') より前に宣言。
   @Get('dropdown')
   @HttpCode(HttpStatus.OK)
@@ -84,13 +84,13 @@ export class ShitenController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     const jaId = query.ja_id === undefined ? undefined : Number(query.ja_id);
-    // 管理支店で絞り込む（顧客要件2026-07・SCR-025 所属支店 / SCR-011）。
+    // 管理支店で絞り込む（顧客要件2026-07・ACSMS-SCR-025 所属支店 / ACSMS-SCR-011）。
     // 選択した管理支店配下の支店のみ出す。未指定なら絞らない。
     const kanriShitenId =
       query.kanri_shiten_id === undefined
         ? undefined
         : Number(query.kanri_shiten_id);
-    // 複数指定版（顧客要件2026-08・SCR-026 名簿出力は管理支店が複数選択）。
+    // 複数指定版（顧客要件2026-08・ACSMS-SCR-026 名簿出力は管理支店が複数選択）。
     // Express は `?k=1&k=2` を配列、`?k=1` を文字列で渡すので両方受ける。
     // 数値化できない要素は捨てる（NaN を IN に混ぜると 0 件になるだけで
     // 原因が分からないため）。

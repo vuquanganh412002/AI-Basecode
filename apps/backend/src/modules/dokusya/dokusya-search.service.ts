@@ -37,12 +37,12 @@ import {
 } from './dokusya.mapper';
 
 /**
- * SCR-014 監査ラベル。core DokusyaService と同一値だが自己完結のため複製
- * （delete も SCR-014 を使うため core 側にも同名定数が残る）。
+ * ACSMS-SCR-014 監査ラベル。core DokusyaService と同一値だが自己完結のため複製
+ * （delete も ACSMS-SCR-014 を使うため core 側にも同名定数が残る）。
  */
 const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
 
-/** SCR-014 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
+/** ACSMS-SCR-014 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
 
 /**
@@ -62,7 +62,7 @@ const SORT_COLUMN_MAP: Record<string, string> = {
   updated_at: 'd.updated_at',
 };
 
-/** Excel 出力上限（api.md §API-014-003 §4.3 30,000件）。 */
+/** Excel 出力上限（api.md §ACSMS-API-014-003 §4.3 30,000件）。 */
 const EXPORT_MAX_ROWS = 30000;
 
 /**
@@ -78,7 +78,7 @@ function fieldValidationError(
 }
 
 /**
- * SCR-014 — 購読者明細検索（検索 + Excel出力）サービス。
+ * ACSMS-SCR-014 — 購読者明細検索（検索 + Excel出力）サービス。
  * `DokusyaService` から SEARCH / EXPORT concern を切り出し、検索クエリ組み立て
  * （DataScope・等価/部分一致/日付範囲フィルタ）・Excel 生成・検索専用 m_code 再検証を
  * 集約。facade が `search` / `exportExcel` へ薄く委譲する。
@@ -95,13 +95,13 @@ export class DokusyaSearchService {
   ) {}
 
   // ════════════════════════════════════════════════════════════════════
-  // SCR-014 — 購読者明細検索画面
+  // ACSMS-SCR-014 — 購読者明細検索画面
   // ════════════════════════════════════════════════════════════════════
 
-  // ─── API-014-001 — GET /api/v1/dokusya (search) ─────────────────────
+  // ─── ACSMS-API-014-001 — GET /api/v1/dokusya (search) ─────────────────────
   /**
    * 購読者一覧を pagination + sort + filter + DataScope で検索。
-   * Flow (api.md §API-014-001):
+   * Flow (api.md §ACSMS-API-014-001):
    *   §4.1 DTO が形状 + sort_by 許可リストを検証。本メソッドは追加で m_code 値
    *        (dokusya_shubetsu / shiharai_hoho / tetsuzuki_shurui / denshi_shonin_status)
    *        を runtime 許可リストで再検証（closed-set の DTO `@IsIn` は顧客追加の
@@ -339,6 +339,11 @@ export class DokusyaSearchService {
         't',
         't.todofuken_code = d.haitatsu_todofuken_code',
       )
+      .leftJoin(
+        'm_tanka',
+        'tk',
+        'tk.tanka_id = d.tanka_id AND tk.deleted_at IS NULL',
+      )
       .select([
         'd.dokusya_id AS dokusya_id',
         'd.ja_id AS ja_id',
@@ -364,7 +369,20 @@ export class DokusyaSearchService {
         'd.denshi_shonin_status AS denshi_shonin_status',
         'd.shoki_dokusya_kaishi_date AS shoki_dokusya_kaishi_date',
         'd.dokusya_chushi_date AS dokusya_chushi_date',
-        `((d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL} AND d.shiharai_hoho = ${ShiharaiHoho.CREDIT_CARD}) OR d.dokusya_shubetsu = ${DokusyaShubetsu.BOTH}) AS is_read_only`,
+        // is_read_only 3条件目（顧客要件 2026-08 追補）: 電子版 かつ 電子版読者管理
+        // システム未連携（denshi_kaiin_id IS NULL）かつ 単価が campaign でない。
+        // COALESCE(tk.campaign_flg, false) — 単価未割当(tk が LEFT JOIN で NULL)は
+        // 非 campaign 扱い＝read-only 側に倒す（campaign 単価特例は明示的に紐付いている
+        // 場合のみ）。
+        `(
+          d.dokusya_shubetsu = ${DokusyaShubetsu.BOTH}
+          OR (d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL} AND d.shiharai_hoho = ${ShiharaiHoho.CREDIT_CARD})
+          OR (
+            d.dokusya_shubetsu = ${DokusyaShubetsu.DIGITAL}
+            AND d.denshi_kaiin_id IS NULL
+            AND COALESCE(tk.campaign_flg, false) = false
+          )
+        ) AS is_read_only`,
       ])
       .where('d.deleted_at IS NULL');
 

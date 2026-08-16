@@ -5,7 +5,7 @@ import { Queue } from 'bullmq';
 import { QUEUE_FILE_UPLOAD_NOTIFICATION } from '@/modules/queue/queue-names.constants';
 
 /**
- * SCR-023 §4.7 — ファイルアップロード通知キューの producer。
+ * ACSMS-SCR-023 §4.7 — ファイルアップロード通知キューの producer。
  *
  * 顧客レビュー(2026-05): 同期メール送信は ALB timeout・部分失敗のロールバック曖昧化・
  * "ブラウザを閉じた" データ損失のリスク。顧客指示のフロー:

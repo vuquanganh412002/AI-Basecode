@@ -3,7 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '@/common/dto/responses.dto';
 
 /**
- * SCR-030 ログ参照画面 list（API-030-001）の項目形。
+ * ACSMS-SCR-030 ログ参照画面 list（ACSMS-API-030-001）の項目形。
  * log.service.ts の `LogListItem` と一致。
  */
 export class LogListItemDto {

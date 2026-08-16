@@ -20,6 +20,7 @@ updated_by: Tran Duc Tuyen
 | 1   | 2026/05/15 | 1.0  | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | ファイルのダウンロード・プレビュー機能を本画面から削除し、ファイルダウンロード画面（SCR-022）へ移行。本画面は一覧／アップロード／削除専用とする（通知メールはバックグラウンドワーカーで非同期送信）。ダウンロードAPI（旧 ACSMS-API-023-003）を削除し、削除APIを ACSMS-API-023-003 に採番変更。 | Tran Duc Tuyen | Tran Duc Tuyen |
 | 3   | 2026/08/06 | 1.2  | Tran Duc Tuyen | 実装との差分是正：v1.1（2026/07/02）で本画面から削除したプレビュー・ダウンロードが、顧客要件により 2026/07/27 に**再追加**されていたが本書へ未反映だった。ACSMS-API-023-004（プレビュー用署名付きURL取得 GET `/{id}/preview`）・005（単体ダウンロード GET `/{id}/download`）・006（複数ファイルZIP一括ダウンロード POST `/download-zip`）の3節を新規追記。いずれも権限は `file.download`、DataScope 範囲外・論理削除済みは 404 でマスク、操作ログに `DOWNLOAD` 証跡を記録（ZIPは全体で1件）。ZIPは `file_upload_ids` が1〜50件・重複不可・整数のみでレート制限20回/分 | | |
+| 4   | 2026/08/12 | 1.3  | Tran Duc Tuyen | 記載漏れの是正：§エラー一覧（row 9 FILE_SIZE_EXCEEDED）以外の箇所で唯一残っていた古い例示レスポンス（400 Bad Request）のメッセージが「ファイルサイズが上限（10MB）を超えています。」のまま stale だった。上限は screen-design.md 機能定義 4.2 / ACSMS-MSG-023-002 のとおり実装当初から30MBであり、実際のエラーメッセージ「ファイルサイズが30MBを超えています。」に合わせて修正 | | |
 
 ## システム概要
 
@@ -414,7 +415,7 @@ Content-Type: text/csv
 ```json
 {
   "error_code": "FILE_SIZE_EXCEEDED",
-  "message": "ファイルサイズが上限（10MB）を超えています。"
+  "message": "ファイルサイズが30MBを超えています。"
 }
 ```
 

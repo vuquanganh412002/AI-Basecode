@@ -386,8 +386,17 @@ export class HanbaitenService {
     const buildScoped = () => {
       const qb = this.repo.createQueryBuilder('m').where('m.deleted_at IS NULL');
       applyJaScope(qb, 'm', 'jaId', session);
-      if (session.ja_id == null && query.ja_id !== undefined) {
-        qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+      if (session.ja_id == null) {
+        // dropdown は共有エンドポイントで @Permissions を掛けない
+        // （[shared-dropdown-rule]）ため、hanbaiten.* を持たないロール
+        // （NICHINO_ADMIN — seeder.md 参照）が ja_id==null bypass を悪用して
+        // 全JAの販売店を閲覧できてしまっていた。ここで明示的に権限を確認する
+        // （バグ報告 2026-08）。
+        if (!session.permissions.includes('hanbaiten.view')) {
+          qb.andWhere('1 = 0');
+        } else if (query.ja_id !== undefined) {
+          qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
+        }
       }
       return qb;
     };

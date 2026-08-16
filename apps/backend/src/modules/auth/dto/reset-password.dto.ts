@@ -19,7 +19,7 @@ const HALFWIDTH_RE = /^[\x21-\x7E]+$/;
  *   DTO   : required → length 8-32 → 半角
  *   Service: 3種のうち2種以上(英字/数字/記号) / confirm_password === new_password /
  *           new_password ≠ login_id
- * LoginDto の decorator chain をミラーし SCR-001/SCR-012 で同一の半角/長さエラー文言。
+ * LoginDto の decorator chain をミラーし ACSMS-SCR-001/ACSMS-SCR-012 で同一の半角/長さエラー文言。
  */
 export class ResetPasswordDto {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000', minLength: 36, maxLength: 36 })

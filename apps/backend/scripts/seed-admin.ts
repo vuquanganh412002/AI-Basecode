@@ -27,6 +27,7 @@
 import { config } from 'dotenv';
 import * as bcrypt from 'bcryptjs';
 import dataSource from '@/database/data-source';
+import { SystemActor } from '@/common/constants/system-actor.constant';
 
 config();
 
@@ -95,9 +96,9 @@ async function main(): Promise<void> {
          NOW(), NULL, 0,
          true, false, NULL,
          '初期管理者アカウント',
-         NOW(), 'SYSTEM', NOW(), 'SYSTEM'
+         NOW(), $5, NOW(), $5
        )`,
-      [loginId, passwordHash, accountName, email],
+      [loginId, passwordHash, accountName, email, SystemActor.MIGRATION],
     );
 
     console.log(`[seed:admin] created admin '${loginId}' (role_id=1, mfa_enable_flg=true, email=${email})`);

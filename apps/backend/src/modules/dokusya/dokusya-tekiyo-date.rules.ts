@@ -1,11 +1,15 @@
 // 適用日の整合性チェック（購読者更新の共通ルール）。UI更新 / Excel取込UPDATE /
 // 販売店一括置換 の3経路が共有する。
 //
-// 参照は購読開始日(kaishi)/解約予定日(chushi)。範囲（顧客要件2026-07改訂）:
-//   - 購読開始日(kaishi) <= 情報変更適用日(joho) <= 解約予定日(chushi)
+// 参照は購読開始日(kaishi)/解約予定日(chushi)。範囲（顧客要件2026-07改訂、
+// 上限は2026-08改訂で同日不可に変更）:
+//   - 購読開始日(kaishi) <= 情報変更適用日(joho) < 解約予定日(chushi)
 //   ※ 販売店適用日は廃止し joho に統一（全変更の唯一の適用日）。
 //   ※ chushi が null（解約予定なし）なら上限チェックをスキップ。
-//   ※ 境界は両端とも等号可（==kaishi / ==chushi 許容）。
+//   ※ 下限(kaishi)は等号可（==kaishi 許容）。上限(chushi)は等号不可
+//     （解約予定日当日・以降の情報変更は禁止 — 顧客要件2026-08）。
+//   ※ 再購読（isResubscribe）は呼出し元が chushiDate=null を渡すため対象外
+//     （旧解約予定日は無効化される）。
 //
 // 未来日チェック(joho > today)は呼出し側（assertTekiyoDateFuture / 取込
 // checkImportRowDateBounds / 置換ガード）が担う。本関数は参照値への相対チェックのみ行い
@@ -15,7 +19,7 @@ import { normalizeDbDate } from '@/common/utils/datetime';
 export const TEKIYO_VIOLATION = {
   /** joho_henko_tekiyo_date < 購読開始日 */
   JOHO_BEFORE_KAISHI: 'JOHO_BEFORE_KAISHI',
-  /** joho_henko_tekiyo_date > 解約予定日（chushi 非null時のみ） */
+  /** joho_henko_tekiyo_date >= 解約予定日（chushi 非null時のみ・同日不可） */
   JOHO_AFTER_CHUSHI: 'JOHO_AFTER_CHUSHI',
   /** 入力された 解約予定日 < 購読開始日（開始日以降であること・当日可） */
   CHUSHI_BEFORE_KAISHI: 'CHUSHI_BEFORE_KAISHI',
@@ -91,17 +95,18 @@ export function collectTekiyoDateViolations(input: {
   const kaishi = input.kaishiDate ? normalizeDbDate(input.kaishiDate) : null;
   const chushi = input.chushiDate ? normalizeDbDate(input.chushiDate) : null;
 
-  // 情報変更適用日（全変更の唯一の適用日）: 購読開始日 <= joho <= 解約予定日
+  // 情報変更適用日（全変更の唯一の適用日）: 購読開始日 <= joho < 解約予定日
   if (joho && kaishi && joho < kaishi) {
     out.push({
       kind: TEKIYO_VIOLATION.JOHO_BEFORE_KAISHI,
       message: `情報変更適用日は購読開始日（${fmt(kaishi)}）以降の日付を指定してください。`,
     });
   }
-  if (joho && chushi && joho > chushi) {
+  // 解約予定日は同日も不可（顧客要件2026-08）: joho >= chushi で違反。
+  if (joho && chushi && joho >= chushi) {
     out.push({
       kind: TEKIYO_VIOLATION.JOHO_AFTER_CHUSHI,
-      message: `情報変更適用日は解約予定日（${fmt(chushi)}）以前の日付を指定してください。`,
+      message: `情報変更適用日は解約予定日（${fmt(chushi)}）より前の日付を指定してください。`,
     });
   }
   return out;

@@ -35,7 +35,7 @@ const authStore = useAuthStore();
 const notify = useNotify();
 const router = useRouter();
 
-/** 失効単価エラーから購読者明細検索(SCR-014)へ遷移し、失効単価参照フィルタを初期適用する。 */
+/** 失効単価エラーから購読者明細検索(ACSMS-SCR-014)へ遷移し、失効単価参照フィルタを初期適用する。 */
 function goToDokusyaSearch(): void {
   void router.push({ name: 'DokusyaList', query: { inactive_tanka: '1' } });
 }
@@ -132,9 +132,9 @@ const inactiveTankaSummary = computed(() => {
   const total = inactiveTankaTotal.value;
   const shown = inactiveTankaErrors.value.length;
   if (total > shown) {
-    return `該当 ${total} 件中 ${shown} 件を表示しています。全件は購読者明細検索画面（「失効単価参照」絞込）で確認し、単価を変更してから再度「作成開始」してください。`;
+    return `該当 ${total} 件中 ${shown} 件を表示しています。全件は購読者明細検索画面（「失効単価参照」絞込）で確認し、単価を変更してから再度「レポートプレビュー」してください。`;
   }
-  return `該当購読者（${total}件）の単価を変更してから、再度「作成開始」してください。`;
+  return `該当購読者（${total}件）の単価を変更してから、再度「レポートプレビュー」してください。`;
 });
 
 /** プレビュー金額の合計（編集で変動）。 */
@@ -370,9 +370,9 @@ async function onCreateFile(): Promise<void> {
   clearInactiveTankaError();
   try {
     const { blob, filename } = await exportKozaFurikae(buildBody());
-    // ファイル名はサーバ（全銀メディア固定名 ZENOUTFD・拡張子なし）が決めるため
-    // Content-Disposition から受け取る。取得できないときのみ引落日ベースの既定名に
-    // フォールバックする（銀行提出ファイルは拡張子なし）。
+    // ファイル名はサーバ（口座振替データ_YYYY年MM月DD日・拡張子なし）が決めるため
+    // Content-Disposition から受け取る。取得できないときのみ同名パターンをここで
+    // 組み立ててフォールバックする。
     const [y, m, d] = (formState.hikiotoshi_date as string).split('-');
     downloadBlob(blob, filename ?? `口座振替データ_${y}年${m}月${d}日`);
     notify.success('口座振替データの作成が完了しました。'); // ACSMS-MSG-020-001
@@ -685,6 +685,7 @@ defineExpose({
                   :precision="0"
                   :controls="false"
                   class="w-32 text-right"
+                  :aria-label="`金額（${row.koza_meigi || row.hikiotoshi_koza_no || row.dokusya_id}）`"
                   :data-test="`kingaku-${row.dokusya_id}`"
                 />
               </td>
@@ -705,7 +706,8 @@ defineExpose({
       </p>
     </section>
 
-    <!-- フッター：作成開始（プレビュー）→ ファイル作成 -->
+    <!-- フッター：レポートプレビュー（旧称: 作成開始）→ ファイル作成。
+         ACSMS-SCR-028/029 とボタン名を統一（顧客要件2026-08）。 -->
     <div class="flex items-center flex-wrap justify-start gap-2">
       <a-button
         type="primary"
@@ -713,7 +715,7 @@ defineExpose({
         data-test="preview-btn"
         @click="onPreview"
       >
-        作成開始
+        レポートプレビュー
       </a-button>
       <a-button
         v-if="previewed && previewRows.length > 0"

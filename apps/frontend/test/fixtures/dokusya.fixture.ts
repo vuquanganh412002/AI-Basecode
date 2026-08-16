@@ -173,7 +173,7 @@ export interface CreateDokusyaForm {
 
 export type UpdateDokusyaForm = CreateDokusyaForm;
 
-/** Default-valid DETAIL response (API-011-001) for edit-mode mounts. */
+/** Default-valid DETAIL response (ACSMS-API-011-001) for edit-mode mounts. */
 export function buildDokusyaDetail(
   overrides: Partial<DokusyaDetail> = {},
 ): DokusyaDetail {
@@ -243,7 +243,10 @@ export function buildDokusyaDetail(
     biko: '',
     rireki_no: 1,
     denshi_shonin_status: null,
-    denshi_kaiin_id: null,
+    // 既定は「外部システム連携済み」(非 null) — read-only ルール（電子版 +
+    // denshi_kaiin_id=null + 非campaign単価）が無関係な既存テストへ波及しない
+    // ようにする。null を明示的にテストする箇所は override で null を渡す。
+    denshi_kaiin_id: 12345,
     honshi_kodoku_flg: false,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
@@ -338,7 +341,7 @@ export function buildUpdateDokusyaForm(
   };
 }
 
-/** Default 2-row history response (API-011-006). */
+/** Default 2-row history response (ACSMS-API-011-006). */
 export function buildDokusyaHistoryItem(
   overrides: Partial<DokusyaHistoryItem> = {},
 ): DokusyaHistoryItem {
@@ -382,7 +385,7 @@ export function buildDokusyaHistoryResponse(): { data: DokusyaHistoryItem[] } {
 //
 // Full paginated history row returned by
 // GET /api/v1/dokusya/:dokusya_id/rireki (ACSMS-API-013-001). Distinct
-// from DokusyaHistoryItem (SCR-011 /history — lighter, label-bearing):
+// from DokusyaHistoryItem (ACSMS-SCR-011 /history — lighter, label-bearing):
 // this carries the full snapshot + name joins and CODE VALUES ONLY (no
 // *_label — the FE resolves labels via useCodesStore). Local interface so
 // the fixture stays self-contained until /gen-code-frontend adds the
@@ -476,7 +479,7 @@ export function buildDokusyaRirekiRow(
     dokusya_id: 100,
     rireki_no: 3,
     dokusya_shubetsu: 1,
-    // 既定は紙版なので電子版連携の 2 列は null（SCR-013 一覧）。
+    // 既定は紙版なので電子版連携の 2 列は null（ACSMS-SCR-013 一覧）。
     denshi_dokusya_shubetsu: null,
     denshi_shonin_status: null,
     ja_id: 1,
@@ -639,6 +642,8 @@ export interface TankaDropdownItem {
   kingaku_zeinuki: number;
   // BE がログイン中 JA の税区分で解決した表示用金額（=1 税込 / =2 税抜）。
   kingaku: number;
+  /** キャンペーンフラグ — TRUE: 有効, FALSE: 無効。 */
+  campaign_flg: boolean;
 }
 
 export function buildTankaDropdown(): TankaDropdownItem[] {
@@ -651,6 +656,7 @@ export function buildTankaDropdown(): TankaDropdownItem[] {
       kingaku_zeikomi: 4900,
       kingaku_zeinuki: 4500,
       kingaku: 4900,
+      campaign_flg: false,
     },
   ];
 }
@@ -671,7 +677,7 @@ export function buildTodofukenList(): TodofukenItem[] {
 
 // ─── m_code seed for createTestingPinia({ initialState: { codes } }) ──
 //
-// SCR-011 references DOKUSYA_SHUBETSU / TETSUZUKI_SHURUI /
+// ACSMS-SCR-011 references DOKUSYA_SHUBETSU / TETSUZUKI_SHURUI /
 // SHIHARAI_HOHO / YUBIN_KUBUN / GENDER / MAIL_MAGAZINE_FLG /
 // YOKIN_SHUBETSU. Values mirror docs/database/seeder.md §5.
 
@@ -728,7 +734,7 @@ export function buildCodesSeed(): Record<
 
 // ─── Auth user fixture ─────────────────────────────────────────────
 //
-// SCR-011 access matrix (account_concept.md):
+// ACSMS-SCR-011 access matrix (account_concept.md):
 //   NICHINO_ADMIN / NICHINO_STAFF: full create/update/view
 //   CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN: own JA scope
 //

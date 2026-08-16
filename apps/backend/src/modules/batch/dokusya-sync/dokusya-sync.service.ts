@@ -1,22 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { SystemActor } from '@/common/constants/system-actor.constant';
 import { DenshibanDbService } from '@/modules/denshiban/denshiban-db.service';
 import { DokusyaRirekiService } from '@/modules/dokusya/dokusya-rireki-helper.service';
-import { applyChange } from '@/modules/dokusya/dokusya-history.writer';
+import {
+  applyChange,
+  insertScheduledKaiyaku,
+  revokeScheduledKaiyaku,
+} from '@/modules/dokusya/dokusya-history.writer';
+import { loadActiveKaiyakuRow } from '@/modules/dokusya/dokusya-history.query';
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import { DenshiSyncState } from '@/database/entities/denshi-sync-state.entity';
-import { DenshiShoninStatus, ShiharaiHoho } from '@/common/enums';
+import {
+  DenshiShoninStatus,
+  DokusyaShubetsu,
+  ShiharaiHoho,
+  TetsuzukiShurui,
+} from '@/common/enums';
 import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { todayIsoJst } from '@/common/utils/datetime';
 import type { BatchJob } from '@/batch/batch-job.interface';
-import type { DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
+import type { DateOnly, DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
 
 import {
   mapUserToDokusyaFields,
+  normalizePaymentYm,
+  paymentEndYmToChushiDate,
   DENSHI_STATUS_KAIYAKU,
   type DenshiUserRow,
   type DenshiFkResolution,
@@ -41,6 +53,12 @@ const MAX_ROWS_PER_RUN = 500_000;
 
 /** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
 const BATCH_SCREEN = '電子版読者同期バッチ (dokusya-sync)';
+
+/**
+ * #57986: 電子版側の payment_end_ym 変更で既存の解約予約行の中止日を差し替える
+ * 際、旧予約行の取消理由（対象行・打ち消し行の両方の biko に記録される）。
+ */
+const KAIYAKU_REVOKE_REASON_SYNC = '購読中止日の変更（電子版同期 #57986）';
 
 interface SyncCounts {
   read: number;
@@ -382,9 +400,16 @@ export class DokusyaSyncService implements BatchJob {
     //   mapShiharai と同じ前提）なので ShiharaiHoho をそのまま使える。
     const eligibilityFilter =
       `(collecting = 1 OR (treatment = 1 AND payment_id = ${ShiharaiHoho.CREDIT_CARD}))`;
+    // #57986: Denshiban 側で実削除済み（deleted_at 有）の行は取り込み対象外。
+    // 解約(status=9)の反映は payment_end_ym ベースの中止日算出＋予約行作成で
+    // 完結しており、実削除された行を読み直す必要はない（読んでも既存の Cloud
+    // skip ガードで無害だったが、無駄な行を1件ずつ FK 解決するコストを避ける）。
+    const notDeletedFilter = `deleted_at IS NULL`;
     const chg = 'COALESCE(updated_at, created_at)';
 
-    const where: string[] = [`${campaignFilter} AND ${eligibilityFilter}`];
+    const where: string[] = [
+      `${campaignFilter} AND ${eligibilityFilter} AND ${notDeletedFilter}`,
+    ];
     const params: unknown[] = [];
 
     if (!fullSync) {
@@ -470,42 +495,51 @@ export class DokusyaSyncService implements BatchJob {
     const actor: string = SystemActor.DENSHI_SYNC;
 
     await this.mainDb.transaction(async (m) => {
-      const existing = await m.findOne(Dokusya, {
+      let existing = await m.findOne(Dokusya, {
         where: { denshiKaiinId },
       });
 
+      // ── email フォールバック照合（顧客要件 2026-08 追補）─────────────
+      // denshi_kaiin_id で見つからない場合、cloud 側で先に手動登録された
+      // 電子版/併読読者（campaign 単価などで denshi_kaiin_id が未設定のまま
+      // 残っている行）を email で拾い、二重登録を防ぐ。
+      //   - スコープは assertEmailUnique と同じ: 電子版/併読・削除済み除外。
+      //   - denshi_kaiin_id が既に設定済みの行は対象外（別の会員に紐付け済み
+      //     の行を奪わない）— 未設定行のみ拾う。
+      //   - email の一意性は SCR-011 側で担保済み（同スコープ）なので通常
+      //     複数該当しないが、念のため最新作成行を採用する。
+      if (!existing && hasValue(u.email)) {
+        const emailMatch = await m
+          .createQueryBuilder(Dokusya, 'd')
+          .where(
+            `d.email = :email AND d.deleted_at IS NULL
+               AND d.dokusya_shubetsu IN (:...digital)
+               AND d.denshi_kaiin_id IS NULL`,
+            {
+              email: String(u.email),
+              digital: [DokusyaShubetsu.DIGITAL, DokusyaShubetsu.BOTH],
+            },
+          )
+          .orderBy('d.created_at', 'DESC')
+          .getOne();
+        if (emailMatch) {
+          await m.update(
+            Dokusya,
+            { dokusyaId: emailMatch.dokusyaId },
+            { denshiKaiinId },
+          );
+          existing = { ...emailMatch, denshiKaiinId };
+          this.logger.log({
+            event: 'dokusya_sync.matched_by_email',
+            dokusya_id: emailMatch.dokusyaId,
+            denshi_kaiin_id: denshiKaiinId,
+          });
+        }
+      }
+
       // ── 解約（status=9）─────────────────────────────────────────────
       if (status === DENSHI_STATUS_KAIYAKU) {
-        if (!existing) {
-          counts.skipped++; // 未存在の解約は無意味
-          return;
-        }
-        await this.rireki.lockDokusyaRow(m, existing.dokusyaId);
-        // 解約: 部数0 + tetsuzuki=解約（mapper が既に tetsuzuki=0 を設定済み）。
-        // cloud 所有列（tanka_id 等）は上書きしない。
-        await applyChange(m, {
-          mode: 'UPDATE',
-          dokusyaId: existing.dokusyaId,
-          values: { ...this.ownedByCloudFiltered(values, existing), dokusyaBusu: 0 },
-          johoDate,
-          source: 'BATCH',
-          actor,
-        });
-        // master は論理削除しない（顧客要件 2026-08）。
-        //
-        // 以前はここで softDelete していたが、SCR-014 の購読停止は「予約」であり
-        // その時点で電子版へ cancel を push する（DokusyaService.stop）。電子版は
-        // 受信と同時に status=9 になるため、中止日が未来でも次の同期でこの分岐に
-        // 入り、master が即座に消えていた（予約したのに一覧から居なくなる）。
-        //
-        // 加えて到来日バッチ（dokusya-apply-due）は
-        // `WHERE deleted_at IS NULL AND tetsuzuki_shurui <> 解約` で対象を拾うため、
-        // ここで論理削除すると予約が永久に確定されない。
-        //
-        // 解約の確定形は「tetsuzuki_shurui=解約 + dokusya_chushi_date 保持、
-        // deleted_at は立てない」で到来日バッチと統一する。購読中止日は
-        // values.dokusyaChushiDate（電子版 users.deleted_at 由来）に反映済み。
-        counts.cancelled++;
+        await this.handleKaiyaku(m, existing, u, values, denshiKaiinId, johoDate, actor, counts);
         return;
       }
 
@@ -550,6 +584,185 @@ export class DokusyaSyncService implements BatchJob {
       await m.update(Dokusya, { dokusyaId: res.dokusyaId }, { denshiKaiinId });
       counts.created++;
     });
+  }
+
+  /**
+   * 解約（status=9）の分岐 — #57986。tetsuzuki_shurui=解約(0)・kaiyaku_flg=true は
+   * もうこの同期からは直接書かない。解約の確定（Phase2）は既存の夜間バッチ
+   * （dokusya-apply-due / insertKaiyaku）に一本化し、ここでは中止日を Cloud 側へ
+   * 反映する（予約 Phase1）だけに留める — 到来日判定・tetsuzuki/kaiyaku_flg の確定は
+   * 夜間バッチの責務のまま変えない。
+   *
+   * master は論理削除しない（顧客要件 2026-08）。以前はここで softDelete していたが、
+   * SCR-014 の購読停止は「予約」でありその時点で電子版へ cancel を push する
+   * （DokusyaService.stop）。電子版は受信と同時に status=9 になるため、中止日が未来
+   * でも次の同期でこの分岐に入り、master が即座に消えていた（予約したのに一覧から
+   * 居なくなる）。
+   *
+   * 中止日は payment_end_ym（支払済み最終月）から算出する。users.deleted_at は
+   * 使わない — 未来日解約は Denshiban 側で status=9 に切り替わった時点ではまだ実削除
+   * されておらず deleted_at が NULL のままなので、中止日を正しく表せない（2026-08
+   * 実データで確認）。なお実削除済み（deleted_at 有）の行は fetchPage で既に除外して
+   * いる。
+   */
+  private async handleKaiyaku(
+    m: EntityManager,
+    existing: Dokusya | null,
+    u: DenshiUserRow,
+    values: DokusyaFields,
+    denshiKaiinId: number,
+    johoDate: string,
+    actor: string,
+    counts: SyncCounts,
+  ): Promise<void> {
+    const paymentEndYm = normalizePaymentYm(u.payment_end_ym);
+    const currentYm = todayIsoJst().replaceAll('-', '').slice(0, 6);
+    if (paymentEndYm === null || paymentEndYm < currentYm) {
+      // 支払済み期間がすでに完全に過去（今月より前）— 対象外とし、
+      // 中止日・tetsuzuki_shurui・kaiyaku_flg のいずれにも触れない。
+      counts.skipped++;
+      this.logger.warn({
+        event: 'dokusya_sync.skip_kaiyaku_stale_payment_end_ym',
+        denshi_kaiin_id: denshiKaiinId,
+        payment_end_ym: u.payment_end_ym,
+      });
+      return;
+    }
+    const chushiDate = paymentEndYmToChushiDate(paymentEndYm);
+    if (chushiDate === null) {
+      counts.skipped++;
+      return;
+    }
+
+    // tetsuzuki_shurui / kaiyaku_flg は夜間バッチ専用列 — この同期では一切触らず、
+    // 前回値を carry-forward させる（キー自体を除外する）。
+    const { tetsuzukiShurui: _tetsuzukiShurui, kaiyakuFlg: _kaiyakuFlg, ...otherValues } =
+      values;
+
+    if (!existing) {
+      await this.createAlreadyKaiyaku(m, otherValues, denshiKaiinId, johoDate, actor, chushiDate, counts);
+      return;
+    }
+
+    await this.rireki.lockDokusyaRow(m, existing.dokusyaId);
+    const filtered = this.ownedByCloudFiltered(otherValues, existing);
+
+    // ロック取得後に読み直す（DokusyaService.stop と同じ理由 — ガードした状態と
+    // 実際に revoke する行を一致させる。並行更新で予約が消えていた場合は
+    // active=null になり、下の「予約なし」分岐が自然に対応する）。
+    const active = await loadActiveKaiyakuRow(m, existing.dokusyaId);
+
+    if (active && !active.kaiyakuFlg && active.dokusyaChushiDate !== chushiDate) {
+      // Case 1: 既存の予約行はあるが中止日が変わった（payment_end_ym の変更を
+      // 反映）。旧予約行を赤伝で無効化してから、新しい中止日で予約を作り直す
+      // （DokusyaService.stop の変更経路と同じパターン — 単純な UPDATE で
+      // 中止日を上書きするのではなく、旧履歴を取消して新履歴を積む）。
+      await revokeScheduledKaiyaku(
+        m,
+        existing.dokusyaId,
+        active,
+        KAIYAKU_REVOKE_REASON_SYNC,
+        actor,
+      );
+      await applyChange(m, {
+        mode: 'UPDATE',
+        dokusyaId: existing.dokusyaId,
+        values: filtered,
+        johoDate,
+        source: 'BATCH',
+        actor,
+      });
+      await insertScheduledKaiyaku(m, {
+        dokusyaId: existing.dokusyaId,
+        chushiDate,
+        shubetsu: existing.dokusyaShubetsu,
+        actor,
+      });
+      counts.cancelled++;
+      return;
+    }
+
+    if (!active) {
+      // Case 2: Cloud には既に読者は存在するが、まだ予約が無い（Denshiban 側で
+      // 先に発生していた解約に、この同期で初めて追従する）。先に他の情報変更が
+      // あれば通常の更新行として反映し（無ければ no-op）、その後に解約予約行
+      // （Phase1）を作る。
+      await applyChange(m, {
+        mode: 'UPDATE',
+        dokusyaId: existing.dokusyaId,
+        values: filtered,
+        johoDate,
+        source: 'BATCH',
+        actor,
+      });
+      await insertScheduledKaiyaku(m, {
+        dokusyaId: existing.dokusyaId,
+        chushiDate,
+        shubetsu: existing.dokusyaShubetsu,
+        actor,
+      });
+      counts.cancelled++;
+      return;
+    }
+
+    // 予約の中止日は既に一致している（または既に確定済み＝夜間バッチ済み）—
+    // 予約/確定はそのまま、他の情報だけ更新する。
+    const res = await applyChange(m, {
+      mode: 'UPDATE',
+      dokusyaId: existing.dokusyaId,
+      values: filtered,
+      johoDate,
+      source: 'BATCH',
+      actor,
+    });
+    if (res.insertedRirekiIds.length > 0) counts.cancelled++;
+    else counts.unchanged++;
+  }
+
+  /**
+   * Cloud にまだ全く存在しない読者が、初回同期の時点で既に解約済み（Denshiban
+   * 側で入会〜解約が完結した履歴）— 2件の履歴行を作る: 1件目は新規行、2件目は
+   * 解約予約行（Phase1）。
+   */
+  private async createAlreadyKaiyaku(
+    m: EntityManager,
+    otherValues: DokusyaFields,
+    denshiKaiinId: number,
+    johoDate: string,
+    actor: string,
+    chushiDate: DateOnly,
+    counts: SyncCounts,
+  ): Promise<void> {
+    // 購読開始日が無ければ通常の CREATE と同じ理由で作成不可なので skip する。
+    if (!otherValues.shokiDokusyaKaishiDate) {
+      counts.skipped++;
+      this.logger.warn({
+        event: 'dokusya_sync.skip_no_kaishi_date',
+        denshi_kaiin_id: denshiKaiinId,
+        note: 'activated_at / application_date / created_at がすべて空',
+      });
+      return;
+    }
+    // 1件目: 新規行（tetsuzuki_shurui=新規で作成 — CREATE には carry-forward 元の
+    // before が無いため、解約由来の値をそのまま渡すと初回行が解約扱いになって
+    // しまう。明示的に新規で上書きする）。
+    const res = await applyChange(m, {
+      mode: 'CREATE',
+      values: { ...otherValues, tetsuzukiShurui: TetsuzukiShurui.SHINKI },
+      johoDate,
+      source: 'BATCH',
+      actor,
+    });
+    await m.update(Dokusya, { dokusyaId: res.dokusyaId }, { denshiKaiinId });
+    // 2件目: 解約予約行（Phase1）。tetsuzuki_shurui=解約への確定は夜間バッチに
+    // 任せる（handleKaiyaku 冒頭のコメント参照）。
+    await insertScheduledKaiyaku(m, {
+      dokusyaId: res.dokusyaId,
+      chushiDate,
+      shubetsu: Number(otherValues.dokusyaShubetsu),
+      actor,
+    });
+    counts.created++;
   }
 
   /**

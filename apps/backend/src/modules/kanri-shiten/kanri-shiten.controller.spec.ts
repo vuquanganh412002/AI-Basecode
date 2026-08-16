@@ -111,7 +111,7 @@ describe('KanriShitenController — SCR-008 (list / delete HTTP)', () => {
   const http = () => request(app.getHttpServer() as Server);
 
   // ═════════════════════════════════════════════════════════════════════
-  // GET /api/v1/kanri-shiten (API-008-001)
+  // GET /api/v1/kanri-shiten (ACSMS-API-008-001)
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/kanri-shiten', () => {
     const sampleRow = {
@@ -252,7 +252,7 @@ describe('KanriShitenController — SCR-008 (list / delete HTTP)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // DELETE /api/v1/kanri-shiten/:id (API-008-002)
+  // DELETE /api/v1/kanri-shiten/:id (ACSMS-API-008-002)
   // ═════════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/kanri-shiten/:id', () => {
     it('should return 200 with success message when service.remove resolves', async () => {
@@ -313,9 +313,9 @@ describe('KanriShitenController — SCR-008 (list / delete HTTP)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-009 — detail + create + update HTTP layer (separate top-level
+// ACSMS-SCR-009 — detail + create + update HTTP layer (separate top-level
 // describe so its mock setup, especially the findById/create/update
-// service stubs, doesn't leak into the SCR-008 block above).
+// service stubs, doesn't leak into the ACSMS-SCR-008 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('KanriShitenController — SCR-009 (detail + create + update HTTP)', () => {
@@ -441,7 +441,7 @@ describe('KanriShitenController — SCR-009 (detail + create + update HTTP)', ()
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  // GET /api/v1/kanri-shiten/:id (API-009-001)
+  // GET /api/v1/kanri-shiten/:id (ACSMS-API-009-001)
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/kanri-shiten/:id', () => {
     it('should return 200 with detail body when row exists', async () => {
@@ -489,7 +489,7 @@ describe('KanriShitenController — SCR-009 (detail + create + update HTTP)', ()
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // POST /api/v1/kanri-shiten (API-009-002)
+  // POST /api/v1/kanri-shiten (ACSMS-API-009-002)
   // ═════════════════════════════════════════════════════════════════════
   describe('POST /api/v1/kanri-shiten', () => {
     it('should return 201 with data + message when NICHINO_ADMIN sends valid body', async () => {
@@ -547,7 +547,7 @@ describe('KanriShitenController — SCR-009 (detail + create + update HTTP)', ()
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // PUT /api/v1/kanri-shiten/:id (API-009-003)
+  // PUT /api/v1/kanri-shiten/:id (ACSMS-API-009-003)
   // ═════════════════════════════════════════════════════════════════════
   describe('PUT /api/v1/kanri-shiten/:id', () => {
     const validUpdateBody = {

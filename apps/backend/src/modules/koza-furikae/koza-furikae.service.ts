@@ -10,6 +10,7 @@ import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { FileArchiveService } from '@/modules/file-archive/file-archive.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
+import { buildAsciiFallbackFileName } from '@/common/utils/file-delivery';
 import {
   AuditOperation,
   DenshiShoninStatus,
@@ -40,7 +41,7 @@ const TABLE_NAME = 't_file_download';
 // 全銀フォーマットは固定長テキスト（CSV ではない）。Shift_JIS 固定。
 const ZENGIN_MIME = 'text/plain; charset=Shift_JIS';
 
-/** API-020-001 初期データ（m_ja JASTEM 委託者情報 + 最終使用 m_shiten 金融機関支店情報）。 */
+/** ACSMS-API-020-001 初期データ（m_ja JASTEM 委託者情報 + 最終使用 m_shiten 金融機関支店情報）。 */
 export interface KozaFurikaeInitialData {
   ja_id: number | null;
   jastem_itakusha_code: string;
@@ -216,24 +217,27 @@ export class KozaFurikaeService {
       const zengin = this.buildZenginFixed(body, rows);
       const buffer = iconv.encode(zengin, 'Shift_JIS');
 
-      // ダウンロード名は全銀の慣例に合わせ固定名 `ZENOUTFD`（拡張子なし）とする。
-      // 顧客提供サンプル `ZENOUTFD_口座振替データサンプル` に準拠。銀行の全銀メディア
-      // 受入名がこの固定名のため、ユーザーはそのまま媒体へ書き出せる。
       const ja = await this.fileArchive.resolveJa(session.ja_id);
       const [y, m, d] = body.hikiotoshi_date.split('-');
-      // S3 アーカイブ名は検索性のため日本語の説明的名称を維持する（内部保管用）。
+      // S3 アーカイブ名は検索性のため JA コード付きの説明的名称を維持する（内部保管用）。
       const baseName = `口座振替データ_${ja.code}_${y}年${m}月${d}日`;
-      const filename = 'ZENOUTFD';
-      const asciiFilename = 'ZENOUTFD';
+      // ダウンロード名 / t_file_download 表示名（SCR-022 再DL時も同名）は引落日
+      // ベースの説明的名称とする。拡張子は付けない。
+      const displayName = `口座振替データ_${y}年${m}月${d}日`;
+      const filename = displayName;
+      const asciiFilename = buildAsciiFallbackFileName(displayName);
 
       // 共通サービスで S3 保存 + t_file_upload 登録。
       // S3 キー: koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.csv
       //（rootPrefix='' で reports/ プレフィックスなし、subFolder なし）。
+      // displayName 指定により、ファイル作成時の直接DL名と t_file_download.file_name
+      //（SCR-022 での再DL名）を ja_code・タイムスタンプ無しの同一名に統一する。
       // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
       // S3 保存（外部 I/O）はトランザクション外で先に完了させる（4.4）。
       const archived = await this.fileArchive.archive({
         buffer,
         baseName,
+        displayName,
         category: 'koza-furikae',
         rootPrefix: '',
         year: y,
@@ -242,9 +246,7 @@ export class KozaFurikaeService {
         session,
         recordCount: rows.length,
         contentType: ZENGIN_MIME,
-        // 全銀メディアの受入名は拡張子なし（固定名 ZENOUTFD）。銀行提出ファイルに
-        // .txt は不要なため、S3 保存名 / t_file_download / 履歴からの再DL とも
-        // 拡張子を付けない。
+        // 拡張子なし（全銀固定長テキストに .txt/.csv は不要）。
         extension: '',
         // 口座振替データ (SCR-020)：日農担当者DL不可。
         downloadType: DownloadType.KOZA_FURIKAE,

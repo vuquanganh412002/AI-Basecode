@@ -30,6 +30,7 @@ function buildResponse(
       kingaku_zeikomi: 100,
       kingaku_zeinuki: 90,
       kingaku: 100,
+      campaign_flg: false,
       ...r,
     })),
     meta: {

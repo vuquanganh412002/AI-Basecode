@@ -10,6 +10,7 @@ import {
   revokeScheduledKaiyaku,
   canTorikeshi,
   insertKaiyaku,
+  insertScheduledKaiyaku,
   recomputeAfterChain,
   recomputeMaster,
 } from './dokusya-history.writer';
@@ -313,7 +314,7 @@ describe('recomputeAfterChain', () => {
     m = { save } as unknown as EntityManager;
   });
 
-  it('successor that changed the field itself → relink zenkai + zougen, stop', async () => {
+  it('successor that changed the field itself → relink zenkai, stop, zougen untouched', async () => {
     const before = rireki({ dokusyaBusu: 6, hanbaitenId: 459 });
     const inserted = rireki({
       johoHenkoTekiyoDate: '2026-07-01',
@@ -326,78 +327,284 @@ describe('recomputeAfterChain', () => {
       johoHenkoTekiyoDate: '2026-09-01',
       rirekiNo: 2,
       dokusyaBusu: 10, // successor set busu itself → not carried
+      zenkaiDokusyaBusu: 6, // 作成時点の zenkai（挿入前の predecessor 値）
       hanbaitenId: 459,
+      // 住所も意図的な変更として stop させる（未設定=undefined同士だと
+      // キャリーフォワード扱いになり、この行1つで全グループ停止という
+      // テストの意図から外れてしまうため）。
+      yubinNo: '1000001',
+      zenkaiYubinNo: '2000002',
+      zougenHokokuFlg: false, // 作成時点の値 — カスケードで変わらないことを確認する
     });
     q.findNext.mockResolvedValueOnce(after);
 
     await recomputeAfterChain(m, 1001, inserted, before, ['dokusyaBusu']);
 
-    expect(q.findNext).toHaveBeenCalledTimes(1); // stopped (keep empty)
+    expect(q.findNext).toHaveBeenCalledTimes(1); // 3グループとも after で停止
     expect(save).toHaveBeenCalledTimes(1);
-    expect(after.dokusyaBusu).toBe(10); // its own value kept
+    expect(after.dokusyaBusu).toBe(10); // its own value kept (intentional change)
     expect(after.zenkaiDokusyaBusu).toBe(8); // relinked to inserted (prev)
-    expect(after.zougenHokokuFlg).toBe(true); // 10 vs prev 8 → changed
+    // zougen_hokoku_flg はカスケードで一切変更しない（増減連絡票/増減通知書の
+    // 二重計上防止 — docs/requirement/dokusya_rireki_record_writing_rules.md §7.3）。
+    expect(after.zougenHokokuFlg).toBe(false);
   });
 
-  it('B-thuần: updates ONLY the immediate successor — NO cascade to rows after it', async () => {
-    // 顧客要件 2026-07: 挿入行の直後行だけを更新し、後続行へは伝播しない。
+  it('cascade: carried-forward busu/hanbaiten propagate through multiple successors until an intentional change (顧客要件 No.86 ケース3)', async () => {
+    // 資料 docs/123.xlsx ケース3の多段版: after1・after2 とも busu/hanbaiten
+    // ともキャリーフォワードのため、後続行が尽きるまでカスケードが続く。
     const before = rireki({ dokusyaBusu: 4 });
     const inserted = rireki({
       johoHenkoTekiyoDate: '2026-07-01',
       rirekiNo: 3,
       dokusyaBusu: 6,
+      hanbaitenId: 459,
     });
     const after1 = rireki({
       dokusyaRirekiId: 4,
       johoHenkoTekiyoDate: '2026-08-01',
       rirekiNo: 2,
       dokusyaBusu: 4,
+      zenkaiDokusyaBusu: 4, // busu キャリーフォワード（挿入前の predecessor と同値）
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 459, // hanbaiten もキャリーフォワード
     });
     const after2 = rireki({
       dokusyaRirekiId: 5,
       johoHenkoTekiyoDate: '2026-09-01',
       rirekiNo: 4,
       dokusyaBusu: 4,
+      zenkaiDokusyaBusu: 4, // これもキャリーフォワード
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 459,
     });
     q.findNext
       .mockResolvedValueOnce(after1)
       .mockResolvedValueOnce(after2)
-      .mockResolvedValue(null);
+      .mockResolvedValueOnce(null);
 
     await recomputeAfterChain(m, 1001, inserted, before, ['dokusyaBusu']);
 
-    // 直後行(after1)のみ: findNext 1回・save 1回。
-    expect(q.findNext).toHaveBeenCalledTimes(1);
-    expect(save).toHaveBeenCalledTimes(1);
-    // after1: zenkai を挿入行へ relink するが current 値は据え置き。
-    expect(after1.zenkaiDokusyaBusu).toBe(6); // prev = inserted
-    expect(after1.dokusyaBusu).toBe(4); // current NOT cascaded (B-thuần)
-    // after2 は一切触らない。
-    expect(after2.dokusyaBusu).toBe(4);
-    expect(after2.zenkaiDokusyaBusu).toBeUndefined();
+    // after1・after2 とも両フィールドともキャリーフォワード → 後続行が尽きる
+    // まで続く: findNext 3回（after1, after2, null）・save 2回。
+    expect(q.findNext).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenCalledTimes(2);
+
+    expect(after1.dokusyaBusu).toBe(6); // 4→6 へ追随（挿入行の値）
+    expect(after1.zenkaiDokusyaBusu).toBe(6); // relink
+    expect(after1.hanbaitenId).toBe(459); // 変化なし（両方 459 のまま）
+    expect(after1.zenkaiHanbaitenId).toBe(459);
+
+    expect(after2.dokusyaBusu).toBe(6); // after1(カスケード後の6)を引き継いで6へ
+    expect(after2.zenkaiDokusyaBusu).toBe(6); // relink（after1 の値）
   });
 
-  it('B-thuần: keeps the successor\'s haitatsu_same_flg unchanged even when the inserted row changed it', async () => {
-    // 顧客要件 2026-07: 直後行の haitatsu_same_flg は挿入行に追随して書き換えない。
-    const before = rireki({ haitatsuSameFlg: true, dokusyaBusu: 4 });
+  it('cascade: busu stops at the first successor with an intentional change while hanbaiten keeps propagating past it', async () => {
+    // busu と hanbaiten は独立に停止する — 顧客要件 No.86 §6-3。
+    const before = rireki({ dokusyaBusu: 4, hanbaitenId: 459 });
     const inserted = rireki({
-      johoHenkoTekiyoDate: '2026-07-01',
-      rirekiNo: 3,
-      haitatsuSameFlg: false, // 挿入行が別配達先へ切替
+      johoHenkoTekiyoDate: '2026-02-01',
+      rirekiNo: 4,
       dokusyaBusu: 4,
+      hanbaitenId: 470, // 販売店変更のみ（意図的、遡及挿入）
+    });
+    const after1 = rireki({
+      dokusyaRirekiId: 5,
+      johoHenkoTekiyoDate: '2026-04-01',
+      rirekiNo: 2,
+      dokusyaBusu: 6, // 意図的な増部（4→6） → busu はここで停止
+      zenkaiDokusyaBusu: 4,
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 459, // hanbaiten はキャリーフォワード → 継続
+    });
+    const after2 = rireki({
+      dokusyaRirekiId: 6,
+      johoHenkoTekiyoDate: '2026-06-01',
+      rirekiNo: 3,
+      dokusyaBusu: 6,
+      zenkaiDokusyaBusu: 6,
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 459, // hanbaiten もキャリーフォワード → さらに継続
+    });
+    q.findNext
+      .mockResolvedValueOnce(after1)
+      .mockResolvedValueOnce(after2)
+      .mockResolvedValueOnce(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['hanbaitenId']);
+
+    expect(q.findNext).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenCalledTimes(2);
+
+    // busu は after1 で即停止（意図的変更を検出）。
+    expect(after1.dokusyaBusu).toBe(6); // 不変（据え置き）
+    expect(after1.zenkaiDokusyaBusu).toBe(4); // relinkのみ（値は変わらず）
+    expect(after1.hanbaitenId).toBe(470); // hanbaiten は継続してカスケード
+    expect(after1.zenkaiHanbaitenId).toBe(470);
+
+    // busu は after2 に一切触れない（既に停止済み）。
+    expect(after2.dokusyaBusu).toBe(6);
+    expect(after2.hanbaitenId).toBe(470); // hanbaiten はさらに継続
+    expect(after2.zenkaiHanbaitenId).toBe(470);
+  });
+
+  it('cascade: skips torikeshi-flagged rows via findNext (regression — no extra handling needed)', async () => {
+    // findNext は torikeshi_flg=1 行を自動的にスキップするため、カスケードが
+    // 取消済み行を誤って書き換えないことを確認する（顧客要件 No.86 ケース4）。
+    const before = rireki({ dokusyaBusu: 4 });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-02-01',
+      rirekiNo: 5,
+      dokusyaBusu: 6,
+      hanbaitenId: 459,
+    });
+    // findNext のモック自体が「torikeshi 行はスキップ済み」の結果を返す —
+    // query 層の既存フィルタを信頼し、writer 側では何もしないことの確認。
+    const after = rireki({
+      dokusyaRirekiId: 7,
+      johoHenkoTekiyoDate: '2026-08-01',
+      rirekiNo: 4,
+      dokusyaBusu: 4,
+      zenkaiDokusyaBusu: 4,
+      hanbaitenId: 459,
+      zenkaiHanbaitenId: 459,
+    });
+    q.findNext.mockResolvedValueOnce(after).mockResolvedValueOnce(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['dokusyaBusu']);
+
+    expect(after.dokusyaBusu).toBe(6); // 取消済み行(rireki_no=2・3相当)を飛ばして直接カスケード
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('cascade: propagates carried-forward effective address through multiple successors (Phase 2)', async () => {
+    // 資料 docs/requirement/dokusya_rireki_cascade_implementation_plan.md
+    // §3.3 例6の多段版。busu/hanbaiten は未設定(undefined同士)のため一緒に
+    // キャリーフォワードし続けるが、この行の関心はあくまで住所。
+    const before = rireki({ yubinNo: '1000001' });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-02-01',
+      rirekiNo: 4,
+      yubinNo: '1500005', // 引っ越し（意図的、遡及挿入）
+    });
+    const after1 = rireki({
+      dokusyaRirekiId: 5,
+      johoHenkoTekiyoDate: '2026-03-01',
+      rirekiNo: 2,
+      yubinNo: '1000001', // キャリーフォワード（挿入前の predecessor と同値）
+      zenkaiYubinNo: '1000001',
+    });
+    const after2 = rireki({
+      dokusyaRirekiId: 6,
+      johoHenkoTekiyoDate: '2026-06-01',
+      rirekiNo: 3,
+      yubinNo: '1000001', // これもキャリーフォワード
+      zenkaiYubinNo: '1000001',
+    });
+    q.findNext
+      .mockResolvedValueOnce(after1)
+      .mockResolvedValueOnce(after2)
+      .mockResolvedValueOnce(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['yubinNo']);
+
+    expect(q.findNext).toHaveBeenCalledTimes(3);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(after1.yubinNo).toBe('1500005'); // 追随（挿入行の値）
+    expect(after1.zenkaiYubinNo).toBe('1500005'); // relink
+    expect(after2.yubinNo).toBe('1500005'); // after1(カスケード後)を引き継ぐ
+    expect(after2.zenkaiYubinNo).toBe('1500005'); // relink（after1 の値）
+  });
+
+  it('cascade: address stops at a successor that switched haitatsu_same_flg (意図的な配達先変更 — Phase 2)', async () => {
+    const before = rireki({ yubinNo: '1000001' });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-02-01',
+      rirekiNo: 4,
+      yubinNo: '1500005', // 引っ越し（意図的、遡及挿入）
     });
     const after = rireki({
-      dokusyaRirekiId: 4,
-      johoHenkoTekiyoDate: '2026-08-01',
+      dokusyaRirekiId: 5,
+      johoHenkoTekiyoDate: '2026-06-01',
       rirekiNo: 2,
-      haitatsuSameFlg: true, // 直後行は購読者住所と同一のまま
-      dokusyaBusu: 4,
+      haitatsuSameFlg: false, // 配達先を別住所に設定（意図的な変更）
+      haitatsuYubinNo: '2000002',
+      zenkaiYubinNo: '1000001', // 作成時点は購読者住所ベースで埋まっていた
     });
-    q.findNext.mockResolvedValueOnce(after).mockResolvedValue(null);
+    q.findNext.mockResolvedValueOnce(after).mockResolvedValueOnce(null);
 
     await recomputeAfterChain(m, 1001, inserted, before, ['haitatsuSameFlg']);
 
-    expect(after.haitatsuSameFlg).toBe(true); // 据え置き（挿入行の false に追随しない）
+    expect(after.haitatsuYubinNo).toBe('2000002'); // 不変（意図的な変更として stop）
+    expect(after.zenkaiYubinNo).toBe('1500005'); // relinkのみ（値は正しい predecessor へ）
+  });
+
+  it('cascades haitatsu_same_flg itself (not just the address values) when a carrying-forward successor exists (バグ報告 2026-08)', async () => {
+    // 9/1(新規,同一)→15/1(同一,キャリーフォワード) の間に 12/1 適用で配達先を
+    // 別住所へ切替える行を遡及挿入したケース。修正前は 15/1 行の
+    // haitatsu_same_flg を据え置いたまま実効住所だけ書き換えていたため、
+    // 挿入行(別住所)の値が誤って 15/1 行の購読者住所側の列へ書き込まれて
+    // いた。正しくは haitatsu_same_flg 自体もモードごと追随し、配達先住所
+    // 列（haitatsu_*）へ書き込み、購読者住所（yubinNo 等）は触らない。
+    const before = rireki({ haitatsuSameFlg: true, yubinNo: '1000001' });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-01-12',
+      rirekiNo: 3,
+      haitatsuSameFlg: false, // 配達先を別住所に切替（意図的、遡及挿入）
+      haitatsuYubinNo: '2000002',
+      haitatsuRenrakusaki1: '0100022',
+      haitatsuShimeiSei: '配達',
+      haitatsuShimeiMei: 'TUYEN Tran Duc',
+    });
+    const after = rireki({
+      dokusyaRirekiId: 4,
+      johoHenkoTekiyoDate: '2026-01-15',
+      rirekiNo: 2,
+      haitatsuSameFlg: true, // 挿入前は購読者住所と同一のままキャリーフォワード
+      yubinNo: '1000001',
+      zenkaiYubinNo: '1000001', // 挿入前の predecessor(9/1) と同値 → carry-forward
+    });
+    q.findNext.mockResolvedValueOnce(after).mockResolvedValueOnce(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['haitatsuSameFlg']);
+
+    expect(after.haitatsuSameFlg).toBe(false); // モードごと追随
+    expect(after.haitatsuYubinNo).toBe('2000002'); // 配達先住所を追随
+    expect(after.yubinNo).toBe('1000001'); // 購読者住所は汚染されず維持
+    // 連絡先・氏名6列（zenkai_* を持たない）も住所と同じ判定で追随する
+    // （画面上「配達先」ブロックとして一体で扱われるため — バグ報告 2026-08）。
+    expect(after.haitatsuRenrakusaki1).toBe('0100022');
+    expect(after.haitatsuShimeiSei).toBe('配達');
+    expect(after.haitatsuShimeiMei).toBe('TUYEN Tran Duc');
+  });
+
+  it('clears haitatsu_* back to empty string when a carrying-forward successor settles back to haitatsu_same_flg=true', async () => {
+    // 逆方向: predecessor が haitatsu_same_flg=true に確定したら、追随した
+    // 行の haitatsu_* は空欄が不変条件（DokusyaFormView.vue §9）。
+    const before = rireki({ haitatsuSameFlg: false, haitatsuYubinNo: '9999999' });
+    const inserted = rireki({
+      johoHenkoTekiyoDate: '2026-01-12',
+      rirekiNo: 3,
+      haitatsuSameFlg: true, // 配達先=購読者情報と同じ に戻す（意図的、遡及挿入）
+      yubinNo: '1000001',
+    });
+    const after = rireki({
+      dokusyaRirekiId: 4,
+      johoHenkoTekiyoDate: '2026-01-15',
+      rirekiNo: 2,
+      haitatsuSameFlg: false,
+      haitatsuYubinNo: '9999999',
+      haitatsuRenrakusaki1: '0100099',
+      haitatsuShimeiSei: '旧配達',
+      zenkaiYubinNo: '9999999', // 挿入前の predecessor と同値 → carry-forward
+    });
+    q.findNext.mockResolvedValueOnce(after).mockResolvedValueOnce(null);
+
+    await recomputeAfterChain(m, 1001, inserted, before, ['haitatsuSameFlg']);
+
+    expect(after.haitatsuSameFlg).toBe(true);
+    expect(after.haitatsuYubinNo).toBe(''); // 不変条件どおり空欄化
+    expect(after.haitatsuRenrakusaki1).toBe(''); // 連絡先・氏名6列も同様に空欄化
+    expect(after.haitatsuShimeiSei).toBe('');
   });
 
   it('CREATE (before null) → no successor work', async () => {
@@ -777,6 +984,101 @@ describe('insertKaiyaku', () => {
     );
     await insertKaiyaku(m, 1001, '2026-07-15', 'batch-test');
     expect(q.insertRow).not.toHaveBeenCalled();
+  });
+});
+
+// 顧客要件 2026-08 改訂: Phase 1（UI 解約予約）の適用日も insertKaiyaku(Phase 2) と
+// 同じ紙版/電子版分岐にする。以前は紙版/電子版とも joho=chushiDate に統一していたが、
+// 電子版の中止日は「電子版が読める有効な最終日」であり当日は有効な読者として扱う
+// 必要があるため、予約行の時点から +1日 を使う（実際の解約確定は変わらず Phase 2）。
+describe('insertScheduledKaiyaku', () => {
+  let m: EntityManager;
+  let update: jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    update = jest.fn().mockResolvedValue(undefined);
+    m = {
+      update,
+      save: jest.fn().mockResolvedValue(undefined),
+      findOne: jest.fn().mockResolvedValue(null),
+      query: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager;
+    q.insertRow.mockImplementation(
+      async (_m, r) => ({ ...(r as object), dokusyaRirekiId: 99 }) as DokusyaRireki,
+    );
+    q.setSaishinFlags.mockResolvedValue(undefined);
+  });
+
+  it('紙版: joho = chushi（変更なし）', async () => {
+    const before = rireki({
+      dokusyaRirekiId: 1,
+      dokusyaBusu: 1,
+      tetsuzukiShurui: 1,
+    });
+    q.loadMaster.mockResolvedValue({ dokusyaId: 1001 } as unknown as Dokusya);
+    q.findBefore.mockResolvedValue(before);
+    q.nextRirekiNo.mockResolvedValue(5);
+    mockLcEffective(null); // 未来予約 → 当日時点で未反映
+
+    await insertScheduledKaiyaku(m, {
+      dokusyaId: 1001,
+      chushiDate: '2026-08-31',
+      shubetsu: 1, // 紙版
+      actor: '11',
+    });
+
+    expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-08-31'); // joho=chushi
+    const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(row.dokusyaChushiDate).toBe('2026-08-31');
+    expect(row.johoHenkoTekiyoDate).toBe('2026-08-31');
+    expect(row.dokusyaBusu).toBe(0);
+  });
+
+  it('電子版: joho = chushi + 1 day（顧客要件2026-08）', async () => {
+    const before = rireki({
+      dokusyaRirekiId: 1,
+      dokusyaBusu: 1,
+      tetsuzukiShurui: 1,
+    });
+    q.loadMaster.mockResolvedValue({ dokusyaId: 1001 } as unknown as Dokusya);
+    q.findBefore.mockResolvedValue(before);
+    q.nextRirekiNo.mockResolvedValue(5);
+    mockLcEffective(null);
+
+    await insertScheduledKaiyaku(m, {
+      dokusyaId: 1001,
+      chushiDate: '2026-08-31',
+      shubetsu: 2, // 電子版
+      actor: '11',
+    });
+
+    expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-09-01'); // joho=chushi+1
+    const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(row.dokusyaChushiDate).toBe('2026-08-31'); // 中止日はそのまま
+    expect(row.johoHenkoTekiyoDate).toBe('2026-09-01'); // 適用日=中止日の翌日
+    expect(row.dokusyaBusu).toBe(0);
+    expect(row.tetsuzukiShurui).toBe(1); // まだ新規（解約確定は Phase 2 バッチ）
+  });
+
+  // 併読(3)も電子版契約を含むため電子版と同じ+1日（insertKaiyaku と同じ判定基準）。
+  it('併読: joho = chushi + 1 day（電子版と同じ扱い）', async () => {
+    const before = rireki({ dokusyaRirekiId: 1, dokusyaBusu: 1 });
+    q.loadMaster.mockResolvedValue({ dokusyaId: 1001 } as unknown as Dokusya);
+    q.findBefore.mockResolvedValue(before);
+    q.nextRirekiNo.mockResolvedValue(5);
+    mockLcEffective(null);
+
+    await insertScheduledKaiyaku(m, {
+      dokusyaId: 1001,
+      chushiDate: '2026-08-31',
+      shubetsu: 3, // 併読
+      actor: '11',
+    });
+
+    expect(q.findBefore).toHaveBeenCalledWith(m, 1001, '2026-09-01');
+    const row = q.insertRow.mock.calls[0][1] as DokusyaRireki;
+    expect(row.johoHenkoTekiyoDate).toBe('2026-09-01');
   });
 });
 

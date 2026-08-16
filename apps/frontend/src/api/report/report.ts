@@ -140,7 +140,7 @@ export async function exportMeibo(query: MeiboReportQuery): Promise<Blob> {
 }
 
 // ─── 増減連絡票（販売店） (ACSMS-SCR-028) ───────────────────────────────
-// docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md（API-028-001 / 002）に準拠。
+// docs/design/ACSMS-SCR-028/ACSMS-SCR-028-api.md（ACSMS-API-028-001 / 002）に準拠。
 
 /** Query DTO shared by preview + PDF export (singular ids per BE DTO). */
 export interface ZougenHanbaitenQuery {

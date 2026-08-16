@@ -78,7 +78,7 @@ function loadLatestShinki(
  * 予約中の解約予定日(購読中止日) — 現LC(最新の新規/再購読行以降)で取消されていない
  * `dokusya_chushi_date` を持つ最新 (joho, rireki_no) 行の中止日。予約行は未来日で
  * effective でないが、中止日だけは予約時点から master(t_dokusya) に反映して
- * 一覧(SCR-014)/詳細(SCR-011)に即時表示するため recomputeMaster が参照（顧客要件2026-07）。無ければ null。
+ * 一覧(ACSMS-SCR-014)/詳細(ACSMS-SCR-011)に即時表示するため recomputeMaster が参照（顧客要件2026-07）。無ければ null。
  *
  * LC限定が重要（顧客要件2026-07）: 解約確定→再購読 すると旧LCの解約予約/確定行に中止日が
  * 残るが rireki_no が再購読行より小さいため除外 → 再購読後は master の中止日が null に戻る。
@@ -111,6 +111,31 @@ export async function loadScheduledChushiDate(
     [dokusyaId, startRirekiNo],
   );
   return rows[0]?.dokusya_chushi_date ?? null;
+}
+
+/**
+ * アクティブな解約予約行 — 検出キーは `dokusya_chushi_date IS NOT NULL` かつ
+ * `torikeshi_flg = false` の中で最大 `(joho, rireki_no)`。Phase 1(2フェーズ化)の
+ * 予約行は `kaiyaku_flg = false`（解約確定は夜間バッチ任せ）で、その中止日でしか
+ * 検出できない — Phase 2 バッチが作る実解約行にも中止日は入るため、予約／確定の
+ * 区別は返り値の `kaiyakuFlg` を呼び出し側が見る（true なら既に確定済み）。
+ * `DokusyaService.stop`（SCR-014 の変更/取消）と dokusya-sync の解約反映
+ * （#57986）が共用する。
+ */
+export function loadActiveKaiyakuRow(
+  m: EntityManager,
+  dokusyaId: number,
+): Promise<DokusyaRireki | null> {
+  return applyChainOrder(
+    m
+      .createQueryBuilder(DokusyaRireki, 'r')
+      .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+      .andWhere('r.torikeshi_flg = false')
+      .andWhere('r.dokusya_chushi_date IS NOT NULL'),
+    SORT_CHAIN_DESC,
+  )
+    .limit(1)
+    .getOne();
 }
 
 /**

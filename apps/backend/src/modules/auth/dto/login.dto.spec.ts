@@ -1,6 +1,6 @@
 // Screen: ACSMS-SCR-001 — ログイン画面
 //
-// LoginDto class-validator specs covering API-001-001 §4.1
+// LoginDto class-validator specs covering ACSMS-API-001-001 §4.1
 // (リクエストパラメータ): login_id (required, max 20, half-width-only)
 // and password (required, 8-32 chars, half-width-only).
 

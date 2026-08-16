@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { Modal, type TableColumnsType } from 'ant-design-vue';
+import type { AxiosError } from 'axios';
 
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
 import BaseActionColumn from '@/components/common/BaseActionColumn.vue';
 import { useNotify } from '@/composables/useNotify';
 import { useAuthStore } from '@/stores/auth.store';
+import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
 import {
   getRole,
   listRoles,
@@ -51,11 +53,14 @@ const formState = ref({
 // [locked-permissions] チェックボックスを disabled にする ID 群 — BE が削除を
 // 拒否するシード基盤権限。編集開始時に getRole().data.locked_permission_ids から設定。
 const lockedPermissionIds = ref<number[]>([]);
-const fieldErrors = ref<{
-  role_name?: string;
-  description?: string;
-}>({});
+// Record<string,string> — BE の VALIDATION_ERROR.errors[] は role_name /
+// description 以外のフィールド名を返し得るため、固定キーの型に絞らない。
+const fieldErrors = ref<Record<string, string>>({});
 const submitting = ref(false);
+// [permissions-load-guard] getRole() が失敗すると formState.permission_ids が
+// 空のまま initialFormSnapshot が確定してしまう。この時点で保存されると
+// ロールの権限が全消去されるため、onSubmit 側でブロックするフラグ。
+const permissionsLoadFailed = ref(false);
 
 const notify = useNotify();
 
@@ -110,8 +115,8 @@ function rowClassForEdit(row: Record<string, unknown>): string {
 
 // ─── 編集 row click handler (機能定義 2.1) ────────────────────────────
 // getRole 解決前でもフォームが埋まるよう、行の基本項目を即時反映する。
-// 一覧 API-027-001 は role_code / role_name / description を持つため、
-// permission_ids のみ API-027-002 で個別取得する。
+// 一覧 ACSMS-API-027-001 は role_code / role_name / description を持つため、
+// permission_ids のみ ACSMS-API-027-002 で個別取得する。
 async function onEdit(row: RoleListItem): Promise<void> {
   formState.value = {
     role_code: row.role_code,
@@ -122,6 +127,7 @@ async function onEdit(row: RoleListItem): Promise<void> {
   editingRoleId.value = row.role_id;
   fieldErrors.value = {};
   lockedPermissionIds.value = [];
+  permissionsLoadFailed.value = false;
 
   try {
     const res = await getRole(row.role_id);
@@ -130,7 +136,11 @@ async function onEdit(row: RoleListItem): Promise<void> {
     );
     lockedPermissionIds.value = [...res.data.locked_permission_ids];
   } catch {
-    // 404 / 500 — interceptor toasts; keep the form open with empty perms.
+    // 404 / 500 — interceptor toasts; keep the form open with empty perms,
+    // but block onSubmit until the user reloads via 編集 again — otherwise
+    // a transient fetch failure here would silently wipe the role's
+    // permissions on save (permission_ids stays [] from the init above).
+    permissionsLoadFailed.value = true;
   } finally {
     initialFormSnapshot.value = JSON.stringify(formState.value);
   }
@@ -212,6 +222,7 @@ function validateClient(): boolean {
 
 // ─── 保存 submit (機能定義 2.3) ──────────────────────────────────────
 async function onSubmit(): Promise<void> {
+  if (permissionsLoadFailed.value) return;
   if (!validateClient()) return;
   const roleId = editingRoleId.value;
   if (roleId === null) return;
@@ -228,11 +239,29 @@ async function onSubmit(): Promise<void> {
     // 機能定義 2.3 — ロール一覧を再読込 + 閲覧モードへ変換.
     await fetchRoles();
     resetForm();
-  } catch {
-    // interceptor が NOT_FOUND / 500 をトースト。編集モードを維持し、
-    // 入力を失わず再試行できるようにする。
+  } catch (err) {
+    // VALIDATION_ERROR は interceptor がトーストしない（呼び出し元フォームが
+    // errors[] をマップする規約）ため、ここで拾わないと BE 側の検証エラーが
+    // 画面上どこにも表示されなかった（報告バグ）。それ以外（NOT_FOUND / 500 等）
+    // は interceptor が既にトースト済み — 編集モードを維持し、入力を失わず
+    // 再試行できるようにする。
+    applyServerValidationError(err);
   } finally {
     submitting.value = false;
+  }
+}
+
+/** BE の VALIDATION_ERROR.errors[] を fieldErrors へマップする（useApiForm 未使用のため手動実装）。 */
+function applyServerValidationError(err: unknown): void {
+  const ax = err as AxiosError<{
+    error_code?: string;
+    errors?: { field: string; message: string }[];
+  }>;
+  const data = ax?.response?.data;
+  if (data?.error_code === 'VALIDATION_ERROR' && Array.isArray(data.errors)) {
+    const errs: Record<string, string> = {};
+    for (const e of data.errors) errs[e.field] = e.message;
+    fieldErrors.value = errs;
   }
 }
 
@@ -280,6 +309,7 @@ function resetForm(): void {
   editingRoleId.value = null;
   initialFormSnapshot.value = '';
   fieldErrors.value = {};
+  permissionsLoadFailed.value = false;
 }
 
 // description を入力変更時に再検証し、200文字以内に戻した時点で
@@ -288,7 +318,9 @@ watch(
   () => formState.value.description,
   (v) => {
     if (fieldErrors.value.description && v.length <= 200) {
-      fieldErrors.value = { ...fieldErrors.value, description: undefined };
+      const { description: _drop, ...rest } = fieldErrors.value;
+      void _drop;
+      fieldErrors.value = rest;
     }
   },
 );
@@ -296,7 +328,9 @@ watch(
   () => formState.value.role_name,
   (v) => {
     if (fieldErrors.value.role_name && v?.trim() && v.length <= 20) {
-      fieldErrors.value = { ...fieldErrors.value, role_name: undefined };
+      const { role_name: _drop, ...rest } = fieldErrors.value;
+      void _drop;
+      fieldErrors.value = rest;
     }
   },
 );
@@ -311,7 +345,12 @@ watch(
   <div v-else class="space-y-6">
     <!-- 編集フォーム + 権限設定 (編集モードのみ表示) -->
     <BaseCard v-if="isEditMode" class="space-y-6">
-      <a-form layout="vertical" :model="formState" @finish="onSubmit">
+      <a-form
+        layout="vertical"
+        :model="formState"
+        @finish="onSubmit"
+        @keydown="preventEnterImplicitSubmit"
+      >
         <!-- 基本情報 grid -->
         <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-5">
           <a-form-item name="role_code">
@@ -424,11 +463,21 @@ watch(
           </div>
         </div>
 
+        <!-- [permissions-load-guard] 権限取得失敗時は保存を禁止し、再取得を促す。 -->
+        <p v-if="permissionsLoadFailed" class="text-error text-sm">
+          権限情報の取得に失敗しました。一覧の「編集」から再度開き直してください。
+        </p>
+
         <!-- フッターボタン — 主アクションを左（vue.md §Form footer）。 -->
         <div
           class="pt-4 mt-4 border-t border-border flex items-center flex-wrap justify-start gap-2"
         >
-          <a-button type="primary" html-type="submit" :loading="submitting">
+          <a-button
+            type="primary"
+            html-type="submit"
+            :loading="submitting"
+            :disabled="permissionsLoadFailed"
+          >
             保存
           </a-button>
           <a-button :disabled="submitting" @click="onClear">クリア</a-button>

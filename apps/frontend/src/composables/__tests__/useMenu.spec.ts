@@ -69,7 +69,7 @@ describe('useMenu', () => {
       seedAdmin();
       const { visibleSections } = useMenu();
       const headings = visibleSections.value.map((s) => s.heading);
-      // First section has no heading (the Dashboard "メニュー画面" item).
+      // First section has no heading (the Dashboard "メニュー" item).
       expect(headings[0]).toBeUndefined();
     });
   });

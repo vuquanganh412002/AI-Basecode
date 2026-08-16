@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-030 — ログ参照画面
 //
 // LogService unit specs for:
-//   - getLogList(query, session)        — API-030-001
-//   - exportLogCsv(query, session, req) — API-030-002 (CSV + audit log)
+//   - getLogList(query, session)        — ACSMS-API-030-001
+//   - exportLogCsv(query, session, req) — ACSMS-API-030-002 (CSV + audit log)
 //
 // Pattern: plain `new LogService(...)` with mocked deps.
 
@@ -117,7 +117,7 @@ describe('LogService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-030-001 — GET /api/v1/log
+  // ACSMS-API-030-001 — GET /api/v1/log
   // ═══════════════════════════════════════════════════════════════════
   describe('getLogList', () => {
     it('should return paginated response with data + meta keys when session is NICHINO_ADMIN', async () => {
@@ -393,7 +393,7 @@ describe('LogService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // API-030-002 — GET /api/v1/log/export (CSV)
+  // ACSMS-API-030-002 — GET /api/v1/log/export (CSV)
   // ═══════════════════════════════════════════════════════════════════
   describe('exportLogCsv', () => {
     it('should return a CSV buffer + filename when count is below the 5000 limit', async () => {

@@ -1,10 +1,14 @@
 import { isNodeEnv, toBoolean } from '@/common/utils/env';
+import { ConfigValidationException } from '@/common/exceptions/config-validation.exception';
 import {
   DEFAULT_FRONTEND_URL,
   DEFAULT_MAIL_FROM,
   DEFAULT_MAIL_FROM_NAME,
   DEFAULT_MAIL_HOST,
+  DEFAULT_SESSION_COOKIE_NAME,
   DEFAULT_SESSION_TTL_SECONDS,
+  DEFAULT_THROTTLE_LIMIT,
+  DEFAULT_THROTTLE_TTL_MS,
 } from './config-defaults.constant';
 
 /**
@@ -47,7 +51,7 @@ function assertProductionSecrets(): void {
   }
 
   if (missing.length > 0) {
-    throw new Error(
+    throw new ConfigValidationException(
       `[config] Refusing to start: NODE_ENV=production but the following ` +
         `secrets are missing or still at insecure defaults — ` +
         `${missing.join(', ')}. ` +
@@ -67,6 +71,19 @@ export default function configuration() {
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || [
       DEFAULT_FRONTEND_URL,
     ],
+    // グローバルレート制限（app.module.ts の ThrottlerModule 既定）。個別
+    // エンドポイントは @Throttle() で上書き（例: ファイルアップロード/DL は
+    // UPLOAD_DOWNLOAD_THROTTLE でより厳格化 — WAF body-inspection bypass対象）。
+    throttle: {
+      ttlMs: Number.parseInt(
+        process.env.THROTTLE_TTL_MS ?? String(DEFAULT_THROTTLE_TTL_MS),
+        10,
+      ),
+      limit: Number.parseInt(
+        process.env.THROTTLE_LIMIT ?? String(DEFAULT_THROTTLE_LIMIT),
+        10,
+      ),
+    },
     app: {
       // SPA の公開ベース URL — BE がユーザー向け絶対リンク（パスワードリセットメール等）
       // に使用。未設定時はローカル Vite dev origin。
@@ -113,7 +130,7 @@ export default function configuration() {
       keyPrefix: process.env.REDIS_KEY_PREFIX || '',
     },
     session: {
-      cookieName: process.env.SESSION_COOKIE_NAME || 'session_id',
+      cookieName: process.env.SESSION_COOKIE_NAME || DEFAULT_SESSION_COOKIE_NAME,
       // セッション cookie の署名（改竄検知）。本番は Secrets Manager の 32+ byte
       // ランダム文字列必須 — assertProductionSecrets() が強制。
       secret:

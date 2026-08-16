@@ -3,7 +3,7 @@
 //
 // Both SCRs share the same AuthService class. Tests are organised as two
 // sibling top-level describe blocks so each has its own mock scope —
-// SCR-001 wires bcrypt + repo mocks for login flow, SCR-012 adds
+// ACSMS-SCR-001 wires bcrypt + repo mocks for login flow, ACSMS-SCR-012 adds
 // dataSource / txManager for the transactional password-reset path.
 // Pattern: plain `new AuthService(...)` with mocked deps — no Nest DI
 // lifecycle needed here.
@@ -303,6 +303,7 @@ describe('AuthService — SCR-001 (login + MFA + refresh + logout)', () => {
         'chuokai@ja-example.or.jp',
         '中央会太郎',
         expect.stringMatching(/^\d{6}$/),
+        5,
       );
       expect(otpRepo.save).toHaveBeenCalled();
       // Login log entry — MFA path is still logged as success.
@@ -688,9 +689,9 @@ describe('AuthService — SCR-001 (login + MFA + refresh + logout)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-012 — Password reset (forgotPassword / verifyResetToken /
+// ACSMS-SCR-012 — Password reset (forgotPassword / verifyResetToken /
 // resetPassword). Separate top-level describe so its dataSource +
-// txManager mocks (transactional path) don't leak into the SCR-001
+// txManager mocks (transactional path) don't leak into the ACSMS-SCR-001
 // block above, which constructs AuthService without a dataSource arg.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -995,6 +996,26 @@ describe('AuthService — password reset (SCR-012)', () => {
 
       expect(result).toEqual({ valid: true });
       expect(otpRepo.find.mock.calls[0][0]?.where ?? {}).toMatchObject({ otpType: 2 });
+    });
+
+    // Regression (backend review finding #10): findResetTokenOtp() previously
+    // queried ALL otp_type=2 rows ever issued (no used_flg filter), so the
+    // bcrypt.compare loop grew unbounded over the table's lifetime — a
+    // comparatively cheap CPU-exhaustion vector on this unauthenticated
+    // endpoint. Excluding already-used tokens is behavior-preserving (a used
+    // token still resolves to InvalidResetTokenException either way — see
+    // the used_flg=true test below) while shrinking the candidate set.
+    it('should query only unused OTP rows (used_flg=false) to bound the bcrypt.compare loop', async () => {
+      otpRepo.find.mockResolvedValue([]);
+
+      await expect(service.verifyResetToken(RESET_TOKEN)).rejects.toThrow(
+        InvalidResetTokenException,
+      );
+
+      expect(otpRepo.find.mock.calls[0][0]?.where ?? {}).toMatchObject({
+        otpType: 2,
+        usedFlg: false,
+      });
     });
 
     it('should throw INVALID_RESET_TOKEN when no OTP row matches the supplied token', async () => {

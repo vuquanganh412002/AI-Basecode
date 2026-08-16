@@ -83,7 +83,7 @@ export function assertBranchScope(
 /**
  * {@link assertBranchScope} と同じだが NotFound(404) でなく
  * `DataScopeViolationException`(403)。id が URL 由来でない場合用 — 呼び出し側が
- * 供給した候補行の一括処理（SCR-015 置換候補, SCR-016 取込既存行）。存在は既知で
+ * 供給した候補行の一括処理（ACSMS-SCR-015 置換候補, ACSMS-SCR-016 取込既存行）。存在は既知で
  * 404マスク不要、顧客決定（2026-05-19, security.md Layer 4）で明示 403。
  */
 export function assertBranchScopeViolation(
@@ -109,7 +109,7 @@ export function assertBranchScopeViolation(
 /**
  * {@link assertBranchScopeViolation} の JA単位版 — 403 を投げる。全 restricted
  * ロール（JA_KANRI_SHITEN 含む）を ja_id で判定。自身の kanri_shiten_id を持たない
- * JA単位リソース用（SCR-015 の m_hanbaiten 置換対象、存在確認済み）。NICHINO_* bypass。
+ * JA単位リソース用（ACSMS-SCR-015 の m_hanbaiten 置換対象、存在確認済み）。NICHINO_* bypass。
  */
 export function assertJaScopeViolation(
   recordJaId: number | null | undefined,

@@ -151,7 +151,7 @@ export const BOOLEAN_PHYSICAL_COLUMNS = new Set<string>([
  * api.md §4.1 NEW モード必須リストに対応。
  *
  * `shiten_code`（支店）は含めない — api.md §4.1 で「NEW モードは必須」と明記されて
- * いるのは管理支店側のみで、`t_dokusya.shiten_id` は NULL 許容、SCR-011 の画面登録
+ * いるのは管理支店側のみで、`t_dokusya.shiten_id` は NULL 許容、ACSMS-SCR-011 の画面登録
  * でも任意項目。取込だけ必須にすると画面からは登録できる購読者が Excel からは
  * 登録できない不整合になる（BE の IMPORT_NEW_REQUIRED_COLUMNS と対で保つこと）。
  */
@@ -184,7 +184,7 @@ export const KEY_COLUMN: PhysicalColumn = 'dokusya_id';
  * （Excel 列ではない）ため対象外。
  *
  * 氏名4項目（購読者氏名/かな）は **更新可**（顧客要件 2026-07・改姓等）。
- * SCR-011 の編集画面が既に氏名の変更を許可しているので、取込だけ不可にすると
+ * ACSMS-SCR-011 の編集画面が既に氏名の変更を許可しているので、取込だけ不可にすると
  * 画面からはできて Excel からはできない不整合になる。紙版・電子版とも同じ扱い
  * （BE の IMPORT_EDIT_IMMUTABLE_COLUMNS と対で保つこと）。
  */
@@ -219,8 +219,14 @@ export const REPORT_IMPACT_COLUMNS: readonly PhysicalColumn[] = [
 ];
 export const REPORT_IMPACT_SET = new Set<string>(REPORT_IMPACT_COLUMNS);
 
-/** 取込み可能な最大行数（DTO @ArrayMaxSize と一致）。 */
-export const MAX_IMPORT_ROWS = 30000;
+/**
+ * 取込み可能な最大行数（DTO @ArrayMaxSize と一致）。5MBのJSON bodyパーサー上限
+ * （main.ts express.json({ limit: '5mb' })）に収まる範囲で設定 — 実データ相当の
+ * 行（全項目埋まった状態で約480byte/行）だと 30000 行は body 上限超過(約13.7MB)
+ * で PayloadTooLargeError になり、行数バリデーションより先に落ちてしまうため
+ * 実際に完走できる値へ引き下げた（顧客要件 2026-08）。
+ */
+export const MAX_IMPORT_ROWS = 5000;
 
 // 日付正規化（excelSerialToIsoDate / normalizeImportDate）は時刻系集約方針
 // （`.claude/rules/vue.md §Date/Time`）に従い `@/utils/datetime` に集約。

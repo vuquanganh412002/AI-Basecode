@@ -9,7 +9,7 @@
  * バリデーション・メッセージ: screen-design.md（機能定義 + メッセージ情報）
  * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-003-api.md。
  *
- * tanka_code は編集時 immutable（api.md §API-003-003 脚注: 画面側 disabled、
+ * tanka_code は編集時 immutable（api.md §ACSMS-API-003-003 脚注: 画面側 disabled、
  * PUT body から除外）。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
@@ -29,6 +29,7 @@ import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
+import { useNotFoundRedirect } from '@/composables/useNotFoundRedirect';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCodesStore } from '@/stores/codes.store';
 import { preventEnterImplicitSubmit } from '@/utils/form-keyboard';
@@ -44,6 +45,7 @@ import {
 const route = useRoute();
 const router = useRouter();
 const notify = useNotify();
+const { redirectToDashboard } = useNotFoundRedirect();
 const authStore = useAuthStore();
 const codes = useCodesStore();
 const { fieldErrors, submitting, submit } = useApiForm();
@@ -184,12 +186,10 @@ onMounted(async () => {
     await editGuard.capture();
   } catch {
     // 404 / 403 — axios interceptor（src/api/error-handler.ts）が既にトースト済み。
-    // 空の編集フォームを描画しないよう一覧へ戻す。
-    try {
-      await router.push({ name: 'TankaList' });
-    } catch {
-      /* テスト用ルーターは TankaList 未登録の場合あり — 無視。 */
-    }
+    // 空の編集フォームを描画しないよう他の一覧画面と同じくダッシュボードへ
+    // 戻す（顧客要件 2026-08 — useNotFoundRedirect 共通化。以前は
+    // TankaList へ戻していたが、他画面と統一する）。
+    await redirectToDashboard();
   }
 });
 
@@ -360,7 +360,7 @@ async function submitWith(form: TankaFormState): Promise<void> {
       await createTanka(createBody);
       notify.created();
     } else {
-      // UPDATE — tanka_code は immutable（api.md §API-003-003 脚注）。
+      // UPDATE — tanka_code は immutable（api.md §ACSMS-API-003-003 脚注）。
       // BE の forbidNonWhitelisted に弾かれないよう payload から除外。
       const updateBody: UpdateTankaRequest = {
         tanka_type: Number(form.tanka_type),
@@ -471,7 +471,7 @@ defineExpose({
               <span class="text-error ml-1">*</span>
             </template>
             <!-- 単価コードは更新時 immutable — :disabled で無効化（機能定義 2.3 +
-                 api.md §API-003-003 脚注）。BE も UpdateTankaDto の
+                 api.md §ACSMS-API-003-003 脚注）。BE も UpdateTankaDto の
                  forbidNonWhitelisted で拒否（多層防御）。 -->
             <BaseCodeInput
               v-model:value="formState.tanka_code"

@@ -1,11 +1,11 @@
 // Screen: ACSMS-SCR-025 — アカウントマスタ登録画面
 //
 // Fixture builders for the account detail/create/update flow shared
-// between the SCR-025 service / controller / integration specs.
+// between the ACSMS-SCR-025 service / controller / integration specs.
 
 import type { Account } from '@/database/entities/account.entity';
 
-/** Joined detail row shape returned by API-025-001. */
+/** Joined detail row shape returned by ACSMS-API-025-001. */
 export interface AccountDetailResponse {
   account_id: number;
   login_id: string;

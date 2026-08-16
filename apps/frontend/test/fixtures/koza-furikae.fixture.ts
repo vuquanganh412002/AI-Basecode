@@ -1,7 +1,7 @@
 // Screen: ACSMS-SCR-020 — 口座振替データ出力画面
 //
 // Fixtures for KozaFurikaeExportView.spec.ts — the initial-data envelope
-// (API-020-001), dropdown envelopes (COMMON-004/006/008) + the authenticated
+// (ACSMS-API-020-001), dropdown envelopes (COMMON-004/006/008) + the authenticated
 // user. Returns plain objects (no wrapper-type import) so the fixture compiles
 // during the TDD red phase before /gen-code-frontend writes the wrapper.
 
@@ -20,7 +20,7 @@ export function buildKozaFurikaeUser(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** 初期データ（API-020-001 §レスポンス成功例）。JASTEM 委託者 + 最終使用支店。 */
+/** 初期データ（ACSMS-API-020-001 §レスポンス成功例）。JASTEM 委託者 + 最終使用支店。 */
 export function buildKozaFurikaeInitial(overrides: Record<string, unknown> = {}) {
   return {
     data: {
@@ -107,7 +107,7 @@ export function buildKozaFurikaeForm(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** プレビュー一覧レスポンス（API-020-003, v1.1）。既定は2件。 */
+/** プレビュー一覧レスポンス（ACSMS-API-020-003, v1.1）。既定は2件。 */
 export function buildKozaPreview(overrides: Record<string, unknown> = {}) {
   const data = [
     {

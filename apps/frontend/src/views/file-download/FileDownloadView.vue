@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ACSMS-SCR-022 — ファイルダウンロード画面.
 // Mirrors docs/design/ACSMS-SCR-022/screen-design.md (機能定義 1.x〜8.x) +
-// docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md (API-022-001/002/003).
+// docs/design/ACSMS-SCR-022/ACSMS-SCR-022-api.md (ACSMS-API-022-001/002/003).
 
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -131,7 +131,7 @@ function handleFileError(err: unknown): void {
   }
 }
 
-// 選択 + プレビュー + ダウンロード は共通 composable に集約（SCR-023 と同一挙動）。
+// 選択 + プレビュー + ダウンロード は共通 composable に集約（ACSMS-SCR-023 と同一挙動）。
 const {
   selectedIds,
   rowSelectionConfig,
@@ -223,7 +223,7 @@ async function fetchList(): Promise<void> {
 }
 
 onMounted(() => {
-  // [mail-deeplink] アップロード通知メール(SCR-023)のリンクは
+  // [mail-deeplink] アップロード通知メール(ACSMS-SCR-023)のリンクは
   // `/file-download?file_name=...` で来る。ファイル名を検索欄へ流し込んでから
   // 取得することで、受信者が一覧を探さずに該当行へ着地する。
   // useTableQuery の syncUrl は page/sort しか復元しないため、フィルタは

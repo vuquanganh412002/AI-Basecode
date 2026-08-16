@@ -2,7 +2,7 @@
 //
 // Drives src/modules/dokusya/dto/search-replace-dokusya.dto.ts (to be
 // generated). One test (or group) per row in
-// docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md §API-015-001
+// docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md §ACSMS-API-015-001
 // リクエストパラメータ + §4.1 リクエストのバリデーション.
 //
 // The DTO binds the query string of

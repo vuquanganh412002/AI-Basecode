@@ -6,7 +6,7 @@
 // each SCR has its own Nest app boot + service mock so guards and DI
 // don't cross-contaminate. Merged into one file (was previously in
 // __tests__/hanbaiten-form.controller.spec.ts) to follow the project's
-// "1 source = 1 spec file" rule. SCR-019 adds a binary-download
+// "1 source = 1 spec file" rule. ACSMS-SCR-019 adds a binary-download
 // endpoint (GET .../import/template) plus a JSON-body bulk import
 // (POST .../import) — its sibling describe is at the bottom.
 
@@ -155,7 +155,7 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
   };
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-001 — GET /api/v1/hanbaiten
+  // ACSMS-API-018-001 — GET /api/v1/hanbaiten
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/hanbaiten (API-018-001)', () => {
     it('should return 200 with paginated body when service resolves', async () => {
@@ -289,7 +289,7 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id
+  // ACSMS-API-018-002 — DELETE /api/v1/hanbaiten/:hanbaiten_id
   // ═════════════════════════════════════════════════════════════════════
   describe('GET /api/v1/hanbaiten/dropdown — dummy パラメータ', () => {
     const arrange = () => service.listDropdown.mockResolvedValue({ data: [], has_more: false });
@@ -297,7 +297,7 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
     it.each(['only', 'exclude'] as const)(
       'should pass dummy=%s through to the service',
       async (dummy) => {
-        // COVERS: SCR-011 購読種別 → ダミー販売店(9999999999)の絞り込み。
+        // COVERS: ACSMS-SCR-011 購読種別 → ダミー販売店(9999999999)の絞り込み。
         arrange();
         await http().get(apiUrl('hanbaiten/dropdown')).query({ dummy }).expect(200);
         expect(service.listDropdown.mock.calls[0][0]).toMatchObject({ dummy });
@@ -431,9 +431,9 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-017 — detail + create + update HTTP (separate top-level describe so
+// ACSMS-SCR-017 — detail + create + update HTTP (separate top-level describe so
 // its service mock — getHanbaitenDetail / createHanbaiten / updateHanbaiten
-// — doesn't leak into the SCR-018 block above).
+// — doesn't leak into the ACSMS-SCR-018 block above).
 // ═══════════════════════════════════════════════════════════════════════
 
 describe('HanbaitenController — SCR-017 HTTP (detail / create / update)', () => {
@@ -461,11 +461,11 @@ describe('HanbaitenController — SCR-017 HTTP (detail / create / update)', () =
 
   beforeEach(async () => {
     service = {
-      // SCR-017 endpoints
+      // ACSMS-SCR-017 endpoints
       getHanbaitenDetail: jest.fn(),
       createHanbaiten: jest.fn(),
       updateHanbaiten: jest.fn(),
-      // Existing SCR-018 endpoints — stubbed so DI compiles.
+      // Existing ACSMS-SCR-018 endpoints — stubbed so DI compiles.
       findAll: jest.fn(),
       remove: jest.fn(),
     };
@@ -784,11 +784,11 @@ describe('HanbaitenController — SCR-017 HTTP (detail / create / update)', () =
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// SCR-019 — Excel template download (GET) + bulk import (POST) HTTP
+// ACSMS-SCR-019 — Excel template download (GET) + bulk import (POST) HTTP
 //
 // Separate top-level describe so the import-specific service mock
 // (downloadImportTemplate + importExcel) doesn't leak into the
-// SCR-017 / SCR-018 blocks above. Also re-asserts guards because each
+// ACSMS-SCR-017 / ACSMS-SCR-018 blocks above. Also re-asserts guards because each
 // new endpoint walks SessionAuthGuard + PermissionsGuard with the new
 // `hanbaiten.import` permission code.
 // ═══════════════════════════════════════════════════════════════════════
@@ -818,10 +818,10 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
 
   beforeEach(async () => {
     service = {
-      // SCR-019 endpoints under test
+      // ACSMS-SCR-019 endpoints under test
       downloadImportTemplate: jest.fn(),
       importExcel: jest.fn(),
-      // Existing SCR-017 / SCR-018 endpoints stubbed so DI compiles.
+      // Existing ACSMS-SCR-017 / ACSMS-SCR-018 endpoints stubbed so DI compiles.
       findAll: jest.fn(),
       remove: jest.fn(),
       getHanbaitenDetail: jest.fn(),
@@ -893,7 +893,7 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // API-019-001 — GET /api/v1/hanbaiten/import/template
+  // ACSMS-API-019-001 — GET /api/v1/hanbaiten/import/template
   // ─────────────────────────────────────────────────────────────────────
   describe('GET /api/v1/hanbaiten/import/template (API-019-001)', () => {
     it('should return 200 with a binary XLSX body when caller holds hanbaiten.import', async () => {
@@ -972,7 +972,7 @@ describe('HanbaitenController — SCR-019 HTTP (Excel template + import)', () =>
   });
 
   // ─────────────────────────────────────────────────────────────────────
-  // API-019-002 — POST /api/v1/hanbaiten/import
+  // ACSMS-API-019-002 — POST /api/v1/hanbaiten/import
   // ─────────────────────────────────────────────────────────────────────
   describe('POST /api/v1/hanbaiten/import (API-019-002)', () => {
     it('should return 200 with the import summary when service resolves NEW mode successfully', async () => {

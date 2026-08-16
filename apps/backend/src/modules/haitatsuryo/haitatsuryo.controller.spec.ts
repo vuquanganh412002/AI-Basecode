@@ -1,8 +1,8 @@
 // Screen: ACSMS-SCR-021 — 配達手数料支払情報出力画面
 //
 // HaitatsuryoController HTTP specs for:
-//   - GET  /api/v1/haitatsuryo/preview — API-021-001
-//   - POST /api/v1/haitatsuryo/export  — API-021-002
+//   - GET  /api/v1/haitatsuryo/preview — ACSMS-API-021-001
+//   - POST /api/v1/haitatsuryo/export  — ACSMS-API-021-002
 //
 // Full Nest HTTP stack via Test.createTestingModule + supertest.
 

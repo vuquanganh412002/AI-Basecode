@@ -3,17 +3,23 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 
 import { collectAccountEmails } from '@/common/utils/account-emails';
+import { RoleCode } from '@/common/enums/role-code.enum';
 import { Account } from '@/database/entities/account.entity';
+import { Role } from '@/database/entities/role.entity';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { MailService } from '@/modules/mail/mail.service';
 
-/** 増減通知の通知先ロール: NICHINO_ADMIN(1) / NICHINO_STAFF(2)（m_roles SERIAL 順）。 */
-const NICHINO_NOTIFY_ROLE_IDS = [1, 2];
+/**
+ * 増減通知の通知先ロール: NICHINO_ADMIN / NICHINO_STAFF。
+ * `role_id` は `m_roles` の SERIAL 主キーで環境ごとの採番順に依存するため
+ * ハードコードせず、安定した `role_code`（`RoleCode` enum）から都度解決する。
+ */
+const NICHINO_NOTIFY_ROLE_CODES = [RoleCode.NICHINO_ADMIN, RoleCode.NICHINO_STAFF];
 
 /**
  * 帳票出力時に、指定ロールのアカウント宛へ通知メールを自動送信する共通サービス。
  *
- * SCR-029（増減通知）では出力成功後に日農（NICHINO_ADMIN / NICHINO_STAFF）へ
+ * ACSMS-SCR-029（増減通知）では出力成功後に日農（NICHINO_ADMIN / NICHINO_STAFF）へ
  * 「ファイル管理画面からダウンロードできます」という通知を送る。
  *
  * 設計上の取り扱い（fire-and-forget / non-fatal）:
@@ -30,6 +36,8 @@ export class ReportNotificationService {
   constructor(
     @InjectRepository(Account)
     private readonly accountRepo: Repository<Account>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
     private readonly mailService: MailService,
   ) {}
 
@@ -85,7 +93,7 @@ export class ReportNotificationService {
   }
 
   /**
-   * SCR-029 増減通知の出力完了メールを日農担当者（NICHINO_ADMIN/STAFF）へ送信する。
+   * ACSMS-SCR-029 増減通知の出力完了メールを日農担当者（NICHINO_ADMIN/STAFF）へ送信する。
    *
    * 顧客要件2026-07（メールレイアウト）:
    * - 件名: `【{都道府県}】【{ログインID} {アカウント名}】増減通知（日本農業新聞）を出力しました`
@@ -120,7 +128,8 @@ export class ReportNotificationService {
       `ファイル名：${params.fileName}<br>` +
       `件数：${params.recordCount}件</p>` +
       `<p>ファイル管理画面からダウンロードできます。</p>`;
-    return this.notifyRoles(NICHINO_NOTIFY_ROLE_IDS, { subject, body });
+    const roleIds = await this.resolveNichinoRoleIds();
+    return this.notifyRoles(roleIds, { subject, body });
   }
 
   /** account_id → account_name（見つからない/削除済みは空文字）。 */
@@ -134,6 +143,29 @@ export class ReportNotificationService {
     } catch {
       // 宛先解決同様 non-fatal。名前が取れなくてもメール送信は継続する。
       return '';
+    }
+  }
+
+  /**
+   * `NICHINO_NOTIFY_ROLE_CODES`（role_code）→ 現環境の実際の `role_id` を解決する。
+   * `role_id` は SERIAL 採番なので環境（seeder再実行・テストDB等）によって値が
+   * ずれ得る — 都度 `m_roles` を引くことでハードコード値との不一致を防ぐ。
+   */
+  private async resolveNichinoRoleIds(): Promise<number[]> {
+    try {
+      const roles = await this.roleRepo.find({
+        where: { roleCode: In(NICHINO_NOTIFY_ROLE_CODES), deletedAt: IsNull() },
+        select: ['roleId'],
+      });
+      return roles.map((r) => r.roleId);
+    } catch (err) {
+      // 宛先解決同様 non-fatal。ロール解決できなければ通知 0 件で継続する。
+      this.logger.warn({
+        event: 'report.notify.role_resolve_failed',
+        roleCodes: NICHINO_NOTIFY_ROLE_CODES,
+        message: (err as Error).message,
+      });
+      return [];
     }
   }
 }

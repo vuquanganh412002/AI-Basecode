@@ -28,6 +28,7 @@ import {
   type SearchOshiraseDto,
 } from './dto/search-oshirase.dto';
 import { DeadlineNoticeDuplicateException } from './exceptions/deadline-notice-duplicate.exception';
+import { MAX_OSHIRASE_LIST_LIMIT } from './oshirase.constants';
 import {
   toOshiraseDetail,
   toOshiraseListItem,
@@ -114,11 +115,11 @@ function assertDeadlineLocationPairing(
 }
 
 /**
- * SCR-010 の GET /api/v1/oshirase/menu が返す項目。
+ * ACSMS-SCR-010 の GET /api/v1/oshirase/menu が返す項目。
  *
  * [no-labels-policy] 認証エンドポイント — `oshirase_type_label` なし。
  * FE が `useCodesStore().label('OSHIRASE_TYPE', value)` で解決。
- * （公開の SCR-001 findLogin は未認証で m_code キャッシュがないため
+ * （公開の ACSMS-SCR-001 findLogin は未認証で m_code キャッシュがないため
  * ラベルを serialize する。）
  */
 export interface MenuOshiraseItem {
@@ -141,7 +142,7 @@ export class OshiraseService {
     // 持たないためラベルを serialize 必須（`.claude/rules/nestjs.md
     // §Response serialization`）。
     private readonly codeService: CodeService,
-    // SCR-031 管理エンドポイントは audit log + transaction が必要。SCR-001
+    // ACSMS-SCR-031 管理エンドポイントは audit log + transaction が必要。ACSMS-SCR-001
     // spec が (repo, codeService) のみで生成できるよう @Optional()。本番 DI は
     // 常に両方供給（oshirase.module.ts 参照）。
     @Optional() private readonly auditLog?: AuditLogService,
@@ -149,10 +150,10 @@ export class OshiraseService {
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════
-  // SCR-001 — Login screen list (no auth)
+  // ACSMS-SCR-001 — Login screen list (no auth)
   // ═══════════════════════════════════════════════════════════════════
   async findLogin(query: LoginOshiraseQueryDto): Promise<LoginOshiraseItemDto[]> {
-    const limit = Math.min(query.limit ?? 20, 20);
+    const limit = Math.min(query.limit ?? MAX_OSHIRASE_LIST_LIMIT, MAX_OSHIRASE_LIST_LIMIT);
     // `now` は現在の絶対時刻。publish_start_date / publish_end_date も
     // TIMESTAMPTZ（絶対時刻）なので、下の期間比較は TZ 非依存（壁時計日付
     // でなく2つの瞬間の比較）。コンテナは TZ=Asia/Tokyo なのでこの瞬間は
@@ -196,10 +197,10 @@ export class OshiraseService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // SCR-010 — Menu screen list (authenticated, any role)
+  // ACSMS-SCR-010 — Menu screen list (authenticated, any role)
   // ═══════════════════════════════════════════════════════════════════
 
-  // API-010-001 — GET /api/v1/oshirase/menu?limit=20
+  // ACSMS-API-010-001 — GET /api/v1/oshirase/menu?limit=20
   async getMenuList(
     session: SessionPayload,
     limitInput?: number,
@@ -209,7 +210,10 @@ export class OshiraseService {
       deadline_notice: MenuOshiraseItem | null;
     };
   }> {
-    const limit = Math.min(Math.max(limitInput ?? 20, 1), 20);
+    const limit = Math.min(
+      Math.max(limitInput ?? MAX_OSHIRASE_LIST_LIMIT, 1),
+      MAX_OSHIRASE_LIST_LIMIT,
+    );
     const now = new Date();
     const newBadgeMs = NEW_BADGE_DAYS * 24 * 60 * 60 * 1000;
     const userJaId = session.ja_id;
