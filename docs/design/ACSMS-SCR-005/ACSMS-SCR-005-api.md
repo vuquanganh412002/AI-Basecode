@@ -96,7 +96,7 @@ updated_by: Nguyen Duyen Manh
 | 13 | →email | String | - | | -   | メールアドレス |
 | 14 | →tanto_busho | String | - | | -   | 担当部署名 |
 | 15 | →tanto_name | String | - | | -   | 担当者名 |
-| 16 | →zei_kubun | String | - | | - | 税区分（1: 内税, 2: 外税） |
+| 16 | →zei_kubun | Number | - | | - | 税区分（1: 内税, 2: 外税） |
 | 17 | →jastem_itakusha_code | String | - | | -   | JASTEM_委託者コード ※空文字許容 |
 | 18 | →jastem_itakusha_name | String | - | | -   | JASTEM_委託者名 ※空文字許容 |
 | 19 | →jastem_ja_code | String | - | | -   | JASTEM_農協番号 ※空文字許容 |
@@ -130,7 +130,7 @@ GET /api/v1/ja/1
     "email": "info@ja-tokyo-chuo.or.jp",
     "tanto_busho": "総務部",
     "tanto_name": "田中太郎",
-    "zei_kubun": "1",
+    "zei_kubun": 1,
     "jastem_itakusha_code": "1234567890",
     "jastem_itakusha_name": "JA東京中央",
     "jastem_ja_code": "1301",
@@ -148,14 +148,8 @@ GET /api/v1/ja/1
 ### 400 Bad Request
 ```json
 {
-  "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
-  "errors": [
-    {
-      "field": "ja_id",
-      "message": "JA IDを入力してください"
-    }
-  ]
+  "error_code": "BAD_REQUEST",
+  "message": "リクエストパラメータが不正です。"
 }
 ```
 
@@ -164,7 +158,7 @@ GET /api/v1/ja/1
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -173,7 +167,7 @@ GET /api/v1/ja/1
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -182,7 +176,7 @@ GET /api/v1/ja/1
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定されたJAが見つかりません"
+  "message": "指定されたJAが見つかりません。"
 }
 ```
 
@@ -191,7 +185,7 @@ GET /api/v1/ja/1
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -302,7 +296,7 @@ WHERE mj.ja_id = :ja_id
 | 10 | email | String | - | - | | 100 | メールアドレス |
 | 11 | tanto_busho | String | - | - | | 100 | 担当部署名 |
 | 12 | tanto_name | String | - | - | | 50 | 担当者名 |
-| 13 | zei_kubun | String | - | 〇 | 1 | 1 | 税区分（1: 内税, 2: 外税） |
+| 13 | zei_kubun | Number | - | 〇 | | | 税区分（1: 内税, 2: 外税） |
 | 14 | jastem_itakusha_code | String | - | - | | 10 | JASTEM_委託者コード ※空文字許容 |
 | 15 | jastem_itakusha_name | String | - | - | | 40 | JASTEM_委託者名 ※空文字許容 |
 | 16 | jastem_ja_code | String | - | - | | 4 | JASTEM_農協番号 ※空文字許容 |
@@ -319,22 +313,24 @@ WHERE mj.ja_id = :ja_id
 | 4 | →ja_name | String | - | | - | JA名 |
 | 5 | →ja_name_kana | String | - | | -   | JA名（カナ） |
 | 6 | →todofuken_code | String | - | | - | 都道府県コード |
-| 7 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
-| 8 | →yubin_no | String | - | | -   | 郵便番号 |
-| 9 | →address | String | - | | -   | 住所 |
-| 10 | →tel | String | - | | -   | 電話番号 |
-| 11 | →fax | String | - | | -   | FAX番号 |
-| 12 | →email | String | - | | -   | メールアドレス |
-| 13 | →tanto_busho | String | - | | -   | 担当部署名 |
-| 14 | →tanto_name | String | - | | -   | 担当者名 |
-| 15 | →zei_kubun | String | - | | - | 税区分 |
-| 16 | →jastem_itakusha_code | String | - | | -   | JASTEM_委託者コード ※空文字許容 |
-| 17 | →jastem_itakusha_name | String | - | | -   | JASTEM_委託者名 ※空文字許容 |
-| 18 | →jastem_ja_code | String | - | | -   | JASTEM_農協番号 ※空文字許容 |
-| 19 | →jastem_ja_name | String | - | | -   | JASTEM_農協名 ※空文字許容 |
-| 20 | →biko | String | - | | -   | 備考 |
-| 21 | →created_at | String | - | ISO 8601 | - | 作成日時 |
-| 22 | message | String | - | | - | 処理結果メッセージ |
+| 7 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
+| 8 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
+| 9 | →yubin_no | String | - | | -   | 郵便番号 |
+| 10 | →address | String | - | | -   | 住所 |
+| 11 | →tel | String | - | | -   | 電話番号 |
+| 12 | →fax | String | - | | -   | FAX番号 |
+| 13 | →email | String | - | | -   | メールアドレス |
+| 14 | →tanto_busho | String | - | | -   | 担当部署名 |
+| 15 | →tanto_name | String | - | | -   | 担当者名 |
+| 16 | →zei_kubun | Number | - | | - | 税区分 |
+| 17 | →jastem_itakusha_code | String | - | | -   | JASTEM_委託者コード ※空文字許容 |
+| 18 | →jastem_itakusha_name | String | - | | -   | JASTEM_委託者名 ※空文字許容 |
+| 19 | →jastem_ja_code | String | - | | -   | JASTEM_農協番号 ※空文字許容 |
+| 20 | →jastem_ja_name | String | - | | -   | JASTEM_農協名 ※空文字許容 |
+| 21 | →biko | String | - | | -   | 備考 |
+| 22 | →created_at | String | - | ISO 8601 | - | 作成日時 |
+| 23 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
+| 24 | message | String | - | | - | 処理結果メッセージ |
 
 ## リクエスト例
 
@@ -355,7 +351,7 @@ Content-Type: application/json
   "email": "info@ja-tokyo-midori.or.jp",
   "tanto_busho": "企画課",
   "tanto_name": "鈴木花子",
-  "zei_kubun": "1",
+  "zei_kubun": 1,
   "jastem_itakusha_code": "",
   "jastem_itakusha_name": "",
   "jastem_ja_code": "",
@@ -374,6 +370,7 @@ Content-Type: application/json
     "ja_name": "JA東京みどり",
     "ja_name_kana": "ジェイエイトウキョウミドリ",
     "todofuken_code": "13",
+    "todofuken_name": "東京都",
     "chuokai_flg": false,
     "yubin_no": "1600022",
     "address": "東京都新宿区新宿3-1-1",
@@ -382,13 +379,14 @@ Content-Type: application/json
     "email": "info@ja-tokyo-midori.or.jp",
     "tanto_busho": "企画課",
     "tanto_name": "鈴木花子",
-    "zei_kubun": "1",
+    "zei_kubun": 1,
     "jastem_itakusha_code": "",
     "jastem_itakusha_name": "",
     "jastem_ja_code": "",
     "jastem_ja_name": "",
     "biko": "",
-    "created_at": "2026-04-07T10:00:00Z"
+    "created_at": "2026-04-07T10:00:00Z",
+    "updated_at": null
   },
   "message": "登録しました。"
 }
@@ -401,11 +399,20 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "ja_code", "message": "JAコードを入力してください" },
-    { "field": "email", "message": "有効なメールアドレスを入力してください。" }
+    { "field": "ja_code", "message": "JAコードを入力してください。" },
+    { "field": "email", "message": "メールアドレスの形式が不正です。" }
   ]
+}
+```
+
+### 400 Bad Request（都道府県コードが存在しない場合）
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "都道府県コードが存在しません。"
 }
 ```
 
@@ -414,7 +421,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -423,11 +430,11 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
-### 409 Conflict
+### 400 Bad Request（JAコード重複）
 
 ```json
 {
@@ -441,7 +448,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -497,7 +504,7 @@ WHERE ja_code = :ja_code
   AND deleted_at IS NULL
 ```
 
-- 既に存在する場合：HTTP 409 Conflict を返却する。
+- 既に存在する場合：HTTP 400 Bad Request（error_code: DUPLICATE_CODE）を返却する。
 
 ### 4.5 データ登録
 
@@ -598,10 +605,10 @@ VALUES (
 | # | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明 |
 |---|---|---|---|---|---|---|---|
 | 1 | ja_id | Number | - | 〇 | | | JA ID（パスパラメータ） |
-| 2 | ja_name | String | - | 〇 | | 200 | JA名 |
+| 2 | ja_name | String | - | - | | 200 | JA名 |
 | 3 | ja_name_kana | String | - | - | | 200 | JA名（カナ） |
-| 4 | todofuken_code | String | - | 〇 | 2 | 2 | 都道府県コード |
-| 5 | chuokai_flg | Boolean | - | 〇 | | | 中央会フラグ（true: 中央会, false: 単協） |
+| 4 | todofuken_code | String | - | - | 2 | 2 | 都道府県コード |
+| 5 | chuokai_flg | Boolean | - | - | | | 中央会フラグ（true: 中央会, false: 単協） |
 | 6 | yubin_no | String | - | - | 7 | 7 | 郵便番号（半角数字7桁） |
 | 7 | address | String | - | - | | 200 | 住所 |
 | 8 | tel | String | - | - | | 15 | 電話番号（半角数字のみ） |
@@ -609,14 +616,14 @@ VALUES (
 | 10 | email | String | - | - | | 100 | メールアドレス |
 | 11 | tanto_busho | String | - | - | | 100 | 担当部署名 |
 | 12 | tanto_name | String | - | - | | 50 | 担当者名 |
-| 13 | zei_kubun | String | - | 〇 | 1 | 1 | 税区分（1: 内税, 2: 外税） |
+| 13 | zei_kubun | Number | - | - | | | 税区分（1: 内税, 2: 外税） |
 | 14 | jastem_itakusha_code | String | - | - | | 10 | JASTEM_委託者コード ※空文字許容 |
 | 15 | jastem_itakusha_name | String | - | - | | 40 | JASTEM_委託者名 ※空文字許容 |
 | 16 | jastem_ja_code | String | - | - | | 4 | JASTEM_農協番号 ※空文字許容 |
 | 17 | jastem_ja_name | String | - | - | | 15 | JASTEM_農協名 ※空文字許容 |
 | 18 | biko | String | - | - | | 500 | 備考 |
 
-> **注記:** `ja_code` は更新不可（作成後の変更は不可）。CHUOKAI / JA_HONTEN がリクエストボディに ※4 対象外のフィールドを含めた場合、バックエンドはそれらを無視する。
+> **注記:** `ja_code` は更新不可（作成後の変更は不可）。`UpdateJaDto` は `CreateJaDto` の `PartialType`（`ja_code` 除く）のため、ボディの全項目が任意（部分更新可）。未送信の項目は既存値を維持する。CHUOKAI / JA_HONTEN がリクエストボディに ※4 対象外のフィールドを含めた場合、バックエンドはそれらを無視する。
 
 ## レスポンスデータ
 
@@ -628,22 +635,24 @@ VALUES (
 | 4 | →ja_name | String | - | | - | JA名 |
 | 5 | →ja_name_kana | String | - | | -   | JA名（カナ） |
 | 6 | →todofuken_code | String | - | | - | 都道府県コード |
-| 7 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
-| 8 | →yubin_no | String | - | | -   | 郵便番号 |
-| 9 | →address | String | - | | -   | 住所 |
-| 10 | →tel | String | - | | -   | 電話番号 |
-| 11 | →fax | String | - | | -   | FAX番号 |
-| 12 | →email | String | - | | -   | メールアドレス |
-| 13 | →tanto_busho | String | - | | -   | 担当部署名 |
-| 14 | →tanto_name | String | - | | -   | 担当者名 |
-| 15 | →zei_kubun | String | - | | - | 税区分 |
-| 16 | →jastem_itakusha_code | String | - | | -   | JASTEM_委託者コード ※空文字許容 |
-| 17 | →jastem_itakusha_name | String | - | | -   | JASTEM_委託者名 ※空文字許容 |
-| 18 | →jastem_ja_code | String | - | | -   | JASTEM_農協番号 ※空文字許容 |
-| 19 | →jastem_ja_name | String | - | | -   | JASTEM_農協名 ※空文字許容 |
-| 20 | →biko | String | - | | -   | 備考 |
-| 21 | →updated_at | String | - | ISO 8601 | - | 更新日時 |
-| 22 | message | String | - | | - | 処理結果メッセージ |
+| 7 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
+| 8 | →chuokai_flg | Boolean | - | | - | 中央会フラグ |
+| 9 | →yubin_no | String | - | | -   | 郵便番号 |
+| 10 | →address | String | - | | -   | 住所 |
+| 11 | →tel | String | - | | -   | 電話番号 |
+| 12 | →fax | String | - | | -   | FAX番号 |
+| 13 | →email | String | - | | -   | メールアドレス |
+| 14 | →tanto_busho | String | - | | -   | 担当部署名 |
+| 15 | →tanto_name | String | - | | -   | 担当者名 |
+| 16 | →zei_kubun | Number | - | | - | 税区分 |
+| 17 | →jastem_itakusha_code | String | - | | -   | JASTEM_委託者コード ※空文字許容 |
+| 18 | →jastem_itakusha_name | String | - | | -   | JASTEM_委託者名 ※空文字許容 |
+| 19 | →jastem_ja_code | String | - | | -   | JASTEM_農協番号 ※空文字許容 |
+| 20 | →jastem_ja_name | String | - | | -   | JASTEM_農協名 ※空文字許容 |
+| 21 | →biko | String | - | | -   | 備考 |
+| 22 | →created_at | String | - | ISO 8601 | - | 作成日時 |
+| 23 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
+| 24 | message | String | - | | - | 処理結果メッセージ |
 
 ## リクエスト例
 
@@ -665,7 +674,7 @@ Content-Type: application/json
   "email": "info-new@ja-tokyo-chuo.or.jp",
   "tanto_busho": "総務部",
   "tanto_name": "田中太郎",
-  "zei_kubun": "2",
+  "zei_kubun": 2,
   "jastem_itakusha_code": "1234567890",
   "jastem_itakusha_name": "JA東京中央",
   "jastem_ja_code": "1301",
@@ -688,7 +697,7 @@ Content-Type: application/json
   "email": "info-new@ja-tokyo-chuo.or.jp",
   "tanto_busho": "総務部",
   "tanto_name": "田中太郎",
-  "zei_kubun": "2",
+  "zei_kubun": 2,
   "biko": "住所変更済み"
 }
 ```
@@ -703,6 +712,7 @@ Content-Type: application/json
     "ja_name": "JA東京中央（改定）",
     "ja_name_kana": "ジェイエイトウキョウチュウオウカイテイ",
     "todofuken_code": "13",
+    "todofuken_name": "東京都",
     "chuokai_flg": true,
     "yubin_no": "1000001",
     "address": "東京都千代田区丸の内2-2-2",
@@ -711,12 +721,13 @@ Content-Type: application/json
     "email": "info-new@ja-tokyo-chuo.or.jp",
     "tanto_busho": "総務部",
     "tanto_name": "田中太郎",
-    "zei_kubun": "2",
+    "zei_kubun": 2,
     "jastem_itakusha_code": "1234567890",
     "jastem_itakusha_name": "JA東京中央",
     "jastem_ja_code": "1301",
     "jastem_ja_name": "JA東京中央",
     "biko": "住所変更済み",
+    "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-04-07T15:30:00Z"
   },
   "message": "更新しました。"
@@ -730,10 +741,19 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "email", "message": "メールアドレスの形式が不正です" }
+    { "field": "email", "message": "メールアドレスの形式が不正です。" }
   ]
+}
+```
+
+### 400 Bad Request（都道府県コードが存在しない場合。NICHINO_ADMINが変更する場合のみ）
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "都道府県コードが存在しません。"
 }
 ```
 
@@ -742,7 +762,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -751,7 +771,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -760,7 +780,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定されたJAが見つかりません"
+  "message": "指定されたJAが見つかりません。"
 }
 ```
 
@@ -769,7 +789,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -792,6 +812,7 @@ Content-Type: application/json
 ### 4.2 認証・認可チェック
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
+- 認証失敗の場合：HTTP 401 Unauthorized
 - 権限チェック：`ja.update`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）
 - 権限がない場合：HTTP 403 Forbidden
@@ -817,8 +838,8 @@ WHERE ja_id = :ja_id
 ### 4.4 ロール別の更新フィールド決定
 
 - ユーザーのロールに基づき、更新可能なフィールドを決定する：
-  - **NICHINO_ADMIN**：`ja_name`, `ja_name_kana`, `todofuken_code`, `chuokai_flg`, `yubin_no`, `address`, `tel`, `fax`, `email`, `tanto_busho`, `tanto_name`, `zei_kubun`, `biko`
-  - **CHUOKAI / JA_HONTEN（※4）**：`yubin_no`, `address`, `tel`, `fax`, `email`, `tanto_busho`, `tanto_name`, `zei_kubun`, `biko`
+  - **NICHINO_ADMIN**：`ja_name`, `ja_name_kana`, `todofuken_code`, `chuokai_flg`, `yubin_no`, `address`, `tel`, `fax`, `email`, `tanto_busho`, `tanto_name`, `zei_kubun`, `jastem_itakusha_code`, `jastem_itakusha_name`, `jastem_ja_code`, `jastem_ja_name`, `biko`（全項目）
+  - **CHUOKAI / JA_HONTEN（※4）**：`yubin_no`, `address`, `tel`, `fax`, `email`, `tanto_busho`, `tanto_name`, `zei_kubun`, `jastem_itakusha_code`, `jastem_itakusha_name`, `jastem_ja_code`, `jastem_ja_name`, `biko`
 - CHUOKAI / JA_HONTEN がリクエストボディに対象外のフィールドを含めた場合、それらを無視する。
 
 ### 4.5 都道府県コードの存在検証（NICHINO_ADMINのみ）
@@ -998,7 +1019,7 @@ GET /api/v1/todofuken
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -1007,7 +1028,7 @@ GET /api/v1/todofuken
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 

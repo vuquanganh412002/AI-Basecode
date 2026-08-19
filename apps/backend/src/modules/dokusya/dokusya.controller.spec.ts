@@ -1532,7 +1532,7 @@ describe('DokusyaController — SCR-013 (HTTP: rireki list)', () => {
 
 // ════════════════════════════════════════════════════════════════════════════
 // @ts-nocheck — TDD red phase (/gen-ut-backend, source not yet implemented by /gen-code)
-// Screen: ACSMS-SCR-015 — 購読者販売店一括置換画面
+// Screen: ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）
 //
 // Drives the two NEW endpoints appended to DokusyaController:
 //   GET  /api/v1/dokusya/replace-hanbaiten/search → service.searchForReplace (ACSMS-API-015-001)

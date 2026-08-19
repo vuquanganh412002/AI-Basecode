@@ -277,7 +277,7 @@ describe('computeZougen', () => {
 });
 
 describe('buildRirekiRow', () => {
-  const ctx = { dokusyaId: 1001, rirekiNo: 3, actor: 'u1' };
+  const ctx = { dokusyaId: 1001, rirekiNo: 3, actor: 'u1', hanbaitenTohaigoFlg: false };
 
   it('CREATE → shinki/zougen true, zenkai null, hanbaiten_tekiyo null, saishin false', () => {
     const event: ChangeEvent = {
@@ -288,18 +288,51 @@ describe('buildRirekiRow', () => {
       dokusyaId: 1001,
       rirekiNo: 1,
       actor: 'admin',
+      hanbaitenTohaigoFlg: false,
     });
     expect(r.shinkiFlg).toBe(true);
     expect(r.zougenHokokuFlg).toBe(true);
     expect(r.kaiyakuFlg).toBe(false);
     expect(r.torikeshiFlg).toBe(false);
     expect(r.saishinDataFlg).toBe(false);
+    expect(r.hanbaitenTohaigoFlg).toBe(false);
     expect(r.johoHenkoTekiyoDate).toBe('2026-07-01');
     expect(r.rirekiNo).toBe(1);
     expect(r.dokusyaId).toBe(1001);
     expect(r.dokusyaBusu).toBe(4);
     expect(r.hanbaitenId).toBe(459);
     expect(r.zenkaiDokusyaBusu).toBeNull();
+  });
+
+  // 顧客要件2026-08: 販売店統廃合フラグはctx.hanbaitenTohaigoFlgをそのまま反映する
+  // （統廃合販売店読者移行画面=SCR-015経由かどうかをapplyChangeがsourceから判定して渡す）。
+  it('ctx.hanbaitenTohaigoFlg=true → 行にtrueが反映される（SCR-015経由）', () => {
+    const event: ChangeEvent = {
+      joho: '2026-07-01',
+      values: { hanbaitenId: 460 },
+    };
+    const r = buildRirekiRow(row({ hanbaitenId: 459 }), event, {
+      dokusyaId: 1001,
+      rirekiNo: 2,
+      actor: 'admin',
+      hanbaitenTohaigoFlg: true,
+    });
+    expect(r.hanbaitenTohaigoFlg).toBe(true);
+  });
+
+  it('before.hanbaitenTohaigoFlg=trueでもctx.hanbaitenTohaigoFlg=falseなら継承しない', () => {
+    const before = row({ hanbaitenId: 459, hanbaitenTohaigoFlg: true });
+    const event: ChangeEvent = {
+      joho: '2026-07-05',
+      values: { dokusyaBusu: 8 },
+    };
+    const r = buildRirekiRow(before, event, {
+      dokusyaId: 1001,
+      rirekiNo: 3,
+      actor: 'admin',
+      hanbaitenTohaigoFlg: false,
+    });
+    expect(r.hanbaitenTohaigoFlg).toBe(false);
   });
 
   it('UPDATE info → carries forward, applies change, fills zenkai, drops PK/saishin', () => {
@@ -396,6 +429,16 @@ describe('mapRirekiToMaster', () => {
     ]) {
       expect(m).not.toHaveProperty(k);
     }
+  });
+
+  // 回帰ガード: hanbaitenTohaigoFlg は t_dokusya_rireki 専用列（t_dokusya には無い）。
+  // MASTER_EXCLUDE_FIELDS への追加漏れがあると recomputeMaster の UPDATE が
+  // `EntityPropertyNotFoundError: Property "hanbaitenTohaigoFlg" was not found in
+  // "Dokusya"` で落ち、購読者の新規作成・更新が軒並み500になる（顧客要件2026-08で
+  // 発生した実際の不具合）。
+  it('excludes hanbaitenTohaigoFlg (rireki-only column, not on t_dokusya)', () => {
+    const m = mapRirekiToMaster(row({ ...rireki, hanbaitenTohaigoFlg: true }));
+    expect(m).not.toHaveProperty('hanbaitenTohaigoFlg');
   });
 
   // [cloud-owned-column] denshi_kaiin_id は電子版同期バッチが master へ直接書く列で、
@@ -589,7 +632,7 @@ describe('buildResubscribeRow', () => {
     const r = buildResubscribeRow(
       before,
       values,
-      { dokusyaId: 1001, rirekiNo: 8, actor: '42' },
+      { dokusyaId: 1001, rirekiNo: 8, actor: '42', hanbaitenTohaigoFlg: false },
       '2026-07-09', // joho=当日（即時反映）
     );
     // 新規(再購読)の形。
@@ -598,6 +641,7 @@ describe('buildResubscribeRow', () => {
     expect(Number(r.tetsuzukiShurui)).toBe(1);
     expect(r.zougenHokokuFlg).toBe(true);
     expect(r.dokusyaChushiDate).toBeNull();
+    expect(r.hanbaitenTohaigoFlg).toBe(false);
     // 業務新値は values 由来。
     expect(r.hanbaitenId).toBe(460);
     expect(Number(r.dokusyaBusu)).toBe(2);

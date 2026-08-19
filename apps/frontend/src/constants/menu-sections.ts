@@ -43,7 +43,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       { name: 'DokusyaCreate', label: '購読者情報登録', icon: 'person_add', permission: 'dokusya.create', requiresAnyDokusyaFlag: true },
       { name: 'DokusyaImport', label: '購読者Excelデータ取込', icon: 'upload_file', permission: 'dokusya.import', requiresAnyDokusyaFlag: true },
       { name: 'DokusyaList', label: '購読者明細検索', icon: 'search', permission: 'dokusya.view' },
-      { name: 'DokusyaReplaceHanbaiten', label: '購読者販売店一括置換', icon: 'published_with_changes', permission: 'dokusya.replace_hanbaiten', requiresAnyDokusyaFlag: true },
+      { name: 'DokusyaReplaceHanbaiten', label: '統廃合販売店読者移行', icon: 'published_with_changes', permission: 'dokusya.replace_hanbaiten', requiresAnyDokusyaFlag: true },
     ],
   },
   {

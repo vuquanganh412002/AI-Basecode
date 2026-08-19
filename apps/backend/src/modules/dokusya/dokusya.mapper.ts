@@ -113,6 +113,76 @@ export function buildBunruiPayload(dto: BunruiDtoFields): Partial<Dokusya> {
   };
 }
 
+/** buildHaitatsuPayload の入力（create/update DTO の該当項目だけ）。 */
+export interface HaitatsuDtoFields {
+  dokusya_shubetsu?: number;
+  haitatsu_same_flg?: boolean;
+  haitatsu_yubin_no?: string;
+  haitatsu_todofuken_code?: string;
+  haitatsu_shikuchoson?: string;
+  haitatsu_chome_banchi?: string;
+  haitatsu_tatemono_mei?: string;
+  haitatsu_renrakusaki_1?: string;
+  haitatsu_renrakusaki_2?: string;
+  haitatsu_shimei_sei?: string;
+  haitatsu_shimei_mei?: string;
+  haitatsu_shimei_kana_sei?: string;
+  haitatsu_shimei_kana_mei?: string;
+}
+
+/**
+ * 配達先情報12項目（同一フラグ＋住所5＋連絡先2＋氏名4）の保存値を組み立てる
+ * （バグ報告 2026-08）。
+ *
+ * 電子版(dokusya_shubetsu=2)は配達先情報エリア自体が非活性化される
+ * （`DokusyaFormView.vue` §7.5・screen-design.md ACSMS-SCR-011 No.27-38）ため、
+ * 配達先情報は一切持てない。画面は種別ラジオを切替えても隠れた入力欄の値を
+ * クリアせず送信し得るため、`buildBunruiPayload` と同じ理由でここでも
+ * ゲートする:
+ *
+ *  1. DTO 単体では表現できない項目間の制約なので、API を直接叩けば
+ *     「電子版なのに配達先情報あり」が保存できてしまう。
+ *  2. 種別を紙版/併読へ戻さない限り画面には出ない列であり、放置すると
+ *     「画面には出ないのに DB に残る」不整合データになる。
+ *
+ * 電子版は `haitatsu_same_flg` を `true`（列の DB default と同値・実質「なし」の
+ * 中立値）に固定し、残り11列は空文字にする。紙版/併読は従来どおり dto の値を
+ * そのまま保存する（`haitatsu_same_flg=true` 時の空欄化は FE watch + 別経路の
+ * 遡及カスケードに委ねる — 本関数のスコープ外）。
+ */
+export function buildHaitatsuPayload(dto: HaitatsuDtoFields): Partial<Dokusya> {
+  if (Number(dto.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL) {
+    return {
+      haitatsuSameFlg: true,
+      haitatsuYubinNo: '',
+      haitatsuTodofukenCode: '',
+      haitatsuShikuchoson: '',
+      haitatsuChomeBanchi: '',
+      haitatsuTatemonoMei: '',
+      haitatsuRenrakusaki1: '',
+      haitatsuRenrakusaki2: '',
+      haitatsuShimeiSei: '',
+      haitatsuShimeiMei: '',
+      haitatsuShimeiKanaSei: '',
+      haitatsuShimeiKanaMei: '',
+    };
+  }
+  return {
+    haitatsuSameFlg: dto.haitatsu_same_flg,
+    haitatsuYubinNo: dto.haitatsu_yubin_no ?? '',
+    haitatsuTodofukenCode: dto.haitatsu_todofuken_code ?? '',
+    haitatsuShikuchoson: dto.haitatsu_shikuchoson ?? '',
+    haitatsuChomeBanchi: dto.haitatsu_chome_banchi ?? '',
+    haitatsuTatemonoMei: dto.haitatsu_tatemono_mei ?? '',
+    haitatsuRenrakusaki1: dto.haitatsu_renrakusaki_1 ?? '',
+    haitatsuRenrakusaki2: dto.haitatsu_renrakusaki_2 ?? '',
+    haitatsuShimeiSei: dto.haitatsu_shimei_sei ?? '',
+    haitatsuShimeiMei: dto.haitatsu_shimei_mei ?? '',
+    haitatsuShimeiKanaSei: dto.haitatsu_shimei_kana_sei ?? '',
+    haitatsuShimeiKanaMei: dto.haitatsu_shimei_kana_mei ?? '',
+  };
+}
+
 export function toDokusyaResponse(
   entity: Dokusya,
   joins: DokusyaJoinFields,
@@ -661,7 +731,7 @@ export function toDokusyaHistoryItem(row: DokusyaRireki): DokusyaHistoryItemDto 
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// ACSMS-SCR-015 — 購読者販売店一括置換画面 (replace search row)
+// ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）(replace search row)
 // ════════════════════════════════════════════════════════════════════════
 
 /**

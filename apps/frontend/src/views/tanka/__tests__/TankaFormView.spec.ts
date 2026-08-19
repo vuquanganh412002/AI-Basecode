@@ -592,6 +592,119 @@ describe('TankaFormView — 適用開始日 / 適用終了日 disabled-date', ()
     // after start → allowed
     expect(vm.disableEndDate(start.add(30, 'day'))).toBe(false);
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Bug #58241 — reactivating an expired price (無効→有効) must clear a
+  // stale past 適用終了日 and re-lock past dates on the end-date picker.
+  // ───────────────────────────────────────────────────────────────────────
+  it('should clear a past 適用終了日 when 有効単価フラグ is toggled 無効→有効', async () => {
+    const { getTanka } = await import('@/api/tanka/tanka');
+    vi.mocked(getTanka).mockResolvedValue({
+      data: buildTanka({
+        tanka_id: 1,
+        active_flg: false,
+        tekiyo_start_date: '2024-01-15',
+        tekiyo_end_date: '2024-06-30', // past relative to pinned "today" 2026-05-15
+      }),
+    });
+    const { wrapper } = await renderView({ tankaId: 1 });
+    const vm = wrapper.vm as any;
+    expect(vm.form.active_flg).toBe(false);
+    expect(vm.form.tekiyo_end_date).toBe('2024-06-30');
+
+    vm.form.active_flg = true;
+    await flushPromises();
+
+    expect(vm.form.tekiyo_end_date).toBe('');
+  });
+
+  it('should re-disable past dates on the 適用終了日 picker after reactivating', async () => {
+    const { getTanka } = await import('@/api/tanka/tanka');
+    vi.mocked(getTanka).mockResolvedValue({
+      data: buildTanka({
+        tanka_id: 1,
+        active_flg: false,
+        tekiyo_start_date: '2024-01-15',
+        tekiyo_end_date: '2024-06-30',
+      }),
+    });
+    const { wrapper } = await renderView({ tankaId: 1 });
+    const vm = wrapper.vm as any;
+    const yesterday = nowTokyo().subtract(1, 'day');
+    // While still 無効, past end-dates stay pickable (期間は独立).
+    expect(vm.disableEndDate(yesterday)).toBe(false);
+
+    vm.form.active_flg = true;
+    await flushPromises();
+
+    expect(vm.disableEndDate(yesterday)).toBe(true);
+  });
+
+  it('should NOT clear 適用終了日 when the price stays 有効 across an unrelated edit (regression)', async () => {
+    const { getTanka } = await import('@/api/tanka/tanka');
+    vi.mocked(getTanka).mockResolvedValue({
+      data: buildTanka({
+        tanka_id: 1,
+        active_flg: true,
+        tekiyo_start_date: '2024-01-15',
+        tekiyo_end_date: '2099-12-31',
+      }),
+    });
+    const { wrapper } = await renderView({ tankaId: 1 });
+    const vm = wrapper.vm as any;
+
+    vm.form.tanka_name = '単価名変更';
+    await flushPromises();
+
+    expect(vm.form.tekiyo_end_date).toBe('2099-12-31');
+  });
+
+  it('should NOT clear 適用終了日 when toggling 有効→無効 (only false→true triggers)', async () => {
+    const { getTanka } = await import('@/api/tanka/tanka');
+    vi.mocked(getTanka).mockResolvedValue({
+      data: buildTanka({
+        tanka_id: 1,
+        active_flg: true,
+        tekiyo_start_date: '2024-01-15',
+        tekiyo_end_date: '2024-06-30',
+      }),
+    });
+    const { wrapper } = await renderView({ tankaId: 1 });
+    const vm = wrapper.vm as any;
+
+    vm.form.active_flg = false;
+    await flushPromises();
+
+    expect(vm.form.tekiyo_end_date).toBe('2024-06-30');
+  });
+
+  it('should surface END_DATE_NOT_PAST_WHEN_ACTIVE message from validateClient as an insurance check', async () => {
+    // Simulates a submit where a 有効 + past 適用終了日 combination reaches
+    // submitWith directly (bypassing the disabled picker / watch — e.g. a
+    // programmatic payload), proving the submit-time guard independently
+    // catches it even without the watch having fired.
+    const { getTanka, updateTanka } = await import('@/api/tanka/tanka');
+    vi.mocked(getTanka).mockResolvedValue({
+      data: buildTanka({
+        tanka_id: 1,
+        active_flg: true,
+        tekiyo_start_date: '2024-01-15',
+        tekiyo_end_date: '2099-12-31',
+      }),
+    });
+    const { wrapper } = await renderView({ tankaId: 1 });
+    const vm = wrapper.vm as any;
+
+    await vm.submitWith?.({
+      ...vm.form,
+      active_flg: true,
+      tekiyo_end_date: '2024-06-30',
+    });
+    await flushPromises();
+
+    expect(updateTanka).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('有効な単価には本日以降の適用終了日を指定してください。');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

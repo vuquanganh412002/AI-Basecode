@@ -52,7 +52,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定された単価が見つかりません。                                       | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                               | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため処理を実行できません。                         | HTTP 409 |
 
 ---
 
@@ -67,7 +67,7 @@ updated_by: Tran Duc Tuyen
 | URI | /api/v1/tanka |
 | メソッド | GET |
 | リクエストボディー | JSON |
-| リクエストパラメーター | ?tanka_type={tanka_type}&tanka_name={tanka_name}&page={page}&per_page={per_page}&sort_by={sort_by}&sort_order={sort_order} |
+| リクエストパラメーター | ?tanka_type={tanka_type}&tanka_name={tanka_name}&tekiyo_start_date={tekiyo_start_date}&tekiyo_end_date={tekiyo_end_date}&active_flg={active_flg}&campaign_flg={campaign_flg}&page={page}&per_page={per_page}&sort_by={sort_by}&sort_order={sort_order} |
 | ヘッダ | Content-Type: application/json\n※ 認証情報はHTTP-only Cookieにより自動的に送信される |
 | HTTPレスポンスコード | 200:正常に単価一覧を取得しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
@@ -81,10 +81,10 @@ updated_by: Tran Duc Tuyen
 | 4 | tekiyo_end_date | String | - | - | | 10 | 適用終了日フィルタ（YYYY-MM-DD）。`tekiyo_end_date <= 指定値` の条件で絞り込む。NULL（無期限）は対象外 |
 | 5 | active_flg | Boolean | - | - | | | 状態フィルタ（true: 有効中のみ、false: 停止中のみ、省略: 両方） |
 | 6 | campaign_flg | Boolean | - | - | | | キャンペーンフィルタ（true: 有効のみ、false: 無効のみ、省略: 両方） |
-| 7 | page | Number | - | - | | | ページ番号（デフォルト: 1） |
-| 8 | per_page | Number | - | - | | | 1ページの件数（デフォルト: 20） |
-| 9 | sort_by | String | - | - | | | ソート項目（m_tankaテーブルのカラム名を指定。例: tanka_code, tanka_name, kingaku_zeikomi, tekiyo_start_date） |
-| 10 | sort_order | String | - | - | | | ソート方向（asc / desc） |
+| 7 | page | Number | - | - | | | ページ番号（デフォルト: 1、1以上） |
+| 8 | per_page | Number | - | - | | | 1ページの件数（デフォルト: 20、最大: 100） |
+| 9 | sort_by | String | - | - | | | ソート項目（許可値: tanka_code, tanka_name, kingaku_zeikomi, kingaku_zeinuki, tax_rate, tekiyo_start_date, tekiyo_end_date, updated_at。デフォルト: updated_at） |
+| 10 | sort_order | String | - | - | | | ソート方向（asc / desc。デフォルト: desc） |
 
 ## レスポンスデータ
 
@@ -242,7 +242,7 @@ ORDER BY {sort_by} {sort_order}
 LIMIT :per_page
 OFFSET (:page - 1) * :per_page
 ```
-- tanka_type 値をラベルにマッピング（1 → 新聞購読料, 2 → 配達手数料）
+- tanka_type はコード値（1 または 2）のみを返却する。ラベル変換は行わない（`_label` フィールドは付与しない — FE 側で `useCodesStore().label('TANKA_TYPE', value)` により解決する。.claude/rules/nestjs.md §m_code 参照）。
 
 ### 4.7 レスポンス生成
 - data 配列と meta オブジェクトを含むJSONを返却する。
@@ -265,7 +265,7 @@ OFFSET (:page - 1) * :per_page
 | リクエストボディー | JSON |
 | リクエストパラメーター | |
 | ヘッダ | Content-Type: application/json\n※ 認証情報はHTTP-only Cookieにより自動的に送信される |
-| HTTPレスポンスコード | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された単価が見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された単価が見つかりません, 409:関連データが存在するため処理を実行できません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -331,7 +331,7 @@ DELETE /api/v1/tanka/5
 ```json
 {
   "error_code": "CONFLICT",
-  "message": "関連データが存在するため削除できません"
+  "message": "関連データが存在するため処理を実行できません"
 }
 ```
 
@@ -359,6 +359,7 @@ DELETE /api/v1/tanka/5
 ### 4.2 認証・認可チェック
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
+- 権限チェック：tanka.delete を保持しているか確認する。
   - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden
 

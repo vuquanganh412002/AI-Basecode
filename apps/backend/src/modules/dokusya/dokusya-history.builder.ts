@@ -159,6 +159,13 @@ export interface BuildRowContext {
   dokusyaId: number;
   rirekiNo: number;
   actor: string;
+  /**
+   * 販売店統廃合フラグ（顧客要件2026-08）。true = 統廃合販売店読者移行画面
+   * （旧: 購読者販売店一括置換画面・ACSMS-SCR-015）経由の変更。呼び出し元
+   * （`applyChange`）が `source` から判定して渡す — 暗黙のデフォルトに頼らず
+   * 必須にすることで渡し忘れを型で防ぐ。
+   */
+  hanbaitenTohaigoFlg: boolean;
 }
 
 /**
@@ -197,6 +204,7 @@ export function buildRirekiRow(
   row.kaiyakuFlg = false;
   row.torikeshiFlg = false;
   row.saishinDataFlg = false;
+  row.hanbaitenTohaigoFlg = ctx.hanbaitenTohaigoFlg;
 
   return built;
 }
@@ -262,6 +270,8 @@ export function buildKaiyakuRow(
   row.zougenHokokuFlg = true; // 解約は常に減の増減報告対象
   row.torikeshiFlg = false;
   row.saishinDataFlg = false;
+  // 解約確定はSCR-015（統廃合）とは無関係な経路のため常にfalse（beforeからの継承に任せない）。
+  row.hanbaitenTohaigoFlg = false;
 
   return built;
 }
@@ -321,6 +331,8 @@ export function buildKaiyakuReservationRow(
   row.kaiyakuFlg = false; // 解約確定は Phase 2 バッチ
   row.shinkiFlg = false;
   row.torikeshiFlg = false;
+  // 解約予約はSCR-015（統廃合）とは無関係な経路のため常にfalse。
+  row.hanbaitenTohaigoFlg = false;
 
   return built;
 }
@@ -387,6 +399,10 @@ export function buildCounterRow(
   row.johoHenkoTekiyoDate = target.johoHenkoTekiyoDate; // 適用日は同じ
   row.torikeshiFlg = true;
   row.saishinDataFlg = false;
+  // 取消打消し行はSCR-015（統廃合）とは無関係な経路のため常にfalse（targetからの
+  // spread継承に任せない）。torikeshi_flg=trueの行はどのみち帳票除外対象だが、
+  // 他のイベント種別フラグと同じく明示的に確定させる。
+  row.hanbaitenTohaigoFlg = false;
   // 取消理由は備考(biko)に記録（顧客要件 — 対象行と打ち消し行の両方）。
   row.biko = ctx.reason;
   row.createdBy = ctx.actor;

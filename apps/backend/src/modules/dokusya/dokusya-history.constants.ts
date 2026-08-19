@@ -125,6 +125,7 @@ export const MASTER_EXCLUDE_FIELDS = [
   'shinkiFlg',
   'kaiyakuFlg',
   'torikeshiFlg',
+  'hanbaitenTohaigoFlg',
   'zenkaiHanbaitenId',
   'zenkaiDokusyaBusu',
   'zenkaiYubinNo',

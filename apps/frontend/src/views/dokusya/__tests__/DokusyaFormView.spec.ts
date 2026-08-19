@@ -3705,6 +3705,81 @@ describe('DokusyaFormView — 電子版 クレジットカード handling in 支
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// 14c. バグ報告2026-08 — 電子版へ種別切替した際、配達先情報11項目をクリアする
+// ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaFormView — 電子版切替時に配達先情報をクリアする（バグ報告2026-08）', () => {
+  it('should clear all 11 haitatsu_* fields and reset haitatsu_same_flg=true when switching to 電子版 in create mode', async () => {
+    const { wrapper } = await renderView(); // create mode
+    const vm = wrapper.vm as any;
+    vm.formState.haitatsu_same_flg = false;
+    vm.formState.haitatsu_yubin_no = '1234567';
+    vm.formState.haitatsu_todofuken_code = '13';
+    vm.formState.haitatsu_shikuchoson = '千代田区';
+    vm.formState.haitatsu_chome_banchi = '1-1-1';
+    vm.formState.haitatsu_tatemono_mei = 'マンション101';
+    vm.formState.haitatsu_renrakusaki_1 = '0312345678';
+    vm.formState.haitatsu_renrakusaki_2 = '0398765432';
+    vm.formState.haitatsu_shimei_sei = '配達';
+    vm.formState.haitatsu_shimei_mei = '太郎';
+    vm.formState.haitatsu_shimei_kana_sei = 'ハイタツ';
+    vm.formState.haitatsu_shimei_kana_mei = 'タロウ';
+    await flushPromises();
+
+    vm.formState.dokusya_shubetsu = 2; // 電子版
+    await flushPromises();
+
+    expect(vm.formState.haitatsu_same_flg).toBe(true);
+    expect(vm.formState.haitatsu_yubin_no).toBe('');
+    expect(vm.formState.haitatsu_todofuken_code).toBe('');
+    expect(vm.formState.haitatsu_shikuchoson).toBe('');
+    expect(vm.formState.haitatsu_chome_banchi).toBe('');
+    expect(vm.formState.haitatsu_tatemono_mei).toBe('');
+    expect(vm.formState.haitatsu_renrakusaki_1).toBe('');
+    expect(vm.formState.haitatsu_renrakusaki_2).toBe('');
+    expect(vm.formState.haitatsu_shimei_sei).toBe('');
+    expect(vm.formState.haitatsu_shimei_mei).toBe('');
+    expect(vm.formState.haitatsu_shimei_kana_sei).toBe('');
+    expect(vm.formState.haitatsu_shimei_kana_mei).toBe('');
+  });
+
+  it('should NOT clear haitatsu_* fields when switching between 紙版 and 併読 (regression)', async () => {
+    const { wrapper } = await renderView(); // create mode
+    const vm = wrapper.vm as any;
+    vm.formState.dokusya_shubetsu = 1; // 紙版
+    vm.formState.haitatsu_same_flg = false;
+    vm.formState.haitatsu_yubin_no = '1234567';
+    await flushPromises();
+
+    vm.formState.dokusya_shubetsu = 3; // 併読
+    await flushPromises();
+
+    expect(vm.formState.haitatsu_same_flg).toBe(false);
+    expect(vm.formState.haitatsu_yubin_no).toBe('1234567');
+  });
+
+  it('should NOT clear haitatsu_* fields for an existing 電子版 record in edit mode (dokusya_shubetsu is immutable on edit)', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        haitatsu_same_flg: false,
+        haitatsu_yubin_no: '1234567',
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    await flushPromises();
+    const vm = wrapper.vm as any;
+
+    // Editing an unrelated field must not disturb the loaded 配達先 values —
+    // the watcher is gated by `!isEdit.value`.
+    vm.formState.dokusya_shubetsu = 2;
+    await flushPromises();
+
+    expect(vm.formState.haitatsu_yubin_no).toBe('1234567');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // 参照モード + 当日変更 / 予約変更（顧客要件2026-07・SCR-011 参照→編集フロー）
 // ═══════════════════════════════════════════════════════════════════════
 describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変更）', () => {
@@ -3753,6 +3828,27 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     expect(fieldDisabled(wrapper, 'yubin_no')).toBe(true);
   });
 
+  // ユーザー指摘: 購読開始日が未来（本日 < 購読開始日）の読者に「当日変更」を
+  // 選ぶと、従来はフォーム下部の 読者情報変更適用日 項目まで進んでから
+  // （submit 後の BE エラーで）初めて気づいた。モード選択の時点でその場で
+  // トースト表示して弾き、当日変更モードへは入らせない。
+  it('購読開始日が未来の読者に「当日変更」を選ぶと、その場でトースト表示し当日変更モードへ入らない', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({ dokusya_kaishi_date: '2030-01-01' }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const errorSpy = vi.spyOn(message, 'error');
+
+    (wrapper.vm as any).selectMode('today');
+    await flushPromises();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '情報変更適用日は購読開始日（2030/01/01）以降の日付を指定してください。',
+    );
+    expect((wrapper.vm as any).viewMode).toBe('reference');
+  });
+
   it('予約変更ポップアップで適用日を確定すると予約変更モードに入り帳票影響項目が編集可（適用日はポップアップ確定・インライン読取専用）', async () => {
     const { wrapper } = await renderView({ dokusyaId: 100 });
     await enterReservedMode(wrapper, tomorrowIsoTokyo());
@@ -3765,6 +3861,83 @@ describe('DokusyaFormView — 参照→編集フロー（当日変更/予約変�
     expect(fieldDisabled(wrapper, 'hanbaiten_id')).toBe(false);
     // インラインの適用日は読取専用（変更はポップアップ経由）。
     expect(fieldDisabled(wrapper, 'joho_henko_tekiyo_date')).toBe(true);
+  });
+
+  // ユーザー指摘: 予約変更の適用日を選び間違えたとき、当日変更へ切り替えて
+  // リセット→予約変更へ戻る、という遠回りをさせず、直接その場で選び直せる
+  // ようにする。モードバーに確定済みの適用日を表示し、「変更」ボタンから
+  // 同じポップアップを現在値で再オープンする。
+  describe('予約変更の適用日を選び直す（モードバーの表示＋変更ボタン）', () => {
+    it('確定後、モードバーに適用日が表示され「変更」ボタンが出る', async () => {
+      const { wrapper } = await renderView({ dokusyaId: 100 });
+      const joho = tomorrowIsoTokyo();
+      await enterReservedMode(wrapper, joho);
+
+      const display = wrapper.find('[data-test="reserved-joho-display"]');
+      expect(display.exists()).toBe(true);
+      expect(display.text()).toContain(joho.replaceAll('-', '/'));
+      expect(wrapper.find('[data-test="edit-reserved-joho-btn"]').exists()).toBe(true);
+    });
+
+    it('「変更」ボタンを押すと、現在の適用日がプリフィルされた状態でポップアップが再オープンする', async () => {
+      const { wrapper } = await renderView({ dokusyaId: 100 });
+      const joho = tomorrowIsoTokyo();
+      await enterReservedMode(wrapper, joho);
+
+      const vm = wrapper.vm as unknown as {
+        reservedJohoModalOpen: boolean;
+        reservedJohoInput: string | null;
+        editReservedJoho: () => void;
+      };
+      expect(vm.reservedJohoModalOpen).toBe(false);
+
+      vm.editReservedJoho();
+      await flushPromises();
+
+      expect(vm.reservedJohoModalOpen).toBe(true);
+      // 空(null)ではなく、直前に確定した適用日がプリフィルされる。
+      expect(vm.reservedJohoInput).toBe(joho);
+    });
+
+    it('選び直して再確定すると、予約変更モードのまま新しい適用日に更新される', async () => {
+      const { wrapper } = await renderView({ dokusyaId: 100 });
+      await enterReservedMode(wrapper, tomorrowIsoTokyo());
+
+      const newJoho = dayjs(todayIsoTokyo()).add(5, 'day').format('YYYY-MM-DD');
+      const vm = wrapper.vm as unknown as {
+        viewMode: string;
+        editReservedJoho: () => void;
+        reservedJohoInput: string | null;
+        confirmReservedJoho: () => Promise<void>;
+        formState: { joho_henko_tekiyo_date: string };
+      };
+      vm.editReservedJoho();
+      await flushPromises();
+      vm.reservedJohoInput = newJoho;
+      await vm.confirmReservedJoho();
+      await flushPromises();
+
+      expect(vm.viewMode).toBe('reserved');
+      expect(vm.formState.joho_henko_tekiyo_date).toBe(newJoho);
+      const display = wrapper.find('[data-test="reserved-joho-display"]');
+      expect(display.text()).toContain(newJoho.replaceAll('-', '/'));
+    });
+
+    it('予約変更モード以外（当日変更モード）では何もしない', async () => {
+      const { wrapper } = await renderView({ dokusyaId: 100 });
+      const vm = wrapper.vm as unknown as {
+        selectMode: (m: string) => void;
+        editReservedJoho: () => void;
+        reservedJohoModalOpen: boolean;
+      };
+      vm.selectMode('today');
+      await flushPromises();
+
+      vm.editReservedJoho();
+      await flushPromises();
+
+      expect(vm.reservedJohoModalOpen).toBe(false);
+    });
   });
 
   // 顧客要件2026-08: 解約予定日は同日も不可。以前は update() 送信まで検知できず、

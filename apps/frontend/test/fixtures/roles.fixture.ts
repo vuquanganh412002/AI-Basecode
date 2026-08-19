@@ -127,7 +127,7 @@ export function buildPermissionList(): PermissionListItem[] {
     buildPermissionListItem({ permission_id: 3, permission_code: 'dokusya.update', permission_name: '購読者編集', description: '購読者情報の編集' }),
     buildPermissionListItem({ permission_id: 4, permission_code: 'dokusya.delete', permission_name: '購読者削除', description: '購読者情報の削除' }),
     buildPermissionListItem({ permission_id: 5, permission_code: 'dokusya.import', permission_name: '購読者Excelデータ取込', description: '購読者情報のExcel一括取込' }),
-    buildPermissionListItem({ permission_id: 6, permission_code: 'dokusya.replace_hanbaiten', permission_name: '購読者販売店一括置換', description: '購読者の販売店を一括置換' }),
+    buildPermissionListItem({ permission_id: 6, permission_code: 'dokusya.replace_hanbaiten', permission_name: '統廃合販売店読者移行', description: '販売店統廃合に伴う購読者の販売店一括置換' }),
     buildPermissionListItem({ permission_id: 7, permission_code: 'hanbaiten.create', permission_name: '販売店登録', description: '販売店情報の新規登録' }),
     buildPermissionListItem({ permission_id: 8, permission_code: 'hanbaiten.view', permission_name: '販売店参照', description: '販売店明細検索・一覧表示' }),
     buildPermissionListItem({ permission_id: 9, permission_code: 'hanbaiten.update', permission_name: '販売店編集', description: '販売店情報の編集' }),

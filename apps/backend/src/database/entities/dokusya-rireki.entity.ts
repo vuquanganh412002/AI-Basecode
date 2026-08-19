@@ -391,6 +391,16 @@ export class DokusyaRireki {
   @Column({ name: 'honshi_kodoku_flg', type: 'boolean', default: false })
   honshiKodokuFlg: boolean;
 
+  /**
+   * 販売店統廃合フラグ（DEFAULT false, TRUE=販売店統廃合に伴う販売店変更）。
+   * 購読者販売店一括置換画面（ACSMS-SCR-015）での変更=TRUE、購読者情報登録画面
+   * （ACSMS-SCR-011）での変更=FALSE。TRUEの履歴は増減連絡票（販売店・
+   * ACSMS-SCR-028）の出力対象外とする（顧客要件2026-08）。増減通知
+   * （日本農業新聞・SCR-029）は対象外（仕様変更なし・全件反映）。
+   */
+  @Column({ name: 'hanbaiten_tohaigo_flg', type: 'boolean', default: false })
+  hanbaitenTohaigoFlg: boolean;
+
   // 販売店適用日 (hanbaiten_tekiyo_date) は廃止（顧客要件 2026-07）。適用日は
   // 読者情報変更適用日 (joho_henko_tekiyo_date) に一本化した。
 

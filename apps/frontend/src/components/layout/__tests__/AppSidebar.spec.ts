@@ -200,7 +200,7 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).toContain('購読者情報登録');
       expect(labels).toContain('購読者Excelデータ取込');
       expect(labels).toContain('購読者明細検索');
-      expect(labels).toContain('購読者販売店一括置換');
+      expect(labels).toContain('統廃合販売店読者移行');
       // 販売店管理
       expect(labels).toContain('販売店情報登録');
       expect(labels).toContain('販売店Excelデータ取込');

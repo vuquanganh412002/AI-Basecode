@@ -8,6 +8,8 @@ import {
   collectDigitalTodayModeViolation,
   computeChangedReportFields,
   collectTodayModeReportViolations,
+  collectReservedSameDateViolation,
+  collectDigitalNewKaishiDateViolation,
   SHUBETSU_MSG,
 } from './dokusya-shubetsu.rules';
 
@@ -127,6 +129,152 @@ describe('dokusya-shubetsu.rules — date mode', () => {
         joho: today,
         today,
         changedReportFields: ['dokusya_busu'],
+      }),
+    ).toHaveLength(0);
+  });
+});
+
+// 紙版の予約変更（未来日）は同一適用日への変更を1回までに制限する（顧客要件2026-08）。
+describe('dokusya-shubetsu.rules — collectReservedSameDateViolation', () => {
+  it('紙版・予約変更・既存の変更あり → violation', () => {
+    const result = collectReservedSameDateViolation({
+      shubetsu: 1,
+      isReservedMode: true,
+      existingChangeFound: true,
+      field: 'joho_henko_tekiyo_date',
+    });
+    expect(result).toEqual([
+      {
+        field: 'joho_henko_tekiyo_date',
+        message: SHUBETSU_MSG.RESERVE_DATE_ALREADY_USED,
+      },
+    ]);
+  });
+
+  it('紙版・予約変更・既存の変更なし → 違反なし', () => {
+    expect(
+      collectReservedSameDateViolation({
+        shubetsu: 1,
+        isReservedMode: true,
+        existingChangeFound: false,
+        field: 'joho_henko_tekiyo_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('紙版・当日変更（isReservedMode=false）は既存の変更があっても対象外', () => {
+    expect(
+      collectReservedSameDateViolation({
+        shubetsu: 1,
+        isReservedMode: false,
+        existingChangeFound: true,
+        field: 'joho_henko_tekiyo_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('電子版は予約変更・既存の変更ありでも対象外', () => {
+    expect(
+      collectReservedSameDateViolation({
+        shubetsu: 2,
+        isReservedMode: true,
+        existingChangeFound: true,
+        field: 'joho_henko_tekiyo_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('併読(3)は予約変更・既存の変更ありでも対象外（read-onlyで上流に弾かれる想定）', () => {
+    expect(
+      collectReservedSameDateViolation({
+        shubetsu: 3,
+        isReservedMode: true,
+        existingChangeFound: true,
+        field: 'joho_henko_tekiyo_date',
+      }),
+    ).toHaveLength(0);
+  });
+});
+
+// 電子版の新規登録（NEW）は購読開始日=本日 or 翌月1日のみ（ACSMS-SCR-011登録画面の
+// ラジオボタン「今日から/翌月1日から」と同一制約。顧客要件2026-08 — 取込SCR-016には
+// 日付ピッカーが無くExcelセルの値をそのまま受け取るため BE 側だけで守る必要がある）。
+describe('dokusya-shubetsu.rules — collectDigitalNewKaishiDateViolation', () => {
+  const today = '2026-07-18';
+  const nextMonthFirst = '2026-08-01';
+
+  it('電子版・購読開始日=本日 → 違反なし', () => {
+    expect(
+      collectDigitalNewKaishiDateViolation({
+        shubetsu: 2,
+        kaishiDate: today,
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('電子版・購読開始日=翌月1日 → 違反なし', () => {
+    expect(
+      collectDigitalNewKaishiDateViolation({
+        shubetsu: 2,
+        kaishiDate: nextMonthFirst,
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('電子版・購読開始日=本日でも翌月1日でもない未来日 → violation', () => {
+    const result = collectDigitalNewKaishiDateViolation({
+      shubetsu: 2,
+      kaishiDate: '2026-07-19', // 明日（翌月1日ではない）
+      today,
+      nextMonthFirst,
+      field: 'dokusya_kaishi_date',
+    });
+    expect(result).toEqual([
+      {
+        field: 'dokusya_kaishi_date',
+        message: SHUBETSU_MSG.DIGITAL_KAISHI_DATE_INVALID,
+      },
+    ]);
+  });
+
+  it('電子版・購読開始日=過去日 → violation', () => {
+    expect(
+      collectDigitalNewKaishiDateViolation({
+        shubetsu: 2,
+        kaishiDate: '2026-07-17',
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('紙版は対象外（違反なし。紙版の未来日限定ルールは呼び出し元が別途担当）', () => {
+    expect(
+      collectDigitalNewKaishiDateViolation({
+        shubetsu: 1,
+        kaishiDate: today,
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('購読開始日が空欄 → 違反なし（必須チェックは別モジュールの責務）', () => {
+    expect(
+      collectDigitalNewKaishiDateViolation({
+        shubetsu: 2,
+        kaishiDate: undefined,
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
       }),
     ).toHaveLength(0);
   });

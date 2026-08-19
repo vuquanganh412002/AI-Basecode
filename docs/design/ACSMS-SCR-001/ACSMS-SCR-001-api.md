@@ -48,19 +48,21 @@ updated_by: Nguyen Truong An
 | # | エラータイプ | エラーコード | エラーメッセージ | 備考 |
 |---|---|---|---|---|
 | 1 | 共通 | BAD_REQUEST | リクエストパラメータが不正です。 | HTTP 400 |
-| 2 | 共通 | UNAUTHORIZED | セッションが切れました。再度ログインしてください。 | HTTP 401 |
-| 3 | 共通 | FORBIDDEN | この画面へのアクセス権限がありません。 | HTTP 403 |
-| 4 | 共通 | DATA_SCOPE_VIOLATION | このデータへのアクセス権限がありません。 | HTTP 403 |
-| 5 | 共通 | TOO_MANY_REQUESTS | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
-| 6 | 共通 | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 | HTTP 500 |
-| 7 | 画面固有 | INVALID_CREDENTIALS | ユーザーIDまたはパスワードが正しくありません。 | HTTP 401 |
-| 8 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。管理者へお問い合わせください。 | HTTP 401 |
-| 9 | 画面固有 | INVALID_OTP | 認証コードが正しくありません。 | HTTP 401 |
-| 10 | 画面固有 | OTP_EXPIRED | 認証コードの有効期限が切れました。再度ログインしてください。 | HTTP 401 |
-| 11 | 画面固有 | OTP_MAX_ATTEMPTS | 認証コードの入力回数が上限に達しました。再度ログインしてください。 | HTTP 401 |
-| 12 | 画面固有 | OTP_RESEND_LIMIT | コードの再送回数が上限に達しました。再度ログインしてください。 | HTTP 429 |
-| 13 | 画面固有 | OTP_RESEND_COOLDOWN | 再送間隔が60秒未満です。しばらくしてから再度お試しください。 | HTTP 429 |
-| 14 | 画面固有 | INVALID_MFA_TOKEN | 2段階認証トークンが無効です。再度ログインしてください。 | HTTP 401 |
+| 2 | 共通 | VALIDATION_ERROR | 入力値が不正です。詳細はerrorsフィールドを確認してください。 | HTTP 400（DTOのフィールド単位検証エラー。body に `errors[]` を含む。実装上、本画面の全リクエストボディ／クエリパラメータ検証エラーはこちらで返却される） |
+| 3 | 共通 | UNAUTHORIZED | セッションが切れました。再度ログインしてください。 | HTTP 401 |
+| 4 | 共通 | FORBIDDEN | この画面へのアクセス権限がありません。 | HTTP 403 |
+| 5 | 共通 | DATA_SCOPE_VIOLATION | このデータへのアクセス権限がありません。 | HTTP 403 |
+| 6 | 共通 | NOT_FOUND | 指定されたアカウントが見つかりません。 | HTTP 404（ACSMS-API-001-007 §4.3 参照） |
+| 7 | 共通 | TOO_MANY_REQUESTS | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 8 | 共通 | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。 | HTTP 500 |
+| 9 | 画面固有 | INVALID_CREDENTIALS | ユーザーIDまたはパスワードが正しくありません。 | HTTP 401 |
+| 10 | 画面固有 | ACCOUNT_LOCKED | アカウントがロックされています。管理者へお問い合わせください。 | HTTP 401 |
+| 11 | 画面固有 | INVALID_OTP | 認証コードが正しくありません。 | HTTP 401 |
+| 12 | 画面固有 | OTP_EXPIRED | 認証コードの有効期限が切れました。再度ログインしてください。 | HTTP 401 |
+| 13 | 画面固有 | OTP_MAX_ATTEMPTS | 認証コードの入力回数が上限に達しました。再度ログインしてください。 | HTTP 401 |
+| 14 | 画面固有 | OTP_RESEND_LIMIT | コードの再送回数が上限に達しました。再度ログインしてください。 | HTTP 429 |
+| 15 | 画面固有 | OTP_RESEND_COOLDOWN | 再送間隔が60秒未満です。しばらくしてから再度お試しください。 | HTTP 429 |
+| 16 | 画面固有 | INVALID_MFA_TOKEN | 2段階認証トークンが無効です。再度ログインしてください。 | HTTP 401 |
 
 ---
 
@@ -103,12 +105,13 @@ updated_by: Nguyen Truong An
 | 9 | →→role_name | String | - | | - | ロール名 |
 | 10 | →→ja_id | Number | - | | 〇 | JA ID（外部キー）日農はNULL、中央会・JA本店・JA管理支店は必須 |
 | 11 | →→kanri_shiten_id | Number | - | | 〇 | 管理支店ID（JA管理支店のみ） |
-| 12 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。|
-| 13 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 14 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 15 | →→email | String | - | | - | メールアドレス |
-| 16 | →→mfa_enable_flg | Boolean | - | | - | 2段階認証有効フラグ。次回ログインから6桁OTPの入力が必要かどうか。ヘッダー自己管理トグル（API-001-007）から変更可能 |
-| 17 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
+| 12 | →→shiten_id | Number | - | | 〇 | 所属支店ID（JA管理支店アカウントにのみ設定されうる。顧客要件2026-07）。非NULL時はDataScopeが支店単位まで絞り込まれ、帳票5画面の利用が禁止される |
+| 13 | →→todofuken_code | String | - | | 〇 | 都道府県コードは中央会・JA本店・JA管理支店で必須項目とする。|
+| 14 | →→paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 15 | →→denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 16 | →→email | String | - | | - | メールアドレス |
+| 17 | →→mfa_enable_flg | Boolean | - | | - | 2段階認証有効フラグ。次回ログインから6桁OTPの入力が必要かどうか。ヘッダー自己管理トグル（API-001-007）から変更可能 |
+| 18 | →→permissions | Array | 〇 | | - | 権限コード一覧（m_permissionsのpermission_code） |
 
 ※ 認証情報（セッションID）はレスポンスボディではなくHTTP-only Cookieで返却する。
 

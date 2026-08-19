@@ -28,6 +28,7 @@ updated_by: Nguyen Duyen Manh
 | 9   | 2026/07/24 | 1.8  | Tran Duc Tuyen | 不具合修正：検索結果テーブル・Excel出力の「販売店コード」列が販売店ID（hanbaiten_id）を表示していたため、`m_hanbaiten` を JOIN した実コード `hanbaiten_code` を表示するよう修正。一覧レスポンスに `hanbaiten_code` を追加、ソート許可カラムに `hanbaiten_code` を追加（列クリックのソートも code 基準）。検索条件の「配達販売店」(hanbaiten_id) は不変。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 10  | 2026/08/03 | 1.9  | Tran Duc Tuyen | 顧客要件 2026-08 反映（電子版の解約予約を変更・取消できるようにする）：<br>1. ACSMS-API-014-004 を「解約予約」専用から **解約予約 / 予約変更 / 予約取消** の3操作を兼ねるエンドポイントへ拡張。`dokusya_chushi_date` に **空文字**を許容し、電子版では予約取消を意味する。<br>2. 電子版（dokusya_shubetsu=2）は既存予約があっても 400 にせず受け付ける。旧予約行を取消（赤伝）してから、日付ありなら新予約を append する。紙版は従来どおり二重解約を 400 で拒否（変更・取消は履歴画面の取消経由）。<br>3. 到来日バッチが確定させた実解約行（kaiyaku_flg=true）に対する変更・取消は種別を問わず 400（`解約が確定済みのため変更できません。…`）。復帰は再購読（SCR-011）。<br>4. 予約変更・予約取消のいずれも同一トランザクション内で電子版へ `cancel` を push する。変更は新しい `cancel_ym`、取消は `cancel_ym` 空文字（電子版APIに解約取消の処理区分が無いため・顧客判断 2026-08）。push 失敗時は全ロールバック。<br>5. 応答 `message` を操作で出し分け：新規予約・予約変更＝`購読停止を予約しました。` / 予約取消＝`購読中止を取り消しました。`<br>6. 一覧のポップアップは予約中でも開き、予約中の終了月を復元表示する（クリアして確定＝取消）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 11  | 2026/08/06 | 2.0  | Tran Duc Tuyen | 実装との差分是正（記載漏れの補完）：ACSMS-API-014-001 のレスポンス `meta` に `total_busu`（検索条件に一致する購読者の購読部数合計・顧客要件2026-08 #56240）を追記。画面はページネーションの「全 N 件」の横に「全 M 部」と併記する。あわせて処理手順に §4.4.1 を新設し、適用日絞り込み時に `t_dokusya_rireki` を INNER JOIN すると購読者が履歴行数だけ重複して部数が水増しされるため、`DISTINCT dokusya_id` で畳んでから外側で合計する実装を明記した（件数側は `COUNT(DISTINCT)` のため影響を受けず、合計だけがずれる） | | |
+| 12  | 2026/08/15 | 2.1  | Tran Duc Tuyen | 実装との差分是正（スポットチェック）：<br>1. `is_read_only`（ACSMS-API-014-001 レスポンス・§4.5 SQL例）に3つ目の条件（電子版かつ電子版読者管理システム未連携 denshi_kaiin_id IS NULL かつ参照単価が非キャンペーン）が実装済みだが未記載だったため追記。§4.5 の SELECT 例に `m_tanka tk` の LEFT JOIN を追加（顧客要件2026-08追補・dokusya.mapper.ts / dokusya-search.service.ts 準拠）。<br>2. ACSMS-API-014-004 §4.5「新予約の挿入」の適用日(joho_henko_tekiyo_date)記載を是正：紙版=中止日そのまま、**電子版=中止日の翌日(+1日)**（顧客要件2026-08改訂・insertScheduledKaiyaku 実装準拠）。旧記載は両種別とも「適用日=中止日」としており誤り。<br>3. §4.3 active_tanka_flg の JOIN 条件 SQL 例が `active_flg = FALSE` に固定されていたが、直前の説明文どおりパラメータバインド（`:activeTankaFlg`）に修正（true/false/省略のトライステート挙動は実装済みで正しく記載されていた）。<br>4. §4.1 sort_by 許可カラム一覧（リクエストパラメータ表）に漏れていた `updated_at` を追記（処理手順4.1には元々記載あり・実装の allow-list と整合） | | |
 
 ## システム概要
 
@@ -122,7 +123,7 @@ updated_by: Nguyen Duyen Manh
 | 22.5 | active_tanka_flg             | Boolean | -       | -    |        |        | 有効単価フラグ（SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する購読者のみ、`false`=失効単価(active_flg=FALSE)を参照する購読者のみ、省略=両方。参照する購読料単価は tanka_type=1。口座振替出力(SCR-020)の失効単価エラーからは `false`(無効)で初期選択される【詳細検索】 |
 | 23  | page                           | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                         |
 | 24  | per_page                       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20、最大: 100）                                                          |
-| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, hanbaiten_code, shoki_dokusya_kaishi_date, dokusya_chushi_date）。デフォルト: updated_at |
+| 25  | sort_by                        | String | -        | -    |        |        | ソートカラム（dokusya_id, kanri_shiten_id, shiten_id, kumiaiin_code, hanbaiten_id, hanbaiten_code, shoki_dokusya_kaishi_date, dokusya_chushi_date, updated_at）。デフォルト: updated_at |
 | 26  | sort_order                     | String | -        | -    |        |        | ソート順（asc / desc、デフォルト: desc）                                                            |
 
 ## レスポンスデータ
@@ -154,7 +155,7 @@ updated_by: Nguyen Duyen Manh
 | 21  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子版承認ステータス（NULL=Web申込以外, 0:未承認, 1:承認済み, 2:否認）     |
 | 22  | →shoki_dokusya_kaishi_date   | String  | -        | YYYY/MM/DD   | -        | 初回購読開始日                                                             |
 | 23  | →dokusya_chushi_date         | String  | -        | YYYY/MM/DD   | 〇       | 購読中止日                                                                 |
-| 24  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ（true=電子版クレジットカード決済者または併読者）。※削除ボタンの活性判定はこれに加えて `dokusya_shubetsu = 1`（紙版）も必要（顧客要件2026-08） |
+| 24  | →is_read_only                | Boolean | -        |              | -        | 編集・削除不可フラグ。true となる条件は3つ（OR）：①併読(dokusya_shubetsu=3)、②電子版クレジットカード決済者(dokusya_shubetsu=2 かつ shiharai_hoho=6)、③電子版かつ電子版読者管理システム未連携(denshi_kaiin_id IS NULL)かつ参照単価がキャンペーン単価でない(campaign_flg=false、単価未割当時もfalse扱い)（顧客要件2026-08追補）。※削除ボタンの活性判定はこれに加えて `dokusya_shubetsu = 1`（紙版）も必要（顧客要件2026-08） |
 | 25  | meta                         | Object  | -        |              | -        | ページネーション情報                                                       |
 | 26  | →total                       | Number  | -        |              | -        | 総件数                                                                     |
 | 27  | →page                        | Number  | -        |              | -        | 現在ページ番号                                                             |
@@ -350,7 +351,7 @@ GET /api/v1/dokusya?kanri_shiten_id=10&shiten_id=21&dokusya_shubetsu=1&shoki_dok
       ON mti.tanka_id = d.tanka_id
      AND mti.tanka_type = 1
      AND mti.deleted_at IS NULL
-     AND mti.active_flg = FALSE
+     AND mti.active_flg = :activeTankaFlg
     ```
 - 適用日（joho_henko_tekiyo_date_from / joho_henko_tekiyo_date_to）の処理：
   - 両方空欄の場合：購読者履歴の最新データフラグ（saishin_data_flg=TRUE）のレコードを抽出
@@ -414,16 +415,27 @@ SELECT d.dokusya_id, d.ja_id,
        d.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name,
        d.dokusya_shubetsu, d.shiharai_hoho, d.denshi_shonin_status,
        d.shoki_dokusya_kaishi_date, d.dokusya_chushi_date,
-       /* is_read_only: 電子版クレジットカード決済者（dokusya_shubetsu=2 AND shiharai_hoho=6）または併読者（dokusya_shubetsu=3） */
+       /* is_read_only（顧客要件2026-08追補・3条件のOR）:
+          ①併読(dokusya_shubetsu=3)
+          ②電子版クレジットカード決済者(dokusya_shubetsu=2 AND shiharai_hoho=6)
+          ③電子版かつ電子版読者管理システム未連携(denshi_kaiin_id IS NULL)かつ
+            参照単価が非キャンペーン(COALESCE(tk.campaign_flg, false)=false。
+            単価未割当＝tk が LEFT JOIN で NULL のときも非キャンペーン扱い＝read-only側) */
        (
-         (d.dokusya_shubetsu = 2 AND d.shiharai_hoho = 6)
-         OR d.dokusya_shubetsu = 3
+         d.dokusya_shubetsu = 3
+         OR (d.dokusya_shubetsu = 2 AND d.shiharai_hoho = 6)
+         OR (
+           d.dokusya_shubetsu = 2
+           AND d.denshi_kaiin_id IS NULL
+           AND COALESCE(tk.campaign_flg, false) = false
+         )
        ) AS is_read_only
 FROM t_dokusya d
 LEFT JOIN m_kanri_shiten ks ON ks.kanri_shiten_id = d.kanri_shiten_id AND ks.deleted_at IS NULL
 LEFT JOIN m_shiten s ON s.shiten_id = d.shiten_id AND s.deleted_at IS NULL
 LEFT JOIN m_hanbaiten h ON h.hanbaiten_id = d.hanbaiten_id AND h.deleted_at IS NULL
 LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
+LEFT JOIN m_tanka tk ON tk.tanka_id = d.tanka_id AND tk.deleted_at IS NULL
 WHERE d.deleted_at IS NULL
   /* DataScope + 検索条件 は 4.4 と同じ */
 ORDER BY :sort_by :sort_order
@@ -1069,7 +1081,8 @@ Content-Type: application/json
 同一トランザクション内で、旧予約の無効化 → 新予約の挿入 の順に実行する。
 
 - **旧予約の取消（予約変更・予約取消のみ）**：対象行に `torikeshi_flg=true` を立て、打ち消し行を append する（両行とも `torikeshi_flg=true`）。取消理由は両行の備考へ記録。残る `torikeshi_flg=false` 行で master を再計算するため、master の購読中止日は自動的に null へ戻る。
-- **新予約の挿入（新規予約・予約変更のみ）**：Phase 1 の予約行を1件挿入する（`insertScheduledKaiyaku`）。最小限のみ override：`部数=0`・`zougen_hokoku_flg=true`・`中止日`・`適用日=中止日`・`kaiyaku_flg=false`・`saishin_data_flg=false`・`shinki_flg=false`・`torikeshi_flg=false`。その他項目は直前行から継承。
+- **新予約の挿入（新規予約・予約変更のみ）**：Phase 1 の予約行を1件挿入する（`insertScheduledKaiyaku`）。最小限のみ override：`部数=0`・`zougen_hokoku_flg=true`・`dokusya_chushi_date=中止日`・`kaiyaku_flg=false`・`saishin_data_flg=false`・`shinki_flg=false`・`torikeshi_flg=false`。その他項目は直前行から継承。
+  適用日（`joho_henko_tekiyo_date`）は購読種別で分岐する（顧客要件2026-08改訂）：**紙版＝中止日そのまま**、**電子版＝中止日の翌日（+1日）**。理由：紙版の中止日は「紙が届かなくなる日」で即日反映でよいが、電子版の中止日は「電子版が読める有効な最終日」であり、中止日当日はまだ有効な読者として扱う必要があるため、Phase 2 の解約確定行（`insertKaiyaku`）と同じ +1日 を Phase 1 の予約行にも適用する（旧仕様は紙版/電子版とも中止日で統一していたが本改訂で分岐した）。挿入行の直前行探索（`findBefore`）もこの適用日を基準に行う。
 - 未来日予約のため当日時点で t_dokusya は未反映（到来日バッチが確定）。ただし購読中止日のみ予約時点で master へ反映する。
 
 ### 4.5.1 電子版システムへの連携（push）

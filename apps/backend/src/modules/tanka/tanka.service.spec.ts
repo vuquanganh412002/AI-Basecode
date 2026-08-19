@@ -1577,6 +1577,108 @@ describe('TankaService — SCR-003 (detail + create + update)', () => {
       });
     });
 
+    // バグ報告2026-08: 失効した単価（active_flg=無効。tanka-expireバッチが
+    // tekiyo_end_date経過後に一方向で反転させた状態）を編集画面で「有効」に
+    // 戻すと、古い（過去の）tekiyo_end_dateがそのまま保存できてしまい、
+    // 「有効なのに既に終了済み」という矛盾した状態になっていた。#58241で修正。
+    it('should reject reactivating an expired price (active_flg=false→true) when tekiyo_end_date is still in the past', async () => {
+      const before = buildTanka({
+        tankaId: 1,
+        jaId: 1,
+        activeFlg: false,
+        tekiyoStartDate: '2019-01-01', // effective start が末尾日より前になるよう固定
+      });
+      repo.findOne.mockResolvedValue(before);
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({
+            active_flg: true,
+            tekiyo_end_date: '2020-01-01', // 過去日（start以降・today以前）
+          }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          error_code: 'VALIDATION_ERROR',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              field: 'tekiyo_end_date',
+              message: '有効な単価には本日以降の適用終了日を指定してください。',
+            }),
+          ]),
+        }),
+      });
+    });
+
+    it('should NOT reject a past tekiyo_end_date when the price stays inactive (active_flg=false, 適用期間とは独立)', async () => {
+      // 回帰ガード: active_flg=無効のままなら従来どおり適用期間と無関係に編集可能
+      // （screen-design.md row 9.0「適用期間とは独立した管理項目」を維持）。
+      const before = buildTanka({
+        tankaId: 1,
+        jaId: 1,
+        activeFlg: false,
+        tekiyoStartDate: '2019-01-01',
+      });
+      repo.findOne.mockResolvedValue(before);
+      txManager.save.mockImplementation((_e: unknown, row: Partial<Tanka>) =>
+        Promise.resolve(row),
+      );
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({
+            active_flg: false,
+            tekiyo_end_date: '2020-01-01',
+          }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('should NOT reject an already-active price with a future tekiyo_end_date when active_flg is omitted (inherits before.activeFlg=true)', async () => {
+      // 回帰ガード: 通常編集（active_flg省略→before継承）で未来の適用終了日なら
+      // 従来どおり通ること。
+      const before = buildTanka({ tankaId: 1, jaId: 1, activeFlg: true });
+      repo.findOne.mockResolvedValue(before);
+      txManager.save.mockImplementation((_e: unknown, row: Partial<Tanka>) =>
+        Promise.resolve(row),
+      );
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({
+            active_flg: undefined,
+            tekiyo_end_date: '2099-12-31',
+          }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('should NOT reject active_flg=true with tekiyo_end_date=null (無期限)', async () => {
+      const before = buildTanka({ tankaId: 1, jaId: 1, activeFlg: false });
+      repo.findOne.mockResolvedValue(before);
+      txManager.save.mockImplementation((_e: unknown, row: Partial<Tanka>) =>
+        Promise.resolve(row),
+      );
+
+      await expect(
+        service.update(
+          1,
+          buildUpdateTankaPayload({ active_flg: true, tekiyo_end_date: null }),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).resolves.toBeDefined();
+    });
+
     it('should preserve tanka_code unchanged (immutable per api.md §API-003-003 footnote)', async () => {
       // COVERS: 「tanka_code は更新不可」— even if payload included tanka_code
       // somehow, the stored value MUST remain the original.

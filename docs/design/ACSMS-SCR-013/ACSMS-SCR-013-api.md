@@ -22,6 +22,7 @@ updated_by: Tran Duc Tuyen
 | 3   | 2026/07/17 | 1.2  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加・並べ替え）: レスポンスに `dokusya_shubetsu`（購読種別）・`tanka_id`/`tanka_name`/`tanka_kingaku`（新聞単価。金額は JA 税区分で解決）・`shiharai_hoho`（支払い方法）・`yubin_kubun`（郵送区分）・`dokusyaryo_shiharai_cycle`（購読料支払サイクル）・`biko`（備考）を追加。SELECT に `m_tanka` / `m_ja` を LEFT JOIN。列並び: 履歴番号→購読種別→手続種別、新聞単価は購読部数の前、初回購読開始日（旧「購読開始日」）→増部日→減部日、支払い方法/郵送区分/購読料サイクルは引落口座貯金種目の前、備考は最終データ列。増部日/減部日は部数の増減時のみ `dokusya_kaishi_date` を表示。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 4   | 2026/07/30 | 1.3  | Tran Duc Tuyen    | 顧客要件（SCR-013 一覧列追加）: レスポンスに `denshi_dokusya_shubetsu`（電子版読者種別）・`denshi_shonin_status`（電子申込承認ステータス）を追加し、一覧では 履歴番号 → 購読種別 → 電子版読者種別 → 電子申込承認ステータス → 手続種別 の順に表示する。どちらも `t_dokusya_rireki` の既存列で JOIN 追加は不要。紙版は両方 null。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5   | 2026/08/06 | 1.4  | Tran Duc Tuyen    | 実装との差分是正（仕様変更ではなく記載漏れの補完）：①レスポンスに実際は含まれている `torikeshi_flg`（取消済フラグ）と `can_torikeshi`（取消可否）をレスポンス項目表へ追記。前者は API-013-002 で取消された行の識別、後者は取消ボタンの活性制御にFE が使用しており、API-013-002 の追加時に本表への追記が漏れていた。②`created_by` の説明とサンプルを実装に合わせて修正。ログインID（例 `ja_honten01`）ではなく、画面操作は `m_account.account_id` の文字列（例 `"539"`）、バッチ実行は `SYSTEM_DENSHI_SYNC` / `SYSTEM_BATCH_NIGHTLY` 等の固定名（#55719 でバッチ実行者名を SYSTEM_* に統一）が入る。③履歴取消API（ACSMS-API-013-002 / `POST /api/v1/dokusya/{dokusya_id}/rireki/{dokusya_rireki_id}/torikeshi`）の節を新規追記。画面設計書 §4 と本書の変更履歴では参照していたが、API 定義そのものが本書に存在しなかった。あわせてエラー一覧に `TORIKESHI_NOT_ALLOWED` を追加。 | | |
+| 6   | 2026/08/15 | 1.5  | Tran Duc Tuyen    | 実装との差分是正（記載漏れ・誤記の補完）：①増部日/減部日の根拠列の誤記を修正。「`dokusya_kaishi_date` を表示」としていたが、実装（`DokusyaRirekiView.vue` の `zoubuDate()`/`genbuDate()`、dokusya_rireki_record_writing_rules.md §6.2）は `joho_henko_tekiyo_date`（読者情報変更適用日）を根拠にしている。また減部日の「`zenkai_dokusya_busu` が null のとき表示」は誤りで、null 行は増部扱いのため減部日は空欄（`genbuDate()` は `zenkai != null` を要求）。`torikeshi_flg=true` 行は両方常に空欄である旨も追記。②API-013-001 の DataScope 違反時レスポンスの誤記を修正。「HTTP 403 (`DATA_SCOPE_VIOLATION`)」としていたが、実装（`DokusyaService.fetchInScope` → `assertBranchScope`/`assertShitenScope`）は行の存在を秘匿するため HTTP 404 (`NOT_FOUND`) でマスクしており、API-013-002 側の記載（§4.2）と矛盾していた。§4.2・§4.3・レスポンス失敗例を修正し、実装済みの所属支店(`shiten_id`)スコープ（顧客要件2026-07・`assertShitenScope`）を DataScope 説明へ追記。③レスポンス項目表の項目番号が `torikeshi_flg`/`can_torikeshi` 追加時（No.5）にリナンバーされておらず No.62・63 が重複していたのを No.62〜78 に振り直し。 | | |
 
 ## システム概要
 
@@ -153,27 +154,27 @@ updated_by: Tran Duc Tuyen
 | 61  | →created_by                  | String  | -        |              |          | 履歴作成者。画面操作は `m_account.account_id`（例 `"539"`）、バッチは `SYSTEM_DENSHI_SYNC` / `SYSTEM_BATCH_NIGHTLY` 等の固定名（#55719）                    |
 | 62  | →torikeshi_flg               | Boolean | -        |              |          | 取消済フラグ（TRUE=API-013-002 で取消された行。画面では打ち消し線で表示）                                      |
 | 63  | →can_torikeshi               | Boolean | -        |              |          | 取消可否（この行に対して API-013-002 を実行できるか。取消ボタンの活性制御に使う）                              |
-| 62  | →dokusya_shubetsu            | Number  | -        |              |          | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧の 履歴番号 直後に表示 |
-| 63  | →tanka_id                    | Number  | -        |              |  〇       | 新聞単価ID（m_tanka）※未設定(NULL)あり                                                                              |
-| 64  | →tanka_name                  | String  | -        |              | 〇       | 新聞単価名（m_tanka 結合、単価削除済み等は null）。一覧は「単価名 + 半角スペース + 金額」で表示                 |
-| 65  | →tanka_kingaku               | Number  | -        |              | 〇       | 新聞単価の表示金額。JA の税区分(m_ja.zei_kubun)で解決（1:内税→税込 / それ以外→税抜）。単価削除済み等は null    |
-| 66  | →shiharai_hoho               | Number  | -        |              |          | 支払い方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                                                        |
-| 67  | →yubin_kubun                 | String  | -        |              |          | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                            |
-| 68  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数 1〜12、未設定は null）                                                                |
-| 69  | →biko                        | String  | -        |              |          | 備考（取消時は取消理由を記録・空文字許容）。一覧の最終データ列                                                 |
-| 70  | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別 ※m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'を参照（0:無料, 1:有料）。紙版は電子版連携が無いため null。SCR-013 一覧の 購読種別 直後に表示 |
-| 71  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。m_code ではなく電子版連携の状態から導出。Web申込以外（紙版等）は null。SCR-013 一覧の 電子版読者種別 直後に表示 |
-| 72  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
-| 73  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
-| 74  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
-| 75  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
-| 76  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
+| 64  | →dokusya_shubetsu            | Number  | -        |              |          | 購読種別 ※m_code.code_category='DOKUSYA_SHUBETSU'を参照（1:紙版, 2:電子版, 3:併読）。SCR-013 一覧の 履歴番号 直後に表示 |
+| 65  | →tanka_id                    | Number  | -        |              |  〇       | 新聞単価ID（m_tanka）※未設定(NULL)あり                                                                              |
+| 66  | →tanka_name                  | String  | -        |              | 〇       | 新聞単価名（m_tanka 結合、単価削除済み等は null）。一覧は「単価名 + 半角スペース + 金額」で表示                 |
+| 67  | →tanka_kingaku               | Number  | -        |              | 〇       | 新聞単価の表示金額。JA の税区分(m_ja.zei_kubun)で解決（1:内税→税込 / それ以外→税抜）。単価削除済み等は null    |
+| 68  | →shiharai_hoho               | Number  | -        |              |          | 支払い方法 ※m_code.code_category='SHIHARAI_HOHO'を参照                                                        |
+| 69  | →yubin_kubun                 | String  | -        |              |          | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                            |
+| 70  | →dokusyaryo_shiharai_cycle   | Number  | -        |              | 〇       | 購読料支払サイクル（月数 1〜12、未設定は null）                                                                |
+| 71  | →biko                        | String  | -        |              |          | 備考（取消時は取消理由を記録・空文字許容）。一覧の最終データ列                                                 |
+| 72  | →denshi_dokusya_shubetsu     | Number  | -        |              | 〇       | 電子版読者種別 ※m_code.code_category='DENSHI_DOKUSYA_SHUBETSU'を参照（0:無料, 1:有料）。紙版は電子版連携が無いため null。SCR-013 一覧の 購読種別 直後に表示 |
+| 73  | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:未承認, 1:承認済み, 2:否認）。m_code ではなく電子版連携の状態から導出。Web申込以外（紙版等）は null。SCR-013 一覧の 電子版読者種別 直後に表示 |
+| 74  | meta                         | Object  | -        |              | -        | ページネーション情報                                                                                          |
+| 75  | →total                       | Number  | -        |              | -        | 該当件数（履歴データ全体）                                                                                    |
+| 76  | →page                        | Number  | -        |              | -        | 現在のページ                                                                                                  |
+| 77  | →per_page                    | Number  | -        |              | -        | 1ページあたりの件数                                                                                           |
+| 78  | →total_pages                 | Number  | -        |              | -        | 総ページ数                                                                                                    |
 
 ※ `mail_magazine_flg` / `gender` / `tetsuzuki_shurui` / `dokusya_shubetsu` / `shiharai_hoho` / `yubin_kubun` / `hikiotoshi_yokin_shubetsu` はコード値のみ返却し、ラベルはFE側で `useCodesStore().label('CATEGORY', value)` から取得する（`.claude/rules/nestjs.md §Response serialization` 参照）。
 
 ※ 新聞単価金額(`tanka_kingaku`)は JA の税区分で BE 解決する（単価ドロップダウン・haitatsuryo と同一方式）。`tanka_name` と併せ、一覧では「単価名 + 半角スペース + 金額」で表示する。
 
-※ SCR-013 一覧の列並び（顧客要件 2026-07）: 履歴番号 → **購読種別** → **電子版読者種別** → **電子申込承認ステータス** → 手続種別→ … → **新聞単価**（購読部数の前）→ 購読部数 → … → 前回販売店名 → **初回購読開始日** → **増部日** → **減部日** → … → **支払い方法 / 郵送区分 / 購読料支払いサイクル**（引落口座貯金種目の前）→ 引落口座貯金種目 → … → **備考**（最終データ列）→ 操作。増部日/減部日は `dokusya_kaishi_date` を条件付き表示: 増部日は `dokusya_busu > zenkai_dokusya_busu` または `zenkai_dokusya_busu` が null のとき、減部日は `dokusya_busu < zenkai_dokusya_busu` または null のとき表示（それ以外は空欄）。
+※ SCR-013 一覧の列並び（顧客要件 2026-07）: 履歴番号 → **購読種別** → **電子版読者種別** → **電子申込承認ステータス** → 手続種別→ … → **新聞単価**（購読部数の前）→ 購読部数 → … → 前回販売店名 → **初回購読開始日** → **増部日** → **減部日** → … → **支払い方法 / 郵送区分 / 購読料支払いサイクル**（引落口座貯金種目の前）→ 引落口座貯金種目 → … → **備考**（最終データ列）→ 操作。増部日/減部日は `joho_henko_tekiyo_date`（読者情報変更適用日。`dokusya_kaishi_date` ではない — dokusya_rireki_record_writing_rules.md §6.2）を条件付き表示: 増部日は `dokusya_busu > zenkai_dokusya_busu` または `zenkai_dokusya_busu` が null のとき表示、減部日は `zenkai_dokusya_busu` が null でなく `dokusya_busu < zenkai_dokusya_busu` のときのみ表示（`zenkai_dokusya_busu` が null の行は増部扱いのため減部日は空欄）。`torikeshi_flg=true`（取消済み・打ち消し行）の行は増部日・減部日とも常に空欄（同§6 ルール1）。判定・表示は FE `DokusyaRirekiView.vue` の `zoubuDate()`/`genbuDate()` が行い、本APIはレスポンスに `zoubu_date`/`genbu_date` という別列を持たない。
 
 ## リクエスト例
 
@@ -299,15 +300,6 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
 }
 ```
 
-### 403 Data Scope Violation
-
-```json
-{
-  "error_code": "DATA_SCOPE_VIOLATION",
-  "message": "このデータへのアクセス権限がありません。"
-}
-```
-
 ### 404 Not Found
 
 ```json
@@ -316,6 +308,8 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
   "message": "指定された購読者が見つかりません。"
 }
 ```
+
+※ DataScope 範囲外（他JA/他管理支店/他所属支店）も同じ 404 Not Found で返る（§4.2 参照 — 403 DATA_SCOPE_VIOLATION でマスクしない）。
 
 ### 429 Too Many Requests
 
@@ -355,11 +349,12 @@ GET /api/v1/dokusya/1/rireki?page=1&per_page=20&sort_by=rireki_no&sort_order=des
 - 必要権限: `dokusya.view`
 - 該当権限保持ロール: CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN（seeder.md §3 マトリクス No.2）
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
-- DataScope（account_concept.md ※1）:
+- DataScope（account_concept.md ※1。実装は共通ヘルパ `fetchInScope` → `assertBranchScope` / `assertShitenScope`）:
   - CHUOKAI: `ja_id = user.ja_id`（自中央会のレコードのみ。管轄JAの読者は閲覧不可）
   - JA_HONTEN: `ja_id = user.ja_id`（自JAのみ）
   - JA_KANRI_SHITEN: `ja_id = user.ja_id AND kanri_shiten_id = user.kanri_shiten_id`（自管理支店のみ）
-- DataScope違反（他JAまたは他管理支店のレコードへのアクセス）の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+  - 所属支店(`user.shiten_id`)設定済みの JA_KANRI_SHITEN アカウント（顧客要件2026-07）: 上記に加え `shiten_id = user.shiten_id` まで絞り込む（account_concept.md「所属支店による追加制限・制限①」）
+- DataScope違反（他JA・他管理支店・他所属支店のレコードへのアクセス）の場合：HTTP 404 (`NOT_FOUND`)。`fetchInScope` はスコープ外を `NotFoundException` として投げ、行の存在を秘匿するため 403 ではなく 404 でマスクする（API-013-002 §4.2 と同じ挙動）。エラー一覧の `DATA_SCOPE_VIOLATION` は共通カタログ掲載の一般エラーコードで、本API では実際には発生しない。
 
 ### 4.3 データ取得条件の設定
 
@@ -375,8 +370,7 @@ WHERE dokusya_id = :dokusya_id
   AND (:user_kanri_shiten_id IS NULL OR kanri_shiten_id = :user_kanri_shiten_id)
 ```
 
-- レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- ja_id / kanri_shiten_id が DataScope と一致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- レコードが存在しない場合、または ja_id / kanri_shiten_id / shiten_id が DataScope と一致しない場合：いずれも HTTP 404 (`NOT_FOUND`)（§4.2 参照 — 範囲外は 403 ではなく 404 でマスクする）
 
 ### 4.4 データ件数の取得
 
@@ -557,7 +551,7 @@ Content-Type: application/json
 
 - `SessionAuthGuard` → セッション不正なら HTTP 401 `UNAUTHORIZED`。
 - `PermissionsGuard` で `dokusya.update` を検査 → 権限が無ければ HTTP 403 `FORBIDDEN`。
-- DataScope（購読者の所属JA／管理支店）を検査し、範囲外なら HTTP 404 でマスクする（行の存在を秘匿するため 403 ではなく 404）。
+- DataScope（購読者の所属JA／管理支店／所属支店。`fetchInScope` → `assertBranchScope` + `assertShitenScope`。所属支店はJA_KANRI_SHITENの一部アカウントのみ設定・顧客要件2026-07）を検査し、範囲外なら HTTP 404 でマスクする（行の存在を秘匿するため 403 ではなく 404）。
 
 ### 4.3 対象履歴の特定と取消可否判定
 

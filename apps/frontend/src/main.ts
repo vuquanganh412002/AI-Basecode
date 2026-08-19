@@ -11,6 +11,17 @@ import { installAntd } from './plugins/antd';
 import router from './router';
 import { useAuthStore } from './stores/auth.store';
 
+/**
+ * デプロイで JS チャンクのハッシュが変わった後、古いタブが遅延 import の
+ * チャンクを 404 で取りに行くと Vite がこのイベントを飛ばす。拾わずに
+ * 放置すると `router.push` が黙って reject し、ユーザーにはメニューを
+ * クリックしても何も起きないように見える（実際に起きた報告）。フルリロード
+ * で最新の manifest を取り直す。
+ */
+window.addEventListener('vite:preloadError', () => {
+  window.location.reload();
+});
+
 async function bootstrap() {
   const app = createApp(App);
   const pinia = createPinia();

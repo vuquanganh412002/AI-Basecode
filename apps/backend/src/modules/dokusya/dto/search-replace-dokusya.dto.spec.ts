@@ -1,4 +1,4 @@
-// Screen: ACSMS-SCR-015 — 購読者販売店一括置換画面
+// Screen: ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）
 //
 // Drives src/modules/dokusya/dto/search-replace-dokusya.dto.ts (to be
 // generated). One test (or group) per row in

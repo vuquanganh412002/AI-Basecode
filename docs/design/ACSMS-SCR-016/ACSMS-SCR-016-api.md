@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-05-15
 created_date: 2026/05/15
 created_by: Tran Duc Tuyen
-updated_date: 2026/05/15
+updated_date: 2026/08/19
 updated_by: Tran Duc Tuyen
 ---
 
@@ -26,6 +26,16 @@ updated_by: Tran Duc Tuyen
 | 7   | 2026/08/03 | 1.6  | Tran Duc Tuyen | 顧客要件 2026-08：**適用日・中止日を Excel 列から top-level パラメータへ**。(1) `joho_henko_tekiyo_date` / `dokusya_chushi_date` を行データ・テンプレート列から**撤去**し、画面の入力欄で1ファイル1つ指定する top-level パラメータに変更（48→46列）。両者は**排他**で、`NEW` では指定不可、`UPDATE` はどちらか必須（電子版は当日固定のため適用日を省略可）。違反は `VALIDATION_ERROR`（行エラーではなくフォームエラー）。(2) **`dokusya_chushi_date` 指定＝一括中止**（§4.8 新設）。解約予約を1件 append し、`selected_columns` の他列は書かない。確定は到来日バッチ。(3) 電子版の一括中止は同一処理内で `cancel` を push し、1件でも失敗したら全件ロールバック＋送信済み分へ打ち消し（`cancel_ym` 空）。打ち消し失敗分は会員IDをエラーログへ。紙版は連携なし。(4) 電子版の一括中止は500行まで。(5) 旧「一括中止」（組合員コードをキーに手続種類=解約）の記述を概要から削除（v1.2 で廃止済みだが残存していた）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 8 | 2026/08/05 | 1.7 | Tran Duc Tuyen | 顧客要件 2026-08（#56568）：電子版・併読レコードのメールアドレス重複チェックを **JA 横断** に変更。取込前の既存メール事前ロードから `ja_id` 条件を外し、他 JA の電子版・併読レコードとも突き合わせる（電子版ではメールが会員の同定キー＝ログインIDのため）。同一取込バッチ内の重複検知は従来どおり。紙版は対象外、論理削除済みは再利用可。SCR-011 画面登録と同一ルール。 | | |
 | 9 | 2026/08/06 | 1.8 | Tran Duc Tuyen | 記載不整合の是正：テンプレート列数の記述が「46列」のまま残っていた（ACSMS-API-016-001 の §概要・§出力仕様・§4.x）。#56405（購読者層分類の従属4項目追加）で列一覧自体は 50 列へ更新済みだったが、本文の数値だけが v1.6 時点のままで一覧と矛盾していた。3箇所を 50 列へ修正。テンプレートの実装・列順は変更なし（統合テスト `dokusya-import.integration.spec.ts` が 50 列を検証している） | | |
+| 10 | 2026/08/17 | 1.9 | Tran Duc Tuyen | 顧客要件 2026-08：電子版は実在の販売店へ配達しないため、部数(`dokusya_busu`)・販売店コード(`hanbaiten_code`)とも行の入力値に関わらず常に単一の固定値（1 / ダミー販売店コード9999999999）へ強制上書きするよう変更。両列は `NEW` モードの必須列からも除外（画面上もチェックボックス無しのグレー表示に変更）。当該JAにダミー販売店（`hanbaiten_code=9999999999`）が未整備の場合、電子版取込は行ループの前に一括で `VALIDATION_ERROR` を返すバリデーションを新設（ACSMS-SCR-011登録/編集・dokusya-syncバッチと同一のダミー販売店運用に統一）。 | | |
+| 11 | 2026/08/17 | 1.10 | Tran Duc Tuyen | 顧客要件 2026-08：住所変更と販売店の移動が同一適用日に別々の更新として積み重なると増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため、**紙版の`UPDATE`モード（joho_henko_tekiyo_dateが未来日）は同一適用日への変更を1回までに制限**（§4.3.5新設）。対象dokusya_idに既にアクティブな履歴行がある場合 `IMPORT_VALIDATION_ERROR`(field=joho_henko_tekiyo_date) を返す。同日にまとめて変更したいときはACSMS-SCR-013で該当履歴を取消してから1回で取込む。当日変更・電子版は対象外。ACSMS-SCR-011・SCR-015にも同一制限を適用（3経路共通ロジック）。 | | |
+| 12 | 2026/08/17 | 1.11 | Tran Duc Tuyen | 不具合修正：`NEW`モードの`dokusya_kaishi_date`（購読開始日）が紙版・電子版とも一律「未来日のみ」で検証されており、**電子版で本日の日付を入力しても誤って拒否される**バグを修正。ACSMS-SCR-011登録画面（ラジオボタン「今日から/翌月1日から」）と同じ制約に揃え、**電子版のNEWは購読開始日=本日または翌月1日のみ許可**するよう変更（それ以外はエラー「電子版の購読開始日は本日または翌月1日を指定してください。」）。紙版は「未来日のみ」のまま変更なし。判定ロジックは共通モジュール`dokusya-shubetsu.rules.ts`に追加し、将来ACSMS-SCR-011のBE側にも同一制約を敷けるよう再利用可能にした。 | | |
+| 13 | 2026/08/18 | 1.12 | Tran Duc Tuyen | 不具合修正 2026-08：電子版(2)は配達先情報エリアが画面上非活性化される（v1.9の`dokusya_busu`/`hanbaiten_code`と同種の制約）が、配達先情報12項目（`haitatsu_same_flg`＋住所5＋連絡先2＋氏名4）にはこれまでゲートが無く、`selected_columns`に含めて値を送れば電子版でも保存できてしまっていた。`dokusya_busu`/`hanbaiten_code`と同方式（BEが行ごと固定値へ強制上書き）で、電子版は12項目を常に`haitatsu_same_flg=true`・残り11項目=空文字へ強制するよう修正（BE: `buildHaitatsuPayload`。ACSMS-SCR-011登録/編集画面と同一のゲート）。取込列パネル（画面）も電子版選択時はこの12項目をグレー表示＋チェック解除するよう修正。 | | |
+| 14 | 2026/08/18 | 1.13 | Tran Duc Tuyen | 不具合修正 2026-08：`UPDATE`モード（一括中止含む）で、`selected_columns`に含まれない列の値が行検証で誤って弾かれるバグを修正。一括中止（`dokusya_id`のみ選択）で取込んだ際、Excelシートに残っていた無関係セル（メールアドレス・メールマガジン・生年等）の値が`selected_columns`対象外にも関わらず`@IsEmail`/`@IsNumber`等の形式チェックへ届き、`IMPORT_VALIDATION_ERROR`で全体が拒否されていた。§4.1にドキュメント済みの「各行の検証はselected_columns対象列のみ」を実装で徹底し、`UPDATE`時は`selected_columns`（＋キー列`dokusya_id`）に無い列をDTO検証前にサーバ側で除去する`stripUnselectedColumns`をBEに追加。FE（`DokusyaImportView.vue`）も送信前に選択解除中の列を行データから除外するよう修正（従来は電子版固定列のみ個別除外していたのを、選択状態(`selected[col]`)に基づく一貫した除外へ統一）。`NEW`モードは対象外（必須列は既定で全選択）。 | | |
+| 15 | 2026/08/18 | 1.14 | Tran Duc Tuyen | 顧客要件 2026-08：v1.13の`stripUnselectedColumns`（selected_columns対象外の列を除去）を**`NEW`モードにも拡張**。従来はUPDATEのみ対象だったため、新規登録でチェックを外した任意項目（例: メールアドレス・備考）にExcelセルの値が残っていると、選択解除＝未入力のつもりが誤って検証・登録されていた。除去された列はINSERT時にNULL/空文字（列のNOT NULL制約に従う既定値）になる。あわせて**取込列パネルの「ID」を新規登録モードでは常にグレー表示＋チェック不可**にする（自動採番のため新規登録では無意味な項目のため。dokusya_busu/hanbaiten_code(電子版)と同じ「チェックボックス無し」方式）。 | | |
+| 16 | 2026/08/19 | 1.15 | Tran Duc Tuyen | 不具合修正 2026-08：①**組合員コードが同一JA内で重複している場合、`dokusya_id`未指定でのUPDATE/一括中止を拒否**するよう明記（`classifyImportRow`の`isAmbiguousKumiaiinKey`は既存実装だが未文書化だった。§4.1に追記）。②上記ガードの前提として、`kumiaiin_code`は`dokusya_id`と同様UPDATE時の突合フォールバックキーのため`stripUnselectedColumns`が`selected_columns`に無くても常に保持するよう修正（v1.13実装時の回帰 — 保持していなかったため、一括中止で組合員コードのみを指定すると常に「指定された購読者が見つかりません」で失敗していた）。③氏名かな4項目（`shimei_kana_sei`/`shimei_kana_mei`/`haitatsu_shimei_kana_sei`/`haitatsu_shimei_kana_mei`）に全角ひらがなのみ許容するバリデーションを追加（半角カナ・カタカナ・漢字・英数字を拒否。従来は最大100文字チェックのみで書式チェックが無かった）。氏名（漢字）4項目の最大50文字は既存仕様のまま変更なし。 | | |
+| 17 | 2026/08/19 | 1.16 | Tran Duc Tuyen | 不具合修正 2026-08：電子版は`joho_henko_tekiyo_date`（読者情報変更適用日）省略を許容し、省略時は書込み側（`DokusyaImportService`）が当日を補って書き込むが、行検証（`validateImportRowTekiyoDates`）の「適用日は購読開始日以降」チェック（`collectTekiyoDateViolations`）は省略値=nullのままこの相対チェックをスキップしていた。購読開始日（`dokusya_kaishi_date`）が翌月1日等まだ到来していない電子版購読者を、適用日欄を空欄にしたままUPDATE取込（再取込含む）すると検証をすり抜け、共通履歴ライタ（`applyChange`の`findBefore`）が「当日時点で有効な直前の履歴行」を見つけられず、直前行なし（`before=null`）起点の不完全な履歴行が余分に作られてしまうバグを修正。行検証も書込み側と同じ既定値（電子版は当日）を用いて相対チェックを行うよう修正し、この組み合わせは`IMPORT_VALIDATION_ERROR`（field=joho_henko_tekiyo_date、§4.1参照）で拒否されるようにした（UI編集SCR-011は元々`assertUpdateDateConsistency`で同じ組み合わせを拒否しており、本画面のみ抜けていた）。 | | |
+| 18 | 2026/08/19 | 1.17 | Tran Duc Tuyen | 不具合修正 2026-08（重大・誤更新）：`UPDATE`モード（一括中止含む）の更新対象解決（`resolveImportTargetId`）が`WHERE dokusya_id = :id OR kumiaiin_code = :code`という**OR条件**になっており、「dokusya_id優先・無ければkumiaiin_codeで代替」という設計意図（v1.15の重複防止ガードもこの前提）に反していた。`kumiaiin_code`はUNIQUE制約が無く同一JA内で重複しうるため、同一バッチ内に同じ`kumiaiin_code`を持つ行が2件以上あると、各行が明示的に異なる`dokusya_id`を指定していても、OR条件のもう一方（`kumiaiin_code`一致）で他方の購読者にヒットしうる。実測では`LIMIT 1`（ORDER BY無し）が常に物理的に先頭の行を返すため、**2行の更新が両方とも1人の購読者に誤って適用され、もう一方の購読者は一切更新されないまま**だった（ユーザー報告「Excel再取込で作られた履歴行のデータが一致しない」の実体）。`dokusya_id`が指定されている行は`kumiaiin_code`を一切参照せず`dokusya_id`のみで検索するよう2クエリに分離して修正（§4.3.4参照）。 | | |
+| 19 | 2026/08/19 | 1.18 | Tran Duc Tuyen | 不具合修正 2026-08：廃店(`m_hanbaiten.haiten_flg=true`)の販売店・失効(`m_tanka.active_flg=false`)の単価を取込で選択できてしまう不具合を修正。修正前は取込自体が成功し、購読者詳細画面（ACSMS-SCR-011）にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。§4.3.1/§4.3.2のFK解決クエリに`active_flg`/`haiten_flg`を追加し、存在するが廃店/失効している場合は`IMPORT_VALIDATION_ERROR`（field='tanka_code'/'hanbaiten_code', message='指定された新聞単価コードは失効しています。'/'指定された販売店コードは廃店のため選択できません。'）で拒否する。廃店/失効後もレコード自体は過去購読者の履歴参照のため削除されないため、「存在しない」エラーとは区別する。NEW/UPDATE（新規選択・変更時）両方が対象。UI編集画面(SCR-011)にはこの相当チェックが元々無く、本画面で新設した業務ルール（UI側は別途要検討・本対応の範囲外）。 | | |
 
 ## システム概要
 
@@ -286,7 +296,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 11  | →shimei_mei                   | String  | -        | -    | 0      | 50     | 氏名（名・漢字）                                                                                                                                            |
 | 12  | →shimei_kana_sei              | String  | -        | -    | 0      | 100    | 氏名かな（姓）                                                                                                                                              |
 | 13  | →shimei_kana_mei              | String  | -        | -    | 0      | 100    | 氏名かな（名）                                                                                                                                              |
-| 14  | →dokusya_busu                 | Number  | -        | -    | -      | -      | 購読部数。`NEW`：> 0、解約時：= 0。**電子版(2)は 1 固定**（v1.4・UI/一括置換と統一）。                                                                        |
+| 14  | →dokusya_busu                 | Number  | -        | -    | -      | -      | 購読部数。`NEW`：> 0、解約時：= 0。**電子版(2)は行の値に関わらず常に 1 へ強制上書き**され、`NEW` モードの必須列からも除外される（v1.9・顧客要件 2026-08 — 電子版は実在の販売店へ配達しないため部数は常に単一固定値）。                                                                        |
 | 15  | →tanka_code                   | String  | -        | -    | 0      | 10     | 新聞単価コード（m_tanka の tanka_code・tanka_type=1 で解決）。`NEW` モードは必須。                                                                          |
 | 16  | →email                        | String  | -        | -    | 0      | 100    | メールアドレス。メール形式チェック。                                                                                                                        |
 | 17  | →mail_magazine_flg            | Number  | -        | -    | -      | -      | メールマガジン ※m_code.code_category='MAIL_MAGAZINE_FLG'を参照（0:配信しない, 1:配信する）                                                                  |
@@ -310,7 +320,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 35  | →haitatsu_shimei_mei          | String  | -        | -    | 0      | 50     | 配達先氏名（名・漢字）                                                                                                                                      |
 | 36  | →haitatsu_shimei_kana_sei     | String  | -        | -    | 0      | 100    | 配達先氏名かな（姓）                                                                                                                                        |
 | 37  | →haitatsu_shimei_kana_mei     | String  | -        | -    | 0      | 100    | 配達先氏名かな（名）                                                                                                                                        |
-| 38  | →hanbaiten_code               | String  | -        | -    | 0      | 10     | 販売店コード（m_hanbaiten の hanbaiten_code で解決）。`NEW` モードは必須。                                                                                  |
+| 38  | →hanbaiten_code               | String  | -        | -    | 0      | 10     | 販売店コード（m_hanbaiten の hanbaiten_code で解決）。`NEW` モードは必須（紙版のみ）。**電子版(2)は行の値に関わらず常にダミー販売店コード `9999999999`（`HANBAITEN_DUMMY_CODE`）へ強制上書き**され、`NEW` モードの必須列からも除外される（v1.9・顧客要件 2026-08 — 電子版は実在の販売店へ配達しないため受け皿として自JAのダミー販売店に紐づける。ACSMS-SCR-011 登録/編集・dokusya-sync バッチと同一の運用）。当該 JA にダミー販売店（`hanbaiten_code=9999999999`）が未整備の場合、電子版取込は行ループに入る前に `VALIDATION_ERROR`（field=hanbaiten_code）で一括して弾かれる（下記エラー例参照）。                                                                                  |
 | 39  | →yubin_kubun                  | String  | -        | -    | 0      | 1      | 郵送区分 ※m_code.code_category='YUBIN_KUBUN'を参照（0:空, 1:郵送）                                                                                          |
 | 40  | →shiharai_hoho                | Number  | -        | -    | -      | -      | 支払方法 ※m_code.code_category='SHIHARAI_HOHO'を参照（1:口座引落, 2:現金集金, 3:振込集金, 4:JA施設等, 5:給与天引き, 6:クレジットカード, 9:その他）。`NEW` モードは必須。 |
 | 41  | →dokusyaryo_shiharai_cycle    | Number  | -        | -    | -      | -      | 購読料支払サイクル（月数）                                                                                                                                  |
@@ -444,6 +454,18 @@ Content-Type: application/json
 }
 ```
 
+### 400 Bad Request (Validation Error — 電子版のダミー販売店未整備・v1.9)
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
+  "errors": [
+    { "field": "hanbaiten_code", "message": "電子版の取込にはダミー販売店（販売店コード:9999999999）の事前登録が必要です。販売店マスタで作成してから再度お試しください。" }
+  ]
+}
+```
+
 ### 400 Bad Request (Import Validation Error — 行別エラー)
 
 ```json
@@ -525,9 +547,10 @@ Content-Type: application/json
 - リクエストボディの検証：
   - `import_mode`：必須、`NEW` / `UPDATE_ALL` / `UPDATE_PARTIAL` のいずれか
   - `selected_columns`：必須、配列、1件以上
-    - `NEW` モードでは、新規登録必須項目（kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと（手続種類はシステムが新規(1)を設定するため対象外。v1.2。購読種別は top-level `dokusya_shubetsu` で一律指定するため selected_columns 対象外。v1.5）
+    - `NEW` モードでは、新規登録必須項目（kanri_shiten_code, shiten_code, dokusya_busu, tanka_code, yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1, hanbaiten_code, shiharai_hoho, dokusya_kaishi_date）を必ず含むこと（手続種類はシステムが新規(1)を設定するため対象外。v1.2。購読種別は top-level `dokusya_shubetsu` で一律指定するため selected_columns 対象外。v1.5）。**電子版(2)は `dokusya_busu` / `hanbaiten_code` を必須列から除外**する（BE が行ごと固定値へ強制するため。v1.9・顧客要件 2026-08）。**`dokusya_id` は `NEW` モードでは選択列の対象外**（自動採番のため送信されても無視される。画面もグレー表示＋選択不可にする。不具合修正 2026-08）
   - `rows`：必須、配列、1件以上、5000件以下
     - 5000件を超える場合：HTTP 400 (`ROW_LIMIT_EXCEEDED`)
+    - **`selected_columns` に含まれない列は、行の値がどうであれ DTO 検証前にサーバ側で除去する**（`ImportDokusyaDto` の `stripUnselectedColumns`。不具合修正 2026-08。`NEW`/`UPDATE` 両モード対象 — 当初 `UPDATE` のみだったが、新規登録でチェックを外した任意項目に Excel セルの値が残っていると誤って検証・登録される同種のバグが見つかり `NEW` にも拡張）。`UPDATE` は常にキー列 `dokusya_id` を残す（`NEW` は自動採番のため対象外——画面も新規登録では ID をグレー表示＋選択不可にする）。一括中止（`dokusya_chushi_date` 指定＝`selected_columns` が `dokusya_id` のみ）でも Excel シートに他列（メールアドレス・生年等）のセル値が残っていることがあり、除去しないと選択していない列の形式チェック（`@IsEmail`/`@IsNumber` 等）で無関係に 400 が返っていた。除去された列は `NEW` では INSERT 時に NULL/空文字（列の NOT NULL 制約に従う既定値）、`UPDATE` では既存値を維持する
   - 各行 `rows[i]` の検証（`selected_columns` 対象列のみ）：
     - 文字列項目：最大桁数チェック
     - 数値項目：型チェック、範囲チェック
@@ -542,16 +565,23 @@ Content-Type: application/json
     - `todofuken_code` / `haitatsu_todofuken_code`：2桁の都道府県コード
     - `email`：メールアドレス形式チェック
     - `birth_year`：1900〜現在年
-    - `dokusya_busu`：1 以上（v1.2 — 解約は取込対象外のため 0 入力なし）。**電子版(2)は 1 固定**（1以外はエラー「電子版の購読部数は1で登録してください。」— v1.4・UI/一括置換と統一）
-    - `joho_henko_tekiyo_date`：UPDATE では必須。**日付ルールは購読種別依存（v1.4 改訂・UI編集/一括置換と統一）**：過去日不可（当日以降）。電子版(2)は**当日のみ**（未来 joho は「電子版は当日のみ変更できます。予約変更（未来日）はできません。」エラー）。紙版(1)は**当日変更 + 予約変更（未来日）可**だが、**帳票影響項目（部数/販売店/購読者住所/配達先住所）を当日変更した場合は「帳票に影響する変更は予約変更（未来日を指定）で行ってください。」エラー**（該当項目に付与）。※従来 v1.3 は UPDATE 一律「未来日のみ」だったが、UI と揃えて当日変更を許可。
+    - `dokusya_busu`：1 以上（v1.2 — 解約は取込対象外のため 0 入力なし）。**電子版(2)は行の値に関わらず 1 へ強制上書きされる**ため、この検証は紙版の実質的な安全網としてのみ働く（v1.9・顧客要件 2026-08。旧 v1.4 は「1以外はエラー」だったが、必須列から除外し強制上書きへ変更したため実質到達不能）
+    - `dokusya_kaishi_date`（NEW モードのみ必須。UPDATE では編集不可・既存値維持）：**日付ルールは購読種別依存**（v1.11・顧客要件 2026-08）。紙版(1)は従来どおり**未来日のみ**（当日・過去日不可、エラー「購読開始日は本日より後の日付を入力してください。」）。電子版(2)は**本日 または 翌月1日のいずれか**のみ許可（ACSMS-SCR-011 登録画面のラジオボタン「今日から/翌月1日から」と同一制約 — 取込画面には日付ピッカーが無く Excel セルの値をそのまま受け取るため BE 側だけで2値を担保する。上記以外の日付はエラー「電子版の購読開始日は本日または翌月1日を指定してください。」field=dokusya_kaishi_date）。旧版はこのルールを紙版・電子版とも「未来日のみ」で統一しており、電子版で当日日付を入れると誤って拒否されるバグがあった。
+    - `joho_henko_tekiyo_date`：UPDATE では必須。**日付ルールは購読種別依存（v1.4 改訂・UI編集/一括置換と統一）**：過去日不可（当日以降）。電子版(2)は**当日のみ**（未来 joho は「電子版は当日のみ変更できます。予約変更（未来日）はできません。」エラー）。紙版(1)は**当日変更 + 予約変更（未来日）可**だが、**帳票影響項目（部数/販売店/購読者住所/配達先住所）を当日変更した場合は「帳票に影響する変更は予約変更（未来日を指定）で行ってください。」エラー**（該当項目に付与）。※従来 v1.3 は UPDATE 一律「未来日のみ」だったが、UI と揃えて当日変更を許可。**適用日は既存購読者の購読開始日（`dokusya_kaishi_date`）以降でなければならない**（UI編集 SCR-011 と同一ルール。違反時「情報変更適用日は購読開始日（YYYY/MM/DD）以降の日付を指定してください。」field=joho_henko_tekiyo_date）。電子版で本項目を省略した行は、書込み時にBEが補う「当日」を用いてこのチェックも行う（v1.16・不具合修正2026-08 — 従来は省略値=nullでこの相対チェックがスキップされ、購読開始日が翌月1日等でまだ到来していない電子版購読者を当日付けでUPDATE取込すると、共通ライタが直前の履歴行を見つけられず不完全な履歴行を作ってしまうバグがあった）。
     - `dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date`：`YYYY-MM-DD` 形式
     - `renrakusaki_1` / `renrakusaki_2`：数字のみ保存
     - `hikiotoshi_koza_meigi`：全角カナ→半角カナ変換
+    - `shimei_sei` / `shimei_mei` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei`：最大50文字（既存仕様）
+    - **`shimei_kana_sei` / `shimei_kana_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei`：全角ひらがなのみ許容、最大100文字**（不具合修正 2026-08）。半角文字・カタカナ・漢字・英数字は `VALIDATION_ERROR`（message=「ひらがなで入力してください。」）。FE の`HIRAGANA_RE`（`DokusyaFormView.vue`）と同一文字集合
 - 業務ルールチェック（v1.4 — 共通モジュール `dokusya-shubetsu.rules.ts` に集約し UI/取込/一括置換で統一）：
   - 併読（`dokusya_shubetsu`=3）は取込不可 → エラー「購読種別が3:併読のためExcel取込みできません。」（第3システム同期のため読取専用）
   - 電子版（`dokusya_shubetsu`=2）かつクレジットカード決済（`shiharai_hoho`=6）の組み合わせは取込不可 → エラー（理由：電子版かつクレカ決済取込不可のため。読取専用）
   - 電子版の購読部数=1（上記 `dokusya_busu` 参照）
   - 種別依存の適用日ルール（上記 `joho_henko_tekiyo_date` 参照）
+  - **電子版の販売店コード自動解決**（v1.9・顧客要件 2026-08）：電子版は実在の販売店へ配達しないため、行の `hanbaiten_code` に何が入っていても常にログインユーザーの JA が保有するダミー販売店（`hanbaiten_code=9999999999`・`HANBAITEN_DUMMY_CODE`）へ強制解決する。当該 JA にダミー販売店が未整備の場合、行ループへ入る前に一括で `VALIDATION_ERROR`（field=hanbaiten_code, message=「電子版の取込にはダミー販売店（販売店コード:9999999999）の事前登録が必要です。販売店マスタで作成してから再度お試しください。」）を返す（§4.3.2 も参照）。ダミー販売店の運用は ACSMS-SCR-011 登録/編集・dokusya-sync バッチと同一。
+  - **電子版の配達先情報12項目を強制空欄化**（v1.12・不具合修正 2026-08）：電子版(2)は配達先情報エリアが画面上非活性化される（ACSMS-SCR-011 §7.5）ため配達先情報を一切持てない。`haitatsu_same_flg` / `haitatsu_yubin_no` / `haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei` / `haitatsu_renrakusaki_1` / `haitatsu_renrakusaki_2` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei` の12項目は、`selected_columns` の指定や行セルの値に関わらずサーバ側で `haitatsu_same_flg=true`・残り11項目=空文字へ強制する（BE: `dokusya.mapper.ts` の `buildHaitatsuPayload`。ACSMS-SCR-011 登録/編集画面と同一のゲート）。エラーにはせず値を落とすのみ（`dokusya_busu`/`hanbaiten_code` の強制上書きと同方式）。取込列パネル（画面）も電子版選択時はこの12項目をグレー表示＋チェック解除する。
+  - **組合員コード重複時は一括誤更新／誤解約を防止**（v1.15・不具合修正 2026-08）：`UPDATE`モード（一括中止含む）で `dokusya_id` を指定しない行は `kumiaiin_code` が突合フォールバックキーになるが、同コードが同一 JA 内で2件以上ヒットする場合はどちらの読者を更新／解約したいのか一意に決まらない。この場合、行ループへ入る前に一括で `IMPORT_VALIDATION_ERROR`（field=kumiaiin_code, message=「組合員コードが重複しているため、IDを指定してください。」）を返し、DB へは一切書き込まない（`classifyImportRow`の`isAmbiguousKumiaiinKey`）。一括中止（`selected_columns`が`dokusya_id`のみ）でも同様に適用される。※`kumiaiin_code`は`dokusya_id`と同じくUPDATE時の突合キーのため、`selected_columns`に含まれていなくてもサーバ側で常に保持する（`stripUnselectedColumns`。含めないと組合員コードのみでの一括中止が常に「指定された購読者が見つかりません」で失敗する）。
+  - **`dokusya_id`指定行の更新対象解決から`kumiaiin_code`の巻き込みを排除**（v1.17・不具合修正 2026-08）：上記ガードは`dokusya_id`未指定の行だけを対象にしていたが、実際の更新対象解決（`resolveImportTargetId`）は`WHERE dokusya_id = :id OR kumiaiin_code = :code`という**OR条件を1クエリにまとめた実装**になっており、これは「dokusya_id優先・無ければkumiaiin_codeで代替」ではなく「どちらか一致すればヒット」という別の意味になっていた。同一バッチ内で複数行が同じ`kumiaiin_code`を共有し、各行がそれぞれ異なる`dokusya_id`を明示していても、`LIMIT 1`（ORDER BY無し）は常に物理的に先頭の行を返すため、**2行とも同じ1人の購読者へ誤って書き込まれ、もう一方の購読者は一切更新されないまま**だった（`t_dokusya_rireki`に本来別々の購読者に入るはずの変更が1人分にまとめて積み上がり、データが一致しない不具合の実体）。`dokusya_id`が指定されている行は`kumiaiin_code`を一切参照せず`dokusya_id`のみで検索するよう修正（2クエリに分離）。
 - トップレベルのバリデーションエラー：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 - 行レベルのバリデーションエラー：HTTP 400 (`IMPORT_VALIDATION_ERROR`) + errors配列（row番号含む。最大10件まで返却）
 
@@ -576,7 +606,7 @@ Content-Type: application/json
 #### 4.3.1 単価コードの解決（購読料単価）
 
 ```sql
-SELECT tanka_id, tanka_code
+SELECT tanka_id, tanka_code, active_flg
 FROM m_tanka
 WHERE ja_id = :ja_id
   AND tanka_code = ANY(:tanka_codes)
@@ -584,19 +614,22 @@ WHERE ja_id = :ja_id
   AND deleted_at IS NULL
 ```
 
-- 未ヒットの `tanka_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='tanka_code'）
+- 未ヒットの `tanka_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='tanka_code', message='指定された新聞単価コードが見つかりません。'）
+- **`active_flg=false`（失効）の `tanka_code` は選択不可**（v1.18・不具合修正 2026-08）：`IMPORT_VALIDATION_ERROR` + errors（row, field='tanka_code', message='指定された新聞単価コードは失効しています。'）。失効単価行は参照整合性のため削除されない（過去購読者の履歴・帳票が単価名を引ける必要がある）ので存在チェック自体は通るが、新規選択・単価変更（selected_columnsに`tanka_code`を含む行）だけを弾く。NEW/UPDATE両方が対象。UI編集(SCR-011)には元々このチェックが無く、本画面で新設した業務ルール。
 
 #### 4.3.2 販売店コードの解決
 
 ```sql
-SELECT hanbaiten_id, hanbaiten_code
+SELECT hanbaiten_id, hanbaiten_code, haiten_flg
 FROM m_hanbaiten
 WHERE ja_id = :ja_id
   AND hanbaiten_code = ANY(:hanbaiten_codes)
   AND deleted_at IS NULL
 ```
 
-- 未ヒットの `hanbaiten_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code'）
+- 未ヒットの `hanbaiten_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code', message='指定された販売店コードが見つかりません。'）
+- **電子版(`dokusya_shubetsu`=2)は行ループの前処理でこの検索対象コードが常に `9999999999`（ダミー販売店）へ差し替わる**（v1.9・顧客要件 2026-08）。当該 JA にこのコードの `m_hanbaiten` 行が存在しない場合、上記クエリより前の §4.1 で `VALIDATION_ERROR` として一括検出し、行ごとの「販売店コードが見つかりません」連発は発生させない。
+- **`haiten_flg=true`（廃店）の `hanbaiten_code` は選択不可**（v1.18・不具合修正 2026-08）：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code', message='指定された販売店コードは廃店のため選択できません。'）。廃店後も過去購読者の履歴参照のため行は削除されないので存在チェックは通るが、新規選択・販売店変更だけを弾く（tanka_codeの失効チェックと同じ設計）。修正前は取込が成功してしまい、購読者詳細画面（ACSMS-SCR-011）にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。
 
 #### 4.3.3 管理支店・支店の存在チェック
 
@@ -639,6 +672,23 @@ WHERE ja_id = :ja_id
 - `UPDATE_ALL` / `UPDATE_PARTIAL` モード：未ヒットの行は「存在しない」エラー → `IMPORT_VALIDATION_ERROR` + errors（row, field='dokusya_id' または 'kumiaiin_code'）
 - 一括中止（`tetsuzuki_shurui`=0）：`kumiaiin_code` をキーに既存購読者を取得する。未ヒットはエラーとする。
 - 取得した既存購読者の `kanri_shiten_id` が JA_KANRI_SHITEN の自管理支店と一致しない場合：DataScope 違反 → HTTP 403 (`DATA_SCOPE_VIOLATION`)
+
+#### 4.3.5 予約変更（未来日）の同一適用日1回まで制限（v1.9・顧客要件2026-08）
+
+紙版の `UPDATE` モードで `joho_henko_tekiyo_date`（ペイロード直下・全行共通）が未来日（本日超過）の場合、対象の各 `dokusya_id` に、既にアクティブ（非取消・非新規）な履歴行が同じ日付に存在しないかを一括で確認する。住所変更と販売店変更のように別々の取込が同じ適用日に積み重なると、増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため。当日変更（joho=本日）・電子版は対象外。
+
+```sql
+SELECT DISTINCT dokusya_id
+FROM t_dokusya_rireki
+WHERE dokusya_id = ANY(:dokusya_ids)
+  AND joho_henko_tekiyo_date = :joho_henko_tekiyo_date
+  AND torikeshi_flg = false
+  AND shinki_flg = false
+```
+
+- 該当した `dokusya_id` を含む行：`IMPORT_VALIDATION_ERROR` + errors（row, field='joho_henko_tekiyo_date', message='この適用日には既に変更履歴が登録されています。購読者履歴情報画面から該当の変更を取消してから、まとめて更新してください。'）
+- 同日に複数項目をまとめて変更したいときは、ACSMS-SCR-013（購読者履歴情報画面）から該当の変更履歴を取消してから、1回の取込でまとめて反映する。
+- ACSMS-SCR-011（画面更新）・ACSMS-SCR-015（販売店一括置換）にも同一制限を適用（3経路共通の `dokusya-shubetsu.rules.ts` に集約）。
 
 - 事前チェックエラーが存在する場合：HTTP 400 (`IMPORT_VALIDATION_ERROR`) + errors配列（最大10件）を返却し、以降の処理を中断する。
 

@@ -85,7 +85,8 @@ updated_by: Dao Van Thang
 | 4   | fax            | String  | -        | -    |        | 15     | FAX番号（部分一致検索）                                                                          |
 | 5   | address        | String  | -        | -    |        | 200    | 住所（部分一致検索）                                                                             |
 | 6   | shocho_name    | String  | -        | -    |        | 50     | 所長名（部分一致検索）                                                                           |
-| 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店フラグ（true:廃店も含む, false:廃店を除外）。**省略時は false（廃店フラグが立っているレコードは一覧に表示しない）**。画面設計書 v1.2 §1.1 / §2.1 参照 |
+| 6.5 | ja_id          | Number  | -        | -    |        |        | JA絞り込み（NICHINO_STAFF 代行入力 専用）。セッションが JA スコープ役（CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）の場合は無視され session.ja_id が優先される。1以上の整数。 |
+| 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店フラグ（完全一致：`true`=廃店のレコードのみ表示、`false`=営業中のレコードのみ表示）。**省略時は false（営業中のみ表示、廃店フラグが立っているレコードは一覧に表示しない）**。`true`は「廃店も含む」ではなく「廃店のみに絞り込む」（顧客要件2026-05-26：ラベル「廃店を含む」→「廃店フラグ」）。画面設計書 v1.2 §1.1 / §2.1 参照 |
 | 7.5 | active_tanka_flg | Boolean | -    | -    |        |        | 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する販売店のみ、`false`=失効単価(active_flg=FALSE)を参照する販売店のみ、省略=両方。参照する配達手数料単価は m_hanbaiten.haitatsuryo_tanka_id → m_tanka.tanka_type=2。配達手数料出力(SCR-021)の失効単価エラーからは `false`(無効)で初期選択される |
 | 8   | page           | Number  | -        | -    |        |        | ページ番号（1始まり）。デフォルト: 1                                                              |
 | 9   | per_page       | Number  | -        | -    |        |        | 1ページあたりの件数（1〜100）。デフォルト: 20                                                     |
@@ -99,6 +100,8 @@ updated_by: Dao Van Thang
 | 1   | data                         | Array   | 〇       |              | -        | 販売店データの配列                             |
 | 2   | →hanbaiten_id                | Number  | -        |              | -        | 販売店ID                                       |
 | 3   | →ja_id                       | Number  | -        |              | -        | JA ID                                          |
+| 3.1 | →ja_code                     | String  | -        |              | -        | JAコード（m_ja からの一括ルックアップ。存在しない場合は空文字列） |
+| 3.2 | →ja_name                     | String  | -        |              | -        | JA名（m_ja からの一括ルックアップ。存在しない場合は空文字列）    |
 | 4   | →hanbaiten_code              | String  | -        |              | -        | 販売店コード                                   |
 | 5   | →hanbaiten_name              | String  | -        |              | -        | 販売店名                                       |
 | 6   | →todofuken_code              | String  | -        |              | -        | 都道府県コード（m_hanbaiten.todofuken_code、2桁） |
@@ -114,7 +117,7 @@ updated_by: Dao Van Thang
 | 16  | →furikomi_tesuryo              | Number  | -        |              | 〇       | 振込手数料                                      |
 | 17  | →haiten_flg                  | Boolean | -        |              | -        | 廃店フラグ（true:廃店, false:営業中）          |
 | 18  | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                        |
-| 19  | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                        |
+| 19  | →updated_at                  | String  | -        | ISO8601      | 〇       | 更新日時                                        |
 | 20  | meta                         | Object  | -        |              | -        | ページネーション情報                             |
 | 21  | →total                       | Number  | -        |              | -        | 総件数                                          |
 | 22  | →page                        | Number  | -        |              | -        | 現在のページ番号                                 |
@@ -135,6 +138,8 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
     {
       "hanbaiten_id": 1,
       "ja_id": 1,
+      "ja_code": "JA01001",
+      "ja_name": "JA東京",
       "hanbaiten_code": "H001",
       "hanbaiten_name": "山田新聞販売店",
       "todofuken_code": "13",
@@ -155,6 +160,8 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
     {
       "hanbaiten_id": 2,
       "ja_id": 1,
+      "ja_code": "JA01001",
+      "ja_name": "JA東京",
       "hanbaiten_code": "H002",
       "hanbaiten_name": "山田書店",
       "todofuken_code": "14",
@@ -222,7 +229,9 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
   - fax：最大15桁
   - address：最大200桁
   - shocho_name：最大50桁
-  - haiten_flg：Boolean型チェック。省略時は false（廃店フラグが立っているレコードは一覧に表示しない、画面設計書 v1.2 §1.1 / §2.1 参照）
+  - ja_id：1以上の整数（NICHINO_STAFF 代行入力 専用の絞り込み。JAスコープ役では無視される）
+  - haiten_flg：Boolean型チェック（完全一致）。省略時は false（営業中のレコードのみ表示。廃店フラグが立っているレコードは一覧に表示しない、画面設計書 v1.2 §1.1 / §2.1 参照）
+  - active_tanka_flg：Boolean型チェック。省略時は絞り込まない（両方表示）
   - page：正の整数。デフォルト: 1
   - per_page：1〜100の整数。デフォルト: 20
   - sort_by：許可カラム（hanbaiten_code, hanbaiten_name, updated_at）のみ。画面のソートヘッダは hanbaiten_code / hanbaiten_name（画面設計書 v1.2 §8.1）、updated_at は既定の並び順専用。デフォルト: updated_at（最終更新が新しい順）。updated_at は新規作成・更新・取込のいずれの書き込みでも更新されるため、直近に操作した行が先頭に並ぶ。並び順には常に二次キー hanbaiten_id DESC を付与し、同一 updated_at（取込バッチ等）でも安定した順序となる
@@ -234,7 +243,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
-- 権限チェック：`hanbaiten.view` を保持しているか確認する。
+- 権限チェック：`hanbaiten.view` または `hanbaiten.daiko_input` のいずれかを保持しているか確認する（OR条件）。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
@@ -242,13 +251,13 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
 
 - ログインユーザーのスコープを取得する（role_code, ja_id）。
 - DataScope条件を構築する：
-  - NICHINO_STAFF：ja_id フィルタなし（全JAの販売店にアクセス可能。販売店代行入力時は明示的に対象 ja_id を指定する）
-  - CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN：`ja_id = :ja_id`（自JAのみ）
+  - NICHINO_STAFF：ja_id フィルタなし（全JAの販売店にアクセス可能。販売店代行入力時はクエリパラメータ `ja_id` を指定して対象 JA を1つに絞り込める）
+  - CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN：`ja_id = :ja_id`（自JAのみ。クエリパラメータ `ja_id` が指定されても無視される）
 - 基本条件：
   - `deleted_at IS NULL`（論理削除除外：必須条件）
-  - **`haiten_flg = false`（廃店フラグが立っているレコードは一覧に表示しない、画面設計書 v1.2 §1.1 / §2.1 参照）**
-    - クエリパラメータ `haiten_flg=true` が明示的に指定された場合のみ廃店レコードも含めて検索する。
+  - **`haiten_flg = :haiten_flg`（完全一致。省略時は `false` を設定し営業中のレコードのみ表示、`haiten_flg=true` 明示指定時は廃店のレコードのみ表示、画面設計書 v1.2 §1.1 / §2.1 参照）**
 - 検索条件（指定時のみ追加）：
+  - ja_id 指定時（NICHINO_STAFF 代行入力専用。JAスコープ役では無視される）：`ja_id = :ja_id`
   - hanbaiten_code 指定時：`hanbaiten_code ILIKE '%' || :hanbaiten_code || '%'`
   - hanbaiten_name 指定時：`hanbaiten_name ILIKE '%' || :hanbaiten_name || '%'`
   - tel 指定時：`tel ILIKE '%' || :tel || '%'`
@@ -272,7 +281,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
 SELECT COUNT(*) AS total
 FROM m_hanbaiten h
 WHERE h.deleted_at IS NULL
-  AND (:include_haiten = true OR h.haiten_flg = false)
+  AND h.haiten_flg = :haiten_flg
   AND (:role_code = 'NICHINO_STAFF' OR h.ja_id = :ja_id)
   AND (:hanbaiten_code IS NULL OR h.hanbaiten_code ILIKE '%' || :hanbaiten_code || '%')
   AND (:hanbaiten_name IS NULL OR h.hanbaiten_name ILIKE '%' || :hanbaiten_name || '%')
@@ -280,9 +289,16 @@ WHERE h.deleted_at IS NULL
   AND (:fax IS NULL OR h.fax ILIKE '%' || :fax || '%')
   AND (:address IS NULL OR h.address ILIKE '%' || :address || '%')
   AND (:shocho_name IS NULL OR h.shocho_name ILIKE '%' || :shocho_name || '%')
+  AND (:active_tanka_flg IS NULL OR h.haitatsuryo_tanka_id IN (
+        SELECT mti.tanka_id FROM m_tanka mti
+         WHERE mti.tanka_type = 2
+           AND mti.deleted_at IS NULL
+           AND mti.active_flg = :active_tanka_flg
+      ))
 ```
 
-> `:include_haiten` は、クエリパラメータ `haiten_flg=true` が指定された場合に `true`、それ以外は `false` を設定する。
+> `:haiten_flg` は、クエリパラメータ `haiten_flg=true` が指定された場合に `true`、それ以外（省略時含む）は `false` を設定する（完全一致フィルタ、「含める／除外する」ではない）。
+> `:active_tanka_flg` はクエリパラメータ `active_tanka_flg` をそのままバインドする。省略時は `NULL`（絞り込まない）。
 
 ### 4.5 データ取得
 
@@ -296,7 +312,7 @@ SELECT h.hanbaiten_id, h.ja_id, h.hanbaiten_code, h.hanbaiten_name,
 FROM m_hanbaiten h
 LEFT JOIN m_todofuken t ON h.todofuken_code = t.todofuken_code
 WHERE h.deleted_at IS NULL
-  AND (:include_haiten = true OR h.haiten_flg = false)
+  AND h.haiten_flg = :haiten_flg
   AND (:role_code = 'NICHINO_STAFF' OR h.ja_id = :ja_id)
   AND (:hanbaiten_code IS NULL OR h.hanbaiten_code ILIKE '%' || :hanbaiten_code || '%')
   AND (:hanbaiten_name IS NULL OR h.hanbaiten_name ILIKE '%' || :hanbaiten_name || '%')
@@ -304,6 +320,12 @@ WHERE h.deleted_at IS NULL
   AND (:fax IS NULL OR h.fax ILIKE '%' || :fax || '%')
   AND (:address IS NULL OR h.address ILIKE '%' || :address || '%')
   AND (:shocho_name IS NULL OR h.shocho_name ILIKE '%' || :shocho_name || '%')
+  AND (:active_tanka_flg IS NULL OR h.haitatsuryo_tanka_id IN (
+        SELECT mti.tanka_id FROM m_tanka mti
+         WHERE mti.tanka_type = 2
+           AND mti.deleted_at IS NULL
+           AND mti.active_flg = :active_tanka_flg
+      ))
 ORDER BY :sort_by :sort_order, h.hanbaiten_id DESC
 LIMIT :per_page
 OFFSET (:page - 1) * :per_page

@@ -775,6 +775,49 @@ describe('applyChange', () => {
     expect(row.johoHenkoTekiyoDate).toBe('2026-07-05');
   });
 
+  // 顧客要件2026-08: 販売店統廃合フラグ。統廃合販売店読者移行画面（旧: 購読者販売店
+  // 一括置換画面・SCR-015）だけが source='REPLACE_HANBAITEN' を渡す。他のsourceは全てfalse。
+  it('UPDATE(REPLACE_HANBAITEN) → 挿入行の hanbaitenTohaigoFlg が true', async () => {
+    q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 6, hanbaitenId: 459 }));
+    q.loadMaster.mockResolvedValue(
+      master({ dokusyaId: 1001, dokusyaShubetsu: 1 }),
+    );
+
+    await applyChange(m, {
+      mode: 'UPDATE',
+      dokusyaId: 1001,
+      values: { hanbaitenId: 460 },
+      johoDate: '2026-07-05',
+      source: 'REPLACE_HANBAITEN',
+      actor: 'u',
+    });
+
+    const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
+    expect(row.hanbaitenTohaigoFlg).toBe(true);
+  });
+
+  it.each(['UI', 'IMPORT', 'BATCH'] as const)(
+    'UPDATE(%s) → 挿入行の hanbaitenTohaigoFlg が false',
+    async (source) => {
+      q.findBefore.mockResolvedValue(rireki({ dokusyaBusu: 6, hanbaitenId: 459 }));
+      q.loadMaster.mockResolvedValue(
+        master({ dokusyaId: 1001, dokusyaShubetsu: 1 }),
+      );
+
+      await applyChange(m, {
+        mode: 'UPDATE',
+        dokusyaId: 1001,
+        values: { hanbaitenId: 460 },
+        johoDate: '2026-07-05',
+        source,
+        actor: 'u',
+      });
+
+      const row = q.insertRow.mock.calls[0][1] as Record<string, unknown>;
+      expect(row.hanbaitenTohaigoFlg).toBe(false);
+    },
+  );
+
   it('UPDATE 変更検出は直前行(findBefore)基準 — 直前行と同値の項目は非変更 (顧客要件改訂 2026-07)', async () => {
     // 変更検出は master ではなく findBefore(joho=タイムライン上の直前行)基準。
     // フォームは直前行の実効値をベースに送るため、未編集の busu は直前行と同値(8)で

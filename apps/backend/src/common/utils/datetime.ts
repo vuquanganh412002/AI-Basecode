@@ -38,6 +38,18 @@ export function todayIsoJst(): string {
 }
 
 /**
+ * 翌月1日 (Asia/Tokyo) を `YYYY-MM-DD` で返す。電子版の新規登録における購読開始日
+ * の2択（今日/翌月1日）のうち片方（ACSMS-SCR-011 登録画面ラジオボタンと同一）。
+ * FE `nextMonthFirstIsoTokyo()` と対。
+ */
+export function nextMonthFirstIsoJst(): string {
+  const [y, m] = todayIsoJst().split('-').map(Number);
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const nextYear = m === 12 ? y + 1 : y;
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+}
+
+/**
  * `YYYY-MM-DD` + `days` → `YYYY-MM-DD`（暦日計算・TZ 非依存）。UTC 基準で計算し
  * DST や TZ 早朝ずれの影響を受けない。解約バッチ適用日（電子版=購読中止日+1日）等。
  */

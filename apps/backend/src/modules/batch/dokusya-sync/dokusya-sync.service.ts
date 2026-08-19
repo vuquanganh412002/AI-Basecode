@@ -85,6 +85,19 @@ interface PageCursor {
 }
 
 /**
+ * upsertOne の1行ぶんの同期コンテキスト。handleKaiyaku の引数を7個以内に
+ * 抑えるための束ね（typescript:S107 — Sonar 上限は7）。
+ */
+interface DenshiSyncRowContext {
+  existing: Dokusya | null;
+  u: DenshiUserRow;
+  values: DokusyaFields;
+  denshiKaiinId: number;
+  johoDate: string;
+  actor: string;
+}
+
+/**
  * 読者同期バッチ（電子版 → cloud, pull 片方向）。電子版 `cmsDB.users` の差分を取得し
  * `t_dokusya`/`t_dokusya_rireki` に取り込む。突合キー: `users.id ↔ denshi_kaiin_id`。
  * 履歴は共通ライタ `applyChange`（source='BATCH', joho=当日）に集約。
@@ -539,7 +552,11 @@ export class DokusyaSyncService implements BatchJob {
 
       // ── 解約（status=9）─────────────────────────────────────────────
       if (status === DENSHI_STATUS_KAIYAKU) {
-        await this.handleKaiyaku(m, existing, u, values, denshiKaiinId, johoDate, actor, counts);
+        await this.handleKaiyaku(
+          m,
+          { existing, u, values, denshiKaiinId, johoDate, actor },
+          counts,
+        );
         return;
       }
 
@@ -607,14 +624,10 @@ export class DokusyaSyncService implements BatchJob {
    */
   private async handleKaiyaku(
     m: EntityManager,
-    existing: Dokusya | null,
-    u: DenshiUserRow,
-    values: DokusyaFields,
-    denshiKaiinId: number,
-    johoDate: string,
-    actor: string,
+    row: DenshiSyncRowContext,
     counts: SyncCounts,
   ): Promise<void> {
+    const { existing, u, values, denshiKaiinId, johoDate, actor } = row;
     const paymentEndYm = normalizePaymentYm(u.payment_end_ym);
     const currentYm = todayIsoJst().replaceAll('-', '').slice(0, 6);
     if (paymentEndYm === null || paymentEndYm < currentYm) {

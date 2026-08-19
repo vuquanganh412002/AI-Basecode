@@ -64,7 +64,10 @@ export async function applyChange(
   m: EntityManager,
   input: ApplyChangeInput,
 ): Promise<ApplyChangeResult> {
-  const { mode, values, johoDate, actor } = input;
+  const { mode, values, johoDate, actor, source } = input;
+  // 販売店統廃合フラグ（顧客要件2026-08）: 購読者販売店一括置換画面（SCR-015）だけが
+  // source='REPLACE_HANBAITEN' を渡す。UI編集/Excel取込/バッチ同期は全てfalse。
+  const hanbaitenTohaigoFlg = source === 'REPLACE_HANBAITEN';
 
   let dokusyaId: number;
   let beforeMaster: Dokusya | null;
@@ -89,7 +92,8 @@ export async function applyChange(
     mode === 'CREATE' ? null : await findBefore(m, dokusyaId, johoDate);
   const changed = diffChangedFields(diffBase, values);
   // [1更新1レコード] 全変更を joho で1件の履歴行にまとめる（顧客要件2026-07）。
-  // UI編集・Excel取込・一括置換で統一（source 分岐なし）。
+  // UI編集・Excel取込・一括置換で書込みロジックは統一（`hanbaitenTohaigoFlg` のみ
+  // sourceで分岐・顧客要件2026-08）。
   const events = splitEvents(mode, changed, values, johoDate);
 
   const insertedRirekiIds: number[] = [];
@@ -100,6 +104,7 @@ export async function applyChange(
       dokusyaId,
       rirekiNo: no,
       actor,
+      hanbaitenTohaigoFlg,
     });
     // Excel取込で配達先データありの行は増減報告対象に（顧客要件 — 配達先列は標準の
     // 増減トリガではないため force で明示的に立てる）。
@@ -387,7 +392,8 @@ export async function insertResubscribe(
   const row = buildResubscribeRow(
     before,
     values,
-    { dokusyaId, rirekiNo: no, actor },
+    // 再購読はSCR-011の編集画面専用機能でSCR-015（統廃合）とは無関係のため常にfalse。
+    { dokusyaId, rirekiNo: no, actor, hanbaitenTohaigoFlg: false },
     kaishiDate, // joho = 新 購読開始日
   );
   const saved = await insertRow(m, row);

@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { message } from 'ant-design-vue';
+import { message, Modal } from 'ant-design-vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { pageTitleFromMatched } from '@/composables/useBreadcrumb';
 
@@ -415,7 +415,7 @@ const routes: RouteRecordRaw[] = [
       // 購読者マスタ（ACSMS-SCR-011 フォーム）。DokusyaList / DokusyaImport /
       // DokusyaReplaceHanbaiten は専用 SCR 出荷まで TODO placeholder view を指す。
       // MENU_SECTIONS エントリ（購読者明細検索 / 購読者Excelデータ取込 /
-      // 購読者販売店一括置換）がクリック時に無音失敗せず `router.hasRoute(name)`
+      // 統廃合販売店読者移行）がクリック時に無音失敗せず `router.hasRoute(name)`
       // で実行時解決するよう今登録しておく。
       {
         path: 'dokusya',
@@ -480,7 +480,7 @@ const routes: RouteRecordRaw[] = [
             name: 'DokusyaReplaceHanbaiten',
             component: () => import('@/views/dokusya/DokusyaReplaceHanbaitenView.vue'),
             meta: {
-              breadcrumb: '購読者販売店一括置換',
+              breadcrumb: '統廃合販売店読者移行',
               permission: 'dokusya.replace_hanbaiten',
             },
           },
@@ -589,6 +589,26 @@ router.beforeEach((to) => {
 // ヘッダ表示とタブタイトルが常に一致する。ページ名が無い画面のみブランド名。
 router.afterEach((to) => {
   document.title = pageTitleFromMatched(to.matched) ?? APP_TITLE;
+  // 画面遷移時に開きっぱなしの Modal.confirm を強制的に閉じる（SPA route-change
+  // クリーンアップ用の AntD 公式 API）。dropdown/select のポップアップは対象外
+  // — 未確認のまま DOM を直接いじるのは Vue の仮想 DOM と齟齬を起こすリスクが
+  // あるため触らない。
+  Modal.destroyAll();
+});
+
+// デプロイでチャンクハッシュが変わった後、古いタブが遅延 import ルートの
+// チャンクを 404 で取りに行くと reject される。ここで拾わないと
+// `router.push`（サイドバー等）が黙って失敗し、クリックしても何も起きない
+// ように見える。同じ遷移を繰り返しても直らないので、行き先へフルリロード
+// して最新の manifest を取り直す。
+router.onError((error, to) => {
+  const isChunkLoadError =
+    /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(
+      error.message,
+    );
+  if (isChunkLoadError) {
+    window.location.assign(to.fullPath);
+  }
 });
 
 export default router;

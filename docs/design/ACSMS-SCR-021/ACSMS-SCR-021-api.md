@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/07/02 | 1.1  | Tran Duc Tuyen | 『手数料』列の表示を配達手数料単価から振込手数料負担区分（m_hanbaiten.furikomi_tesuryo_futan_kubun、m_code TESURYO_KUBUN ラベル）に変更。レスポンスに furikomi_tesuryo_futan_kubun を追加。tesuryo は当月金額算出用に継続保持（非表示）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/16 | 1.2  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用・⑨-2）反映：集計SQLの配達手数料単価判定を `active_flg = TRUE` のみに変更。プレビュー・出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する販売店が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（total＋errors[]先頭15件）で止める。エラー一覧 #8 追加。 | | |
 | 4  | 2026/08/05 | 1.3 | Tran Duc Tuyen | 顧客要件 2026-08（#56599）：集計対象を**紙版（dokusya_shubetsu = 1）のみ**に限定。配達手数料は「紙を配達した対価」であり、電子版(2)は配達自体が無く、併読(3)も対象外とする。従来は購読種別で絞っておらず、実在の販売店に紐づく併読はそのまま加算され、電子版もダミー販売店に配達手数料単価が設定されていれば加算されていた（＝マスタの整備状況によって支払金額が変わる状態）。集計SQLと失効単価チェックSQLの双方に条件を追加する — 片方だけだと「金額は0円なのに失効単価エラーで出力できない」という不整合が起きるため。 | | |
+| 5  | 2026/08/16 | 1.4 | Tran Duc Tuyen | 実装コード（`haitatsuryo.controller.ts`/`.service.ts`/`.mapper.ts`/`file-archive.service.ts`）との突合により以下を修正：①`ShitenRestrictedGuard`（所属支店設定済アカウントは403）の未記載を追記、エラー一覧に#9追加。②Excel出力の S3 保存ファイル名・S3キー構成が実装（`haitatsuryo/{ja_code}/{YYYY}/配達手数料支払情報出力_{YYYY}年{MM}月_{YYYYMMDDHHmmss}.xlsx`、共通 FileArchiveService 経由）と乖離していたため訂正（旧記載の `delivery_fee/{YYYY}/{MM}/haitatsuryo_shiharai_...` は実装に存在しない）。③ t_file_download 登録項目に `scheduled_delete_date`（作成日+5年）・`nichino_download_allowed_flg`（FALSE固定）を追記、`created_by` は login_id ではなく account_id を記録する点を訂正、`target_month` は本画面では未設定（NULL）である点を訂正。④ 操作ログ after_value 例の file_name/s3_file_path を実装値に合わせて修正。⑤ Excel ヘッダ行に『手数料』列の記載漏れを追加。⑥ プレビュー成功例・0件例のレスポンスに `tesuryo`／`page`/`per_page`/`total_pages` の記載漏れを追加。⑦ 出力(export) 0件時のレスポンスは `meta` を含まない（`{ "data": [] }` のみ）ことを訂正。 | | |
 
 ## システム概要
 
@@ -59,6 +60,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | INACTIVE_TANKA_REFERENCED | 失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。 | HTTP 409（`total`＝総該当件数、`errors[]`＝先頭15件の該当販売店。field=hanbaiten_id） |
+| 9   | 画面固有     | FORBIDDEN              | 所属支店が設定されたアカウントはこの機能を使用できません。               | HTTP 403（`m_account.shiten_id` が設定されているアカウントに適用。`ShitenRestrictedGuard`。`PermissionsGuard` 通過後に判定） |
 
 ※ 対象0件は業務エラーではなく「検索成功・結果なし」として扱う。プレビュー・出力とも
 HTTP 200 を返し（プレビュー: `data:[]`、出力: `application/json` の `{ data: [] }`）、FE が画面内に
@@ -148,6 +150,7 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
       "yokin_shubetsu": 1,
       "koza_no": "1234567",
       "koza_meigi": "ﾄｳｷｮｳﾁｭｳｵｳﾊﾝﾊﾞｲﾃﾝ",
+      "tesuryo": 4900,
       "furikomi_tesuryo_futan_kubun": 1,
       "biko": ""
     },
@@ -166,12 +169,16 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
       "yokin_shubetsu": 2,
       "koza_no": "7654321",
       "koza_meigi": "ｷﾀｼﾃﾝﾊﾝﾊﾞｲﾃﾝ",
+      "tesuryo": 4900,
       "furikomi_tesuryo_futan_kubun": 2,
       "biko": "月末締め"
     }
   ],
   "meta": {
     "total": 2,
+    "page": 1,
+    "per_page": 20,
+    "total_pages": 1,
     "grand_total_busu": 200,
     "grand_total_kingaku": 980000,
     "zei_kubun": 1
@@ -220,7 +227,15 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
 ```json
 {
   "data": [],
-  "meta": { "total": 0, "grand_total_busu": 0, "grand_total_kingaku": 0, "zei_kubun": 1 }
+  "meta": {
+    "total": 0,
+    "page": 1,
+    "per_page": 20,
+    "total_pages": 0,
+    "grand_total_busu": 0,
+    "grand_total_kingaku": 0,
+    "zei_kubun": 1
+  }
 }
 ```
 
@@ -247,6 +262,7 @@ GET /api/v1/haitatsuryo/preview?target_month=2026-04-01&haitatsuryo_shiharai_cyc
 - 必要権限: `haitatsuryo.export`
 - 該当権限保持ロール: CHUOKAI（中央会）/ JA_HONTEN（JA本店）/ JA_KANRI_SHITEN（JA管理支店）
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
+- 所属支店制限（`ShitenRestrictedGuard`。顧客要件 2026-07）: `m_account.shiten_id` が設定されているアカウント（支店単位に制限されたJA管理支店アカウント）はこの帳票出力機能を使用できない。該当時：HTTP 403 (`FORBIDDEN`)、メッセージ「所属支店が設定されたアカウントはこの機能を使用できません。」（エラー一覧#9）。`PermissionsGuard` 通過後に判定する。
 - DataScope（`t_dokusya.ja_id` ベース）:
   - CHUOKAI / JA_HONTEN: `d.ja_id = :user_ja_id`
   - JA_KANRI_SHITEN: `d.ja_id = :user_ja_id AND d.kanri_shiten_id = :user_kanri_shiten_id`
@@ -266,6 +282,7 @@ SELECT zei_kubun
 - 税区分により金額計算に使用する単価カラムを切替:
   - `zei_kubun = 1`（内税）→ `m_tanka.kingaku_zeikomi`
   - `zei_kubun = 2`（外税）→ `m_tanka.kingaku_zeinuki`
+- 対象JAが取得できない場合（論理削除済み等）は内税（`zei_kubun = 1`）を既定値とする。
 
 ### 4.4 失効単価チェック（error gate）＋ 集計データの取得
 
@@ -508,12 +525,12 @@ ACSMS-MSG-021-004「Excelファイルを出力しました。」は FE 側で 20
 
 対象0件は業務エラーではないため 200 を返す。FE は `data.length === 0`（出力は
 レスポンスが application/json）を検出して画面内に ACSMS-MSG-021-003「該当する
-支払い情報が存在しません。」を表示する。
+支払い情報が存在しません。」を表示する。Excel 生成 / S3 保存 / DB 登録は行わないため、
+`meta` は付与されない（`data` のみを返す）。
 
 ```json
 {
-  "data": [],
-  "meta": { "total": 0, "grand_total_busu": 0, "grand_total_kingaku": 0, "zei_kubun": 1 }
+  "data": []
 }
 ```
 
@@ -544,6 +561,7 @@ ACSMS-MSG-021-004「Excelファイルを出力しました。」は FE 側で 20
 - 必要権限: `haitatsuryo.export`
 - 該当権限保持ロール: CHUOKAI（中央会）/ JA_HONTEN（JA本店）/ JA_KANRI_SHITEN（JA管理支店）
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
+- 所属支店制限（`ShitenRestrictedGuard`。顧客要件 2026-07）: `m_account.shiten_id` が設定されているアカウントはこの機能を使用できない。該当時：HTTP 403 (`FORBIDDEN`)、メッセージ「所属支店が設定されたアカウントはこの機能を使用できません。」（エラー一覧#9）。
 - DataScope:
   - CHUOKAI / JA_HONTEN: `d.ja_id = :user_ja_id`
   - JA_KANRI_SHITEN: `d.ja_id = :user_ja_id AND d.kanri_shiten_id = :user_kanri_shiten_id`
@@ -558,22 +576,27 @@ ACSMS-MSG-021-004「Excelファイルを出力しました。」は FE 側で 20
 
 - ExcelJS 等で `.xlsx` を生成する。
   - シート名：`配達手数料支払情報`
-  - ヘッダ行：対象月 / 販売店コード / 販売店名 / 当月部数 / 当月金額 / 支払サイクル / 金融機関コード / 金融機関名 / 口座支店コード / 口座支店名 / 貯金種目 / 口座番号 / 口座名義 / 備考
+  - ヘッダ行：対象月 / 販売店コード / 販売店名 / 当月部数 / 当月金額 / 支払サイクル / 金融機関コード / 金融機関名 / 口座支店コード / 口座支店名 / 貯金種目 / 口座番号 / 口座名義 / 手数料 / 備考（「手数料」列は 4.5-4.6 と同じく `furikomi_tesuryo_futan_kubun` の m_code ラベル。貯金種目・手数料とも `CodeService.getLabel(...)` で解決）
   - データ行：4.3 の集計結果を行に展開
   - 合計行（末尾）：「合計」ラベル + `grand_total_busu` + `grand_total_kingaku`
-- ファイル名（クライアントダウンロード用）：`配達手数料支払情報出力_{YYYY年MM月}.xlsx`
-- ファイル名（S3 保存用）：`haitatsuryo_shiharai_{YYYYMM}_{YYYYMMDDHHmmss}.xlsx`
-- 保存先 S3 キー：`{s3_bucket}/delivery_fee/{YYYY}/{MM}/{filename}`（例: `s3://example-bucket/delivery_fee/2026/04/haitatsuryo_shiharai_202604_20260522103000.xlsx`）
+- 共通 `FileArchiveService`（`file-archive.service.ts`）を使用して S3 保存 + `t_file_download` 登録を行う（他の帳票出力画面 ACSMS-SCR-020/026/028/029 と共通）。
+- ファイル名（クライアントダウンロード用・Content-Disposition の `filename*`）：`配達手数料支払情報出力_{YYYY年MM月}.xlsx`（タイムスタンプ無し）
+- ファイル名（S3 保存用・`t_file_download.file_name`）：`配達手数料支払情報出力_{YYYY年MM月}_{YYYYMMDDHHmmss}.xlsx`（クライアントダウンロード用と同じ基底名にJST タイムスタンプ14桁を付与したもの。ASCII 別名 `haitatsuryo_shiharai_{YYYYMM}.xlsx` は Content-Disposition の `filename`（フォールバック用）にのみ使用し、S3 保存名・DB登録名には使用しない）
+- 保存先 S3 キー：`{s3_bucket}/haitatsuryo/{ja_code}/{YYYY}/{ファイル名（S3保存用）}`（`{YYYY}` は対象年月の年、`{ja_code}` はログインユーザー所属JAの `m_ja.ja_code`。`reports/` プレフィックスは付与しない。例: `s3://example-bucket/haitatsuryo/JA001/2026/配達手数料支払情報出力_2026年04月_20260401120000.xlsx`）
 - 同一条件で複数回出力された場合でも、ファイルは上書きせず別ファイルとして保存する（タイムスタンプ付き）。
 - S3 アップロード失敗時は DB 処理を行わず、HTTP 500 (`INTERNAL_SERVER_ERROR`) を返却する。
 
 ### 4.5 t_file_download 登録
+
+共通 `FileArchiveService.archive(...)`（`file-archive.service.ts`）が S3 保存後に実行する。等価な SQL は以下の通り:
 
 ```sql
 INSERT INTO t_file_download (
     ja_id,
     download_datetime,
     download_type,
+    scheduled_delete_date,
+    nichino_download_allowed_flg,
     file_name,
     file_path,
     file_size,
@@ -582,16 +605,18 @@ INSERT INTO t_file_download (
     created_at,
     created_by
 ) VALUES (
-    :user_ja_id,                            -- ダウンロード実行者の所属 JA
-    NOW(),                                  -- ダウンロード実行日時
-    2,                                      -- 2: その他（配達手数料）
-    :file_name,                             -- 'haitatsuryo_shiharai_YYYYMM_YYYYMMDDHHmmss.xlsx'
-    :s3_file_path,                          -- S3 オブジェクトキー
-    :file_size,                             -- バイト数
-    :record_count,                          -- 集計後の販売店件数
-    TO_CHAR(:target_month::date, 'YYYYMM'), -- 対象年月（YYYYMM）
+    :user_ja_id,                 -- ダウンロード実行者の所属 JA
+    NOW(),                       -- ダウンロード実行日時
+    2,                           -- 2: その他（配達手数料）
+    :today_jst_plus_5years,      -- 削除予定日 = 作成日(JST) + 5年
+    FALSE,                       -- 日農担当者（NICHINO_STAFF/ADMIN）はこのファイルをダウンロード不可（画面固定値）
+    :file_name,                  -- '配達手数料支払情報出力_YYYY年MM月_YYYYMMDDHHmmss.xlsx'（4.4 参照）
+    :s3_file_path,               -- S3 オブジェクトキー（`haitatsuryo/{ja_code}/{YYYY}/{file_name}`）
+    :file_size,                  -- バイト数
+    :record_count,               -- 集計後の販売店件数
+    NULL,                        -- 本画面は target_month を記録しない（未設定・NULL固定）
     NOW(),
-    :user_login_id                          -- ダウンロード実行者のログイン ID
+    :account_id                  -- ダウンロード実行者の account_id（文字列化。login_id ではない）
 )
 RETURNING file_download_id
 ```
@@ -624,8 +649,8 @@ VALUES (4, NOW(), :account_id, :user_ja_id,
   "record_count": 2,
   "grand_total_busu": 200,
   "grand_total_kingaku": 980000,
-  "file_name": "haitatsuryo_shiharai_202604_20260522103000.xlsx",
-  "s3_file_path": "delivery_fee/2026/04/haitatsuryo_shiharai_202604_20260522103000.xlsx"
+  "file_name": "配達手数料支払情報出力_2026年04月_20260401120000.xlsx",
+  "s3_file_path": "haitatsuryo/JA001/2026/配達手数料支払情報出力_2026年04月_20260401120000.xlsx"
 }
 ```
 
@@ -648,7 +673,8 @@ VALUES (4, NOW(), :account_id, :user_ja_id,
 - 対象データ 0 件の場合：HTTP 200 + `application/json` `{ data: [] }`（Excel 出力 / S3 保存 / DB 登録は実行しない。FE が画面内表示）。
 - S3 / DB 接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)（ACSMS-MSG-021-002）。
 - レート制限超過の場合：HTTP 429 (`TOO_MANY_REQUESTS`)
-- エラーログ記録（トランザクション外で別途記録）:
+- 失効単価参照エラー（HTTP 409 `INACTIVE_TANKA_REFERENCED`）は業務エラーのため、以下のエラーログ（log_type=3）記録の対象外とする（S3保存・DB登録前の error gate で止まるため）。
+- エラーログ記録（トランザクション外で別途記録。失効単価参照エラーを除く）:
 
 ```sql
 INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,

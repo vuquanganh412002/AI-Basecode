@@ -55,7 +55,7 @@ updated_by: Dao Van Thang
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND   | 指定された販売店が見つかりません。                                     | HTTP 404 |
-| 9   | 画面固有     | DUPLICATE_CODE        | 同一の販売店コードが既に登録されています。                             | HTTP 400 |
+| 9   | 画面固有     | DUPLICATE_CODE        | 販売店コード「{値}」はすでに登録されています。                         | HTTP 400 |
 
 ---
 
@@ -129,13 +129,13 @@ GET /api/v1/hanbaiten/1
     "ja_id": 1,
     "hanbaiten_code": "H001",
     "hanbaiten_name": "販売店A",
-    "hanbaiten_name_kana": "ハンバイテンA",
+    "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
     "torihikisaki_no": "1234567890123",
     "todofuken_code": "13",
     "yubin_no": "1000001",
     "address": "東京都千代田区1-1-1",
-    "tel": "03-1234-5678",
-    "fax": "03-1234-5679",
+    "tel": "0312345678",
+    "fax": "0312345679",
     "shocho_name": "山田太郎",
     "itaku_kubun": 1,
     "haitatsuryo_tanka_id": 10,
@@ -164,7 +164,7 @@ GET /api/v1/hanbaiten/1
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -173,16 +173,7 @@ GET /api/v1/hanbaiten/1
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
-}
-```
-
-### 403 Data Scope Violation
-
-```json
-{
-  "error_code": "DATA_SCOPE_VIOLATION",
-  "message": "このデータへのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -191,7 +182,7 @@ GET /api/v1/hanbaiten/1
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定された販売店が見つかりません"
+  "message": "指定された販売店が見つかりません。"
 }
 ```
 
@@ -200,7 +191,7 @@ GET /api/v1/hanbaiten/1
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -217,14 +208,16 @@ GET /api/v1/hanbaiten/1
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
-- 権限チェック：`hanbaiten.view` を保持しているか確認する。
+- 権限チェック：`hanbaiten.view` **または** `hanbaiten.daiko_input` のいずれかを保持しているか確認する（OR 条件。編集フォームの初期表示もこのエンドポイントから hydrate するため一覧と同じ OR 判定）。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - NICHINO_STAFF は `hanbaiten.view` と `hanbaiten.daiko_input` の両方を保持する（seeder.md §3 role_id=2）。
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得
 
 - ログインユーザーのスコープを取得する（ja_id）。
-- 以下の条件でデータを取得する。
+- 以下の条件でデータを取得する（restricted ロールは `ja_id` を WHERE 句に含める。
+  NICHINO_STAFF / NICHINO_ADMIN は `session.ja_id == null` のため絞込を回避する）。
 
 ```sql
 SELECT hanbaiten_id, ja_id, hanbaiten_code, hanbaiten_name,
@@ -241,8 +234,11 @@ WHERE hanbaiten_id = :hanbaiten_id
   AND deleted_at IS NULL
 ```
 
-- レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- ja_id が一致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- レコードが存在しない場合、または対象行が呼び出しユーザーの JA スコープ外の場合：
+  いずれも HTTP 404 (`NOT_FOUND`)。ja_id は SELECT の WHERE 句に組み込まれるため、
+  範囲外の行はクエリにヒットせず「存在しない」と同じ結果になる（他 JA の存在を
+  漏らさないための意図的なマスク。本エンドポイントは 403
+  `DATA_SCOPE_VIOLATION` を返さない）。
 
 ### 4.4 レスポンス生成
 
@@ -267,36 +263,37 @@ WHERE hanbaiten_id = :hanbaiten_id
 | リクエストボディー     | JSON                                                                                                                                                                                                                                       |
 | リクエストパラメーター |                                                                                                                                                                                                                                            |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
-| HTTPレスポンスコード   | 201:正常に販売店を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:同一の販売店コードが既に登録されています, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 201:正常に販売店を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:販売店コード「{値}」はすでに登録されています, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
 | #   | パラメーターID           | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                     |
 | --- | ------------------------ | ------ | -------- | ---- | ------ | ------ | ---------------------------------------- |
-| 1   | hanbaiten_code           | String | -        | 〇   | 1      | 10     | 販売店コード                             |
-| 2   | hanbaiten_name           | String | -        | 〇   | 1      | 100    | 販売店名                                 |
-| 3   | hanbaiten_name_kana      | String | -        | -    | 1      | 100    | 販売店名（カナ）                         |
-| 4   | todofuken_code           | String | -        | -    | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
-| 5   | torihikisaki_no          | String | -        | -    | 1      | 20     | 適格請求書発行事業者番号                 |
-| 6   | yubin_no                 | String | -        | -    | 1      | 7      | 郵便番号                                 |
-| 7   | address                  | String | -        | -    | 1      | 200    | 住所                                     |
-| 8   | tel                      | String | -        | -    | 1      | 15     | 電話番号                                 |
-| 9   | fax                      | String | -        | -    | 1      | 15     | FAX番号                                  |
-| 10  | shocho_name              | String | -        | -    | 1      | 50     | 所長名                                   |
-| 11  | itaku_kubun              | Number | -        | -    |        |        | 委託区分（※m_code.code_category='ITAKU_KUBUN'を参照、1:振込, 2:日農委託, 9:その他） |
-| 12  | haitatsuryo_tanka_id     | Number | -        | -    |        |        | 配達手数料単価ID（FK:m_tanka）           |
-| 13  | haitatsuryo_shiharai_cycle| Number | -        | -    |        |        | 配達手数料支払サイクル（月数）           |
-| 14  | furikomi_tesuryo_futan_kubun            | Number | -        | -    |        |        | 振込手数料負担区分（※m_code.code_category='TESURYO_KUBUN'を参照、1:JA, 2:販売店） |
-| 15  | furikomi_tesuryo           | Number | -        | -    |        |        | 振込手数料 ≧ 0                          |
-| 16  | bank_code                | String | -        | -    | 1      | 4      | 金融機関コード（itaku_kubun=1の場合は必須）  |
-| 17  | bank_name                | String | -        | -    | 1      | 100    | 金融機関名（itaku_kubun=1の場合は必須）      |
-| 18  | bank_branch_code         | String | -        | -    | 1      | 3      | 口座支店コード（itaku_kubun=1の場合は必須）  |
-| 19  | bank_branch_name         | String | -        | -    | 1      | 100    | 口座支店名（itaku_kubun=1の場合は必須）      |
-| 20  | yokin_shubetsu           | Number | -        | -    |        |        | 口座種別（※m_code.code_category='YOKIN_SHUBETSU'を参照、1:普通, 2:当座、itaku_kubun=1の場合は必須） |
-| 21  | koza_no                  | String | -        | -    | 1      | 10     | 口座番号（itaku_kubun=1の場合は必須）    |
-| 22  | koza_meigi               | String | -        | -    | 1      | 50     | 口座名義（itaku_kubun=1の場合は必須）    |
-| 23  | haiten_flg               | Boolean| -        | -    |        |        | 廃店フラグ（true:廃店, false:営業中、省略時はfalse） |
-| 24  | biko                     | String | -        | -    |        |        | 備考                                     |
+| 1   | ja_id                    | Number | -        | -    | 1      |        | 登録先JA ID（NICHINO_STAFF の代行入力専用の任意項目。1以上の整数。セッションスコープ役（CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）が送っても無視され `session.ja_id` が使われる） |
+| 2   | hanbaiten_code           | String | -        | 〇   | 1      | 10     | 販売店コード                             |
+| 3   | hanbaiten_name           | String | -        | 〇   | 1      | 100    | 販売店名                                 |
+| 4   | hanbaiten_name_kana      | String | -        | -    | 1      | 100    | 販売店名（カナ）                         |
+| 5   | todofuken_code           | String | -        | -    | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
+| 6   | torihikisaki_no          | String | -        | -    | 1      | 20     | 適格請求書発行事業者番号                 |
+| 7   | yubin_no                 | String | -        | -    | 1      | 7      | 郵便番号                                 |
+| 8   | address                  | String | -        | -    | 1      | 200    | 住所                                     |
+| 9   | tel                      | String | -        | -    | 1      | 15     | 電話番号                                 |
+| 10  | fax                      | String | -        | -    | 1      | 15     | FAX番号                                  |
+| 11  | shocho_name              | String | -        | -    | 1      | 50     | 所長名                                   |
+| 12  | itaku_kubun              | Number | -        | 〇   |        |        | 委託区分（※m_code.code_category='ITAKU_KUBUN'を参照、1:振込, 2:日農委託, 9:その他） |
+| 13  | haitatsuryo_tanka_id     | Number | -        | -    |        |        | 配達手数料単価ID（FK:m_tanka）           |
+| 14  | haitatsuryo_shiharai_cycle| Number | -        | -    |        |        | 配達手数料支払サイクル（月数）           |
+| 15  | furikomi_tesuryo_futan_kubun            | Number | -        | 〇   |        |        | 振込手数料負担区分（※m_code.code_category='TESURYO_KUBUN'を参照、1:JA, 2:販売店） |
+| 16  | furikomi_tesuryo           | Number | -        | -    |        |        | 振込手数料 ≧ 0                          |
+| 17  | bank_code                | String | -        | -    | 1      | 4      | 金融機関コード（itaku_kubun=1の場合は必須）  |
+| 18  | bank_name                | String | -        | -    | 1      | 100    | 金融機関名（itaku_kubun=1の場合は必須）      |
+| 19  | bank_branch_code         | String | -        | -    | 1      | 3      | 口座支店コード（itaku_kubun=1の場合は必須）  |
+| 20  | bank_branch_name         | String | -        | -    | 1      | 100    | 口座支店名（itaku_kubun=1の場合は必須）      |
+| 21  | yokin_shubetsu           | Number | -        | -    |        |        | 口座種別（※m_code.code_category='YOKIN_SHUBETSU'を参照、1:普通, 2:当座、itaku_kubun=1の場合は必須） |
+| 22  | koza_no                  | String | -        | -    | 1      | 10     | 口座番号（itaku_kubun=1の場合は必須）    |
+| 23  | koza_meigi               | String | -        | -    | 1      | 50     | 口座名義（itaku_kubun=1の場合は必須）    |
+| 24  | haiten_flg               | Boolean| -        | -    |        |        | 廃店フラグ（true:廃店, false:営業中、省略時はfalse） |
+| 25  | biko                     | String | -        | -    |        |        | 備考                                     |
 
 ## レスポンスデータ
 
@@ -331,6 +328,7 @@ WHERE hanbaiten_id = :hanbaiten_id
 | 27  | →biko                      | String | -        |              | -         | 備考                       |
 | 28  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
 | 29  | →updated_at                | String | -        | ISO8601      | -         | 更新日時                   |
+| 30  | message                    | String | -        |              | -        | 処理結果メッセージ（`登録しました。`） |
 
 ## リクエスト例
 
@@ -341,13 +339,13 @@ Content-Type: application/json
 {
   "hanbaiten_code": "H001",
   "hanbaiten_name": "販売店A",
-  "hanbaiten_name_kana": "ハンバイテンA",
+  "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
   "torihikisaki_no": "1234567890123",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "東京都千代田区1-1-1",
-  "tel": "03-1234-5678",
-  "fax": "03-1234-5679",
+  "tel": "0312345678",
+  "fax": "0312345679",
   "shocho_name": "山田太郎",
   "itaku_kubun": 1,
   "haitatsuryo_tanka_id": 10,
@@ -375,13 +373,13 @@ Content-Type: application/json
     "ja_id": 1,
     "hanbaiten_code": "H001",
     "hanbaiten_name": "販売店A",
-    "hanbaiten_name_kana": "ハンバイテンA",
+    "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
     "torihikisaki_no": "1234567890123",
     "todofuken_code": "13",
     "yubin_no": "1000001",
     "address": "東京都千代田区1-1-1",
-    "tel": "03-1234-5678",
-    "fax": "03-1234-5679",
+    "tel": "0312345678",
+    "fax": "0312345679",
     "shocho_name": "山田太郎",
     "itaku_kubun": 1,
     "haitatsuryo_tanka_id": 10,
@@ -399,7 +397,8 @@ Content-Type: application/json
     "biko": "特別な対応なし",
     "created_at": "2026-04-16T10:00:00Z",
     "updated_at": null
-  }
+  },
+  "message": "登録しました。"
 }
 ```
 
@@ -410,11 +409,11 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "hanbaiten_code", "message": "販売店コードは必須です" },
-    { "field": "hanbaiten_name", "message": "販売店名は必須です" },
-    { "field": "bank_code", "message": "委託区分が振込の場合は銀行コードは必須です" }
+    { "field": "hanbaiten_code", "message": "販売店コードは必須です。" },
+    { "field": "hanbaiten_name", "message": "販売店名は必須です。" },
+    { "field": "bank_code", "message": "委託区分が振込の場合は金融機関コードは必須です。" }
   ]
 }
 ```
@@ -424,7 +423,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -433,7 +432,25 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
+}
+```
+
+### 400 Bad Request（配達手数料単価IDが存在しない）
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "配達手数料単価IDが存在しません。"
+}
+```
+
+### 403 Data Scope Violation（配達手数料単価IDが他JAに属する）
+
+```json
+{
+  "error_code": "DATA_SCOPE_VIOLATION",
+  "message": "このデータへのアクセス権限がありません。"
 }
 ```
 
@@ -442,7 +459,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "DUPLICATE_CODE",
-  "message": "同一の販売店コードが既に登録されています"
+  "message": "販売店コード「H001」はすでに登録されています。"
 }
 ```
 
@@ -451,7 +468,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -464,20 +481,21 @@ Content-Type: application/json
 ### 4.1 リクエストのバリデーション
 
 - リクエストボディの検証：
-  - hanbaiten_code：必須、最大10桁、同一JA内で一意
+  - ja_id：NICHINO_STAFF（代行入力）専用の任意項目。整数、1以上（セッションスコープ役が送っても無視される）
+  - hanbaiten_code：必須、最大10桁、同一JA内で一意（論理削除済みコードも再利用不可）
   - hanbaiten_name：必須、最大100桁
-  - hanbaiten_name_kana：最大100桁
+  - hanbaiten_name_kana：最大100桁、半角カタカナ・半角数字のみ（`^[ｦ-ﾟ\s0-9]+$`）
   - todofuken_code：2桁、m_todofuken に存在するコードのみ許可（プルダウンは ACSMS-API-COMMON-001 を参照）
   - torihikisaki_no：最大20桁
   - yubin_no：最大7桁（郵便番号形式チェック）
   - address：最大200桁
-  - tel：最大15桁
-  - fax：最大15桁
+  - tel：最大15桁、半角数字のみ（ハイフンなし、`^\d+$`）
+  - fax：最大15桁、半角数字のみ（ハイフンなし、`^\d+$`）
   - shocho_name：最大50桁
-  - itaku_kubun：※m_code.code_category='ITAKU_KUBUN'を参照（1, 2, 9 のいずれか）
-  - haitatsuryo_tanka_id：数値型チェック
+  - itaku_kubun：**必須**、※m_code.code_category='ITAKU_KUBUN'を参照（1, 2, 9 のいずれか）
+  - haitatsuryo_tanka_id：数値型チェック。指定時は登録先 JA（下記4.3で解決する `ja_id`）に属する `m_tanka` 行として存在すること（存在しない場合：HTTP 400 `BAD_REQUEST`「配達手数料単価IDが存在しません。」、他 JA の単価IDの場合：HTTP 403 `DATA_SCOPE_VIOLATION`）
   - haitatsuryo_shiharai_cycle：数値型チェック
-  - furikomi_tesuryo_futan_kubun：※m_code.code_category='TESURYO_KUBUN'を参照（1, 2 のいずれか）
+  - furikomi_tesuryo_futan_kubun：**必須**、※m_code.code_category='TESURYO_KUBUN'を参照（1, 2 のいずれか）
   - furikomi_tesuryo：数値型チェック、≧ 0
   - haiten_flg：Boolean型チェック（省略時は false）
   - biko：テキスト型
@@ -497,23 +515,29 @@ Content-Type: application/json
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- 権限チェック：`hanbaiten.create` を保持しているか確認する。
+- 権限チェック：`hanbaiten.create` **または** `hanbaiten.daiko_input` のいずれかを保持しているか確認する（OR 条件）。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - NICHINO_STAFF は `hanbaiten.create` と `hanbaiten.daiko_input`（代行入力）の両方を保持する（seeder.md §3 role_id=2）。CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は `hanbaiten.create` のみを保持し、`hanbaiten.daiko_input`（permission_id=45）は role_id=2 にのみ付与される。
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 重複チェック
 
-- ログインユーザーのスコープを取得する（ja_id）。
-- 以下の条件で重複を確認する。
+- 登録先 JA ID（`ja_id`）を解決する：セッションスコープ役（CHUOKAI / JA_HONTEN /
+  JA_KANRI_SHITEN）は `session.ja_id` を採用（リクエストボディの `ja_id` は無視）。
+  NICHINO_STAFF（代行入力・`session.ja_id == null`）はリクエストボディの
+  `ja_id` を採用する。いずれも未解決の場合：HTTP 400 (`VALIDATION_ERROR`,
+  `{ "field": "ja_id", "message": "JA IDは必須です。" }`)
+- 以下の条件で重複を確認する（`(ja_id, hanbaiten_code)` は UNIQUE 制約。
+  論理削除済み行も含めて確認し、削除済みコードの再利用を禁止する）。
 
 ```sql
 SELECT COUNT(*) FROM m_hanbaiten
 WHERE hanbaiten_code = :hanbaiten_code
   AND ja_id = :ja_id
-  AND deleted_at IS NULL
 ```
 
-- 重複がある場合：HTTP 400 (`DUPLICATE_CODE`)
+- 重複がある場合：HTTP 400 (`DUPLICATE_CODE`) — メッセージに実際のコード値を含める
+  （例：`販売店コード「H001」はすでに登録されています。`）
 
 ### 4.4 データ登録
 
@@ -569,13 +593,13 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "ja_id": 1,
   "hanbaiten_code": "H001",
   "hanbaiten_name": "販売店A",
-  "hanbaiten_name_kana": "ハンバイテンA",
+  "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
   "torihikisaki_no": "1234567890123",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "東京都千代田区1-1-1",
-  "tel": "03-1234-5678",
-  "fax": "03-1234-5679",
+  "tel": "0312345678",
+  "fax": "0312345679",
   "shocho_name": "山田太郎",
   "itaku_kubun": 1,
   "haitatsuryo_tanka_id": 10,
@@ -649,10 +673,10 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 8   | tel                      | String | -        | -    | 1      | 15     | 電話番号                                 |
 | 9   | fax                      | String | -        | -    | 1      | 15     | FAX番号                                  |
 | 10  | shocho_name              | String | -        | -    | 1      | 50     | 所長名                                   |
-| 11  | itaku_kubun              | Number | -        | -    |        |        | 委託区分（※m_code.code_category='ITAKU_KUBUN'を参照、1:振込, 2:日農委託, 9:その他） |
+| 11  | itaku_kubun              | Number | -        | 〇   |        |        | 委託区分（※m_code.code_category='ITAKU_KUBUN'を参照、1:振込, 2:日農委託, 9:その他） |
 | 12  | haitatsuryo_tanka_id     | Number | -        | -    |        |        | 配達手数料単価ID（FK:m_tanka）           |
 | 13  | haitatsuryo_shiharai_cycle| Number | -        | -    |        |        | 配達手数料支払サイクル（月数）           |
-| 14  | furikomi_tesuryo_futan_kubun            | Number | -        | -    |        |        | 振込手数料負担区分（※m_code.code_category='TESURYO_KUBUN'を参照、1:JA, 2:販売店） |
+| 14  | furikomi_tesuryo_futan_kubun            | Number | -        | 〇   |        |        | 振込手数料負担区分（※m_code.code_category='TESURYO_KUBUN'を参照、1:JA, 2:販売店） |
 | 15  | furikomi_tesuryo           | Number | -        | -    |        |        | 振込手数料 ≧ 0                          |
 | 16  | bank_code                | String | -        | -    | 1      | 4      | 金融機関コード（itaku_kubun=1の場合は必須）  |
 | 17  | bank_name                | String | -        | -    | 1      | 100    | 金融機関名（itaku_kubun=1の場合は必須）      |
@@ -699,6 +723,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 27  | →biko                      | String | -        |              | -         | 備考                       |
 | 28  | →created_at                | String | -        | ISO8601      | -        | 作成日時                   |
 | 29  | →updated_at                | String | -        | ISO8601      | -         | 更新日時                   |
+| 30  | message                    | String | -        |              | -        | 処理結果メッセージ（`更新しました。`） |
 
 ## リクエスト例
 
@@ -708,13 +733,13 @@ Content-Type: application/json
 
 {
   "hanbaiten_name": "販売店A改定",
-  "hanbaiten_name_kana": "ハンバイテンA",
+  "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
   "torihikisaki_no": "1234567890123",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "東京都千代田区1-1-1",
-  "tel": "03-1234-5678",
-  "fax": "03-1234-5679",
+  "tel": "0312345678",
+  "fax": "0312345679",
   "shocho_name": "山田太郎",
   "itaku_kubun": 1,
   "haitatsuryo_tanka_id": 10,
@@ -742,13 +767,13 @@ Content-Type: application/json
     "ja_id": 1,
     "hanbaiten_code": "H001",
     "hanbaiten_name": "販売店A改定",
-    "hanbaiten_name_kana": "ハンバイテンA",
+    "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
     "torihikisaki_no": "1234567890123",
     "todofuken_code": "13",
     "yubin_no": "1000001",
     "address": "東京都千代田区1-1-1",
-    "tel": "03-1234-5678",
-    "fax": "03-1234-5679",
+    "tel": "0312345678",
+    "fax": "0312345679",
     "shocho_name": "山田太郎",
     "itaku_kubun": 1,
     "haitatsuryo_tanka_id": 10,
@@ -766,7 +791,8 @@ Content-Type: application/json
     "biko": "更新しました",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-04-16T14:30:00Z"
-  }
+  },
+  "message": "更新しました。"
 }
 ```
 
@@ -777,10 +803,10 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "hanbaiten_name", "message": "販売店名は必須です" },
-    { "field": "bank_code", "message": "委託区分が振込の場合は銀行コードは必須です" }
+    { "field": "hanbaiten_name", "message": "販売店名は必須です。" },
+    { "field": "bank_code", "message": "委託区分が振込の場合は金融機関コードは必須です。" }
   ]
 }
 ```
@@ -790,7 +816,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -799,16 +825,25 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
-### 403 Data Scope Violation
+### 400 Bad Request（配達手数料単価IDが存在しない）
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "配達手数料単価IDが存在しません。"
+}
+```
+
+### 403 Data Scope Violation（配達手数料単価IDが他JAに属する）
 
 ```json
 {
   "error_code": "DATA_SCOPE_VIOLATION",
-  "message": "このデータへのアクセス権限がありません"
+  "message": "このデータへのアクセス権限がありません。"
 }
 ```
 
@@ -817,7 +852,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定された販売店が見つかりません"
+  "message": "指定された販売店が見つかりません。"
 }
 ```
 
@@ -826,7 +861,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -841,18 +876,18 @@ Content-Type: application/json
 - パスパラメータ：hanbaiten_id 数値型チェック、必須
 - リクエストボディ：
   - hanbaiten_name：必須、最大100桁
-  - hanbaiten_name_kana：最大100桁
+  - hanbaiten_name_kana：最大100桁、半角カタカナ・半角数字のみ（`^[ｦ-ﾟ\s0-9]+$`）
   - todofuken_code：2桁、m_todofuken に存在するコードのみ許可（プルダウンは ACSMS-API-COMMON-001 を参照）
   - torihikisaki_no：最大20桁
   - yubin_no：最大7桁（郵便番号形式チェック）
   - address：最大200桁
-  - tel：最大15桁
-  - fax：最大15桁
+  - tel：最大15桁、半角数字のみ（ハイフンなし、`^\d+$`）
+  - fax：最大15桁、半角数字のみ（ハイフンなし、`^\d+$`）
   - shocho_name：最大50桁
-  - itaku_kubun：※m_code.code_category='ITAKU_KUBUN'を参照（1, 2, 9 のいずれか）
-  - haitatsuryo_tanka_id：数値型チェック
+  - itaku_kubun：**必須**、※m_code.code_category='ITAKU_KUBUN'を参照（1, 2, 9 のいずれか）
+  - haitatsuryo_tanka_id：数値型チェック。指定時は対象販売店の JA（更新前レコードの `ja_id`）に属する `m_tanka` 行として存在すること（存在しない場合：HTTP 400 `BAD_REQUEST`「配達手数料単価IDが存在しません。」、他 JA の単価IDの場合：HTTP 403 `DATA_SCOPE_VIOLATION`）
   - haitatsuryo_shiharai_cycle：数値型チェック
-  - furikomi_tesuryo_futan_kubun：※m_code.code_category='TESURYO_KUBUN'を参照（1, 2 のいずれか）
+  - furikomi_tesuryo_futan_kubun：**必須**、※m_code.code_category='TESURYO_KUBUN'を参照（1, 2 のいずれか）
   - furikomi_tesuryo：数値型チェック、≧ 0
   - haiten_flg：Boolean型チェック
   - biko：テキスト型
@@ -871,23 +906,30 @@ Content-Type: application/json
 ### 4.2 認証・認可チェック
 
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- 権限チェック：`hanbaiten.update` を保持しているか確認する。
+- 権限チェック：`hanbaiten.update` **または** `hanbaiten.daiko_input` のいずれかを保持しているか確認する（OR 条件）。
   - 対象ロール：NICHINO_STAFF（日農担当者）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - NICHINO_STAFF は `hanbaiten.update` と `hanbaiten.daiko_input`（代行入力）の両方を保持する（seeder.md §3 role_id=2）。CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は `hanbaiten.update` のみを保持する。
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 対象レコードの存在確認
 
-- ログインユーザーのスコープを取得する（ja_id）。
+- ログインユーザーのスコープを取得する（ja_id）。存在確認は JA を絞らず
+  `hanbaiten_id` のみで取得し、取得後に対象行の `ja_id` を呼び出しユーザーの
+  スコープと突き合わせる（restricted ロールのみ。NICHINO_STAFF /
+  NICHINO_ADMIN は `session.ja_id == null` のため突き合わせを回避する）。
 
 ```sql
 SELECT * FROM m_hanbaiten
 WHERE hanbaiten_id = :hanbaiten_id
-  AND ja_id = :ja_id
   AND deleted_at IS NULL
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- ja_id が一致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- レコードは存在するが対象行の `ja_id` が呼び出しユーザーのスコープ外の場合：
+  他 JA の存在を漏らさないため NOT_FOUND と同一の HTTP 404 (`NOT_FOUND`) でマスクする
+  （403 `DATA_SCOPE_VIOLATION` ではない）。
+  ※ 本 API が実際に 403 `DATA_SCOPE_VIOLATION` を返すのは §4.1 の
+  `haitatsuryo_tanka_id` FK チェック（他 JA の単価IDを指定した場合）のみ。
 
 ### 4.4 データ更新
 
@@ -954,13 +996,13 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "ja_id": 1,
   "hanbaiten_code": "H001",
   "hanbaiten_name": "販売店A",
-  "hanbaiten_name_kana": "ハンバイテンA",
+  "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
   "torihikisaki_no": "1234567890123",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "東京都千代田区1-1-1",
-  "tel": "03-1234-5678",
-  "fax": "03-1234-5679",
+  "tel": "0312345678",
+  "fax": "0312345679",
   "shocho_name": "山田太郎",
   "itaku_kubun": 1,
   "haitatsuryo_tanka_id": 10,
@@ -989,13 +1031,13 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "ja_id": 1,
   "hanbaiten_code": "H001",
   "hanbaiten_name": "販売店A改定",
-  "hanbaiten_name_kana": "ハンバイテンA",
+  "hanbaiten_name_kana": "ﾊﾝﾊﾞｲﾃﾝ",
   "torihikisaki_no": "1234567890123",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "東京都千代田区1-1-1",
-  "tel": "03-1234-5678",
-  "fax": "03-1234-5679",
+  "tel": "0312345678",
+  "fax": "0312345679",
   "shocho_name": "山田太郎",
   "itaku_kubun": 1,
   "haitatsuryo_tanka_id": 10,

@@ -47,7 +47,7 @@
 | 3 | dokusya.update | 購読者編集 | 購読者情報の編集 |
 | 4 | dokusya.delete | 購読者削除 | 購読者情報の削除 |
 | 5 | dokusya.import | 購読者Excelデータ取込 | 購読者情報のExcel一括取込 |
-| 6 | dokusya.replace_hanbaiten | 購読者販売店一括置換 | 購読者の販売店を一括置換 |
+| 6 | dokusya.replace_hanbaiten | 統廃合販売店読者移行 | 販売店統廃合に伴う購読者の販売店一括置換（顧客要件2026-08：画面名を購読者販売店一括置換から改称） |
 
 ### 2.2 販売店（hanbaiten）
 

@@ -259,16 +259,21 @@ beforeEach(() => {
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
-  it('should render every column checkbox checked in NEW mode', async () => {
+  it('should render every column checkbox checked in NEW mode (except ID, which is greyed out)', async () => {
     const { wrapper } = await renderView();
-    // 機能 1.1 — 取込列パネルは展開済み。46列すべてにチェックボックスが出て
+    // 機能 1.1 — 取込列パネルは展開済み。ID以外の49列にチェックボックスが出て
     // 全選択済み。購読種別 / 読者情報変更適用日 / 購読中止日 は画面で指定する
-    // 単一ソースのため列に無い（顧客要件 2026-07 / 2026-08）。
+    // 単一ソースのため列に無い（顧客要件 2026-07 / 2026-08）。IDは新規登録では
+    // 自動採番のためチェックボックス自体を出さずグレー表示にする
+    // （不具合修正2026-08）。
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes).toHaveLength(50); // 46 + 購読者層分類の従属4項目
+    expect(colCheckboxes).toHaveLength(49); // 46 + 購読者層分類の従属4項目 - ID
     for (const cb of colCheckboxes) {
       expect((cb.element as HTMLInputElement).checked).toBe(true);
     }
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_id"]').exists(),
+    ).toBe(false);
     expect(wrapper.text()).not.toContain('販売店適用日');
   });
 
@@ -478,6 +483,34 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     const rows = body.rows as Array<Record<string, unknown>>;
     expect(rows[0]).not.toHaveProperty('dokusya_chushi_date');
     expect(rows[0]).not.toHaveProperty('joho_henko_tekiyo_date');
+  });
+
+  it('should NOT send unrelated columns (email/mail_magazine_flg/生年) when 一括中止 leaves only ID checked, even if the Excel sheet still has data in those cells (バグ報告2026-08)', async () => {
+    // Real-world trigger: the user re-uses an export that still has every
+    // column filled in, but only checks 中止日+ID for 一括中止. The row
+    // payload must only carry what's actually selected, or BE's format
+    // checks (@IsEmail/@IsNumber) reject the whole batch for columns that
+    // were never going to be written anyway.
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+    vi.mocked(importDokusyaExcel).mockResolvedValue(
+      buildImportSuccessResponse({ data: { import_mode: 'UPDATE' } }) as any,
+    );
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_id: 215, birth_year: 1990 }),
+    ]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(body.selected_columns).toEqual(['dokusya_id']);
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).toEqual({ dokusya_id: 215 });
   });
 
   it('should use a MONTH picker for 中止日 on 電子版 and send the month end', async () => {
@@ -830,6 +863,110 @@ describe('DokusyaImportView (ACSMS-SCR-016) — column panel + select-all', () =
       expect((cb.element as HTMLInputElement).checked).toBe(true);
     }
   });
+
+  // 電子版は部数・販売店コードとも BE 側で固定するため（顧客要件 2026-08）、
+  // 画面ではこの2列をチェックボックス無しのグレー表示にする — 更新不可項目
+  // （購読開始日）と同じ扱い。
+  it('should render dokusya_busu/hanbaiten_code without a checkbox (grey, uneditable) when 電子版 is selected', async () => {
+    const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_busu"]').exists(),
+    ).toBe(false);
+    expect(
+      wrapper.find('input[type="checkbox"][value="hanbaiten_code"]').exists(),
+    ).toBe(false);
+  });
+
+  it('should render dokusya_busu/hanbaiten_code with a checkbox for 紙版 (unchanged behavior)', async () => {
+    const { wrapper } = await renderView();
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_busu"]').exists(),
+    ).toBe(true);
+    expect(
+      wrapper.find('input[type="checkbox"][value="hanbaiten_code"]').exists(),
+    ).toBe(true);
+  });
+});
+
+// バグ報告2026-08: 新規登録(NEW)モードでは ID は自動採番のため意味を持たない。
+// dokusya_busu/hanbaiten_code(電子版) と同じ「チェックボックス無し・グレー
+// 表示」にし、送信payloadにも含めない。
+describe('DokusyaImportView (ACSMS-SCR-016) — 新規登録モードのID列（不具合修正2026-08）', () => {
+  it('should render the ID column without a checkbox (grey) in NEW mode', async () => {
+    const { wrapper } = await renderView(); // NEW is default
+    expect(
+      wrapper.find('input[type="checkbox"][value="dokusya_id"]').exists(),
+    ).toBe(false);
+  });
+
+  it('should render the ID column WITH a checkbox (checked+disabled) in UPDATE mode (unchanged behavior)', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    const idCb = wrapper.find('input[type="checkbox"][value="dokusya_id"]');
+    expect(idCb.exists()).toBe(true);
+    expect((idCb.element as HTMLInputElement).checked).toBe(true);
+    expect((idCb.element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('should NOT send dokusya_id in the row payload when submitting a NEW-mode import, even if the Excel cell has a value', async () => {
+    const { wrapper } = await renderView(); // NEW is default
+    vi.mocked(importDokusyaExcel).mockResolvedValue(
+      buildImportSuccessResponse() as any,
+    );
+    await uploadFile(wrapper, [buildImportRow({ dokusya_id: 999 })]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(body.selected_columns).not.toContain('dokusya_id');
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).not.toHaveProperty('dokusya_id');
+  });
+});
+
+// バグ報告2026-08: 電子版は配達先情報エリアが画面上非活性化される
+// （ACSMS-SCR-011 §7.5）ため、配達先情報12項目は取込列パネルでも
+// dokusya_busu/hanbaiten_code と同じ「チェックボックス無し・グレー表示」
+// にする。
+describe('DokusyaImportView (ACSMS-SCR-016) — 電子版の配達先情報12項目（不具合修正2026-08）', () => {
+  const HAITATSU_COLUMNS = [
+    'haitatsu_same_flg',
+    'haitatsu_yubin_no',
+    'haitatsu_todofuken_code',
+    'haitatsu_shikuchoson',
+    'haitatsu_chome_banchi',
+    'haitatsu_tatemono_mei',
+    'haitatsu_renrakusaki_1',
+    'haitatsu_renrakusaki_2',
+    'haitatsu_shimei_sei',
+    'haitatsu_shimei_mei',
+    'haitatsu_shimei_kana_sei',
+    'haitatsu_shimei_kana_mei',
+  ];
+
+  it('should render all 12 配達先 columns without a checkbox (grey, uneditable) when 電子版 is selected', async () => {
+    const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
+    for (const col of HAITATSU_COLUMNS) {
+      expect(
+        wrapper.find(`input[type="checkbox"][value="${col}"]`).exists(),
+      ).toBe(false);
+    }
+  });
+
+  it('should render all 12 配達先 columns with a checkbox for 紙版 (unchanged behavior)', async () => {
+    const { wrapper } = await renderView();
+    for (const col of HAITATSU_COLUMNS) {
+      expect(
+        wrapper.find(`input[type="checkbox"][value="${col}"]`).exists(),
+      ).toBe(true);
+    }
+  });
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — 取込モード radios', () => {
@@ -1083,6 +1220,49 @@ describe('DokusyaImportView (ACSMS-SCR-016) — confirm modal + submit', () => {
     // 購読種別は rows[i] のキーには含めない（列ではないため）。
     const rows = body.rows as Array<Record<string, unknown>>;
     expect(rows[0]).not.toHaveProperty('dokusya_shubetsu');
+  });
+
+  // 電子版は実在の販売店へ配達しないため、部数・販売店コードとも常に単一の
+  // 固定値しか取り得ない（顧客要件 2026-08）。BE が行ごと dokusya_busu=1 /
+  // hanbaiten_code=ダミー販売店(9999999999) へ強制するので、FE はこの2列を
+  // 編集不可（グレー表示）にし、Excel セルの値を送らない。
+  it('should NOT include dokusya_busu/hanbaiten_code in selected_columns or rows when 電子版 is selected', async () => {
+    const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
+    await uploadFile(wrapper, [
+      buildImportRow({
+        email: 'denshi@example.com',
+        dokusya_busu: 3,
+        hanbaiten_code: 'H001',
+      }),
+    ]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0][0] as Record<string, unknown>;
+    const cols = body.selected_columns as string[];
+    expect(cols).not.toContain('dokusya_busu');
+    expect(cols).not.toContain('hanbaiten_code');
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).not.toHaveProperty('dokusya_busu');
+    expect(rows[0]).not.toHaveProperty('hanbaiten_code');
+  });
+
+  it('should still send dokusya_busu/hanbaiten_code for 紙版 (unchanged behavior)', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ dokusya_busu: 3, hanbaiten_code: 'H001' }),
+    ]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    const body = vi.mocked(importDokusyaExcel).mock.calls[0][0] as Record<string, unknown>;
+    const cols = body.selected_columns as string[];
+    expect(cols).toContain('dokusya_busu');
+    expect(cols).toContain('hanbaiten_code');
+    const rows = body.rows as Array<Record<string, unknown>>;
+    expect(rows[0]).toHaveProperty('dokusya_busu', 3);
+    expect(rows[0]).toHaveProperty('hanbaiten_code', 'H001');
   });
 
   it('should always include the NEW-mode required columns in selected_columns when submitting in 新規登録 mode', async () => {

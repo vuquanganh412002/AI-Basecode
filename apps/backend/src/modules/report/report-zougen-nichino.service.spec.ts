@@ -480,6 +480,19 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(stale).toBeUndefined();
     });
 
+    // 顧客要件2026-08: 増減通知（日本農業新聞）は統廃合フラグの影響を受けない
+    // （SCR-028とは別クエリのnichinoBaseQueryを使うため・仕様変更なし）。
+    it('should NOT filter by hanbaiten_tohaigo_flg — 増減通知（日本農業新聞）reflects all changes regardless of 販売店統廃合', async () => {
+      mockNichinoPage([buildZougenNichinoRawRow()]);
+      await service.previewZougenNichino(buildZougenNichinoQuery(), nSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /hanbaiten_tohaigo_flg/.test(sql),
+      );
+      expect(call).toBeUndefined();
+    });
+
     it('#57976: should NOT exclude 廃店 (haiten_flg) — 増減通知（日本農業新聞）reports subscribers regardless of the current store\'s haiten_flg', async () => {
       // Regression: nichinoBaseQuery previously joined `m_hanbaiten h ON ...
       // AND h.haiten_flg = false`, silently dropping subscribers whose current

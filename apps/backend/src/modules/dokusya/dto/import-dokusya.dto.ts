@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -76,6 +76,69 @@ const blankOrBool = ({ value }: { value: unknown }): unknown => {
 };
 
 /**
+ * 氏名かな (氏/名・配達先とも共通) は全角ひらがなのみ許容 — 半角カナ・
+ * カタカナ・英数字は不可（不具合修正 2026-08）。FE 側 `HIRAGANA_RE`
+ * (apps/frontend/src/views/dokusya/DokusyaFormView.vue) と同一文字集合 —
+ * 片方を変えたら両方更新すること。
+ */
+const HIRAGANA_NAME_RE = /^[ぁ-ゖー0-9０-９\s]+$/u;
+const HIRAGANA_NAME_MSG = 'ひらがなで入力してください。';
+
+/**
+ * 行の検証・書込みは `selected_columns` 対象列のみ（api.md §4.1「各行 rows[i]
+ * の検証（selected_columns 対象列のみ）」・§4.8.1「一括中止ではキー列
+ * (dokusya_id)以外は無視される」）。NEW / UPDATE の両モードに適用する
+ * （不具合修正 2026-08 — 従来は UPDATE のみ対象で、新規登録でチェックを
+ * 外した任意項目に Excel セルの値が残っていると、選択解除＝未入力の
+ * つもりなのに誤って検証・登録されていた）。
+ *
+ * FE は選択解除された列も Excel セルに値が残っていればそのまま送信し得る
+ * （例: 一括中止で ID だけチェックしても email/生年 等のセルに元データが
+ * 残っている）。この値が @IsEmail/@IsNumber 等の形式チェックへ届くと、
+ * 未選択＝書き込まれない列のはずなのに 400 で全体が弾かれてしまう。
+ * selected_columns に無いキーは class-validator が見る前にここで剥がし、
+ * 対象外列の値を「未指定」として扱う——NEW は INSERT 時にその列を NULL /
+ * 空文字（列の NOT NULL 制約に従う既定値）へ、UPDATE は既存値を維持する。
+ * `dokusya_id` / `kumiaiin_code` は UPDATE の突合キー（ID優先・無ければ
+ * 組合員コードにフォールバック — `resolveImportTargetId`/`classifyImportRow`
+ * 参照）のため常に残す。一括中止の画面は列グリッドをID列だけへ縮退させ
+ * `kumiaiin_code` は selected_columns に含まれないため、これを残さないと
+ * ID未指定・組合員コードのみでの一括中止が「指定された購読者が見つかりません」
+ * で必ず失敗する（不具合修正2026-08）。NEW は自動採番のため両方とも
+ * 元々未使用 — 画面側も新規登録では ID をグレー表示＋選択不可にする。
+ */
+const stripUnselectedColumns = ({
+  value,
+  obj,
+}: {
+  value: unknown;
+  obj: { import_mode?: string; selected_columns?: unknown };
+}): unknown => {
+  if (!Array.isArray(value)) return value;
+  if (!Array.isArray(obj.selected_columns)) {
+    // @Transform が値を横取りする代わりに @Type の役目（プレーンオブジェクト
+    // → ImportDokusyaRowDto インスタンス化）を肩代わりする必要があるため、
+    // 何も剥がさない場合もここで明示的にインスタンス化する。
+    return value.map((row) => plainToInstance(ImportDokusyaRowDto, row));
+  }
+  const allowed = new Set<string>(obj.selected_columns as string[]);
+  if (obj.import_mode === 'UPDATE') {
+    allowed.add('dokusya_id');
+    allowed.add('kumiaiin_code');
+  }
+  return value.map((row) => {
+    if (row === null || typeof row !== 'object') {
+      return plainToInstance(ImportDokusyaRowDto, row);
+    }
+    const filtered: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      if (allowed.has(k)) filtered[k] = v;
+    }
+    return plainToInstance(ImportDokusyaRowDto, filtered);
+  });
+};
+
+/**
  * 取込1行。全フィールドは DTO 層では任意 — モード条件付き必須チェックはサービスが行う。
  * 数値フィールドは `blankOrNumber`（空→undefined、文字列→数値）、文字列フィールドは
  * `blankToUndef`（空→undefined、数値→文字列）を使い、api.md §リクエストパラメータ の
@@ -140,6 +203,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(100, { message: '氏名かな（姓）は100文字以内で入力してください。' })
+  @Matches(HIRAGANA_NAME_RE, { message: HIRAGANA_NAME_MSG })
   shimei_kana_sei?: string;
 
   @ApiPropertyOptional({ description: '氏名かな（名）' })
@@ -147,6 +211,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(100, { message: '氏名かな（名）は100文字以内で入力してください。' })
+  @Matches(HIRAGANA_NAME_RE, { message: HIRAGANA_NAME_MSG })
   shimei_kana_mei?: string;
 
   @ApiPropertyOptional({ description: '購読部数' })
@@ -315,6 +380,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(100, { message: '配達先氏名かな（姓）は100文字以内で入力してください。' })
+  @Matches(HIRAGANA_NAME_RE, { message: HIRAGANA_NAME_MSG })
   haitatsu_shimei_kana_sei?: string;
 
   @ApiPropertyOptional({ description: '配達先氏名かな（名）' })
@@ -322,6 +388,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(100, { message: '配達先氏名かな（名）は100文字以内で入力してください。' })
+  @Matches(HIRAGANA_NAME_RE, { message: HIRAGANA_NAME_MSG })
   haitatsu_shimei_kana_mei?: string;
 
   @ApiPropertyOptional({ description: '販売店コード' })
@@ -527,6 +594,7 @@ export class ImportDokusyaDto {
   @ArrayMaxSize(5000, {
     message: 'ファイルの行数が上限（5000行）を超えているため、取込みできません。',
   })
+  @Transform(stripUnselectedColumns)
   @ValidateNested({ each: true })
   @Type(() => ImportDokusyaRowDto)
   rows!: ImportDokusyaRowDto[];

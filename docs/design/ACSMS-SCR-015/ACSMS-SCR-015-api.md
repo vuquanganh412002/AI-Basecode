@@ -3,13 +3,13 @@ customer_name: 日本農業新聞様
 system_name: クラウド版購読者管理システム
 document_name: API設計書
 screen_id: ACSMS-SCR-015
-screen_name: 購読者販売店一括置換画面
+screen_name: 統廃合販売店読者移行画面
 format_code: 15-BM/PM/VTI
 format_version: "1.0"
 issue_date: 2026-05-15
 created_date: 2026/05/15
 created_by: Tran Duc Tuyen
-updated_date: 2026/07/24
+updated_date: 2026/08/17
 updated_by: Tran Duc Tuyen
 ---
 
@@ -27,6 +27,9 @@ updated_by: Tran Duc Tuyen
 | 8   | 2026/07/24 | 1.7  | Tran Duc Tuyen | 顧客要件（2026-07）：検索 API に `new_hanbaiten_id`（**置換先配達販売店**）を**必須**追加。検索は「= 置換元 かつ ≠ 置換先」で絞り込み（as-of 有効レコードの配達販売店に `eff.hanbaiten_id <> :new_hanbaiten_id` を追加）、既に置換先を配達している購読者を除外する（置換元 = 置換先 は 0 件・FE で事前弾き）。FE は置換先を検索エリア（適用日の直後）へ移動し、選択後の置換先入力欄を廃止して検索条件の値を置換実行にそのまま用いる。リクエストパラメータ No.7.5・§概要・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 9   | 2026/07/25 | 1.8  | Tran Duc Tuyen | 顧客要件（2026-07 改訂）：`hanbaiten_id`（配達販売店）を**必須→任意**へ戻す（ラベルも「置換元配達販売店」→「配達販売店」）。指定時のみ `eff.hanbaiten_id = :hanbaiten_id` で追加絞り込み、未指定なら「置換先以外の全販売店」が対象。`new_hanbaiten_id`（置換先）は引き続き必須で `≠ 置換先` を常に適用。§概要・リクエストパラメータ No.7・§4.3 を更新。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 10  | 2026/08/06 | 1.9  | Tran Duc Tuyen | 記載不整合の是正：§4.3「検索条件を追加する」に v1.7 時点の記述「hanbaiten_id（置換元・必須）」が残っており、同じ §4.3 の「置換可能条件」および リクエストパラメータ No.7（いずれも v1.8 で任意へ更新済み）と矛盾していた。当該行を「配達販売店・任意（指定時のみ絞り込み・未指定なら置換先以外の全販売店）」へ修正し、あわせて `new_hanbaiten_id`（置換先・必須）の行を追加した。API の挙動は v1.8 のまま変更なし | | |
+| 11  | 2026/08/15 | 1.10 | Tran Duc Tuyen | 記載不整合の是正（実装との突合）：①エラー一覧・API-015-002 レスポンス失敗例に `SHUBETSU_PERMISSION_DENIED`（HTTP 403）を追加（`replaceHanbaiten` が候補取得より前に `assertAnyDokusyaFlag` でアカウントの紙版/電子版取扱いフラグを検証し送出。account_concept.md §139-145）。②`kumiaiin_code`（リクエストパラメータ No.3・§4.3）を「完全一致」から実装どおり「部分一致」へ修正。③`shimei`/`shimei_kana` の連結式に実装どおり区切りスペースを追加（`shimei_sei + ' ' + shimei_mei`）。④§4.4・§4.5 の SQL 例が as-of 適用日（`t_dokusya_rireki` の `DISTINCT ON` サブクエリ）反映前の旧版のまま残っており §4.3 の記述と矛盾していたため、実装と一致する内容へ更新。⑤COMMON-006・COMMON-007 の DataScope 説明に、共用エンドポイントゆえ画面別権限を掛けられない ja_id==null（NICHINO_\*）代行入力パスの権限バイパス修正（バグ報告 2026-08：`shiten.view` / `hanbaiten.view` を保持しないロールが全JAを閲覧できた不具合の是正）を追記。API の挙動そのものへの変更なし・記載の是正のみ | | |
+| 12  | 2026/08/17 | 1.11 | Tran Duc Tuyen | 顧客要件 2026-08：住所変更と販売店の移動が同一適用日に別々の更新として積み重なると増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため、**同一適用日への変更を1回までに制限**（§4.3.1新設）。本画面は常に紙版・未来日必須のため対象購読者全件が制限対象。既にアクティブな履歴行を持つ候補があれば `INELIGIBLE_DOKUSYA` + errors（`dokusya_id`+`reason`）で弾く。同日にまとめて変更したいときはACSMS-SCR-013で該当履歴を取消してから1回で置換する。ACSMS-SCR-011・SCR-016にも同一制限を適用（3経路共通ロジック）。 | | |
+| 13  | 2026/08/18 | 1.12 | Tran Duc Tuyen | 顧客要件2026-08：本画面を**販売店の統廃合専用**の位置づけに変更し、画面名を「購読者販売店一括置換画面」から「**統廃合販売店読者移行画面**」へ改称（screen_name更新、監査ログ`gamen_name`のサンプルSQLも新名称に更新）。置換実行APIの内部処理として `t_dokusya_rireki.hanbaiten_tohaigo_flg=true` が記録されるようになった（ACSMS-SCR-011経由の変更はfalse）。このフラグ=trueの行は増減連絡票（販売店・ACSMS-SCR-028）の集計対象から除外される。API のエンドポイントパス・permission code（`dokusya.replace_hanbaiten`）・リクエスト/レスポンス形状は変更なし | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -42,7 +45,7 @@ updated_by: Tran Duc Tuyen
 
 ## 資料目的
 
-「購読者販売店一括置換画面（ACSMS-SCR-015）」において、システム上で新規作成されるAPIの詳細を記述した資料です。
+「統廃合販売店読者移行画面（ACSMS-SCR-015）」において、システム上で新規作成されるAPIの詳細を記述した資料です。
 
 ## 関連資料
 
@@ -70,6 +73,13 @@ updated_by: Tran Duc Tuyen
 | 9   | 画面固有     | SAME_HANBAITEN        | 現在の販売店と同じ販売店は選択できません。                                                                      | HTTP 400 |
 | 10  | 画面固有     | INELIGIBLE_DOKUSYA    | 電子版クレカ決済者・併読者は編集・削除できません。                                                              | HTTP 400 |
 | 11  | 画面固有     | DATE_RANGE_INVALID    | 「開始日」は「終了日」以前の日付を入力してください。                                                            | HTTP 400 |
+| 12  | 画面固有     | SHUBETSU_PERMISSION_DENIED | 購読者の操作権限がありません。（紙版・電子版いずれの取扱い権限もありません）                              | HTTP 403 |
+
+※12 ACSMS-API-015-002（置換実行）専用。`dokusya.replace_hanbaiten` 権限に加え、操作アカウントが
+`m_account.paper_flg` / `denshi_flg` のいずれか一方も保持しないと候補取得より前に送出される
+（`assertAnyDokusyaFlag`・account_concept.md §139-145）。一括置換は紙版・電子版が混在しうるため
+「いずれか一方」を要求する点が SCR-011 の単票 API（`paper_flg`/`denshi_flg` を個別に要求）と異なる。
+検索 API（ACSMS-API-015-001）はこのチェックを行わない。
 
 ---
 
@@ -94,9 +104,9 @@ updated_by: Tran Duc Tuyen
 | --- | ------------------------- | ------- | ---- | ------ | ------ | --------------------------------------------------------------------------------------------------- |
 | 1   | kanri_shiten_id           | Number  | -    | -      | -      | 管理支店ID（完全一致）                                                                              |
 | 2   | shiten_id                 | Number  | -    | -      | -      | 支店ID（完全一致）。kanri_shiten_id 指定時のみ有効                                                  |
-| 3   | kumiaiin_code             | String  | -    | -      | 20     | 組合員コード（完全一致）                                                                            |
-| 4   | shimei                    | String  | -    | -      | 100    | 氏名（`shimei_sei + shimei_mei` を連結した値で部分一致 LIKE）                                       |
-| 5   | shimei_kana               | String  | -    | -      | 200    | かな氏名（`shimei_kana_sei + shimei_kana_mei` を連結した値で部分一致 LIKE）                         |
+| 3   | kumiaiin_code             | String  | -    | -      | 20     | 組合員コード（部分一致 LIKE）                                                                       |
+| 4   | shimei                    | String  | -    | -      | 100    | 氏名（`shimei_sei + ' ' + shimei_mei` を連結した値で部分一致 LIKE）                                 |
+| 5   | shimei_kana               | String  | -    | -      | 200    | かな氏名（`shimei_kana_sei + ' ' + shimei_kana_mei` を連結した値で部分一致 LIKE）                   |
 | 6   | haitatsu_address          | String  | -    | -      | 300    | 配達先住所（都道府県名＋市区町村郡＋丁目番地＋建物名を連結した値で部分一致 LIKE）                   |
 | 7   | hanbaiten_id              | Number  | -    | -      | -      | 配達販売店ID（**任意**）。指定時のみ、適用日時点で有効な履歴（`joho_henko_tekiyo_date ≦ 適用日` の最大 joho）の配達販売店がこの値の購読者に追加で絞り込む（後述 §置換可能条件・as-of 適用日）。未指定なら置換先以外の全販売店が対象 |
 | 7.5 | new_hanbaiten_id          | Number  | ○    | -      | -      | 置換先配達販売店ID（**必須**）。検索では有効履歴の配達販売店がこの値**でない**購読者に絞る（= 置換元 かつ ≠ 置換先）。置換元と同一だと 0 件（FE で事前バリデーション）。置換実行 API の `new_hanbaiten_id` と同一値。未選択は HTTP 400（`置換先配達販売店を選択してください。`） |
@@ -290,9 +300,9 @@ GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&k
 - 検索条件を追加する：
   - kanri_shiten_id 指定時：`d.kanri_shiten_id = :kanri_shiten_id`
   - shiten_id 指定時：`d.shiten_id = :shiten_id`
-  - kumiaiin_code 指定時：`d.kumiaiin_code = :kumiaiin_code`（完全一致）
-  - shimei 指定時：`CONCAT(d.shimei_sei, d.shimei_mei) LIKE :shimei_like`（部分一致）
-  - shimei_kana 指定時：`CONCAT(d.shimei_kana_sei, d.shimei_kana_mei) LIKE :shimei_kana_like`（部分一致）
+  - kumiaiin_code 指定時：`d.kumiaiin_code LIKE :kumiaiin_like`（部分一致）
+  - shimei 指定時：`CONCAT(d.shimei_sei, ' ', d.shimei_mei) LIKE :shimei_like`（部分一致）
+  - shimei_kana 指定時：`CONCAT(d.shimei_kana_sei, ' ', d.shimei_kana_mei) LIKE :shimei_kana_like`（部分一致）
   - haitatsu_address 指定時：`CONCAT(t.todofuken_name, d.haitatsu_shikuchoson, d.haitatsu_chome_banchi, d.haitatsu_tatemono_mei) LIKE :haitatsu_like`（部分一致）
   - hanbaiten_id（配達販売店・**任意**）：指定時のみ、master ではなく上記 as-of 有効レコードの `eff.hanbaiten_id = :hanbaiten_id` で判定（§置換可能条件）。未指定なら「置換先以外の全販売店」が対象
   - new_hanbaiten_id（置換先・**必須**）：`eff.hanbaiten_id <> :new_hanbaiten_id` を常に適用（§置換可能条件）
@@ -308,26 +318,44 @@ GET /api/v1/dokusya/replace-hanbaiten/search?joho_henko_tekiyo_date=2026-08-01&k
 SELECT COUNT(*)
 FROM t_dokusya d
 LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
-WHERE d.tetsuzuki_shurui = 1
-  AND d.deleted_at IS NULL
-  /* 置換可能条件（適用日時点で置換可能な購読者のみ） */
-  AND d.dokusya_kaishi_date <= :joho_henko_tekiyo_date
-  AND (d.dokusya_chushi_date IS NULL OR d.dokusya_chushi_date > :joho_henko_tekiyo_date)
+WHERE d.deleted_at IS NULL
+  /* 置換可能条件（as-of 適用日）— t_dokusya の tetsuzuki_shurui / kaishi / chushi では
+     なく、各購読者の「適用日時点で有効な履歴レコード」で判定する（§置換可能条件）。 */
+  AND d.dokusya_id IN (
+    SELECT eff.dokusya_id FROM (
+      SELECT DISTINCT ON (r.dokusya_id)
+             r.dokusya_id, r.hanbaiten_id, r.tetsuzuki_shurui,
+             r.dokusya_shubetsu, r.dokusya_kaishi_date, r.dokusya_chushi_date
+      FROM t_dokusya_rireki r
+      WHERE r.joho_henko_tekiyo_date IS NOT NULL
+        AND r.joho_henko_tekiyo_date <= :joho_henko_tekiyo_date
+      ORDER BY r.dokusya_id, r.joho_henko_tekiyo_date DESC, r.rireki_no DESC
+    ) eff
+    WHERE eff.hanbaiten_id <> :new_hanbaiten_id            -- 置換先(必須)と不一致
+      AND (:hanbaiten_id IS NULL OR eff.hanbaiten_id = :hanbaiten_id)  -- 配達販売店(任意)
+      AND eff.tetsuzuki_shurui = 1                          -- 購読中
+      AND eff.dokusya_shubetsu = :dokusya_shubetsu
+      AND eff.dokusya_kaishi_date <= :joho_henko_tekiyo_date
+      AND (eff.dokusya_chushi_date IS NULL OR eff.dokusya_chushi_date > :joho_henko_tekiyo_date)
+  )
   /* DataScope: JA_KANRI_SHITEN */
   AND d.kanri_shiten_id = :user_kanri_shiten_id
   /* DataScope: JA_HONTEN / CHUOKAI */
   AND d.ja_id = :user_ja_id
-  /* 検索条件 */
+  /* 検索条件（master 側 = d 側で適用） */
   AND (:kanri_shiten_id IS NULL OR d.kanri_shiten_id = :kanri_shiten_id)
   AND (:shiten_id IS NULL OR d.shiten_id = :shiten_id)
-  AND (:kumiaiin_code IS NULL OR d.kumiaiin_code = :kumiaiin_code)
-  AND (:shimei IS NULL OR CONCAT(d.shimei_sei, d.shimei_mei) LIKE :shimei_like)
-  AND (:shimei_kana IS NULL OR CONCAT(d.shimei_kana_sei, d.shimei_kana_mei) LIKE :shimei_kana_like)
+  AND (:kumiaiin_code IS NULL OR d.kumiaiin_code LIKE :kumiaiin_like)
+  AND (:shimei IS NULL OR CONCAT(d.shimei_sei, ' ', d.shimei_mei) LIKE :shimei_like)
+  AND (:shimei_kana IS NULL OR CONCAT(d.shimei_kana_sei, ' ', d.shimei_kana_mei) LIKE :shimei_kana_like)
   AND (:haitatsu_address IS NULL OR CONCAT(t.todofuken_name, d.haitatsu_shikuchoson, d.haitatsu_chome_banchi, d.haitatsu_tatemono_mei) LIKE :haitatsu_like)
-  AND (:hanbaiten_id IS NULL OR d.hanbaiten_id = :hanbaiten_id)
   AND (:date_from IS NULL OR d.shoki_dokusya_kaishi_date >= :date_from)
   AND (:date_to IS NULL OR d.shoki_dokusya_kaishi_date <= :date_to)
 ```
+
+※ `hanbaiten_id`（配達販売店）は現行 master の `d.hanbaiten_id` ではなく、as-of サブクエリ内の
+`eff.hanbaiten_id` で判定する（現行 master の販売店が既に変わっていても、適用日時点の履歴で
+正しい母集合を返すため）。`new_hanbaiten_id`（置換先）は常に必須で適用される。
 
 ### 4.5 データ取得
 
@@ -341,13 +369,12 @@ SELECT d.dokusya_id, d.kanri_shiten_id, ks.kanri_shiten_name,
        d.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name,
        d.dokusya_shubetsu, d.shiharai_hoho
 FROM t_dokusya d
-LEFT JOIN m_kanri_shiten ks ON ks.kanri_shiten_id = d.kanri_shiten_id AND ks.deleted_at IS NULL
-LEFT JOIN m_shiten s ON s.shiten_id = d.shiten_id AND s.deleted_at IS NULL
-LEFT JOIN m_hanbaiten h ON h.hanbaiten_id = d.hanbaiten_id AND h.deleted_at IS NULL
+LEFT JOIN m_kanri_shiten ks ON ks.kanri_shiten_id = d.kanri_shiten_id
+LEFT JOIN m_shiten s ON s.shiten_id = d.shiten_id
+LEFT JOIN m_hanbaiten h ON h.hanbaiten_id = d.hanbaiten_id
 LEFT JOIN m_todofuken t ON t.todofuken_code = d.haitatsu_todofuken_code
-WHERE d.tetsuzuki_shurui = 1
-  AND d.deleted_at IS NULL
-  /* 置換可能条件 + DataScope + 検索条件: 4.4と同じ */
+WHERE d.deleted_at IS NULL
+  /* 置換可能条件（as-of 適用日）+ DataScope + 検索条件: 4.4と同じ */
 ORDER BY :sort_by :sort_order
 LIMIT :per_page OFFSET (:page - 1) * :per_page
 ```
@@ -493,6 +520,15 @@ Content-Type: application/json
 }
 ```
 
+### 403 Forbidden (Shubetsu Permission Denied)
+
+```json
+{
+  "error_code": "SHUBETSU_PERMISSION_DENIED",
+  "message": "購読者の操作権限がありません。（紙版・電子版いずれの取扱い権限もありません）"
+}
+```
+
 ### 404 Not Found
 
 ```json
@@ -537,6 +573,7 @@ Content-Type: application/json
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
 - DataScope: ログインユーザーの `ja_id`（および JA_KANRI_SHITEN の場合は `kanri_shiten_id`）を取得する。
 - DataScope違反（他JA・他管理支店のレコードへのアクセス）の場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- **アカウント種別フラグチェック（顧客要件・account_concept.md §139-145）**：`dokusya.replace_hanbaiten` 権限に加え、操作アカウントが `m_account.paper_flg` / `denshi_flg` のいずれか一方も保持しないと HTTP 403 (`SHUBETSU_PERMISSION_DENIED`, `購読者の操作権限がありません。（紙版・電子版いずれの取扱い権限もありません）`)。対象購読者の取得（§4.3）より前に検証する。検索 API（ACSMS-API-015-001）はこのチェックを行わない。
 
 ### 4.3 事前チェック（対象購読者の取得と検証）
 
@@ -556,6 +593,23 @@ WHERE dokusya_id = ANY(:dokusya_ids)
 - 業務ルールチェック：
   - いずれかの行で `hanbaiten_id = :new_hanbaiten_id` の場合：HTTP 400 (`SAME_HANBAITEN`)
   - いずれかの行で `dokusya_shubetsu = 3`（併読者）または（`dokusya_shubetsu = 2` かつ `shiharai_hoho = 6`：電子版クレカ決済）の場合：HTTP 400 (`INELIGIBLE_DOKUSYA`) + errors 配列（`dokusya_id` + `reason`）
+
+#### 4.3.1 予約変更（未来日）の同一適用日1回まで制限（v1.11・顧客要件2026-08）
+
+本画面は常に紙版・未来日必須（`assertTekiyoDateForShubetsu`）なので、対象購読者全件が制限対象になる。住所変更と販売店変更のように別々の更新が同じ適用日に積み重なると、増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため、単一の適用日(`joho_henko_tekiyo_date`)を全候補へ適用する前に、既にアクティブな履歴行を持つ候補が無いか一括で確認する。
+
+```sql
+SELECT DISTINCT dokusya_id
+FROM t_dokusya_rireki
+WHERE dokusya_id = ANY(:dokusya_ids)
+  AND joho_henko_tekiyo_date = :joho_henko_tekiyo_date
+  AND torikeshi_flg = false
+  AND shinki_flg = false
+```
+
+- 該当した候補がある場合：HTTP 400 (`INELIGIBLE_DOKUSYA`) + errors 配列（`dokusya_id` + `reason`="この適用日には既に変更履歴が登録されています。購読者履歴情報画面から該当の変更を取消してから、まとめて更新してください。"）— 上記 §4.3 の業務ルールチェックと同一の例外形状。
+- 同日にまとめて変更したいときは、ACSMS-SCR-013（購読者履歴情報画面）から該当の変更履歴を取消してから、1回の置換でまとめて反映する。
+- ACSMS-SCR-011（画面更新）・ACSMS-SCR-016（Excel取込）にも同一制限を適用（3経路共通の `dokusya-shubetsu.rules.ts` に集約）。
 
 ### 4.4 置換先販売店の検証
 
@@ -657,7 +711,7 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    target_id, target_table, before_value, after_value,
                    ip_address, user_agent)
 VALUES (1, NOW(), :account_id, :ja_id,
-        '購読者販売店一括置換画面 (ACSMS-SCR-015)', 'UPDATE', 1,
+        '統廃合販売店読者移行画面 (ACSMS-SCR-015)', 'UPDATE', 1,
         NULL, 't_dokusya', :before_value_json, :after_value_json,
         :ip_address, :user_agent)
 ```
@@ -697,7 +751,7 @@ INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
                    target_id, target_table, error_message, stack_trace,
                    ip_address, user_agent)
 VALUES (3, NOW(), :account_id, :ja_id,
-        '購読者販売店一括置換画面 (ACSMS-SCR-015)', 'UPDATE', 2,
+        '統廃合販売店読者移行画面 (ACSMS-SCR-015)', 'UPDATE', 2,
         NULL, 't_dokusya', :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```
@@ -798,7 +852,7 @@ GET /api/v1/shiten/dropdown?kanri_shiten_id=10&page=1&per_page=50
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
-  - ※ 呼び出し元画面の権限に依存する。SCR-015（購読者販売店一括置換画面）では `dokusya.replace_hanbaiten` 保持者が呼び出す。
+  - ※ 呼び出し元画面の権限に依存する。SCR-015（統廃合販売店読者移行画面）では `dokusya.replace_hanbaiten` 保持者が呼び出す。
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 データ取得
@@ -809,6 +863,7 @@ GET /api/v1/shiten/dropdown?kanri_shiten_id=10&page=1&per_page=50
   - JA本店：自JAのみ取得（`s.ja_id = :user_ja_id`）
   - JA管理支店：自管理支店配下の支店のみ取得（`s.kanri_shiten_id = :user_kanri_shiten_id`）
   - `ja_id` クエリパラメータは NICHINO_* 代行入力時のみ適用。JA-scoped ロールは session.ja_id を優先し無視する。
+  - **`session.ja_id` が null（NICHINO_\*）かつ `shiten.view` 権限を持たないロール（NICHINO_ADMIN・NICHINO_STAFF とも seeder.md では ×）の場合は 0 件（`1 = 0`）を返す**。本 API は共用エンドポイントで `@Permissions` を掛けないため、`ja_id` 未指定 = 絞り込み無し（全JA閲覧）が権限バイパスに悪用できてしまっていた不具合の是正（バグ報告 2026-08）。`shiten.view` を保持するロールのみ、`ja_id` 指定時にその値で絞り込む。
 - BE 側で `kanri_shiten_id` クエリパラメータがセッションスコープ内にあることをアサート（クエリ改ざん防止）。
 
 ```sql
@@ -929,7 +984,7 @@ GET /api/v1/hanbaiten/dropdown?q=千代田&page=1&per_page=50
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：認証済みユーザーであればアクセス可能。
-  - ※ 呼び出し元画面の権限に依存する。SCR-015（購読者販売店一括置換画面）では `dokusya.replace_hanbaiten` 保持者が呼び出す。
+  - ※ 呼び出し元画面の権限に依存する。SCR-015（統廃合販売店読者移行画面）では `dokusya.replace_hanbaiten` 保持者が呼び出す。
 - 権限不足の場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 データ取得
@@ -939,6 +994,7 @@ GET /api/v1/hanbaiten/dropdown?q=千代田&page=1&per_page=50
   - 中央会：自中央会配下のJAに紐づく販売店を取得（`h.ja_id IN (中央会のJA一覧)`）
   - JA本店 / JA管理支店：自JAに紐づく販売店を取得（`h.ja_id = :user_ja_id`）
   - `ja_id` クエリパラメータは NICHINO_* 代行入力時のみ適用。JA-scoped ロールは session.ja_id を優先し無視する。
+  - **`session.ja_id` が null（NICHINO_\*）かつ `hanbaiten.view` 権限を持たないロール（NICHINO_ADMIN は seeder.md では ×）の場合は 0 件（`1 = 0`）を返す**。本 API は共用エンドポイントで `@Permissions` を掛けないため、`ja_id` 未指定 = 絞り込み無し（全JA閲覧）が権限バイパスに悪用できてしまっていた不具合の是正（バグ報告 2026-08）。`hanbaiten.view` を保持するロールのみ、`ja_id` 指定時にその値で絞り込む。
 
 ```sql
 SELECT h.hanbaiten_id, h.hanbaiten_code, h.hanbaiten_name

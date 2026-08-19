@@ -19,6 +19,7 @@
 
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 import type { DokusyaRireki } from '@/database/entities/dokusya-rireki.entity';
+import { nextMonthFirstIsoJst } from '@/common/utils/datetime';
 
 let seq = 0;
 const nextId = () => ++seq;
@@ -594,7 +595,7 @@ export function buildDokusyaRirekiListRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// ACSMS-SCR-015 — 購読者販売店一括置換画面
+// ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）
 // ════════════════════════════════════════════════════════════════════════
 
 /**
@@ -713,8 +714,11 @@ export function buildImportRequiredColumns(): string[] {
  * 紙版 (dokusya_shubetsu=1), 新規 (tetsuzuki_shurui=1), positive 購読部数,
  * resolvable tanka_code / hanbaiten_code, 口座引落 (shiharai_hoho=1).
  *
- * `dokusya_kaishi_date` is computed from `new Date()` (never a hardcoded
- * literal) so the row never drifts past any future "開始日" date check.
+ * `dokusya_kaishi_date` defaults to the 1st of next month (`nextMonthFirstIsoJst()`,
+ * never a hardcoded literal) so it satisfies BOTH shubetsu's NEW-mode rule at once:
+ * 紙版 requires any future date, 電子版 requires exactly today or next-month-1st
+ * (顧客要件2026-08 / #57893). Callers testing 電子版 imports rely on this default
+ * without needing to override it per-row.
  */
 export function buildImportRow(
   overrides: Record<string, unknown> = {},
@@ -727,8 +731,9 @@ export function buildImportRow(
     kumiaiin_code: 'K00001',
     shimei_sei: '山田',
     shimei_mei: '太郎',
-    shimei_kana_sei: 'ﾔﾏﾀﾞ',
-    shimei_kana_mei: 'ﾀﾛｳ',
+    // 氏名かなは全角ひらがなのみ許容（不具合修正2026-08・HIRAGANA_NAME_RE）。
+    shimei_kana_sei: 'やまだ',
+    shimei_kana_mei: 'たろう',
     dokusya_busu: 1,
     tanka_code: 'T001',
     email: 'yamada@example.com',
@@ -753,9 +758,9 @@ export function buildImportRow(
     hikiotoshi_koza_meigi: 'ﾔﾏﾀﾞﾀﾛｳ',
     dokusyaso_bunrui: '0',
     nogyosya_bunrui: '0',
-    // NEW取込の購読開始日(=情報変更適用日)は未来日のみ（顧客要件 2026-07 改訂）。
-    // UTC 基準 futureDate と JST 基準 service のズレ吸収で +2 日。
-    dokusya_kaishi_date: futureDate(2),
+    // NEW取込の購読開始日(=情報変更適用日)：紙版=未来日のみ、電子版=本日または
+    // 翌月1日のみ（顧客要件2026-07/2026-08改訂・#57893）。翌月1日は両方を満たす。
+    dokusya_kaishi_date: nextMonthFirstIsoJst(),
     biko: '',
     // 読者情報変更適用日 / 購読中止日 は行ではなく payload 直下（顧客要件 2026-08:
     // 画面の入力欄で1ファイル1つ指定）。buildImportBody 側を参照。
@@ -777,7 +782,13 @@ export function buildImportBody(
     import_mode: 'NEW',
     // 購読種別は画面ラジオで選ぶ取込モード（顧客要件 2026-07・既定は紙版=1）。
     dokusya_shubetsu: 1,
-    selected_columns: buildImportRequiredColumns(),
+    // kumiaiin_code は NEW の必須列ではないが（buildImportRequiredColumns
+    // 参照）、画面の既定は新規登録時「すべて選択済み」（screen-design.md）
+    // のため通常は選択されている。多くのテストが組合員コードで作成した行を
+    // 引き当てるのに使うため、既定選択列に含める（不具合修正2026-08 —
+    // #57893 の selected_columns 対象外列ストリップをNEWにも拡張した際、
+    // ここが未選択のままだと組合員コードが空文字で保存され行を引けなくなった）。
+    selected_columns: [...buildImportRequiredColumns(), 'kumiaiin_code'],
     rows: [buildImportRow()],
     // 読者情報変更適用日は UPDATE でのみ有効（NEW に指定すると 400）。既定を未来日に
     // して happy-path の UPDATE 取込を通す。当日/過去日・一括中止は各テストが明示上書き。

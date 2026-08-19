@@ -1,4 +1,4 @@
-// Screen: ACSMS-SCR-015 — 購読者販売店一括置換画面
+// Screen: ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）
 //
 // Integration spec for the two ACSMS-SCR-015 endpoints appended to DokusyaController:
 //   GET  /api/v1/dokusya/replace-hanbaiten/search (ACSMS-API-015-001)
@@ -45,7 +45,7 @@ const SCR015_SEED_SQL: string[] = [
      (permission_id, permission_code, permission_name, created_by, updated_by)
    VALUES
      (1, 'dokusya.view', '購読者参照', 'SYSTEM', 'SYSTEM'),
-     (2, 'dokusya.replace_hanbaiten', '購読者販売店一括置換', 'SYSTEM', 'SYSTEM')`,
+     (2, 'dokusya.replace_hanbaiten', '統廃合販売店読者移行', 'SYSTEM', 'SYSTEM')`,
   `INSERT INTO m_roles_permissions (role_id, permission_id, created_by, updated_by)
    VALUES
      (3, 1, 'SYSTEM', 'SYSTEM'), (3, 2, 'SYSTEM', 'SYSTEM'),

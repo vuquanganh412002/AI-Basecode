@@ -19,6 +19,7 @@ updated_by: Tran Duc Tuyen
 | --- | ---------- | ---- | -------------- | ---------------------- | -------------- | -------------- |
 | 1   | 2026/04/06 | 1.0  | Tran Duc Tuyen | 初版作成               | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/04/09 | 1.1  | Tran Duc Tuyen | エラーコード標準化対応 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/08/18 | 1.2  | Tran Duc Tuyen | 顧客要件2026-08（バグ報告）：更新APIに「有効(active_flg=true)な単価は適用終了日が無し(無期限)または本日以降でなければならない」バリデーションを追加（4.1）。tanka-expireバッチは失効→無効の一方向のみで無効→有効の復帰はしないため、失効した単価を手動で有効へ戻す際に古い適用終了日を放置できてしまっていた不具合の修正 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -54,7 +55,7 @@ updated_by: Tran Duc Tuyen
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND       | 指定された単価が見つかりません。                                       | HTTP 404 |
-| 9   | 画面固有     | DUPLICATE_CODE        | 同一の単価コードが既に登録されています。                               | HTTP 400 |
+| 9   | 画面固有     | DUPLICATE_CODE        | 単価コード「{tanka_code}」はすでに登録されています。                   | HTTP 400 |
 
 ---
 
@@ -89,9 +90,9 @@ updated_by: Tran Duc Tuyen
 | 4   | →tanka_type        | Number | -        |              | -        | 1: 購読料, 2: 配達手数料 |
 | 5   | →tanka_code        | String | -        |              | -        | 単価コード               |
 | 6   | →tanka_name        | String | -        |              | -        | 単価名                   |
-| 7   | →kingaku_zeikomi   | Number | -        |              | 〇       | 税込金額（円）           |
-| 8   | →kingaku_zeinuki   | Number | -        |              | 〇       | 税抜金額（円）           |
-| 9   | →tax_rate          | Number | -        | ##.##        | 〇       | 税率（%）                |
+| 7   | →kingaku_zeikomi   | Number | -        |              | -        | 税込金額（円）           |
+| 8   | →kingaku_zeinuki   | Number | -        |              | -        | 税抜金額（円）           |
+| 9   | →tax_rate          | Number | -        | ##.##        | -        | 税率（%）                |
 | 10  | →tekiyo_start_date | String | -        | YYYY-MM-DD   | 〇       | 適用開始日               |
 | 11  | →tekiyo_end_date   | String | -        | YYYY-MM-DD   | 〇       | 適用終了日               |
 | 12  | →active_flg        | Boolean | -        |              | -        | 運用上の有効フラグ（FALSE時は新規割当不可。適用期間とは独立） |
@@ -201,7 +202,7 @@ WHERE tanka_id = :tanka_id
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- ja_id が一致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- ja_id が一致しない場合：HTTP 404 (`NOT_FOUND`)（存在秘匿のため 403 DATA_SCOPE_VIOLATION ではなく NOT_FOUND を返す。`assertJaScope` 実装準拠）
 
 ### 4.4 レスポンス生成
 
@@ -227,7 +228,7 @@ WHERE tanka_id = :tanka_id
 | リクエストボディー     | JSON                                                                                                                                                                                                                                       |
 | リクエストパラメーター |                                                                                                                                                                                                                                            |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                     |
-| HTTPレスポンスコード   | 201:正常に単価を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:同一の単価コードが既に登録されています, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 201:正常に単価を登録しました, 400:入力内容にエラーがあります, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 400:単価コードが既に登録されています, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -237,8 +238,8 @@ WHERE tanka_id = :tanka_id
 | 2   | tanka_code        | String  | -        | 〇   | 1      | 10     | 単価コード                                     |
 | 3   | tanka_name        | String  | -        | 〇   | 1      | 100    | 単価名                                         |
 | 4   | tax_rate          | Number  | -        | -    |        |        | 税率（%）0〜100、小数点以下2桁。デフォルト: 0  |
-| 5   | kingaku_zeikomi   | Number  | -        | -    |        |        | 税込金額（円）≧0。デフォルト: 0                |
-| 6   | kingaku_zeinuki   | Number  | -        | -    |        |        | 税抜金額（円）≧0。デフォルト: 0                |
+| 5   | kingaku_zeikomi   | Number  | -        | -    |        |        | 税込金額（円）0〜9,999,999,999。デフォルト: 0  |
+| 6   | kingaku_zeinuki   | Number  | -        | -    |        |        | 税抜金額（円）0〜9,999,999,999。デフォルト: 0  |
 | 7   | tekiyo_start_date | String  | -        | 〇   |        |        | 適用開始日（YYYY-MM-DD）。必須                 |
 | 8   | tekiyo_end_date   | String  | -        | 〇   |        |        | 適用終了日（YYYY-MM-DD）。必須、開始日以降      |
 | 9   | biko              | String  | -        | -    |        |        | 備考。空欄可（空文字「""」として保存）          |
@@ -255,9 +256,9 @@ WHERE tanka_id = :tanka_id
 | 4   | →tanka_type        | Number | -        |              | -        | 1: 購読料, 2: 配達手数料 |
 | 5   | →tanka_code        | String | -        |              | -        | 単価コード               |
 | 6   | →tanka_name        | String | -        |              | -        | 単価名                   |
-| 7   | →kingaku_zeikomi   | Number | -        |              | 〇       | 税込金額（円）           |
-| 8   | →kingaku_zeinuki   | Number | -        |              | 〇       | 税抜金額（円）           |
-| 9   | →tax_rate          | Number | -        | ##.##        | 〇       | 税率（%）                |
+| 7   | →kingaku_zeikomi   | Number | -        |              | -        | 税込金額（円）           |
+| 8   | →kingaku_zeinuki   | Number | -        |              | -        | 税抜金額（円）           |
+| 9   | →tax_rate          | Number | -        | ##.##        | -        | 税率（%）                |
 | 10  | →tekiyo_start_date | String | -        | YYYY-MM-DD   | 〇       | 適用開始日               |
 | 11  | →tekiyo_end_date   | String | -        | YYYY-MM-DD   | 〇       | 適用終了日               |
 | 12  | →active_flg        | Boolean | -        |              | -        | 運用上の有効フラグ（FALSE時は新規割当不可。適用期間とは独立） |
@@ -307,7 +308,8 @@ Content-Type: application/json
     "biko": "",
     "created_at": "2026-04-09T10:00:00Z",
     "updated_at": null
-  }
+  },
+  "message": "登録しました。"
 }
 ```
 
@@ -320,8 +322,8 @@ Content-Type: application/json
   "error_code": "VALIDATION_ERROR",
   "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
   "errors": [
-    { "field": "tanka_code", "message": "単価コードは必須です" },
-    { "field": "tanka_name", "message": "単価名は必須です" }
+    { "field": "tanka_code", "message": "単価コードを入力してください。" },
+    { "field": "tanka_name", "message": "単価名を入力してください。" }
   ]
 }
 ```
@@ -349,7 +351,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "DUPLICATE_CODE",
-  "message": "同一の単価コードが既に登録されています"
+  "message": "単価コード「T001」はすでに登録されています。"
 }
 ```
 
@@ -513,8 +515,8 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 2   | tanka_type        | Number | -        | 〇   |        |        | 単価種別（1: 購読料, 2: 配達手数料）  |
 | 3   | tanka_name        | String | -        | 〇   | 1      | 100    | 単価名                                |
 | 4   | tax_rate          | Number | -        | -    |        |        | 税率（%）                             |
-| 5   | kingaku_zeikomi   | Number | -        | -    |        |        | 税込金額（円）                        |
-| 6   | kingaku_zeinuki   | Number | -        | -    |        |        | 税抜金額（円）                        |
+| 5   | kingaku_zeikomi   | Number | -        | -    |        |        | 税込金額（円）0〜9,999,999,999         |
+| 6   | kingaku_zeinuki   | Number | -        | -    |        |        | 税抜金額（円）0〜9,999,999,999         |
 | 7   | tekiyo_start_date | String | -        | 〇   |        |        | 適用開始日（YYYY-MM-DD）。必須         |
 | 8   | tekiyo_end_date   | String | -        | 〇   |        |        | 適用終了日（YYYY-MM-DD）。必須、開始日以降 |
 | 9   | biko              | String | -        | -    |        |        | 備考。空欄可                          |
@@ -533,9 +535,9 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 4   | →tanka_type        | Number | -        |              | -        | 1: 購読料, 2: 配達手数料            |
 | 5   | →tanka_code        | String | -        |              | -        | 単価コード , 編集しないでください。 |
 | 6   | →tanka_name        | String | -        |              | -        | 単価名                              |
-| 7   | →kingaku_zeikomi   | Number | -        |              | 〇       | 税込金額（円）                      |
-| 8   | →kingaku_zeinuki   | Number | -        |              | 〇       | 税抜金額（円）                      |
-| 9   | →tax_rate          | Number | -        | ##.##        | 〇       | 税率（%）                           |
+| 7   | →kingaku_zeikomi   | Number | -        |              | -        | 税込金額（円）                      |
+| 8   | →kingaku_zeinuki   | Number | -        |              | -        | 税抜金額（円）                      |
+| 9   | →tax_rate          | Number | -        | ##.##        | -        | 税率（%）                           |
 | 10  | →tekiyo_start_date | String | -        | YYYY-MM-DD   | 〇       | 適用開始日                          |
 | 11  | →tekiyo_end_date   | String | -        | YYYY-MM-DD   | 〇       | 適用終了日                          |
 | 12  | →active_flg        | Boolean | -        |              | -        | 運用上の有効フラグ（FALSE時は新規割当不可。適用期間とは独立） |
@@ -584,7 +586,8 @@ Content-Type: application/json
     "biko": "",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-04-09T14:30:00Z"
-  }
+  },
+  "message": "更新しました。"
 }
 ```
 
@@ -596,7 +599,7 @@ Content-Type: application/json
 {
   "error_code": "VALIDATION_ERROR",
   "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
-  "errors": [{ "field": "tanka_name", "message": "単価名は必須です" }]
+  "errors": [{ "field": "tanka_name", "message": "単価名を入力してください。" }]
 }
 ```
 
@@ -652,6 +655,12 @@ Content-Type: application/json
   - kingaku_zeikomi：≧ 0、数値
   - kingaku_zeinuki：≧ 0、数値
   - tekiyo_start_date：有効な日付形式。過去日の場合は変更不可
+  - tekiyo_end_date：`active_flg`（有効）と組み合わせる場合、無し（無期限）または
+    本日以降でなければならない（顧客要件2026-08）。夜間バッチ（tanka-expire）が
+    適用終了日経過後に active_flg を有効→無効へ一方向で自動反転させる仕様のため、
+    失効した単価を手動で有効へ戻す際に古い適用終了日を放置すると
+    「有効なのに既に終了済み」という矛盾した状態になってしまう。違反時は
+    HTTP 400 (`VALIDATION_ERROR`, `{ field: "tekiyo_end_date", message: "有効な単価には本日以降の適用終了日を指定してください。" }`)
 - バリデーションエラーの場合：HTTP 400 (`VALIDATION_ERROR`)
 
 ### 4.2 認証・認可チェック
@@ -672,7 +681,7 @@ WHERE tanka_id = :tanka_id
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- ja_id が一致しない場合：HTTP 403 (`DATA_SCOPE_VIOLATION`)
+- ja_id が一致しない場合：HTTP 404 (`NOT_FOUND`)（存在秘匿のため 403 DATA_SCOPE_VIOLATION ではなく NOT_FOUND を返す。`assertJaScope` 実装準拠）
 
 ### 4.4 データ更新
 

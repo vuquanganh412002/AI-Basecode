@@ -683,7 +683,7 @@ export async function torikeshiDokusyaRireki(
   return res.data;
 }
 
-// ─── ACSMS-SCR-015 — 購読者販売店一括置換画面 ────────────────────────
+// ─── ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面） ────────────────────────
 //
 // 2 endpoint（api.md ACSMS-SCR-015）:
 //   GET  /api/v1/dokusya/replace-hanbaiten/search → searchDokusyaForReplace (API-015-001)

@@ -22,6 +22,7 @@ updated_by: Tran Duc Tuyen
 | 3   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 実装との整合更新：§4.5 の m_ja/m_shiten 書き戻しSQLを撤廃（readonly 反映）、手順を 4.5 t_koza_furikae→4.6 t_file_download→4.7 ログ→4.8 応答→4.9 例外 に再採番。全銀種別を 21→**91**（預金口座振替・固定長120バイト）に修正。応答 Content-Type を text/plain・固定名 ZENOUTFD に統一。集計SQLに shiten_name_kana 追加。t_file_download に scheduled_delete_date / nichino_download_allowed_flg 反映。 | | |
 | 4   | 2026/07/16 | 1.1  | Tran Duc Tuyen | 顧客要件（単価失効バッチ運用）反映：集計SQLの単価有効判定を **`active_flg = TRUE` のみ**に変更し、適用期間の日付判定（tekiyo_start/end vs target_month）を撤廃（日付↔active_flg の整合は 0:05 の失効バッチが担保）。出力時に**失効単価参照チェック（error gate）**を追加し、失効単価(active_flg=FALSE)を参照する購読者が居れば HTTP 409 `INACTIVE_TANKA_REFERENCED`（errors[]＝該当購読者）で出力を止める。エラー一覧 #9 追加。 | | |
 | 5  | 2026/08/05 | 1.2 | Tran Duc Tuyen | 顧客要件 2026-08（#56600）：集計対象を**紙版(1)と電子版(2)のみ**に限定。電子版は**承認済（denshi_shonin_status = 1）かつ有料（denshi_dokusya_shubetsu = 1）**に限る（未承認・無料は購読料が発生せず引き落とす対象が無いため）。**併読(3)は対象外**。従来は購読種別で一切絞っておらず、併読も無料の電子版も口座引落の対象になり得た。集計SQLと失効単価チェックSQLの双方に条件を追加する — 片方だけだと「引落対象ではない購読者が参照する失効単価でエラーになり出力できない」という不整合が起きるため。 | | |
+| 6  | 2026/08/13 | 1.3 | Tran Duc Tuyen | 実装との整合更新（API-020-002）：ダウンロード名を全銀メディア受入名の固定値 `ZENOUTFD` から引落日ベースの説明的名称 `口座振替データ_YYYY年MM月DD日`（拡張子なし、ja_code・タイムスタンプなし）へ変更。t_file_download.file_name（SCR-022再DL名）も同名に統一。応答 Content-Type を `text/plain; charset=Shift_JIS` から **`application/octet-stream`** に変更（拡張子なしファイル名だと text/plain 等の既知タイプではブラウザが `.txt` を自動付与してしまうため）。S3保存名（内部）は従来通り `口座振替データ_{ja_code}_{YYYY}年{MM}月{DD}日_{タイムスタンプ}`（拡張子なし）で一意化。 | | |
 
 ## システム概要
 
@@ -254,16 +255,16 @@ LIMIT 1
 
 ## レスポンスデータ
 
-全銀フォーマット固定長テキスト（`Content-Type: text/plain; charset=Shift_JIS`、1レコード120バイト）
+全銀フォーマット固定長テキスト（`Content-Type: application/octet-stream`、1レコード120バイト）
 
 ### レスポンスヘッダ
 
 ```
-Content-Type: text/plain; charset=Shift_JIS
-Content-Disposition: attachment; filename="ZENOUTFD"; filename*=UTF-8''ZENOUTFD
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="________2026_05_27_"; filename*=UTF-8''%E5%8F%A3%E5%BA%A7%E6%8C%AF%E6%9B%BF%E3%83%87%E3%83%BC%E3%82%BF_2026%E5%B9%B405%E6%9C%8827%E6%97%A5
 ```
 
-> v1.1: ダウンロード名は全銀メディア受入名の固定値 `ZENOUTFD`（**拡張子なし**。銀行提出ファイルに .txt 等は付与しない）。S3保存名・t_file_download も拡張子なし。
+> v1.3（2026/08/13）: ダウンロード名は引落日ベースの説明的名称 `口座振替データ_YYYY年MM月DD日`（**拡張子なし**。ja_code・タイムスタンプは含まない）。日本語名は `filename*`（RFC 5987, UTF-8 percent-encode）に、非ASCII文字をアンダースコアへ置換したASCIIフォールバック名を `filename` に設定する（上記例は引落日 2026-05-27 の場合）。t_file_download.file_name（SCR-022再DL名）も同名。Content-Type は `application/octet-stream` 固定（拡張子なしファイル名で text/plain 等の既知タイプだとブラウザが `.txt` を自動付与するため）。S3保存名（内部管理用）は `口座振替データ_{ja_code}_{YYYY}年{MM}月{DD}日_{タイムスタンプ}`（拡張子なし）で一意化する。
 
 ### 全銀フォーマット（固定長・1レコード120バイト）
 
@@ -303,7 +304,7 @@ Content-Type: application/json
 
 ## レスポンス成功例
 
-全銀フォーマット固定長テキスト（Shift_JIS、1レコード120バイト、拡張子なし固定名 ZENOUTFD）がレスポンスボディとして返却される。
+全銀フォーマット固定長テキスト（Shift_JIS、1レコード120バイト、拡張子なし、ファイル名は引落日ベースの `口座振替データ_YYYY年MM月DD日`）がレスポンスボディとして返却される。
 
 > 下記は各フィールドを可読化のためカンマ区切りで示したイメージ。実ファイルは**区切り文字なしの固定長**（各フィールドはゼロ埋め／スペース埋め）。種別コードは **91**（預金口座振替）、顧客番号は購読者ID（右詰20桁）。
 
@@ -545,9 +546,9 @@ SELECT d.dokusya_id,
   - データレコード（2=データ）：1件につき1レコード、引落銀行番号/名、引落支店番号/名（半角カナ15桁）、預金種目、口座番号、預金者名（半角カナ30桁）、引落金額、新規コード、顧客番号（dokusya_id・右詰20桁）
   - トレーラーレコード（8=トレーラ）：合計件数、合計金額、振替済件数/金額(0)、振替不能件数/金額(0)
   - エンドレコード（9=エンド）
-- v1.1: ダウンロード名は全銀メディア受入名の**固定値 `ZENOUTFD`（拡張子なし）**。
-- 生成したファイルを共通のファイルアーカイブサービス（FileArchiveService）経由でS3に保存する。
-  - S3キー: `koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}`（`baseName` = `口座振替データ_{ja_code}_{YYYY}年{MM}月{DD}日`、拡張子なし）。
+- v1.3（2026/08/13）: ダウンロード名（＝t_file_download.file_name）は引落日ベースの**説明的名称 `口座振替データ_YYYY年MM月DD日`（拡張子なし、ja_code・タイムスタンプなし）**。旧版の全銀メディア受入名固定値 `ZENOUTFD` は撤廃した。
+- 生成したファイルを共通のファイルアーカイブサービス（FileArchiveService）経由でS3に保存する。`displayName`（上記ダウンロード名）を指定し、S3保存名とDL表示名を分離する。
+  - S3キー: `koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}`（`baseName` = `口座振替データ_{ja_code}_{YYYY}年{MM}月{DD}日`、拡張子なし。ja_code・タイムスタンプ付きで一意化する内部保管用の名称であり、ダウンロード名とは異なる）。
   - `scheduled_delete_date` = 作成日(JST)+5年、`download_type = KOZA_FURIKAE`、日農担当者DL不可（`nichino_download_allowed_flg = false`）を設定する。
   - S3アップロード失敗時はDB処理を行わず、HTTP 500 (`INTERNAL_SERVER_ERROR`) を返却する。
 
@@ -639,7 +640,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "jastem_toriatsukai_tenpo_code": "001",
   "jastem_tyokin_shubetsu": "1",
   "jastem_koza_no": "*******",
-  "file_name": "口座振替データ_JA1301_2026年05月27日_20260522103000",
+  "file_name": "口座振替データ_2026年05月27日",
   "s3_file_path": "koza-furikae/JA1301/2026/口座振替データ_JA1301_2026年05月27日_20260522103000",
   "record_count": 2
 }
@@ -648,8 +649,8 @@ VALUES (1, NOW(), :account_id, :ja_id,
 ### 4.8 レスポンス生成
 
 - 生成した全銀フォーマット固定長ファイル（Shift_JIS）をレスポンスボディとして返却する。HTTP 200。
-- `Content-Type: text/plain; charset=Shift_JIS`
-- `Content-Disposition: attachment; filename="ZENOUTFD"; filename*=UTF-8''ZENOUTFD`（拡張子なし固定名）
+- `Content-Type: application/octet-stream`（拡張子なしファイル名で text/plain 等の既知タイプだとブラウザが `.txt` を自動付与してしまうため固定）
+- `Content-Disposition: attachment; filename="<ASCIIフォールバック名>"; filename*=UTF-8''<パーセントエンコードした表示名>`（表示名は `口座振替データ_YYYY年MM月DD日`、拡張子なし。ASCIIフォールバック名は表示名の非ASCII文字をアンダースコアへ置換した文字列）
 
 ### 4.9 例外処理
 

@@ -225,8 +225,9 @@ ORDER BY role_id ASC
 | 4   | →role_name       | String | -        |              | -        | ロール名称                   |
 | 5   | →description     | String | -        |              | 〇       | 説明                         |
 | 6   | →permission_ids  | Array  | ○        |              | -        | 紐付き権限IDの配列           |
-| 7   | →created_at      | String | -        | ISO8601      | -        | 作成日時                     |
-| 8   | →updated_at      | String | -        | ISO8601      | 〇       | 更新日時                     |
+| 7   | →locked_permission_ids | Array | ○  |              | -        | `permission_ids` のうち変更不可（システム必須・シード由来）な権限IDの配列。該当チェックボックスはFEでdisabled表示 |
+| 8   | →created_at      | String | -        | ISO8601      | -        | 作成日時                     |
+| 9   | →updated_at      | String | -        | ISO8601      | 〇       | 更新日時                     |
 
 ## リクエスト例
 
@@ -244,6 +245,7 @@ GET /api/v1/roles/1
     "role_name": "日農（管理者）",
     "description": "日本農業新聞 管理者アカウント",
     "permission_ids": [16, 17, 18, 19, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38],
+    "locked_permission_ids": [16, 17, 18, 19, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38],
     "created_at": "2026-01-01T00:00:00Z",
     "updated_at": "2026-01-01T00:00:00Z"
   }
@@ -301,8 +303,11 @@ GET /api/v1/roles/1
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
-- 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
-  - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
+- 権限チェック：`@Permissions('role.view')`（`seeder.md §2.14` permission_id=45）。
+  - `m_roles_permissions` 上 `role.view` は NICHINO_ADMIN にのみ付与されているため、
+    結果として NICHINO_ADMIN のみアクセス可となる（`seeder.md §3` 権限マトリクス）。
+  - 実装は他コントローラと同じく `PermissionsGuard` + `@Permissions(...)` を使用し、
+    `role_code` 直接比較は行わない（`.claude/rules/security.md §Layer 1` 準拠）。
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得
@@ -318,7 +323,7 @@ WHERE role_id = :role_id
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
 
-- ロールに紐付く権限ID一覧を取得する。
+- ロールに紐付く権限ID一覧を取得する（有効な全件、`permission_ids` 用）。
 
 ```sql
 SELECT permission_id
@@ -328,9 +333,20 @@ WHERE role_id = :role_id
 ORDER BY permission_id ASC
 ```
 
+- ロールに紐付く権限のうち、変更不可（`locked = TRUE`）な行のみ取得する（`locked_permission_ids` 用）。
+
+```sql
+SELECT permission_id
+FROM m_roles_permissions
+WHERE role_id = :role_id
+  AND deleted_at IS NULL
+  AND locked = TRUE
+ORDER BY permission_id ASC
+```
+
 ### 4.4 レスポンス生成
 
-- ロール基本情報と権限ID配列を data オブジェクトとして返却する。HTTP 200。
+- ロール基本情報・権限ID配列・変更不可権限ID配列を data オブジェクトとして返却する。HTTP 200。
 
 ### 4.5 例外処理
 
@@ -374,8 +390,9 @@ ORDER BY permission_id ASC
 | 4   | →role_name       | String | -        |              | -        | ロール名称                   |
 | 5   | →description     | String | -        |              | 〇       | 説明                         |
 | 6   | →permission_ids  | Array  | ○        |              | -        | 紐付き権限IDの配列           |
-| 7   | →created_at      | String | -        | ISO8601      | -        | 作成日時                     |
-| 8   | →updated_at      | String | -        | ISO8601      | 〇       | 更新日時                     |
+| 7   | →locked_permission_ids | Array | ○  |              | -        | `permission_ids` のうち変更不可（システム必須・シード由来）な権限IDの配列 |
+| 8   | →created_at      | String | -        | ISO8601      | -        | 作成日時                     |
+| 9   | →updated_at      | String | -        | ISO8601      | 〇       | 更新日時                     |
 
 ## リクエスト例
 
@@ -400,6 +417,7 @@ Content-Type: application/json
     "role_name": "中央会",
     "description": "中央会アカウント（更新）",
     "permission_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 36, 37, 38, 39, 40, 41, 42, 43],
+    "locked_permission_ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 36, 37, 38, 39, 40, 41, 42, 43],
     "created_at": "2026-01-01T00:00:00Z",
     "updated_at": "2026-04-14T14:30:00Z"
   }
@@ -416,6 +434,18 @@ Content-Type: application/json
   "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
   "errors": [
     { "field": "role_name", "message": "ロール名は必須です" }
+  ]
+}
+```
+
+### 400 Bad Request（変更不可権限の解除）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "システム必須権限のため、解除できません。",
+  "errors": [
+    { "field": "permission_ids", "message": "次の権限はシステム必須のため解除できません: 2, 5" }
   ]
 }
 ```
@@ -486,13 +516,25 @@ LIMIT 1
 - クエリが1行以上返される場合（存在しない permission_id がある）：
   - HTTP 400 (`VALIDATION_ERROR`)
   - errors配列に「指定された権限が見つかりません」というメッセージを含める
+- 現在有効な割当のうち `locked = TRUE`（システム必須・シード由来）の permission_id が
+  リクエストの permission_ids から外れている場合：
+  - HTTP 400 (`VALIDATION_ERROR`)
+  - message：「システム必須権限のため、解除できません。」
+  - errors配列に「次の権限はシステム必須のため解除できません: {対象permission_idのカンマ区切り}」
+    というメッセージを含める（field: `permission_ids`）
+  - このチェックはトランザクション開始前に行われ、対象ロールが存在しない場合は
+    このチェックより先に §4.3 の404が優先される。
 
 ### 4.2 認証・認可チェック
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
-  - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
+- 権限チェック：`@Permissions('role.view')`（`seeder.md §2.14` permission_id=45）。
+  - `m_roles_permissions` 上 `role.view` は NICHINO_ADMIN にのみ付与されているため、
+    結果として NICHINO_ADMIN のみアクセス可となる（`seeder.md §3` 権限マトリクス）。
+    本画面には `role.update` という専用権限は存在せず、`role.view` が編集操作のゲートも兼ねる。
+  - 実装は他コントローラと同じく `PermissionsGuard` + `@Permissions(...)` を使用し、
+    `role_code` 直接比較は行わない（`.claude/rules/security.md §Layer 1` 準拠）。
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 対象レコードの存在確認
@@ -716,8 +758,11 @@ GET /api/v1/permissions
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
-- 権限チェック：ログインユーザーの role_code が `NICHINO_ADMIN` であるか確認する。
-  - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
+- 権限チェック：`@Permissions('role.view')`（`seeder.md §2.14` permission_id=45）。
+  - `m_roles_permissions` 上 `role.view` は NICHINO_ADMIN にのみ付与されているため、
+    結果として NICHINO_ADMIN のみアクセス可となる（`seeder.md §3` 権限マトリクス）。
+  - 実装は他コントローラと同じく `PermissionsGuard` + `@Permissions(...)` を使用し、
+    `role_code` 直接比較は行わない（`.claude/rules/security.md §Layer 1` 準拠）。
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得

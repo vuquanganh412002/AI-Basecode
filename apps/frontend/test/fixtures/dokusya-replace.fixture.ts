@@ -1,4 +1,4 @@
-// Test fixtures for ACSMS-SCR-015 (購読者販売店一括置換画面).
+// Test fixtures for ACSMS-SCR-015 (統廃合販売店読者移行画面・旧: 購読者販売店一括置換画面).
 //
 // Shapes mirror docs/design/ACSMS-SCR-015/ACSMS-SCR-015-api.md:
 //   ACSMS-API-015-001 (Search Dokusya for Hanbaiten Replacement) —

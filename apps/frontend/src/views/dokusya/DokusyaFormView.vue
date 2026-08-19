@@ -928,7 +928,16 @@ function selectMode(mode: 'today' | 'reserved'): void {
     reservedJohoModalOpen.value = true;
     return;
   }
-  // 当日変更: 適用日=本日固定。
+  // 当日変更: 適用日=本日固定。購読開始日が未来（本日 < 購読開始日）の読者は
+  // 当日変更を使えない（BE も同じ判定で VALIDATION_ERROR を返す）。従来は
+  // フォーム下部の 読者情報変更適用日 項目まで進んで初めて気づいたため、
+  // モード選択の時点でその場でトースト表示して弾く。
+  if (originalKaishiDate.value && todayIsoTokyo() < originalKaishiDate.value) {
+    notify.error(
+      `情報変更適用日は購読開始日（${slashDate(originalKaishiDate.value)}）以降の日付を指定してください。`,
+    );
+    return;
+  }
   const apply = (): void => {
     if (viewMode.value !== 'reference') resetFormToLoaded();
     viewMode.value = 'today';
@@ -1013,6 +1022,20 @@ async function confirmReservedJoho(): Promise<void> {
   } finally {
     reservedJohoLoading.value = false;
   }
+}
+
+/**
+ * 予約変更モード中に、確定済みの適用日を選び直す（顧客要件: 選択ミス時に
+ * 当日変更へ一度切り替えてリセット→予約変更へ戻る、という遠回りをさせない）。
+ * ポップアップを現在の適用日で再オープンするだけで、確定は既存の
+ * confirmReservedJoho() に委ねる（predecessor の再ロードも従来どおり必要
+ * — 適用日が変われば有効な履歴行も変わるため）。
+ */
+function editReservedJoho(): void {
+  if (!isReservedMode.value) return;
+  reservedJohoInput.value = formState.joho_henko_tekiyo_date || null;
+  reservedJohoError.value = '';
+  reservedJohoModalOpen.value = true;
 }
 
 /** 読込直後のスナップショットへ formState を戻す（モード切替時のリセット）。 */
@@ -1185,24 +1208,29 @@ function disabledKaishiDate(current: Dayjs | null): boolean {
     : isPastDayTokyo(current);
 }
 
+// §9 / バグ報告2026-08 共通処理 — 配達先情報11項目（住所5＋連絡先2＋氏名4）を
+// クリアする。haitatsu_same_flg=true への切替、または 電子版へ種別変更した
+// 際に使う（後者は §7.5 参照）。
+function clearHaitatsuFields(): void {
+  formState.haitatsu_yubin_no = '';
+  formState.haitatsu_todofuken_code = '';
+  formState.haitatsu_shikuchoson = '';
+  formState.haitatsu_chome_banchi = '';
+  formState.haitatsu_tatemono_mei = '';
+  formState.haitatsu_renrakusaki_1 = '';
+  formState.haitatsu_renrakusaki_2 = '';
+  formState.haitatsu_shimei_sei = '';
+  formState.haitatsu_shimei_mei = '';
+  formState.haitatsu_shimei_kana_sei = '';
+  formState.haitatsu_shimei_kana_mei = '';
+}
+
 // §9 — haitatsu_same_flg が true になったら全 haitatsu_* をクリア。
 watch(
   () => formState.haitatsu_same_flg,
   (next) => {
     if (isHydrating.value) return;
-    if (next === true) {
-      formState.haitatsu_yubin_no = '';
-      formState.haitatsu_todofuken_code = '';
-      formState.haitatsu_shikuchoson = '';
-      formState.haitatsu_chome_banchi = '';
-      formState.haitatsu_tatemono_mei = '';
-      formState.haitatsu_renrakusaki_1 = '';
-      formState.haitatsu_renrakusaki_2 = '';
-      formState.haitatsu_shimei_sei = '';
-      formState.haitatsu_shimei_mei = '';
-      formState.haitatsu_shimei_kana_sei = '';
-      formState.haitatsu_shimei_kana_mei = '';
-    }
+    if (next === true) clearHaitatsuFields();
   },
 );
 
@@ -2172,6 +2200,19 @@ watch(
     ) {
       formState.shiharai_hoho = null;
     }
+    // バグ報告2026-08: 電子版は配達先情報エリアが非活性化される（isDigitalOnly
+    // の v-if・§7.5）。紙版/併読で入力した値を残したまま種別だけ電子版へ
+    // 切替えて送信すると、隠れた欄に古い配達先データが乗って送られてしまう
+    // ため、切替時点でクリアする。haitatsu_same_flg も中立値(true)へ戻す
+    // （BE の buildHaitatsuPayload と同じ既定値・entity の DB default と同値）。
+    // BE 側でも同じ制約を独立にゲートするため、これは UX 目的のみ。
+    if (
+      !isEdit.value &&
+      Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL
+    ) {
+      formState.haitatsu_same_flg = true;
+      clearHaitatsuFields();
+    }
     // 購読種別を切り替えた結果、選択中の管理支店が取扱いフラグ条件から外れた
     // 場合はクリアする（顧客要件2026-07）。管理支店クリアは既存 watcher で
     // 支店(shiten_id)も連鎖クリアする。編集時（非活性）・所属支店固定・
@@ -2296,6 +2337,7 @@ defineExpose({
   reservedJohoInput,
   reservedJohoError,
   confirmReservedJoho,
+  editReservedJoho,
 });
 </script>
 
@@ -2324,11 +2366,28 @@ defineExpose({
         </template>
         <template v-else-if="isTodayMode">
           <span class="font-bold text-primary">当日変更モード</span>
-          <span class="text-text-description ml-2">適用日は本日（帳票に影響する項目は変更できません／電子版を除く）。</span>
+          <span class="text-text-description ml-2" data-test="today-joho-display">
+            適用日: {{ slashDate(formState.joho_henko_tekiyo_date ?? '') }}
+          </span>
         </template>
         <template v-else>
           <span class="font-bold text-primary">予約変更モード</span>
-          <span class="text-text-description ml-2">適用日（未来日）を指定してください。全項目を変更できます。</span>
+          <template v-if="formState.joho_henko_tekiyo_date">
+            <span class="text-text-description ml-2" data-test="reserved-joho-display">
+              適用日: {{ slashDate(formState.joho_henko_tekiyo_date) }}
+            </span>
+            <a-button
+              type="link"
+              size="small"
+              class="!p-0 !h-auto ml-1 align-baseline"
+              data-test="edit-reserved-joho-btn"
+              aria-label="適用日を変更"
+              @click="editReservedJoho"
+            >
+              <span class="material-icons text-sm align-middle mr-0.5" aria-hidden="true">edit</span>変更
+            </a-button>
+          </template>
+          <span v-else class="text-text-description ml-2">適用日（未来日）を指定してください。</span>
         </template>
       </div>
       <div class="flex items-center gap-2 shrink-0">

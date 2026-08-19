@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-04-20
 created_date: 2026/04/20
 created_by: Nguyen Duyen Manh
-updated_date: 2026/04/20
-updated_by: Nguyen Duyen Manh
+updated_date: 2026/08/16
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -19,6 +19,7 @@ updated_by: Nguyen Duyen Manh
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/20 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2  | 2026/08/05 | 1.1 | Tran Duc Tuyen | 顧客要件 2026-08：ログ保持期間が 1年 → **5年** に延びたため、ログ参照の検索期間上限も5年へ変更（ACSMS-MSG-030-002 の文言も「5年以内」へ）。判定はミリ秒定数ではなく暦で加算する（365日×5 だとうるう年ぶん2日足りず、ちょうど5年の指定が弾かれるため）。あわせて **期間（開始）・期間（終了）とも未来日時を指定できない** ようにした（ACSMS-MSG-030-007 / 030-008 を新設）。未来にログは存在せず 0件が返るだけで、条件の誤りに気付けないため。画面はカレンダー側でも未来日を選択不可にするが、時刻部分は手入力でき API 直叩きもあるのでサーバでも弾く。 エラーコードは範囲超過が `DATE_RANGE_TOO_LONG`、未来日時が **`DATE_RANGE_FUTURE`**（いずれも HTTP 400）。 | | |
+| 3  | 2026/08/16 | 1.2 | Tran Duc Tuyen | 実装コードとの突合により以下を修正。①ACSMS-API-030-001のレスポンス失敗例が版1.1で「1年」表記のまま未修正だった箇所（見出し・メッセージとも）を「5年」へ修正し、両APIの失敗例に `DATE_RANGE_FUTURE` の例を追加。②ACSMS-API-030-002の処理手順4.5「CSV escape」記述を実装（`log.service.ts` `csvEscape()`）に合わせ、全値を無条件でダブルクォート囲みする仕様、および数式インジェクション対策（`=+-@`／タブ／CRで始まる値の先頭にシングルクォート付与）を追記。ORDER BY疑似SQLの `l.` プレフィックス欠落を修正。③ACSMS-API-COMMON-005（Get Account Dropdown）を全面改訂 — 「リクエストパラメータなし」「レスポンスはdata配列のみ」という記述は commit `3c8a98b7`（ユーザー filter — infinite-scroll dropdown）で追加された `q` / `match_field` / `page` / `per_page` / `include_id` クエリと `meta`（total, page, per_page, has_more）を反映しておらず実装と乖離していたため、リクエストパラメータ表・レスポンスデータ表・成功/失敗例・処理手順を実装（`account.controller.ts` / `account.service.ts` / `account-dropdown-query.dto.ts`）に合わせて書き直した。あわせて、本APIには `@Permissions` が付与されておらず（[shared-dropdown-rule]）実際には403を返さないため、概要表・処理手順4.2から誤った403記載を削除。 | | |
 
 ## システム概要
 
@@ -196,12 +197,21 @@ GET /api/v1/log?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:59:59&lo
 }
 ```
 
-### 400 Validation Error（期間が1年超過）
+### 400 Validation Error（期間が5年超過）
 
 ```json
 {
   "error_code": "DATE_RANGE_TOO_LONG",
-  "message": "検索期間は1年以内で指定してください"
+  "message": "検索期間は5年以内で指定してください"
+}
+```
+
+### 400 Validation Error（未来日時）
+
+```json
+{
+  "error_code": "DATE_RANGE_FUTURE",
+  "message": "「開始日」に未来の日時は指定できません"
 }
 ```
 
@@ -404,12 +414,30 @@ GET /api/v1/log/export?date_from=2026/04/01%2000:00:00&date_to=2026/04/17%2023:5
 }
 ```
 
-### 400 Validation Error
+### 400 Validation Error（期間相関エラー）
 
 ```json
 {
   "error_code": "DATE_RANGE_INVALID",
   "message": "「開始日」は「終了日」以前の日付を入力してください"
+}
+```
+
+### 400 Validation Error（期間が5年超過）
+
+```json
+{
+  "error_code": "DATE_RANGE_TOO_LONG",
+  "message": "検索期間は5年以内で指定してください"
+}
+```
+
+### 400 Validation Error（未来日時）
+
+```json
+{
+  "error_code": "DATE_RANGE_FUTURE",
+  "message": "「終了日」に未来の日時は指定できません"
 }
 ```
 
@@ -471,7 +499,7 @@ WHERE 1 = 1
   AND (:date_to IS NULL OR l.log_datetime <= :date_to)
   AND (:log_type IS NULL OR l.log_type = :log_type)
   AND (:account_id IS NULL OR l.account_id = :account_id)
-ORDER BY :sort_by :sort_order
+ORDER BY l.:sort_by :sort_order
 LIMIT :per_page OFFSET (:page - 1) * :per_page
 ```
 
@@ -483,7 +511,11 @@ LIMIT :per_page OFFSET (:page - 1) * :per_page
 - log_type をラベルにマッピング（1→ユーザー操作 等）
 - result_status をラベルにマッピング（1→成功 等）
 - log_datetime を `YYYY/MM/DD HH:mm:ss` 形式でフォーマットする
-- CSV escape：値に `,`、`"`、改行を含む場合はダブルクォートで囲み `"` は `""` にエスケープする
+- CSV escape：全ての値を無条件でダブルクォートで囲み、値中の `"` は `""` にエスケープする。
+  さらに、値が `=` `+` `-` `@` またはタブ／CR で始まる場合は先頭にシングルクォート
+  （`'`）を付与してテキスト強制する（CSVフォーミュラインジェクション対策 — Excel/
+  LibreOffice はダブルクォートで囲んでいてもセル先頭がこれらの文字だと数式として
+  評価するため。IPアドレス列など攻撃者が値を操作しうるカラムが対象）。
 
 ### 4.6 操作ログ記録
 
@@ -554,33 +586,44 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 項目                   | 内容                                                                                                                                                                      |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Get Account Dropdown                                                                                                                                                      |
-| 概要                   | アカウントプルダウンリストを取得する（DataScopeを呼び出しユーザーのロールに基づき自動適用。共用API）                                                                      |
+| 概要                   | アカウントプルダウンリストを取得する（キーワード検索＋ページング対応の無限スクロール用。DataScopeを呼び出しユーザーのロールに基づき自動適用。共用API）                    |
 | URI                    | /api/v1/account/dropdown                                                                                                                                                  |
 | メソッド               | GET                                                                                                                                                                       |
 | リクエストボディー     | なし                                                                                                                                                                      |
-| リクエストパラメーター | なし                                                                                                                                                                      |
+| リクエストパラメーター | クエリパラメータ                                                                                                                                                          |
 | ヘッダ                 | Content-Type: application/json※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                    |
-| HTTPレスポンスコード   | 200:正常にアカウント一覧を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました   |
+| HTTPレスポンスコード   | 200:正常にアカウント一覧を取得しました, 400:入力値が不正です, 401:セッションが切れました。再度ログインしてください, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
-なし
+| #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                                                          |
+| --- | -------------- | ------ | -------- | ---- | ------ | ------ | ----------------------------------------------------------------------------------------------|
+| 1   | q              | String | -        | -    |        | 100    | 検索キーワード（部分一致・ILIKE）。`match_field` により対象カラムが変わる                     |
+| 2   | match_field    | String | -        | -    |        |        | 検索対象フィールド（`both`：login_id OR account_name（既定）／`name`：account_nameのみ）。本画面の「ユーザー名」セレクトボックスは `name` を指定する |
+| 3   | page           | Number | -        | -    |        |        | ページ番号（デフォルト: 1、無限スクロールの読み込みページ）                                    |
+| 4   | per_page       | Number | -        | -    |        |        | 1ページの件数（デフォルト: 50、最大: 100）                                                    |
+| 5   | include_id     | Number | -        | -    |        |        | 編集フォーム用の退避パラメータ。指定した account_id がページ1のヒット範囲に含まれない場合、レスポンス先頭に追加して返す |
 
 ## レスポンスデータ
 
-| #   | 項目ID          | タイプ | 繰り返し | フォーマット | Nullable | 説明         |
-| --- | --------------- | ------ | -------- | ------------ | -------- | ------------ |
-| 1   | data            | Array  | 〇       |              | -        | アカウント一覧 |
-| 2   | →account_id     | Number | -        |              | -        | アカウントID |
-| 3   | →login_id       | String | -        |              | -        | ログインID   |
-| 4   | →account_name   | String | -        |              | -        | アカウント名 |
-| 5   | →role_code      | String | -        |              | -        | ロールコード |
-| 6   | →ja_id          | Number | -        |              | 〇       | JA ID        |
+| #   | 項目ID          | タイプ  | 繰り返し | フォーマット | Nullable | 説明                                                    |
+| --- | --------------- | ------- | -------- | ------------ | -------- | ------------------------------------------------------- |
+| 1   | data            | Array   | 〇       |              | -        | アカウント一覧                                          |
+| 2   | →account_id     | Number  | -        |              | -        | アカウントID                                             |
+| 3   | →login_id       | String  | -        |              | -        | ログインID                                               |
+| 4   | →account_name   | String  | -        |              | -        | アカウント名                                             |
+| 5   | →role_code      | String  | -        |              | -        | ロールコード                                             |
+| 6   | →ja_id          | Number  | -        |              | 〇       | JA ID                                                    |
+| 7   | meta            | Object  | -        |              | -        | ページネーション情報                                     |
+| 8   | →total          | Number  | -        |              | -        | 検索条件（q / match_field）適用後の総件数                |
+| 9   | →page           | Number  | -        |              | -        | 現在ページ番号                                           |
+| 10  | →per_page       | Number  | -        |              | -        | 1ページの件数                                             |
+| 11  | →has_more       | Boolean | -        |              | -        | 次ページが存在するか（`page * per_page < total`）。無限スクロールの追加読込判定に使用 |
 
 ## リクエスト例
 
 ```
-GET /api/v1/account/dropdown
+GET /api/v1/account/dropdown?match_field=name&q=%E5%A4%AA%E9%83%8E&page=1&per_page=50
 ```
 
 ## レスポンス成功例
@@ -602,7 +645,13 @@ GET /api/v1/account/dropdown
       "role_code": "JA_KANRI_SHITEN",
       "ja_id": 100
     }
-  ]
+  ],
+  "meta": {
+    "total": 2,
+    "page": 1,
+    "per_page": 50,
+    "has_more": false
+  }
 }
 ```
 
@@ -617,12 +666,15 @@ GET /api/v1/account/dropdown
 }
 ```
 
-### 403 Forbidden
+### 400 Validation Error
 
 ```json
 {
-  "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [
+    { "field": "match_field", "message": "match_fieldは\"both\"または\"name\"で指定してください。" }
+  ]
 }
 ```
 
@@ -639,15 +691,27 @@ GET /api/v1/account/dropdown
 
 ### 4.1 リクエストのバリデーション
 
-- リクエストパラメータなし。
+- クエリパラメータの検証：
+  - q：文字列、最大100文字（空文字は未指定として扱う）
+  - match_field：`both` または `name`（未指定時は `both`）
+  - page：整数、1以上（未指定時は1）
+  - per_page：整数、1〜100（未指定時は50）
+  - include_id：整数、1以上
+- 不正なパラメータの場合：HTTP 400 (`VALIDATION_ERROR`)
 
 ### 4.2 認証・認可チェック
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
-- 権限チェック：認証済みユーザーであればアクセス可能。
-  - ※ 呼び出し元画面の権限に依存する。SCR-030（ログ参照画面）では `log.view` 保持者が呼び出す。
-- 権限がない場合：HTTP 403 (`FORBIDDEN`)
+- 権限チェック：本エンドポイントには `@Permissions` が付与されていない
+  （[shared-dropdown-rule]）ため、`PermissionsGuard` は必須権限が未指定のリクエスト
+  として素通しする。認証済みセッションであればロールを問わずアクセス可能で、
+  本APIは 403 (`FORBIDDEN`) を返さない。
+  - ※ 呼び出し元画面ごとの権限は各画面の permission gate（例：SCR-030 ログ参照画面
+    では `log.view`）が別途保証する。単一の CRUD 権限で塞ぐと、呼び出し元となる
+    異なる権限を持つ画面のロールを締め出してしまうため、この共用API自体は認証のみで
+    ゲートする設計としている。本APIはアカウント検索のみを行い、画面遷移やデータ
+    変更は行わない。
 
 ### 4.3 データ取得
 
@@ -657,6 +721,14 @@ GET /api/v1/account/dropdown
   - `CHUOKAI`：`a.ja_id = :user_ja_id`
   - `JA_HONTEN`：`a.ja_id = :user_ja_id`
   - `JA_KANRI_SHITEN`：`a.kanri_shiten_id = :user_kanri_shiten_id`
+- 検索条件（q）を追加する：
+  - `match_field = 'name'`：`a.account_name ILIKE :q`
+  - `match_field` 未指定 または `both`：`a.login_id ILIKE :q OR a.account_name ILIKE :q`
+- ページング：`ORDER BY a.login_id ASC` の上で `LIMIT :per_page OFFSET (:page - 1) * :per_page`。
+- `include_id` 指定時、その account_id が現在ページの結果に含まれなければ、同一
+  DataScope・検索条件で該当行を1件取得しレスポンス先頭に追加する（編集フォームの
+  事前選択値がページ1に無い場合でも選択済みラベルを解決できるようにするため）。
+- 総件数（total）は同一 DataScope・検索条件で `COUNT(*)` を取得する。
 
 ```sql
 SELECT a.account_id, a.login_id, a.account_name,
@@ -668,12 +740,17 @@ WHERE a.deleted_at IS NULL
   AND a.ja_id = :user_ja_id
   /* DataScope: JA_KANRI_SHITEN */
   AND a.kanri_shiten_id = :user_kanri_shiten_id
+  /* 検索条件: match_field='name' */
+  AND a.account_name ILIKE :q
+  /* 検索条件: match_field='both'（既定） */
+  AND (a.login_id ILIKE :q OR a.account_name ILIKE :q)
 ORDER BY a.login_id ASC
+LIMIT :per_page OFFSET (:page - 1) * :per_page
 ```
 
 ### 4.4 レスポンス生成
 
-- data 配列を含むJSONを返却する。HTTP 200。
+- data 配列と meta（total, page, per_page, has_more）を含むJSONを返却する。HTTP 200。
 
 ### 4.5 例外処理
 

@@ -7,7 +7,7 @@ format_version: "1.0"
 issue_date: 2019-02-22
 created_date: 2026/03/17
 created_by: Tran Duc Tuyen
-updated_date: 2026/08/04
+updated_date: 2026/08/18
 updated_by: Tran Duc Tuyen
 ---
 
@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 4 | 2026/08/04 | 1.13 | Tran Duc Tuyen | Đồng bộ với hiện trạng cài đặt. Bổ sung locked vào m_roles_permissions, notification_status / notified_at vào t_file_upload. Sửa t_file_download.ja_id thành cho phép NULL. Sửa mail_magazine_flg / hanbaiten_id / tanka_id của t_dokusya và t_dokusya_rireki thành cho phép NULL. Bổ sung chỉ mục ix_t_dokusya_kaiyaku_due / ix_t_dokusya_rireki_shinki và bảng t_denshi_sync_state | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5 | 2026/08/04 | 1.14 | Tran Duc Tuyen | Thống nhất đưa các cột audit (deleted_at / created_at / created_by / updated_at / updated_by) xuống cuối ở tất cả các bảng. Chuyển locked của m_roles_permissions, notified_at của t_file_upload, denshi_shonin_status / denshi_kaiin_id / honshi_kodoku_flg của t_dokusya, torikeshi_flg / honshi_kodoku_flg của t_dokusya_rireki lên trước nhóm audit. Đồng thời sửa lệch thứ tự cột của m_tanka và thiếu số thứ tự của t_koza_furikae (không đổi kiểu dữ liệu / ràng buộc) | Nguyen Huy Dat | Nguyen Huy Dat |
 | 6 | 2026/08/04 | 1.15 | Tran Duc Tuyen | Phản ánh cập nhật thiết kế DB từ khách hàng. Thêm 4 cột ja_yakushokuin_flg (cờ kiêm cán bộ nhóm JA), nogyo_kankei_flg (cờ liên quan nông nghiệp), dokusyaso_bunrui_sonota (phân loại tầng lớp - khác), nogyosya_bunrui_sonota (phân loại nông dân - khác) vào t_dokusya / t_dokusya_rireki và đánh số lại các No phía sau. Đổi ghi chú dokusyaso_bunrui từ "nhiều giá trị phân cách dấu phẩy" thành "chọn một". Thêm 5 dòng DOKUSYASO_BUNRUI và 7 dòng NOGYOSYA_BUNRUI vào seed m_code | Nguyen Huy Dat | Nguyen Huy Dat |
+| 7 | 2026/08/18 | 1.16 | Tran Duc Tuyen | Yêu cầu khách hàng 2026-08: Thêm cột hanbaiten_tohaigo_flg (cờ thống hợp cửa hàng bán báo, DEFAULT false, TRUE = thay đổi cửa hàng do thống hợp cửa hàng bán báo) vào t_dokusya_rireki và đánh số lại các No phía sau. Thay đổi qua màn hình Thay thế hàng loạt cửa hàng bán báo của độc giả = TRUE, thay đổi qua màn hình Đăng ký thông tin độc giả = FALSE. Lịch sử có TRUE nằm ngoài phạm vi xuất của Phiếu thông báo tăng/giảm (cửa hàng bán báo). Thông báo tăng/giảm (Nhật Nông Nghiệp Tân Văn) không thay đổi | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## Tổng quan hệ thống
 
@@ -748,8 +749,9 @@ Tài liệu này định nghĩa thiết kế cơ sở dữ liệu của hệ th�
 | 72 | denshi_shonin_status |  | INTEGER |  |  | 〇 | Trạng thái phê duyệt đăng ký điện tử |
 | 73 | torikeshi_flg |  | BOOLEAN |  |  |  | Cờ hủy (DEFAULT false, TRUE = bản ghi hủy/bút toán đỏ). Khi hủy (取消), gắn cờ cho cả bản ghi sai và bản ghi đối ứng. Loại khỏi báo cáo/tìm kiếm/hiển thị hiện tại, đóng băng giá trị lúc hủy (không tính lại), không xóa vật lý |
 | 74 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | Cờ đăng ký bản giấy (DEFAULT FALSE). Ảnh chụp lịch sử của t_dokusya.honshi_kodoku_flg. Liên kết với users.subscribe_flg (0: chưa đăng ký, 1: đã đăng ký) của hệ thống quản lý độc giả bản điện tử. 0→FALSE, 1→TRUE. |
-| 75 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
-| 76 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
+| 75 | hanbaiten_tohaigo_flg |  | BOOLEAN |  |  |  | Cờ thống hợp cửa hàng bán báo (DEFAULT false, TRUE = thay đổi cửa hàng do thống hợp cửa hàng bán báo)<br>Thay đổi qua màn hình Thay thế hàng loạt cửa hàng bán báo của độc giả = TRUE, thay đổi qua màn hình Đăng ký thông tin độc giả = FALSE.<br>Lịch sử có TRUE nằm ngoài phạm vi xuất của Phiếu thông báo tăng/giảm (cửa hàng bán báo). |
+| 76 | created_at |  | TIMESTAMPTZ |  |  |  | Ngày giờ tạo (ngày giờ đăng ký lịch sử) |
+| 77 | created_by |  | VARCHAR | 50 |  |  | Người tạo (người đăng ký lịch sử) |
 
 ## Chỉ mục
 

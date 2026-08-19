@@ -30,6 +30,7 @@ import request from 'supertest';
 import * as ExcelJS from 'exceljs';
 
 import { DokusyaModule } from '@/modules/dokusya/dokusya.module';
+import { DenshibanApiService } from '@/modules/denshiban/denshiban-api.service';
 import {
   buildSessionCookie,
   createIntegrationTestApp,
@@ -38,8 +39,13 @@ import {
   type IntegrationTestContext,
 } from '@test/utils/create-integration-app';
 import { apiUrl } from '@test/utils/api-url';
-import { buildImportBody, buildImportRow } from '@test/fixtures/dokusya.factory';
-import { todayIsoJst } from '@/common/utils/datetime';
+import {
+  buildImportBody,
+  buildImportRequiredColumns,
+  buildImportRow,
+  futureDate,
+} from '@test/fixtures/dokusya.factory';
+import { addDaysIso, nextMonthFirstIsoJst, todayIsoJst } from '@/common/utils/datetime';
 
 // Shared seed + session helpers (module scope so the pg-mem gate suite and
 // the real-PG write-path suite reuse them). FK dependency order matters on
@@ -431,6 +437,16 @@ describeRealPg(
       ctx = await createRealPgIntegrationApp({
         modules: [DokusyaModule],
         seedSql: SCR016_SEED_SQL,
+        // 電子版の作成/更新は同一tx内で電子版読者管理システムへ実HTTP push する
+        // (DenshibanApiService.updateUserInfo → denshiban.apiUrl=host.docker.internal)。
+        // bare jest 実行環境からは到達不可（docker-compose の denshiban-demo
+        // ネットワーク越し専用 — 既存コミットで明文化済みの制約）。書込み成功を
+        // 前提とする電子版テストのためスタブ化する。
+        customize: (builder) =>
+          builder.overrideProvider(DenshibanApiService).useValue({
+            updateUserInfo: () =>
+              Promise.resolve({ statusCode: '0', id: '123456', message: '' }),
+          }),
       });
     });
 
@@ -465,6 +481,73 @@ describeRealPg(
         [1],
       );
       expect(Number(count)).toBe(1);
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (廃店) when a row selects a closed hanbaiten_code, and write nothing (バグ報告2026-08)', async () => {
+      // COVERS: §4.3.2 — haiten_flg=true の販売店は NEW/UPDATE どちらでも
+      // 選択不可。修正前は取込が成功してしまい、詳細画面にも廃店の旨が
+      // 出ないため運用が気付けなかった。
+      const sid = await asJaHonten(1);
+      await ctx.dataSource.query(
+        `INSERT INTO m_hanbaiten
+           (hanbaiten_id, ja_id, hanbaiten_code, hanbaiten_name, hanbaiten_name_kana,
+            torihikisaki_no, todofuken_code, yubin_no, address, tel, fax, shocho_name,
+            bank_code, bank_name, bank_branch_code, bank_branch_name, koza_no, koza_meigi, biko,
+            haitatsuryo_tanka_id, haiten_flg, created_at, created_by, updated_at, updated_by)
+         VALUES (301, 1, 'HCLOSED', '廃店済み販売店', 'ﾊｲﾃﾝ',
+                 '', '13', '1000001', '東京都千代田区', '', '', '',
+                 '', '', '', '', '', '', '', NULL, true,
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KCLOSED', hanbaiten_code: 'HCLOSED' })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('hanbaiten_code');
+      const [{ count }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KCLOSED'`,
+      );
+      expect(Number(count)).toBe(0);
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (失効) when a row selects an expired tanka_code, and write nothing (バグ報告2026-08)', async () => {
+      // COVERS: §4.3.1 — active_flg=false の単価は NEW/UPDATE どちらでも
+      // 選択不可。修正前は取込が成功してしまい、詳細画面にも失効の旨が
+      // 出ないため運用が気付けなかった。
+      const sid = await asJaHonten(1);
+      await ctx.dataSource.query(
+        `INSERT INTO m_tanka
+           (tanka_id, ja_id, tanka_type, tanka_code, tanka_name,
+            kingaku_zeikomi, kingaku_zeinuki, tax_rate, active_flg,
+            tekiyo_start_date, tekiyo_end_date, biko,
+            created_at, created_by, updated_at, updated_by)
+         VALUES (301, 1, 1, 'TEXPIRED', '失効済み単価', 3850, 3500, 10.00, false,
+                 '2020-01-01', '2025-12-31', '',
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .send(
+          buildImportBody({
+            rows: [buildImportRow({ kumiaiin_code: 'KEXPIRED', tanka_code: 'TEXPIRED' })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('tanka_code');
+      const [{ count }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KEXPIRED'`,
+      );
+      expect(Number(count)).toBe(0);
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR when a row is 3:併読', async () => {
@@ -508,6 +591,12 @@ describeRealPg(
       };
       expect(await rirekiCount()).toBe(1);
 
+      // buildImportBody の既定 joho（today+2日）は、行の購読開始日
+      // （nextMonthFirstIsoJst＝翌月1日）より前になり得るため明示指定
+      // （不具合修正2026-08 — kumiaiin_code ストリップ修正で行が正しく
+      // 引けるようになったところ、この日付の矛盾が新たに顕在化した）。
+      const safeJoho = addDaysIso(nextMonthFirstIsoJst(), 5);
+
       // 1st UPDATE → a 2nd rireki row.
       await http()
         .post(apiUrl('dokusya/import'))
@@ -515,6 +604,7 @@ describeRealPg(
         .send(
           buildImportBody({
             import_mode: 'UPDATE',
+            joho_henko_tekiyo_date: safeJoho,
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [buildImportRow({ kumiaiin_code: 'KUPD1', dokusya_busu: 5 })],
           }),
@@ -529,6 +619,7 @@ describeRealPg(
         .send(
           buildImportBody({
             import_mode: 'UPDATE',
+            joho_henko_tekiyo_date: addDaysIso(safeJoho, 1),
             selected_columns: ['kumiaiin_code', 'dokusya_busu'],
             rows: [buildImportRow({ kumiaiin_code: 'KUPD1', dokusya_busu: 9 })],
           }),
@@ -587,6 +678,11 @@ describeRealPg(
         .send(
           buildImportBody({
             import_mode: 'UPDATE',
+            // buildImportBody の既定 joho（today+2日）は、行の購読開始日
+            // （nextMonthFirstIsoJst＝翌月1日）より前になり得るため明示指定
+            // （不具合修正2026-08 — kumiaiin_code ストリップ修正で行が正しく
+            // 引けるようになったところ、この日付の矛盾が新たに顕在化した）。
+            joho_henko_tekiyo_date: addDaysIso(nextMonthFirstIsoJst(), 5),
             selected_columns: ['kumiaiin_code', 'dokusya_busu', 'todofuken_code'],
             rows: [
               buildImportRow({
@@ -636,6 +732,308 @@ describeRealPg(
       expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
       const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
       expect(fields).toContain('joho_henko_tekiyo_date');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (joho < 購読開始日) — 紙版 UPDATE reproducing the user-provided Excel file (購読者Excelデータ取込_テンプレート-v3), joho=当日 explicitly picked on the not-yet-started subscriber picker', async () => {
+      // ユーザー提供の実ファイル（docs/購読者Excelデータ取込_テンプレート-v3.xlsx）を
+      // 実際にパースした値そのままで再現する。紙版・購読開始日=2026-08-20（翌日）。
+      // このテストは v1.16 の修正（電子版の適用日省略デフォルト値）とは独立 — joho は
+      // 画面のピッカーで明示的に選択された値（省略ではない）なので、既存の
+      // collectTekiyoDateViolations（joho < 購読開始日）がそのまま効くはずかを確認する。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      // ファイルが参照する管理支店/新聞単価/販売店コードを ja_id=1 に整備する。
+      await ctx.dataSource.query(
+        `INSERT INTO m_todofuken (todofuken_code, todofuken_name, todofuken_name_kana)
+         VALUES ('20', '長野県', 'ナガノケン')`,
+      );
+      await ctx.dataSource.query(
+        `INSERT INTO m_kanri_shiten
+           (kanri_shiten_id, ja_id, kanri_shiten_code, kanri_shiten_name, kanri_shiten_name_kana,
+            yubin_no, todofuken_code, address, tel, fax, biko, created_at, created_by, updated_at, updated_by)
+         VALUES (201, 1, '116-5503-000', '松本管理支店', 'ﾏﾂﾓﾄ', '3900874', '20', '長野県松本市', '', '', '',
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      await ctx.dataSource.query(
+        `INSERT INTO m_tanka
+           (tanka_id, ja_id, tanka_type, tanka_code, tanka_name,
+            kingaku_zeikomi, kingaku_zeinuki, tax_rate, tekiyo_start_date, tekiyo_end_date, biko,
+            created_at, created_by, updated_at, updated_by)
+         VALUES (201, 1, 1, 'T0002', '購読料（テスト）', 3850, 3500, 10.00, '2024-01-01', NULL, '',
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      await ctx.dataSource.query(
+        `INSERT INTO m_hanbaiten
+           (hanbaiten_id, ja_id, hanbaiten_code, hanbaiten_name, hanbaiten_name_kana,
+            torihikisaki_no, todofuken_code, yubin_no, address, tel, fax, shocho_name,
+            bank_code, bank_name, bank_branch_code, bank_branch_name, koza_no, koza_meigi, biko,
+            haitatsuryo_tanka_id, haiten_flg, created_at, created_by, updated_at, updated_by)
+         VALUES (201, 1, '0000000004', '松本販売店', 'ﾏﾂﾓﾄ',
+                 '', '20', '3900874', '長野県松本市大手1-1-1', '', '', '',
+                 '', '', '', '', '', '', '', NULL, false,
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+
+      // ファイル1行目をそのまま JSON 化（ID列は除く＝新規作成で採番させる）。
+      const excelRow = {
+        kanri_shiten_code: '116-5503-000',
+        kumiaiin_code: 'MHV-002',
+        shimei_sei: '松本松QA-1',
+        shimei_mei: '一郎',
+        shimei_kana_sei: 'まつもと',
+        shimei_kana_mei: 'いちろう',
+        dokusya_busu: 3,
+        tanka_code: 'T0002',
+        email: 'vqa.test14@gmail.com',
+        birth_year: 1976,
+        gender: 1,
+        yubin_no: '3900874',
+        todofuken_code: '20',
+        shikuchoson: '松本市',
+        chome_banchi: '大手1-1-1',
+        renrakusaki_1: '0263321111',
+        hanbaiten_code: '0000000004',
+        yubin_kubun: '0',
+        shiharai_hoho: 2,
+        dokusyaryo_shiharai_cycle: 1,
+        dokusyaso_bunrui: '0',
+        nogyosya_bunrui: '0',
+        dokusya_kaishi_date: '2026-08-20', // ファイルの値そのまま（=翌日）
+        biko: 'SCR-011 検証用サンプル1（紙版・配達先=購読者情報と同じ）',
+      };
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            dokusya_shubetsu: 1, // 紙版
+            selected_columns: [...buildImportRequiredColumns(), 'kumiaiin_code'],
+            rows: [buildImportRow(excelRow)],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: id }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'MHV-002'`,
+      );
+      const [{ count: beforeCount }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya_rireki WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(Number(beforeCount)).toBe(1);
+
+      // 「すべて選択」＋IDのみ追加で再取込（ユーザーの再現手順どおり）。
+      // 画面の 読者情報変更適用日 ピッカーで「当日」（＝過去日disableの一番早い選択肢）
+      // を選んだ想定 — 購読開始日(翌日)より前になる。
+      const ALL_COLUMNS = [
+        'dokusya_id', 'kanri_shiten_code', 'shiten_code', 'kumiaiin_code',
+        'shimei_sei', 'shimei_mei', 'shimei_kana_sei', 'shimei_kana_mei',
+        'dokusya_busu', 'tanka_code', 'email', 'mail_magazine_flg', 'birth_year', 'gender',
+        'yubin_no', 'todofuken_code', 'shikuchoson', 'chome_banchi', 'tatemono_mei',
+        'renrakusaki_1', 'renrakusaki_2', 'haitatsu_same_flg',
+        'haitatsu_yubin_no', 'haitatsu_todofuken_code', 'haitatsu_shikuchoson',
+        'haitatsu_chome_banchi', 'haitatsu_tatemono_mei', 'haitatsu_renrakusaki_1',
+        'haitatsu_renrakusaki_2', 'haitatsu_shimei_sei', 'haitatsu_shimei_mei',
+        'haitatsu_shimei_kana_sei', 'haitatsu_shimei_kana_mei', 'hanbaiten_code',
+        'yubin_kubun', 'shiharai_hoho', 'dokusyaryo_shiharai_cycle',
+        'hikiotoshi_yokin_shubetsu', 'bank_branch_code', 'bank_branch_name',
+        'hikiotoshi_koza_no', 'hikiotoshi_koza_meigi', 'dokusyaso_bunrui',
+        'ja_yakushokuin_flg', 'nogyo_kankei_flg', 'dokusyaso_bunrui_sonota',
+        'nogyosya_bunrui', 'nogyosya_bunrui_sonota', 'biko',
+      ];
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 1,
+            selected_columns: ALL_COLUMNS,
+            joho_henko_tekiyo_date: todayIsoJst(),
+            rows: [buildImportRow({ ...excelRow, dokusya_id: Number(id) })],
+          }),
+        )
+        .expect(400);
+
+      const [{ count: afterCount }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya_rireki WHERE dokusya_id = $1`,
+        [id],
+      );
+
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('joho_henko_tekiyo_date');
+      expect(Number(afterCount)).toBe(1);
+    });
+
+    it('should NOT cross-write dokusya_busu between two rows sharing the same kumiaiin_code on UPDATE (バグ報告 2026-08: ユーザー提供ファイルの2行 88685/88686 MHV-002 再現)', async () => {
+      // ユーザー提供ファイル（購読者Excelデータ取込_テンプレート-v3.xlsx）は2行とも
+      // 組合員コード='MHV-002' で重複している（kumiaiin_code は UNIQUE 制約なし・
+      // 仕様上許容）。dokusya_id は両行とも指定されているので曖昧キー防止ガード
+      // （isAmbiguousKumiaiinKey）には掛からないはずだが、実際の更新対象解決
+      // （resolveImportTargetId, dokusya-import.service.ts:1010）は
+      //   WHERE (dokusya_id = $2 OR kumiaiin_code = $3) LIMIT 1
+      // という OR 条件で、ORDER BY が無い。2行が同じ kumiaiin_code を持つ場合、
+      // 行1の検索も行2の検索も「dokusya_id = 該当ID」だけでなく「kumiaiin_code =
+      // 'MHV-002'」にも一致する行（＝もう片方の購読者）を LIMIT 1 で拾える余地があり、
+      // 更新対象が意図した dokusya_id と一致する保証が無い。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            dokusya_shubetsu: 1,
+            selected_columns: [...buildImportRequiredColumns(), 'kumiaiin_code'],
+            rows: [
+              buildImportRow({ kumiaiin_code: 'MHV-002', dokusya_busu: 3, email: 'dup-a@example.com' }),
+              buildImportRow({ kumiaiin_code: 'MHV-002', dokusya_busu: 7, email: 'dup-b@example.com' }),
+            ],
+          }),
+        )
+        .expect(200);
+      const created: Array<{ dokusya_id: number; dokusya_busu: number }> =
+        await ctx.dataSource.query(
+          `SELECT dokusya_id, dokusya_busu FROM t_dokusya
+             WHERE ja_id = 1 AND kumiaiin_code = 'MHV-002' ORDER BY dokusya_id`,
+        );
+      expect(created).toHaveLength(2);
+      const idA = created.find((r) => Number(r.dokusya_busu) === 3)!.dokusya_id;
+      const idB = created.find((r) => Number(r.dokusya_busu) === 7)!.dokusya_id;
+      expect(idA).toBeDefined();
+      expect(idB).toBeDefined();
+
+      // A は5部・B は9部へ、それぞれ dokusya_id を明示して同一バッチで更新する。
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 1,
+            selected_columns: ['dokusya_id', 'dokusya_busu'],
+            joho_henko_tekiyo_date: futureDate(20),
+            rows: [
+              buildImportRow({ dokusya_id: Number(idA), kumiaiin_code: 'MHV-002', dokusya_busu: 5 }),
+              buildImportRow({ dokusya_id: Number(idB), kumiaiin_code: 'MHV-002', dokusya_busu: 9 }),
+            ],
+          }),
+        )
+        .expect(200);
+
+      // 適用日を未来にしたため master(t_dokusya) は当日時点でまだ未反映（正しい挙動）。
+      // 各 dokusya_id の最新（取消除外）履歴行の dokusya_busu で、更新が正しい
+      // dokusya_id 側へ書かれたかを確認する。
+      const [rowA, rowB] = await Promise.all([
+        ctx.dataSource.query(
+          `SELECT dokusya_busu FROM t_dokusya_rireki
+             WHERE dokusya_id = $1 AND torikeshi_flg = false
+             ORDER BY joho_henko_tekiyo_date DESC, rireki_no DESC LIMIT 1`,
+          [idA],
+        ),
+        ctx.dataSource.query(
+          `SELECT dokusya_busu FROM t_dokusya_rireki
+             WHERE dokusya_id = $1 AND torikeshi_flg = false
+             ORDER BY joho_henko_tekiyo_date DESC, rireki_no DESC LIMIT 1`,
+          [idB],
+        ),
+      ]);
+      const rirekiCounts = await ctx.dataSource.query(
+        `SELECT dokusya_id, COUNT(*)::int AS c FROM t_dokusya_rireki WHERE dokusya_id IN ($1,$2) GROUP BY dokusya_id`,
+        [idA, idB],
+      );
+      // 各 dokusya_id にちょうど2件（NEW作成分 + 今回のUPDATE分）——誤って
+      // 片方に2件・もう片方に0件積み上がっていないこと。
+      for (const row of rirekiCounts) {
+        expect(Number(row.c)).toBe(2);
+      }
+      expect(Number(rowA[0].dokusya_busu)).toBe(5);
+      expect(Number(rowB[0].dokusya_busu)).toBe(9);
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (joho < 購読開始日) — 電子版 UPDATE with joho omitted on a not-yet-started subscriber does NOT create a bogus t_dokusya_rireki row (バグ報告 2026-08)', async () => {
+      // 再現手順（ユーザー報告）: 電子版を NEW 取込（購読開始日=翌月1日、まだ未到来）
+      // → 同じ内容を UPDATE 取込で再取込（電子版は適用日欄が disable なので
+      // joho_henko_tekiyo_date は省略）。修正前は書込み側が省略時に当日を補うため
+      // joho(当日) < 購読開始日(翌月1日) となり、共通ライタ applyChange の
+      // findBefore(joho=当日) が直前行なしと誤判定 → before=null 起点の不完全な
+      // 履歴行が余分に作られていた。修正後は本チェックが当日デフォルトを見越して
+      // 検証するため 400 で弾かれ、履歴行は1件（NEW時点の1件）のまま増えない。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      // 電子版の作成は resolveJacd で kanri_shiten_code の形式(10桁数字)を検証する
+      // （seed既定の 'KS001' は英字混じりで CLOUD エラーになる）。
+      await ctx.dataSource.query(
+        `UPDATE m_kanri_shiten SET kanri_shiten_code = '1300000101' WHERE kanri_shiten_id = 101`,
+      );
+      // 電子版の取込にはダミー販売店（販売店コード:9999999999）の事前登録が必要
+      // （assertDigitalDummyHanbaitenAvailable）。
+      await ctx.dataSource.query(
+        `INSERT INTO m_hanbaiten
+           (hanbaiten_id, ja_id, hanbaiten_code, hanbaiten_name, hanbaiten_name_kana,
+            torihikisaki_no, todofuken_code, yubin_no, address, tel, fax, shocho_name,
+            bank_code, bank_name, bank_branch_code, bank_branch_name, koza_no, koza_meigi,
+            biko, haitatsuryo_tanka_id, haiten_flg, created_at, created_by, updated_at, updated_by)
+         VALUES
+           (999, 1, '9999999999', '電子版ダミー販売店', 'ﾀﾞﾐｰ',
+            '', '13', '1000001', '東京都千代田区', '', '', '',
+            '', '', '', '', '', '', '', NULL, false,
+            NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            dokusya_shubetsu: 2, // 電子版
+            // 電子版は email / dokusyaso_bunrui が追加必須（既定13列に含まれない）。
+            selected_columns: [...buildImportRequiredColumns(), 'kumiaiin_code', 'email', 'dokusyaso_bunrui'],
+            rows: [
+              buildImportRow({
+                kumiaiin_code: 'KDIGSTART',
+                email: 'kdigstart@example.com',
+                dokusya_busu: 1, // 電子版は1固定
+                hanbaiten_code: '9999999999', // 電子版はダミー販売店固定
+                kanri_shiten_code: '1300000101', // resolveJacd 用に10桁化した値に合わせる
+                // dokusya_kaishi_date はデフォルト(nextMonthFirstIsoJst()=未到来)のまま。
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: id }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = 'KDIGSTART'`,
+      );
+      const [{ count: beforeCount }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya_rireki WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(Number(beforeCount)).toBe(1);
+
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            dokusya_shubetsu: 2,
+            selected_columns: ['dokusya_id', 'dokusya_busu'],
+            joho_henko_tekiyo_date: undefined, // 電子版は適用日欄が disable → 省略
+            rows: [buildImportRow({ dokusya_id: Number(id), dokusya_busu: 1 })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const fields = (res.body.errors ?? []).map((e: { field: string }) => e.field);
+      expect(fields).toContain('joho_henko_tekiyo_date');
+
+      // 履歴行が増えていないこと（バグ再現時は before=null 起点の余分な行が作られていた）。
+      const [{ count: afterCount }] = await ctx.dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM t_dokusya_rireki WHERE dokusya_id = $1`,
+        [id],
+      );
+      expect(Number(afterCount)).toBe(1);
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR when 紙版 UPDATE changes a 帳票影響項目 (dokusya_busu) with joho=当日 — 予約変更が必要 (顧客要件 2026-07 改訂)', async () => {
@@ -983,6 +1381,148 @@ describeRealPg(
         [id],
       );
       expect(String(master.biko ?? '')).not.toContain('書き込まれないはず');
+    });
+
+    it('should reject 一括中止 (bulk-stop) when 2+ existing subscribers share the same kumiaiin_code and the row has no dokusya_id (誤解約防止・不具合報告2026-08)', async () => {
+      // 組合員コードは重複可（DB に UNIQUE 制約なし）。ID を指定せず組合員コードだけで
+      // 一括中止すると、どちらの読者を解約したいのか一意に決まらない。
+      // classifyImportRow の isAmbiguousKumiaiinKey ガードが Phase 1（トランザクション
+      // 開始前）で弾き、DB に一切書き込まないことを確認する。
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      const DUP_CODE = 'KDUP-AMBIG';
+      // kumiaiin_code / shimei_sei は NEW モードの必須列一覧に含まれないため、
+      // このテストで組合員コードを実際に保存させるには明示的に選択する必要がある
+      // （選択されない列は #57893 の stripUnselectedColumns で空欄化される）。
+      const newSelectedColumns = [
+        ...buildImportRequiredColumns(),
+        'kumiaiin_code',
+        'shimei_sei',
+      ];
+
+      // 同一 JA 内に同じ組合員コードを持つ読者を2人作る。
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            selected_columns: newSelectedColumns,
+            rows: [buildImportRow({ kumiaiin_code: DUP_CODE, shimei_sei: '一人目' })],
+          }),
+        )
+        .expect(200);
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            selected_columns: newSelectedColumns,
+            rows: [buildImportRow({ kumiaiin_code: DUP_CODE, shimei_sei: '二人目' })],
+          }),
+        )
+        .expect(200);
+      const dupRows: Array<{ dokusya_id: number }> = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = $1 ORDER BY dokusya_id`,
+        [DUP_CODE],
+      );
+      expect(dupRows).toHaveLength(2);
+
+      // ID を指定せず組合員コードのみで一括中止を試みる → 拒否されるはず。
+      const res = await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['dokusya_id'],
+            joho_henko_tekiyo_date: undefined,
+            dokusya_chushi_date: '2099-05-31',
+            rows: [buildImportRow({ kumiaiin_code: DUP_CODE, dokusya_id: undefined })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const errors = (res.body.errors ?? []) as Array<{
+        field: string;
+        message: string;
+      }>;
+      expect(errors).toContainEqual(
+        expect.objectContaining({
+          field: 'kumiaiin_code',
+          message: '組合員コードが重複しているため、IDを指定してください。',
+        }),
+      );
+
+      // どちらの読者も解約されていないこと（Phase 1 で弾かれ DML 未実行）。
+      const afterRows = await ctx.dataSource.query(
+        `SELECT dokusya_id, dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = ANY($1::bigint[])`,
+        [dupRows.map((r) => r.dokusya_id)],
+      );
+      for (const row of afterRows) {
+        expect(row.dokusya_chushi_date).toBeNull();
+      }
+    });
+
+    it('should allow 一括中止 (bulk-stop) via kumiaiin_code when it is unambiguous (only 1 match), and via dokusya_id even when kumiaiin_code is ambiguous', async () => {
+      const sid = await asJaHonten(1);
+      const cookie = [buildSessionCookie(ctx.app, sid)];
+      const DUP_CODE = 'KDUP-BYID';
+      const newSelectedColumns = [
+        ...buildImportRequiredColumns(),
+        'kumiaiin_code',
+        'shimei_sei',
+      ];
+
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            selected_columns: newSelectedColumns,
+            rows: [buildImportRow({ kumiaiin_code: DUP_CODE, shimei_sei: '一人目' })],
+          }),
+        )
+        .expect(200);
+      const [{ dokusya_id: firstId }] = await ctx.dataSource.query(
+        `SELECT dokusya_id FROM t_dokusya WHERE ja_id = 1 AND kumiaiin_code = $1`,
+        [DUP_CODE],
+      );
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            selected_columns: newSelectedColumns,
+            rows: [buildImportRow({ kumiaiin_code: DUP_CODE, shimei_sei: '二人目' })],
+          }),
+        )
+        .expect(200);
+
+      // 重複が生じた後でも、dokusya_id を指定すれば一意に解約できる。
+      await http()
+        .post(apiUrl('dokusya/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportBody({
+            import_mode: 'UPDATE',
+            selected_columns: ['dokusya_id'],
+            joho_henko_tekiyo_date: undefined,
+            dokusya_chushi_date: '2099-05-31',
+            rows: [
+              buildImportRow({
+                dokusya_id: Number(firstId),
+                kumiaiin_code: undefined,
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+
+      const [master] = await ctx.dataSource.query(
+        `SELECT dokusya_chushi_date FROM t_dokusya WHERE dokusya_id = $1`,
+        [firstId],
+      );
+      expect(master.dokusya_chushi_date).not.toBeNull();
     });
 
     it('should return 400 IMPORT_VALIDATION_ERROR (解約予定日 過去日) on UPDATE import (顧客要件 2026-07)', async () => {

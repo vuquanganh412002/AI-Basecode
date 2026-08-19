@@ -52,7 +52,7 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定されたJAが見つかりません。                                         | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                               | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため処理を実行できません。                         | HTTP 409 |
 
 ---
 
@@ -80,7 +80,7 @@ updated_by: Nguyen Duyen Manh
 | 3   | todofuken_code  | String | -        | -    |        | 2      | 都道府県コード（プルダウン由来。完全一致。ACSMS-API-COMMON-001で取得）                                          |
 | 4   | page            | Number | -        | -    |        |        | ページ番号（デフォルト: 1）                                                                                   |
 | 5   | per_page        | Number | -        | -    |        |        | 1ページの件数（デフォルト: 20）                                                                               |
-| 6   | sort_by         | String | -        | -    |        |        | ソート項目（m_jaテーブルのカラム名を指定。例: ja_code, ja_name, yubin_no, todofuken_name, tel, address, fax） |
+| 6   | sort_by         | String | -        | -    |        |        | ソート項目（例: ja_code, ja_name, yubin_no, todofuken_name, tel, address, fax, updated_at） |
 | 7   | sort_order      | String | -        | -    |        |        | ソート方向（asc / desc）                                                                                      |
 
 ## レスポンスデータ
@@ -209,7 +209,7 @@ GET /api/v1/ja?ja_name=東京&page=1&per_page=20&sort_by=ja_code&sort_order=asc
   - todofuken_code：文字列型、最大2文字（プルダウン由来。値が指定された場合は完全一致で絞り込み）
   - page：数値型、1以上の整数
   - per_page：数値型、1以上100以下の整数
-  - sort_by：列挙型（ja_code, ja_name, yubin_no, todofuken_name, tel, address, fax）
+  - sort_by：列挙型（ja_code, ja_name, yubin_no, todofuken_name, tel, address, fax, updated_at）
   - sort_order：列挙型（asc, desc）
 - デフォルト値の適用：
   - page：未指定の場合、1

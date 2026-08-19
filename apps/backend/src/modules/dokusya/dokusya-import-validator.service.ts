@@ -8,6 +8,8 @@ import {
 import { normalizeForCache } from '@/common/utils/m-code-validation';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
+import { DokusyaShubetsu } from '@/common/enums';
+import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
 import {
   DOKUSYASO_BUNRUI_INVALID_MSG,
@@ -19,6 +21,7 @@ import {
   normalizeDbDate,
   dbDateOrNull,
   todayIsoJst,
+  nextMonthFirstIsoJst,
 } from '@/common/utils/datetime';
 import { ImportDokusyaDto, ImportDokusyaRowDto } from './dto/import-dokusya.dto';
 import {
@@ -32,7 +35,9 @@ import {
   isDigitalCreditCard,
   collectDigitalBusuViolation,
   collectDigitalTodayModeViolation,
+  collectDigitalNewKaishiDateViolation,
   collectTodayModeReportViolations,
+  collectReservedSameDateViolation,
   computeChangedReportFields,
   SHUBETSU_MSG,
 } from './dokusya-shubetsu.rules';
@@ -47,9 +52,24 @@ interface ImportRowLookups {
   /** kumiaiin_code → 既存件数（2 以上なら kumiaiin キーでの更新/解約は曖昧）。 */
   kumiaiinCounts: Map<string, number>;
   tankaCodeSet: Set<string>;
+  /**
+   * 失効(active_flg=false)単価コードの集合（`tankaCodeSet`の部分集合。バグ報告
+   * 2026-08）。単価は失効後も参照整合性のため存在し続ける（過去購読者の履歴・
+   * 帳票が単価名を引ける必要がある）ので `tankaCodeSet`（存在チェック）からは
+   * 除外しない。新規取込・取込UPDATEでの選択（新規登録・単価変更）だけを
+   * `IMPORT_VALIDATION_ERROR` で弾くための専用集合。
+   */
+  tankaExpiredCodeSet: Set<string>;
   hanbaitenCodeSet: Set<string>;
   /** 販売店コード → hanbaiten_id（取込時の販売店変更検知に使う）。 */
   hanbaitenIdByCode: Map<string, number>;
+  /**
+   * 廃店(haiten_flg=true)販売店コードの集合（`hanbaitenCodeSet`の部分集合。
+   * バグ報告2026-08）。廃店後も過去購読者の履歴参照のため存在し続けるので
+   * `hanbaitenCodeSet`からは除外しない。取込での新規選択だけを弾く専用集合
+   * （tankaExpiredCodeSetと同じ設計）。
+   */
+  hanbaitenClosedCodeSet: Set<string>;
   kanriShitenCodeSet: Set<string>;
   shitenCodeSet: Set<string>;
   /**
@@ -57,6 +77,12 @@ interface ImportRowLookups {
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
    */
   existingDigitalEmailToIds: Map<string, Set<number>>;
+  /**
+   * 予約変更（未来日）の同一適用日1回まで制限（顧客要件2026-08）の判定用。
+   * UPDATE モードかつ紙版かつ joho が未来日のときだけ埋まる — その joho に
+   * 既にアクティブ（非取消・非新規）な履歴行を持つ dokusya_id の集合。
+   */
+  sameDateActiveDokusyaIds: Set<number>;
   /**
    * m_code 参照列の許容値判定（バックエンドレビュー finding #9）。本サービスは
    * 依存ゼロの leaf サービスのため CodeService を直接 inject せず、呼び出し側
@@ -187,16 +213,51 @@ export class DokusyaImportValidator {
    * §4.1 — NEW モードは必須13列を selected_columns に含むこと。欠けていれば
    * VALIDATION_ERROR（`.code` を own property で公開しサービス単体テストが
    * `err.code` を直接参照できるようにする）。
+   *
+   * 電子版（顧客要件 2026-08）: `dokusya_busu`/`hanbaiten_code` は取込側で
+   * 1 / ダミー販売店へ強制固定するため（importExcel の前処理ループ参照）、
+   * Excel 側にマッピングされていなくても必須列から外す。
    */
   public assertNewModeRequiredColumns(dto: ImportDokusyaDto): void {
     if (dto.import_mode !== 'NEW') return;
-    const missing = IMPORT_NEW_REQUIRED_COLUMNS.filter(
+    const requiredColumns =
+      dto.dokusya_shubetsu === DokusyaShubetsu.DIGITAL
+        ? IMPORT_NEW_REQUIRED_COLUMNS.filter(
+            (c) => c !== 'dokusya_busu' && c !== 'hanbaiten_code',
+          )
+        : IMPORT_NEW_REQUIRED_COLUMNS;
+    const missing = requiredColumns.filter(
       (c) => !dto.selected_columns.includes(c),
     );
     if (missing.length === 0) return;
     const exc = fieldValidationError(
       'selected_columns',
       `新規登録モードでは必須列（${missing.join(', ')}）を含めてください。`,
+    );
+    Object.defineProperty(exc, 'code', {
+      value: 'VALIDATION_ERROR',
+      enumerable: true,
+    });
+    throw exc;
+  }
+
+  /**
+   * 電子版取込は dokusya_busu=1 / hanbaiten_code=ダミー販売店(9999999999) を
+   * 全行へ強制する（顧客要件 2026-08。importExcel の前処理ループ参照）。当該 JA に
+   * ダミー販売店が未整備だと、全行が同一理由で「指定された販売店コードが
+   * 見つかりません」と個別に弾かれ紛らわしいため、行ループへ入る前に一括で
+   * 分かりやすい理由のエラーを返す（`assertNewModeRequiredColumns` と同様の
+   * payload 単位チェック）。
+   */
+  public assertDigitalDummyHanbaitenAvailable(
+    dto: ImportDokusyaDto,
+    hanbaitenIdByCode: Map<string, number>,
+  ): void {
+    if (dto.dokusya_shubetsu !== DokusyaShubetsu.DIGITAL) return;
+    if (hanbaitenIdByCode.has(HANBAITEN_DUMMY_CODE)) return;
+    const exc = fieldValidationError(
+      'hanbaiten_code',
+      `電子版の取込にはダミー販売店（販売店コード:${HANBAITEN_DUMMY_CODE}）の事前登録が必要です。販売店マスタで作成してから再度お試しください。`,
     );
     Object.defineProperty(exc, 'code', {
       value: 'VALIDATION_ERROR',
@@ -488,6 +549,7 @@ export class DokusyaImportValidator {
     const joho = dbDateOrNull(dto.joho_henko_tekiyo_date);
     const chushi = dbDateOrNull(dto.dokusya_chushi_date);
     const today = todayIsoJst();
+    const nextMonthFirst = nextMonthFirstIsoJst();
 
     // 参照レコード（UPDATE時の既存行）。購読開始日/解約予定日の相対チェックに使う。
     const existing = isUpdate
@@ -514,15 +576,24 @@ export class DokusyaImportValidator {
 
     // 適用日の単項目（未来日/過去日）チェック。NEW は購読開始日、UPDATE は
     // joho(未来日のみ) を検証する（顧客要件 2026-07: 販売店適用日を廃止し joho に統一）。
-    this.checkImportRowDateBounds(row, rowNo, isUpdate, joho, today, errors);
+    this.checkImportRowDateBounds(row, rowNo, isUpdate, joho, today, nextMonthFirst, errors);
 
     // NEW 行は相対チェック対象外（joho=購読開始日で自明）。
     if (!isUpdate) return;
 
     // 相対チェック（既存レコード基準）— 共通ルールを collectTekiyoDateViolations に集約。
     if (!existing) return;
+    // 電子版は適用日省略を許す（assertUpdateModeDates）が、書込み側
+    // （dokusya-import.service.ts の updateJoho = dbDateOrNull(...) ?? todayIsoJst()）は
+    // 省略時に当日を補う。ここの相対チェックを未補完の null のまま走らせると「適用日 <
+    // 購読開始日」（購読開始日が未到来の電子版読者を当日付けで更新）が検出されず、
+    // 共通ライタ applyChange の findBefore(joho=当日) が直前行なしと誤判定して
+    // before=null 起点の不完全な履歴行を作ってしまう（バグ報告 2026-08）。書込み側と
+    // 同じ既定値に揃えて相対チェックを効かせる。
+    const effectiveJoho =
+      joho ?? (isDigitalOrBoth(dto.dokusya_shubetsu) ? today : null);
     for (const v of collectTekiyoDateViolations({
-      johoDate: joho,
+      johoDate: effectiveJoho,
       kaishiDate: existing.dokusya_kaishi_date as string | null | undefined,
       chushiDate: existing.dokusya_chushi_date as string | null | undefined,
     })) {
@@ -558,6 +629,19 @@ export class DokusyaImportValidator {
           dto,
           lookups,
         ),
+      })) {
+        this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
+      }
+      // [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回
+      // までに制限する（顧客要件2026-08）。対象集合は buildImportLookups が
+      // 一括で1クエリ算出済み。
+      for (const v of collectReservedSameDateViolation({
+        shubetsu,
+        isReservedMode: joho !== today,
+        existingChangeFound: lookups.sameDateActiveDokusyaIds.has(
+          Number(existing.dokusya_id),
+        ),
+        field: 'joho_henko_tekiyo_date',
       })) {
         this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
       }
@@ -665,8 +749,11 @@ export class DokusyaImportValidator {
   }
 
   /**
-   * 適用日の単項目境界チェック（顧客要件 2026-07 改訂）。
-   *   NEW    : 購読開始日(=情報変更適用日) は未来日のみ（当日・過去日 不可）。
+   * 適用日の単項目境界チェック（顧客要件 2026-07 改訂、電子版は顧客要件 2026-08 改訂）。
+   *   NEW    : 紙版は購読開始日(=情報変更適用日) が未来日のみ（当日・過去日 不可）。
+   *            電子版は「本日」または「翌月1日」のいずれかのみ（ACSMS-SCR-011
+   *            登録画面のラジオボタン「今日から/翌月1日から」と同一制約 —
+   *            {@link collectDigitalNewKaishiDateViolation} 参照）。
    *   UPDATE : 読者情報変更適用日は過去日不可（当日・未来日は可）。当日 vs 未来の
    *            可否は購読種別ルール（validateImportRowTekiyoDates 内）で判定する。
    */
@@ -676,11 +763,27 @@ export class DokusyaImportValidator {
     isUpdate: boolean,
     joho: string | null,
     today: string,
+    nextMonthFirst: string,
     errors: ImportRowError[],
   ): void {
     if (!isUpdate) {
       const kaishi = dbDateOrNull(row.dokusya_kaishi_date);
-      if (kaishi && normalizeDbDate(kaishi) <= today) {
+      // row.dokusya_shubetsu は importExcel の前処理ループで dto.dokusya_shubetsu が
+      // 既に全行へコピー済み（validateImportRowRules 等、既存の他チェックと同じ参照元）。
+      for (const v of collectDigitalNewKaishiDateViolation({
+        shubetsu: row.dokusya_shubetsu,
+        kaishiDate: kaishi,
+        today,
+        nextMonthFirst,
+        field: 'dokusya_kaishi_date',
+      })) {
+        this.pushImportError(errors, { row: rowNo, field: v.field, message: v.message });
+      }
+      if (
+        Number(row.dokusya_shubetsu) !== DokusyaShubetsu.DIGITAL &&
+        kaishi &&
+        normalizeDbDate(kaishi) <= today
+      ) {
         this.pushImportError(errors, {
           row: rowNo,
           field: 'dokusya_kaishi_date',
@@ -715,6 +818,17 @@ export class DokusyaImportValidator {
         field: 'tanka_code',
         message: '指定された新聞単価コードが見つかりません。',
       });
+    } else if (
+      row.tanka_code &&
+      lookups.tankaExpiredCodeSet.has(String(row.tanka_code))
+    ) {
+      // バグ報告2026-08：失効(active_flg=false)単価を選択できてしまい、取込は
+      // 成功するが詳細画面には失効している旨が表示されず気付けなかった。
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'tanka_code',
+        message: '指定された新聞単価コードは失効しています。',
+      });
     }
     if (
       row.hanbaiten_code &&
@@ -724,6 +838,17 @@ export class DokusyaImportValidator {
         row: rowNo,
         field: 'hanbaiten_code',
         message: '指定された販売店コードが見つかりません。',
+      });
+    } else if (
+      row.hanbaiten_code &&
+      lookups.hanbaitenClosedCodeSet.has(String(row.hanbaiten_code))
+    ) {
+      // バグ報告2026-08：廃店(haiten_flg=true)販売店を選択できてしまい、取込は
+      // 成功するが詳細画面には廃店している旨が表示されず気付けなかった。
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'hanbaiten_code',
+        message: '指定された販売店コードは廃店のため選択できません。',
       });
     }
     if (

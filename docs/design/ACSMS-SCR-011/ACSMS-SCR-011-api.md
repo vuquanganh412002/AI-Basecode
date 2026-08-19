@@ -9,7 +9,7 @@ format_version: "1.0"
 issue_date: 2026-05-07
 created_date: 2026/05/07
 created_by: Tran Duc Tuyen
-updated_date: 2026/07/24
+updated_date: 2026/08/18
 updated_by: Tran Duc Tuyen
 ---
 
@@ -34,6 +34,10 @@ updated_by: Tran Duc Tuyen
 | 15  | 2026/08/05 | 1.14 | Tran Duc Tuyen | 顧客要件 2026-08（#56524）：電子版の承認/否認画面で編集できる項目に**支払方法 + 引落口座4項目**（`shiharai_hoho` / 引落口座支店 `bank_shiten_id` / 引落口座貯金種目 `hikiotoshi_yokin_shubetsu` / 引落口座番号 `hikiotoshi_koza_no` / 引落口座名義 `hikiotoshi_koza_meigi`）を追加。承認(API-011-004)は `tanka_id` に加えこの5項目を、否認(API-011-005)は5項目を任意で受け取り、ステータス確定と同一トランザクションで保存する（省略したキーは変更しない部分更新）。電子版申込の口座情報は読者本人の自己申告で誤りが多く、従来は承認→再編集の2操作が必要だったため。`bank_shiten_id` は `m_shiten`(自JA・kinyu_shiten_flg=true) の逆引き検証を行い、JA外／非存在は VALIDATION_ERROR(bank_shiten_id)（テナント跨ぎ FK 注入対策）。`shiharai_hoho` は m_code 検証に加え、電子版のクレジットカード(6)指定を拒否し、口座引落(1)へ切り替える際は引落口座支店を必須とする（既存レコードに引落先がある場合は省略可）。 | | |
 | 16  | 2026/08/05 | 1.15 | Tran Duc Tuyen | 顧客要件 2026-08（#56568）：電子版読者のメールアドレス重複チェックを **JA 横断** に変更。電子版ではメールアドレスが会員の同定キー（ログインID）のため、他 JA に同じメールの電子版・併読レコードがあれば登録・更新を許可しない。従来は `ja_id = :ja_id` で自 JA 内のみを見ており、別 JA に同一メールの電子版読者を作成できてしまった。判定対象は `dokusya_shubetsu IN (2,3)`（紙版は従来どおり重複可）、論理削除済み（`deleted_at IS NOT NULL`）は対象外でメールを再利用できる。画面登録(API-011-003/004)と Excel 一括取込(SCR-016)の双方に適用。 | | |
 | 17  | 2026/08/06 | 1.16 | Tran Duc Tuyen | 顧客要件 2026-08：①**併読（dokusya_shubetsu=3）の配達先情報を画面に表示する**。従来は電子版と同じ扱いで配達先エリアを非活性化していたが、併読は紙も配達されるため配達先が実在し、読者同期バッチも電子版の `paper_*`（paper_zip / paper_pref_id / paper_addr / paper_city / paper_building）由来の配達先を `haitatsu_*` へ取り込んでいる（`haitatsu_same_flg=false`）。エリアを隠したままでは同期済みの配達先住所を画面から確認できなかった。非活性の対象は電子版のみ。**API のリクエスト/レスポンス仕様に変更は無い**（併読は従来どおり作成 `VALIDATION_ERROR`、編集/停止/削除 `DOKUSYA_READ_ONLY`(403) の参照専用）。②読者同期バッチの販売店割当を電子版・併読とも当該JAのダミー販売店（`hanbaiten_code = 9999999999`）へ統一し、電子版側の `ShopCd` は参照しない。紙の配達担当は cloud 側（SCR-011 / SCR-017）で設定する運用とする。 | | |
+| 18  | 2026/08/15 | 1.17 | Tran Duc Tuyen | コードとの整合確認（スポットチェック）：①更新(API-011-003)の §4.3 メール重複チェックが v1.15（#56568・JA横断化）反映前の自JA限定SQLのまま残っていたのを是正 — `assertEmailUnique`（dokusya.service.ts）は `dokusya_shubetsu IN (2,3)` かつ JAを跨いで全件を対象にすることを明記。②予約変更ポップアップが呼び出す `GET /api/v1/dokusya/{dokusya_id}/effective-at?joho=`（DokusyaController.getEffectiveAt）が本書に未記載だったため ACSMS-API-011-007 として追加。 | | |
+| 19  | 2026/08/17 | 1.18 | Tran Duc Tuyen | 顧客要件 2026-08：住所変更と販売店の移動が同一適用日に別々の更新として積み重なると増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため、**紙版の予約変更（未来日）は同一適用日への変更を1回までに制限**。既存レコードに同一適用日の変更（非取消・非新規）がある場合、更新(API-011-003 §4.3.1)・予約変更ポップアップ確定(API-011-007)の双方で `VALIDATION_ERROR`(field=`joho_henko_tekiyo_date`) を返す。同日に複数項目をまとめて変更したいときは、ACSMS-SCR-013 で該当履歴を取消してから1回でまとめて更新する。当日変更は対象外（当日行は取消不可のため）。電子版は対象外（予約変更自体が不可）。Excel取込(SCR-016)・販売店一括置換(SCR-015)にも同一制限を適用（3経路共通の `dokusya-shubetsu.rules.ts` に集約）。 | | |
+| 20  | 2026/08/18 | 1.19 | Tran Duc Tuyen | 不具合修正 2026-08：電子版（dokusya_shubetsu=2）は配達先情報エリアが画面上非活性化される（v1.16 参照）が、種別ラジオを紙版/併読→電子版へ切替えた直後に送信すると隠れた入力欄の値がそのまま届き、BE 側にゲートが無かったため配達先情報12項目（`haitatsu_same_flg` + 住所5＋連絡先2＋氏名4）を保存できてしまっていた。新規登録(API-011-002 §4.1)・更新(API-011-003 §4.1) の両方で、電子版の場合は配達先情報12項目をリクエスト値に関わらずサーバ側で強制的に空欄化（`haitatsu_same_flg=true`・残り11列=空文字）するよう修正（BE: `buildHaitatsuPayload`、購読者層分類の従属4項目 `buildBunruiPayload` と同じ方式）。あわせて FE（DokusyaFormView.vue）も新規作成モードで種別を電子版へ切替えた時点で配達先情報を画面上もクリアするよう修正（UX目的のみ・電子版は種別変更不可のため編集モードは対象外）。 | | |
+| 21  | 2026/08/19 | 1.20 | Tran Duc Tuyen | 不具合修正 2026-08：廃店(`m_hanbaiten.haiten_flg=true`)の販売店・失効(`m_tanka.active_flg=false`)の単価を新規登録(API-011-002)・更新(API-011-003)で選択・変更できてしまう不具合を修正（Excel取込 ACSMS-SCR-016 §4.3.1/4.3.2 で先に修正済みの同一ルールをUIにも適用）。新規登録は常に検証(§4.1)、更新は `hanbaiten_id`/`tanka_id` を実際に変更する場合のみ検証し、既存値のまま（既に廃店/失効へ紐づく既存購読者の他項目編集）は据え置く(§4.3.2新設) — 全項目を毎回送信するUIの性質上、変更なしまで拒否すると当該購読者が永久に編集不能になるため。修正前は取込と同様、購読者詳細画面にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。 | | |
 
 ## システム概要
 
@@ -179,8 +183,12 @@ updated_by: Tran Duc Tuyen
 | 64 | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
 | 65 | →rireki_no                   | Number  | -        |              | -        | 履歴No（最新の履歴番号）                                                                                                                                      |
 | 66 | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス（0:承認待ち, 1:承認済み, 2:否認）                                                                                                      |
-| 67 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 68 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 67 | →denshi_kaiin_id             | Number  | -        |              | 〇       | 電子版会員ID（外部の電子版読者管理システムの会員ID。外部連携機能が設定する読取専用値）                                                                        |
+| 68 | →honshi_kodoku_flg           | Boolean | -        |              | -        | 本紙購読フラグ（電子版読者管理システム users.subscribe_flg 連携。購読種別=電子版のとき画面の「紙版購読状況　有り」表示に使用）                                 |
+| 69 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 70 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 71 | →has_active_kaiyaku          | Boolean | -        |              | -        | 有効な解約予約（kaiyaku_flg=true・取消除外）が存在するか（顧客要件2026-07。履歴から算出、trueの間は追加の解約予約を禁止し編集画面の購読中止日をdisabled）      |
+| 72 | →max_joho_date               | String  | -        | YYYY-MM-DD   | 〇       | 履歴の最終変更適用日（MAX joho・取消除外）。解約予定日はこの日以降のみ指定可（編集画面の disabled-date 基準）。履歴なしは null                                |
 
 ## リクエスト例
 
@@ -258,8 +266,12 @@ GET /api/v1/dokusya/1
     "biko": "",
     "rireki_no": 1,
     "denshi_shonin_status": null,
+    "denshi_kaiin_id": null,
+    "honshi_kodoku_flg": false,
     "created_at": "2026-04-01T10:00:00+09:00",
-    "updated_at": "2026-04-01T10:00:00+09:00"
+    "updated_at": "2026-04-01T10:00:00+09:00",
+    "has_active_kaiyaku": false,
+    "max_joho_date": null
   }
 }
 ```
@@ -504,8 +516,12 @@ WHERE d.dokusya_id = :dokusya_id
 | 62 | →biko                        | String  | -        |              |          | 備考（空文字許容）                                                                                                                                            |
 | 63 | →rireki_no                   | Number  | -        |              | -        | 履歴No                                                                                                                                                        |
 | 64 | →denshi_shonin_status        | Number  | -        |              | 〇       | 電子申込承認ステータス                                                                                                                                        |
-| 65 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
-| 66 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 65 | →denshi_kaiin_id             | Number  | -        |              | 〇       | 電子版会員ID（外部の電子版読者管理システムの会員ID。外部連携機能が設定する読取専用値）                                                                        |
+| 66 | →honshi_kodoku_flg           | Boolean | -        |              | -        | 本紙購読フラグ（電子版読者管理システム users.subscribe_flg 連携）                                                                                             |
+| 67 | →created_at                  | String  | -        | ISO8601      | -        | 作成日時                                                                                                                                                      |
+| 68 | →updated_at                  | String  | -        | ISO8601      | -        | 更新日時                                                                                                                                                      |
+| 69 | →has_active_kaiyaku          | Boolean | -        |              | -        | 有効な解約予約が存在するか（顧客要件2026-07。履歴から算出）                                                                                                    |
+| 70 | →max_joho_date               | String  | -        | YYYY-MM-DD   | 〇       | 履歴の最終変更適用日（MAX joho・取消除外）。履歴なしは null                                                                                                    |
 
 ## リクエスト例
 
@@ -637,8 +653,12 @@ Content-Type: application/json
     "biko": "",
     "rireki_no": 1,
     "denshi_shonin_status": null,
+    "denshi_kaiin_id": null,
+    "honshi_kodoku_flg": false,
     "created_at": "2026-05-07T10:00:00+09:00",
-    "updated_at": "2026-05-07T10:00:00+09:00"
+    "updated_at": "2026-05-07T10:00:00+09:00",
+    "has_active_kaiyaku": false,
+    "max_joho_date": null
   }
 }
 ```
@@ -713,7 +733,8 @@ Content-Type: application/json
   - renrakusaki_1：必須、半角数字
   - email：電子版/併読の場合は必須、形式チェック
   - haitatsu_same_flg=falseの場合：haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson, haitatsu_chome_banchi, haitatsu_shimei_*, haitatsu_shimei_kana_* が必須
-  - hanbaiten_id / tanka_id：必須
+  - **dokusya_shubetsu=2（電子版）の場合：配達先情報12項目（haitatsu_same_flg + haitatsu_yubin_no / haitatsu_todofuken_code / haitatsu_shikuchoson / haitatsu_chome_banchi / haitatsu_tatemono_mei / haitatsu_renrakusaki_1 / haitatsu_renrakusaki_2 / haitatsu_shimei_sei / haitatsu_shimei_mei / haitatsu_shimei_kana_sei / haitatsu_shimei_kana_mei）はリクエストボディの値に関わらずサーバ側で `haitatsu_same_flg=true`・残り11列は空文字に強制する（不具合修正 2026-08）**。画面は電子版で配達先情報エリアを非活性化するが（No.27-38）、種別ラジオを紙版/併読→電子版へ切替えた直後に送信すると隠れた入力欄の値が残ったまま届き得るため、API直叩き・FEのバグ双方に対する防御的措置としてBEでも独立にゲートする。エラーにはせず値を落とすのみ（購読者層分類の従属4項目と同じ方式）
+  - hanbaiten_id / tanka_id：必須。ログインユーザー所属JA内に存在すること（テナント跨ぎは `DATA_SCOPE_VIOLATION`）。**`hanbaiten_id` が指す `m_hanbaiten.haiten_flg=true`（廃店）の場合、または `tanka_id` が指す `m_tanka.active_flg=false`（失効）の場合は `VALIDATION_ERROR`（field=`hanbaiten_id`, message=「指定された販売店は廃店のため選択できません。」／field=`tanka_id`, message=「指定された新聞単価は失効しています。」）で拒否する（不具合修正 2026-08。Excel取込 ACSMS-SCR-016 §4.3.1/4.3.2 で先に修正済みの同一ルールをUIにも適用）。新規登録は常に検証する — 編集時の据え置きルールは ACSMS-API-011-003 §4.3.2 参照。
   - shiharai_hoho：必須。1（口座引落）の場合：bank_shiten_id, hikiotoshi_yokin_shubetsu, hikiotoshi_koza_no, hikiotoshi_koza_meigi が必須
   - bank_shiten_id：口座引落時は必須、他の支払方法では任意。指定された場合は `m_shiten` に存在し、かつ ログインユーザー所属JA内（`m_shiten.ja_id = user.ja_id`）かつ `kinyu_shiten_flg = TRUE` であること（不正値は支払方法を問わず VALIDATION_ERROR）
   - yubin_kubun：任意。入力時は `m_code.code_category='YUBIN_KUBUN'`（0:空, 1:郵送）に存在する値であること
@@ -1096,8 +1117,12 @@ Content-Type: application/json
     "biko": "",
     "rireki_no": 2,
     "denshi_shonin_status": null,
+    "denshi_kaiin_id": null,
+    "honshi_kodoku_flg": false,
     "created_at": "2026-04-01T10:00:00+09:00",
-    "updated_at": "2026-05-07T14:30:00+09:00"
+    "updated_at": "2026-05-07T14:30:00+09:00",
+    "has_active_kaiyaku": false,
+    "max_joho_date": null
   }
 }
 ```
@@ -1197,18 +1222,47 @@ WHERE dokusya_id = :dokusya_id
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
-- メールアドレスが変更されている場合、重複を確認する。
+- メールアドレスが入力されており、かつ購読種別（保存値・pin 済み）が電子版(2)・併読(3) の場合、以下の条件で重複を確認する。
+- **JA を跨いで全件**を対象とする（顧客要件 2026-08 / #56568）。他 JA に同じメールの電子版・併読レコードがあれば更新できない。紙版(1)は対象外。
+- 論理削除済み（`deleted_at IS NOT NULL`）は対象外。自身の行は除外する（`dokusya_id <> :dokusya_id`）。
 
 ```sql
 SELECT COUNT(*) FROM t_dokusya
 WHERE email = :email
   AND email <> ''
-  AND ja_id = :ja_id
-  AND dokusya_id <> :dokusya_id
+  AND dokusya_shubetsu IN (2, 3)
   AND deleted_at IS NULL
+  AND dokusya_id <> :dokusya_id
 ```
 
 - 重複がある場合：HTTP 400 (`DUPLICATE_EMAIL`)
+
+#### 4.3.1 予約変更の同一適用日1回まで制限（v1.18・顧客要件2026-08）
+
+住所変更と販売店の移動が同一適用日に別々の更新として積み重なると、増減連絡票（販売店・ACSMS-SCR-028）の同日集計が意図しない出力になるため、**紙版**の `change_mode='reserved'`（予約変更）は同一 `joho_henko_tekiyo_date` への変更を1回までに制限する。
+
+- 対象：**紙版のみ・`change_mode='reserved'` のみ**。`change_mode='today'`（当日変更）は対象外 — 当日行は取消不可（ACSMS-SCR-013 の `can_torikeshi` が適用日を過去/当日とする行を取消対象から除外する）ため、ここで制限すると後戻りできなくなる。電子版は予約変更自体が不可（§4.1〜4.3 参照）のため実質対象外。再購読（解約済み→新規）は新しいライフサイクルの開始のため対象外。
+
+```sql
+SELECT 1 FROM t_dokusya_rireki
+WHERE dokusya_id = :dokusya_id
+  AND joho_henko_tekiyo_date = :joho_henko_tekiyo_date
+  AND torikeshi_flg = false
+  AND shinki_flg = false
+LIMIT 1
+```
+
+- 上記に該当する行が1件でもあれば：HTTP 400 (`VALIDATION_ERROR`、field=`joho_henko_tekiyo_date`、message=「この適用日には既に変更履歴が登録されています。購読者履歴情報画面から該当の変更を取消してから、まとめて更新してください。」)。
+- 同日に複数項目（住所＋販売店 等）をまとめて変更したいときは、まず ACSMS-SCR-013（購読者履歴情報画面）から該当の変更履歴行を取消（赤伝）してから、1回の更新でまとめて反映する — 取消は当該行の `joho_henko_tekiyo_date` が未来日であることが前提（`can_torikeshi`）。
+- この検証は ACSMS-API-011-007（`GET .../effective-at`）の予約変更ポップアップ確定時点でも同一ロジックで先に走る（早期検知・UX）。update() 本体でも独立に再検証する（多層防御）。
+
+#### 4.3.2 廃店の販売店・失効の単価は「変更」だけを拒否する（v1.20・不具合修正2026-08）
+
+新規登録(§4.1参照)と同じルール（`hanbaiten_id`→`m_hanbaiten.haiten_flg=true`、`tanka_id`→`m_tanka.active_flg=false` は拒否）を更新にも適用するが、**既に廃店/失効へ紐づいている既存購読者を他項目の編集だけで永久に保存不能にしない**ため、`hanbaiten_id`/`tanka_id` が更新前の値（`before.hanbaiten_id`/`before.tanka_id`）から**変わっていない**場合はこのチェックをスキップする。
+
+- `dto.hanbaiten_id === before.hanbaiten_id` かつ `dto.tanka_id === before.tanka_id` → 廃店/失効でも通す（据え置き）。
+- どちらかが**変更**されており、かつ変更後の参照先が廃店/失効 → `VALIDATION_ERROR`（field=`hanbaiten_id`／`tanka_id`、§4.1と同一メッセージ）。
+- 修正前は変更の有無を問わず常に通っており、購読者詳細画面（本画面）にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。Excel取込(SCR-016)は列単位選択のため「未選択＝変更なし」で自然にこの据え置きが成立するが、本画面はフォーム全項目を毎回送信するため明示的な `before` 比較が必要（`DokusyaService.assertFkScope`）。
 
 ### 4.4 データ更新（履歴追記方式）
 
@@ -2089,6 +2143,154 @@ ORDER BY rireki_no DESC
 
 - tetsuzuki_shurui 値をラベル（m_code.code_category='TETSUZUKI_SHURUI'）にマッピング。
 - data 配列を含むJSONを返却する。HTTP 200。
+
+### 4.6 例外処理
+
+- DB接続エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
+
+---
+
+# API ACSMS-API-011-007
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | Get Dokusya Effective At                                                                                                                                                                                                                      |
+| 概要                   | 指定した情報変更適用日（joho）時点で有効な履歴行を、購読者詳細と同一形式で取得する（予約変更ポップアップの基準行取得用）                                                                                                                     |
+| URI                    | /api/v1/dokusya/{dokusya_id}/effective-at                                                                                                                                                                                                     |
+| メソッド               | GET                                                                                                                                                                                                                                            |
+| リクエストボディー     | なし                                                                                                                                                                                                                                           |
+| リクエストパラメーター | dokusya_id（パスパラメータ）, joho（クエリパラメータ・必須）                                                                                                                                                                                  |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                          |
+| HTTPレスポンスコード   | 200:正常に基準行を取得しました, 400:情報変更適用日の形式が不正です／範囲が不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された購読者が見つかりません, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| #   | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                            |
+| --- | -------------- | ------ | -------- | ---- | ------ | ------ | --------------------------------------------------------------- |
+| 1   | dokusya_id     | Number | -        | 〇   |        |        | 対象の dokusya_id（パスパラメータ）                              |
+| 2   | joho           | String | -        | 〇   |        |        | 情報変更適用日（クエリパラメータ・YYYY-MM-DD）                    |
+
+## レスポンスデータ
+
+ACSMS-API-011-001（購読者詳細取得）のレスポンスデータと同一構造（`data` は `DokusyaResponseDto`）。
+
+- `joho` 時点で有効な履歴行（`joho_henko_tekiyo_date <= joho` の中で `(joho, rireki_no)` 最大・取消(赤伝)行除外）の業務項目を、購読者の識別子（`ja_id` 等）はそのままに詳細レスポンス形へマッピングして返す。
+- 該当する履歴行が存在しない場合（joho が最初の履歴より前 等）は、購読者の現行詳細（ACSMS-API-011-001 と同一のフォールバック）を返す。
+- **紙版の同一適用日1回まで制限（v1.18・顧客要件2026-08）**：指定した `joho` に、既にアクティブ（非取消・非新規）な履歴行が存在する場合、基準行取得より前に `VALIDATION_ERROR`（field=`joho_henko_tekiyo_date`）を返す。住所変更と販売店変更のように別々の更新が同じ適用日に積み重なると、増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため、予約変更ポップアップの確定時点でブロックする（ACSMS-API-011-003 の同名バリデーションと同一ロジック — 下記参照）。電子版は対象外（予約変更自体が不可）。
+
+## リクエスト例
+
+```
+GET /api/v1/dokusya/100/effective-at?joho=2026-08-23
+```
+
+## レスポンス成功例
+
+ACSMS-API-011-001のレスポンス成功例と同一構造（基準行の値に置き換わる）。
+
+## レスポンス失敗例
+
+### 400 Bad Request（適用日の形式不正）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [{ "field": "joho", "message": "情報変更適用日の形式が不正です。" }]
+}
+```
+
+### 400 Bad Request（適用日の範囲不正）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [{ "field": "joho_henko_tekiyo_date", "message": "情報変更適用日は購読開始日（2026-04-01）以降の日付を指定してください。" }]
+}
+```
+
+### 400 Bad Request（同一適用日に既存の変更あり・v1.18）
+
+```json
+{
+  "error_code": "VALIDATION_ERROR",
+  "message": "入力値が不正です",
+  "errors": [{ "field": "joho_henko_tekiyo_date", "message": "この適用日には既に変更履歴が登録されています。購読者履歴情報画面から該当の変更を取消してから、まとめて更新してください。" }]
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error_code": "UNAUTHORIZED",
+  "message": "セッションが切れました。再度ログインしてください。"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error_code": "FORBIDDEN",
+  "message": "この画面へのアクセス権限がありません。"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error_code": "NOT_FOUND",
+  "message": "指定された購読者が見つかりません。"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error_code": "INTERNAL_SERVER_ERROR",
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
+}
+```
+
+## 処理手順
+
+### 4.1 リクエストのバリデーション
+
+- パスパラメータ：dokusya_id 数値型チェック、必須
+- クエリパラメータ：joho 必須、`YYYY-MM-DD` 形式チェック。不正な場合は `VALIDATION_ERROR`（field=`joho`、メッセージ「情報変更適用日の形式が不正です。」）で HTTP 400。
+
+### 4.2 認証・認可チェック
+
+- 認証情報を検証する（HTTP-only Cookieセッション）。
+- 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
+- 必要権限: `dokusya.view`
+- 該当権限保持ロール: CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+- 権限不足の場合：HTTP 403 (`FORBIDDEN`)
+- DataScope: ACSMS-API-011-001 と同一（CHUOKAI/JA_HONTEN は ja_id、JA_KANRI_SHITEN は kanri_shiten_id も判定）。違反の場合：HTTP 404 (`NOT_FOUND`)（存在隠蔽）
+
+### 4.3 適用日の範囲整合性チェック
+
+- 対象購読者を取得（DataScope込み）。レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
+- 指定 joho 時点で有効な解約予定日を履歴から算出し、購読開始日（`dokusya_kaishi_date`）・解約予定日との整合性を検証する：
+  - `joho >= 購読開始日`：満たさない場合 `VALIDATION_ERROR`（field=`joho_henko_tekiyo_date`、メッセージ「情報変更適用日は購読開始日（YYYY-MM-DD）以降の日付を指定してください。」）
+  - `joho < 解約予定日`（同日不可）：満たさない場合 `VALIDATION_ERROR`（field=`joho_henko_tekiyo_date`、メッセージ「情報変更適用日は解約予定日（YYYY-MM-DD）より前の日付を指定してください。」）
+  - 解約→再購読済み（現在の購読開始日が、履歴上見つかった解約予定日より後）の場合は、その解約予定日は現行の購読サイクルと無関係のため判定から除外する。
+
+### 4.4 基準行の取得・マッピング
+
+- `joho` 時点で有効な履歴行（`joho_henko_tekiyo_date <= joho` の中で `(joho, rireki_no)` 最大・取消行除外）を取得する。
+- 該当行がなければ、購読者の現行詳細（ACSMS-API-011-001 と同じ取得処理）をそのまま返す。
+- 該当行があれば、その業務値を購読者の識別子（`ja_id` 等）へ重ね合わせ、販売店名・単価名・引落口座支店情報を結合したうえで詳細レスポンス形にマッピングして返す。
+
+### 4.5 レスポンス生成
+
+- data オブジェクトを含むJSONを返却する。HTTP 200。
 
 ### 4.6 例外処理
 

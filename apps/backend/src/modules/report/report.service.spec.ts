@@ -1465,6 +1465,19 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
       expect(stale).toBeUndefined();
     });
 
+    // 顧客要件2026-08: 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面・
+    // SCR-015）経由の変更（hanbaiten_tohaigo_flg=true）は集計対象から除外する。
+    it('should exclude hanbaiten_tohaigo_flg=true rows (販売店統廃合)', async () => {
+      mockZougenPage([buildZougenRawRow()]);
+      await service.previewZougenHanbaiten(buildZougenQuery(), zSession());
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /hanbaiten_tohaigo_flg\s*=\s*false/.test(sql),
+      );
+      expect(call).toBeDefined();
+    });
+
     it('should exclude 論理削除済み purchasers by joining t_dokusya with deleted_at IS NULL (regression)', async () => {
       // Regression: zougenBaseQuery previously only read t_dokusya_rireki and
       // never checked whether the underlying t_dokusya row had been

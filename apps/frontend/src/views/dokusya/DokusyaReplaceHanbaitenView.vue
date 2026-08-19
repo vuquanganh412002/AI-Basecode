@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// ACSMS-SCR-015 — 購読者販売店一括置換画面。
+// ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）。
 //
 // GET /api/v1/dokusya/replace-hanbaiten/search で購読中 (tetsuzuki_shurui=1) を
 // 検索し、≥1行チェック後に POST /api/v1/dokusya/replace-hanbaiten で

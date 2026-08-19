@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-04-14
 created_date: 2026/04/14
 created_by: Nguyen Duyen Manh
-updated_date: 2026/04/14
-updated_by: Nguyen Duyen Manh
+updated_date: 2026/08/17
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -20,6 +20,7 @@ updated_by: Nguyen Duyen Manh
 | 1   | 2026/04/14 | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/07/14 | 1.1  | Tran Duc Tuyen | 所属支店(shiten_id)追加。登録/更新リクエストに shiten_id（role_id=5のみ有効・任意）、詳細/登録/更新レスポンスに shiten_id / shiten_name を追加（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/08/06 | 1.2  | Tran Duc Tuyen | 実装との差分補完：§4.5.1 を新設し、セキュリティ上重要な更新でのセッション全破棄（2026-07 のセキュリティレビュー対応）を記載。セッションのペイロード（permissions / role_code / ja_id 等）はログイン時に固定され SessionAuthGuard は DB を再検証しないため、破棄しないと降格・ロック・所属変更が既発行の cookie 保持者に反映されない（de-provisioning bypass）。破棄対象＝パスワード変更 / ロック(true) / ロール変更 / 所属スコープ変更。ロック解除(false)・氏名/メール/備考のみの変更では破棄しない（解除操作で管理者自身のセッションを切らないため）。コミット後のベストエフォートで、Redis 障害時も応答は成功のまま警告ログのみ | | |
+| 4   | 2026/08/17 | 1.3  | Tran Duc Tuyen | 実装コードとの再監査による差分修正：①エラー一覧の CONFLICT メッセージを実装（`ErrorMessage.CONFLICT`）に合わせ「関連データが存在するため処理を実行できません。」へ修正（ACSMS-SCR-024 api.md と同一文言に統一）。②各エラーレスポンス例の欠落していた末尾「。」を補完し、バリデーションエラー例「アカウント名称は必須です」を実際の DTO メッセージ「アカウント名は必須です。」へ修正。③更新APIの after_value 監査ログ例に欠落していた `account_lock_flg` を追加（前回セッションが中断し before_value のみ修正済みだった箇所を完了）。④§4.5.1 のセッション破棄対象表に `todofuken_code` を追加（2026-08-12 のバックエンドコードレビュー finding #8 対応 commit `0131b798` で isSecuritySensitiveUpdate() に追加されたが本書に未反映だった）。⑤登録APIレスポンス例の `updated_at` を実装（`updated_at` は NOT NULL DEFAULT NOW() で登録時に created_at と同時刻が設定される）に合わせ null から実際のタイムスタンプへ修正 | | |
 
 ## システム概要
 
@@ -62,7 +63,8 @@ updated_by: Nguyen Duyen Manh
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND     | 指定されたアカウントが見つかりません。                                 | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                      | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため処理を実行できません。                | HTTP 409 |
+| 10  | 画面固有     | DUPLICATE_CODE        | ログインID「{login_id}」はすでに登録されています。            | HTTP 400（ACSMS-API-025-002 のみ。account.service.ts createAccount） |
 
 ---
 
@@ -111,6 +113,7 @@ updated_by: Nguyen Duyen Manh
 | 16  | →sub_email_3        | String  | -        |              | -        | サブメールアドレス3（NOT NULL、空文字許容）   |
 | 17  | →paper_flg          | Boolean | -        |              | -        | 紙版取扱フラグ           |
 | 18  | →denshi_flg         | Boolean | -        |              | -        | 電子版取扱フラグ         |
+| 18.1 | →account_lock_flg  | Boolean | -        |              | -        | アカウントロックフラグ（ログイン失敗回数が閾値到達でtrue。管理者が解除可能） |
 | 19  | →biko               | String  | -        |              | -        | 備考                     |
 | 20  | →created_at         | String  | -        | ISO8601      | -        | 作成日時                 |
 | 21  | →updated_at         | String  | -        | ISO8601      | 〇       | 更新日時                 |
@@ -145,6 +148,7 @@ GET /api/v1/accounts/1
     "sub_email_3": "",
     "paper_flg": true,
     "denshi_flg": false,
+    "account_lock_flg": false,
     "biko": "",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-03-10T14:30:00Z"
@@ -159,7 +163,7 @@ GET /api/v1/accounts/1
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -168,7 +172,7 @@ GET /api/v1/accounts/1
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -177,7 +181,7 @@ GET /api/v1/accounts/1
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定されたアカウントが見つかりません"
+  "message": "指定されたアカウントが見つかりません。"
 }
 ```
 
@@ -186,7 +190,7 @@ GET /api/v1/accounts/1
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -209,7 +213,7 @@ GET /api/v1/accounts/1
 
 ### 4.3 データ取得
 
-- NICHINO_ADMINは全アカウントを参照可能（DataScope制限なし）。
+- NICHINO_ADMINは全アカウントを参照可能（DataScope制限なし。取得後に`assertBranchScope`による防御的チェックも行うが、NICHINO_ADMIN／NICHINO_STAFFはバイパスされるため実質no-op。現状account.viewはNICHINO_ADMINしか保有していないためこのチェックは効かないが、将来他ロールに権限が付与された際のクロステナント漏洩を防ぐ）。
 - 以下の条件でデータを取得する。
 
 ```sql
@@ -218,19 +222,22 @@ SELECT a.account_id, a.login_id, a.account_name,
        a.todofuken_code, t.todofuken_name,
        a.ja_id, j.ja_name,
        a.kanri_shiten_id, ks.kanri_shiten_name,
+       a.shiten_id, s.shiten_name,
        a.email, a.sub_email_1, a.sub_email_2, a.sub_email_3,
-       a.paper_flg, a.denshi_flg, a.biko,
+       a.paper_flg, a.denshi_flg, a.account_lock_flg, a.biko,
        a.created_at, a.updated_at
 FROM m_account a
   LEFT JOIN m_roles r ON a.role_id = r.role_id AND r.deleted_at IS NULL
   LEFT JOIN m_todofuken t ON a.todofuken_code = t.todofuken_code
   LEFT JOIN m_ja j ON a.ja_id = j.ja_id AND j.deleted_at IS NULL
   LEFT JOIN m_kanri_shiten ks ON a.kanri_shiten_id = ks.kanri_shiten_id AND ks.deleted_at IS NULL
+  LEFT JOIN m_shiten s ON a.shiten_id = s.shiten_id AND s.deleted_at IS NULL
 WHERE a.account_id = :account_id
   AND a.deleted_at IS NULL
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
+- レコードは存在するがDataScope範囲外の場合も、存在有無を隠すためHTTP 404 (`NOT_FOUND`)として扱う（防御的チェック。現状account.viewを保有するのはNICHINO_ADMINのみのため発生しない）。
 
 ### 4.4 レスポンス生成
 
@@ -265,12 +272,12 @@ WHERE a.account_id = :account_id
 | 1   | login_id         | String  | -        | 〇   | 1      | 20     | ログインID（半角英数字とアンダースコアのみ）。`SYSTEM` 単体および `SYSTEM_` で始まる文字列は予約済みで使用不可（大文字小文字を区別しない）。バッチの実行者名と衝突すると `t_dokusya_rireki.created_by` による電子版同期由来の判別が壊れるため。DTO と DB の CHECK 制約 `ck_m_account_login_id_not_reserved` の両方で拒否する |
 | 2   | password         | String  | -        | 〇   | 8      | 32     | パスワード（半角英字・数字・記号の3種のうち2種以上を含む）                                     |
 | 3   | role_id          | Number  | -        | 〇   |        |        | 管理者区分（1〜5）                                                                            |
-| 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。role_id=3,4,5の場合は必須                                           |
-| 5   | ja_id            | Number  | -        | △    |        |        | JA ID。role_id=3,4,5の場合は必須                                                              |
-| 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。role_id=5の場合は必須                                                             |
-| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では破棄 |
+| 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。画面上はrole_id=3,4,5で入力必須（FE側バリデーションのみ）だが、BE DTO（create-account.dto.ts）は型・桁数のみ検証し必須チェックは行わない |
+| 5   | ja_id            | Number  | -        | △    |        |        | JA ID。画面上はrole_id=3,4,5で入力必須（FE側バリデーションのみ）だが、BE DTOでは必須チェックを行わない |
+| 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。画面上はrole_id=5で入力必須（FE側バリデーションのみ）だが、BE DTOでは必須チェックを行わない。role_id=1,2以外で指定時は、実効JA（ja_id指定値、無指定時はセッションのja_id）に属することをBEが検証し、別JAならHTTP 403（DATA_SCOPE_VIOLATION） |
+| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5（JA_KANRI_SHITEN）のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では常に破棄されNULL保存。role_id=5かつ指定時は支店の存在および指定kanri_shiten_id／JAへの帰属をBEが検証（不一致時はHTTP 400 VALIDATION_ERROR: shiten_id） |
 | 7   | account_name     | String  | -        | 〇   | 1      | 50     | アカウント名称                                                                                |
-| 8   | email            | String  | -        | -    |        | 100    | メールアドレス（メール形式）。空欄可                                                          |
+| 8   | email            | String  | -        | 〇   |        | 100    | メールアドレス（メール形式、必須。顧客要件2026-05 QAレビューにより必須化）                     |
 | 9   | sub_email_1      | String  | -        | -    |        | 100    | サブメールアドレス1（メール形式）。空欄可                                                     |
 | 10  | sub_email_2      | String  | -        | -    |        | 100    | サブメールアドレス2（メール形式）。空欄可                                                     |
 | 11  | sub_email_3      | String  | -        | -    |        | 100    | サブメールアドレス3（メール形式）。空欄可                                                     |
@@ -302,9 +309,11 @@ WHERE a.account_id = :account_id
 | 16  | →sub_email_3        | String  | -        |              | -        | サブメールアドレス3（NOT NULL、空文字許容）   |
 | 17  | →paper_flg          | Boolean | -        |              | -        | 紙版取扱フラグ           |
 | 18  | →denshi_flg         | Boolean | -        |              | -        | 電子版取扱フラグ         |
+| 18.1 | →account_lock_flg  | Boolean | -        |              | -        | アカウントロックフラグ（登録直後は常にfalse） |
 | 19  | →biko               | String  | -        |              | -        | 備考                     |
 | 20  | →created_at         | String  | -        | ISO8601      | -        | 作成日時                 |
 | 21  | →updated_at         | String  | -        | ISO8601      | 〇       | 更新日時                 |
+| 22  | message             | String  | -        |              | -        | 処理結果メッセージ（`登録しました。`） |
 
 ## リクエスト例
 
@@ -355,10 +364,12 @@ Content-Type: application/json
     "sub_email_3": "",
     "paper_flg": true,
     "denshi_flg": true,
+    "account_lock_flg": false,
     "biko": "",
     "created_at": "2026-04-14T10:00:00Z",
-    "updated_at": null
-  }
+    "updated_at": "2026-04-14T10:00:00Z"
+  },
+  "message": "登録しました。"
 }
 ```
 
@@ -369,11 +380,20 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "login_id", "message": "ログインIDは必須です" },
-    { "field": "password", "message": "パスワードは8~32文字で、半角英字・数字・記号の3種のうち2種以上を含めて入力してください" }
+    { "field": "login_id", "message": "ログインIDは必須です。" },
+    { "field": "password", "message": "パスワードは8~32文字で、半角英字・数字・記号の3種のうち2種以上を含めて入力してください。" }
   ]
+}
+```
+
+### 400 Bad Request（ログインID重複）
+
+```json
+{
+  "error_code": "DUPLICATE_CODE",
+  "message": "ログインID「ja_honten001」はすでに登録されています。"
 }
 ```
 
@@ -382,7 +402,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -391,7 +411,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -400,7 +420,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -412,15 +432,16 @@ Content-Type: application/json
 
 ### 4.1 リクエストのバリデーション
 
-- リクエストボディの検証：
-  - login_id：必須、最大20桁、半角英数字のみ（正規表現: `^[a-zA-Z0-9_]+$`）
-  - password：必須、8〜32文字、半角英字・数字・記号の3種のうち2種以上を含む
-  - role_id：必須、1〜5の整数
-  - todofuken_code：role_id=3,4,5の場合は必須、2桁の文字列（01〜47）
-  - ja_id：role_id=3,4,5の場合は必須、数値型
-  - kanri_shiten_id：role_id=5の場合は必須、数値型
+- リクエストボディの検証（DTO: `create-account.dto.ts`）：
+  - login_id：必須、最大20桁、半角英数字とアンダースコアのみ（正規表現: `^\w+$`）。`SYSTEM`単体および`SYSTEM_`で始まる文字列は予約済みで拒否（`IsNotReservedLoginId`、大文字小文字区別なし）
+  - password：必須、8〜32文字、半角英字・数字・記号の3種のうち2種以上を含む（`IsStrongPassword`）
+  - role_id：必須、1〜5の整数。加えて非削除の`m_roles`に実在することをDBで検証し、存在しない場合は`VALIDATION_ERROR`（field: role_id、「指定されたロールが見つかりません。」）
+  - todofuken_code：任意、指定時は2桁の文字列。role_id=3,4,5での入力必須制御は画面側のみ実装されており、BE DTOレベルの必須チェックは無い
+  - ja_id：任意、数値型。同上（BEでの必須チェックは無い）
+  - kanri_shiten_id：任意、数値型。同上（BEでの必須チェックは無い）。role_id=1,2以外で指定された場合は実効JA（`ja_id ?? セッションのja_id`）に属することを検証し、別JAならHTTP 403（`DATA_SCOPE_VIOLATION`）
+  - shiten_id：任意、数値型。role_id=5（JA_KANRI_SHITEN）以外では常に破棄されNULL保存。role_id=5かつ指定時は支店の存在、および指定kanri_shiten_id／JAへの帰属を検証（不一致時はHTTP 400 `VALIDATION_ERROR`: shiten_id）
   - account_name：必須、最大50桁
-  - email：空欄可、最大100桁、メール形式
+  - email：必須、最大100桁、メール形式（顧客要件2026-05 QAレビューにより必須化。空欄不可）
   - sub_email_1 / sub_email_2 / sub_email_3：空欄可、最大100桁、メール形式
   - paper_flg：ブーリアン型（デフォルト: false）
   - denshi_flg：ブーリアン型（デフォルト: false）
@@ -436,30 +457,36 @@ Content-Type: application/json
 
 ### 4.3 重複チェック
 
-- login_id の重複を確認する。
+- login_id の重複を確認する（論理削除済み行も対象。login_id は削除後も再利用不可で、DBのUNIQUEインデックスも`deleted_at`で絞らない）。
 
 ```sql
 SELECT COUNT(*) FROM m_account
 WHERE login_id = :login_id
-  AND deleted_at IS NULL
 ```
+
+- 重複が見つかった場合：HTTP 400 (`DUPLICATE_CODE`)。メッセージ例：`ログインID「ja_honten001」はすでに登録されています。`
+- 本チェック通過後に同時リクエストがDBのUNIQUE制約（`UQ_m_account_login_id`）に抵触した場合も、同じHTTP 400 (`DUPLICATE_CODE`)へ変換して返却する（競合時のセーフティネット）。
 
 ### 4.4 データ登録
 
+- role_id から role_code を`m_roles`参照で解決する（存在しない場合はここで`VALIDATION_ERROR`）。
+- role_id=1,2（NICHINO_ADMIN／NICHINO_STAFF）の場合、todofuken_code, ja_id, kanri_shiten_id は NULL を設定する。
+- role_id=5（JA_KANRI_SHITEN）以外の場合、shiten_id は常に NULL を設定する（リクエストに値があっても破棄）。
+- kanri_shiten_id が指定されている場合（role_id=1,2以外）、実効JA（ja_id指定値、無指定時はセッションのja_id）に属することを検証する（Layer 4 FKガード）。存在しない場合はHTTP 400、別JAに属する場合はHTTP 403（`DATA_SCOPE_VIOLATION`）。
+- role_id=5かつshiten_idが指定されている場合、支店の存在および指定kanri_shiten_id／JAへの帰属を検証する（不一致時はHTTP 400 `VALIDATION_ERROR`: shiten_id）。
 - パスワードをbcrypt（ソルトラウンド: 10）でハッシュ化する。
 - 初期値を設定する：login_failure_count=0, account_lock_flg=false, mfa_enable_flg=false
-- role_id=1,2（日農）の場合、todofuken_code, ja_id, kanri_shiten_id は NULL を設定する。
 - 以下のSQLを実行して登録する。
 
 ```sql
 INSERT INTO m_account (login_id, password_hash, account_name,
-                       role_id, todofuken_code, ja_id, kanri_shiten_id,
+                       role_id, todofuken_code, ja_id, kanri_shiten_id, shiten_id,
                        email, sub_email_1, sub_email_2, sub_email_3,
                        paper_flg, denshi_flg,
                        login_failure_count, account_lock_flg, mfa_enable_flg,
                        biko, created_at, created_by, updated_at, updated_by)
 VALUES (:login_id, :password_hash, :account_name,
-        :role_id, :todofuken_code, :ja_id, :kanri_shiten_id,
+        :role_id, :todofuken_code, :ja_id, :kanri_shiten_id, :shiten_id,
         :email, :sub_email_1, :sub_email_2, :sub_email_3,
         :paper_flg, :denshi_flg,
         0, false, false,
@@ -507,15 +534,17 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "sub_email_3": "",
   "paper_flg": true,
   "denshi_flg": true,
+  "account_lock_flg": false,
   "biko": ""
 }
 ```
 
 ### 4.6 レスポンス生成
 
-- 登録されたデータをdata オブジェクトとして返却する。HTTP 201。
+- 登録されたデータをdata オブジェクトとして返却する。HTTP 201。message フィールドに `登録しました。` を含める。
 - パスワード情報はレスポンスに含めない。
-- role_name, todofuken_name, ja_name, kanri_shiten_name はJOIN結果またはマスタから取得して付与する。
+- role_name, todofuken_name, ja_name, kanri_shiten_name, shiten_name はJOIN結果またはマスタから取得して付与する。
+- account_lock_flg（登録直後は常にfalse）も返却する。
 
 ### 4.7 例外処理
 
@@ -561,20 +590,21 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 1   | account_id       | Number  | -        | 〇   |        |        | 更新対象の account_id（パスパラメータ）                                                       |
 | 2   | password         | String  | -        | -    | 8      | 32     | パスワード（変更時のみ入力。空欄の場合は変更しない）                                          |
 | 3   | role_id          | Number  | -        | 〇   |        |        | 管理者区分（1〜5）                                                                            |
-| 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。role_id=3,4,5の場合は必須                                           |
-| 5   | ja_id            | Number  | -        | △    |        |        | JA ID。role_id=3,4,5の場合は必須                                                              |
-| 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。role_id=5の場合は必須                                                             |
-| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では破棄 |
+| 4   | todofuken_code   | String  | -        | △    | 2      | 2      | 都道府県コード（01〜47）。画面上はrole_id=3,4,5で入力必須（FE側バリデーションのみ）だが、BE DTO（update-account.dto.ts）は型・桁数のみ検証し必須チェックは行わない |
+| 5   | ja_id            | Number  | -        | △    |        |        | JA ID。画面上はrole_id=3,4,5で入力必須（FE側バリデーションのみ）だが、BE DTOでは必須チェックを行わない |
+| 6   | kanri_shiten_id  | Number  | -        | △    |        |        | 管理支店ID。画面上はrole_id=5で入力必須（FE側バリデーションのみ）だが、BE DTOでは必須チェックを行わない。role_id=1,2以外で指定時は、更新対象アカウントの既存JA（before.ja_id）に属することをBEが検証し、別JAならHTTP 403（DATA_SCOPE_VIOLATION） |
+| 6.1 | shiten_id        | Number  | -        | -    |        |        | 所属支店ID。role_id=5（JA_KANRI_SHITEN）のみ有効・任意。設定時は当該支店の購読者のみ操作可＋帳票5画面利用不可（顧客要件2026-07）。role_id≠5では常に破棄されNULL保存。role_id=5かつ指定時は支店の存在および実効管理支店（kanri_shiten_id指定値、無指定時はbefore.kanri_shiten_id）／JAへの帰属をBEが検証（不一致時はHTTP 400 VALIDATION_ERROR: shiten_id） |
 | 7   | account_name     | String  | -        | 〇   | 1      | 50     | アカウント名称                                                                                |
-| 8   | email            | String  | -        | -    |        | 100    | メールアドレス（メール形式）。空欄可                                                          |
+| 8   | email            | String  | -        | 〇   |        | 100    | メールアドレス（メール形式、必須。顧客要件2026-05 QAレビューにより必須化）                     |
 | 9   | sub_email_1      | String  | -        | -    |        | 100    | サブメールアドレス1（メール形式）。空欄可                                                     |
 | 10  | sub_email_2      | String  | -        | -    |        | 100    | サブメールアドレス2（メール形式）。空欄可                                                     |
 | 11  | sub_email_3      | String  | -        | -    |        | 100    | サブメールアドレス3（メール形式）。空欄可                                                     |
 | 12  | paper_flg        | Boolean | -        | -    |        |        | 紙版取扱フラグ                                                                                |
 | 13  | denshi_flg       | Boolean | -        | -    |        |        | 電子版取扱フラグ                                                                              |
+| 13.1 | account_lock_flg | Boolean | -        | -    |        |        | アカウントロックフラグ（管理者による手動ロック／解除）。falseを送るとlogin_failure_countも0に、account_lock_atもNULLにリセットされる（未指定時は変更しない） |
 | 14  | biko             | String  | -        | -    |        |        | 備考。空欄可                                                                                  |
 
-※ login_id は更新不可（画面側でdisabled）。リクエストに含めない。
+※ login_id は更新不可（画面側でdisabled）。リクエストに含めない（含めた場合、グローバルValidationPipeの`forbidNonWhitelisted`によりHTTP 400 `VALIDATION_ERROR`で拒否される）。
 
 ## レスポンスデータ
 
@@ -600,9 +630,11 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 16  | →sub_email_3        | String  | -        |              | -        | サブメールアドレス3（NOT NULL、空文字許容）   |
 | 17  | →paper_flg          | Boolean | -        |              | -        | 紙版取扱フラグ           |
 | 18  | →denshi_flg         | Boolean | -        |              | -        | 電子版取扱フラグ         |
+| 18.1 | →account_lock_flg  | Boolean | -        |              | -        | アカウントロックフラグ（最新値） |
 | 19  | →biko               | String  | -        |              | -        | 備考                     |
 | 20  | →created_at         | String  | -        | ISO8601      | -        | 作成日時                 |
 | 21  | →updated_at         | String  | -        | ISO8601      | 〇       | 更新日時                 |
+| 22  | message             | String  | -        |              | -        | 処理結果メッセージ（`更新しました。`） |
 
 ## リクエスト例
 
@@ -652,10 +684,12 @@ Content-Type: application/json
     "sub_email_3": "",
     "paper_flg": true,
     "denshi_flg": true,
+    "account_lock_flg": false,
     "biko": "備考を追加しました",
     "created_at": "2026-02-01T09:00:00Z",
     "updated_at": "2026-04-14T14:30:00Z"
-  }
+  },
+  "message": "更新しました。"
 }
 ```
 
@@ -666,9 +700,9 @@ Content-Type: application/json
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
-    { "field": "account_name", "message": "アカウント名称は必須です" }
+    { "field": "account_name", "message": "アカウント名は必須です。" }
   ]
 }
 ```
@@ -678,7 +712,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "UNAUTHORIZED",
-  "message": "セッションが切れました。再度ログインしてください"
+  "message": "セッションが切れました。再度ログインしてください。"
 }
 ```
 
@@ -687,7 +721,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "FORBIDDEN",
-  "message": "この画面へのアクセス権限がありません"
+  "message": "この画面へのアクセス権限がありません。"
 }
 ```
 
@@ -696,7 +730,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "NOT_FOUND",
-  "message": "指定されたアカウントが見つかりません"
+  "message": "指定されたアカウントが見つかりません。"
 }
 ```
 
@@ -705,7 +739,7 @@ Content-Type: application/json
 ```json
 {
   "error_code": "INTERNAL_SERVER_ERROR",
-  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください。"
 }
 ```
 
@@ -718,17 +752,20 @@ Content-Type: application/json
 ### 4.1 リクエストのバリデーション
 
 - パスパラメータ：account_id 数値型チェック、必須
-- リクエストボディ：
+- リクエストボディ（DTO: `update-account.dto.ts`）：
+  - login_id：DTOに未宣言。含めて送信するとグローバルValidationPipeの`forbidNonWhitelisted`によりHTTP 400（`VALIDATION_ERROR`）で拒否される（更新不可、画面側でdisabled）
   - password：空欄可（変更時のみ入力）。入力時は8〜32文字、半角英字・数字・記号の3種のうち2種以上を含む
-  - role_id：必須、1〜5の整数
-  - todofuken_code：role_id=3,4,5の場合は必須、2桁の文字列（01〜47）
-  - ja_id：role_id=3,4,5の場合は必須、数値型
-  - kanri_shiten_id：role_id=5の場合は必須、数値型
+  - role_id：必須、1〜5の整数。加えて非削除の`m_roles`に実在することをDBで検証し、存在しない場合は`VALIDATION_ERROR`（field: role_id、「指定されたロールが見つかりません。」）
+  - todofuken_code：任意、指定時は2桁の文字列。role_id=3,4,5での入力必須制御は画面側のみ実装されており、BE DTOレベルの必須チェックは無い
+  - ja_id：任意、数値型。同上（BEでの必須チェックは無い）
+  - kanri_shiten_id：任意、数値型。同上（BEでの必須チェックは無い）。role_id=1,2以外で指定された場合は更新対象アカウントの既存JA（before.ja_id）に属することを検証し、別JAならHTTP 403（`DATA_SCOPE_VIOLATION`）
+  - shiten_id：任意、数値型。role_id=5（JA_KANRI_SHITEN）以外では常に破棄されNULL保存。role_id=5かつ指定時は支店の存在、および実効管理支店（kanri_shiten_id指定値、無指定時はbefore.kanri_shiten_id）／JAへの帰属を検証（不一致時はHTTP 400 `VALIDATION_ERROR`: shiten_id）
   - account_name：必須、最大50桁
-  - email：空欄可、最大100桁、メール形式
+  - email：必須、最大100桁、メール形式（顧客要件2026-05 QAレビューにより必須化。空欄不可）
   - sub_email_1 / sub_email_2 / sub_email_3：空欄可、最大100桁、メール形式
   - paper_flg：ブーリアン型
   - denshi_flg：ブーリアン型
+  - account_lock_flg：任意、ブーリアン型。未指定時は現在値を変更しない。falseを送るとlogin_failure_count/account_lock_atもリセットされる
   - biko：文字列型（空欄可）
 
 ### 4.2 認証・認可チェック
@@ -741,7 +778,7 @@ Content-Type: application/json
 
 ### 4.3 対象レコードの存在確認
 
-- NICHINO_ADMINは全アカウントを更新可能（DataScope制限なし）。
+- NICHINO_ADMINは全アカウントを更新可能（DataScope制限なし。取得後に`assertBranchScope`による防御的チェックも行うが、NICHINO_ADMIN／NICHINO_STAFFはバイパスされるため実質no-op。現状account.updateはNICHINO_ADMINしか保有していないためこのチェックは効かないが、将来他ロールに権限が付与された際のクロステナント漏洩を防ぐ）。
 
 ```sql
 SELECT * FROM m_account
@@ -750,11 +787,17 @@ WHERE account_id = :account_id
 ```
 
 - レコードが存在しない場合：HTTP 404 (`NOT_FOUND`)
+- レコードは存在するがDataScope範囲外の場合も、存在有無を隠すためHTTP 404 (`NOT_FOUND`)として扱う（現状発生しない防御的チェック）。
 
 ### 4.4 データ更新
 
+- role_id から role_code を`m_roles`参照で解決する（存在しない場合はここで`VALIDATION_ERROR`）。
+- kanri_shiten_id が指定されている場合（role_id=1,2以外）、更新対象アカウントの既存JA（before.ja_id）に属することを検証する（Layer 4 FKガード）。存在しない場合はHTTP 400、別JAに属する場合はHTTP 403（`DATA_SCOPE_VIOLATION`）。
+- role_id=5（JA_KANRI_SHITEN）かつshiten_idが指定されている場合、支店の存在および実効管理支店（kanri_shiten_id指定値、無指定時はbefore.kanri_shiten_id）／JAへの帰属を検証する（不一致時はHTTP 400 `VALIDATION_ERROR`: shiten_id）。
 - password が空欄でない場合のみ、bcrypt（ソルトラウンド: 10）でハッシュ化し、password_hash と password_updated_at を更新する。
-- role_id=1,2（日農）の場合、todofuken_code, ja_id, kanri_shiten_id は NULL を設定する。
+- role_id=1,2（NICHINO_ADMIN／NICHINO_STAFF）の場合、todofuken_code, ja_id, kanri_shiten_id は NULL を設定する。
+- role_id=5以外の場合、shiten_id は常に NULL を設定する。
+- account_lock_flg がリクエストに含まれる場合のみ更新する。false（解除）を送った場合は同時に login_failure_count=0, account_lock_at=NULL にリセットする（残すと次回ログイン失敗時に閾値到達で再ロックされる、またはロック開始時刻が「まだロック中」のまま誤って残る）。
 
 ```sql
 UPDATE m_account
@@ -764,6 +807,7 @@ SET password_hash = CASE WHEN :password_provided THEN :password_hash ELSE passwo
     todofuken_code = :todofuken_code,
     ja_id = :ja_id,
     kanri_shiten_id = :kanri_shiten_id,
+    shiten_id = :shiten_id,
     account_name = :account_name,
     email = :email,
     sub_email_1 = :sub_email_1,
@@ -771,6 +815,9 @@ SET password_hash = CASE WHEN :password_provided THEN :password_hash ELSE passwo
     sub_email_3 = :sub_email_3,
     paper_flg = :paper_flg,
     denshi_flg = :denshi_flg,
+    account_lock_flg = CASE WHEN :account_lock_flg_provided THEN :account_lock_flg ELSE account_lock_flg END,
+    login_failure_count = CASE WHEN :account_lock_flg_provided AND :account_lock_flg = false THEN 0 ELSE login_failure_count END,
+    account_lock_at = CASE WHEN :account_lock_flg_provided AND :account_lock_flg = false THEN NULL ELSE account_lock_at END,
     biko = :biko,
     updated_at = NOW(),
     updated_by = :user_account_id
@@ -819,6 +866,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "sub_email_3": "",
   "paper_flg": true,
   "denshi_flg": false,
+  "account_lock_flg": false,
   "biko": ""
 }
 ```
@@ -843,6 +891,7 @@ VALUES (1, NOW(), :account_id, :ja_id,
   "sub_email_3": "",
   "paper_flg": true,
   "denshi_flg": true,
+  "account_lock_flg": false,
   "biko": "備考を追加しました"
 }
 ```
@@ -858,11 +907,12 @@ VALUES (1, NOW(), :account_id, :ja_id,
 | パスワード変更（管理者による強制リセット） | 〇 |
 | アカウントロック（`account_lock_flg` を **true** へ） | 〇 |
 | ロール（`role_id`）の変更 | 〇 |
-| 所属スコープ（`ja_id` / `kanri_shiten_id` / `shiten_id`）の変更 | 〇 |
+| 所属スコープ（`ja_id` / `kanri_shiten_id` / `shiten_id` / `todofuken_code`）の変更 | 〇 |
 | **ロック解除**（`account_lock_flg` を false へ） | ×（解除操作で管理者自身のセッションを切ってはならない） |
 | 氏名・メールアドレス・備考のみの変更 | × |
 
-- 所属スコープの判定では `undefined`（この更新に含まれない）と `null`（スコープなし）を正規化し、**実際に値が遷移した場合のみ**変更とみなす。
+- `todofuken_code` は CHUOKAI の DataScope を「自JAのみ」から「同一都道府県の全JA」へ広げる特殊フィールドであり、`ja_id` / `kanri_shiten_id` / `shiten_id` と同格の「セッションに固定されたスコープ」として扱う（バックエンドコードレビュー finding #8 対応、2026-08-12）。
+- 所属スコープの判定では `undefined`（この更新に含まれない）と `null`（スコープなし）を正規化し、**実際に値が遷移した場合のみ**変更とみなす（`todofuken_code` は文字列のため同様の正規化を文字列比較で行う）。
 - 破棄は**コミット後のベストエフォート**。Redis 障害が発生しても業務書き込みは成立済みのため応答は成功のままとし、警告ログのみ出力する（セッションは 24h の TTL 内に失効し、変更自体は永続化済み）。
 - 同じ破棄はアカウント削除（`DELETE /api/v1/accounts/{account_id}`。API定義は ACSMS-SCR-024 側）でも行う。削除は無条件に破棄する。
 

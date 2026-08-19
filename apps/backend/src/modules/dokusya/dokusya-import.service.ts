@@ -16,6 +16,7 @@ import {
   TetsuzukiShurui,
 } from '@/common/enums';
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
+import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { MAIL_MAGAZINE_FLG_OFF } from '@/common/constants/mail-magazine-flg.constant';
 import { YUBIN_KUBUN_NASHI } from '@/common/constants/yubin-kubun.constant';
 import {
@@ -24,7 +25,7 @@ import {
   allowsNogyoKankeiFlg,
   allowsNogyosyaBunruiSonota,
 } from '@/common/constants/dokusya-bunrui.constant';
-import { buildBunruiPayload } from './dokusya.mapper';
+import { buildBunruiPayload, buildHaitatsuPayload } from './dokusya.mapper';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service';
@@ -63,9 +64,13 @@ interface ImportRowLookups {
   /** kumiaiin_code → 既存件数（2 以上なら kumiaiin キーでの更新/解約は曖昧）。 */
   kumiaiinCounts: Map<string, number>;
   tankaCodeSet: Set<string>;
+  /** 失効(active_flg=false)単価コードの部分集合（バグ報告2026-08）。 */
+  tankaExpiredCodeSet: Set<string>;
   hanbaitenCodeSet: Set<string>;
   /** 販売店コード → hanbaiten_id（取込時の販売店変更検知に使う）。 */
   hanbaitenIdByCode: Map<string, number>;
+  /** 廃店(haiten_flg=true)販売店コードの部分集合（バグ報告2026-08）。 */
+  hanbaitenClosedCodeSet: Set<string>;
   kanriShitenCodeSet: Set<string>;
   shitenCodeSet: Set<string>;
   /**
@@ -73,6 +78,13 @@ interface ImportRowLookups {
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
    */
   existingDigitalEmailToIds: Map<string, Set<number>>;
+  /**
+   * 予約変更（未来日）の同一適用日1回まで制限（顧客要件2026-08）の判定用。
+   * UPDATE モードかつ紙版かつ joho が未来日のときだけ埋める — 対象の
+   * dokusya_id のうち、その joho に既にアクティブ（非取消・非新規）な
+   * 履歴行を持つものの集合。空欄運用（NEW/電子版/当日）は空集合のまま。
+   */
+  sameDateActiveDokusyaIds: Set<number>;
   /**
    * m_code 参照列の許容値判定（バックエンドレビュー finding #9）。
    * `DokusyaImportValidator` は依存ゼロの leaf サービスなので CodeService を
@@ -337,8 +349,18 @@ export class DokusyaImportService {
     // 購読種別は画面ラジオ（紙版/電子版）で選ぶ取込モード（顧客要件 2026-07）。Excel 列
     // ではないため全行へ一律適用してから検証・登録（既存の per-row shubetsu ロジック=
     // 検証/entity build/部数固定 を流用）。NEW は種別を設定、UPDATE は既存値と一致検証。
+    //
+    // 電子版は実在の販売店へ配達しないため、部数・販売店コードとも常に単一の
+    // 固定値しか取り得ない（顧客要件 2026-08）。Excel セルの値に関わらず行ごと
+    // 強制上書きする — ダミー販売店(HANBAITEN_DUMMY_CODE)の運用は
+    // ACSMS-SCR-011 登録/編集・dokusya-sync バッチと同じ（hanbaiten-dummy.constant.ts
+    // 参照）。数値上限防御(#4.1 行数上限)より前でも安全 — 単純代入のみ。
     for (const row of dto.rows) {
       row.dokusya_shubetsu = dto.dokusya_shubetsu;
+      if (dto.dokusya_shubetsu === DokusyaShubetsu.DIGITAL) {
+        row.dokusya_busu = 1;
+        row.hanbaiten_code = HANBAITEN_DUMMY_CODE;
+      }
     }
 
     // §4.1 — 行数上限（多層防御。DTO @ArrayMaxSize でも防ぐ）。
@@ -357,6 +379,13 @@ export class DokusyaImportService {
 
     // §4.3 — FK 解決 + 既存購読者ロード（ja_id スコープ）をまとめて行う。
     const { lookups, fkMaps } = await this.buildImportLookups(dto, jaId);
+    // 電子版はダミー販売店(9999999999)へ強制解決するため、当該 JA に未整備だと
+    // 行ループへ入る前に一括で分かりやすい理由のエラーを返す（行ごとの
+    // 「販売店コードが見つかりません」連発を避ける）。
+    this.validator.assertDigitalDummyHanbaitenAvailable(
+      dto,
+      fkMaps.hanbaitenIdByCode,
+    );
 
     // 解約(手続種類=0)は取込で扱わない（顧客要件 2026-06。cancelled_count は常に 0）。
     const cancelledCount = 0;
@@ -594,7 +623,7 @@ export class DokusyaImportService {
       tankaCodes.length === 0
         ? []
         : await this.dataSource.query(
-            `SELECT tanka_id, tanka_code FROM m_tanka
+            `SELECT tanka_id, tanka_code, active_flg FROM m_tanka
               WHERE ja_id = $1 AND tanka_code = ANY($2::text[])
                 AND tanka_type = ${TANKA_TYPE_KODOKU} AND deleted_at IS NULL`,
             [jaId, tankaCodes],
@@ -605,12 +634,19 @@ export class DokusyaImportService {
     const tankaIdByCode = new Map(
       tankaRows.map((r) => [String(r.tanka_code), Number(r.tanka_id)]),
     );
+    // バグ報告2026-08：失効(active_flg=false)単価を取込で選択できてしまう不具合の
+    // 修正。tankaCodeSet（存在チェック用）は失効後も削除しないので別集合で保持。
+    const tankaExpiredCodeSet = new Set(
+      tankaRows
+        .filter((r) => r.active_flg === false)
+        .map((r) => String(r.tanka_code)),
+    );
 
     const hanbaitenRows: Array<Record<string, unknown>> =
       hanbaitenCodes.length === 0
         ? []
         : await this.dataSource.query(
-            `SELECT hanbaiten_id, hanbaiten_code FROM m_hanbaiten
+            `SELECT hanbaiten_id, hanbaiten_code, haiten_flg FROM m_hanbaiten
               WHERE ja_id = $1 AND hanbaiten_code = ANY($2::text[])
                 AND deleted_at IS NULL`,
             [jaId, hanbaitenCodes],
@@ -623,6 +659,13 @@ export class DokusyaImportService {
         String(r.hanbaiten_code),
         Number(r.hanbaiten_id),
       ]),
+    );
+    // バグ報告2026-08：廃店(haiten_flg=true)販売店を取込で選択できてしまう不具合の
+    // 修正。hanbaitenCodeSet（存在チェック用）は廃店後も削除しないので別集合で保持。
+    const hanbaitenClosedCodeSet = new Set(
+      hanbaitenRows
+        .filter((r) => r.haiten_flg === true)
+        .map((r) => String(r.hanbaiten_code)),
     );
 
     const kanriShitenRows: Array<Record<string, unknown>> =
@@ -722,16 +765,45 @@ export class DokusyaImportService {
       }
     }
 
+    // [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回まで
+    // に制限する（顧客要件2026-08）。取込の joho はペイロード直下（全行共通）
+    // なので、対象 dokusya_id 全件に対して1回のクエリで済む。電子版/当日/NEW は
+    // 対象外（joho が無いか本日固定のため空集合のまま）。
+    const sameDateActiveDokusyaIds = new Set<number>();
+    const importJoho = String(dto.joho_henko_tekiyo_date ?? '').trim();
+    if (
+      dto.import_mode === 'UPDATE' &&
+      Number(dto.dokusya_shubetsu) === DokusyaShubetsu.PAPER &&
+      importJoho &&
+      importJoho !== todayIsoJst() &&
+      existingRows.length > 0
+    ) {
+      const targetIds = existingRows.map((r) => Number(r.dokusya_id));
+      const sameDateRows: Array<{ dokusya_id: number }> = await this.dataSource.query(
+        `SELECT DISTINCT dokusya_id
+           FROM t_dokusya_rireki
+          WHERE dokusya_id = ANY($1::bigint[])
+            AND joho_henko_tekiyo_date = $2
+            AND torikeshi_flg = false
+            AND shinki_flg = false`,
+        [targetIds, importJoho],
+      );
+      for (const r of sameDateRows) sameDateActiveDokusyaIds.add(Number(r.dokusya_id));
+    }
+
     const lookups: ImportRowLookups = {
       existingById,
       existingByKumiaiin,
       kumiaiinCounts,
       tankaCodeSet,
+      tankaExpiredCodeSet,
       hanbaitenCodeSet,
       hanbaitenIdByCode,
+      hanbaitenClosedCodeSet,
       kanriShitenCodeSet,
       shitenCodeSet,
       existingDigitalEmailToIds,
+      sameDateActiveDokusyaIds,
       hasCode: (category, value) => this.codeService.has(category, value),
     };
 
@@ -885,18 +957,25 @@ export class DokusyaImportService {
       mailMagazineFlg: Number(row.mail_magazine_flg ?? MAIL_MAGAZINE_FLG_OFF),
       birthYear: intOrNull(row.birth_year),
       gender: this.toGenderCode(row.gender),
-      haitatsuSameFlg: sameFlg,
-      haitatsuYubinNo: str(row.haitatsu_yubin_no),
-      haitatsuTodofukenCode: str(row.haitatsu_todofuken_code),
-      haitatsuShikuchoson: str(row.haitatsu_shikuchoson),
-      haitatsuChomeBanchi: str(row.haitatsu_chome_banchi),
-      haitatsuTatemonoMei: str(row.haitatsu_tatemono_mei),
-      haitatsuRenrakusaki1: str(row.haitatsu_renrakusaki_1),
-      haitatsuRenrakusaki2: str(row.haitatsu_renrakusaki_2),
-      haitatsuShimeiSei: str(row.haitatsu_shimei_sei),
-      haitatsuShimeiMei: str(row.haitatsu_shimei_mei),
-      haitatsuShimeiKanaSei: str(row.haitatsu_shimei_kana_sei),
-      haitatsuShimeiKanaMei: str(row.haitatsu_shimei_kana_mei),
+      // 配達先情報12項目 — 画面登録(SCR-011)と同じゲート。電子版(DIGITAL)は
+      // buildHaitatsuPayload がリクエスト値に関わらず強制的に空欄化する
+      // （不具合修正2026-08。Excel からも「電子版なのに配達先情報あり」を
+      // 作れないようにする）。
+      ...buildHaitatsuPayload({
+        dokusya_shubetsu: row.dokusya_shubetsu,
+        haitatsu_same_flg: sameFlg,
+        haitatsu_yubin_no: str(row.haitatsu_yubin_no),
+        haitatsu_todofuken_code: str(row.haitatsu_todofuken_code),
+        haitatsu_shikuchoson: str(row.haitatsu_shikuchoson),
+        haitatsu_chome_banchi: str(row.haitatsu_chome_banchi),
+        haitatsu_tatemono_mei: str(row.haitatsu_tatemono_mei),
+        haitatsu_renrakusaki_1: str(row.haitatsu_renrakusaki_1),
+        haitatsu_renrakusaki_2: str(row.haitatsu_renrakusaki_2),
+        haitatsu_shimei_sei: str(row.haitatsu_shimei_sei),
+        haitatsu_shimei_mei: str(row.haitatsu_shimei_mei),
+        haitatsu_shimei_kana_sei: str(row.haitatsu_shimei_kana_sei),
+        haitatsu_shimei_kana_mei: str(row.haitatsu_shimei_kana_mei),
+      }),
       hanbaitenId:
         fkMaps.hanbaitenIdByCode.get(str(row.hanbaiten_code)) ?? null,
       tankaId: fkMaps.tankaIdByCode.get(str(row.tanka_code)) ?? null,
@@ -947,23 +1026,47 @@ export class DokusyaImportService {
    * UPDATE 取込行の対象 dokusya_id を呼出元 JA 内で解決（dokusya_id 優先、なければ
    * kumiaiin_code）。該当なしは null（履歴スキップ＝旧 RETURNING null と同義）。
    * 行存在は上流で検証済みのため miss は通常経路でない。
+   *
+   * [誤更新防止・バグ報告2026-08] `kumiaiin_code` は UNIQUE 制約が無く同一JA内で
+   * 重複しうる（screen-design.md「更新モードでIDが空のときの代替キー」）。旧実装は
+   * `dokusya_id = :id OR kumiaiin_code = :code` という OR 条件で1クエリにまとめていたが、
+   * これは「優先」ではなく「どちらか一致すればヒット」になる。同一バッチ内に同じ
+   * kumiaiin_code を持つ行が2件以上あると、各行が明示的に指定した dokusya_id と無関係に
+   * OR のもう一方（kumiaiin_code 一致）で別の購読者へヒットしうる — 実際に検証したところ
+   * `LIMIT 1`(ORDER BY 無し)は常に物理的に先頭の行を返すため、2行とも先頭の
+   * dokusya_id へ誤って書き込まれ、もう一方の購読者は一切更新されないまま2件分の
+   * 変更が誤った購読者の履歴に積み上がっていた（`isAmbiguousKumiaiinKey` は
+   * dokusya_id 未指定の行だけを弾くため、この2クエリを分けないと防げない）。
+   * dokusya_id が指定されている行は kumiaiin_code を一切参照せず、それだけで絞り込む。
    */
   private async resolveImportTargetId(
     manager: EntityManager,
     jaId: number,
     row: ImportDokusyaRowDto,
   ): Promise<number | null> {
+    const hasDokusyaId =
+      row.dokusya_id !== undefined &&
+      row.dokusya_id !== null &&
+      String(row.dokusya_id) !== '';
+    if (hasDokusyaId) {
+      const found = await manager.query<Array<{ dokusya_id?: number }>>(
+        `SELECT dokusya_id FROM t_dokusya
+          WHERE ja_id = $1::int AND deleted_at IS NULL AND dokusya_id = $2::bigint
+          LIMIT 1`,
+        [jaId, row.dokusya_id],
+      );
+      return this.extractReturnedDokusyaId(found);
+    }
     const kumiaiin =
       row.kumiaiin_code === undefined || row.kumiaiin_code === null
         ? ''
         : String(asScalar(row.kumiaiin_code));
+    if (!kumiaiin) return null;
     const found = await manager.query<Array<{ dokusya_id?: number }>>(
       `SELECT dokusya_id FROM t_dokusya
-        WHERE ja_id = $1::int AND deleted_at IS NULL
-          AND (($2::bigint IS NOT NULL AND dokusya_id = $2::bigint)
-               OR ($3 <> '' AND kumiaiin_code = $3))
+        WHERE ja_id = $1::int AND deleted_at IS NULL AND kumiaiin_code = $2
         LIMIT 1`,
-      [jaId, row.dokusya_id ?? null, kumiaiin],
+      [jaId, kumiaiin],
     );
     return this.extractReturnedDokusyaId(found);
   }
@@ -985,6 +1088,13 @@ export class DokusyaImportService {
       kanriShitenIdByCode: Map<string, number>;
       shitenIdByCode: Map<string, number>;
     },
+    /**
+     * 対象レコードの実際の購読種別（呼び出し元が DB から解決した現在値。
+     * dokusya_shubetsu は UPDATE では編集不可のため Excel 行の値は使わない）。
+     * 電子版なら配達先情報12項目を選択列に関わらず強制的に空欄化する
+     * （buildHaitatsuPayload・不具合修正2026-08）。
+     */
+    dokusyaShubetsu?: number | null,
   ): DokusyaFields {
     const str = (v: unknown): string =>
       v === undefined || v === null ? '' : String(asScalar(v));
@@ -1008,6 +1118,18 @@ export class DokusyaImportService {
       dokusyaso: str(row.dokusyaso_bunrui),
       nogyosya: str(row.nogyosya_bunrui),
     });
+
+    // 配達先情報12項目 — 電子版(DIGITAL)は選択列に関わらず強制的に空欄化する
+    // （画面登録(SCR-011)・新規取込(buildNewImportValues)と同じゲート。不具合
+    // 修正2026-08）。以降の haitatsu_same_flg 推論はゲートで上書きされるため
+    // 電子版では実行しない。
+    if (Number(dokusyaShubetsu) === DokusyaShubetsu.DIGITAL) {
+      Object.assign(
+        out,
+        buildHaitatsuPayload({ dokusya_shubetsu: dokusyaShubetsu ?? undefined }),
+      );
+      return values;
+    }
 
     // haitatsu_same_flg: 明示選択+指定ならその値、未指定でも選択配達先列に入力が
     // あれば「別住所」(false) に下ろす（buildPartialUpdate と同ルール）。
@@ -1126,13 +1248,27 @@ export class DokusyaImportService {
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。
     await this.rireki.lockDokusyaRow(manager, dokusyaId);
+    // 対象レコードの実際の購読種別（Excel 行の dokusya_shubetsu は UPDATE では
+    // 編集不可＝参考値でしかないため使えない）。配達先情報12項目のゲート
+    // （buildHaitatsuPayload）に必要な最小限の1列だけ読む。
+    const targetShubetsu = (
+      await manager.findOne(Dokusya, {
+        where: { dokusyaId },
+        select: ['dokusyaShubetsu'],
+      })
+    )?.dokusyaShubetsu;
     // 適用日は payload 直下（1ファイル1つ）。電子版は画面で当日固定・省略可のため
     // 未指定なら当日を補う（従来の行単位フォールバックと同じ意味）。
     const updateJoho = dbDateOrNull(dto.joho_henko_tekiyo_date) ?? todayIsoJst();
     const updateResult = await applyChange(manager, {
       mode: 'UPDATE',
       dokusyaId,
-      values: this.buildUpdatePartialValues(dto.selected_columns, row, fkMaps),
+      values: this.buildUpdatePartialValues(
+        dto.selected_columns,
+        row,
+        fkMaps,
+        targetShubetsu,
+      ),
       johoDate: updateJoho,
       source: 'IMPORT',
       actor: updatedBy,

@@ -460,6 +460,24 @@ export class TankaService {
     // [input-validation] — 適用終了日 >= 実効開始日（CREATE と同じ順序チェック）。
     assertUpdateDateRange(effectiveStartDate, dto.tekiyo_end_date);
 
+    // [reactivation-guard] 顧客要件: 有効(active_flg=true)な単価は、適用終了日が
+    // 「無し」または「本日以降」でなければならない。tanka-expire バッチは
+    // 失効→無効の一方向のみで、無効→有効の復帰は手動操作に委ねているため
+    // （tanka-expire.service.ts 冒頭コメント参照）、ここでガードしないと
+    // 「有効なのに既に終了済み」という矛盾した状態を保存でき、翌日のバッチで
+    // 無意味に再度無効化されるだけになる。CREATEは
+    // assertCreateDateRange（開始日≧本日 かつ 終了日≧開始日）で自動的に
+    // 終了日≧本日が成立するため対象外。
+    const effectiveActiveFlg = dto.active_flg ?? before.activeFlg;
+    if (effectiveActiveFlg && dto.tekiyo_end_date && dto.tekiyo_end_date < today) {
+      throw new ValidationException([
+        {
+          field: 'tekiyo_end_date',
+          message: '有効な単価には本日以降の適用終了日を指定してください。',
+        },
+      ]);
+    }
+
     try {
       const updated = await this.dataSource.transaction(async (manager) => {
         // [partial-update] — 更新可能フィールドを適用。tanka_code は before のまま

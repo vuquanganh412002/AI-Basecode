@@ -83,6 +83,7 @@ import {
 } from './dokusya-history.writer';
 import {
   loadEffectiveRow,
+  loadActiveRowAtDate,
   loadMaster,
   nextRirekiNo,
   insertRow,
@@ -103,6 +104,7 @@ import {
 import { ImportDokusyaDto } from './dto/import-dokusya.dto';
 import {
   buildBunruiPayload,
+  buildHaitatsuPayload,
   DokusyaJoinFields,
   DokusyaListItem,
   DokusyaRirekiListItem,
@@ -117,6 +119,7 @@ import {
   isDokusyaDeletable,
   collectDigitalBusuViolation,
   collectTodayModeReportViolations,
+  collectReservedSameDateViolation,
   computeChangedReportFields,
   SHUBETSU_MSG,
 } from './dokusya-shubetsu.rules';
@@ -397,6 +400,24 @@ export class DokusyaService {
         })),
       );
     }
+    // [reserved-same-date] ポップアップ確定の時点で「この適用日には既にアクティブな
+    // 変更履歴がある」ことを検知し、フォーム全項目入力後の update() 送信まで
+    // 待たせずその場でエラーを返す（顧客要件2026-08。上の日付範囲チェックと同じ
+    // 早期検知パターン）。
+    const existingAtDate = await loadActiveRowAtDate(
+      this.dataSource.manager,
+      id,
+      joho,
+    );
+    const sameDateViolations = collectReservedSameDateViolation({
+      shubetsu: Number(master.dokusyaShubetsu),
+      isReservedMode: true,
+      existingChangeFound: !!existingAtDate,
+      field: 'joho_henko_tekiyo_date',
+    });
+    if (sameDateViolations.length > 0) {
+      throw new ValidationException(sameDateViolations);
+    }
     const predecessor = await loadEffectiveRow(this.dataSource.manager, id, joho);
     // 直前行なし(joho が最初の履歴より前) → 現行 master を基準にする。
     if (!predecessor) return this.getDetail(id, session);
@@ -657,6 +678,32 @@ export class DokusyaService {
     }
   }
 
+  /**
+   * [reserved-same-date] 予約変更（未来日）の適用日に、既にアクティブ（非取消・
+   * 非新規）な履歴行が無いか調べる。ある場合は購読者履歴情報画面(ACSMS-SCR-013)
+   * から先に取消するよう案内する VALIDATION_ERROR で弾く。
+   */
+  private async assertReservedSameDateAvailable(
+    dokusyaId: number,
+    joho: string,
+    shubetsu: number,
+  ): Promise<void> {
+    const existing = await loadActiveRowAtDate(
+      this.dataSource.manager,
+      dokusyaId,
+      joho,
+    );
+    const violations = collectReservedSameDateViolation({
+      shubetsu,
+      isReservedMode: true,
+      existingChangeFound: !!existing,
+      field: 'joho_henko_tekiyo_date',
+    });
+    if (violations.length > 0) {
+      throw fieldValidationError(violations[0].field, violations[0].message);
+    }
+  }
+
   async update(
     id: number,
     dto: UpdateDokusyaDto,
@@ -698,6 +745,20 @@ export class DokusyaService {
       Number(dto.tetsuzuki_shurui) === TetsuzukiShurui.SHINKI;
 
     this.assertDigitalChangeModeAllowed(before, changeMode, isResubscribe);
+
+    // [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回までに
+    // 制限する（顧客要件2026-08）。住所変更・販売店変更のように別々の更新が同じ
+    // 適用日に積み重なると、増減連絡票（ACSMS-SCR-028）の同日集計が意図しない
+    // 出力になるため。当日変更は対象外（当日行は取消不可のため制限すると後戻り
+    // できなくなる）。電子版は予約変更自体が不可（上の assertDigitalChangeModeAllowed）
+    // のため実質対象外。再購読は新しいライフサイクルの開始のため対象外。
+    if (changeMode === 'reserved' && !isResubscribe) {
+      await this.assertReservedSameDateAvailable(
+        id,
+        dto.joho_henko_tekiyo_date!,
+        Number(before.dokusyaShubetsu),
+      );
+    }
 
     if (isResubscribe) {
       // 再購読の購読開始日は新規登録同様 未来日のみ（当日・過去日不可）。
@@ -796,7 +857,7 @@ export class DokusyaService {
 
     // [layer4-fk-guard] body FK id を session でなく既存行の JA で検証し、編集が行の
     // テナントに縛られるようにする。
-    await this.assertFkScope(dto, effectiveJaId);
+    await this.assertFkScope(dto, effectiveJaId, before);
 
     // [kanri-shiten-immutable] 管理支店 は作成時に確定し編集では変更不可（顧客要件 2026-07）。
     // FE はグレーアウトするが画面はフォーム全体を送るため body に届く。FK guard の後に保存値へ
@@ -1530,10 +1591,19 @@ export class DokusyaService {
    * security.md §Layer 4 参照。JA外→DataScopeViolation(403)、id 欠落→BadRequest(400)（共に fetchFkInJa）。
    *
    * kanri_shiten_id は DTO 任意で present 時のみ検証。shiten_id/hanbaiten_id/tanka_id は必須。
+   *
+   * [closed-hanbaiten-guard][expired-tanka-guard] バグ報告2026-08：廃店
+   * (haiten_flg=true)の販売店・失効(active_flg=false)の単価を新規選択・変更
+   * できてしまう不具合を修正（Excel取込 ACSMS-SCR-016 で先に修正済みの
+   * ルールをUIにも適用）。`before`（編集対象の既存行）を渡された場合、
+   * `hanbaiten_id`/`tanka_id` が既存値から変わっていなければチェックを
+   * スキップする — 既に廃店/失効へ紐づく既存購読者を他項目の編集だけで
+   * 永久に保存不能にしないため。CREATE(before無し)は常に検証する。
    */
   private async assertFkScope(
     dto: CreateDokusyaDto,
     effectiveJaId: number,
+    before?: Dokusya,
   ): Promise<void> {
     // kanri_shiten_id / shiten_id は任意。未設定は null だが、過去にレスポンスが 0 に丸めて
     // 返した経緯で FE が 0 を送り返すことがある。0(以下)は「未設定」とみなし FK 検証をスキップ
@@ -1556,20 +1626,38 @@ export class DokusyaService {
         '支店',
       );
     }
-    await fetchFkInJa(
+    const hanbaiten = await fetchFkInJa(
       this.hanbaitenRepo,
       'hanbaitenId',
       dto.hanbaiten_id,
       effectiveJaId,
       '販売店',
     );
-    await fetchFkInJa(
+    if (
+      hanbaiten.haitenFlg &&
+      (!before || Number(before.hanbaitenId) !== Number(dto.hanbaiten_id))
+    ) {
+      throw fieldValidationError(
+        'hanbaiten_id',
+        '指定された販売店は廃店のため選択できません。',
+      );
+    }
+    const tanka = await fetchFkInJa(
       this.tankaRepo,
       'tankaId',
       dto.tanka_id,
       effectiveJaId,
       '単価',
     );
+    if (
+      !tanka.activeFlg &&
+      (!before || Number(before.tankaId) !== Number(dto.tanka_id))
+    ) {
+      throw fieldValidationError(
+        'tanka_id',
+        '指定された新聞単価は失効しています。',
+      );
+    }
   }
 
   /**
@@ -1876,18 +1964,11 @@ export class DokusyaService {
         dto.mail_magazine_flg != null ? Number(dto.mail_magazine_flg) : null,
       birthYear: dto.birth_year ?? null,
       gender: dto.gender ?? null,
-      haitatsuSameFlg: dto.haitatsu_same_flg,
-      haitatsuYubinNo: dto.haitatsu_yubin_no ?? '',
-      haitatsuTodofukenCode: dto.haitatsu_todofuken_code ?? '',
-      haitatsuShikuchoson: dto.haitatsu_shikuchoson ?? '',
-      haitatsuChomeBanchi: dto.haitatsu_chome_banchi ?? '',
-      haitatsuTatemonoMei: dto.haitatsu_tatemono_mei ?? '',
-      haitatsuRenrakusaki1: dto.haitatsu_renrakusaki_1 ?? '',
-      haitatsuRenrakusaki2: dto.haitatsu_renrakusaki_2 ?? '',
-      haitatsuShimeiSei: dto.haitatsu_shimei_sei ?? '',
-      haitatsuShimeiMei: dto.haitatsu_shimei_mei ?? '',
-      haitatsuShimeiKanaSei: dto.haitatsu_shimei_kana_sei ?? '',
-      haitatsuShimeiKanaMei: dto.haitatsu_shimei_kana_mei ?? '',
+      // 配達先情報12項目 — 電子版(DIGITAL)は buildHaitatsuPayload がゲートして
+      // 強制的に空欄化する（バグ報告2026-08。画面は電子版でエリア非活性化
+      // 済みだが、種別切替時に隠れた入力欄の値が残ったまま送られ得るため
+      // BE 側でも同じ制約を課す）。
+      ...buildHaitatsuPayload(dto),
       hanbaitenId: Number(dto.hanbaiten_id),
       tankaId: Number(dto.tanka_id),
       yubinKubun: dto.yubin_kubun ?? YUBIN_KUBUN_NASHI,
@@ -2207,6 +2288,8 @@ export class DokusyaService {
               dokusyaId: id,
               rirekiNo: no,
               actor: String(session.account_id),
+              // 承認/否認はSCR-015（統廃合）とは無関係なワークフローのため常にfalse。
+              hanbaitenTohaigoFlg: false,
             },
           );
           // 承認/否認は即時反映 → 旧 saishin を降格しこの行を saishin に昇格。
@@ -2403,7 +2486,7 @@ export class DokusyaService {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // SCR-015 — 購読者販売店一括置換画面
+  // SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）
   // ════════════════════════════════════════════════════════════════════════
   //
   // 一括置換（候補検索 + 一括置換 + 候補事前検証）の本体は DokusyaReplaceService に分離。

@@ -54,7 +54,6 @@ updated_by: Nguyen Duyen Manh
 | 3   | 共通         | FORBIDDEN             | この画面へのアクセス権限がありません。                                 | HTTP 403 |
 | 4   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 5   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 6   | 画面固有     | DENSHI_NOT_ENABLED    | このアカウントでは電子版機能が有効化されていません。                   | HTTP 403 |
 
 ---
 
@@ -199,9 +198,8 @@ GET /api/v1/oshirase/menu?limit=20
 ### 4.1 リクエストのバリデーション
 
 - クエリパラメータの検証：
-  - limit：数値型チェック、1〜20（範囲外は 1〜20 にクランプ）
+  - limit：数値型チェック、1〜20（範囲外・数値変換不可な値は 1〜20 にクランプ、またはデフォルト値にフォールバック。エラーは返却しない）
 - デフォルト値を設定する（limit=20）
-- 不正なパラメータの場合：HTTP 400 (`BAD_REQUEST`)
 
 ### 4.2 認証・認可チェック
 
@@ -268,7 +266,7 @@ LIMIT 1
 
 ### 4.6 レスポンス生成
 
-- oshirase_type 値をラベルにマッピング（1→システム, 2→重要, 3→一般, 4→締め切り時間）
+- oshirase_type は数値のままレスポンスに含める（ラベル文字列への変換は行わない。認証済みエンドポイントは `*_label` を返却しない方針 — ラベルは FE が m_code キャッシュから解決する）。
 - publish_start_date / publish_end_date を `YYYY/MM/DD HH:mm` 形式でフォーマットする。
 - is_new フラグ：`COALESCE(updated_at, created_at)`（更新日時。NULL の場合は作成日時）が現在日時から7日以内であれば true、それ以外は false
 - `data.oshirase_list`（配列）と `data.deadline_notice`（オブジェクト または null）を含む JSON を返却する。HTTP 200。
@@ -286,13 +284,13 @@ LIMIT 1
 | 項目                   | 内容                                                                                                                                                                                                                                                          |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Get Pending Approval Count                                                                                                                                                                                                                                |
-| 概要                   | 電子版読者の承認待ち件数を取得する（電子版取扱アカウントのみ）                                                                                                                                                                                            |
+| 概要                   | 電子版読者の承認待ち件数を取得する（`dokusya.view` 権限保持者。denshi_flg によるアクセス制限は無い）                                                                                                                                                     |
 | URI                    | /api/v1/dokusya/pending-approval/count                                                                                                                                                                                                                    |
 | メソッド               | GET                                                                                                                                                                                                                                                       |
 | リクエストボディー     | なし                                                                                                                                                                                                                                                      |
 | リクエストパラメーター | なし                                                                                                                                                                                                                                                      |
 | ヘッダ                 | Content-Type: application/json※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                    |
-| HTTPレスポンスコード   | 200:正常に承認待ち件数を取得しました, 401:セッションが切れました。再度ログインしてください, 403:電子版機能が有効化されていません / この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:正常に承認待ち件数を取得しました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -334,15 +332,6 @@ GET /api/v1/dokusya/pending-approval/count
 }
 ```
 
-### 403 Forbidden（電子版機能が無効）
-
-```json
-{
-  "error_code": "DENSHI_NOT_ENABLED",
-  "message": "このアカウントでは電子版機能が有効化されていません"
-}
-```
-
 ### 403 Forbidden
 
 ```json
@@ -372,17 +361,16 @@ GET /api/v1/dokusya/pending-approval/count
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`dokusya.view` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
-- 電子版取扱フラグ確認：`m_account.denshi_flg = true` であること。
-- `denshi_flg = false` の場合：HTTP 403 (`DENSHI_NOT_ENABLED`)
 
 ### 4.3 データ取得条件の設定
 
-- ログインユーザーのスコープを取得する（ja_id, kanri_shiten_id, role_code）。
-- DataScope：
+- ログインユーザーのスコープを取得する（ja_id, kanri_shiten_id, shiten_id, role_code）。
+- DataScope（`applyBranchScope` + `applyShitenScope`）：
   - `CHUOKAI` / `JA_HONTEN`：`ja_id = :user_ja_id`
   - `JA_KANRI_SHITEN`：`ja_id = :user_ja_id AND kanri_shiten_id = :user_kanri_shiten_id`
+  - `session.shiten_id` が設定されている場合（JA管理支店アカウントが特定の支店に紐づく場合。顧客要件2026-07）：さらに `shiten_id = :user_shiten_id` を追加する。
+  - `NICHINO_ADMIN` / `NICHINO_STAFF`（`ja_id IS NULL`）：スコープ条件を付けず全件対象（FE 側でバナー自体を非表示にする運用）。
 - 絞り込み条件：
   - `denshi_shonin_status = 0`（未承認/承認待ち）
   - `deleted_at IS NULL`（削除されていない）

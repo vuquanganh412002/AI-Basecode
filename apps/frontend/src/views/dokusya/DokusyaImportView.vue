@@ -38,6 +38,7 @@ import {
   KEY_COLUMN,
   EDIT_IMMUTABLE_SET,
   REPORT_IMPACT_SET,
+  HAITATSU_SET,
   MAX_IMPORT_ROWS,
   normalizeImportBool,
 } from '@/utils/dokusya-import';
@@ -258,7 +259,17 @@ const isDigitalBatchSelected = computed(() =>
  *   - 更新 (UPDATE)    → キー列 (dokusya_id) のみ lock。他は任意選択。
  */
 function isLocked(col: PhysicalColumn): boolean {
-  if (importModeFe.value === 'new') return REQUIRED_SET.has(col);
+  if (importModeFe.value === 'new') {
+    // 電子版は部数・販売店コードとも BE 側で固定値へ強制するため（顧客要件
+    // 2026-08）、必須列からは除外する — isForcedUnchecked 側でグレー表示にする。
+    if (
+      isDigitalBatchSelected.value &&
+      (col === 'dokusya_busu' || col === 'hanbaiten_code')
+    ) {
+      return false;
+    }
+    return REQUIRED_SET.has(col);
+  }
   // 更新: キー列のみ lock（更新対象の突合キー）。
   return col === KEY_COLUMN;
 }
@@ -269,7 +280,28 @@ function isLocked(col: PhysicalColumn): boolean {
  * （購読種別・適用日・中止日は画面で指定する単一ソースのため列に無い）。
  */
 function isForcedUnchecked(col: PhysicalColumn): boolean {
-  if (importModeFe.value === 'new') return false;
+  // 電子版は実在の販売店へ配達しないため部数・販売店コードとも常に単一の
+  // 固定値しか取り得ない（顧客要件 2026-08。BE が dokusya_busu=1 /
+  // hanbaiten_code=ダミー販売店へ行ごと強制する）。ユーザー入力の余地が無いので
+  // モード（新規/更新）に関わらず列自体をグレー表示にする。
+  if (
+    isDigitalBatchSelected.value &&
+    (col === 'dokusya_busu' || col === 'hanbaiten_code')
+  ) {
+    return true;
+  }
+  // 電子版は配達先情報エリアが非活性化される（ACSMS-SCR-011 §7.5）ため
+  // 配達先情報12項目を一切持てない。BE(buildHaitatsuPayload)がリクエスト値
+  // に関わらず強制的に空欄化するので、選べる状態のまま列を残すと「チェック
+  // して値を入れたのに保存されない」誤解を招く（不具合修正 2026-08）。
+  // 新規/更新どちらのモードでも対象（モード判定より前に置く）。
+  if (isDigitalBatchSelected.value && HAITATSU_SET.has(col)) return true;
+  if (importModeFe.value === 'new') {
+    // 新規登録でIDは意味を持たない（自動採番）。更新モードのキー列表示と
+    // 対称的に、新規登録では常にグレー表示＋チェック解除にする
+    // （不具合修正2026-08）。
+    return col === KEY_COLUMN;
+  }
   // 一括中止は「解約予約を入れる」だけの操作。キー以外の列は書かないので、
   // 中止日を入れた時点で列グリッドをキー列だけに縮退させる。
   if (isBulkStop.value) return col !== KEY_COLUMN;
@@ -535,7 +567,13 @@ function validateBeforeSubmit(): string | null {
     // として届く（更新モードで「この列は変更しない」を意味する空欄）。
     // row.dokusya_busu !== '' も併せて見ないと Number('')===0 で
     // busu<=0 が真になり、未変更のつもりの空欄行を誤って弾いてしまう。
-    if (row.dokusya_busu !== undefined && row.dokusya_busu !== '' && busu <= 0) {
+    // 電子版は列自体が編集不可（BE 側で 1 固定）なので、この粗チェックは対象外。
+    if (
+      !isDigitalBatch &&
+      row.dokusya_busu !== undefined &&
+      row.dokusya_busu !== '' &&
+      busu <= 0
+    ) {
       errors.push({
         row: rowNo,
         field: 'dokusya_busu',
@@ -594,7 +632,15 @@ async function runImport(): Promise<void> {
     const rows: ImportDokusyaRow[] = parsedRows.value.map((r) => {
       const out: Record<string, unknown> = {};
       for (const col of PHYSICAL_COLUMNS) {
-        if (r[col] !== undefined && r[col] !== '') {
+        // チェック解除（grey表示含む）中の列は、Excelセルに値が残っていても
+        // 送らない — 例えば一括中止でID以外を全解除しても、Excelファイルの
+        // 元データがそのまま残っていることがあり、選択していない列の値まで
+        // 送ると（メールアドレス形式・生年の数値チェック等）BEの型/形式検証に
+        // 引っかかって全体が拒否されてしまう（不具合修正2026-08）。
+        // selected[col] は isLocked/isForcedUnchecked と同期済みのため、
+        // 電子版固定列(dokusya_busu/hanbaiten_code)・配達先情報12項目・
+        // 更新不可項目も含め、ここ一箇所で一貫して除外できる。
+        if (selected[col] && r[col] !== undefined && r[col] !== '') {
           out[col] = r[col];
         }
       }

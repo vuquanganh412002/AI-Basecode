@@ -1632,7 +1632,13 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
           }),
         )
         .expect(201);
-      // B: 失効単価(tanka_id=2, active_flg=FALSE) を参照する購読者。
+      // B: tanka_id=2 参照の購読者。作成時点は一時的に有効化しておく——不具合修正
+      // 2026-08 で失効(active_flg=false)単価の新規選択が VALIDATION_ERROR に
+      // なったため、作成後に失効させる（tanka-expire バッチが後から失効させる
+      // ケースを再現）。
+      await ctx.dataSource.query(
+        `UPDATE m_tanka SET active_flg = TRUE WHERE tanka_id = 2`,
+      );
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
@@ -1644,6 +1650,10 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
           }),
         )
         .expect(201);
+      // 失効単価(tanka_id=2, active_flg=FALSE)へ戻す — 以降のフィルタ検証対象。
+      await ctx.dataSource.query(
+        `UPDATE m_tanka SET active_flg = FALSE WHERE tanka_id = 2`,
+      );
 
       // フィルタ OFF → A・B 両方返る。
       const off = await http()

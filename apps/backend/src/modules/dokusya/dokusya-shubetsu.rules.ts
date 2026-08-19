@@ -32,6 +32,11 @@ export const SHUBETSU_MSG = {
   SEIKYU_NOT_STARTED: 'この読者料金の徴収はまだ開始されていません。',
   /** 削除は紙版のみ（電子版・併読は電子版読者管理システムが正）。 */
   DELETE_PAPER_ONLY: '紙版の購読者のみ削除できます。',
+  /** 紙版の予約変更（未来日）で、同一適用日に既存の変更履歴がある。 */
+  RESERVE_DATE_ALREADY_USED:
+    'この適用日には既に変更履歴が登録されています。購読者履歴情報画面から該当の変更を取消してから、まとめて更新してください。',
+  /** 電子版の新規登録は購読開始日=本日 or 翌月1日のみ（SCR-011登録画面のラジオと同一制約）。 */
+  DIGITAL_KAISHI_DATE_INVALID: '電子版の購読開始日は本日または翌月1日を指定してください。',
 } as const;
 
 /** 帳票影響項目 — dto/取込行の項目名(snake) ↔ エンティティ列名(camel)。紙版の当日変更で
@@ -148,6 +153,56 @@ export function collectDigitalTodayModeViolation(input: {
   if (Number(input.shubetsu) !== DokusyaShubetsu.DIGITAL) return [];
   if (normalizeDbDate(input.joho) === normalizeDbDate(input.today)) return [];
   return [{ field: input.field, message: SHUBETSU_MSG.DIGITAL_TODAY_ONLY }];
+}
+
+/**
+ * 電子版の新規登録（NEW）は 購読開始日 を「本日」または「翌月1日」のいずれかに
+ * 限定する（ACSMS-SCR-011 登録画面のラジオボタン「今日から/翌月1日から」と同じ
+ * 制約）。取込画面（SCR-016）は Excel セルの値をそのまま受け取るため画面のような
+ * 2択UIが無く、任意の日付が入り得る — ここで BE が2値だけを許可する。
+ * 紙版は対象外（従来どおり「未来日のみ」— 呼び出し元の一般日付境界チェックに任せる）。
+ */
+export function collectDigitalNewKaishiDateViolation(input: {
+  shubetsu: number | null | undefined;
+  kaishiDate: string | null | undefined;
+  today: string;
+  nextMonthFirst: string;
+  field: string;
+}): ShubetsuViolation[] {
+  if (Number(input.shubetsu) !== DokusyaShubetsu.DIGITAL) return [];
+  if (!input.kaishiDate) return [];
+  const normalized = normalizeDbDate(input.kaishiDate);
+  if (normalized === input.today || normalized === input.nextMonthFirst) return [];
+  return [
+    { field: input.field, message: SHUBETSU_MSG.DIGITAL_KAISHI_DATE_INVALID },
+  ];
+}
+
+/**
+ * 紙版の予約変更（未来日）は、同一適用日への変更を1回までに制限する（顧客要件
+ * 2026-08）。住所変更と販売店変更のように別々の更新が同じ適用日に積み重なると、
+ * 増減連絡票（ACSMS-SCR-028）の同日集計が意図しない出力になるため。
+ *
+ * 当日変更は対象外（当日行は取消不可のため、ここで弾くと後戻りできなくなる —
+ * 顧客要件2026-08で当日変更は制限しない方針を確定）。電子版は予約変更自体が
+ * できない（{@link collectDigitalTodayModeViolation}）ため実質的に対象外。
+ *
+ * 既存行の有無は呼び出し元が `dokusya-history.query.ts` の `loadActiveRowAtDate`
+ * で調べ、`existingChangeFound` として渡す（本モジュールは DB 非依存の leaf のまま
+ * 保つ）。UI/取込/一括置換の3経路が共有する。
+ */
+export function collectReservedSameDateViolation(input: {
+  shubetsu: number | null | undefined;
+  isReservedMode: boolean;
+  existingChangeFound: boolean;
+  field: string;
+}): ShubetsuViolation[] {
+  if (Number(input.shubetsu) !== DokusyaShubetsu.PAPER) return [];
+  if (!input.isReservedMode) return [];
+  if (!input.existingChangeFound) return [];
+  return [
+    { field: input.field, message: SHUBETSU_MSG.RESERVE_DATE_ALREADY_USED },
+  ];
 }
 
 /**

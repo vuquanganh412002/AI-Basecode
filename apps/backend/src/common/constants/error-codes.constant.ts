@@ -30,7 +30,7 @@ export const ErrorCode = {
   SHUBETSU_PERMISSION_DENIED: 'SHUBETSU_PERMISSION_DENIED', // 403 — 行の購読種別に対する paper_flg/denshi_flg 権限なし
   TORIKESHI_NOT_ALLOWED: 'TORIKESHI_NOT_ALLOWED',     // 400 — 取消不可（紙版・適用日未来・末尾のみ可。新規/取消済/中間/電子版/適用日到来済は不可）
 
-  // ─── ACSMS-SCR-015 — 購読者販売店一括置換画面 ────────────────────────────────
+  // ─── ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面） ────────────────────────────────
   SAME_HANBAITEN: 'SAME_HANBAITEN',                   // 400 — 対象 = 候補の現販売店
   INELIGIBLE_DOKUSYA: 'INELIGIBLE_DOKUSYA',           // 400 — 電子版クレカ決済者・併読者不可（errors[] あり）
   DATE_RANGE_INVALID: 'DATE_RANGE_INVALID',           // 400 — date_from > date_to

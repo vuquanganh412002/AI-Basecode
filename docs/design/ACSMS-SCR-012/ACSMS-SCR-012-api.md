@@ -48,10 +48,13 @@ updated_by: Nguyen Truong An
 | --- | ------------ | --------------------- | ---------------------------------------------------------------------- | -------- |
 | 1   | 共通         | BAD_REQUEST           | リクエストパラメータが不正です。                                       | HTTP 400 |
 | 2   | 共通         | VALIDATION_ERROR      | 入力値が不正です。詳細はerrorsフィールドを確認してください。           | HTTP 400 |
-| 3   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
-| 4   | 画面固有     | INVALID_RESET_TOKEN   | 無効なリンクです。                                                     | HTTP 400 |
-| 5   | 画面固有     | EXPIRED_RESET_TOKEN   | リンクの有効期限が切れています。再度パスワード再設定をお試しください。 | HTTP 400 |
-| 6   | 画面固有     | PASSWORD_RESET_RATE_LIMIT | 再送信は5分後に可能です。時間をおいてから再度お試しください。 | HTTP 429 |
+| 3   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
+| 4   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
+| 5   | 画面固有     | INVALID_RESET_TOKEN   | 無効なリンクです。                                                     | HTTP 400 |
+| 6   | 画面固有     | EXPIRED_RESET_TOKEN   | リンクの有効期限が切れています。再度パスワード再設定をお試しください。 | HTTP 400 |
+| 7   | 画面固有     | PASSWORD_RESET_RATE_LIMIT | 再送信は5分後に可能です。時間をおいてから再度お試しください。 | HTTP 429 |
+
+※ `TOO_MANY_REQUESTS` は3エンドポイント共通の `@Throttle`（IPアドレス単位、ThrottlerGuard既定）超過時に返る汎用エラー。`PASSWORD_RESET_RATE_LIMIT` はForgot Passwordのアカウント単位クールダウン専用で、両者は独立に発火しうる（詳細は各APIの「認証・認可設定」参照）。
 
 ※ 「指定されたアカウントが見つかりません」に相当するエラーは存在しない。アカウント列挙防止のため、login_id・email の組み合わせが1件も一致しない場合も HTTP 200 で成功と同一のレスポンスを返す（4.3 参照）。
 
@@ -248,7 +251,7 @@ VALUES (:account_id, :reset_token_hash, 2, :expired_at, 0, 0, false, NOW())
   - パスワード再設定リンク（トークン付き）： `https://{FRONTEND_URL}/reset-password?token={reset_token}`
   - 有効期限：1時間
 - メール送信に失敗した場合：
-  - HTTP 500 を返す（トークンは削除）
+  - HTTP 500 を返す。トークンはDBトランザクションのcommit後に送信するため、送信失敗時もDB上のトークン行は削除・ロールバックされず有効期限内は有効なまま残る（例外は catch されず GlobalExceptionFilter が 500 に整形する）
 
 ### 4.7 レスポンス生成
 
@@ -356,15 +359,16 @@ Content-Type: application/json
 - 認証チェック不要
 
 ### 4.3 トークンの検証
-- 以下の条件でトークンを検索する：
+- 以下の条件でトークンを検索する（`used_flg = false` の行のみが候補。bcryptハッシュのため直接WHERE一致はできず、候補行を取得して`token`と`otp_code_hash`を1件ずつ`bcrypt.compare`する）：
 
 ```sql
 SELECT otp_id, account_id, expired_at, used_flg
 FROM t_mfa_otp
 WHERE otp_type = 2
+  AND used_flg = false
 ```
 
-- トークンが見つからない場合：
+- トークンが見つからない場合（使用済みトークンも検索条件から除外されるため「見つからない」扱いになる。4.5 は結果的に到達しない）：
   - HTTP 400 (`INVALID_RESET_TOKEN`) を返す
 
 ### 4.4 トークン有効期限の確認
@@ -515,12 +519,13 @@ Content-Type: application/json
 
 ### 4.3 トークンの検証
 
-- 以下の条件でトークンを検索する：
+- 以下の条件でトークンを検索する（`used_flg = false` の行のみが候補。bcryptハッシュのため直接WHERE一致はできず、候補行を取得して`token`と`otp_code_hash`を1件ずつ`bcrypt.compare`する。ACSMS-API-012-002と同一の検索ロジックを再利用）：
 
 ```sql
 SELECT otp_id, account_id, expired_at, used_flg, otp_code_hash
 FROM t_mfa_otp
 WHERE otp_type = 2
+  AND used_flg = false
 ```
 
 - トークンが見つからない、または期限切れの場合：
@@ -615,19 +620,20 @@ VALUES (1, NOW(), :account_id,
 
 - **認証要件**: 不要（ログイン前ユーザーが利用）
 - **権限要件**: なし
-- **クールダウン**: アカウント（login_id + email の組み合わせ）あたり 5 分に 1 回まで（連投ガード）
+- **クールダウン**: アカウント（login_id + email の組み合わせ）あたり 5 分に 1 回まで（連投ガード、超過時 `PASSWORD_RESET_RATE_LIMIT`）
+- **レート制限**: 3リクエスト/時間、IPアドレスごと（`@Throttle`＋ThrottlerGuard既定のIPトラッキング。超過時は共通エラー `TOO_MANY_REQUESTS`）
 
 ### ACSMS-API-012-002（Verify Token）
 
 - **認証要件**: 不要（ログイン前ユーザーが利用）
 - **権限要件**: なし
-- **レート制限**: 制限なし（トークン検証のみ）
+- **レート制限**: 5リクエスト/分、IPアドレスごと（`@Throttle`。無制限バックエンドのbcrypt比較ループ対策として追加）
 
 ### ACSMS-API-012-003（Reset Password）
 
 - **認証要件**: 不要（ログイン前ユーザーが利用）
 - **権限要件**: なし
-- **レート制限**: 5リクエスト/分 per トークン（ブルートフォース対策）
+- **レート制限**: 5リクエスト/分、IPアドレスごと（`@Throttle`＋ThrottlerGuard既定のIPトラッキング。ブルートフォース対策）
 
 ---
 

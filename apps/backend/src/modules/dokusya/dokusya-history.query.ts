@@ -53,6 +53,29 @@ export function loadEffectiveRow(
 }
 
 /**
+ * `joho` に厳密一致する、取消されていない・新規/再購読でもない履歴行。
+ * 予約変更（未来日）の「同一適用日は1回まで」制限（顧客要件2026-08）の判定に使う。
+ * `loadEffectiveRow` は `<=`（時点の有効行）だが、こちらは `=`（その日付にちょうど
+ * 存在する行）を見る — 別の日の予約が effective として引っかかって誤検知しないよう、
+ * 意図的に別クエリにしてある。新規行（shinki_flg=true）は「変更」ではないため対象外
+ * （canTorikeshi が取消対象から新規行を除外するのと同じ理由）。同日に複数行が
+ * 積み上がることは無い前提（1更新1レコード）なので `getOne()` で十分。
+ */
+export function loadActiveRowAtDate(
+  m: EntityManager,
+  dokusyaId: number,
+  joho: DateOnly,
+): Promise<DokusyaRireki | null> {
+  return m
+    .createQueryBuilder(DokusyaRireki, 'r')
+    .where('r.dokusya_id = :dokusyaId', { dokusyaId })
+    .andWhere('r.torikeshi_flg = false')
+    .andWhere('r.shinki_flg = false')
+    .andWhere('r.joho_henko_tekiyo_date = :joho', { joho })
+    .getOne();
+}
+
+/**
  * 現ライフサイクルの起点 — 最新の新規/再購読行（shinki_flg=true・取消除外の最大
  * (joho, rireki_no)）。全購読者に最低1つ(作成行)存在。再購読でこの行が進むため、これを
  * 境界に「現LC = rireki_no >= 起点」を定義できる。{@link loadCurrentLifecycleEffectiveRow} /

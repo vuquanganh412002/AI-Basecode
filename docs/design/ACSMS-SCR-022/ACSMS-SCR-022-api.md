@@ -9,7 +9,7 @@ format_version: "1.1"
 issue_date: 2026-05-08
 created_date: 2026/05/07
 created_by: Tran Duc Tuyen
-updated_date: 2026/05/08
+updated_date: 2026/08/16
 updated_by: Tran Duc Tuyen
 ---
 
@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/05/08 | 1.1  | Tran Duc Tuyen | データソースを `t_file_upload` に変更（ファイルはアップロード時に S3 + DB に登録、本画面では検索 / プレビュー / ダウンロードのみ）。都道府県プルダウンは既存の共用 API `ACSMS-API-COMMON-001`（`GET /api/v1/todofuken`、定義元: SCR-009）を使用し、全 47 都道府県を返却する。 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/02 | 1.2  | Tran Duc Tuyen | データソースを t_file_download に変更（各帳票出力画面が生成したファイルを参照）。ダウンロード種別(download_type)・日農ダウンロード許可フラグ(nichino_download_allowed_flg)・作成者(created_by/created_by_name)を追加。ダウンロード実行時は t_file_download へINSERTせず t_log(log_type=4/DOWNLOAD)のみ記録。複数ファイル一括ダウンロード(ZIP)API ACSMS-API-022-004 を追加。 | Tran Duc Tuyen | Tran Duc Tuyen |
 | 4   | 2026/08/06 | 1.3  | Tran Duc Tuyen | 実装との差分是正（2026-07 の 2 件が本書へ未反映だった）：①日農DL許可チェック（`nichino_download_allowed_flg = false` → 403）の対象ロールに **CHUOKAI** を追加（従来は NICHINO_ADMIN / NICHINO_STAFF のみ）。②**自分が出力したファイルは本フラグを見ない**例外を追加（#52132）。本フラグは他組織へ見せてよいかを JA 側が決めるもので出力者本人を締め出す意図は無く、既定 FALSE のため例外が無いと自分の帳票をDLできなかった。突合は `t_file_download.created_by`（trim 済み文字列。空文字は本人扱いしない）。DL制限3ロール共通。③CHUOKAI の DataScope を「自JAのみ」→ **同一都道府県の全JA**（`fd.ja_id IS NULL OR j.todofuken_code = :user_todofuken_code`）へ拡大（#52132）。拡大先の県はセッションの `todofuken_code` で決まり他県は参照不可。セッションに当該項目が無い場合は自JAのみへフォールバック。一覧・個別DL・プレビュー・ZIP で同じ ja_id 集合を用い「一覧に出た行は個別DLでも通る」を不変条件とする | | |
+| 5   | 2026/08/16 | 1.4  | Tran Duc Tuyen | 実装コード（`apps/backend/src/modules/file-download/`）との突合による是正：①**ACSMS-API-022-002（プレビュー）のレスポンス実体は `preview_url` + `file_name` の2項目のみ**。`file_download_id` / `file_size` / `content_type` / `expires_at` は `FilePreviewResponseDto` に存在せず、旧設計の残骸だった。処理手順もこれに合わせて修正（content_type 判定・expires_at 算出は行わない。有効期限はプロバイダ既定 TTL 3600 秒を暗黙適用）。②**ACSMS-API-022-004（ZIP一括DL）のファイル名規約を実装に合わせて修正**：`files_<yyyyMMdd_HHmmss>.zip` ではなく `一括ダウンロード_<yyyyMMddHHmmss>.zip`（`compactTimestampJst()`、区切りなし14桁）。ZIPも単体DLと同じ共通ヘルパー `sendBinaryAttachment` を経由するため `Content-Disposition` に `filename*=UTF-8''...` と `Content-Length` ヘッダが実際には付与される（旧記載は欠落していた）。③同エンドポイントのバリデーションエラー例のメッセージを実装の固定文言「入力値が不正です。詳細はerrorsフィールドを確認してください。」に修正（旧記載「入力値が正しくありません。」は他画面と不整合な誤記）。非配列入力時のメッセージ「ファイルIDの形式が不正です。」も追記。④同エンドポイントはレート制限 20回/分（`@Throttle(UPLOAD_DOWNLOAD_THROTTLE)`）を明示指定している旨を概要表・例外処理に追記（API-022-001〜003 はグローバル既定のみ）。⑤`target_month` の DB 制約表記を「NOT NULL DEFAULT ''」→ 実際の「nullable・DEFAULT ''」に修正（`database-design.md` §t_file_download と不整合だった）。⑥API-022-003 の `Content-Type` 判定ロジック参照先を「API-022-002と同じ」から共通ユーティリティ `contentTypeFor` に修正（②の是正により002は content_type を扱わなくなったため）。⑦一括DL監査ログ `after_value` の実フィールド名（`bulk`, `zip_file_name`, `file_count`, `file_download_ids`）を明記 | | |
 
 ## システム概要
 
@@ -106,7 +107,7 @@ updated_by: Tran Duc Tuyen
 | 8   | →file_name                    | String        | -                    |          | ファイル名                                                                                        |
 | 9   | →file_size                    | Integer       | -                    |          | ファイルサイズ（バイト）                                                                          |
 | 10  | →record_count                 | Integer       | -                    |          | レコード件数                                                                                      |
-| 11  | →target_month                 | String        | YYYYMM               | 〇       | 対象年月（DB カラムは NOT NULL DEFAULT '' のため未設定時は空文字。レスポンス型は nullable string）|
+| 11  | →target_month                 | String        | YYYYMM               | 〇       | 対象年月（DB カラムは nullable・DEFAULT ''。月次でない出力は NULL、未設定時は空文字のケースもある）|
 | 12  | →scheduled_delete_date        | String        | YYYY/MM/DD HH:mm:ss  | 〇       | 削除予定日（ISO 8601 形式。NULL は期限なし）                                                      |
 | 13  | →nichino_download_allowed_flg | Boolean       | -                    |          | 日農ダウンロード許可フラグ（TRUE:許可する / FALSE:許可しない）                                    |
 | 14  | →deleted_at                   | String        | YYYY/MM/DD HH:mm:ss  | 〇       | 論理削除日時（ISO 8601 形式。未削除は null）                                                      |
@@ -340,7 +341,7 @@ SELECT
 | 項目                   | 内容                                                                                                                                                            |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | API名                  | Get File Preview                                                                                                                                                |
-| 概要                   | 指定したファイルのプレビュー用署名付き URL（S3 short-lived presigned URL）+ メタ情報を取得する。FE 側でモーダルにて表示する。データソースは `t_file_download`。DataScope チェックに加え、日農（NICHINO_ADMIN / NICHINO_STAFF）が `nichino_download_allowed_flg=false` のファイルをプレビューしようとした場合は HTTP 403 を返却する。 |
+| 概要                   | 指定したファイルのプレビュー用署名付き URL（S3 short-lived presigned URL）+ ファイル名を取得する。FE 側でモーダルにて表示する。データソースは `t_file_download`。DataScope チェックに加え、日農（NICHINO_ADMIN / NICHINO_STAFF）が `nichino_download_allowed_flg=false` のファイルをプレビューしようとした場合は HTTP 403 を返却する。 |
 | URI                    | /api/v1/file-download/{file_download_id}/preview                                                                                                              |
 | メソッド               | GET                                                                                                                                                             |
 | リクエストボディー     | なし                                                                                                                                                            |
@@ -359,12 +360,10 @@ SELECT
 | #   | 項目ID            | タイプ | フォーマット         | Nullable | 説明                                                                  |
 | --- | ----------------- | ------ | -------------------- | -------- | --------------------------------------------------------------------- |
 | 1   | data              | Object | -                    |          | プレビュー情報                                                        |
-| 2   | →file_download_id | Integer | -                   |          | ファイルダウンロード ID                                               |
+| 2   | →preview_url      | String  | -                   |          | プレビュー用署名付き URL（S3 presigned URL。有効期限は Storage プロバイダの既定 TTL 3600 秒＝1 時間。呼び出し側で expiresIn を上書きしていない） |
 | 3   | →file_name        | String  | -                   |          | ファイル名（オリジナル名）                                            |
-| 4   | →file_size        | Integer | -                   | 〇       | ファイルサイズ（バイト）                                              |
-| 5   | →content_type     | String  | -                   |          | コンテンツ MIME タイプ（例: `application/pdf`, `text/csv`）           |
-| 6   | →preview_url      | String  | -                   |          | プレビュー用署名付き URL（S3 presigned URL、有効期限 1 時間）         |
-| 7   | →expires_at       | String  | YYYY/MM/DD HH:mm:ss |          | 署名付き URL の有効期限（ISO 8601 形式）                              |
+
+実装（`FileDownloadService.getPreview` / `FilePreviewResponseDto`）はこの 2 項目のみを返す。`file_download_id` / `file_size` / `content_type` / `expires_at` はレスポンスに含まれない（過去版の設計にあったが実装では省略された）。
 
 ## リクエスト例
 
@@ -377,12 +376,8 @@ GET /api/v1/file-download/101/preview
 ```json
 {
   "data": {
-    "file_download_id": 101,
-    "file_name": "zougen_tsuchi_202604.pdf",
-    "file_size": 524288,
-    "content_type": "application/pdf",
     "preview_url": "https://s3.ap-northeast-1.amazonaws.com/agrinews-prod-files/ja-1/zougen_tsuchi_202604.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&...",
-    "expires_at": "2026-05-07T11:30:00+09:00"
+    "file_name": "zougen_tsuchi_202604.pdf"
   }
 }
 ```
@@ -442,14 +437,10 @@ GET /api/v1/file-download/101/preview
 
 ### 4.3 データ取得
 
+実装は TypeORM `Repository.findOne()` でエンティティ全カラムを取得する（生 SQL 発行ではない）。検索条件は以下と等価：
+
 ```sql
-SELECT
-    fd.file_download_id,
-    fd.ja_id,
-    fd.file_name,
-    fd.file_path,
-    fd.file_size,
-    fd.nichino_download_allowed_flg
+SELECT *
   FROM t_file_download fd
  WHERE fd.file_download_id = :file_download_id
    AND fd.deleted_at IS NULL
@@ -469,9 +460,9 @@ SELECT
 
 ### 4.5 レスポンス生成
 
-- ファイル拡張子から `content_type` を判定（`.pdf` → `application/pdf`, `.csv` → `text/csv`, `.xlsx` → `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`）。
-- AWS S3 SDK で `file_path` に対する presigned URL を発行（有効期限 3600 秒 / 1 時間）。
-- レスポンスに `preview_url` + `expires_at` を含めて返却。
+- `content_type` の判定・付与は行わない（このエンドポイントのレスポンスに `content_type` フィールドは存在しない）。
+- Storage サービス（S3 / MinIO）の `getSignedUrl(file_path)` で presigned URL を発行。`expiresIn` は明示的に指定せず、プロバイダ既定 TTL（`DEFAULT_SIGNED_URL_TTL_SECONDS` = 3600 秒 / 1 時間）を使用する。
+- レスポンスは `preview_url` + `file_name` の 2 項目のみ（`expires_at` は返さない — 有効期限を確認したい場合は署名付き URL のクエリパラメータ `X-Amz-Expires` を参照する）。
 
 ### 4.6 例外処理
 
@@ -594,15 +585,10 @@ Cache-Control: no-store
 
 ### 4.3 データ取得
 
+実装は TypeORM `Repository.findOne()` でエンティティ全カラムを取得する（生 SQL 発行ではない）。検索条件は以下と等価：
+
 ```sql
-SELECT
-    fd.file_download_id,
-    fd.ja_id,
-    fd.file_name,
-    fd.file_path,
-    fd.file_size,
-    fd.record_count,
-    fd.nichino_download_allowed_flg
+SELECT *
   FROM t_file_download fd
  WHERE fd.file_download_id = :file_download_id
    AND fd.deleted_at IS NULL
@@ -625,9 +611,9 @@ SELECT
 - AWS S3 SDK で `file_path` のオブジェクトを取得し、レスポンスストリームへパイプ。
 - ストレージ取得はトランザクション外で先に行う（失敗時に `t_log` を残さないため）。
 - レスポンスヘッダ:
-  - `Content-Type`: ファイル拡張子から判定（API-022-002 と同じロジック）
+  - `Content-Type`: ファイル拡張子から判定（共通ユーティリティ `contentTypeFor`。API-022-002 のプレビューはレスポンスに `content_type` を含まないため対象外 — ACSMS-SCR-023 アップロード画面のダウンロード系エンドポイントとも共有するロジック）
   - `Content-Disposition`: `attachment; filename="<file_name>"; filename*=UTF-8''<URL-encoded file_name>`
-  - `Content-Length`: `fd.file_size`
+  - `Content-Length`: `fd.file_size`（DB 値が NULL の場合のみ取得したバイナリの実サイズにフォールバック）
   - `Cache-Control`: `no-store`
 
 ### 4.6 操作ログ記録（`t_log`）
@@ -697,6 +683,7 @@ VALUES (3, NOW(), :account_id, :user_ja_id,
 | リクエストパラメーター | なし（パスパラメータなし）                                                                                                                                                                                                                             |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                   |
 | HTTPレスポンスコード   | 200:正常にファイルをダウンロードしました（ZIP バイナリ応答）, 400:リクエストが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定されたファイルが見つかりません, 500:システムエラーが発生しました |
+| レート制限             | 20 回 / 分（`@Throttle` 明示指定。共通定数 `UPLOAD_DOWNLOAD_THROTTLE`。API-022-001〜003 はこの明示指定を持たずアプリ既定のグローバル制限に従う） |
 
 ## リクエストパラメータ
 
@@ -717,10 +704,13 @@ POST /api/v1/file-download/download-zip
 
 正常時は ZIP バイナリストリームを返却する。JSON ボディは存在しない。レスポンスヘッダで以下を返却する。
 
+単体ダウンロード（API-022-003）と同じ共通ヘルパー `sendBinaryAttachment` を使ってレスポンスを組み立てるため、ヘッダ構成も同一パターン（`Content-Length` を含む／`filename` と `filename*` の両方を設定）になる。
+
 | ヘッダ                | 説明                                                                     |
 | --------------------- | ------------------------------------------------------------------------ |
 | Content-Type          | `application/zip`                                                         |
-| Content-Disposition   | `attachment; filename="files_<yyyyMMdd_HHmmss>.zip"`                      |
+| Content-Disposition   | `attachment; filename="<ASCIIフォールバック名>"; filename*=UTF-8''<URLエンコードしたファイル名>`。ファイル名は `一括ダウンロード_<yyyyMMddHHmmss>.zip`（日本語プレフィックス＋日時14桁、区切りのアンダースコアは日時の前に1つのみ）。ASCIIフォールバック名は非ASCII文字（日本語部分）を `_` に置換したもの。 |
+| Content-Length        | ZIP ファイルサイズ（バイト）                                              |
 | Cache-Control         | `no-store`                                                               |
 
 ## レスポンス成功例
@@ -728,7 +718,8 @@ POST /api/v1/file-download/download-zip
 ```
 HTTP/1.1 200 OK
 Content-Type: application/zip
-Content-Disposition: attachment; filename="files_20260702_101530.zip"
+Content-Disposition: attachment; filename="_________20260702101530.zip"; filename*=UTF-8''%E4%B8%80%E6%8B%AC%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89_20260702101530.zip
+Content-Length: 1048576
 Cache-Control: no-store
 
 <binary ZIP stream>
@@ -741,13 +732,14 @@ Cache-Control: no-store
 ```json
 {
   "error_code": "VALIDATION_ERROR",
-  "message": "入力値が正しくありません。",
+  "message": "入力値が不正です。詳細はerrorsフィールドを確認してください。",
   "errors": [
     { "field": "file_download_ids", "message": "ファイルを選択してください。" }
   ]
 }
 ```
 
+- 配列でない値: `ファイルIDの形式が不正です。`
 - 0 件（空配列）: `ファイルを選択してください。`
 - 51 件以上: `一括ダウンロードは最大50件までです。`
 - ID 重複: `ファイルIDが重複しています。`
@@ -794,6 +786,7 @@ Cache-Control: no-store
 ### 4.1 リクエストのバリデーション
 
 - `file_download_ids`: 必須、配列、1〜50 件、要素は整数、重複不可。
+  - 配列でない値: `ファイルIDの形式が不正です。`
   - 空配列: `ファイルを選択してください。`
   - 51 件以上: `一括ダウンロードは最大50件までです。`
   - 重複: `ファイルIDが重複しています。`
@@ -813,13 +806,14 @@ Cache-Control: no-store
 
 ### 4.4 ZIP 生成・返却
 
-- 各ファイルを S3 から取得し、1 つの ZIP アーカイブに追加してストリーム返却する。
-- レスポンスヘッダ: `Content-Type: application/zip`, `Content-Disposition: attachment; filename="files_<yyyyMMdd_HHmmss>.zip"`, `Cache-Control: no-store`。
+- 各ファイルを S3 から並列取得し、`buildZipArchive` で 1 つの ZIP アーカイブへまとめてストリーム返却する。
+- ZIP ファイル名は `一括ダウンロード_<yyyyMMddHHmmss>`（JST、`compactTimestampJst()` — 区切りなしの日時14桁）+ `.zip`。
+- レスポンスは API-022-003 と同じ共通ヘルパー `sendBinaryAttachment` で送出するため、`Content-Type: application/zip`, `Content-Length`, `Cache-Control: no-store` に加えて `Content-Disposition: attachment; filename="<ASCIIフォールバック名>"; filename*=UTF-8''<URLエンコードしたファイル名>` を設定する。
 
 ### 4.5 操作ログ記録（`t_log`）
 
 - バッチ全体で `t_log`（log_type=4 / operation=DOWNLOAD）を **1 件のみ** 記録する。`t_file_download` への INSERT は行わない。
-- `after_value`: 一括ダウンロードしたファイルのメタ情報 JSON（対象 `file_download_id` 配列・件数）。
+- `after_value`: 一括ダウンロードしたファイルのメタ情報 JSON（`bulk: true`, `zip_file_name`, `file_count`, `file_download_ids` 配列。`target_id` はバッチ全体を指すため NULL）。
 
 ### 4.6 例外処理
 
@@ -829,5 +823,6 @@ Cache-Control: no-store
 - いずれかのファイルが存在しない、または DataScope 違反: HTTP 404 (`NOT_FOUND`)
 - バリデーションエラー: HTTP 400 (`VALIDATION_ERROR`)
 - S3 / DB 接続エラー等: HTTP 500 (`INTERNAL_SERVER_ERROR`)
+- レート制限超過（20 回 / 分）の場合: HTTP 429 (`TOO_MANY_REQUESTS`)
 - エラーログ（log_type=3）はトランザクション外で別途記録する。
 

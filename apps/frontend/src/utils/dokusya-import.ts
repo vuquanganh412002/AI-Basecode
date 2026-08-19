@@ -220,6 +220,32 @@ export const REPORT_IMPACT_COLUMNS: readonly PhysicalColumn[] = [
 export const REPORT_IMPACT_SET = new Set<string>(REPORT_IMPACT_COLUMNS);
 
 /**
+ * 配達先情報12項目 — 電子版(dokusya_shubetsu=2)は配達先情報エリア自体が
+ * 非活性化される（ACSMS-SCR-011 §7.5）ため取込でも一切持てない。BE
+ * (`dokusya.mapper.ts` の `buildHaitatsuPayload`) がリクエスト値に関わらず
+ * `haitatsu_same_flg=true`・残り11列=空文字へ強制するので、選べる状態のまま
+ * 列を残すと「チェックして値を入れたのに保存されない」誤解を招く
+ * （不具合修正 2026-08）。新規/更新どちらのモードでも電子版選択時はグレー
+ * 表示＋チェック解除にする。紙版・併読は従来どおり選択可（isForcedUnchecked
+ * 参照）。
+ */
+export const HAITATSU_COLUMNS: readonly PhysicalColumn[] = [
+  'haitatsu_same_flg',
+  'haitatsu_yubin_no',
+  'haitatsu_todofuken_code',
+  'haitatsu_shikuchoson',
+  'haitatsu_chome_banchi',
+  'haitatsu_tatemono_mei',
+  'haitatsu_renrakusaki_1',
+  'haitatsu_renrakusaki_2',
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+];
+export const HAITATSU_SET = new Set<string>(HAITATSU_COLUMNS);
+
+/**
  * 取込み可能な最大行数（DTO @ArrayMaxSize と一致）。5MBのJSON bodyパーサー上限
  * （main.ts express.json({ limit: '5mb' })）に収まる範囲で設定 — 実データ相当の
  * 行（全項目埋まった状態で約480byte/行）だと 30000 行は body 上限超過(約13.7MB)

@@ -19,6 +19,7 @@ import {
 } from '@/modules/dokusya/dto/import-dokusya.dto';
 import {
   buildImportBody,
+  buildImportRequiredColumns,
   buildImportRow,
 } from '@test/fixtures/dokusya.factory';
 
@@ -181,6 +182,131 @@ describe('ImportDokusyaDto (ACSMS-API-016-002 §リクエストパラメータ)'
       expect(errors.some((e) => e.property === 'rows')).toBe(true);
     });
   });
+
+  // バグ報告2026-08: 一括中止（ID のみ selected_columns）で、Excel シートに
+  // 残っていた無関係セル（email/生年 等）の値が selected_columns 対象外
+  // にも関わらず @IsEmail/@IsNumber へ届いて 400 になっていた。
+  // stripUnselectedColumns が selected_columns 対象外のキーを
+  // class-validator が見る前に剥がすことを確認する（NEW/UPDATE 両モード
+  // 対象 — 不具合修正 2026-08 で新規登録にも拡張）。
+  describe('rows — selected_columns 対象外の列を剥がす（不具合修正2026-08）', () => {
+    it('should NOT validate unselected columns when import_mode=UPDATE and selected_columns=[dokusya_id] only (一括中止)', async () => {
+      const errors = await validateBody(
+        buildImportBody({
+          import_mode: 'UPDATE',
+          selected_columns: ['dokusya_id'],
+          dokusya_chushi_date: '2027-01-06',
+          joho_henko_tekiyo_date: undefined,
+          rows: [
+            buildImportRow({
+              dokusya_id: 215,
+              email: 'not-an-email',
+              mail_magazine_flg: 'abc',
+              birth_year: 'abc',
+            }),
+          ],
+        }),
+      );
+      expect(errors.find((e) => e.property === 'rows')).toBeUndefined();
+    });
+
+    it('should still validate a column when it IS in selected_columns for UPDATE', async () => {
+      const errors = await validateBody(
+        buildImportBody({
+          import_mode: 'UPDATE',
+          selected_columns: ['dokusya_id', 'email'],
+          rows: [
+            buildImportRow({ dokusya_id: 215, email: 'not-an-email' }),
+          ],
+        }),
+      );
+      expect(errors.find((e) => e.property === 'rows')).toBeDefined();
+    });
+
+    it('should NOT validate an unselected optional column for import_mode=NEW (unchecked = skip validate, insert as null/empty)', async () => {
+      const errors = await validateBody(
+        buildImportBody({
+          import_mode: 'NEW',
+          // デフォルトの必須列一覧に email は含まれない → 未選択列として扱われる。
+          rows: [buildImportRow({ email: 'not-an-email' })],
+        }),
+      );
+      expect(errors.find((e) => e.property === 'rows')).toBeUndefined();
+    });
+
+    it('should still validate a column when it IS in selected_columns for NEW', async () => {
+      const errors = await validateBody(
+        buildImportBody({
+          import_mode: 'NEW',
+          selected_columns: [...buildImportRequiredColumns(), 'email'],
+          rows: [buildImportRow({ email: 'not-an-email' })],
+        }),
+      );
+      expect(errors.find((e) => e.property === 'rows')).toBeDefined();
+    });
+
+    it('should still validate required columns for NEW even though they are always selected', async () => {
+      // 必須列（例: dokusya_busu）は selected_columns に常に含まれる前提だが、
+      // 念のため「剥がされて素通りしない」ことを確認する。
+      const errors = await validateBody(
+        buildImportBody({
+          import_mode: 'NEW',
+          rows: [buildImportRow({ dokusya_busu: 'abc' })], // 数値でない
+        }),
+      );
+      expect(errors.find((e) => e.property === 'rows')).toBeDefined();
+    });
+
+    it('should keep dokusya_id on the transformed row even when it is (incorrectly) omitted from selected_columns', () => {
+      const dto = plainToInstance(
+        ImportDokusyaDto,
+        buildImportBody({
+          import_mode: 'UPDATE',
+          selected_columns: ['email'],
+          rows: [
+            buildImportRow({ dokusya_id: 215, email: 'ok@example.com' }),
+          ],
+        }),
+      );
+      expect(dto.rows[0].dokusya_id).toBe(215);
+    });
+
+    // 回帰ガード（不具合修正2026-08）: kumiaiin_code は dokusya_id が無いときの
+    // 突合フォールバックキー（resolveImportTargetId/classifyImportRow）。
+    // 一括中止は selected_columns が dokusya_id のみに縮退するため、これを
+    // stripUnselectedColumns が dokusya_id 同様に残さないと「ID未指定・
+    // 組合員コードのみでの一括中止」が常に「指定された購読者が見つかりません」
+    // で失敗する（stripUnselectedColumns 導入時に一度この回帰を作り込んだ）。
+    it('should keep kumiaiin_code on the transformed row for UPDATE even when it is not in selected_columns (fallback match key)', () => {
+      const dto = plainToInstance(
+        ImportDokusyaDto,
+        buildImportBody({
+          import_mode: 'UPDATE',
+          selected_columns: ['dokusya_id'], // 一括中止の実際の送信形（IDのみ選択）
+          dokusya_chushi_date: '2099-05-31',
+          joho_henko_tekiyo_date: undefined,
+          rows: [
+            buildImportRow({ dokusya_id: undefined, kumiaiin_code: 'K9999' }),
+          ],
+        }),
+      );
+      expect(dto.rows[0].kumiaiin_code).toBe('K9999');
+    });
+
+    it('should NOT keep kumiaiin_code for NEW mode when it is not in selected_columns (NEW has no fallback-match concept)', () => {
+      const dto = plainToInstance(
+        ImportDokusyaDto,
+        buildImportBody({
+          import_mode: 'NEW',
+          // buildImportBody の既定は kumiaiin_code を含むため、ここでは
+          // 明示的に外して「未選択」の状態を再現する。
+          selected_columns: buildImportRequiredColumns(),
+          rows: [buildImportRow({ kumiaiin_code: 'K9999' })],
+        }),
+      );
+      expect(dto.rows[0].kumiaiin_code).toBeUndefined();
+    });
+  });
 });
 
 describe('ImportDokusyaRowDto (ACSMS-API-016-002 §リクエストパラメータ rows 4-52)', () => {
@@ -228,6 +354,105 @@ describe('ImportDokusyaRowDto (ACSMS-API-016-002 §リクエストパラメー�
       );
       expect(errors.some((e) => e.property === 'email')).toBe(true);
     });
+  });
+
+  // 顧客要件 2026-08: 氏名（漢字）4項目は最大50文字（既存仕様の確認 — 変更なし）。
+  describe('氏名（漢字）4項目 max 50文字', () => {
+    it.each([
+      ['shimei_sei', '氏名（姓）'],
+      ['shimei_mei', '氏名（名）'],
+      ['haitatsu_shimei_sei', '配達先氏名（姓）'],
+      ['haitatsu_shimei_mei', '配達先氏名（名）'],
+    ])('should fail when %s exceeds 50 characters', async (field) => {
+      const errors = await validateRow(
+        buildImportRow({ [field]: '山'.repeat(51) }),
+      );
+      expect(errors.some((e) => e.property === field)).toBe(true);
+    });
+
+    it.each([
+      ['shimei_sei', '氏名（姓）'],
+      ['shimei_mei', '氏名（名）'],
+      ['haitatsu_shimei_sei', '配達先氏名（姓）'],
+      ['haitatsu_shimei_mei', '配達先氏名（名）'],
+    ])('should pass when %s is exactly 50 characters', async (field) => {
+      const errors = await validateRow(
+        buildImportRow({ [field]: '山'.repeat(50) }),
+      );
+      expect(errors.find((e) => e.property === field)).toBeUndefined();
+    });
+  });
+
+  // 不具合修正 2026-08: 氏名かな4項目は全角ひらがなのみ許容し、半角文字・
+  // カタカナ・英数字は拒否する（FE の HIRAGANA_RE と同一文字集合）。
+  // 最大文字数は既存の100文字のまま変更なし。
+  describe('氏名かな4項目 — 全角ひらがなのみ許容・max 100文字（不具合修正2026-08）', () => {
+    const KANA_FIELDS: Array<[string, string]> = [
+      ['shimei_kana_sei', '氏名かな（姓）'],
+      ['shimei_kana_mei', '氏名かな（名）'],
+      ['haitatsu_shimei_kana_sei', '配達先氏名かな（姓）'],
+      ['haitatsu_shimei_kana_mei', '配達先氏名かな（名）'],
+    ];
+
+    it.each(KANA_FIELDS)(
+      'should fail when %s contains half-width katakana (半角カナ)',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'ﾔﾏﾀﾞ' }),
+        );
+        expect(errors.some((e) => e.property === field)).toBe(true);
+      },
+    );
+
+    it.each(KANA_FIELDS)(
+      'should fail when %s contains full-width katakana (カタカナ)',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'ヤマダ' }),
+        );
+        expect(errors.some((e) => e.property === field)).toBe(true);
+      },
+    );
+
+    it.each(KANA_FIELDS)(
+      'should fail when %s contains kanji',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: '山田' }),
+        );
+        expect(errors.some((e) => e.property === field)).toBe(true);
+      },
+    );
+
+    it.each(KANA_FIELDS)(
+      'should pass when %s is valid full-width hiragana',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'やまだ' }),
+        );
+        expect(errors.find((e) => e.property === field)).toBeUndefined();
+      },
+    );
+
+    it.each(KANA_FIELDS)(
+      'should fail when %s exceeds 100 characters',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'あ'.repeat(101) }),
+        );
+        expect(errors.some((e) => e.property === field)).toBe(true);
+      },
+    );
+
+    it.each(KANA_FIELDS)(
+      'should pass when %s is exactly 100 characters',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'あ'.repeat(100) }),
+        );
+        expect(errors.find((e) => e.property === field)).toBeUndefined();
+      },
+    );
   });
 
   describe('string max-length (#38 hanbaiten_code max 10)', () => {

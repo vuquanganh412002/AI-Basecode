@@ -37,10 +37,10 @@ import {
   toReplaceSearchItem,
   type ReplaceSearchItem,
 } from './dokusya.mapper';
-import { isBoth, isDigitalCreditCard } from './dokusya-shubetsu.rules';
+import { isBoth, isDigitalCreditCard, SHUBETSU_MSG } from './dokusya-shubetsu.rules';
 
 /** ACSMS-SCR-015 監査ラベル。core DokusyaService と同一値だが自己完結のため複製。 */
-const SCREEN_NAME_SCR015 = '購読者販売店一括置換画面 (ACSMS-SCR-015)';
+const SCREEN_NAME_SCR015 = '統廃合販売店読者移行画面 (ACSMS-SCR-015)';
 
 /** ACSMS-SCR-015 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
@@ -63,7 +63,10 @@ const REPLACE_SORT_COLUMN_MAP: Record<string, string> = {
 };
 
 /**
- * ACSMS-SCR-015 — 購読者販売店一括置換画面。
+ * ACSMS-SCR-015 — 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面）。
+ * 顧客要件2026-08: 本画面は販売店の統廃合（合併・閉店による読者の付け替え）専用の
+ * 位置づけに変更。本画面経由の変更は t_dokusya_rireki.hanbaiten_tohaigo_flg=true で
+ * 記録し、増減連絡票（販売店・ACSMS-SCR-028）の集計対象から除外される。
  * 一括置換 concern（候補検索・置換・事前検証）を core DokusyaService から切り出した
  * leaf サービス。facade が薄く委譲。挙動は分離前と byte-identical。
  */
@@ -317,6 +320,11 @@ export class DokusyaReplaceService {
     // レコード(before)。UI/取込の単票チェックと同ルールを候補境界に集約して判定。
     this.assertReplaceTekiyoDate(candidates, dto.joho_henko_tekiyo_date);
 
+    // [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回まで
+    // に制限する（顧客要件2026-08）。本画面は assertTekiyoDateForShubetsu により
+    // 常に紙版・未来日必須なので、候補全件が対象になる。
+    await this.assertNoSameDateConflicts(candidates, dto.joho_henko_tekiyo_date);
+
     // §4.4 置換先 hanbaiten の存在 + スコープ検証。
     const targetRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
@@ -475,6 +483,39 @@ export class DokusyaReplaceService {
         '紙版の適用日は本日より後の日付を入力してください。',
       );
     }
+  }
+
+  /**
+   * [reserved-same-date] 予約変更（未来日）の適用日に、既にアクティブ（非取消・
+   * 非新規）な履歴行を持つ候補が無いか調べる（顧客要件2026-08）。単一適用日を
+   * 全候補へ適用するため、対象 dokusya_id 全件を1クエリでまとめて調べる。
+   * 該当があれば `IneligibleDokusyaException` で該当 id 一覧を返し、購読者履歴
+   * 情報画面から先に取消するよう案内する。
+   */
+  private async assertNoSameDateConflicts(
+    candidates: Dokusya[],
+    joho: string,
+  ): Promise<void> {
+    const ids = candidates.map((c) => Number(c.dokusyaId));
+    if (ids.length === 0) return;
+    const rows: Array<{ dokusya_id: number }> = await this.dataSource.query(
+      `SELECT DISTINCT dokusya_id
+         FROM t_dokusya_rireki
+        WHERE dokusya_id = ANY($1::bigint[])
+          AND joho_henko_tekiyo_date = $2
+          AND torikeshi_flg = false
+          AND shinki_flg = false`,
+      [ids, joho],
+    );
+    if (rows.length === 0) return;
+    const conflictIds = new Set(rows.map((r) => Number(r.dokusya_id)));
+    const ineligible: IneligibleDokusyaDetail[] = candidates
+      .filter((c) => conflictIds.has(Number(c.dokusyaId)))
+      .map((c) => ({
+        dokusya_id: Number(c.dokusyaId),
+        reason: SHUBETSU_MSG.RESERVE_DATE_ALREADY_USED,
+      }));
+    throw new IneligibleDokusyaException(ineligible);
   }
 
   /**

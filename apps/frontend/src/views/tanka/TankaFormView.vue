@@ -12,7 +12,7 @@
  * tanka_code は編集時 immutable（api.md §ACSMS-API-003-003 脚注: 画面側 disabled、
  * PUT body から除外）。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import dayjs, { type Dayjs } from 'dayjs';
 import { message } from 'ant-design-vue';
@@ -120,7 +120,11 @@ function disableEndDate(current: Dayjs): boolean {
     ? dayjs(formState.tekiyo_start_date)
     : null;
   if (start && current.isBefore(start, 'day')) return true;
-  if (!isEdit.value && isPastDayTokyo(current)) return true;
+  // 有効(active_flg=true)な単価は適用終了日が過去であってはならない
+  // （登録モードは常に有効既定のため従来どおり過去日不可）。
+  if ((formState.active_flg || !isEdit.value) && isPastDayTokyo(current)) {
+    return true;
+  }
   return false;
 }
 
@@ -153,6 +157,25 @@ const formState = reactive<TankaFormState>({
 
 // 編集で何も変更せず更新した場合に PUT/ログをスキップするガード。
 const editGuard = useEditGuard(() => formState);
+
+// 顧客要件: 編集画面で 有効単価フラグ を 無効→有効 に切り替えた時点で、既存の
+// 適用終了日が既に過去なら自動クリアし、本日以降の新しい日付選択を要求する
+// （バグ報告: 期限切れ単価を再有効化しても古い終了日が残ってしまう）。
+// ロード時（onMounted の Object.assign）は default(true)→loaded(false) や
+// 変化なしにしかならず、false→true には成らないため誤発火しない。
+watch(
+  () => formState.active_flg,
+  (nowActive, wasActive) => {
+    if (
+      wasActive === false &&
+      nowActive === true &&
+      formState.tekiyo_end_date &&
+      formState.tekiyo_end_date < todayIso()
+    ) {
+      formState.tekiyo_end_date = '';
+    }
+  },
+);
 
 /* ─── ライフサイクル ───────────────────────────────────────────────── */
 
@@ -208,6 +231,7 @@ const KINGAKU_ZEINUKI_MAX_MSG = '単価（税抜）は10桁以下で入力して
 const KINGAKU_EITHER_MSG = '単価（税込）または単価（税抜）のいずれかを入力してください。';
 const DATE_ORDER_MSG = '適用終了日は適用開始日以降を指定してください。';
 const START_DATE_NOT_PAST_MSG = '適用開始日は本日以降の日付を入力してください。';
+const END_DATE_NOT_PAST_WHEN_ACTIVE_MSG = '有効な単価には本日以降の適用終了日を指定してください。';
 
 /**
  * 適用開始日の過去日ガード。フィールドが操作可能なときのみ発火 — 既存の過去
@@ -302,6 +326,19 @@ function validateClient(form: TankaFormState): Record<string, string> {
   // 日付順: 適用終了日 >= 適用開始日（ISO 8601 YYYY-MM-DD は文字列比較で正しい）。
   const tekiyoErr = checkTekiyoOrder(form, errs);
   if (tekiyoErr) errs.tekiyo_end_date = tekiyoErr;
+
+  // 有効(active_flg=true)な単価は適用終了日が過去であってはならない（BEの
+  // reactivation-guardと同一ルール・同一文言）。通常は watch により無効→有効
+  // 切替時点で自動クリアされるが、picker の disableEndDate を回避された場合や
+  // watch発火前の状態で submit された場合の保険。
+  if (
+    !errs.tekiyo_end_date &&
+    form.active_flg &&
+    form.tekiyo_end_date &&
+    form.tekiyo_end_date < todayIso()
+  ) {
+    errs.tekiyo_end_date = END_DATE_NOT_PAST_WHEN_ACTIVE_MSG;
+  }
 
   return errs;
 }

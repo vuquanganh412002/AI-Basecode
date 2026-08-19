@@ -7,7 +7,7 @@ format_version: "1.0"
 issue_date: 2019-02-22
 created_date: 2026/03/17
 created_by: Tran Duc Tuyen
-updated_date: 2026/08/04
+updated_date: 2026/08/18
 updated_by: Tran Duc Tuyen
 ---
 
@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 4 | 2026/08/04 | 1.13 | Tran Duc Tuyen | 実装との差分を同期。m_roles_permissions に locked、t_file_upload に notified_at を追記。t_file_download.ja_id を NULL 許容へ訂正。t_dokusya / t_dokusya_rireki の mail_magazine_flg を NULL 許容へ訂正。インデックス ix_t_dokusya_kaiyaku_due / ix_t_dokusya_rireki_shinki と t_denshi_sync_state テーブルを追記 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 5 | 2026/08/04 | 1.14 | Tran Duc Tuyen | 全テーブルで監査列（deleted_at / created_at / created_by / updated_at / updated_by）を末尾に統一。m_roles_permissions.locked、t_file_upload.notified_at、t_dokusya の denshi_shonin_status / denshi_kaiin_id / honshi_kodoku_flg、t_dokusya_rireki の torikeshi_flg / honshi_kodoku_flg を監査列の前へ移動。あわせて m_tanka の列順ずれと t_koza_furikae の項番抜けを修正（型・制約の変更なし） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 6 | 2026/08/04 | 1.15 | Tran Duc Tuyen | 顧客DB設計更新を反映。t_dokusya / t_dokusya_rireki に ja_yakushokuin_flg（かつJAグループ役職員フラグ）・nogyo_kankei_flg（農業関係フラグ）・dokusyaso_bunrui_sonota（購読者層分類その他）・nogyosya_bunrui_sonota（農業者分類その他）の4項目を追加し、以降のNoを再採番。dokusyaso_bunrui の備考を「複数カンマ区切り」から「単一選択」へ変更。m_code シードに DOKUSYASO_BUNRUI 5件・NOGYOSYA_BUNRUI 7件を追加 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 7 | 2026/08/18 | 1.16 | Tran Duc Tuyen | 顧客要件2026-08：t_dokusya_rireki に hanbaiten_tohaigo_flg（販売店統廃合フラグ、DEFAULT false, TRUE=販売店統廃合に伴う販売店変更）を追加し、以降のNoを再採番。購読者販売店一括置換画面での変更=TRUE、購読者情報登録画面での変更=FALSE。TRUEの履歴は増減連絡票（販売店）の出力対象外とする。増減通知（日本農業新聞）は仕様変更なし | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -748,8 +749,9 @@ updated_by: Tran Duc Tuyen
 | 72 | denshi_shonin_status |  | INTEGER |  |  | 〇 | 電子申込承認ステータス |
 | 73 | torikeshi_flg |  | BOOLEAN |  |  |  | 取消フラグ（DEFAULT false, TRUE=取消レコード/赤伝）。取消処理で誤レコードと打ち消しレコードの両方に立てる。帳票・検索・現在状態から除外し、再計算対象外として取消時点の値で凍結する。物理削除はしない |
 | 74 | honshi_kodoku_flg |  | BOOLEAN |  |  |  | 本紙購読フラグ（DEFAULT FALSE）。t_dokusya.honshi_kodoku_flg の履歴スナップショット。電子版読者管理システムの users.subscribe_flg（0:未購読, 1:購読）を連携。0→FALSE, 1→TRUE。 |
-| 75 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
-| 76 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
+| 75 | hanbaiten_tohaigo_flg |  | BOOLEAN |  |  |  | 販売店統廃合フラグ（DEFAULT false, TRUE=販売店統廃合に伴う販売店変更）<br>購読者販売店一括置換画面での変更=TRUE、購読者情報登録画面での変更=FALSE。<br>TRUEの履歴は増減連絡票（販売店）の出力対象外とする。 |
+| 76 | created_at |  | TIMESTAMPTZ |  |  |  | 作成日時（履歴登録日時） |
+| 77 | created_by |  | VARCHAR | 50 |  |  | 作成者（履歴登録者） |
 
 ## インデックス
 

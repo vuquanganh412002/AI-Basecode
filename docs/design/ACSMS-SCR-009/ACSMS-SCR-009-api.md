@@ -53,6 +53,8 @@ updated_by: Dao Van Thang
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定された管理支店が見つかりません。                                   | HTTP 404 |
 | 9   | 画面固有     | DUPLICATE_CODE        | 管理支店コード「{kanri_shiten_code}」はすでに登録されています。           | HTTP 400 |
+| 10  | 画面固有     | BAD_REQUEST           | 都道府県コードが存在しません。                                         | HTTP 400（POST/PUT時のtodofuken_code不存在。kanri-shiten.service.ts） |
+| 11  | 画面固有     | BAD_REQUEST           | JA IDが存在しません。                                                  | HTTP 400（POST時のja_id不存在。kanri-shiten.service.ts） |
 
 ## メッセージコード一覧（画面表示用）
 
@@ -66,8 +68,8 @@ updated_by: Dao Van Thang
 | 2   | ACSMS-MSG-009-002  | 更新しました。                                                       | 機能詳細§3.4（PUT success）               |
 | 3   | ACSMS-MSG-009-003  | 必須項目です。                                                       | 機能詳細§3.1（VALIDATION_ERROR per-field） |
 | 4   | ACSMS-MSG-009-004  | 管理支店コード「{kanri_shiten_code}」はすでに登録されています。       | 機能詳細§3.4（DUPLICATE_CODE）             |
-| 5   | ACSMS-MSG-009-005  | 管理支店 #{kanri_shiten_id} が見つかりません。                       | 機能詳細§2.2 / §3.4（NOT_FOUND）           |
-| 6   | ACSMS-MSG-009-006  | アクセス権がありません。                                             | 機能詳細§2.2 / §3.4（FORBIDDEN）          |
+| 5   | ACSMS-MSG-009-005  | 指定された管理支店が見つかりません。                                 | 機能詳細§2.2 / §3.4（NOT_FOUND）           |
+| 6   | ACSMS-MSG-009-006  | この画面へのアクセス権限がありません。                               | 機能詳細§2.2 / §3.4（FORBIDDEN）          |
 | 7   | ACSMS-MSG-009-007  | システムエラーが発生しました。しばらくしてから再度お試しください。   | 機能詳細§3.4（INTERNAL_SERVER_ERROR）      |
 | 8   | ACSMS-MSG-009-008  | 入力データが削除されます。よろしいですか？                           | 機能詳細§4.1（confirm dialog 戻る）         |
 
@@ -101,20 +103,21 @@ updated_by: Dao Van Thang
 | 1 | data | Object | - | | - | |
 | 2 | →kanri_shiten_id | Number | - | | - | 管理支店ID |
 | 3 | →ja_id | Number | - | | - | JA ID |
-| 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
-| 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
-| 7 | →todofuken_code | String | - | | - | 都道府県コード |
-| 8 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
-| 9 | →yubin_no | String | - | | -   | 郵便番号 |
-| 10 | →address | String | - | | -   | 住所 |
-| 11 | →tel | String | - | | -   | 電話番号 |
-| 12 | →fax | String | - | | -   | FAX番号 |
-| 13 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 14 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 15 | →biko | String | - | | -   | 備考 |
-| 16 | →created_at | String | - | ISO 8601 | - | 作成日時 |
-| 17 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
+| 4 | →ja_name | String | - | | - | JA名（m_jaからJOIN。JA_KANRI_SHITENはja.view権限を持たないためこの値でJA名を表示する） |
+| 5 | →kanri_shiten_code | String | - | | - | 管理支店コード |
+| 6 | →kanri_shiten_name | String | - | | - | 管理支店名 |
+| 7 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
+| 8 | →todofuken_code | String | - | | - | 都道府県コード |
+| 9 | →todofuken_name | String | - | | - | 都道府県名（JOINで取得） |
+| 10 | →yubin_no | String | - | | -   | 郵便番号 |
+| 11 | →address | String | - | | -   | 住所 |
+| 12 | →tel | String | - | | -   | 電話番号 |
+| 13 | →fax | String | - | | -   | FAX番号 |
+| 14 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 15 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 16 | →biko | String | - | | -   | 備考 |
+| 17 | →created_at | String | - | ISO 8601 | - | 作成日時 |
+| 18 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時 |
 
 ## リクエスト例
 
@@ -129,9 +132,10 @@ GET /api/v1/kanri-shiten/1
   "data": {
     "kanri_shiten_id": 1,
     "ja_id": 1,
+    "ja_name": "JA東京",
     "kanri_shiten_code": "113-3300-001",
     "kanri_shiten_name": "東京中央会支店",
-    "kanri_shiten_name_kana": "トウキョウチュウオウカイシテン",
+    "kanri_shiten_name_kana": "ﾄｳｷｮｳﾁｭｳｵｳｶｲｼﾃﾝ",
     "todofuken_code": "13",
     "todofuken_name": "東京都",
     "yubin_no": "1000001",
@@ -199,7 +203,7 @@ GET /api/v1/kanri-shiten/1
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
-- 権限チェック：`kanri-shiten.view` を保持しているか確認する。
+- 権限チェック：`kanri_shiten.view` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
 - 権限がない場合：HTTP 403 Forbidden（ACSMS-MSG-009-006）
 
@@ -274,9 +278,9 @@ WHERE mks.kanri_shiten_id = :kanri_shiten_id
 | # | パラメーターID | タイプ | 繰り返し | 必須 | 最小長 | 最大長 | 説明 |
 |---|---|---|---|---|---|---|---|
 | 1 | ja_id | Number | - | 〇 | | | JA ID（m_ja.ja_idに存在すること） |
-| 2 | kanri_shiten_code | String | - | 〇 | | 15 | 管理支店コード（一意制約） |
+| 2 | kanri_shiten_code | String | - | 〇 | | 12 | 管理支店コード（一意制約、論理削除後も再利用不可）。フォーマットは「NNN-NNNN-NNN」（半角数字とハイフンのみ）。ハイフン無しの10桁数字を入力した場合は自動的にハイフンを挿入して正規化する |
 | 3 | kanri_shiten_name | String | - | 〇 | | 100 | 管理支店名 |
-| 4 | kanri_shiten_name_kana | String | - | - | | 100 | 管理支店名（カナ） |
+| 4 | kanri_shiten_name_kana | String | - | - | | 100 | 管理支店名（カナ）。半角カタカナ・半角数字のみ（全角カタカナ・ひらがな不可） |
 | 5 | todofuken_code | String | - | 〇 | 2 | 2 | 都道府県コード（m_todofukenに存在すること） |
 | 6 | yubin_no | String | - | - | 7 | 7 | 郵便番号（半角数字7桁） |
 | 7 | address | String | - | - | | 200 | 住所 |
@@ -293,19 +297,22 @@ WHERE mks.kanri_shiten_id = :kanri_shiten_id
 | 1 | data | Object | - | | - | |
 | 2 | →kanri_shiten_id | Number | - | | - | 自動採番された管理支店ID |
 | 3 | →ja_id | Number | - | | - | JA ID |
-| 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
-| 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
-| 7 | →todofuken_code | String | - | | - | 都道府県コード |
-| 8 | →yubin_no | String | - | | -   | 郵便番号 |
-| 9 | →address | String | - | | -   | 住所 |
-| 10 | →tel | String | - | | -   | 電話番号 |
-| 11 | →fax | String | - | | -   | FAX番号 |
-| 12 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 13 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 14 | →biko | String | - | | -   | 備考 |
-| 15 | →created_at | String | - | ISO 8601 | - | 作成日時 |
-| 16 | message | String | - | | - | 処理結果メッセージ |
+| 4 | →ja_name | String | - | | - | JA名（m_jaからJOIN） |
+| 5 | →kanri_shiten_code | String | - | | - | 管理支店コード |
+| 6 | →kanri_shiten_name | String | - | | - | 管理支店名 |
+| 7 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
+| 8 | →todofuken_code | String | - | | - | 都道府県コード |
+| 9 | →todofuken_name | String | - | | - | 都道府県名（m_todofukenからJOIN） |
+| 10 | →yubin_no | String | - | | -   | 郵便番号 |
+| 11 | →address | String | - | | -   | 住所 |
+| 12 | →tel | String | - | | -   | 電話番号 |
+| 13 | →fax | String | - | | -   | FAX番号 |
+| 14 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 15 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 16 | →biko | String | - | | -   | 備考 |
+| 17 | →created_at | String | - | ISO 8601 | - | 作成日時 |
+| 18 | →updated_at | String | - | ISO 8601 | 〇 | 更新日時（TypeORM `@UpdateDateColumn` は INSERT 時にも設定されるため created_at と同時刻の値が返る） |
+| 19 | message | String | - | | - | 処理結果メッセージ |
 
 ## リクエスト例
 
@@ -317,7 +324,7 @@ Content-Type: application/json
   "ja_id": 1,
   "kanri_shiten_code": "113-3300-002",
   "kanri_shiten_name": "東京第二支店",
-  "kanri_shiten_name_kana": "トウキョウダイニシテン",
+  "kanri_shiten_name_kana": "ﾄｳｷｮｳﾀﾞｲﾆｼﾃﾝ",
   "todofuken_code": "13",
   "yubin_no": "1000002",
   "address": "千代田区千代田2-2-2",
@@ -336,10 +343,12 @@ Content-Type: application/json
   "data": {
     "kanri_shiten_id": 2,
     "ja_id": 1,
+    "ja_name": "JA東京",
     "kanri_shiten_code": "113-3300-002",
     "kanri_shiten_name": "東京第二支店",
-    "kanri_shiten_name_kana": "トウキョウダイニシテン",
+    "kanri_shiten_name_kana": "ﾄｳｷｮｳﾀﾞｲﾆｼﾃﾝ",
     "todofuken_code": "13",
+    "todofuken_name": "東京都",
     "yubin_no": "1000002",
     "address": "千代田区千代田2-2-2",
     "tel": "0312345680",
@@ -347,7 +356,8 @@ Content-Type: application/json
     "paper_flg": true,
     "denshi_flg": true,
     "biko": "新規登録テスト",
-    "created_at": "2026-04-07T10:00:00Z"
+    "created_at": "2026-04-07T10:00:00Z",
+    "updated_at": "2026-04-07T10:00:00Z"
   },
   "message": "登録しました。"
 }
@@ -414,12 +424,13 @@ Content-Type: application/json
 
 - リクエストボディの全フィールドを検証する：
   - `ja_id`：必須、数値型
-  - `kanri_shiten_code`：必須、最大15文字
+  - `kanri_shiten_code`：必須、フォーマット「NNN-NNNN-NNN」（半角数字とハイフンのみ、12文字）。ハイフン無し10桁数字は自動的にハイフンを挿入して正規化する
   - `kanri_shiten_name`：必須、最大100文字
-  - `kanri_shiten_name_kana`：任意、最大200文字
+  - `kanri_shiten_name_kana`：任意、最大100文字、半角カタカナ・半角数字のみ
   - `todofuken_code`：必須、2文字
   - `yubin_no`：任意、半角数字7桁
   - `address`：任意、最大200文字
+  - `tel`：任意、半角数字のみ、最大15文字
   - `fax`：任意、半角数字のみ、最大15文字
   - `paper_flg`：任意、ブール値（デフォルト: false）
   - `denshi_flg`：任意、ブール値（デフォルト: false）
@@ -430,7 +441,7 @@ Content-Type: application/json
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
-- 権限チェック：`kanri-shiten.create`を保持しているか確認する。
+- 権限チェック：`kanri_shiten.create`を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
 - 権限がない場合：HTTP 403 Forbidden
 
@@ -519,7 +530,7 @@ after_value：登録されたデータをJSON形式で格納する。パスワ�
   "ja_id": 1,
   "kanri_shiten_code": "113-3300-002",
   "kanri_shiten_name": "東京第二支店",
-  "kanri_shiten_name_kana": "トウキョウダイニシテン",
+  "kanri_shiten_name_kana": "ﾄｳｷｮｳﾀﾞｲﾆｼﾃﾝ",
   "todofuken_code": "13",
   "yubin_no": "1000002",
   "address": "千代田区千代田2-2-2",
@@ -609,20 +620,22 @@ VALUES (
 | 1 | data | Object | - | | - | |
 | 2 | →kanri_shiten_id | Number | - | | - | 管理支店ID |
 | 3 | →ja_id | Number | - | | - | JA ID |
-| 4 | →kanri_shiten_code | String | - | | - | 管理支店コード |
-| 5 | →kanri_shiten_name | String | - | | - | 管理支店名 |
-| 6 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
-| 7 | →todofuken_code | String | - | | - | 都道府県コード |
-| 8 | →yubin_no | String | - | | -   | 郵便番号 |
-| 9 | →address | String | - | | -   | 住所 |
-| 10 | →tel | String | - | | -   | 電話番号 |
-| 11 | →fax | String | - | | -   | FAX番号 |
-| 12 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
-| 13 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
-| 14 | →biko | String | - | | -   | 備考 |
-| 15 | →created_at | String | - | ISO 8601 | - | 作成日時 |
-| 16 | →updated_at | String | - | ISO 8601 | - | 更新日時 |
-| 17 | message | String | - | | - | 処理結果メッセージ |
+| 4 | →ja_name | String | - | | - | JA名（m_jaからJOIN） |
+| 5 | →kanri_shiten_code | String | - | | - | 管理支店コード |
+| 6 | →kanri_shiten_name | String | - | | - | 管理支店名 |
+| 7 | →kanri_shiten_name_kana | String | - | | -   | 管理支店名（カナ） |
+| 8 | →todofuken_code | String | - | | - | 都道府県コード |
+| 9 | →todofuken_name | String | - | | - | 都道府県名（m_todofukenからJOIN） |
+| 10 | →yubin_no | String | - | | -   | 郵便番号 |
+| 11 | →address | String | - | | -   | 住所 |
+| 12 | →tel | String | - | | -   | 電話番号 |
+| 13 | →fax | String | - | | -   | FAX番号 |
+| 14 | →paper_flg | Boolean | - | | - | 紙版取扱フラグ |
+| 15 | →denshi_flg | Boolean | - | | - | 電子版取扱フラグ |
+| 16 | →biko | String | - | | -   | 備考 |
+| 17 | →created_at | String | - | ISO 8601 | - | 作成日時 |
+| 18 | →updated_at | String | - | ISO 8601 | - | 更新日時 |
+| 19 | message | String | - | | - | 処理結果メッセージ |
 
 ## リクエスト例
 
@@ -632,7 +645,7 @@ Content-Type: application/json
 
 {
   "kanri_shiten_name": "東京中央会支店（改称）",
-  "kanri_shiten_name_kana": "トウキョウチュウオウカイシテン（カイショウ）",
+  "kanri_shiten_name_kana": "ﾄｳｷｮｳﾁｭｳｵｳｶｲｼﾃﾝ ｶｲｼｮｳ",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "千代田区千代田1-1-1 改修ビル3F",
@@ -651,10 +664,12 @@ Content-Type: application/json
   "data": {
     "kanri_shiten_id": 1,
     "ja_id": 1,
+    "ja_name": "JA東京",
     "kanri_shiten_code": "113-3300-001",
     "kanri_shiten_name": "東京中央会支店（改称）",
-    "kanri_shiten_name_kana": "トウキョウチュウオウカイシテン（カイショウ）",
+    "kanri_shiten_name_kana": "ﾄｳｷｮｳﾁｭｳｵｳｶｲｼﾃﾝ ｶｲｼｮｳ",
     "todofuken_code": "13",
+    "todofuken_name": "東京都",
     "yubin_no": "1000001",
     "address": "千代田区千代田1-1-1 改修ビル3F",
     "tel": "0312345678",
@@ -731,10 +746,11 @@ Content-Type: application/json
   - `kanri_shiten_id`：数値型チェック、必須チェック
 - リクエストボディの全フィールドを検証する：
   - `kanri_shiten_name`：必須、最大100文字
-  - `kanri_shiten_name_kana`：任意、最大100文字
+  - `kanri_shiten_name_kana`：任意、最大100文字、半角カタカナ・半角数字のみ
   - `todofuken_code`：必須、2文字
   - `yubin_no`：任意、半角数字7桁
   - `address`：任意、最大200文字
+  - `tel`：任意、半角数字のみ、最大15文字
   - `fax`：任意、半角数字のみ、最大15文字
   - `paper_flg`：任意、ブール値（デフォルト: false）
   - `denshi_flg`：任意、ブール値（デフォルト: false）
@@ -745,7 +761,7 @@ Content-Type: application/json
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
-- 権限チェック：`kanri-shiten.update` を保持しているか確認する。
+- 権限チェック：`kanri_shiten.update` を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
   - NICHINO_ADMIN：全項目更新可能
   - CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN：許可フィールドのみ更新可能（§4.5 参照）
@@ -844,7 +860,7 @@ before_value：更新前のデータをJSON形式で格納する。パスワー�
   "ja_id": 1,
   "kanri_shiten_code": "113-3300-001",
   "kanri_shiten_name": "東京中央会支店",
-  "kanri_shiten_name_kana": "トウキョウチュウオウカイシテン",
+  "kanri_shiten_name_kana": "ﾄｳｷｮｳﾁｭｳｵｳｶｲｼﾃﾝ",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "千代田区千代田1-1-1",
@@ -865,7 +881,7 @@ after_value：更新後のデータをJSON形式で格納する。パスワー�
   "ja_id": 1,
   "kanri_shiten_code": "113-3300-001",
   "kanri_shiten_name": "東京中央会支店（改称）",
-  "kanri_shiten_name_kana": "トウキョウチュウオウカイシテン（カイショウ）",
+  "kanri_shiten_name_kana": "ﾄｳｷｮｳﾁｭｳｵｳｶｲｼﾃﾝ ｶｲｼｮｳ",
   "todofuken_code": "13",
   "yubin_no": "1000001",
   "address": "千代田区千代田1-1-1 改修ビル3F",

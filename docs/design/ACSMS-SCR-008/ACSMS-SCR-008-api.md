@@ -52,7 +52,7 @@ updated_by: Dao Van Thang
 | 6   | 共通         | TOO_MANY_REQUESTS     | リクエスト回数が上限を超えました。しばらくしてから再度お試しください。 | HTTP 429 |
 | 7   | 共通         | INTERNAL_SERVER_ERROR | システムエラーが発生しました。しばらくしてから再度お試しください。     | HTTP 500 |
 | 8   | 画面固有     | NOT_FOUND             | 指定された管理支店が見つかりません。                                   | HTTP 404 |
-| 9   | 画面固有     | CONFLICT              | 関連データが存在するため削除できません。                               | HTTP 409 |
+| 9   | 画面固有     | CONFLICT              | 関連データが存在するため処理を実行できません。                         | HTTP 409 |
 
 ## メッセージコード一覧（画面表示用）
 
@@ -107,21 +107,22 @@ updated_by: Dao Van Thang
 | 1   | data               | Array   | 〇       |              | -        | 管理支店一覧データ                |
 | 2   | →kanri_shiten_id   | Number  | -        |              | -        | 管理支店ID                        |
 | 3   | →ja_id             | Number  | -        |              | -        | JA ID（DataScope判定用）          |
-| 4   | →kanri_shiten_code | String  | -        |              | -        | 管理支店コード                    |
-| 5   | →kanri_shiten_name | String  | -        |              | -        | 管理支店名                        |
-| 6   | →yubin_no          | String  | -        |              | -         | 郵便番号                          |
-| 7   | →todofuken_code    | String  | -        |              | -        | 都道府県コード                    |
-| 8   | →todofuken_name    | String  | -        |              | -        | 都道府県名（m_todofukenからJOIN） |
-| 9   | →address           | String  | -        |              | -         | 住所                              |
-| 10  | →tel               | String  | -        |              | -         | 電話番号                          |
-| 11  | →fax               | String  | -        |              | -         | FAX番号                           |
-| 12  | →paper_flg         | Boolean | -        |              | -        | 紙版取扱フラグ                    |
-| 13  | →denshi_flg        | Boolean | -        |              | -        | 電子版取扱フラグ                  |
-| 14  | meta               | Object  | -        |              | -        | ページング情報                    |
-| 15  | →total             | Number  | -        |              | -        | 総件数                            |
-| 16  | →page              | Number  | -        |              | -        | 現在のページ番号                  |
-| 17  | →per_page          | Number  | -        |              | -        | 1ページの件数                     |
-| 18  | →total_pages       | Number  | -        |              | -        | 総ページ数                        |
+| 4   | →ja_name           | String  | -        |              | -        | JA名（m_jaからJOIN）              |
+| 5   | →kanri_shiten_code | String  | -        |              | -        | 管理支店コード                    |
+| 6   | →kanri_shiten_name | String  | -        |              | -        | 管理支店名                        |
+| 7   | →yubin_no          | String  | -        |              | -         | 郵便番号                          |
+| 8   | →todofuken_code    | String  | -        |              | -        | 都道府県コード                    |
+| 9   | →todofuken_name    | String  | -        |              | -        | 都道府県名（m_todofukenからJOIN） |
+| 10  | →address           | String  | -        |              | -         | 住所                              |
+| 11  | →tel               | String  | -        |              | -         | 電話番号                          |
+| 12  | →fax               | String  | -        |              | -         | FAX番号                           |
+| 13  | →paper_flg         | Boolean | -        |              | -        | 紙版取扱フラグ                    |
+| 14  | →denshi_flg        | Boolean | -        |              | -        | 電子版取扱フラグ                  |
+| 15  | meta               | Object  | -        |              | -        | ページング情報                    |
+| 16  | →total             | Number  | -        |              | -        | 総件数                            |
+| 17  | →page              | Number  | -        |              | -        | 現在のページ番号                  |
+| 18  | →per_page          | Number  | -        |              | -        | 1ページの件数                     |
+| 19  | →total_pages       | Number  | -        |              | -        | 総ページ数                        |
 
 ## リクエスト例
 
@@ -137,6 +138,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&todo
     {
       "kanri_shiten_id": 1,
       "ja_id": 1,
+      "ja_name": "JA北海道",
       "kanri_shiten_code": "013-3300-001",
       "kanri_shiten_name": "JA北海道中央管理支店",
       "yubin_no": "060-0001",
@@ -151,6 +153,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&todo
     {
       "kanri_shiten_id": 2,
       "ja_id": 1,
+      "ja_name": "JA北海道",
       "kanri_shiten_code": "013-3300-002",
       "kanri_shiten_name": "JA北海道東部管理支店",
       "yubin_no": "085-0017",
@@ -236,7 +239,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&todo
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized
-- 権限チェック：kanri-shiten.view を保持しているか確認する。
+- 権限チェック：kanri_shiten.view を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
 - 権限がない場合：HTTP 403 Forbidden（ACSMS-MSG-008-002）
 
@@ -247,7 +250,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&todo
   - NICHINO_ADMIN：全JA管理支店レコードを取得（ja_idフィルタなし）
   - CHUOKAI：自中央会配下の管理支店レコードのみ（自JAの`ja_id`に一致）
   - JA_HONTEN：自JAの管理支店レコードのみ（`mks.ja_id = session.ja_id`）
-  - JA_KANRI_SHITEN：自JA自管理支店のレコードのみ（`mks.ja_id = session.ja_id AND mks.kanri_shiten_id = session.kanri_shiten_id`）
+  - JA_KANRI_SHITEN：自管理支店のレコードのみ（`mks.kanri_shiten_id = session.kanri_shiten_id`。kanri_shiten_id はJAをまたいで一意なため、ja_id条件は付与しない）
 - 基本条件：
   - 論理削除除外（deleted_at IS NULL）
 - 検索条件：
@@ -276,6 +279,7 @@ GET /api/v1/kanri-shiten?kanri_shiten_code=3300&kanri_shiten_name=北海道&todo
 SELECT
     mks.kanri_shiten_id,
     mks.ja_id,
+    mj.ja_name,
     mks.kanri_shiten_code,
     mks.kanri_shiten_name,
     mks.yubin_no,
@@ -288,26 +292,32 @@ SELECT
     mks.denshi_flg
 FROM m_kanri_shiten mks
 LEFT JOIN m_todofuken mt ON mks.todofuken_code = mt.todofuken_code
+LEFT JOIN m_ja mj ON mks.ja_id = mj.ja_id
 WHERE mks.deleted_at IS NULL
   AND (:kanri_shiten_code IS NULL OR mks.kanri_shiten_code ILIKE '%' || :kanri_shiten_code || '%')
   AND (:kanri_shiten_name IS NULL OR mks.kanri_shiten_name ILIKE '%' || :kanri_shiten_name || '%')
-  AND (:todofuken_code IS NULL OR mks.todofuken_code ILIKE '%' || :todofuken_code || '%')
+  AND (:todofuken_code IS NULL OR mks.todofuken_code = :todofuken_code)
   AND (:tel IS NULL OR mks.tel ILIKE '%' || :tel || '%')
   AND (:fax IS NULL OR mks.fax ILIKE '%' || :fax || '%')
   -- DataScope (§4.3): role に応じて追加される条件
   AND (
-    :role = 'NICHINO_ADMIN'
+    :role IN ('NICHINO_ADMIN', 'NICHINO_STAFF')
     OR (:role IN ('CHUOKAI', 'JA_HONTEN') AND mks.ja_id = :session_ja_id)
-    OR (:role = 'JA_KANRI_SHITEN' AND mks.ja_id = :session_ja_id AND mks.kanri_shiten_id = :session_kanri_shiten_id)
+    OR (:role = 'JA_KANRI_SHITEN' AND mks.kanri_shiten_id = :session_kanri_shiten_id)
   )
-ORDER BY {sort_by} {sort_order}
+ORDER BY {sort_by} {sort_order}, mks.kanri_shiten_id DESC
 LIMIT :per_page
 OFFSET (:page - 1) * :per_page
 ```
 
-- NICHINO_ADMIN は全JA横断で管理支店を取得するため、ja_idフィルタを適用しない。
-- CHUOKAI / JA_HONTEN は自JAの管理支店のみ取得する。
-- JA_KANRI_SHITEN は自JA自管理支店のレコードのみ取得する。
+- 実装上は上記 SQL 相当だが、todofuken_name / ja_name は行毎 JOIN でなく、
+  m_todofuken 全件および対象JA一覧のバッチ lookup（1回ずつ）で hydrate している
+  （`KanriShitenService.findAll`）。
+- NICHINO_ADMIN / NICHINO_STAFF は全JA横断で管理支店を取得するため、ja_idフィルタを適用しない。
+- CHUOKAI / JA_HONTEN は自JAの管理支店のみ取得する（`mks.ja_id = session.ja_id`）。
+- JA_KANRI_SHITEN は自管理支店のレコードのみ取得する（`mks.kanri_shiten_id = session.kanri_shiten_id`。
+  kanri_shiten_id は JA をまたいで一意なため、ja_id条件は付与しない）。
+- 同一ソートキーの行を決定的な順序で返すため、ORDER BY に kanri_shiten_id DESC のタイブレーカを追加する。
 - 検索結果がない場合は、UI側で ACSMS-MSG-008-001 を表示する（API は空配列＋total=0 を返す）。
 
 ### 4.7 レスポンス生成
@@ -333,7 +343,7 @@ OFFSET (:page - 1) * :per_page
 | リクエストボディー     | なし                                                                                                                                                                                                                                                                             |
 | リクエストパラメーター |                                                                                                                                                                                                                                                                                  |
 | ヘッダ                 | Content-Type: application/json\n※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                             |
-| HTTPレスポンスコード   | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された管理支店が見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された管理支店が見つかりません, 409:関連データが存在するため処理を実行できません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -404,7 +414,7 @@ DELETE /api/v1/kanri-shiten/5
 ```json
 {
   "error_code": "CONFLICT",
-  "message": "関連データが存在するため削除できません"
+  "message": "関連データが存在するため処理を実行できません"
 }
 ```
 
@@ -434,7 +444,7 @@ DELETE /api/v1/kanri-shiten/5
 ### 4.2 認証・認可チェック
 
 - 認証失敗の場合：HTTP 401 Unauthorized
-- 権限チェック：kanri-shiten.delete を保持しているか確認する。
+- 権限チェック：kanri_shiten.delete を保持しているか確認する。
   - 対象ロール：NICHINO_ADMIN（日農管理者）のみ
   - 画面定義§1.3「管理支店マスタは日農は管理者のみ操作可」より、CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN は削除不可
 - 権限がない場合：HTTP 403 Forbidden（ACSMS-MSG-008-002）

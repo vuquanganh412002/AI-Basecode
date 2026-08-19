@@ -13,6 +13,7 @@
 import { Dokusya } from '@/database/entities/dokusya.entity';
 import {
   buildBunruiPayload,
+  buildHaitatsuPayload,
   isDokusyaReadOnly,
   toDokusyaResponse,
   toDokusyaListItem,
@@ -278,6 +279,83 @@ describe('buildBunruiPayload — Excel 取込由来の値', () => {
       jaYakushokuinFlg: false,
       nogyoKankeiFlg: false,
       dokusyasoBunruiSonota: '',
+    });
+  });
+});
+
+/**
+ * バグ報告 2026-08 — 電子版(dokusya_shubetsu=2)は配達先情報エリアが画面上
+ * 非活性化される（ACSMS-SCR-011 No.27-38）ため、API を直接叩いても配達先
+ * 情報12項目を一切保存できないことを保証する（buildBunruiPayload と同じ
+ * ゲート方式）。
+ */
+describe('buildHaitatsuPayload', () => {
+  const fullHaitatsu = {
+    dokusya_shubetsu: 2, // DIGITAL
+    haitatsu_same_flg: false,
+    haitatsu_yubin_no: '123-4567',
+    haitatsu_todofuken_code: '13',
+    haitatsu_shikuchoson: '千代田区',
+    haitatsu_chome_banchi: '1-1-1',
+    haitatsu_tatemono_mei: 'マンション101',
+    haitatsu_renrakusaki_1: '0312345678',
+    haitatsu_renrakusaki_2: '0398765432',
+    haitatsu_shimei_sei: '配達',
+    haitatsu_shimei_mei: '太郎',
+    haitatsu_shimei_kana_sei: 'ハイタツ',
+    haitatsu_shimei_kana_mei: 'タロウ',
+  };
+
+  it('should force all 12 haitatsu columns blank/true for 電子版(DIGITAL) even when the dto carries values', () => {
+    expect(buildHaitatsuPayload(fullHaitatsu)).toEqual({
+      haitatsuSameFlg: true,
+      haitatsuYubinNo: '',
+      haitatsuTodofukenCode: '',
+      haitatsuShikuchoson: '',
+      haitatsuChomeBanchi: '',
+      haitatsuTatemonoMei: '',
+      haitatsuRenrakusaki1: '',
+      haitatsuRenrakusaki2: '',
+      haitatsuShimeiSei: '',
+      haitatsuShimeiMei: '',
+      haitatsuShimeiKanaSei: '',
+      haitatsuShimeiKanaMei: '',
+    });
+  });
+
+  it('should keep dto values as-is for 紙版(PAPER)', () => {
+    expect(
+      buildHaitatsuPayload({ ...fullHaitatsu, dokusya_shubetsu: 1 }),
+    ).toMatchObject({
+      haitatsuSameFlg: false,
+      haitatsuYubinNo: '123-4567',
+      haitatsuShimeiSei: '配達',
+    });
+  });
+
+  it('should keep dto values as-is for 併読(BOTH)', () => {
+    expect(
+      buildHaitatsuPayload({ ...fullHaitatsu, dokusya_shubetsu: 3 }),
+    ).toMatchObject({
+      haitatsuSameFlg: false,
+      haitatsuYubinNo: '123-4567',
+    });
+  });
+
+  it('should default omitted haitatsu fields to false/empty for non-digital (columns are NOT NULL)', () => {
+    expect(buildHaitatsuPayload({ dokusya_shubetsu: 1 })).toEqual({
+      haitatsuSameFlg: undefined,
+      haitatsuYubinNo: '',
+      haitatsuTodofukenCode: '',
+      haitatsuShikuchoson: '',
+      haitatsuChomeBanchi: '',
+      haitatsuTatemonoMei: '',
+      haitatsuRenrakusaki1: '',
+      haitatsuRenrakusaki2: '',
+      haitatsuShimeiSei: '',
+      haitatsuShimeiMei: '',
+      haitatsuShimeiKanaSei: '',
+      haitatsuShimeiKanaMei: '',
     });
   });
 });

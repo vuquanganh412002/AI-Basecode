@@ -302,6 +302,7 @@ OFFSET (:page - 1) * :per_page
 | shiten_code         | `m.shiten_code`        |
 | shiten_name         | `m.shiten_name`        |
 | kanri_shiten_name   | `ks.kanriShitenName`   |
+| updated_at          | `m.updated_at`         |
 
 > 実装メモ: BE は QueryBuilder の主クエリ後に `m_kanri_shiten` をバッチ取得し
 > （`In([...kanriShitenIds])`）、メモリ上で `kanri_shiten_name` をマージする
@@ -338,7 +339,7 @@ OFFSET (:page - 1) * :per_page
 | リクエストボディー     | なし                                                                                                                                                                                                                                                                   |
 | リクエストパラメーター | shiten_id（パスパラメータ）                                                                                                                                                                                                                                            |
 | ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                                 |
-| HTTPレスポンスコード   | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:指定された支店が見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
+| HTTPレスポンスコード   | 200:削除しました, 400:リクエストパラメータが不正です, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません／このデータへのアクセス権限がありません, 404:指定された支店が見つかりません, 409:関連データが存在するため削除できません, 500:システムエラーが発生しました |
 
 ## リクエストパラメータ
 
@@ -457,6 +458,9 @@ DELETE /api/v1/shiten/5
   - 論理削除除外（deleted_at IS NULL）
 - 対象レコードが存在しない場合：
   - HTTP 404 Not Found を返却する。
+- DataScope チェック（2段階）：
+  1. 別 JA の支店（ja_id ≠ user.ja_id）の場合：存在を秘匿するため HTTP 404 Not Found (`NOT_FOUND`) を返却する（NICHINO_ADMIN／NICHINO_STAFF はスコープ判定を bypass）。
+  2. 同一 JA 内であっても、JA_KANRI_SHITEN が自身の管理支店（kanri_shiten_id）配下でない支店を削除しようとした場合：一覧では閲覧可能な行のため秘匿せず、HTTP 403 Forbidden (`DATA_SCOPE_VIOLATION`) を返却する。CHUOKAI／JA_HONTEN は ja_id 判定のみのため同一 JA 内であれば通過する。
 
 
 ### 4.4 関連データの存在チェック

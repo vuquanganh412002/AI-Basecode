@@ -544,6 +544,13 @@ export class ZougenReportService {
       paperShubetsu: DokusyaShubetsu.PAPER,
     });
 
+    // 販売店統廃合フラグ=true の行は集計対象から除外する（顧客要件2026-08）。
+    // 統廃合販売店読者移行画面（旧: 購読者販売店一括置換画面・SCR-015）経由の変更は
+    // 販売店の統廃合に伴う付け替えであり、実際の増減として販売店へ通知したくないため。
+    // SCR-029（増減通知・日本農業新聞）は仕様変更なし・別クエリ(nichinoBaseQuery)の
+    // ため対象外（列はNOT NULL DEFAULT falseなのでIS NULL考慮は不要）。
+    qb.andWhere('r.hanbaiten_tohaigo_flg = false');
+
     if (query.hanbaiten_id && query.hanbaiten_id.length > 0) {
       // 販売店変更で「転出元（旧店）」も拾えるよう、現販売店 OR 前回販売店が一致
       // する dokusya_id を対象にする。ただし判定は「同日(dokusya_id, joho)の
